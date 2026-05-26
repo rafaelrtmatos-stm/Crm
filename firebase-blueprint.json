@@ -1,0 +1,375 @@
+{
+  "entities": {
+    "Company": {
+      "title": "Empresa",
+      "description": "Cadastro de empresas do sistema",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "shortName": { "type": "string" },
+        "slug": { "type": "string" },
+        "cnpj": { "type": "string" },
+        "logoUrl": { "type": "string" },
+        "primaryColor": { "type": "string" },
+        "secondaryColor": { "type": "string" },
+        "address": { "type": "object" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "activeModules": { "type": "array" }
+      },
+      "required": ["name", "slug"]
+    },
+    "Module": {
+      "title": "Módulo",
+      "description": "Módulos disponíveis no sistema",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string" },
+        "name": { "type": "string" },
+        "menuOrder": { "type": "number" },
+        "isActive": { "type": "boolean" }
+      }
+    },
+    "AppUser": {
+      "title": "Usuário",
+      "description": "Cadastro de usuários",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string" },
+        "isAdmin": { "type": "boolean" },
+        "isActive": { "type": "boolean" },
+        "allowedCompanies": { "type": "array" }
+      }
+    },
+    "ChannelAccount": {
+      "title": "Conta de Canal",
+      "description": "Contas conectadas (WhatsApp, Meta, etc.)",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "channelType": { "type": "string" },
+        "accountName": { "type": "string" },
+        "status": { "type": "string" },
+        "isActive": { "type": "boolean" }
+      }
+    },
+    "Lead": {
+      "title": "Lead",
+      "description": "Captação e atendimento comercial",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "fullName": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "status": { "type": "string" },
+        "funnelId": { "type": "string" },
+        "stageId": { "type": "string" },
+        "responsibleId": { "type": "string" },
+        "tracking": { "type": "object" },
+        "waitingSince": { "type": "string" },
+        "lastInteractionAt": { "type": "string" }
+      }
+    },
+    "Contact": {
+      "title": "Contato",
+      "description": "Contatos consolidados",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "fullName": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" }
+      }
+    },
+    "Funnel": {
+      "title": "Funil",
+      "description": "Funis de vendas",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "name": { "type": "string" },
+        "isActive": { "type": "boolean" }
+      }
+    },
+    "FunnelStage": {
+      "title": "Etapa do Funil",
+      "description": "Etapas de um funil",
+      "type": "object",
+      "properties": {
+        "funnelId": { "type": "string" },
+        "name": { "type": "string" },
+        "order": { "type": "number" },
+        "slaMinutes": { "type": "number" }
+      }
+    },
+    "Conversation": {
+      "title": "Conversa",
+      "description": "Central de mensagens",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "leadId": { "type": "string" },
+        "channelId": { "type": "string" },
+        "status": { "type": "string" },
+        "waitingSince": { "type": "string" },
+        "slaStatus": { "type": "string" },
+        "priority": { "type": "string" },
+        "lastMessageAt": { "type": "string" },
+        "lastMessageText": { "type": "string" }
+      }
+    },
+    "Setting": {
+      "title": "Configuração",
+      "description": "Configurações gerais por empresa",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "defaultFunnelId": { "type": "string" },
+        "incomingMessagesFunnelId": { "type": "string" },
+        "logoUrl": { "type": "string" }
+      }
+    },
+    "Message": {
+      "title": "Mensagem",
+      "description": "Conteúdo das conversas",
+      "type": "object",
+      "properties": {
+        "conversationId": { "type": "string" },
+        "senderType": { "type": "string" },
+        "text": { "type": "string" },
+        "mediaUrl": { "type": "string" }
+      }
+    },
+    "Task": {
+      "title": "Tarefa",
+      "description": "Gestão de afazeres",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "title": { "type": "string" },
+        "dueDate": { "type": "string" },
+        "status": { "type": "string" }
+      }
+    },
+    "MetaAdAccount": {
+      "title": "Conta de Anúncio Meta",
+      "description": "Contas de anúncios integradas",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "fbAccountId": { "type": "string" },
+        "name": { "type": "string" },
+        "currency": { "type": "string" },
+        "timezone": { "type": "string" },
+        "accountStatus": { "type": "string" },
+        "spendToday": { "type": "number" },
+        "spendWeek": { "type": "number" },
+        "spendMonth": { "type": "number" }
+      }
+    },
+    "MetaCampaign": {
+      "title": "Campanha Meta",
+      "description": "Campanhas de anúncios",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "accountId": { "type": "string" },
+        "fbCampaignId": { "type": "string" },
+        "name": { "type": "string" },
+        "objective": { "type": "string" },
+        "status": { "type": "string" },
+        "budget": { "type": "number" },
+        "budgetType": { "type": "string" },
+        "results": { "type": "number" },
+        "costPerResult": { "type": "number" },
+        "reach": { "type": "number" },
+        "impressions": { "type": "number" },
+        "spend": { "type": "number" }
+      }
+    },
+    "MetaAdSet": {
+      "title": "Conjunto de Anúncios Meta",
+      "description": "Segmentação e orçamento",
+      "type": "object",
+      "properties": {
+        "campaignId": { "type": "string" },
+        "fbAdSetId": { "type": "string" },
+        "name": { "type": "string" },
+        "status": { "type": "string" },
+        "dailyBudget": { "type": "number" },
+        "lifetimeBudget": { "type": "number" },
+        "optimizationGoal": { "type": "string" }
+      }
+    },
+    "MetaAd": {
+      "title": "Anúncio Meta",
+      "description": "Criativos e resultados individuais",
+      "type": "object",
+      "properties": {
+        "adSetId": { "type": "string" },
+        "fbAdId": { "type": "string" },
+        "name": { "type": "string" },
+        "status": { "type": "string" },
+        "spend": { "type": "number" },
+        "results": { "type": "number" }
+      }
+    },
+    "RealEstateEnterprise": {
+      "title": "Empreendimento",
+      "description": "Loteamentos e prédios",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "name": { "type": "string" },
+        "location": { "type": "string" }
+      }
+    },
+    "Lot": {
+      "title": "Lote",
+      "description": "Unidades de venda imobiliária",
+      "type": "object",
+      "properties": {
+        "enterpriseId": { "type": "string" },
+        "number": { "type": "string" },
+        "price": { "type": "number" },
+        "status": { "type": "string" }
+      }
+    },
+    "RealEstateSale": {
+      "title": "Venda Imobiliária",
+      "description": "Contratos de venda",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "lotId": { "type": "string" },
+        "totalValue": { "type": "number" },
+        "downPayment": { "type": "number" },
+        "installmentsCount": { "type": "number" },
+        "installmentsValue": { "type": "number" },
+        "status": { "type": "string" }
+      }
+    },
+    "RealEstateInstallment": {
+      "title": "Parcela",
+      "description": "Parcelas de financiamento",
+      "type": "object",
+      "properties": {
+        "saleId": { "type": "string" },
+        "dueDate": { "type": "string" },
+        "amount": { "type": "number" },
+        "status": { "type": "string" }
+      }
+    },
+    "InventoryItem": {
+      "title": "Item de Estoque",
+      "description": "Produtos e insumos",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "name": { "type": "string" },
+        "stock": { "type": "number" },
+        "price": { "type": "number" }
+      }
+    },
+    "POSSale": {
+      "title": "Venda PDV",
+      "description": "Vendas de balcão",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "total": { "type": "number" },
+        "items": { "type": "array" }
+      }
+    },
+    "PrintingService": {
+      "title": "Serviço",
+      "description": "Pedidos de produção gráfica",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "status": { "type": "string" },
+        "value": { "type": "number" }
+      }
+    },
+    "Payment": {
+      "title": "Pagamento",
+      "description": "Recebimentos financeiros",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "amount": { "type": "number" },
+        "method": { "type": "string" },
+        "status": { "type": "string" }
+      }
+    },
+    "CashRegister": {
+      "title": "Caixa PDV",
+      "description": "Controle de abertura e fechamento de caixa",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "operatorId": { "type": "string" },
+        "openedAt": { "type": "string" },
+        "closedAt": { "type": "string" },
+        "openingBalance": { "type": "number" },
+        "expectedBalance": { "type": "number" },
+        "actualBalance": { "type": "number" },
+        "difference": { "type": "number" },
+        "isOpen": { "type": "boolean" }
+      }
+    },
+    "AutomationFlow": {
+      "title": "Automação",
+      "description": "Fluxos automáticos",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "name": { "type": "string" },
+        "isActive": { "type": "boolean" }
+      }
+    },
+    "Log": {
+      "title": "Log",
+      "description": "Auditoria do sistema",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "action": { "type": "string" },
+        "timestamp": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "companies": { "schema": "Company", "description": "Empresas cadastradas" },
+    "modules": { "schema": "Module", "description": "Configuração de módulos" },
+    "users": { "schema": "AppUser", "description": "Usuários do sistema" },
+    "channel_accounts": { "schema": "ChannelAccount", "description": "Integrações externas" },
+    "leads": { "schema": "Lead", "description": "Funil de leads" },
+    "contacts": { "schema": "Contact", "description": "Base de contatos" },
+    "funnels": { "schema": "Funnel", "description": "Estrutura de funis" },
+    "funnel_stages": { "schema": "FunnelStage", "description": "Etapas dos funis" },
+    "conversations": { "schema": "Conversation", "description": "Chats unificados" },
+    "messages": { "schema": "Message", "description": "Mensagens individuais" },
+    "tasks": { "schema": "Task", "description": "Gestão de tarefas" },
+    "meta_accounts": { "schema": "MetaAdAccount", "description": "Contas de anúncios Meta" },
+    "meta_campaigns": { "schema": "MetaCampaign", "description": "Campanhas Meta" },
+    "meta_adsets": { "schema": "MetaAdSet", "description": "Conjuntos de anúncios Meta" },
+    "meta_ads": { "schema": "MetaAd", "description": "Anúncios Meta" },
+    "real_estate_enterprises": { "schema": "RealEstateEnterprise", "description": "Loteamentos" },
+    "lots": { "schema": "Lot", "description": "Unidades/Lotes" },
+    "real_estate_sales": { "schema": "RealEstateSale", "description": "Vendas realizadas" },
+    "real_estate_installments": { "schema": "RealEstateInstallment", "description": "Financeiro de vendas" },
+    "inventory_items": { "schema": "InventoryItem", "description": "Catálogo de produtos" },
+    "pos_sales": { "schema": "POSSale", "description": "Vendas de caixa" },
+    "printing_services": { "schema": "PrintingService", "description": "Produção gráfica" },
+    "payments": { "schema": "Payment", "description": "Transações financeiras" },
+    "automation_flows": { "schema": "AutomationFlow", "description": "Chatbots e bots" },
+    "logs": { "schema": "Log", "description": "Histórico de ações" },
+    "settings": { "schema": "Setting", "description": "Configurações por empresa" },
+    "notifications": { "schema": "object", "description": "Alertas de usuários" }
+  }
+}

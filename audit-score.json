@@ -1,0 +1,21 @@
+{
+  "overallScore": 3,
+  "reasoning": "The current rules provide basic company isolation but lack strict field-level validation and schema protection, allowing potential data corruption or resource exhaustion.",
+  "vulnerabilities": [
+    {
+      "score": 3,
+      "risk": "Schema Pollution",
+      "details": "Most collections use a generic 'allow write' if the user has company access, without verifying that the submitted data matches the expected schema. A user could inject arbitrary fields into documents."
+    },
+    {
+      "score": 4,
+      "risk": "Resource Exhaustion (DoS)",
+      "details": "There are no size limits on string fields (like lead names or message content). A malicious user could upload 1MB strings to fill up database quota."
+    },
+    {
+      "score": 4,
+      "risk": "Immutable Field Modification",
+      "details": "The 'createdAt' field is not protected during updates. Users could manipulate the history by changing creation timestamps."
+    }
+  ]
+}
