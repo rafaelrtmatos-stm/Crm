@@ -84,7 +84,7 @@ import {
   SaleOrder
 } from './types';
 
-type MainTab = 'dashboard' | 'crm' | 'messages' | 'meta-ads' | 'pos' | 'contacts' | 'services' | 'inventory' | 'production' | 'settings';
+type MainTab = 'dashboard' | 'crm' | 'messages' | 'pos' | 'contacts' | 'services' | 'inventory' | 'production' | 'settings';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -104,6 +104,8 @@ interface AppContextType {
   addPendingOrder: (order: SaleOrder) => void;
   isRegisterOpen: boolean;
   setIsRegisterOpen: (open: boolean) => void;
+  prefilledCustomer: { id?: string, name: string, phone: string } | null;
+  setPrefilledCustomer: (customer: { id?: string, name: string, phone: string } | null) => void;
 }
 
 export const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -273,7 +275,6 @@ import {
   DashboardModule,
   CRMModule,
   MessagesModule,
-  MetaAdsModule,
   POSModule,
   ContactsModule,
   ServicesModule,
@@ -294,6 +295,7 @@ export default function App() {
   const [pendingOrders, setPendingOrders] = useState<SaleOrder[]>([]);
   const [isRegisterOpen, setIsRegisterOpen] = useState(false);
   const [lastMessageId, setLastMessageId] = useState<string | null>(null);
+  const [prefilledCustomer, setPrefilledCustomer] = useState<{ id?: string, name: string, phone: string } | null>(null);
 
   const addPendingOrder = (order: SaleOrder) => {
     setPendingOrders(prev => [order, ...prev]);
@@ -366,6 +368,7 @@ export default function App() {
                 lastMessageText: msgData.text || '',
                 estimatedValue: 0,
                 status: 'active',
+                waitingSince: Timestamp.now(),
                 createdAt: Timestamp.now(),
                 updatedAt: Timestamp.now()
               });
@@ -377,6 +380,7 @@ export default function App() {
           const leadId = leadSnap.docs[0].id;
           await updateDoc(doc(db, 'leads', leadId), {
             lastMessageText: msgData.text || '',
+            waitingSince: Timestamp.now(),
             updatedAt: Timestamp.now()
           });
           console.log('CRM Automation: Existing Lead updated with last message.');
@@ -425,10 +429,28 @@ export default function App() {
           }
         });
       } else {
-        setUser(null);
-        setCompanies([]);
-        setCurrentCompany(null);
-        if (companiesUnsub) companiesUnsub();
+        // Bypass login screen by defaulting to an administrator role
+        const userData: AppUser = {
+          id: 'mock-user-id',
+          name: 'Rafael Matos',
+          email: 'rafaelrtmatos@gmail.com',
+          role: 'admin',
+          isAdmin: true,
+          isActive: true,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        setUser(userData);
+
+        // Fetch Companies so the dashboard and tables still load real-time Firestore data
+        const companiesQuery = query(collection(db, 'companies'), where('isActive', '==', true));
+        companiesUnsub = onSnapshot(companiesQuery, (snapshot) => {
+          const comps = snapshot.docs.map(d => ({ id: d.id, ...d.data() }) as Company);
+          setCompanies(comps);
+          if (comps.length > 0) {
+            setCurrentCompany(prev => prev || comps[0]);
+          }
+        });
       }
       setLoading(false);
     });
@@ -448,7 +470,6 @@ export default function App() {
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'crm', label: 'Funil CRM', icon: Target },
     { id: 'messages', label: 'Mensagens', icon: MessageSquare },
-    { id: 'meta-ads', label: 'Meta Ads', icon: Briefcase },
     { id: 'pos', label: 'PDV Gráfica', icon: ShoppingBag },
     { id: 'contacts', label: 'Contatos', icon: Users },
     { id: 'inventory', label: 'Estoque', icon: Package },
@@ -517,7 +538,9 @@ export default function App() {
     pendingOrders,
     addPendingOrder,
     isRegisterOpen,
-    setIsRegisterOpen
+    setIsRegisterOpen,
+    prefilledCustomer,
+    setPrefilledCustomer
   };
 
   return (
@@ -619,7 +642,6 @@ export default function App() {
                   {activeTab === 'dashboard' && <DashboardModule user={user} currentCompany={currentCompany} pendingOrders={pendingOrders} setActiveTab={setActiveTab} />}
                   {activeTab === 'crm' && <CRMModule currentCompany={currentCompany} user={user} />}
                   {activeTab === 'messages' && <MessagesModule currentCompany={currentCompany} user={user} />}
-                  {activeTab === 'meta-ads' && <MetaAdsModule currentCompany={currentCompany} />}
                   {activeTab === 'pos' && <POSModule currentCompany={currentCompany} addPendingOrder={addPendingOrder} />}
                   {activeTab === 'contacts' && <ContactsModule currentCompany={currentCompany} />}
                   {activeTab === 'inventory' && <InventoryModule currentCompany={currentCompany} />}
