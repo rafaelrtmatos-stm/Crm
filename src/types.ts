@@ -297,6 +297,7 @@ export interface InventoryItem extends BaseEntity {
   category?: 'substrato' | 'tinta' | 'acabamento' | 'diversos';
   unit: 'un' | 'kg' | 'm' | 'm2' | 'rolo' | 'litro';
   salePrice: number;
+  wholesalePrice?: number;
   costPrice?: number;
   currentStock: number;
   minStock: number;
