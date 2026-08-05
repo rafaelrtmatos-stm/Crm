@@ -129,6 +129,7 @@ import {
   Company, 
   AppUser, 
   Lead, 
+  Client,
   Funnel, 
   FunnelStage, 
   Product, 
@@ -174,7 +175,8 @@ import { format } from 'date-fns';
 import { 
   calculateSLA, 
   extractTracking, 
-  canAccessModule 
+  canAccessModule,
+  phoneKey
 } from '../lib/businessLogic';
 
 // --- DASHBOARD ---
@@ -1290,6 +1292,11 @@ export const ChatPanel = ({
             <div className="flex items-center gap-2">
               <h4 className="font-bold text-sm text-white">{conversation.name}</h4>
               <Badge variant="outline" className="text-[7px] py-0 px-1 leading-none h-3.5">{conversation.channel}</Badge>
+              {conversation.isExistingClient && (
+                <span className="flex items-center gap-1 text-[8px] font-black uppercase tracking-wider text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 rounded-full">
+                  <UserCheck size={9} /> Cliente Cadastrado
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-2 mt-0">
               <span className="text-[9px] text-emerald-400 font-black uppercase tracking-widest">Ativo</span>
@@ -1920,7 +1927,10 @@ const KanbanCard = ({ lead, onClick, isSelected, isDragging }: { key?: any, lead
         )}
       >
          <div className="flex justify-between mb-2">
-            <p className="font-black text-white text-[11px] tracking-tight truncate flex-1 pr-2 uppercase italic">{lead.fullName}</p>
+            <p className="font-black text-white text-[11px] tracking-tight truncate flex-1 pr-2 uppercase italic flex items-center gap-1.5">
+              {lead.isExistingClient && <UserCheck size={11} className="text-emerald-400 flex-shrink-0" />}
+              {lead.fullName}
+            </p>
             <span className="text-[7px] font-black text-white/20 uppercase tracking-widest leading-none">
                {(lead.createdAt as any)?.toDate?.() ? format((lead.createdAt as any).toDate(), 'HH:mm') : 'Agora'}
             </span>
@@ -4769,20 +4779,150 @@ Obrigado pela preferência!
 
 // --- CONTACTS ---
 export const ContactsModule = ({ currentCompany }: { currentCompany: Company | null }) => {
+  const [clients, setClients] = useState<Client[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isImporting, setIsImporting] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const importFileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!currentCompany) return;
+    const q = query(collection(db, 'clients'), where('companyId', '==', currentCompany.id), orderBy('name', 'asc'));
+    return onSnapshot(q, (snap) => {
+      setClients(snap.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
+      setLoading(false);
+    });
+  }, [currentCompany]);
+
+  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !currentCompany) return;
+    setIsImporting(true);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const firstSheet = wb.Sheets[wb.SheetNames[0]];
+      const rows: any[] = XLSX.utils.sheet_to_json(firstSheet, { defval: '' });
+
+      const existingSnap = await getDocs(
+        query(collection(db, 'clients'), where('companyId', '==', currentCompany.id))
+      );
+      const existingByKey = new Map<string, string>(); // phoneKey -> docId
+      existingSnap.docs.forEach(d => {
+        const key = (d.data().phoneKey || '').toString();
+        if (key) existingByKey.set(key, d.id);
+      });
+
+      let created = 0, updated = 0, skipped = 0;
+      const BATCH_LIMIT = 400;
+      let batch = writeBatch(db);
+      let opsInBatch = 0;
+      const flushIfNeeded = async () => {
+        if (opsInBatch >= BATCH_LIMIT) {
+          await batch.commit();
+          batch = writeBatch(db);
+          opsInBatch = 0;
+        }
+      };
+
+      for (const row of rows) {
+        const name = String(row['NOME'] ?? row['nome'] ?? row['name'] ?? '').trim();
+        if (!name) { skipped++; continue; }
+
+        const phone = String(row['TELEFONE'] ?? row['telefone'] ?? row['phone'] ?? '').trim();
+        const key = phoneKey(phone);
+
+        const payload: Record<string, unknown> = {
+          companyId: currentCompany.id,
+          name,
+          phone: phone || null,
+          phoneKey: key || null,
+          email: String(row['EMAIL'] ?? row['email'] ?? '').trim() || null,
+          cpfCnpj: String(row['CPF / CNPJ'] ?? row['cpfCnpj'] ?? '').trim() || null,
+          cep: String(row['CEP'] ?? '').trim() || null,
+          address: String(row['LOGRADOURO'] ?? '').trim() || null,
+          addressNumber: String(row['NÚMERO'] ?? '').trim() || null,
+          complement: String(row['COMPLEMENTO'] ?? '').trim() || null,
+          district: String(row['DISTRITO'] ?? '').trim() || null,
+          city: String(row['CIDADE'] ?? '').trim() || null,
+          state: String(row['ESTADO'] ?? '').trim() || null,
+          notes: String(row['OBSERVAÇÕES'] ?? '').trim() || null,
+          birthDate: String(row['NASCIMENTO'] ?? '').trim() || null,
+          otherDocuments: String(row['OUTROS DOCUMENTOS'] ?? '').trim() || null,
+          openDebts: Number(row['DÍVIDAS EM ABERTO'] ?? 0) || 0,
+          updatedAt: Timestamp.now(),
+        };
+
+        const existingId = key ? existingByKey.get(key) : undefined;
+        if (existingId) {
+          batch.update(doc(db, 'clients', existingId), payload);
+          updated++;
+        } else {
+          const newRef = doc(collection(db, 'clients'));
+          batch.set(newRef, { ...payload, createdAt: Timestamp.now() });
+          created++;
+          if (key) existingByKey.set(key, newRef.id);
+        }
+        opsInBatch++;
+        await flushIfNeeded();
+      }
+      if (opsInBatch > 0) await batch.commit();
+
+      alert(`Importação concluída!\n\n${created} clientes novos criados\n${updated} clientes já existentes atualizados\n${skipped} linhas ignoradas (sem nome)`);
+    } catch (err) {
+      console.error('Erro ao importar planilha de clientes:', err);
+      alert('Erro ao importar a planilha. Confira se o arquivo é .xlsx e tem a coluna NOME preenchida.');
+    } finally {
+      setIsImporting(false);
+      if (importFileRef.current) importFileRef.current.value = '';
+    }
+  };
+
+  const filtered = clients.filter(c => {
+    if (!searchTerm.trim()) return true;
+    const s = searchTerm.toLowerCase();
+    return c.name?.toLowerCase().includes(s) || c.phone?.includes(searchTerm) || c.email?.toLowerCase().includes(s);
+  });
+
   const columns = [
     { key: 'name', label: 'Nome' },
-    { key: 'email', label: 'Email' },
     { key: 'phone', label: 'Telefone' },
-    { key: 'tags', label: 'Tags', render: (v: string[]) => <div className="flex gap-1">{v.map(t => <Badge key={t} variant="outline" className="text-[8px]">{t}</Badge>)}</div> },
+    { key: 'email', label: 'Email', render: (v: string) => v || '—' },
+    { key: 'city', label: 'Cidade', render: (v: string) => v || '—' },
+    { key: 'openDebts', label: 'Dívidas', render: (v: number) => v > 0
+      ? <span className="text-amber-500 font-bold">R$ {v.toLocaleString('pt-BR')}</span>
+      : <span className="text-white/30">—</span> },
   ];
 
-  const data = [
-    { id: '1', name: 'Rafael Matos', email: 'rafael@email.com', phone: '(11) 99999-9999', tags: ['vip', 'imobi'] },
-    { id: '2', name: 'Maria Silva', email: 'maria@email.com', phone: '(21) 88888-8888', tags: ['lead', 'grafica'] },
-    { id: '3', name: 'João Tech', email: 'joao@tech.com', phone: '(19) 77777-7777', tags: ['parceiro'] },
-  ];
+  if (loading) return (
+    <div className="h-96 flex items-center justify-center">
+      <RefreshCw className="animate-spin text-primary-500" />
+    </div>
+  );
 
-  return <GenericListView title="Base de Contatos" subtitle="Gestão unificada de clientes" columns={columns} data={data} />;
+  return (
+    <div className="space-y-6">
+      <SectionHeader
+        title="Base de Contatos"
+        subtitle={`Gestão unificada de clientes (${clients.length} cadastrados)`}
+        actions={
+          <div className="flex gap-2">
+            <input ref={importFileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportExcel} />
+            <Button
+              variant="secondary"
+              icon={isImporting ? RefreshCw : FileSpreadsheet}
+              onClick={() => importFileRef.current?.click()}
+              disabled={isImporting}
+            >
+              {isImporting ? 'Importando...' : 'Importar Planilha'}
+            </Button>
+          </div>
+        }
+      />
+      <Input icon={Search} placeholder="Buscar por nome, telefone ou email..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+      <GenericListView title="" subtitle="" columns={columns} data={filtered} />
+    </div>
+  );
 };
 
 // --- SERVICES ---

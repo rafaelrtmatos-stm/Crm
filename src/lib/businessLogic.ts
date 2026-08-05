@@ -9,6 +9,23 @@ import {
 } from '../types';
 
 /**
+ * Telefone "chave" pra comparar números vindos de fontes diferentes
+ * (planilha do cliente, WhatsApp, digitação manual) — mantém só os
+ * ÚLTIMOS 10 dígitos (DDD + número, sem o "9" nem o código do país),
+ * porque é a parte que costuma vir igual em qualquer formato:
+ *   "(93) 99115-4880"  -> 9391154880 (webhook manda com o 9: 93991154880)
+ *   "93991154880"      -> 9391154880
+ *   "+55 93 99115-4880" -> 9391154880
+ * Retorna string vazia se não sobrar dígito suficiente pra confiar.
+ */
+export function phoneKey(raw?: string | null): string {
+  if (!raw) return '';
+  const digits = String(raw).replace(/\D/g, '');
+  if (digits.length < 8) return '';
+  return digits.slice(-10);
+}
+
+/**
  * SLA Status Logic
  * azul: recém-chegada (< 5 min)
  * verde: dentro do prazo (5-15 min)

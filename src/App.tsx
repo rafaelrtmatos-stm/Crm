@@ -92,6 +92,7 @@ import {
   Lead,
   SaleOrder
 } from './types';
+import { phoneKey } from './lib/businessLogic';
 
 type MainTab = 'dashboard' | 'crm' | 'messages' | 'pos' | 'contacts' | 'services' | 'inventory' | 'production' | 'settings';
 
@@ -472,6 +473,22 @@ export default function App() {
           }
         }
 
+        // Verifica se o numero que mandou a mensagem ja e um cliente
+        // cadastrado (importado via planilha em Contatos), pra sinalizar
+        // isso no lead assim que ele chega.
+        const msgKey = phoneKey(msgData.phone);
+        let matchedClientId: string | null = null;
+        if (msgKey) {
+          const clientQ = query(
+            collection(db, 'clients'),
+            where('companyId', '==', currentCompany.id),
+            where('phoneKey', '==', msgKey),
+            limit(1)
+          );
+          const clientSnap = await getDocs(clientQ);
+          if (!clientSnap.empty) matchedClientId = clientSnap.docs[0].id;
+        }
+
         // If no lead exists, create it in the ENTRADA stage
         if (leadSnap.empty) {
           await addDoc(collection(db, 'leads'), {
@@ -487,6 +504,8 @@ export default function App() {
             estimatedValue: 0,
             status: 'ENTRADA',
             waitingSince: new Date().toISOString(),
+            isExistingClient: !!matchedClientId,
+            clientId: matchedClientId || null,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString()
           });
@@ -500,6 +519,7 @@ export default function App() {
             waitingSince: new Date().toISOString(),
             status: 'ENTRADA',
             ...(stageId ? { funnelStageId: stageId } : {}),
+            ...(matchedClientId ? { isExistingClient: true, clientId: matchedClientId } : {}),
             updatedAt: new Date().toISOString()
           });
           console.log(`CRM Automation: Existing Lead updated from channel [${msgData.channel}] in ENTRADA stage.`);
