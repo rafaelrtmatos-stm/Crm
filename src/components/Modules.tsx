@@ -3318,6 +3318,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [allSalesHistory, setAllSalesHistory] = useState<SaleOrder[]>([]);
   const [historyFilter, setHistoryFilter] = useState<'todos' | 'parciais' | 'concluidos'>('todos');
   const [historySearch, setHistorySearch] = useState('');
+  const [isImportingSales, setIsImportingSales] = useState(false);
+  const importSalesFileRef = useRef<HTMLInputElement>(null);
   const [settleModalOrder, setSettleModalOrder] = useState<SaleOrder | null>(null);
   const [settleMethod, setSettleMethod] = useState<'pix' | 'dinheiro' | 'cartao_credito' | 'cartao_debito'>('pix');
 
@@ -3340,6 +3342,157 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       setSalesToday(todaySales);
     });
   }, [currentCompany]);
+
+  // Converte "1.234,56" (BR) em numero
+  const parseBrNumberPDV = (val: any): number => {
+    if (val === null || val === undefined || val === '') return 0;
+    if (typeof val === 'number') return val;
+    const s = String(val).trim();
+    if (!s) return 0;
+    if (s.includes(',')) return parseFloat(s.replace(/\./g, '').replace(',', '.')) || 0;
+    return parseFloat(s) || 0;
+  };
+
+  // "DD/MM/AAAA HH:MM:SS" -> ISO. Se vier so a data, assume meio-dia pra
+  // nao correr risco de virar o dia anterior por causa de fuso horario.
+  const parseBrDateTime = (val: any): string => {
+    const s = String(val || '').trim();
+    const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?/);
+    if (!m) return new Date().toISOString();
+    const [, dd, mm, yyyy, hh, min, sec] = m;
+    const d = new Date(Number(yyyy), Number(mm) - 1, Number(dd), hh ? Number(hh) : 12, min ? Number(min) : 0, sec ? Number(sec) : 0);
+    return d.toISOString();
+  };
+
+  const parsePaymentMethod = (paymentRaw: string): SaleOrder['paymentMethod'] => {
+    const methods = paymentRaw.split('\n').map(l => l.split(':')[0].trim().toLowerCase()).filter(Boolean);
+    const unique = Array.from(new Set(methods));
+    if (unique.length > 1) return 'misto';
+    const m = unique[0] || '';
+    if (m.includes('pix')) return 'pix';
+    if (m.includes('dinheiro')) return 'dinheiro';
+    if (m.includes('débito') || m.includes('debito')) return 'cartao_debito';
+    if (m.includes('crédito') || m.includes('credito')) return 'cartao_credito';
+    return undefined;
+  };
+
+  const handleImportSalesExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !currentCompany) return;
+    setIsImportingSales(true);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+
+      // Processa toda aba que tiver as colunas esperadas de venda (cada
+      // aba costuma ser um mes, ex: "2026-8", "2026-7") — ignora abas de
+      // resumo/metadados que nao tenham essas colunas (ex: "Sheet1").
+      const allRows: any[] = [];
+      for (const sheetName of wb.SheetNames) {
+        const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' });
+        if (rows.length && ('CÓDIGO' in rows[0]) && ('DATA E HORA' in rows[0])) {
+          allRows.push(...rows);
+        }
+      }
+
+      const existingSnap = await getDocs(
+        query(collection(db, 'saleOrders'), where('companyId', '==', currentCompany.id))
+      );
+      const existingByCode = new Map<string, string>(); // externalCode -> docId
+      existingSnap.docs.forEach(d => {
+        const code = (d.data().externalCode || '').toString();
+        if (code) existingByCode.set(code, d.id);
+      });
+
+      let created = 0, updated = 0, skipped = 0;
+      const BATCH_LIMIT = 400;
+      let batch = writeBatch(db);
+      let opsInBatch = 0;
+      const flushIfNeeded = async () => {
+        if (opsInBatch >= BATCH_LIMIT) {
+          await batch.commit();
+          batch = writeBatch(db);
+          opsInBatch = 0;
+        }
+      };
+
+      for (const row of allRows) {
+        const externalCode = String(row['CÓDIGO'] ?? '').trim();
+        if (!externalCode) { skipped++; continue; }
+
+        const produtosRaw = String(row['PRODUTOS'] ?? '').trim();
+        const valoresRaw = String(row['VALORES'] ?? '').trim();
+        const produtosLines = produtosRaw ? produtosRaw.split('\n').map(l => l.trim()).filter(Boolean) : [];
+        const valoresLines = valoresRaw ? valoresRaw.split('\n').map(l => l.trim()).filter(Boolean) : [];
+
+        const total = parseBrNumberPDV(row['FATURAMENTO']);
+
+        let items: SaleOrderItem[] = produtosLines.map((line, idx) => {
+          const lastColon = line.lastIndexOf(':');
+          const name = (lastColon >= 0 ? line.slice(0, lastColon) : line).trim();
+          const qty = (lastColon >= 0 ? parseFloat(line.slice(lastColon + 1).replace(',', '.')) : 1) || 1;
+          const valorLine = valoresLines[idx] || '';
+          const vLastColon = valorLine.lastIndexOf(':');
+          const lineTotal = vLastColon >= 0 ? parseBrNumberPDV(valorLine.slice(vLastColon + 1)) : total;
+          return {
+            productId: '',
+            name: name || 'Item',
+            price: qty ? lineTotal / qty : lineTotal,
+            quantity: qty,
+          };
+        });
+        if (items.length === 0) {
+          items = [{ productId: '', name: 'Venda (sem detalhamento de itens)', price: total, quantity: 1 }];
+        }
+
+        const paymentRaw = String(row['PAGAMENTO'] ?? '').trim();
+        const receivedValue = paymentRaw
+          ? paymentRaw.split('\n').reduce((acc, l) => {
+              const idx = l.lastIndexOf(':');
+              return acc + (idx >= 0 ? parseBrNumberPDV(l.slice(idx + 1)) : 0);
+            }, 0)
+          : 0;
+
+        const status = row['STATUS'] === 'EM ABERTO' ? 'pending' : 'completed';
+
+        const payload: Record<string, unknown> = {
+          companyId: currentCompany.id,
+          externalCode,
+          customerName: String(row['CLIENTE'] ?? '').trim() || 'Cliente não identificado',
+          items,
+          total,
+          receivedValue,
+          downPayment: status === 'pending' ? receivedValue : total,
+          paymentMethod: parsePaymentMethod(paymentRaw),
+          status,
+          createdAt: parseBrDateTime(row['DATA E HORA']),
+          importedAt: Timestamp.now(),
+        };
+
+        const existingId = existingByCode.get(externalCode);
+        if (existingId) {
+          batch.update(doc(db, 'saleOrders', existingId), payload);
+          updated++;
+        } else {
+          const newRef = doc(collection(db, 'saleOrders'));
+          batch.set(newRef, payload);
+          created++;
+          existingByCode.set(externalCode, newRef.id);
+        }
+        opsInBatch++;
+        await flushIfNeeded();
+      }
+      if (opsInBatch > 0) await batch.commit();
+
+      alert(`Importação concluída!\n\n${created} vendas novas criadas\n${updated} vendas já existentes atualizadas\n${skipped} linhas ignoradas (sem código)`);
+    } catch (err) {
+      console.error('Erro ao importar planilha de vendas:', err);
+      alert('Erro ao importar a planilha. Confira se o arquivo é .xlsx com as abas de vendas (ex: "2026-8").');
+    } finally {
+      setIsImportingSales(false);
+      if (importSalesFileRef.current) importSalesFileRef.current.value = '';
+    }
+  };
 
   const handleSettleBalance = async (order: SaleOrder) => {
     if (!currentCompany || !order) return;
@@ -3879,6 +4032,25 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 <p className="text-[10px] md:text-xs text-white/40 font-bold uppercase tracking-widest mt-1">
                   Acompanhamento de entradas, saldos devedores e entregas agendadas
                 </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  ref={importSalesFileRef}
+                  type="file"
+                  accept=".xlsx,.xls"
+                  className="hidden"
+                  onChange={handleImportSalesExcel}
+                />
+                <Button
+                  variant="secondary"
+                  icon={isImportingSales ? RefreshCw : FileSpreadsheet}
+                  onClick={() => importSalesFileRef.current?.click()}
+                  disabled={isImportingSales}
+                  className="text-[10px] uppercase tracking-widest font-black"
+                >
+                  {isImportingSales ? 'Importando...' : 'Importar Planilha'}
+                </Button>
               </div>
 
               {/* Filter Tabs */}
