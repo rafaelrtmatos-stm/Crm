@@ -38,7 +38,8 @@ import {
   Eye,
   EyeOff,
   AlertCircle,
-  ShieldCheck
+  ShieldCheck,
+  Key
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -509,9 +510,9 @@ export default function App() {
     return () => unsubscribe();
   }, [currentCompany, user, lastMessageId]);
 
-  // Login & Authentication State
-  const [loginEmail, setLoginEmail] = useState('rafaelrtmatos@gmail.com');
-  const [loginPassword, setLoginPassword] = useState('Geper3tp@');
+  // Login & Authentication State (Empty by default for manual typing)
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -715,57 +716,81 @@ export default function App() {
   );
 
   if (!user) return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-[#0b1320] p-4 sm:p-6 relative overflow-hidden">
-      {/* Background glow effects */}
-      <div className="absolute -top-40 -left-40 w-96 h-96 bg-primary-600/20 rounded-full blur-[128px] pointer-events-none" />
-      <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-indigo-600/20 rounded-full blur-[128px] pointer-events-none" />
+    <div className="min-h-screen w-full flex items-center justify-center bg-[#050508] p-4 sm:p-6 relative overflow-hidden select-none">
+      {/* Background Red Glow & Diagonal Accents */}
+      <div className="absolute top-0 left-0 w-full h-full pointer-events-none overflow-hidden">
+        {/* Top-left red glow */}
+        <div className="absolute -top-32 -left-32 w-[500px] h-[500px] bg-red-600/15 rounded-full blur-[140px]" />
+        {/* Bottom-right red glow */}
+        <div className="absolute -bottom-32 -right-32 w-[500px] h-[500px] bg-red-700/15 rounded-full blur-[140px]" />
+        
+        {/* Decorative corner diagonal lines */}
+        <div className="absolute top-0 left-0 w-80 h-80 opacity-20 bg-[linear-gradient(135deg,transparent_40%,#ff0033_50%,transparent_60%)]" />
+        <div className="absolute bottom-0 right-0 w-80 h-80 opacity-20 bg-[linear-gradient(135deg,transparent_40%,#ff0033_50%,transparent_60%)]" />
 
-      <div className="max-w-md w-full space-y-8 animate-in fade-in zoom-in-95 duration-500 relative z-10">
-        <div className="text-center space-y-3">
-          <div className="inline-flex p-3 rounded-3xl bg-primary-500/10 border border-primary-500/30 text-primary-400 mb-2 shadow-xl">
-            <ShieldCheck size={44} />
+        {/* Subtle dot pattern grids in corners */}
+        <div className="absolute top-8 right-8 w-32 h-32 opacity-10 bg-[radial-gradient(#ffffff_1.5px,transparent_1.5px)] [background-size:12px_12px]" />
+        <div className="absolute bottom-8 left-8 w-32 h-32 opacity-10 bg-[radial-gradient(#ffffff_1.5px,transparent_1.5px)] [background-size:12px_12px]" />
+      </div>
+
+      <div className="max-w-md w-full space-y-6 animate-in fade-in zoom-in-95 duration-500 relative z-10">
+        {/* Header Badge & Title */}
+        <div className="flex flex-col items-center text-center space-y-2">
+          <div className="w-16 h-16 rounded-3xl bg-red-950/40 border border-red-600/60 flex items-center justify-center text-red-500 shadow-2xl shadow-red-950/80 mb-1">
+            <div className="relative flex items-center justify-center">
+              <ShieldCheck size={38} className="text-red-500" />
+            </div>
           </div>
-          <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
-            RPro <span className="text-primary-400">System</span>
+          
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight flex items-center justify-center">
+            RPro<span className="text-red-500 font-extrabold">System</span>
           </h1>
-          <p className="text-xs sm:text-sm text-white/50 max-w-sm mx-auto">
+          
+          <p className="text-xs sm:text-sm font-semibold text-white tracking-wide max-w-sm">
             Acesso ao Repositório do Sistema de Gestão
           </p>
         </div>
 
-        <form onSubmit={handlePasswordLogin} className="bg-slate-900/80 backdrop-blur-2xl p-6 sm:p-8 rounded-[32px] border border-white/10 shadow-2xl space-y-6">
+        {/* Login Form Card */}
+        <form onSubmit={handlePasswordLogin} className="bg-[#0e0e13]/95 backdrop-blur-3xl p-6 sm:p-8 rounded-[28px] border border-white/10 shadow-2xl space-y-5">
           <div className="space-y-4">
+            {/* E-mail Field */}
             <div>
-              <label className="text-[10px] font-black uppercase text-white/60 tracking-wider mb-2 block flex items-center gap-1.5">
-                <Mail size={12} className="text-primary-400" /> E-mail de Acesso
-              </label>
-              <input
-                type="email"
-                required
-                value={loginEmail}
-                onChange={(e) => setLoginEmail(e.target.value)}
-                placeholder="rafaelrtmatos@gmail.com"
-                className="w-full bg-slate-950/80 border border-white/10 rounded-2xl px-4 py-3.5 text-white font-medium focus:outline-none focus:border-primary-500 transition-all text-sm placeholder:text-white/20"
-              />
-            </div>
-
-            <div>
-              <label className="text-[10px] font-black uppercase text-white/60 tracking-wider mb-2 block flex items-center gap-1.5">
-                <Lock size={12} className="text-primary-400" /> Senha de Acesso
+              <label className="text-[11px] font-bold uppercase text-white tracking-wider mb-2 flex items-center gap-2 block">
+                <Mail size={14} className="text-red-500" /> E-MAIL DE ACESSO
               </label>
               <div className="relative">
+                <Mail size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-red-500 pointer-events-none" />
+                <input
+                  type="email"
+                  required
+                  value={loginEmail}
+                  onChange={(e) => setLoginEmail(e.target.value)}
+                  placeholder="Digite seu e-mail"
+                  className="w-full bg-[#07070a] border border-white/20 focus:border-red-500 focus:ring-1 focus:ring-red-500 rounded-xl pl-11 pr-4 py-3.5 text-white font-medium focus:outline-none transition-all text-sm placeholder:text-white/50"
+                />
+              </div>
+            </div>
+
+            {/* Password Field */}
+            <div>
+              <label className="text-[11px] font-bold uppercase text-white tracking-wider mb-2 flex items-center gap-2 block">
+                <Lock size={14} className="text-red-500" /> SENHA DE ACESSO
+              </label>
+              <div className="relative">
+                <Lock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-red-500 pointer-events-none" />
                 <input
                   type={showPassword ? 'text' : 'password'}
                   required
                   value={loginPassword}
                   onChange={(e) => setLoginPassword(e.target.value)}
-                  placeholder="Geper3tp@"
-                  className="w-full bg-slate-950/80 border border-white/10 rounded-2xl pl-4 pr-12 py-3.5 text-white font-medium focus:outline-none focus:border-primary-500 transition-all text-sm placeholder:text-white/20"
+                  placeholder="Digite sua senha"
+                  className="w-full bg-[#07070a] border border-white/20 focus:border-red-500 focus:ring-1 focus:ring-red-500 rounded-xl pl-11 pr-12 py-3.5 text-white font-medium focus:outline-none transition-all text-sm placeholder:text-white/50"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white transition-colors cursor-pointer p-1"
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/70 hover:text-red-500 transition-colors cursor-pointer p-1"
                 >
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
@@ -774,22 +799,31 @@ export default function App() {
           </div>
 
           {authError && (
-            <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-semibold flex items-start gap-3 animate-in fade-in duration-200">
-              <AlertCircle size={18} className="shrink-0 text-rose-400 mt-0.5" />
+            <div className="p-3.5 rounded-xl bg-red-950/40 border border-red-600/50 text-white text-xs font-semibold flex items-start gap-2.5 animate-in fade-in duration-200">
+              <AlertCircle size={18} className="shrink-0 text-red-500 mt-0.5" />
               <span>{authError}</span>
             </div>
           )}
 
+          {/* Submit Button */}
           <button
             type="submit"
             disabled={isSubmitting}
-            className="w-full py-4 bg-primary-500 hover:bg-primary-400 disabled:opacity-50 text-slate-950 font-black text-xs uppercase tracking-widest rounded-2xl shadow-lg shadow-primary-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer border-0 active:scale-98"
+            className="w-full py-4 bg-red-600 hover:bg-red-500 active:bg-red-700 disabled:opacity-50 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-red-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer border-0 active:scale-[0.99] mt-2"
           >
-            <Lock size={16} />
-            {isSubmitting ? 'Autenticando...' : 'Entrar no Sistema'}
+            <Lock size={18} />
+            {isSubmitting ? 'Autenticando...' : 'ENTRAR NO SISTEMA'}
           </button>
 
-          <div className="pt-2 border-t border-white/10 flex flex-col gap-2 text-center">
+          {/* Divider */}
+          <div className="flex items-center gap-4 py-1">
+            <div className="h-[1px] bg-white/20 flex-1" />
+            <span className="text-[10px] font-bold text-white uppercase tracking-widest">OU</span>
+            <div className="h-[1px] bg-white/20 flex-1" />
+          </div>
+
+          {/* Quick Admin Helper Button */}
+          <div className="text-center pt-0.5">
             <button
               type="button"
               onClick={() => {
@@ -797,16 +831,24 @@ export default function App() {
                 setLoginPassword('Geper3tp@');
                 setAuthError(null);
               }}
-              className="text-[11px] font-bold text-primary-400 hover:text-primary-300 hover:underline transition-all cursor-pointer bg-transparent border-0"
+              className="text-xs font-medium text-white hover:text-red-400 transition-all cursor-pointer bg-transparent border-0 inline-flex items-center justify-center gap-1.5"
             >
-              🔑 Preencher credenciais Admin (rafaelrtmatos@gmail.com)
+              <Key size={14} className="text-red-500 shrink-0" />
+              <span>Preencher credenciais Admin <span className="text-red-500 font-bold">(seuemail@gmail.com)</span></span>
             </button>
           </div>
         </form>
 
-        <p className="text-center text-[10px] uppercase tracking-wider text-white/30 font-semibold">
-          © 2026 RPro Gestão Inteligente • Autenticação de Usuários do Repositório
-        </p>
+        {/* Footer */}
+        <div className="text-center space-y-1 pt-2">
+          <p className="text-xs text-white font-bold flex items-center justify-center gap-1.5">
+            <ShieldCheck size={14} className="text-red-500 shrink-0" />
+            © 2026 RPRO GESTÃO INTELIGENTE
+          </p>
+          <p className="text-[10px] uppercase tracking-widest text-white font-semibold">
+            AUTENTICAÇÃO DE USUÁRIOS DO REPOSITÓRIO
+          </p>
+        </div>
       </div>
     </div>
   );
