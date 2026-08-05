@@ -229,7 +229,7 @@ export const ContractApprovalModule = ({ currentCompany, onContractApproved }: C
         contractHash,
         contractSnapshot: contractText,
         verificationCodeUsed: generatedCode,
-        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'RPro Hub App',
+        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'Rafa Arts Graphics App',
         verificationMethod: 'whatsapp_sms_code'
       };
 

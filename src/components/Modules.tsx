@@ -471,7 +471,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   return (
     <div className="space-y-8 animate-in fade-in zoom-in-95 duration-500 relative min-h-screen pb-20">
       <SectionHeader 
-        title={`Dashboard RPro`} 
+        title={`Dashboard Rafa Arts Graphics`} 
         subtitle={`Gestão Inteligente & Produtividade`} 
         actions={
           <div className="flex flex-wrap gap-4 items-center">
@@ -1654,7 +1654,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     <div className="h-[calc(100vh-12rem)] flex gap-6 animate-in slide-in-from-right-10 duration-500">
       <div className={cn("flex flex-col space-y-6 transition-all duration-500", selectedLead ? "w-[60%]" : "w-full")}>
         <SectionHeader 
-          title="Funil RPro" 
+          title="Funil Rafa Arts" 
           subtitle={currentFunnel?.name || "Gestão Estratégica"} 
           actions={
             <div className="flex gap-3">
@@ -2106,7 +2106,7 @@ export const MessagesModule = ({ currentCompany, user }: { currentCompany: Compa
     
     const steps = [
       "Conectando às APIs Multicanais (WhatsApp, Insta, WebChat, FB, E-mail, Telegram)...",
-      "Autenticando sessão RPro OmniChannel...",
+      "Autenticando sessão Rafa Arts OmniChannel...",
       "Buscando mensagens pendentes em todos os canais...",
       "Importando contatos e direcionando para a etapa ENTRADA do CRM...",
       "Sincronização concluída com sucesso!"
@@ -2169,7 +2169,7 @@ export const MessagesModule = ({ currentCompany, user }: { currentCompany: Compa
               phone: sl.phone,
               text: m.text,
               direction: m.direction,
-              senderName: m.direction === 'outgoing' ? (user?.name || 'RPro Sistema') : sl.fullName,
+              senderName: m.direction === 'outgoing' ? (user?.name || 'Rafa Arts Sistema') : sl.fullName,
               channel: sl.sourceType || 'WhatsApp',
               createdAt: Timestamp.fromDate(new Date(Date.now() - (msgs.length - index) * 600000))
             });
@@ -2275,7 +2275,7 @@ export const MessagesModule = ({ currentCompany, user }: { currentCompany: Compa
               phone: sl.phone,
               text: m.text,
               direction: m.direction,
-              senderName: m.direction === 'outgoing' ? (user?.name || 'RPro Sistema') : sl.fullName,
+              senderName: m.direction === 'outgoing' ? (user?.name || 'Rafa Arts Sistema') : sl.fullName,
               channel: sl.sourceType || 'WhatsApp',
               createdAt: Timestamp.fromDate(new Date(Date.now() - (msgs.length - index) * 600000))
             });
@@ -3594,7 +3594,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                <div className="flex justify-between items-center text-slate-900/50 pb-2 border-b border-slate-900/10">
                   <div className="flex items-center gap-2">
                      <ShoppingBag size={16} className="text-slate-900" />
-                     <p className="text-[10px] font-black uppercase tracking-[3px]">RPro POS Terminal</p>
+                     <p className="text-[10px] font-black uppercase tracking-[3px]">Rafa Arts POS Terminal</p>
                   </div>
                   <div className="flex items-center gap-3">
                      <p className="text-[10px] font-black uppercase tracking-[3px]">#001-ALPHA</p>
@@ -4513,7 +4513,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   const isPending = balance > 0 || lastFinalizedOrder.status === 'pending';
                   const itemsText = lastFinalizedOrder.items.map(i => `• ${i.quantity}x ${i.name} (R$ ${((i.area ? i.price * i.area : i.price) * i.quantity).toFixed(2).replace('.', ',')})`).join('%0A');
                   const deliveryStr = lastFinalizedOrder.scheduledFor ? `%0A📅 *Previsão de Entrega:* ${format(new Date(lastFinalizedOrder.scheduledFor), 'dd/MM/yyyy HH:mm')}` : '';
-                  const text = `Olá *${lastFinalizedOrder.customerName || 'Cliente'}*!%0A%0ASegue resumo do seu pedido *#${lastFinalizedOrder.id.slice(-8).toUpperCase()}* na *${currentCompany?.name || 'RPro'}*:%0A%0A${itemsText}%0A%0A💰 *Total do Pedido:* R$ ${total.toFixed(2).replace('.', ',')}%0A✅ *Valor Recebido (Entrada):* R$ ${down.toFixed(2).replace('.', ',')}${isPending ? `%0A🔴 *Valor que Falta Pagar:* R$ ${balance.toFixed(2).replace('.', ',')}` : '%0A🎉 *Status:* 100% Quitado'}${deliveryStr}%0A%0AObrigado pela preferência!`;
+                  const text = `Olá *${lastFinalizedOrder.customerName || 'Cliente'}*!%0A%0ASegue resumo do seu pedido *#${lastFinalizedOrder.id.slice(-8).toUpperCase()}* na *${currentCompany?.name || 'Rafa Arts Graphics'}*:%0A%0A${itemsText}%0A%0A💰 *Total do Pedido:* R$ ${total.toFixed(2).replace('.', ',')}%0A✅ *Valor Recebido (Entrada):* R$ ${down.toFixed(2).replace('.', ',')}${isPending ? `%0A🔴 *Valor que Falta Pagar:* R$ ${balance.toFixed(2).replace('.', ',')}` : '%0A🎉 *Status:* 100% Quitado'}${deliveryStr}%0A%0AObrigado pela preferência!`;
                   
                   let targetPhone = selectedCustomer?.phone;
                   if (!targetPhone) {
@@ -4567,7 +4567,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    </head>
                    <body>
                      <div class="header">
-                       <div style="font-size:14px;">${currentCompany?.name || 'RPro Sistema'}</div>
+                       <div style="font-size:14px;">${currentCompany?.name || 'Rafa Arts Graphics'}</div>
                        <div>COMPROVANTE DE PEDIDO / OS</div>
                        <div>Ped #${order.id.slice(-8).toUpperCase()} - ${format(new Date(order.createdAt), 'dd/MM/yyyy HH:mm')}</div>
                      </div>
@@ -4618,7 +4618,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  const down = order.downPayment ?? order.receivedValue ?? (order.status === 'completed' ? total : 0);
                  const balance = Math.max(0, total - down);
                  const content = `================================================
-${(currentCompany?.name || 'RPro Sistema Central').toUpperCase()}
+${(currentCompany?.name || 'Rafa Arts Graphics Central').toUpperCase()}
 COMPROVANTE DE PEDIDO / ORDEM DE SERVIÇO
 ================================================
 Pedido: #${order.id.slice(-8).toUpperCase()}
@@ -5287,7 +5287,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     { id: 'inventory', label: 'Estoque', desc: 'Visualização de matéria-prima e produtos' },
     { id: 'services', label: 'Serviços', desc: 'Gestão de Ordens de Serviços e orçamentos' },
     { id: 'production', label: 'Produção', desc: 'Fila de fabricação e acabamentos gráficos' },
-    { id: 'settings', label: 'Opções', desc: 'Parâmetro de configurações do Hub RPro' },
+    { id: 'settings', label: 'Opções', desc: 'Parâmetro de configurações do Rafa Arts Graphics' },
   ];
 
   const actionOptions = [
@@ -5307,7 +5307,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     <div className="space-y-8 animate-in fade-in zoom-in-95 duration-500">
       <SectionHeader 
         title="Configurações Hub" 
-        subtitle="Ajustes do ecossistema RPro" 
+        subtitle="Ajustes do ecossistema Rafa Arts Graphics" 
         actions={<Button icon={Save} onClick={handleSave}>Salvar Tudo</Button>}
       />
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-10">

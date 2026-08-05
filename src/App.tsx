@@ -216,7 +216,7 @@ const Navbar = () => {
                   exit={{ opacity: 0, y: 10, scale: 0.95 }}
                   className="absolute left-0 mt-3 w-72 bg-[#1a2333]/90 backdrop-blur-3xl rounded-[28px] shadow-2xl border border-white/10 p-2 overflow-hidden z-50"
                 >
-                  <p className="px-4 py-2 text-[10px] font-bold text-white/40 uppercase tracking-[2px]">Gestão RPro</p>
+                  <p className="px-4 py-2 text-[10px] font-bold text-white/40 uppercase tracking-[2px]">Gestão Rafa Arts</p>
                   {companies.map(company => (
                     <button
                       key={company.id}
@@ -437,7 +437,7 @@ export default function App() {
           // Create default funnel and initial stage if missing
           const fRef = await addDoc(collection(db, 'funnels'), {
             companyId: currentCompany.id,
-            name: 'Funil RPro (Atendimento)',
+            name: 'Funil Rafa Arts',
             isDefault: true,
             isActive: true,
             createdAt: Timestamp.now(),
@@ -710,7 +710,7 @@ export default function App() {
     <div className="h-screen w-full flex items-center justify-center bg-[#0b1320]">
       <div className="flex flex-col items-center gap-4">
         <div className="w-12 h-12 border-4 border-primary-500/20 border-t-primary-500 rounded-full animate-spin" />
-        <p className="text-sm font-bold text-white/50 animate-pulse">Iniciando RPro System...</p>
+        <p className="text-sm font-bold text-white/50 animate-pulse">Iniciando Rafa Arts Graphics...</p>
       </div>
     </div>
   );
@@ -743,7 +743,7 @@ export default function App() {
           </div>
           
           <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight flex items-center justify-center">
-            RPro<span className="text-red-500 font-extrabold">System</span>
+            Rafa Arts<span className="text-red-500 font-extrabold">Graphics</span>
           </h1>
           
           <p className="text-xs sm:text-sm font-semibold text-white tracking-wide max-w-sm">
@@ -843,7 +843,7 @@ export default function App() {
         <div className="text-center space-y-1 pt-2">
           <p className="text-xs text-white font-bold flex items-center justify-center gap-1.5">
             <ShieldCheck size={14} className="text-red-500 shrink-0" />
-            © 2026 RPRO GESTÃO INTELIGENTE
+            © 2026 RAFA ARTS GRAPHICS
           </p>
           <p className="text-[10px] uppercase tracking-widest text-white font-semibold">
             AUTENTICAÇÃO DE USUÁRIOS DO REPOSITÓRIO
@@ -923,8 +923,8 @@ export default function App() {
                     </div>
                   )}
                   <div>
-                    <h2 className="text-2xl font-black text-white leading-none tracking-tight">RPro</h2>
-                    <p className="text-[10px] font-black text-primary-300 uppercase tracking-[3px] mt-1">Symmetry</p>
+                    <h2 className="text-xl font-black text-white leading-none tracking-tight">Rafa Arts</h2>
+                    <p className="text-[10px] font-black text-red-500 uppercase tracking-[3px] mt-1">Graphics</p>
                   </div>
                 </div>
                 <button 

@@ -1,6 +1,8 @@
 {
-  "name": "RPro System",
-  "description": "Sistema mestre de gestão para Imobiliárias e Gráficas, integrando CRM, Meta Ads, PDV, Vendas, Serviços e Automações.",
+  "name": "Rafa Arts Graphics",
+  "description": "Sistema de gestão comercial e operacional para Rafa Arts Graphics, integrando CRM, Meta Ads, PDV, Vendas, Serviços e Automações.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
