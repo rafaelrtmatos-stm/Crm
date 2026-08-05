@@ -1,10 +1,12 @@
 import { AppContext } from '../App';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { ContractApprovalModule } from './ContractApprovalModule';
+import { IntegrationsSettings } from './IntegrationsSettings';
 import { 
   TrendingUp, 
   Clock, 
   MessageSquare, 
+  MessageCircle,
   Plus, 
   Search, 
   Filter, 
@@ -1127,6 +1129,7 @@ export const ChatPanel = ({
 
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !conversation || !currentCompany) return;
+    const channelLabel = conversation.sourceType || 'WhatsApp';
     try {
       await addDoc(collection(db, 'messages'), {
         companyId: currentCompany.id,
@@ -1134,7 +1137,7 @@ export const ChatPanel = ({
         text: newMessage,
         direction: 'outgoing',
         senderName: user?.name || 'Sistema',
-        channel: conversation.sourceType || 'WhatsApp',
+        channel: channelLabel,
         createdAt: Timestamp.now()
       });
       // Also update lead's last message
@@ -1145,6 +1148,25 @@ export const ChatPanel = ({
         updatedAt: Timestamp.now()
       });
       setNewMessage('');
+
+      // Dispara o envio de verdade via WhatsApp/Facebook/Instagram, se o
+      // canal correspondente estiver configurado em Opções > Integrações.
+      // Falha aqui NÃO desfaz a mensagem já salva na tela (ela so nao vai
+      // chegar de fato no cliente) — evita perder o texto digitado.
+      const channelKey = channelLabel.toLowerCase();
+      if (['whatsapp', 'facebook', 'instagram'].includes(channelKey)) {
+        try {
+          const sendFn = httpsCallable(functions, 'sendChannelMessage');
+          await sendFn({
+            companyId: currentCompany.id,
+            channel: channelKey,
+            to: conversation.phone,
+            text: newMessage,
+          });
+        } catch (sendErr) {
+          console.error('Mensagem salva no CRM, mas falhou ao enviar via API:', sendErr);
+        }
+      }
     } catch (err) {
       console.error('Falha ao enviar mensagem:', err);
     }
@@ -5462,6 +5484,19 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                       <Input label="Chave PIX" defaultValue="44.222.111/0001-99" />
                       <Input label="Nome do Beneficiário" defaultValue={currentCompany?.name} />
                     </div>
+                 </div>
+
+                 <div className="space-y-6 pt-6 border-t border-white/5">
+                    <div className="flex items-center gap-4">
+                       <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 flex items-center justify-center text-emerald-400">
+                          <MessageCircle size={24} />
+                       </div>
+                       <div>
+                          <h3 className="text-xl font-bold text-white tracking-tight italic uppercase">Canais de Mensageria</h3>
+                          <p className="text-xs text-white/30">Conecte WhatsApp, Facebook Messenger e Instagram Direct para receber e enviar mensagens direto do CRM</p>
+                       </div>
+                    </div>
+                    <IntegrationsSettings currentCompany={currentCompany} />
                  </div>
               </div>
             )}

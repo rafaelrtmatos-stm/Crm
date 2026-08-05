@@ -1,7 +1,15 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Allow read/write for all paths to support sandbox/preview iframe environments
+    // channelAccounts guarda tokens de acesso das integracoes (WhatsApp,
+    // Facebook, Instagram) — bloqueado para o cliente. So as Cloud Functions
+    // (Admin SDK) podem ler/escrever aqui, via as funcoes saveChannelAccount
+    // e getChannelAccountsStatus.
+    match /channelAccounts/{docId} {
+      allow read, write: if false;
+    }
+
+    // Allow read/write for all other paths to support sandbox/preview iframe environments
     // and hybrid simulation/mock user workflows where standard Firebase Auth is unavailable or blocked.
     match /{document=**} {
       allow read, write: if true;
