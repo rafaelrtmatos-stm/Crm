@@ -1,13 +1,10 @@
 import { AppContext } from '../App';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { ContractApprovalModule } from './ContractApprovalModule';
-import { IntegrationsSettings } from './IntegrationsSettings';
 import { 
   TrendingUp, 
   Clock, 
   MessageSquare, 
-  MessageCircle,
-  FileSpreadsheet,
   Plus, 
   Search, 
   Filter, 
@@ -165,10 +162,8 @@ import {
   Drawer,
   cn 
 } from './SharedUI';
-import { collection, query, where, onSnapshot, orderBy, Timestamp, addDoc, doc, updateDoc, getDocs, setDoc, limit, writeBatch } from 'firebase/firestore';
-import * as XLSX from 'xlsx';
-import { httpsCallable } from 'firebase/functions';
-import { db, functions } from '../firebase';
+import { collection, query, where, onSnapshot, orderBy, Timestamp, addDoc, doc, updateDoc, getDocs, setDoc, limit } from 'firebase/firestore';
+import { db } from '../firebase';
 import { format } from 'date-fns';
 
 import { 
@@ -1132,7 +1127,6 @@ export const ChatPanel = ({
 
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !conversation || !currentCompany) return;
-    const channelLabel = conversation.sourceType || 'WhatsApp';
     try {
       await addDoc(collection(db, 'messages'), {
         companyId: currentCompany.id,
@@ -1140,7 +1134,7 @@ export const ChatPanel = ({
         text: newMessage,
         direction: 'outgoing',
         senderName: user?.name || 'Sistema',
-        channel: channelLabel,
+        channel: conversation.sourceType || 'WhatsApp',
         createdAt: Timestamp.now()
       });
       // Also update lead's last message
@@ -1151,25 +1145,6 @@ export const ChatPanel = ({
         updatedAt: Timestamp.now()
       });
       setNewMessage('');
-
-      // Dispara o envio de verdade via WhatsApp/Facebook/Instagram, se o
-      // canal correspondente estiver configurado em Opções > Integrações.
-      // Falha aqui NÃO desfaz a mensagem já salva na tela (ela so nao vai
-      // chegar de fato no cliente) — evita perder o texto digitado.
-      const channelKey = channelLabel.toLowerCase();
-      if (['whatsapp', 'facebook', 'instagram'].includes(channelKey)) {
-        try {
-          const sendFn = httpsCallable(functions, 'sendChannelMessage');
-          await sendFn({
-            companyId: currentCompany.id,
-            channel: channelKey,
-            to: conversation.phone,
-            text: newMessage,
-          });
-        } catch (sendErr) {
-          console.error('Mensagem salva no CRM, mas falhou ao enviar via API:', sendErr);
-        }
-      }
     } catch (err) {
       console.error('Falha ao enviar mensagem:', err);
     }
@@ -4987,8 +4962,6 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isImporting, setIsImporting] = useState(false);
-  const importFileRef = useRef<HTMLInputElement>(null);
   const [formData, setFormData] = useState<Partial<InventoryItem>>({
     name: '',
     category: 'substrato',
@@ -5000,119 +4973,6 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
     isActive: true,
     isService: false
   });
-
-  // Converte "1.234,56" (formato BR) ou "1234.56" (formato US) em numero.
-  // Aceita tambem valores ja numericos vindos direto da planilha.
-  const parseBrNumber = (val: any): number => {
-    if (val === null || val === undefined || val === '') return 0;
-    if (typeof val === 'number') return val;
-    const s = String(val).trim();
-    if (!s) return 0;
-    // Se tem virgula, assume formato BR (ponto = milhar, virgula = decimal)
-    if (s.includes(',')) {
-      return parseFloat(s.replace(/\./g, '').replace(',', '.')) || 0;
-    }
-    return parseFloat(s) || 0;
-  };
-
-  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !currentCompany) return;
-    setIsImporting(true);
-    try {
-      const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf, { type: 'array' });
-      const firstSheet = wb.Sheets[wb.SheetNames[0]];
-      // defval: '' evita que celulas vazias sumam da leitura (ficam undefined)
-      const rows: any[] = XLSX.utils.sheet_to_json(firstSheet, { defval: '' });
-
-      // Busca os itens ja existentes desta empresa pra decidir
-      // atualizar (mesmo codigo) em vez de duplicar.
-      const existingSnap = await getDocs(
-        query(collection(db, 'inventory'), where('companyId', '==', currentCompany.id))
-      );
-      const existingByCode = new Map<string, string>(); // code -> docId
-      existingSnap.docs.forEach(d => {
-        const code = (d.data().code || '').toString().trim();
-        if (code) existingByCode.set(code, d.id);
-      });
-
-      let created = 0, updated = 0, skipped = 0;
-      const BATCH_LIMIT = 400; // limite do Firestore e 500 por lote
-      let batch = writeBatch(db);
-      let opsInBatch = 0;
-
-      const flushIfNeeded = async () => {
-        if (opsInBatch >= BATCH_LIMIT) {
-          await batch.commit();
-          batch = writeBatch(db);
-          opsInBatch = 0;
-        }
-      };
-
-      for (const row of rows) {
-        // Aceita tanto os cabecalhos da planilha do Rafael (em maiusculo/PT)
-        // quanto nomes ja no padrao do sistema, pra ser reaproveitavel.
-        const name = String(row['DESCRIÇÃO'] ?? row['descricao'] ?? row['name'] ?? '').trim();
-        if (!name) { skipped++; continue; }
-
-        const codeRaw = row['CÓDIGO'] ?? row['codigo'] ?? row['code'] ?? '';
-        const code = String(codeRaw).trim();
-
-        const category = String(row['CATEGORIA'] ?? row['categoria'] ?? '').trim() || 'diversos';
-        const unitRaw = String(row['UNIDADE'] ?? row['unidade'] ?? '').trim().toLowerCase();
-        const unit = unitRaw === 'unidade' || unitRaw === '' ? 'un' : unitRaw;
-
-        const costPrice = parseBrNumber(row['CUSTO'] ?? row['custo']);
-        const salePrice = parseBrNumber(row['VAREJO'] ?? row['varejo'] ?? row['salePrice']);
-        const wholesalePrice = parseBrNumber(row['ATACADO'] ?? row['atacado']);
-        const minStock = parseBrNumber(row['ESTOQUE MÍNIMO'] ?? row['estoqueMinimo']);
-        const currentStock = parseBrNumber(row['QUANTIDADE'] ?? row['quantidade'] ?? row['currentStock']);
-        const provider = String(row['FORNECEDOR'] ?? row['fornecedor'] ?? '').trim();
-
-        const payload: Record<string, unknown> = {
-          companyId: currentCompany.id,
-          name,
-          code: code || null,
-          category,
-          unit,
-          costPrice,
-          salePrice,
-          wholesalePrice,
-          minStock,
-          currentStock,
-          isService: false,
-          isActive: true,
-          updatedAt: Timestamp.now(),
-        };
-        if (provider) payload.provider = provider;
-
-        const existingId = code ? existingByCode.get(code) : undefined;
-        if (existingId) {
-          batch.update(doc(db, 'inventory', existingId), payload);
-          updated++;
-        } else {
-          const newRef = doc(collection(db, 'inventory'));
-          batch.set(newRef, { ...payload, createdAt: Timestamp.now() });
-          created++;
-          // Registra o codigo novo pra nao duplicar se a planilha repetir a linha
-          if (code) existingByCode.set(code, newRef.id);
-        }
-        opsInBatch++;
-        await flushIfNeeded();
-      }
-
-      if (opsInBatch > 0) await batch.commit();
-
-      alert(`Importação concluída!\n\n${created} itens novos criados\n${updated} itens já existentes atualizados\n${skipped} linhas ignoradas (sem descrição)`);
-    } catch (err) {
-      console.error('Erro ao importar planilha:', err);
-      alert('Erro ao importar a planilha. Confira se o arquivo é .xlsx e tem a coluna DESCRIÇÃO preenchida.');
-    } finally {
-      setIsImporting(false);
-      if (importFileRef.current) importFileRef.current.value = '';
-    }
-  };
 
   useEffect(() => {
     if (!currentCompany) return;
@@ -5178,26 +5038,7 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
       <SectionHeader 
         title="Gestão de Insumos" 
         subtitle="Controle de Estoque e Matéria-Prima (Foco Gráfica)" 
-        actions={
-          <div className="flex gap-2">
-            <input
-              ref={importFileRef}
-              type="file"
-              accept=".xlsx,.xls"
-              className="hidden"
-              onChange={handleImportExcel}
-            />
-            <Button
-              variant="secondary"
-              icon={isImporting ? RefreshCw : FileSpreadsheet}
-              onClick={() => importFileRef.current?.click()}
-              disabled={isImporting}
-            >
-              {isImporting ? 'Importando...' : 'Importar Planilha'}
-            </Button>
-            <Button icon={Plus} onClick={() => setIsModalOpen(true)}>Novo Item</Button>
-          </div>
-        }
+        actions={<Button icon={Plus} onClick={() => setIsModalOpen(true)}>Novo Item</Button>}
       />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -5621,19 +5462,6 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                       <Input label="Chave PIX" defaultValue="44.222.111/0001-99" />
                       <Input label="Nome do Beneficiário" defaultValue={currentCompany?.name} />
                     </div>
-                 </div>
-
-                 <div className="space-y-6 pt-6 border-t border-white/5">
-                    <div className="flex items-center gap-4">
-                       <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 flex items-center justify-center text-emerald-400">
-                          <MessageCircle size={24} />
-                       </div>
-                       <div>
-                          <h3 className="text-xl font-bold text-white tracking-tight italic uppercase">Canais de Mensageria</h3>
-                          <p className="text-xs text-white/30">Conecte WhatsApp, Facebook Messenger e Instagram Direct para receber e enviar mensagens direto do CRM</p>
-                       </div>
-                    </div>
-                    <IntegrationsSettings currentCompany={currentCompany} />
                  </div>
               </div>
             )}
