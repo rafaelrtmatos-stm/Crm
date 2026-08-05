@@ -26,7 +26,8 @@ export interface SaleOrder {
   items: SaleOrderItem[];
   total: number;
   downPayment?: number;
-  paymentMethod?: 'dinheiro'|'pix'|'cartao_credito'|'cartao_debito';
+  receivedValue?: number;
+  paymentMethod?: 'dinheiro'|'pix'|'cartao_credito'|'cartao_debito'|'misto';
   status: 'pending' | 'completed' | 'canceled';
   createdAt: string;
   scheduledFor?: string;
@@ -77,6 +78,8 @@ export interface AppUser extends BaseEntity {
   isActive: boolean;
   lastLoginAt?: Timestamp | string;
   allowedCompanies?: string[]; // IDs of companies this user can access
+  allowedTabs?: string[];      // IDs of tabs this user can access
+  allowedActions?: string[];   // Specific action permissions allowed
 }
 
 export interface Lead extends BaseEntity {
@@ -235,7 +238,6 @@ export interface RolePermission extends BaseEntity {
     canCreateCard: boolean;
     canAddTask: boolean;
     canStartPosSale: boolean;
-    canStartRealEstateSale: boolean;
     canMoveLead: boolean;
     canViewCustomerData: boolean;
     canViewAttachments: boolean;
@@ -245,56 +247,47 @@ export interface RolePermission extends BaseEntity {
   };
 }
 
-export interface RealEstateEnterprise extends BaseEntity {
-  name: string;
-  description?: string;
-  location?: string;
-  city?: string;
-  state?: string;
-  isActive: boolean;
+export interface CompanyConfig {
+  razaoSocial: string;
+  cnpj: string;
+  endereco: string;
+  logoUrl?: string;
+  phone?: string;
+  email?: string;
+  cidadeForo?: string;
 }
 
-export interface Lot extends BaseEntity {
-  enterpriseId: string;
-  blockName?: string;
-  lotNumber: string;
-  areaM2?: number;
-  cashPrice?: number;
-  financedPrice?: number;
-  status: 'disponivel' | 'reservado' | 'vendido' | 'bloqueado';
+export interface PdfCustomization {
+  primaryColor: string; // default #dc2626 (red)
+  secondaryColor: string; // default #000000 (black)
+  backgroundColor: string; // default #ffffff (white)
+  logoPosition: 'left' | 'center' | 'right';
+  logoScale: number; // percentage (e.g., 100)
+  fontFamily: 'sans' | 'mono' | 'serif' | 'display';
+  headerText: string;
+  footerText: string;
+  showWatermark: boolean;
 }
 
-export interface RealEstateSale extends BaseEntity {
-  leadId?: string;
-  contactId?: string;
-  lotId: string;
-  enterpriseId: string;
-  sellerUserId: string;
-  totalValue: number;
-  downPayment?: number;
-  installmentsCount?: number;
-  installmentsValue?: number;
-  status: 'rascunho' | 'aguardando_entrada' | 'entrada_confirmada' | 'contrato_gerado' | 'em_pagamento' | 'quitada';
-  validationLog?: string[];
-  
-  // Buyer Details
-  buyerName?: string;
-  buyerRg?: string;
-  buyerCpf?: string;
-  buyerMaritalStatus?: string;
-  buyerBirthDate?: string;
-  buyerAddress?: string;
-  buyerAddressNumber?: string;
-  buyerNeighborhood?: string;
-  buyerZipCode?: string;
-  buyerContacts?: string[];
-  
-  // Sale Specifics
-  lotName?: string;
-  blockName?: string;
-  enterpriseName?: string;
-  installmentsDueDate?: string;
-  sellerName?: string;
+export interface MerchandiseItem {
+  id: string;
+  code?: string;
+  description: string;
+  costPrice: number; // Uso interno - NUNCA exibido para o cliente
+  salePrice: number; // Valor unitário de venda
+  stock: number; // Quantidade em estoque
+  unit: 'un' | 'm' | 'm2'; // Unidade de venda (Unidade, Metro linear, Metro quadrado)
+  quantity: number; // Quantidade vendida/orçada (ex: 3.5)
+  totalPrice: number; // quantity * salePrice
+  category?: string;
+}
+
+export interface SocialChannelTemplate {
+  id: string;
+  channel: 'whatsapp' | 'instagram' | 'facebook' | 'telegram';
+  type: 'orcamento' | 'confirmacao_aceite' | 'pagamento_confirmado' | 'aviso_entrega';
+  title: string;
+  messageText: string;
 }
 
 export interface InventoryItem extends BaseEntity {
@@ -323,7 +316,7 @@ export interface PrintingService extends BaseEntity {
 }
 
 export interface Payment extends BaseEntity {
-  paymentType: 'real_estate_sale' | 'installment' | 'pos_sale' | 'service';
+  paymentType: 'pos_sale' | 'service';
   saleId?: string;
   serviceId?: string;
   amount: number;
@@ -402,6 +395,42 @@ export interface MetaAdSet extends BaseEntity {
     interests?: string[];
   };
   optimizationGoal?: string;
+}
+
+export interface ContractAcceptance {
+  clientName: string;
+  clientCpfCnpj: string;
+  clientPhone: string;
+  ipAddress: string;
+  acceptedAt: string | Timestamp;
+  contractHash: string;
+  contractSnapshot: string;
+  verificationCodeUsed: string;
+  userAgent?: string;
+  verificationMethod: 'whatsapp_sms_code';
+}
+
+export interface ServiceContract extends BaseEntity {
+  budgetId?: string;
+  companyId: string;
+  clientName: string;
+  clientCpfCnpj: string;
+  clientPhone: string;
+  clientEmail?: string;
+  clientAddress?: string;
+  serviceTitle: string;
+  serviceDescription: string;
+  totalAmount: number;
+  downPaymentAmount: number;
+  deliveryDays: number;
+  contractText: string;
+  contractHash: string;
+  status: 'orcamento' | 'contrato_gerado' | 'codigo_enviado' | 'aceito' | 'entrada_paga' | 'cancelado';
+  verificationCode?: string;
+  codeSentAt?: string | Timestamp;
+  acceptance?: ContractAcceptance;
+  pixPaymentStatus?: 'pending' | 'paid';
+  pixPaidAt?: string | Timestamp;
 }
 
 export interface MetaAd extends BaseEntity {

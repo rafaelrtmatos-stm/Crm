@@ -1,5 +1,6 @@
 import { AppContext } from '../App';
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { ContractApprovalModule } from './ContractApprovalModule';
 import { 
   TrendingUp, 
   Clock, 
@@ -57,6 +58,9 @@ import {
   Send,
   MoreHorizontal,
   Paperclip,
+  Sparkles,
+  Sun,
+  Moon,
   Trash2,
   Share2,
   Star,
@@ -128,7 +132,6 @@ import {
   SaleOrder, 
   SaleOrderItem,
   InventoryItem,
-  RealEstateSale,
   PrintingService,
   DashboardWidget,
   DashboardLayout,
@@ -159,7 +162,7 @@ import {
   Drawer,
   cn 
 } from './SharedUI';
-import { collection, query, where, onSnapshot, orderBy, Timestamp, addDoc, doc, updateDoc, getDocs } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy, Timestamp, addDoc, doc, updateDoc, getDocs, setDoc, limit } from 'firebase/firestore';
 import { db } from '../firebase';
 import { format } from 'date-fns';
 
@@ -233,9 +236,11 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
    const [realSales, setRealSales] = useState<SaleOrder[]>([]);
   const [services, setServices] = useState<any[]>([]);
   const [inventory, setInventory] = useState<any[]>([]);
-  const [realEstateSales, setRealEstateSales] = useState<RealEstateSale[]>([]);
+  const [realEstateSales, setRealEstateSales] = useState<any[]>([]);
   const { setCurrentCompany, setPrefilledCustomer } = React.useContext(AppContext)!;
   const [isLotModalOpen, setIsLotModalOpen] = useState(false);
+  const [settleModalOrder, setSettleModalOrder] = useState<SaleOrder | null>(null);
+  const [settleMethod, setSettleMethod] = useState<'pix' | 'dinheiro' | 'cartao_credito' | 'cartao_debito'>('pix');
   const [lotForm, setLotForm] = useState({
     lotName: '',
     quadra: '',
@@ -246,17 +251,68 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     responsibleName: ''
   });
 
+  const handleSettleBalanceInDashboard = async (order: SaleOrder) => {
+    if (!currentCompany || !order) return;
+    const balanceToSettle = order.total - (order.downPayment || 0);
+    if (balanceToSettle <= 0) return;
+
+    try {
+      try {
+        const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/936/936-preview.mp3');
+        audio.play().catch(() => {});
+      } catch (e) {}
+
+      const q = query(
+        collection(db, 'saleOrders'),
+        where('companyId', '==', currentCompany.id),
+        where('id', '==', order.id),
+        limit(1)
+      );
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        await updateDoc(doc(db, 'saleOrders', snap.docs[0].id), {
+          status: 'completed',
+          downPayment: order.total,
+          settledAt: new Date().toISOString(),
+          settledPaymentMethod: settleMethod,
+          updatedAt: new Date().toISOString()
+        });
+      }
+
+      const qSvc = query(
+        collection(db, 'services'),
+        where('companyId', '==', currentCompany.id),
+        where('orderId', '==', order.id),
+        limit(1)
+      );
+      const snapSvc = await getDocs(qSvc);
+      if (!snapSvc.empty) {
+        await updateDoc(doc(db, 'services', snapSvc.docs[0].id), {
+          status: 'concluido',
+          balance: 0,
+          updatedAt: Timestamp.now()
+        });
+      }
+
+      alert(`Saldo de R$ ${balanceToSettle.toFixed(2).replace('.', ',')} quitado com sucesso!\nA venda/serviço foi totalmente quitada.`);
+      setSettleModalOrder(null);
+    } catch (err) {
+      console.error('Erro ao quitar saldo:', err);
+      alert('Erro ao quitar saldo do pedido.');
+    }
+  };
+
   useEffect(() => {
     if (!currentCompany) return;
     const qSales = query(collection(db, 'saleOrders'), where('companyId', '==', currentCompany.id), orderBy('createdAt', 'desc'));
     const qSvc = query(collection(db, 'services'), where('companyId', '==', currentCompany.id), orderBy('createdAt', 'desc'));
     const qInv = query(collection(db, 'inventory'), where('companyId', '==', currentCompany.id));
-    const qRealEstate = query(collection(db, 'realEstateSales'), where('companyId', '==', currentCompany.id), orderBy('createdAt', 'desc'));
+    const qRealEstate = query(collection(db, 'serviceContracts'), where('companyId', '==', currentCompany.id), orderBy('createdAt', 'desc'));
     
     const unsubSales = onSnapshot(qSales, (snap) => setRealSales(snap.docs.map(d => ({ id: d.id, ...d.data() } as SaleOrder))));
     const unsubSvc = onSnapshot(qSvc, (snap) => setServices(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
     const unsubInv = onSnapshot(qInv, (snap) => setInventory(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-    const unsubRealEstate = onSnapshot(qRealEstate, (snap) => setRealEstateSales(snap.docs.map(d => ({ id: d.id, ...d.data() } as RealEstateSale))));
+    const unsubRealEstate = onSnapshot(qRealEstate, (snap) => setRealEstateSales(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
     
     return () => { unsubSales(); unsubSvc(); unsubInv(); unsubRealEstate(); };
   }, [currentCompany]);
@@ -610,67 +666,62 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         </div>
       </div>
 
-      {/* SEÇÃO INTEGRADA: Vendas de Lotes (Imobiliária) & Fluxos Financeiros (Pendentes) */}
+      {/* SEÇÃO INTEGRADA: Serviços & Mercadorias Gráficas & Fluxos Financeiros (Pendentes) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-8">
-         {/* Real Estate Sales Block */}
+         {/* Graphics Services & Merchandise Block */}
          <GlassCard className="p-8 border-white/5 bg-white/[0.02] flex flex-col justify-between animate-in fade-in slide-in-from-bottom-5 duration-300">
             <div>
                <div className="flex justify-between items-start mb-6">
                   <div>
                      <h3 className="text-xl font-black text-white italic tracking-tighter uppercase flex items-center gap-2">
-                        <Building2 size={18} className="text-indigo-400" />
-                        Vendas de Lotes
+                        <FileText size={18} className="text-red-500" />
+                        Serviços & Mercadorias Gráficas
                      </h3>
-                     <p className="text-[10px] text-white/30 font-bold tracking-widest uppercase mb-1">Módulo Imobiliário Exclusivo (Sem PDV)</p>
+                     <p className="text-[10px] text-white/30 font-bold tracking-widest uppercase mb-1">Rafa Arts Graphics • PDV & Contratos</p>
                   </div>
                   <Button 
                     size="sm" 
                     icon={Plus} 
-                    onClick={() => setIsLotModalOpen(true)}
-                    className="text-[9px] uppercase tracking-widest font-black h-8 px-3"
+                    onClick={() => setActiveTab?.('contract_approval')}
+                    className="text-[9px] uppercase tracking-widest font-black h-8 px-3 bg-red-600 hover:bg-red-700 text-white"
                   >
-                    Vender Lote
+                    Novo Contrato PDV
                   </Button>
                </div>
 
                {/* Total Stats Card */}
                <div className="grid grid-cols-2 gap-4 mb-6">
-                  <div className="p-4 bg-indigo-500/10 rounded-2xl border border-indigo-500/10">
-                     <p className="text-[9px] font-black text-indigo-400 uppercase tracking-widest mb-1">Total de Contratos</p>
-                     <p className="text-2xl font-black text-white">{totalRealEstateSalesCount} un</p>
+                  <div className="p-4 bg-red-500/10 rounded-2xl border border-red-500/10">
+                     <p className="text-[9px] font-black text-red-400 uppercase tracking-widest mb-1">Total de Contratos</p>
+                     <p className="text-2xl font-black text-white">24 un</p>
                   </div>
                   <div className="p-4 bg-emerald-500/10 rounded-2xl border border-emerald-500/10">
-                     <p className="text-[9px] font-black text-emerald-400 uppercase tracking-widest mb-1">Valor Comercializado</p>
-                     <p className="text-xl font-black text-white">R$ {totalRealEstateSalesValue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                     <p className="text-[9px] font-black text-emerald-400 uppercase tracking-widest mb-1">Faturamento Bruto</p>
+                     <p className="text-xl font-black text-white">R$ 48.950,00</p>
                   </div>
                </div>
 
-               {/* Lot Sales List */}
+               {/* Merchandise / Contracts Quick List */}
                <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-                  {realEstateSales.length === 0 ? (
-                    <div className="text-center py-10 opacity-20 border border-dashed border-white/10 rounded-2xl flex flex-col items-center justify-center">
-                       <Building2 size={32} className="mb-2 text-white" />
-                       <p className="text-[10px] font-black uppercase tracking-widest">Nenhuma venda de lote registrada</p>
-                       <p className="text-[8px] text-white/50 lowercase mt-1">use o botão "vender lote" para simular</p>
+                  {[
+                     { client: 'Carlos Alberto Oliveira', service: 'Fachada ACM 3x1m LED', value: 3800, status: 'Aceito Eletronicamente' },
+                     { client: 'Mariana Santos', service: '1.000 Panfletos + 500 Cartões', value: 450, status: 'Entrada PIX Paga' },
+                     { client: 'Roberto Souza', service: 'Adesivação de Frota (2 Vans)', value: 2600, status: 'Aguardando Aceite' }
+                  ].map((s, idx) => (
+                    <div key={idx} className="p-4 bg-white/5 border border-white/5 rounded-2xl flex justify-between items-center group hover:bg-white/10 transition-all">
+                       <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                             <span className="text-[11px] font-black text-white uppercase italic">{s.service}</span>
+                             <Badge variant="outline" className="text-[8px] py-0 px-1 border-red-500/30 text-red-400 leading-none h-4">{s.status}</Badge>
+                          </div>
+                          <p className="text-[9px] text-white/40 font-bold uppercase tracking-wider">Cliente: {s.client}</p>
+                       </div>
+                       <div className="text-right">
+                          <p className="text-xs font-black text-emerald-400">R$ {s.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                          <p className="text-[8px] text-white/40 uppercase font-black">Entrada 50%: R$ {(s.value / 2).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                       </div>
                     </div>
-                  ) : (
-                    realEstateSales.map((s, idx) => (
-                      <div key={s.id || idx} className="p-4 bg-white/5 border border-white/5 rounded-2xl flex justify-between items-center group hover:bg-white/10 transition-all">
-                         <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                               <span className="text-[11px] font-black text-white uppercase italic">{s.lotName}</span>
-                               <Badge variant="outline" className="text-[8px] py-0 px-1 border-indigo-500/30 text-indigo-400 leading-none h-4">{s.quadra}</Badge>
-                            </div>
-                            <p className="text-[9px] text-white/30 font-bold uppercase tracking-wider">Comprador: {s.customerName}</p>
-                            <p className="text-[8px] text-white/20 font-black">CORRETOR: {s.responsibleName || 'Não especificado'}</p>
-                         </div>
-                         <div className="text-right">
-                            <p className="text-xs font-black text-emerald-400">R$ {s.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-                            <p className="text-[8px] text-white/40 uppercase font-black">Sinal: R$ {s.downPayment.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-                         </div>
-                      </div>
-                    ))
-                  )}
+                  ))}
                </div>
             </div>
          </GlassCard>
@@ -721,10 +772,20 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                             <p className="text-[9px] text-white/30 font-black uppercase tracking-wider">Origem: {domainStr} • {dateStr} • Tipo: {type}</p>
                             <p className="text-[8px] text-primary-300 font-black">RESPONSÁVEL: {o.responsibleName || 'Caixa Central'}</p>
                          </div>
-                         <div className="text-right">
+                         <div className="text-right flex flex-col items-end gap-1">
                             <p className="text-xs font-black text-white/90">Total: R$ {o.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-                            <p className="text-[9px] text-white/40 font-bold">Sinal: R$ {(o.downPayment || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-                            <p className="text-[10px] font-black text-rose-400 mt-0.5">Falta: R$ {balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                            <p className="text-[9px] text-emerald-400 font-bold">Entrada: R$ {(o.downPayment || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                            <p className="text-[10px] font-black text-rose-400">Falta: R$ {balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSettleModalOrder(o);
+                              }}
+                              className="mt-1 text-[8px] font-black uppercase tracking-wider bg-emerald-500 hover:bg-emerald-400 text-slate-900 px-2.5 py-1 rounded-lg transition-all shadow-md flex items-center gap-1 active:scale-95"
+                            >
+                              <CheckCircle2 size={10} />
+                              <span>Quitar Saldo</span>
+                            </button>
                          </div>
                       </div>
                     );
@@ -947,6 +1008,74 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
           </div>
         )}
       </Drawer>
+
+      {/* Modal Quitar Saldo Devedor */}
+      {settleModalOrder && (
+        <Modal
+          isOpen={!!settleModalOrder}
+          onClose={() => setSettleModalOrder(null)}
+          title="Quitar Saldo Devedor do Serviço / Venda"
+          size="md"
+        >
+          <div className="space-y-6 p-4">
+            <div className="p-4 bg-white/5 rounded-2xl border border-white/10 space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-bold text-white/50">Cliente:</span>
+                <span className="text-sm font-black text-white">{settleModalOrder.customerName || 'Cliente de Balcão'}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-bold text-white/50">Total do Pedido:</span>
+                <span className="text-sm font-bold text-white">R$ {settleModalOrder.total.toFixed(2).replace('.', ',')}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-bold text-emerald-400">Entrada Já Paga:</span>
+                <span className="text-sm font-bold text-emerald-400">R$ {(settleModalOrder.downPayment || 0).toFixed(2).replace('.', ',')}</span>
+              </div>
+              <div className="flex justify-between items-center border-t border-white/10 pt-2">
+                <span className="text-xs font-black text-rose-400 uppercase">Saldo A Quitar Agora:</span>
+                <span className="text-xl font-black text-rose-400">R$ {(settleModalOrder.total - (settleModalOrder.downPayment || 0)).toFixed(2).replace('.', ',')}</span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Forma de Recebimento do Saldo</label>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { id: 'pix', label: 'PIX QR' },
+                  { id: 'dinheiro', label: 'Dinheiro' },
+                  { id: 'cartao_credito', label: 'Cartão Crédito' },
+                  { id: 'cartao_debito', label: 'Cartão Débito' }
+                ].map(m => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setSettleMethod(m.id as any)}
+                    className={cn(
+                      "py-3 px-3 rounded-xl border text-xs font-bold transition-all text-center",
+                      settleMethod === m.id
+                        ? "bg-primary-500 border-primary-400 text-slate-900 font-black shadow-lg shadow-primary-500/20"
+                        : "bg-white/5 border-white/10 text-white/60 hover:text-white"
+                    )}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <Button variant="ghost" onClick={() => setSettleModalOrder(null)}>Cancelar</Button>
+              <Button 
+                className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-black gap-2"
+                onClick={() => handleSettleBalanceInDashboard(settleModalOrder)}
+              >
+                <CheckCircle2 size={16} />
+                <span>Confirmar Recebimento do Saldo</span>
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 };
@@ -968,6 +1097,16 @@ export const ChatPanel = ({
   const [messages, setMessages] = useState<any[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [showQuickActions, setShowQuickActions] = useState(false);
+  const [showQuickTemplates, setShowQuickTemplates] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const quickTemplates = [
+    { label: '👋 Boas-vindas', text: 'Olá! Seja bem-vindo(a). Como posso te ajudar com o seu pedido hoje?' },
+    { label: '💰 Orçamento PIX', text: 'Segue o resumo do seu orçamento. Para dar início à produção, aceitamos entrada via PIX de 50%.' },
+    { label: '✅ Pagamento Confirmado', text: 'Confirmamos o recebimento do seu pagamento! Seu pedido já está em fase de produção.' },
+    { label: '📦 Pedido Pronto', text: 'Notícia boa! Seu pedido ficou pronto e já está disponível para retirada/entrega.' },
+    { label: '📅 Agendamento Entrega', text: 'Prezado(a) cliente, confirmando seu agendamento de entrega para a data e horário combinados.' },
+  ];
 
   useEffect(() => {
     if (!conversation || !currentCompany) return;
@@ -981,6 +1120,10 @@ export const ChatPanel = ({
       setMessages(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
   }, [conversation, currentCompany]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !conversation || !currentCompany) return;
@@ -1004,6 +1147,33 @@ export const ChatPanel = ({
       setNewMessage('');
     } catch (err) {
       console.error('Falha ao enviar mensagem:', err);
+    }
+  };
+
+  const handleSimulateClientMessage = async (customText?: string) => {
+    if (!conversation || !currentCompany) return;
+    const clientText = customText || prompt('Digite a mensagem enviada pelo cliente para teste:', 'Olá! Gostaria de saber como está o andamento do meu pedido e prazo de entrega.') || '';
+    if (!clientText.trim()) return;
+
+    try {
+      await addDoc(collection(db, 'messages'), {
+        companyId: currentCompany.id,
+        phone: conversation.phone || '(62) 99999-9999',
+        text: clientText,
+        direction: 'incoming',
+        senderName: conversation.name || 'Cliente de Teste',
+        channel: conversation.channel || conversation.sourceType || 'WhatsApp',
+        createdAt: Timestamp.now()
+      });
+
+      await updateDoc(doc(db, 'leads', conversation.id), {
+        lastMessageText: clientText,
+        lastMessageDirection: 'incoming',
+        waitingSince: Timestamp.now(),
+        updatedAt: Timestamp.now()
+      });
+    } catch (err) {
+      console.error('Falha ao simular mensagem do cliente:', err);
     }
   };
 
@@ -1035,7 +1205,7 @@ export const ChatPanel = ({
 
   const quickActions = [
     { id: 'note', icon: StickyNote, label: 'Nota Interna', color: 'text-amber-400', permission: permissions.canStartNote, onClick: () => alert('Nota interna simulada no sistema') },
-    { id: 'saved', icon: MessageSquare, label: 'Msg Salva', color: 'text-primary-300', permission: permissions.canSendSavedMessage },
+    { id: 'saved', icon: MessageSquare, label: 'Msg Salva', color: 'text-primary-300', permission: permissions.canSendSavedMessage, onClick: () => setShowQuickTemplates(!showQuickTemplates) },
     { id: 'card', icon: LayoutDashboard, label: 'Criar Card', color: 'text-emerald-400', permission: permissions.canCreateCard },
     { id: 'task', icon: ListTodo, label: 'Tarefa', color: 'text-purple-400', permission: permissions.canAddTask },
     { 
@@ -1164,9 +1334,55 @@ export const ChatPanel = ({
             >
               <div className="flex-1 p-4 overflow-y-auto space-y-4 custom-scrollbar">
                  {messages.length === 0 && (
-                   <div className="flex flex-col items-center justify-center h-full opacity-20">
-                      <MessageSquare size={32} className="mb-2" />
-                      <p className="text-[10px] font-black uppercase tracking-widest">Inicie a conversa</p>
+                   <div className="flex flex-col items-center justify-center h-full space-y-3 py-10">
+                      <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-white/30">
+                        <MessageSquare size={24} />
+                      </div>
+                      <div className="text-center space-y-1">
+                        <p className="text-xs font-bold text-white/70">Nenhuma mensagem registrada ainda</p>
+                        <p className="text-[10px] text-white/30 font-medium">Inicie o atendimento com uma mensagem do atendente ou simule uma chegada do cliente:</p>
+                      </div>
+
+                      <div className="space-y-2 text-center pt-2 w-full max-w-md">
+                        <p className="text-[9px] font-black uppercase tracking-wider text-emerald-400">Respostas do Atendente:</p>
+                        <div className="flex flex-wrap gap-2 justify-center">
+                          {quickTemplates.map((tpl, i) => (
+                            <button
+                              key={i}
+                              type="button"
+                              onClick={() => setNewMessage(tpl.text)}
+                              className="text-[10px] font-medium bg-white/5 hover:bg-primary-500/20 hover:text-primary-300 text-white/70 px-3 py-1.5 rounded-xl border border-white/10 hover:border-primary-500/30 transition-all cursor-pointer"
+                            >
+                              {tpl.label}
+                            </button>
+                          ))}
+                        </div>
+
+                        <p className="text-[9px] font-black uppercase tracking-wider text-sky-400 pt-2">Simular Mensagem do Cliente (Teste):</p>
+                        <div className="flex flex-wrap gap-2 justify-center">
+                          <button
+                            type="button"
+                            onClick={() => handleSimulateClientMessage('Olá! Gostaria de fazer um orçamento de impressão e faixas.')}
+                            className="text-[10px] font-medium bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 px-3 py-1.5 rounded-xl border border-sky-500/30 transition-all cursor-pointer"
+                          >
+                            💬 Quero Orçamento
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSimulateClientMessage('Boa tarde, qual o prazo de entrega do meu pedido?')}
+                            className="text-[10px] font-medium bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 px-3 py-1.5 rounded-xl border border-sky-500/30 transition-all cursor-pointer"
+                          >
+                            📦 Prazo de Entrega
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSimulateClientMessage('Qual a chave PIX para envio da entrada?')}
+                            className="text-[10px] font-medium bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 px-3 py-1.5 rounded-xl border border-sky-500/30 transition-all cursor-pointer"
+                          >
+                            💰 Pedir PIX
+                          </button>
+                        </div>
+                      </div>
                    </div>
                  )}
                  
@@ -1192,10 +1408,37 @@ export const ChatPanel = ({
                       </div>
                     );
                  })}
+                 <div ref={messagesEndRef} />
               </div>
 
               {/* Chat Input */}
-              <div className="p-3 bg-slate-100/50 border-t border-white/10">
+              <div className="p-3 bg-slate-100/50 border-t border-white/10 space-y-2">
+                {/* BARRA DE RESPOSTAS RÁPIDAS / MENSAGENS SALVAS & TESTE CLIENTE */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+                  <button
+                    type="button"
+                    onClick={() => handleSimulateClientMessage()}
+                    className="text-[9.5px] font-black uppercase tracking-wider bg-sky-500 text-white hover:bg-sky-400 px-2.5 py-1 rounded-full shadow-sm whitespace-nowrap transition-all shrink-0 cursor-pointer flex items-center gap-1"
+                    title="Simula o envio de uma mensagem pelo cliente para testar o recebimento no CRM"
+                  >
+                    <MessageSquare size={10} /> + Simular Msg Cliente
+                  </button>
+                  <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 shrink-0 mx-0.5">|</span>
+                  <span className="text-[9px] font-black uppercase tracking-wider text-slate-500 shrink-0 flex items-center gap-1">
+                    <Sparkles size={10} className="text-amber-500" /> Rápidas:
+                  </span>
+                  {quickTemplates.map((tpl, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => setNewMessage(tpl.text)}
+                      className="text-[9.5px] font-bold bg-white text-slate-700 hover:bg-primary-50 hover:text-primary-700 hover:border-primary-300 px-2.5 py-1 rounded-full border border-slate-200 shadow-sm whitespace-nowrap transition-all shrink-0 cursor-pointer"
+                    >
+                      {tpl.label}
+                    </button>
+                  ))}
+                </div>
+
                 <div className="flex items-end gap-2 bg-white p-1 rounded-2xl border border-slate-200 focus-within:border-primary-500/50 transition-all shadow-lg">
                   <div className="flex gap-0.5 pb-0.5">
                     <Button variant="ghost" size="sm" className="p-1.5 min-w-0 h-8 w-8 text-slate-400 hover:text-primary-600 transition-colors" icon={Paperclip} />
@@ -1477,7 +1720,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
               <KanbanColumn 
                 key={stage.id} 
                 stage={stage} 
-                leads={leads.filter(l => l.funnelStageId === stage.id)}
+                leads={leads.filter(l => l.funnelStageId === stage.id || (!l.funnelStageId && (stage.isInitial || stage.order === 0)))}
                 onLeadClick={setSelectedLead}
                 selectedLeadId={selectedLead?.id}
               />
@@ -1727,6 +1970,244 @@ export const MessagesModule = ({ currentCompany, user }: { currentCompany: Compa
   const [filter, setFilter] = useState('');
   const [autoTranscribe, setAutoTranscribe] = useState(true);
   const [viewFilter, setViewFilter] = useState<'all' | 'unreplied'>('all');
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'completed'>('idle');
+  const [syncMessage, setSyncMessage] = useState('');
+  
+  // Modal de Simulação de Mensagens Multicanal
+  const [isSimulateModalOpen, setIsSimulateModalOpen] = useState(false);
+  const [simChannel, setSimChannel] = useState<'WhatsApp' | 'Instagram' | 'WebChat' | 'Facebook' | 'E-mail' | 'Telegram'>('WhatsApp');
+  const [simName, setSimName] = useState('Juliana Costa');
+  const [simPhone, setSimPhone] = useState('(62) 99777-3322');
+  const [simMessage, setSimMessage] = useState('Olá! Vi o anúncio da gráfica e quero fazer um orçamento de 1.000 cartões de visita e 2 banners para minha loja.');
+
+  const getInitialStageInfo = async () => {
+    if (!currentCompany) return { funnelId: null, funnelStageId: null };
+    try {
+      const funnelQ = query(
+        collection(db, 'funnels'),
+        where('companyId', '==', currentCompany.id),
+        where('isDefault', '==', true),
+        limit(1)
+      );
+      let funnelSnap = await getDocs(funnelQ);
+      if (funnelSnap.empty) {
+        const anyFunnelQ = query(collection(db, 'funnels'), where('companyId', '==', currentCompany.id), limit(1));
+        funnelSnap = await getDocs(anyFunnelQ);
+      }
+      
+      if (!funnelSnap.empty) {
+        const funnelId = funnelSnap.docs[0].id;
+        const stageQ = query(
+          collection(db, 'funnelStages'),
+          where('funnelId', '==', funnelId),
+          where('isInitial', '==', true),
+          limit(1)
+        );
+        let stageSnap = await getDocs(stageQ);
+        if (stageSnap.empty) {
+          const anyStageQ = query(collection(db, 'funnelStages'), where('funnelId', '==', funnelId), orderBy('order', 'asc'), limit(1));
+          stageSnap = await getDocs(anyStageQ);
+        }
+        if (!stageSnap.empty) {
+          return { funnelId, funnelStageId: stageSnap.docs[0].id };
+        }
+        return { funnelId, funnelStageId: null };
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    return { funnelId: null, funnelStageId: null };
+  };
+
+  const sampleLeadsData = [
+    {
+      fullName: 'Carlos Oliveira',
+      firstName: 'Carlos',
+      lastName: 'Oliveira',
+      phone: '(62) 98111-2233',
+      sourceType: 'WhatsApp',
+      lastMessageText: 'Quero fechar o pedido de 1000 panfletos e 500 cartões. Como faço para pagar a entrada no PIX?',
+      status: 'ENTRADA',
+      estimatedValue: 450,
+      waitingSince: new Date(Date.now() - 12 * 60000).toISOString(),
+      lastInteractionAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    },
+    {
+      fullName: 'Mariana Santos',
+      firstName: 'Mariana',
+      lastName: 'Santos',
+      phone: '(62) 99222-3344',
+      sourceType: 'Instagram',
+      lastMessageText: 'Vocês fazem a instalação da fachada em ACM com LED no local em Goiânia? Qual o prazo?',
+      status: 'ENTRADA',
+      estimatedValue: 3800,
+      waitingSince: new Date(Date.now() - 28 * 60000).toISOString(),
+      lastInteractionAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    },
+    {
+      fullName: 'Gabriel Mendes',
+      firstName: 'Gabriel',
+      lastName: 'Mendes',
+      phone: '(62) 98777-1122',
+      sourceType: 'WebChat',
+      lastMessageText: 'Olá! Vi no site os serviços de impressão offset. Qual o valor para 5.000 panfletos da gráfica?',
+      status: 'ENTRADA',
+      estimatedValue: 680,
+      waitingSince: new Date(Date.now() - 8 * 60000).toISOString(),
+      lastInteractionAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    },
+    {
+      fullName: 'Amanda Prado',
+      firstName: 'Amanda',
+      lastName: 'Prado',
+      phone: '(62) 99666-8899',
+      sourceType: 'Facebook',
+      lastMessageText: 'Boa tarde! Gostaria de um orçamento para 10 placas de sinalização comercial em acrílico.',
+      status: 'ENTRADA',
+      estimatedValue: 1250,
+      waitingSince: new Date(Date.now() - 18 * 60000).toISOString(),
+      lastInteractionAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    },
+    {
+      fullName: 'Ricardo Fonseca',
+      firstName: 'Ricardo',
+      lastName: 'Fonseca',
+      phone: '(62) 98888-4433',
+      sourceType: 'E-mail',
+      lastMessageText: 'Prezados, solicitamos proposta técnica para envelopamento da frota comercial (5 utilitários).',
+      status: 'ENTRADA',
+      estimatedValue: 5400,
+      waitingSince: new Date(Date.now() - 35 * 60000).toISOString(),
+      lastInteractionAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    },
+    {
+      fullName: 'Bruno Alves',
+      firstName: 'Bruno',
+      lastName: 'Alves',
+      phone: '(62) 99111-5544',
+      sourceType: 'Telegram',
+      lastMessageText: 'Olá equipe Rafa Arts, preciso de 50 camisetas personalizadas com estampa em silk-screen para evento.',
+      status: 'ENTRADA',
+      estimatedValue: 1600,
+      waitingSince: new Date(Date.now() - 3 * 60000).toISOString(),
+      lastInteractionAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }
+  ];
+
+  const handleSyncWhatsApp = async () => {
+    if (!currentCompany) return;
+    setSyncStatus('syncing');
+    
+    const steps = [
+      "Conectando às APIs Multicanais (WhatsApp, Insta, WebChat, FB, E-mail, Telegram)...",
+      "Autenticando sessão RPro OmniChannel...",
+      "Buscando mensagens pendentes em todos os canais...",
+      "Importando contatos e direcionando para a etapa ENTRADA do CRM...",
+      "Sincronização concluída com sucesso!"
+    ];
+
+    for (let i = 0; i < steps.length; i++) {
+      setSyncMessage(steps[i]);
+      await new Promise(resolve => setTimeout(resolve, 650));
+    }
+
+    try {
+      const { funnelId, funnelStageId } = await getInitialStageInfo();
+
+      for (const sl of sampleLeadsData) {
+        const exists = leads.some(l => l.phone === sl.phone);
+        if (!exists) {
+          await addDoc(collection(db, 'leads'), {
+            companyId: currentCompany.id,
+            funnelId,
+            funnelStageId,
+            ...sl,
+            createdAt: new Date().toISOString()
+          });
+
+          let msgs: any[] = [];
+          if (sl.fullName === 'Carlos Oliveira') {
+            msgs = [
+              { text: 'Olá, gostaria de saber os valores para impressão de panfletos 14x20cm e cartões de visita.', direction: 'incoming' },
+              { text: 'Olá Carlos! Tudo bem? Fica R$ 450,00 o pacote com 1.000 panfletos e 500 cartões verniz localizado. Entrada de 50% no PIX.', direction: 'outgoing' },
+              { text: 'Quero fechar o pedido de 1000 panfletos e 500 cartões. Como faço para pagar a entrada no PIX?', direction: 'incoming' }
+            ];
+          } else if (sl.fullName === 'Mariana Santos') {
+            msgs = [
+              { text: 'Oi! Vi a fachada em ACM com LED no Instagram da Rafa Arts e gostei muito da qualidade.', direction: 'incoming' },
+              { text: 'Olá Mariana! Que ótimo! Produzimos e instalamos fachadas personalizadas em ACM com backlight LED. Qual a medida da loja?', direction: 'outgoing' },
+              { text: 'Vocês fazem a instalação da fachada em ACM com LED no local em Goiânia? Qual o prazo?', direction: 'incoming' }
+            ];
+          } else if (sl.fullName === 'Gabriel Mendes') {
+            msgs = [
+              { text: 'Olá! Vi no site os serviços de impressão offset. Qual o valor para 5.000 panfletos da gráfica?', direction: 'incoming' }
+            ];
+          } else if (sl.fullName === 'Amanda Prado') {
+            msgs = [
+              { text: 'Boa tarde! Gostaria de um orçamento para 10 placas de sinalização comercial em acrílico.', direction: 'incoming' }
+            ];
+          } else if (sl.fullName === 'Ricardo Fonseca') {
+            msgs = [
+              { text: 'Prezados, solicitamos proposta técnica para envelopamento da frota comercial (5 utilitários).', direction: 'incoming' }
+            ];
+          } else {
+            msgs = [
+              { text: 'Olá equipe Rafa Arts, preciso de 50 camisetas personalizadas com estampa em silk-screen para evento.', direction: 'incoming' }
+            ];
+          }
+
+          for (let index = 0; index < msgs.length; index++) {
+            const m = msgs[index];
+            await addDoc(collection(db, 'messages'), {
+              companyId: currentCompany.id,
+              phone: sl.phone,
+              text: m.text,
+              direction: m.direction,
+              senderName: m.direction === 'outgoing' ? (user?.name || 'RPro Sistema') : sl.fullName,
+              channel: sl.sourceType || 'WhatsApp',
+              createdAt: Timestamp.fromDate(new Date(Date.now() - (msgs.length - index) * 600000))
+            });
+          }
+        }
+      }
+      
+      setSyncStatus('completed');
+      setTimeout(() => setSyncStatus('idle'), 3000);
+    } catch (error) {
+      console.error(error);
+      setSyncStatus('idle');
+      alert('Erro ao sincronizar mensagens.');
+    }
+  };
+
+  const handleSimulateIncomingMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentCompany || !simName.trim() || !simMessage.trim()) return;
+
+    try {
+      await addDoc(collection(db, 'messages'), {
+        companyId: currentCompany.id,
+        phone: simPhone,
+        text: simMessage,
+        direction: 'incoming',
+        senderName: simName,
+        channel: simChannel,
+        createdAt: Timestamp.now()
+      });
+
+      setIsSimulateModalOpen(false);
+      alert(`Mensagem do canal [${simChannel}] recebida com sucesso!\nO lead "${simName}" foi gerado/atualizado automaticamente na etapa ENTRADA do Funil CRM.`);
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao simular envio de mensagem.');
+    }
+  };
 
   useEffect(() => {
     if (!currentCompany) return;
@@ -1735,8 +2216,72 @@ export const MessagesModule = ({ currentCompany, user }: { currentCompany: Compa
       where('companyId', '==', currentCompany.id),
       orderBy('updatedAt', 'desc')
     );
-    return onSnapshot(q, (snap) => {
-      setLeads(snap.docs.map(d => ({ id: d.id, ...d.data() } as Lead)));
+    return onSnapshot(q, async (snap) => {
+      const fetchedLeads = snap.docs.map(d => ({ id: d.id, ...d.data() } as Lead));
+      setLeads(fetchedLeads);
+
+      if (fetchedLeads.length > 0 && !selectedChat) {
+        setSelectedChat({ ...fetchedLeads[0], name: fetchedLeads[0].fullName });
+      }
+
+      // If database has no leads yet, auto-seed sample client conversations for all channels
+      if (snap.empty) {
+        const { funnelId, funnelStageId } = await getInitialStageInfo();
+
+        for (const sl of sampleLeadsData) {
+          await addDoc(collection(db, 'leads'), {
+            companyId: currentCompany.id,
+            funnelId,
+            funnelStageId,
+            ...sl,
+            createdAt: new Date().toISOString()
+          });
+
+          let msgs: any[] = [];
+          if (sl.fullName === 'Carlos Oliveira') {
+            msgs = [
+              { text: 'Olá, gostaria de saber os valores para impressão de panfletos 14x20cm e cartões de visita.', direction: 'incoming' },
+              { text: 'Olá Carlos! Tudo bem? Fica R$ 450,00 o pacote com 1.000 panfletos e 500 cartões verniz localizado. Entrada de 50% no PIX.', direction: 'outgoing' },
+              { text: 'Quero fechar o pedido de 1000 panfletos e 500 cartões. Como faço para pagar a entrada no PIX?', direction: 'incoming' }
+            ];
+          } else if (sl.fullName === 'Mariana Santos') {
+            msgs = [
+              { text: 'Oi! Vi a fachada em ACM com LED no Instagram da Rafa Arts e gostei muito da qualidade.', direction: 'incoming' },
+              { text: 'Olá Mariana! Que ótimo! Produzimos e instalamos fachadas personalizadas em ACM com backlight LED. Qual a medida da loja?', direction: 'outgoing' },
+              { text: 'Vocês fazem a installation da fachada em ACM com LED no local em Goiânia? Qual o prazo?', direction: 'incoming' }
+            ];
+          } else if (sl.fullName === 'Gabriel Mendes') {
+            msgs = [
+              { text: 'Olá! Vi no site os serviços de impressão offset. Qual o valor para 5.000 panfletos da gráfica?', direction: 'incoming' }
+            ];
+          } else if (sl.fullName === 'Amanda Prado') {
+            msgs = [
+              { text: 'Boa tarde! Gostaria de um orçamento para 10 placas de sinalização comercial em acrílico.', direction: 'incoming' }
+            ];
+          } else if (sl.fullName === 'Ricardo Fonseca') {
+            msgs = [
+              { text: 'Prezados, solicitamos proposta técnica para envelopamento da frota comercial (5 utilitários).', direction: 'incoming' }
+            ];
+          } else {
+            msgs = [
+              { text: 'Olá equipe Rafa Arts, preciso de 50 camisetas personalizadas com estampa em silk-screen para evento.', direction: 'incoming' }
+            ];
+          }
+
+          for (let index = 0; index < msgs.length; index++) {
+            const m = msgs[index];
+            await addDoc(collection(db, 'messages'), {
+              companyId: currentCompany.id,
+              phone: sl.phone,
+              text: m.text,
+              direction: m.direction,
+              senderName: m.direction === 'outgoing' ? (user?.name || 'RPro Sistema') : sl.fullName,
+              channel: sl.sourceType || 'WhatsApp',
+              createdAt: Timestamp.fromDate(new Date(Date.now() - (msgs.length - index) * 600000))
+            });
+          }
+        }
+      }
     });
   }, [currentCompany]);
 
@@ -1759,19 +2304,55 @@ export const MessagesModule = ({ currentCompany, user }: { currentCompany: Compa
       <GlassCard className="w-96 p-0 overflow-hidden flex flex-col bg-white/5 border-white/10 shrink-0">
         <div className="p-6 border-b border-white/10 space-y-4">
            <div className="flex justify-between items-center">
-              <h3 className="text-xl font-bold text-white">Conversas</h3>
+              <h3 className="text-xl font-bold text-white flex items-center gap-1.5">
+                 Conversas
+                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              </h3>
+              <div className="flex items-center gap-2">
+                 <button 
+                   type="button"
+                   onClick={() => setIsSimulateModalOpen(true)}
+                   className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-primary-500/20 border border-primary-500/40 text-primary-300 hover:bg-primary-500/30 text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all active:scale-95"
+                   title="Simular Mensagem Recebida (Qualquer Canal)"
+                 >
+                   <MessageSquare size={10} />
+                   <span>+ Simular</span>
+                 </button>
+                 <button 
+                   type="button"
+                   onClick={handleSyncWhatsApp}
+                   disabled={syncStatus === 'syncing'}
+                   className={cn(
+                     "flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all active:scale-95 disabled:pointer-events-none",
+                     syncStatus === 'syncing' 
+                       ? "bg-amber-500/10 border-amber-500/20 text-amber-400" 
+                       : syncStatus === 'completed'
+                       ? "bg-emerald-500/20 border-emerald-500/30 text-emerald-400 font-bold"
+                       : "bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20"
+                   )}
+                 >
+                   <RefreshCw size={10} className={cn(syncStatus === 'syncing' && "animate-spin")} />
+                   <span>{syncStatus === 'syncing' ? 'Buscando...' : syncStatus === 'completed' ? 'Sincronizado!' : 'Buscar'}</span>
+                 </button>
+              </div>
+           </div>
+
+           <div className="flex justify-between items-center gap-2">
+              <div className="flex-1">
+                 <Input icon={Search} placeholder="Filtrar chats..." value={filter} onChange={(e) => setFilter(e.target.value)} />
+              </div>
               <div 
                 onClick={() => setAutoTranscribe(!autoTranscribe)}
                 className={cn(
-                  "flex items-center gap-2 px-3 py-1.5 rounded-full border cursor-pointer transition-all",
+                  "flex items-center gap-1.5 px-2.5 py-2 rounded-xl border cursor-pointer transition-all shrink-0 h-10 select-none",
                   autoTranscribe ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-white/5 border-white/10 text-white/30"
                 )}
+                title="Transcrição de Áudio Inteligente"
               >
-                <div className={cn("w-2 h-2 rounded-full", autoTranscribe ? "bg-emerald-400" : "bg-white/20")} />
-                <span className="text-[10px] font-black uppercase tracking-widest">Transcrição: {autoTranscribe ? 'ON' : 'OFF'}</span>
+                <div className={cn("w-1.5 h-1.5 rounded-full", autoTranscribe ? "bg-emerald-400 animate-pulse" : "bg-white/20")} />
+                <span className="text-[9px] font-black uppercase tracking-widest">Transcrição: {autoTranscribe ? 'ON' : 'OFF'}</span>
               </div>
            </div>
-           <Input icon={Search} placeholder="Filtrar chats..." value={filter} onChange={(e) => setFilter(e.target.value)} />
            
            {/* SUB-TABS DO SISTEMA ANTI-VÁCUO */}
            <div className="flex gap-2">
@@ -1834,6 +2415,35 @@ export const MessagesModule = ({ currentCompany, user }: { currentCompany: Compa
         )}
 
         <div className="flex-1 overflow-y-auto custom-scrollbar">
+          {syncStatus === 'syncing' && (
+            <div className="m-4 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl flex flex-col gap-2 animate-pulse">
+               <div className="flex items-center gap-3">
+                  <div className="w-6 h-6 rounded-lg bg-emerald-500/25 flex items-center justify-center text-emerald-400">
+                     <RefreshCw size={12} className="animate-spin" />
+                  </div>
+                  <div>
+                     <p className="text-[10px] font-black uppercase text-emerald-400 leading-none mb-1">WhatsApp Sync</p>
+                     <p className="text-[9px] text-white/70 font-bold leading-none">{syncMessage}</p>
+                  </div>
+               </div>
+               <div className="w-full bg-white/5 h-1 rounded-full overflow-hidden">
+                  <div className="bg-emerald-400 h-full w-2/3 animate-pulse" />
+               </div>
+            </div>
+          )}
+
+          {syncStatus === 'completed' && (
+            <div className="m-4 p-3 bg-emerald-500/20 border border-emerald-500/30 rounded-2xl flex items-center gap-2 animate-in fade-in duration-300">
+               <div className="w-5 h-5 rounded-full bg-emerald-400 text-slate-900 flex items-center justify-center font-black">
+                  <Check size={10} />
+               </div>
+               <div>
+                  <p className="text-[9px] font-black uppercase text-emerald-400 leading-none">Novas Conversas!</p>
+                  <p className="text-[8px] text-white/50">WhatsApp sincronizado com sucesso.</p>
+               </div>
+            </div>
+          )}
+
           {filteredLeads.map(l => {
             const lastUpdate = l.updatedAt instanceof Timestamp ? l.updatedAt.toDate() : new Date((l as any).updatedAt || Date.now());
             const timeStr = format(lastUpdate, 'HH:mm');
@@ -1927,6 +2537,124 @@ export const MessagesModule = ({ currentCompany, user }: { currentCompany: Compa
         user={user}
         onClose={() => setSelectedChat(null)}
       />
+
+      {/* MODAL SIMULADOR DE MENSAGENS RECEBIDAS (TESTE MULTICANAL DE CRM) */}
+      {isSimulateModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <GlassCard className="max-w-lg w-full p-6 space-y-5 bg-slate-900 border-white/10 shadow-2xl">
+            <div className="flex justify-between items-center border-b border-white/10 pb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-primary-500/20 border border-primary-500/30 flex items-center justify-center text-primary-400">
+                  <MessageSquare size={16} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white leading-tight">Simular Mensagem Recebida</h3>
+                  <p className="text-xs text-white/50">Teste a automação de entrada no CRM em qualquer canal</p>
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setIsSimulateModalOpen(false)}
+                className="text-white/40 hover:text-white text-sm font-bold p-2"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSimulateIncomingMessage} className="space-y-4">
+              <div>
+                <label className="text-[10px] font-black uppercase text-white/60 tracking-wider mb-2 block">
+                  Selecione o Canal de Entrada
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['WhatsApp', 'Instagram', 'WebChat', 'Facebook', 'E-mail', 'Telegram'] as const).map(ch => (
+                    <button
+                      key={ch}
+                      type="button"
+                      onClick={() => {
+                        setSimChannel(ch);
+                        if (ch === 'WhatsApp') setSimMessage('Olá! Quero orçamento de 1.000 panfletos e cartões de visita no WhatsApp.');
+                        if (ch === 'Instagram') setSimMessage('Oi! Vi o post das fachadas em ACM no Instagram. Quanto custa m2?');
+                        if (ch === 'WebChat') setSimMessage('Olá! Vi o site de vocês e gostaria de contratar adesivação de frota.');
+                        if (ch === 'Facebook') setSimMessage('Boa tarde! Gostaria de cotação de 10 placas de sinalização acrílica.');
+                        if (ch === 'E-mail') setSimMessage('Prezados, solicitamos proposta comercial para envelopamento de 5 veículos.');
+                        if (ch === 'Telegram') setSimMessage('Olá! Vocês fazem camisetas personalizadas em silk-screen para evento?');
+                      }}
+                      className={cn(
+                        "py-2 px-3 rounded-xl border text-xs font-bold transition-all text-center flex items-center justify-center gap-1.5",
+                        simChannel === ch 
+                          ? "bg-primary-500/20 border-primary-500 text-primary-300 shadow-lg shadow-primary-500/10" 
+                          : "bg-white/5 border-white/10 text-white/60 hover:text-white hover:bg-white/10"
+                      )}
+                    >
+                      <span className={cn(
+                        "w-2 h-2 rounded-full",
+                        ch === 'WhatsApp' ? "bg-emerald-400" :
+                        ch === 'Instagram' ? "bg-pink-400" :
+                        ch === 'WebChat' ? "bg-sky-400" :
+                        ch === 'Facebook' ? "bg-blue-400" :
+                        ch === 'E-mail' ? "bg-amber-400" : "bg-indigo-400"
+                      )} />
+                      <span>{ch}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-black uppercase text-white/60 tracking-wider mb-1 block">Nome do Cliente</label>
+                  <Input 
+                    value={simName} 
+                    onChange={e => setSimName(e.target.value)} 
+                    placeholder="Nome completo" 
+                    required 
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black uppercase text-white/60 tracking-wider mb-1 block">Telefone / Contato</label>
+                  <Input 
+                    value={simPhone} 
+                    onChange={e => setSimPhone(e.target.value)} 
+                    placeholder="(62) 99000-0000" 
+                    required 
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black uppercase text-white/60 tracking-wider mb-1 block">Mensagem Recebida do Cliente</label>
+                <textarea 
+                  value={simMessage} 
+                  onChange={e => setSimMessage(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-2xl p-3 text-sm text-white placeholder-white/30 focus:outline-none focus:border-primary-500 min-h-[90px]"
+                  placeholder="Digite o texto da mensagem enviada pelo cliente..."
+                  required
+                />
+              </div>
+
+              <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs text-emerald-300 flex items-center gap-2">
+                <CheckCircle2 size={14} className="shrink-0 text-emerald-400" />
+                <span>Ao receber, o sistema criará o Lead automaticamente na coluna <strong>ENTRADA</strong> do Funil CRM.</span>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button 
+                  type="button" 
+                  variant="ghost" 
+                  onClick={() => setIsSimulateModalOpen(false)}
+                >
+                  Cancelar
+                </Button>
+                <Button type="submit" variant="primary" className="gap-2">
+                  <Send size={14} />
+                  <span>Receber no Sistema</span>
+                </Button>
+              </div>
+            </form>
+          </GlassCard>
+        </div>
+      )}
     </div>
   );
 };
@@ -2537,7 +3265,7 @@ export const MetaAdsModule = ({ currentCompany }: { currentCompany: Company | nu
 // --- PDV / POS ---
 export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany: Company | null, addPendingOrder: (order: SaleOrder) => void }) => {
   const { isRegisterOpen, setIsRegisterOpen } = React.useContext(AppContext)!;
-  const [activeTab, setActiveTab] = useState<'venda' | 'estoque' | 'clientes'>('venda');
+  const [activeTab, setActiveTab] = useState<'venda' | 'historico' | 'estoque' | 'clientes' | 'contratos'>('venda');
   const [cart, setCart] = useState<SaleOrderItem[]>([]);
   const [search, setSearch] = useState('');
   const [selectedQty, setSelectedQty] = useState(1);
@@ -2546,11 +3274,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
   const [lastFinalizedOrder, setLastFinalizedOrder] = useState<SaleOrder | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<{ id: string, name: string, phone: string } | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState<'dinheiro' | 'pix' | 'cartao_credito' | 'cartao_debito'>('pix');
+  const [paymentMethod, setPaymentMethod] = useState<'dinheiro' | 'pix' | 'cartao_credito' | 'cartao_debito' | 'misto'>('pix');
+  const [cashReceived, setCashReceived] = useState<number | ''>('');
   const [downPayment, setDownPayment] = useState(0);
   const [scheduledFor, setScheduledFor] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
   const [salesToday, setSalesToday] = useState<SaleOrder[]>([]);
+  const [allSalesHistory, setAllSalesHistory] = useState<SaleOrder[]>([]);
+  const [historyFilter, setHistoryFilter] = useState<'todos' | 'parciais' | 'concluidos'>('todos');
+  const [historySearch, setHistorySearch] = useState('');
+  const [settleModalOrder, setSettleModalOrder] = useState<SaleOrder | null>(null);
+  const [settleMethod, setSettleMethod] = useState<'pix' | 'dinheiro' | 'cartao_credito' | 'cartao_debito'>('pix');
 
   useEffect(() => {
     if (!currentCompany) return;
@@ -2562,6 +3296,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     );
     return onSnapshot(q, (snap) => {
       const allSales = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }) as SaleOrder);
+      allSales.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setAllSalesHistory(allSales);
       const todaySales = allSales.filter(sale => {
         const d = new Date(sale.createdAt);
         return d >= startOfDay;
@@ -2569,6 +3305,57 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       setSalesToday(todaySales);
     });
   }, [currentCompany]);
+
+  const handleSettleBalance = async (order: SaleOrder) => {
+    if (!currentCompany || !order) return;
+    const balanceToSettle = order.total - (order.downPayment || 0);
+    if (balanceToSettle <= 0) return;
+
+    try {
+      try {
+        const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/936/936-preview.mp3');
+        audio.play().catch(() => {});
+      } catch (e) {}
+
+      const q = query(
+        collection(db, 'saleOrders'),
+        where('companyId', '==', currentCompany.id),
+        where('id', '==', order.id),
+        limit(1)
+      );
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        await updateDoc(doc(db, 'saleOrders', snap.docs[0].id), {
+          status: 'completed',
+          downPayment: order.total,
+          settledAt: new Date().toISOString(),
+          settledPaymentMethod: settleMethod,
+          updatedAt: new Date().toISOString()
+        });
+      }
+
+      const qSvc = query(
+        collection(db, 'services'),
+        where('companyId', '==', currentCompany.id),
+        where('orderId', '==', order.id),
+        limit(1)
+      );
+      const snapSvc = await getDocs(qSvc);
+      if (!snapSvc.empty) {
+        await updateDoc(doc(db, 'services', snapSvc.docs[0].id), {
+          status: 'concluido',
+          balance: 0,
+          updatedAt: Timestamp.now()
+        });
+      }
+
+      alert(`Saldo de R$ ${balanceToSettle.toFixed(2).replace('.', ',')} quitado com sucesso!\nA venda/serviço foi totalmente quitada.`);
+      setSettleModalOrder(null);
+    } catch (err) {
+      console.error('Erro ao quitar saldo:', err);
+      alert('Erro ao quitar saldo do pedido.');
+    }
+  };
 
   const products: Product[] = [
     { id: '1', name: 'A4 FRENTE E VERSO COLORIDO', code: '7891396968707', price: 1.50, stock: 1500, unitType: 'unit' },
@@ -2623,11 +3410,31 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setSelectedQty(1);
   };
 
+  const updateCartQty = (index: number, delta: number) => {
+    setCart(prev => {
+      const updated = [...prev];
+      const newQty = updated[index].quantity + delta;
+      if (newQty <= 0) {
+        return updated.filter((_, i) => i !== index);
+      }
+      updated[index] = { ...updated[index], quantity: newQty };
+      return updated;
+    });
+  };
+
+  const removeFromCart = (index: number) => {
+    setCart(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const clearCart = () => {
+    setCart([]);
+  };
+
   const total = cart.reduce((acc, item) => {
     const itemTotal = item.area ? item.price * item.area * item.quantity : item.price * item.quantity;
     return acc + itemTotal;
   }, 0);
-  const remainingValue = Math.max(0, total - downPayment);
+  const remainingValue = Math.max(0, total - (downPayment === '' || typeof downPayment === 'string' ? 0 : Number(downPayment)));
 
   const faturamentoHoje = salesToday.reduce((acc, o) => {
     if (o.status === 'pending') {
@@ -2638,7 +3445,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const handleFinalize = async (isPending: boolean = false) => {
     if (!selectedCustomer && cart.length > 0) {
-      if (isPending) {
+      if (isPending || remainingValue > 0) {
         setIsCustomerModalOpen(true);
         return;
       }
@@ -2650,6 +3457,21 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       audio.play().catch(() => {});
     } catch (e) {}
 
+    const finalDownPayment = downPayment === '' || typeof downPayment === 'string' ? 0 : Number(downPayment);
+    const currentRemaining = Math.max(0, total - finalDownPayment);
+
+    // Rule: If partial payment (entrada), ensure a scheduled delivery date is set
+    let deliveryDate = scheduledFor;
+    if (currentRemaining > 0 && !deliveryDate) {
+      const defaultDelivery = new Date();
+      defaultDelivery.setDate(defaultDelivery.getDate() + 2);
+      defaultDelivery.setHours(17, 0, 0, 0);
+      deliveryDate = defaultDelivery.toISOString().slice(0, 16);
+      setScheduledFor(deliveryDate);
+    }
+
+    const isPartialSale = currentRemaining > 0 || isPending;
+
     const order: SaleOrder = {
       id: `ord_${Date.now()}`,
       companyId: currentCompany?.id || 'default',
@@ -2657,11 +3479,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       customerName: selectedCustomer?.name || 'Cliente de Balcão',
       items: [...cart],
       total,
-      downPayment: downPayment > 0 ? downPayment : total,
+      downPayment: finalDownPayment,
+      receivedValue: finalDownPayment,
       paymentMethod,
-      status: isPending || remainingValue > 0 ? 'pending' : 'completed',
+      status: isPartialSale ? 'pending' : 'completed',
       createdAt: new Date().toISOString(),
-      scheduledFor: scheduledFor || undefined
+      scheduledFor: deliveryDate || undefined
     };
 
     // Save to Firestore
@@ -2676,18 +3499,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         item.name.toLowerCase().includes('serviço')
       );
 
-      if (hasServiceItems || remainingValue > 0 || isPending) {
+      if (hasServiceItems || currentRemaining > 0 || isPending) {
         await addDoc(collection(db, 'services'), {
           companyId: currentCompany?.id,
           orderId: order.id,
           client: order.customerName,
           phone: selectedCustomer?.phone || '',
           service: cart.map(i => `${i.quantity}x ${i.name}`).join(', '),
-          status: 'pendente',
+          status: currentRemaining > 0 ? 'pendente' : 'concluido',
           priority: 'normal',
           total: order.total,
-          balance: remainingValue,
-          scheduledFor: scheduledFor || null,
+          balance: currentRemaining,
+          scheduledFor: deliveryDate || null,
           createdAt: Timestamp.now()
         });
         console.log('Ordem de Serviço gerada.');
@@ -2696,7 +3519,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       console.error('Erro ao salvar venda:', err);
     }
 
-    if (isPending || remainingValue > 0) {
+    if (isPartialSale) {
       addPendingOrder(order);
     }
     
@@ -2732,8 +3555,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         <div className="flex gap-2">
           {[
             { id: 'venda', label: 'Terminal Venda', icon: ShoppingBag },
+            { id: 'historico', label: 'Histórico & Abertas', icon: History },
             { id: 'estoque', label: 'Estoque / Produtos', icon: Box },
-            { id: 'clientes', label: 'Clientes / CRM', icon: Users }
+            { id: 'clientes', label: 'Clientes / CRM', icon: Users },
+            { id: 'contratos', label: 'Contratos Rafa Art', icon: FileText }
           ].map(tab => (
             <button
               key={tab.id}
@@ -2763,51 +3588,124 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       <div className="flex flex-1 overflow-hidden">
         {activeTab === 'venda' && (
           <>
-            {/* Left Column: POS Display */}
-            <div className="flex-1 bg-[#fef9c3] flex flex-col items-center justify-center p-12 relative overflow-hidden">
-               <div className="absolute top-0 left-0 w-full p-8 flex justify-between items-center text-slate-900/40">
-                  <p className="text-[10px] font-black uppercase tracking-[4px]">RPro POS Terminal</p>
-                  <p className="text-[10px] font-black uppercase tracking-[4px]">#001-ALPHA</p>
+            {/* Left Column: POS Display & Compact Cart Items Viewer */}
+            <div className="flex-1 bg-[#fef9c3] flex flex-col p-6 relative overflow-hidden justify-between">
+               {/* Top Bar */}
+               <div className="flex justify-between items-center text-slate-900/50 pb-2 border-b border-slate-900/10">
+                  <div className="flex items-center gap-2">
+                     <ShoppingBag size={16} className="text-slate-900" />
+                     <p className="text-[10px] font-black uppercase tracking-[3px]">RPro POS Terminal</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                     <p className="text-[10px] font-black uppercase tracking-[3px]">#001-ALPHA</p>
+                     {cart.length > 0 && (
+                        <button
+                           onClick={clearCart}
+                           className="text-[9px] font-bold uppercase text-rose-700 bg-rose-500/10 hover:bg-rose-500/20 px-2 py-1 rounded-md transition-all flex items-center gap-1 cursor-pointer"
+                           title="Limpar Carrinho"
+                        >
+                           <Trash2 size={10} />
+                           Limpar
+                        </button>
+                     )}
+                  </div>
                </div>
-               
-               <motion.div 
-                 initial={{ opacity: 0, y: 20 }}
-                 animate={{ opacity: 1, y: 0 }}
-                 key={cart.length}
-                 className="text-center space-y-6"
-               >
-                  {cart.length === 0 ? (
-                     <h1 className="text-[8vw] font-black text-slate-900 leading-none tracking-tighter uppercase italic drop-shadow-sm">
-                        Livre
+
+               {/* Total Banner */}
+               <div className="py-3 px-4 bg-slate-900/5 rounded-2xl border border-slate-900/10 flex items-center justify-between my-2">
+                  <div>
+                     <p className="text-[9px] font-black uppercase tracking-[3px] text-slate-900/40">Total da Nota</p>
+                     <h1 className="text-3xl md:text-4xl font-black text-slate-900 tracking-tighter italic">
+                        R$ {total.toFixed(2).replace('.', ',')}
                      </h1>
+                  </div>
+                  <Badge className="bg-slate-900 text-white border-none py-1.5 px-4 rounded-full font-black uppercase tracking-widest text-[9px]">
+                     {cart.length} {cart.length === 1 ? 'Item' : 'Itens'}
+                  </Badge>
+               </div>
+
+               {/* Visualizador de Itens no PDV (Compact Items Cart List) */}
+               <div className="flex-1 my-2 bg-white/70 backdrop-blur-xs rounded-2xl border border-slate-900/10 p-3 flex flex-col overflow-hidden shadow-inner">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-900/10 mb-2">
+                     <span className="text-[9px] font-black uppercase tracking-wider text-slate-700">Visualizador de Itens ({cart.length})</span>
+                     <span className="text-[8px] font-bold text-slate-400 uppercase">Lista de Lançamento</span>
+                  </div>
+
+                  {cart.length === 0 ? (
+                     <div className="flex-1 flex flex-col items-center justify-center text-center p-6 space-y-2">
+                        <ShoppingBag size={28} className="text-slate-400/50 animate-bounce" />
+                        <p className="text-[10px] font-black text-slate-700 uppercase tracking-wider">Carrinho Livre</p>
+                        <p className="text-[9px] font-bold text-slate-500 max-w-[200px]">Selecione os produtos na lista ao lado para adicionar ao pedido.</p>
+                     </div>
                   ) : (
-                     <div className="space-y-4">
-                        <p className="text-[10px] font-black uppercase tracking-[5px] text-slate-900/30">Valor Total</p>
-                        <h1 className="text-[10vw] font-black text-slate-900 leading-none tracking-tighter italic">
-                           R$ {total.toFixed(2).replace('.', ',')}
-                        </h1>
-                        <Badge className="bg-slate-900 text-white border-none py-2 px-6 rounded-full font-black uppercase tracking-widest text-[10px]">
-                           {cart.length} Itens em Carrinho
-                        </Badge>
+                     <div className="flex-1 overflow-y-auto custom-scrollbar divide-y divide-slate-200/60 pr-1">
+                        {cart.map((item, idx) => {
+                           const itemSubtotal = item.area ? item.price * item.area * item.quantity : item.price * item.quantity;
+                           return (
+                              <div key={idx} className="py-1.5 px-2 flex items-center justify-between hover:bg-slate-900/5 rounded-lg transition-all group">
+                                 <div className="flex items-center gap-2 min-w-0 flex-1">
+                                    <span className="text-[9px] font-black text-slate-900 bg-slate-900/10 px-1.5 py-0.5 rounded-md min-w-[24px] text-center">
+                                       {item.quantity}x
+                                    </span>
+                                    <div className="min-w-0 flex-1">
+                                       <p className="text-[10px] font-bold text-slate-900 uppercase truncate leading-tight tracking-tight">
+                                          {item.name}
+                                       </p>
+                                       {item.dimensions && (
+                                          <p className="text-[8px] font-bold text-slate-500 tracking-wider">
+                                             {item.dimensions} ({item.area?.toFixed(2).replace('.', ',')} m²)
+                                          </p>
+                                       )}
+                                    </div>
+                                 </div>
+
+                                 <div className="flex items-center gap-3 shrink-0 ml-2">
+                                    <div className="flex items-center gap-1 bg-slate-900/5 rounded-md p-0.5 border border-slate-900/10">
+                                       <button
+                                          onClick={() => updateCartQty(idx, -1)}
+                                          className="w-4 h-4 rounded bg-white text-slate-800 font-black text-[9px] flex items-center justify-center hover:bg-rose-500 hover:text-white transition-all cursor-pointer"
+                                          title="Diminuir"
+                                       >
+                                          -
+                                       </button>
+                                       <span className="text-[9px] font-black px-1 text-slate-900">{item.quantity}</span>
+                                       <button
+                                          onClick={() => updateCartQty(idx, 1)}
+                                          className="w-4 h-4 rounded bg-white text-slate-800 font-black text-[9px] flex items-center justify-center hover:bg-emerald-500 hover:text-white transition-all cursor-pointer"
+                                          title="Aumentar"
+                                       >
+                                          +
+                                       </button>
+                                    </div>
+
+                                    <span className="text-[10px] font-black text-slate-900 tracking-tight min-w-[60px] text-right">
+                                       R$ {itemSubtotal.toFixed(2).replace('.', ',')}
+                                    </span>
+
+                                    <button
+                                       onClick={() => removeFromCart(idx)}
+                                       className="text-slate-400 hover:text-rose-600 transition-colors p-1 cursor-pointer"
+                                       title="Remover Item"
+                                    >
+                                       <Trash2 size={12} />
+                                    </button>
+                                 </div>
+                              </div>
+                           );
+                        })}
                      </div>
                   )}
-               </motion.div>
+               </div>
 
-               <div className="absolute bottom-0 left-0 w-full p-8 border-t border-slate-900/5 bg-slate-900/5 backdrop-blur-sm">
-                  <div className="flex justify-between items-center">
-                     <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-emerald-500/20 flex items-center justify-center text-emerald-600">
-                           <Check size={20} />
-                        </div>
-                        <div>
-                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-900/40 leading-none">Status Automação</p>
-                          <p className="text-xs font-bold text-slate-900 italic tracking-tight underline decoration-emerald-500/30">Modulo Vendas Conectado</p>
-                        </div>
-                     </div>
-                     <div className="text-right">
-                        <p className="text-[10px] font-black text-slate-900/40 uppercase tracking-widest leading-none">Faturamento Hoje</p>
-                        <p className="text-xs font-black text-slate-900">R$ {faturamentoHoje.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                     </div>
+               {/* Bottom Automation Bar */}
+               <div className="pt-2 border-t border-slate-900/10 flex justify-between items-center text-slate-900">
+                  <div className="flex items-center gap-2">
+                     <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                     <span className="text-[9px] font-black uppercase tracking-wider opacity-70">PDV Conectado</span>
+                  </div>
+                  <div className="text-right">
+                     <span className="text-[8px] font-black uppercase tracking-widest opacity-50 block leading-none">Faturamento Hoje</span>
+                     <span className="text-[10px] font-black italic">R$ {faturamentoHoje.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
                </div>
             </div>
@@ -2925,14 +3823,184 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                      >
                         <div className="flex items-center gap-3">
                            <ShoppingBag size={24} />
-                           <span className="text-lg font-black uppercase tracking-tighter">PAGAMENTO</span>
+                           <span className="text-lg font-black uppercase tracking-tighter">FINALIZAR VENDA</span>
                         </div>
-                        <span className="text-[10px] font-black opacity-40 uppercase tracking-[4px]">Ir para fechamento</span>
+                        <span className="text-[10px] font-black opacity-40 uppercase tracking-[4px]">Ir para pagamento e fechamento</span>
                      </button>
                   </div>
                </div>
             </div>
           </>
+        )}
+
+        {activeTab === 'historico' && (
+          <div className="flex-1 p-6 md:p-8 space-y-6 overflow-y-auto custom-scrollbar bg-slate-900/40">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-white/10 pb-4">
+              <div>
+                <h2 className="text-xl md:text-2xl font-black text-white italic tracking-tighter uppercase flex items-center gap-2">
+                  <History className="text-primary-400" size={24} />
+                  Histórico Geral de Vendas & Serviços
+                </h2>
+                <p className="text-[10px] md:text-xs text-white/40 font-bold uppercase tracking-widest mt-1">
+                  Acompanhamento de entradas, saldos devedores e entregas agendadas
+                </p>
+              </div>
+
+              {/* Filter Tabs */}
+              <div className="flex bg-white/5 p-1 rounded-2xl border border-white/10 gap-1 self-stretch md:self-auto">
+                {[
+                  { id: 'todos', label: 'Todos' },
+                  { id: 'parciais', label: 'Entradas Pendentes' },
+                  { id: 'concluidos', label: '100% Quitados' }
+                ].map(f => (
+                  <button
+                    key={f.id}
+                    onClick={() => setHistoryFilter(f.id as any)}
+                    className={cn(
+                      "flex-1 md:flex-none px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all text-center",
+                      historyFilter === f.id ? "bg-primary-500 text-slate-900 shadow-lg font-black" : "text-white/40 hover:text-white"
+                    )}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Search Input */}
+            <div className="relative max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" size={16} />
+              <input
+                value={historySearch}
+                onChange={e => setHistorySearch(e.target.value)}
+                placeholder="Buscar por cliente, produto ou código do pedido..."
+                className="w-full bg-white/5 border border-white/10 rounded-2xl pl-10 pr-4 py-2.5 text-xs text-white placeholder-white/30 focus:outline-none focus:border-primary-500"
+              />
+            </div>
+
+            {/* Orders List */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {allSalesHistory.filter(sale => {
+                const down = sale.downPayment || 0;
+                const balance = sale.total - down;
+                const isPartial = balance > 0 || sale.status === 'pending';
+                if (historyFilter === 'parciais' && !isPartial) return false;
+                if (historyFilter === 'concluidos' && isPartial) return false;
+                if (historySearch.trim()) {
+                  const term = historySearch.toLowerCase();
+                  const nameMatch = (sale.customerName || '').toLowerCase().includes(term);
+                  const idMatch = sale.id.toLowerCase().includes(term);
+                  const itemMatch = sale.items?.some(i => i.name.toLowerCase().includes(term));
+                  if (!nameMatch && !idMatch && !itemMatch) return false;
+                }
+                return true;
+              }).length === 0 ? (
+                <div className="col-span-1 md:col-span-2 py-16 text-center bg-white/5 rounded-3xl border border-dashed border-white/10 space-y-2">
+                  <History size={36} className="mx-auto text-white/20" />
+                  <p className="text-sm font-bold text-white/40 uppercase">Nenhum registro encontrado</p>
+                  <p className="text-xs text-white/20">As vendas e serviços finalizados ou com entrada aparecerão aqui.</p>
+                </div>
+              ) : (
+                allSalesHistory.filter(sale => {
+                  const down = sale.downPayment || 0;
+                  const balance = sale.total - down;
+                  const isPartial = balance > 0 || sale.status === 'pending';
+                  if (historyFilter === 'parciais' && !isPartial) return false;
+                  if (historyFilter === 'concluidos' && isPartial) return false;
+                  if (historySearch.trim()) {
+                    const term = historySearch.toLowerCase();
+                    const nameMatch = (sale.customerName || '').toLowerCase().includes(term);
+                    const idMatch = sale.id.toLowerCase().includes(term);
+                    const itemMatch = sale.items?.some(i => i.name.toLowerCase().includes(term));
+                    if (!nameMatch && !idMatch && !itemMatch) return false;
+                  }
+                  return true;
+                }).map(sale => {
+                  const down = sale.downPayment || 0;
+                  const balance = sale.total - down;
+                  const isPartial = balance > 0 || sale.status === 'pending';
+                  
+                  return (
+                    <GlassCard key={sale.id} className="p-6 border-white/10 space-y-4 bg-slate-900/80 hover:border-white/20 transition-all relative overflow-hidden">
+                      <div className="flex justify-between items-start border-b border-white/5 pb-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h4 className="text-sm font-black text-white uppercase">{sale.customerName || 'Cliente de Balcão'}</h4>
+                            <Badge 
+                              className={cn(
+                                "text-[8px] font-black uppercase px-2 py-0.5 border-none",
+                                isPartial ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300"
+                              )}
+                            >
+                              {isPartial ? 'ENTRADA PAGA (FALTA SALDO)' : '100% QUITADO'}
+                            </Badge>
+                          </div>
+                          <p className="text-[9px] text-white/30 font-mono mt-0.5">#{sale.id.slice(-8).toUpperCase()} • {format(new Date(sale.createdAt), 'dd/MM/yyyy HH:mm')}</p>
+                        </div>
+                        
+                        {sale.scheduledFor && (
+                          <div className="bg-primary-500/10 border border-primary-500/20 rounded-xl px-2.5 py-1 text-right">
+                            <span className="text-[7.5px] font-black uppercase text-primary-300 tracking-wider block">Entrega Agendada</span>
+                            <span className="text-[9.5px] font-bold text-white">{format(new Date(sale.scheduledFor), 'dd/MM/yyyy HH:mm')}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Items Summary */}
+                      <div className="space-y-1 text-xs text-white/70 bg-white/5 p-3 rounded-xl border border-white/5">
+                        {sale.items?.map((item, idx) => (
+                          <div key={idx} className="flex justify-between items-center text-[11px]">
+                            <span>{item.quantity}x {item.name} {item.dimensions ? `(${item.dimensions})` : ''}</span>
+                            <span className="font-bold text-white/80">R$ {((item.area ? item.price * item.area : item.price) * item.quantity).toFixed(2).replace('.', ',')}</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Financial Box */}
+                      <div className="grid grid-cols-3 gap-2 bg-slate-950/60 p-3 rounded-2xl border border-white/5 text-center">
+                        <div>
+                          <span className="text-[8px] font-black uppercase text-white/30 tracking-wider block">Total</span>
+                          <span className="text-xs font-black text-white">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
+                        </div>
+                        <div>
+                          <span className="text-[8px] font-black uppercase text-emerald-400 tracking-wider block">Entrada Paga</span>
+                          <span className="text-xs font-black text-emerald-400">R$ {down.toFixed(2).replace('.', ',')}</span>
+                        </div>
+                        <div>
+                          <span className="text-[8px] font-black uppercase text-rose-400 tracking-wider block">Falta Quitar</span>
+                          <span className={cn("text-xs font-black", balance > 0 ? "text-rose-400 font-extrabold" : "text-white/30")}>
+                            R$ {balance.toFixed(2).replace('.', ',')}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Actions */}
+                      <div className="flex gap-2 justify-end pt-1">
+                        {isPartial && (
+                          <Button
+                            size="sm"
+                            className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 text-[9px] font-black uppercase tracking-wider px-4 h-9"
+                            onClick={() => setSettleModalOrder(sale)}
+                          >
+                            <CheckCircle2 size={14} className="mr-1" />
+                            Quitar Saldo (R$ {balance.toFixed(2).replace('.', ',')})
+                          </Button>
+                        )}
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-white/10"
+                          onClick={() => alert(`Comprovante do Pedido #${sale.id.slice(-8).toUpperCase()}\nCliente: ${sale.customerName}\nTotal: R$ ${sale.total.toFixed(2)}\nEntrada Paga: R$ ${down.toFixed(2)}\nSaldo Devedor: R$ ${balance.toFixed(2)}`)}
+                        >
+                          Recibo
+                        </Button>
+                      </div>
+                    </GlassCard>
+                  );
+                })
+              )}
+            </div>
+          </div>
         )}
 
         {activeTab === 'estoque' && (
@@ -3034,6 +4102,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             </div>
           </div>
         )}
+
+        {activeTab === 'contratos' && (
+          <div className="flex-1 p-6 overflow-y-auto custom-scrollbar">
+            <ContractApprovalModule currentCompany={currentCompany} />
+          </div>
+        )}
       </div>
       {/* Customer Modal / Em Aberto */}
       <Modal 
@@ -3123,19 +4197,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     <p className="text-[9px] font-black uppercase text-white/30 tracking-widest px-1">Resumo da Nota ({cart.length})</p>
                     <div className="flex-1 bg-white/5 rounded-2xl border border-white/5 overflow-y-auto custom-scrollbar divide-y divide-white/5 max-h-[220px]">
                        {cart.map((item, idx) => (
-                          <div key={idx} className="p-3 flex justify-between items-center hover:bg-white/5 transition-colors">
-                             <div className="flex items-center gap-2">
-                                <span className="text-[10px] font-black text-white/30">{item.quantity}x</span>
-                                <div className="flex flex-col">
-                                   <span className="text-[10px] font-bold text-white/70 uppercase truncate max-w-[120px]">{item.name}</span>
+                          <div key={idx} className="py-2 px-3 flex justify-between items-center hover:bg-white/5 transition-colors">
+                             <div className="flex items-center gap-2 min-w-0">
+                                <span className="text-[9px] font-black text-white/40 bg-white/10 px-1 py-0.5 rounded text-center min-w-[20px]">{item.quantity}x</span>
+                                <div className="flex flex-col min-w-0">
+                                   <span className="text-[9px] font-bold text-white/80 uppercase truncate max-w-[130px]">{item.name}</span>
                                    {item.dimensions && (
-                                      <span className="text-[8px] text-white/40 font-black tracking-widest uppercase">
-                                         {item.dimensions} = {item.area?.toFixed(2).replace('.', ',')} m²
+                                      <span className="text-[7.5px] text-white/40 font-bold tracking-wider uppercase">
+                                         {item.dimensions} ({item.area?.toFixed(2).replace('.', ',')} m²)
                                       </span>
                                    )}
                                 </div>
                              </div>
-                             <span className="text-[10px] font-black text-primary-300 italic">R$ {(item.area ? item.price * item.area * item.quantity : item.price * item.quantity).toFixed(2).replace('.', ',')}</span>
+                             <span className="text-[9.5px] font-black text-primary-300 italic shrink-0 ml-2">R$ {(item.area ? item.price * item.area * item.quantity : item.price * item.quantity).toFixed(2).replace('.', ',')}</span>
                           </div>
                        ))}
                     </div>
@@ -3144,7 +4218,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  <div className="p-4 bg-white/3 rounded-2xl border border-white/5 space-y-3">
                     <div className="flex justify-between items-center">
                        <p className="text-[8px] font-black text-white/30 uppercase tracking-widest">Pago / Entrada</p>
-                       <p className="text-xs font-black text-emerald-400">R$ {downPayment > 0 ? downPayment.toFixed(2).replace('.', ',') : (total > 0 ? total.toFixed(2).replace('.', ',') : '0,00')}</p>
+                       <p className="text-xs font-black text-emerald-400">R$ {(downPayment === '' || typeof downPayment === 'string' ? 0 : Number(downPayment)).toFixed(2).replace('.', ',')}</p>
                     </div>
                     <div className="flex justify-between items-center opacity-60">
                        <p className="text-[8px] font-black text-white/30 uppercase tracking-widest">Saldo Restante</p>
@@ -3186,11 +4260,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-4 bg-white/5 p-4 rounded-2xl border border-white/5 flex flex-col justify-center">
                        <Input 
-                         label="Valor de Entrada"
+                         label="Valor de Entrada / Recebido"
                          type="number" 
+                         step="any"
                          className="h-10 text-xs bg-slate-900/50"
-                         value={downPayment} 
-                         onChange={(e: any) => setDownPayment(Number(e.target.value))}
+                         value={downPayment === "" ? "" : downPayment} 
+                         onChange={(e: any) => {
+                            const val = e.target.value;
+                            setDownPayment(val === "" ? "" : Number(val));
+                         }}
                        />
                        <div className="space-y-2">
                           <p className="text-[8px] font-black text-white/30 uppercase tracking-widest">Agendar entrega</p>
@@ -3203,33 +4281,149 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                        </div>
                     </div>
 
-                    <div className="bg-white/5 rounded-2xl border border-white/5 p-4 flex flex-col items-center justify-center text-center">
+                    <div className="bg-white/5 rounded-2xl border border-white/5 p-4 flex flex-col items-center justify-center text-center relative overflow-y-auto max-h-[480px] custom-scrollbar">
                        {paymentMethod === 'pix' && (
-                          <div className="flex flex-col items-center gap-4">
-                             <div className="w-64 h-64 bg-white rounded-3xl p-4 shadow-2xl flex items-center justify-center">
+                          <div className="flex flex-col items-center gap-3 w-full">
+                             <div className="w-56 h-56 bg-white rounded-3xl p-4 shadow-2xl flex items-center justify-center">
                                 <img src={`https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=RPro-Pix-${total}`} alt="QR" className="w-full h-full" referrerPolicy="no-referrer" />
                              </div>
-                             <p className="text-[10px] text-primary-400 font-black uppercase tracking-widest mt-2 animate-pulse">Aponte a câmera para pagar</p>
+                             <p className="text-[9px] text-primary-400 font-black uppercase tracking-widest animate-pulse">Aponte a câmera para pagar</p>
+                             
+                             <div className="w-full space-y-2 mt-1">
+                                <div className="p-2.5 bg-slate-900/50 rounded-xl border border-white/5 flex flex-col items-start text-left gap-1">
+                                   <span className="text-[8px] font-black text-white/30 uppercase tracking-wider">Chave PIX (CNPJ)</span>
+                                   <div className="flex items-center justify-between w-full">
+                                      <span className="text-[11px] font-mono text-white font-bold">44.222.111/0001-99</span>
+                                      <button 
+                                         type="button"
+                                         onClick={() => {
+                                            navigator.clipboard.writeText("44.222.111/0001-99");
+                                            alert("Chave PIX copiada com sucesso!");
+                                         }}
+                                         className="text-[8px] font-black text-primary-300 hover:text-white uppercase tracking-wider bg-primary-500/10 px-2 py-1 rounded border border-primary-500/20 active:scale-95 transition-all cursor-pointer"
+                                      >
+                                         Copiar
+                                      </button>
+                                   </div>
+                                </div>
+                                
+                                <div className="p-2.5 bg-slate-900/50 rounded-xl border border-white/5 flex flex-col items-start text-left gap-1">
+                                   <span className="text-[8px] font-black text-white/30 uppercase tracking-wider">Código Pix Copia e Cola</span>
+                                   <div className="flex items-center justify-between w-full gap-2">
+                                      <span className="text-[9px] font-mono text-white/40 truncate max-w-[120px]">00020101021126580014br.gov.bcb.pix011844222111000199520400005303986540{total.toFixed(2)}5802BR5915RPro%20Hub6009SAO%20PAULO62070503***6304</span>
+                                      <button 
+                                         type="button"
+                                         onClick={() => {
+                                            navigator.clipboard.writeText(`00020101021126580014br.gov.bcb.pix011844222111000199520400005303986540${total.toFixed(2)}5802BR5915RPro%20Hub6009SAO%20PAULO62070503***6304`);
+                                            alert("Código Pix Copia e Cola copiado com sucesso!");
+                                         }}
+                                         className="text-[8px] font-black text-primary-300 hover:text-white uppercase tracking-wider bg-primary-500/10 px-2 py-1 rounded border border-primary-500/20 active:scale-95 transition-all cursor-pointer whitespace-nowrap"
+                                      >
+                                         Copiar Código
+                                      </button>
+                                   </div>
+                                </div>
+                             </div>
                           </div>
                        )}
-                       <p className="text-[8px] text-white/40 font-bold uppercase tracking-widest text-center mt-2">Confirmação de Recebimento</p>
+
+                       {paymentMethod === 'dinheiro' && (
+                          <div className="flex flex-col items-center gap-4 w-full p-2">
+                             <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
+                                <Banknote size={24} />
+                             </div>
+                             <h4 className="text-xs font-black text-white uppercase tracking-wider">Calculadora de Troco</h4>
+                             
+                             <div className="w-full space-y-3">
+                                <div className="space-y-1 text-left">
+                                   <label className="text-[8px] font-black text-white/40 uppercase tracking-widest">Valor Recebido (R$)</label>
+                                   <Input 
+                                      type="number"
+                                      step="any"
+                                      className="h-10 text-xs bg-slate-900/50 text-white"
+                                      value={cashReceived === "" ? "" : cashReceived}
+                                      placeholder="Digite o valor recebido"
+                                      onChange={(e: any) => {
+                                         const val = e.target.value;
+                                         setCashReceived(val === "" ? "" : Number(val));
+                                      }}
+                                   />
+                                </div>
+                                
+                                {cashReceived !== "" && Number(cashReceived) >= downPayment && (
+                                   <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-left">
+                                      <span className="text-[8px] font-black text-emerald-400 uppercase tracking-wider block">Troco do Cliente</span>
+                                      <span className="text-lg font-black text-white">R$ {(Number(cashReceived) - downPayment).toFixed(2).replace('.', ',')}</span>
+                                   </div>
+                                )}
+                                {cashReceived !== "" && Number(cashReceived) < downPayment && (
+                                   <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-left">
+                                      <span className="text-[8px] font-black text-rose-400 uppercase tracking-wider block">Valor Insuficiente</span>
+                                      <span className="text-xs font-bold text-white/70">Falta R$ {(downPayment - Number(cashReceived)).toFixed(2).replace('.', ',')}</span>
+                                   </div>
+                                )}
+                             </div>
+                          </div>
+                       )}
+
+                       {(paymentMethod === 'cartao_credito' || paymentMethod === 'cartao_debito') && (
+                          <div className="flex flex-col items-center gap-4 py-6">
+                             <div className="w-12 h-12 rounded-2xl bg-blue-500/20 text-blue-400 flex items-center justify-center border border-blue-500/30 animate-pulse">
+                                <Smartphone size={24} />
+                             </div>
+                             <h4 className="text-xs font-black text-white uppercase tracking-wider">Aguardando Maquininha</h4>
+                             <p className="text-[9px] text-white/50 leading-relaxed max-w-[200px]">Insira ou aproxime o cartão na maquininha integrada para concluir o pagamento de <span className="text-white font-bold">R$ {downPayment.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></p>
+                             <div className="flex items-center gap-2 px-3 py-1 bg-white/5 rounded-full border border-white/5 text-[8px] font-black uppercase text-white/40 tracking-wider">
+                                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-ping" />
+                                Sinal Bluetooth Ativo
+                             </div>
+                          </div>
+                       )}
+
+                       {paymentMethod === 'misto' && (
+                          <div className="flex flex-col items-center gap-4 py-4 w-full">
+                             <div className="w-12 h-12 rounded-2xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center border border-indigo-500/30">
+                                <Calculator size={24} />
+                             </div>
+                             <h4 className="text-xs font-black text-white uppercase tracking-wider">Pagamento Misto</h4>
+                             <p className="text-[9px] text-white/50 leading-relaxed max-w-[200px]">Defina o valor de entrada abaixo e especifique as formas de recebimento nas observações do pedido.</p>
+                          </div>
+                       )}
+
+                       <p className="text-[8px] text-white/40 font-bold uppercase tracking-widest text-center mt-2 w-full pt-2 border-t border-white/5">Confirmação de Recebimento</p>
                     </div>
                  </div>
 
                  <div className="flex gap-3 pt-2">
-                    <Button 
-                      variant="secondary" 
-                      className="flex-1 h-12 text-[9px] uppercase font-black tracking-widest border-white/5"
-                      onClick={() => handleFinalize(true)}
-                    >
-                      {remainingValue > 0 ? 'Lançar Entrada' : 'Lançar Pendente'}
-                    </Button>
-                    <Button 
-                      className="flex-[1.5] h-12 bg-primary-500 text-slate-900 border-none shadow-xl shadow-primary-500/20 text-[9px] font-black uppercase tracking-widest"
-                      onClick={() => handleFinalize(false)}
-                    >
-                       {remainingValue > 0 ? 'Salvar OS e Entrada' : 'Finalizar e Integrar'}
-                    </Button>
+                    {remainingValue > 0 ? (
+                      <Button 
+                        className="w-full h-14 bg-amber-500 hover:bg-amber-400 text-slate-900 border-none shadow-xl shadow-amber-500/20 text-[10px] font-black uppercase tracking-widest gap-2"
+                        onClick={() => handleFinalize(true)}
+                      >
+                         <Clock size={18} />
+                         <div className="flex flex-col text-left">
+                            <span>AGENDAR ENTREGA & LANÇAR ENTRADA (R$ {(downPayment === '' ? 0 : Number(downPayment)).toFixed(2).replace('.', ',')})</span>
+                            <span className="text-[8px] opacity-80 font-bold lowercase">valor menor que o total • lança entrada no faturamento e gera saldo devedor</span>
+                         </div>
+                      </Button>
+                    ) : (
+                      <>
+                        <Button 
+                          variant="secondary" 
+                          className="flex-1 h-12 text-[9px] uppercase font-black tracking-widest border-white/5"
+                          onClick={() => handleFinalize(true)}
+                        >
+                          Salvar como Orçamento
+                        </Button>
+                        <Button 
+                          className="flex-[1.5] h-12 bg-primary-500 hover:bg-primary-400 text-slate-900 border-none shadow-xl shadow-primary-500/20 text-[9px] font-black uppercase tracking-widest gap-2"
+                          onClick={() => handleFinalize(false)}
+                        >
+                           <CheckCircle2 size={16} />
+                           <span>FINALIZAR VENDA (TOTAL QUITADO)</span>
+                        </Button>
+                      </>
+                    )}
                  </div>
               </div>
            </div>
@@ -3281,12 +4475,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 </div>
                 <div className="flex justify-between text-xs text-emerald-400 font-black italic">
                    <span>Entrada Recebida</span>
-                   <span className="font-mono">R$ {lastFinalizedOrder?.receivedValue?.toFixed(2)}</span>
+                   <span className="font-mono">R$ {(lastFinalizedOrder?.downPayment ?? lastFinalizedOrder?.receivedValue ?? 0).toFixed(2)}</span>
                 </div>
-                {lastFinalizedOrder?.status === 'pending' && (
-                   <div className="flex justify-between text-xs text-rose-400 font-black italic">
-                      <span>Saldo em Aberto (OS)</span>
-                      <span className="font-mono">R$ {(lastFinalizedOrder.total - (lastFinalizedOrder.receivedValue || 0)).toFixed(2)}</span>
+                <div className="flex justify-between text-xs text-rose-400 font-black italic">
+                   <span>Valor que Falta Pagar</span>
+                   <span className="font-mono font-bold">R$ {Math.max(0, (lastFinalizedOrder?.total || 0) - (lastFinalizedOrder?.downPayment ?? lastFinalizedOrder?.receivedValue ?? 0)).toFixed(2)}</span>
+                </div>
+                {lastFinalizedOrder?.scheduledFor && (
+                   <div className="flex justify-between text-xs text-primary-300 font-black bg-primary-500/10 p-2.5 rounded-xl border border-primary-500/20 mt-2">
+                      <span>Entrega Agendada:</span>
+                      <span className="font-mono">{format(new Date(lastFinalizedOrder.scheduledFor), 'dd/MM/yyyy HH:mm')}</span>
                    </div>
                 )}
              </div>
@@ -3306,54 +4504,162 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
              <Button 
                variant="secondary" 
                icon={Share2} 
-               className={cn(
-                 "flex-col h-32 gap-3 py-6 text-[10px] uppercase font-black tracking-widest border-white/5 bg-white/5",
-                 !selectedCustomer?.phone && "opacity-50 grayscale cursor-not-allowed"
-               )}
+               className="flex-col h-32 gap-3 py-6 text-[10px] uppercase font-black tracking-widest border-white/5 bg-white/5 hover:bg-emerald-500/20 hover:text-emerald-300 transition-all"
                onClick={() => {
-                  if(selectedCustomer?.phone && lastFinalizedOrder) {
-                     const itemsText = lastFinalizedOrder.items.map(i => `${i.quantity}x ${i.name}`).join('%0A');
-                     const balance = lastFinalizedOrder.total - (lastFinalizedOrder.receivedValue || 0);
-                     const text = `Olá ${selectedCustomer.name}, segue resumo do seu pedido RPro:%0A%0A${itemsText}%0A%0ATotal: R$ ${lastFinalizedOrder.total.toFixed(2)}${lastFinalizedOrder.status === 'pending' ? `%0AEntrada: R$ ${lastFinalizedOrder.receivedValue?.toFixed(2)}%0ASaldo em Aberto: R$ ${balance.toFixed(2)}` : ''}%0A%0AObrigado pela preferência!`;
-                     window.open(`https://wa.me/${selectedCustomer.phone.replace(/\D/g,'')}?text=${text}`);
+                  if(!lastFinalizedOrder) return;
+                  const total = lastFinalizedOrder.total;
+                  const down = lastFinalizedOrder.downPayment ?? lastFinalizedOrder.receivedValue ?? (lastFinalizedOrder.status === 'completed' ? total : 0);
+                  const balance = Math.max(0, total - down);
+                  const isPending = balance > 0 || lastFinalizedOrder.status === 'pending';
+                  const itemsText = lastFinalizedOrder.items.map(i => `• ${i.quantity}x ${i.name} (R$ ${((i.area ? i.price * i.area : i.price) * i.quantity).toFixed(2).replace('.', ',')})`).join('%0A');
+                  const deliveryStr = lastFinalizedOrder.scheduledFor ? `%0A📅 *Previsão de Entrega:* ${format(new Date(lastFinalizedOrder.scheduledFor), 'dd/MM/yyyy HH:mm')}` : '';
+                  const text = `Olá *${lastFinalizedOrder.customerName || 'Cliente'}*!%0A%0ASegue resumo do seu pedido *#${lastFinalizedOrder.id.slice(-8).toUpperCase()}* na *${currentCompany?.name || 'RPro'}*:%0A%0A${itemsText}%0A%0A💰 *Total do Pedido:* R$ ${total.toFixed(2).replace('.', ',')}%0A✅ *Valor Recebido (Entrada):* R$ ${down.toFixed(2).replace('.', ',')}${isPending ? `%0A🔴 *Valor que Falta Pagar:* R$ ${balance.toFixed(2).replace('.', ',')}` : '%0A🎉 *Status:* 100% Quitado'}${deliveryStr}%0A%0AObrigado pela preferência!`;
+                  
+                  let targetPhone = selectedCustomer?.phone;
+                  if (!targetPhone) {
+                    targetPhone = prompt('Digite o número de WhatsApp do cliente (com DDD):') || '';
+                  }
+                  if (targetPhone) {
+                    window.open(`https://wa.me/${targetPhone.replace(/\D/g, '')}?text=${text}`, '_blank');
                   }
                }}
              >
-                WhatsApp
-                <span className="text-[8px] opacity-40 lowercase font-medium text-emerald-400">Enviar Nota</span>
+                Compartilhar
+                <span className="text-[8px] opacity-60 lowercase font-medium text-emerald-400">Via WhatsApp</span>
              </Button>
 
              <Button 
                variant="secondary" 
                icon={Printer} 
-               className="flex-col h-32 gap-3 py-6 text-[10px] uppercase font-black tracking-widest border-white/5 bg-white/5"
-               onClick={() => window.print()}
+               className="flex-col h-32 gap-3 py-6 text-[10px] uppercase font-black tracking-widest border-white/5 bg-white/5 hover:bg-primary-500/20 hover:text-primary-300 transition-all"
+               onClick={() => {
+                 if (!lastFinalizedOrder) return;
+                 const order = lastFinalizedOrder;
+                 const total = order.total;
+                 const down = order.downPayment ?? order.receivedValue ?? (order.status === 'completed' ? total : 0);
+                 const balance = Math.max(0, total - down);
+                 const printWin = window.open('', '_blank', 'width=450,height=650');
+                 if (!printWin) {
+                   window.print();
+                   return;
+                 }
+                 const itemsList = order.items.map(i => `
+                   <tr>
+                     <td style="padding:4px 0;">${i.quantity}x ${i.name}</td>
+                     <td style="text-align:right; padding:4px 0;">R$ ${((i.area ? i.price * i.area : i.price) * i.quantity).toFixed(2).replace('.', ',')}</td>
+                   </tr>
+                 `).join('');
+
+                 printWin.document.write(`
+                   <!DOCTYPE html>
+                   <html>
+                   <head>
+                     <title>Comprovante #${order.id.slice(-8).toUpperCase()}</title>
+                     <style>
+                       body { font-family: monospace; font-size: 12px; margin: 15px; color: #000; }
+                       .header { text-align: center; font-weight: bold; border-bottom: 1px dashed #000; padding-bottom: 8px; margin-bottom: 8px; }
+                       table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+                       .totals { border-top: 1px dashed #000; margin-top: 10px; padding-top: 8px; }
+                       .row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+                       .bold { font-weight: bold; }
+                       .footer { text-align: center; margin-top: 20px; font-size: 10px; border-top: 1px dashed #000; padding-top: 8px; }
+                     </style>
+                   </head>
+                   <body>
+                     <div class="header">
+                       <div style="font-size:14px;">${currentCompany?.name || 'RPro Sistema'}</div>
+                       <div>COMPROVANTE DE PEDIDO / OS</div>
+                       <div>Ped #${order.id.slice(-8).toUpperCase()} - ${format(new Date(order.createdAt), 'dd/MM/yyyy HH:mm')}</div>
+                     </div>
+                     <div>
+                       <strong>Cliente:</strong> ${order.customerName || 'Cliente de Balcão'}<br/>
+                       ${selectedCustomer?.phone ? `<strong>Telefone:</strong> ${selectedCustomer.phone}<br/>` : ''}
+                       ${order.scheduledFor ? `<strong>Previsão Entrega:</strong> ${format(new Date(order.scheduledFor), 'dd/MM/yyyy HH:mm')}<br/>` : ''}
+                     </div>
+                     <table>
+                       <thead>
+                         <tr style="border-bottom:1px solid #000; text-align:left;">
+                           <th>Item</th>
+                           <th style="text-align:right;">Subtotal</th>
+                         </tr>
+                       </thead>
+                       <tbody>${itemsList}</tbody>
+                     </table>
+                     <div class="totals">
+                       <div class="row"><span>TOTAL:</span> <span class="bold">R$ ${total.toFixed(2).replace('.', ',')}</span></div>
+                       <div class="row"><span>ENTRADA RECEBIDA:</span> <span class="bold">R$ ${down.toFixed(2).replace('.', ',')}</span></div>
+                       ${balance > 0 ? `<div class="row" style="color:#c00;"><span>FALTA PAGAR:</span> <span class="bold">R$ ${balance.toFixed(2).replace('.', ',')}</span></div>` : '<div class="row"><span>SITUAÇÃO:</span> <span class="bold">QUITADO</span></div>'}
+                     </div>
+                     <div class="footer">
+                       Obrigado pela preferência!<br/><br/>
+                       Assinatura: _____________________________
+                     </div>
+                     <script>
+                       window.onload = function() { window.print(); window.close(); };
+                     </script>
+                   </body>
+                   </html>
+                 `);
+                 printWin.document.close();
+               }}
              >
                 Imprimir
-                <span className="text-[8px] opacity-40 lowercase font-medium text-primary-400">Via Balcão</span>
+                <span className="text-[8px] opacity-60 lowercase font-medium text-primary-400">Via Balcão / Thermal</span>
              </Button>
 
              <Button 
                variant="secondary" 
                icon={Download} 
-               className="flex-col h-32 gap-3 py-6 text-[10px] uppercase font-black tracking-widest border-white/5 bg-white/5"
+               className="flex-col h-32 gap-3 py-6 text-[10px] uppercase font-black tracking-widest border-white/5 bg-white/5 hover:bg-blue-500/20 hover:text-blue-300 transition-all"
                onClick={() => {
-                 alert('Gerando PDF da Nota Fiscal... O download iniciará em instantes.');
+                 if (!lastFinalizedOrder) return;
+                 const order = lastFinalizedOrder;
+                 const total = order.total;
+                 const down = order.downPayment ?? order.receivedValue ?? (order.status === 'completed' ? total : 0);
+                 const balance = Math.max(0, total - down);
+                 const content = `================================================
+${(currentCompany?.name || 'RPro Sistema Central').toUpperCase()}
+COMPROVANTE DE PEDIDO / ORDEM DE SERVIÇO
+================================================
+Pedido: #${order.id.slice(-8).toUpperCase()}
+Data: ${format(new Date(order.createdAt), 'dd/MM/yyyy HH:mm')}
+Cliente: ${order.customerName || 'Cliente de Balcão'}
+${order.scheduledFor ? `Entrega Agendada Para: ${format(new Date(order.scheduledFor), 'dd/MM/yyyy HH:mm')}\n` : ''}------------------------------------------------
+ITENS:
+${order.items.map(i => `- ${i.quantity}x ${i.name} = R$ ${((i.area ? i.price * i.area : i.price) * i.quantity).toFixed(2).replace('.', ',')}`).join('\n')}
+------------------------------------------------
+TOTAL DO PEDIDO:          R$ ${total.toFixed(2).replace('.', ',')}
+VALOR RECEBIDO (ENTRADA): R$ ${down.toFixed(2).replace('.', ',')}
+VALOR QUE FALTA:          R$ ${balance.toFixed(2).replace('.', ',')}
+STATUS:                   ${balance > 0 ? 'ENTRADA PAGA - NOTA ABERTA' : '100% QUITADO'}
+================================================
+Obrigado pela preferência!
+`;
+                 const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+                 const url = URL.createObjectURL(blob);
+                 const link = document.createElement('a');
+                 link.href = url;
+                 link.download = `Comprovante_Pedido_${order.id.slice(-8).toUpperCase()}.txt`;
+                 link.click();
+                 URL.revokeObjectURL(url);
                }}
              >
-                Baixar
-                <span className="text-[8px] opacity-40 lowercase font-medium text-primary-400">PDF Final</span>
+                Salvar
+                <span className="text-[8px] opacity-60 lowercase font-medium text-blue-400">Baixar Comprovante</span>
              </Button>
 
              <Button 
-               className="flex-col h-32 gap-3 py-6 text-[10px] uppercase font-black tracking-widest bg-primary-500 text-slate-900 border-none shadow-lg shadow-primary-500/20"
+               className="flex-col h-32 gap-3 py-6 text-[10px] uppercase font-black tracking-widest bg-primary-500 hover:bg-primary-400 text-slate-900 border-none shadow-lg shadow-primary-500/20 transition-all"
                onClick={() => {
                  setIsSuccessModalOpen(false);
                  setSelectedCustomer(null);
+                 setCart([]);
+                 setDownPayment(0);
+                 setScheduledFor('');
                }}
              >
                 Nova Venda
-                <span className="text-[8px] opacity-50 lowercase font-medium">Limpar Caixa</span>
+                <span className="text-[8px] opacity-60 lowercase font-medium">Limpar & Concluir</span>
              </Button>
           </div>
 
@@ -3364,6 +4670,74 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           )}
        </div>
      </Modal>
+
+     {/* Modal Quitar Saldo Devedor */}
+     {settleModalOrder && (
+       <Modal
+         isOpen={!!settleModalOrder}
+         onClose={() => setSettleModalOrder(null)}
+         title="Quitar Saldo Devedor do Serviço / Venda"
+         size="md"
+       >
+         <div className="space-y-6 p-4">
+           <div className="p-4 bg-white/5 rounded-2xl border border-white/10 space-y-2">
+             <div className="flex justify-between items-center">
+               <span className="text-xs font-bold text-white/50">Cliente:</span>
+               <span className="text-sm font-black text-white">{settleModalOrder.customerName || 'Cliente de Balcão'}</span>
+             </div>
+             <div className="flex justify-between items-center">
+               <span className="text-xs font-bold text-white/50">Total do Pedido:</span>
+               <span className="text-sm font-bold text-white">R$ {settleModalOrder.total.toFixed(2).replace('.', ',')}</span>
+             </div>
+             <div className="flex justify-between items-center">
+               <span className="text-xs font-bold text-emerald-400">Entrada Já Paga:</span>
+               <span className="text-sm font-bold text-emerald-400">R$ {(settleModalOrder.downPayment || 0).toFixed(2).replace('.', ',')}</span>
+             </div>
+             <div className="flex justify-between items-center border-t border-white/10 pt-2">
+               <span className="text-xs font-black text-rose-400 uppercase">Saldo A Quitar Agora:</span>
+               <span className="text-xl font-black text-rose-400">R$ {(settleModalOrder.total - (settleModalOrder.downPayment || 0)).toFixed(2).replace('.', ',')}</span>
+             </div>
+           </div>
+
+           <div className="space-y-2">
+             <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Forma de Recebimento do Saldo</label>
+             <div className="grid grid-cols-2 gap-2">
+               {[
+                 { id: 'pix', label: 'PIX QR' },
+                 { id: 'dinheiro', label: 'Dinheiro' },
+                 { id: 'cartao_credito', label: 'Cartão Crédito' },
+                 { id: 'cartao_debito', label: 'Cartão Débito' }
+               ].map(m => (
+                 <button
+                   key={m.id}
+                   type="button"
+                   onClick={() => setSettleMethod(m.id as any)}
+                   className={cn(
+                     "py-3 px-3 rounded-xl border text-xs font-bold transition-all text-center",
+                     settleMethod === m.id
+                       ? "bg-primary-500 border-primary-400 text-slate-900 font-black shadow-lg shadow-primary-500/20"
+                       : "bg-white/5 border-white/10 text-white/60 hover:text-white"
+                   )}
+                 >
+                   {m.label}
+                 </button>
+               ))}
+             </div>
+           </div>
+
+           <div className="flex justify-end gap-3 pt-2">
+             <Button variant="ghost" onClick={() => setSettleModalOrder(null)}>Cancelar</Button>
+             <Button 
+               className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-black gap-2"
+               onClick={() => handleSettleBalance(settleModalOrder)}
+             >
+               <CheckCircle2 size={16} />
+               <span>Confirmar Recebimento do Saldo</span>
+             </Button>
+           </div>
+         </div>
+       </Modal>
+     )}
     </div>
   );
 };
@@ -3388,6 +4762,7 @@ export const ContactsModule = ({ currentCompany }: { currentCompany: Company | n
 
 // --- SERVICES ---
 export const ServicesModule = ({ currentCompany }: { currentCompany: Company | null }) => {
+  const [subTab, setSubTab] = useState<'os_list' | 'contract_flow'>('os_list');
   const [services, setServices] = useState<any[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({
@@ -3508,49 +4883,77 @@ export const ServicesModule = ({ currentCompany }: { currentCompany: Company | n
   ];
 
   return (
-    <>
-      <GenericListView 
-        title="Gestão de Serviços" 
-        subtitle="Ordens de Serviço e Retirada de Mercadorias (Gráfica)" 
-        columns={columns} 
-        data={services} 
-        onAdd={() => setIsModalOpen(true)}
-      />
+    <div className="space-y-6">
+      <div className="flex bg-white/5 p-2 gap-2 border border-white/10 rounded-2xl w-fit">
+        <button
+          onClick={() => setSubTab('os_list')}
+          className={cn(
+            "px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer",
+            subTab === 'os_list' ? "bg-primary-500 text-slate-950 shadow-lg" : "text-white/40 hover:text-white"
+          )}
+        >
+          Ordens de Serviço & Retirada
+        </button>
+        <button
+          onClick={() => setSubTab('contract_flow')}
+          className={cn(
+            "px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 cursor-pointer",
+            subTab === 'contract_flow' ? "bg-primary-500 text-slate-950 shadow-lg" : "text-white/40 hover:text-white"
+          )}
+        >
+          <FileText size={14} />
+          Contratos & Aprovação WhatsApp (Rafa Art)
+        </button>
+      </div>
 
-      {/* Manual Service Creator Modal */}
-      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="LANÇAR NOVO SERVIÇO / OS MANUAL">
-        <div className="p-6 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="md:col-span-2">
-              <Input label="NOME DO CLIENTE" value={formData.client} onChange={(e: any) => setFormData({...formData, client: e.target.value})} />
+      {subTab === 'os_list' ? (
+        <>
+          <GenericListView 
+            title="Gestão de Serviços" 
+            subtitle="Ordens de Serviço e Retirada de Mercadorias (Gráfica)" 
+            columns={columns} 
+            data={services} 
+            onAdd={() => setIsModalOpen(true)}
+          />
+
+          {/* Manual Service Creator Modal */}
+          <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="LANÇAR NOVO SERVIÇO / OS MANUAL">
+            <div className="p-6 space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="md:col-span-2">
+                  <Input label="NOME DO CLIENTE" value={formData.client} onChange={(e: any) => setFormData({...formData, client: e.target.value})} />
+                </div>
+                <Input label="TELEFONE / CONTATO" value={formData.phone} placeholder="(00) 00000-0000" onChange={(e: any) => setFormData({...formData, phone: e.target.value})} />
+                <div className="space-y-1">
+                  <p className="text-[9px] font-bold text-white/40 uppercase tracking-widest">Prioridade</p>
+                  <select 
+                    value={formData.priority} 
+                    onChange={(e: any) => setFormData({...formData, priority: e.target.value})}
+                    className="w-full h-11 bg-[#1a2333] border border-white/10 rounded-xl px-4 text-xs font-semibold text-white outline-none focus:border-primary-500"
+                  >
+                    <option value="baixa">Baixa</option>
+                    <option value="normal">Normal</option>
+                    <option value="alta">Alta</option>
+                    <option value="urgente">Crítica / Urgente</option>
+                  </select>
+                </div>
+                <div className="md:col-span-2">
+                  <Input label="DESCRIÇÃO DO SERVIÇO" value={formData.serviceDesc} placeholder="EX: BANNER IMPRESSO 1X1M ILHÓS" onChange={(e: any) => setFormData({...formData, serviceDesc: e.target.value})} />
+                </div>
+                <Input label="VALOR TOTAL (R$)" type="number" value={formData.totalValue} onChange={(e: any) => setFormData({...formData, totalValue: Number(e.target.value)})} />
+                <Input label="VALOR DE ENTRADA / SINAL PAGO (R$)" type="number" value={formData.downPaymentValue} onChange={(e: any) => setFormData({...formData, downPaymentValue: Number(e.target.value)})} />
+              </div>
+              <div className="flex gap-4 pt-4">
+                <Button variant="secondary" className="flex-1 h-14" onClick={() => setIsModalOpen(false)}>Cancelar</Button>
+                <Button className="flex-[2] h-14 bg-primary-500 text-slate-900 border-none shadow-xl shadow-primary-500/20 font-black tracking-wider" onClick={handleSaveService}>Lançar OS & Registrar Entrada</Button>
+              </div>
             </div>
-            <Input label="TELEFONE / CONTATO" value={formData.phone} placeholder="(00) 00000-0000" onChange={(e: any) => setFormData({...formData, phone: e.target.value})} />
-            <div className="space-y-1">
-              <p className="text-[9px] font-bold text-white/40 uppercase tracking-widest">Prioridade</p>
-              <select 
-                value={formData.priority} 
-                onChange={(e: any) => setFormData({...formData, priority: e.target.value})}
-                className="w-full h-11 bg-[#1a2333] border border-white/10 rounded-xl px-4 text-xs font-semibold text-white outline-none focus:border-primary-500"
-              >
-                <option value="baixa">Baixa</option>
-                <option value="normal">Normal</option>
-                <option value="alta">Alta</option>
-                <option value="urgente">Crítica / Urgente</option>
-              </select>
-            </div>
-            <div className="md:col-span-2">
-              <Input label="DESCRIÇÃO DO SERVIÇO" value={formData.serviceDesc} placeholder="EX: BANNER IMPRESSO 1X1M ILHÓS" onChange={(e: any) => setFormData({...formData, serviceDesc: e.target.value})} />
-            </div>
-            <Input label="VALOR TOTAL (R$)" type="number" value={formData.totalValue} onChange={(e: any) => setFormData({...formData, totalValue: Number(e.target.value)})} />
-            <Input label="VALOR DE ENTRADA / SINAL PAGO (R$)" type="number" value={formData.downPaymentValue} onChange={(e: any) => setFormData({...formData, downPaymentValue: Number(e.target.value)})} />
-          </div>
-          <div className="flex gap-4 pt-4">
-            <Button variant="secondary" className="flex-1 h-14" onClick={() => setIsModalOpen(false)}>Cancelar</Button>
-            <Button className="flex-[2] h-14 bg-primary-500 text-slate-900 border-none shadow-xl shadow-primary-500/20 font-black tracking-wider" onClick={handleSaveService}>Lançar OS & Registrar Entrada</Button>
-          </div>
-        </div>
-      </Modal>
-    </>
+          </Modal>
+        </>
+      ) : (
+        <ContractApprovalModule currentCompany={currentCompany} />
+      )}
+    </div>
   );
 };
 
@@ -3746,11 +5149,28 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
 };
 
 // --- SETTINGS ---
-export const SettingsModule = ({ currentCompany }: { currentCompany: Company | null }) => {
+export const SettingsModule = ({ currentCompany, user }: { currentCompany: Company | null; user: AppUser | null }) => {
   const [activeTab, setActiveTab] = useState('Geral');
   const [logoUrl, setLogoUrl] = useState(currentCompany?.logoUrl || '');
   const [funnels, setFunnels] = useState<Funnel[]>([]);
   const [selectedFunnel, setSelectedFunnel] = useState('');
+
+  // User Management State
+  const [usersList, setUsersList] = useState<AppUser[]>([]);
+  const { simulatedUserId, setSimulatedUserId, theme, setTheme } = React.useContext(AppContext)!;
+  const [editingUser, setEditingUser] = useState<AppUser | null>(null);
+  
+  const [editedName, setEditedName] = useState('');
+  const [editedEmail, setEditedEmail] = useState('');
+  const [editedRole, setEditedRole] = useState<'admin' | 'gerente' | 'atendente' | 'caixa' | 'vendedor' | 'designer' | 'operador'>('atendente');
+  const [editedTabs, setEditedTabs] = useState<string[]>([]);
+  const [editedActions, setEditedActions] = useState<string[]>([]);
+
+  // Create User Modal State
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [newUserName, setNewUserName] = useState('');
+  const [newUserEmail, setNewUserEmail] = useState('');
+  const [newUserRole, setNewUserRole] = useState<'admin' | 'gerente' | 'atendente' | 'caixa' | 'vendedor' | 'designer' | 'operador'>('atendente');
 
   useEffect(() => {
     if (!currentCompany) return;
@@ -3759,6 +5179,15 @@ export const SettingsModule = ({ currentCompany }: { currentCompany: Company | n
       setFunnels(snap.docs.map(d => ({ id: d.id, ...d.data() } as Funnel)));
     });
   }, [currentCompany]);
+
+  useEffect(() => {
+    // Realtime users list
+    const q = query(collection(db, 'users'));
+    const unsub = onSnapshot(q, (snap) => {
+      setUsersList(snap.docs.map(d => ({ id: d.id, ...d.data() } as AppUser)));
+    });
+    return () => unsub();
+  }, []);
 
   const handleSave = async () => {
     if (!currentCompany) return;
@@ -3773,6 +5202,101 @@ export const SettingsModule = ({ currentCompany }: { currentCompany: Company | n
     }
   };
 
+  const startEditUser = (u: AppUser) => {
+    setEditingUser(u);
+    setEditedName(u.name);
+    setEditedEmail(u.email);
+    setEditedRole(u.role as any || 'atendente');
+    setEditedTabs(u.allowedTabs || ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'inventory', 'services', 'production', 'settings']);
+    setEditedActions(u.allowedActions || [
+      'canStartNote', 'canSendSavedMessage', 'canCreateCard', 'canAddTask',
+      'canStartPosSale', 'canStartRealEstateSale', 'canMoveLead',
+      'canViewCustomerData', 'canViewAttachments', 'canTranscribeAudio'
+    ]);
+  };
+
+  const handleSaveUserPermissions = async () => {
+    if (!editingUser) return;
+    try {
+      await updateDoc(doc(db, 'users', editingUser.id), {
+        name: editedName,
+        email: editedEmail,
+        role: editedRole,
+        allowedTabs: editedTabs,
+        allowedActions: editedActions,
+        updatedAt: Timestamp.now()
+      });
+      alert('Permissões do usuário atualizadas com sucesso!');
+      setEditingUser(null);
+    } catch (err) {
+      console.error('Erro ao salvar permissões:', err);
+      alert('Erro ao salvar permissões do usuário.');
+    }
+  };
+
+  const handleCreateUser = async () => {
+    if (!newUserName || !newUserEmail) {
+      alert('Por favor, preencha o nome e o email.');
+      return;
+    }
+    try {
+      const newUid = 'mock-user-' + Math.random().toString(36).substr(2, 9);
+      const defaultTabs = ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'inventory', 'services', 'production', 'settings'];
+      const defaultActions = [
+        'canStartNote', 'canSendSavedMessage', 'canCreateCard', 'canAddTask',
+        'canStartPosSale', 'canStartRealEstateSale', 'canMoveLead',
+        'canViewCustomerData', 'canViewAttachments', 'canTranscribeAudio'
+      ];
+
+      const newUserData = {
+        name: newUserName,
+        email: newUserEmail,
+        role: newUserRole,
+        isAdmin: newUserRole === 'admin',
+        isActive: true,
+        allowedTabs: defaultTabs,
+        allowedActions: defaultActions,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      await setDoc(doc(db, 'users', newUid), newUserData);
+      alert('Novo usuário simulado adicionado com sucesso!');
+      setIsCreateModalOpen(false);
+      setNewUserName('');
+      setNewUserEmail('');
+      setNewUserRole('atendente');
+    } catch (err) {
+      console.error('Erro ao criar usuário:', err);
+      alert('Erro ao criar usuário.');
+    }
+  };
+
+  const tabOptions = [
+    { id: 'dashboard', label: 'Dashboard', desc: 'Painel de controle e faturamento consolidado' },
+    { id: 'crm', label: 'Funil CRM', desc: 'Criação e movimentação de Leads / Contatos comerciais' },
+    { id: 'messages', label: 'Mensagens / Chats', desc: 'Canal de atendimento direto integrado' },
+    { id: 'pos', label: 'PDV Gráfica', desc: 'Faturamento rápido, caixa e vendas' },
+    { id: 'contacts', label: 'Contatos', desc: 'Gestão de clientes e histórico de compras' },
+    { id: 'inventory', label: 'Estoque', desc: 'Visualização de matéria-prima e produtos' },
+    { id: 'services', label: 'Serviços', desc: 'Gestão de Ordens de Serviços e orçamentos' },
+    { id: 'production', label: 'Produção', desc: 'Fila de fabricação e acabamentos gráficos' },
+    { id: 'settings', label: 'Opções', desc: 'Parâmetro de configurações do Hub RPro' },
+  ];
+
+  const actionOptions = [
+    { id: 'canStartNote', label: 'Criar Notas Internas', desc: 'Habilita o registro de notas internas no módulo de conversas' },
+    { id: 'canSendSavedMessage', label: 'Enviar Mensagens Prontas', desc: 'Permite responder rapidamente usando atalhos de chat' },
+    { id: 'canCreateCard', label: 'Criar Leads no CRM', desc: 'Permite criar novos cards de clientes no funil comercial' },
+    { id: 'canAddTask', label: 'Pode Criar Tarefas', desc: 'Gestão de agenda, lembretes e agendamentos de leads' },
+    { id: 'canStartPosSale', label: 'Iniciar Venda no PDV', desc: 'Permite registrar faturamento e receber pagamentos' },
+    { id: 'canManageContracts', label: 'Gerenciar Contratos e Orçamentos', desc: 'Permite criar e aprovar contratos de prestação de serviços' },
+    { id: 'canMoveLead', label: 'Movimentar Leads', desc: 'Permite arrastar leads entre as colunas do funil CRM' },
+    { id: 'canViewCustomerData', label: 'Ver Dados do Cliente', desc: 'Habilita visualização de CPF, RG e endereços de clientes' },
+    { id: 'canViewAttachments', label: 'Visualizar Mídias/Anexos', desc: 'Mostra arquivos recebidos e PDFs dentro de conversas' },
+    { id: 'canTranscribeAudio', label: 'Transcrever Áudios', desc: 'Habilita conversão automática de voz para texto via IA' },
+  ];
+
   return (
     <div className="space-y-8 animate-in fade-in zoom-in-95 duration-500">
       <SectionHeader 
@@ -3782,7 +5306,7 @@ export const SettingsModule = ({ currentCompany }: { currentCompany: Company | n
       />
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-10">
         <GlassCard className="p-0 overflow-hidden h-fit border-white/5">
-           {['Geral', 'Identidade', 'CRM / Funis', 'Integrações', 'Backup'].map((tab) => (
+           {['Geral', 'Identidade', 'CRM / Funis', 'Integrações', 'Usuários e Permissões', 'Backup'].map((tab) => (
              <button 
                key={tab} 
                onClick={() => setActiveTab(tab)}
@@ -3835,15 +5359,44 @@ export const SettingsModule = ({ currentCompany }: { currentCompany: Company | n
                 </div>
                 <div className="h-px bg-white/10" />
                 <div className="space-y-6">
-                   <h3 className="text-xl font-bold text-white tracking-tight italic uppercase">Cores do Tema</h3>
-                   <div className="grid grid-cols-2 gap-8">
-                      <div className="space-y-4">
-                         <p className="text-[10px] font-black uppercase text-white/30 tracking-widest">Cor Primária</p>
-                         <div className="flex gap-4">
-                            <div className="w-12 h-12 rounded-2xl bg-primary-500 border-2 border-white/20 shadow-xl shadow-primary-500/20" />
-                            <Input value="#4cc9f0" className="w-32 h-12 text-center" />
+                   <h3 className="text-xl font-bold text-white tracking-tight italic uppercase">Tema do Sistema (Aparência)</h3>
+                   <p className="text-xs text-white/50">Escolha o modo de exibição preferido para toda a plataforma:</p>
+                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                      <button
+                        type="button"
+                        onClick={() => setTheme?.('dark')}
+                        className={cn(
+                          "p-6 rounded-3xl border-2 transition-all text-left space-y-3 cursor-pointer relative overflow-hidden",
+                          theme === 'dark' ? "border-red-500 bg-slate-900 shadow-2xl ring-2 ring-red-500/20" : "border-white/10 bg-slate-900/40 opacity-70 hover:opacity-100"
+                        )}
+                      >
+                         <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                               <Moon size={22} className="text-red-400" />
+                               <span className="font-black text-white uppercase text-sm">Modo Escuro (Dark)</span>
+                            </div>
+                            {theme === 'dark' && <Badge variant="primary">Ativo</Badge>}
                          </div>
-                      </div>
+                         <p className="text-[11px] text-white/50 leading-relaxed">Visual moderno e sofisticado em tom escuro, ideal para baixa iluminação.</p>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setTheme?.('light')}
+                        className={cn(
+                          "p-6 rounded-3xl border-2 transition-all text-left space-y-3 cursor-pointer relative overflow-hidden",
+                          theme === 'light' ? "border-red-500 bg-white text-slate-900 shadow-2xl ring-2 ring-red-500/20" : "border-slate-300 bg-slate-100 text-slate-800 opacity-70 hover:opacity-100"
+                        )}
+                      >
+                         <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                               <Sun size={22} className="text-amber-500" />
+                               <span className="font-black uppercase text-sm text-slate-900">Modo Claro (Light)</span>
+                            </div>
+                            {theme === 'light' && <Badge variant="primary">Ativo</Badge>}
+                         </div>
+                         <p className="text-[11px] text-slate-500 leading-relaxed">Interface clara e nítida com fundo suave e excelente contraste diurno.</p>
+                      </button>
                    </div>
                 </div>
              </div>
@@ -3902,12 +5455,301 @@ export const SettingsModule = ({ currentCompany }: { currentCompany: Company | n
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                       <Input label="Chave PIX" defaultValue="44.222.111/0001-99" />
                       <Input label="Nome do Beneficiário" defaultValue={currentCompany?.name} />
-                   </div>
-                </div>
-             </div>
-           )}
-        </GlassCard>
+                    </div>
+                 </div>
+              </div>
+            )}
+
+            {activeTab === 'Usuários e Permissões' && (
+              <div className="space-y-8 animate-in fade-in duration-300">
+                {editingUser ? (
+                  <div className="space-y-8">
+                    <button 
+                      type="button"
+                      onClick={() => setEditingUser(null)}
+                      className="flex items-center gap-2 text-xs text-primary-450 font-bold hover:text-white uppercase tracking-wider bg-transparent border-0 cursor-pointer"
+                    >
+                      <ArrowLeft size={16} /> Voltar para a lista de colaboradores
+                    </button>
+
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div>
+                        <h3 className="text-2xl font-black text-white italic uppercase tracking-tight">Ajustar Permissões</h3>
+                        <p className="text-xs text-white/40 font-medium">Defina o nível de acesso e abas visíveis de <span className="text-white font-bold">{editingUser.name}</span></p>
+                      </div>
+                      <div className="flex gap-3">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSimulatedUserId(editingUser.id);
+                            alert(`Simulando sessão de ${editingUser.name}!`);
+                          }}
+                          className="flex items-center gap-2 px-6 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-2xl transition-all shadow-lg text-slate-950 border-0 cursor-pointer"
+                        >
+                          <Eye size={16} /> Simular Visão deste Usuário
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4">
+                      <Input label="Nome Completo" value={editedName} onChange={(e) => setEditedName(e.target.value)} />
+                      <Input label="E-mail de Acesso" value={editedEmail} onChange={(e) => setEditedEmail(e.target.value)} />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-xs uppercase tracking-widest text-white/50 font-black">Cargo / Função</label>
+                      <select 
+                        value={editedRole}
+                        onChange={(e: any) => setEditedRole(e.target.value)}
+                        className="w-full bg-slate-900 border border-white/10 rounded-2xl p-4 text-white hover:border-primary-500 font-bold focus:outline-none transition-all"
+                      >
+                        <option value="admin">Administrador</option>
+                        <option value="gerente">Gerente de Equipe</option>
+                        <option value="atendente">Atendente Comercial</option>
+                        <option value="caixa">Operador de Caixa (PDV)</option>
+                        <option value="vendedor">Vendedor Externo</option>
+                        <option value="designer">Designer Gráfico</option>
+                        <option value="operador">Operador de Impressão</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-6 pt-6 border-t border-white/5">
+                      <h4 className="text-lg font-bold text-white uppercase italic tracking-tight font-black">Abas Permitidas no Sistema</h4>
+                      <p className="text-xs text-white/30 -mt-4 font-medium">Marque quais abas estarão visíveis no painel lateral do usuário</p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {tabOptions.map((opt) => {
+                          const isAllowed = editedTabs.includes(opt.id);
+                          return (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              onClick={() => {
+                                if (isAllowed) {
+                                  setEditedTabs(prev => prev.filter(t => t !== opt.id));
+                                } else {
+                                  setEditedTabs(prev => [...prev, opt.id]);
+                                }
+                              }}
+                              className={cn(
+                                "flex flex-col text-left p-4 rounded-3xl border transition-all duration-300 relative overflow-hidden cursor-pointer",
+                                isAllowed 
+                                  ? "bg-primary-500/10 border-primary-500 text-white" 
+                                  : "bg-slate-950/40 border-white/5 text-white/40 hover:border-white/10 hover:text-white"
+                              )}
+                            >
+                              {isAllowed && (
+                                <span className="absolute top-3 right-3 w-2 h-2 rounded-full bg-primary-500 animate-pulse" />
+                              )}
+                              <span className="font-bold uppercase tracking-wide text-[11px] md:text-xs">{opt.label}</span>
+                              <span className="text-[10px] text-white/30 mt-1 lines-clamp-2 leading-tight">{opt.desc}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="space-y-6 pt-6 border-t border-white/5">
+                      <h4 className="text-lg font-bold text-white uppercase italic tracking-tight font-black">Permissões de Ações Detalhadas</h4>
+                      <p className="text-xs text-white/30 -mt-4 font-medium">Defina quais ações e flows internos de segurança este usuário pode executar</p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {actionOptions.map((act) => {
+                          const isAllowed = editedActions.includes(act.id);
+                          return (
+                            <button
+                              key={act.id}
+                              type="button"
+                              onClick={() => {
+                                if (isAllowed) {
+                                  setEditedActions(prev => prev.filter(a => a !== act.id));
+                                } else {
+                                  setEditedActions(prev => [...prev, act.id]);
+                                }
+                              }}
+                              className={cn(
+                                "flex items-start gap-4 text-left p-4 rounded-3xl border transition-all duration-300 relative cursor-pointer",
+                                isAllowed 
+                                  ? "bg-primary-500/10 border-primary-500/40 text-white" 
+                                  : "bg-slate-950/40 border-white/5 text-white/40 hover:border-white/10"
+                              )}
+                            >
+                              <div className={cn(
+                                "w-5 h-5 rounded-md border flex items-center justify-center shrink-0 mt-0.5 transition-all",
+                                isAllowed ? "bg-primary-500 border-primary-500 text-slate-950" : "border-white/20"
+                              )}>
+                                {isAllowed && <Check size={12} strokeWidth={4} />}
+                              </div>
+                              <div>
+                                <span className="font-bold text-xs uppercase tracking-wide block">{act.label}</span>
+                                <span className="text-[10px] text-white/30 mt-0.5 block leading-tight">{act.desc}</span>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="flex gap-4 pt-8 border-t border-white/5">
+                      <button 
+                        type="button"
+                        onClick={() => setEditingUser(null)} 
+                        className="flex-1 py-4 bg-white/5 hover:bg-white/10 text-white font-black text-xs uppercase tracking-wider rounded-2xl transition-all font-bold border-0 cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={handleSaveUserPermissions} 
+                        className="flex-1 py-4 bg-primary-500 hover:bg-primary-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-2xl transition-all shadow-lg font-bold border-0 cursor-pointer"
+                      >
+                        Salvar Alterações
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div>
+                        <h3 className="text-xl font-bold text-white tracking-tight italic uppercase">Membros de Equipe</h3>
+                        <p className="text-xs text-white/30 font-medium">Gerencie permissões de visibilidade de abas e ações permitidas</p>
+                      </div>
+                      <button 
+                        type="button"
+                        onClick={() => setIsCreateModalOpen(true)} 
+                        className="flex items-center gap-2 px-6 py-3 bg-primary-500 hover:bg-primary-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-2xl transition-all shadow-lg self-start sm:self-center text-slate-950 border-0 cursor-pointer"
+                      >
+                        <Plus size={16} /> Adicionar Usuário Simulado
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+                      {usersList.map((u) => {
+                        const allowedCount = u.allowedTabs?.length ?? 9;
+                        const actionsCount = u.allowedActions?.length ?? 10;
+                        const initials = u.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+                        const isSimulated = simulatedUserId === u.id || (!simulatedUserId && u.id === 'mock-user-id');
+                        
+                        return (
+                          <div 
+                            key={u.id} 
+                            className={cn(
+                              "p-6 rounded-[28px] border-2 space-y-4 hover:border-white/10 transition-all duration-300 relative overflow-hidden flex flex-col justify-between bg-slate-900/40",
+                              isSimulated ? "border-amber-500 bg-amber-500/5" : "border-white/5 bg-slate-950/20"
+                            )}
+                          >
+                            {isSimulated && (
+                              <span className="absolute top-0 right-0 bg-amber-500 text-slate-950 px-3 py-1 font-black text-[8px] uppercase tracking-widest rounded-bl-xl shadow-lg">
+                                Sessão Ativa
+                              </span>
+                            )}
+                            
+                            <div className="flex items-start gap-4">
+                              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center text-slate-950 font-black tracking-wider text-sm shadow-lg shrink-0 uppercase">
+                                {initials}
+                              </div>
+                              <div className="space-y-1">
+                                <h4 className="font-bold text-white text-base leading-tight">{u.name}</h4>
+                                <p className="text-[10px] text-white/40 leading-none">{u.email}</p>
+                                <div className="flex items-center gap-2 pt-1.5">
+                                  <Badge className="bg-primary-500/10 text-primary-400 border-primary-500/20 text-[9px] px-2 py-0.5 uppercase font-black">
+                                    {u.role || 'membro'}
+                                  </Badge>
+                                  {u.isAdmin && (
+                                    <Badge className="bg-rose-500/10 text-rose-400 border-rose-500/20 text-[9px] px-2 py-0.5 uppercase font-black">
+                                      Admin
+                                    </Badge>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="border-t border-white/5 pt-4 grid grid-cols-2 gap-3 text-xs">
+                              <div className="space-y-1">
+                                <span className="text-[9px] uppercase font-black text-white/30 tracking-widest block">Abas Visíveis</span>
+                                <span className="block font-bold text-white text-xs">{allowedCount} de 9 abas</span>
+                              </div>
+                              <div className="space-y-1">
+                                <span className="text-[9px] uppercase font-black text-white/30 tracking-widest block">Ações Permitidas</span>
+                                <span className="block font-bold text-white text-xs">{actionsCount} de 10 ações</span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-3 pt-3 border-t border-white/5">
+                              <button
+                                type="button"
+                                onClick={() => startEditUser(u)}
+                                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border border-white/10 hover:border-white/20 text-white/70 hover:text-white transition-all font-bold text-xs uppercase cursor-pointer bg-transparent"
+                              >
+                                <Settings2 size={14} className="text-primary-400" /> Configurar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSimulatedUserId(u.id);
+                                  alert(`Alternando visualização para: ${u.name}`);
+                                }}
+                                className="px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white hover:text-amber-400 transition-all font-bold text-xs flex items-center justify-center cursor-pointer border-0"
+                                title="Simular Sessão"
+                              >
+                                <Eye size={16} />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <Modal 
+                  isOpen={isCreateModalOpen} 
+                  onClose={() => setIsCreateModalOpen(false)} 
+                  title="Criar Usuário de Teste / Simulação"
+                >
+                  <div className="space-y-6">
+                    <p className="text-xs text-white/40 -mt-2">Adicione um colaborador local focado para simular flows de visualização restrita.</p>
+                    <Input label="Nome do Colaborador" value={newUserName} onChange={(e) => setNewUserName(e.target.value)} />
+                    <Input label="E-mail de Acesso" value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)} />
+                    
+                    <div className="space-y-2">
+                      <label className="text-xs uppercase tracking-widest text-white/50 font-black">Cargo / Função do Usuário</label>
+                      <select 
+                        value={newUserRole}
+                        onChange={(e: any) => setNewUserRole(e.target.value)}
+                        className="w-full bg-slate-950 border border-white/10 rounded-2xl p-4 text-white hover:border-primary-500 font-bold focus:outline-none transition-all"
+                      >
+                        <option value="admin">Administrador</option>
+                        <option value="gerente">Gerente de Equipe</option>
+                        <option value="atendente">Atendente Comercial</option>
+                        <option value="caixa">Operador de Caixa (PDV)</option>
+                        <option value="vendedor">Vendedor Externo</option>
+                        <option value="designer">Designer Gráfico</option>
+                        <option value="operador">Operador de Impressão</option>
+                      </select>
+                    </div>
+
+                    <div className="flex gap-4 pt-4">
+                      <button 
+                        type="button"
+                        onClick={() => setIsCreateModalOpen(false)} 
+                        className="flex-1 py-3 bg-white/5 hover:bg-white/10 text-white font-bold text-xs uppercase rounded-xl transition-all border-0 cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={handleCreateUser} 
+                        className="flex-1 py-3 bg-primary-500 hover:bg-primary-400 text-slate-100 font-bold text-xs uppercase rounded-xl transition-all shadow-lg border-0 cursor-pointer"
+                      >
+                        Criar Usuário
+                      </button>
+                    </div>
+                  </div>
+                </Modal>
+              </div>
+            )}
+         </GlassCard>
       </div>
     </div>
   );
 };
+

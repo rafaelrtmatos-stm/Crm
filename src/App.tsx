@@ -30,7 +30,9 @@ import {
   Clock,
   Briefcase,
   Layers,
-  Package
+  Package,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -106,6 +108,11 @@ interface AppContextType {
   setIsRegisterOpen: (open: boolean) => void;
   prefilledCustomer: { id?: string, name: string, phone: string } | null;
   setPrefilledCustomer: (customer: { id?: string, name: string, phone: string } | null) => void;
+  simulatedUserId: string | null;
+  setSimulatedUserId: (id: string | null) => void;
+  theme: 'dark' | 'light';
+  setTheme: (theme: 'dark' | 'light') => void;
+  toggleTheme: () => void;
 }
 
 export const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -123,7 +130,8 @@ const SidebarItem = ({
   label, 
   tab, 
   active, 
-  onClick 
+  onClick,
+  badgeCount
 }: { 
   icon: any; 
   label: string; 
@@ -131,11 +139,12 @@ const SidebarItem = ({
   active: boolean; 
   onClick: () => void;
   key?: string;
+  badgeCount?: number;
 }) => (
   <button
     onClick={onClick}
     className={cn(
-      "w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-300 group text-sm font-medium border border-transparent",
+      "w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-300 group text-sm font-medium border border-transparent relative",
       active 
         ? "bg-primary-500 text-white shadow-lg shadow-primary-500/30 border-white/20" 
         : "text-white/60 hover:bg-white/10 hover:text-white"
@@ -143,11 +152,16 @@ const SidebarItem = ({
   >
     <Icon size={20} className={cn("transition-transform group-hover:scale-110", active ? "text-white" : "text-white/60 group-hover:text-primary-300")} />
     <span className="truncate">{label}</span>
+    {badgeCount !== undefined && badgeCount > 0 && (
+      <span className="absolute right-4 top-1/2 -translate-y-1/2 min-w-5 h-5 bg-rose-500 text-white text-[10px] uppercase font-black px-1.5 rounded-full flex items-center justify-center shadow-lg border border-white/10 shrink-0 select-none animate-pulse">
+        {badgeCount}
+      </span>
+    )}
   </button>
 );
 
 const Navbar = () => {
-  const { user, companies, currentCompany, setCurrentCompany, setIsSidebarOpen } = useApp();
+  const { user, companies, currentCompany, setCurrentCompany, setIsSidebarOpen, theme, toggleTheme } = useApp();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isCompanySelectOpen, setIsCompanySelectOpen] = useState(false);
 
@@ -226,6 +240,19 @@ const Navbar = () => {
       </div>
 
       <div className="flex items-center gap-4">
+        {/* Theme Toggle Button */}
+        <button
+          onClick={toggleTheme}
+          title={theme === 'dark' ? 'Alternar para Modo Claro' : 'Alternar para Modo Escuro'}
+          className="p-2.5 rounded-full bg-white/10 hover:bg-white/20 border border-white/10 text-white transition-all active:scale-95 flex items-center justify-center shadow-md cursor-pointer"
+        >
+          {theme === 'dark' ? (
+            <Sun size={18} className="text-amber-400 animate-in spin-in-180 duration-300" />
+          ) : (
+            <Moon size={18} className="text-indigo-600 animate-in spin-in-180 duration-300" />
+          )}
+        </button>
+
         <div className="hidden sm:flex flex-col items-end">
           <p className="text-sm font-bold text-white leading-tight">{user?.name}</p>
           <p className="text-[10px] text-primary-300 font-bold uppercase tracking-[1.5px]">{user?.role}</p>
@@ -296,10 +323,62 @@ export default function App() {
   const [isRegisterOpen, setIsRegisterOpen] = useState(false);
   const [lastMessageId, setLastMessageId] = useState<string | null>(null);
   const [prefilledCustomer, setPrefilledCustomer] = useState<{ id?: string, name: string, phone: string } | null>(null);
+  const [simulatedUserId, setSimulatedUserIdState] = useState<string | null>(localStorage.getItem('rpro_simulated_user_id'));
+  const [unrepliedLeadsCount, setUnrepliedLeadsCount] = useState(0);
+
+  const [theme, setThemeState] = useState<'dark' | 'light'>(() => {
+    return (localStorage.getItem('rpro_theme') as 'dark' | 'light') || 'dark';
+  });
+
+  const setTheme = (newTheme: 'dark' | 'light') => {
+    setThemeState(newTheme);
+    localStorage.setItem('rpro_theme', newTheme);
+  };
+
+  const toggleTheme = () => {
+    setTheme(theme === 'dark' ? 'light' : 'dark');
+  };
+
+  useEffect(() => {
+    if (theme === 'light') {
+      document.documentElement.classList.add('light-theme');
+      document.body.classList.add('light-theme');
+    } else {
+      document.documentElement.classList.remove('light-theme');
+      document.body.classList.remove('light-theme');
+    }
+  }, [theme]);
+
+  const setSimulatedUserId = (id: string | null) => {
+    if (id) {
+      localStorage.setItem('rpro_simulated_user_id', id);
+    } else {
+      localStorage.removeItem('rpro_simulated_user_id');
+    }
+    setSimulatedUserIdState(id);
+  };
 
   const addPendingOrder = (order: SaleOrder) => {
     setPendingOrders(prev => [order, ...prev]);
   };
+
+  useEffect(() => {
+    if (!currentCompany) {
+      setUnrepliedLeadsCount(0);
+      return;
+    }
+    const q = query(
+      collection(db, 'leads'),
+      where('companyId', '==', currentCompany.id)
+    );
+    return onSnapshot(q, (snap) => {
+      const count = snap.docs.filter(d => {
+        const data = d.data();
+        return data.waitingSince !== null && data.waitingSince !== undefined;
+      }).length;
+      setUnrepliedLeadsCount(count);
+    });
+  }, [currentCompany]);
 
   useEffect(() => {
     if (!currentCompany || !user) return;
@@ -329,61 +408,93 @@ export default function App() {
         );
         const leadSnap = await getDocs(leadQ);
 
-        // If no lead exists, create it in the ENTRADA stage
-        if (leadSnap.empty) {
-          // Find the default funnel or just any funnel if no default exists
-          const funnelQ = query(
-            collection(db, 'funnels'), 
-            where('companyId', '==', currentCompany.id), 
-            where('isDefault', '==', true),
-            limit(1)
-          );
-          let funnelSnap = await getDocs(funnelQ);
-          
-          if (funnelSnap.empty) {
-            const anyFunnelQ = query(collection(db, 'funnels'), where('companyId', '==', currentCompany.id), limit(1));
-            funnelSnap = await getDocs(anyFunnelQ);
-          }
-          
-          if (!funnelSnap.empty) {
-            const funnelId = funnelSnap.docs[0].id;
-            const stageQ = query(
-              collection(db, 'funnelStages'), 
-              where('funnelId', '==', funnelId), 
-              where('isInitial', '==', true),
-              limit(1)
-            );
-            const stageSnap = await getDocs(stageQ);
-            
-            if (!stageSnap.empty) {
-              const stageId = stageSnap.docs[0].id;
-              
-              await addDoc(collection(db, 'leads'), {
-                companyId: currentCompany.id,
-                funnelId,
-                funnelStageId: stageId,
-                fullName: msgData.senderName || 'Atendimento Automático',
-                phone: msgData.phone || '',
-                sourceType: msgData.channel || 'Mensagens',
-                lastMessageText: msgData.text || '',
-                estimatedValue: 0,
-                status: 'active',
-                waitingSince: Timestamp.now(),
-                createdAt: Timestamp.now(),
-                updatedAt: Timestamp.now()
-              });
-              console.log('CRM Automation: New Lead created from incoming message.');
-            }
-          }
-        } else {
-          // Update existing lead
-          const leadId = leadSnap.docs[0].id;
-          await updateDoc(doc(db, 'leads', leadId), {
-            lastMessageText: msgData.text || '',
-            waitingSince: Timestamp.now(),
+        // Find or create default funnel and initial stage ("ENTRADA")
+        const funnelQ = query(
+          collection(db, 'funnels'), 
+          where('companyId', '==', currentCompany.id), 
+          where('isDefault', '==', true),
+          limit(1)
+        );
+        let funnelSnap = await getDocs(funnelQ);
+        
+        if (funnelSnap.empty) {
+          const anyFunnelQ = query(collection(db, 'funnels'), where('companyId', '==', currentCompany.id), limit(1));
+          funnelSnap = await getDocs(anyFunnelQ);
+        }
+        
+        let funnelId = '';
+        let stageId = '';
+
+        if (funnelSnap.empty) {
+          // Create default funnel and initial stage if missing
+          const fRef = await addDoc(collection(db, 'funnels'), {
+            companyId: currentCompany.id,
+            name: 'Funil RPro (Atendimento)',
+            isDefault: true,
+            isActive: true,
+            createdAt: Timestamp.now(),
             updatedAt: Timestamp.now()
           });
-          console.log('CRM Automation: Existing Lead updated with last message.');
+          funnelId = fRef.id;
+
+          const stRef = await addDoc(collection(db, 'funnelStages'), {
+            funnelId,
+            name: 'ENTRADA',
+            order: 0,
+            isInitial: true,
+            createdAt: Timestamp.now(),
+            updatedAt: Timestamp.now()
+          });
+          stageId = stRef.id;
+        } else {
+          funnelId = funnelSnap.docs[0].id;
+          const stageQ = query(
+            collection(db, 'funnelStages'), 
+            where('funnelId', '==', funnelId), 
+            where('isInitial', '==', true),
+            limit(1)
+          );
+          let stageSnap = await getDocs(stageQ);
+          if (stageSnap.empty) {
+            const anyStageQ = query(collection(db, 'funnelStages'), where('funnelId', '==', funnelId), orderBy('order', 'asc'), limit(1));
+            stageSnap = await getDocs(anyStageQ);
+          }
+          if (!stageSnap.empty) {
+            stageId = stageSnap.docs[0].id;
+          }
+        }
+
+        // If no lead exists, create it in the ENTRADA stage
+        if (leadSnap.empty) {
+          await addDoc(collection(db, 'leads'), {
+            companyId: currentCompany.id,
+            funnelId: funnelId || null,
+            funnelStageId: stageId || null,
+            fullName: msgData.senderName || 'Atendimento Automático',
+            firstName: (msgData.senderName || 'Atendimento').split(' ')[0],
+            lastName: (msgData.senderName || '').split(' ').slice(1).join(' ') || '',
+            phone: msgData.phone || '',
+            sourceType: msgData.channel || 'WhatsApp',
+            lastMessageText: msgData.text || '',
+            estimatedValue: 0,
+            status: 'ENTRADA',
+            waitingSince: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          });
+          console.log(`CRM Automation: New Lead created from channel [${msgData.channel}] into ENTRADA stage.`);
+        } else {
+          // Update existing lead and bring to ENTRADA stage if needed
+          const leadDoc = leadSnap.docs[0];
+          await updateDoc(doc(db, 'leads', leadDoc.id), {
+            lastMessageText: msgData.text || '',
+            sourceType: msgData.channel || leadDoc.data().sourceType || 'WhatsApp',
+            waitingSince: new Date().toISOString(),
+            status: 'ENTRADA',
+            ...(stageId ? { funnelStageId: stageId } : {}),
+            updatedAt: new Date().toISOString()
+          });
+          console.log(`CRM Automation: Existing Lead updated from channel [${msgData.channel}] in ENTRADA stage.`);
         }
       }
     });
@@ -393,57 +504,47 @@ export default function App() {
 
   useEffect(() => {
     let companiesUnsub: (() => void) | null = null;
+    let userUnsub: (() => void) | null = null;
 
     const unsubAuth = onAuthStateChanged(auth, async (fbUser) => {
-      if (fbUser) {
-        const userDocRef = doc(db, 'users', fbUser.uid);
-        const userDoc = await getDoc(userDocRef);
-        
-        let userData: AppUser;
-        
-        if (!userDoc.exists()) {
-          userData = {
-            id: fbUser.uid,
-            name: fbUser.displayName || 'Usuário',
-            email: fbUser.email || '',
-            role: 'gerente',
-            isAdmin: fbUser.email === 'rafaelrtmatos@gmail.com',
-            isActive: true,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          };
-          await setDoc(userDocRef, userData);
-        } else {
-          userData = { id: userDoc.id, ...userDoc.data() } as AppUser;
-        }
-        
-        setUser(userData);
+      if (userUnsub) {
+        userUnsub();
+        userUnsub = null;
+      }
 
-        // Fetch Companies
-        const companiesQuery = query(collection(db, 'companies'), where('isActive', '==', true));
-        companiesUnsub = onSnapshot(companiesQuery, (snapshot) => {
-          const comps = snapshot.docs.map(d => ({ id: d.id, ...d.data() }) as Company);
-          setCompanies(comps);
-          if (comps.length > 0 && !currentCompany) {
-            setCurrentCompany(comps[0]);
-          }
-        });
+      let userId = fbUser?.uid || 'mock-user-id';
+      const activeUserId = simulatedUserId || userId;
+
+      let defaultUserData: AppUser = {
+        id: activeUserId,
+        name: activeUserId === 'mock-user-id' ? 'Rafael Matos' : 'Usuário Simulado',
+        email: activeUserId === 'mock-user-id' ? 'rafaelrtmatos@gmail.com' : 'simulado@rpro.com',
+        role: activeUserId === 'mock-user-id' ? 'admin' : 'gerente',
+        isAdmin: activeUserId === 'mock-user-id' || activeUserId === fbUser?.uid,
+        isActive: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      const userDocRef = doc(db, 'users', activeUserId);
+      const userDoc = await getDoc(userDocRef);
+      if (!userDoc.exists()) {
+        await setDoc(userDocRef, defaultUserData);
+        setUser(defaultUserData);
       } else {
-        // Bypass login screen by defaulting to an administrator role
-        const userData: AppUser = {
-          id: 'mock-user-id',
-          name: 'Rafael Matos',
-          email: 'rafaelrtmatos@gmail.com',
-          role: 'admin',
-          isAdmin: true,
-          isActive: true,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-        setUser(userData);
+        setUser({ id: userDoc.id, ...userDoc.data() } as AppUser);
+      }
 
-        // Fetch Companies so the dashboard and tables still load real-time Firestore data
-        const companiesQuery = query(collection(db, 'companies'), where('isActive', '==', true));
+      // Real-time listener for current user settings
+      userUnsub = onSnapshot(userDocRef, (snap) => {
+        if (snap.exists()) {
+          setUser({ id: snap.id, ...snap.data() } as AppUser);
+        }
+      });
+
+      // Fetch Companies so the dashboard and tables still load real-time Firestore data
+      const companiesQuery = query(collection(db, 'companies'), where('isActive', '==', true));
+      if (!companiesUnsub) {
         companiesUnsub = onSnapshot(companiesQuery, (snapshot) => {
           const comps = snapshot.docs.map(d => ({ id: d.id, ...d.data() }) as Company);
           setCompanies(comps);
@@ -458,8 +559,9 @@ export default function App() {
     return () => {
       unsubAuth();
       if (companiesUnsub) companiesUnsub();
+      if (userUnsub) userUnsub();
     };
-  }, []);
+  }, [simulatedUserId]);
 
   const handleLogin = async () => {
     const provider = new GoogleAuthProvider();
@@ -477,6 +579,12 @@ export default function App() {
     { id: 'production', label: 'Produção', icon: Layers },
     { id: 'settings', label: 'Opções', icon: Settings },
   ].filter(item => {
+    // If user has specific allowedTabs, check it first (unless they are admin, who can always see Settings)
+    if (user && user.allowedTabs && Array.isArray(user.allowedTabs)) {
+      if (item.id === 'settings' && user.isAdmin) return true;
+      return user.allowedTabs.includes(item.id);
+    }
+
     // If admin, show everything
     if (user?.isAdmin) return true;
     
@@ -540,28 +648,49 @@ export default function App() {
     isRegisterOpen,
     setIsRegisterOpen,
     prefilledCustomer,
-    setPrefilledCustomer
+    setPrefilledCustomer,
+    simulatedUserId,
+    setSimulatedUserId,
+    theme,
+    setTheme,
+    toggleTheme
   };
 
   return (
     <AppContext.Provider value={contextValue}>
-      <div className="flex h-screen overflow-hidden relative">
+      <div className="flex flex-col h-screen overflow-hidden relative">
         {/* Background Mesh */}
         <div className="fixed inset-0 z-[-1] mesh-gradient" />
 
-        {/* Sidebar */}
-        <AnimatePresence>
-          {(isSidebarOpen || window.innerWidth >= 1024) && (
-            <motion.aside
-              initial={{ x: -320 }}
-              animate={{ x: 0 }}
-              exit={{ x: -320 }}
-              transition={{ duration: 0.5, type: 'spring', damping: 25, stiffness: 120 }}
-              className={cn(
-                "fixed lg:static inset-y-0 left-0 z-50 w-80 bg-white/5 backdrop-blur-3xl border-r border-white/10 flex flex-col p-8 shadow-2xl lg:shadow-none lg:bg-transparent",
-                !isSidebarOpen && "hidden lg:flex"
-              )}
+        {simulatedUserId && (
+          <div className="bg-amber-500 text-slate-950 font-black px-8 py-2 md:py-3 text-[10px] md:text-xs flex items-center justify-between shadow-xl relative z-50 animate-in slide-in-from-top duration-300">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-slate-950 animate-ping shrink-0" />
+              <span>Simulando Visão de: <strong className="uppercase">{user?.name}</strong> • Cargo: <strong className="uppercase">{user?.role}</strong></span>
+            </div>
+            <button 
+              onClick={() => setSimulatedUserId(null)} 
+              className="bg-slate-950 text-white rounded-full px-4 py-1.5 hover:bg-slate-800 transition-all font-black text-[9px] uppercase tracking-wider"
             >
+              Voltar ao Admin
+            </button>
+          </div>
+        )}
+
+        <div className="flex flex-1 overflow-hidden relative">
+          {/* Sidebar */}
+          <AnimatePresence>
+            {(isSidebarOpen || window.innerWidth >= 1024) && (
+              <motion.aside
+                initial={{ x: -320 }}
+                animate={{ x: 0 }}
+                exit={{ x: -320 }}
+                transition={{ duration: 0.5, type: 'spring', damping: 25, stiffness: 120 }}
+                className={cn(
+                  "fixed lg:static inset-y-0 left-0 z-50 w-80 bg-white/5 backdrop-blur-3xl border-r border-white/10 flex flex-col p-8 shadow-2xl lg:shadow-none lg:bg-transparent",
+                  !isSidebarOpen && "hidden lg:flex"
+                )}
+              >
               <div className="flex items-center justify-between mb-12 px-2">
                 <div className="flex items-center gap-4 group">
                   {currentCompany?.logoUrl ? (
@@ -594,6 +723,7 @@ export default function App() {
                     label={item.label}
                     tab={item.id as MainTab}
                     active={activeTab === item.id}
+                    badgeCount={item.id === 'messages' ? unrepliedLeadsCount : undefined}
                     onClick={() => {
                       setActiveTab(item.id as MainTab);
                       if (window.innerWidth < 1024) setIsSidebarOpen(false);
@@ -634,10 +764,10 @@ export default function App() {
               <AnimatePresence mode="wait">
                 <motion.div
                   key={activeTab}
-                  initial={{ opacity: 0, y: 30 }}
+                  initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -30 }}
-                  transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.15, ease: "easeOut" }}
                 >
                   {activeTab === 'dashboard' && <DashboardModule user={user} currentCompany={currentCompany} pendingOrders={pendingOrders} setActiveTab={setActiveTab} />}
                   {activeTab === 'crm' && <CRMModule currentCompany={currentCompany} user={user} />}
@@ -647,13 +777,14 @@ export default function App() {
                   {activeTab === 'inventory' && <InventoryModule currentCompany={currentCompany} />}
                   {activeTab === 'services' && <ServicesModule currentCompany={currentCompany} />}
                   {activeTab === 'production' && <ProductionModule currentCompany={currentCompany} />}
-                  {activeTab === 'settings' && <SettingsModule currentCompany={currentCompany} />}
+                  {activeTab === 'settings' && <SettingsModule currentCompany={currentCompany} user={user} />}
                 </motion.div>
               </AnimatePresence>
             </div>
           </div>
         </main>
       </div>
+    </div>
     </AppContext.Provider>
   );
 }

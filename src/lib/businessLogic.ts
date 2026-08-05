@@ -2,10 +2,10 @@ import { Timestamp } from 'firebase/firestore';
 import { 
   Lead, 
   Conversation, 
-  RealEstateSale, 
   AppUser, 
   Company,
-  BaseEntity
+  BaseEntity,
+  ServiceContract
 } from '../types';
 
 /**
@@ -31,21 +31,17 @@ export function calculateSLA(waitingSince?: Timestamp | string | null): Conversa
 }
 
 /**
- * Financial Validation for Real Estate Sale
- * Rules: totalValue = downPayment + (installmentsCount * installmentsValue)
+ * Financial Validation for Service Contract Sale
+ * Rules: totalAmount = downPayment + remainingBalance
  */
-export function validateRealEstateSale(sale: Partial<RealEstateSale>): { isValid: boolean; messages: string[] } {
+export function validateServiceContractSale(contract: Partial<ServiceContract>): { isValid: boolean; messages: string[] } {
   const messages: string[] = [];
-  const total = sale.totalValue || 0;
-  const down = sale.downPayment || 0;
-  const count = sale.installmentsCount || 0;
-  const value = sale.installmentsValue || 0;
+  const total = contract.totalAmount || 0;
+  const down = contract.downPaymentAmount || (total / 2);
+  const remaining = total - down;
 
-  const calculatedTotal = down + (count * value);
-  const diff = Math.abs(total - calculatedTotal);
-
-  if (diff > 0.01) {
-    messages.push(`Divergência financeira: Total R$ ${total.toLocaleString()} vs Calculado R$ ${calculatedTotal.toLocaleString()}`);
+  if (down < 0 || remaining < 0) {
+    messages.push('Valores de entrada ou saldo não podem ser negativos.');
   }
 
   return {
