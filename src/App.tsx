@@ -32,7 +32,13 @@ import {
   Layers,
   Package,
   Sun,
-  Moon
+  Moon,
+  Lock,
+  Mail,
+  Eye,
+  EyeOff,
+  AlertCircle,
+  ShieldCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -113,6 +119,7 @@ interface AppContextType {
   theme: 'dark' | 'light';
   setTheme: (theme: 'dark' | 'light') => void;
   toggleTheme: () => void;
+  logout: () => void;
 }
 
 export const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -161,7 +168,7 @@ const SidebarItem = ({
 );
 
 const Navbar = () => {
-  const { user, companies, currentCompany, setCurrentCompany, setIsSidebarOpen, theme, toggleTheme } = useApp();
+  const { user, companies, currentCompany, setCurrentCompany, setIsSidebarOpen, theme, toggleTheme, logout } = useApp();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isCompanySelectOpen, setIsCompanySelectOpen] = useState(false);
 
@@ -282,8 +289,8 @@ const Navbar = () => {
                   className="absolute right-0 mt-3 w-56 bg-[#1a2333]/90 backdrop-blur-3xl rounded-[28px] shadow-2xl border border-white/10 p-2 z-50"
                 >
                   <button 
-                    onClick={() => signOut(auth)}
-                    className="w-full flex items-center gap-3 p-4 rounded-2xl hover:bg-rose-500/20 text-rose-400 transition-colors text-sm font-bold"
+                    onClick={logout}
+                    className="w-full flex items-center gap-3 p-4 rounded-2xl hover:bg-rose-500/20 text-rose-400 transition-colors text-sm font-bold cursor-pointer border-0 bg-transparent"
                   >
                     <LogOut size={18} />
                     Finalizar Sessão
@@ -502,71 +509,174 @@ export default function App() {
     return () => unsubscribe();
   }, [currentCompany, user, lastMessageId]);
 
+  // Login & Authentication State
+  const [loginEmail, setLoginEmail] = useState('rafaelrtmatos@gmail.com');
+  const [loginPassword, setLoginPassword] = useState('Geper3tp@');
+  const [showPassword, setShowPassword] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleLogout = async () => {
+    sessionStorage.removeItem('rpro_logged_user_id');
+    localStorage.removeItem('rpro_simulated_user_id');
+    setSimulatedUserIdState(null);
+    setUser(null);
+    try {
+      await signOut(auth);
+    } catch (e) {
+      // ignore
+    }
+  };
+
+  const handlePasswordLogin = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setAuthError(null);
+    setIsSubmitting(true);
+
+    const trimmedEmail = loginEmail.trim().toLowerCase();
+    const trimmedPassword = loginPassword.trim();
+
+    if (!trimmedEmail || !trimmedPassword) {
+      setAuthError('Por favor, informe o e-mail e a senha de acesso.');
+      setIsSubmitting(false);
+      return;
+    }
+
+    try {
+      // 1. MASTER ADMIN LOGIN CHECK
+      if (trimmedEmail === 'rafaelrtmatos@gmail.com' && trimmedPassword === 'Geper3tp@') {
+        const adminDocRef = doc(db, 'users', 'admin-rafael');
+        const adminSnap = await getDoc(adminDocRef);
+
+        let adminData: AppUser = {
+          id: 'admin-rafael',
+          name: 'Rafael Matos (ADM)',
+          email: 'rafaelrtmatos@gmail.com',
+          password: 'Geper3tp@',
+          role: 'admin',
+          isAdmin: true,
+          isActive: true,
+          allowedTabs: ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'inventory', 'services', 'production', 'settings'],
+          allowedActions: [
+            'canStartNote', 'canSendSavedMessage', 'canCreateCard', 'canAddTask',
+            'canStartPosSale', 'canStartRealEstateSale', 'canMoveLead',
+            'canViewCustomerData', 'canViewAttachments', 'canTranscribeAudio'
+          ],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+
+        if (!adminSnap.exists()) {
+          await setDoc(adminDocRef, adminData);
+        } else {
+          adminData = { ...adminSnap.data(), id: adminSnap.id } as AppUser;
+          if (adminData.password !== 'Geper3tp@' || !adminData.isAdmin) {
+            await updateDoc(adminDocRef, { password: 'Geper3tp@', isAdmin: true, role: 'admin' });
+            adminData.password = 'Geper3tp@';
+            adminData.isAdmin = true;
+          }
+        }
+
+        setUser(adminData);
+        sessionStorage.setItem('rpro_logged_user_id', adminData.id);
+        setIsSubmitting(false);
+        return;
+      }
+
+      // 2. QUERY FIRESTORE USERS COLLECTION DATABASE REPOSITORY
+      const q = query(collection(db, 'users'), where('email', '==', trimmedEmail));
+      const snap = await getDocs(q);
+
+      if (snap.empty) {
+        setAuthError('Usuário não encontrado no repositório. Solicite o cadastro ao administrador (rafaelrtmatos@gmail.com).');
+        setIsSubmitting(false);
+        return;
+      }
+
+      const userDoc = snap.docs[0];
+      const userData = { id: userDoc.id, ...userDoc.data() } as AppUser;
+
+      if (!userData.isActive) {
+        setAuthError('Sua conta está inativa no repositório. Entre em contato com o administrador.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Check password
+      if (userData.password && userData.password !== trimmedPassword) {
+        setAuthError('Senha incorreta! Verifique sua senha e tente novamente.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      setUser(userData);
+      sessionStorage.setItem('rpro_logged_user_id', userData.id);
+    } catch (err) {
+      console.error('Erro na autenticação:', err);
+      setAuthError('Erro de conexão ao verificar credenciais no repositório. Tente novamente.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   useEffect(() => {
     let companiesUnsub: (() => void) | null = null;
     let userUnsub: (() => void) | null = null;
 
-    const unsubAuth = onAuthStateChanged(auth, async (fbUser) => {
-      if (userUnsub) {
-        userUnsub();
-        userUnsub = null;
-      }
-
-      let userId = fbUser?.uid || 'mock-user-id';
-      const activeUserId = simulatedUserId || userId;
-
-      let defaultUserData: AppUser = {
-        id: activeUserId,
-        name: activeUserId === 'mock-user-id' ? 'Rafael Matos' : 'Usuário Simulado',
-        email: activeUserId === 'mock-user-id' ? 'rafaelrtmatos@gmail.com' : 'simulado@rpro.com',
-        role: activeUserId === 'mock-user-id' ? 'admin' : 'gerente',
-        isAdmin: activeUserId === 'mock-user-id' || activeUserId === fbUser?.uid,
-        isActive: true,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-
-      const userDocRef = doc(db, 'users', activeUserId);
-      const userDoc = await getDoc(userDocRef);
-      if (!userDoc.exists()) {
-        await setDoc(userDocRef, defaultUserData);
-        setUser(defaultUserData);
-      } else {
-        setUser({ id: userDoc.id, ...userDoc.data() } as AppUser);
-      }
-
-      // Real-time listener for current user settings
-      userUnsub = onSnapshot(userDocRef, (snap) => {
-        if (snap.exists()) {
-          setUser({ id: snap.id, ...snap.data() } as AppUser);
+    const initAuth = async () => {
+      // 1. Fetch Companies
+      const companiesQuery = query(collection(db, 'companies'), where('isActive', '==', true));
+      companiesUnsub = onSnapshot(companiesQuery, (snapshot) => {
+        const comps = snapshot.docs.map(d => ({ id: d.id, ...d.data() }) as Company);
+        setCompanies(comps);
+        if (comps.length > 0) {
+          setCurrentCompany(prev => prev || comps[0]);
         }
       });
 
-      // Fetch Companies so the dashboard and tables still load real-time Firestore data
-      const companiesQuery = query(collection(db, 'companies'), where('isActive', '==', true));
-      if (!companiesUnsub) {
-        companiesUnsub = onSnapshot(companiesQuery, (snapshot) => {
-          const comps = snapshot.docs.map(d => ({ id: d.id, ...d.data() }) as Company);
-          setCompanies(comps);
-          if (comps.length > 0) {
-            setCurrentCompany(prev => prev || comps[0]);
-          }
-        });
+      // 2. Check saved session user
+      const savedUserId = sessionStorage.getItem('rpro_logged_user_id');
+      const targetUserId = simulatedUserId || savedUserId;
+
+      if (targetUserId) {
+        const userDocRef = doc(db, 'users', targetUserId);
+        const snap = await getDoc(userDocRef);
+        if (snap.exists()) {
+          const uData = { id: snap.id, ...snap.data() } as AppUser;
+          setUser(uData);
+          userUnsub = onSnapshot(userDocRef, (s) => {
+            if (s.exists()) {
+              setUser({ id: s.id, ...s.data() } as AppUser);
+            }
+          });
+        } else if (targetUserId === 'admin-rafael') {
+          const adminData: AppUser = {
+            id: 'admin-rafael',
+            name: 'Rafael Matos (ADM)',
+            email: 'rafaelrtmatos@gmail.com',
+            password: 'Geper3tp@',
+            role: 'admin',
+            isAdmin: true,
+            isActive: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+          await setDoc(userDocRef, adminData);
+          setUser(adminData);
+        } else {
+          sessionStorage.removeItem('rpro_logged_user_id');
+        }
       }
       setLoading(false);
-    });
+    };
+
+    initAuth();
 
     return () => {
-      unsubAuth();
       if (companiesUnsub) companiesUnsub();
       if (userUnsub) userUnsub();
     };
   }, [simulatedUserId]);
-
-  const handleLogin = async () => {
-    const provider = new GoogleAuthProvider();
-    await signInWithPopup(auth, provider);
-  };
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -596,40 +706,107 @@ export default function App() {
   });
 
   if (loading) return (
-    <div className="h-screen w-full flex items-center justify-center bg-slate-50">
+    <div className="h-screen w-full flex items-center justify-center bg-[#0b1320]">
       <div className="flex flex-col items-center gap-4">
-        <div className="w-12 h-12 border-4 border-primary-100 border-t-primary-600 rounded-full animate-spin" />
-        <p className="text-sm font-medium text-slate-500 animate-pulse">Iniciando RPro System...</p>
+        <div className="w-12 h-12 border-4 border-primary-500/20 border-t-primary-500 rounded-full animate-spin" />
+        <p className="text-sm font-bold text-white/50 animate-pulse">Iniciando RPro System...</p>
       </div>
     </div>
   );
 
   if (!user) return (
-    <div className="h-screen w-full flex items-center justify-center bg-white p-6">
-      <div className="max-w-md w-full text-center space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-700">
-        <div className="flex flex-col items-center">
-          {currentCompany?.logoUrl ? (
-            <div className="w-24 h-24 mb-8">
-               <img src={currentCompany.logoUrl} alt="Logo" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+    <div className="min-h-screen w-full flex items-center justify-center bg-[#0b1320] p-4 sm:p-6 relative overflow-hidden">
+      {/* Background glow effects */}
+      <div className="absolute -top-40 -left-40 w-96 h-96 bg-primary-600/20 rounded-full blur-[128px] pointer-events-none" />
+      <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-indigo-600/20 rounded-full blur-[128px] pointer-events-none" />
+
+      <div className="max-w-md w-full space-y-8 animate-in fade-in zoom-in-95 duration-500 relative z-10">
+        <div className="text-center space-y-3">
+          <div className="inline-flex p-3 rounded-3xl bg-primary-500/10 border border-primary-500/30 text-primary-400 mb-2 shadow-xl">
+            <ShieldCheck size={44} />
+          </div>
+          <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
+            RPro <span className="text-primary-400">System</span>
+          </h1>
+          <p className="text-xs sm:text-sm text-white/50 max-w-sm mx-auto">
+            Acesso ao Repositório do Sistema de Gestão
+          </p>
+        </div>
+
+        <form onSubmit={handlePasswordLogin} className="bg-slate-900/80 backdrop-blur-2xl p-6 sm:p-8 rounded-[32px] border border-white/10 shadow-2xl space-y-6">
+          <div className="space-y-4">
+            <div>
+              <label className="text-[10px] font-black uppercase text-white/60 tracking-wider mb-2 block flex items-center gap-1.5">
+                <Mail size={12} className="text-primary-400" /> E-mail de Acesso
+              </label>
+              <input
+                type="email"
+                required
+                value={loginEmail}
+                onChange={(e) => setLoginEmail(e.target.value)}
+                placeholder="rafaelrtmatos@gmail.com"
+                className="w-full bg-slate-950/80 border border-white/10 rounded-2xl px-4 py-3.5 text-white font-medium focus:outline-none focus:border-primary-500 transition-all text-sm placeholder:text-white/20"
+              />
             </div>
-          ) : (
-            <div className="w-20 h-20 bg-primary-600 rounded-[2.5rem] rotate-12 flex items-center justify-center shadow-2xl shadow-primary-200 mb-8">
-              <Building2 size={40} className="text-white -rotate-12" />
+
+            <div>
+              <label className="text-[10px] font-black uppercase text-white/60 tracking-wider mb-2 block flex items-center gap-1.5">
+                <Lock size={12} className="text-primary-400" /> Senha de Acesso
+              </label>
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  placeholder="Geper3tp@"
+                  className="w-full bg-slate-950/80 border border-white/10 rounded-2xl pl-4 pr-12 py-3.5 text-white font-medium focus:outline-none focus:border-primary-500 transition-all text-sm placeholder:text-white/20"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white transition-colors cursor-pointer p-1"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {authError && (
+            <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-semibold flex items-start gap-3 animate-in fade-in duration-200">
+              <AlertCircle size={18} className="shrink-0 text-rose-400 mt-0.5" />
+              <span>{authError}</span>
             </div>
           )}
-          <h1 className="text-4xl font-extrabold text-slate-900 tracking-tight">RPro <span className="text-primary-600">System</span></h1>
-          <p className="text-slate-500 mt-3 text-lg">A plataforma mestre de gestão para o seu negócio.</p>
-        </div>
-        
-        <button
-          onClick={handleLogin}
-          className="w-full flex items-center justify-center gap-4 py-4 bg-white border border-slate-200 rounded-2xl text-slate-700 font-bold hover:bg-slate-50 transition-all shadow-sm hover:shadow-md"
-        >
-          <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5" />
-          Entrar com Google
-        </button>
 
-        <p className="text-xs text-slate-400">© 2026 RPro Gestão Inteligente. Todos os direitos reservados.</p>
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="w-full py-4 bg-primary-500 hover:bg-primary-400 disabled:opacity-50 text-slate-950 font-black text-xs uppercase tracking-widest rounded-2xl shadow-lg shadow-primary-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer border-0 active:scale-98"
+          >
+            <Lock size={16} />
+            {isSubmitting ? 'Autenticando...' : 'Entrar no Sistema'}
+          </button>
+
+          <div className="pt-2 border-t border-white/10 flex flex-col gap-2 text-center">
+            <button
+              type="button"
+              onClick={() => {
+                setLoginEmail('rafaelrtmatos@gmail.com');
+                setLoginPassword('Geper3tp@');
+                setAuthError(null);
+              }}
+              className="text-[11px] font-bold text-primary-400 hover:text-primary-300 hover:underline transition-all cursor-pointer bg-transparent border-0"
+            >
+              🔑 Preencher credenciais Admin (rafaelrtmatos@gmail.com)
+            </button>
+          </div>
+        </form>
+
+        <p className="text-center text-[10px] uppercase tracking-wider text-white/30 font-semibold">
+          © 2026 RPro Gestão Inteligente • Autenticação de Usuários do Repositório
+        </p>
       </div>
     </div>
   );
@@ -653,7 +830,8 @@ export default function App() {
     setSimulatedUserId,
     theme,
     setTheme,
-    toggleTheme
+    toggleTheme,
+    logout: handleLogout
   };
 
   return (

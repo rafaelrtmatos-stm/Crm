@@ -5162,6 +5162,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
   
   const [editedName, setEditedName] = useState('');
   const [editedEmail, setEditedEmail] = useState('');
+  const [editedPassword, setEditedPassword] = useState('');
   const [editedRole, setEditedRole] = useState<'admin' | 'gerente' | 'atendente' | 'caixa' | 'vendedor' | 'designer' | 'operador'>('atendente');
   const [editedTabs, setEditedTabs] = useState<string[]>([]);
   const [editedActions, setEditedActions] = useState<string[]>([]);
@@ -5170,6 +5171,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [newUserName, setNewUserName] = useState('');
   const [newUserEmail, setNewUserEmail] = useState('');
+  const [newUserPassword, setNewUserPassword] = useState('');
   const [newUserRole, setNewUserRole] = useState<'admin' | 'gerente' | 'atendente' | 'caixa' | 'vendedor' | 'designer' | 'operador'>('atendente');
 
   useEffect(() => {
@@ -5206,6 +5208,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     setEditingUser(u);
     setEditedName(u.name);
     setEditedEmail(u.email);
+    setEditedPassword(u.password || '');
     setEditedRole(u.role as any || 'atendente');
     setEditedTabs(u.allowedTabs || ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'inventory', 'services', 'production', 'settings']);
     setEditedActions(u.allowedActions || [
@@ -5221,12 +5224,13 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
       await updateDoc(doc(db, 'users', editingUser.id), {
         name: editedName,
         email: editedEmail,
+        ...(editedPassword ? { password: editedPassword } : {}),
         role: editedRole,
         allowedTabs: editedTabs,
         allowedActions: editedActions,
         updatedAt: Timestamp.now()
       });
-      alert('Permissões do usuário atualizadas com sucesso!');
+      alert('Dados e senha do usuário atualizados no repositório!');
       setEditingUser(null);
     } catch (err) {
       console.error('Erro ao salvar permissões:', err);
@@ -5236,11 +5240,11 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
 
   const handleCreateUser = async () => {
     if (!newUserName || !newUserEmail) {
-      alert('Por favor, preencha o nome e o email.');
+      alert('Por favor, preencha o nome e o e-mail.');
       return;
     }
     try {
-      const newUid = 'mock-user-' + Math.random().toString(36).substr(2, 9);
+      const newUid = 'user-' + Date.now();
       const defaultTabs = ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'inventory', 'services', 'production', 'settings'];
       const defaultActions = [
         'canStartNote', 'canSendSavedMessage', 'canCreateCard', 'canAddTask',
@@ -5250,7 +5254,8 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
 
       const newUserData = {
         name: newUserName,
-        email: newUserEmail,
+        email: newUserEmail.trim().toLowerCase(),
+        password: newUserPassword || '123456',
         role: newUserRole,
         isAdmin: newUserRole === 'admin',
         isActive: true,
@@ -5261,14 +5266,15 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
       };
 
       await setDoc(doc(db, 'users', newUid), newUserData);
-      alert('Novo usuário simulado adicionado com sucesso!');
+      alert(`Novo usuário [${newUserName}] cadastrado com sucesso no repositório!\n\nE-mail: ${newUserEmail}\nSenha: ${newUserPassword || '123456'}\n\nEle já pode fazer login na tela inicial com essas credenciais.`);
       setIsCreateModalOpen(false);
       setNewUserName('');
       setNewUserEmail('');
+      setNewUserPassword('');
       setNewUserRole('atendente');
     } catch (err) {
       console.error('Erro ao criar usuário:', err);
-      alert('Erro ao criar usuário.');
+      alert('Erro ao criar usuário no repositório.');
     }
   };
 
@@ -5491,9 +5497,10 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4">
                       <Input label="Nome Completo" value={editedName} onChange={(e) => setEditedName(e.target.value)} />
                       <Input label="E-mail de Acesso" value={editedEmail} onChange={(e) => setEditedEmail(e.target.value)} />
+                      <Input label="Senha de Acesso" type="text" value={editedPassword} onChange={(e) => setEditedPassword(e.target.value)} placeholder="Altere a senha se desejar" />
                     </div>
 
                     <div className="space-y-2">
@@ -5703,12 +5710,13 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                 <Modal 
                   isOpen={isCreateModalOpen} 
                   onClose={() => setIsCreateModalOpen(false)} 
-                  title="Criar Usuário de Teste / Simulação"
+                  title="Cadastrar Novo Usuário no Repositório"
                 >
                   <div className="space-y-6">
-                    <p className="text-xs text-white/40 -mt-2">Adicione um colaborador local focado para simular flows de visualização restrita.</p>
-                    <Input label="Nome do Colaborador" value={newUserName} onChange={(e) => setNewUserName(e.target.value)} />
-                    <Input label="E-mail de Acesso" value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)} />
+                    <p className="text-xs text-white/40 -mt-2">O usuário criado será salvo diretamente no banco de dados Firestore e poderá fazer login imediatamente com o e-mail e senha cadastrados.</p>
+                    <Input label="Nome Completo do Colaborador" placeholder="Ex: Maria Silva" value={newUserName} onChange={(e) => setNewUserName(e.target.value)} />
+                    <Input label="E-mail de Acesso" placeholder="maria@empresa.com" value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)} />
+                    <Input label="Senha de Acesso" type="password" placeholder="Defina a senha (ex: 123456)" value={newUserPassword} onChange={(e) => setNewUserPassword(e.target.value)} />
                     
                     <div className="space-y-2">
                       <label className="text-xs uppercase tracking-widest text-white/50 font-black">Cargo / Função do Usuário</label>
@@ -5717,7 +5725,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                         onChange={(e: any) => setNewUserRole(e.target.value)}
                         className="w-full bg-slate-950 border border-white/10 rounded-2xl p-4 text-white hover:border-primary-500 font-bold focus:outline-none transition-all"
                       >
-                        <option value="admin">Administrador</option>
+                        <option value="admin">Administrador (Total)</option>
                         <option value="gerente">Gerente de Equipe</option>
                         <option value="atendente">Atendente Comercial</option>
                         <option value="caixa">Operador de Caixa (PDV)</option>
@@ -5738,9 +5746,9 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                       <button 
                         type="button"
                         onClick={handleCreateUser} 
-                        className="flex-1 py-3 bg-primary-500 hover:bg-primary-400 text-slate-100 font-bold text-xs uppercase rounded-xl transition-all shadow-lg border-0 cursor-pointer"
+                        className="flex-1 py-3 bg-primary-500 hover:bg-primary-400 text-slate-950 font-black text-xs uppercase rounded-xl transition-all shadow-lg border-0 cursor-pointer"
                       >
-                        Criar Usuário
+                        Salvar no Repositório
                       </button>
                     </div>
                   </div>

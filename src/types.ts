@@ -71,6 +71,7 @@ export interface Company extends BaseEntity {
 export interface AppUser extends BaseEntity {
   name: string;
   email: string;
+  password?: string;
   phone?: string;
   avatarUrl?: string;
   role: UserRole;
