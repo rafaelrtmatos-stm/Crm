@@ -93,6 +93,7 @@ import {
   SaleOrder
 } from './types';
 import { phoneKey } from './lib/businessLogic';
+import { RafaArtsLogo } from './components/RafaArtsLogo';
 
 type MainTab = 'dashboard' | 'crm' | 'messages' | 'pos' | 'contacts' | 'services' | 'inventory' | 'production' | 'settings';
 
@@ -727,10 +728,11 @@ export default function App() {
   });
 
   if (loading) return (
-    <div className="h-screen w-full flex items-center justify-center bg-[#0b1320]">
-      <div className="flex flex-col items-center gap-4">
-        <div className="w-12 h-12 border-4 border-primary-500/20 border-t-primary-500 rounded-full animate-spin" />
-        <p className="text-sm font-bold text-white/50 animate-pulse">Iniciando Rafa Arts Graphics...</p>
+    <div className="h-screen w-full flex items-center justify-center bg-[#07070a]">
+      <div className="flex flex-col items-center gap-6">
+        <RafaArtsLogo size="xl" layout="stacked" />
+        <div className="w-10 h-10 border-4 border-red-600/30 border-t-red-500 rounded-full animate-spin mt-2" />
+        <p className="text-xs font-bold uppercase tracking-widest text-slate-400 animate-pulse">Iniciando Sistema de Gestão...</p>
       </div>
     </div>
   );
@@ -754,19 +756,13 @@ export default function App() {
       </div>
 
       <div className="max-w-md w-full space-y-6 animate-in fade-in zoom-in-95 duration-500 relative z-10">
-        {/* Header Badge & Title */}
-        <div className="flex flex-col items-center text-center space-y-2">
-          <div className="w-16 h-16 rounded-3xl bg-red-950/40 border border-red-600/60 flex items-center justify-center text-red-500 shadow-2xl shadow-red-950/80 mb-1">
-            <div className="relative flex items-center justify-center">
-              <ShieldCheck size={38} className="text-red-500" />
-            </div>
+        {/* Header Badge & Title with Separated Rafa Arts Graphics Logo */}
+        <div className="flex flex-col items-center text-center space-y-3">
+          <div className="px-6 py-4 rounded-3xl bg-[#0c0c12]/90 border border-slate-800 shadow-2xl shadow-red-950/60 backdrop-blur-xl">
+            <RafaArtsLogo size="xl" layout="stacked" />
           </div>
           
-          <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight flex items-center justify-center">
-            Rafa Arts<span className="text-red-500 font-extrabold">Graphics</span>
-          </h1>
-          
-          <p className="text-xs sm:text-sm font-semibold text-white tracking-wide max-w-sm">
+          <p className="text-xs sm:text-sm font-semibold text-slate-300 tracking-wide max-w-sm">
             Acesso ao Repositório do Sistema de Gestão
           </p>
         </div>
@@ -931,25 +927,13 @@ export default function App() {
                   !isSidebarOpen && "hidden lg:flex"
                 )}
               >
-              <div className="flex items-center justify-between mb-12 px-2">
-                <div className="flex items-center gap-4 group">
-                  {currentCompany?.logoUrl ? (
-                    <div className="w-12 h-12 rounded-2xl overflow-hidden flex items-center justify-center p-1 bg-white shadow-[0_0_30px_rgba(255,255,255,0.1)] group-hover:rotate-6 transition-transform duration-500">
-                       <img src={currentCompany.logoUrl} alt="Logo" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
-                    </div>
-                  ) : (
-                    <div className="w-12 h-12 bg-primary-500 rounded-2xl flex items-center justify-center shadow-[0_0_30px_rgba(76,201,240,0.4)] group-hover:rotate-12 transition-transform duration-500">
-                      <Building2 size={24} className="text-[#0f172a]" />
-                    </div>
-                  )}
-                  <div>
-                    <h2 className="text-xl font-black text-white leading-none tracking-tight">Rafa Arts</h2>
-                    <p className="text-[10px] font-black text-red-500 uppercase tracking-[3px] mt-1">Graphics</p>
-                  </div>
+              <div className="flex items-center justify-between mb-8 px-1">
+                <div className="flex items-center gap-3">
+                  <RafaArtsLogo size="md" layout="stacked" />
                 </div>
                 <button 
                   onClick={() => setIsSidebarOpen(false)}
-                  className="lg:hidden p-3 text-white/40 hover:text-white transition-colors"
+                  className="lg:hidden p-2 text-white/40 hover:text-white transition-colors rounded-xl bg-white/5"
                 >
                   <X size={20} />
                 </button>
