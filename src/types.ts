@@ -83,25 +83,6 @@ export interface AppUser extends BaseEntity {
   allowedActions?: string[];   // Specific action permissions allowed
 }
 
-export interface Client extends BaseEntity {
-  name: string;
-  phone?: string;
-  phoneKey?: string; // versao normalizada do telefone, so digitos, pra casar com mensagens recebidas
-  email?: string;
-  cpfCnpj?: string;
-  cep?: string;
-  address?: string;
-  addressNumber?: string;
-  complement?: string;
-  district?: string;
-  city?: string;
-  state?: string;
-  notes?: string;
-  birthDate?: string;
-  otherDocuments?: string;
-  openDebts?: number;
-}
-
 export interface Lead extends BaseEntity {
   fullName: string;
   firstName?: string;
@@ -133,8 +114,6 @@ export interface Lead extends BaseEntity {
   capturedAt?: Timestamp | string;
   waitingSince?: Timestamp | string;
   lastInteractionAt?: Timestamp | string;
-  isExistingClient?: boolean;
-  clientId?: string;
 }
 
 export interface Funnel extends BaseEntity {
@@ -318,7 +297,6 @@ export interface InventoryItem extends BaseEntity {
   category?: 'substrato' | 'tinta' | 'acabamento' | 'diversos';
   unit: 'un' | 'kg' | 'm' | 'm2' | 'rolo' | 'litro';
   salePrice: number;
-  wholesalePrice?: number;
   costPrice?: number;
   currentStock: number;
   minStock: number;

@@ -159,40 +159,44 @@ export const SectionHeader = ({ title, subtitle, actions }: any) => (
 );
 
 // --- MODAL ---
-export const Modal = ({ isOpen, onClose, title, children, size = 'md' }: any) => {
-  const sizes = {
+export const Modal = ({ isOpen, onClose, title, children, size = 'md', className, contentClassName }: any) => {
+  const sizes: Record<string, string> = {
     sm: "max-w-md",
     md: "max-w-2xl",
     lg: "max-w-5xl",
+    xl: "max-w-6xl",
   };
 
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 overflow-hidden">
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 bg-slate-900/60 backdrop-blur-md"
+            className="fixed inset-0 bg-slate-950/80 backdrop-blur-md"
           />
           <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            initial={{ opacity: 0, scale: 0.95, y: 15 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+            exit={{ opacity: 0, scale: 0.95, y: 15 }}
             className={cn(
-              "relative w-full bg-[#1a2333]/90 backdrop-blur-2xl border border-white/10 rounded-[40px] shadow-2xl overflow-hidden p-8 transition-all duration-500",
-              sizes[size]
+              "relative w-full max-h-[98vh] h-auto bg-[#1a2333]/95 backdrop-blur-2xl border border-white/10 rounded-2xl sm:rounded-[32px] shadow-2xl flex flex-col p-3 sm:p-5 md:p-6 transition-all duration-300 overflow-hidden my-auto",
+              sizes[size] || sizes.md,
+              className
             )}
           >
-          <div className="flex items-center justify-between mb-8">
-            <h3 className="text-2xl font-bold text-white tracking-tight">{title}</h3>
-            <button onClick={onClose} className="p-2 text-white/30 hover:text-white hover:bg-white/5 rounded-xl transition-all">
-              <X size={20} />
+          <div className="flex items-center justify-between mb-2 sm:mb-4 shrink-0 border-b border-white/5 pb-2 sm:pb-3">
+            <h3 className="text-sm sm:text-lg md:text-xl font-black text-white tracking-tight truncate uppercase">{title}</h3>
+            <button onClick={onClose} className="p-1 sm:p-1.5 text-white/40 hover:text-white hover:bg-white/10 rounded-lg sm:rounded-xl transition-all cursor-pointer">
+              <X size={18} />
             </button>
           </div>
-          {children}
+          <div className={cn("flex-1 min-h-0 flex flex-col overflow-hidden", contentClassName)}>
+            {children}
+          </div>
         </motion.div>
       </div>
     )}

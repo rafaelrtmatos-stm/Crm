@@ -21,6 +21,8 @@ export const RafaArtsLogo: React.FC<RafaArtsLogoProps> = ({
 
   const { width } = sizeMap[size] || sizeMap.md;
 
+  const fontStyle = "Montserrat, 'Arial Black', Impact, system-ui, sans-serif";
+
   if (layout === 'horizontal') {
     return (
       <div className={cn("inline-flex items-center select-none", className)}>
@@ -32,8 +34,8 @@ export const RafaArtsLogo: React.FC<RafaArtsLogoProps> = ({
           <text
             x="10"
             y="90"
-            fill="#FFFFFF"
-            fontFamily="Impact, 'Arial Black', system-ui, -apple-system, sans-serif"
+            style={{ fill: '#FFFFFF' }}
+            fontFamily={fontStyle}
             fontWeight="900"
             fontSize="102"
             letterSpacing="3"
@@ -43,8 +45,8 @@ export const RafaArtsLogo: React.FC<RafaArtsLogoProps> = ({
           <text
             x="10"
             y="185"
-            fill="#FFFFFF"
-            fontFamily="Impact, 'Arial Black', system-ui, -apple-system, sans-serif"
+            style={{ fill: '#FFFFFF' }}
+            fontFamily={fontStyle}
             fontWeight="900"
             fontSize="102"
             letterSpacing="3"
@@ -71,8 +73,8 @@ export const RafaArtsLogo: React.FC<RafaArtsLogoProps> = ({
           <text
             x="248"
             y="233"
-            fill="#FFFFFF"
-            fontFamily="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
+            style={{ fill: '#FFFFFF' }}
+            fontFamily={fontStyle}
             fontWeight="900"
             fontSize="27"
             letterSpacing="9"
@@ -95,8 +97,8 @@ export const RafaArtsLogo: React.FC<RafaArtsLogoProps> = ({
         <text
           x="10"
           y="90"
-          fill="#FFFFFF"
-          fontFamily="Impact, 'Arial Black', system-ui, -apple-system, sans-serif"
+          style={{ fill: '#FFFFFF' }}
+          fontFamily={fontStyle}
           fontWeight="900"
           fontSize="102"
           letterSpacing="3"
@@ -108,8 +110,8 @@ export const RafaArtsLogo: React.FC<RafaArtsLogoProps> = ({
         <text
           x="10"
           y="185"
-          fill="#FFFFFF"
-          fontFamily="Impact, 'Arial Black', system-ui, -apple-system, sans-serif"
+          style={{ fill: '#FFFFFF' }}
+          fontFamily={fontStyle}
           fontWeight="900"
           fontSize="102"
           letterSpacing="3"
@@ -145,8 +147,8 @@ export const RafaArtsLogo: React.FC<RafaArtsLogoProps> = ({
         <text
           x="248"
           y="233"
-          fill="#FFFFFF"
-          fontFamily="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
+          style={{ fill: '#FFFFFF' }}
+          fontFamily={fontStyle}
           fontWeight="900"
           fontSize="27"
           letterSpacing="9"

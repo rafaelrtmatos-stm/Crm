@@ -1,13 +1,10 @@
 import { AppContext } from '../App';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { ContractApprovalModule } from './ContractApprovalModule';
-import { IntegrationsSettings } from './IntegrationsSettings';
 import { 
   TrendingUp, 
   Clock, 
   MessageSquare, 
-  MessageCircle,
-  FileSpreadsheet,
   Plus, 
   Search, 
   Filter, 
@@ -129,7 +126,6 @@ import {
   Company, 
   AppUser, 
   Lead, 
-  Client,
   Funnel, 
   FunnelStage, 
   Product, 
@@ -166,17 +162,14 @@ import {
   Drawer,
   cn 
 } from './SharedUI';
-import { collection, query, where, onSnapshot, orderBy, Timestamp, addDoc, doc, updateDoc, getDocs, setDoc, limit, writeBatch } from 'firebase/firestore';
-import * as XLSX from 'xlsx';
-import { httpsCallable } from 'firebase/functions';
-import { db, functions } from '../firebase';
+import { collection, query, where, onSnapshot, orderBy, Timestamp, addDoc, doc, updateDoc, getDocs, setDoc, limit } from 'firebase/firestore';
+import { db } from '../firebase';
 import { format } from 'date-fns';
 
 import { 
   calculateSLA, 
   extractTracking, 
-  canAccessModule,
-  phoneKey
+  canAccessModule 
 } from '../lib/businessLogic';
 
 // --- DASHBOARD ---
@@ -1134,7 +1127,6 @@ export const ChatPanel = ({
 
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !conversation || !currentCompany) return;
-    const channelLabel = conversation.sourceType || 'WhatsApp';
     try {
       await addDoc(collection(db, 'messages'), {
         companyId: currentCompany.id,
@@ -1142,7 +1134,7 @@ export const ChatPanel = ({
         text: newMessage,
         direction: 'outgoing',
         senderName: user?.name || 'Sistema',
-        channel: channelLabel,
+        channel: conversation.sourceType || 'WhatsApp',
         createdAt: Timestamp.now()
       });
       // Also update lead's last message
@@ -1153,25 +1145,6 @@ export const ChatPanel = ({
         updatedAt: Timestamp.now()
       });
       setNewMessage('');
-
-      // Dispara o envio de verdade via WhatsApp/Facebook/Instagram, se o
-      // canal correspondente estiver configurado em Opções > Integrações.
-      // Falha aqui NÃO desfaz a mensagem já salva na tela (ela so nao vai
-      // chegar de fato no cliente) — evita perder o texto digitado.
-      const channelKey = channelLabel.toLowerCase();
-      if (['whatsapp', 'facebook', 'instagram'].includes(channelKey)) {
-        try {
-          const sendFn = httpsCallable(functions, 'sendChannelMessage');
-          await sendFn({
-            companyId: currentCompany.id,
-            channel: channelKey,
-            to: conversation.phone,
-            text: newMessage,
-          });
-        } catch (sendErr) {
-          console.error('Mensagem salva no CRM, mas falhou ao enviar via API:', sendErr);
-        }
-      }
     } catch (err) {
       console.error('Falha ao enviar mensagem:', err);
     }
@@ -1292,11 +1265,6 @@ export const ChatPanel = ({
             <div className="flex items-center gap-2">
               <h4 className="font-bold text-sm text-white">{conversation.name}</h4>
               <Badge variant="outline" className="text-[7px] py-0 px-1 leading-none h-3.5">{conversation.channel}</Badge>
-              {conversation.isExistingClient && (
-                <span className="flex items-center gap-1 text-[8px] font-black uppercase tracking-wider text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 rounded-full">
-                  <UserCheck size={9} /> Cliente Cadastrado
-                </span>
-              )}
             </div>
             <div className="flex items-center gap-2 mt-0">
               <span className="text-[9px] text-emerald-400 font-black uppercase tracking-widest">Ativo</span>
@@ -1927,10 +1895,7 @@ const KanbanCard = ({ lead, onClick, isSelected, isDragging }: { key?: any, lead
         )}
       >
          <div className="flex justify-between mb-2">
-            <p className="font-black text-white text-[11px] tracking-tight truncate flex-1 pr-2 uppercase italic flex items-center gap-1.5">
-              {lead.isExistingClient && <UserCheck size={11} className="text-emerald-400 flex-shrink-0" />}
-              {lead.fullName}
-            </p>
+            <p className="font-black text-white text-[11px] tracking-tight truncate flex-1 pr-2 uppercase italic">{lead.fullName}</p>
             <span className="text-[7px] font-black text-white/20 uppercase tracking-widest leading-none">
                {(lead.createdAt as any)?.toDate?.() ? format((lead.createdAt as any).toDate(), 'HH:mm') : 'Agora'}
             </span>
@@ -3318,8 +3283,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [allSalesHistory, setAllSalesHistory] = useState<SaleOrder[]>([]);
   const [historyFilter, setHistoryFilter] = useState<'todos' | 'parciais' | 'concluidos'>('todos');
   const [historySearch, setHistorySearch] = useState('');
-  const [isImportingSales, setIsImportingSales] = useState(false);
-  const importSalesFileRef = useRef<HTMLInputElement>(null);
   const [settleModalOrder, setSettleModalOrder] = useState<SaleOrder | null>(null);
   const [settleMethod, setSettleMethod] = useState<'pix' | 'dinheiro' | 'cartao_credito' | 'cartao_debito'>('pix');
 
@@ -3342,157 +3305,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       setSalesToday(todaySales);
     });
   }, [currentCompany]);
-
-  // Converte "1.234,56" (BR) em numero
-  const parseBrNumberPDV = (val: any): number => {
-    if (val === null || val === undefined || val === '') return 0;
-    if (typeof val === 'number') return val;
-    const s = String(val).trim();
-    if (!s) return 0;
-    if (s.includes(',')) return parseFloat(s.replace(/\./g, '').replace(',', '.')) || 0;
-    return parseFloat(s) || 0;
-  };
-
-  // "DD/MM/AAAA HH:MM:SS" -> ISO. Se vier so a data, assume meio-dia pra
-  // nao correr risco de virar o dia anterior por causa de fuso horario.
-  const parseBrDateTime = (val: any): string => {
-    const s = String(val || '').trim();
-    const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?/);
-    if (!m) return new Date().toISOString();
-    const [, dd, mm, yyyy, hh, min, sec] = m;
-    const d = new Date(Number(yyyy), Number(mm) - 1, Number(dd), hh ? Number(hh) : 12, min ? Number(min) : 0, sec ? Number(sec) : 0);
-    return d.toISOString();
-  };
-
-  const parsePaymentMethod = (paymentRaw: string): SaleOrder['paymentMethod'] => {
-    const methods = paymentRaw.split('\n').map(l => l.split(':')[0].trim().toLowerCase()).filter(Boolean);
-    const unique = Array.from(new Set(methods));
-    if (unique.length > 1) return 'misto';
-    const m = unique[0] || '';
-    if (m.includes('pix')) return 'pix';
-    if (m.includes('dinheiro')) return 'dinheiro';
-    if (m.includes('débito') || m.includes('debito')) return 'cartao_debito';
-    if (m.includes('crédito') || m.includes('credito')) return 'cartao_credito';
-    return undefined;
-  };
-
-  const handleImportSalesExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !currentCompany) return;
-    setIsImportingSales(true);
-    try {
-      const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf, { type: 'array' });
-
-      // Processa toda aba que tiver as colunas esperadas de venda (cada
-      // aba costuma ser um mes, ex: "2026-8", "2026-7") — ignora abas de
-      // resumo/metadados que nao tenham essas colunas (ex: "Sheet1").
-      const allRows: any[] = [];
-      for (const sheetName of wb.SheetNames) {
-        const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' });
-        if (rows.length && ('CÓDIGO' in rows[0]) && ('DATA E HORA' in rows[0])) {
-          allRows.push(...rows);
-        }
-      }
-
-      const existingSnap = await getDocs(
-        query(collection(db, 'saleOrders'), where('companyId', '==', currentCompany.id))
-      );
-      const existingByCode = new Map<string, string>(); // externalCode -> docId
-      existingSnap.docs.forEach(d => {
-        const code = (d.data().externalCode || '').toString();
-        if (code) existingByCode.set(code, d.id);
-      });
-
-      let created = 0, updated = 0, skipped = 0;
-      const BATCH_LIMIT = 400;
-      let batch = writeBatch(db);
-      let opsInBatch = 0;
-      const flushIfNeeded = async () => {
-        if (opsInBatch >= BATCH_LIMIT) {
-          await batch.commit();
-          batch = writeBatch(db);
-          opsInBatch = 0;
-        }
-      };
-
-      for (const row of allRows) {
-        const externalCode = String(row['CÓDIGO'] ?? '').trim();
-        if (!externalCode) { skipped++; continue; }
-
-        const produtosRaw = String(row['PRODUTOS'] ?? '').trim();
-        const valoresRaw = String(row['VALORES'] ?? '').trim();
-        const produtosLines = produtosRaw ? produtosRaw.split('\n').map(l => l.trim()).filter(Boolean) : [];
-        const valoresLines = valoresRaw ? valoresRaw.split('\n').map(l => l.trim()).filter(Boolean) : [];
-
-        const total = parseBrNumberPDV(row['FATURAMENTO']);
-
-        let items: SaleOrderItem[] = produtosLines.map((line, idx) => {
-          const lastColon = line.lastIndexOf(':');
-          const name = (lastColon >= 0 ? line.slice(0, lastColon) : line).trim();
-          const qty = (lastColon >= 0 ? parseFloat(line.slice(lastColon + 1).replace(',', '.')) : 1) || 1;
-          const valorLine = valoresLines[idx] || '';
-          const vLastColon = valorLine.lastIndexOf(':');
-          const lineTotal = vLastColon >= 0 ? parseBrNumberPDV(valorLine.slice(vLastColon + 1)) : total;
-          return {
-            productId: '',
-            name: name || 'Item',
-            price: qty ? lineTotal / qty : lineTotal,
-            quantity: qty,
-          };
-        });
-        if (items.length === 0) {
-          items = [{ productId: '', name: 'Venda (sem detalhamento de itens)', price: total, quantity: 1 }];
-        }
-
-        const paymentRaw = String(row['PAGAMENTO'] ?? '').trim();
-        const receivedValue = paymentRaw
-          ? paymentRaw.split('\n').reduce((acc, l) => {
-              const idx = l.lastIndexOf(':');
-              return acc + (idx >= 0 ? parseBrNumberPDV(l.slice(idx + 1)) : 0);
-            }, 0)
-          : 0;
-
-        const status = row['STATUS'] === 'EM ABERTO' ? 'pending' : 'completed';
-
-        const payload: Record<string, unknown> = {
-          companyId: currentCompany.id,
-          externalCode,
-          customerName: String(row['CLIENTE'] ?? '').trim() || 'Cliente não identificado',
-          items,
-          total,
-          receivedValue,
-          downPayment: status === 'pending' ? receivedValue : total,
-          paymentMethod: parsePaymentMethod(paymentRaw),
-          status,
-          createdAt: parseBrDateTime(row['DATA E HORA']),
-          importedAt: Timestamp.now(),
-        };
-
-        const existingId = existingByCode.get(externalCode);
-        if (existingId) {
-          batch.update(doc(db, 'saleOrders', existingId), payload);
-          updated++;
-        } else {
-          const newRef = doc(collection(db, 'saleOrders'));
-          batch.set(newRef, payload);
-          created++;
-          existingByCode.set(externalCode, newRef.id);
-        }
-        opsInBatch++;
-        await flushIfNeeded();
-      }
-      if (opsInBatch > 0) await batch.commit();
-
-      alert(`Importação concluída!\n\n${created} vendas novas criadas\n${updated} vendas já existentes atualizadas\n${skipped} linhas ignoradas (sem código)`);
-    } catch (err) {
-      console.error('Erro ao importar planilha de vendas:', err);
-      alert('Erro ao importar a planilha. Confira se o arquivo é .xlsx com as abas de vendas (ex: "2026-8").');
-    } finally {
-      setIsImportingSales(false);
-      if (importSalesFileRef.current) importSalesFileRef.current.value = '';
-    }
-  };
 
   const handleSettleBalance = async (order: SaleOrder) => {
     if (!currentCompany || !order) return;
@@ -4034,25 +3846,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
-                <input
-                  ref={importSalesFileRef}
-                  type="file"
-                  accept=".xlsx,.xls"
-                  className="hidden"
-                  onChange={handleImportSalesExcel}
-                />
-                <Button
-                  variant="secondary"
-                  icon={isImportingSales ? RefreshCw : FileSpreadsheet}
-                  onClick={() => importSalesFileRef.current?.click()}
-                  disabled={isImportingSales}
-                  className="text-[10px] uppercase tracking-widest font-black"
-                >
-                  {isImportingSales ? 'Importando...' : 'Importar Planilha'}
-                </Button>
-              </div>
-
               {/* Filter Tabs */}
               <div className="flex bg-white/5 p-1 rounded-2xl border border-white/10 gap-1 self-stretch md:self-auto">
                 {[
@@ -4362,22 +4155,24 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         onClose={() => setIsPaymentModalOpen(false)} 
         title="Finalizar Venda"
         size="lg"
+        className="max-h-[98vh] my-auto"
+        contentClassName="min-h-0"
       >
-        <div className="flex flex-col gap-4 max-h-[85vh] overflow-hidden">
+        <div className="flex-1 min-h-0 flex flex-col justify-between overflow-hidden gap-1.5 sm:gap-2.5">
            {/* Top Info Bar: Customer & Summary combined */}
-           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="p-4 bg-white/5 rounded-2xl border border-white/5 flex gap-3 items-center">
-                 <div className="w-10 h-10 rounded-xl bg-primary-500/20 text-primary-300 flex items-center justify-center border border-primary-500/30">
-                    <UserCheck size={20} />
+           <div className="grid grid-cols-2 gap-1.5 sm:gap-3 shrink-0">
+              <div className="p-2 sm:p-2.5 bg-white/5 rounded-xl border border-white/5 flex gap-2 items-center min-w-0">
+                 <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-primary-500/20 text-primary-300 flex items-center justify-center border border-primary-500/30 shrink-0">
+                    <UserCheck size={16} />
                  </div>
                  <div className="flex-1 min-w-0">
-                    <p className="text-[8px] font-black uppercase tracking-widest text-white/30 leading-none mb-1">Cliente Atendido</p>
-                    <p className="text-xs font-black text-white truncate">{selectedCustomer ? selectedCustomer.name : 'Cliente de Balcão'}</p>
+                    <p className="text-[7px] sm:text-[8px] font-black uppercase tracking-widest text-white/30 leading-none mb-0.5">Cliente Atendido</p>
+                    <p className="text-[10px] sm:text-xs font-black text-white truncate">{selectedCustomer ? selectedCustomer.name : 'Cliente de Balcão'}</p>
                  </div>
                  <Button 
                    variant="secondary" 
                    size="sm" 
-                   className="text-[8px] uppercase tracking-widest h-8 px-3 border-white/10"
+                   className="text-[7.5px] sm:text-[8px] uppercase tracking-widest h-6 sm:h-7 px-2 border-white/10 shrink-0"
                    onClick={() => {
                       setIsPaymentModalOpen(false);
                       setIsCustomerModalOpen(true);
@@ -4387,60 +4182,60 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  </Button>
               </div>
 
-              <div className="p-4 bg-slate-900 rounded-2xl border border-white/5 flex justify-between items-center px-6">
+              <div className="p-2 sm:p-2.5 bg-slate-900 rounded-xl border border-white/5 flex justify-between items-center px-3 sm:px-4">
                  <div>
-                    <p className="text-[8px] font-black text-white/30 uppercase tracking-widest mb-1">Total a Pagar</p>
-                    <p className="text-xl font-black text-white tracking-tighter italic">R$ {total.toFixed(2).replace('.', ',')}</p>
+                    <p className="text-[7px] sm:text-[8px] font-black text-white/30 uppercase tracking-widest leading-none mb-0.5">Total a Pagar</p>
+                    <p className="text-sm sm:text-lg md:text-xl font-black text-white tracking-tighter italic leading-none">R$ {total.toFixed(2).replace('.', ',')}</p>
                  </div>
-                 <Badge variant="primary" className="bg-emerald-500/10 text-emerald-400 border-none font-black text-[10px] tracking-widest uppercase">Conferido</Badge>
+                 <Badge variant="primary" className="bg-emerald-500/10 text-emerald-400 border-none font-black text-[8px] sm:text-[9px] tracking-widest uppercase py-0.5 px-2">Conferido</Badge>
               </div>
            </div>
 
-           <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start overflow-hidden">
+           <div className="grid grid-cols-1 md:grid-cols-12 gap-2 sm:gap-3 flex-1 min-h-0 overflow-hidden">
 
               {/* Left Side: Items & Summary Details */}
-              <div className="md:col-span-5 space-y-4 flex flex-col overflow-hidden h-full">
-                 <div className="flex-1 flex flex-col gap-2 overflow-hidden min-h-0">
-                    <p className="text-[9px] font-black uppercase text-white/30 tracking-widest px-1">Resumo da Nota ({cart.length})</p>
-                    <div className="flex-1 bg-white/5 rounded-2xl border border-white/5 overflow-y-auto custom-scrollbar divide-y divide-white/5 max-h-[220px]">
+              <div className="md:col-span-5 flex flex-col justify-between min-h-0 overflow-hidden gap-1.5 sm:gap-2">
+                 <div className="flex-1 flex flex-col gap-1 overflow-hidden min-h-0 bg-white/5 rounded-xl border border-white/5 p-2">
+                    <p className="text-[8px] sm:text-[9px] font-black uppercase text-white/40 tracking-widest shrink-0">Resumo da Nota ({cart.length})</p>
+                    <div className="flex-1 overflow-y-auto custom-scrollbar divide-y divide-white/5 min-h-[50px]">
                        {cart.map((item, idx) => (
-                          <div key={idx} className="py-2 px-3 flex justify-between items-center hover:bg-white/5 transition-colors">
-                             <div className="flex items-center gap-2 min-w-0">
-                                <span className="text-[9px] font-black text-white/40 bg-white/10 px-1 py-0.5 rounded text-center min-w-[20px]">{item.quantity}x</span>
+                          <div key={idx} className="py-1 px-1.5 flex justify-between items-center hover:bg-white/5 transition-colors">
+                             <div className="flex items-center gap-1.5 min-w-0">
+                                <span className="text-[8px] font-black text-white/40 bg-white/10 px-1 py-0.5 rounded text-center min-w-[18px]">{item.quantity}x</span>
                                 <div className="flex flex-col min-w-0">
-                                   <span className="text-[9px] font-bold text-white/80 uppercase truncate max-w-[130px]">{item.name}</span>
+                                   <span className="text-[8.5px] sm:text-[9px] font-bold text-white/80 uppercase truncate max-w-[120px]">{item.name}</span>
                                    {item.dimensions && (
-                                      <span className="text-[7.5px] text-white/40 font-bold tracking-wider uppercase">
+                                      <span className="text-[7px] text-white/40 font-bold tracking-wider uppercase">
                                          {item.dimensions} ({item.area?.toFixed(2).replace('.', ',')} m²)
                                       </span>
                                    )}
                                 </div>
                              </div>
-                             <span className="text-[9.5px] font-black text-primary-300 italic shrink-0 ml-2">R$ {(item.area ? item.price * item.area * item.quantity : item.price * item.quantity).toFixed(2).replace('.', ',')}</span>
+                             <span className="text-[8.5px] sm:text-[9px] font-black text-primary-300 italic shrink-0 ml-1">R$ {(item.area ? item.price * item.area * item.quantity : item.price * item.quantity).toFixed(2).replace('.', ',')}</span>
                           </div>
                        ))}
                     </div>
                  </div>
 
-                 <div className="p-4 bg-white/3 rounded-2xl border border-white/5 space-y-3">
-                    <div className="flex justify-between items-center">
-                       <p className="text-[8px] font-black text-white/30 uppercase tracking-widest">Pago / Entrada</p>
-                       <p className="text-xs font-black text-emerald-400">R$ {(downPayment === '' || typeof downPayment === 'string' ? 0 : Number(downPayment)).toFixed(2).replace('.', ',')}</p>
+                 <div className="p-2 sm:p-2.5 bg-white/3 rounded-xl border border-white/5 flex justify-between items-center shrink-0">
+                    <div>
+                       <p className="text-[7.5px] sm:text-[8px] font-black text-white/30 uppercase tracking-widest leading-none">Pago / Entrada</p>
+                       <p className="text-xs font-black text-emerald-400 mt-0.5">R$ {(downPayment === '' || typeof downPayment === 'string' ? 0 : Number(downPayment)).toFixed(2).replace('.', ',')}</p>
                     </div>
-                    <div className="flex justify-between items-center opacity-60">
-                       <p className="text-[8px] font-black text-white/30 uppercase tracking-widest">Saldo Restante</p>
-                       <p className={cn("text-xs font-black", remainingValue > 0 ? "text-rose-400" : "text-white/40")}>R$ {remainingValue.toFixed(2).replace('.', ',')}</p>
+                    <div className="text-right">
+                       <p className="text-[7.5px] sm:text-[8px] font-black text-white/30 uppercase tracking-widest leading-none">Saldo Restante</p>
+                       <p className={cn("text-xs font-black mt-0.5", remainingValue > 0 ? "text-rose-400" : "text-white/40")}>R$ {remainingValue.toFixed(2).replace('.', ',')}</p>
                     </div>
                  </div>
               </div>
 
               {/* Right Side: Payment Methods & Inputs */}
-              <div className="md:col-span-7 space-y-6 flex flex-col overflow-y-auto custom-scrollbar max-h-[480px] pr-2">
-                 <div className="space-y-3">
-                    <p className="text-[9px] font-black uppercase text-white/30 tracking-widest px-1">Selecione o Recebimento</p>
-                    <div className="grid grid-cols-3 gap-2">
+              <div className="md:col-span-7 flex flex-col justify-between min-h-0 overflow-hidden gap-1.5 sm:gap-2">
+                 <div className="space-y-1 shrink-0">
+                    <p className="text-[8px] sm:text-[9px] font-black uppercase text-white/30 tracking-widest px-0.5">Selecione o Recebimento</p>
+                    <div className="grid grid-cols-5 gap-1">
                        {[
-                         { id: 'pix', label: 'Pix QR', icon: QrCode },
+                         { id: 'pix', label: 'Pix', icon: QrCode },
                          { id: 'cartao_credito', label: 'Crédito', icon: CreditCard },
                          { id: 'cartao_debito', label: 'Débito', icon: Smartphone },
                          { id: 'dinheiro', label: 'Dinheiro', icon: Banknote },
@@ -4453,189 +4248,167 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               setDownPayment(total);
                             }}
                            className={cn(
-                             "p-3 rounded-xl border-2 flex flex-col items-center gap-2 transition-all active:scale-95 group",
-                             paymentMethod === m.id ? "bg-primary-500 border-primary-600 text-slate-900 shadow-lg shadow-primary-500/10" : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10"
+                             "p-1 sm:p-1.5 rounded-lg border-2 flex flex-col items-center justify-center gap-0.5 transition-all active:scale-95 group cursor-pointer min-h-[40px]",
+                             paymentMethod === m.id ? "bg-primary-500 border-primary-600 text-slate-900 shadow-md shadow-primary-500/10" : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10"
                            )}
                          >
-                            <m.icon size={18} className={cn("transition-colors", paymentMethod === m.id ? "text-slate-900" : "text-white/60 group-hover:text-primary-300")} />
-                            <span className="text-[8px] font-black uppercase tracking-widest">{m.label}</span>
+                            <m.icon size={14} className={cn("transition-colors", paymentMethod === m.id ? "text-slate-900" : "text-white/60 group-hover:text-primary-300")} />
+                            <span className="text-[7px] sm:text-[8px] font-black uppercase tracking-tight truncate w-full text-center">{m.label}</span>
                          </button>
                        ))}
                     </div>
                  </div>
 
-                 <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-4 bg-white/5 p-4 rounded-2xl border border-white/5 flex flex-col justify-center">
+                 <div className="grid grid-cols-2 gap-1.5 sm:gap-2 shrink-0">
+                    <div className="space-y-0.5">
+                       <label className="text-[7.5px] sm:text-[8px] font-black text-white/40 uppercase tracking-widest block">Entrada / Recebido</label>
                        <Input 
-                         label="Valor de Entrada / Recebido"
                          type="number" 
                          step="any"
-                         className="h-10 text-xs bg-slate-900/50"
+                         className="h-7 sm:h-8 text-[10px] sm:text-xs bg-slate-900/50"
                          value={downPayment === "" ? "" : downPayment} 
                          onChange={(e: any) => {
                             const val = e.target.value;
                             setDownPayment(val === "" ? "" : Number(val));
                          }}
                        />
-                       <div className="space-y-2">
-                          <p className="text-[8px] font-black text-white/30 uppercase tracking-widest">Agendar entrega</p>
-                          <Input 
-                            type="datetime-local" 
-                            className="h-10 text-xs bg-slate-900/50"
-                            value={scheduledFor} 
-                            onChange={(e: any) => setScheduledFor(e.target.value)}
-                          />
-                       </div>
                     </div>
-
-                    <div className="bg-white/5 rounded-2xl border border-white/5 p-4 flex flex-col items-center justify-center text-center relative overflow-y-auto max-h-[480px] custom-scrollbar">
-                       {paymentMethod === 'pix' && (
-                          <div className="flex flex-col items-center gap-3 w-full">
-                             <div className="w-56 h-56 bg-white rounded-3xl p-4 shadow-2xl flex items-center justify-center">
-                                <img src={`https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=RPro-Pix-${total}`} alt="QR" className="w-full h-full" referrerPolicy="no-referrer" />
-                             </div>
-                             <p className="text-[9px] text-primary-400 font-black uppercase tracking-widest animate-pulse">Aponte a câmera para pagar</p>
-                             
-                             <div className="w-full space-y-2 mt-1">
-                                <div className="p-2.5 bg-slate-900/50 rounded-xl border border-white/5 flex flex-col items-start text-left gap-1">
-                                   <span className="text-[8px] font-black text-white/30 uppercase tracking-wider">Chave PIX (CNPJ)</span>
-                                   <div className="flex items-center justify-between w-full">
-                                      <span className="text-[11px] font-mono text-white font-bold">44.222.111/0001-99</span>
-                                      <button 
-                                         type="button"
-                                         onClick={() => {
-                                            navigator.clipboard.writeText("44.222.111/0001-99");
-                                            alert("Chave PIX copiada com sucesso!");
-                                         }}
-                                         className="text-[8px] font-black text-primary-300 hover:text-white uppercase tracking-wider bg-primary-500/10 px-2 py-1 rounded border border-primary-500/20 active:scale-95 transition-all cursor-pointer"
-                                      >
-                                         Copiar
-                                      </button>
-                                   </div>
-                                </div>
-                                
-                                <div className="p-2.5 bg-slate-900/50 rounded-xl border border-white/5 flex flex-col items-start text-left gap-1">
-                                   <span className="text-[8px] font-black text-white/30 uppercase tracking-wider">Código Pix Copia e Cola</span>
-                                   <div className="flex items-center justify-between w-full gap-2">
-                                      <span className="text-[9px] font-mono text-white/40 truncate max-w-[120px]">00020101021126580014br.gov.bcb.pix011844222111000199520400005303986540{total.toFixed(2)}5802BR5915RPro%20Hub6009SAO%20PAULO62070503***6304</span>
-                                      <button 
-                                         type="button"
-                                         onClick={() => {
-                                            navigator.clipboard.writeText(`00020101021126580014br.gov.bcb.pix011844222111000199520400005303986540${total.toFixed(2)}5802BR5915RPro%20Hub6009SAO%20PAULO62070503***6304`);
-                                            alert("Código Pix Copia e Cola copiado com sucesso!");
-                                         }}
-                                         className="text-[8px] font-black text-primary-300 hover:text-white uppercase tracking-wider bg-primary-500/10 px-2 py-1 rounded border border-primary-500/20 active:scale-95 transition-all cursor-pointer whitespace-nowrap"
-                                      >
-                                         Copiar Código
-                                      </button>
-                                   </div>
-                                </div>
-                             </div>
-                          </div>
-                       )}
-
-                       {paymentMethod === 'dinheiro' && (
-                          <div className="flex flex-col items-center gap-4 w-full p-2">
-                             <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
-                                <Banknote size={24} />
-                             </div>
-                             <h4 className="text-xs font-black text-white uppercase tracking-wider">Calculadora de Troco</h4>
-                             
-                             <div className="w-full space-y-3">
-                                <div className="space-y-1 text-left">
-                                   <label className="text-[8px] font-black text-white/40 uppercase tracking-widest">Valor Recebido (R$)</label>
-                                   <Input 
-                                      type="number"
-                                      step="any"
-                                      className="h-10 text-xs bg-slate-900/50 text-white"
-                                      value={cashReceived === "" ? "" : cashReceived}
-                                      placeholder="Digite o valor recebido"
-                                      onChange={(e: any) => {
-                                         const val = e.target.value;
-                                         setCashReceived(val === "" ? "" : Number(val));
-                                      }}
-                                   />
-                                </div>
-                                
-                                {cashReceived !== "" && Number(cashReceived) >= downPayment && (
-                                   <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-left">
-                                      <span className="text-[8px] font-black text-emerald-400 uppercase tracking-wider block">Troco do Cliente</span>
-                                      <span className="text-lg font-black text-white">R$ {(Number(cashReceived) - downPayment).toFixed(2).replace('.', ',')}</span>
-                                   </div>
-                                )}
-                                {cashReceived !== "" && Number(cashReceived) < downPayment && (
-                                   <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-left">
-                                      <span className="text-[8px] font-black text-rose-400 uppercase tracking-wider block">Valor Insuficiente</span>
-                                      <span className="text-xs font-bold text-white/70">Falta R$ {(downPayment - Number(cashReceived)).toFixed(2).replace('.', ',')}</span>
-                                   </div>
-                                )}
-                             </div>
-                          </div>
-                       )}
-
-                       {(paymentMethod === 'cartao_credito' || paymentMethod === 'cartao_debito') && (
-                          <div className="flex flex-col items-center gap-4 py-6">
-                             <div className="w-12 h-12 rounded-2xl bg-blue-500/20 text-blue-400 flex items-center justify-center border border-blue-500/30 animate-pulse">
-                                <Smartphone size={24} />
-                             </div>
-                             <h4 className="text-xs font-black text-white uppercase tracking-wider">Aguardando Maquininha</h4>
-                             <p className="text-[9px] text-white/50 leading-relaxed max-w-[200px]">Insira ou aproxime o cartão na maquininha integrada para concluir o pagamento de <span className="text-white font-bold">R$ {downPayment.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></p>
-                             <div className="flex items-center gap-2 px-3 py-1 bg-white/5 rounded-full border border-white/5 text-[8px] font-black uppercase text-white/40 tracking-wider">
-                                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-ping" />
-                                Sinal Bluetooth Ativo
-                             </div>
-                          </div>
-                       )}
-
-                       {paymentMethod === 'misto' && (
-                          <div className="flex flex-col items-center gap-4 py-4 w-full">
-                             <div className="w-12 h-12 rounded-2xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center border border-indigo-500/30">
-                                <Calculator size={24} />
-                             </div>
-                             <h4 className="text-xs font-black text-white uppercase tracking-wider">Pagamento Misto</h4>
-                             <p className="text-[9px] text-white/50 leading-relaxed max-w-[200px]">Defina o valor de entrada abaixo e especifique as formas de recebimento nas observações do pedido.</p>
-                          </div>
-                       )}
-
-                       <p className="text-[8px] text-white/40 font-bold uppercase tracking-widest text-center mt-2 w-full pt-2 border-t border-white/5">Confirmação de Recebimento</p>
+                    <div className="space-y-0.5">
+                       <label className="text-[7.5px] sm:text-[8px] font-black text-white/40 uppercase tracking-widest block">Agendar entrega</label>
+                       <Input 
+                         type="datetime-local" 
+                         className="h-7 sm:h-8 text-[9px] sm:text-xs bg-slate-900/50"
+                         value={scheduledFor} 
+                         onChange={(e: any) => setScheduledFor(e.target.value)}
+                       />
                     </div>
                  </div>
 
-                 <div className="flex gap-3 pt-2">
-                    {remainingValue > 0 ? (
-                      <Button 
-                        className="w-full h-14 bg-amber-500 hover:bg-amber-400 text-slate-900 border-none shadow-xl shadow-amber-500/20 text-[10px] font-black uppercase tracking-widest gap-2"
-                        onClick={() => handleFinalize(true)}
-                      >
-                         <Clock size={18} />
-                         <div className="flex flex-col text-left">
-                            <span>AGENDAR ENTREGA & LANÇAR ENTRADA (R$ {(downPayment === '' ? 0 : Number(downPayment)).toFixed(2).replace('.', ',')})</span>
-                            <span className="text-[8px] opacity-80 font-bold lowercase">valor menor que o total • lança entrada no faturamento e gera saldo devedor</span>
-                         </div>
-                      </Button>
-                    ) : (
-                      <>
-                        <Button 
-                          variant="secondary" 
-                          className="flex-1 h-12 text-[9px] uppercase font-black tracking-widest border-white/5"
-                          onClick={() => handleFinalize(true)}
-                        >
-                          Salvar como Orçamento
-                        </Button>
-                        <Button 
-                          className="flex-[1.5] h-12 bg-primary-500 hover:bg-primary-400 text-slate-900 border-none shadow-xl shadow-primary-500/20 text-[9px] font-black uppercase tracking-widest gap-2"
-                          onClick={() => handleFinalize(false)}
-                        >
-                           <CheckCircle2 size={16} />
-                           <span>FINALIZAR VENDA (TOTAL QUITADO)</span>
-                        </Button>
-                      </>
+                 <div className="bg-white/5 rounded-xl border border-white/5 p-2 flex-1 flex flex-col items-center justify-center text-center min-h-0 overflow-hidden relative">
+                    {paymentMethod === 'pix' && (
+                       <div className="flex flex-col items-center justify-center gap-1.5 w-full h-full min-h-0">
+                          <div className="max-h-[11vh] sm:max-h-[13vh] aspect-square bg-white rounded-lg p-1 shadow-lg flex items-center justify-center shrink-0">
+                             <img src={`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=RPro-Pix-${total}`} alt="QR" className="h-full w-full object-contain" referrerPolicy="no-referrer" />
+                          </div>
+                          
+                          <div className="w-full flex gap-1 justify-center shrink-0">
+                             <button 
+                                type="button"
+                                onClick={() => {
+                                   navigator.clipboard.writeText("44.222.111/0001-99");
+                                   alert("Chave PIX copiada!");
+                                }}
+                                className="text-[7.5px] font-black text-primary-300 hover:text-white uppercase tracking-wider bg-primary-500/10 px-2 py-0.5 rounded border border-primary-500/20 active:scale-95 transition-all cursor-pointer"
+                             >
+                                Copiar Chave CNPJ
+                             </button>
+                             <button 
+                                type="button"
+                                onClick={() => {
+                                   navigator.clipboard.writeText(`00020101021126580014br.gov.bcb.pix011844222111000199520400005303986540${total.toFixed(2)}5802BR5915RPro%20Hub6009SAO%20PAULO62070503***6304`);
+                                   alert("Código Pix Copia e Cola copiado!");
+                                }}
+                                className="text-[7.5px] font-black text-primary-300 hover:text-white uppercase tracking-wider bg-primary-500/10 px-2 py-0.5 rounded border border-primary-500/20 active:scale-95 transition-all cursor-pointer"
+                             >
+                                Copia e Cola
+                             </button>
+                          </div>
+                       </div>
+                    )}
+
+                    {paymentMethod === 'dinheiro' && (
+                       <div className="flex flex-col items-center justify-center gap-1.5 w-full h-full p-1 min-h-0">
+                          <div className="flex items-center gap-2 text-emerald-400">
+                             <Banknote size={16} />
+                             <span className="text-[9px] font-black uppercase tracking-wider text-white">Calculadora de Troco</span>
+                          </div>
+                          
+                          <div className="w-full max-w-xs space-y-1">
+                             <div className="flex items-center justify-between gap-2">
+                                <span className="text-[7.5px] font-black text-white/40 uppercase tracking-widest">Valor Recebido</span>
+                                <input 
+                                   type="number"
+                                   step="any"
+                                   className="h-6 w-24 text-[10px] bg-slate-900/80 text-white rounded px-1.5 text-right font-bold border border-white/10"
+                                   value={cashReceived === "" ? "" : cashReceived}
+                                   placeholder="0,00"
+                                   onChange={(e: any) => {
+                                      const val = e.target.value;
+                                      setCashReceived(val === "" ? "" : Number(val));
+                                   }}
+                                />
+                             </div>
+                             
+                             {cashReceived !== "" && Number(cashReceived) >= downPayment && (
+                                <div className="p-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-lg flex justify-between items-center">
+                                   <span className="text-[7.5px] font-black text-emerald-400 uppercase tracking-wider">Troco</span>
+                                   <span className="text-xs font-black text-white">R$ {(Number(cashReceived) - downPayment).toFixed(2).replace('.', ',')}</span>
+                                </div>
+                             )}
+                             {cashReceived !== "" && Number(cashReceived) < downPayment && (
+                                <div className="p-1.5 bg-rose-500/10 border border-rose-500/20 rounded-lg flex justify-between items-center">
+                                   <span className="text-[7.5px] font-black text-rose-400 uppercase tracking-wider">Falta</span>
+                                   <span className="text-xs font-bold text-white/80">R$ {(downPayment - Number(cashReceived)).toFixed(2).replace('.', ',')}</span>
+                                </div>
+                             )}
+                          </div>
+                       </div>
+                    )}
+
+                    {(paymentMethod === 'cartao_credito' || paymentMethod === 'cartao_debito') && (
+                       <div className="flex flex-col items-center justify-center gap-1 py-1">
+                          <div className="w-8 h-8 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center border border-blue-500/30 animate-pulse">
+                             <Smartphone size={16} />
+                          </div>
+                          <h4 className="text-[10px] font-black text-white uppercase tracking-wider">Maquininha Integrada</h4>
+                          <p className="text-[8px] text-white/50 leading-tight max-w-[180px]">Insira/aproxime o cartão de <span className="text-white font-bold">R$ {downPayment.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></p>
+                       </div>
+                    )}
+
+                    {paymentMethod === 'misto' && (
+                       <div className="flex flex-col items-center justify-center gap-1 py-1 w-full">
+                          <div className="w-8 h-8 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center border border-indigo-500/30">
+                             <Calculator size={16} />
+                          </div>
+                          <h4 className="text-[10px] font-black text-white uppercase tracking-wider">Pagamento Misto</h4>
+                          <p className="text-[8px] text-white/50 leading-tight max-w-[180px]">Especifique os valores parcelados no campo de observações.</p>
+                       </div>
                     )}
                  </div>
               </div>
            </div>
+
+           {/* Bottom Action Bar (ALWAYS VISIBLE - NO SCROLL) */}
+           <div className="flex gap-2 pt-1 border-t border-white/5 shrink-0">
+              {remainingValue > 0 ? (
+                <Button 
+                  className="w-full h-9 sm:h-11 bg-amber-500 hover:bg-amber-400 text-slate-900 border-none shadow-lg shadow-amber-500/20 text-[9px] sm:text-[10px] font-black uppercase tracking-wider gap-2 cursor-pointer"
+                  onClick={() => handleFinalize(true)}
+                >
+                   <Clock size={16} />
+                   <span>AGENDAR ENTREGA & LANÇAR ENTRADA (R$ {(downPayment === '' ? 0 : Number(downPayment)).toFixed(2).replace('.', ',')})</span>
+                </Button>
+              ) : (
+                <>
+                  <Button 
+                    variant="secondary" 
+                    className="flex-1 h-9 sm:h-11 text-[8px] sm:text-[9px] uppercase font-black tracking-wider border-white/10"
+                    onClick={() => handleFinalize(true)}
+                  >
+                    Salvar Orçamento
+                  </Button>
+                  <Button 
+                    className="flex-[1.5] h-9 sm:h-11 bg-primary-500 hover:bg-primary-400 text-slate-900 border-none shadow-lg shadow-primary-500/20 text-[8.5px] sm:text-[10px] font-black uppercase tracking-wider gap-1.5 cursor-pointer"
+                    onClick={() => handleFinalize(false)}
+                  >
+                     <CheckCircle2 size={16} />
+                     <span>FINALIZAR VENDA (TOTAL QUITADO)</span>
+                  </Button>
+                </>
+              )}
+           </div>
         </div>
-     </Modal>
+      </Modal>
 
      {/* Success Modal */}
      <Modal 
@@ -4951,150 +4724,20 @@ Obrigado pela preferência!
 
 // --- CONTACTS ---
 export const ContactsModule = ({ currentCompany }: { currentCompany: Company | null }) => {
-  const [clients, setClients] = useState<Client[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [isImporting, setIsImporting] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const importFileRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (!currentCompany) return;
-    const q = query(collection(db, 'clients'), where('companyId', '==', currentCompany.id), orderBy('name', 'asc'));
-    return onSnapshot(q, (snap) => {
-      setClients(snap.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
-      setLoading(false);
-    });
-  }, [currentCompany]);
-
-  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !currentCompany) return;
-    setIsImporting(true);
-    try {
-      const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf, { type: 'array' });
-      const firstSheet = wb.Sheets[wb.SheetNames[0]];
-      const rows: any[] = XLSX.utils.sheet_to_json(firstSheet, { defval: '' });
-
-      const existingSnap = await getDocs(
-        query(collection(db, 'clients'), where('companyId', '==', currentCompany.id))
-      );
-      const existingByKey = new Map<string, string>(); // phoneKey -> docId
-      existingSnap.docs.forEach(d => {
-        const key = (d.data().phoneKey || '').toString();
-        if (key) existingByKey.set(key, d.id);
-      });
-
-      let created = 0, updated = 0, skipped = 0;
-      const BATCH_LIMIT = 400;
-      let batch = writeBatch(db);
-      let opsInBatch = 0;
-      const flushIfNeeded = async () => {
-        if (opsInBatch >= BATCH_LIMIT) {
-          await batch.commit();
-          batch = writeBatch(db);
-          opsInBatch = 0;
-        }
-      };
-
-      for (const row of rows) {
-        const name = String(row['NOME'] ?? row['nome'] ?? row['name'] ?? '').trim();
-        if (!name) { skipped++; continue; }
-
-        const phone = String(row['TELEFONE'] ?? row['telefone'] ?? row['phone'] ?? '').trim();
-        const key = phoneKey(phone);
-
-        const payload: Record<string, unknown> = {
-          companyId: currentCompany.id,
-          name,
-          phone: phone || null,
-          phoneKey: key || null,
-          email: String(row['EMAIL'] ?? row['email'] ?? '').trim() || null,
-          cpfCnpj: String(row['CPF / CNPJ'] ?? row['cpfCnpj'] ?? '').trim() || null,
-          cep: String(row['CEP'] ?? '').trim() || null,
-          address: String(row['LOGRADOURO'] ?? '').trim() || null,
-          addressNumber: String(row['NÚMERO'] ?? '').trim() || null,
-          complement: String(row['COMPLEMENTO'] ?? '').trim() || null,
-          district: String(row['DISTRITO'] ?? '').trim() || null,
-          city: String(row['CIDADE'] ?? '').trim() || null,
-          state: String(row['ESTADO'] ?? '').trim() || null,
-          notes: String(row['OBSERVAÇÕES'] ?? '').trim() || null,
-          birthDate: String(row['NASCIMENTO'] ?? '').trim() || null,
-          otherDocuments: String(row['OUTROS DOCUMENTOS'] ?? '').trim() || null,
-          openDebts: Number(row['DÍVIDAS EM ABERTO'] ?? 0) || 0,
-          updatedAt: Timestamp.now(),
-        };
-
-        const existingId = key ? existingByKey.get(key) : undefined;
-        if (existingId) {
-          batch.update(doc(db, 'clients', existingId), payload);
-          updated++;
-        } else {
-          const newRef = doc(collection(db, 'clients'));
-          batch.set(newRef, { ...payload, createdAt: Timestamp.now() });
-          created++;
-          if (key) existingByKey.set(key, newRef.id);
-        }
-        opsInBatch++;
-        await flushIfNeeded();
-      }
-      if (opsInBatch > 0) await batch.commit();
-
-      alert(`Importação concluída!\n\n${created} clientes novos criados\n${updated} clientes já existentes atualizados\n${skipped} linhas ignoradas (sem nome)`);
-    } catch (err) {
-      console.error('Erro ao importar planilha de clientes:', err);
-      alert('Erro ao importar a planilha. Confira se o arquivo é .xlsx e tem a coluna NOME preenchida.');
-    } finally {
-      setIsImporting(false);
-      if (importFileRef.current) importFileRef.current.value = '';
-    }
-  };
-
-  const filtered = clients.filter(c => {
-    if (!searchTerm.trim()) return true;
-    const s = searchTerm.toLowerCase();
-    return c.name?.toLowerCase().includes(s) || c.phone?.includes(searchTerm) || c.email?.toLowerCase().includes(s);
-  });
-
   const columns = [
     { key: 'name', label: 'Nome' },
+    { key: 'email', label: 'Email' },
     { key: 'phone', label: 'Telefone' },
-    { key: 'email', label: 'Email', render: (v: string) => v || '—' },
-    { key: 'city', label: 'Cidade', render: (v: string) => v || '—' },
-    { key: 'openDebts', label: 'Dívidas', render: (v: number) => v > 0
-      ? <span className="text-amber-500 font-bold">R$ {v.toLocaleString('pt-BR')}</span>
-      : <span className="text-white/30">—</span> },
+    { key: 'tags', label: 'Tags', render: (v: string[]) => <div className="flex gap-1">{v.map(t => <Badge key={t} variant="outline" className="text-[8px]">{t}</Badge>)}</div> },
   ];
 
-  if (loading) return (
-    <div className="h-96 flex items-center justify-center">
-      <RefreshCw className="animate-spin text-primary-500" />
-    </div>
-  );
+  const data = [
+    { id: '1', name: 'Rafael Matos', email: 'rafael@email.com', phone: '(11) 99999-9999', tags: ['vip', 'imobi'] },
+    { id: '2', name: 'Maria Silva', email: 'maria@email.com', phone: '(21) 88888-8888', tags: ['lead', 'grafica'] },
+    { id: '3', name: 'João Tech', email: 'joao@tech.com', phone: '(19) 77777-7777', tags: ['parceiro'] },
+  ];
 
-  return (
-    <div className="space-y-6">
-      <SectionHeader
-        title="Base de Contatos"
-        subtitle={`Gestão unificada de clientes (${clients.length} cadastrados)`}
-        actions={
-          <div className="flex gap-2">
-            <input ref={importFileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportExcel} />
-            <Button
-              variant="secondary"
-              icon={isImporting ? RefreshCw : FileSpreadsheet}
-              onClick={() => importFileRef.current?.click()}
-              disabled={isImporting}
-            >
-              {isImporting ? 'Importando...' : 'Importar Planilha'}
-            </Button>
-          </div>
-        }
-      />
-      <Input icon={Search} placeholder="Buscar por nome, telefone ou email..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
-      <GenericListView title="" subtitle="" columns={columns} data={filtered} />
-    </div>
-  );
+  return <GenericListView title="Base de Contatos" subtitle="Gestão unificada de clientes" columns={columns} data={data} />;
 };
 
 // --- SERVICES ---
@@ -5299,8 +4942,6 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isImporting, setIsImporting] = useState(false);
-  const importFileRef = useRef<HTMLInputElement>(null);
   const [formData, setFormData] = useState<Partial<InventoryItem>>({
     name: '',
     category: 'substrato',
@@ -5312,119 +4953,6 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
     isActive: true,
     isService: false
   });
-
-  // Converte "1.234,56" (formato BR) ou "1234.56" (formato US) em numero.
-  // Aceita tambem valores ja numericos vindos direto da planilha.
-  const parseBrNumber = (val: any): number => {
-    if (val === null || val === undefined || val === '') return 0;
-    if (typeof val === 'number') return val;
-    const s = String(val).trim();
-    if (!s) return 0;
-    // Se tem virgula, assume formato BR (ponto = milhar, virgula = decimal)
-    if (s.includes(',')) {
-      return parseFloat(s.replace(/\./g, '').replace(',', '.')) || 0;
-    }
-    return parseFloat(s) || 0;
-  };
-
-  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !currentCompany) return;
-    setIsImporting(true);
-    try {
-      const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf, { type: 'array' });
-      const firstSheet = wb.Sheets[wb.SheetNames[0]];
-      // defval: '' evita que celulas vazias sumam da leitura (ficam undefined)
-      const rows: any[] = XLSX.utils.sheet_to_json(firstSheet, { defval: '' });
-
-      // Busca os itens ja existentes desta empresa pra decidir
-      // atualizar (mesmo codigo) em vez de duplicar.
-      const existingSnap = await getDocs(
-        query(collection(db, 'inventory'), where('companyId', '==', currentCompany.id))
-      );
-      const existingByCode = new Map<string, string>(); // code -> docId
-      existingSnap.docs.forEach(d => {
-        const code = (d.data().code || '').toString().trim();
-        if (code) existingByCode.set(code, d.id);
-      });
-
-      let created = 0, updated = 0, skipped = 0;
-      const BATCH_LIMIT = 400; // limite do Firestore e 500 por lote
-      let batch = writeBatch(db);
-      let opsInBatch = 0;
-
-      const flushIfNeeded = async () => {
-        if (opsInBatch >= BATCH_LIMIT) {
-          await batch.commit();
-          batch = writeBatch(db);
-          opsInBatch = 0;
-        }
-      };
-
-      for (const row of rows) {
-        // Aceita tanto os cabecalhos da planilha do Rafael (em maiusculo/PT)
-        // quanto nomes ja no padrao do sistema, pra ser reaproveitavel.
-        const name = String(row['DESCRIÇÃO'] ?? row['descricao'] ?? row['name'] ?? '').trim();
-        if (!name) { skipped++; continue; }
-
-        const codeRaw = row['CÓDIGO'] ?? row['codigo'] ?? row['code'] ?? '';
-        const code = String(codeRaw).trim();
-
-        const category = String(row['CATEGORIA'] ?? row['categoria'] ?? '').trim() || 'diversos';
-        const unitRaw = String(row['UNIDADE'] ?? row['unidade'] ?? '').trim().toLowerCase();
-        const unit = unitRaw === 'unidade' || unitRaw === '' ? 'un' : unitRaw;
-
-        const costPrice = parseBrNumber(row['CUSTO'] ?? row['custo']);
-        const salePrice = parseBrNumber(row['VAREJO'] ?? row['varejo'] ?? row['salePrice']);
-        const wholesalePrice = parseBrNumber(row['ATACADO'] ?? row['atacado']);
-        const minStock = parseBrNumber(row['ESTOQUE MÍNIMO'] ?? row['estoqueMinimo']);
-        const currentStock = parseBrNumber(row['QUANTIDADE'] ?? row['quantidade'] ?? row['currentStock']);
-        const provider = String(row['FORNECEDOR'] ?? row['fornecedor'] ?? '').trim();
-
-        const payload: Record<string, unknown> = {
-          companyId: currentCompany.id,
-          name,
-          code: code || null,
-          category,
-          unit,
-          costPrice,
-          salePrice,
-          wholesalePrice,
-          minStock,
-          currentStock,
-          isService: false,
-          isActive: true,
-          updatedAt: Timestamp.now(),
-        };
-        if (provider) payload.provider = provider;
-
-        const existingId = code ? existingByCode.get(code) : undefined;
-        if (existingId) {
-          batch.update(doc(db, 'inventory', existingId), payload);
-          updated++;
-        } else {
-          const newRef = doc(collection(db, 'inventory'));
-          batch.set(newRef, { ...payload, createdAt: Timestamp.now() });
-          created++;
-          // Registra o codigo novo pra nao duplicar se a planilha repetir a linha
-          if (code) existingByCode.set(code, newRef.id);
-        }
-        opsInBatch++;
-        await flushIfNeeded();
-      }
-
-      if (opsInBatch > 0) await batch.commit();
-
-      alert(`Importação concluída!\n\n${created} itens novos criados\n${updated} itens já existentes atualizados\n${skipped} linhas ignoradas (sem descrição)`);
-    } catch (err) {
-      console.error('Erro ao importar planilha:', err);
-      alert('Erro ao importar a planilha. Confira se o arquivo é .xlsx e tem a coluna DESCRIÇÃO preenchida.');
-    } finally {
-      setIsImporting(false);
-      if (importFileRef.current) importFileRef.current.value = '';
-    }
-  };
 
   useEffect(() => {
     if (!currentCompany) return;
@@ -5490,26 +5018,7 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
       <SectionHeader 
         title="Gestão de Insumos" 
         subtitle="Controle de Estoque e Matéria-Prima (Foco Gráfica)" 
-        actions={
-          <div className="flex gap-2">
-            <input
-              ref={importFileRef}
-              type="file"
-              accept=".xlsx,.xls"
-              className="hidden"
-              onChange={handleImportExcel}
-            />
-            <Button
-              variant="secondary"
-              icon={isImporting ? RefreshCw : FileSpreadsheet}
-              onClick={() => importFileRef.current?.click()}
-              disabled={isImporting}
-            >
-              {isImporting ? 'Importando...' : 'Importar Planilha'}
-            </Button>
-            <Button icon={Plus} onClick={() => setIsModalOpen(true)}>Novo Item</Button>
-          </div>
-        }
+        actions={<Button icon={Plus} onClick={() => setIsModalOpen(true)}>Novo Item</Button>}
       />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -5933,19 +5442,6 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                       <Input label="Chave PIX" defaultValue="44.222.111/0001-99" />
                       <Input label="Nome do Beneficiário" defaultValue={currentCompany?.name} />
                     </div>
-                 </div>
-
-                 <div className="space-y-6 pt-6 border-t border-white/5">
-                    <div className="flex items-center gap-4">
-                       <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 flex items-center justify-center text-emerald-400">
-                          <MessageCircle size={24} />
-                       </div>
-                       <div>
-                          <h3 className="text-xl font-bold text-white tracking-tight italic uppercase">Canais de Mensageria</h3>
-                          <p className="text-xs text-white/30">Conecte WhatsApp, Facebook Messenger e Instagram Direct para receber e enviar mensagens direto do CRM</p>
-                       </div>
-                    </div>
-                    <IntegrationsSettings currentCompany={currentCompany} />
                  </div>
               </div>
             )}
