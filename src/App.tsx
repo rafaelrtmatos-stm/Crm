@@ -720,16 +720,15 @@ export default function App() {
     { id: 'financeiro', label: 'Financeiro', icon: Landmark },
     { id: 'settings', label: 'Opções', icon: Settings },
   ].filter(item => {
-    if (item.id === 'financeiro') return !!user?.isAdmin;
-    
-    // If user has specific allowedTabs, check it first (unless they are admin, who can always see Settings)
-    if (user && user.allowedTabs && Array.isArray(user.allowedTabs)) {
-      if (item.id === 'settings' && user.isAdmin) return true;
-      return user.allowedTabs.includes(item.id);
-    }
-
     // If admin, show everything
     if (user?.isAdmin) return true;
+
+    if (item.id === 'financeiro') return false;
+    
+    // If user has specific allowedTabs, check it
+    if (user && user.allowedTabs && Array.isArray(user.allowedTabs)) {
+      return user.allowedTabs.includes(item.id);
+    }
     
     // Always show dashboard and settings
     if (['dashboard', 'settings'].includes(item.id)) return true;

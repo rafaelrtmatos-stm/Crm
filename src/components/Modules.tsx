@@ -183,6 +183,17 @@ import {
   canAccessModule 
 } from '../lib/businessLogic';
 
+// Sound helper for cash register finalization
+const playCashRegisterSound = () => {
+  try {
+    if (typeof document !== 'undefined') {
+      const audio = document.createElement('audio');
+      audio.src = 'https://assets.mixkit.co/active_storage/sfx/936/936-preview.mp3';
+      audio.play().catch(() => {});
+    }
+  } catch (e) {}
+};
+
 // --- DASHBOARD ---
 const DEFAULT_WIDGETS: DashboardWidget[] = [
   {
@@ -268,11 +279,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     if (balanceToSettle <= 0) return;
 
     try {
-      try {
-        const audio = document.createElement('audio');
-        audio.src = 'https://assets.mixkit.co/active_storage/sfx/936/936-preview.mp3';
-        audio.play().catch(() => {});
-      } catch (e) {}
+      playCashRegisterSound();
 
       const q = query(
         collection(db, 'saleOrders'),
@@ -592,7 +599,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
            </div>
            
            <div className="h-[350px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                  <AreaChart 
                    data={chartData.length > 0 ? chartData : [
                      { day: 'Seg', total: 400 }, { day: 'Ter', total: 600 }, { day: 'Qua', total: 300 }
@@ -3232,7 +3239,7 @@ export const MetaAdsModule = ({ currentCompany }: { currentCompany: Company | nu
             <div className="flex items-center justify-between mb-6">
                <h5 className="text-[10px] font-black uppercase tracking-[2px] text-white/50">Gasto vs Leads (7D)</h5>
             </div>
-            <ResponsiveContainer width="100%" height="80%">
+            <ResponsiveContainer width="100%" height="80%" minWidth={0} minHeight={0}>
                <AreaChart data={[
                  { day: '01', spend: 400, leads: 12 }, { day: '02', spend: 350, leads: 15 },
                  { day: '03', spend: 600, leads: 22 }, { day: '04', spend: 450, leads: 18 },
@@ -3276,7 +3283,7 @@ export const MetaAdsModule = ({ currentCompany }: { currentCompany: Company | nu
 
 // --- PDV / POS ---
 export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany: Company | null, addPendingOrder: (order: SaleOrder) => void }) => {
-  const { user, isRegisterOpen, setIsRegisterOpen, activeCashRegister } = React.useContext(AppContext)!;
+  const { user, isRegisterOpen, setIsRegisterOpen, activeCashRegister, prefilledCustomer, setPrefilledCustomer } = React.useContext(AppContext)!;
   const [activeTab, setActiveTab] = useState<'venda' | 'historico' | 'caixas' | 'estoque' | 'clientes' | 'contratos'>('venda');
   const [cart, setCart] = useState<SaleOrderItem[]>([]);
   const [search, setSearch] = useState('');
@@ -3286,6 +3293,20 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
   const [lastFinalizedOrder, setLastFinalizedOrder] = useState<SaleOrder | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<{ id: string, name: string, phone: string } | null>(null);
+
+  // Auto-fill customer when coming from CRM lead or Real Estate module
+  useEffect(() => {
+    if (prefilledCustomer) {
+      setSelectedCustomer({
+        id: prefilledCustomer.id || `cust_${Date.now()}`,
+        name: prefilledCustomer.name,
+        phone: prefilledCustomer.phone || ''
+      });
+      if (setPrefilledCustomer) {
+        setPrefilledCustomer(null);
+      }
+    }
+  }, [prefilledCustomer, setPrefilledCustomer]);
   const [paymentMethod, setPaymentMethod] = useState<'dinheiro' | 'pix' | 'cartao_credito' | 'cartao_debito' | 'misto'>('pix');
   const [cashReceived, setCashReceived] = useState<number | ''>('');
   const [downPayment, setDownPayment] = useState(0);
@@ -3319,6 +3340,28 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     { id: '3', name: 'João Oliveira', phone: '(19) 77777-7777' },
     { id: '4', name: 'Gráfica Express Ltda', phone: '(11) 3333-4444' }
   ]);
+
+  // Load Contacts from Firestore
+  useEffect(() => {
+    if (!currentCompany) return;
+    const q = query(
+      collection(db, 'contacts'),
+      where('companyId', '==', currentCompany.id)
+    );
+    return onSnapshot(q, (snap) => {
+      const fetched = snap.docs.map(d => {
+        const data = d.data();
+        return {
+          id: d.id,
+          name: data.fullName || data.name || 'Contato',
+          phone: data.phone || data.whatsapp || ''
+        };
+      });
+      if (fetched.length > 0) {
+        setRegisteredContacts(fetched);
+      }
+    });
+  }, [currentCompany]);
 
   // Order Receipt & Status Modals
   const [receiptModalOrder, setReceiptModalOrder] = useState<SaleOrder | null>(null);
@@ -3504,6 +3547,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         id: `ORD-${Date.now()}`,
         companyId: currentCompany.id,
         customerName: custName,
+        customerPhone: activeCust?.phone || undefined,
         items: cart,
         total,
         paymentMethod,
@@ -3520,6 +3564,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         addPendingOrder(newOrder);
       }
       
+      // Play cash register sound when finalizing note/sale
+      playCashRegisterSound();
+
       setLastFinalizedOrder(newOrder);
       setCart([]);
       setSelectedCustomer(null);
@@ -5688,7 +5735,87 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     targetPhone = prompt('Digite o número de WhatsApp do cliente (com DDD):') || '';
                   }
                   if (targetPhone) {
-                    window.open(`https://wa.me/${targetPhone.replace(/\D/g, '')}?text=${text}`, '_blank');
+                    const cleanPhone = targetPhone.replace(/\D/g, '');
+                    const formattedText = text.replace(/%0A/g, '\n');
+                    const custName = selectedCustomer?.name || lastFinalizedOrder.customerName || 'Cliente de Balcão';
+
+                    (async () => {
+                      try {
+                        let leadId: string | null = null;
+                        const qLeads = query(
+                          collection(db, 'leads'),
+                          where('companyId', '==', currentCompany.id),
+                          where('phone', '==', targetPhone),
+                          limit(1)
+                        );
+                        const snapLeads = await getDocs(qLeads);
+                        if (!snapLeads.empty) {
+                          leadId = snapLeads.docs[0].id;
+                        } else {
+                          const qAllLeads = query(
+                            collection(db, 'leads'),
+                            where('companyId', '==', currentCompany.id),
+                            limit(50)
+                          );
+                          const snapAll = await getDocs(qAllLeads);
+                          const found = snapAll.docs.find(d => (d.data().phone || '').replace(/\D/g, '') === cleanPhone);
+                          if (found) leadId = found.id;
+                        }
+
+                        if (!leadId) {
+                          let funnelId = null;
+                          let funnelStageId = null;
+                          const funnelQ = query(collection(db, 'funnels'), where('companyId', '==', currentCompany.id), where('isDefault', '==', true), limit(1));
+                          const funnelSnap = await getDocs(funnelQ);
+                          if (!funnelSnap.empty) {
+                            funnelId = funnelSnap.docs[0].id;
+                            const stageQ = query(collection(db, 'funnelStages'), where('funnelId', '==', funnelId), where('isInitial', '==', true), limit(1));
+                            const stageSnap = await getDocs(stageQ);
+                            if (!stageSnap.empty) funnelStageId = stageSnap.docs[0].id;
+                          }
+
+                          const nameParts = custName.trim().split(' ');
+                          const newLead = await addDoc(collection(db, 'leads'), {
+                            companyId: currentCompany.id,
+                            fullName: custName,
+                            firstName: nameParts[0] || custName,
+                            lastName: nameParts.slice(1).join(' ') || '',
+                            phone: targetPhone,
+                            sourceType: 'WhatsApp',
+                            status: 'ENTRADA',
+                            funnelId,
+                            funnelStageId,
+                            lastMessageText: formattedText,
+                            lastMessageDirection: 'outgoing',
+                            estimatedValue: total,
+                            createdAt: new Date().toISOString(),
+                            updatedAt: new Date().toISOString()
+                          });
+                          leadId = newLead.id;
+                        } else {
+                          await updateDoc(doc(db, 'leads', leadId), {
+                            lastMessageText: formattedText,
+                            lastMessageDirection: 'outgoing',
+                            waitingSince: null,
+                            updatedAt: Timestamp.now()
+                          });
+                        }
+
+                        await addDoc(collection(db, 'messages'), {
+                          companyId: currentCompany.id,
+                          phone: targetPhone,
+                          text: formattedText,
+                          direction: 'outgoing',
+                          senderName: user?.name || 'Sistema PDV',
+                          channel: 'WhatsApp',
+                          createdAt: Timestamp.now()
+                        });
+                      } catch (err) {
+                        console.error('Erro ao integrar resumo da nota no CRM:', err);
+                      }
+                    })();
+
+                    window.open(`https://wa.me/${cleanPhone}?text=${text}`, '_blank');
                   }
                }}
              >
