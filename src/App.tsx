@@ -39,7 +39,6 @@ import {
   EyeOff,
   AlertCircle,
   ShieldCheck,
-  Key,
   Landmark
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -842,28 +841,6 @@ export default function App() {
             {isSubmitting ? 'Autenticando...' : 'ENTRAR NO SISTEMA'}
           </button>
 
-          {/* Divider */}
-          <div className="flex items-center gap-4 py-1">
-            <div className="h-[1px] bg-white/20 flex-1" />
-            <span className="text-[10px] font-bold text-white uppercase tracking-widest">OU</span>
-            <div className="h-[1px] bg-white/20 flex-1" />
-          </div>
-
-          {/* Quick Admin Helper Button */}
-          <div className="text-center pt-0.5">
-            <button
-              type="button"
-              onClick={() => {
-                setLoginEmail('rafaelrtmatos@gmail.com');
-                setLoginPassword('Geper3tp@');
-                setAuthError(null);
-              }}
-              className="text-xs font-medium text-white hover:text-red-400 transition-all cursor-pointer bg-transparent border-0 inline-flex items-center justify-center gap-1.5"
-            >
-              <Key size={14} className="text-red-500 shrink-0" />
-              <span>Preencher credenciais Admin <span className="text-red-500 font-bold">(seuemail@gmail.com)</span></span>
-            </button>
-          </div>
         </form>
 
         {/* Footer */}
