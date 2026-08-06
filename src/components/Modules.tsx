@@ -599,7 +599,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
            </div>
            
            <div className="h-[350px] w-full">
-              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={200}>
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                  <AreaChart 
                    data={chartData.length > 0 ? chartData : [
                      { day: 'Seg', total: 400 }, { day: 'Ter', total: 600 }, { day: 'Qua', total: 300 }
@@ -3239,7 +3239,7 @@ export const MetaAdsModule = ({ currentCompany }: { currentCompany: Company | nu
             <div className="flex items-center justify-between mb-6">
                <h5 className="text-[10px] font-black uppercase tracking-[2px] text-white/50">Gasto vs Leads (7D)</h5>
             </div>
-            <ResponsiveContainer width="100%" height="80%" minWidth={0} minHeight={0} debounce={200}>
+            <ResponsiveContainer width="100%" height="80%" minWidth={0} minHeight={0}>
                <AreaChart data={[
                  { day: '01', spend: 400, leads: 12 }, { day: '02', spend: 350, leads: 15 },
                  { day: '03', spend: 600, leads: 22 }, { day: '04', spend: 450, leads: 18 },
