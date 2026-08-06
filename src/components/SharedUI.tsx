@@ -237,3 +237,33 @@ export const Drawer = ({ isOpen, onClose, title, children }: any) => (
     )}
   </AnimatePresence>
 );
+
+/**
+ * Barreira de erro generica: se algo dentro (ex: um grafico) travar em
+ * runtime, mostra um aviso discreto no lugar dele em vez de derrubar a
+ * pagina inteira / travar a navegacao entre abas.
+ */
+type ChartErrorBoundaryProps = { children: React.ReactNode; label?: string };
+export class ChartErrorBoundary extends React.Component<
+  ChartErrorBoundaryProps,
+  { hasError: boolean }
+> {
+  declare props: ChartErrorBoundaryProps;
+  state = { hasError: false };
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error: unknown) {
+    console.error('ChartErrorBoundary capturou um erro:', error);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="h-full w-full flex items-center justify-center text-white/30 text-xs">
+          Não foi possível carregar {this.props.label || 'o gráfico'}.
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}

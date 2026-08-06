@@ -171,7 +171,8 @@ import {
   Input, 
   Modal, 
   Drawer,
-  cn 
+  cn,
+  ChartErrorBoundary
 } from './SharedUI';
 import { collection, query, where, onSnapshot, orderBy, Timestamp, addDoc, doc, updateDoc, getDocs, setDoc, limit } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -599,6 +600,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
            </div>
            
            <div className="h-[350px] w-full">
+             <ChartErrorBoundary label="o gráfico de faturamento">
               <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                  <AreaChart 
                    data={chartData.length > 0 ? chartData : [
@@ -627,6 +629,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                     <Area type="monotone" dataKey="total" stroke="#4cc9f0" strokeWidth={3} fillOpacity={1} fill="url(#colorRevenue)" />
                  </AreaChart>
               </ResponsiveContainer>
+             </ChartErrorBoundary>
            </div>
         </GlassCard>
 
@@ -3239,7 +3242,8 @@ export const MetaAdsModule = ({ currentCompany }: { currentCompany: Company | nu
             <div className="flex items-center justify-between mb-6">
                <h5 className="text-[10px] font-black uppercase tracking-[2px] text-white/50">Gasto vs Leads (7D)</h5>
             </div>
-            <ResponsiveContainer width="100%" height="80%" minWidth={0} minHeight={0}>
+            <ChartErrorBoundary label="o gráfico de gasto vs leads">
+             <ResponsiveContainer width="100%" height="80%" minWidth={0} minHeight={0}>
                <AreaChart data={[
                  { day: '01', spend: 400, leads: 12 }, { day: '02', spend: 350, leads: 15 },
                  { day: '03', spend: 600, leads: 22 }, { day: '04', spend: 450, leads: 18 },
@@ -3261,7 +3265,8 @@ export const MetaAdsModule = ({ currentCompany }: { currentCompany: Company | nu
                  <Area type="monotone" dataKey="spend" stroke="#4cc9f0" fill="url(#colorLeadsSpend)" />
                  <Area type="monotone" dataKey="leads" stroke="#4361ee" fill="url(#colorLeadsCount)" />
                </AreaChart>
-            </ResponsiveContainer>
+             </ResponsiveContainer>
+            </ChartErrorBoundary>
          </GlassCard>
          <GlassCard className="p-8">
             <h5 className="text-[10px] font-black uppercase tracking-[2px] text-white/50 mb-6">Distribuição Verba</h5>
