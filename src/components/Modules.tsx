@@ -599,7 +599,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
            </div>
            
            <div className="h-[350px] w-full">
-              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={200}>
                  <AreaChart 
                    data={chartData.length > 0 ? chartData : [
                      { day: 'Seg', total: 400 }, { day: 'Ter', total: 600 }, { day: 'Qua', total: 300 }
@@ -3239,17 +3239,27 @@ export const MetaAdsModule = ({ currentCompany }: { currentCompany: Company | nu
             <div className="flex items-center justify-between mb-6">
                <h5 className="text-[10px] font-black uppercase tracking-[2px] text-white/50">Gasto vs Leads (7D)</h5>
             </div>
-            <ResponsiveContainer width="100%" height="80%" minWidth={0} minHeight={0}>
+            <ResponsiveContainer width="100%" height="80%" minWidth={0} minHeight={0} debounce={200}>
                <AreaChart data={[
                  { day: '01', spend: 400, leads: 12 }, { day: '02', spend: 350, leads: 15 },
                  { day: '03', spend: 600, leads: 22 }, { day: '04', spend: 450, leads: 18 },
                  { day: '05', spend: 800, leads: 30 }, { day: '06', spend: 750, leads: 25 },
                  { day: '07', spend: 1200, leads: 40 }
                ]}>
+                 <defs>
+                    <linearGradient id="colorLeadsSpend" x1="0" y1="0" x2="0" y2="1">
+                       <stop offset="5%" stopColor="#4cc9f0" stopOpacity={0.3}/>
+                       <stop offset="95%" stopColor="#4cc9f0" stopOpacity={0}/>
+                    </linearGradient>
+                    <linearGradient id="colorLeadsCount" x1="0" y1="0" x2="0" y2="1">
+                       <stop offset="5%" stopColor="#4361ee" stopOpacity={0.3}/>
+                       <stop offset="95%" stopColor="#4361ee" stopOpacity={0}/>
+                    </linearGradient>
+                 </defs>
                  <XAxis dataKey="day" hide />
                  <Tooltip contentStyle={{ backgroundColor: '#1a2333', border: 'none', borderRadius: '12px' }} />
-                 <Area type="monotone" dataKey="spend" stroke="#4cc9f0" fill="url(#colorLeads)" />
-                 <Area type="monotone" dataKey="leads" stroke="#4361ee" fill="url(#colorSales)" />
+                 <Area type="monotone" dataKey="spend" stroke="#4cc9f0" fill="url(#colorLeadsSpend)" />
+                 <Area type="monotone" dataKey="leads" stroke="#4361ee" fill="url(#colorLeadsCount)" />
                </AreaChart>
             </ResponsiveContainer>
          </GlassCard>
