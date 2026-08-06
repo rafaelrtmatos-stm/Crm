@@ -39,7 +39,8 @@ import {
   EyeOff,
   AlertCircle,
   ShieldCheck,
-  Key
+  Key,
+  Landmark
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -90,11 +91,12 @@ import {
   Company, 
   AppUser, 
   Lead,
-  SaleOrder
+  SaleOrder,
+  CashRegister
 } from './types';
 import { RafaArtsLogo } from './components/RafaArtsLogo';
 
-type MainTab = 'dashboard' | 'crm' | 'messages' | 'pos' | 'contacts' | 'services' | 'inventory' | 'production' | 'settings';
+type MainTab = 'dashboard' | 'crm' | 'messages' | 'pos' | 'contacts' | 'services' | 'inventory' | 'production' | 'financeiro' | 'settings';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -114,6 +116,7 @@ interface AppContextType {
   addPendingOrder: (order: SaleOrder) => void;
   isRegisterOpen: boolean;
   setIsRegisterOpen: (open: boolean) => void;
+  activeCashRegister: CashRegister | null;
   prefilledCustomer: { id?: string, name: string, phone: string } | null;
   setPrefilledCustomer: (customer: { id?: string, name: string, phone: string } | null) => void;
   simulatedUserId: string | null;
@@ -316,6 +319,7 @@ import {
   ServicesModule,
   InventoryModule,
   ProductionModule,
+  FinancialModule,
   SettingsModule
 } from './components/Modules';
 
@@ -330,6 +334,30 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [pendingOrders, setPendingOrders] = useState<SaleOrder[]>([]);
   const [isRegisterOpen, setIsRegisterOpen] = useState(false);
+  const [activeCashRegister, setActiveCashRegister] = useState<CashRegister | null>(null);
+
+  useEffect(() => {
+    if (!currentCompany) {
+      setActiveCashRegister(null);
+      setIsRegisterOpen(false);
+      return;
+    }
+    const q = query(
+      collection(db, 'cashRegisters'),
+      where('companyId', '==', currentCompany.id),
+      where('isOpen', '==', true)
+    );
+    return onSnapshot(q, (snap) => {
+      if (!snap.empty) {
+        const activeDoc = { id: snap.docs[0].id, ...snap.docs[0].data() } as CashRegister;
+        setActiveCashRegister(activeDoc);
+        setIsRegisterOpen(true);
+      } else {
+        setActiveCashRegister(null);
+        setIsRegisterOpen(false);
+      }
+    });
+  }, [currentCompany]);
   const [lastMessageId, setLastMessageId] = useState<string | null>(null);
   const [prefilledCustomer, setPrefilledCustomer] = useState<{ id?: string, name: string, phone: string } | null>(null);
   const [simulatedUserId, setSimulatedUserIdState] = useState<string | null>(localStorage.getItem('rpro_simulated_user_id'));
@@ -689,8 +717,11 @@ export default function App() {
     { id: 'inventory', label: 'Estoque', icon: Package },
     { id: 'services', label: 'Serviços', icon: Wrench },
     { id: 'production', label: 'Produção', icon: Layers },
+    { id: 'financeiro', label: 'Financeiro', icon: Landmark },
     { id: 'settings', label: 'Opções', icon: Settings },
   ].filter(item => {
+    if (item.id === 'financeiro') return !!user?.isAdmin;
+    
     // If user has specific allowedTabs, check it first (unless they are admin, who can always see Settings)
     if (user && user.allowedTabs && Array.isArray(user.allowedTabs)) {
       if (item.id === 'settings' && user.isAdmin) return true;
@@ -862,6 +893,7 @@ export default function App() {
     addPendingOrder,
     isRegisterOpen,
     setIsRegisterOpen,
+    activeCashRegister,
     prefilledCustomer,
     setPrefilledCustomer,
     simulatedUserId,
@@ -981,6 +1013,7 @@ export default function App() {
                   {activeTab === 'inventory' && <InventoryModule currentCompany={currentCompany} />}
                   {activeTab === 'services' && <ServicesModule currentCompany={currentCompany} />}
                   {activeTab === 'production' && <ProductionModule currentCompany={currentCompany} />}
+                  {activeTab === 'financeiro' && <FinancialModule currentCompany={currentCompany} user={user} />}
                   {activeTab === 'settings' && <SettingsModule currentCompany={currentCompany} user={user} />}
                 </motion.div>
               </AnimatePresence>

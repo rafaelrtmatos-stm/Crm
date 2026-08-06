@@ -16,21 +16,82 @@ export interface SaleOrderItem {
   quantity: number;
   dimensions?: string; // L x H
   area?: number;
+  discount?: number;
+  notes?: string;
 }
+
+export type SaleOrderStatus = 'Pago' | 'Entrada Recebida' | 'Aguardando Pagamento' | 'Em Produção' | 'Pronto para Entrega' | 'Entregue' | 'Cancelado' | 'pending' | 'completed' | 'canceled';
 
 export interface SaleOrder {
   id: string;
+  orderNumber?: string;
   companyId: string;
   customerId?: string;
   customerName?: string;
+  customerPhone?: string;
   items: SaleOrderItem[];
   total: number;
   downPayment?: number;
   receivedValue?: number;
-  paymentMethod?: 'dinheiro'|'pix'|'cartao_credito'|'cartao_debito'|'misto';
-  status: 'pending' | 'completed' | 'canceled';
+  paymentMethod?: string;
+  paymentDetails?: { method: string; amount: number }[];
+  status: SaleOrderStatus;
   createdAt: string;
   scheduledFor?: string;
+  deliveryTime?: string;
+  deliveryNotes?: string;
+  sellerName?: string;
+  sellerId?: string;
+  notes?: string;
+  settledAt?: string;
+  settledMethod?: string;
+}
+
+export interface PaymentMethodConfig {
+  id: string;
+  name: string;
+  isActive: boolean;
+  type: 'dinheiro' | 'pix' | 'cartao_debito' | 'cartao_credito' | 'boleto' | 'transferencia' | 'crediario' | 'outro';
+  description?: string;
+}
+
+export interface PixKeyConfig {
+  id: string;
+  name: string;
+  keyType: 'cpf' | 'cnpj' | 'phone' | 'email' | 'random';
+  key: string;
+  bank: string;
+  qrCodeUrl?: string;
+  isDefault: boolean;
+}
+
+export interface CardFeeConfig {
+  debit: { feePercent: number; payoutDays: number };
+  creditSight: { feePercent: number; payoutDays: number };
+  creditInstallments: Record<number, { feePercent: number; payoutDays: number }>;
+}
+
+export interface GeneralFinancialConfig {
+  maxDiscountPercent: number;
+  lateInterestPercent: number;
+  penaltyPercent: number;
+  roundingType: 'none' | 'up' | 'down' | 'nearest';
+  commissionPercent: number;
+  allowPartialPayment: boolean;
+  allowMultiPayment: boolean;
+  allowChange: boolean;
+  minCardAmount: number;
+  minPixAmount: number;
+}
+
+export interface FinancialConfig {
+  id?: string;
+  companyId: string;
+  paymentMethods: PaymentMethodConfig[];
+  pixKeys: PixKeyConfig[];
+  cardFees: CardFeeConfig;
+  generalSettings: GeneralFinancialConfig;
+  updatedAt?: string;
 }
 
 export type UserRole = 'admin' | 'gerente' | 'atendente' | 'caixa' | 'vendedor' | 'designer' | 'operador';
@@ -325,15 +386,44 @@ export interface Payment extends BaseEntity {
   paidAt?: Timestamp | string;
 }
 
+export interface CashMovement {
+  id: string;
+  type: 'sangria' | 'suprimento' | 'entrada' | 'saida';
+  amount: number;
+  reason: string;
+  performedByUserId: string;
+  performedByUserName: string;
+  timestamp: string;
+}
+
 export interface CashRegister extends BaseEntity {
+  companyId?: string;
   operatorId: string;
+  openedByUserId: string;
+  openedByUserName: string;
+  closedByUserId?: string;
+  closedByUserName?: string;
   openedAt: Timestamp | string;
   closedAt?: Timestamp | string;
   openingBalance: number;
+  totalSales?: number;
+  totalSalesCount?: number;
+  totalMoney?: number;
+  totalPix?: number;
+  totalDebit?: number;
+  totalCredit?: number;
+  totalMixed?: number;
+  entries?: number;
+  exits?: number;
+  sangrias?: number;
+  suprimentos?: number;
   expectedBalance?: number;
   actualBalance?: number;
   difference?: number;
+  notes?: string;
   isOpen: boolean;
+  status?: 'aberto' | 'fechado_correto' | 'fechado_com_diferenca';
+  movements?: CashMovement[];
 }
 
 export interface Task extends BaseEntity {
