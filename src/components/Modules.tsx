@@ -269,7 +269,8 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
 
     try {
       try {
-        const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/936/936-preview.mp3');
+        const audio = document.createElement('audio');
+        audio.src = 'https://assets.mixkit.co/active_storage/sfx/936/936-preview.mp3';
         audio.play().catch(() => {});
       } catch (e) {}
 
