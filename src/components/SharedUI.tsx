@@ -267,3 +267,45 @@ export class ChartErrorBoundary extends React.Component<
     return this.props.children;
   }
 }
+
+type ModuleErrorBoundaryProps = { children: React.ReactNode; label?: string };
+type ModuleErrorBoundaryState = { hasError: boolean; message: string };
+/**
+ * Barreira de erro para um modulo inteiro (ex: PDV). Se algo travar durante
+ * a renderizacao, mostra a mensagem do erro na tela em vez de deixar a
+ * pagina inteira preta/em branco sem explicacao nenhuma.
+ */
+export class ModuleErrorBoundary extends React.Component<
+  ModuleErrorBoundaryProps,
+  ModuleErrorBoundaryState
+> {
+  declare props: ModuleErrorBoundaryProps;
+  state: ModuleErrorBoundaryState = { hasError: false, message: '' };
+  static getDerivedStateFromError(error: unknown) {
+    return { hasError: true, message: error instanceof Error ? error.message : String(error) };
+  }
+  componentDidCatch(error: unknown, info: unknown) {
+    console.error('ModuleErrorBoundary capturou um erro:', error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-[400px] flex flex-col items-center justify-center gap-3 text-center p-8">
+          <div className="text-red-400 font-bold text-sm">
+            Não foi possível carregar {this.props.label || 'esta tela'}.
+          </div>
+          <div className="text-white/40 text-xs max-w-md font-mono break-words">
+            {this.state.message}
+          </div>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-2 px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-xs text-white transition-all"
+          >
+            Recarregar página
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}

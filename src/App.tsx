@@ -321,6 +321,7 @@ import {
   FinancialModule,
   SettingsModule
 } from './components/Modules';
+import { ModuleErrorBoundary } from './components/SharedUI';
 
 // --- MAIN APP ---
 
@@ -985,7 +986,7 @@ export default function App() {
                   {activeTab === 'dashboard' && <DashboardModule user={user} currentCompany={currentCompany} pendingOrders={pendingOrders} setActiveTab={setActiveTab} />}
                   {activeTab === 'crm' && <CRMModule currentCompany={currentCompany} user={user} />}
                   {activeTab === 'messages' && <MessagesModule currentCompany={currentCompany} user={user} />}
-                  {activeTab === 'pos' && <POSModule currentCompany={currentCompany} addPendingOrder={addPendingOrder} />}
+                  {activeTab === 'pos' && <ModuleErrorBoundary label="o PDV"><POSModule currentCompany={currentCompany} addPendingOrder={addPendingOrder} /></ModuleErrorBoundary>}
                   {activeTab === 'contacts' && <ContactsModule currentCompany={currentCompany} />}
                   {activeTab === 'inventory' && <InventoryModule currentCompany={currentCompany} />}
                   {activeTab === 'services' && <ServicesModule currentCompany={currentCompany} />}
