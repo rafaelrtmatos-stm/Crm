@@ -1002,8 +1002,8 @@ export default function App() {
         {/* Main Content */}
         <main className="flex-1 flex flex-col min-w-0 bg-transparent overflow-hidden">
           <Navbar />
-          <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar">
-            <div className="max-w-7xl mx-auto">
+          <div className={cn("flex-1 overflow-y-auto custom-scrollbar", activeTab === 'pos' ? "p-2 md:p-3" : "p-4 md:p-8")}>
+            <div className={cn(activeTab === 'pos' ? "max-w-full h-full" : "max-w-7xl mx-auto")}>
               <AnimatePresence mode="wait">
                 <motion.div
                   key={activeTab}
