@@ -318,6 +318,7 @@ import {
   ProductionModule,
   SettingsModule
 } from './components/Modules';
+import { ModuleErrorBoundary } from './components/SharedUI';
 
 // --- MAIN APP ---
 
@@ -325,6 +326,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<AppUser | null>(null);
   const [companies, setCompanies] = useState<Company[]>([]);
+  const [isCreatingCompany, setIsCreatingCompany] = useState(false);
   const [currentCompany, setCurrentCompany] = useState<Company | null>(null);
   const [activeTab, setActiveTab] = useState<MainTab>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -717,6 +719,24 @@ export default function App() {
     </div>
   );
 
+  const handleCreateDefaultCompany = async () => {
+    setIsCreatingCompany(true);
+    try {
+      await addDoc(collection(db, 'companies'), {
+        name: 'Rafa Arts Graphics',
+        cnpj: '28.884.125/0001-40',
+        isActive: true,
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
+      });
+    } catch (err) {
+      console.error('Erro ao criar empresa:', err);
+      alert('Não foi possível criar a empresa. Veja o console para detalhes.');
+    } finally {
+      setIsCreatingCompany(false);
+    }
+  };
+
   if (!user) return (
     <div className="min-h-screen w-full flex items-center justify-center bg-[#050508] p-4 sm:p-6 relative overflow-hidden select-none">
       {/* Background Red Glow & Diagonal Accents */}
@@ -849,6 +869,25 @@ export default function App() {
     </div>
   );
 
+  if (companies.length === 0) return (
+    <div className="min-h-screen w-full flex items-center justify-center bg-[#050508] p-4">
+      <div className="max-w-md w-full flex flex-col items-center gap-5 text-center bg-white/[0.03] border border-white/10 rounded-2xl p-8">
+        <RafaArtsLogo size="lg" layout="stacked" />
+        <h2 className="text-lg font-black text-white uppercase tracking-wider">Nenhuma empresa encontrada</h2>
+        <p className="text-sm text-white/50">
+          O sistema não encontrou nenhuma empresa ativa cadastrada. Isso costuma acontecer se o registro da empresa foi apagado no banco de dados. Clique abaixo para recriar o cadastro da Rafa Arts Graphics.
+        </p>
+        <button
+          onClick={handleCreateDefaultCompany}
+          disabled={isCreatingCompany}
+          className="w-full h-12 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-black text-sm uppercase tracking-widest rounded-xl transition-all"
+        >
+          {isCreatingCompany ? 'Criando...' : 'Criar Empresa Rafa Arts Graphics'}
+        </button>
+      </div>
+    </div>
+  );
+
   const contextValue: AppContextType = {
     user,
     companies,
@@ -976,7 +1015,7 @@ export default function App() {
                   {activeTab === 'dashboard' && <DashboardModule user={user} currentCompany={currentCompany} pendingOrders={pendingOrders} setActiveTab={setActiveTab} />}
                   {activeTab === 'crm' && <CRMModule currentCompany={currentCompany} user={user} />}
                   {activeTab === 'messages' && <MessagesModule currentCompany={currentCompany} user={user} />}
-                  {activeTab === 'pos' && <POSModule currentCompany={currentCompany} addPendingOrder={addPendingOrder} />}
+                  {activeTab === 'pos' && <ModuleErrorBoundary label="o PDV"><POSModule currentCompany={currentCompany} addPendingOrder={addPendingOrder} /></ModuleErrorBoundary>}
                   {activeTab === 'contacts' && <ContactsModule currentCompany={currentCompany} />}
                   {activeTab === 'inventory' && <InventoryModule currentCompany={currentCompany} />}
                   {activeTab === 'services' && <ServicesModule currentCompany={currentCompany} />}

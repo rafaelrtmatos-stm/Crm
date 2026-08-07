@@ -237,3 +237,77 @@ export const Drawer = ({ isOpen, onClose, title, children }: any) => (
     )}
   </AnimatePresence>
 );
+
+// --- ERROR BOUNDARIES (proteção contra tela em branco/travada) ---
+type ModuleErrorBoundaryProps = { children: React.ReactNode; label?: string };
+type ModuleErrorBoundaryState = { hasError: boolean; message: string; stack: string };
+/**
+ * Barreira de erro para um modulo inteiro (ex: PDV). Se algo travar durante
+ * a renderizacao, mostra a mensagem do erro na tela em vez de deixar a
+ * pagina inteira preta/em branco sem explicacao nenhuma.
+ */
+export class ModuleErrorBoundary extends React.Component<
+  ModuleErrorBoundaryProps,
+  ModuleErrorBoundaryState
+> {
+  declare props: ModuleErrorBoundaryProps;
+  state: ModuleErrorBoundaryState = { hasError: false, message: '', stack: '' };
+  static getDerivedStateFromError(error: unknown) {
+    return {
+      hasError: true,
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error && error.stack ? error.stack : '',
+    };
+  }
+  componentDidCatch(error: unknown, info: { componentStack?: string }) {
+    console.error('ModuleErrorBoundary capturou um erro:', error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-[400px] flex flex-col items-center justify-center gap-3 text-center p-8">
+          <div className="text-red-400 font-bold text-sm">
+            Não foi possível carregar {this.props.label || 'esta tela'}.
+          </div>
+          <div className="text-white/40 text-xs max-w-md font-mono break-words">
+            {this.state.message}
+          </div>
+          {this.state.stack && (
+            <div className="text-white/30 text-[9px] max-w-lg text-left font-mono whitespace-pre-wrap break-words bg-black/30 rounded-lg p-3 max-h-48 overflow-y-auto">
+              {this.state.stack}
+            </div>
+          )}
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-2 px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-xs text-white transition-all"
+          >
+            Recarregar página
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+/** Barreira de erro menor, para envolver so um grafico (ex: recharts ResponsiveContainer),
+ * sem derrubar a tela inteira se so o grafico falhar durante uma troca de aba. */
+export class ChartErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean }
+> {
+  declare props: { children: React.ReactNode };
+  state: { hasError: boolean } = { hasError: false };
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error: unknown, info: unknown) {
+    console.error('ChartErrorBoundary capturou um erro:', error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return <div className="w-full h-full flex items-center justify-center text-white/20 text-xs">Gráfico indisponível</div>;
+    }
+    return this.props.children;
+  }
+}

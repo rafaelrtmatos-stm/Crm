@@ -160,6 +160,7 @@ import {
   Input, 
   Modal, 
   Drawer,
+  ChartErrorBoundary,
   cn 
 } from './SharedUI';
 import { collection, query, where, onSnapshot, orderBy, Timestamp, addDoc, doc, updateDoc, getDocs, setDoc, limit } from 'firebase/firestore';
@@ -580,6 +581,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
            </div>
            
            <div className="h-[350px] w-full">
+              <ChartErrorBoundary>
               <ResponsiveContainer width="100%" height="100%">
                  <AreaChart 
                    data={chartData.length > 0 ? chartData : [
@@ -608,6 +610,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                     <Area type="monotone" dataKey="total" stroke="#4cc9f0" strokeWidth={3} fillOpacity={1} fill="url(#colorRevenue)" />
                  </AreaChart>
               </ResponsiveContainer>
+              </ChartErrorBoundary>
            </div>
         </GlassCard>
 
@@ -3220,6 +3223,7 @@ export const MetaAdsModule = ({ currentCompany }: { currentCompany: Company | nu
             <div className="flex items-center justify-between mb-6">
                <h5 className="text-[10px] font-black uppercase tracking-[2px] text-white/50">Gasto vs Leads (7D)</h5>
             </div>
+            <ChartErrorBoundary>
             <ResponsiveContainer width="100%" height="80%">
                <AreaChart data={[
                  { day: '01', spend: 400, leads: 12 }, { day: '02', spend: 350, leads: 15 },
@@ -3233,6 +3237,7 @@ export const MetaAdsModule = ({ currentCompany }: { currentCompany: Company | nu
                  <Area type="monotone" dataKey="leads" stroke="#4361ee" fill="url(#colorSales)" />
                </AreaChart>
             </ResponsiveContainer>
+            </ChartErrorBoundary>
          </GlassCard>
          <GlassCard className="p-8">
             <h5 className="text-[10px] font-black uppercase tracking-[2px] text-white/50 mb-6">Distribuição Verba</h5>
