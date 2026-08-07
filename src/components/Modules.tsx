@@ -3630,8 +3630,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   return (
     <div className="h-[calc(100dvh-6rem)] min-h-[500px] flex flex-col bg-slate-900/50 rounded-[40px] shadow-2xl border border-white/10 overflow-hidden animate-in fade-in slide-in-from-right-5 duration-500">
       {/* Tab Navigation */}
-      <div className="flex bg-white/5 p-2 gap-2 border-b border-white/10 items-center justify-between">
-        <div className="flex gap-2">
+      <div className="flex flex-wrap bg-white/5 p-2 gap-2 border-b border-white/10 items-center justify-between shrink-0">
+        <div className="flex flex-wrap gap-1.5">
           {[
             { id: 'venda', label: 'Terminal Venda', icon: ShoppingBag },
             { id: 'historico', label: 'Histórico & Abertas', icon: History },
@@ -3643,41 +3643,41 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
               className={cn(
-                "flex items-center gap-3 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-[2px] transition-all",
+                "flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 rounded-xl text-[8.5px] sm:text-[9px] font-black uppercase tracking-wider transition-all whitespace-nowrap",
                 activeTab === tab.id ? "bg-primary-500 text-slate-900 shadow-xl" : "text-white/40 hover:bg-white/5 hover:text-white"
               )}
             >
-              <tab.icon size={16} />
-              {tab.label}
+              <tab.icon size={14} />
+              <span className="hidden sm:inline">{tab.label}</span>
             </button>
           ))}
         </div>
         
-        <div className="flex items-center gap-2 mr-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={handleManualSync}
             disabled={isSyncing}
             className={cn(
-              "flex items-center gap-2 px-4 py-2.5 rounded-2xl text-[9px] font-black uppercase tracking-widest border transition-all",
+              "flex items-center gap-1.5 px-3 py-2 rounded-xl text-[8.5px] sm:text-[9px] font-black uppercase tracking-wider border transition-all whitespace-nowrap",
               isSyncing ? "bg-white/5 border-white/10 text-white/30" : "bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20"
             )}
             title={syncedAt ? `Última sincronização: ${syncedAt.toLocaleTimeString('pt-BR')}` : 'Sincronizar agora'}
           >
             <RefreshCw size={12} className={cn(isSyncing && "animate-spin")} />
-            {isSyncing ? 'Sincronizando...' : 'Sincronizar'}
+            <span className="hidden sm:inline">{isSyncing ? 'Sincronizando...' : 'Sincronizar'}</span>
           </button>
+          {user?.isAdmin && (
+            <Button 
+              variant="secondary" 
+              size="sm" 
+              icon={LogOut} 
+              className="text-rose-400 border-rose-500/20 hover:bg-rose-500/10 text-[8.5px] sm:text-[9px] uppercase tracking-wider font-black whitespace-nowrap"
+              onClick={() => setIsRegisterOpen(false)}
+            >
+              Fechar Caixa
+            </Button>
+          )}
         </div>
-        {user?.isAdmin && (
-          <Button 
-            variant="secondary" 
-            size="sm" 
-            icon={LogOut} 
-            className="text-rose-400 border-rose-500/20 hover:bg-rose-500/10 mr-4 text-[9px] uppercase tracking-widest font-black"
-            onClick={() => setIsRegisterOpen(false)}
-          >
-            Fechar Caixa
-          </Button>
-        )}
       </div>
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
