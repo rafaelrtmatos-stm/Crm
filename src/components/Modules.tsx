@@ -167,6 +167,7 @@ import { collection, query, where, onSnapshot, orderBy, Timestamp, addDoc, doc, 
 import { db } from '../firebase';
 import { supabase } from '../supabase';
 import { buildPixPayload } from '../lib/pix';
+import { renderReceiptCanvas, downloadCanvasAsPng, downloadCanvasAsPdf } from '../lib/receipt';
 import { format } from 'date-fns';
 
 import { 
@@ -4675,7 +4676,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
              )}
           </div>
 
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
              <Button 
                variant="secondary" 
                icon={Share2} 
@@ -4788,39 +4789,34 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                className="flex-col h-32 gap-3 py-6 text-[10px] uppercase font-black tracking-widest border-white/5 bg-white/5 hover:bg-blue-500/20 hover:text-blue-300 transition-all"
                onClick={() => {
                  if (!lastFinalizedOrder) return;
-                 const order = lastFinalizedOrder;
-                 const total = order.total;
-                 const down = order.downPayment ?? order.receivedValue ?? (order.status === 'completed' ? total : 0);
-                 const balance = Math.max(0, total - down);
-                 const content = `================================================
-${(currentCompany?.name || 'Rafa Arts Graphics Central').toUpperCase()}
-COMPROVANTE DE PEDIDO / ORDEM DE SERVIÇO
-================================================
-Pedido: #${order.id.slice(-8).toUpperCase()}
-Data: ${format(new Date(order.createdAt), 'dd/MM/yyyy HH:mm')}
-Cliente: ${order.customerName || 'Cliente de Balcão'}
-${order.scheduledFor ? `Entrega Agendada Para: ${format(new Date(order.scheduledFor), 'dd/MM/yyyy HH:mm')}\n` : ''}------------------------------------------------
-ITENS:
-${order.items.map(i => `- ${i.quantity}x ${i.name} = R$ ${((i.area ? i.price * i.area : i.price) * i.quantity).toFixed(2).replace('.', ',')}`).join('\n')}
-------------------------------------------------
-TOTAL DO PEDIDO:          R$ ${total.toFixed(2).replace('.', ',')}
-VALOR RECEBIDO (ENTRADA): R$ ${down.toFixed(2).replace('.', ',')}
-VALOR QUE FALTA:          R$ ${balance.toFixed(2).replace('.', ',')}
-STATUS:                   ${balance > 0 ? 'ENTRADA PAGA - NOTA ABERTA' : '100% QUITADO'}
-================================================
-Obrigado pela preferência!
-`;
-                 const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-                 const url = URL.createObjectURL(blob);
-                 const link = document.createElement('a');
-                 link.href = url;
-                 link.download = `Comprovante_Pedido_${order.id.slice(-8).toUpperCase()}.txt`;
-                 link.click();
-                 URL.revokeObjectURL(url);
+                 const canvas = renderReceiptCanvas({
+                   order: lastFinalizedOrder,
+                   companyName: currentCompany?.name || 'Rafa Arts Graphics',
+                   customerPhone: selectedCustomer?.phone,
+                 });
+                 downloadCanvasAsPng(canvas, `Comprovante_${lastFinalizedOrder.id.slice(-8).toUpperCase()}.png`);
                }}
              >
-                Salvar
-                <span className="text-[8px] opacity-60 lowercase font-medium text-blue-400">Baixar Comprovante</span>
+                Imagem
+                <span className="text-[8px] opacity-60 lowercase font-medium text-blue-400">Baixar como PNG</span>
+             </Button>
+
+             <Button 
+               variant="secondary" 
+               icon={FileText} 
+               className="flex-col h-32 gap-3 py-6 text-[10px] uppercase font-black tracking-widest border-white/5 bg-white/5 hover:bg-violet-500/20 hover:text-violet-300 transition-all"
+               onClick={async () => {
+                 if (!lastFinalizedOrder) return;
+                 const canvas = renderReceiptCanvas({
+                   order: lastFinalizedOrder,
+                   companyName: currentCompany?.name || 'Rafa Arts Graphics',
+                   customerPhone: selectedCustomer?.phone,
+                 });
+                 await downloadCanvasAsPdf(canvas, `Comprovante_${lastFinalizedOrder.id.slice(-8).toUpperCase()}.pdf`);
+               }}
+             >
+                PDF
+                <span className="text-[8px] opacity-60 lowercase font-medium text-violet-400">Baixar como PDF</span>
              </Button>
 
              <Button 
