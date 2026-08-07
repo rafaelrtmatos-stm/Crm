@@ -165,6 +165,7 @@ import {
 } from './SharedUI';
 import { collection, query, where, onSnapshot, orderBy, Timestamp, addDoc, doc, updateDoc, getDocs, setDoc, limit } from 'firebase/firestore';
 import { db } from '../firebase';
+import { supabase } from '../supabase';
 import { format } from 'date-fns';
 
 import { 
@@ -3492,9 +3493,20 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       scheduledFor: deliveryDate || undefined
     };
 
-    // Save to Firestore
+    // Save to Supabase
     try {
-      await addDoc(collection(db, 'saleOrders'), order);
+      const { error } = await supabase.from('vendas').insert({
+        customer_name: order.customerName,
+        customer_phone: selectedCustomer?.phone,
+        items: order.items,
+        total: order.total,
+        down_payment: order.downPayment,
+        received_value: order.receivedValue,
+        payment_method: order.paymentMethod,
+        status: order.status,
+        scheduled_for: order.scheduledFor || null,
+      });
+      if (error) throw error;
       
       // RULE: Always create Service/OS if pending or has balance OR specific items
       const hasServiceItems = cart.some(item => 
@@ -4729,20 +4741,91 @@ Obrigado pela preferência!
 
 // --- CONTACTS ---
 export const ContactsModule = ({ currentCompany }: { currentCompany: Company | null }) => {
+  const [clientes, setClientes] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [formData, setFormData] = useState({ full_name: '', phone: '', email: '', cpf_cnpj: '', city: '', state: '' });
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      const { data, error } = await supabase.from('clientes').select('*').order('full_name', { ascending: true });
+      if (!active) return;
+      if (error) { console.error('Erro ao carregar clientes:', error); setLoading(false); return; }
+      setClientes(data || []);
+      setLoading(false);
+    };
+    load();
+    const channel = supabase
+      .channel('clientes-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'clientes' }, load)
+      .subscribe();
+    return () => { active = false; supabase.removeChannel(channel); };
+  }, [currentCompany]);
+
+  const handleSave = async () => {
+    if (!formData.full_name.trim()) return;
+    try {
+      const { error } = await supabase.from('clientes').insert({
+        full_name: formData.full_name,
+        phone: formData.phone,
+        email: formData.email,
+        cpf_cnpj: formData.cpf_cnpj,
+        city: formData.city,
+        state: formData.state,
+      });
+      if (error) throw error;
+      setIsModalOpen(false);
+      setFormData({ full_name: '', phone: '', email: '', cpf_cnpj: '', city: '', state: '' });
+    } catch (err) {
+      console.error(err);
+      alert('Não foi possível salvar o cliente.');
+    }
+  };
+
   const columns = [
-    { key: 'name', label: 'Nome' },
+    { key: 'full_name', label: 'Nome' },
     { key: 'email', label: 'Email' },
     { key: 'phone', label: 'Telefone' },
-    { key: 'tags', label: 'Tags', render: (v: string[]) => <div className="flex gap-1">{v.map(t => <Badge key={t} variant="outline" className="text-[8px]">{t}</Badge>)}</div> },
+    { key: 'city', label: 'Cidade' },
   ];
 
-  const data = [
-    { id: '1', name: 'Rafael Matos', email: 'rafael@email.com', phone: '(11) 99999-9999', tags: ['vip', 'imobi'] },
-    { id: '2', name: 'Maria Silva', email: 'maria@email.com', phone: '(21) 88888-8888', tags: ['lead', 'grafica'] },
-    { id: '3', name: 'João Tech', email: 'joao@tech.com', phone: '(19) 77777-7777', tags: ['parceiro'] },
-  ];
+  if (loading && clientes.length === 0) return (
+    <div className="h-96 flex items-center justify-center">
+       <RefreshCw className="animate-spin text-primary-500" />
+    </div>
+  );
 
-  return <GenericListView title="Base de Contatos" subtitle="Gestão unificada de clientes" columns={columns} data={data} />;
+  return (
+    <div className="space-y-8 animate-in fade-in zoom-in-95 duration-500">
+      <SectionHeader
+        title="Base de Contatos"
+        subtitle="Gestão unificada de clientes"
+        actions={<Button icon={Plus} onClick={() => setIsModalOpen(true)}>Novo Cliente</Button>}
+      />
+      <GlassCard className="p-4 border-white/5 bg-white/[0.02]">
+        <DataTable columns={columns} data={clientes} />
+      </GlassCard>
+      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="NOVO CLIENTE">
+        <div className="p-6 space-y-4">
+          <Input label="NOME COMPLETO" value={formData.full_name} onChange={(e: any) => setFormData({ ...formData, full_name: e.target.value })} />
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="TELEFONE" value={formData.phone} onChange={(e: any) => setFormData({ ...formData, phone: e.target.value })} />
+            <Input label="EMAIL" value={formData.email} onChange={(e: any) => setFormData({ ...formData, email: e.target.value })} />
+          </div>
+          <div className="grid grid-cols-3 gap-4">
+            <Input label="CPF/CNPJ" value={formData.cpf_cnpj} onChange={(e: any) => setFormData({ ...formData, cpf_cnpj: e.target.value })} />
+            <Input label="CIDADE" value={formData.city} onChange={(e: any) => setFormData({ ...formData, city: e.target.value })} />
+            <Input label="ESTADO" value={formData.state} onChange={(e: any) => setFormData({ ...formData, state: e.target.value })} />
+          </div>
+          <div className="flex gap-4 pt-4">
+            <Button variant="secondary" className="flex-1 h-14" onClick={() => setIsModalOpen(false)}>Cancelar</Button>
+            <Button className="flex-[2] h-14 bg-primary-500 text-slate-900 border-none shadow-xl shadow-primary-500/20" onClick={handleSave}>Salvar Cliente</Button>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
 };
 
 // --- SERVICES ---
@@ -4960,16 +5043,34 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
   });
 
   useEffect(() => {
-    if (!currentCompany) return;
-    const q = query(
-      collection(db, 'inventory'),
-      where('companyId', '==', currentCompany.id),
-      orderBy('name', 'asc')
-    );
-    return onSnapshot(q, (snap) => {
-      setItems(snap.docs.map(d => ({ id: d.id, ...d.data() } as InventoryItem)));
+    let active = true;
+    const load = async () => {
+      const { data, error } = await supabase.from('produtos').select('*').order('name', { ascending: true });
+      if (!active) return;
+      if (error) { console.error('Erro ao carregar produtos:', error); setLoading(false); return; }
+      setItems((data || []).map((row: any) => ({
+        id: row.id,
+        name: row.name,
+        code: row.code,
+        category: row.category,
+        unit: row.unit,
+        salePrice: row.sale_price,
+        costPrice: row.cost_price,
+        currentStock: row.current_stock,
+        minStock: row.min_stock,
+        isService: row.is_service,
+        isActive: row.is_active,
+        provider: row.provider,
+        createdAt: row.created_at,
+      } as InventoryItem)));
       setLoading(false);
-    });
+    };
+    load();
+    const channel = supabase
+      .channel('produtos-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'produtos' }, load)
+      .subscribe();
+    return () => { active = false; supabase.removeChannel(channel); };
   }, [currentCompany]);
 
   const stats = [
@@ -4997,14 +5098,20 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
   ];
 
   const handleSave = async () => {
-    if (!currentCompany) return;
     try {
-      await addDoc(collection(db, 'inventory'), {
-        ...formData,
-        companyId: currentCompany.id,
-        createdAt: Timestamp.now(),
-        updatedAt: Timestamp.now()
+      const { error } = await supabase.from('produtos').insert({
+        name: formData.name,
+        code: formData.code,
+        category: formData.category,
+        unit: formData.unit,
+        sale_price: formData.salePrice,
+        cost_price: formData.costPrice,
+        current_stock: formData.currentStock,
+        min_stock: formData.minStock,
+        is_service: formData.isService,
+        is_active: formData.isActive,
       });
+      if (error) throw error;
       setIsModalOpen(false);
       setFormData({ name: '', category: 'substrato', unit: 'un', currentStock: 0, minStock: 0, salePrice: 0, costPrice: 0, isActive: true, isService: false });
     } catch (err) {
