@@ -3712,7 +3712,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                </div>
 
                {/* Visualizador de Itens no PDV (Compact Items Cart List) */}
-               <div className="flex-1 my-2 bg-white/70 backdrop-blur-xs rounded-2xl border border-slate-900/10 p-3 flex flex-col overflow-hidden shadow-inner">
+               <div className="flex-1 min-h-0 my-2 bg-white/70 backdrop-blur-xs rounded-2xl border border-slate-900/10 p-3 flex flex-col overflow-hidden shadow-inner">
                   <div className="flex items-center justify-between pb-2 border-b border-slate-900/10 mb-2">
                      <span className="text-[9px] font-black uppercase tracking-wider text-slate-700">Visualizador de Itens ({cart.length})</span>
                      <span className="text-[8px] font-bold text-slate-400 uppercase">Lista de Lançamento</span>
@@ -3862,7 +3862,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                </div>
 
                 {/* COMPACT PRODUCT LIST */}
-                <div className="flex-1 overflow-y-auto custom-scrollbar bg-white">
+                <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-white">
                    <div className="divide-y divide-slate-50">
                       {products.filter(p => p.name.includes(search.toUpperCase())).map(product => (
                         <div 
