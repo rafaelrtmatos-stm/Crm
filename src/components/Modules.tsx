@@ -3,7 +3,6 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { ContractApprovalModule } from './ContractApprovalModule';
 import { 
   TrendingUp, 
-  Lock,
   Clock, 
   MessageSquare, 
   Plus, 
@@ -46,8 +45,6 @@ import {
   Printer,
   X,
   ChevronRight,
-  ChevronLeft,
-  Wallet,
   Mic,
   Image as ImageIcon,
   Video,
@@ -100,9 +97,7 @@ import {
   Box,
   Save,
   LogOut,
-  PlusSquare,
-  Unlock,
-  MinusCircle
+  PlusSquare
 } from 'lucide-react';
 import { 
   DndContext, 
@@ -140,14 +135,7 @@ import {
   PrintingService,
   DashboardWidget,
   DashboardLayout,
-  WidgetType,
-  CashRegister,
-  CashMovement,
-  FinancialConfig,
-  PaymentMethodConfig,
-  PixKeyConfig,
-  CardFeeConfig,
-  GeneralFinancialConfig
+  WidgetType
 } from '../types';
 import { 
   AreaChart, 
@@ -172,8 +160,7 @@ import {
   Input, 
   Modal, 
   Drawer,
-  cn,
-  ChartErrorBoundary
+  cn 
 } from './SharedUI';
 import { collection, query, where, onSnapshot, orderBy, Timestamp, addDoc, doc, updateDoc, getDocs, setDoc, limit } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -184,17 +171,6 @@ import {
   extractTracking, 
   canAccessModule 
 } from '../lib/businessLogic';
-
-// Sound helper for cash register finalization
-const playCashRegisterSound = () => {
-  try {
-    if (typeof document !== 'undefined') {
-      const audio = document.createElement('audio');
-      audio.src = 'https://assets.mixkit.co/active_storage/sfx/936/936-preview.mp3';
-      audio.play().catch(() => {});
-    }
-  } catch (e) {}
-};
 
 // --- DASHBOARD ---
 const DEFAULT_WIDGETS: DashboardWidget[] = [
@@ -281,7 +257,10 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     if (balanceToSettle <= 0) return;
 
     try {
-      playCashRegisterSound();
+      try {
+        const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/936/936-preview.mp3');
+        audio.play().catch(() => {});
+      } catch (e) {}
 
       const q = query(
         collection(db, 'saleOrders'),
@@ -601,8 +580,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
            </div>
            
            <div className="h-[350px] w-full">
-             <ChartErrorBoundary label="o gráfico de faturamento">
-              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+              <ResponsiveContainer width="100%" height="100%">
                  <AreaChart 
                    data={chartData.length > 0 ? chartData : [
                      { day: 'Seg', total: 400 }, { day: 'Ter', total: 600 }, { day: 'Qua', total: 300 }
@@ -630,7 +608,6 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                     <Area type="monotone" dataKey="total" stroke="#4cc9f0" strokeWidth={3} fillOpacity={1} fill="url(#colorRevenue)" />
                  </AreaChart>
               </ResponsiveContainer>
-             </ChartErrorBoundary>
            </div>
         </GlassCard>
 
@@ -3243,31 +3220,19 @@ export const MetaAdsModule = ({ currentCompany }: { currentCompany: Company | nu
             <div className="flex items-center justify-between mb-6">
                <h5 className="text-[10px] font-black uppercase tracking-[2px] text-white/50">Gasto vs Leads (7D)</h5>
             </div>
-            <ChartErrorBoundary label="o gráfico de gasto vs leads">
-             <ResponsiveContainer width="100%" height="80%" minWidth={0} minHeight={0}>
+            <ResponsiveContainer width="100%" height="80%">
                <AreaChart data={[
                  { day: '01', spend: 400, leads: 12 }, { day: '02', spend: 350, leads: 15 },
                  { day: '03', spend: 600, leads: 22 }, { day: '04', spend: 450, leads: 18 },
                  { day: '05', spend: 800, leads: 30 }, { day: '06', spend: 750, leads: 25 },
                  { day: '07', spend: 1200, leads: 40 }
                ]}>
-                 <defs>
-                    <linearGradient id="colorLeadsSpend" x1="0" y1="0" x2="0" y2="1">
-                       <stop offset="5%" stopColor="#4cc9f0" stopOpacity={0.3}/>
-                       <stop offset="95%" stopColor="#4cc9f0" stopOpacity={0}/>
-                    </linearGradient>
-                    <linearGradient id="colorLeadsCount" x1="0" y1="0" x2="0" y2="1">
-                       <stop offset="5%" stopColor="#4361ee" stopOpacity={0.3}/>
-                       <stop offset="95%" stopColor="#4361ee" stopOpacity={0}/>
-                    </linearGradient>
-                 </defs>
                  <XAxis dataKey="day" hide />
                  <Tooltip contentStyle={{ backgroundColor: '#1a2333', border: 'none', borderRadius: '12px' }} />
-                 <Area type="monotone" dataKey="spend" stroke="#4cc9f0" fill="url(#colorLeadsSpend)" />
-                 <Area type="monotone" dataKey="leads" stroke="#4361ee" fill="url(#colorLeadsCount)" />
+                 <Area type="monotone" dataKey="spend" stroke="#4cc9f0" fill="url(#colorLeads)" />
+                 <Area type="monotone" dataKey="leads" stroke="#4361ee" fill="url(#colorSales)" />
                </AreaChart>
-             </ResponsiveContainer>
-            </ChartErrorBoundary>
+            </ResponsiveContainer>
          </GlassCard>
          <GlassCard className="p-8">
             <h5 className="text-[10px] font-black uppercase tracking-[2px] text-white/50 mb-6">Distribuição Verba</h5>
@@ -3299,8 +3264,8 @@ export const MetaAdsModule = ({ currentCompany }: { currentCompany: Company | nu
 
 // --- PDV / POS ---
 export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany: Company | null, addPendingOrder: (order: SaleOrder) => void }) => {
-  const { user, isRegisterOpen, setIsRegisterOpen, activeCashRegister, prefilledCustomer, setPrefilledCustomer, companies: companiesDebug } = React.useContext(AppContext)!;
-  const [activeTab, setActiveTab] = useState<'venda' | 'historico' | 'caixas' | 'estoque' | 'clientes' | 'contratos'>('venda');
+  const { isRegisterOpen, setIsRegisterOpen } = React.useContext(AppContext)!;
+  const [activeTab, setActiveTab] = useState<'venda' | 'historico' | 'estoque' | 'clientes' | 'contratos'>('venda');
   const [cart, setCart] = useState<SaleOrderItem[]>([]);
   const [search, setSearch] = useState('');
   const [selectedQty, setSelectedQty] = useState(1);
@@ -3309,20 +3274,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
   const [lastFinalizedOrder, setLastFinalizedOrder] = useState<SaleOrder | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<{ id: string, name: string, phone: string } | null>(null);
-
-  // Auto-fill customer when coming from CRM lead or Real Estate module
-  useEffect(() => {
-    if (prefilledCustomer) {
-      setSelectedCustomer({
-        id: prefilledCustomer.id || `cust_${Date.now()}`,
-        name: prefilledCustomer.name,
-        phone: prefilledCustomer.phone || ''
-      });
-      if (setPrefilledCustomer) {
-        setPrefilledCustomer(null);
-      }
-    }
-  }, [prefilledCustomer, setPrefilledCustomer]);
   const [paymentMethod, setPaymentMethod] = useState<'dinheiro' | 'pix' | 'cartao_credito' | 'cartao_debito' | 'misto'>('pix');
   const [cashReceived, setCashReceived] = useState<number | ''>('');
   const [downPayment, setDownPayment] = useState(0);
@@ -3334,86 +3285,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [historySearch, setHistorySearch] = useState('');
   const [settleModalOrder, setSettleModalOrder] = useState<SaleOrder | null>(null);
   const [settleMethod, setSettleMethod] = useState<'pix' | 'dinheiro' | 'cartao_credito' | 'cartao_debito'>('pix');
-
-  // 4-Step Sales Flow State
-  const [posStep, setPosStep] = useState<1 | 2 | 3 | 4>(1);
-  const [entryPaymentType, setEntryPaymentType] = useState<'total' | 'entrada'>('total');
-  const [entryMode, setEntryMode] = useState<'value' | 'percent'>('value');
-  const [entryPercentInput, setEntryPercentInput] = useState<number | ''>(50);
-  const [deliveryDate, setDeliveryDate] = useState<string>('');
-  const [deliveryTime, setDeliveryTime] = useState<string>('');
-  const [deliveryNotes, setDeliveryNotes] = useState<string>('');
-  const [financialConfig, setFinancialConfig] = useState<FinancialConfig | null>(null);
-
-  // Inline Customer Creation State
-  const [isCreatingCustomer, setIsCreatingCustomer] = useState(false);
-  const [newCustomerName, setNewCustomerName] = useState('');
-  const [newCustomerPhone, setNewCustomerPhone] = useState('');
-  const [newCustomerDocument, setNewCustomerDocument] = useState('');
-  const [registeredContacts, setRegisteredContacts] = useState<{ id: string; name: string; phone: string }[]>([
-    { id: '1', name: 'Rafael Matos', phone: '(11) 99999-9999' },
-    { id: '2', name: 'Maria Silva', phone: '(21) 88888-8888' },
-    { id: '3', name: 'João Oliveira', phone: '(19) 77777-7777' },
-    { id: '4', name: 'Gráfica Express Ltda', phone: '(11) 3333-4444' }
-  ]);
-
-  // Load Contacts from Firestore
-  useEffect(() => {
-    if (!currentCompany) return;
-    const q = query(
-      collection(db, 'contacts'),
-      where('companyId', '==', currentCompany.id)
-    );
-    return onSnapshot(q, (snap) => {
-      const fetched = snap.docs.map(d => {
-        const data = d.data();
-        return {
-          id: d.id,
-          name: data.fullName || data.name || 'Contato',
-          phone: data.phone || data.whatsapp || ''
-        };
-      });
-      if (fetched.length > 0) {
-        setRegisteredContacts(fetched);
-      }
-    });
-  }, [currentCompany]);
-
-  // Order Receipt & Status Modals
-  const [receiptModalOrder, setReceiptModalOrder] = useState<SaleOrder | null>(null);
-  const [statusModalOrder, setStatusModalOrder] = useState<SaleOrder | null>(null);
-  const [selectedNewStatus, setSelectedNewStatus] = useState<string>('completed');
-
-  // Load Financial Configs (for default PIX key)
-  useEffect(() => {
-    if (!currentCompany) return;
-    const docRef = doc(db, 'financialConfigs', currentCompany.id);
-    return onSnapshot(docRef, (snap) => {
-      if (snap.exists()) {
-        setFinancialConfig(snap.data() as FinancialConfig);
-      }
-    });
-  }, [currentCompany]);
-
-  // Manual Cash Register State & Modals
-  const [isOpenModalOpen, setIsOpenModalOpen] = useState(false);
-  const [openingBalanceInput, setOpeningBalanceInput] = useState<number | ''>(100);
-  const [openingNotes, setOpeningNotes] = useState('');
-
-  const [isCloseModalOpen, setIsCloseModalOpen] = useState(false);
-  const [cashCountInput, setCashCountInput] = useState<number | ''>('');
-  const [closingNotes, setClosingNotes] = useState('');
-
-  const [isSangriaModalOpen, setIsSangriaModalOpen] = useState(false);
-  const [sangriaAmount, setSangriaAmount] = useState<number | ''>('');
-  const [sangriaReason, setSangriaReason] = useState('');
-
-  const [isSuprimentoModalOpen, setIsSuprimentoModalOpen] = useState(false);
-  const [suprimentoAmount, setSuprimentoAmount] = useState<number | ''>('');
-  const [suprimentoReason, setSuprimentoReason] = useState('');
-
-  const [closedRegistersHistory, setClosedRegistersHistory] = useState<CashRegister[]>([]);
-  const [selectedRegisterReport, setSelectedRegisterReport] = useState<CashRegister | null>(null);
 
   useEffect(() => {
     if (!currentCompany) return;
@@ -3435,95 +3306,108 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     });
   }, [currentCompany]);
 
-  // Snapshot listener for past closed registers
-  useEffect(() => {
-    if (!currentCompany) return;
-    const q = query(
-      collection(db, 'cashRegisters'),
-      where('companyId', '==', currentCompany.id),
-      where('isOpen', '==', false)
-    );
-    return onSnapshot(q, (snap) => {
-      const past = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }) as CashRegister);
-      const parseTime = (val: any) => {
-        if (!val) return 0;
-        if (typeof val === 'string' || typeof val === 'number') return new Date(val).getTime();
-        if (val?.toDate && typeof val.toDate === 'function') return val.toDate().getTime();
-        if (val?.seconds) return val.seconds * 1000;
-        return 0;
-      };
-      past.sort((a, b) => {
-        const timeA = parseTime(a.closedAt || a.openedAt);
-        const timeB = parseTime(b.closedAt || b.openedAt);
-        return timeB - timeA;
-      });
-      setClosedRegistersHistory(past);
-    });
-  }, [currentCompany]);
+  const handleSettleBalance = async (order: SaleOrder) => {
+    if (!currentCompany || !order) return;
+    const balanceToSettle = order.total - (order.downPayment || 0);
+    if (balanceToSettle <= 0) return;
 
-  // Product Catalog & Cart Functions
-  const products = [
-    { id: '1', code: 'PRD001', name: 'LONA BACKLIGHT 440G BRILHO', price: 65.00, stock: 120 },
-    { id: '2', code: 'PRD002', name: 'ADESIVO VINIL FOSCO MONOMÉRICO', price: 45.00, stock: 350 },
-    { id: '3', code: 'PRD003', name: 'PLACA PS 2MM IMPRESSAO UV Direct', price: 95.00, stock: 85 },
-    { id: '4', code: 'PRD004', name: 'BANNER COM BASTAO E CORDA 70x100', price: 49.90, stock: 50 },
-    { id: '5', code: 'PRD005', name: 'CARTAO DE VISITA 4x4 250G VERNIZ (1000 UN)', price: 89.00, stock: 200 },
-    { id: '6', code: 'PRD006', name: 'PANFLETO 10x14 4x0 115G (2500 UN)', price: 180.00, stock: 40 },
-    { id: '7', code: 'PRD007', name: 'FAIXA EM LONA 2x0.70m ILHÓS', price: 75.00, stock: 90 },
+    try {
+      try {
+        const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/936/936-preview.mp3');
+        audio.play().catch(() => {});
+      } catch (e) {}
+
+      const q = query(
+        collection(db, 'saleOrders'),
+        where('companyId', '==', currentCompany.id),
+        where('id', '==', order.id),
+        limit(1)
+      );
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        await updateDoc(doc(db, 'saleOrders', snap.docs[0].id), {
+          status: 'completed',
+          downPayment: order.total,
+          settledAt: new Date().toISOString(),
+          settledPaymentMethod: settleMethod,
+          updatedAt: new Date().toISOString()
+        });
+      }
+
+      const qSvc = query(
+        collection(db, 'services'),
+        where('companyId', '==', currentCompany.id),
+        where('orderId', '==', order.id),
+        limit(1)
+      );
+      const snapSvc = await getDocs(qSvc);
+      if (!snapSvc.empty) {
+        await updateDoc(doc(db, 'services', snapSvc.docs[0].id), {
+          status: 'concluido',
+          balance: 0,
+          updatedAt: Timestamp.now()
+        });
+      }
+
+      alert(`Saldo de R$ ${balanceToSettle.toFixed(2).replace('.', ',')} quitado com sucesso!\nA venda/serviço foi totalmente quitada.`);
+      setSettleModalOrder(null);
+    } catch (err) {
+      console.error('Erro ao quitar saldo:', err);
+      alert('Erro ao quitar saldo do pedido.');
+    }
+  };
+
+  const products: Product[] = [
+    { id: '1', name: 'A4 FRENTE E VERSO COLORIDO', code: '7891396968707', price: 1.50, stock: 1500, unitType: 'unit' },
+    { id: '2', name: 'ABA DO TANQUE', code: '7895858595791', price: 75.00, stock: 45, unitType: 'unit' },
+    { id: '3', name: 'ABA INFERIOR', code: '7898844611000', price: 60.00, stock: 120, unitType: 'unit' },
+    { id: '4', name: 'ABA LATERAL', code: '7894766221136', price: 75.00, stock: 30, unitType: 'unit' },
+    { id: '5', name: 'ACABAMENTO BANNER', code: '7893919006033', price: 20.00, stock: 800, unitType: 'unit' },
+    { id: '6', name: 'ADESIVO BALANÇA', code: '7891042219924', price: 30.00, stock: 50, unitType: 'unit' },
+    { id: '7', name: 'ADESIVO DE IMPRESSAO AVERY', code: '7890000000000', price: 50.00, stock: 100, unitType: 'm2' },
   ];
 
-  const total = useMemo(() => {
-    return cart.reduce((acc, item) => {
-      const basePrice = item.area ? item.price * item.area : item.price;
-      const discount = item.discount || 0;
-      const finalUnit = Math.max(0, basePrice - discount);
-      return acc + (finalUnit * item.quantity);
-    }, 0);
-  }, [cart]);
+  const addToCart = (product: Product) => {
+    let area: number | undefined;
+    let dimensions: string | undefined;
 
-  const computedDownPayment = useMemo(() => {
-    if (entryPaymentType === 'total') return total;
-    if (entryMode === 'percent') {
-      const pct = typeof entryPercentInput === 'number' ? entryPercentInput : 0;
-      return (total * pct) / 100;
-    }
-    return typeof downPayment === 'number' ? downPayment : 0;
-  }, [entryPaymentType, entryMode, entryPercentInput, downPayment, total]);
-
-  const remainingValue = useMemo(() => {
-    return Math.max(0, total - computedDownPayment);
-  }, [total, computedDownPayment]);
-
-  const updateCartItemDiscount = (index: number, discount: number) => {
-    setCart(prev => {
-      const updated = [...prev];
-      updated[index] = { ...updated[index], discount };
-      return updated;
-    });
-  };
-
-  const updateCartItemNotes = (index: number, notes: string) => {
-    setCart(prev => {
-      const updated = [...prev];
-      updated[index] = { ...updated[index], notes };
-      return updated;
-    });
-  };
-
-  const addToCart = (product: { id: string; name: string; price: number }) => {
-    setCart(prev => {
-      const existingIndex = prev.findIndex(item => item.productId === product.id);
-      if (existingIndex >= 0) {
-        const updated = [...prev];
-        updated[existingIndex].quantity += selectedQty;
-        return updated;
+    if (product.unitType === 'm2') {
+      const dimInput = prompt(`Digite as dimensões para ${product.name} (ex: 1,2x2,2):`);
+      if (dimInput) {
+        const parts = dimInput.toLowerCase().split('x').map(p => {
+          const val = parseFloat(p.trim().replace(',', '.'));
+          return isNaN(val) ? 0 : val;
+        });
+        if (parts.length === 2 && parts[0] > 0 && parts[1] > 0) {
+          area = parts[0] * parts[1];
+          dimensions = dimInput;
+        } else {
+          alert('Formato de dimensão inválido! Use LxH (ex: 1,2x2,2)');
+          return;
+        }
+      } else {
+        return;
       }
-      return [...prev, { productId: product.id, name: product.name, price: product.price, quantity: selectedQty }];
-    });
-  };
+    }
 
-  const removeFromCart = (index: number) => {
-    setCart(prev => prev.filter((_, i) => i !== index));
+    setCart(prev => {
+      const existing = prev.find(item => item.productId === product.id && item.dimensions === dimensions);
+      if (existing) {
+        return prev.map(item => (item.productId === product.id && item.dimensions === dimensions) 
+          ? { ...item, quantity: item.quantity + selectedQty } 
+          : item
+        );
+      }
+      return [...prev, { 
+        productId: product.id, 
+        name: product.name, 
+        price: product.price, 
+        quantity: selectedQty,
+        dimensions,
+        area
+      }];
+    });
+    setSelectedQty(1);
   };
 
   const updateCartQty = (index: number, delta: number) => {
@@ -3531,847 +3415,147 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       const updated = [...prev];
       const newQty = updated[index].quantity + delta;
       if (newQty <= 0) {
-        return prev.filter((_, i) => i !== index);
+        return updated.filter((_, i) => i !== index);
       }
-      updated[index].quantity = newQty;
+      updated[index] = { ...updated[index], quantity: newQty };
       return updated;
     });
   };
 
-  const clearCart = () => setCart([]);
-
-  const faturamentoHoje = useMemo(() => {
-    return salesToday.reduce((acc, s) => acc + (s.total || 0), 0);
-  }, [salesToday]);
-
-  const handleFinalize = async (isPending?: boolean, custOverride?: { id?: string; name: string; phone?: string } | null) => {
-    if (cart.length === 0 || !currentCompany) return;
-    setIsVerifying(true);
-    try {
-      const activeCust = custOverride !== undefined ? custOverride : selectedCustomer;
-      const custName = activeCust?.name || 'Cliente de Balcão (Consumidor Final)';
-      const isPartial = isPending || (entryPaymentType === 'entrada' && remainingValue > 0);
-      const finalDownPayment = computedDownPayment;
-      const finalReceived = paymentMethod === 'dinheiro' && typeof cashReceived === 'number' ? cashReceived : finalDownPayment;
-      
-      let schedStr = undefined;
-      if (deliveryDate) {
-        schedStr = `${deliveryDate}T${deliveryTime || '12:00'}:00`;
-      }
-
-      const newOrder: SaleOrder = {
-        id: `ORD-${Date.now()}`,
-        companyId: currentCompany.id,
-        customerName: custName,
-        customerPhone: activeCust?.phone || undefined,
-        items: cart,
-        total,
-        paymentMethod,
-        receivedValue: finalReceived,
-        downPayment: finalDownPayment,
-        scheduledFor: schedStr || undefined,
-        notes: deliveryNotes || undefined,
-        status: isPartial ? 'pending' : 'completed',
-        createdAt: new Date().toISOString()
-      };
-      
-      await addDoc(collection(db, 'saleOrders'), newOrder);
-      if (addPendingOrder && isPartial) {
-        addPendingOrder(newOrder);
-      }
-      
-      // Play cash register sound when finalizing note/sale
-      playCashRegisterSound();
-
-      setLastFinalizedOrder(newOrder);
-      setCart([]);
-      setSelectedCustomer(null);
-      setPosStep(1);
-      setDeliveryDate('');
-      setDeliveryTime('');
-      setDeliveryNotes('');
-      setCashReceived('');
-      setEntryPaymentType('total');
-      
-      // Auto redirect to Histórico Geral de Vendas & Serviços!
-      setActiveTab('historico');
-    } catch (err) {
-      console.error("Erro ao finalizar venda:", err);
-      alert("Erro ao gravar pedido.");
-    } finally {
-      setIsVerifying(false);
-    }
+  const removeFromCart = (index: number) => {
+    setCart(prev => prev.filter((_, i) => i !== index));
   };
 
-  const handleSettleBalance = async (order: SaleOrder | null) => {
-    if (!order || !currentCompany) return;
-    try {
-      const orderRef = doc(db, 'saleOrders', order.id);
-      await updateDoc(orderRef, {
-        status: 'completed',
-        downPayment: order.total,
-        settledAt: new Date().toISOString(),
-        settledMethod: settleMethod
-      });
-      setSettleModalOrder(null);
-    } catch (err) {
-      console.error("Erro ao quitar saldo:", err);
-      alert("Erro ao atualizar o pedido.");
-    }
+  const clearCart = () => {
+    setCart([]);
   };
 
-  // Active Session Sales & Financial Calculations
-  const activeSessionSales = useMemo(() => {
-    if (!activeCashRegister || !allSalesHistory) return [];
-    const openTime = new Date(activeCashRegister.openedAt).getTime();
-    return allSalesHistory.filter(s => {
-      const saleTime = new Date(s.createdAt).getTime();
-      return saleTime >= openTime && s.status !== 'canceled';
-    });
-  }, [activeCashRegister, allSalesHistory]);
+  const total = cart.reduce((acc, item) => {
+    const itemTotal = item.area ? item.price * item.area * item.quantity : item.price * item.quantity;
+    return acc + itemTotal;
+  }, 0);
+  const remainingValue = Math.max(0, total - (downPayment === '' || typeof downPayment === 'string' ? 0 : Number(downPayment)));
 
-  const activeSessionTotals = useMemo(() => {
-    let dinero = 0;
-    let pix = 0;
-    let debito = 0;
-    let credito = 0;
-    let misto = 0;
-    let totalSales = 0;
+  const faturamentoHoje = salesToday.reduce((acc, o) => {
+    if (o.status === 'pending') {
+      return acc + (o.downPayment || 0);
+    }
+    return acc + (o.total || 0);
+  }, 0);
 
-    activeSessionSales.forEach(s => {
-      const val = s.downPayment ?? s.receivedValue ?? s.total ?? 0;
-      totalSales += s.total || 0;
-      if (s.paymentMethod === 'dinheiro') dinero += val;
-      else if (s.paymentMethod === 'pix') pix += val;
-      else if (s.paymentMethod === 'cartao_debito') debito += val;
-      else if (s.paymentMethod === 'cartao_credito') credito += val;
-      else if (s.paymentMethod === 'misto') misto += val;
-      else pix += val;
-    });
+  const handleFinalize = async (isPending: boolean = false) => {
+    if (!selectedCustomer && cart.length > 0) {
+      if (isPending || remainingValue > 0) {
+        setIsCustomerModalOpen(true);
+        return;
+      }
+    }
 
-    const initial = activeCashRegister?.openingBalance || 0;
-    const sangrias = activeCashRegister?.sangrias || 0;
-    const suprimentos = activeCashRegister?.suprimentos || 0;
-    const expectedCash = initial + dinero + suprimentos - sangrias;
+    // Play money sound
+    try {
+      const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/936/936-preview.mp3');
+      audio.play().catch(() => {});
+    } catch (e) {}
 
-    return {
-      dinero,
-      pix,
-      debito,
-      credito,
-      misto,
-      totalSales,
-      count: activeSessionSales.length,
-      initial,
-      sangrias,
-      suprimentos,
-      expectedCash
+    const finalDownPayment = downPayment === '' || typeof downPayment === 'string' ? 0 : Number(downPayment);
+    const currentRemaining = Math.max(0, total - finalDownPayment);
+
+    // Rule: If partial payment (entrada), ensure a scheduled delivery date is set
+    let deliveryDate = scheduledFor;
+    if (currentRemaining > 0 && !deliveryDate) {
+      const defaultDelivery = new Date();
+      defaultDelivery.setDate(defaultDelivery.getDate() + 2);
+      defaultDelivery.setHours(17, 0, 0, 0);
+      deliveryDate = defaultDelivery.toISOString().slice(0, 16);
+      setScheduledFor(deliveryDate);
+    }
+
+    const isPartialSale = currentRemaining > 0 || isPending;
+
+    const order: SaleOrder = {
+      id: `ord_${Date.now()}`,
+      companyId: currentCompany?.id || 'default',
+      customerId: selectedCustomer?.id,
+      customerName: selectedCustomer?.name || 'Cliente de Balcão',
+      items: [...cart],
+      total,
+      downPayment: finalDownPayment,
+      receivedValue: finalDownPayment,
+      paymentMethod,
+      status: isPartialSale ? 'pending' : 'completed',
+      createdAt: new Date().toISOString(),
+      scheduledFor: deliveryDate || undefined
     };
-  }, [activeSessionSales, activeCashRegister]);
 
-  // Action Handlers
-  const handleOpenRegisterSubmit = async () => {
-    if (!currentCompany) {
-      alert(`Não foi possível identificar a empresa atual. Empresas carregadas: ${companiesDebug.length}. ${companiesDebug.length > 0 ? 'Nomes: ' + companiesDebug.map(c => c.name).join(', ') : 'Nenhuma empresa ativa encontrada no sistema.'}`);
-      return;
-    }
-    const isAuthorized = user?.isAdmin || ['admin', 'gerente', 'caixa', 'atendente', 'operador'].includes(user?.role || '');
-    if (!isAuthorized) {
-      alert("Apenas usuários autorizados podem abrir o caixa.");
-      return;
-    }
-
-    const initBalance = typeof openingBalanceInput === 'number' ? openingBalanceInput : 0;
-    if (initBalance < 0) {
-      alert("O saldo inicial não pode ser negativo.");
-      return;
-    }
-
+    // Save to Firestore
     try {
-      const newRegister = {
-        companyId: currentCompany.id,
-        operatorId: user?.id || 'simulated_user',
-        openedByUserId: user?.id || 'simulated_user',
-        openedByUserName: user?.name || 'Operador',
-        openedAt: new Date().toISOString(),
-        openingBalance: initBalance,
-        isOpen: true,
-        status: 'aberto',
-        totalSales: 0,
-        totalSalesCount: 0,
-        totalMoney: 0,
-        totalPix: 0,
-        totalDebit: 0,
-        totalCredit: 0,
-        totalMixed: 0,
-        sangrias: 0,
-        suprimentos: 0,
-        movements: [],
-        notes: openingNotes || '',
-        createdAt: Timestamp.now(),
-        updatedAt: Timestamp.now()
-      };
+      await addDoc(collection(db, 'saleOrders'), order);
+      
+      // RULE: Always create Service/OS if pending or has balance OR specific items
+      const hasServiceItems = cart.some(item => 
+        ['1', '5', '6'].includes(item.productId) || 
+        item.name.toLowerCase().includes('banner') || 
+        item.name.toLowerCase().includes('adesivo') ||
+        item.name.toLowerCase().includes('serviço')
+      );
 
-      const docRef = await addDoc(collection(db, 'cashRegisters'), newRegister);
-
-      await addDoc(collection(db, 'auditLogs'), {
-        companyId: currentCompany.id,
-        action: 'ABERTURA_CAIXA',
-        userId: user?.id || 'simulated_user',
-        userName: user?.name || 'Operador',
-        details: `Abertura manual do caixa com Saldo Inicial de R$ ${initBalance.toFixed(2).replace('.', ',')}`,
-        registerId: docRef.id,
-        timestamp: new Date().toISOString()
-      });
-
-      setIsOpenModalOpen(false);
-      setOpeningBalanceInput(100);
-      setOpeningNotes('');
-      alert("Caixa aberto com sucesso!");
+      if (hasServiceItems || currentRemaining > 0 || isPending) {
+        await addDoc(collection(db, 'services'), {
+          companyId: currentCompany?.id,
+          orderId: order.id,
+          client: order.customerName,
+          phone: selectedCustomer?.phone || '',
+          service: cart.map(i => `${i.quantity}x ${i.name}`).join(', '),
+          status: currentRemaining > 0 ? 'pendente' : 'concluido',
+          priority: 'normal',
+          total: order.total,
+          balance: currentRemaining,
+          scheduledFor: deliveryDate || null,
+          createdAt: Timestamp.now()
+        });
+        console.log('Ordem de Serviço gerada.');
+      }
     } catch (err) {
-      console.error("Erro ao abrir caixa:", err);
-      alert("Erro ao abrir caixa. Tente novamente.");
-    }
-  };
-
-  const handleRecordSangriaSubmit = async () => {
-    if (!activeCashRegister || !currentCompany) return;
-    const amount = typeof sangriaAmount === 'number' ? sangriaAmount : 0;
-    if (amount <= 0) {
-      alert("Informe um valor válido para a sangria.");
-      return;
-    }
-    if (!sangriaReason.trim()) {
-      alert("Informe a justificativa para a sangria.");
-      return;
+      console.error('Erro ao salvar venda:', err);
     }
 
-    try {
-      const mvt: CashMovement = {
-        id: `mvt_${Date.now()}`,
-        type: 'sangria',
-        amount,
-        reason: sangriaReason.trim(),
-        performedByUserId: user?.id || 'user',
-        performedByUserName: user?.name || 'Operador',
-        timestamp: new Date().toISOString()
-      };
-
-      const regRef = doc(db, 'cashRegisters', activeCashRegister.id);
-      await updateDoc(regRef, {
-        sangrias: (activeCashRegister.sangrias || 0) + amount,
-        movements: [...(activeCashRegister.movements || []), mvt],
-        updatedAt: Timestamp.now()
-      });
-
-      await addDoc(collection(db, 'auditLogs'), {
-        companyId: currentCompany.id,
-        action: 'SANGRIA_CAIXA',
-        userId: user?.id || 'user',
-        userName: user?.name || 'Operador',
-        details: `Sangria de R$ ${amount.toFixed(2).replace('.', ',')} - Motivo: ${sangriaReason}`,
-        registerId: activeCashRegister.id,
-        timestamp: new Date().toISOString()
-      });
-
-      setIsSangriaModalOpen(false);
-      setSangriaAmount('');
-      setSangriaReason('');
-      alert("Sangria registrada com sucesso!");
-    } catch (err) {
-      console.error("Erro ao registrar sangria:", err);
-      alert("Erro ao registrar sangria.");
+    if (isPartialSale) {
+      addPendingOrder(order);
     }
-  };
-
-  const handleRecordSuprimentoSubmit = async () => {
-    if (!activeCashRegister || !currentCompany) return;
-    const amount = typeof suprimentoAmount === 'number' ? suprimentoAmount : 0;
-    if (amount <= 0) {
-      alert("Informe um valor válido para o suprimento.");
-      return;
-    }
-
-    try {
-      const mvt: CashMovement = {
-        id: `mvt_${Date.now()}`,
-        type: 'suprimento',
-        amount,
-        reason: suprimentoReason.trim() || 'Aporte de caixa',
-        performedByUserId: user?.id || 'user',
-        performedByUserName: user?.name || 'Operador',
-        timestamp: new Date().toISOString()
-      };
-
-      const regRef = doc(db, 'cashRegisters', activeCashRegister.id);
-      await updateDoc(regRef, {
-        suprimentos: (activeCashRegister.suprimentos || 0) + amount,
-        movements: [...(activeCashRegister.movements || []), mvt],
-        updatedAt: Timestamp.now()
-      });
-
-      await addDoc(collection(db, 'auditLogs'), {
-        companyId: currentCompany.id,
-        action: 'SUPRIMENTO_CAIXA',
-        userId: user?.id || 'user',
-        userName: user?.name || 'Operador',
-        details: `Suprimento de R$ ${amount.toFixed(2).replace('.', ',')} - Observação: ${suprimentoReason || 'Sem obs'}`,
-        registerId: activeCashRegister.id,
-        timestamp: new Date().toISOString()
-      });
-
-      setIsSuprimentoModalOpen(false);
-      setSuprimentoAmount('');
-      setSuprimentoReason('');
-      alert("Suprimento registrado com sucesso!");
-    } catch (err) {
-      console.error("Erro ao registrar suprimento:", err);
-      alert("Erro ao registrar suprimento.");
-    }
-  };
-
-  const handleCloseRegisterSubmit = async () => {
-    if (!activeCashRegister || !currentCompany) return;
-    const isAdmin = user?.isAdmin || user?.role === 'admin';
-    if (!isAdmin) {
-      alert("Apenas usuários com perfil de Administrador podem fechar o caixa.");
-      return;
-    }
-
-    const actual = typeof cashCountInput === 'number' ? cashCountInput : 0;
-    const expected = activeSessionTotals.expectedCash;
-    const difference = actual - expected;
-    const status = difference === 0 ? 'fechado_correto' : 'fechado_com_diferenca';
-
-    const confirmed = window.confirm(
-      `CONFIRMAÇÃO DE FECHAMENTO DO CAIXA:\n\n` +
-      `• Saldo Esperado em Dinheiro: R$ ${expected.toFixed(2).replace('.', ',')}\n` +
-      `• Valor Contado no Caixa: R$ ${actual.toFixed(2).replace('.', ',')}\n` +
-      `• Diferença: ${difference === 0 ? 'R$ 0,00 (Sem diferença)' : difference > 0 ? `+ R$ ${difference.toFixed(2).replace('.', ',')} (Sobra)` : `- R$ ${Math.abs(difference).toFixed(2).replace('.', ',')} (Falta)`}\n\n` +
-      `Deseja realmente encerrar a sessão do caixa agora?`
-    );
-
-    if (!confirmed) return;
-
-    try {
-      const closedData: Partial<CashRegister> = {
-        isOpen: false,
-        closedAt: new Date().toISOString(),
-        closedByUserId: user?.id || 'admin_user',
-        closedByUserName: user?.name || 'Administrador',
-        totalSales: activeSessionTotals.totalSales,
-        totalSalesCount: activeSessionTotals.count,
-        totalMoney: activeSessionTotals.dinero,
-        totalPix: activeSessionTotals.pix,
-        totalDebit: activeSessionTotals.debito,
-        totalCredit: activeSessionTotals.credito,
-        totalMixed: activeSessionTotals.misto,
-        expectedBalance: expected,
-        actualBalance: actual,
-        difference: difference,
-        notes: closingNotes.trim() || undefined,
-        status: status,
-        updatedAt: Timestamp.now()
-      };
-
-      const regRef = doc(db, 'cashRegisters', activeCashRegister.id);
-      await updateDoc(regRef, closedData);
-
-      await addDoc(collection(db, 'auditLogs'), {
-        companyId: currentCompany.id,
-        action: 'FECHAMENTO_CAIXA',
-        userId: user?.id || 'admin_user',
-        userName: user?.name || 'Administrador',
-        details: `Fechamento de caixa #${activeCashRegister.id.slice(-6)}. Esperado: R$ ${expected.toFixed(2)}, Contado: R$ ${actual.toFixed(2)}, Diferença: R$ ${difference.toFixed(2)} (${status})`,
-        registerId: activeCashRegister.id,
-        timestamp: new Date().toISOString()
-      });
-
-      const fullClosedRegister: CashRegister = {
-        ...activeCashRegister,
-        ...closedData,
-        isOpen: false
-      } as CashRegister;
-
-      setIsCloseModalOpen(false);
-      setCashCountInput('');
-      setClosingNotes('');
-
-      setSelectedRegisterReport(fullClosedRegister);
-    } catch (err) {
-      console.error("Erro ao fechar caixa:", err);
-      alert("Erro ao fechar caixa. Tente novamente.");
-    }
-  };
-
-  const renderCaixasHistoryTable = () => (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <div>
-          <h3 className="text-base font-bold text-white uppercase tracking-wider">Histórico de Caixas Fechados</h3>
-          <p className="text-xs text-white/40">Registros permanentes e imutáveis das sessões de caixa encerradas.</p>
-        </div>
-        <Badge variant="outline" className="text-xs">{closedRegistersHistory.length} Caixas Registrados</Badge>
-      </div>
-
-      {closedRegistersHistory.length === 0 ? (
-        <div className="p-8 bg-white/5 rounded-2xl text-center text-white/40 text-xs">
-          Nenhum caixa fechado registrado até o momento.
-        </div>
-      ) : (
-        <div className="overflow-x-auto rounded-2xl border border-white/10">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="bg-white/5 text-white/40 uppercase text-[9px] font-black tracking-widest border-b border-white/10">
-                <th className="p-3">Sessão / ID</th>
-                <th className="p-3">Abertura</th>
-                <th className="p-3">Fechamento</th>
-                <th className="p-3">Inicial</th>
-                <th className="p-3">Vendas Total</th>
-                <th className="p-3">Esperado vs Contado</th>
-                <th className="p-3">Diferença / Status</th>
-                <th className="p-3 text-right">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/5 font-medium">
-              {closedRegistersHistory.map(reg => {
-                const diff = reg.difference || 0;
-                return (
-                  <tr key={reg.id} className="hover:bg-white/5 transition-colors">
-                    <td className="p-3 font-mono font-bold text-primary-300">#{reg.id.slice(-6).toUpperCase()}</td>
-                    <td className="p-3">
-                      <div className="text-white font-bold">{format(new Date(reg.openedAt), 'dd/MM/yyyy HH:mm')}</div>
-                      <div className="text-[10px] text-white/40">{reg.openedByUserName}</div>
-                    </td>
-                    <td className="p-3">
-                      <div className="text-white font-bold">{reg.closedAt ? format(new Date(reg.closedAt), 'dd/MM/yyyy HH:mm') : '-'}</div>
-                      <div className="text-[10px] text-white/40">{reg.closedByUserName || '-'}</div>
-                    </td>
-                    <td className="p-3 font-mono text-white/80">R$ {reg.openingBalance?.toFixed(2).replace('.', ',')}</td>
-                    <td className="p-3 font-mono text-emerald-400 font-bold">
-                      R$ {(reg.totalSales || 0).toFixed(2).replace('.', ',')}
-                      <span className="block text-[9px] font-normal text-white/40">({reg.totalSalesCount || 0} vendas)</span>
-                    </td>
-                    <td className="p-3 font-mono">
-                      <span className="text-white/60">Esp: R$ {(reg.expectedBalance || 0).toFixed(2).replace('.', ',')}</span>
-                      <span className="block text-white font-bold">Cont: R$ {(reg.actualBalance || 0).toFixed(2).replace('.', ',')}</span>
-                    </td>
-                    <td className="p-3">
-                      {diff === 0 ? (
-                        <Badge variant="success" className="text-[9px]">Correto (R$ 0,00)</Badge>
-                      ) : diff > 0 ? (
-                        <Badge variant="warning" className="text-[9px]">Sobra (+ R$ {diff.toFixed(2).replace('.', ',')})</Badge>
-                      ) : (
-                        <Badge variant="error" className="text-[9px]">Falta (- R$ {Math.abs(diff).toFixed(2).replace('.', ',')})</Badge>
-                      )}
-                    </td>
-                    <td className="p-3 text-right">
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        icon={Printer}
-                        className="h-8 text-[9px] uppercase font-bold tracking-wider border-white/10 hover:bg-white/10"
-                        onClick={() => setSelectedRegisterReport(reg)}
-                      >
-                        Relatório
-                      </Button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-
-  const renderReportModal = () => {
-    if (!selectedRegisterReport) return null;
-    const r = selectedRegisterReport;
-    const diff = r.difference || 0;
-
-    return (
-      <Modal
-        isOpen={!!selectedRegisterReport}
-        onClose={() => setSelectedRegisterReport(null)}
-        title="Relatório Detalhado de Fechamento de Caixa"
-        size="lg"
-      >
-        <div className="space-y-6 py-2 print:p-0 print:space-y-4">
-          {/* Action Header */}
-          <div className="flex justify-between items-center print:hidden bg-white/5 p-4 rounded-2xl border border-white/10">
-            <div>
-              <p className="text-xs text-white/60">Sessão #{r.id.slice(-8).toUpperCase()}</p>
-              <h4 className="text-sm font-black text-white uppercase tracking-wider">Comprovante de Encerramento</h4>
-            </div>
-            <div className="flex gap-2">
-              <Button
-                className="bg-primary-500 hover:bg-primary-400 text-slate-900 font-black text-xs uppercase tracking-wider gap-2 shadow-lg"
-                onClick={() => window.print()}
-              >
-                <Printer size={16} />
-                Imprimir Relatório (PDF)
-              </Button>
-            </div>
-          </div>
-
-          {/* Printable Container */}
-          <div className="p-6 bg-slate-900 rounded-3xl border border-white/10 space-y-6 print:bg-white print:text-black print:border-none print:shadow-none print:p-0">
-            {/* Header */}
-            <div className="border-b border-white/10 pb-4 flex justify-between items-start print:border-black/20">
-              <div>
-                <h2 className="text-xl font-black text-white uppercase tracking-wider print:text-black">
-                  {currentCompany?.name || 'RAFA ARTS SINC'}
-                </h2>
-                <p className="text-xs text-white/50 print:text-black/60">Relatório de Fechamento de Caixa • PDV</p>
-                <p className="text-[10px] font-mono text-white/40 print:text-black/40 mt-1">ID Sessão: {r.id}</p>
-              </div>
-              <div className="text-right">
-                <Badge 
-                  variant={diff === 0 ? 'success' : diff > 0 ? 'warning' : 'error'}
-                  className="text-xs font-black"
-                >
-                  {diff === 0 ? 'Fechado Corretamente' : diff > 0 ? 'Fechado com Sobra' : 'Fechado com Falta'}
-                </Badge>
-              </div>
-            </div>
-
-            {/* Session Dates & Operator */}
-            <div className="grid grid-cols-2 gap-4 text-xs bg-white/5 p-4 rounded-2xl border border-white/5 print:bg-gray-100 print:text-black print:border-black/10">
-              <div>
-                <p className="text-[10px] text-white/40 uppercase font-bold tracking-wider print:text-black/60">Abertura de Caixa</p>
-                <p className="text-white font-bold mt-0.5 print:text-black">{format(new Date(r.openedAt), 'dd/MM/yyyy HH:mm:ss')}</p>
-                <p className="text-white/60 text-[10px] print:text-black/70">Operador: {r.openedByUserName}</p>
-              </div>
-              <div>
-                <p className="text-[10px] text-white/40 uppercase font-bold tracking-wider print:text-black/60">Fechamento de Caixa</p>
-                <p className="text-white font-bold mt-0.5 print:text-black">{r.closedAt ? format(new Date(r.closedAt), 'dd/MM/yyyy HH:mm:ss') : '-'}</p>
-                <p className="text-white/60 text-[10px] print:text-black/70">Admin: {r.closedByUserName || '-'}</p>
-              </div>
-            </div>
-
-            {/* Financial Totals Breakdown */}
-            <div className="space-y-3">
-              <h4 className="text-xs font-black uppercase text-primary-300 tracking-wider print:text-black">Resumo dos Valores</h4>
-
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
-                <div className="p-3 bg-white/5 rounded-xl border border-white/5 print:bg-gray-50 print:border-gray-200">
-                  <span className="text-[10px] text-white/40 uppercase font-bold block print:text-black/60">Saldo Inicial (Gaveta)</span>
-                  <span className="font-mono font-bold text-white text-sm print:text-black">R$ {(r.openingBalance || 0).toFixed(2).replace('.', ',')}</span>
-                </div>
-
-                <div className="p-3 bg-white/5 rounded-xl border border-white/5 print:bg-gray-50 print:border-gray-200">
-                  <span className="text-[10px] text-white/40 uppercase font-bold block print:text-black/60">Vendas em Dinheiro</span>
-                  <span className="font-mono font-bold text-emerald-400 text-sm print:text-emerald-700">R$ {(r.totalMoney || 0).toFixed(2).replace('.', ',')}</span>
-                </div>
-
-                <div className="p-3 bg-white/5 rounded-xl border border-white/5 print:bg-gray-50 print:border-gray-200">
-                  <span className="text-[10px] text-white/40 uppercase font-bold block print:text-black/60">Vendas em PIX</span>
-                  <span className="font-mono font-bold text-sky-400 text-sm print:text-sky-700">R$ {(r.totalPix || 0).toFixed(2).replace('.', ',')}</span>
-                </div>
-
-                <div className="p-3 bg-white/5 rounded-xl border border-white/5 print:bg-gray-50 print:border-gray-200">
-                  <span className="text-[10px] text-white/40 uppercase font-bold block print:text-black/60">Vendas Cartão Débito</span>
-                  <span className="font-mono font-bold text-purple-300 text-sm print:text-purple-700">R$ {(r.totalDebit || 0).toFixed(2).replace('.', ',')}</span>
-                </div>
-
-                <div className="p-3 bg-white/5 rounded-xl border border-white/5 print:bg-gray-50 print:border-gray-200">
-                  <span className="text-[10px] text-white/40 uppercase font-bold block print:text-black/60">Vendas Cartão Crédito</span>
-                  <span className="font-mono font-bold text-indigo-300 text-sm print:text-indigo-700">R$ {(r.totalCredit || 0).toFixed(2).replace('.', ',')}</span>
-                </div>
-
-                <div className="p-3 bg-white/5 rounded-xl border border-white/5 print:bg-gray-50 print:border-gray-200">
-                  <span className="text-[10px] text-white/40 uppercase font-bold block print:text-black/60">Total Vendas (Todas)</span>
-                  <span className="font-mono font-bold text-amber-300 text-sm print:text-amber-800">R$ {(r.totalSales || 0).toFixed(2).replace('.', ',')}</span>
-                </div>
-
-                <div className="p-3 bg-white/5 rounded-xl border border-white/5 print:bg-gray-50 print:border-gray-200">
-                  <span className="text-[10px] text-white/40 uppercase font-bold block print:text-black/60">Suprimentos (Aportes)</span>
-                  <span className="font-mono font-bold text-emerald-300 text-sm print:text-emerald-700">+ R$ {(r.suprimentos || 0).toFixed(2).replace('.', ',')}</span>
-                </div>
-
-                <div className="p-3 bg-white/5 rounded-xl border border-white/5 print:bg-gray-50 print:border-gray-200">
-                  <span className="text-[10px] text-white/40 uppercase font-bold block print:text-black/60">Sangrias (Retiradas)</span>
-                  <span className="font-mono font-bold text-rose-300 text-sm print:text-rose-700">- R$ {(r.sangrias || 0).toFixed(2).replace('.', ',')}</span>
-                </div>
-
-                <div className="p-3 bg-white/5 rounded-xl border border-white/5 print:bg-gray-50 print:border-gray-200">
-                  <span className="text-[10px] text-white/40 uppercase font-bold block print:text-black/60">Quantidade de Vendas</span>
-                  <span className="font-mono font-bold text-white text-sm print:text-black">{r.totalSalesCount || 0} pedidos</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Expected vs Counted Comparison */}
-            <div className="p-4 bg-slate-950 rounded-2xl border border-white/10 space-y-3 print:bg-gray-100 print:border-black/20">
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-white/60 font-bold uppercase tracking-wider print:text-black/70">Saldo Esperado em Dinheiro na Gaveta:</span>
-                <span className="font-mono text-base font-bold text-white print:text-black">R$ {(r.expectedBalance || 0).toFixed(2).replace('.', ',')}</span>
-              </div>
-              <div className="flex justify-between items-center text-xs border-t border-white/10 pt-2 print:border-black/10">
-                <span className="text-white/60 font-bold uppercase tracking-wider print:text-black/70">Valor Contado Informado pelo Admin:</span>
-                <span className="font-mono text-base font-bold text-emerald-400 print:text-emerald-700">R$ {(r.actualBalance || 0).toFixed(2).replace('.', ',')}</span>
-              </div>
-              <div className="flex justify-between items-center text-xs border-t border-white/10 pt-2 print:border-black/10 font-bold">
-                <span className="text-white uppercase tracking-wider print:text-black">Diferença Final (Quebra / Sobra):</span>
-                <span className={cn(
-                  "font-mono text-lg font-black",
-                  diff === 0 ? "text-emerald-400 print:text-emerald-700" : diff > 0 ? "text-amber-400 print:text-amber-700" : "text-rose-400 print:text-rose-700"
-                )}>
-                  {diff === 0 ? 'R$ 0,00 (Exato)' : diff > 0 ? `+ R$ ${diff.toFixed(2).replace('.', ',')} (Sobra)` : `- R$ ${Math.abs(diff).toFixed(2).replace('.', ',')} (Falta)`}
-                </span>
-              </div>
-            </div>
-
-            {/* Movements Log (Sangrias e Suprimentos) */}
-            {r.movements && r.movements.length > 0 && (
-              <div className="space-y-2">
-                <h4 className="text-xs font-black uppercase text-white/70 tracking-wider print:text-black">Movimentações Avulsas (Sangrias / Suprimentos)</h4>
-                <div className="space-y-1 text-xs">
-                  {r.movements.map((mvt, idx) => (
-                    <div key={idx} className="flex justify-between p-2.5 bg-white/5 rounded-xl border border-white/5 text-[11px] print:bg-gray-50 print:text-black print:border-gray-200">
-                      <div>
-                        <span className={cn(
-                          "font-bold uppercase tracking-wider text-[9px] px-1.5 py-0.5 rounded mr-2",
-                          mvt.type === 'sangria' ? "bg-rose-500/20 text-rose-300 print:bg-rose-100 print:text-rose-800" : "bg-emerald-500/20 text-emerald-300 print:bg-emerald-100 print:text-emerald-800"
-                        )}>
-                          {mvt.type.toUpperCase()}
-                        </span>
-                        <span className="text-white/80 font-medium print:text-black">{mvt.reason}</span>
-                        <span className="text-white/40 block text-[9px] print:text-black/60">Por: {mvt.performedByUserName} às {format(new Date(mvt.timestamp), 'HH:mm')}</span>
-                      </div>
-                      <span className="font-mono font-bold text-white print:text-black">
-                        {mvt.type === 'sangria' ? '-' : '+'} R$ {mvt.amount.toFixed(2).replace('.', ',')}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Notes */}
-            {r.notes && (
-              <div className="p-3 bg-white/5 rounded-xl border border-white/5 text-xs text-white/70 print:bg-gray-50 print:text-black print:border-gray-200">
-                <strong className="text-white block uppercase text-[10px] tracking-wider mb-1 print:text-black">Observações de Fechamento:</strong>
-                {r.notes}
-              </div>
-            )}
-
-            {/* Signatures */}
-            <div className="pt-8 grid grid-cols-2 gap-8 border-t border-white/10 text-center text-xs print:border-black/20 print:text-black">
-              <div>
-                <div className="border-b border-white/30 mb-2 pb-8 print:border-black/40" />
-                <p className="font-bold text-white print:text-black">{r.openedByUserName}</p>
-                <p className="text-[10px] text-white/40 print:text-black/60">Responsável pela Abertura</p>
-              </div>
-              <div>
-                <div className="border-b border-white/30 mb-2 pb-8 print:border-black/40" />
-                <p className="font-bold text-white print:text-black">{r.closedByUserName || 'Administrador'}</p>
-                <p className="text-[10px] text-white/40 print:text-black/60">Responsável pelo Fechamento (Admin)</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </Modal>
-    );
+    
+    setLastFinalizedOrder(order);
+    setIsSuccessModalOpen(true);
+    setIsPaymentModalOpen(false);
+    
+    // Reset cart but keep customer for the success modal
+    setCart([]);
+    setDownPayment(0);
+    setScheduledFor('');
   };
 
   if (!isRegisterOpen) {
     return (
-      <div className="h-[calc(100vh-12rem)] flex flex-col items-center justify-center animate-in fade-in zoom-in-95 duration-500">
-        <GlassCard className="max-w-lg w-full p-8 text-center space-y-6">
-          <div className="w-20 h-20 bg-amber-500/20 text-amber-400 rounded-3xl flex items-center justify-center mx-auto shadow-xl border border-amber-500/30">
-            <Lock size={36} />
+      <div className="h-[calc(100vh-12rem)] flex items-center justify-center animate-in fade-in zoom-in-95 duration-500">
+        <GlassCard className="max-w-md w-full p-10 text-center space-y-6">
+          <div className="w-20 h-20 bg-amber-500/20 text-amber-500 rounded-[32px] flex items-center justify-center mx-auto mb-6">
+            <AlertCircle size={40} />
           </div>
-          <div className="space-y-2">
-            <h2 className="text-2xl font-black text-white tracking-wider uppercase italic">Caixa Fechado</h2>
-            <p className="text-white/50 text-xs max-w-sm mx-auto">
-              É necessário realizar a abertura manual do caixa informando o saldo inicial para liberar as vendas no terminal.
-            </p>
-          </div>
-
-          <div className="flex flex-col gap-3 pt-2">
-            <Button 
-              className="w-full h-14 bg-emerald-500 hover:bg-emerald-400 text-slate-900 border-none font-black text-sm uppercase tracking-widest gap-2 shadow-xl shadow-emerald-500/20 cursor-pointer"
-              onClick={() => {
-                setOpeningBalanceInput(100);
-                setOpeningNotes('');
-                setIsOpenModalOpen(true);
-              }}
-            >
-              <Unlock size={20} />
-              Abrir Caixa Manualmente
-            </Button>
-            
-            <Button 
-              variant="secondary"
-              className="w-full h-12 border-white/10 text-white/70 text-xs font-bold uppercase tracking-wider"
-              onClick={() => setActiveTab('caixas')}
-            >
-              <History size={16} className="mr-2" />
-              Ver Histórico de Caixas Fechados
-            </Button>
-          </div>
+          <h2 className="text-2xl font-bold text-white tracking-widest uppercase">Caixa Fechado</h2>
+          <p className="text-white/40 text-sm">É necessário abrir o caixa para iniciar as vendas do dia.</p>
+          <Button className="w-full h-14 text-lg" onClick={() => setIsRegisterOpen(true)}>Abrir Caixa Agora</Button>
         </GlassCard>
-
-        {/* Modal for Opening Register */}
-        <Modal 
-          isOpen={isOpenModalOpen} 
-          onClose={() => setIsOpenModalOpen(false)} 
-          title="Abertura Manual do Caixa"
-          size="md"
-        >
-          <div className="space-y-5 py-2">
-            <div className="p-4 bg-white/5 rounded-2xl border border-white/5 space-y-2 text-xs">
-              <div className="flex justify-between">
-                <span className="text-white/40 font-bold uppercase">Responsável:</span>
-                <span className="text-white font-black">{user?.name || 'Operador'} ({user?.role?.toUpperCase() || 'CAIXA'})</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-white/40 font-bold uppercase">Data/Hora:</span>
-                <span className="text-white font-mono">{format(new Date(), 'dd/MM/yyyy HH:mm')}</span>
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-white/40 uppercase tracking-widest block">
-                Saldo Inicial / Troco no Gaveteiro (R$) *
-              </label>
-              <Input 
-                type="number"
-                step="any"
-                className="h-12 text-lg font-bold bg-slate-900/80 text-emerald-400"
-                value={openingBalanceInput === '' ? '' : openingBalanceInput}
-                onChange={(e: any) => setOpeningBalanceInput(e.target.value === '' ? '' : Number(e.target.value))}
-                placeholder="0.00"
-              />
-              <p className="text-[9px] text-white/30 italic">Digite o valor em dinheiro presente no gaveteiro para troco inicial.</p>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-white/40 uppercase tracking-widest block">
-                Observações de Abertura (Opcional)
-              </label>
-              <Input 
-                className="h-10 text-xs bg-slate-900/50"
-                value={openingNotes}
-                onChange={(e: any) => setOpeningNotes(e.target.value)}
-                placeholder="Ex: Turno da manhã, notas conferidas..."
-              />
-            </div>
-
-            <div className="flex gap-3 pt-3 border-t border-white/5">
-              <Button 
-                variant="secondary" 
-                className="flex-1 h-12 text-xs font-bold uppercase tracking-wider border-white/10"
-                onClick={() => setIsOpenModalOpen(false)}
-              >
-                Cancelar
-              </Button>
-              <Button 
-                className="flex-[1.5] h-12 bg-emerald-500 hover:bg-emerald-400 text-slate-900 border-none font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-500/20 cursor-pointer"
-                onClick={handleOpenRegisterSubmit}
-              >
-                Confirmar Abertura
-              </Button>
-            </div>
-          </div>
-        </Modal>
-
-        {/* Modal for History when register is closed */}
-        {activeTab === 'caixas' && (
-          <Modal
-            isOpen={true}
-            onClose={() => setActiveTab('venda')}
-            title="Histórico de Caixas Fechados"
-            size="xl"
-          >
-            {renderCaixasHistoryTable()}
-          </Modal>
-        )}
-
-        {/* Report Modal */}
-        {selectedRegisterReport && renderReportModal()}
       </div>
     );
   }
 
   return (
     <div className="h-[calc(100vh-12rem)] min-h-[600px] flex flex-col bg-slate-900/50 rounded-[40px] shadow-2xl border border-white/10 overflow-hidden animate-in fade-in slide-in-from-right-5 duration-500">
-      {/* Top Banner when Register is Open */}
-      {activeCashRegister && (
-        <div className="bg-emerald-500/10 border-b border-emerald-500/20 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5 bg-emerald-500/20 text-emerald-300 px-3 py-1 rounded-full border border-emerald-500/30 text-[10px] font-black uppercase tracking-wider animate-pulse">
-              <span className="w-2 h-2 rounded-full bg-emerald-400" />
-              Caixa Aberto
-            </div>
-            <div className="text-white/70 text-[11px] flex flex-wrap items-center gap-2">
-              <span><strong className="text-white">Aberto:</strong> {format(new Date(activeCashRegister.openedAt), 'dd/MM/yyyy HH:mm')}</span>
-              <span className="text-white/30">•</span>
-              <span><strong className="text-white">Responsável:</strong> {activeCashRegister.openedByUserName}</span>
-              <span className="text-white/30">•</span>
-              <span><strong className="text-white">Saldo Inicial:</strong> R$ {activeCashRegister.openingBalance.toFixed(2).replace('.', ',')}</span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Button 
-              variant="secondary" 
-              size="sm" 
-              icon={PlusCircle}
-              className="h-8 text-[9px] uppercase font-bold tracking-wider border-emerald-500/20 text-emerald-300 hover:bg-emerald-500/20"
-              onClick={() => {
-                setSuprimentoAmount('');
-                setSuprimentoReason('');
-                setIsSuprimentoModalOpen(true);
-              }}
-            >
-              Suprimento
-            </Button>
-            <Button 
-              variant="secondary" 
-              size="sm" 
-              icon={MinusCircle}
-              className="h-8 text-[9px] uppercase font-bold tracking-wider border-rose-500/20 text-rose-300 hover:bg-rose-500/20"
-              onClick={() => {
-                setSangriaAmount('');
-                setSangriaReason('');
-                setIsSangriaModalOpen(true);
-              }}
-            >
-              Sangria
-            </Button>
-            <Button 
-              variant="secondary" 
-              size="sm" 
-              icon={Lock}
-              className="h-8 text-[9px] uppercase font-bold tracking-wider border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
-              onClick={() => {
-                const isAdmin = user?.isAdmin || user?.role === 'admin';
-                if (!isAdmin) {
-                  alert("Apenas usuários com perfil de Administrador podem realizar o fechamento do caixa.");
-                  return;
-                }
-                setCashCountInput(activeSessionTotals.expectedCash);
-                setClosingNotes('');
-                setIsCloseModalOpen(true);
-              }}
-            >
-              Fechar Caixa (Admin)
-            </Button>
-          </div>
-        </div>
-      )}
-
       {/* Tab Navigation */}
       <div className="flex bg-white/5 p-2 gap-2 border-b border-white/10 items-center justify-between">
-        <div className="flex gap-2 overflow-x-auto">
+        <div className="flex gap-2">
           {[
             { id: 'venda', label: 'Terminal Venda', icon: ShoppingBag },
             { id: 'historico', label: 'Histórico & Abertas', icon: History },
-            { id: 'caixas', label: 'Fechamento & Caixas', icon: Lock },
             { id: 'estoque', label: 'Estoque / Produtos', icon: Box },
             { id: 'clientes', label: 'Clientes / CRM', icon: Users },
             { id: 'contratos', label: 'Contratos Rafa Art', icon: FileText }
@@ -4380,7 +3564,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
               className={cn(
-                "flex items-center gap-3 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-[2px] transition-all whitespace-nowrap",
+                "flex items-center gap-3 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-[2px] transition-all",
                 activeTab === tab.id ? "bg-primary-500 text-slate-900 shadow-xl" : "text-white/40 hover:bg-white/5 hover:text-white"
               )}
             >
@@ -4389,702 +3573,264 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             </button>
           ))}
         </div>
-
+        
         <Button 
           variant="secondary" 
           size="sm" 
-          icon={Lock} 
-          className="text-amber-400 border-amber-500/20 hover:bg-amber-500/10 mr-4 text-[9px] uppercase tracking-widest font-black shrink-0"
-          onClick={() => {
-            const isAdmin = user?.isAdmin || user?.role === 'admin';
-            if (!isAdmin) {
-              alert("Apenas usuários com perfil de Administrador podem fechar o caixa.");
-              return;
-            }
-            setCashCountInput(activeSessionTotals.expectedCash);
-            setClosingNotes('');
-            setIsCloseModalOpen(true);
-          }}
+          icon={LogOut} 
+          className="text-rose-400 border-rose-500/20 hover:bg-rose-500/10 mr-4 text-[9px] uppercase tracking-widest font-black"
+          onClick={() => setIsRegisterOpen(false)}
         >
-          Fechar Caixa (Admin)
+          Fechar Caixa
         </Button>
       </div>
 
       <div className="flex flex-1 overflow-hidden">
         {activeTab === 'venda' && (
-          <div className="flex-1 flex flex-col bg-slate-900 overflow-hidden">
-            {/* Step Wizard Header Bar */}
-            <div className="bg-slate-950 p-3 border-b border-white/10 shrink-0">
-              <div className="max-w-5xl mx-auto flex items-center justify-between gap-2">
-                {[
-                  { step: 1, title: '1. Adicionar Itens', icon: ShoppingBag, desc: 'Produtos/Serviços' },
-                  { step: 2, title: '2. Cliente', icon: Users, desc: 'Opcional' },
-                  { step: 3, title: '3. Forma de Pagamento', icon: CreditCard, desc: 'Total ou Entrada' },
-                  { step: 4, title: '4. Finalização', icon: CheckCircle2, desc: 'Resumo & Conclusão' }
-                ].map(s => {
-                  const isActive = posStep === s.step;
-                  const isDone = posStep > s.step;
-                  return (
-                    <button
-                      key={s.step}
-                      onClick={() => {
-                        if (s.step === 1) setPosStep(1);
-                        else if (s.step === 2 && cart.length > 0) setPosStep(2);
-                        else if (s.step === 3 && cart.length > 0) setPosStep(3);
-                        else if (s.step === 4 && cart.length > 0) setPosStep(4);
-                      }}
-                      className={cn(
-                        "flex-1 flex items-center gap-2.5 p-2.5 rounded-xl border text-left transition-all cursor-pointer",
-                        isActive
-                          ? "bg-primary-500/20 border-primary-500 text-primary-300 font-black shadow-lg shadow-primary-500/10"
-                          : isDone
-                          ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300 font-bold"
-                          : "bg-white/5 border-white/5 text-white/40 hover:text-white"
-                      )}
-                    >
-                      <div className={cn(
-                        "w-7 h-7 rounded-lg flex items-center justify-center shrink-0 text-xs font-black",
-                        isActive ? "bg-primary-500 text-slate-900" : isDone ? "bg-emerald-500 text-slate-900" : "bg-white/10 text-white/50"
-                      )}>
-                        {isDone ? <Check size={14} /> : s.step}
-                      </div>
-                      <div className="min-w-0 hidden sm:block">
-                        <p className="text-[10px] uppercase font-black tracking-wider truncate">{s.title}</p>
-                        <p className="text-[8px] opacity-60 font-medium truncate">{s.desc}</p>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
+          <>
+            {/* Left Column: POS Display & Compact Cart Items Viewer */}
+            <div className="flex-1 bg-[#fef9c3] flex flex-col p-6 relative overflow-hidden justify-between">
+               {/* Top Bar */}
+               <div className="flex justify-between items-center text-slate-900/50 pb-2 border-b border-slate-900/10">
+                  <div className="flex items-center gap-2">
+                     <ShoppingBag size={16} className="text-slate-900" />
+                     <p className="text-[10px] font-black uppercase tracking-[3px]">Rafa Arts POS Terminal</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                     <p className="text-[10px] font-black uppercase tracking-[3px]">#001-ALPHA</p>
+                     {cart.length > 0 && (
+                        <button
+                           onClick={clearCart}
+                           className="text-[9px] font-bold uppercase text-rose-700 bg-rose-500/10 hover:bg-rose-500/20 px-2 py-1 rounded-md transition-all flex items-center gap-1 cursor-pointer"
+                           title="Limpar Carrinho"
+                        >
+                           <Trash2 size={10} />
+                           Limpar
+                        </button>
+                     )}
+                  </div>
+               </div>
+
+               {/* Total Banner */}
+               <div className="py-3 px-4 bg-slate-900/5 rounded-2xl border border-slate-900/10 flex items-center justify-between my-2">
+                  <div>
+                     <p className="text-[9px] font-black uppercase tracking-[3px] text-slate-900/40">Total da Nota</p>
+                     <h1 className="text-3xl md:text-4xl font-black text-slate-900 tracking-tighter italic">
+                        R$ {total.toFixed(2).replace('.', ',')}
+                     </h1>
+                  </div>
+                  <Badge className="bg-slate-900 text-white border-none py-1.5 px-4 rounded-full font-black uppercase tracking-widest text-[9px]">
+                     {cart.length} {cart.length === 1 ? 'Item' : 'Itens'}
+                  </Badge>
+               </div>
+
+               {/* Visualizador de Itens no PDV (Compact Items Cart List) */}
+               <div className="flex-1 my-2 bg-white/70 backdrop-blur-xs rounded-2xl border border-slate-900/10 p-3 flex flex-col overflow-hidden shadow-inner">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-900/10 mb-2">
+                     <span className="text-[9px] font-black uppercase tracking-wider text-slate-700">Visualizador de Itens ({cart.length})</span>
+                     <span className="text-[8px] font-bold text-slate-400 uppercase">Lista de Lançamento</span>
+                  </div>
+
+                  {cart.length === 0 ? (
+                     <div className="flex-1 flex flex-col items-center justify-center text-center p-6 space-y-2">
+                        <ShoppingBag size={28} className="text-slate-400/50 animate-bounce" />
+                        <p className="text-[10px] font-black text-slate-700 uppercase tracking-wider">Carrinho Livre</p>
+                        <p className="text-[9px] font-bold text-slate-500 max-w-[200px]">Selecione os produtos na lista ao lado para adicionar ao pedido.</p>
+                     </div>
+                  ) : (
+                     <div className="flex-1 overflow-y-auto custom-scrollbar divide-y divide-slate-200/60 pr-1">
+                        {cart.map((item, idx) => {
+                           const itemSubtotal = item.area ? item.price * item.area * item.quantity : item.price * item.quantity;
+                           return (
+                              <div key={idx} className="py-1.5 px-2 flex items-center justify-between hover:bg-slate-900/5 rounded-lg transition-all group">
+                                 <div className="flex items-center gap-2 min-w-0 flex-1">
+                                    <span className="text-[9px] font-black text-slate-900 bg-slate-900/10 px-1.5 py-0.5 rounded-md min-w-[24px] text-center">
+                                       {item.quantity}x
+                                    </span>
+                                    <div className="min-w-0 flex-1">
+                                       <p className="text-[10px] font-bold text-slate-900 uppercase truncate leading-tight tracking-tight">
+                                          {item.name}
+                                       </p>
+                                       {item.dimensions && (
+                                          <p className="text-[8px] font-bold text-slate-500 tracking-wider">
+                                             {item.dimensions} ({item.area?.toFixed(2).replace('.', ',')} m²)
+                                          </p>
+                                       )}
+                                    </div>
+                                 </div>
+
+                                 <div className="flex items-center gap-3 shrink-0 ml-2">
+                                    <div className="flex items-center gap-1 bg-slate-900/5 rounded-md p-0.5 border border-slate-900/10">
+                                       <button
+                                          onClick={() => updateCartQty(idx, -1)}
+                                          className="w-4 h-4 rounded bg-white text-slate-800 font-black text-[9px] flex items-center justify-center hover:bg-rose-500 hover:text-white transition-all cursor-pointer"
+                                          title="Diminuir"
+                                       >
+                                          -
+                                       </button>
+                                       <span className="text-[9px] font-black px-1 text-slate-900">{item.quantity}</span>
+                                       <button
+                                          onClick={() => updateCartQty(idx, 1)}
+                                          className="w-4 h-4 rounded bg-white text-slate-800 font-black text-[9px] flex items-center justify-center hover:bg-emerald-500 hover:text-white transition-all cursor-pointer"
+                                          title="Aumentar"
+                                       >
+                                          +
+                                       </button>
+                                    </div>
+
+                                    <span className="text-[10px] font-black text-slate-900 tracking-tight min-w-[60px] text-right">
+                                       R$ {itemSubtotal.toFixed(2).replace('.', ',')}
+                                    </span>
+
+                                    <button
+                                       onClick={() => removeFromCart(idx)}
+                                       className="text-slate-400 hover:text-rose-600 transition-colors p-1 cursor-pointer"
+                                       title="Remover Item"
+                                    >
+                                       <Trash2 size={12} />
+                                    </button>
+                                 </div>
+                              </div>
+                           );
+                        })}
+                     </div>
+                  )}
+               </div>
+
+               {/* Bottom Automation Bar */}
+               <div className="pt-2 border-t border-slate-900/10 flex justify-between items-center text-slate-900">
+                  <div className="flex items-center gap-2">
+                     <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                     <span className="text-[9px] font-black uppercase tracking-wider opacity-70">PDV Conectado</span>
+                  </div>
+                  <div className="text-right">
+                     <span className="text-[8px] font-black uppercase tracking-widest opacity-50 block leading-none">Faturamento Hoje</span>
+                     <span className="text-[10px] font-black italic">R$ {faturamentoHoje.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  </div>
+               </div>
             </div>
 
-            {/* STEP 1: ADICIONAR ITENS */}
-            {posStep === 1 && (
-              <div className="flex-1 flex overflow-hidden">
-                {/* Left Column: Cart & Items Subtotals */}
-                <div className="flex-1 bg-slate-900/60 p-4 md:p-6 flex flex-col justify-between overflow-hidden border-r border-white/10">
-                  <div className="flex justify-between items-center pb-3 border-b border-white/10">
-                    <div className="flex items-center gap-2">
-                      <ShoppingBag size={18} className="text-primary-400" />
-                      <h3 className="text-sm font-black text-white uppercase tracking-wider">Itens do Pedido ({cart.length})</h3>
-                    </div>
-                    {cart.length > 0 && (
-                      <button
-                        onClick={clearCart}
-                        className="text-[9px] font-bold uppercase text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 cursor-pointer"
-                      >
-                        <Trash2 size={12} />
-                        Limpar Carrinho
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Cart items list with Quantity, Discount, Notes */}
-                  <div className="flex-1 my-3 overflow-y-auto custom-scrollbar space-y-2 pr-1">
-                    {cart.length === 0 ? (
-                      <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-3">
-                        <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-white/20">
-                          <ShoppingBag size={32} />
-                        </div>
-                        <p className="text-xs font-black text-white/60 uppercase tracking-wider">Nenhum item adicionado</p>
-                        <p className="text-[10px] text-white/40 max-w-[240px]">Selecione um produto ou serviço na lista ao lado para iniciar o pedido.</p>
-                      </div>
-                    ) : (
-                      cart.map((item, idx) => {
-                        const basePrice = item.area ? item.price * item.area : item.price;
-                        const disc = item.discount || 0;
-                        const itemSubtotal = Math.max(0, basePrice - disc) * item.quantity;
-
-                        return (
-                          <div key={idx} className="bg-white/5 border border-white/10 rounded-xl p-3 space-y-2 hover:border-white/20 transition-all">
-                            <div className="flex items-start justify-between gap-2">
-                              <div>
-                                <h4 className="text-xs font-black text-white uppercase">{item.name}</h4>
-                                {item.dimensions && (
-                                  <span className="text-[9px] font-bold text-primary-300">{item.dimensions} ({item.area?.toFixed(2).replace('.', ',')} m²)</span>
-                                )}
-                              </div>
-                              <button
-                                onClick={() => removeFromCart(idx)}
-                                className="text-white/40 hover:text-rose-400 p-1 transition-colors"
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            </div>
-
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 border-t border-white/5 text-xs">
-                              {/* Quantity Control */}
-                              <div className="flex items-center gap-1.5 bg-black/40 px-2 py-1 rounded-lg border border-white/10 justify-between">
-                                <span className="text-[8px] font-black uppercase text-white/40">Qtd</span>
-                                <div className="flex items-center gap-1">
-                                  <button onClick={() => updateCartQty(idx, -1)} className="w-5 h-5 bg-white/10 hover:bg-rose-500 rounded text-white font-bold flex items-center justify-center text-xs">-</button>
-                                  <span className="font-bold text-white px-1">{item.quantity}</span>
-                                  <button onClick={() => updateCartQty(idx, 1)} className="w-5 h-5 bg-white/10 hover:bg-emerald-500 rounded text-white font-bold flex items-center justify-center text-xs">+</button>
-                                </div>
-                              </div>
-
-                              {/* Discount Input */}
-                              <div className="flex items-center gap-1 bg-black/40 px-2 py-1 rounded-lg border border-white/10">
-                                <span className="text-[8px] font-black uppercase text-white/40">Desc. R$</span>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="any"
-                                  value={item.discount === undefined ? '' : item.discount}
-                                  onChange={e => updateCartItemDiscount(idx, e.target.value === '' ? 0 : parseFloat(e.target.value))}
-                                  placeholder="0,00"
-                                  className="w-full bg-transparent text-right font-bold text-amber-300 text-xs outline-none"
-                                />
-                              </div>
-
-                              {/* Subtotal Display */}
-                              <div className="flex items-center justify-between bg-emerald-500/10 border border-emerald-500/20 px-2 py-1 rounded-lg">
-                                <span className="text-[8px] font-black uppercase text-emerald-400">Subtotal</span>
-                                <span className="font-black text-emerald-300 text-xs">R$ {itemSubtotal.toFixed(2).replace('.', ',')}</span>
-                              </div>
-                            </div>
-
-                            {/* Optional Item Notes */}
-                            <input
-                              type="text"
-                              value={item.notes || ''}
-                              onChange={e => updateCartItemNotes(idx, e.target.value)}
-                              placeholder="Observações do item (ex: acabamento, sangria)..."
-                              className="w-full bg-black/20 border border-white/5 rounded-lg px-2.5 py-1 text-[10px] text-white/80 placeholder-white/20 outline-none focus:border-white/20"
-                            />
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-
-                  {/* Order Total Footer & Next Button */}
-                  <div className="pt-3 border-t border-white/10 flex flex-col sm:flex-row justify-between items-center gap-3">
-                    <div>
-                      <span className="text-[9px] font-black uppercase text-white/40 tracking-widest block">Valor Total Atualizado</span>
-                      <h2 className="text-2xl font-black text-emerald-400 italic">R$ {total.toFixed(2).replace('.', ',')}</h2>
-                    </div>
-                    <Button
-                      disabled={cart.length === 0}
-                      onClick={() => setPosStep(2)}
-                      className="w-full sm:w-auto bg-primary-500 hover:bg-primary-400 text-slate-900 font-black uppercase text-xs px-6 py-3 shadow-lg shadow-primary-500/20 gap-2 cursor-pointer disabled:opacity-40"
-                    >
-                      <span>Avançar para Cliente (Opcional)</span>
-                      <ChevronRight size={16} />
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Right Column: Catalog & Manual Item Entry */}
-                <div className="w-[380px] md:w-[420px] bg-slate-950 p-4 flex flex-col space-y-3 shrink-0">
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => {
-                        const desc = prompt('Descrição do Produto/Serviço:');
-                        const input = prompt('Valor Unitário (ex: 50,00) ou Medidas M2 (ex: 1,2x2,2=50,00):');
-                        if (desc && input) {
-                          if (input.includes('x') && input.includes('=')) {
-                            const [dims, priceM2Str] = input.split('=');
-                            const parts = dims.toLowerCase().split('x').map(p => parseFloat(p.trim().replace(',', '.')));
-                            const priceM2 = parseFloat(priceM2Str.trim().replace(',', '.'));
-                            if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1]) && !isNaN(priceM2)) {
-                              const area = parts[0] * parts[1];
-                              setCart(prev => [...prev, {
-                                productId: 'manual',
-                                name: desc.toUpperCase(),
-                                price: priceM2,
-                                quantity: selectedQty,
-                                dimensions: dims.trim(),
-                                area
-                              }]);
-                              return;
+            {/* Right Column: List & Actions */}
+            <div className="w-[450px] bg-white flex flex-col border-l border-slate-200 shadow-2xl relative">
+               {/* Search & Action Bar */}
+               <div className="p-4 bg-slate-50 space-y-3">
+                  <div className="flex gap-2 h-12">
+                     <button 
+                        onClick={() => {
+                          const desc = prompt('Descrição (ex: ADESIVO):');
+                          const input = prompt('Valor Unitário ou Fórmula M2 (ex: 1,2x2,2=50,00):');
+                          if (desc && input) {
+                            if (input.includes('x') && input.includes('=')) {
+                               const [dims, priceM2Str] = input.split('=');
+                               const parts = dims.toLowerCase().split('x').map(p => parseFloat(p.trim().replace(',', '.')));
+                               const priceM2 = parseFloat(priceM2Str.trim().replace(',', '.'));
+                               if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1]) && !isNaN(priceM2)) {
+                                  const area = parts[0] * parts[1];
+                                  setCart(prev => [...prev, { 
+                                    productId: 'manual', 
+                                    name: desc.toUpperCase(), 
+                                    price: priceM2, 
+                                    quantity: 1, 
+                                    dimensions: dims.trim(), 
+                                    area 
+                                  }]);
+                                  return;
+                               }
+                            }
+                            const val = parseFloat(input.replace(',', '.'));
+                            if (!isNaN(val) && val > 0) {
+                               setCart(prev => [...prev, { productId: 'manual', name: desc.toUpperCase(), price: val, quantity: 1 }]);
                             }
                           }
-                          const val = parseFloat(input.replace(',', '.'));
-                          if (!isNaN(val) && val > 0) {
-                            setCart(prev => [...prev, { productId: 'manual', name: desc.toUpperCase(), price: val, quantity: selectedQty }]);
-                          }
-                        }
-                      }}
-                      className="flex-1 bg-white/5 border border-primary-500/30 text-primary-300 rounded-xl p-2.5 text-[9px] font-black uppercase tracking-wider hover:bg-primary-500/10 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                    >
-                      <PlusSquare size={14} />
-                      Item Avulso / M²
-                    </button>
-                    <div className="flex gap-1 bg-white/5 border border-white/10 rounded-xl p-1">
-                      {[1, 2, 3, 5].map(q => (
-                        <button
-                          key={q}
-                          onClick={() => setSelectedQty(q)}
-                          className={cn(
-                            "px-2 py-1 rounded-lg text-xs font-bold transition-all",
-                            selectedQty === q ? "bg-primary-500 text-slate-900 font-black" : "text-white/40 hover:text-white"
-                          )}
-                        >
-                          {q}x
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" size={16} />
-                    <input
-                      value={search}
-                      onChange={e => setSearch(e.target.value)}
-                      placeholder="Buscar produto ou serviço..."
-                      className="w-full bg-white/5 border border-white/10 rounded-xl pl-10 pr-4 py-2 text-xs font-bold text-white placeholder-white/30 outline-none focus:border-primary-500"
-                    />
-                  </div>
-
-                  {/* Product Catalog List */}
-                  <div className="flex-1 overflow-y-auto custom-scrollbar space-y-1.5 pr-1">
-                    {products.filter(p => p.name.includes(search.toUpperCase())).map(product => (
-                      <div
-                        key={product.id}
-                        onClick={() => addToCart(product)}
-                        className="bg-white/5 border border-white/5 hover:border-primary-500/40 hover:bg-white/10 p-2.5 rounded-xl transition-all cursor-pointer flex items-center justify-between group"
-                      >
-                        <div>
-                          <p className="text-[10px] font-black text-white uppercase">{product.name}</p>
-                          <span className="text-[8px] font-bold text-white/30 uppercase">Estoque: {product.stock} un</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-black text-emerald-400">R$ {product.price.toFixed(2).replace('.', ',')}</span>
-                          <div className="w-6 h-6 rounded-lg bg-white/10 flex items-center justify-center text-white/40 group-hover:bg-primary-500 group-hover:text-slate-900 transition-all">
-                            <Plus size={12} />
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* STEP 2: CLIENTE (OPCIONAL) */}
-            {posStep === 2 && (
-              <div className="flex-1 p-6 max-w-4xl mx-auto w-full flex flex-col justify-between overflow-y-auto custom-scrollbar">
-                <div className="space-y-6">
-                  <div className="border-b border-white/10 pb-4 flex justify-between items-center">
-                    <div>
-                      <h3 className="text-lg font-black text-white uppercase flex items-center gap-2">
-                        <Users className="text-primary-400" size={20} />
-                        Identificação do Cliente (Opcional)
-                      </h3>
-                      <p className="text-xs text-white/40 font-medium mt-0.5">
-                        A venda pode ser concluída normalmente sem cliente selecionado.
-                      </p>
-                    </div>
-
-                    {selectedCustomer && (
-                      <div className="bg-emerald-500/10 border border-emerald-500/30 px-3 py-1.5 rounded-xl flex items-center gap-2">
-                        <CheckCircle2 size={16} className="text-emerald-400" />
-                        <div>
-                          <span className="text-[8px] font-black uppercase text-emerald-400 block">Cliente Selecionado</span>
-                          <span className="text-xs font-bold text-white">{selectedCustomer.name}</span>
-                        </div>
-                        <button onClick={() => setSelectedCustomer(null)} className="text-white/40 hover:text-rose-400 text-xs ml-2">×</button>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {/* Option 1: Selecionar Cliente Existente */}
-                    <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-3">
-                      <h4 className="text-xs font-black uppercase text-primary-300 tracking-wider">1. Selecionar Existente</h4>
-                      <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar">
-                        {registeredContacts.map(c => (
-                          <div
-                            key={c.id}
-                            onClick={() => setSelectedCustomer(c)}
+                        }}
+                        className="flex-1 bg-white border-2 border-primary-400 text-primary-600 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-primary-50 transition-all shadow-sm active:scale-95 flex flex-col items-center justify-center gap-1"
+                     >
+                        <PlusSquare size={16} />
+                        Caixa Livre
+                     </button>
+                     <div className="flex-[2] flex gap-1 bg-white border-2 border-slate-200 rounded-xl p-1 overflow-x-auto no-scrollbar">
+                        {[1, 2, 3, 4, 5].map(q => (
+                          <button 
+                            key={q} 
+                            onClick={() => setSelectedQty(q)}
                             className={cn(
-                              "p-2.5 rounded-xl border text-xs cursor-pointer transition-all flex justify-between items-center",
-                              selectedCustomer?.id === c.id
-                                ? "bg-primary-500/20 border-primary-500 text-white font-bold"
-                                : "bg-white/5 border-white/5 text-white/70 hover:bg-white/10"
+                              "flex-1 rounded-lg text-sm font-black transition-all",
+                              selectedQty === q ? "bg-primary-500 text-slate-900" : "text-slate-400 hover:text-slate-600"
                             )}
                           >
-                            <div>
-                              <p className="font-bold">{c.name}</p>
-                              <p className="text-[9px] text-white/40">{c.phone}</p>
-                            </div>
-                            {selectedCustomer?.id === c.id && <Check size={14} className="text-primary-400" />}
-                          </div>
+                            {q}x
+                          </button>
                         ))}
-                      </div>
-                    </div>
+                     </div>
+                  </div>
+                  <div className="relative">
+                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
+                     <input 
+                       value={search}
+                       onChange={(e) => setSearch(e.target.value)}
+                       className="w-full h-11 bg-white border-2 border-slate-200 rounded-xl pl-10 pr-4 text-xs font-bold text-slate-700 placeholder:text-slate-300 outline-none focus:border-primary-500 transition-all"
+                       placeholder="BUSCAR OU BIPAR..."
+                     />
+                  </div>
+               </div>
 
-                    {/* Option 2: Cadastrar Novo Cliente */}
-                    <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-3">
-                      <h4 className="text-xs font-black uppercase text-emerald-300 tracking-wider">2. Cadastrar Novo Cliente</h4>
-                      <div className="space-y-2">
-                        <input
-                          type="text"
-                          value={newCustomerName}
-                          onChange={e => setNewCustomerName(e.target.value)}
-                          placeholder="Nome Completo *"
-                          className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-white/30 outline-none focus:border-emerald-500"
-                        />
-                        <input
-                          type="text"
-                          value={newCustomerPhone}
-                          onChange={e => setNewCustomerPhone(e.target.value)}
-                          placeholder="Telefone / WhatsApp"
-                          className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-white/30 outline-none focus:border-emerald-500"
-                        />
-                        <input
-                          type="text"
-                          value={newCustomerDocument}
-                          onChange={e => setNewCustomerDocument(e.target.value)}
-                          placeholder="CPF / CNPJ (Opcional)"
-                          className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-white/30 outline-none focus:border-emerald-500"
-                        />
-                        <Button
-                          disabled={!newCustomerName.trim()}
-                          onClick={() => {
-                            const created = { id: `CUST-${Date.now()}`, name: newCustomerName.trim(), phone: newCustomerPhone.trim() };
-                            setRegisteredContacts(prev => [created, ...prev]);
-                            setSelectedCustomer(created);
-                            setNewCustomerName('');
-                            setNewCustomerPhone('');
-                            setNewCustomerDocument('');
-                          }}
-                          className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-black uppercase text-[10px] py-2 mt-2"
+                {/* COMPACT PRODUCT LIST */}
+                <div className="flex-1 overflow-y-auto custom-scrollbar bg-white">
+                   <div className="divide-y divide-slate-50">
+                      {products.filter(p => p.name.includes(search.toUpperCase())).map(product => (
+                        <div 
+                          key={product.id} 
+                          onClick={() => addToCart(product)}
+                          className="flex items-center px-4 py-1.5 hover:bg-primary-50 transition-colors group cursor-pointer border-b border-slate-50 last:border-0"
                         >
-                          Salvar & Selecionar
-                        </Button>
-                      </div>
-                    </div>
-
-                    {/* Option 3: Continuar sem Cliente */}
-                    <div className="bg-white/5 border border-white/10 rounded-2xl p-4 flex flex-col justify-between space-y-3">
-                      <div>
-                        <h4 className="text-xs font-black uppercase text-amber-300 tracking-wider">3. Sem Cadastro</h4>
-                        <p className="text-[10px] text-white/50 mt-2 leading-relaxed">
-                          Ideal para vendas rápidas no balcão onde não há necessidade de registrar dados do consumidor.
-                        </p>
-                      </div>
-                      <Button
-                        variant="secondary"
-                        onClick={() => setSelectedCustomer(null)}
-                        className="w-full border-white/20 text-xs uppercase font-black py-2.5"
-                      >
-                        Continuar sem Cliente
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Step 2 Bottom Navigation */}
-                <div className="pt-6 border-t border-white/10 flex justify-between items-center">
-                  <Button variant="ghost" onClick={() => setPosStep(1)} className="gap-2">
-                    <ChevronLeft size={16} />
-                    <span>Voltar para Itens</span>
-                  </Button>
-                  <Button
-                    onClick={() => setPosStep(3)}
-                    className="bg-primary-500 hover:bg-primary-400 text-slate-900 font-black uppercase text-xs px-6 py-3 gap-2"
-                  >
-                    <span>Avançar para Pagamento</span>
-                    <ChevronRight size={16} />
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {/* STEP 3: FORMA DE PAGAMENTO */}
-            {posStep === 3 && (
-              <div className="flex-1 p-6 max-w-4xl mx-auto w-full flex flex-col justify-between overflow-y-auto custom-scrollbar">
-                <div className="space-y-6">
-                  <div className="border-b border-white/10 pb-3 flex justify-between items-center">
-                    <div>
-                      <h3 className="text-lg font-black text-white uppercase flex items-center gap-2">
-                        <CreditCard className="text-primary-400" size={20} />
-                        Condição e Forma de Pagamento
-                      </h3>
-                      <p className="text-xs text-white/40 font-medium">Escolha pagamento integral (100%) ou apenas entrada inicial com entrega agendada.</p>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-[9px] font-black uppercase text-white/40 block">Total do Pedido</span>
-                      <span className="text-xl font-black text-emerald-400">R$ {total.toFixed(2).replace('.', ',')}</span>
-                    </div>
-                  </div>
-
-                  {/* Toggle: Pagamento Total vs Entrada */}
-                  <div className="grid grid-cols-2 gap-3 p-1.5 bg-black/40 rounded-2xl border border-white/10">
-                    <button
-                      type="button"
-                      onClick={() => setEntryPaymentType('total')}
-                      className={cn(
-                        "py-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2",
-                        entryPaymentType === 'total' ? "bg-primary-500 text-slate-900 shadow-lg" : "text-white/40 hover:text-white"
-                      )}
-                    >
-                      <CheckCircle2 size={16} />
-                      Opção A — Pagamento Total (100%)
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setEntryPaymentType('entrada')}
-                      className={cn(
-                        "py-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2",
-                        entryPaymentType === 'entrada' ? "bg-amber-500 text-slate-900 shadow-lg" : "text-white/40 hover:text-white"
-                      )}
-                    >
-                      <Clock size={16} />
-                      Opção B — Lançar Apenas Entrada
-                    </button>
-                  </div>
-
-                  {/* If Opção B: Entrada Controls */}
-                  {entryPaymentType === 'entrada' && (
-                    <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-5 space-y-4">
-                      <div className="flex justify-between items-center">
-                        <span className="text-xs font-black text-amber-300 uppercase">Cálculo da Entrada</span>
-                        <div className="flex bg-black/40 p-1 rounded-lg border border-white/10 text-xs">
-                          <button
-                            onClick={() => setEntryMode('value')}
-                            className={cn("px-3 py-1 rounded font-bold transition-all", entryMode === 'value' ? "bg-amber-500 text-slate-900 font-black" : "text-white/50")}
-                          >
-                            R$ Valor
-                          </button>
-                          <button
-                            onClick={() => setEntryMode('percent')}
-                            className={cn("px-3 py-1 rounded font-bold transition-all", entryMode === 'percent' ? "bg-amber-500 text-slate-900 font-black" : "text-white/50")}
-                          >
-                            % Porcentagem
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        <div>
-                          <label className="text-[10px] font-black uppercase text-white/50 block mb-1">Valor da Entrada (R$)</label>
-                          <input
-                            type="number"
-                            step="any"
-                            value={downPayment}
-                            onChange={e => {
-                              const val = parseFloat(e.target.value) || 0;
-                              setDownPayment(val);
-                              setEntryMode('value');
-                              setEntryPercentInput(total > 0 ? (val / total) * 100 : 0);
-                            }}
-                            className="w-full bg-black/60 border border-white/10 rounded-xl px-3 py-2 text-sm font-black text-amber-300 outline-none focus:border-amber-400"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="text-[10px] font-black uppercase text-white/50 block mb-1">Entrada (%)</label>
-                          <input
-                            type="number"
-                            min="0"
-                            max="100"
-                            value={entryPercentInput}
-                            onChange={e => {
-                              const pct = parseFloat(e.target.value) || 0;
-                              setEntryPercentInput(pct);
-                              setEntryMode('percent');
-                              setDownPayment((total * pct) / 100);
-                            }}
-                            className="w-full bg-black/60 border border-white/10 rounded-xl px-3 py-2 text-sm font-black text-amber-300 outline-none focus:border-amber-400"
-                          />
-                        </div>
-
-                        <div className="bg-slate-950 p-3 rounded-xl border border-white/10 flex flex-col justify-center">
-                          <span className="text-[9px] font-black uppercase text-rose-400">Saldo Restante A Pagar</span>
-                          <span className="text-lg font-black text-rose-300">R$ {remainingValue.toFixed(2).replace('.', ',')}</span>
-                        </div>
-                      </div>
-
-                      {/* Scheduled Delivery prompt */}
-                      <div className="pt-3 border-t border-amber-500/20 space-y-3">
-                        <label className="text-xs font-black uppercase text-white flex items-center gap-2">
-                          <Calendar size={14} className="text-amber-400" />
-                          Deseja lançar esta entrada e agendar a entrega?
-                        </label>
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                          <input
-                            type="date"
-                            value={deliveryDate}
-                            onChange={e => setDeliveryDate(e.target.value)}
-                            className="bg-black/60 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-amber-400"
-                          />
-                          <input
-                            type="time"
-                            value={deliveryTime}
-                            onChange={e => setDeliveryTime(e.target.value)}
-                            className="bg-black/60 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-amber-400"
-                          />
-                          <input
-                            type="text"
-                            value={deliveryNotes}
-                            onChange={e => setDeliveryNotes(e.target.value)}
-                            placeholder="Obs. de Entrega..."
-                            className="bg-black/60 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-amber-400"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Payment Methods selector */}
-                  <div className="space-y-3">
-                    <label className="text-xs font-black uppercase text-white/60 tracking-wider block">Forma de Recebimento</label>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                      {[
-                        { id: 'pix', label: 'PIX QR Code', icon: QrCode },
-                        { id: 'dinheiro', label: 'Dinheiro', icon: Wallet },
-                        { id: 'cartao_credito', label: 'Cartão Crédito', icon: CreditCard },
-                        { id: 'cartao_debito', label: 'Cartão Débito', icon: Smartphone }
-                      ].map(m => (
-                        <button
-                          key={m.id}
-                          type="button"
-                          onClick={() => setPaymentMethod(m.id as any)}
-                          className={cn(
-                            "p-3 rounded-xl border text-xs font-bold transition-all flex flex-col items-center justify-center gap-1.5 cursor-pointer",
-                            paymentMethod === m.id
-                              ? "bg-primary-500 border-primary-400 text-slate-900 font-black shadow-lg shadow-primary-500/20"
-                              : "bg-white/5 border-white/10 text-white/60 hover:text-white"
-                          )}
-                        >
-                          <m.icon size={18} />
-                          <span>{m.label}</span>
-                        </button>
-                      ))}
-                    </div>
-
-                    {/* PIX Key detail from Financial Config */}
-                    {paymentMethod === 'pix' && (
-                      <div className="bg-white/5 border border-white/10 rounded-xl p-4 flex items-center justify-between">
-                        <div>
-                          <span className="text-[9px] font-black uppercase text-emerald-400 block">Chave PIX da Empresa</span>
-                          <p className="text-sm font-black text-white font-mono">
-                            {financialConfig?.pixKeys?.find(k => k.isDefault)?.key || 'pix@rafaarts.com.br'}
-                          </p>
-                        </div>
-                        <Badge className="bg-emerald-500/20 text-emerald-300 border-none">QR CODE PRONTO</Badge>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Step 3 Bottom Navigation */}
-                <div className="pt-6 border-t border-white/10 flex justify-between items-center">
-                  <Button variant="ghost" onClick={() => setPosStep(2)} className="gap-2">
-                    <ChevronLeft size={16} />
-                    <span>Voltar para Cliente</span>
-                  </Button>
-                  <Button
-                    onClick={() => setPosStep(4)}
-                    className="bg-primary-500 hover:bg-primary-400 text-slate-900 font-black uppercase text-xs px-6 py-3 gap-2"
-                  >
-                    <span>Avançar para Finalização</span>
-                    <ChevronRight size={16} />
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {/* STEP 4: FINALIZAÇÃO */}
-            {posStep === 4 && (
-              <div className="flex-1 p-6 max-w-3xl mx-auto w-full flex flex-col justify-between overflow-y-auto custom-scrollbar">
-                <div className="space-y-6">
-                  <div className="border-b border-white/10 pb-3">
-                    <h3 className="text-lg font-black text-white uppercase flex items-center gap-2">
-                      <CheckCircle2 className="text-emerald-400" size={20} />
-                      Resumo Final do Pedido
-                    </h3>
-                    <p className="text-xs text-white/40 font-medium">Confirme os dados antes de gravar no sistema.</p>
-                  </div>
-
-                  {/* Order Summary Card */}
-                  <div className="bg-white/5 border border-white/10 rounded-2xl p-5 space-y-4">
-                    <div className="flex justify-between items-center border-b border-white/5 pb-3">
-                      <div>
-                        <span className="text-[9px] font-black uppercase text-white/40 block">Cliente</span>
-                        <span className="text-sm font-black text-white">{selectedCustomer?.name || 'Cliente de Balcão (Consumidor Final)'}</span>
-                      </div>
-                      <Badge className="bg-primary-500/20 text-primary-300 border-none uppercase font-mono text-[9px]">
-                        Forma: {paymentMethod.toUpperCase()}
-                      </Badge>
-                    </div>
-
-                    <div className="space-y-1">
-                      <span className="text-[9px] font-black uppercase text-white/40 block">Itens ({cart.length})</span>
-                      {cart.map((item, idx) => (
-                        <div key={idx} className="flex justify-between text-xs text-white/70">
-                          <span>{item.quantity}x {item.name}</span>
-                          <span className="font-bold text-white font-mono">
-                            R$ {((item.area ? item.price * item.area - (item.discount || 0) : item.price - (item.discount || 0)) * item.quantity).toFixed(2).replace('.', ',')}
-                          </span>
+                           <div className="flex-1 min-w-0">
+                              <p className="text-[9px] font-black text-slate-800 truncate leading-none uppercase tracking-tight">{product.name}</p>
+                              <div className="flex items-center gap-2 mt-1">
+                                 <span className="text-[7px] font-bold text-slate-300 tracking-[1px] uppercase bg-slate-100 px-1 rounded-sm">{product.code}</span>
+                                 <span className="text-[7px] font-bold text-slate-400 uppercase">Est: {product.stock}</span>
+                              </div>
+                           </div>
+                           <div className="flex items-center gap-3">
+                              <p className="text-[10px] font-black text-emerald-600 tracking-tighter italic">R$ {product.price.toFixed(2).replace('.', ',')}</p>
+                              <div className="w-6 h-6 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400 group-hover:bg-primary-500 group-hover:text-slate-900 transition-all">
+                                 <Plus size={12} />
+                              </div>
+                           </div>
                         </div>
                       ))}
-                    </div>
+                   </div>
+                </div>
 
-                    <div className="grid grid-cols-3 gap-2 pt-3 border-t border-white/10 text-center">
-                      <div className="bg-black/40 p-2.5 rounded-xl border border-white/5">
-                        <span className="text-[8px] font-black uppercase text-white/40 block">Total</span>
-                        <span className="text-sm font-black text-white">R$ {total.toFixed(2).replace('.', ',')}</span>
-                      </div>
-                      <div className="bg-emerald-500/10 p-2.5 rounded-xl border border-emerald-500/20">
-                        <span className="text-[8px] font-black uppercase text-emerald-400 block">Entrada Paga</span>
-                        <span className="text-sm font-black text-emerald-300">R$ {computedDownPayment.toFixed(2).replace('.', ',')}</span>
-                      </div>
-                      <div className="bg-rose-500/10 p-2.5 rounded-xl border border-rose-500/20">
-                        <span className="text-[8px] font-black uppercase text-rose-400 block">Saldo Pendente</span>
-                        <span className="text-sm font-black text-rose-300">R$ {remainingValue.toFixed(2).replace('.', ',')}</span>
-                      </div>
-                    </div>
+               <div className="p-6 bg-slate-50 border-t border-slate-200 space-y-4">
+                  <div className="flex gap-4 h-24">
+                     <button 
+                       onClick={() => setIsCustomerModalOpen(true)}
+                       className={cn(
+                         "flex-1 h-full rounded-[28px] border-2 flex flex-col items-center justify-center gap-1 transition-all active:scale-95",
+                         selectedCustomer ? "bg-amber-400 border-amber-600 text-slate-900" : "bg-white border-slate-200 text-slate-400"
+                       )}
+                     >
+                        <UserCheck size={24} />
+                        <span className="text-[9px] font-black uppercase tracking-widest">{selectedCustomer ? selectedCustomer.name : 'Venda em Aberto'}</span>
+                     </button>
+                     <button 
+                       disabled={cart.length === 0}
+                       onClick={() => {
+                          setDownPayment(total);
+                          setIsPaymentModalOpen(true);
+                       }}
+                       className="flex-[2] h-full bg-primary-500 border-2 border-primary-600 text-slate-900 rounded-[28px] flex flex-col items-center justify-center gap-1 shadow-xl shadow-primary-500/20 hover:bg-primary-400 transition-all disabled:opacity-50 disabled:grayscale active:scale-95"
+                     >
+                        <div className="flex items-center gap-3">
+                           <ShoppingBag size={24} />
+                           <span className="text-lg font-black uppercase tracking-tighter">FINALIZAR VENDA</span>
+                        </div>
+                        <span className="text-[10px] font-black opacity-40 uppercase tracking-[4px]">Ir para pagamento e fechamento</span>
+                     </button>
                   </div>
-
-                  {/* Branching Logic for Customer Decision */}
-                  {selectedCustomer ? (
-                    <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-4 text-center space-y-3">
-                      <p className="text-xs font-bold text-emerald-300">Venda pronta com o cliente <span className="underline">{selectedCustomer.name}</span>.</p>
-                      <Button
-                        onClick={() => handleFinalize(false)}
-                        className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-black uppercase text-sm py-3 gap-2 shadow-lg shadow-emerald-500/20 cursor-pointer"
-                      >
-                        <Check size={18} />
-                        <span>OK (Concluir Venda)</span>
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 space-y-3">
-                      <p className="text-xs font-bold text-amber-300 text-center">Venda sem cliente selecionado. Deseja vincular um cliente agora?</p>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <Button
-                          variant="secondary"
-                          onClick={() => setPosStep(2)}
-                          className="border-amber-500/30 text-amber-300 uppercase font-black text-xs py-2.5"
-                        >
-                          Selecionar Cliente
-                        </Button>
-                        <Button
-                          onClick={() => handleFinalize(false, null)}
-                          className="bg-primary-500 hover:bg-primary-400 text-slate-900 uppercase font-black text-xs py-2.5 shadow-lg shadow-primary-500/20"
-                        >
-                          Continuar sem Cliente
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Step 4 Bottom Navigation */}
-                <div className="pt-6 border-t border-white/10 flex justify-start">
-                  <Button variant="ghost" onClick={() => setPosStep(3)} className="gap-2">
-                    <ChevronLeft size={16} />
-                    <span>Voltar para Pagamento</span>
-                  </Button>
-                </div>
-              </div>
-            )}
-          </div>
+               </div>
+            </div>
+          </>
         )}
 
         {activeTab === 'historico' && (
@@ -5754,87 +4500,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     targetPhone = prompt('Digite o número de WhatsApp do cliente (com DDD):') || '';
                   }
                   if (targetPhone) {
-                    const cleanPhone = targetPhone.replace(/\D/g, '');
-                    const formattedText = text.replace(/%0A/g, '\n');
-                    const custName = selectedCustomer?.name || lastFinalizedOrder.customerName || 'Cliente de Balcão';
-
-                    (async () => {
-                      try {
-                        let leadId: string | null = null;
-                        const qLeads = query(
-                          collection(db, 'leads'),
-                          where('companyId', '==', currentCompany.id),
-                          where('phone', '==', targetPhone),
-                          limit(1)
-                        );
-                        const snapLeads = await getDocs(qLeads);
-                        if (!snapLeads.empty) {
-                          leadId = snapLeads.docs[0].id;
-                        } else {
-                          const qAllLeads = query(
-                            collection(db, 'leads'),
-                            where('companyId', '==', currentCompany.id),
-                            limit(50)
-                          );
-                          const snapAll = await getDocs(qAllLeads);
-                          const found = snapAll.docs.find(d => (d.data().phone || '').replace(/\D/g, '') === cleanPhone);
-                          if (found) leadId = found.id;
-                        }
-
-                        if (!leadId) {
-                          let funnelId = null;
-                          let funnelStageId = null;
-                          const funnelQ = query(collection(db, 'funnels'), where('companyId', '==', currentCompany.id), where('isDefault', '==', true), limit(1));
-                          const funnelSnap = await getDocs(funnelQ);
-                          if (!funnelSnap.empty) {
-                            funnelId = funnelSnap.docs[0].id;
-                            const stageQ = query(collection(db, 'funnelStages'), where('funnelId', '==', funnelId), where('isInitial', '==', true), limit(1));
-                            const stageSnap = await getDocs(stageQ);
-                            if (!stageSnap.empty) funnelStageId = stageSnap.docs[0].id;
-                          }
-
-                          const nameParts = custName.trim().split(' ');
-                          const newLead = await addDoc(collection(db, 'leads'), {
-                            companyId: currentCompany.id,
-                            fullName: custName,
-                            firstName: nameParts[0] || custName,
-                            lastName: nameParts.slice(1).join(' ') || '',
-                            phone: targetPhone,
-                            sourceType: 'WhatsApp',
-                            status: 'ENTRADA',
-                            funnelId,
-                            funnelStageId,
-                            lastMessageText: formattedText,
-                            lastMessageDirection: 'outgoing',
-                            estimatedValue: total,
-                            createdAt: new Date().toISOString(),
-                            updatedAt: new Date().toISOString()
-                          });
-                          leadId = newLead.id;
-                        } else {
-                          await updateDoc(doc(db, 'leads', leadId), {
-                            lastMessageText: formattedText,
-                            lastMessageDirection: 'outgoing',
-                            waitingSince: null,
-                            updatedAt: Timestamp.now()
-                          });
-                        }
-
-                        await addDoc(collection(db, 'messages'), {
-                          companyId: currentCompany.id,
-                          phone: targetPhone,
-                          text: formattedText,
-                          direction: 'outgoing',
-                          senderName: user?.name || 'Sistema PDV',
-                          channel: 'WhatsApp',
-                          createdAt: Timestamp.now()
-                        });
-                      } catch (err) {
-                        console.error('Erro ao integrar resumo da nota no CRM:', err);
-                      }
-                    })();
-
-                    window.open(`https://wa.me/${cleanPhone}?text=${text}`, '_blank');
+                    window.open(`https://wa.me/${targetPhone.replace(/\D/g, '')}?text=${text}`, '_blank');
                   }
                }}
              >
@@ -7070,931 +5736,6 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
               </div>
             )}
          </GlassCard>
-      </div>
-    </div>
-  );
-};
-
-// --- CONFIGURAÇÃO FINANCEIRA (APENAS ADMINISTRADORES) ---
-export const FinancialModule = ({ currentCompany, user }: { currentCompany: Company | null; user: AppUser | null }) => {
-  const [activeTab, setActiveTab] = useState<'metodos' | 'pix' | 'taxas' | 'geral'>('metodos');
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
-
-  // Financial Config State
-  const [config, setConfig] = useState<FinancialConfig>({
-    companyId: currentCompany?.id || '',
-    paymentMethods: [
-      { id: 'm-1', name: 'Dinheiro', isActive: true, type: 'dinheiro', description: 'Pagamento em papel moeda (espécie)' },
-      { id: 'm-2', name: 'PIX Instantâneo', isActive: true, type: 'pix', description: 'Transferência imediata via QR Code ou Chave PIX' },
-      { id: 'm-3', name: 'Cartão de Débito', isActive: true, type: 'cartao_debito', description: 'Débito automático via maquineta ou link' },
-      { id: 'm-4', name: 'Cartão de Crédito', isActive: true, type: 'cartao_credito', description: 'Crédito à vista ou parcelado' },
-      { id: 'm-5', name: 'Boleto Bancário', isActive: true, type: 'boleto', description: 'Boleto com vencimento agendado' },
-      { id: 'm-6', name: 'Transferência / TED', isActive: true, type: 'transferencia', description: 'Depósito em conta corrente' },
-      { id: 'm-7', name: 'Crediário Próprio', isActive: false, type: 'crediario', description: 'Parcelamento em conta da gráfica' }
-    ],
-    pixKeys: [
-      { 
-        id: 'pix-1', 
-        name: 'Chave Principal CNPJ', 
-        keyType: 'cnpj', 
-        key: '44.222.111/0001-99', 
-        bank: 'Banco do Brasil', 
-        qrCodeUrl: 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=00020126360014BR.GOV.BCB.PIX011444222111000199520400005303986540510.005802BR5915RAFA%20ARTS%20GRAFICA6009SAO%20PAULO62070503***6304E2CA', 
-        isDefault: true 
-      }
-    ],
-    cardFees: {
-      debit: { feePercent: 1.99, payoutDays: 1 },
-      creditSight: { feePercent: 3.49, payoutDays: 30 },
-      creditInstallments: {
-        2: { feePercent: 4.49, payoutDays: 30 },
-        3: { feePercent: 5.49, payoutDays: 30 },
-        4: { feePercent: 6.49, payoutDays: 30 },
-        5: { feePercent: 7.49, payoutDays: 30 },
-        6: { feePercent: 8.49, payoutDays: 30 },
-        10: { feePercent: 10.99, payoutDays: 30 },
-        12: { feePercent: 12.99, payoutDays: 30 }
-      }
-    },
-    generalSettings: {
-      maxDiscountPercent: 15,
-      lateInterestPercent: 1,
-      penaltyPercent: 2,
-      roundingType: 'none',
-      commissionPercent: 5,
-      allowPartialPayment: true,
-      allowMultiPayment: true,
-      allowChange: true,
-      minCardAmount: 10,
-      minPixAmount: 1
-    }
-  });
-
-  // Simulator State
-  const [simAmount, setSimAmount] = useState<number>(100);
-  const [simModality, setSimModality] = useState<string>('debit');
-
-  // Modals
-  const [isMethodModalOpen, setIsMethodModalOpen] = useState(false);
-  const [newMethodName, setNewMethodName] = useState('');
-  const [newMethodType, setNewMethodType] = useState<any>('outro');
-  const [newMethodDesc, setNewMethodDesc] = useState('');
-
-  const [isPixModalOpen, setIsPixModalOpen] = useState(false);
-  const [newPixName, setNewPixName] = useState('');
-  const [newPixType, setNewPixType] = useState<'cpf' | 'cnpj' | 'phone' | 'email' | 'random'>('cnpj');
-  const [newPixKey, setNewPixKey] = useState('');
-  const [newPixBank, setNewPixBank] = useState('');
-  const [newPixQrUrl, setNewPixQrUrl] = useState('');
-
-  const companyId = currentCompany?.id || 'default';
-
-  // Load configuration from Firestore
-  useEffect(() => {
-    if (!companyId) return;
-    setLoading(true);
-    const docRef = doc(db, 'financialConfigs', companyId);
-    getDocs(query(collection(db, 'financialConfigs'), where('companyId', '==', companyId)))
-      .then((snap) => {
-        if (!snap.empty) {
-          const data = snap.docs[0].data() as FinancialConfig;
-          setConfig(prev => ({
-            ...prev,
-            ...data,
-            companyId
-          }));
-        }
-      })
-      .catch(err => console.error("Erro ao carregar configurações financeiras:", err))
-      .finally(() => setLoading(false));
-  }, [companyId]);
-
-  // Save changes to Firestore
-  const handleSaveConfig = async (newConfig?: FinancialConfig) => {
-    const dataToSave = newConfig || config;
-    setSaving(true);
-    setSaveSuccess(false);
-    try {
-      const docRef = doc(db, 'financialConfigs', companyId);
-      await setDoc(docRef, { ...dataToSave, companyId, updatedAt: new Date().toISOString() }, { merge: true });
-      setConfig(dataToSave);
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3000);
-    } catch (err) {
-      console.error("Erro ao salvar configurações financeiras:", err);
-      alert("Erro ao salvar as configurações financeiras.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // Toggle payment method active state
-  const toggleMethodActive = (id: string) => {
-    const updatedMethods = config.paymentMethods.map(m => m.id === id ? { ...m, isActive: !m.isActive } : m);
-    const updated = { ...config, paymentMethods: updatedMethods };
-    setConfig(updated);
-    handleSaveConfig(updated);
-  };
-
-  // Add custom payment method
-  const handleAddPaymentMethod = () => {
-    if (!newMethodName.trim()) {
-      alert("Informe o nome do método de pagamento.");
-      return;
-    }
-    const newMethod: PaymentMethodConfig = {
-      id: `custom_${Date.now()}`,
-      name: newMethodName.trim(),
-      type: newMethodType,
-      isActive: true,
-      description: newMethodDesc.trim() || undefined
-    };
-    const updated = { ...config, paymentMethods: [...config.paymentMethods, newMethod] };
-    setConfig(updated);
-    handleSaveConfig(updated);
-    setIsMethodModalOpen(false);
-    setNewMethodName('');
-    setNewMethodDesc('');
-  };
-
-  // Remove custom payment method
-  const handleRemoveMethod = (id: string) => {
-    const updated = { ...config, paymentMethods: config.paymentMethods.filter(m => m.id !== id) };
-    setConfig(updated);
-    handleSaveConfig(updated);
-  };
-
-  // Add PIX Key
-  const handleAddPixKey = () => {
-    if (!newPixKey.trim() || !newPixName.trim()) {
-      alert("Preencha o nome e a chave PIX.");
-      return;
-    }
-    const isFirst = config.pixKeys.length === 0;
-    const newKey: PixKeyConfig = {
-      id: `pix_${Date.now()}`,
-      name: newPixName.trim(),
-      keyType: newPixType,
-      key: newPixKey.trim(),
-      bank: newPixBank.trim() || 'Banco Principal',
-      qrCodeUrl: newPixQrUrl.trim() || `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(newPixKey.trim())}`,
-      isDefault: isFirst
-    };
-    const updated = { ...config, pixKeys: [...config.pixKeys, newKey] };
-    setConfig(updated);
-    handleSaveConfig(updated);
-    setIsPixModalOpen(false);
-    setNewPixName('');
-    setNewPixKey('');
-    setNewPixBank('');
-    setNewPixQrUrl('');
-  };
-
-  // Set default PIX Key
-  const setDefaultPixKey = (id: string) => {
-    const updatedKeys = config.pixKeys.map(k => ({ ...k, isDefault: k.id === id }));
-    const updated = { ...config, pixKeys: updatedKeys };
-    setConfig(updated);
-    handleSaveConfig(updated);
-  };
-
-  // Remove PIX Key
-  const handleRemovePixKey = (id: string) => {
-    const updatedKeys = config.pixKeys.filter(k => k.id !== id);
-    // If we deleted the default key and there are remaining keys, set the first as default
-    if (updatedKeys.length > 0 && !updatedKeys.some(k => k.isDefault)) {
-      updatedKeys[0].isDefault = true;
-    }
-    const updated = { ...config, pixKeys: updatedKeys };
-    setConfig(updated);
-    handleSaveConfig(updated);
-  };
-
-  // Card Fees Update Helpers
-  const updateDebitFee = (feePercent: number, payoutDays: number) => {
-    const updated = {
-      ...config,
-      cardFees: {
-        ...config.cardFees,
-        debit: { feePercent, payoutDays }
-      }
-    };
-    setConfig(updated);
-  };
-
-  const updateCreditSightFee = (feePercent: number, payoutDays: number) => {
-    const updated = {
-      ...config,
-      cardFees: {
-        ...config.cardFees,
-        creditSight: { feePercent, payoutDays }
-      }
-    };
-    setConfig(updated);
-  };
-
-  const updateInstallmentFee = (installment: number, feePercent: number, payoutDays: number) => {
-    const updated = {
-      ...config,
-      cardFees: {
-        ...config.cardFees,
-        creditInstallments: {
-          ...config.cardFees.creditInstallments,
-          [installment]: { feePercent, payoutDays }
-        }
-      }
-    };
-    setConfig(updated);
-  };
-
-  // Check Admin Permission
-  const isAdmin = user?.isAdmin || user?.role === 'admin';
-
-  if (!isAdmin) {
-    return (
-      <div className="h-[calc(100vh-12rem)] flex flex-col items-center justify-center p-6">
-        <GlassCard className="max-w-md w-full p-8 text-center space-y-4">
-          <div className="w-16 h-16 bg-rose-500/20 text-rose-400 rounded-2xl flex items-center justify-center mx-auto border border-rose-500/30">
-            <Lock size={32} />
-          </div>
-          <h3 className="text-xl font-black text-white uppercase italic">Acesso Restrito ao Administrador</h3>
-          <p className="text-white/60 text-xs leading-relaxed">
-            Apenas usuários com perfil de **Administrador** possuem permissão para visualizar, editar e salvar as **Configurações Financeiras**, taxas e chaves PIX do sistema.
-          </p>
-        </GlassCard>
-      </div>
-    );
-  }
-
-  // Simulator Calculation
-  const getSimulatedCalculation = () => {
-    let feePercent = 0;
-    let payoutDays = 30;
-
-    if (simModality === 'debit') {
-      feePercent = config.cardFees.debit.feePercent;
-      payoutDays = config.cardFees.debit.payoutDays;
-    } else if (simModality === 'sight') {
-      feePercent = config.cardFees.creditSight.feePercent;
-      payoutDays = config.cardFees.creditSight.payoutDays;
-    } else {
-      const instNumber = parseInt(simModality, 10);
-      const instObj = config.cardFees.creditInstallments[instNumber] || { feePercent: 5.0, payoutDays: 30 };
-      feePercent = instObj.feePercent;
-      payoutDays = instObj.payoutDays;
-    }
-
-    const feeAmount = (simAmount * feePercent) / 100;
-    const netAmount = Math.max(0, simAmount - feeAmount);
-
-    return { feePercent, payoutDays, feeAmount, netAmount };
-  };
-
-  const simResult = getSimulatedCalculation();
-
-  return (
-    <div className="h-[calc(100vh-12rem)] min-h-[650px] flex flex-col bg-slate-900/50 rounded-[40px] shadow-2xl border border-white/10 overflow-hidden animate-in fade-in duration-500">
-      {/* Module Header */}
-      <div className="bg-slate-950/80 border-b border-white/10 px-8 py-5 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="p-3 bg-primary-500/10 text-primary-400 rounded-2xl border border-primary-500/20 shadow-lg">
-            <Banknote size={24} />
-          </div>
-          <div>
-            <h2 className="text-xl md:text-2xl font-black text-white italic tracking-tighter uppercase flex items-center gap-2">
-              Configuração Financeira do Sistema
-            </h2>
-            <p className="text-[10px] md:text-xs text-white/40 font-bold uppercase tracking-widest mt-0.5">
-              Gestão de Formas de Pagamento, Chaves PIX, Taxas de Cartão e Regras Comerciais
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          {saveSuccess && (
-            <span className="text-emerald-400 text-xs font-bold uppercase flex items-center gap-1.5 animate-in fade-in">
-              <CheckCircle2 size={16} /> Salvo com Sucesso!
-            </span>
-          )}
-          <Button
-            className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-widest px-6 h-11 shadow-xl shadow-emerald-500/20 cursor-pointer"
-            onClick={() => handleSaveConfig()}
-            disabled={saving}
-          >
-            {saving ? <RefreshCw className="animate-spin" size={16} /> : <Save size={16} className="mr-2" />}
-            {saving ? 'Salvando...' : 'Salvar Todas as Configurações'}
-          </Button>
-        </div>
-      </div>
-
-      {/* Sub-tabs Navigation */}
-      <div className="flex bg-white/5 p-2 gap-2 border-b border-white/10 overflow-x-auto">
-        {[
-          { id: 'metodos', label: 'Formas de Pagamento', icon: CreditCard },
-          { id: 'pix', label: 'Chaves PIX & QR Code', icon: QrCode },
-          { id: 'taxas', label: 'Taxas de Cartão & Calculadora', icon: Calculator },
-          { id: 'geral', label: 'Regras & Limites Gerais', icon: Settings2 }
-        ].map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
-            className={cn(
-              "flex items-center gap-2.5 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-[2px] transition-all whitespace-nowrap cursor-pointer",
-              activeTab === tab.id ? "bg-primary-500 text-slate-950 shadow-xl" : "text-white/40 hover:bg-white/5 hover:text-white"
-            )}
-          >
-            <tab.icon size={16} />
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Main Content Area */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-6 md:p-8 space-y-8 bg-slate-900/30">
-        
-        {/* TAB 1: FORMAS DE PAGAMENTO */}
-        {activeTab === 'metodos' && (
-          <div className="space-y-6">
-            <div className="flex justify-between items-center border-b border-white/10 pb-4">
-              <div>
-                <h3 className="text-lg font-black text-white uppercase italic">Formas de Pagamento Aceitas</h3>
-                <p className="text-xs text-white/40 font-bold uppercase tracking-wider">
-                  Habilite ou desabilite as opções disponíveis nos terminais de venda (PDV)
-                </p>
-              </div>
-              <Button
-                onClick={() => setIsMethodModalOpen(true)}
-                icon={Plus}
-                className="text-xs uppercase font-black bg-white/10 hover:bg-white/20 border-white/10"
-              >
-                Adicionar Nova Forma
-              </Button>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {config.paymentMethods.map(method => (
-                <GlassCard
-                  key={method.id}
-                  className={cn(
-                    "p-5 space-y-4 border-white/10 transition-all relative overflow-hidden",
-                    method.isActive ? "bg-slate-900/80 border-white/20" : "bg-slate-950/40 opacity-60"
-                  )}
-                >
-                  <div className="flex justify-between items-start">
-                    <div className="flex items-center gap-3">
-                      <div className={cn(
-                        "w-10 h-10 rounded-xl flex items-center justify-center font-bold",
-                        method.isActive ? "bg-primary-500/20 text-primary-300 border border-primary-500/30" : "bg-white/5 text-white/30"
-                      )}>
-                        {method.type === 'pix' ? <QrCode size={20} /> : method.type === 'dinheiro' ? <Banknote size={20} /> : <CreditCard size={20} />}
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-black text-white uppercase">{method.name}</h4>
-                        <span className="text-[9px] text-white/40 font-mono uppercase block">{method.type}</span>
-                      </div>
-                    </div>
-
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={method.isActive}
-                        onChange={() => toggleMethodActive(method.id)}
-                        className="sr-only peer"
-                      />
-                      <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500" />
-                    </label>
-                  </div>
-
-                  {method.description && (
-                    <p className="text-xs text-white/50 bg-white/5 p-2.5 rounded-xl border border-white/5">
-                      {method.description}
-                    </p>
-                  )}
-
-                  <div className="flex justify-between items-center text-[10px] font-bold text-white/40 pt-2 border-t border-white/5">
-                    <span>Status: <strong className={method.isActive ? "text-emerald-400" : "text-rose-400"}>{method.isActive ? 'ATIVO NO PDV' : 'INATIVO'}</strong></span>
-                    {method.id.startsWith('custom_') && (
-                      <button
-                        onClick={() => handleRemoveMethod(method.id)}
-                        className="text-rose-400 hover:text-rose-300 transition-colors uppercase font-black cursor-pointer"
-                      >
-                        Excluir
-                      </button>
-                    )}
-                  </div>
-                </GlassCard>
-              ))}
-            </div>
-
-            {/* Modal for adding payment method */}
-            <Modal
-              isOpen={isMethodModalOpen}
-              onClose={() => setIsMethodModalOpen(false)}
-              title="Cadastrar Forma de Pagamento Personalizada"
-            >
-              <div className="space-y-4">
-                <Input
-                  label="Nome da Forma de Pagamento *"
-                  placeholder="Ex: Cartão Elo Refeição"
-                  value={newMethodName}
-                  onChange={(e) => setNewMethodName(e.target.value)}
-                />
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase tracking-wider text-white/40 block">Tipo Base</label>
-                  <select
-                    value={newMethodType}
-                    onChange={(e: any) => setNewMethodType(e.target.value)}
-                    className="w-full h-11 bg-slate-900 border border-white/10 rounded-xl px-3 text-xs text-white font-bold"
-                  >
-                    <option value="cartao_credito">Cartão de Crédito</option>
-                    <option value="cartao_debito">Cartão de Débito</option>
-                    <option value="pix">PIX / Digital</option>
-                    <option value="dinheiro">Espécie / Dinheiro</option>
-                    <option value="boleto">Boleto</option>
-                    <option value="transferencia">Transferência Bancária</option>
-                    <option value="crediario">Crediário</option>
-                    <option value="outro">Outro / Personalizado</option>
-                  </select>
-                </div>
-                <Input
-                  label="Descrição / Instruções (Opcional)"
-                  placeholder="Ex: Válido apenas para compras presenciais acima de R$ 50"
-                  value={newMethodDesc}
-                  onChange={(e) => setNewMethodDesc(e.target.value)}
-                />
-                <div className="flex gap-3 pt-4 border-t border-white/10">
-                  <Button variant="secondary" className="flex-1" onClick={() => setIsMethodModalOpen(false)}>Cancelar</Button>
-                  <Button className="flex-1 bg-primary-500 text-slate-950 font-black" onClick={handleAddPaymentMethod}>Salvar e Ativar</Button>
-                </div>
-              </div>
-            </Modal>
-          </div>
-        )}
-
-        {/* TAB 2: CHAVES PIX */}
-        {activeTab === 'pix' && (
-          <div className="space-y-6">
-            <div className="flex justify-between items-center border-b border-white/10 pb-4">
-              <div>
-                <h3 className="text-lg font-black text-white uppercase italic">Chaves PIX & QR Codes Cadastrados</h3>
-                <p className="text-xs text-white/40 font-bold uppercase tracking-wider">
-                  Defina a chave padrão que será exibida automaticamente no PDV ao selecionar PIX
-                </p>
-              </div>
-              <Button
-                onClick={() => setIsPixModalOpen(true)}
-                icon={Plus}
-                className="text-xs uppercase font-black bg-primary-500 text-slate-950 hover:bg-primary-400"
-              >
-                Cadastrar Chave PIX
-              </Button>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {config.pixKeys.map(pix => (
-                <GlassCard
-                  key={pix.id}
-                  className={cn(
-                    "p-6 space-y-4 border-white/10 relative overflow-hidden",
-                    pix.isDefault ? "bg-slate-900/90 border-amber-500/40 shadow-xl" : "bg-slate-900/60"
-                  )}
-                >
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-base font-black text-white uppercase tracking-tight">{pix.name}</h4>
-                        {pix.isDefault && (
-                          <Badge className="bg-amber-500 text-slate-950 font-black text-[8px] uppercase tracking-widest border-none px-2 py-0.5">
-                            ★ CHAVE PADRÃO NO PDV
-                          </Badge>
-                        )}
-                      </div>
-                      <p className="text-xs text-white/50 font-bold mt-0.5">{pix.bank || 'Banco Não Informado'}</p>
-                    </div>
-
-                    {!pix.isDefault && (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => setDefaultPixKey(pix.id)}
-                        className="text-[9px] uppercase font-bold text-amber-300 border-amber-500/20 hover:bg-amber-500/10"
-                      >
-                        Definir como Padrão
-                      </Button>
-                    )}
-                  </div>
-
-                  <div className="p-4 bg-slate-950/80 rounded-2xl border border-white/5 flex items-center justify-between gap-4">
-                    <div className="space-y-1 min-w-0 flex-1">
-                      <span className="text-[9px] font-black uppercase text-white/30 tracking-widest block">Tipo: {pix.keyType.toUpperCase()}</span>
-                      <p className="font-mono text-sm font-black text-emerald-400 truncate">{pix.key}</p>
-                    </div>
-
-                    {pix.qrCodeUrl && (
-                      <div className="bg-white p-1.5 rounded-xl shrink-0">
-                        <img src={pix.qrCodeUrl} alt="QR Code PIX" className="w-16 h-16 object-contain" />
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex justify-between items-center pt-2 border-t border-white/5">
-                    <span className="text-[10px] text-white/40">Sincronizado com os pagamentos no PDV</span>
-                    {config.pixKeys.length > 1 && (
-                      <button
-                        onClick={() => handleRemovePixKey(pix.id)}
-                        className="text-rose-400 hover:text-rose-300 text-xs font-bold uppercase transition-colors cursor-pointer"
-                      >
-                        Excluir Chave
-                      </button>
-                    )}
-                  </div>
-                </GlassCard>
-              ))}
-            </div>
-
-            {/* Modal for adding PIX Key */}
-            <Modal
-              isOpen={isPixModalOpen}
-              onClose={() => setIsPixModalOpen(false)}
-              title="Cadastrar Nova Chave PIX"
-            >
-              <div className="space-y-4">
-                <Input
-                  label="Nome da Chave (Identificação) *"
-                  placeholder="Ex: PIX Itaú Comercial"
-                  value={newPixName}
-                  onChange={(e) => setNewPixName(e.target.value)}
-                />
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-black uppercase tracking-wider text-white/40 block">Tipo de Chave *</label>
-                    <select
-                      value={newPixType}
-                      onChange={(e: any) => setNewPixType(e.target.value)}
-                      className="w-full h-11 bg-slate-900 border border-white/10 rounded-xl px-3 text-xs text-white font-bold"
-                    >
-                      <option value="cnpj">CNPJ</option>
-                      <option value="cpf">CPF</option>
-                      <option value="phone">Telefone</option>
-                      <option value="email">E-mail</option>
-                      <option value="random">Chave Aleatória (EVP)</option>
-                    </select>
-                  </div>
-                  <Input
-                    label="Nome do Banco *"
-                    placeholder="Ex: Banco Santander"
-                    value={newPixBank}
-                    onChange={(e) => setNewPixBank(e.target.value)}
-                  />
-                </div>
-                <Input
-                  label="Chave PIX *"
-                  placeholder="Ex: 44.222.111/0001-99 ou contato@grafica.com"
-                  value={newPixKey}
-                  onChange={(e) => setNewPixKey(e.target.value)}
-                />
-                <Input
-                  label="URL do QR Code (Opcional)"
-                  placeholder="Deixe em branco para gerar QR Code automático"
-                  value={newPixQrUrl}
-                  onChange={(e) => setNewPixQrUrl(e.target.value)}
-                />
-                <div className="flex gap-3 pt-4 border-t border-white/10">
-                  <Button variant="secondary" className="flex-1" onClick={() => setIsPixModalOpen(false)}>Cancelar</Button>
-                  <Button className="flex-1 bg-primary-500 text-slate-950 font-black" onClick={handleAddPixKey}>Salvar Chave PIX</Button>
-                </div>
-              </div>
-            </Modal>
-          </div>
-        )}
-
-        {/* TAB 3: TAXAS DE CARTÃO E CALCULADORA */}
-        {activeTab === 'taxas' && (
-          <div className="space-y-8">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              
-              {/* Left Column: Form Settings for Card Fees */}
-              <div className="lg:col-span-2 space-y-6">
-                <div className="border-b border-white/10 pb-3">
-                  <h3 className="text-lg font-black text-white uppercase italic">Taxas Comerciais da Maquineta</h3>
-                  <p className="text-xs text-white/40 font-bold uppercase tracking-wider">
-                    Configure os percentuais cobrados pelas operadoras e os prazos de repasse
-                  </p>
-                </div>
-
-                {/* Débito */}
-                <GlassCard className="p-5 space-y-4 border-white/10 bg-slate-900/80">
-                  <h4 className="text-sm font-black text-white uppercase flex items-center gap-2">
-                    <CreditCard className="text-emerald-400" size={18} />
-                    Cartão de Débito
-                  </h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    <Input
-                      label="Taxa da Operadora (%)"
-                      type="number"
-                      step="0.01"
-                      value={config.cardFees.debit.feePercent}
-                      onChange={(e) => updateDebitFee(parseFloat(e.target.value) || 0, config.cardFees.debit.payoutDays)}
-                    />
-                    <Input
-                      label="Prazo de Repasse (Dias)"
-                      type="number"
-                      value={config.cardFees.debit.payoutDays}
-                      onChange={(e) => updateDebitFee(config.cardFees.debit.feePercent, parseInt(e.target.value, 10) || 1)}
-                    />
-                  </div>
-                </GlassCard>
-
-                {/* Crédito à Vista */}
-                <GlassCard className="p-5 space-y-4 border-white/10 bg-slate-900/80">
-                  <h4 className="text-sm font-black text-white uppercase flex items-center gap-2">
-                    <CreditCard className="text-sky-400" size={18} />
-                    Crédito à Vista (1x)
-                  </h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    <Input
-                      label="Taxa da Operadora (%)"
-                      type="number"
-                      step="0.01"
-                      value={config.cardFees.creditSight.feePercent}
-                      onChange={(e) => updateCreditSightFee(parseFloat(e.target.value) || 0, config.cardFees.creditSight.payoutDays)}
-                    />
-                    <Input
-                      label="Prazo de Repasse (Dias)"
-                      type="number"
-                      value={config.cardFees.creditSight.payoutDays}
-                      onChange={(e) => updateCreditSightFee(config.cardFees.creditSight.feePercent, parseInt(e.target.value, 10) || 30)}
-                    />
-                  </div>
-                </GlassCard>
-
-                {/* Crédito Parcelado */}
-                <GlassCard className="p-5 space-y-4 border-white/10 bg-slate-900/80">
-                  <h4 className="text-sm font-black text-white uppercase flex items-center gap-2">
-                    <CreditCard className="text-amber-400" size={18} />
-                    Crédito Parcelado (2x a 12x)
-                  </h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {[2, 3, 4, 5, 6, 10, 12].map(inst => {
-                      const item = config.cardFees.creditInstallments[inst] || { feePercent: 5.0, payoutDays: 30 };
-                      return (
-                        <div key={inst} className="p-3 bg-white/5 rounded-2xl border border-white/5 space-y-2">
-                          <span className="text-[10px] font-black uppercase text-amber-300 tracking-wider block">Parcelado {inst}x</span>
-                          <div className="grid grid-cols-2 gap-2">
-                            <div>
-                              <label className="text-[8px] uppercase text-white/40 block">Taxa (%)</label>
-                              <input
-                                type="number"
-                                step="0.01"
-                                value={item.feePercent}
-                                onChange={(e) => updateInstallmentFee(inst, parseFloat(e.target.value) || 0, item.payoutDays)}
-                                className="w-full bg-slate-950 border border-white/10 rounded-lg p-2 text-xs font-bold text-white"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-[8px] uppercase text-white/40 block">Prazo (Dias)</label>
-                              <input
-                                type="number"
-                                value={item.payoutDays}
-                                onChange={(e) => updateInstallmentFee(inst, item.feePercent, parseInt(e.target.value, 10) || 30)}
-                                className="w-full bg-slate-950 border border-white/10 rounded-lg p-2 text-xs font-bold text-white"
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </GlassCard>
-              </div>
-
-              {/* Right Column: Net Calculation Calculator (Calculadora de Valor Líquido) */}
-              <div className="space-y-6">
-                <GlassCard className="p-6 border-amber-500/30 bg-slate-950/90 space-y-5 sticky top-6 shadow-2xl">
-                  <div className="flex items-center gap-2 border-b border-white/10 pb-3">
-                    <Calculator className="text-amber-400" size={20} />
-                    <h3 className="text-sm font-black text-white uppercase tracking-wider">Simulador de Valor Líquido</h3>
-                  </div>
-
-                  <div className="space-y-4">
-                    <Input
-                      label="Valor Bruto da Venda (R$)"
-                      type="number"
-                      step="any"
-                      className="text-lg font-bold text-emerald-400"
-                      value={simAmount}
-                      onChange={(e) => setSimAmount(parseFloat(e.target.value) || 0)}
-                    />
-
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-black uppercase text-white/40 block">Modalidade de Pagamento</label>
-                      <select
-                        value={simModality}
-                        onChange={(e) => setSimModality(e.target.value)}
-                        className="w-full h-11 bg-slate-900 border border-white/10 rounded-xl px-3 text-xs text-white font-bold"
-                      >
-                        <option value="debit">Cartão de Débito</option>
-                        <option value="sight">Crédito à Vista (1x)</option>
-                        <option value="2">Crédito 2x</option>
-                        <option value="3">Crédito 3x</option>
-                        <option value="4">Crédito 4x</option>
-                        <option value="5">Crédito 5x</option>
-                        <option value="6">Crédito 6x</option>
-                        <option value="10">Crédito 10x</option>
-                        <option value="12">Crédito 12x</option>
-                      </select>
-                    </div>
-
-                    <div className="p-4 bg-white/5 rounded-2xl border border-white/10 space-y-3">
-                      <div className="flex justify-between items-center text-xs">
-                        <span className="text-white/50 uppercase font-bold">Taxa Aplicada:</span>
-                        <span className="font-mono font-bold text-amber-300">{simResult.feePercent.toFixed(2)}%</span>
-                      </div>
-                      <div className="flex justify-between items-center text-xs">
-                        <span className="text-white/50 uppercase font-bold">Desconto da Operadora:</span>
-                        <span className="font-mono font-bold text-rose-400">- R$ {simResult.feeAmount.toFixed(2).replace('.', ',')}</span>
-                      </div>
-                      <div className="flex justify-between items-center text-xs border-t border-white/10 pt-2">
-                        <span className="text-white/50 uppercase font-bold">Prazo de Repasse:</span>
-                        <span className="font-mono font-bold text-white">{simResult.payoutDays} dia(s)</span>
-                      </div>
-                    </div>
-
-                    <div className="p-4 bg-emerald-500/10 rounded-2xl border border-emerald-500/20 text-center space-y-1">
-                      <span className="text-[9px] font-black uppercase text-emerald-400 tracking-widest block">Valor Líquido a Receber</span>
-                      <p className="text-2xl font-black text-emerald-300 font-mono italic">
-                        R$ {simResult.netAmount.toFixed(2).replace('.', ',')}
-                      </p>
-                    </div>
-                  </div>
-                </GlassCard>
-              </div>
-
-            </div>
-          </div>
-        )}
-
-        {/* TAB 4: REGRAS & LIMITES GERAIS */}
-        {activeTab === 'geral' && (
-          <div className="max-w-4xl space-y-6">
-            <div className="border-b border-white/10 pb-4">
-              <h3 className="text-lg font-black text-white uppercase italic">Regras de Negócio e Limites Financeiros</h3>
-              <p className="text-xs text-white/40 font-bold uppercase tracking-wider">
-                Defina parâmetros de desconto, troco, comissão e pagamentos parciais
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <GlassCard className="p-6 space-y-4 border-white/10 bg-slate-900/80">
-                <h4 className="text-sm font-black text-white uppercase tracking-wider border-b border-white/5 pb-2">Limites de Desconto e Taxas Extras</h4>
-                <Input
-                  label="Desconto Máximo Permitido no PDV (%)"
-                  type="number"
-                  value={config.generalSettings.maxDiscountPercent}
-                  onChange={(e) => setConfig({
-                    ...config,
-                    generalSettings: { ...config.generalSettings, maxDiscountPercent: parseFloat(e.target.value) || 0 }
-                  })}
-                />
-                <Input
-                  label="Juros por Atraso (% ao mês)"
-                  type="number"
-                  step="0.1"
-                  value={config.generalSettings.lateInterestPercent}
-                  onChange={(e) => setConfig({
-                    ...config,
-                    generalSettings: { ...config.generalSettings, lateInterestPercent: parseFloat(e.target.value) || 0 }
-                  })}
-                />
-                <Input
-                  label="Multa por Atraso em Contratos (%)"
-                  type="number"
-                  step="0.1"
-                  value={config.generalSettings.penaltyPercent}
-                  onChange={(e) => setConfig({
-                    ...config,
-                    generalSettings: { ...config.generalSettings, penaltyPercent: parseFloat(e.target.value) || 0 }
-                  })}
-                />
-                <Input
-                  label="Comissão Padrão do Vendedor (%)"
-                  type="number"
-                  step="0.1"
-                  value={config.generalSettings.commissionPercent}
-                  onChange={(e) => setConfig({
-                    ...config,
-                    generalSettings: { ...config.generalSettings, commissionPercent: parseFloat(e.target.value) || 0 }
-                  })}
-                />
-              </GlassCard>
-
-              <GlassCard className="p-6 space-y-4 border-white/10 bg-slate-900/80">
-                <h4 className="text-sm font-black text-white uppercase tracking-wider border-b border-white/5 pb-2">Valores Mínimos e Troco</h4>
-                <Input
-                  label="Valor Mínimo para Pagamento em Cartão (R$)"
-                  type="number"
-                  value={config.generalSettings.minCardAmount}
-                  onChange={(e) => setConfig({
-                    ...config,
-                    generalSettings: { ...config.generalSettings, minCardAmount: parseFloat(e.target.value) || 0 }
-                  })}
-                />
-                <Input
-                  label="Valor Mínimo para Pagamento em PIX (R$)"
-                  type="number"
-                  value={config.generalSettings.minPixAmount}
-                  onChange={(e) => setConfig({
-                    ...config,
-                    generalSettings: { ...config.generalSettings, minPixAmount: parseFloat(e.target.value) || 0 }
-                  })}
-                />
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase text-white/40 block">Regra de Arredondamento de Centavos</label>
-                  <select
-                    value={config.generalSettings.roundingType}
-                    onChange={(e: any) => setConfig({
-                      ...config,
-                      generalSettings: { ...config.generalSettings, roundingType: e.target.value }
-                    })}
-                    className="w-full h-11 bg-slate-900 border border-white/10 rounded-xl px-3 text-xs text-white font-bold"
-                  >
-                    <option value="none">Nenhum (Manter centavos exatos)</option>
-                    <option value="up">Arredondar para Cima</option>
-                    <option value="down">Arredondar para Baixo</option>
-                    <option value="nearest">Arredondar para a Unidade Mais Próxima</option>
-                  </select>
-                </div>
-              </GlassCard>
-
-              <GlassCard className="p-6 space-y-4 border-white/10 bg-slate-900/80 md:col-span-2">
-                <h4 className="text-sm font-black text-white uppercase tracking-wider border-b border-white/5 pb-2">Permissões de Fluxo de Venda</h4>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  
-                  <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/5">
-                    <div>
-                      <span className="text-xs font-bold text-white uppercase block">Permitir Pagamento Parcial</span>
-                      <span className="text-[9px] text-white/40">Aceitar apenas valor de entrada</span>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={config.generalSettings.allowPartialPayment}
-                        onChange={(e) => setConfig({
-                          ...config,
-                          generalSettings: { ...config.generalSettings, allowPartialPayment: e.target.checked }
-                        })}
-                        className="sr-only peer"
-                      />
-                      <div className="w-11 h-6 bg-slate-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:bg-emerald-500 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all" />
-                    </label>
-                  </div>
-
-                  <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/5">
-                    <div>
-                      <span className="text-xs font-bold text-white uppercase block">Permitir Múltiplas Formas</span>
-                      <span className="text-[9px] text-white/40">Dividir total entre PIX e Cartão</span>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={config.generalSettings.allowMultiPayment}
-                        onChange={(e) => setConfig({
-                          ...config,
-                          generalSettings: { ...config.generalSettings, allowMultiPayment: e.target.checked }
-                        })}
-                        className="sr-only peer"
-                      />
-                      <div className="w-11 h-6 bg-slate-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:bg-emerald-500 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all" />
-                    </label>
-                  </div>
-
-                  <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/5">
-                    <div>
-                      <span className="text-xs font-bold text-white uppercase block">Permitir Troco em Dinheiro</span>
-                      <span className="text-[9px] text-white/40">Calcular troco ao receber valor maior</span>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={config.generalSettings.allowChange}
-                        onChange={(e) => setConfig({
-                          ...config,
-                          generalSettings: { ...config.generalSettings, allowChange: e.target.checked }
-                        })}
-                        className="sr-only peer"
-                      />
-                      <div className="w-11 h-6 bg-slate-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:bg-emerald-500 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all" />
-                    </label>
-                  </div>
-
-                </div>
-              </GlassCard>
-            </div>
-          </div>
-        )}
-
       </div>
     </div>
   );

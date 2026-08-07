@@ -39,7 +39,7 @@ import {
   EyeOff,
   AlertCircle,
   ShieldCheck,
-  Landmark
+  Key
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -90,12 +90,11 @@ import {
   Company, 
   AppUser, 
   Lead,
-  SaleOrder,
-  CashRegister
+  SaleOrder
 } from './types';
 import { RafaArtsLogo } from './components/RafaArtsLogo';
 
-type MainTab = 'dashboard' | 'crm' | 'messages' | 'pos' | 'contacts' | 'services' | 'inventory' | 'production' | 'financeiro' | 'settings';
+type MainTab = 'dashboard' | 'crm' | 'messages' | 'pos' | 'contacts' | 'services' | 'inventory' | 'production' | 'settings';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -115,7 +114,6 @@ interface AppContextType {
   addPendingOrder: (order: SaleOrder) => void;
   isRegisterOpen: boolean;
   setIsRegisterOpen: (open: boolean) => void;
-  activeCashRegister: CashRegister | null;
   prefilledCustomer: { id?: string, name: string, phone: string } | null;
   setPrefilledCustomer: (customer: { id?: string, name: string, phone: string } | null) => void;
   simulatedUserId: string | null;
@@ -318,10 +316,8 @@ import {
   ServicesModule,
   InventoryModule,
   ProductionModule,
-  FinancialModule,
   SettingsModule
 } from './components/Modules';
-import { ModuleErrorBoundary } from './components/SharedUI';
 
 // --- MAIN APP ---
 
@@ -329,36 +325,11 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<AppUser | null>(null);
   const [companies, setCompanies] = useState<Company[]>([]);
-  const [isCreatingCompany, setIsCreatingCompany] = useState(false);
   const [currentCompany, setCurrentCompany] = useState<Company | null>(null);
   const [activeTab, setActiveTab] = useState<MainTab>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [pendingOrders, setPendingOrders] = useState<SaleOrder[]>([]);
   const [isRegisterOpen, setIsRegisterOpen] = useState(false);
-  const [activeCashRegister, setActiveCashRegister] = useState<CashRegister | null>(null);
-
-  useEffect(() => {
-    if (!currentCompany) {
-      setActiveCashRegister(null);
-      setIsRegisterOpen(false);
-      return;
-    }
-    const q = query(
-      collection(db, 'cashRegisters'),
-      where('companyId', '==', currentCompany.id),
-      where('isOpen', '==', true)
-    );
-    return onSnapshot(q, (snap) => {
-      if (!snap.empty) {
-        const activeDoc = { id: snap.docs[0].id, ...snap.docs[0].data() } as CashRegister;
-        setActiveCashRegister(activeDoc);
-        setIsRegisterOpen(true);
-      } else {
-        setActiveCashRegister(null);
-        setIsRegisterOpen(false);
-      }
-    });
-  }, [currentCompany]);
   const [lastMessageId, setLastMessageId] = useState<string | null>(null);
   const [prefilledCustomer, setPrefilledCustomer] = useState<{ id?: string, name: string, phone: string } | null>(null);
   const [simulatedUserId, setSimulatedUserIdState] = useState<string | null>(localStorage.getItem('rpro_simulated_user_id'));
@@ -718,18 +689,16 @@ export default function App() {
     { id: 'inventory', label: 'Estoque', icon: Package },
     { id: 'services', label: 'Serviços', icon: Wrench },
     { id: 'production', label: 'Produção', icon: Layers },
-    { id: 'financeiro', label: 'Financeiro', icon: Landmark },
     { id: 'settings', label: 'Opções', icon: Settings },
   ].filter(item => {
-    // If admin, show everything
-    if (user?.isAdmin) return true;
-
-    if (item.id === 'financeiro') return false;
-    
-    // If user has specific allowedTabs, check it
+    // If user has specific allowedTabs, check it first (unless they are admin, who can always see Settings)
     if (user && user.allowedTabs && Array.isArray(user.allowedTabs)) {
+      if (item.id === 'settings' && user.isAdmin) return true;
       return user.allowedTabs.includes(item.id);
     }
+
+    // If admin, show everything
+    if (user?.isAdmin) return true;
     
     // Always show dashboard and settings
     if (['dashboard', 'settings'].includes(item.id)) return true;
@@ -747,24 +716,6 @@ export default function App() {
       </div>
     </div>
   );
-
-  const handleCreateDefaultCompany = async () => {
-    setIsCreatingCompany(true);
-    try {
-      await addDoc(collection(db, 'companies'), {
-        name: 'Rafa Arts Graphics',
-        cnpj: '28.884.125/0001-40',
-        isActive: true,
-        createdAt: Timestamp.now(),
-        updatedAt: Timestamp.now(),
-      });
-    } catch (err) {
-      console.error('Erro ao criar empresa:', err);
-      alert('Não foi possível criar a empresa. Veja o console para detalhes.');
-    } finally {
-      setIsCreatingCompany(false);
-    }
-  };
 
   if (!user) return (
     <div className="min-h-screen w-full flex items-center justify-center bg-[#050508] p-4 sm:p-6 relative overflow-hidden select-none">
@@ -827,7 +778,6 @@ export default function App() {
                 <input
                   type={showPassword ? 'text' : 'password'}
                   required
-                  autoComplete="current-password"
                   value={loginPassword}
                   onChange={(e) => setLoginPassword(e.target.value)}
                   placeholder="Digite sua senha"
@@ -861,6 +811,28 @@ export default function App() {
             {isSubmitting ? 'Autenticando...' : 'ENTRAR NO SISTEMA'}
           </button>
 
+          {/* Divider */}
+          <div className="flex items-center gap-4 py-1">
+            <div className="h-[1px] bg-white/20 flex-1" />
+            <span className="text-[10px] font-bold text-white uppercase tracking-widest">OU</span>
+            <div className="h-[1px] bg-white/20 flex-1" />
+          </div>
+
+          {/* Quick Admin Helper Button */}
+          <div className="text-center pt-0.5">
+            <button
+              type="button"
+              onClick={() => {
+                setLoginEmail('rafaelrtmatos@gmail.com');
+                setLoginPassword('Geper3tp@');
+                setAuthError(null);
+              }}
+              className="text-xs font-medium text-white hover:text-red-400 transition-all cursor-pointer bg-transparent border-0 inline-flex items-center justify-center gap-1.5"
+            >
+              <Key size={14} className="text-red-500 shrink-0" />
+              <span>Preencher credenciais Admin <span className="text-red-500 font-bold">(seuemail@gmail.com)</span></span>
+            </button>
+          </div>
         </form>
 
         {/* Footer */}
@@ -873,25 +845,6 @@ export default function App() {
             AUTENTICAÇÃO DE USUÁRIOS DO REPOSITÓRIO
           </p>
         </div>
-      </div>
-    </div>
-  );
-
-  if (companies.length === 0) return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-[#050508] p-4">
-      <div className="max-w-md w-full flex flex-col items-center gap-5 text-center bg-white/[0.03] border border-white/10 rounded-2xl p-8">
-        <RafaArtsLogo size="lg" layout="stacked" />
-        <h2 className="text-lg font-black text-white uppercase tracking-wider">Nenhuma empresa encontrada</h2>
-        <p className="text-sm text-white/50">
-          O sistema não encontrou nenhuma empresa ativa cadastrada. Isso costuma acontecer se o registro da empresa foi apagado no banco de dados. Clique abaixo para recriar o cadastro da Rafa Arts Graphics.
-        </p>
-        <button
-          onClick={handleCreateDefaultCompany}
-          disabled={isCreatingCompany}
-          className="w-full h-12 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-black text-sm uppercase tracking-widest rounded-xl transition-all"
-        >
-          {isCreatingCompany ? 'Criando...' : 'Criar Empresa Rafa Arts Graphics'}
-        </button>
       </div>
     </div>
   );
@@ -909,7 +862,6 @@ export default function App() {
     addPendingOrder,
     isRegisterOpen,
     setIsRegisterOpen,
-    activeCashRegister,
     prefilledCustomer,
     setPrefilledCustomer,
     simulatedUserId,
@@ -1024,12 +976,11 @@ export default function App() {
                   {activeTab === 'dashboard' && <DashboardModule user={user} currentCompany={currentCompany} pendingOrders={pendingOrders} setActiveTab={setActiveTab} />}
                   {activeTab === 'crm' && <CRMModule currentCompany={currentCompany} user={user} />}
                   {activeTab === 'messages' && <MessagesModule currentCompany={currentCompany} user={user} />}
-                  {activeTab === 'pos' && <ModuleErrorBoundary label="o PDV"><POSModule currentCompany={currentCompany} addPendingOrder={addPendingOrder} /></ModuleErrorBoundary>}
+                  {activeTab === 'pos' && <POSModule currentCompany={currentCompany} addPendingOrder={addPendingOrder} />}
                   {activeTab === 'contacts' && <ContactsModule currentCompany={currentCompany} />}
                   {activeTab === 'inventory' && <InventoryModule currentCompany={currentCompany} />}
                   {activeTab === 'services' && <ServicesModule currentCompany={currentCompany} />}
                   {activeTab === 'production' && <ProductionModule currentCompany={currentCompany} />}
-                  {activeTab === 'financeiro' && <FinancialModule currentCompany={currentCompany} user={user} />}
                   {activeTab === 'settings' && <SettingsModule currentCompany={currentCompany} user={user} />}
                 </motion.div>
               </AnimatePresence>
