@@ -3589,7 +3589,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   if (!isRegisterOpen) {
     return (
-      <div className="h-[calc(100vh-12rem)] flex items-center justify-center animate-in fade-in zoom-in-95 duration-500">
+      <div className="h-[calc(100vh-8rem)] flex items-center justify-center animate-in fade-in zoom-in-95 duration-500">
         <GlassCard className="max-w-md w-full p-10 text-center space-y-6">
           <div className="w-20 h-20 bg-amber-500/20 text-amber-500 rounded-[32px] flex items-center justify-center mx-auto mb-6">
             <AlertCircle size={40} />
@@ -3628,7 +3628,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   return (
-    <div className="h-[calc(100vh-12rem)] min-h-[600px] flex flex-col bg-slate-900/50 rounded-[40px] shadow-2xl border border-white/10 overflow-hidden animate-in fade-in slide-in-from-right-5 duration-500">
+    <div className="h-[calc(100vh-8rem)] min-h-[600px] flex flex-col bg-slate-900/50 rounded-[40px] shadow-2xl border border-white/10 overflow-hidden animate-in fade-in slide-in-from-right-5 duration-500">
       {/* Tab Navigation */}
       <div className="flex bg-white/5 p-2 gap-2 border-b border-white/10 items-center justify-between">
         <div className="flex gap-2">
@@ -4413,7 +4413,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                        });
                        return (
                        <div className="flex flex-col items-center justify-center gap-1.5 w-full h-full min-h-0">
-                          <div className="max-h-[11vh] sm:max-h-[13vh] aspect-square bg-white rounded-lg p-1 shadow-lg flex items-center justify-center shrink-0">
+                          <div className="max-h-[45vh] sm:max-h-[50vh] w-auto aspect-square bg-white rounded-lg p-2 shadow-lg flex items-center justify-center shrink-0">
                              <img src={`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(pixPayload)}`} alt="QR" className="h-full w-full object-contain" referrerPolicy="no-referrer" />
                           </div>
                           
