@@ -3299,7 +3299,7 @@ export const MetaAdsModule = ({ currentCompany }: { currentCompany: Company | nu
 
 // --- PDV / POS ---
 export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany: Company | null, addPendingOrder: (order: SaleOrder) => void }) => {
-  const { user, isRegisterOpen, setIsRegisterOpen, activeCashRegister, prefilledCustomer, setPrefilledCustomer } = React.useContext(AppContext)!;
+  const { user, isRegisterOpen, setIsRegisterOpen, activeCashRegister, prefilledCustomer, setPrefilledCustomer, companies: companiesDebug } = React.useContext(AppContext)!;
   const [activeTab, setActiveTab] = useState<'venda' | 'historico' | 'caixas' | 'estoque' | 'clientes' | 'contratos'>('venda');
   const [cart, setCart] = useState<SaleOrderItem[]>([]);
   const [search, setSearch] = useState('');
@@ -3672,7 +3672,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   // Action Handlers
   const handleOpenRegisterSubmit = async () => {
     if (!currentCompany) {
-      alert("Não foi possível identificar a empresa atual. Recarregue a página e tente novamente.");
+      alert(`Não foi possível identificar a empresa atual. Empresas carregadas: ${companiesDebug.length}. ${companiesDebug.length > 0 ? 'Nomes: ' + companiesDebug.map(c => c.name).join(', ') : 'Nenhuma empresa ativa encontrada no sistema.'}`);
       return;
     }
     const isAuthorized = user?.isAdmin || ['admin', 'gerente', 'caixa', 'atendente', 'operador'].includes(user?.role || '');
