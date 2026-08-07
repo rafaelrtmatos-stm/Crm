@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { ContractApprovalModule } from './ContractApprovalModule';
 import { 
   TrendingUp, 
+  Lock,
   Clock, 
   MessageSquare, 
   Plus, 
