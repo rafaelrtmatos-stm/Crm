@@ -3353,6 +3353,22 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       return next;
     });
   };
+  const openReceipt = (sale: SaleOrder) => {
+    setLastFinalizedOrder(sale);
+    setIsSuccessModalOpen(true);
+  };
+
+  const pendingOrScheduledSales = useMemo(() => {
+    return allSalesHistory
+      .filter(sale => {
+        const down = sale.downPayment || 0;
+        const balance = sale.total - down;
+        const isPartial = balance > 0 || sale.status === 'pending';
+        return isPartial || !!sale.scheduledFor;
+      })
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [allSalesHistory]);
+
   const filteredSalesHistory = useMemo(() => {
     return allSalesHistory.filter(sale => {
       const down = sale.downPayment || 0;
@@ -3914,7 +3930,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             { id: 'historico', label: 'Histórico & Abertas', icon: History },
             { id: 'estoque', label: 'Estoque / Produtos', icon: Box },
             { id: 'servicos', label: 'Serviços', icon: Wrench },
-            { id: 'clientes', label: 'Clientes / CRM', icon: Users },
+            { id: 'clientes', label: 'Clientes', icon: Users },
             { id: 'contratos', label: 'Contratos Rafa Art', icon: FileText }
           ].map(tab => (
             <button
@@ -4306,11 +4322,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             {(() => {
               const filteredSales = filteredSalesHistory;
 
-              const openReceipt = (sale: SaleOrder) => {
-                setLastFinalizedOrder(sale);
-                setIsSuccessModalOpen(true);
-              };
-
               if (filteredSales.length === 0) {
                 return (
                   <div className="py-16 text-center bg-white/5 rounded-3xl border border-dashed border-white/10 space-y-2">
@@ -4532,108 +4543,84 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         )}
 
         {activeTab === 'estoque' && (
-          <div className="flex-1 p-10 space-y-8 overflow-y-auto bg-slate-900/30">
-            <div className="flex justify-between items-center">
-               <div>
-                  <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase">Gestão de Estoque</h2>
-                  <p className="text-xs text-white/40 font-bold uppercase tracking-widest mt-1">Sincronizado com todos os terminais</p>
-               </div>
-               <Button icon={PlusCircle}>Novo Lançamento</Button>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-               {[
-                 { label: 'Total Itens', val: '4.250', color: 'primary' },
-                 { label: 'Baixo Estoque', val: '12', color: 'rose' },
-                 { label: 'Valor em Mãos', val: 'R$ 82k', color: 'emerald' },
-                 { label: 'Saídas Hoje', val: '142', color: 'amber' }
-               ].map(stat => (
-                 <GlassCard key={stat.label} className="p-6 border-white/5">
-                    <p className="text-[8px] font-black uppercase tracking-widest text-white/30 mb-2">{stat.label}</p>
-                    <p className="text-2xl font-black text-white">{stat.val}</p>
-                 </GlassCard>
-               ))}
-            </div>
-
-            <GlassCard className="border-white/5 overflow-hidden">
-               <table className="w-full text-left">
-                  <thead className="bg-white/5 border-b border-white/5">
-                     <tr>
-                        <th className="px-6 py-4 text-[10px] font-black uppercase text-white/40">Código</th>
-                        <th className="px-6 py-4 text-[10px] font-black uppercase text-white/40">Produto</th>
-                        <th className="px-6 py-4 text-[10px] font-black uppercase text-white/40">Estoque</th>
-                        <th className="px-6 py-4 text-[10px] font-black uppercase text-white/40">Valor Unt.</th>
-                        <th className="px-6 py-4 text-[10px] font-black uppercase text-white/40">Ações</th>
-                     </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/5">
-                     {products.map(p => (
-                       <tr key={p.id} className="hover:bg-white/5">
-                          <td className="px-6 py-4 text-xs font-bold text-white/60">{p.code}</td>
-                          <td className="px-6 py-4 text-xs font-black text-white">{p.name}</td>
-                          <td className="px-6 py-4 text-xs font-black text-primary-300">{p.stock} un</td>
-                          <td className="px-6 py-4 text-xs font-black text-emerald-400">R$ {p.price.toFixed(2)}</td>
-                          <td className="px-6 py-4"><Button variant="ghost" size="sm" icon={MoreHorizontal} /></td>
-                       </tr>
-                     ))}
-                  </tbody>
-               </table>
-            </GlassCard>
+          <div className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/30">
+            <InventoryModule currentCompany={currentCompany} />
           </div>
         )}
 
         {activeTab === 'servicos' && (
-          <div className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/30">
-            <ServicesModule currentCompany={currentCompany} />
+          <div className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/40 space-y-6">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-white/10 pb-4">
+              <div>
+                <h2 className="text-xl md:text-2xl font-black text-white italic tracking-tighter uppercase flex items-center gap-2">
+                  <Wrench className="text-primary-400" size={22} />
+                  Notas em Aberto & Serviços Agendados
+                </h2>
+                <p className="text-[10px] md:text-xs text-white/40 font-bold uppercase tracking-widest mt-1">
+                  Vendas do PDV com saldo pendente ou entrega agendada
+                </p>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <input ref={vendasFileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportVendasFile} />
+                <Button variant="secondary" size="sm" icon={Upload} disabled={isImportingVendas} className="text-[9px] uppercase tracking-wider font-black" onClick={() => vendasFileInputRef.current?.click()}>
+                  {isImportingVendas ? 'Importando...' : 'Importar Planilha'}
+                </Button>
+                <Button variant="secondary" size="sm" icon={Download} className="text-[9px] uppercase tracking-wider font-black" onClick={() => exportVendasXlsx(pendingOrScheduledSales)}>
+                  Exportar Planilha
+                </Button>
+              </div>
+            </div>
+
+            {pendingOrScheduledSales.length === 0 ? (
+              <div className="py-16 text-center bg-white/5 rounded-3xl border border-dashed border-white/10 space-y-2">
+                <Wrench size={36} className="mx-auto text-white/20" />
+                <p className="text-sm font-bold text-white/40 uppercase">Nenhuma nota em aberto ou entrega agendada</p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                {pendingOrScheduledSales.map(sale => {
+                  const down = sale.downPayment || 0;
+                  const balance = sale.total - down;
+                  const isPartial = balance > 0 || sale.status === 'pending';
+                  return (
+                    <div key={sale.id} className="flex items-center gap-3 bg-slate-900/60 hover:bg-slate-900 border border-white/5 rounded-xl px-3 py-2.5 transition-all flex-wrap">
+                      <div className="flex-1 min-w-0 flex items-center gap-3 flex-wrap">
+                        <span className="text-[11px] font-black text-white truncate">{sale.customerName || 'Cliente de Balcão'}</span>
+                        <span className="text-[9px] text-white/30 font-mono shrink-0">#{sale.id.slice(-8).toUpperCase()}</span>
+                        <span className="text-[9px] text-white/30 shrink-0">{format(new Date(sale.createdAt), 'dd/MM HH:mm')}</span>
+                        {sale.scheduledFor && (
+                          <span className="text-[8.5px] font-black uppercase bg-primary-500/10 text-primary-300 px-2 py-0.5 rounded-full border border-primary-500/20 shrink-0">
+                            Entrega: {format(new Date(sale.scheduledFor), 'dd/MM HH:mm')}
+                          </span>
+                        )}
+                      </div>
+                      {isPartial && (
+                        <Badge className="text-[7.5px] font-black uppercase px-1.5 py-0.5 border-none shrink-0 bg-amber-500/20 text-amber-300">PARCIAL</Badge>
+                      )}
+                      <span className="text-[11px] font-black text-white shrink-0 w-20 text-right">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
+                      <div className="flex gap-1 shrink-0">
+                        {isPartial && (
+                          <button onClick={() => setSettleModalOrder(sale)} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar Saldo"><CheckCircle2 size={13} /></button>
+                        )}
+                        <button onClick={() => openReceipt(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={13} /></button>
+                        {canManageHistory && (
+                          <>
+                            <button onClick={() => startEditSale(sale)} className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20" title="Editar"><Pencil size={13} /></button>
+                            <button onClick={() => handleDeleteSale(sale)} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" title="Excluir"><Trash2 size={13} /></button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
         {activeTab === 'clientes' && (
-          <div className="flex-1 p-10 space-y-8 overflow-y-auto bg-slate-900/30">
-             <div className="flex justify-between items-center">
-               <div>
-                  <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase">Base de Clientes</h2>
-                  <p className="text-xs text-white/40 font-bold uppercase tracking-widest mt-1">Integrado com contatos Symmetry</p>
-               </div>
-               <Button icon={UserPlus}>Cadastrar Lead</Button>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-               {[
-                 { name: 'Rafael Matos', phone: '(11) 99999-9999', points: 120, sales: 5 },
-                 { name: 'Maria Silva', phone: '(21) 88888-8888', points: 45, sales: 2 },
-                 { name: 'João Oliveira', phone: '(19) 77777-7777', points: 280, sales: 12 }
-               ].map(client => (
-                 <GlassCard key={client.phone} className="p-8 border-white/5 space-y-6 relative group overflow-hidden">
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-primary-500/10 rounded-full -mr-16 -mt-16 blur-3xl group-hover:bg-primary-500/20 transition-all" />
-                    <div className="flex items-center gap-4">
-                       <div className="w-14 h-14 rounded-[20px] bg-slate-800 flex items-center justify-center text-white font-black text-lg">
-                          {client.name[0]}
-                       </div>
-                       <div>
-                          <h4 className="text-lg font-black text-white tracking-tight">{client.name}</h4>
-                          <p className="text-xs text-white/40 font-bold tracking-widest">{client.phone}</p>
-                       </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                       <div className="p-4 bg-white/5 rounded-2xl border border-white/5">
-                          <p className="text-[8px] font-black uppercase text-white/20 tracking-widest mb-1">Fidelidade</p>
-                          <p className="text-sm font-black text-amber-400">{client.points} pts</p>
-                       </div>
-                       <div className="p-4 bg-white/5 rounded-2xl border border-white/5">
-                          <p className="text-[8px] font-black uppercase text-white/20 tracking-widest mb-1">Compras</p>
-                          <p className="text-sm font-black text-primary-300">{client.sales} un</p>
-                       </div>
-                    </div>
-                    <div className="flex gap-2">
-                       <Button variant="secondary" className="flex-1 text-[9px] uppercase tracking-widest h-11" onClick={() => { setIsVerifying(true); setTimeout(() => setIsVerifying(false), 2000); }}>
-                          {isVerifying ? <RefreshCw className="animate-spin" size={12} /> : 'Validar Telefone'}
-                       </Button>
-                       <Button className="flex-1 text-[9px] uppercase tracking-widest h-11" icon={Send}>Chat</Button>
-                    </div>
-                 </GlassCard>
-               ))}
-            </div>
+          <div className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/30">
+            <ContactsModule currentCompany={currentCompany} />
           </div>
         )}
 
