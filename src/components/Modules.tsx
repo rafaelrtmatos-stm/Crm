@@ -65,6 +65,7 @@ import {
   Moon,
   Trash2,
   Pencil,
+  Upload,
   Share2,
   Star,
   Tag,
@@ -171,6 +172,7 @@ import { db } from '../firebase';
 import { supabase } from '../supabase';
 import { buildPixPayload } from '../lib/pix';
 import { renderReceiptCanvas, downloadCanvasAsPng, downloadCanvasAsPdf } from '../lib/receipt';
+import { exportClientesXlsx, parseClientesXlsx, exportProdutosXlsx, parseProdutosXlsx, exportVendasXlsx, parseVendasXlsx } from '../lib/spreadsheet';
 import { format } from 'date-fns';
 
 import { 
@@ -3685,6 +3687,42 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     }
   };
 
+  const [isImportingVendas, setIsImportingVendas] = useState(false);
+  const vendasFileInputRef = React.useRef<HTMLInputElement>(null);
+  const handleImportVendasFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsImportingVendas(true);
+    try {
+      const buffer = await file.arrayBuffer();
+      const rows = parseVendasXlsx(buffer);
+      if (rows.length === 0) {
+        alert('Nenhuma venda válida encontrada na planilha. Confira se o modelo de colunas está correto.');
+        return;
+      }
+      const payload = rows.map(r => ({
+        customer_name: r.customerName,
+        items: r.items,
+        total: r.total,
+        down_payment: r.downPayment || 0,
+        payment_method: r.paymentMethod,
+        status: r.status,
+      }));
+      const batchSize = 200;
+      for (let i = 0; i < payload.length; i += batchSize) {
+        const { error } = await supabase.from('vendas').insert(payload.slice(i, i + batchSize));
+        if (error) throw error;
+      }
+      alert(`${rows.length} venda(s) importada(s) com sucesso!`);
+    } catch (err) {
+      console.error('Erro ao importar vendas:', err);
+      alert('Não foi possível importar a planilha. Confira se o modelo de colunas está correto.');
+    } finally {
+      setIsImportingVendas(false);
+      if (vendasFileInputRef.current) vendasFileInputRef.current.value = '';
+    }
+  };
+
   return (
     <div className="h-[calc(100dvh-6rem)] min-h-[500px] flex flex-col bg-slate-900/50 rounded-[40px] shadow-2xl border border-white/10 overflow-hidden animate-in fade-in slide-in-from-right-5 duration-500">
       {/* Tab Navigation */}
@@ -3997,6 +4035,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 <p className="text-[10px] md:text-xs text-white/40 font-bold uppercase tracking-widest mt-1">
                   Acompanhamento de entradas, saldos devedores e entregas agendadas
                 </p>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <input ref={vendasFileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportVendasFile} />
+                <Button variant="secondary" size="sm" icon={Upload} disabled={isImportingVendas} className="text-[9px] uppercase tracking-wider font-black" onClick={() => vendasFileInputRef.current?.click()}>
+                  {isImportingVendas ? 'Importando...' : 'Importar Planilha'}
+                </Button>
+                <Button variant="secondary" size="sm" icon={Download} className="text-[9px] uppercase tracking-wider font-black" onClick={() => exportVendasXlsx(allSalesHistory)}>
+                  Exportar Planilha
+                </Button>
               </div>
 
               {/* Filter Tabs */}
@@ -5106,6 +5154,34 @@ export const ContactsModule = ({ currentCompany }: { currentCompany: Company | n
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({ full_name: '', phone: '', email: '', cpf_cnpj: '', city: '', state: '' });
+  const [isImporting, setIsImporting] = useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsImporting(true);
+    try {
+      const buffer = await file.arrayBuffer();
+      const rows = parseClientesXlsx(buffer);
+      if (rows.length === 0) {
+        alert('Nenhum cliente válido encontrado na planilha. Confira se o modelo de colunas está correto.');
+        return;
+      }
+      const batchSize = 200;
+      for (let i = 0; i < rows.length; i += batchSize) {
+        const { error } = await supabase.from('clientes').insert(rows.slice(i, i + batchSize));
+        if (error) throw error;
+      }
+      alert(`${rows.length} cliente(s) importado(s) com sucesso!`);
+    } catch (err) {
+      console.error('Erro ao importar clientes:', err);
+      alert('Não foi possível importar a planilha. Confira se o modelo de colunas está correto.');
+    } finally {
+      setIsImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -5162,7 +5238,18 @@ export const ContactsModule = ({ currentCompany }: { currentCompany: Company | n
       <SectionHeader
         title="Base de Contatos"
         subtitle="Gestão unificada de clientes"
-        actions={<Button icon={Plus} onClick={() => setIsModalOpen(true)}>Novo Cliente</Button>}
+        actions={
+          <div className="flex items-center gap-2 flex-wrap">
+            <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportFile} />
+            <Button variant="secondary" icon={Upload} disabled={isImporting} onClick={() => fileInputRef.current?.click()}>
+              {isImporting ? 'Importando...' : 'Importar Planilha'}
+            </Button>
+            <Button variant="secondary" icon={Download} onClick={() => exportClientesXlsx(clientes)}>
+              Exportar Planilha
+            </Button>
+            <Button icon={Plus} onClick={() => setIsModalOpen(true)}>Novo Cliente</Button>
+          </div>
+        }
       />
       <GlassCard className="p-4 border-white/5 bg-white/[0.02]">
         <DataTable columns={columns} data={clientes} />
@@ -5478,6 +5565,35 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
     }
   };
 
+  const [isImporting, setIsImporting] = useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsImporting(true);
+    try {
+      const buffer = await file.arrayBuffer();
+      const rows = parseProdutosXlsx(buffer);
+      if (rows.length === 0) {
+        alert('Nenhum produto válido encontrado na planilha. Confira se o modelo de colunas está correto.');
+        return;
+      }
+      const batchSize = 200;
+      for (let i = 0; i < rows.length; i += batchSize) {
+        const { error } = await supabase.from('produtos').insert(rows.slice(i, i + batchSize));
+        if (error) throw error;
+      }
+      alert(`${rows.length} produto(s) importado(s) com sucesso!`);
+    } catch (err) {
+      console.error('Erro ao importar produtos:', err);
+      alert('Não foi possível importar a planilha. Confira se o modelo de colunas está correto.');
+    } finally {
+      setIsImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
   if (loading && items.length === 0) return (
     <div className="h-96 flex items-center justify-center">
        <RefreshCw className="animate-spin text-primary-500" />
@@ -5489,7 +5605,18 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
       <SectionHeader 
         title="Gestão de Insumos" 
         subtitle="Controle de Estoque e Matéria-Prima (Foco Gráfica)" 
-        actions={<Button icon={Plus} onClick={() => setIsModalOpen(true)}>Novo Item</Button>}
+        actions={
+          <div className="flex items-center gap-2 flex-wrap">
+            <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportFile} />
+            <Button variant="secondary" icon={Upload} disabled={isImporting} onClick={() => fileInputRef.current?.click()}>
+              {isImporting ? 'Importando...' : 'Importar Planilha'}
+            </Button>
+            <Button variant="secondary" icon={Download} onClick={() => exportProdutosXlsx(items.map(i => ({ ...i, sale_price: i.salePrice, cost_price: i.costPrice, current_stock: i.currentStock, min_stock: i.minStock })))}>
+              Exportar Planilha
+            </Button>
+            <Button icon={Plus} onClick={() => setIsModalOpen(true)}>Novo Item</Button>
+          </div>
+        }
       />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
