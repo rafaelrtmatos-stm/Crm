@@ -4616,49 +4616,49 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
        title={lastFinalizedOrder?.status === 'pending' ? 'Entrada Salva / Nota Aberta 📝' : 'Venda Finalizada 🎉'}
        size="lg"
      >
-       <div className="space-y-8 py-4">
-          <div className="flex items-center gap-6 p-6 bg-white/5 rounded-[40px] border border-white/10">
-             <div className="w-16 h-16 bg-emerald-500/20 text-emerald-500 rounded-3xl flex items-center justify-center shadow-2xl shadow-emerald-500/20">
-                <Check size={32} />
+       <div className="space-y-3 py-1 flex flex-col min-h-0 flex-1 overflow-hidden">
+          <div className="flex items-center gap-4 p-3 sm:p-4 bg-white/5 rounded-3xl border border-white/10 shrink-0">
+             <div className="w-11 h-11 sm:w-12 sm:h-12 bg-emerald-500/20 text-emerald-500 rounded-2xl flex items-center justify-center shadow-xl shadow-emerald-500/20 shrink-0">
+                <Check size={22} />
              </div>
              <div>
-                <h3 className="text-2xl font-black text-white italic tracking-tighter uppercase">R$ {lastFinalizedOrder?.total.toFixed(2)}</h3>
-                <p className="text-[10px] text-white/40 font-black uppercase tracking-widest mt-1">
+                <h3 className="text-lg sm:text-xl font-black text-white italic tracking-tighter uppercase">R$ {lastFinalizedOrder?.total.toFixed(2)}</h3>
+                <p className="text-[9px] text-white/40 font-black uppercase tracking-widest mt-0.5">
                    {lastFinalizedOrder?.status === 'pending' ? 'OS registrada nas Notas Abertas' : 'Venda concluída e integrada'}
                 </p>
              </div>
           </div>
 
-          <div className="bg-slate-900/50 rounded-[32px] p-8 border border-white/5 text-left space-y-6">
-             <div className="flex justify-between items-center border-b border-white/5 pb-4">
-                <h4 className="text-[10px] font-black uppercase text-primary-300 tracking-[2px]">Resumo da Nota</h4>
+          <div className="bg-slate-900/50 rounded-3xl p-3 sm:p-4 border border-white/5 text-left space-y-2 flex-1 min-h-0 overflow-y-auto custom-scrollbar">
+             <div className="flex justify-between items-center border-b border-white/5 pb-2">
+                <h4 className="text-[9px] font-black uppercase text-primary-300 tracking-[2px]">Resumo da Nota</h4>
                 <Badge variant="outline" className="font-mono text-[9px]">#{lastFinalizedOrder?.id?.slice(-8).toUpperCase()}</Badge>
              </div>
              
-             <div className="space-y-3">
+             <div className="space-y-1.5">
                 {lastFinalizedOrder?.items.map((item, idx) => (
-                   <div key={idx} className="flex justify-between text-xs font-bold text-white/70">
+                   <div key={idx} className="flex justify-between text-[11px] font-bold text-white/70">
                       <span>{item.quantity}x {item.name}</span>
                       <span>R$ {(item.price * item.quantity).toFixed(2)}</span>
                    </div>
                 ))}
              </div>
 
-             <div className="pt-6 border-t border-white/5 space-y-2">
-                <div className="flex justify-between text-xs text-white/40">
+             <div className="pt-2 border-t border-white/5 space-y-1">
+                <div className="flex justify-between text-[11px] text-white/40">
                    <span>Valor Total</span>
                    <span className="font-mono">R$ {lastFinalizedOrder?.total.toFixed(2)}</span>
                 </div>
-                <div className="flex justify-between text-xs text-emerald-400 font-black italic">
+                <div className="flex justify-between text-[11px] text-emerald-400 font-black italic">
                    <span>Entrada Recebida</span>
                    <span className="font-mono">R$ {(lastFinalizedOrder?.downPayment ?? lastFinalizedOrder?.receivedValue ?? 0).toFixed(2)}</span>
                 </div>
-                <div className="flex justify-between text-xs text-rose-400 font-black italic">
+                <div className="flex justify-between text-[11px] text-rose-400 font-black italic">
                    <span>Valor que Falta Pagar</span>
                    <span className="font-mono font-bold">R$ {Math.max(0, (lastFinalizedOrder?.total || 0) - (lastFinalizedOrder?.downPayment ?? lastFinalizedOrder?.receivedValue ?? 0)).toFixed(2)}</span>
                 </div>
                 {lastFinalizedOrder?.scheduledFor && (
-                   <div className="flex justify-between text-xs text-primary-300 font-black bg-primary-500/10 p-2.5 rounded-xl border border-primary-500/20 mt-2">
+                   <div className="flex justify-between text-[10px] text-primary-300 font-black bg-primary-500/10 p-2 rounded-lg border border-primary-500/20 mt-1.5">
                       <span>Entrega Agendada:</span>
                       <span className="font-mono">{format(new Date(lastFinalizedOrder.scheduledFor), 'dd/MM/yyyy HH:mm')}</span>
                    </div>
@@ -4666,21 +4666,21 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
              </div>
 
              {selectedCustomer && (
-               <div className="pt-4 border-t border-white/5 flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-[10px]"><Users size={12} /></div>
+               <div className="pt-2 border-t border-white/5 flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center text-[10px] shrink-0"><Users size={12} /></div>
                   <div>
-                    <p className="text-[10px] font-black uppercase text-white/60">{selectedCustomer.name}</p>
-                    <p className="text-[9px] text-white/30">{selectedCustomer.phone || 'Sem telefone'}</p>
+                    <p className="text-[9px] font-black uppercase text-white/60">{selectedCustomer.name}</p>
+                    <p className="text-[8px] text-white/30">{selectedCustomer.phone || 'Sem telefone'}</p>
                   </div>
                </div>
              )}
           </div>
 
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-5 gap-1.5 sm:gap-3 shrink-0">
              <Button 
                variant="secondary" 
                icon={Share2} 
-               className="flex-col h-32 gap-3 py-6 text-[10px] uppercase font-black tracking-widest border-white/5 bg-white/5 hover:bg-emerald-500/20 hover:text-emerald-300 transition-all"
+               className="flex-col h-16 sm:h-20 gap-1 py-2 px-1 text-[7.5px] sm:text-[9px] uppercase font-black tracking-wide border-white/5 bg-white/5 hover:bg-emerald-500/20 hover:text-emerald-300 transition-all"
                onClick={() => {
                   if(!lastFinalizedOrder) return;
                   const total = lastFinalizedOrder.total;
@@ -4707,7 +4707,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
              <Button 
                variant="secondary" 
                icon={Printer} 
-               className="flex-col h-32 gap-3 py-6 text-[10px] uppercase font-black tracking-widest border-white/5 bg-white/5 hover:bg-primary-500/20 hover:text-primary-300 transition-all"
+               className="flex-col h-16 sm:h-20 gap-1 py-2 px-1 text-[7.5px] sm:text-[9px] uppercase font-black tracking-wide border-white/5 bg-white/5 hover:bg-primary-500/20 hover:text-primary-300 transition-all"
                onClick={() => {
                  if (!lastFinalizedOrder) return;
                  const order = lastFinalizedOrder;
@@ -4786,7 +4786,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
              <Button 
                variant="secondary" 
                icon={Download} 
-               className="flex-col h-32 gap-3 py-6 text-[10px] uppercase font-black tracking-widest border-white/5 bg-white/5 hover:bg-blue-500/20 hover:text-blue-300 transition-all"
+               className="flex-col h-16 sm:h-20 gap-1 py-2 px-1 text-[7.5px] sm:text-[9px] uppercase font-black tracking-wide border-white/5 bg-white/5 hover:bg-blue-500/20 hover:text-blue-300 transition-all"
                onClick={() => {
                  if (!lastFinalizedOrder) return;
                  const canvas = renderReceiptCanvas({
@@ -4804,7 +4804,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
              <Button 
                variant="secondary" 
                icon={FileText} 
-               className="flex-col h-32 gap-3 py-6 text-[10px] uppercase font-black tracking-widest border-white/5 bg-white/5 hover:bg-violet-500/20 hover:text-violet-300 transition-all"
+               className="flex-col h-16 sm:h-20 gap-1 py-2 px-1 text-[7.5px] sm:text-[9px] uppercase font-black tracking-wide border-white/5 bg-white/5 hover:bg-violet-500/20 hover:text-violet-300 transition-all"
                onClick={async () => {
                  if (!lastFinalizedOrder) return;
                  const canvas = renderReceiptCanvas({
@@ -4820,7 +4820,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
              </Button>
 
              <Button 
-               className="flex-col h-32 gap-3 py-6 text-[10px] uppercase font-black tracking-widest bg-primary-500 hover:bg-primary-400 text-slate-900 border-none shadow-lg shadow-primary-500/20 transition-all"
+               className="flex-col h-16 sm:h-20 gap-1 py-2 px-1 text-[7.5px] sm:text-[9px] uppercase font-black tracking-wide bg-primary-500 hover:bg-primary-400 text-slate-900 border-none shadow-lg shadow-primary-500/20 transition-all"
                onClick={() => {
                  setIsSuccessModalOpen(false);
                  setSelectedCustomer(null);
