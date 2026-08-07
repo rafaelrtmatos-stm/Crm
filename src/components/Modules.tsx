@@ -3292,7 +3292,7 @@ export const MetaAdsModule = ({ currentCompany }: { currentCompany: Company | nu
 
 // --- PDV / POS ---
 export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany: Company | null, addPendingOrder: (order: SaleOrder) => void }) => {
-  const { isRegisterOpen, setIsRegisterOpen } = React.useContext(AppContext)!;
+  const { isRegisterOpen, setIsRegisterOpen, user } = React.useContext(AppContext)!;
   const [activeTab, setActiveTab] = useState<'venda' | 'historico' | 'estoque' | 'clientes' | 'contratos'>('venda');
   const [cart, setCart] = useState<SaleOrderItem[]>([]);
   const [search, setSearch] = useState('');
@@ -3313,6 +3313,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [historySearch, setHistorySearch] = useState('');
   const [settleModalOrder, setSettleModalOrder] = useState<SaleOrder | null>(null);
   const [settleMethod, setSettleMethod] = useState<'pix' | 'dinheiro' | 'cartao_credito' | 'cartao_debito'>('pix');
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncedAt, setSyncedAt] = useState<Date | null>(null);
+  const [pixConfig, setPixConfig] = useState<{ key: string; beneficiaryName: string; city: string } | null>(null);
 
   useEffect(() => {
     if (!currentCompany) return;
@@ -3331,6 +3334,27 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     };
     loadSales();
     const channel = supabase.channel('pos-vendas').on('postgres_changes', { event: '*', schema: 'public', table: 'vendas' }, loadSales).subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [currentCompany]);
+
+  useEffect(() => {
+    const load = async () => {
+      const { data } = await supabase.from('configuracoes').select('*').eq('company_id', 'rafa-arts').maybeSingle();
+      if (data && data.pix_key) {
+        setPixConfig({
+          key: data.pix_key,
+          beneficiaryName: data.beneficiary_name || currentCompany?.name || 'RAFA ARTS GRAPHICS',
+          city: data.city || 'Santarem',
+        });
+      } else {
+        setPixConfig(null);
+      }
+    };
+    load();
+    const channel = supabase
+      .channel('pos-configuracoes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'configuracoes' }, load)
+      .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [currentCompany]);
 
@@ -3571,37 +3595,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             <AlertCircle size={40} />
           </div>
           <h2 className="text-2xl font-bold text-white tracking-widest uppercase">Caixa Fechado</h2>
-          <p className="text-white/40 text-sm">É necessário abrir o caixa para iniciar as vendas do dia.</p>
-          <Button className="w-full h-14 text-lg" onClick={() => setIsRegisterOpen(true)}>Abrir Caixa Agora</Button>
+          {user?.isAdmin ? (
+            <>
+              <p className="text-white/40 text-sm">É necessário abrir o caixa para iniciar as vendas do dia.</p>
+              <Button className="w-full h-14 text-lg" onClick={() => setIsRegisterOpen(true)}>Abrir Caixa Agora</Button>
+            </>
+          ) : (
+            <p className="text-white/40 text-sm">Apenas o administrador pode abrir o caixa. Aguarde a liberação para iniciar as vendas.</p>
+          )}
         </GlassCard>
       </div>
     );
   }
 
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [syncedAt, setSyncedAt] = useState<Date | null>(null);
-  const [pixConfig, setPixConfig] = useState<{ key: string; beneficiaryName: string; city: string } | null>(null);
-
-  useEffect(() => {
-    const load = async () => {
-      const { data } = await supabase.from('configuracoes').select('*').eq('company_id', 'rafa-arts').maybeSingle();
-      if (data && data.pix_key) {
-        setPixConfig({
-          key: data.pix_key,
-          beneficiaryName: data.beneficiary_name || currentCompany?.name || 'RAFA ARTS GRAPHICS',
-          city: data.city || 'Santarem',
-        });
-      } else {
-        setPixConfig(null);
-      }
-    };
-    load();
-    const channel = supabase
-      .channel('pos-configuracoes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'configuracoes' }, load)
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [currentCompany]);
   const handleManualSync = async () => {
     setIsSyncing(true);
     try {
@@ -3661,18 +3667,20 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             {isSyncing ? 'Sincronizando...' : 'Sincronizar'}
           </button>
         </div>
-        <Button 
-          variant="secondary" 
-          size="sm" 
-          icon={LogOut} 
-          className="text-rose-400 border-rose-500/20 hover:bg-rose-500/10 mr-4 text-[9px] uppercase tracking-widest font-black"
-          onClick={() => setIsRegisterOpen(false)}
-        >
-          Fechar Caixa
-        </Button>
+        {user?.isAdmin && (
+          <Button 
+            variant="secondary" 
+            size="sm" 
+            icon={LogOut} 
+            className="text-rose-400 border-rose-500/20 hover:bg-rose-500/10 mr-4 text-[9px] uppercase tracking-widest font-black"
+            onClick={() => setIsRegisterOpen(false)}
+          >
+            Fechar Caixa
+          </Button>
+        )}
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 min-h-0 overflow-hidden">
         {activeTab === 'venda' && (
           <>
             {/* Left Column: POS Display & Compact Cart Items Viewer */}
@@ -3725,7 +3733,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                         <p className="text-[9px] font-bold text-slate-500 max-w-[200px]">Selecione os produtos na lista ao lado para adicionar ao pedido.</p>
                      </div>
                   ) : (
-                     <div className="flex-1 overflow-y-auto custom-scrollbar divide-y divide-slate-200/60 pr-1">
+                     <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar divide-y divide-slate-200/60 pr-1">
                         {cart.map((item, idx) => {
                            const itemSubtotal = item.area ? item.price * item.area * item.quantity : item.price * item.quantity;
                            return (
@@ -3798,7 +3806,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             </div>
 
             {/* Right Column: List & Actions */}
-            <div className="w-[450px] bg-white flex flex-col border-l border-slate-200 shadow-2xl relative">
+            <div className="w-[450px] bg-white flex flex-col min-h-0 border-l border-slate-200 shadow-2xl relative">
                {/* Search & Action Bar */}
                <div className="p-4 bg-slate-50 space-y-3">
                   <div className="flex gap-2 h-12">
@@ -3888,7 +3896,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    </div>
                 </div>
 
-               <div className="p-6 bg-slate-50 border-t border-slate-200 space-y-4">
+               <div className="shrink-0 p-6 bg-slate-50 border-t border-slate-200 space-y-4 sticky bottom-0 z-10">
                   <div className="flex gap-4 h-24">
                      <button 
                        onClick={() => setIsCustomerModalOpen(true)}
