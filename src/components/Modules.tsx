@@ -3628,7 +3628,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   return (
-    <div className="h-[calc(100vh-6rem)] min-h-[600px] flex flex-col bg-slate-900/50 rounded-[40px] shadow-2xl border border-white/10 overflow-hidden animate-in fade-in slide-in-from-right-5 duration-500">
+    <div className="h-[calc(100dvh-6rem)] min-h-[500px] flex flex-col bg-slate-900/50 rounded-[40px] shadow-2xl border border-white/10 overflow-hidden animate-in fade-in slide-in-from-right-5 duration-500">
       {/* Tab Navigation */}
       <div className="flex bg-white/5 p-2 gap-2 border-b border-white/10 items-center justify-between">
         <div className="flex gap-2">
@@ -4413,7 +4413,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                        });
                        return (
                        <div className="flex flex-col items-center justify-center gap-1.5 w-full h-full min-h-0">
-                          <div className="max-h-[45vh] sm:max-h-[50vh] w-auto aspect-square bg-white rounded-lg p-2 shadow-lg flex items-center justify-center shrink-0">
+                          <div className="w-[50vmin] h-[50vmin] max-w-full max-h-full bg-white rounded-lg p-2 shadow-lg flex items-center justify-center shrink-0">
                              <img src={`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(pixPayload)}`} alt="QR" className="h-full w-full object-contain" referrerPolicy="no-referrer" />
                           </div>
                           
