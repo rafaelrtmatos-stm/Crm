@@ -109,3 +109,17 @@ create policy "allow all produtos" on produtos for all using (true) with check (
 create policy "allow all vendas" on vendas for all using (true) with check (true);
 create policy "allow all conversas" on conversas for all using (true) with check (true);
 create policy "allow all mensagens" on mensagens for all using (true) with check (true);
+
+-- CONFIGURACOES (chave PIX e outros dados personalizados da empresa)
+create table if not exists configuracoes (
+  id uuid primary key default gen_random_uuid(),
+  company_id text not null default 'rafa-arts' unique,
+  pix_key text,
+  pix_key_type text, -- cpf | cnpj | phone | email | random
+  beneficiary_name text,
+  city text,
+  updated_at timestamptz not null default now()
+);
+
+alter table configuracoes enable row level security;
+create policy "allow all configuracoes" on configuracoes for all using (true) with check (true);

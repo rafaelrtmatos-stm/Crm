@@ -166,6 +166,7 @@ import {
 import { collection, query, where, onSnapshot, orderBy, Timestamp, addDoc, doc, updateDoc, getDocs, setDoc, limit } from 'firebase/firestore';
 import { db } from '../firebase';
 import { supabase } from '../supabase';
+import { buildPixPayload } from '../lib/pix';
 import { format } from 'date-fns';
 
 import { 
@@ -3579,6 +3580,28 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncedAt, setSyncedAt] = useState<Date | null>(null);
+  const [pixConfig, setPixConfig] = useState<{ key: string; beneficiaryName: string; city: string } | null>(null);
+
+  useEffect(() => {
+    const load = async () => {
+      const { data } = await supabase.from('configuracoes').select('*').eq('company_id', 'rafa-arts').maybeSingle();
+      if (data && data.pix_key) {
+        setPixConfig({
+          key: data.pix_key,
+          beneficiaryName: data.beneficiary_name || currentCompany?.name || 'RAFA ARTS GRAPHICS',
+          city: data.city || 'Santarem',
+        });
+      } else {
+        setPixConfig(null);
+      }
+    };
+    load();
+    const channel = supabase
+      .channel('pos-configuracoes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'configuracoes' }, load)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [currentCompany]);
   const handleManualSync = async () => {
     setIsSyncing(true);
     try {
@@ -4366,27 +4389,41 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  </div>
 
                  <div className="bg-white/5 rounded-xl border border-white/5 p-2 flex-1 flex flex-col items-center justify-center text-center min-h-0 overflow-hidden relative">
-                    {paymentMethod === 'pix' && (
+                    {paymentMethod === 'pix' && !pixConfig && (
+                       <div className="flex flex-col items-center justify-center gap-2 text-center p-4">
+                          <AlertCircle size={24} className="text-amber-500" />
+                          <p className="text-[10px] text-white/50">Nenhuma chave PIX cadastrada. Configure em Configurações → Integrações.</p>
+                       </div>
+                    )}
+                    {paymentMethod === 'pix' && pixConfig && (() => {
+                       const pixAmount = downPayment === "" || typeof downPayment === 'string' ? total : Number(downPayment);
+                       const pixPayload = buildPixPayload({
+                         key: pixConfig.key,
+                         beneficiaryName: pixConfig.beneficiaryName,
+                         city: pixConfig.city,
+                         amount: pixAmount > 0 ? pixAmount : total,
+                       });
+                       return (
                        <div className="flex flex-col items-center justify-center gap-1.5 w-full h-full min-h-0">
                           <div className="max-h-[11vh] sm:max-h-[13vh] aspect-square bg-white rounded-lg p-1 shadow-lg flex items-center justify-center shrink-0">
-                             <img src={`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=RPro-Pix-${total}`} alt="QR" className="h-full w-full object-contain" referrerPolicy="no-referrer" />
+                             <img src={`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(pixPayload)}`} alt="QR" className="h-full w-full object-contain" referrerPolicy="no-referrer" />
                           </div>
                           
                           <div className="w-full flex gap-1 justify-center shrink-0">
                              <button 
                                 type="button"
                                 onClick={() => {
-                                   navigator.clipboard.writeText("44.222.111/0001-99");
+                                   navigator.clipboard.writeText(pixConfig.key);
                                    alert("Chave PIX copiada!");
                                 }}
                                 className="text-[7.5px] font-black text-primary-300 hover:text-white uppercase tracking-wider bg-primary-500/10 px-2 py-0.5 rounded border border-primary-500/20 active:scale-95 transition-all cursor-pointer"
                              >
-                                Copiar Chave CNPJ
+                                Copiar Chave
                              </button>
                              <button 
                                 type="button"
                                 onClick={() => {
-                                   navigator.clipboard.writeText(`00020101021126580014br.gov.bcb.pix011844222111000199520400005303986540${total.toFixed(2)}5802BR5915RPro%20Hub6009SAO%20PAULO62070503***6304`);
+                                   navigator.clipboard.writeText(pixPayload);
                                    alert("Código Pix Copia e Cola copiado!");
                                 }}
                                 className="text-[7.5px] font-black text-primary-300 hover:text-white uppercase tracking-wider bg-primary-500/10 px-2 py-0.5 rounded border border-primary-500/20 active:scale-95 transition-all cursor-pointer"
@@ -4395,7 +4432,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                              </button>
                           </div>
                        </div>
-                    )}
+                       );
+                    })()}
 
                     {paymentMethod === 'dinheiro' && (
                        <div className="flex flex-col items-center justify-center gap-1.5 w-full h-full p-1 min-h-0">
@@ -5309,6 +5347,50 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
   const [funnels, setFunnels] = useState<Funnel[]>([]);
   const [selectedFunnel, setSelectedFunnel] = useState('');
 
+  // Configuracao PIX (Supabase, sincronizada em tempo real)
+  const [pixKey, setPixKey] = useState('');
+  const [pixBeneficiary, setPixBeneficiary] = useState('');
+  const [pixCity, setPixCity] = useState('Santarem');
+  const [savingPix, setSavingPix] = useState(false);
+
+  useEffect(() => {
+    const load = async () => {
+      const { data } = await supabase.from('configuracoes').select('*').eq('company_id', 'rafa-arts').maybeSingle();
+      if (data) {
+        setPixKey(data.pix_key || '');
+        setPixBeneficiary(data.beneficiary_name || currentCompany?.name || '');
+        setPixCity(data.city || 'Santarem');
+      } else if (currentCompany?.name) {
+        setPixBeneficiary(currentCompany.name);
+      }
+    };
+    load();
+    const channel = supabase
+      .channel('configuracoes-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'configuracoes' }, load)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [currentCompany]);
+
+  const handleSavePixConfig = async () => {
+    setSavingPix(true);
+    try {
+      const { error } = await supabase.from('configuracoes').upsert({
+        company_id: 'rafa-arts',
+        pix_key: pixKey,
+        beneficiary_name: pixBeneficiary,
+        city: pixCity,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'company_id' });
+      if (error) throw error;
+    } catch (err) {
+      console.error('Erro ao salvar configuração PIX:', err);
+      alert('Não foi possível salvar a configuração PIX.');
+    } finally {
+      setSavingPix(false);
+    }
+  };
+
   // User Management State
   const [usersList, setUsersList] = useState<AppUser[]>([]);
   const { simulatedUserId, setSimulatedUserId, theme, setTheme } = React.useContext(AppContext)!;
@@ -5613,9 +5695,17 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                       </div>
                    </div>
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                      <Input label="Chave PIX" defaultValue="44.222.111/0001-99" />
-                      <Input label="Nome do Beneficiário" defaultValue={currentCompany?.name} />
+                      <Input label="Chave PIX" value={pixKey} onChange={(e: any) => setPixKey(e.target.value)} placeholder="CPF, CNPJ, telefone, e-mail ou chave aleatória" />
+                      <Input label="Nome do Beneficiário" value={pixBeneficiary} onChange={(e: any) => setPixBeneficiary(e.target.value)} />
+                      <Input label="Cidade (para o QR Code)" value={pixCity} onChange={(e: any) => setPixCity(e.target.value)} />
                     </div>
+                    <Button
+                      onClick={handleSavePixConfig}
+                      disabled={savingPix || !pixKey.trim()}
+                      className="bg-primary-500 text-slate-900 border-none shadow-xl shadow-primary-500/20"
+                    >
+                      {savingPix ? 'Salvando...' : 'Salvar Configuração PIX'}
+                    </Button>
                  </div>
               </div>
             )}
