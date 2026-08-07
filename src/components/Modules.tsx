@@ -3316,6 +3316,44 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncedAt, setSyncedAt] = useState<Date | null>(null);
   const [pixConfig, setPixConfig] = useState<{ key: string; beneficiaryName: string; city: string } | null>(null);
+  const canManageHistory = !!(user?.isAdmin || user?.allowedActions?.includes('canManageSaleHistory'));
+  const [editingSale, setEditingSale] = useState<SaleOrder | null>(null);
+  const [editSaleForm, setEditSaleForm] = useState({ customerName: '', total: 0, downPayment: 0, paymentMethod: 'pix' });
+
+  const handleReopenSale = async (sale: SaleOrder) => {
+    if (!confirm(`Reabrir a venda #${sale.id.slice(-8).toUpperCase()}? Ela voltará a aparecer como pendente.`)) return;
+    const { error } = await supabase.from('vendas').update({ status: 'pending' }).eq('id', sale.id);
+    if (error) { console.error(error); alert('Não foi possível reabrir a venda.'); }
+  };
+
+  const startEditSale = (sale: SaleOrder) => {
+    setEditingSale(sale);
+    setEditSaleForm({
+      customerName: sale.customerName || '',
+      total: sale.total,
+      downPayment: sale.downPayment || 0,
+      paymentMethod: sale.paymentMethod || 'pix',
+    });
+  };
+
+  const handleSaveEditSale = async () => {
+    if (!editingSale) return;
+    const { error } = await supabase.from('vendas').update({
+      customer_name: editSaleForm.customerName,
+      total: editSaleForm.total,
+      down_payment: editSaleForm.downPayment,
+      payment_method: editSaleForm.paymentMethod,
+      status: editSaleForm.downPayment >= editSaleForm.total ? 'completed' : 'pending',
+    }).eq('id', editingSale.id);
+    if (error) { console.error(error); alert('Não foi possível salvar as alterações.'); return; }
+    setEditingSale(null);
+  };
+
+  const handleDeleteSale = async (sale: SaleOrder) => {
+    if (!confirm(`Excluir permanentemente a venda #${sale.id.slice(-8).toUpperCase()} (R$ ${sale.total.toFixed(2)})? Essa ação não pode ser desfeita.`)) return;
+    const { error } = await supabase.from('vendas').delete().eq('id', sale.id);
+    if (error) { console.error(error); alert('Não foi possível excluir a venda.'); }
+  };
 
   useEffect(() => {
     if (!currentCompany) return;
@@ -4089,6 +4127,36 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                         >
                           Recibo
                         </Button>
+                        {canManageHistory && (
+                          <>
+                            {!isPartial && (
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-amber-500/20 text-amber-400 hover:bg-amber-500/10"
+                                onClick={() => handleReopenSale(sale)}
+                              >
+                                Reabrir
+                              </Button>
+                            )}
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-primary-500/20 text-primary-400 hover:bg-primary-500/10"
+                              onClick={() => startEditSale(sale)}
+                            >
+                              Editar
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-rose-500/20 text-rose-400 hover:bg-rose-500/10"
+                              onClick={() => handleDeleteSale(sale)}
+                            >
+                              Excluir
+                            </Button>
+                          </>
+                        )}
                       </div>
                     </GlassCard>
                   );
@@ -4845,6 +4913,55 @@ Obrigado pela preferência!
          </div>
        </Modal>
      )}
+
+     {editingSale && (
+       <Modal
+         isOpen={!!editingSale}
+         onClose={() => setEditingSale(null)}
+         title="Editar Venda"
+         size="md"
+       >
+         <div className="space-y-4 p-4">
+           <Input label="Nome do Cliente" value={editSaleForm.customerName} onChange={(e: any) => setEditSaleForm({ ...editSaleForm, customerName: e.target.value })} />
+           <div className="grid grid-cols-2 gap-4">
+             <Input label="Valor Total (R$)" type="number" step="any" value={editSaleForm.total} onChange={(e: any) => setEditSaleForm({ ...editSaleForm, total: Number(e.target.value) })} />
+             <Input label="Valor Pago / Entrada (R$)" type="number" step="any" value={editSaleForm.downPayment} onChange={(e: any) => setEditSaleForm({ ...editSaleForm, downPayment: Number(e.target.value) })} />
+           </div>
+           <div className="space-y-2">
+             <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Forma de Pagamento</label>
+             <div className="grid grid-cols-2 gap-2">
+               {[
+                 { id: 'pix', label: 'PIX' },
+                 { id: 'dinheiro', label: 'Dinheiro' },
+                 { id: 'cartao_credito', label: 'Cartão Crédito' },
+                 { id: 'cartao_debito', label: 'Cartão Débito' }
+               ].map(m => (
+                 <button
+                   key={m.id}
+                   type="button"
+                   onClick={() => setEditSaleForm({ ...editSaleForm, paymentMethod: m.id })}
+                   className={cn(
+                     "py-3 px-3 rounded-xl border text-xs font-bold transition-all text-center",
+                     editSaleForm.paymentMethod === m.id
+                       ? "bg-primary-500 border-primary-400 text-slate-900 font-black shadow-lg shadow-primary-500/20"
+                       : "bg-white/5 border-white/10 text-white/60 hover:text-white"
+                   )}
+                 >
+                   {m.label}
+                 </button>
+               ))}
+             </div>
+           </div>
+           <div className="flex justify-end gap-3 pt-2">
+             <Button variant="ghost" onClick={() => setEditingSale(null)}>Cancelar</Button>
+             <Button className="bg-primary-500 hover:bg-primary-400 text-slate-900 font-black gap-2" onClick={handleSaveEditSale}>
+               <CheckCircle2 size={16} />
+               <span>Salvar Alterações</span>
+             </Button>
+           </div>
+         </div>
+       </Modal>
+     )}
     </div>
   );
 };
@@ -5545,6 +5662,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     { id: 'canViewCustomerData', label: 'Ver Dados do Cliente', desc: 'Habilita visualização de CPF, RG e endereços de clientes' },
     { id: 'canViewAttachments', label: 'Visualizar Mídias/Anexos', desc: 'Mostra arquivos recebidos e PDFs dentro de conversas' },
     { id: 'canTranscribeAudio', label: 'Transcrever Áudios', desc: 'Habilita conversão automática de voz para texto via IA' },
+    { id: 'canManageSaleHistory', label: 'Gerenciar Histórico de Vendas', desc: 'Permite reabrir, editar ou excluir vendas já registradas no PDV' },
   ];
 
   return (
