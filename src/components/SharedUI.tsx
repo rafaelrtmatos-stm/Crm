@@ -269,7 +269,7 @@ export class ChartErrorBoundary extends React.Component<
 }
 
 type ModuleErrorBoundaryProps = { children: React.ReactNode; label?: string };
-type ModuleErrorBoundaryState = { hasError: boolean; message: string };
+type ModuleErrorBoundaryState = { hasError: boolean; message: string; stack: string };
 /**
  * Barreira de erro para um modulo inteiro (ex: PDV). Se algo travar durante
  * a renderizacao, mostra a mensagem do erro na tela em vez de deixar a
@@ -280,11 +280,15 @@ export class ModuleErrorBoundary extends React.Component<
   ModuleErrorBoundaryState
 > {
   declare props: ModuleErrorBoundaryProps;
-  state: ModuleErrorBoundaryState = { hasError: false, message: '' };
+  state: ModuleErrorBoundaryState = { hasError: false, message: '', stack: '' };
   static getDerivedStateFromError(error: unknown) {
-    return { hasError: true, message: error instanceof Error ? error.message : String(error) };
+    return {
+      hasError: true,
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error && error.stack ? error.stack : '',
+    };
   }
-  componentDidCatch(error: unknown, info: unknown) {
+  componentDidCatch(error: unknown, info: { componentStack?: string }) {
     console.error('ModuleErrorBoundary capturou um erro:', error, info);
   }
   render() {
@@ -297,6 +301,11 @@ export class ModuleErrorBoundary extends React.Component<
           <div className="text-white/40 text-xs max-w-md font-mono break-words">
             {this.state.message}
           </div>
+          {this.state.stack && (
+            <div className="text-white/30 text-[9px] max-w-lg text-left font-mono whitespace-pre-wrap break-words bg-black/30 rounded-lg p-3 max-h-48 overflow-y-auto">
+              {this.state.stack}
+            </div>
+          )}
           <button
             onClick={() => window.location.reload()}
             className="mt-2 px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-xs text-white transition-all"
