@@ -226,6 +226,22 @@ const DEFAULT_WIDGETS: DashboardWidget[] = [
   }
 ];
 
+// Converte uma linha da tabela "vendas" (Supabase) para o formato SaleOrder usado no app
+const mapVendaRow = (row: any): SaleOrder => ({
+  id: row.id,
+  companyId: row.company_id,
+  customerId: row.cliente_id,
+  customerName: row.customer_name,
+  items: row.items || [],
+  total: Number(row.total) || 0,
+  downPayment: row.down_payment !== null ? Number(row.down_payment) : undefined,
+  receivedValue: row.received_value !== null ? Number(row.received_value) : undefined,
+  paymentMethod: row.payment_method,
+  status: row.status,
+  createdAt: row.created_at,
+  scheduledFor: row.scheduled_for || undefined,
+} as SaleOrder);
+
 export const DashboardModule = ({ user, currentCompany, companies = [], pendingOrders = [], setActiveTab }: { user: AppUser | null, currentCompany: Company | null, companies?: Company[], pendingOrders?: SaleOrder[], setActiveTab?: (tab: any) => void }) => {
   const [isEditMode, setIsEditMode] = useState(false);
   const [widgets, setWidgets] = useState<DashboardWidget[]>(DEFAULT_WIDGETS);
@@ -264,22 +280,13 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         audio.play().catch(() => {});
       } catch (e) {}
 
-      const q = query(
-        collection(db, 'saleOrders'),
-        where('companyId', '==', currentCompany.id),
-        where('id', '==', order.id),
-        limit(1)
-      );
-      const snap = await getDocs(q);
-      if (!snap.empty) {
-        await updateDoc(doc(db, 'saleOrders', snap.docs[0].id), {
-          status: 'completed',
-          downPayment: order.total,
-          settledAt: new Date().toISOString(),
-          settledPaymentMethod: settleMethod,
-          updatedAt: new Date().toISOString()
-        });
-      }
+      const { error: settleErr } = await supabase.from('vendas').update({
+        status: 'completed',
+        down_payment: order.total,
+        settled_at: new Date().toISOString(),
+        settled_payment_method: settleMethod,
+      }).eq('id', order.id);
+      if (settleErr) throw settleErr;
 
       const qSvc = query(
         collection(db, 'services'),
@@ -306,17 +313,31 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
 
   useEffect(() => {
     if (!currentCompany) return;
-    const qSales = query(collection(db, 'saleOrders'), where('companyId', '==', currentCompany.id), orderBy('createdAt', 'desc'));
     const qSvc = query(collection(db, 'services'), where('companyId', '==', currentCompany.id), orderBy('createdAt', 'desc'));
-    const qInv = query(collection(db, 'inventory'), where('companyId', '==', currentCompany.id));
     const qRealEstate = query(collection(db, 'serviceContracts'), where('companyId', '==', currentCompany.id), orderBy('createdAt', 'desc'));
     
-    const unsubSales = onSnapshot(qSales, (snap) => setRealSales(snap.docs.map(d => ({ id: d.id, ...d.data() } as SaleOrder))));
     const unsubSvc = onSnapshot(qSvc, (snap) => setServices(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-    const unsubInv = onSnapshot(qInv, (snap) => setInventory(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
     const unsubRealEstate = onSnapshot(qRealEstate, (snap) => setRealEstateSales(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+
+    const loadSales = async () => {
+      const { data } = await supabase.from('vendas').select('*').order('created_at', { ascending: false });
+      setRealSales((data || []).map(mapVendaRow));
+    };
+    loadSales();
+    const salesChannel = supabase.channel('dashboard-vendas').on('postgres_changes', { event: '*', schema: 'public', table: 'vendas' }, loadSales).subscribe();
+
+    const loadInventory = async () => {
+      const { data } = await supabase.from('produtos').select('*');
+      setInventory((data || []).map((row: any) => ({
+        id: row.id, name: row.name, code: row.code, category: row.category, unit: row.unit,
+        salePrice: row.sale_price, costPrice: row.cost_price, currentStock: row.current_stock,
+        minStock: row.min_stock, isService: row.is_service, isActive: row.is_active,
+      })));
+    };
+    loadInventory();
+    const invChannel = supabase.channel('dashboard-produtos').on('postgres_changes', { event: '*', schema: 'public', table: 'produtos' }, loadInventory).subscribe();
     
-    return () => { unsubSales(); unsubSvc(); unsubInv(); unsubRealEstate(); };
+    return () => { unsubSvc(); unsubRealEstate(); supabase.removeChannel(salesChannel); supabase.removeChannel(invChannel); };
   }, [currentCompany]);
 
   const getFilteredOrders = () => {
@@ -3296,12 +3317,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     if (!currentCompany) return;
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
-    const q = query(
-      collection(db, 'saleOrders'),
-      where('companyId', '==', currentCompany.id)
-    );
-    return onSnapshot(q, (snap) => {
-      const allSales = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }) as SaleOrder);
+    const loadSales = async () => {
+      const { data } = await supabase.from('vendas').select('*');
+      const allSales = (data || []).map(mapVendaRow);
       allSales.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setAllSalesHistory(allSales);
       const todaySales = allSales.filter(sale => {
@@ -3309,7 +3327,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         return d >= startOfDay;
       });
       setSalesToday(todaySales);
-    });
+    };
+    loadSales();
+    const channel = supabase.channel('pos-vendas').on('postgres_changes', { event: '*', schema: 'public', table: 'vendas' }, loadSales).subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, [currentCompany]);
 
   const handleSettleBalance = async (order: SaleOrder) => {
@@ -3323,22 +3344,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         audio.play().catch(() => {});
       } catch (e) {}
 
-      const q = query(
-        collection(db, 'saleOrders'),
-        where('companyId', '==', currentCompany.id),
-        where('id', '==', order.id),
-        limit(1)
-      );
-      const snap = await getDocs(q);
-      if (!snap.empty) {
-        await updateDoc(doc(db, 'saleOrders', snap.docs[0].id), {
-          status: 'completed',
-          downPayment: order.total,
-          settledAt: new Date().toISOString(),
-          settledPaymentMethod: settleMethod,
-          updatedAt: new Date().toISOString()
-        });
-      }
+      const { error: settleErr } = await supabase.from('vendas').update({
+        status: 'completed',
+        down_payment: order.total,
+        settled_at: new Date().toISOString(),
+        settled_payment_method: settleMethod,
+      }).eq('id', order.id);
+      if (settleErr) throw settleErr;
 
       const qSvc = query(
         collection(db, 'services'),
@@ -3565,6 +3577,27 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     );
   }
 
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncedAt, setSyncedAt] = useState<Date | null>(null);
+  const handleManualSync = async () => {
+    setIsSyncing(true);
+    try {
+      const { data: vendasData } = await supabase.from('vendas').select('*');
+      const allSales = (vendasData || []).map(mapVendaRow);
+      allSales.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setAllSalesHistory(allSales);
+      const startOfDay = new Date();
+      startOfDay.setHours(0, 0, 0, 0);
+      setSalesToday(allSales.filter(sale => new Date(sale.createdAt) >= startOfDay));
+      setSyncedAt(new Date());
+    } catch (err) {
+      console.error('Erro ao sincronizar:', err);
+      alert('Não foi possível sincronizar agora. Verifique sua conexão.');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   return (
     <div className="h-[calc(100vh-12rem)] min-h-[600px] flex flex-col bg-slate-900/50 rounded-[40px] shadow-2xl border border-white/10 overflow-hidden animate-in fade-in slide-in-from-right-5 duration-500">
       {/* Tab Navigation */}
@@ -3591,6 +3624,20 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           ))}
         </div>
         
+        <div className="flex items-center gap-2 mr-2">
+          <button
+            onClick={handleManualSync}
+            disabled={isSyncing}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2.5 rounded-2xl text-[9px] font-black uppercase tracking-widest border transition-all",
+              isSyncing ? "bg-white/5 border-white/10 text-white/30" : "bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20"
+            )}
+            title={syncedAt ? `Última sincronização: ${syncedAt.toLocaleTimeString('pt-BR')}` : 'Sincronizar agora'}
+          >
+            <RefreshCw size={12} className={cn(isSyncing && "animate-spin")} />
+            {isSyncing ? 'Sincronizando...' : 'Sincronizar'}
+          </button>
+        </div>
         <Button 
           variant="secondary" 
           size="sm" 
@@ -4882,14 +4929,11 @@ export const ServicesModule = ({ currentCompany }: { currentCompany: Company | n
   const handleSaveService = async () => {
     if (!currentCompany || !formData.client || !formData.serviceDesc) return;
     try {
-      const orderId = `ord_manual_${Date.now()}`;
       const isPending = formData.downPaymentValue < formData.totalValue;
 
       // 1. Create sale order so it counts in faturamento/revenue instantly
-      await addDoc(collection(db, 'saleOrders'), {
-        id: orderId,
-        companyId: currentCompany.id,
-        customerName: formData.client,
+      const { data: vendaRow, error: vendaErr } = await supabase.from('vendas').insert({
+        customer_name: formData.client,
         items: [{
           productId: 'manual',
           name: formData.serviceDesc.toUpperCase(),
@@ -4897,11 +4941,12 @@ export const ServicesModule = ({ currentCompany }: { currentCompany: Company | n
           quantity: 1
         }],
         total: formData.totalValue,
-        downPayment: formData.downPaymentValue > 0 ? formData.downPaymentValue : formData.totalValue,
-        paymentMethod: 'pix',
+        down_payment: formData.downPaymentValue > 0 ? formData.downPaymentValue : formData.totalValue,
+        payment_method: 'pix',
         status: isPending ? 'pending' : 'completed',
-        createdAt: new Date().toISOString()
-      });
+      }).select().single();
+      if (vendaErr) throw vendaErr;
+      const orderId = vendaRow.id;
 
       // 2. Create the associated service document
       await addDoc(collection(db, 'services'), {
