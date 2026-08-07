@@ -3313,6 +3313,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [historySearch, setHistorySearch] = useState('');
   const [settleModalOrder, setSettleModalOrder] = useState<SaleOrder | null>(null);
   const [settleMethod, setSettleMethod] = useState<'pix' | 'dinheiro' | 'cartao_credito' | 'cartao_debito'>('pix');
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncedAt, setSyncedAt] = useState<Date | null>(null);
+  const [pixConfig, setPixConfig] = useState<{ key: string; beneficiaryName: string; city: string } | null>(null);
 
   useEffect(() => {
     if (!currentCompany) return;
@@ -3331,6 +3334,27 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     };
     loadSales();
     const channel = supabase.channel('pos-vendas').on('postgres_changes', { event: '*', schema: 'public', table: 'vendas' }, loadSales).subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [currentCompany]);
+
+  useEffect(() => {
+    const load = async () => {
+      const { data } = await supabase.from('configuracoes').select('*').eq('company_id', 'rafa-arts').maybeSingle();
+      if (data && data.pix_key) {
+        setPixConfig({
+          key: data.pix_key,
+          beneficiaryName: data.beneficiary_name || currentCompany?.name || 'RAFA ARTS GRAPHICS',
+          city: data.city || 'Santarem',
+        });
+      } else {
+        setPixConfig(null);
+      }
+    };
+    load();
+    const channel = supabase
+      .channel('pos-configuracoes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'configuracoes' }, load)
+      .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [currentCompany]);
 
@@ -3578,30 +3602,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     );
   }
 
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [syncedAt, setSyncedAt] = useState<Date | null>(null);
-  const [pixConfig, setPixConfig] = useState<{ key: string; beneficiaryName: string; city: string } | null>(null);
-
-  useEffect(() => {
-    const load = async () => {
-      const { data } = await supabase.from('configuracoes').select('*').eq('company_id', 'rafa-arts').maybeSingle();
-      if (data && data.pix_key) {
-        setPixConfig({
-          key: data.pix_key,
-          beneficiaryName: data.beneficiary_name || currentCompany?.name || 'RAFA ARTS GRAPHICS',
-          city: data.city || 'Santarem',
-        });
-      } else {
-        setPixConfig(null);
-      }
-    };
-    load();
-    const channel = supabase
-      .channel('pos-configuracoes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'configuracoes' }, load)
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [currentCompany]);
   const handleManualSync = async () => {
     setIsSyncing(true);
     try {
