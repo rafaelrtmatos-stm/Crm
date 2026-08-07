@@ -588,7 +588,7 @@ export default function App() {
           role: 'admin',
           isAdmin: true,
           isActive: true,
-          allowedTabs: ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'inventory', 'services', 'production', 'settings'],
+          allowedTabs: ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'production', 'settings'],
           allowedActions: [
             'canStartNote', 'canSendSavedMessage', 'canCreateCard', 'canAddTask',
             'canStartPosSale', 'canStartRealEstateSale', 'canMoveLead',
@@ -716,8 +716,6 @@ export default function App() {
     { id: 'messages', label: 'Mensagens', icon: MessageSquare },
     { id: 'pos', label: 'PDV Gráfica', icon: ShoppingBag },
     { id: 'contacts', label: 'Contatos', icon: Users },
-    { id: 'inventory', label: 'Estoque', icon: Package },
-    { id: 'services', label: 'Serviços', icon: Wrench },
     { id: 'production', label: 'Produção', icon: Layers },
     { id: 'settings', label: 'Opções', icon: Settings },
   ].filter(item => {

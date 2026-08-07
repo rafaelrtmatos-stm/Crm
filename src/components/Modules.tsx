@@ -3325,7 +3325,7 @@ export const MetaAdsModule = ({ currentCompany }: { currentCompany: Company | nu
 // --- PDV / POS ---
 export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany: Company | null, addPendingOrder: (order: SaleOrder) => void }) => {
   const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare } = React.useContext(AppContext)!;
-  const [activeTab, setActiveTab] = useState<'venda' | 'historico' | 'estoque' | 'clientes' | 'contratos'>('venda');
+  const [activeTab, setActiveTab] = useState<'venda' | 'historico' | 'estoque' | 'servicos' | 'clientes' | 'contratos'>('venda');
   const [cart, setCart] = useState<SaleOrderItem[]>([]);
   const [search, setSearch] = useState('');
   const [selectedQty, setSelectedQty] = useState(1);
@@ -3878,6 +3878,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             { id: 'venda', label: 'Terminal Venda', icon: ShoppingBag },
             { id: 'historico', label: 'Histórico & Abertas', icon: History },
             { id: 'estoque', label: 'Estoque / Produtos', icon: Box },
+            { id: 'servicos', label: 'Serviços', icon: Wrench },
             { id: 'clientes', label: 'Clientes / CRM', icon: Users },
             { id: 'contratos', label: 'Contratos Rafa Art', icon: FileText }
           ].map(tab => (
@@ -4547,6 +4548,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   </tbody>
                </table>
             </GlassCard>
+          </div>
+        )}
+
+        {activeTab === 'servicos' && (
+          <div className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/30">
+            <ServicesModule currentCompany={currentCompany} />
           </div>
         )}
 
@@ -6018,7 +6025,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     setEditedEmail(u.email);
     setEditedPassword(u.password || '');
     setEditedRole(u.role as any || 'atendente');
-    setEditedTabs(u.allowedTabs || ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'inventory', 'services', 'production', 'settings']);
+    setEditedTabs(u.allowedTabs || ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'production', 'settings']);
     setEditedActions(u.allowedActions || [
       'canStartNote', 'canSendSavedMessage', 'canCreateCard', 'canAddTask',
       'canStartPosSale', 'canStartRealEstateSale', 'canMoveLead',
@@ -6053,7 +6060,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     }
     try {
       const newUid = 'user-' + Date.now();
-      const defaultTabs = ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'inventory', 'services', 'production', 'settings'];
+      const defaultTabs = ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'production', 'settings'];
       const defaultActions = [
         'canStartNote', 'canSendSavedMessage', 'canCreateCard', 'canAddTask',
         'canStartPosSale', 'canStartRealEstateSale', 'canMoveLead',
@@ -6092,8 +6099,6 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     { id: 'messages', label: 'Mensagens / Chats', desc: 'Canal de atendimento direto integrado' },
     { id: 'pos', label: 'PDV Gráfica', desc: 'Faturamento rápido, caixa e vendas' },
     { id: 'contacts', label: 'Contatos', desc: 'Gestão de clientes e histórico de compras' },
-    { id: 'inventory', label: 'Estoque', desc: 'Visualização de matéria-prima e produtos' },
-    { id: 'services', label: 'Serviços', desc: 'Gestão de Ordens de Serviços e orçamentos' },
     { id: 'production', label: 'Produção', desc: 'Fila de fabricação e acabamentos gráficos' },
     { id: 'settings', label: 'Opções', desc: 'Parâmetro de configurações do Rafa Arts Graphics' },
   ];
@@ -6448,7 +6453,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
                       {usersList.map((u) => {
-                        const allowedCount = u.allowedTabs?.length ?? 9;
+                        const allowedCount = u.allowedTabs?.length ?? 7;
                         const actionsCount = u.allowedActions?.length ?? 10;
                         const initials = u.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
                         const isSimulated = simulatedUserId === u.id || (!simulatedUserId && u.id === 'mock-user-id');
