@@ -3671,7 +3671,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   // Action Handlers
   const handleOpenRegisterSubmit = async () => {
-    if (!currentCompany) return;
+    if (!currentCompany) {
+      alert("Não foi possível identificar a empresa atual. Recarregue a página e tente novamente.");
+      return;
+    }
     const isAuthorized = user?.isAdmin || ['admin', 'gerente', 'caixa', 'atendente', 'operador'].includes(user?.role || '');
     if (!isAuthorized) {
       alert("Apenas usuários autorizados podem abrir o caixa.");
