@@ -3356,9 +3356,48 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       return next;
     });
   };
-  const openReceipt = (sale: SaleOrder) => {
-    setLastFinalizedOrder(sale);
-    setIsSuccessModalOpen(true);
+  const [viewingReceiptSale, setViewingReceiptSale] = useState<SaleOrder | null>(null);
+  const [viewingReceiptEmail, setViewingReceiptEmail] = useState<string | undefined>(undefined);
+  const openReceiptDetail = async (sale: SaleOrder) => {
+    setViewingReceiptSale(sale);
+    setViewingReceiptEmail(undefined);
+    const phoneDigits = (sale.customerPhone || '').replace(/\D/g, '');
+    if (phoneDigits.length >= 8) {
+      try {
+        const { data } = await supabase.from('clientes').select('email').ilike('phone', `%${phoneDigits.slice(-8)}%`).limit(1).maybeSingle();
+        if (data?.email) setViewingReceiptEmail(data.email);
+      } catch (e) { /* silencioso, email é opcional */ }
+    }
+  };
+
+  const handlePrintReceipt = (sale: SaleOrder) => {
+    const canvas = renderReceiptCanvas({ order: sale, companyName: currentCompany?.name || 'Rafa Arts Graphics', customerPhone: sale.customerPhone });
+    const dataUrl = canvas.toDataURL('image/png');
+    const printWin = window.open('', '_blank', 'width=500,height=800');
+    if (!printWin) { alert('Permita pop-ups para imprimir.'); return; }
+    printWin.document.write(`<!DOCTYPE html><html><head><title>Recibo #${sale.id.slice(-8).toUpperCase()}</title><style>body{margin:0;background:#0D0D0F;display:flex;justify-content:center;}img{width:100%;max-width:500px;}</style></head><body><img src="${dataUrl}" onload="window.print();window.close();" /></body></html>`);
+    printWin.document.close();
+  };
+
+  const handleDownloadReceiptPdf = async (sale: SaleOrder) => {
+    const canvas = renderReceiptCanvas({ order: sale, companyName: currentCompany?.name || 'Rafa Arts Graphics', customerPhone: sale.customerPhone });
+    await downloadCanvasAsPdf(canvas, `Recibo_${sale.id.slice(-8).toUpperCase()}.pdf`);
+  };
+
+  const handleShareReceiptWhatsApp = async (sale: SaleOrder) => {
+    if (!sale.customerPhone) {
+      alert('Essa venda não tem telefone de WhatsApp cadastrado. Edite a venda para adicionar o telefone do cliente.');
+      return;
+    }
+    setViewingReceiptSale(null);
+    await handleShareViaWhatsApp(sale, sale.customerName || 'Cliente', sale.customerPhone);
+  };
+
+  const handleOpenChatFromReceipt = async (sale: SaleOrder) => {
+    if (!sale.customerPhone) return;
+    setViewingReceiptSale(null);
+    const digits = sale.customerPhone.replace(/\D/g, '');
+    await findOrCreateLeadAndOpenChat(digits, sale.customerName || 'Cliente', buildOrderShareMessage(sale, sale.customerName || 'Cliente'));
   };
 
   const pendingOrScheduledSales = useMemo(() => {
@@ -4376,7 +4415,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             {isPartial && (
                               <button onClick={() => setSettleModalOrder(sale)} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar Saldo"><CheckCircle2 size={13} /></button>
                             )}
-                            <button onClick={() => openReceipt(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={13} /></button>
+                            <button onClick={() => openReceiptDetail(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={13} /></button>
                             {canManageHistory && (
                               <>
                                 {!isPartial && <button onClick={() => handleReopenSale(sale)} className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20" title="Reabrir"><History size={13} /></button>}
@@ -4417,7 +4456,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           <p className="text-sm font-black text-white">R$ {sale.total.toFixed(2).replace('.', ',')}</p>
                           <div className="flex flex-wrap gap-1 pt-1">
                             {isPartial && <button onClick={() => setSettleModalOrder(sale)} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar Saldo"><CheckCircle2 size={12} /></button>}
-                            <button onClick={() => openReceipt(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={12} /></button>
+                            <button onClick={() => openReceiptDetail(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={12} /></button>
                             {canManageHistory && (
                               <>
                                 {!isPartial && <button onClick={() => handleReopenSale(sale)} className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20" title="Reabrir"><History size={12} /></button>}
@@ -4516,7 +4555,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             variant="secondary"
                             size="sm"
                             className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-white/10"
-                            onClick={() => openReceipt(sale)}
+                            onClick={() => openReceiptDetail(sale)}
                           >
                             Recibo
                           </Button>
@@ -4628,7 +4667,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                         {isPartial && (
                           <button onClick={() => setSettleModalOrder(sale)} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar Saldo"><CheckCircle2 size={13} /></button>
                         )}
-                        <button onClick={() => openReceipt(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={13} /></button>
+                        <button onClick={() => openReceiptDetail(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={13} /></button>
                         {canManageHistory && (
                           <>
                             <button onClick={() => startEditSale(sale)} className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20" title="Editar"><Pencil size={13} /></button>
@@ -5406,6 +5445,101 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
          </div>
        </Modal>
      )}
+
+     {viewingReceiptSale && (() => {
+       const sale = viewingReceiptSale;
+       const down = sale.downPayment ?? sale.receivedValue ?? (sale.status === 'completed' ? sale.total : 0);
+       const balance = Math.max(0, sale.total - down);
+       const isPending = balance > 0 || sale.status === 'pending';
+       return (
+         <Modal
+           isOpen={!!viewingReceiptSale}
+           onClose={() => setViewingReceiptSale(null)}
+           title="Visualizar Recibo"
+           size="md"
+         >
+           <div className="space-y-4 p-2">
+             <div className="flex items-center justify-between border-b border-white/5 pb-3">
+               <div>
+                 <h3 className="text-lg font-black text-white uppercase">Pedido #{sale.id.slice(-8).toUpperCase()}</h3>
+                 <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest">{format(new Date(sale.createdAt), 'dd/MM/yyyy HH:mm')}</p>
+               </div>
+               <Badge className={cn("text-[9px] font-black uppercase px-2.5 py-1 border-none", isPending ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300")}>
+                 {isPending ? 'EM ABERTO' : 'QUITADO'}
+               </Badge>
+             </div>
+
+             {/* Dados do Cliente */}
+             <div className="bg-slate-900/50 rounded-2xl p-4 border border-white/5 space-y-2">
+               <h4 className="text-[9px] font-black uppercase text-primary-300 tracking-[2px] mb-1">Cliente</h4>
+               <p className="text-sm font-black text-white">{sale.customerName || 'Cliente de Balcão'}</p>
+               {sale.customerPhone ? (
+                 <button
+                   onClick={() => handleOpenChatFromReceipt(sale)}
+                   className="flex items-center gap-2 text-emerald-400 hover:text-emerald-300 text-xs font-bold underline decoration-dotted"
+                   title="Abrir conversa no Funil de Atendimento"
+                 >
+                   <MessageSquare size={13} />
+                   {sale.customerPhone}
+                 </button>
+               ) : (
+                 <p className="text-xs text-white/30">Sem telefone cadastrado</p>
+               )}
+               {viewingReceiptEmail && <p className="text-xs text-white/50">{viewingReceiptEmail}</p>}
+             </div>
+
+             {/* Itens */}
+             <div className="bg-slate-900/50 rounded-2xl p-4 border border-white/5 space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar">
+               <h4 className="text-[9px] font-black uppercase text-primary-300 tracking-[2px] mb-1">Produtos</h4>
+               {sale.items?.map((item, idx) => (
+                 <div key={idx} className="flex justify-between text-xs text-white/70">
+                   <span>{item.quantity}x {item.name}</span>
+                   <span className="font-bold text-white/90">R$ {((item.area ? item.price * item.area : item.price) * item.quantity).toFixed(2).replace('.', ',')}</span>
+                 </div>
+               ))}
+             </div>
+
+             {/* Valores */}
+             <div className="bg-slate-900/50 rounded-2xl p-4 border border-white/5 space-y-1.5">
+               <div className="flex justify-between text-xs text-white/50">
+                 <span>Total</span>
+                 <span className="font-mono font-bold text-white">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
+               </div>
+               <div className="flex justify-between text-xs text-emerald-400 font-bold">
+                 <span>Recebido</span>
+                 <span className="font-mono">R$ {down.toFixed(2).replace('.', ',')}</span>
+               </div>
+               {isPending && (
+                 <div className="flex justify-between text-xs text-rose-400 font-bold">
+                   <span>Falta Pagar</span>
+                   <span className="font-mono">R$ {balance.toFixed(2).replace('.', ',')}</span>
+                 </div>
+               )}
+               <div className="flex justify-between text-xs text-white/40 pt-1 border-t border-white/5">
+                 <span>Forma de Pagamento</span>
+                 <span className="font-bold uppercase">{sale.paymentMethod || '-'}</span>
+               </div>
+             </div>
+
+             {/* Ações */}
+             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2">
+               <Button variant="secondary" size="sm" icon={Printer} className="text-[9px] uppercase tracking-wider font-black h-11" onClick={() => handlePrintReceipt(sale)}>
+                 Imprimir
+               </Button>
+               <Button variant="secondary" size="sm" icon={FileText} className="text-[9px] uppercase tracking-wider font-black h-11" onClick={() => handleDownloadReceiptPdf(sale)}>
+                 Baixar PDF
+               </Button>
+               <Button variant="secondary" size="sm" icon={Share2} className="text-[9px] uppercase tracking-wider font-black h-11 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/10" onClick={() => handleShareReceiptWhatsApp(sale)}>
+                 WhatsApp
+               </Button>
+               <Button variant="ghost" size="sm" className="text-[9px] uppercase tracking-wider font-black h-11" onClick={() => setViewingReceiptSale(null)}>
+                 Fechar
+               </Button>
+             </div>
+           </div>
+         </Modal>
+       );
+     })()}
     </div>
   );
 };
