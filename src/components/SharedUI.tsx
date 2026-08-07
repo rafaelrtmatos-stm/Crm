@@ -290,7 +290,10 @@ export class ModuleErrorBoundary extends React.Component<
   }
   componentDidCatch(error: unknown, info: { componentStack?: string }) {
     console.error('ModuleErrorBoundary capturou um erro:', error, info);
+    this._componentStack = info?.componentStack || '';
+    (this as any).forceUpdate();
   }
+  private _componentStack: string = '';
   render() {
     if (this.state.hasError) {
       return (
@@ -301,9 +304,10 @@ export class ModuleErrorBoundary extends React.Component<
           <div className="text-white/40 text-xs max-w-md font-mono break-words">
             {this.state.message}
           </div>
-          {this.state.stack && (
+          {(this.state.stack || this._componentStack) && (
             <div className="text-white/30 text-[9px] max-w-lg text-left font-mono whitespace-pre-wrap break-words bg-black/30 rounded-lg p-3 max-h-48 overflow-y-auto">
               {this.state.stack}
+              {this._componentStack}
             </div>
           )}
           <button
