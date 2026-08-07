@@ -3292,7 +3292,7 @@ export const MetaAdsModule = ({ currentCompany }: { currentCompany: Company | nu
 
 // --- PDV / POS ---
 export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany: Company | null, addPendingOrder: (order: SaleOrder) => void }) => {
-  const { isRegisterOpen, setIsRegisterOpen } = React.useContext(AppContext)!;
+  const { isRegisterOpen, setIsRegisterOpen, user } = React.useContext(AppContext)!;
   const [activeTab, setActiveTab] = useState<'venda' | 'historico' | 'estoque' | 'clientes' | 'contratos'>('venda');
   const [cart, setCart] = useState<SaleOrderItem[]>([]);
   const [search, setSearch] = useState('');
@@ -3595,8 +3595,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             <AlertCircle size={40} />
           </div>
           <h2 className="text-2xl font-bold text-white tracking-widest uppercase">Caixa Fechado</h2>
-          <p className="text-white/40 text-sm">É necessário abrir o caixa para iniciar as vendas do dia.</p>
-          <Button className="w-full h-14 text-lg" onClick={() => setIsRegisterOpen(true)}>Abrir Caixa Agora</Button>
+          {user?.isAdmin ? (
+            <>
+              <p className="text-white/40 text-sm">É necessário abrir o caixa para iniciar as vendas do dia.</p>
+              <Button className="w-full h-14 text-lg" onClick={() => setIsRegisterOpen(true)}>Abrir Caixa Agora</Button>
+            </>
+          ) : (
+            <p className="text-white/40 text-sm">Apenas o administrador pode abrir o caixa. Aguarde a liberação para iniciar as vendas.</p>
+          )}
         </GlassCard>
       </div>
     );
@@ -3661,15 +3667,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             {isSyncing ? 'Sincronizando...' : 'Sincronizar'}
           </button>
         </div>
-        <Button 
-          variant="secondary" 
-          size="sm" 
-          icon={LogOut} 
-          className="text-rose-400 border-rose-500/20 hover:bg-rose-500/10 mr-4 text-[9px] uppercase tracking-widest font-black"
-          onClick={() => setIsRegisterOpen(false)}
-        >
-          Fechar Caixa
-        </Button>
+        {user?.isAdmin && (
+          <Button 
+            variant="secondary" 
+            size="sm" 
+            icon={LogOut} 
+            className="text-rose-400 border-rose-500/20 hover:bg-rose-500/10 mr-4 text-[9px] uppercase tracking-widest font-black"
+            onClick={() => setIsRegisterOpen(false)}
+          >
+            Fechar Caixa
+          </Button>
+        )}
       </div>
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
