@@ -66,6 +66,8 @@ import {
   Trash2,
   Pencil,
   Upload,
+  ArrowDownWideNarrow,
+  ArrowUpWideNarrow,
   Share2,
   Star,
   Tag,
@@ -3345,6 +3347,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [historyFilter, setHistoryFilter] = useState<'todos' | 'parciais' | 'concluidos'>('todos');
   const [historySearch, setHistorySearch] = useState('');
   const [historyViewMode, setHistoryViewMode] = useState<'miniatura' | 'normal' | 'lista'>('normal');
+  const [historySortOrder, setHistorySortOrder] = useState<'desc' | 'asc'>('desc');
   const [selectedSaleIds, setSelectedSaleIds] = useState<Set<string>>(new Set());
   const toggleSaleSelection = (id: string) => {
     setSelectedSaleIds(prev => {
@@ -3366,11 +3369,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         const isPartial = balance > 0 || sale.status === 'pending';
         return isPartial || !!sale.scheduledFor;
       })
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [allSalesHistory]);
+      .sort((a, b) => {
+        const diff = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        return historySortOrder === 'desc' ? diff : -diff;
+      });
+  }, [allSalesHistory, historySortOrder]);
 
   const filteredSalesHistory = useMemo(() => {
-    return allSalesHistory.filter(sale => {
+    const filtered = allSalesHistory.filter(sale => {
       const down = sale.downPayment || 0;
       const balance = sale.total - down;
       const isPartial = balance > 0 || sale.status === 'pending';
@@ -3387,7 +3393,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       }
       return true;
     });
-  }, [allSalesHistory, historyFilter, historySearch]);
+    return filtered.sort((a, b) => {
+      const diff = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      return historySortOrder === 'desc' ? diff : -diff;
+    });
+  }, [allSalesHistory, historyFilter, historySearch, historySortOrder]);
 
   const handleToggleSelectAll = () => {
     setSelectedSaleIds(prev => {
@@ -4266,6 +4276,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     </Button>
                   </>
                 )}
+                <button
+                  onClick={() => setHistorySortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
+                  title={historySortOrder === 'desc' ? 'Mais recentes primeiro' : 'Mais antigas primeiro'}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-wider bg-white/5 border border-white/10 text-white/60 hover:text-white transition-all"
+                >
+                  {historySortOrder === 'desc' ? <ArrowDownWideNarrow size={13} /> : <ArrowUpWideNarrow size={13} />}
+                  <span className="hidden sm:inline">{historySortOrder === 'desc' ? 'Mais Recentes' : 'Mais Antigas'}</span>
+                </button>
                 <div className="flex bg-white/5 p-1 rounded-2xl border border-white/10 gap-1">
                   {[
                     { id: 'miniatura', label: 'Miniatura', icon: LayoutGrid },
@@ -4561,6 +4579,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 </p>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={() => setHistorySortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
+                  title={historySortOrder === 'desc' ? 'Mais recentes primeiro' : 'Mais antigas primeiro'}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-wider bg-white/5 border border-white/10 text-white/60 hover:text-white transition-all"
+                >
+                  {historySortOrder === 'desc' ? <ArrowDownWideNarrow size={13} /> : <ArrowUpWideNarrow size={13} />}
+                  <span className="hidden sm:inline">{historySortOrder === 'desc' ? 'Mais Recentes' : 'Mais Antigas'}</span>
+                </button>
                 <input ref={vendasFileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportVendasFile} />
                 <Button variant="secondary" size="sm" icon={Upload} disabled={isImportingVendas} className="text-[9px] uppercase tracking-wider font-black" onClick={() => vendasFileInputRef.current?.click()}>
                   {isImportingVendas ? 'Importando...' : 'Importar Planilha'}
