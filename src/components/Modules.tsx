@@ -3344,7 +3344,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [isVerifying, setIsVerifying] = useState(false);
   const [salesToday, setSalesToday] = useState<SaleOrder[]>([]);
   const [allSalesHistory, setAllSalesHistory] = useState<SaleOrder[]>([]);
-  const [historyFilter, setHistoryFilter] = useState<'todos' | 'parciais' | 'concluidos'>('todos');
+  const [historyFilter, setHistoryFilter] = useState<'todos' | 'em_aberto' | 'entrada_pendente' | 'parcial' | 'quitado' | 'em_producao' | 'agendado' | 'entregue' | 'cancelado'>('todos');
   const [historySearch, setHistorySearch] = useState('');
   const [historyViewMode, setHistoryViewMode] = useState<'miniatura' | 'normal' | 'lista'>('normal');
   const [historySortOrder, setHistorySortOrder] = useState<'desc' | 'asc'>('desc');
@@ -3419,8 +3419,36 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       const down = sale.downPayment || 0;
       const balance = sale.total - down;
       const isPartial = balance > 0 || sale.status === 'pending';
-      if (historyFilter === 'parciais' && !isPartial) return false;
-      if (historyFilter === 'concluidos' && isPartial) return false;
+      const hasSomePayment = down > 0;
+      const isFullyPaid = sale.status === 'completed' || down >= sale.total;
+      switch (historyFilter) {
+        case 'em_aberto':
+          if (sale.status !== 'pending') return false;
+          break;
+        case 'entrada_pendente':
+          if (!(sale.status === 'pending' && !hasSomePayment)) return false;
+          break;
+        case 'parcial':
+          if (!(hasSomePayment && isPartial)) return false;
+          break;
+        case 'quitado':
+          if (!isFullyPaid) return false;
+          break;
+        case 'em_producao':
+          if (!(sale.status === 'pending' && hasSomePayment)) return false;
+          break;
+        case 'agendado':
+          if (!sale.scheduledFor) return false;
+          break;
+        case 'entregue':
+          if (!(isFullyPaid && !sale.scheduledFor)) return false;
+          break;
+        case 'cancelado':
+          if (sale.status !== 'canceled') return false;
+          break;
+        default:
+          break;
+      }
       if (historySearch.trim()) {
         const term = historySearch.toLowerCase().trim();
         const termDigits = term.replace(/\D/g, '');
@@ -4292,10 +4320,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 <Button variant="secondary" size="sm" icon={Download} className="text-[9px] uppercase tracking-wider font-black" onClick={() => exportVendasXlsx(allSalesHistory)}>
                   Exportar Planilha
                 </Button>
-              </div>
-
-              {/* Filter Tabs */}
-              <div className="flex flex-wrap items-center gap-2 self-stretch md:self-auto">
                 {selectedSaleIds.size > 0 && (
                   <>
                     <Button
@@ -4315,17 +4339,38 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     </Button>
                   </>
                 )}
+              </div>
+            </div>
+
+            {/* Barra de controles: Pesquisa | Ordenação & Visualização | Filtros de Status */}
+            <div className="flex flex-col xl:flex-row items-stretch xl:items-center gap-3 xl:gap-4 bg-white/[0.02] border border-white/5 rounded-2xl p-3">
+              {/* Grupo 1: Pesquisa */}
+              <div className="relative w-full xl:w-64 shrink-0">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" size={15} />
+                <input
+                  value={historySearch}
+                  onChange={e => setHistorySearch(e.target.value)}
+                  placeholder="Buscar cliente, telefone, nota, produto..."
+                  className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white placeholder-white/30 focus:outline-none focus:border-primary-500"
+                />
+              </div>
+
+              <div className="hidden xl:block w-px h-8 bg-white/10 shrink-0" />
+              <div className="xl:hidden h-px w-full bg-white/10" />
+
+              {/* Grupo 2: Ordenação & Visualização */}
+              <div className="flex items-center gap-2 flex-wrap shrink-0">
                 <button
                   onClick={() => setHistorySortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
                   title={historySortOrder === 'desc' ? 'Mais recentes primeiro' : 'Mais antigas primeiro'}
                   className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-wider bg-white/5 border border-white/10 text-white/60 hover:text-white transition-all"
                 >
                   {historySortOrder === 'desc' ? <ArrowDownWideNarrow size={13} /> : <ArrowUpWideNarrow size={13} />}
-                  <span className="hidden sm:inline">{historySortOrder === 'desc' ? 'Mais Recentes' : 'Mais Antigas'}</span>
+                  <span>{historySortOrder === 'desc' ? 'Mais Recentes' : 'Mais Antigas'}</span>
                 </button>
-                <div className="flex bg-white/5 p-1 rounded-2xl border border-white/10 gap-1">
+                <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 gap-1">
                   {[
-                    { id: 'miniatura', label: 'Miniatura', icon: LayoutGrid },
+                    { id: 'miniatura', label: 'Miniaturas', icon: LayoutGrid },
                     { id: 'normal', label: 'Normal', icon: Square },
                     { id: 'lista', label: 'Lista', icon: List },
                   ].map(v => (
@@ -4334,7 +4379,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       onClick={() => setHistoryViewMode(v.id as any)}
                       title={v.label}
                       className={cn(
-                        "px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5",
+                        "px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5",
                         historyViewMode === v.id ? "bg-primary-500 text-slate-900 shadow-lg font-black" : "text-white/40 hover:text-white"
                       )}
                     >
@@ -4343,36 +4388,38 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     </button>
                   ))}
                 </div>
-                <div className="flex bg-white/5 p-1 rounded-2xl border border-white/10 gap-1">
-                  {[
-                    { id: 'todos', label: 'Todos' },
-                    { id: 'parciais', label: 'Entradas Pendentes' },
-                    { id: 'concluidos', label: '100% Quitados' }
-                  ].map(f => (
-                    <button
-                      key={f.id}
-                      onClick={() => setHistoryFilter(f.id as any)}
-                      className={cn(
-                        "flex-1 md:flex-none px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all text-center",
-                        historyFilter === f.id ? "bg-primary-500 text-slate-900 shadow-lg font-black" : "text-white/40 hover:text-white"
-                      )}
-                    >
-                      {f.label}
-                    </button>
-                  ))}
-                </div>
               </div>
-            </div>
 
-            {/* Search Input */}
-            <div className="relative max-w-md">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" size={16} />
-              <input
-                value={historySearch}
-                onChange={e => setHistorySearch(e.target.value)}
-                placeholder="Buscar por cliente, telefone, número da nota ou produto..."
-                className="w-full bg-white/5 border border-white/10 rounded-2xl pl-10 pr-4 py-2.5 text-xs text-white placeholder-white/30 focus:outline-none focus:border-primary-500"
-              />
+              <div className="hidden xl:block w-px h-8 bg-white/10 shrink-0" />
+              <div className="xl:hidden h-px w-full bg-white/10" />
+
+              {/* Grupo 3: Filtros de Status */}
+              <div className="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
+                {[
+                  { id: 'todos', label: 'Todos' },
+                  { id: 'em_aberto', label: 'Em Aberto' },
+                  { id: 'entrada_pendente', label: 'Entrada Pendente' },
+                  { id: 'parcial', label: 'Parcialmente Pago' },
+                  { id: 'quitado', label: '100% Quitados' },
+                  { id: 'em_producao', label: 'Em Produção' },
+                  { id: 'agendado', label: 'Agendados' },
+                  { id: 'entregue', label: 'Entregues' },
+                  { id: 'cancelado', label: 'Cancelados' },
+                ].map(f => (
+                  <button
+                    key={f.id}
+                    onClick={() => setHistoryFilter(f.id as any)}
+                    className={cn(
+                      "px-3 py-1.5 rounded-full text-[8.5px] font-black uppercase tracking-wider transition-all border",
+                      historyFilter === f.id
+                        ? "bg-primary-500 text-slate-900 border-primary-500 shadow-lg shadow-primary-500/20"
+                        : "bg-transparent text-white/40 border-white/10 hover:text-white hover:border-white/20"
+                    )}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Orders List */}
