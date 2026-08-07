@@ -1304,7 +1304,7 @@ export const ChatPanel = ({
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-white/5 bg-white/[0.01] px-2 overflow-x-auto no-scrollbar">
+      <div className="flex flex-wrap border-b border-white/5 bg-white/[0.01] px-2">
         {tabs.map(tab => (
           <button
             key={tab.id}
@@ -1398,10 +1398,10 @@ export const ChatPanel = ({
                       <div key={m.id || idx} className={cn("flex", isOutgoing ? "justify-end" : "justify-start")}>
                         <div className={cn("group space-y-1", isOutgoing ? "text-right" : "")}>
                            <div className={cn(
-                             "max-w-[85%] p-3 rounded-2xl border text-xs text-white/90 leading-relaxed shadow-lg",
+                             "max-w-[85%] p-2.5 rounded-2xl border text-xs text-slate-800 leading-relaxed shadow-sm bg-white",
                              isOutgoing 
-                               ? "bg-primary-500/10 rounded-br-none border-primary-500/20 text-left ml-auto" 
-                               : "bg-white/10 rounded-bl-none border-white/5"
+                               ? "rounded-br-none border-primary-200 text-left ml-auto" 
+                               : "rounded-bl-none border-slate-200"
                            )}>
                               {m.text}
                            </div>
@@ -1418,7 +1418,7 @@ export const ChatPanel = ({
               {/* Chat Input */}
               <div className="p-3 bg-slate-100/50 border-t border-white/10 space-y-2">
                 {/* BARRA DE RESPOSTAS RÁPIDAS / MENSAGENS SALVAS & TESTE CLIENTE */}
-                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+                <div className="flex flex-wrap items-center gap-1.5 pb-1">
                   <button
                     type="button"
                     onClick={() => handleSimulateClientMessage()}
@@ -1719,7 +1719,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
           onDragStart={onDragStart}
           onDragEnd={onDragEnd}
         >
-          <div className="flex gap-6 overflow-x-auto pb-6 grow custom-scrollbar min-h-[500px]">
+          <div className="flex gap-4 overflow-x-hidden pb-6 grow min-h-[500px]">
             {stages.map(stage => (
               <KanbanColumn 
                 key={stage.id} 
@@ -1743,7 +1743,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                   });
                 }
               }}
-              className="min-w-[280px] h-[calc(100vh-25rem)] border-2 border-dashed border-white/5 rounded-[40px] flex flex-col items-center justify-center opacity-20 hover:opacity-100 hover:bg-white/5 transition-all text-white/40"
+              className="flex-1 min-w-0 shrink-0 basis-24 h-[calc(100vh-25rem)] border-2 border-dashed border-white/5 rounded-[40px] flex flex-col items-center justify-center opacity-20 hover:opacity-100 hover:bg-white/5 transition-all text-white/40"
             >
                <Plus size={32} />
                <span className="text-[10px] font-black uppercase tracking-[3px] mt-2">Nova Etapa</span>
@@ -1834,7 +1834,7 @@ const KanbanColumn = ({ stage, leads, onLeadClick, selectedLeadId }: { key?: any
   const { setNodeRef } = useSortable({ id: stage.id, data: { type: 'column', stageId: stage.id } });
 
   return (
-    <div className="min-w-[280px] w-full flex flex-col gap-4">
+    <div className="flex-1 min-w-0 flex flex-col gap-4">
       <div className="flex items-center justify-between px-2">
         <div className="flex items-center gap-2">
           <div className={cn("w-2 h-2 rounded-full", stage.color || 'bg-primary-500')} />
@@ -2490,14 +2490,14 @@ export const MessagesModule = ({ currentCompany, user }: { currentCompany: Compa
                 key={l.id} 
                 onClick={() => setSelectedChat({ ...l, name: l.fullName })}
                 className={cn(
-                  "p-5 border-b border-white/5 cursor-pointer transition-all group relative",
+                  "p-3 border-b border-white/5 cursor-pointer transition-all group relative",
                   isSelected ? "bg-primary-500/10" : "hover:bg-white/5"
                 )}
               >
                  {isSelected && <div className="absolute left-0 top-0 w-1 h-full bg-primary-500" />}
                  <div className="flex justify-between items-start mb-1 gap-2">
                     <div className="flex items-center gap-2 truncate">
-                       <p className={cn("font-bold transition-colors truncate", isSelected ? "text-primary-300" : "text-white group-hover:text-primary-300")}>{l.fullName}</p>
+                       <p className={cn("font-bold transition-colors truncate text-sm", isSelected ? "text-primary-300" : "text-white group-hover:text-primary-300")}>{l.fullName}</p>
                        {waitingSinceDate && (
                           <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping shrink-0" title="Cliente aguardando resposta!" />
                        )}
@@ -2505,7 +2505,7 @@ export const MessagesModule = ({ currentCompany, user }: { currentCompany: Compa
                     <span className="text-[10px] font-black text-white/30 uppercase shrink-0">{timeStr}</span>
                  </div>
                  
-                 <div className="flex items-center justify-between gap-2 mb-2">
+                 <div className="flex items-center justify-between gap-2 mb-1">
                     <p className="text-xs text-white/40 truncate flex-1">{l.lastMessageText || 'Sem mensagens'}</p>
                     {waitingSinceDate && (
                        <div className={cn(
@@ -2518,7 +2518,7 @@ export const MessagesModule = ({ currentCompany, user }: { currentCompany: Compa
                     )}
                  </div>
 
-                 <div className="mt-4 flex items-center gap-2">
+                 <div className="mt-1.5 flex items-center gap-2">
                     <Badge variant="primary" className="px-2 py-0 h-5 text-[9px] uppercase font-black">
                       {l.status}
                     </Badge>
