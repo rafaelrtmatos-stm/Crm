@@ -4278,7 +4278,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
                  <div className="grid grid-cols-2 gap-1.5 sm:gap-2 shrink-0">
                     <div className="space-y-0.5">
-                       <label className="text-[7.5px] sm:text-[8px] font-black text-white/40 uppercase tracking-widest block">Entrada / Recebido</label>
+                       <label className="text-[7.5px] sm:text-[8px] font-black text-white/40 uppercase tracking-widest block">Entrada / Recebido (R$)</label>
                        <Input 
                          type="number" 
                          step="any"
@@ -4291,6 +4291,23 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                        />
                     </div>
                     <div className="space-y-0.5">
+                       <label className="text-[7.5px] sm:text-[8px] font-black text-white/40 uppercase tracking-widest block">Ou por porcentagem (%)</label>
+                       <Input 
+                         type="number" 
+                         step="any"
+                         min={0}
+                         max={100}
+                         placeholder="Ex: 50"
+                         className="h-7 sm:h-8 text-[10px] sm:text-xs bg-slate-900/50"
+                         value={total > 0 && downPayment !== "" ? Number(((Number(downPayment) / total) * 100).toFixed(2)) : ""}
+                         onChange={(e: any) => {
+                            const pct = e.target.value === "" ? "" : Number(e.target.value);
+                            if (pct === "") { setDownPayment(""); return; }
+                            setDownPayment(Number(((total * pct) / 100).toFixed(2)));
+                         }}
+                       />
+                    </div>
+                    <div className="col-span-2 space-y-0.5">
                        <label className="text-[7.5px] sm:text-[8px] font-black text-white/40 uppercase tracking-widest block">Agendar entrega</label>
                        <Input 
                          type="datetime-local" 
