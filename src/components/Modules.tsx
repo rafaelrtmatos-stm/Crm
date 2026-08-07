@@ -3,6 +3,8 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { ContractApprovalModule } from './ContractApprovalModule';
 import { 
   TrendingUp, 
+  LayoutGrid,
+  Square,
   Clock, 
   MessageSquare, 
   Plus, 
@@ -62,6 +64,7 @@ import {
   Sun,
   Moon,
   Trash2,
+  Pencil,
   Share2,
   Star,
   Tag,
@@ -3312,6 +3315,22 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [allSalesHistory, setAllSalesHistory] = useState<SaleOrder[]>([]);
   const [historyFilter, setHistoryFilter] = useState<'todos' | 'parciais' | 'concluidos'>('todos');
   const [historySearch, setHistorySearch] = useState('');
+  const [historyViewMode, setHistoryViewMode] = useState<'miniatura' | 'normal' | 'lista'>('normal');
+  const [selectedSaleIds, setSelectedSaleIds] = useState<Set<string>>(new Set());
+  const toggleSaleSelection = (id: string) => {
+    setSelectedSaleIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const handleBulkDeleteSales = async () => {
+    if (selectedSaleIds.size === 0) return;
+    if (!confirm(`Excluir permanentemente ${selectedSaleIds.size} venda(s) selecionada(s)? Essa ação não pode ser desfeita.`)) return;
+    const { error } = await supabase.from('vendas').delete().in('id', Array.from(selectedSaleIds));
+    if (error) { console.error(error); alert('Não foi possível excluir as vendas selecionadas.'); return; }
+    setSelectedSaleIds(new Set());
+  };
   const [settleModalOrder, setSettleModalOrder] = useState<SaleOrder | null>(null);
   const [settleMethod, setSettleMethod] = useState<'pix' | 'dinheiro' | 'cartao_credito' | 'cartao_debito'>('pix');
   const [isSyncing, setIsSyncing] = useState(false);
@@ -3705,7 +3724,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             <RefreshCw size={12} className={cn(isSyncing && "animate-spin")} />
             <span className="hidden sm:inline">{isSyncing ? 'Sincronizando...' : 'Sincronizar'}</span>
           </button>
-          {user?.isAdmin && (
+          {(user?.isAdmin || user?.allowedActions?.includes('canCloseCashRegister')) && (
             <Button 
               variant="secondary" 
               size="sm" 
@@ -3981,23 +4000,54 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               </div>
 
               {/* Filter Tabs */}
-              <div className="flex bg-white/5 p-1 rounded-2xl border border-white/10 gap-1 self-stretch md:self-auto">
-                {[
-                  { id: 'todos', label: 'Todos' },
-                  { id: 'parciais', label: 'Entradas Pendentes' },
-                  { id: 'concluidos', label: '100% Quitados' }
-                ].map(f => (
-                  <button
-                    key={f.id}
-                    onClick={() => setHistoryFilter(f.id as any)}
-                    className={cn(
-                      "flex-1 md:flex-none px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all text-center",
-                      historyFilter === f.id ? "bg-primary-500 text-slate-900 shadow-lg font-black" : "text-white/40 hover:text-white"
-                    )}
+              <div className="flex flex-wrap items-center gap-2 self-stretch md:self-auto">
+                {selectedSaleIds.size > 0 && (
+                  <Button
+                    size="sm"
+                    className="bg-rose-500 hover:bg-rose-400 text-white text-[9px] font-black uppercase tracking-wider px-3 h-9 border-none"
+                    onClick={handleBulkDeleteSales}
                   >
-                    {f.label}
-                  </button>
-                ))}
+                    Excluir Selecionados ({selectedSaleIds.size})
+                  </Button>
+                )}
+                <div className="flex bg-white/5 p-1 rounded-2xl border border-white/10 gap-1">
+                  {[
+                    { id: 'miniatura', label: 'Miniatura', icon: LayoutGrid },
+                    { id: 'normal', label: 'Normal', icon: Square },
+                    { id: 'lista', label: 'Lista', icon: List },
+                  ].map(v => (
+                    <button
+                      key={v.id}
+                      onClick={() => setHistoryViewMode(v.id as any)}
+                      title={v.label}
+                      className={cn(
+                        "px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5",
+                        historyViewMode === v.id ? "bg-primary-500 text-slate-900 shadow-lg font-black" : "text-white/40 hover:text-white"
+                      )}
+                    >
+                      <v.icon size={13} />
+                      <span className="hidden sm:inline">{v.label}</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="flex bg-white/5 p-1 rounded-2xl border border-white/10 gap-1">
+                  {[
+                    { id: 'todos', label: 'Todos' },
+                    { id: 'parciais', label: 'Entradas Pendentes' },
+                    { id: 'concluidos', label: '100% Quitados' }
+                  ].map(f => (
+                    <button
+                      key={f.id}
+                      onClick={() => setHistoryFilter(f.id as any)}
+                      className={cn(
+                        "flex-1 md:flex-none px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all text-center",
+                        historyFilter === f.id ? "bg-primary-500 text-slate-900 shadow-lg font-black" : "text-white/40 hover:text-white"
+                      )}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -4013,8 +4063,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             </div>
 
             {/* Orders List */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {allSalesHistory.filter(sale => {
+            {(() => {
+              const filteredSales = allSalesHistory.filter(sale => {
                 const down = sale.downPayment || 0;
                 const balance = sale.total - down;
                 const isPartial = balance > 0 || sale.status === 'pending';
@@ -4028,142 +4078,230 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   if (!nameMatch && !idMatch && !itemMatch) return false;
                 }
                 return true;
-              }).length === 0 ? (
-                <div className="col-span-1 md:col-span-2 py-16 text-center bg-white/5 rounded-3xl border border-dashed border-white/10 space-y-2">
-                  <History size={36} className="mx-auto text-white/20" />
-                  <p className="text-sm font-bold text-white/40 uppercase">Nenhum registro encontrado</p>
-                  <p className="text-xs text-white/20">As vendas e serviços finalizados ou com entrada aparecerão aqui.</p>
-                </div>
-              ) : (
-                allSalesHistory.filter(sale => {
-                  const down = sale.downPayment || 0;
-                  const balance = sale.total - down;
-                  const isPartial = balance > 0 || sale.status === 'pending';
-                  if (historyFilter === 'parciais' && !isPartial) return false;
-                  if (historyFilter === 'concluidos' && isPartial) return false;
-                  if (historySearch.trim()) {
-                    const term = historySearch.toLowerCase();
-                    const nameMatch = (sale.customerName || '').toLowerCase().includes(term);
-                    const idMatch = sale.id.toLowerCase().includes(term);
-                    const itemMatch = sale.items?.some(i => i.name.toLowerCase().includes(term));
-                    if (!nameMatch && !idMatch && !itemMatch) return false;
-                  }
-                  return true;
-                }).map(sale => {
-                  const down = sale.downPayment || 0;
-                  const balance = sale.total - down;
-                  const isPartial = balance > 0 || sale.status === 'pending';
-                  
-                  return (
-                    <GlassCard key={sale.id} className="p-6 border-white/10 space-y-4 bg-slate-900/80 hover:border-white/20 transition-all relative overflow-hidden">
-                      <div className="flex justify-between items-start border-b border-white/5 pb-3">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h4 className="text-sm font-black text-white uppercase">{sale.customerName || 'Cliente de Balcão'}</h4>
-                            <Badge 
-                              className={cn(
-                                "text-[8px] font-black uppercase px-2 py-0.5 border-none",
-                                isPartial ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300"
-                              )}
-                            >
-                              {isPartial ? 'ENTRADA PAGA (FALTA SALDO)' : '100% QUITADO'}
+              });
+
+              const openReceipt = (sale: SaleOrder) => {
+                setLastFinalizedOrder(sale);
+                setIsSuccessModalOpen(true);
+              };
+
+              if (filteredSales.length === 0) {
+                return (
+                  <div className="py-16 text-center bg-white/5 rounded-3xl border border-dashed border-white/10 space-y-2">
+                    <History size={36} className="mx-auto text-white/20" />
+                    <p className="text-sm font-bold text-white/40 uppercase">Nenhum registro encontrado</p>
+                    <p className="text-xs text-white/20">As vendas e serviços finalizados ou com entrada aparecerão aqui.</p>
+                  </div>
+                );
+              }
+
+              // --- MODO LISTA ---
+              if (historyViewMode === 'lista') {
+                return (
+                  <div className="flex flex-col gap-1.5">
+                    {filteredSales.map(sale => {
+                      const down = sale.downPayment || 0;
+                      const balance = sale.total - down;
+                      const isPartial = balance > 0 || sale.status === 'pending';
+                      return (
+                        <div key={sale.id} className="flex items-center gap-3 bg-slate-900/60 hover:bg-slate-900 border border-white/5 rounded-xl px-3 py-2 transition-all">
+                          {canManageHistory && (
+                            <input type="checkbox" checked={selectedSaleIds.has(sale.id)} onChange={() => toggleSaleSelection(sale.id)} className="w-3.5 h-3.5 shrink-0 accent-primary-500" />
+                          )}
+                          <div className="flex-1 min-w-0 flex items-center gap-3">
+                            <span className="text-[11px] font-black text-white truncate">{sale.customerName || 'Cliente de Balcão'}</span>
+                            <span className="text-[9px] text-white/30 font-mono shrink-0">#{sale.id.slice(-8).toUpperCase()}</span>
+                            <span className="text-[9px] text-white/30 shrink-0 hidden sm:inline">{format(new Date(sale.createdAt), 'dd/MM HH:mm')}</span>
+                          </div>
+                          <Badge className={cn("text-[7.5px] font-black uppercase px-1.5 py-0.5 border-none shrink-0", isPartial ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300")}>
+                            {isPartial ? 'PARCIAL' : 'QUITADO'}
+                          </Badge>
+                          <span className="text-[11px] font-black text-white shrink-0 w-20 text-right">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
+                          <div className="flex gap-1 shrink-0">
+                            {isPartial && (
+                              <button onClick={() => setSettleModalOrder(sale)} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar Saldo"><CheckCircle2 size={13} /></button>
+                            )}
+                            <button onClick={() => openReceipt(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={13} /></button>
+                            {canManageHistory && (
+                              <>
+                                {!isPartial && <button onClick={() => handleReopenSale(sale)} className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20" title="Reabrir"><History size={13} /></button>}
+                                <button onClick={() => startEditSale(sale)} className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20" title="Editar"><Pencil size={13} /></button>
+                                <button onClick={() => handleDeleteSale(sale)} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" title="Excluir"><Trash2 size={13} /></button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              }
+
+              // --- MODO MINIATURA ---
+              if (historyViewMode === 'miniatura') {
+                return (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                    {filteredSales.map(sale => {
+                      const down = sale.downPayment || 0;
+                      const balance = sale.total - down;
+                      const isPartial = balance > 0 || sale.status === 'pending';
+                      return (
+                        <GlassCard key={sale.id} className="p-3 border-white/10 space-y-2 bg-slate-900/80 hover:border-white/20 transition-all relative">
+                          <div className="flex items-start justify-between gap-1">
+                            {canManageHistory && (
+                              <input type="checkbox" checked={selectedSaleIds.has(sale.id)} onChange={() => toggleSaleSelection(sale.id)} className="w-3.5 h-3.5 mt-0.5 shrink-0 accent-primary-500" />
+                            )}
+                            <Badge className={cn("text-[6.5px] font-black uppercase px-1.5 py-0.5 border-none ml-auto", isPartial ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300")}>
+                              {isPartial ? 'PARCIAL' : 'QUITADO'}
                             </Badge>
                           </div>
-                          <p className="text-[9px] text-white/30 font-mono mt-0.5">#{sale.id.slice(-8).toUpperCase()} • {format(new Date(sale.createdAt), 'dd/MM/yyyy HH:mm')}</p>
-                        </div>
-                        
-                        {sale.scheduledFor && (
-                          <div className="bg-primary-500/10 border border-primary-500/20 rounded-xl px-2.5 py-1 text-right">
-                            <span className="text-[7.5px] font-black uppercase text-primary-300 tracking-wider block">Entrega Agendada</span>
-                            <span className="text-[9.5px] font-bold text-white">{format(new Date(sale.scheduledFor), 'dd/MM/yyyy HH:mm')}</span>
+                          <div>
+                            <p className="text-[10px] font-black text-white uppercase truncate">{sale.customerName || 'Cliente de Balcão'}</p>
+                            <p className="text-[8px] text-white/30 font-mono">#{sale.id.slice(-8).toUpperCase()}</p>
                           </div>
-                        )}
-                      </div>
-
-                      {/* Items Summary */}
-                      <div className="space-y-1 text-xs text-white/70 bg-white/5 p-3 rounded-xl border border-white/5">
-                        {sale.items?.map((item, idx) => (
-                          <div key={idx} className="flex justify-between items-center text-[11px]">
-                            <span>{item.quantity}x {item.name} {item.dimensions ? `(${item.dimensions})` : ''}</span>
-                            <span className="font-bold text-white/80">R$ {((item.area ? item.price * item.area : item.price) * item.quantity).toFixed(2).replace('.', ',')}</span>
+                          <p className="text-sm font-black text-white">R$ {sale.total.toFixed(2).replace('.', ',')}</p>
+                          <div className="flex flex-wrap gap-1 pt-1">
+                            {isPartial && <button onClick={() => setSettleModalOrder(sale)} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar Saldo"><CheckCircle2 size={12} /></button>}
+                            <button onClick={() => openReceipt(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={12} /></button>
+                            {canManageHistory && (
+                              <>
+                                {!isPartial && <button onClick={() => handleReopenSale(sale)} className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20" title="Reabrir"><History size={12} /></button>}
+                                <button onClick={() => startEditSale(sale)} className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20" title="Editar"><Pencil size={12} /></button>
+                                <button onClick={() => handleDeleteSale(sale)} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" title="Excluir"><Trash2 size={12} /></button>
+                              </>
+                            )}
                           </div>
-                        ))}
-                      </div>
+                        </GlassCard>
+                      );
+                    })}
+                  </div>
+                );
+              }
 
-                      {/* Financial Box */}
-                      <div className="grid grid-cols-3 gap-2 bg-slate-950/60 p-3 rounded-2xl border border-white/5 text-center">
-                        <div>
-                          <span className="text-[8px] font-black uppercase text-white/30 tracking-wider block">Total</span>
-                          <span className="text-xs font-black text-white">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
-                        </div>
-                        <div>
-                          <span className="text-[8px] font-black uppercase text-emerald-400 tracking-wider block">Entrada Paga</span>
-                          <span className="text-xs font-black text-emerald-400">R$ {down.toFixed(2).replace('.', ',')}</span>
-                        </div>
-                        <div>
-                          <span className="text-[8px] font-black uppercase text-rose-400 tracking-wider block">Falta Quitar</span>
-                          <span className={cn("text-xs font-black", balance > 0 ? "text-rose-400 font-extrabold" : "text-white/30")}>
-                            R$ {balance.toFixed(2).replace('.', ',')}
-                          </span>
-                        </div>
-                      </div>
+              // --- MODO NORMAL (padrão) ---
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {filteredSales.map(sale => {
+                    const down = sale.downPayment || 0;
+                    const balance = sale.total - down;
+                    const isPartial = balance > 0 || sale.status === 'pending';
 
-                      {/* Actions */}
-                      <div className="flex gap-2 justify-end pt-1">
-                        {isPartial && (
+                    return (
+                      <GlassCard key={sale.id} className="p-6 border-white/10 space-y-4 bg-slate-900/80 hover:border-white/20 transition-all relative overflow-hidden">
+                        <div className="flex justify-between items-start border-b border-white/5 pb-3">
+                          <div className="flex items-start gap-2">
+                            {canManageHistory && (
+                              <input type="checkbox" checked={selectedSaleIds.has(sale.id)} onChange={() => toggleSaleSelection(sale.id)} className="w-4 h-4 mt-1 shrink-0 accent-primary-500" />
+                            )}
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <h4 className="text-sm font-black text-white uppercase">{sale.customerName || 'Cliente de Balcão'}</h4>
+                                <Badge 
+                                  className={cn(
+                                    "text-[8px] font-black uppercase px-2 py-0.5 border-none",
+                                    isPartial ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300"
+                                  )}
+                                >
+                                  {isPartial ? 'ENTRADA PAGA (FALTA SALDO)' : '100% QUITADO'}
+                                </Badge>
+                              </div>
+                              <p className="text-[9px] text-white/30 font-mono mt-0.5">#{sale.id.slice(-8).toUpperCase()} • {format(new Date(sale.createdAt), 'dd/MM/yyyy HH:mm')}</p>
+                            </div>
+                          </div>
+                          
+                          {sale.scheduledFor && (
+                            <div className="bg-primary-500/10 border border-primary-500/20 rounded-xl px-2.5 py-1 text-right">
+                              <span className="text-[7.5px] font-black uppercase text-primary-300 tracking-wider block">Entrega Agendada</span>
+                              <span className="text-[9.5px] font-bold text-white">{format(new Date(sale.scheduledFor), 'dd/MM/yyyy HH:mm')}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Items Summary */}
+                        <div className="space-y-1 text-xs text-white/70 bg-white/5 p-3 rounded-xl border border-white/5">
+                          {sale.items?.map((item, idx) => (
+                            <div key={idx} className="flex justify-between items-center text-[11px]">
+                              <span>{item.quantity}x {item.name} {item.dimensions ? `(${item.dimensions})` : ''}</span>
+                              <span className="font-bold text-white/80">R$ {((item.area ? item.price * item.area : item.price) * item.quantity).toFixed(2).replace('.', ',')}</span>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Financial Box */}
+                        <div className="grid grid-cols-3 gap-2 bg-slate-950/60 p-3 rounded-2xl border border-white/5 text-center">
+                          <div>
+                            <span className="text-[8px] font-black uppercase text-white/30 tracking-wider block">Total</span>
+                            <span className="text-xs font-black text-white">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
+                          </div>
+                          <div>
+                            <span className="text-[8px] font-black uppercase text-emerald-400 tracking-wider block">Entrada Paga</span>
+                            <span className="text-xs font-black text-emerald-400">R$ {down.toFixed(2).replace('.', ',')}</span>
+                          </div>
+                          <div>
+                            <span className="text-[8px] font-black uppercase text-rose-400 tracking-wider block">Falta Quitar</span>
+                            <span className={cn("text-xs font-black", balance > 0 ? "text-rose-400 font-extrabold" : "text-white/30")}>
+                              R$ {balance.toFixed(2).replace('.', ',')}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex gap-2 justify-end pt-1 flex-wrap">
+                          {isPartial && (
+                            <Button
+                              size="sm"
+                              className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 text-[9px] font-black uppercase tracking-wider px-4 h-9"
+                              onClick={() => setSettleModalOrder(sale)}
+                            >
+                              <CheckCircle2 size={14} className="mr-1" />
+                              Quitar Saldo (R$ {balance.toFixed(2).replace('.', ',')})
+                            </Button>
+                          )}
                           <Button
+                            variant="secondary"
                             size="sm"
-                            className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 text-[9px] font-black uppercase tracking-wider px-4 h-9"
-                            onClick={() => setSettleModalOrder(sale)}
+                            className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-white/10"
+                            onClick={() => openReceipt(sale)}
                           >
-                            <CheckCircle2 size={14} className="mr-1" />
-                            Quitar Saldo (R$ {balance.toFixed(2).replace('.', ',')})
+                            Recibo
                           </Button>
-                        )}
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-white/10"
-                          onClick={() => alert(`Comprovante do Pedido #${sale.id.slice(-8).toUpperCase()}\nCliente: ${sale.customerName}\nTotal: R$ ${sale.total.toFixed(2)}\nEntrada Paga: R$ ${down.toFixed(2)}\nSaldo Devedor: R$ ${balance.toFixed(2)}`)}
-                        >
-                          Recibo
-                        </Button>
-                        {canManageHistory && (
-                          <>
-                            {!isPartial && (
+                          {canManageHistory && (
+                            <>
+                              {!isPartial && (
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-amber-500/20 text-amber-400 hover:bg-amber-500/10"
+                                  onClick={() => handleReopenSale(sale)}
+                                >
+                                  Reabrir
+                                </Button>
+                              )}
                               <Button
                                 variant="secondary"
                                 size="sm"
-                                className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-amber-500/20 text-amber-400 hover:bg-amber-500/10"
-                                onClick={() => handleReopenSale(sale)}
+                                className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-primary-500/20 text-primary-400 hover:bg-primary-500/10"
+                                onClick={() => startEditSale(sale)}
                               >
-                                Reabrir
+                                Editar
                               </Button>
-                            )}
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-primary-500/20 text-primary-400 hover:bg-primary-500/10"
-                              onClick={() => startEditSale(sale)}
-                            >
-                              Editar
-                            </Button>
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-rose-500/20 text-rose-400 hover:bg-rose-500/10"
-                              onClick={() => handleDeleteSale(sale)}
-                            >
-                              Excluir
-                            </Button>
-                          </>
-                        )}
-                      </div>
-                    </GlassCard>
-                  );
-                })
-              )}
-            </div>
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-rose-500/20 text-rose-400 hover:bg-rose-500/10"
+                                onClick={() => handleDeleteSale(sale)}
+                              >
+                                Excluir
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </GlassCard>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
         )}
 
@@ -5659,6 +5797,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     { id: 'canViewAttachments', label: 'Visualizar Mídias/Anexos', desc: 'Mostra arquivos recebidos e PDFs dentro de conversas' },
     { id: 'canTranscribeAudio', label: 'Transcrever Áudios', desc: 'Habilita conversão automática de voz para texto via IA' },
     { id: 'canManageSaleHistory', label: 'Gerenciar Histórico de Vendas', desc: 'Permite reabrir, editar ou excluir vendas já registradas no PDV' },
+    { id: 'canCloseCashRegister', label: 'Fechar Caixa', desc: 'Permite fechar o caixa do PDV (abrir continua restrito ao admin)' },
   ];
 
   return (

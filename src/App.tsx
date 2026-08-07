@@ -64,6 +64,7 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 import { auth, db } from './firebase';
+import { supabase } from './supabase';
 import { 
   GoogleAuthProvider, 
   signInWithPopup, 
@@ -331,7 +332,31 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<MainTab>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [pendingOrders, setPendingOrders] = useState<SaleOrder[]>([]);
-  const [isRegisterOpen, setIsRegisterOpen] = useState(false);
+  const [isRegisterOpen, setIsRegisterOpenLocal] = useState(false);
+  useEffect(() => {
+    const load = async () => {
+      const { data } = await supabase.from('configuracoes').select('caixa_aberto').eq('company_id', 'rafa-arts').maybeSingle();
+      setIsRegisterOpenLocal(!!data?.caixa_aberto);
+    };
+    load();
+    const channel = supabase
+      .channel('caixa-status')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'configuracoes' }, load)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+  const setIsRegisterOpen = async (open: boolean) => {
+    setIsRegisterOpenLocal(open); // resposta imediata na UI
+    try {
+      await supabase.from('configuracoes').upsert({
+        company_id: 'rafa-arts',
+        caixa_aberto: open,
+        caixa_aberto_em: open ? new Date().toISOString() : null,
+      }, { onConflict: 'company_id' });
+    } catch (err) {
+      console.error('Erro ao sincronizar status do caixa:', err);
+    }
+  };
   const [lastMessageId, setLastMessageId] = useState<string | null>(null);
   const [prefilledCustomer, setPrefilledCustomer] = useState<{ id?: string, name: string, phone: string } | null>(null);
   const [simulatedUserId, setSimulatedUserIdState] = useState<string | null>(localStorage.getItem('rpro_simulated_user_id'));
