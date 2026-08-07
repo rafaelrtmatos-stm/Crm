@@ -23,6 +23,7 @@ export interface SaleOrder {
   companyId: string;
   customerId?: string;
   customerName?: string;
+  customerPhone?: string;
   items: SaleOrderItem[];
   total: number;
   downPayment?: number;

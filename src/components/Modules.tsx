@@ -239,6 +239,7 @@ const mapVendaRow = (row: any): SaleOrder => ({
   companyId: row.company_id,
   customerId: row.cliente_id,
   customerName: row.customer_name,
+  customerPhone: row.customer_phone,
   items: row.items || [],
   total: Number(row.total) || 0,
   downPayment: row.down_payment !== null ? Number(row.down_payment) : undefined,
@@ -3352,10 +3353,44 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       return next;
     });
   };
+  const filteredSalesHistory = useMemo(() => {
+    return allSalesHistory.filter(sale => {
+      const down = sale.downPayment || 0;
+      const balance = sale.total - down;
+      const isPartial = balance > 0 || sale.status === 'pending';
+      if (historyFilter === 'parciais' && !isPartial) return false;
+      if (historyFilter === 'concluidos' && isPartial) return false;
+      if (historySearch.trim()) {
+        const term = historySearch.toLowerCase().trim();
+        const termDigits = term.replace(/\D/g, '');
+        const nameMatch = (sale.customerName || '').toLowerCase().includes(term);
+        const idMatch = sale.id.toLowerCase().includes(term);
+        const itemMatch = sale.items?.some(i => i.name.toLowerCase().includes(term));
+        const phoneMatch = termDigits.length >= 3 && (sale.customerPhone || '').replace(/\D/g, '').includes(termDigits);
+        if (!nameMatch && !idMatch && !itemMatch && !phoneMatch) return false;
+      }
+      return true;
+    });
+  }, [allSalesHistory, historyFilter, historySearch]);
+
+  const handleToggleSelectAll = () => {
+    setSelectedSaleIds(prev => {
+      if (prev.size === filteredSalesHistory.length && filteredSalesHistory.length > 0) {
+        return new Set();
+      }
+      return new Set(filteredSalesHistory.map(s => s.id));
+    });
+  };
+
+  const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
   const handleBulkDeleteSales = async () => {
     if (selectedSaleIds.size === 0) return;
-    if (!confirm(`Excluir permanentemente ${selectedSaleIds.size} venda(s) selecionada(s)? Essa ação não pode ser desfeita.`)) return;
-    const { error } = await supabase.from('vendas').delete().in('id', Array.from(selectedSaleIds));
+    setIsBulkDeleteConfirmOpen(true);
+  };
+  const confirmBulkDeleteSales = async () => {
+    const ids = Array.from(selectedSaleIds);
+    const { error } = await supabase.from('vendas').delete().in('id', ids);
+    setIsBulkDeleteConfirmOpen(false);
     if (error) { console.error(error); alert('Não foi possível excluir as vendas selecionadas.'); return; }
     setSelectedSaleIds(new Set());
   };
@@ -4197,13 +4232,23 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               {/* Filter Tabs */}
               <div className="flex flex-wrap items-center gap-2 self-stretch md:self-auto">
                 {selectedSaleIds.size > 0 && (
-                  <Button
-                    size="sm"
-                    className="bg-rose-500 hover:bg-rose-400 text-white text-[9px] font-black uppercase tracking-wider px-3 h-9 border-none"
-                    onClick={handleBulkDeleteSales}
-                  >
-                    Excluir Selecionados ({selectedSaleIds.size})
-                  </Button>
+                  <>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-white/10"
+                      onClick={handleToggleSelectAll}
+                    >
+                      {selectedSaleIds.size === filteredSalesHistory.length ? 'Desmarcar Todos' : `Selecionar Todos (${filteredSalesHistory.length})`}
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="bg-rose-500 hover:bg-rose-400 text-white text-[9px] font-black uppercase tracking-wider px-3 h-9 border-none"
+                      onClick={handleBulkDeleteSales}
+                    >
+                      Excluir Selecionados ({selectedSaleIds.size})
+                    </Button>
+                  </>
                 )}
                 <div className="flex bg-white/5 p-1 rounded-2xl border border-white/10 gap-1">
                   {[
@@ -4252,28 +4297,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               <input
                 value={historySearch}
                 onChange={e => setHistorySearch(e.target.value)}
-                placeholder="Buscar por cliente, produto ou código do pedido..."
+                placeholder="Buscar por cliente, telefone, número da nota ou produto..."
                 className="w-full bg-white/5 border border-white/10 rounded-2xl pl-10 pr-4 py-2.5 text-xs text-white placeholder-white/30 focus:outline-none focus:border-primary-500"
               />
             </div>
 
             {/* Orders List */}
             {(() => {
-              const filteredSales = allSalesHistory.filter(sale => {
-                const down = sale.downPayment || 0;
-                const balance = sale.total - down;
-                const isPartial = balance > 0 || sale.status === 'pending';
-                if (historyFilter === 'parciais' && !isPartial) return false;
-                if (historyFilter === 'concluidos' && isPartial) return false;
-                if (historySearch.trim()) {
-                  const term = historySearch.toLowerCase();
-                  const nameMatch = (sale.customerName || '').toLowerCase().includes(term);
-                  const idMatch = sale.id.toLowerCase().includes(term);
-                  const itemMatch = sale.items?.some(i => i.name.toLowerCase().includes(term));
-                  if (!nameMatch && !idMatch && !itemMatch) return false;
-                }
-                return true;
-              });
+              const filteredSales = filteredSalesHistory;
 
               const openReceipt = (sale: SaleOrder) => {
                 setLastFinalizedOrder(sale);
@@ -5332,6 +5363,31 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
              >
                <CheckCircle2 size={16} />
                <span>{isWaSaving ? 'Salvando...' : 'Salvar e Abrir Conversa'}</span>
+             </Button>
+           </div>
+         </div>
+       </Modal>
+     )}
+
+     {isBulkDeleteConfirmOpen && (
+       <Modal
+         isOpen={isBulkDeleteConfirmOpen}
+         onClose={() => setIsBulkDeleteConfirmOpen(false)}
+         title="Confirmar Exclusão"
+         size="sm"
+       >
+         <div className="space-y-5 p-4">
+           <div className="flex items-center gap-4 p-4 bg-rose-500/10 rounded-2xl border border-rose-500/20">
+             <AlertCircle size={28} className="text-rose-400 shrink-0" />
+             <p className="text-sm text-white/80">
+               Tem certeza que deseja excluir <strong className="text-white">{selectedSaleIds.size} venda(s)</strong> selecionada(s)? Essa ação não pode ser desfeita.
+             </p>
+           </div>
+           <div className="flex justify-end gap-3">
+             <Button variant="ghost" onClick={() => setIsBulkDeleteConfirmOpen(false)}>Cancelar</Button>
+             <Button className="bg-rose-500 hover:bg-rose-400 text-white font-black gap-2" onClick={confirmBulkDeleteSales}>
+               <Trash2 size={16} />
+               <span>Excluir Definitivamente</span>
              </Button>
            </div>
          </div>
