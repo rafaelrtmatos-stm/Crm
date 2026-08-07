@@ -3672,7 +3672,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         </Button>
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 min-h-0 overflow-hidden">
         {activeTab === 'venda' && (
           <>
             {/* Left Column: POS Display & Compact Cart Items Viewer */}
@@ -3725,7 +3725,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                         <p className="text-[9px] font-bold text-slate-500 max-w-[200px]">Selecione os produtos na lista ao lado para adicionar ao pedido.</p>
                      </div>
                   ) : (
-                     <div className="flex-1 overflow-y-auto custom-scrollbar divide-y divide-slate-200/60 pr-1">
+                     <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar divide-y divide-slate-200/60 pr-1">
                         {cart.map((item, idx) => {
                            const itemSubtotal = item.area ? item.price * item.area * item.quantity : item.price * item.quantity;
                            return (
@@ -3798,7 +3798,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             </div>
 
             {/* Right Column: List & Actions */}
-            <div className="w-[450px] bg-white flex flex-col border-l border-slate-200 shadow-2xl relative">
+            <div className="w-[450px] bg-white flex flex-col min-h-0 border-l border-slate-200 shadow-2xl relative">
                {/* Search & Action Bar */}
                <div className="p-4 bg-slate-50 space-y-3">
                   <div className="flex gap-2 h-12">
@@ -3862,7 +3862,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                </div>
 
                 {/* COMPACT PRODUCT LIST */}
-                <div className="flex-1 overflow-y-auto custom-scrollbar bg-white">
+                <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-white">
                    <div className="divide-y divide-slate-50">
                       {products.filter(p => p.name.includes(search.toUpperCase())).map(product => (
                         <div 
@@ -3888,7 +3888,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    </div>
                 </div>
 
-               <div className="p-6 bg-slate-50 border-t border-slate-200 space-y-4">
+               <div className="shrink-0 p-6 bg-slate-50 border-t border-slate-200 space-y-4 sticky bottom-0 z-10">
                   <div className="flex gap-4 h-24">
                      <button 
                        onClick={() => setIsCustomerModalOpen(true)}
