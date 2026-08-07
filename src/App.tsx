@@ -117,6 +117,8 @@ interface AppContextType {
   setIsRegisterOpen: (open: boolean) => void;
   prefilledCustomer: { id?: string, name: string, phone: string } | null;
   setPrefilledCustomer: (customer: { id?: string, name: string, phone: string } | null) => void;
+  pendingWhatsAppShare: { leadId: string; prefillMessage: string } | null;
+  setPendingWhatsAppShare: (v: { leadId: string; prefillMessage: string } | null) => void;
   simulatedUserId: string | null;
   setSimulatedUserId: (id: string | null) => void;
   theme: 'dark' | 'light';
@@ -359,6 +361,7 @@ export default function App() {
   };
   const [lastMessageId, setLastMessageId] = useState<string | null>(null);
   const [prefilledCustomer, setPrefilledCustomer] = useState<{ id?: string, name: string, phone: string } | null>(null);
+  const [pendingWhatsAppShare, setPendingWhatsAppShare] = useState<{ leadId: string; prefillMessage: string } | null>(null);
   const [simulatedUserId, setSimulatedUserIdState] = useState<string | null>(localStorage.getItem('rpro_simulated_user_id'));
   const [unrepliedLeadsCount, setUnrepliedLeadsCount] = useState(0);
 
@@ -928,6 +931,8 @@ export default function App() {
     setIsRegisterOpen,
     prefilledCustomer,
     setPrefilledCustomer,
+    pendingWhatsAppShare,
+    setPendingWhatsAppShare,
     simulatedUserId,
     setSimulatedUserId,
     theme,

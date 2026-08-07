@@ -1117,12 +1117,16 @@ export const ChatPanel = ({
   conversation, 
   onClose,
   currentCompany,
-  user
+  user,
+  initialDraft,
+  onDraftConsumed,
 }: { 
   conversation: any; 
   onClose?: () => void;
   currentCompany: Company | null;
   user: AppUser | null;
+  initialDraft?: string;
+  onDraftConsumed?: () => void;
 }) => {
   const [activeTab, setActiveTab] = useState<'chat' | 'data' | 'tasks' | 'notes' | 'history' | 'sales' | 'attachments'>('chat');
   const [newMessage, setNewMessage] = useState('');
@@ -1131,6 +1135,14 @@ export const ChatPanel = ({
   const [showQuickActions, setShowQuickActions] = useState(false);
   const [showQuickTemplates, setShowQuickTemplates] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (initialDraft && conversation?.id) {
+      setNewMessage(initialDraft);
+      onDraftConsumed?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversation?.id, initialDraft]);
 
   const quickTemplates = [
     { label: '👋 Boas-vindas', text: 'Olá! Seja bem-vindo(a). Como posso te ajudar com o seu pedido hoje?' },
@@ -1997,7 +2009,9 @@ const GenericListView = ({ title, subtitle, columns, data, icon, onAdd, noHeader
 
 // --- MESSAGES ---
 export const MessagesModule = ({ currentCompany, user }: { currentCompany: Company | null, user: AppUser | null }) => {
+  const { pendingWhatsAppShare, setPendingWhatsAppShare } = React.useContext(AppContext)!;
   const [selectedChat, setSelectedChat] = useState<any>(null);
+  const [chatInitialDraft, setChatInitialDraft] = useState('');
   const [leads, setLeads] = useState<Lead[]>([]);
   const [filter, setFilter] = useState('');
   const [autoTranscribe, setAutoTranscribe] = useState(true);
@@ -2251,6 +2265,16 @@ export const MessagesModule = ({ currentCompany, user }: { currentCompany: Compa
     return onSnapshot(q, async (snap) => {
       const fetchedLeads = snap.docs.map(d => ({ id: d.id, ...d.data() } as Lead));
       setLeads(fetchedLeads);
+
+      if (pendingWhatsAppShare) {
+        const target = fetchedLeads.find(l => l.id === pendingWhatsAppShare.leadId);
+        if (target) {
+          setSelectedChat({ ...target, name: target.fullName });
+          setChatInitialDraft(pendingWhatsAppShare.prefillMessage);
+          setPendingWhatsAppShare(null);
+          return;
+        }
+      }
 
       if (fetchedLeads.length > 0 && !selectedChat) {
         setSelectedChat({ ...fetchedLeads[0], name: fetchedLeads[0].fullName });
@@ -2568,6 +2592,8 @@ export const MessagesModule = ({ currentCompany, user }: { currentCompany: Compa
         currentCompany={currentCompany}
         user={user}
         onClose={() => setSelectedChat(null)}
+        initialDraft={chatInitialDraft}
+        onDraftConsumed={() => setChatInitialDraft('')}
       />
 
       {/* MODAL SIMULADOR DE MENSAGENS RECEBIDAS (TESTE MULTICANAL DE CRM) */}
@@ -3298,7 +3324,7 @@ export const MetaAdsModule = ({ currentCompany }: { currentCompany: Company | nu
 
 // --- PDV / POS ---
 export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany: Company | null, addPendingOrder: (order: SaleOrder) => void }) => {
-  const { isRegisterOpen, setIsRegisterOpen, user } = React.useContext(AppContext)!;
+  const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare } = React.useContext(AppContext)!;
   const [activeTab, setActiveTab] = useState<'venda' | 'historico' | 'estoque' | 'clientes' | 'contratos'>('venda');
   const [cart, setCart] = useState<SaleOrderItem[]>([]);
   const [search, setSearch] = useState('');
@@ -3335,6 +3361,126 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
   const [settleModalOrder, setSettleModalOrder] = useState<SaleOrder | null>(null);
   const [settleMethod, setSettleMethod] = useState<'pix' | 'dinheiro' | 'cartao_credito' | 'cartao_debito'>('pix');
+  const [isWhatsAppFormOpen, setIsWhatsAppFormOpen] = useState(false);
+  const [waFormName, setWaFormName] = useState('');
+  const [waFormCountry, setWaFormCountry] = useState({ code: '+55', flag: '🇧🇷', name: 'Brasil' });
+  const [waFormPhone, setWaFormPhone] = useState('');
+  const [isWaSaving, setIsWaSaving] = useState(false);
+  const WA_COUNTRIES = [
+    { code: '+55', flag: '🇧🇷', name: 'Brasil' },
+    { code: '+1', flag: '🇺🇸', name: 'Estados Unidos' },
+    { code: '+351', flag: '🇵🇹', name: 'Portugal' },
+    { code: '+54', flag: '🇦🇷', name: 'Argentina' },
+    { code: '+595', flag: '🇵🇾', name: 'Paraguai' },
+    { code: '+598', flag: '🇺🇾', name: 'Uruguai' },
+  ];
+
+  const buildOrderShareMessage = (order: SaleOrder, customerName: string) => {
+    const total = order.total;
+    const down = order.downPayment ?? order.receivedValue ?? (order.status === 'completed' ? total : 0);
+    const balance = Math.max(0, total - down);
+    const isPending = balance > 0 || order.status === 'pending';
+    const itemsText = order.items.map(i => `• ${i.quantity}x ${i.name} (R$ ${((i.area ? i.price * i.area : i.price) * i.quantity).toFixed(2).replace('.', ',')})`).join('\n');
+    const deliveryStr = order.scheduledFor ? `\n📅 *Previsão de Entrega:* ${format(new Date(order.scheduledFor), 'dd/MM/yyyy HH:mm')}` : '';
+    return `Olá *${customerName || 'Cliente'}*!\n\nSegue resumo do seu pedido *#${order.id.slice(-8).toUpperCase()}* na *${currentCompany?.name || 'Rafa Arts Graphics'}*:\n\n${itemsText}\n\n💰 *Total do Pedido:* R$ ${total.toFixed(2).replace('.', ',')}\n✅ *Valor Recebido (Entrada):* R$ ${down.toFixed(2).replace('.', ',')}${isPending ? `\n🔴 *Valor que Falta Pagar:* R$ ${balance.toFixed(2).replace('.', ',')}` : '\n🎉 *Status:* 100% Quitado'}${deliveryStr}\n\nObrigado pela preferência!`;
+  };
+
+  // Acha (ou cria) o lead correspondente ao telefone no Funil de Atendimento,
+  // deixa a conversa selecionada com a mensagem pronta para enviar.
+  const findOrCreateLeadAndOpenChat = async (phoneDigits: string, name: string, prefillMessage: string) => {
+    if (!currentCompany) return;
+    try {
+      const leadsQ = query(collection(db, 'leads'), where('companyId', '==', currentCompany.id));
+      const leadsSnap = await getDocs(leadsQ);
+      const existing = leadsSnap.docs.find(d => {
+        const p = (d.data().phone || '').replace(/\D/g, '');
+        return p && (p === phoneDigits || p.endsWith(phoneDigits) || phoneDigits.endsWith(p));
+      });
+
+      let leadId: string;
+      if (existing) {
+        leadId = existing.id;
+      } else {
+        // Acha o funil/etapa inicial padrão da empresa, igual ao Funil CRM faz
+        let funnelId: string | null = null;
+        let funnelStageId: string | null = null;
+        const funnelQ = query(collection(db, 'funnels'), where('companyId', '==', currentCompany.id), where('isDefault', '==', true), limit(1));
+        let funnelSnap = await getDocs(funnelQ);
+        if (funnelSnap.empty) {
+          funnelSnap = await getDocs(query(collection(db, 'funnels'), where('companyId', '==', currentCompany.id), limit(1)));
+        }
+        if (!funnelSnap.empty) {
+          funnelId = funnelSnap.docs[0].id;
+          const stageQ = query(collection(db, 'funnelStages'), where('funnelId', '==', funnelId), where('isInitial', '==', true), limit(1));
+          let stageSnap = await getDocs(stageQ);
+          if (stageSnap.empty) {
+            stageSnap = await getDocs(query(collection(db, 'funnelStages'), where('funnelId', '==', funnelId), orderBy('order', 'asc'), limit(1)));
+          }
+          if (!stageSnap.empty) funnelStageId = stageSnap.docs[0].id;
+        }
+
+        const nameParts = (name || 'Cliente').trim().split(' ');
+        const newLeadRef = await addDoc(collection(db, 'leads'), {
+          companyId: currentCompany.id,
+          funnelId,
+          funnelStageId,
+          fullName: name || 'Cliente',
+          firstName: nameParts[0] || 'Cliente',
+          lastName: nameParts.slice(1).join(' ') || '',
+          phone: phoneDigits,
+          sourceType: 'WhatsApp',
+          createdAt: new Date().toISOString(),
+        });
+        leadId = newLeadRef.id;
+      }
+
+      setPendingWhatsAppShare({ leadId, prefillMessage });
+      setRootActiveTab('messages');
+      setIsSuccessModalOpen(false);
+    } catch (err) {
+      console.error('Erro ao localizar/criar lead:', err);
+      alert('Não foi possível abrir a conversa no Funil de Atendimento.');
+    }
+  };
+
+  const handleShareViaWhatsApp = async (order: SaleOrder, customerName: string, phone: string) => {
+    const digits = phone.replace(/\D/g, '');
+    const message = buildOrderShareMessage(order, customerName);
+    await findOrCreateLeadAndOpenChat(digits, customerName, message);
+  };
+
+  const handleSaveWhatsAppCustomer = async () => {
+    const digits = waFormPhone.replace(/\D/g, '');
+    if (!waFormName.trim() || digits.length < 8) {
+      alert('Preencha o nome e um número de WhatsApp válido.');
+      return;
+    }
+    setIsWaSaving(true);
+    try {
+      const fullPhone = `${waFormCountry.code} ${waFormPhone}`.trim();
+      // Salva/atualiza o cliente no Supabase
+      let customerId = selectedCustomer?.id;
+      if (customerId) {
+        await supabase.from('clientes').update({ phone: fullPhone }).eq('id', customerId);
+      } else {
+        const { data: inserted, error: insertErr } = await supabase.from('clientes').insert({ full_name: waFormName, phone: fullPhone }).select().single();
+        if (insertErr) throw insertErr;
+        customerId = inserted?.id;
+      }
+      setSelectedCustomer({ id: customerId || '', name: waFormName, phone: fullPhone });
+      setIsWhatsAppFormOpen(false);
+      if (lastFinalizedOrder) {
+        const message = buildOrderShareMessage(lastFinalizedOrder, waFormName);
+        await findOrCreateLeadAndOpenChat(`${waFormCountry.code.replace('+', '')}${digits}`, waFormName, message);
+      }
+    } catch (err) {
+      console.error('Erro ao salvar cliente:', err);
+      alert('Não foi possível salvar o cliente.');
+    } finally {
+      setIsWaSaving(false);
+    }
+  };
+
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncedAt, setSyncedAt] = useState<Date | null>(null);
   const [pixConfig, setPixConfig] = useState<{ key: string; beneficiaryName: string; city: string } | null>(null);
@@ -4868,21 +5014,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                icon={Share2} 
                className="flex-col h-16 sm:h-20 gap-1 py-2 px-1 text-[7.5px] sm:text-[9px] uppercase font-black tracking-wide border-white/5 bg-white/5 hover:bg-emerald-500/20 hover:text-emerald-300 transition-all"
                onClick={() => {
-                  if(!lastFinalizedOrder) return;
-                  const total = lastFinalizedOrder.total;
-                  const down = lastFinalizedOrder.downPayment ?? lastFinalizedOrder.receivedValue ?? (lastFinalizedOrder.status === 'completed' ? total : 0);
-                  const balance = Math.max(0, total - down);
-                  const isPending = balance > 0 || lastFinalizedOrder.status === 'pending';
-                  const itemsText = lastFinalizedOrder.items.map(i => `• ${i.quantity}x ${i.name} (R$ ${((i.area ? i.price * i.area : i.price) * i.quantity).toFixed(2).replace('.', ',')})`).join('%0A');
-                  const deliveryStr = lastFinalizedOrder.scheduledFor ? `%0A📅 *Previsão de Entrega:* ${format(new Date(lastFinalizedOrder.scheduledFor), 'dd/MM/yyyy HH:mm')}` : '';
-                  const text = `Olá *${lastFinalizedOrder.customerName || 'Cliente'}*!%0A%0ASegue resumo do seu pedido *#${lastFinalizedOrder.id.slice(-8).toUpperCase()}* na *${currentCompany?.name || 'Rafa Arts Graphics'}*:%0A%0A${itemsText}%0A%0A💰 *Total do Pedido:* R$ ${total.toFixed(2).replace('.', ',')}%0A✅ *Valor Recebido (Entrada):* R$ ${down.toFixed(2).replace('.', ',')}${isPending ? `%0A🔴 *Valor que Falta Pagar:* R$ ${balance.toFixed(2).replace('.', ',')}` : '%0A🎉 *Status:* 100% Quitado'}${deliveryStr}%0A%0AObrigado pela preferência!`;
-                  
-                  let targetPhone = selectedCustomer?.phone;
-                  if (!targetPhone) {
-                    targetPhone = prompt('Digite o número de WhatsApp do cliente (com DDD):') || '';
-                  }
-                  if (targetPhone) {
-                    window.open(`https://wa.me/${targetPhone.replace(/\D/g, '')}?text=${text}`, '_blank');
+                  if (!lastFinalizedOrder) return;
+                  if (selectedCustomer?.phone) {
+                    handleShareViaWhatsApp(lastFinalizedOrder, selectedCustomer.name, selectedCustomer.phone);
+                  } else {
+                    setWaFormName(lastFinalizedOrder.customerName || '');
+                    setWaFormPhone('');
+                    setIsWhatsAppFormOpen(true);
                   }
                }}
              >
@@ -5139,6 +5277,54 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
              <Button className="bg-primary-500 hover:bg-primary-400 text-slate-900 font-black gap-2" onClick={handleSaveEditSale}>
                <CheckCircle2 size={16} />
                <span>Salvar Alterações</span>
+             </Button>
+           </div>
+         </div>
+       </Modal>
+     )}
+
+     {isWhatsAppFormOpen && (
+       <Modal
+         isOpen={isWhatsAppFormOpen}
+         onClose={() => setIsWhatsAppFormOpen(false)}
+         title="Cadastrar Cliente para Compartilhar"
+         size="md"
+       >
+         <div className="space-y-4 p-4">
+           <p className="text-xs text-white/50">Essa venda ainda não tem um cliente com WhatsApp vinculado. Cadastre para compartilhar o comprovante e já deixar a conversa pronta no Funil de Atendimento.</p>
+           <Input label="Nome do Cliente" value={waFormName} onChange={(e: any) => setWaFormName(e.target.value)} />
+           <div>
+             <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block mb-1.5">WhatsApp *</label>
+             <div className="flex gap-2">
+               <div className="relative">
+                 <select
+                   value={waFormCountry.code}
+                   onChange={(e) => setWaFormCountry(WA_COUNTRIES.find(c => c.code === e.target.value) || WA_COUNTRIES[0])}
+                   className="h-11 bg-white/5 border border-white/10 rounded-xl pl-3 pr-7 text-sm text-white appearance-none focus:outline-none focus:border-primary-500 cursor-pointer"
+                 >
+                   {WA_COUNTRIES.map(c => (
+                     <option key={c.code} value={c.code} className="bg-slate-900">{c.flag} {c.code}</option>
+                   ))}
+                 </select>
+               </div>
+               <input
+                 value={waFormPhone}
+                 onChange={(e) => setWaFormPhone(e.target.value)}
+                 placeholder="93 99233-2012"
+                 className="flex-1 h-11 bg-white/5 border border-white/10 rounded-xl px-4 text-sm text-white placeholder-white/30 focus:outline-none focus:border-primary-500"
+               />
+             </div>
+             <p className="text-[9px] text-white/30 mt-1">Formato final: {waFormCountry.flag} {waFormCountry.code} {waFormPhone || '93 99233-2012'}</p>
+           </div>
+           <div className="flex justify-end gap-3 pt-2">
+             <Button variant="ghost" onClick={() => setIsWhatsAppFormOpen(false)}>Cancelar</Button>
+             <Button
+               className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-black gap-2"
+               disabled={isWaSaving}
+               onClick={handleSaveWhatsAppCustomer}
+             >
+               <CheckCircle2 size={16} />
+               <span>{isWaSaving ? 'Salvando...' : 'Salvar e Abrir Conversa'}</span>
              </Button>
            </div>
          </div>
