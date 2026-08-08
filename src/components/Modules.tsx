@@ -564,15 +564,6 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                 </div>
               )}
             </div>
-
-            <Button 
-              variant="secondary" 
-              icon={isEditMode ? Check : Settings2} 
-              onClick={() => setIsEditMode(!isEditMode)}
-              className="text-[9px] uppercase tracking-widest font-black"
-            >
-              {isEditMode ? 'Salvar Layout' : 'Personalizar'}
-            </Button>
           </div>
         } 
       />
