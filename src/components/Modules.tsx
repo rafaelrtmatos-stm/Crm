@@ -4337,29 +4337,26 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           ))}
         </div>
         
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-1.5 shrink-0">
           <button
             onClick={handleManualSync}
             disabled={isSyncing}
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-2 rounded-xl text-[8.5px] sm:text-[9px] font-black uppercase tracking-wider border transition-all whitespace-nowrap",
-              isSyncing ? "bg-white/5 border-white/10 text-white/30" : "bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20"
-            )}
             title={syncedAt ? `Última sincronização: ${syncedAt.toLocaleTimeString('pt-BR')}` : 'Sincronizar agora'}
+            className={cn(
+              "flex items-center justify-center w-8 h-8 rounded-lg border transition-all shrink-0",
+              isSyncing ? "bg-white/5 border-white/10 text-white/30" : "bg-white/5 border-white/10 text-white/50 hover:text-emerald-400 hover:border-emerald-500/20"
+            )}
           >
-            <RefreshCw size={12} className={cn(isSyncing && "animate-spin")} />
-            <span className="hidden sm:inline">{isSyncing ? 'Sincronizando...' : 'Sincronizar'}</span>
+            <RefreshCw size={13} className={cn(isSyncing && "animate-spin")} />
           </button>
           {(user?.isAdmin || user?.allowedActions?.includes('canCloseCashRegister')) && (
-            <Button 
-              variant="secondary" 
-              size="sm" 
-              icon={LogOut} 
-              className="text-rose-400 border-rose-500/20 hover:bg-rose-500/10 text-[8.5px] sm:text-[9px] uppercase tracking-wider font-black whitespace-nowrap"
+            <button
               onClick={() => setIsRegisterOpen(false)}
+              title="Fechar Caixa"
+              className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-rose-400 hover:border-rose-500/20 transition-all shrink-0"
             >
-              Fechar Caixa
-            </Button>
+              <LogOut size={13} />
+            </button>
           )}
         </div>
       </div>
@@ -4628,14 +4625,23 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 </p>
               </div>
 
-              <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <input ref={vendasFileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportVendasFile} />
-                <Button variant="secondary" size="sm" icon={Upload} disabled={isImportingVendas} className="text-[9px] uppercase tracking-wider font-black" onClick={() => vendasFileInputRef.current?.click()}>
-                  {isImportingVendas ? 'Importando...' : 'Importar Planilha'}
-                </Button>
-                <Button variant="secondary" size="sm" icon={Download} className="text-[9px] uppercase tracking-wider font-black" onClick={() => exportVendasXlsx(allSalesHistory)}>
-                  Exportar Planilha
-                </Button>
+                <button
+                  disabled={isImportingVendas}
+                  title={isImportingVendas ? 'Importando...' : 'Importar Planilha'}
+                  onClick={() => vendasFileInputRef.current?.click()}
+                  className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all disabled:opacity-50"
+                >
+                  <Upload size={13} className={cn(isImportingVendas && "animate-pulse")} />
+                </button>
+                <button
+                  title="Exportar Planilha"
+                  onClick={() => exportVendasXlsx(allSalesHistory)}
+                  className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all"
+                >
+                  <Download size={13} />
+                </button>
                 {selectedSaleIds.size > 0 && (
                   <>
                     <Button
@@ -5116,18 +5122,26 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 <button
                   onClick={() => setHistorySortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
                   title={historySortOrder === 'desc' ? 'Mais recentes primeiro' : 'Mais antigas primeiro'}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-wider bg-white/5 border border-white/10 text-white/60 hover:text-white transition-all"
+                  className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 border border-white/10 text-white/60 hover:text-white transition-all"
                 >
                   {historySortOrder === 'desc' ? <ArrowDownWideNarrow size={13} /> : <ArrowUpWideNarrow size={13} />}
-                  <span className="hidden sm:inline">{historySortOrder === 'desc' ? 'Mais Recentes' : 'Mais Antigas'}</span>
                 </button>
                 <input ref={vendasFileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportVendasFile} />
-                <Button variant="secondary" size="sm" icon={Upload} disabled={isImportingVendas} className="text-[9px] uppercase tracking-wider font-black" onClick={() => vendasFileInputRef.current?.click()}>
-                  {isImportingVendas ? 'Importando...' : 'Importar Planilha'}
-                </Button>
-                <Button variant="secondary" size="sm" icon={Download} className="text-[9px] uppercase tracking-wider font-black" onClick={() => exportVendasXlsx(pendingOrScheduledSales)}>
-                  Exportar Planilha
-                </Button>
+                <button
+                  disabled={isImportingVendas}
+                  title={isImportingVendas ? 'Importando...' : 'Importar Planilha'}
+                  onClick={() => vendasFileInputRef.current?.click()}
+                  className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all disabled:opacity-50"
+                >
+                  <Upload size={13} className={cn(isImportingVendas && "animate-pulse")} />
+                </button>
+                <button
+                  title="Exportar Planilha"
+                  onClick={() => exportVendasXlsx(pendingOrScheduledSales)}
+                  className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all"
+                >
+                  <Download size={13} />
+                </button>
               </div>
             </div>
 
@@ -6425,14 +6439,23 @@ export const ContactsModule = ({ currentCompany }: { currentCompany: Company | n
         title="Base de Contatos"
         subtitle="Gestão unificada de clientes"
         actions={
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportFile} />
-            <Button variant="secondary" icon={Upload} disabled={isImporting} onClick={() => fileInputRef.current?.click()}>
-              {isImporting ? 'Importando...' : 'Importar Planilha'}
-            </Button>
-            <Button variant="secondary" icon={Download} onClick={() => exportClientesXlsx(clientes)}>
-              Exportar Planilha
-            </Button>
+            <button
+              disabled={isImporting}
+              title={isImporting ? 'Importando...' : 'Importar Planilha'}
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all disabled:opacity-50"
+            >
+              <Upload size={14} className={cn(isImporting && "animate-pulse")} />
+            </button>
+            <button
+              title="Exportar Planilha"
+              onClick={() => exportClientesXlsx(clientes)}
+              className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all"
+            >
+              <Download size={14} />
+            </button>
             <Button icon={Plus} onClick={() => setIsModalOpen(true)}>Novo Cliente</Button>
           </div>
         }
@@ -6792,14 +6815,23 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
         title="Gestão de Insumos" 
         subtitle="Controle de Estoque e Matéria-Prima (Foco Gráfica)" 
         actions={
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportFile} />
-            <Button variant="secondary" icon={Upload} disabled={isImporting} onClick={() => fileInputRef.current?.click()}>
-              {isImporting ? 'Importando...' : 'Importar Planilha'}
-            </Button>
-            <Button variant="secondary" icon={Download} onClick={() => exportProdutosXlsx(items.map(i => ({ ...i, sale_price: i.salePrice, cost_price: i.costPrice, current_stock: i.currentStock, min_stock: i.minStock })))}>
-              Exportar Planilha
-            </Button>
+            <button
+              disabled={isImporting}
+              title={isImporting ? 'Importando...' : 'Importar Planilha'}
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all disabled:opacity-50"
+            >
+              <Upload size={14} className={cn(isImporting && "animate-pulse")} />
+            </button>
+            <button
+              title="Exportar Planilha"
+              onClick={() => exportProdutosXlsx(items.map(i => ({ ...i, sale_price: i.salePrice, cost_price: i.costPrice, current_stock: i.currentStock, min_stock: i.minStock })))}
+              className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all"
+            >
+              <Download size={14} />
+            </button>
             <Button icon={Plus} onClick={() => setIsModalOpen(true)}>Novo Item</Button>
           </div>
         }
