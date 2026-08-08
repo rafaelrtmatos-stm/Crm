@@ -6708,6 +6708,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                <Input label="Telefone/WhatsApp" value={orcamentoForm.phone} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, phone: e.target.value })} />
                <Input label="Responsável pelo Atendimento" value={orcamentoForm.responsavel} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, responsavel: e.target.value })} />
                <Input label="Endereço" className="sm:col-span-2" value={orcamentoForm.address} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, address: e.target.value })} />
+               <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Data de Emissão</label>
+                  <div className="h-11 flex items-center px-3 bg-white/5 border border-white/10 rounded-xl text-sm text-white/70">
+                    {safeFormat(editingOrcamento?.createdAt || new Date().toISOString(), 'dd/MM/yyyy')}
+                  </div>
+               </div>
                <Input label="Validade" type="date" value={orcamentoForm.validade} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, validade: e.target.value })} />
             </div>
 
@@ -6744,7 +6750,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                </div>
                <div className="space-y-1.5">
                   {orcamentoForm.items.map((item, idx) => (
-                    <div key={idx} className="flex items-center justify-between gap-2 px-3 py-2 bg-white/5 border border-white/5 rounded-lg">
+                    <div key={idx} className="flex items-center justify-between gap-2 px-3 py-2 bg-white/5 border border-white/5 rounded-lg flex-wrap">
                        <div className="flex items-center gap-2 min-w-0 flex-1">
                           <input
                             type="number"
@@ -6755,11 +6761,37 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                setOrcamentoForm(prev => ({ ...prev, items: prev.items.map((it, i) => i === idx ? { ...it, quantity: qty } : it) }));
                             }}
                             className="w-12 h-7 bg-slate-900/60 border border-white/10 rounded px-1.5 text-xs text-white text-center"
+                            title="Quantidade"
                           />
-                          <span className="text-xs font-bold text-white truncate">{item.name}</span>
+                          <div className="min-w-0 flex-1">
+                             <p className="text-xs font-bold text-white truncate">{item.name}</p>
+                             <button
+                               onClick={() => setOrcamentoForm(prev => ({ ...prev, items: prev.items.map((it: any, i) => i === idx ? { ...it, category: it.category === 'servico' ? 'produto' : 'servico' } : it) }))}
+                               className={cn(
+                                 "text-[7px] font-black uppercase px-1.5 py-0.5 rounded mt-0.5 inline-block",
+                                 (item as any).category === 'servico' ? "bg-blue-500/20 text-blue-300" : "bg-white/10 text-white/40"
+                               )}
+                               title="Clique para alternar Produto/Serviço"
+                             >
+                               {(item as any).category === 'servico' ? 'Serviço' : 'Produto'}
+                             </button>
+                          </div>
                        </div>
                        <div className="flex items-center gap-2 shrink-0">
-                          <span className="text-xs font-black text-emerald-400">R$ {(item.price * item.quantity).toFixed(2).replace('.', ',')}</span>
+                          <div className="flex flex-col items-end">
+                             <span className="text-[7px] font-black text-white/30 uppercase tracking-wider">Valor Unit.</span>
+                             <input
+                               type="number"
+                               step="any"
+                               value={item.price}
+                               onChange={(e) => {
+                                  const price = Math.max(0, Number(e.target.value) || 0);
+                                  setOrcamentoForm(prev => ({ ...prev, items: prev.items.map((it, i) => i === idx ? { ...it, price } : it) }));
+                               }}
+                               className="w-20 h-6 bg-slate-900/60 border border-white/10 rounded px-1.5 text-[10px] text-white text-right"
+                             />
+                          </div>
+                          <span className="text-xs font-black text-emerald-400 min-w-[70px] text-right">R$ {(item.price * item.quantity).toFixed(2).replace('.', ',')}</span>
                           <button onClick={() => setOrcamentoForm(prev => ({ ...prev, items: prev.items.filter((_, i) => i !== idx) }))} className="text-white/30 hover:text-rose-400"><X size={13} /></button>
                        </div>
                     </div>
