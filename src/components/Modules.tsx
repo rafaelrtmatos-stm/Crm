@@ -4517,7 +4517,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         {activeTab === 'venda' && (
           <>
             {/* Cima no mobile / Esquerda no desktop: Terminal POS + Carrinho */}
-            <div className="h-[46%] md:h-auto md:flex-1 bg-[#fef9c3] flex flex-col p-4 sm:p-6 relative overflow-hidden justify-between shrink-0 md:shrink">
+            <div className="basis-[46%] shrink-0 grow-0 md:basis-auto md:flex-1 md:shrink bg-[#fef9c3] flex flex-col p-4 sm:p-6 relative overflow-hidden justify-between min-h-0">
                {/* Top Bar */}
                <div className="flex justify-between items-center text-slate-900/50 pb-2 border-b border-slate-900/10">
                   <div className="flex items-center gap-2">
