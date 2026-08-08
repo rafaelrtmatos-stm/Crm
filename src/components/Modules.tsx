@@ -3331,11 +3331,26 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
   const [customerModalIntent, setCustomerModalIntent] = useState<'finalize' | 'preselect'>('preselect');
   const [customerModalMode, setCustomerModalMode] = useState<'search' | 'create'>('search');
+
+  // --- Pesquisa de clientes ---
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
-  const [customerSearchResults, setCustomerSearchResults] = useState<any[]>([]);
-  const [isSearchingCustomer, setIsSearchingCustomer] = useState(false);
-  const [newCustomerForm, setNewCustomerForm] = useState({ full_name: '', phone: '' });
+  const [allCustomers, setAllCustomers] = useState<any[]>([]);
+  const [isLoadingCustomers, setIsLoadingCustomers] = useState(false);
+  const [customerSalesStats, setCustomerSalesStats] = useState<Record<string, { total: number; count: number; lastDate: string | null; hasPending: boolean }>>({});
+  const [customerSortBy, setCustomerSortBy] = useState<'recentes' | 'az' | 'ultima_compra' | 'maior_valor' | 'frequentes'>('recentes');
+
+  // --- Cadastro (rápido + mais opções) ---
+  const emptyCustomerForm = {
+    full_name: '', cep: '', numero: '', email: '', logradouro: '', phone: '', distrito: '',
+    nascimento: '', cpf_cnpj: '', city: '', state: '', complemento: '',
+    limite_credito: '', patrimonios: [] as { propriedade: string; valor: string }[], notes: '',
+  };
+  const [newCustomerForm, setNewCustomerForm] = useState({ ...emptyCustomerForm });
   const [isCreatingCustomer, setIsCreatingCustomer] = useState(false);
+  const [isMoreOptionsOpen, setIsMoreOptionsOpen] = useState(false);
+  const [isLookingUpCep, setIsLookingUpCep] = useState(false);
+  const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null);
+  const customerNameInputRef = React.useRef<HTMLInputElement>(null);
 
   const proceedAfterCustomerStep = () => {
     setIsCustomerModalOpen(false);
@@ -3345,22 +3360,125 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     }
   };
 
+  const loadAllCustomers = async () => {
+    setIsLoadingCustomers(true);
+    try {
+      const { data } = await supabase.from('clientes').select('*').order('created_at', { ascending: false });
+      setAllCustomers(data || []);
+      // Agrega estatisticas de vendas por cliente (busca leve, so campos necessarios)
+      const { data: vendasData } = await supabase.from('vendas').select('cliente_id, total, status, down_payment, created_at');
+      const stats: Record<string, { total: number; count: number; lastDate: string | null; hasPending: boolean }> = {};
+      (vendasData || []).forEach((v: any) => {
+        if (!v.cliente_id) return;
+        if (!stats[v.cliente_id]) stats[v.cliente_id] = { total: 0, count: 0, lastDate: null, hasPending: false };
+        stats[v.cliente_id].total += Number(v.total) || 0;
+        stats[v.cliente_id].count += 1;
+        if (!stats[v.cliente_id].lastDate || new Date(v.created_at) > new Date(stats[v.cliente_id].lastDate!)) {
+          stats[v.cliente_id].lastDate = v.created_at;
+        }
+        const down = Number(v.down_payment) || 0;
+        if (v.status === 'pending' || down < Number(v.total)) stats[v.cliente_id].hasPending = true;
+      });
+      setCustomerSalesStats(stats);
+    } catch (err) {
+      console.error('Erro ao carregar clientes:', err);
+    } finally {
+      setIsLoadingCustomers(false);
+    }
+  };
+
   useEffect(() => {
-    if (!isCustomerModalOpen || customerModalMode !== 'search') return;
-    const term = customerSearchTerm.trim();
-    if (term.length < 2) { setCustomerSearchResults([]); return; }
-    setIsSearchingCustomer(true);
-    const timeout = setTimeout(async () => {
-      const { data } = await supabase
-        .from('clientes')
-        .select('id, full_name, phone')
-        .or(`full_name.ilike.%${term}%,phone.ilike.%${term}%,cpf_cnpj.ilike.%${term}%`)
-        .limit(20);
-      setCustomerSearchResults(data || []);
-      setIsSearchingCustomer(false);
-    }, 350);
-    return () => clearTimeout(timeout);
-  }, [customerSearchTerm, isCustomerModalOpen, customerModalMode]);
+    if (isCustomerModalOpen && customerModalMode === 'search') {
+      loadAllCustomers();
+    }
+  }, [isCustomerModalOpen, customerModalMode]);
+
+  useEffect(() => {
+    if (isCustomerModalOpen && customerModalMode === 'create') {
+      setTimeout(() => customerNameInputRef.current?.focus(), 50);
+    }
+  }, [isCustomerModalOpen, customerModalMode]);
+
+  const filteredSortedCustomers = useMemo(() => {
+    let list = allCustomers;
+    const term = customerSearchTerm.trim().toLowerCase();
+    if (term) {
+      const digits = term.replace(/\D/g, '');
+      list = list.filter(c =>
+        (c.full_name || '').toLowerCase().includes(term) ||
+        (c.email || '').toLowerCase().includes(term) ||
+        (c.cpf_cnpj || '').toLowerCase().includes(term) ||
+        (digits.length >= 3 && (c.phone || '').replace(/\D/g, '').includes(digits))
+      );
+    }
+    const withStats = list.map(c => ({ ...c, _stats: customerSalesStats[c.id] }));
+    switch (customerSortBy) {
+      case 'az':
+        return withStats.sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
+      case 'ultima_compra':
+        return withStats.sort((a, b) => {
+          const da = a._stats?.lastDate ? new Date(a._stats.lastDate).getTime() : 0;
+          const db = b._stats?.lastDate ? new Date(b._stats.lastDate).getTime() : 0;
+          return db - da;
+        });
+      case 'maior_valor':
+        return withStats.sort((a, b) => (b._stats?.total || 0) - (a._stats?.total || 0));
+      case 'frequentes':
+        return withStats.sort((a, b) => (b._stats?.count || 0) - (a._stats?.count || 0));
+      default:
+        return withStats.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    }
+  }, [allCustomers, customerSearchTerm, customerSortBy, customerSalesStats]);
+
+  const handleCepLookup = async (cep: string) => {
+    const digits = cep.replace(/\D/g, '');
+    if (digits.length !== 8) return;
+    setIsLookingUpCep(true);
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`);
+      const data = await res.json();
+      if (!data.erro) {
+        setNewCustomerForm(prev => ({
+          ...prev,
+          logradouro: data.logradouro || prev.logradouro,
+          distrito: data.bairro || prev.distrito,
+          city: data.localidade || prev.city,
+          state: data.uf || prev.state,
+        }));
+      }
+    } catch (err) {
+      console.error('Erro ao buscar CEP:', err);
+    } finally {
+      setIsLookingUpCep(false);
+    }
+  };
+
+  const addPatrimonioRow = () => {
+    setNewCustomerForm(prev => ({ ...prev, patrimonios: [...prev.patrimonios, { propriedade: '', valor: '' }] }));
+  };
+  const updatePatrimonioRow = (idx: number, field: 'propriedade' | 'valor', value: string) => {
+    setNewCustomerForm(prev => {
+      const next = [...prev.patrimonios];
+      next[idx] = { ...next[idx], [field]: value };
+      return { ...prev, patrimonios: next };
+    });
+  };
+  const removePatrimonioRow = (idx: number) => {
+    setNewCustomerForm(prev => ({ ...prev, patrimonios: prev.patrimonios.filter((_, i) => i !== idx) }));
+  };
+
+  const startEditCustomer = (c: any) => {
+    setEditingCustomerId(c.id);
+    setNewCustomerForm({
+      full_name: c.full_name || '', cep: c.cep || '', numero: c.numero || '', email: c.email || '',
+      logradouro: c.logradouro || '', phone: c.phone || '', distrito: c.distrito || '',
+      nascimento: c.nascimento || '', cpf_cnpj: c.cpf_cnpj || '', city: c.city || '', state: c.state || '',
+      complemento: c.complemento || '', limite_credito: c.limite_credito ? String(c.limite_credito) : '',
+      patrimonios: Array.isArray(c.patrimonios) ? c.patrimonios : [], notes: c.notes || '',
+    });
+    setIsMoreOptionsOpen(true);
+    setCustomerModalMode('create');
+  };
 
   const handleCreateCustomerInline = async () => {
     if (!newCustomerForm.full_name.trim()) {
@@ -3369,22 +3487,61 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     }
     setIsCreatingCustomer(true);
     try {
-      const { data, error } = await supabase.from('clientes').insert({
+      const payload = {
         full_name: newCustomerForm.full_name,
         phone: newCustomerForm.phone || null,
-      }).select().single();
+        email: newCustomerForm.email || null,
+        cep: newCustomerForm.cep || null,
+        numero: newCustomerForm.numero || null,
+        logradouro: newCustomerForm.logradouro || null,
+        distrito: newCustomerForm.distrito || null,
+        nascimento: newCustomerForm.nascimento || null,
+        cpf_cnpj: newCustomerForm.cpf_cnpj || null,
+        city: newCustomerForm.city || null,
+        state: newCustomerForm.state || null,
+        complemento: newCustomerForm.complemento || null,
+        limite_credito: newCustomerForm.limite_credito ? Number(newCustomerForm.limite_credito) : 0,
+        patrimonios: newCustomerForm.patrimonios.filter(p => p.propriedade.trim()),
+        notes: newCustomerForm.notes || null,
+      };
+      let data, error;
+      if (editingCustomerId) {
+        ({ data, error } = await supabase.from('clientes').update(payload).eq('id', editingCustomerId).select().single());
+      } else {
+        ({ data, error } = await supabase.from('clientes').insert(payload).select().single());
+      }
       if (error) throw error;
       setSelectedCustomer({ id: data.id, name: data.full_name, phone: data.phone || '' });
-      setNewCustomerForm({ full_name: '', phone: '' });
+      setNewCustomerForm({ ...emptyCustomerForm });
+      setIsMoreOptionsOpen(false);
+      setEditingCustomerId(null);
       setCustomerModalMode('search');
-      proceedAfterCustomerStep();
+      if (!editingCustomerId) {
+        proceedAfterCustomerStep();
+      } else {
+        loadAllCustomers();
+      }
     } catch (err) {
-      console.error('Erro ao cadastrar cliente:', err);
-      alert('Não foi possível cadastrar o cliente.');
+      console.error('Erro ao salvar cliente:', err);
+      alert('Não foi possível salvar o cliente.');
     } finally {
       setIsCreatingCustomer(false);
     }
   };
+
+  const handleDeleteCustomer = async (c: any) => {
+    if (!confirm(`Excluir o cliente "${c.full_name}"? Essa ação não pode ser desfeita.`)) return;
+    const { error } = await supabase.from('clientes').delete().eq('id', c.id);
+    if (error) { alert('Não foi possível excluir o cliente.'); return; }
+    loadAllCustomers();
+  };
+
+  const handleViewCustomerHistory = (c: any) => {
+    const stats = customerSalesStats[c.id];
+    if (!stats) { alert(`${c.full_name} ainda não tem vendas registradas.`); return; }
+    alert(`Histórico de ${c.full_name}\n\nTotal de compras: ${stats.count}\nValor total: R$ ${stats.total.toFixed(2).replace('.', ',')}\nÚltima compra: ${stats.lastDate ? format(new Date(stats.lastDate), 'dd/MM/yyyy') : '—'}`);
+  };
+
   const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
   const [lastFinalizedOrder, setLastFinalizedOrder] = useState<SaleOrder | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<{ id: string, name: string, phone: string } | null>(null);
@@ -4898,87 +5055,229 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       {/* Customer Modal / Selecionar Cliente */}
       <Modal 
         isOpen={isCustomerModalOpen} 
-        onClose={() => setIsCustomerModalOpen(false)} 
-        title="Selecionar Cliente"
+        onClose={() => { setIsCustomerModalOpen(false); setIsMoreOptionsOpen(false); setEditingCustomerId(null); }} 
+        title={customerModalMode === 'create' ? (editingCustomerId ? 'Editar Cliente' : 'Cadastrar Cliente') : 'Selecionar Cliente'}
+        size={customerModalMode === 'create' ? 'md' : 'lg'}
       >
         <div className="space-y-5">
            <div className="flex bg-white/5 p-1 rounded-2xl border border-white/10 gap-1">
               <button
-                onClick={() => setCustomerModalMode('search')}
+                onClick={() => { setCustomerModalMode('search'); setEditingCustomerId(null); }}
                 className={cn(
                   "flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all",
                   customerModalMode === 'search' ? "bg-primary-500 text-slate-900 shadow-lg" : "text-white/40 hover:text-white"
                 )}
               >
-                Pesquisar
+                Pesquisar Cliente
               </button>
               <button
-                onClick={() => setCustomerModalMode('create')}
+                onClick={() => { setCustomerModalMode('create'); setNewCustomerForm({ ...emptyCustomerForm }); setEditingCustomerId(null); setIsMoreOptionsOpen(false); }}
                 className={cn(
                   "flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all",
                   customerModalMode === 'create' ? "bg-primary-500 text-slate-900 shadow-lg" : "text-white/40 hover:text-white"
                 )}
               >
-                Cadastrar
+                Cadastrar Cliente
               </button>
            </div>
 
            {customerModalMode === 'search' ? (
              <div className="space-y-3">
-                <Input
-                  icon={Search}
-                  placeholder="Buscar por nome, telefone ou CPF/CNPJ..."
-                  value={customerSearchTerm}
-                  onChange={(e: any) => setCustomerSearchTerm(e.target.value)}
-                  autoFocus
-                />
-                <div className="max-h-72 overflow-y-auto custom-scrollbar space-y-2">
-                   {isSearchingCustomer && (
-                     <div className="flex justify-center py-6"><RefreshCw className="animate-spin text-primary-500" size={20} /></div>
+                <div className="flex gap-2">
+                   <Input
+                     icon={Search}
+                     placeholder="Buscar por nome, CPF/CNPJ, telefone ou e-mail..."
+                     value={customerSearchTerm}
+                     onChange={(e: any) => setCustomerSearchTerm(e.target.value)}
+                     autoFocus
+                     className="flex-1"
+                   />
+                   <select
+                     value={customerSortBy}
+                     onChange={(e) => setCustomerSortBy(e.target.value as any)}
+                     className="h-11 bg-white/5 border border-white/10 rounded-xl px-3 text-[10px] font-black uppercase text-white/70 focus:outline-none focus:border-primary-500 cursor-pointer shrink-0"
+                   >
+                     <option value="recentes" className="bg-slate-900">Mais Recentes</option>
+                     <option value="az" className="bg-slate-900">A-Z</option>
+                     <option value="ultima_compra" className="bg-slate-900">Última Compra</option>
+                     <option value="maior_valor" className="bg-slate-900">Maior Valor</option>
+                     <option value="frequentes" className="bg-slate-900">Frequentes</option>
+                   </select>
+                </div>
+
+                <div className="max-h-[26rem] overflow-y-auto custom-scrollbar space-y-2">
+                   {isLoadingCustomers && (
+                     <div className="flex justify-center py-10"><RefreshCw className="animate-spin text-primary-500" size={22} /></div>
                    )}
-                   {!isSearchingCustomer && customerSearchTerm.trim().length >= 2 && customerSearchResults.length === 0 && (
-                     <p className="text-center text-xs text-white/30 py-6">Nenhum cliente encontrado. Tente Cadastrar.</p>
+                   {!isLoadingCustomers && filteredSortedCustomers.length === 0 && (
+                     <p className="text-center text-xs text-white/30 py-10">Nenhum cliente encontrado. Tente Cadastrar.</p>
                    )}
-                   {!isSearchingCustomer && customerSearchTerm.trim().length < 2 && (
-                     <p className="text-center text-xs text-white/30 py-6">Digite ao menos 2 letras para buscar.</p>
-                   )}
-                   {customerSearchResults.map(c => (
-                     <button 
-                       key={c.id} 
-                       onClick={() => {
-                         setSelectedCustomer({ id: c.id, name: c.full_name, phone: c.phone || '' });
-                         proceedAfterCustomerStep();
-                       }}
-                       className="w-full p-4 rounded-2xl border text-left transition-all flex justify-between items-center group bg-white/5 border-white/5 text-white/70 hover:bg-white/10"
-                     >
-                       <div>
-                         <span className="font-bold text-white block">{c.full_name}</span>
-                         {c.phone && <span className="text-[10px] text-white/40">{c.phone}</span>}
+                   {!isLoadingCustomers && filteredSortedCustomers.map(c => {
+                     const stats = c._stats;
+                     const isVip = !!c.is_vip;
+                     const hasDebt = (c.dividas_em_aberto || 0) > 0;
+                     const hasPending = !!stats?.hasPending;
+                     const isActive = !!(stats?.lastDate && (Date.now() - new Date(stats.lastDate).getTime()) < 90 * 24 * 60 * 60 * 1000);
+                     return (
+                       <div key={c.id} className="w-full p-4 rounded-2xl border bg-white/5 border-white/5 hover:bg-white/10 transition-all group relative">
+                          <button
+                            onClick={() => {
+                              setSelectedCustomer({ id: c.id, name: c.full_name, phone: c.phone || '' });
+                              proceedAfterCustomerStep();
+                            }}
+                            className="w-full text-left"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                               <div className="min-w-0">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                     <span className="font-bold text-white truncate">{c.full_name}</span>
+                                     {isActive && <span title="Cliente Ativo">🟢</span>}
+                                     {hasPending && <span title="Possui Entrada Pendente">🟡</span>}
+                                     {hasDebt && <span title="Possui Débitos">🔴</span>}
+                                     {isVip && <span title="Cliente VIP">⭐</span>}
+                                  </div>
+                                  <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-[10px] text-white/40">
+                                     {c.phone && <span>{c.phone}</span>}
+                                     {c.city && <span>{c.city}</span>}
+                                     {c.created_at && <span>Desde {format(new Date(c.created_at), 'dd/MM/yyyy')}</span>}
+                                  </div>
+                                  {stats && (
+                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-[10px]">
+                                       <span className="text-emerald-400 font-bold">Total: R$ {stats.total.toFixed(2).replace('.', ',')}</span>
+                                       {stats.lastDate && <span className="text-white/30">Última compra: {format(new Date(stats.lastDate), 'dd/MM/yyyy')}</span>}
+                                    </div>
+                                  )}
+                               </div>
+                               <ChevronRight size={16} className="text-white/20 group-hover:text-white/50 transition-opacity shrink-0 mt-1" />
+                            </div>
+                          </button>
+                          <div className="flex items-center gap-1 mt-2 pt-2 border-t border-white/5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                             <button onClick={(e) => { e.stopPropagation(); startEditCustomer(c); }} className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20" title="Editar"><Pencil size={12} /></button>
+                             <button onClick={(e) => { e.stopPropagation(); handleViewCustomerHistory(c); }} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Ver Histórico"><FileText size={12} /></button>
+                             {c.phone && (
+                               <button onClick={(e) => { e.stopPropagation(); window.open(`https://wa.me/${c.phone.replace(/\D/g, '')}`, '_blank'); }} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="WhatsApp"><MessageSquare size={12} /></button>
+                             )}
+                             <button onClick={(e) => { e.stopPropagation(); handleDeleteCustomer(c); }} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 ml-auto" title="Excluir"><Trash2 size={12} /></button>
+                          </div>
                        </div>
-                       <ChevronRight size={16} className="opacity-0 group-hover:opacity-100 transition-opacity" />
-                     </button>
-                   ))}
+                     );
+                   })}
                 </div>
              </div>
            ) : (
              <div className="space-y-4">
-                <Input label="Nome do Cliente" value={newCustomerForm.full_name} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, full_name: e.target.value })} />
-                <Input label="Telefone / WhatsApp" placeholder="(93) 99999-9999" value={newCustomerForm.phone} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, phone: e.target.value })} />
-                <Button className="w-full h-14" disabled={isCreatingCustomer} onClick={handleCreateCustomerInline}>
-                  {isCreatingCustomer ? 'Cadastrando...' : 'Cadastrar e Selecionar'}
-                </Button>
+                <Input ref={customerNameInputRef} label="Nome *" value={newCustomerForm.full_name} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, full_name: e.target.value })} />
+                <div className="grid grid-cols-2 gap-3">
+                   <div className="relative">
+                      <Input
+                        label="CEP"
+                        placeholder="93000-000"
+                        value={newCustomerForm.cep}
+                        onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, cep: e.target.value })}
+                        onBlur={(e: any) => handleCepLookup(e.target.value)}
+                      />
+                      {isLookingUpCep && <RefreshCw size={14} className="animate-spin text-primary-400 absolute right-3 top-9" />}
+                   </div>
+                   <Input label="Número" value={newCustomerForm.numero} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, numero: e.target.value })} />
+                </div>
+                <Input label="E-mail" type="email" value={newCustomerForm.email} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, email: e.target.value })} />
+                <Input label="Logradouro" value={newCustomerForm.logradouro} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, logradouro: e.target.value })} />
+                <div className="grid grid-cols-2 gap-3">
+                   <Input label="WhatsApp (Telefone)" placeholder="(93) 99999-9999" value={newCustomerForm.phone} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, phone: e.target.value })} />
+                   <Input label="Bairro" value={newCustomerForm.distrito} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, distrito: e.target.value })} />
+                </div>
+
+                <AnimatePresence>
+                  {isMoreOptionsOpen && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.25, ease: 'easeInOut' }}
+                      className="overflow-hidden space-y-5"
+                    >
+                       <div className="h-px bg-white/10" />
+                       <div className="space-y-3">
+                          <p className="text-[9px] font-black uppercase text-primary-300 tracking-[2px]">Dados Pessoais</p>
+                          <div className="grid grid-cols-2 gap-3">
+                             <Input label="Data de Nascimento" type="date" value={newCustomerForm.nascimento} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, nascimento: e.target.value })} />
+                             <Input label="CPF / CNPJ" value={newCustomerForm.cpf_cnpj} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, cpf_cnpj: e.target.value })} />
+                             <Input label="Cidade" value={newCustomerForm.city} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, city: e.target.value })} />
+                             <Input label="Estado" value={newCustomerForm.state} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, state: e.target.value })} />
+                             <Input label="Complemento" className="col-span-2" value={newCustomerForm.complemento} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, complemento: e.target.value })} />
+                          </div>
+                       </div>
+
+                       <div className="space-y-3">
+                          <p className="text-[9px] font-black uppercase text-primary-300 tracking-[2px]">Financeiro</p>
+                          <Input label="Limite de Crédito (R$)" type="number" step="any" value={newCustomerForm.limite_credito} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, limite_credito: e.target.value })} />
+                       </div>
+
+                       <div className="space-y-3">
+                          <div className="flex items-center justify-between">
+                             <p className="text-[9px] font-black uppercase text-primary-300 tracking-[2px]">Patrimônios</p>
+                             <button onClick={addPatrimonioRow} className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20" title="Adicionar propriedade"><Plus size={13} /></button>
+                          </div>
+                          {newCustomerForm.patrimonios.length === 0 && (
+                            <p className="text-[10px] text-white/30">Ex: Casa — R$ 350.000, Carro — R$ 85.000</p>
+                          )}
+                          {newCustomerForm.patrimonios.map((p, idx) => (
+                            <div key={idx} className="flex gap-2 items-center">
+                               <input
+                                 placeholder="Propriedade (ex: Casa)"
+                                 value={p.propriedade}
+                                 onChange={(e) => updatePatrimonioRow(idx, 'propriedade', e.target.value)}
+                                 className="flex-1 h-10 bg-white/5 border border-white/10 rounded-xl px-3 text-xs text-white placeholder-white/30 focus:outline-none focus:border-primary-500"
+                               />
+                               <input
+                                 placeholder="Valor (R$)"
+                                 type="number"
+                                 value={p.valor}
+                                 onChange={(e) => updatePatrimonioRow(idx, 'valor', e.target.value)}
+                                 className="w-32 h-10 bg-white/5 border border-white/10 rounded-xl px-3 text-xs text-white placeholder-white/30 focus:outline-none focus:border-primary-500"
+                               />
+                               <button onClick={() => removePatrimonioRow(idx)} className="p-2 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20"><Trash2 size={13} /></button>
+                            </div>
+                          ))}
+                       </div>
+
+                       <div className="space-y-2">
+                          <p className="text-[9px] font-black uppercase text-primary-300 tracking-[2px]">Observações</p>
+                          <textarea
+                            rows={4}
+                            placeholder="Anotações internas sobre o cliente..."
+                            value={newCustomerForm.notes}
+                            onChange={(e) => setNewCustomerForm({ ...newCustomerForm, notes: e.target.value })}
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white placeholder-white/30 focus:outline-none focus:border-primary-500 resize-none"
+                          />
+                       </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                <div className="flex gap-3 pt-2">
+                   <Button variant="ghost" className="flex-1 h-12" onClick={() => { setCustomerModalMode('search'); setIsMoreOptionsOpen(false); setEditingCustomerId(null); }}>Cancelar</Button>
+                   <Button variant="secondary" className="flex-1 h-12" onClick={() => setIsMoreOptionsOpen(prev => !prev)}>
+                     {isMoreOptionsOpen ? 'Menos Opções' : 'Mais Opções'}
+                   </Button>
+                   <Button className="flex-1 h-12" disabled={isCreatingCustomer} onClick={handleCreateCustomerInline}>
+                     {isCreatingCustomer ? 'Salvando...' : 'Salvar'}
+                   </Button>
+                </div>
              </div>
            )}
 
-           <button
-             onClick={() => {
-               setSelectedCustomer(null);
-               proceedAfterCustomerStep();
-             }}
-             className="w-full text-center py-3 text-[10px] font-black uppercase tracking-widest text-white/40 hover:text-white transition-all"
-           >
-             Pular (Cliente de Balcão)
-           </button>
+           {customerModalMode === 'search' && (
+             <button
+               onClick={() => {
+                 setSelectedCustomer(null);
+                 proceedAfterCustomerStep();
+               }}
+               className="w-full text-center py-3 text-[10px] font-black uppercase tracking-widest text-white/40 hover:text-white transition-all"
+             >
+               Pular (Cliente de Balcão)
+             </button>
+           )}
         </div>
       </Modal>
 
