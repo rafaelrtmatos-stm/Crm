@@ -4731,21 +4731,22 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    </div>
                 </div>
 
-               <div className="shrink-0 p-6 bg-slate-50 border-t border-slate-200 space-y-4 sticky bottom-0 z-10">
-                  <div className="flex gap-4 h-24">
+               <div className="shrink-0 p-3 sm:p-6 bg-slate-50 border-t border-slate-200 space-y-4 sticky bottom-0 z-10">
+                  <div className="flex gap-4 h-14 sm:h-24">
                      <button 
                        disabled={cart.length === 0}
                        onClick={() => {
                           setCustomerModalIntent('finalize');
                           setIsCustomerModalOpen(true);
                        }}
-                       className="flex-1 h-full bg-primary-500 border-2 border-primary-600 text-slate-900 rounded-[28px] flex flex-col items-center justify-center gap-1 shadow-xl shadow-primary-500/20 hover:bg-primary-400 transition-all disabled:opacity-50 disabled:grayscale active:scale-95"
+                       className="flex-1 h-full bg-primary-500 border-2 border-primary-600 text-slate-900 rounded-2xl sm:rounded-[28px] flex flex-col items-center justify-center gap-0.5 sm:gap-1 shadow-xl shadow-primary-500/20 hover:bg-primary-400 transition-all disabled:opacity-50 disabled:grayscale active:scale-95"
                      >
-                        <div className="flex items-center gap-3">
-                           <ShoppingBag size={24} />
-                           <span className="text-lg font-black uppercase tracking-tighter">FINALIZAR VENDA</span>
+                        <div className="flex items-center gap-1.5 sm:gap-3">
+                           <ShoppingBag size={16} className="sm:hidden" />
+                           <ShoppingBag size={24} className="hidden sm:block" />
+                           <span className="text-xs sm:text-lg font-black uppercase tracking-tighter">FINALIZAR VENDA</span>
                         </div>
-                        <span className="text-[10px] font-black opacity-40 uppercase tracking-[4px]">Ir para pagamento e fechamento</span>
+                        <span className="hidden sm:block text-[10px] font-black opacity-40 uppercase tracking-[4px]">Ir para pagamento e fechamento</span>
                      </button>
                   </div>
                </div>
