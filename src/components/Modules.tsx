@@ -4267,6 +4267,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         down_payment: r.downPayment || 0,
         payment_method: r.paymentMethod,
         status: r.status,
+        ...(r.createdAt ? { created_at: r.createdAt } : {}),
       }));
       const batchSize = 200;
       for (let i = 0; i < payload.length; i += batchSize) {

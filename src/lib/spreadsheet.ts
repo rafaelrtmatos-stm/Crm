@@ -184,6 +184,20 @@ export interface VendaImportRow {
   createdAt?: string;
 }
 
+// Converte "DD/MM/AAAA HH:mm:ss" (ou variações) para ISO — evita datas invalidas/erradas
+// que o construtor nativo new Date() interpretaria como MM/DD (formato americano).
+function parseDateBR(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const match = value.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (!match) {
+    const fallback = new Date(value);
+    return isNaN(fallback.getTime()) ? undefined : fallback.toISOString();
+  }
+  const [, day, month, year, hour = '0', min = '0', sec = '0'] = match;
+  const d = new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(min), Number(sec));
+  return isNaN(d.getTime()) ? undefined : d.toISOString();
+}
+
 // Faz o parse do modelo com abas por mes (STATUS, CÓDIGO, DATA E HORA, CLIENTE, PRODUTOS, VALORES, PAGAMENTO, FATURAMENTO...)
 export function parseVendasXlsx(data: ArrayBuffer): VendaImportRow[] {
   const wb = XLSX.read(data, { type: 'array' });
@@ -193,7 +207,6 @@ export function parseVendasXlsx(data: ArrayBuffer): VendaImportRow[] {
     const ws = wb.Sheets[sheetName];
     const rows: any[] = XLSX.utils.sheet_to_json(ws, { defval: null });
     for (const r of rows) {
-      // Pula abas de resumo (não tem coluna CLIENTE/PRODUTOS)
       if (!('PRODUTOS' in r) && !('PAGAMENTO' in r)) continue;
       const produtosRaw = cellStr(r['PRODUTOS']);
       const valoresRaw = cellStr(r['VALORES']);
@@ -235,7 +248,7 @@ export function parseVendasXlsx(data: ArrayBuffer): VendaImportRow[] {
         total: parseNumberBR(r['FATURAMENTO']) || items.reduce((s, i) => s + i.price * i.quantity, 0),
         paymentMethod,
         downPayment,
-        createdAt: dataHora,
+        createdAt: parseDateBR(dataHora),
       });
     }
   }
