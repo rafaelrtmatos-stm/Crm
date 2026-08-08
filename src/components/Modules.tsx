@@ -68,6 +68,7 @@ import {
   Upload,
   ArrowDownWideNarrow,
   ArrowUpWideNarrow,
+  ListFilter,
   Share2,
   Star,
   Tag,
@@ -3348,6 +3349,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [historySearch, setHistorySearch] = useState('');
   const [historyViewMode, setHistoryViewMode] = useState<'miniatura' | 'normal' | 'lista'>('normal');
   const [historySortOrder, setHistorySortOrder] = useState<'desc' | 'asc'>('desc');
+  const [isStatusFilterOpen, setIsStatusFilterOpen] = useState(false);
+  const statusFilterRef = React.useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (statusFilterRef.current && !statusFilterRef.current.contains(e.target as Node)) {
+        setIsStatusFilterOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
   const [selectedSaleIds, setSelectedSaleIds] = useState<Set<string>>(new Set());
   const toggleSaleSelection = (id: string) => {
     setSelectedSaleIds(prev => {
@@ -4391,31 +4403,54 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               <div className="w-px h-8 bg-white/10 shrink-0" />
 
               {/* Grupo 3: Filtros de Status */}
-              <div className="flex items-center gap-1.5 shrink-0">
-                {[
-                  { id: 'todos', label: 'Todos' },
-                  { id: 'em_aberto', label: 'Em Aberto' },
-                  { id: 'entrada_pendente', label: 'Entrada Pendente' },
-                  { id: 'parcial', label: 'Parcialmente Pago' },
-                  { id: 'quitado', label: '100% Quitados' },
-                  { id: 'em_producao', label: 'Em Produção' },
-                  { id: 'agendado', label: 'Agendados' },
-                  { id: 'entregue', label: 'Entregues' },
-                  { id: 'cancelado', label: 'Cancelados' },
-                ].map(f => (
-                  <button
-                    key={f.id}
-                    onClick={() => setHistoryFilter(f.id as any)}
-                    className={cn(
-                      "px-3 py-1.5 rounded-full text-[8.5px] font-black uppercase tracking-wider transition-all border whitespace-nowrap",
-                      historyFilter === f.id
-                        ? "bg-primary-500 text-slate-900 border-primary-500 shadow-lg shadow-primary-500/20"
-                        : "bg-transparent text-white/40 border-white/10 hover:text-white hover:border-white/20"
-                    )}
-                  >
-                    {f.label}
-                  </button>
-                ))}
+              <div className="relative shrink-0" ref={statusFilterRef}>
+                {(() => {
+                  const statusOptions = [
+                    { id: 'todos', label: 'Todos' },
+                    { id: 'em_aberto', label: 'Em Aberto' },
+                    { id: 'entrada_pendente', label: 'Entrada Pendente' },
+                    { id: 'parcial', label: 'Parcialmente Pago' },
+                    { id: 'quitado', label: '100% Quitados' },
+                    { id: 'em_producao', label: 'Em Produção' },
+                    { id: 'agendado', label: 'Agendados' },
+                    { id: 'entregue', label: 'Entregues' },
+                    { id: 'cancelado', label: 'Cancelados' },
+                  ];
+                  const current = statusOptions.find(s => s.id === historyFilter) || statusOptions[0];
+                  return (
+                    <>
+                      <button
+                        onClick={() => setIsStatusFilterOpen(prev => !prev)}
+                        className={cn(
+                          "flex items-center gap-2 px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-wider border transition-all whitespace-nowrap",
+                          historyFilter !== 'todos'
+                            ? "bg-primary-500 text-slate-900 border-primary-500 shadow-lg shadow-primary-500/20"
+                            : "bg-white/5 border-white/10 text-white/60 hover:text-white"
+                        )}
+                      >
+                        <ListFilter size={13} />
+                        <span>{current.label}</span>
+                        <ChevronDown size={12} className={cn("transition-transform", isStatusFilterOpen && "rotate-180")} />
+                      </button>
+                      {isStatusFilterOpen && (
+                        <div className="absolute top-full left-0 mt-2 w-52 bg-slate-900 border border-white/10 rounded-2xl shadow-2xl z-20 py-1.5 max-h-80 overflow-y-auto custom-scrollbar">
+                          {statusOptions.map(f => (
+                            <button
+                              key={f.id}
+                              onClick={() => { setHistoryFilter(f.id as any); setIsStatusFilterOpen(false); }}
+                              className={cn(
+                                "w-full text-left px-4 py-2.5 text-[10px] font-black uppercase tracking-wider transition-all",
+                                historyFilter === f.id ? "text-primary-400 bg-primary-500/10" : "text-white/60 hover:bg-white/5 hover:text-white"
+                              )}
+                            >
+                              {f.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             </div>
 
