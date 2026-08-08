@@ -3614,7 +3614,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncedAt, setSyncedAt] = useState<Date | null>(null);
-  const [pixConfig, setPixConfig] = useState<{ key: string; beneficiaryName: string; city: string } | null>(null);
+  const [pixConfig, setPixConfig] = useState<{ key: string; beneficiaryName: string; city: string; bank?: string } | null>(null);
+  const [isPixQrModalOpen, setIsPixQrModalOpen] = useState(false);
   const [logoDarkUrl, setLogoDarkUrl] = useState<string | null>(null);
   const canManageHistory = !!(user?.isAdmin || user?.allowedActions?.includes('canManageSaleHistory'));
   const [editingSale, setEditingSale] = useState<SaleOrder | null>(null);
@@ -3684,6 +3685,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           key: data.pix_key,
           beneficiaryName: data.beneficiary_name || currentCompany?.name || 'RAFA ARTS GRAPHICS',
           city: data.city || 'Santarem',
+          bank: data.pix_bank || '',
         });
       } else {
         setPixConfig(null);
@@ -4968,40 +4970,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     )}
                     {paymentMethod === 'pix' && pixConfig && (() => {
                        const pixAmount = downPayment === "" || typeof downPayment === 'string' ? total : Number(downPayment);
-                       const pixPayload = buildPixPayload({
-                         key: pixConfig.key,
-                         beneficiaryName: pixConfig.beneficiaryName,
-                         city: pixConfig.city,
-                         amount: pixAmount > 0 ? pixAmount : total,
-                       });
                        return (
-                       <div className="flex flex-col items-center justify-center gap-1.5 w-full h-full min-h-0">
-                          <div className="w-[50vmin] h-[50vmin] max-w-full max-h-full bg-white rounded-lg p-2 shadow-lg flex items-center justify-center shrink-0">
-                             <img src={`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(pixPayload)}`} alt="QR" className="h-full w-full object-contain" referrerPolicy="no-referrer" />
-                          </div>
-                          
-                          <div className="w-full flex gap-1 justify-center shrink-0">
-                             <button 
-                                type="button"
-                                onClick={() => {
-                                   navigator.clipboard.writeText(pixConfig.key);
-                                   alert("Chave PIX copiada!");
-                                }}
-                                className="text-[7.5px] font-black text-primary-300 hover:text-white uppercase tracking-wider bg-primary-500/10 px-2 py-0.5 rounded border border-primary-500/20 active:scale-95 transition-all cursor-pointer"
-                             >
-                                Copiar Chave
-                             </button>
-                             <button 
-                                type="button"
-                                onClick={() => {
-                                   navigator.clipboard.writeText(pixPayload);
-                                   alert("Código Pix Copia e Cola copiado!");
-                                }}
-                                className="text-[7.5px] font-black text-primary-300 hover:text-white uppercase tracking-wider bg-primary-500/10 px-2 py-0.5 rounded border border-primary-500/20 active:scale-95 transition-all cursor-pointer"
-                             >
-                                Copia e Cola
-                             </button>
-                          </div>
+                       <div className="flex flex-col items-center justify-center gap-3 w-full h-full min-h-0">
+                          <QrCode size={40} className="text-primary-400" />
+                          <p className="text-[10px] text-white/50 text-center px-4">Valor: <span className="font-black text-white">R$ {(pixAmount > 0 ? pixAmount : total).toFixed(2).replace('.', ',')}</span></p>
+                          <button
+                             type="button"
+                             onClick={() => setIsPixQrModalOpen(true)}
+                             className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary-500 hover:bg-primary-400 text-slate-900 font-black text-[10px] uppercase tracking-widest transition-all active:scale-95"
+                          >
+                             <QrCode size={14} />
+                             Gerar QR Code PIX
+                          </button>
                        </div>
                        );
                     })()}
@@ -5494,6 +5474,76 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
          </div>
        </Modal>
      )}
+
+     {isPixQrModalOpen && pixConfig && (() => {
+       const pixAmount = downPayment === "" || typeof downPayment === 'string' ? total : Number(downPayment);
+       const amountToCharge = pixAmount > 0 ? pixAmount : total;
+       const pixPayload = buildPixPayload({
+         key: pixConfig.key,
+         beneficiaryName: pixConfig.beneficiaryName,
+         city: pixConfig.city,
+         amount: amountToCharge,
+       });
+       return (
+         <Modal
+           isOpen={isPixQrModalOpen}
+           onClose={() => setIsPixQrModalOpen(false)}
+           title="Pagamento via PIX"
+           size="sm"
+         >
+           <div className="flex flex-col items-center gap-4 p-2">
+             <div className="w-56 h-56 max-w-full bg-white rounded-2xl p-3 shadow-lg flex items-center justify-center shrink-0">
+               <img src={`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(pixPayload)}`} alt="QR Code PIX" className="h-full w-full object-contain" referrerPolicy="no-referrer" />
+             </div>
+
+             <div className="w-full bg-slate-900/60 rounded-2xl border border-white/10 p-4 space-y-2">
+               <div className="flex justify-between text-xs">
+                 <span className="text-white/40 font-bold uppercase">Valor</span>
+                 <span className="text-white font-black">R$ {amountToCharge.toFixed(2).replace('.', ',')}</span>
+               </div>
+               <div className="flex justify-between text-xs">
+                 <span className="text-white/40 font-bold uppercase">Nome</span>
+                 <span className="text-white font-black">{pixConfig.beneficiaryName}</span>
+               </div>
+               {pixConfig.bank && (
+                 <div className="flex justify-between text-xs">
+                   <span className="text-white/40 font-bold uppercase">Banco</span>
+                   <span className="text-white font-black">{pixConfig.bank}</span>
+                 </div>
+               )}
+               <div className="flex justify-between text-xs">
+                 <span className="text-white/40 font-bold uppercase">Chave PIX</span>
+                 <span className="text-white font-black break-all text-right ml-4">{pixConfig.key}</span>
+               </div>
+             </div>
+
+             <div className="w-full flex gap-2">
+               <button
+                  type="button"
+                  onClick={() => {
+                     navigator.clipboard.writeText(pixConfig.key);
+                     alert("Chave PIX copiada!");
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-primary-500/10 border border-primary-500/20 text-primary-300 hover:bg-primary-500/20 text-[10px] font-black uppercase tracking-wider transition-all active:scale-95"
+               >
+                  Copiar Chave
+               </button>
+               <button
+                  type="button"
+                  onClick={() => {
+                     navigator.clipboard.writeText(pixPayload);
+                     alert("Código Pix Copia e Cola copiado!");
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-primary-500/10 border border-primary-500/20 text-primary-300 hover:bg-primary-500/20 text-[10px] font-black uppercase tracking-wider transition-all active:scale-95"
+               >
+                  Copia e Cola
+               </button>
+             </div>
+             <Button variant="ghost" className="w-full" onClick={() => setIsPixQrModalOpen(false)}>Fechar</Button>
+           </div>
+         </Modal>
+       );
+     })()}
 
      {isBulkDeleteConfirmOpen && (
        <Modal
@@ -6257,6 +6307,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
   const [pixKey, setPixKey] = useState('');
   const [pixBeneficiary, setPixBeneficiary] = useState('');
   const [pixCity, setPixCity] = useState('Santarem');
+  const [pixBank, setPixBank] = useState('');
   const [savingPix, setSavingPix] = useState(false);
 
   useEffect(() => {
@@ -6266,6 +6317,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
         setPixKey(data.pix_key || '');
         setPixBeneficiary(data.beneficiary_name || currentCompany?.name || '');
         setPixCity(data.city || 'Santarem');
+        setPixBank(data.pix_bank || '');
       } else if (currentCompany?.name) {
         setPixBeneficiary(currentCompany.name);
       }
@@ -6286,6 +6338,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
         pix_key: pixKey,
         beneficiary_name: pixBeneficiary,
         city: pixCity,
+        pix_bank: pixBank,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'company_id' });
       if (error) throw error;
@@ -6641,6 +6694,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                       <Input label="Chave PIX" value={pixKey} onChange={(e: any) => setPixKey(e.target.value)} placeholder="CPF, CNPJ, telefone, e-mail ou chave aleatória" />
                       <Input label="Nome do Beneficiário" value={pixBeneficiary} onChange={(e: any) => setPixBeneficiary(e.target.value)} />
+                      <Input label="Banco" placeholder="Ex: Nubank, Banco do Brasil..." value={pixBank} onChange={(e: any) => setPixBank(e.target.value)} />
                       <Input label="Cidade (para o QR Code)" value={pixCity} onChange={(e: any) => setPixCity(e.target.value)} />
                     </div>
                     <Button
