@@ -4,6 +4,16 @@ export interface ReceiptRenderInput {
   order: SaleOrder;
   companyName: string;
   customerPhone?: string;
+  logoDarkUrl?: string | null;
+}
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
 }
 
 // ---------- Paleta (tema claro premium) ----------
@@ -58,7 +68,7 @@ function drawCard(ctx: CanvasRenderingContext2D, x: number, y: number, w: number
 
 // Desenha o recibo/OS em um canvas (usado para exportar PNG, PDF e impressão)
 // Estilo SaaS premium claro (Stripe/Linear/Notion), com barra de status e total em destaque.
-export function renderReceiptCanvas({ order, companyName, customerPhone }: ReceiptRenderInput): HTMLCanvasElement {
+export async function renderReceiptCanvas({ order, companyName, customerPhone, logoDarkUrl }: ReceiptRenderInput): Promise<HTMLCanvasElement> {
   const scale = 2.5;
   const width = 640;
   const rowHeight = 32;
@@ -81,6 +91,11 @@ export function renderReceiptCanvas({ order, companyName, customerPhone }: Recei
   const footerH = 90;
   const height = headerH + pipelineH + infoCardsH + tableH + totalCardH + footerH + 130;
 
+  let logoImg: HTMLImageElement | null = null;
+  if (logoDarkUrl) {
+    try { logoImg = await loadImage(logoDarkUrl); } catch (e) { logoImg = null; }
+  }
+
   const canvas = document.createElement('canvas');
   canvas.width = width * scale;
   canvas.height = height * scale;
@@ -92,13 +107,21 @@ export function renderReceiptCanvas({ order, companyName, customerPhone }: Recei
 
   let y = 30;
 
+  let textStartX = marginX;
+  if (logoImg) {
+    const logoH = 44;
+    const logoW = (logoImg.width / logoImg.height) * logoH;
+    ctx.drawImage(logoImg, marginX, y - 10, logoW, logoH);
+    textStartX = marginX + logoW + 14;
+  }
+
   ctx.textAlign = 'left';
   ctx.fillStyle = TEXT;
   ctx.font = `900 20px ${FONT}`;
-  ctx.fillText(companyName.toUpperCase(), marginX, y + 8);
+  ctx.fillText(companyName.toUpperCase(), textStartX, y + 8);
   ctx.font = `700 9px ${FONT}`;
   ctx.fillStyle = TEXT_DIM;
-  ctx.fillText('COMUNICAÇÃO VISUAL · IMPRESSÃO DIGITAL · ADESIVOS · FACHADAS · BANNERS', marginX, y + 24);
+  ctx.fillText('COMUNICAÇÃO VISUAL · IMPRESSÃO DIGITAL · ADESIVOS · FACHADAS · BANNERS', textStartX, y + 24);
 
   ctx.textAlign = 'right';
   ctx.fillStyle = ACCENT;

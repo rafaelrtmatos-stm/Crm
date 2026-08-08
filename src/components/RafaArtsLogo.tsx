@@ -7,6 +7,31 @@ interface RafaArtsLogoProps {
   className?: string;
 }
 
+const SIZE_PX: Record<string, number> = { sm: 140, md: 220, lg: 320, xl: 420 };
+
+// Wrapper: usa a logo enviada pelo usuário (Configurações > Identidade) se existir,
+// senão cai para o SVG padrão desenhado abaixo. imageUrl deve ser a variante
+// "clara" (para fundos escuros, ex: navbar/login) ou "escura" (para fundos claros).
+export const BrandLogo: React.FC<RafaArtsLogoProps & { imageUrl?: string | null }> = ({
+  imageUrl,
+  size = 'md',
+  layout = 'stacked',
+  className = '',
+}) => {
+  if (imageUrl) {
+    const width = SIZE_PX[size] || SIZE_PX.md;
+    return (
+      <img
+        src={imageUrl}
+        alt="Logo"
+        className={cn("inline-block select-none object-contain", className)}
+        style={{ width: `${width}px`, height: 'auto', maxWidth: '100%' }}
+      />
+    );
+  }
+  return <RafaArtsLogo size={size} layout={layout} className={className} />;
+};
+
 export const RafaArtsLogo: React.FC<RafaArtsLogoProps> = ({
   size = 'md',
   layout = 'stacked',

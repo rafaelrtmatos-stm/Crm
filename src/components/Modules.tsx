@@ -3382,8 +3382,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     }
   };
 
-  const handlePrintReceipt = (sale: SaleOrder) => {
-    const canvas = renderReceiptCanvas({ order: sale, companyName: currentCompany?.name || 'Rafa Arts Graphics', customerPhone: sale.customerPhone });
+  const handlePrintReceipt = async (sale: SaleOrder) => {
+    const canvas = await renderReceiptCanvas({ order: sale, companyName: currentCompany?.name || 'Rafa Arts Graphics', customerPhone: sale.customerPhone, logoDarkUrl });
     const dataUrl = canvas.toDataURL('image/png');
     const printWin = window.open('', '_blank', 'width=500,height=800');
     if (!printWin) { alert('Permita pop-ups para imprimir.'); return; }
@@ -3392,7 +3392,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const handleDownloadReceiptPdf = async (sale: SaleOrder) => {
-    const canvas = renderReceiptCanvas({ order: sale, companyName: currentCompany?.name || 'Rafa Arts Graphics', customerPhone: sale.customerPhone });
+    const canvas = await renderReceiptCanvas({ order: sale, companyName: currentCompany?.name || 'Rafa Arts Graphics', customerPhone: sale.customerPhone, logoDarkUrl });
     await downloadCanvasAsPdf(canvas, `Recibo_${sale.id.slice(-8).toUpperCase()}.pdf`);
   };
 
@@ -3624,6 +3624,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncedAt, setSyncedAt] = useState<Date | null>(null);
   const [pixConfig, setPixConfig] = useState<{ key: string; beneficiaryName: string; city: string } | null>(null);
+  const [logoDarkUrl, setLogoDarkUrl] = useState<string | null>(null);
   const canManageHistory = !!(user?.isAdmin || user?.allowedActions?.includes('canManageSaleHistory'));
   const [editingSale, setEditingSale] = useState<SaleOrder | null>(null);
   const [editSaleForm, setEditSaleForm] = useState({ customerName: '', total: 0, downPayment: 0, paymentMethod: 'pix' });
@@ -3686,6 +3687,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   useEffect(() => {
     const load = async () => {
       const { data } = await supabase.from('configuracoes').select('*').eq('company_id', 'rafa-arts').maybeSingle();
+      setLogoDarkUrl(data?.logo_dark_url || null);
       if (data && data.pix_key) {
         setPixConfig({
           key: data.pix_key,
@@ -5280,12 +5282,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                variant="secondary" 
                icon={Download} 
                className="flex-col h-16 sm:h-20 gap-1 py-2 px-1 text-[7.5px] sm:text-[9px] uppercase font-black tracking-wide border-white/5 bg-white/5 hover:bg-blue-500/20 hover:text-blue-300 transition-all"
-               onClick={() => {
+               onClick={async () => {
                  if (!lastFinalizedOrder) return;
-                 const canvas = renderReceiptCanvas({
+                 const canvas = await renderReceiptCanvas({
                    order: lastFinalizedOrder,
                    companyName: currentCompany?.name || 'Rafa Arts Graphics',
                    customerPhone: selectedCustomer?.phone,
+                   logoDarkUrl,
                  });
                  downloadCanvasAsPng(canvas, `Comprovante_${lastFinalizedOrder.id.slice(-8).toUpperCase()}.png`);
                }}
@@ -5300,10 +5303,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                className="flex-col h-16 sm:h-20 gap-1 py-2 px-1 text-[7.5px] sm:text-[9px] uppercase font-black tracking-wide border-white/5 bg-white/5 hover:bg-violet-500/20 hover:text-violet-300 transition-all"
                onClick={async () => {
                  if (!lastFinalizedOrder) return;
-                 const canvas = renderReceiptCanvas({
+                 const canvas = await renderReceiptCanvas({
                    order: lastFinalizedOrder,
                    companyName: currentCompany?.name || 'Rafa Arts Graphics',
                    customerPhone: selectedCustomer?.phone,
+                   logoDarkUrl,
                  });
                  await downloadCanvasAsPdf(canvas, `Comprovante_${lastFinalizedOrder.id.slice(-8).toUpperCase()}.pdf`);
                }}
@@ -6205,6 +6209,56 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
 export const SettingsModule = ({ currentCompany, user }: { currentCompany: Company | null; user: AppUser | null }) => {
   const [activeTab, setActiveTab] = useState('Geral');
   const [logoUrl, setLogoUrl] = useState(currentCompany?.logoUrl || '');
+  const [logoLight, setLogoLight] = useState<string | null>(null);
+  const [logoDark, setLogoDark] = useState<string | null>(null);
+  const [savingLogo, setSavingLogo] = useState<'light' | 'dark' | null>(null);
+  const logoLightInputRef = React.useRef<HTMLInputElement>(null);
+  const logoDarkInputRef = React.useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const load = async () => {
+      const { data } = await supabase.from('configuracoes').select('logo_light_url, logo_dark_url').eq('company_id', 'rafa-arts').maybeSingle();
+      setLogoLight(data?.logo_light_url || null);
+      setLogoDark(data?.logo_dark_url || null);
+    };
+    load();
+    const channel = supabase
+      .channel('settings-logos')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'configuracoes' }, load)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
+  const handleLogoFileChange = async (e: React.ChangeEvent<HTMLInputElement>, variant: 'light' | 'dark') => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 800 * 1024) {
+      alert('A imagem precisa ter no máximo 800KB. Comprima a logo e tente novamente.');
+      return;
+    }
+    setSavingLogo(variant);
+    try {
+      const dataUrl: string = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const column = variant === 'light' ? 'logo_light_url' : 'logo_dark_url';
+      const { error } = await supabase.from('configuracoes').upsert({
+        company_id: 'rafa-arts',
+        [column]: dataUrl,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'company_id' });
+      if (error) throw error;
+      if (variant === 'light') setLogoLight(dataUrl); else setLogoDark(dataUrl);
+    } catch (err) {
+      console.error('Erro ao salvar logo:', err);
+      alert('Não foi possível salvar a logo.');
+    } finally {
+      setSavingLogo(null);
+    }
+  };
   const [funnels, setFunnels] = useState<Funnel[]>([]);
   const [selectedFunnel, setSelectedFunnel] = useState('');
 
@@ -6441,22 +6495,60 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
              <div className="space-y-8">
                 <div className="space-y-6">
                    <h3 className="text-xl font-bold text-white tracking-tight italic uppercase">Logo da Empresa</h3>
-                   <div className="flex items-start gap-8">
-                      <div className="w-32 h-32 rounded-3xl border-2 border-dashed border-white/10 flex items-center justify-center p-2 bg-white/5">
-                         {logoUrl ? (
-                           <img src={logoUrl} alt="Preview" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
-                         ) : (
-                           <ImageIcon size={32} className="text-white/10" />
-                         )}
+                   <p className="text-xs text-white/40">Envie duas versões: uma clara (para fundos escuros, como o menu e a barra do sistema) e uma escura (para fundos claros, como o recibo). Máximo 800KB por imagem.</p>
+                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                      {/* Logo Clara */}
+                      <div className="space-y-3">
+                         <p className="text-[10px] font-black uppercase text-white/50 tracking-widest">Logo Clara (fundo escuro)</p>
+                         <div className="flex items-start gap-4">
+                            <div className="w-28 h-28 rounded-2xl border-2 border-dashed border-white/10 flex items-center justify-center p-2 bg-slate-950 shrink-0">
+                               {logoLight ? (
+                                 <img src={logoLight} alt="Logo clara" className="w-full h-full object-contain" />
+                               ) : (
+                                 <ImageIcon size={28} className="text-white/10" />
+                               )}
+                            </div>
+                            <div className="flex-1 space-y-2">
+                               <input ref={logoLightInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => handleLogoFileChange(e, 'light')} />
+                               <Button
+                                 variant="secondary"
+                                 icon={Upload}
+                                 disabled={savingLogo === 'light'}
+                                 onClick={() => logoLightInputRef.current?.click()}
+                                 className="text-[10px] uppercase tracking-wider font-black"
+                               >
+                                 {savingLogo === 'light' ? 'Enviando...' : 'Enviar Imagem'}
+                               </Button>
+                               <p className="text-[9px] text-white/30 font-bold uppercase">PNG transparente recomendado</p>
+                            </div>
+                         </div>
                       </div>
-                      <div className="flex-1 space-y-4">
-                         <Input 
-                           label="URL da Logo (PNG/SVG)" 
-                           placeholder="https://suaempresa.com/logo.png" 
-                           value={logoUrl}
-                           onChange={(e) => setLogoUrl(e.target.value)}
-                         />
-                         <p className="text-[10px] text-white/30 font-bold uppercase">Recomendado: Fundo transparente • 512x512px</p>
+
+                      {/* Logo Escura */}
+                      <div className="space-y-3">
+                         <p className="text-[10px] font-black uppercase text-white/50 tracking-widest">Logo Escura (fundo claro)</p>
+                         <div className="flex items-start gap-4">
+                            <div className="w-28 h-28 rounded-2xl border-2 border-dashed border-white/10 flex items-center justify-center p-2 bg-white shrink-0">
+                               {logoDark ? (
+                                 <img src={logoDark} alt="Logo escura" className="w-full h-full object-contain" />
+                               ) : (
+                                 <ImageIcon size={28} className="text-slate-300" />
+                               )}
+                            </div>
+                            <div className="flex-1 space-y-2">
+                               <input ref={logoDarkInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => handleLogoFileChange(e, 'dark')} />
+                               <Button
+                                 variant="secondary"
+                                 icon={Upload}
+                                 disabled={savingLogo === 'dark'}
+                                 onClick={() => logoDarkInputRef.current?.click()}
+                                 className="text-[10px] uppercase tracking-wider font-black"
+                               >
+                                 {savingLogo === 'dark' ? 'Enviando...' : 'Enviar Imagem'}
+                               </Button>
+                               <p className="text-[9px] text-white/30 font-bold uppercase">Usada nos recibos (PDF/imagem)</p>
+                            </div>
+                         </div>
                       </div>
                    </div>
                 </div>
