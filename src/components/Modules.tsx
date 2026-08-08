@@ -8242,6 +8242,20 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
     { label: 'Valor em Estoque', val: `R$ ${items.reduce((acc, i) => acc + (i.costPrice || 0) * i.currentStock, 0).toLocaleString('pt-BR')}`, icon: Banknote, color: 'text-emerald-400' },
   ];
 
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+
+  const openEditItem = (item: InventoryItem) => {
+    setEditingItemId(item.id);
+    setFormData({ ...item });
+    setIsModalOpen(true);
+  };
+
+  const handleDeleteItem = async (item: InventoryItem) => {
+    if (!confirm(`Excluir "${item.name}"? Essa ação não pode ser desfeita. Prefira inativar se quiser manter o histórico.`)) return;
+    const { error } = await supabase.from('produtos').delete().eq('id', item.id);
+    if (error) { alert('Não foi possível excluir. Tente inativar o item em vez de excluir.'); }
+  };
+
   const columns = [
     { key: 'name', label: 'Item / Insumo', render: (v: string, row: InventoryItem) => (
       <div className="flex flex-col">
@@ -8258,11 +8272,17 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
     )},
     { key: 'salePrice', label: 'Preço Venda', render: (v: number) => `R$ ${v.toLocaleString('pt-BR')}` },
     { key: 'isActive', label: 'Status', render: (v: boolean) => <Badge variant={v ? 'success' : 'outline'}>{v ? 'ATIVO' : 'INATIVO'}</Badge> },
+    { key: 'actions', label: 'Ações', render: (_: any, row: InventoryItem) => (
+      <div className="flex items-center gap-1.5">
+        <button onClick={() => openEditItem(row)} title="Editar" className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20"><Pencil size={13} /></button>
+        <button onClick={() => handleDeleteItem(row)} title="Excluir" className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20"><Trash2 size={13} /></button>
+      </div>
+    )},
   ];
 
   const handleSave = async () => {
     try {
-      const { error } = await supabase.from('produtos').insert({
+      const payload = {
         name: formData.name,
         code: formData.code,
         category: formData.category,
@@ -8279,12 +8299,20 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
         estoque_maximo: formData.estoqueMaximo || null,
         localizacao: formData.localizacao || null,
         descricao: formData.descricao || null,
-      });
+      };
+      let error;
+      if (editingItemId) {
+        ({ error } = await supabase.from('produtos').update(payload).eq('id', editingItemId));
+      } else {
+        ({ error } = await supabase.from('produtos').insert(payload));
+      }
       if (error) throw error;
       setIsModalOpen(false);
+      setEditingItemId(null);
       setFormData({ name: '', category: 'substrato', unit: 'un', currentStock: 0, minStock: 0, salePrice: 0, costPrice: 0, isActive: true, isService: false, tipoItem: 'produto', controlaEstoque: true });
     } catch (err) {
       console.error(err);
+      alert('Não foi possível salvar o item.');
     }
   };
 
@@ -8371,7 +8399,7 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
             >
               <Download size={14} />
             </button>
-            <Button icon={Plus} onClick={() => setIsModalOpen(true)}>Novo Item</Button>
+            <Button icon={Plus} onClick={() => { setEditingItemId(null); setFormData({ name: '', category: 'substrato', unit: 'un', currentStock: 0, minStock: 0, salePrice: 0, costPrice: 0, isActive: true, isService: false, tipoItem: 'produto', controlaEstoque: true }); setIsModalOpen(true); }}>Novo Item</Button>
           </div>
         }
       />
@@ -8404,7 +8432,7 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
         <DataTable columns={columns} data={items} />
       </GlassCard>
 
-      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="CADASTRO DE INSUMO / PRODUTO">
+      <Modal isOpen={isModalOpen} onClose={() => { setIsModalOpen(false); setEditingItemId(null); }} title={editingItemId ? 'EDITAR ITEM' : 'CADASTRO DE INSUMO / PRODUTO'}>
         <div className="p-6 space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
@@ -8473,8 +8501,8 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
             </div>
           </div>
           <div className="flex gap-4 pt-4">
-             <Button variant="secondary" className="flex-1 h-14" onClick={() => setIsModalOpen(false)}>Cancelar</Button>
-             <Button className="flex-[2] h-14 bg-primary-500 text-slate-900 border-none shadow-xl shadow-primary-500/20" onClick={handleSave}>Salvar Item</Button>
+             <Button variant="secondary" className="flex-1 h-14" onClick={() => { setIsModalOpen(false); setEditingItemId(null); }}>Cancelar</Button>
+             <Button className="flex-[2] h-14 bg-primary-500 text-slate-900 border-none shadow-xl shadow-primary-500/20" onClick={handleSave}>{editingItemId ? 'Salvar Alterações' : 'Salvar Item'}</Button>
           </div>
         </div>
       </Modal>
