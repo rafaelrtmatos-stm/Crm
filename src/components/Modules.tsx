@@ -5246,18 +5246,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
                <div className="shrink-0 p-3 sm:p-6 bg-slate-50 border-t border-slate-200 space-y-4 sticky bottom-0 z-10">
                   <div className="flex gap-2 sm:gap-4 h-14 sm:h-24">
-                     <button
-                       disabled={cart.length === 0}
-                       onClick={handleCreateOrcamentoFromCart}
-                       className="flex-1 h-full bg-white border-2 border-slate-300 text-slate-700 rounded-2xl sm:rounded-[28px] flex flex-col items-center justify-center gap-0.5 sm:gap-1 hover:border-primary-400 hover:text-primary-600 transition-all disabled:opacity-50 disabled:grayscale active:scale-95"
-                     >
-                        <div className="flex items-center gap-1.5 sm:gap-3">
-                           <FileSpreadsheet size={16} className="sm:hidden" />
-                           <FileSpreadsheet size={22} className="hidden sm:block" />
-                           <span className="text-xs sm:text-base font-black uppercase tracking-tighter">CRIAR ORÇAMENTO</span>
-                        </div>
-                        <span className="hidden sm:block text-[9px] font-black opacity-40 uppercase tracking-[3px]">Não finaliza a venda</span>
-                     </button>
                      <button 
                        disabled={cart.length === 0}
                        onClick={() => {
@@ -6625,8 +6613,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 variant="secondary"
                 className="flex-1 h-9 sm:h-11 text-[8px] sm:text-[9px] uppercase font-black tracking-wider border-white/10"
                 onClick={() => {
-                  if (!confirm('Salvar como orçamento? Nenhum valor será registrado como recebido.')) return;
-                  handleFinalize(true, true);
+                  setIsPaymentModalOpen(false);
+                  handleCreateOrcamentoFromCart();
                 }}
               >
                 Orçamento
