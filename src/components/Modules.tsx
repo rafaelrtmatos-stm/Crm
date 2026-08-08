@@ -652,8 +652,8 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
            </div>
         </GlassCard>
 
-        <div className="space-y-8 flex flex-col">
-            <GlassCard className="p-8 border-white/5 bg-white/[0.02] flex-1">
+        <div className="space-y-8 flex flex-col min-w-0">
+            <GlassCard className="p-8 border-white/5 bg-white/[0.02] flex-1 overflow-hidden">
                <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center gap-3">
                      <div className="w-10 h-10 rounded-xl bg-primary-500/20 text-primary-300 flex items-center justify-center">
@@ -671,21 +671,21 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                     </div>
                   )}
                   {services.slice(0, 8).map((s, i) => (
-                    <div key={i} onClick={() => setActiveTab?.('services')} className="p-4 bg-white/5 border border-white/5 rounded-2xl hover:bg-white/10 transition-all cursor-pointer group space-y-2">
-                       <div className="flex justify-between items-start">
-                          <div className="space-y-0.5">
-                             <p className="text-[10px] font-black text-white truncate uppercase max-w-[130px]">{s.client}</p>
-                             <p className="text-[8px] text-[#4cc9f0] uppercase font-black">Empresa: {currentCompany?.name || 'Geral'}</p>
+                    <div key={i} onClick={() => setActiveTab?.('services')} className="p-4 bg-white/5 border border-white/5 rounded-2xl hover:bg-white/10 transition-all cursor-pointer group space-y-2 min-w-0 overflow-hidden">
+                       <div className="flex justify-between items-start gap-2">
+                          <div className="space-y-0.5 min-w-0 flex-1">
+                             <p className="text-[10px] font-black text-white truncate uppercase">{s.client}</p>
+                             <p className="text-[8px] text-[#4cc9f0] uppercase font-black truncate">Empresa: {currentCompany?.name || 'Geral'}</p>
                           </div>
-                          <span className="text-[10px] font-black text-emerald-400 italic">R$ {(s.total || 0).toFixed(2).replace('.', ',')}</span>
+                          <span className="text-[10px] font-black text-emerald-400 italic shrink-0">R$ {(s.total || 0).toFixed(2).replace('.', ',')}</span>
                        </div>
-                       <div className="flex justify-between items-end pt-2 border-t border-white/5">
-                          <div className="space-y-0.5">
-                             <p className="text-[9px] text-white/30 truncate max-w-[140px] italic line-clamp-1">{s.service || 'Serviço s/ descrição'}</p>
-                             <p className="text-[8px] text-white/40 uppercase font-bold">RESP: {s.responsibleName || s.responsible || 'Responsável'}</p>
+                       <div className="flex justify-between items-end pt-2 border-t border-white/5 gap-2">
+                          <div className="space-y-0.5 min-w-0 flex-1">
+                             <p className="text-[9px] text-white/30 truncate italic">{s.service || 'Serviço s/ descrição'}</p>
+                             <p className="text-[8px] text-white/40 uppercase font-bold truncate">RESP: {s.responsibleName || s.responsible || 'Responsável'}</p>
                              <p className="text-[7px] text-white/20">{s.createdAt ? safeFormat(s.createdAt, 'dd/MM HH:mm') : ''}</p>
                           </div>
-                          <Badge variant={s.status === 'producao' ? 'primary' : 'warning'} className="text-[8px] h-5 px-1.5 uppercase font-black leading-none">
+                          <Badge variant={s.status === 'producao' ? 'primary' : 'warning'} className="text-[8px] h-5 px-1.5 uppercase font-black leading-none shrink-0">
                             {s.status === 'producao' ? 'Em Produção' : 'Pendente'}
                           </Badge>
                        </div>
@@ -4479,10 +4479,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                      <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                      <span className="text-[9px] font-black uppercase tracking-wider opacity-70">PDV Conectado</span>
                   </div>
-                  <div className="text-right">
-                     <span className="text-[8px] font-black uppercase tracking-widest opacity-50 block leading-none">Faturamento Hoje</span>
-                     <span className="text-[10px] font-black italic">R$ {faturamentoHoje.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                  </div>
+                  {user?.isAdmin && (
+                    <div className="text-right">
+                       <span className="text-[8px] font-black uppercase tracking-widest opacity-50 block leading-none">Faturamento Hoje</span>
+                       <span className="text-[10px] font-black italic">R$ {faturamentoHoje.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    </div>
+                  )}
                </div>
             </div>
 
