@@ -4635,15 +4635,26 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     }
   };
 
-  const products: Product[] = [
-    { id: '1', name: 'A4 FRENTE E VERSO COLORIDO', code: '7891396968707', price: 1.50, stock: 1500, unitType: 'unit' },
-    { id: '2', name: 'ABA DO TANQUE', code: '7895858595791', price: 75.00, stock: 45, unitType: 'unit' },
-    { id: '3', name: 'ABA INFERIOR', code: '7898844611000', price: 60.00, stock: 120, unitType: 'unit' },
-    { id: '4', name: 'ABA LATERAL', code: '7894766221136', price: 75.00, stock: 30, unitType: 'unit' },
-    { id: '5', name: 'ACABAMENTO BANNER', code: '7893919006033', price: 20.00, stock: 800, unitType: 'unit' },
-    { id: '6', name: 'ADESIVO BALANÇA', code: '7891042219924', price: 30.00, stock: 50, unitType: 'unit' },
-    { id: '7', name: 'ADESIVO DE IMPRESSAO AVERY', code: '7890000000000', price: 50.00, stock: 100, unitType: 'm2' },
-  ];
+  const [products, setProducts] = useState<Product[]>([]);
+  useEffect(() => {
+    const loadProducts = async () => {
+      const { data } = await supabase.from('produtos').select('*').or('is_active.is.null,is_active.eq.true').order('name', { ascending: true });
+      setProducts((data || []).map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        code: p.code || '',
+        price: Number(p.sale_price) || 0,
+        stock: Number(p.current_stock) || 0,
+        unitType: p.unit === 'm2' ? 'm2' : 'unit',
+      })));
+    };
+    loadProducts();
+    const channel = supabase
+      .channel('pos-produtos')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'produtos' }, loadProducts)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
 
   const addToCart = (product: Product) => {
     if (product.unitType === 'm2') {
@@ -4844,6 +4855,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       }).select().single();
       if (error) throw error;
 
+      // Baixa automatica de estoque para cada item vendido (produtos do catalogo real, ignora itens livres/manuais)
+      for (const item of cart) {
+        if (!item.productId || item.productId === 'manual') continue;
+        const qtdBaixa = item.area ? item.area * item.quantity : item.quantity;
+        const { data: prodAtual } = await supabase.from('produtos').select('current_stock').eq('id', item.productId).maybeSingle();
+        if (prodAtual) {
+          const novoEstoque = Math.max(0, (Number(prodAtual.current_stock) || 0) - qtdBaixa);
+          await supabase.from('produtos').update({ current_stock: novoEstoque }).eq('id', item.productId);
+        }
+      }
+
       // Se essa venda veio de um orçamento, marca o orçamento como Concluído — Venda Gerada
       if (linkedOrcamentoId && insertedVenda) {
         await supabase.from('orcamentos').update({ status: 'concluido', venda_id: insertedVenda.id }).eq('id', linkedOrcamentoId);
@@ -4852,7 +4874,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       
       // RULE: Always create Service/OS if pending or has balance OR specific items
       const hasServiceItems = cart.some(item => 
-        ['1', '5', '6'].includes(item.productId) || 
         item.name.toLowerCase().includes('banner') || 
         item.name.toLowerCase().includes('adesivo') ||
         item.name.toLowerCase().includes('serviço')
