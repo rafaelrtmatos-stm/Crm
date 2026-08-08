@@ -7810,12 +7810,41 @@ export const ContactsModule = ({ currentCompany }: { currentCompany: Company | n
         alert('Nenhum cliente válido encontrado na planilha. Confira se o modelo de colunas está correto.');
         return;
       }
+
+      // Busca os clientes ja cadastrados pra decidir Atualizar (mesmo CPF/CNPJ ou telefone) x Cadastrar novo
+      const { data: existentes } = await supabase.from('clientes').select('id, phone, cpf_cnpj');
+      const porCpf = new Map<string, string>();
+      const porTelefone = new Map<string, string>();
+      (existentes || []).forEach((c: any) => {
+        const cpf = (c.cpf_cnpj || '').replace(/\D/g, '');
+        const tel = (c.phone || '').replace(/\D/g, '');
+        if (cpf) porCpf.set(cpf, c.id);
+        if (tel) porTelefone.set(tel, c.id);
+      });
+
+      const paraInserir: any[] = [];
+      const paraAtualizar: { id: string; row: any }[] = [];
+      for (const row of rows) {
+        const cpf = (row.cpf_cnpj || '').replace(/\D/g, '');
+        const tel = (row.phone || '').replace(/\D/g, '');
+        const idExistente = (cpf && porCpf.get(cpf)) || (tel && porTelefone.get(tel));
+        if (idExistente) {
+          paraAtualizar.push({ id: idExistente, row });
+        } else {
+          paraInserir.push(row);
+        }
+      }
+
       const batchSize = 200;
-      for (let i = 0; i < rows.length; i += batchSize) {
-        const { error } = await supabase.from('clientes').insert(rows.slice(i, i + batchSize));
+      for (let i = 0; i < paraInserir.length; i += batchSize) {
+        const { error } = await supabase.from('clientes').insert(paraInserir.slice(i, i + batchSize));
         if (error) throw error;
       }
-      alert(`${rows.length} cliente(s) importado(s) com sucesso!`);
+      for (const { id, row } of paraAtualizar) {
+        await supabase.from('clientes').update(row).eq('id', id);
+      }
+
+      alert(`${paraInserir.length} cliente(s) novo(s) cadastrado(s) e ${paraAtualizar.length} atualizado(s)!`);
     } catch (err) {
       console.error('Erro ao importar clientes:', err);
       alert('Não foi possível importar a planilha. Confira se o modelo de colunas está correto.');
@@ -8230,12 +8259,37 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
         alert('Nenhum produto válido encontrado na planilha. Confira se o modelo de colunas está correto.');
         return;
       }
+
+      // Busca os produtos ja cadastrados pra decidir Atualizar (mesmo Codigo) x Cadastrar novo
+      const { data: existentes } = await supabase.from('produtos').select('id, code');
+      const porCodigo = new Map<string, string>();
+      (existentes || []).forEach((p: any) => {
+        const cod = (p.code || '').toString().trim();
+        if (cod) porCodigo.set(cod, p.id);
+      });
+
+      const paraInserir: any[] = [];
+      const paraAtualizar: { id: string; row: any }[] = [];
+      for (const row of rows) {
+        const cod = (row.code || '').toString().trim();
+        const idExistente = cod && porCodigo.get(cod);
+        if (idExistente) {
+          paraAtualizar.push({ id: idExistente, row });
+        } else {
+          paraInserir.push(row);
+        }
+      }
+
       const batchSize = 200;
-      for (let i = 0; i < rows.length; i += batchSize) {
-        const { error } = await supabase.from('produtos').insert(rows.slice(i, i + batchSize));
+      for (let i = 0; i < paraInserir.length; i += batchSize) {
+        const { error } = await supabase.from('produtos').insert(paraInserir.slice(i, i + batchSize));
         if (error) throw error;
       }
-      alert(`${rows.length} produto(s) importado(s) com sucesso!`);
+      for (const { id, row } of paraAtualizar) {
+        await supabase.from('produtos').update(row).eq('id', id);
+      }
+
+      alert(`${paraInserir.length} produto(s) novo(s) cadastrado(s) e ${paraAtualizar.length} atualizado(s)!`);
     } catch (err) {
       console.error('Erro ao importar produtos:', err);
       alert('Não foi possível importar a planilha. Confira se o modelo de colunas está correto.');
