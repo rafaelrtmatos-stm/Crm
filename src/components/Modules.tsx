@@ -4640,7 +4640,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             </div>
 
             {/* Right Column: List & Actions */}
-            <div className="w-[450px] bg-white flex flex-col min-h-0 border-l border-slate-200 shadow-2xl relative">
+            <div className="w-[42%] md:w-[450px] bg-white flex flex-col min-h-0 border-l border-slate-200 shadow-2xl relative">
                {/* Search & Action Bar */}
                <div className="p-4 bg-slate-50 space-y-3">
                   <div className="flex gap-2 h-12">
