@@ -4975,7 +4975,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     <div className="h-[calc(100dvh-6rem)] min-h-[500px] flex flex-col bg-slate-900/50 rounded-[40px] shadow-2xl border border-white/10 overflow-hidden animate-in fade-in slide-in-from-right-5 duration-500">
       {/* Tab Navigation */}
       <div className="flex flex-wrap bg-white/5 p-2 gap-2 border-b border-white/10 items-center justify-between shrink-0">
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-nowrap gap-1.5 overflow-x-auto custom-scrollbar flex-1 min-w-0">
           {[
             { id: 'venda', label: 'Terminal Venda', icon: ShoppingBag },
             { id: 'historico', label: 'Histórico & Abertas', icon: History },
@@ -4990,7 +4990,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
               className={cn(
-                "flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 rounded-xl text-[8.5px] sm:text-[9px] font-black uppercase tracking-wider transition-all whitespace-nowrap",
+                "flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 rounded-xl text-[8.5px] sm:text-[9px] font-black uppercase tracking-wider transition-all whitespace-nowrap shrink-0",
                 activeTab === tab.id ? "bg-primary-500 text-slate-900 shadow-xl" : "text-white/40 hover:bg-white/5 hover:text-white"
               )}
             >
