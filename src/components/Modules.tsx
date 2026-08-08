@@ -3380,7 +3380,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
-  const [customerModalIntent, setCustomerModalIntent] = useState<'finalize' | 'preselect'>('preselect');
+  const [customerModalIntent, setCustomerModalIntent] = useState<'finalize' | 'preselect' | 'orcamento'>('preselect');
   const [customerModalMode, setCustomerModalMode] = useState<'search' | 'create'>('search');
 
   // --- Pesquisa de clientes ---
@@ -3658,6 +3658,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [orcamentoModalOpen, setOrcamentoModalOpen] = useState(false);
   const [editingOrcamento, setEditingOrcamento] = useState<Orcamento | null>(null);
   const emptyOrcamentoForm = {
+    clienteId: undefined as string | undefined,
     customerName: '', cpfCnpj: '', phone: '', address: '', responsavel: '',
     items: [] as SaleOrderItem[], desconto: 0, observacoes: '',
     prazoProducao: 'Prazo de produção de até 5 dias úteis após confirmação do pagamento da entrada e aprovação da arte. O prazo de produção não é prazo de pagamento.',
@@ -3692,6 +3693,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const openEditOrcamento = (o: Orcamento) => {
     setEditingOrcamento(o);
     setOrcamentoForm({
+      clienteId: o.clienteId,
       customerName: o.customerName || '', cpfCnpj: o.cpfCnpj || '', phone: o.phone || '',
       address: o.address || '', responsavel: o.responsavel || '', items: [...o.items],
       desconto: o.desconto, observacoes: o.observacoes || '', prazoProducao: o.prazoProducao || '',
@@ -3710,6 +3712,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     try {
       const total = Math.max(0, orcamentoItemsTotal() - (orcamentoForm.desconto || 0));
       const payload = {
+        cliente_id: orcamentoForm.clienteId || null,
         customer_name: orcamentoForm.customerName,
         cpf_cnpj: orcamentoForm.cpfCnpj || null,
         phone: orcamentoForm.phone || null,
@@ -5524,7 +5527,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         )}
 
         {activeTab === 'orcamentos' && (
-          <div className="flex-1 p-4 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/40 space-y-6">
+          <div className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/40 space-y-6">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-white/10 pb-4">
               <div>
                 <h2 className="text-xl md:text-2xl font-black text-white italic tracking-tighter uppercase">Orçamentos</h2>
@@ -5685,6 +5688,20 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           <button
                             onClick={() => {
                               setSelectedCustomer({ id: c.id, name: c.full_name, phone: c.phone || '' });
+                              if (customerModalIntent === 'orcamento') {
+                                const enderecoParts = [c.logradouro, c.numero, c.distrito, c.city].filter(Boolean);
+                                setOrcamentoForm(prev => ({
+                                  ...prev,
+                                  clienteId: c.id,
+                                  customerName: c.full_name,
+                                  phone: c.phone || '',
+                                  cpfCnpj: c.cpf_cnpj || '',
+                                  address: enderecoParts.join(', '),
+                                }));
+                                setIsCustomerModalOpen(false);
+                                setOrcamentoModalOpen(true);
+                                return;
+                              }
                               proceedAfterCustomerStep();
                             }}
                             className="w-full text-left"
@@ -6623,8 +6640,25 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
          size="lg"
        >
          <div className="space-y-5 max-h-[70vh] overflow-y-auto custom-scrollbar pr-1">
+            <div className="flex items-center justify-between">
+               <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px]">Dados do Cliente</p>
+               <button
+                 onClick={() => {
+                    setOrcamentoModalOpen(false);
+                    setCustomerModalIntent('orcamento');
+                    setCustomerModalMode('search');
+                    setIsCustomerModalOpen(true);
+                 }}
+                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary-500/10 border border-primary-500/20 text-primary-300 hover:bg-primary-500/20 text-[9px] font-black uppercase tracking-wider transition-all"
+               >
+                 <Search size={11} /> Buscar Cliente Cadastrado
+               </button>
+            </div>
+            {orcamentoForm.clienteId && (
+              <p className="text-[9px] text-emerald-400 font-bold -mt-3">✓ Vinculado ao cadastro de clientes</p>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-               <Input label="Cliente *" value={orcamentoForm.customerName} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, customerName: e.target.value })} />
+               <Input label="Cliente *" value={orcamentoForm.customerName} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, customerName: e.target.value, clienteId: undefined })} />
                <Input label="CPF/CNPJ" value={orcamentoForm.cpfCnpj} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, cpfCnpj: e.target.value })} />
                <Input label="Telefone/WhatsApp" value={orcamentoForm.phone} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, phone: e.target.value })} />
                <Input label="Responsável pelo Atendimento" value={orcamentoForm.responsavel} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, responsavel: e.target.value })} />
