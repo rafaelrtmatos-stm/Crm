@@ -3592,6 +3592,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [newPaymentMode, setNewPaymentMode] = useState<'valor' | 'percentual'>('valor');
   const [newPaymentInput, setNewPaymentInput] = useState<number | ''>('');
   const [pendingPaymentMethod, setPendingPaymentMethod] = useState<string>('');
+  const [pixQrAmount, setPixQrAmount] = useState<number>(0);
   const paymentEntriesTotal = paymentEntries.reduce((sum, p) => sum + (p.value || 0), 0);
 
   const resetPaymentEntries = () => {
@@ -4194,8 +4195,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const value = newPaymentMode === 'percentual' ? Number(((total * rawInput) / 100).toFixed(2)) : rawInput;
     if (value <= 0) { alert('Digite um valor válido para o pagamento.'); return; }
     setPaymentEntries(prev => [...prev, { method: newPaymentMethod, value, date: new Date().toISOString() }]);
-    setIsAddPaymentOpen(false);
-    setNewPaymentInput('');
   };
 
   const removePaymentEntry = (idx: number) => {
@@ -4208,6 +4207,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     else if (paymentEntries.length > 1) setPaymentMethod('misto');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paymentEntries]);
+
+  // O campo de valor sempre vem preenchido com o saldo restante — ao abrir o pagamento,
+  // ao adicionar um pagamento (recalcula o que falta), ou ao trocar de forma de pagamento.
+  useEffect(() => {
+    if (isPaymentModalOpen && newPaymentMode === 'valor') {
+      setNewPaymentInput(remainingValue > 0 ? Number(remainingValue.toFixed(2)) : '');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPaymentModalOpen, remainingValue, newPaymentMethod]);
 
   const faturamentoHoje = salesToday.reduce((acc, o) => {
     if (o.status === 'pending') {
@@ -5655,6 +5663,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                  </div>
                                  <div className="flex items-center gap-2 shrink-0">
                                     <span className="text-[10px] font-black text-emerald-400">R$ {p.value.toFixed(2).replace('.', ',')}</span>
+                                    {p.method === 'pix' && (
+                                      <button
+                                        onClick={() => { setPixQrAmount(p.value); setIsPixQrModalOpen(true); }}
+                                        title="Ver QR Code"
+                                        className="text-primary-300 hover:text-primary-200 transition-colors"
+                                      >
+                                        <QrCode size={13} />
+                                      </button>
+                                    )}
                                     <button onClick={() => removePaymentEntry(idx)} className="text-white/30 hover:text-rose-400 transition-colors"><X size={12} /></button>
                                  </div>
                               </div>
@@ -5713,16 +5730,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             <Button className="h-8 text-[9px] bg-primary-500 text-slate-900 border-none shrink-0 mt-3.5 px-3" onClick={confirmAddPayment}>
                               <Plus size={12} className="mr-1" /> Adicionar
                             </Button>
-                            {newPaymentMethod === 'pix' && pixConfig && (
-                              <button
-                                type="button"
-                                onClick={() => setIsPixQrModalOpen(true)}
-                                title="Gerar QR Code"
-                                className="flex items-center justify-center h-8 w-8 rounded-lg bg-primary-500/10 border border-primary-500/20 text-primary-300 hover:bg-primary-500/20 transition-all active:scale-95 shrink-0 mt-3.5"
-                              >
-                                <QrCode size={14} />
-                              </button>
-                            )}
                          </div>
 
                          {newPaymentMode === 'percentual' && newPaymentInput !== '' && (
@@ -5735,7 +5742,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               <p className="text-[9px] text-white/40">Nenhuma chave PIX cadastrada.</p>
                             )}
                             {newPaymentMethod === 'pix' && pixConfig && (
-                              <p className="text-[9px] text-white/40">Clique no ícone de QR Code ao lado do valor para gerar.</p>
+                              <p className="text-[9px] text-white/40">Clique em Adicionar — o QR Code aparece ao lado do pagamento na lista.</p>
                             )}
                             {newPaymentMethod === 'dinheiro' && (
                               <div className="w-full max-w-xs space-y-1">
@@ -6271,9 +6278,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
      )}
 
      {isPixQrModalOpen && pixConfig && (() => {
-       const rawInput = newPaymentInput === '' ? 0 : Number(newPaymentInput);
-       const typedAmount = newPaymentMode === 'percentual' ? (total * rawInput) / 100 : rawInput;
-       const amountToCharge = typedAmount > 0 ? typedAmount : remainingValue;
+       const amountToCharge = pixQrAmount > 0 ? pixQrAmount : remainingValue;
        const pixPayload = buildPixPayload({
          key: pixConfig.key,
          beneficiaryName: pixConfig.beneficiaryName,
