@@ -144,6 +144,7 @@ import {
   SaleOrderItem,
   PaymentEntry,
   Orcamento,
+  OrcamentoPagamento,
   InventoryItem,
   PrintingService,
   DashboardWidget,
@@ -285,6 +286,7 @@ const mapOrcamentoRow = (row: any): Orcamento => ({
   prazoTipo: row.prazo_tipo || 'uteis',
   prazoGatilho: row.prazo_gatilho || 'aprovacao',
   prazoDataPrevista: row.prazo_data_prevista || undefined,
+  formasPagamento: Array.isArray(row.formas_pagamento) ? row.formas_pagamento : [],
   prazoPagamentoTexto: row.prazo_pagamento_texto || undefined,
   condicaoEntregaTexto: row.condicao_entrega_texto || undefined,
   formaPagamentoTexto: row.forma_pagamento_texto || undefined,
@@ -3679,7 +3681,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     multaJurosTexto: 'Em caso de atraso no pagamento, incidirá multa de 2% sobre o valor em aberto, acrescida de juros de 1% ao mês (pro rata die), sem prejuízo de eventual correção monetária.',
     garantiaTexto: 'Garantia de 90 dias para defeitos de fabricação/impressão, não cobrindo desgaste natural, mau uso, exposição inadequada ou danos causados por terceiros. Consulte o Código de Defesa do Consumidor (CDC) para direitos aplicáveis.',
     politicaCancelamentoTexto: 'Cancelamento antes do início da produção: reembolso integral, descontadas eventuais despesas já realizadas. Após o início da produção ou para itens personalizados, não há reembolso dos valores já investidos em material e mão de obra.',
-    entradaPercentual: 50, validade: '',
+    entradaPercentual: 50, entradaValor: 0, entradaModo: 'percentual' as 'percentual' | 'valor', validade: '',
+    formasPagamento: [] as OrcamentoPagamento[],
   };
   const [orcamentoForm, setOrcamentoForm] = useState({ ...emptyOrcamentoForm });
   const [savingOrcamento, setSavingOrcamento] = useState(false);
@@ -3717,7 +3720,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       prazoPagamentoTexto: o.prazoPagamentoTexto || '', condicaoEntregaTexto: o.condicaoEntregaTexto || '',
       formaPagamentoTexto: o.formaPagamentoTexto || '', multaJurosTexto: o.multaJurosTexto || '',
       garantiaTexto: o.garantiaTexto || '', politicaCancelamentoTexto: o.politicaCancelamentoTexto || '',
-      entradaPercentual: o.entradaPercentual || 0,
+      entradaPercentual: o.entradaPercentual || 0, entradaValor: o.entradaValor || 0,
+      entradaModo: (o.entradaValor && o.entradaValor > 0 && !o.entradaPercentual) ? 'valor' : 'percentual',
+      formasPagamento: o.formasPagamento ? [...o.formasPagamento] : [],
       validade: o.validade || '',
     });
     setOrcamentoModalOpen(true);
@@ -3748,6 +3753,43 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     });
   };
 
+  const ORCAMENTO_PAGAMENTO_LABELS: Record<string, string> = {
+    pix: 'Pix', dinheiro: 'Dinheiro', cartao_debito: 'Cartão de Débito', cartao_credito: 'Cartão de Crédito',
+    cartao_parcelado: 'Cartão Parcelado', transferencia: 'Transferência', boleto: 'Boleto', outra: 'Outra',
+  };
+
+  const orcamentoEntradaValorCalc = () => {
+    const totalItens = Math.max(0, orcamentoItemsTotal() - (orcamentoForm.desconto || 0));
+    return orcamentoForm.entradaModo === 'percentual'
+      ? (totalItens * (orcamentoForm.entradaPercentual || 0)) / 100
+      : (orcamentoForm.entradaValor || 0);
+  };
+
+  const orcamentoFormasPagamentoTotal = () => orcamentoForm.formasPagamento.reduce((sum, f) => sum + (f.valor || 0), 0);
+
+  const orcamentoSaldoRestante = () => {
+    const totalItens = Math.max(0, orcamentoItemsTotal() - (orcamentoForm.desconto || 0));
+    return Math.max(0, totalItens - orcamentoEntradaValorCalc() - orcamentoFormasPagamentoTotal());
+  };
+
+  const addOrcamentoFormaPagamento = () => {
+    setOrcamentoForm(prev => ({
+      ...prev,
+      formasPagamento: [...prev.formasPagamento, { metodo: 'pix', valor: 0 } as OrcamentoPagamento],
+    }));
+  };
+
+  const updateOrcamentoFormaPagamento = (idx: number, patch: Partial<OrcamentoPagamento>) => {
+    setOrcamentoForm(prev => ({
+      ...prev,
+      formasPagamento: prev.formasPagamento.map((f, i) => i === idx ? { ...f, ...patch } : f),
+    }));
+  };
+
+  const removeOrcamentoFormaPagamento = (idx: number) => {
+    setOrcamentoForm(prev => ({ ...prev, formasPagamento: prev.formasPagamento.filter((_, i) => i !== idx) }));
+  };
+
   const handleSaveOrcamento = async () => {
     if (!orcamentoForm.customerName.trim()) { alert('Informe o nome do cliente.'); return; }
     if (orcamentoForm.items.length === 0) { alert('Adicione ao menos um item.'); return; }
@@ -3776,7 +3818,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         multa_juros_texto: orcamentoForm.multaJurosTexto || null,
         garantia_texto: orcamentoForm.garantiaTexto || null,
         politica_cancelamento_texto: orcamentoForm.politicaCancelamentoTexto || null,
-        entrada_percentual: orcamentoForm.entradaPercentual || null,
+        entrada_percentual: orcamentoForm.entradaModo === 'percentual' ? (orcamentoForm.entradaPercentual || null) : null,
+        entrada_valor: orcamentoForm.entradaModo === 'valor' ? (orcamentoForm.entradaValor || null) : null,
+        formas_pagamento: orcamentoForm.formasPagamento,
         validade: orcamentoForm.validade || null,
       };
       if (editingOrcamento) {
@@ -6833,9 +6877,32 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
                <Input label="Desconto (R$)" type="number" step="any" value={orcamentoForm.desconto} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, desconto: Number(e.target.value) || 0 })} />
-               <Input label="Entrada Sugerida (%)" type="number" step="any" value={orcamentoForm.entradaPercentual} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, entradaPercentual: Number(e.target.value) || 0 })} />
+               <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Entrada</label>
+                  <div className="flex gap-1.5">
+                     <input
+                       type="number"
+                       step="any"
+                       value={orcamentoForm.entradaModo === 'percentual' ? orcamentoForm.entradaPercentual : orcamentoForm.entradaValor}
+                       onChange={(e: any) => setOrcamentoForm(prev => prev.entradaModo === 'percentual'
+                         ? { ...prev, entradaPercentual: Number(e.target.value) || 0 }
+                         : { ...prev, entradaValor: Number(e.target.value) || 0 })}
+                       className="flex-1 h-11 bg-white/5 border border-white/10 rounded-xl px-3 text-sm text-white focus:outline-none focus:border-primary-500"
+                     />
+                     <div className="flex bg-white/5 p-0.5 rounded-xl border border-white/10 shrink-0">
+                        <button onClick={() => setOrcamentoForm(prev => ({ ...prev, entradaModo: 'percentual' }))} className={cn("px-2.5 h-full rounded-lg text-[10px] font-black", orcamentoForm.entradaModo === 'percentual' ? "bg-primary-500 text-slate-900" : "text-white/40")}>%</button>
+                        <button onClick={() => setOrcamentoForm(prev => ({ ...prev, entradaModo: 'valor' }))} className={cn("px-2.5 h-full rounded-lg text-[10px] font-black", orcamentoForm.entradaModo === 'valor' ? "bg-primary-500 text-slate-900" : "text-white/40")}>R$</button>
+                     </div>
+                  </div>
+               </div>
+               <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Valor da Entrada</label>
+                  <div className="h-11 flex items-center px-3 bg-white/5 border border-white/10 rounded-xl text-sm text-emerald-400 font-bold">
+                    R$ {orcamentoEntradaValorCalc().toFixed(2).replace('.', ',')}
+                  </div>
+               </div>
             </div>
 
             <div className="bg-slate-900/50 rounded-2xl p-4 border border-white/5 flex justify-between items-center">
@@ -6902,7 +6969,80 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   <AlertCircle size={12} /> Prazo de produção ≠ prazo de pagamento — essa distinção fica registrada e visível no PDF/WhatsApp enviado ao cliente.
                </p>
 
-               <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px] pt-1">Forma de Pagamento / Política de Entrada</p>
+               <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px] pt-1">Formas de Pagamento (combine quantas precisar)</p>
+               <div className="space-y-2">
+                  {orcamentoForm.formasPagamento.map((f, idx) => (
+                    <div key={idx} className="bg-white/5 border border-white/10 rounded-xl p-3 space-y-2">
+                       <div className="flex flex-wrap gap-2 items-end">
+                          <div className="space-y-0.5 flex-1 min-w-[130px]">
+                             <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Forma</label>
+                             <select
+                               value={f.metodo}
+                               onChange={(e) => updateOrcamentoFormaPagamento(idx, { metodo: e.target.value as any })}
+                               className="w-full h-9 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500 cursor-pointer"
+                             >
+                                {Object.entries(ORCAMENTO_PAGAMENTO_LABELS).map(([id, label]) => <option key={id} value={id} className="bg-slate-900">{label}</option>)}
+                             </select>
+                          </div>
+                          {f.metodo === 'outra' && (
+                            <div className="space-y-0.5 flex-1 min-w-[110px]">
+                               <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Qual?</label>
+                               <input value={f.metodoOutraLabel || ''} onChange={(e) => updateOrcamentoFormaPagamento(idx, { metodoOutraLabel: e.target.value })} className="w-full h-9 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
+                            </div>
+                          )}
+                          <div className="space-y-0.5 w-24">
+                             <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Valor (R$)</label>
+                             <input type="number" step="any" value={f.valor} onChange={(e) => updateOrcamentoFormaPagamento(idx, { valor: Number(e.target.value) || 0 })} className="w-full h-9 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
+                          </div>
+                          <button onClick={() => removeOrcamentoFormaPagamento(idx)} className="h-9 w-9 flex items-center justify-center rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 shrink-0"><Trash2 size={13} /></button>
+                       </div>
+
+                       {f.metodo === 'cartao_parcelado' && (
+                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-white/5">
+                            <div className="space-y-0.5">
+                               <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Parcelas</label>
+                               <input type="number" min={1} value={f.parcelas || 1} onChange={(e) => {
+                                  const parcelas = Math.max(1, Number(e.target.value) || 1);
+                                  updateOrcamentoFormaPagamento(idx, { parcelas, valorParcela: Number(((f.valor || 0) / parcelas).toFixed(2)) });
+                               }} className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
+                            </div>
+                            <div className="space-y-0.5">
+                               <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Valor/Parcela</label>
+                               <div className="h-8 flex items-center px-2 bg-slate-900/30 border border-white/5 rounded-lg text-xs text-emerald-400 font-bold">
+                                 R$ {(f.valorParcela || 0).toFixed(2).replace('.', ',')}
+                               </div>
+                            </div>
+                            <div className="space-y-0.5">
+                               <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">1º Vencimento</label>
+                               <input type="date" value={f.primeiroVencimento || ''} onChange={(e) => updateOrcamentoFormaPagamento(idx, { primeiroVencimento: e.target.value })} className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-[10px] text-white" />
+                            </div>
+                            <div className="space-y-0.5">
+                               <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Intervalo (dias)</label>
+                               <input type="number" min={1} value={f.intervaloDias || 30} onChange={(e) => updateOrcamentoFormaPagamento(idx, { intervaloDias: Number(e.target.value) || 30 })} className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
+                            </div>
+                         </div>
+                       )}
+                       {f.metodo !== 'cartao_parcelado' && (
+                         <div className="pt-1 border-t border-white/5">
+                            <div className="space-y-0.5 w-40">
+                               <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Data de Vencimento</label>
+                               <input type="date" value={f.dataVencimento || ''} onChange={(e) => updateOrcamentoFormaPagamento(idx, { dataVencimento: e.target.value })} className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-[10px] text-white" />
+                            </div>
+                         </div>
+                       )}
+                    </div>
+                  ))}
+                  <button onClick={addOrcamentoFormaPagamento} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-primary-500/10 border border-primary-500/20 text-primary-300 hover:bg-primary-500/20 text-[10px] font-black uppercase tracking-wider transition-all">
+                     <Plus size={12} /> Adicionar Forma de Pagamento
+                  </button>
+               </div>
+
+               <div className="bg-slate-900/50 rounded-xl p-3 border border-white/5 flex justify-between items-center">
+                  <span className="text-[9px] font-black uppercase text-white/40 tracking-widest">Saldo Restante (não coberto acima)</span>
+                  <span className={cn("text-sm font-black", orcamentoSaldoRestante() > 0 ? "text-amber-400" : "text-emerald-400")}>R$ {orcamentoSaldoRestante().toFixed(2).replace('.', ',')}</span>
+               </div>
+
+               <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px] pt-1">Resumo (texto final exibido no orçamento)</p>
                <textarea rows={2} value={orcamentoForm.formaPagamentoTexto} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, formaPagamentoTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-primary-500" />
 
                <p className="text-[10px] font-black uppercase text-amber-300 tracking-[2px]">Prazo de Pagamento (não é o mesmo que prazo de produção)</p>

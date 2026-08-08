@@ -463,6 +463,17 @@ export interface MetaAd extends BaseEntity {
   results?: number;
 }
 
+export interface OrcamentoPagamento {
+  metodo: 'pix' | 'dinheiro' | 'cartao_debito' | 'cartao_credito' | 'cartao_parcelado' | 'transferencia' | 'boleto' | 'outra';
+  metodoOutraLabel?: string;
+  valor: number;
+  parcelas?: number;
+  valorParcela?: number;
+  dataVencimento?: string;
+  primeiroVencimento?: string;
+  intervaloDias?: number;
+}
+
 export interface Orcamento {
   id: string;
   numero: string;
@@ -481,6 +492,7 @@ export interface Orcamento {
   prazoTipo?: 'uteis' | 'corridos';
   prazoGatilho?: 'aprovacao' | 'pagamento_entrada' | 'aprovacao_arte' | 'entrega_material' | 'personalizado';
   prazoDataPrevista?: string;
+  formasPagamento?: OrcamentoPagamento[];
   prazoPagamentoTexto?: string;
   condicaoEntregaTexto?: string;
   formaPagamentoTexto?: string;
