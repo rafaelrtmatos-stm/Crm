@@ -5577,21 +5577,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               {/* Right Side: Multiple Payments */}
               <div className="md:col-span-7 flex flex-col justify-between min-h-0 overflow-hidden gap-1.5 sm:gap-2">
                  <div className="flex-1 min-h-0 flex flex-col gap-1.5 overflow-hidden">
-                    <div className="flex items-center justify-between shrink-0">
-                       <p className="text-[8px] sm:text-[9px] font-black uppercase text-white/30 tracking-widest px-0.5">Pagamentos ({paymentEntries.length})</p>
-                       {!isAddPaymentOpen && remainingValue > 0 && (
-                         <button
-                           onClick={openAddPayment}
-                           className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-primary-500/10 border border-primary-500/20 text-primary-300 hover:bg-primary-500/20 text-[9px] font-black uppercase tracking-wider transition-all active:scale-95"
-                         >
-                           <Plus size={12} /> Adicionar Pagamento
-                         </button>
-                       )}
-                    </div>
+                    <p className="text-[8px] sm:text-[9px] font-black uppercase text-white/30 tracking-widest px-0.5 shrink-0">Pagamentos ({paymentEntries.length})</p>
 
                     {/* Lista de pagamentos ja adicionados */}
                     {paymentEntries.length > 0 && (
-                      <div className="space-y-1 shrink-0 max-h-24 overflow-y-auto custom-scrollbar">
+                      <div className="space-y-1 shrink-0 max-h-20 overflow-y-auto custom-scrollbar">
                          {paymentEntries.map((p, idx) => {
                             const opt = PAYMENT_METHOD_OPTIONS.find(o => o.id === p.method);
                             return (
@@ -5611,8 +5601,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       </div>
                     )}
 
-                    {/* Formulario de adicionar pagamento */}
-                    {isAddPaymentOpen ? (
+                    {/* Formulario de pagamento — sempre visivel */}
+                    {remainingValue > 0 ? (
                       <div className="flex-1 min-h-0 flex flex-col gap-1.5 bg-white/5 rounded-xl border border-white/5 p-2 overflow-hidden">
                          <div className="grid grid-cols-4 gap-1 shrink-0">
                             {PAYMENT_METHOD_OPTIONS.map(m => (
@@ -5638,7 +5628,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                <Input
                                  type="number"
                                  step="any"
-                                 autoFocus
                                  placeholder={newPaymentMode === 'valor' ? `Máx. R$ ${remainingValue.toFixed(2).replace('.', ',')}` : 'Ex: 30'}
                                  className="h-8 text-xs bg-slate-900/50"
                                  value={newPaymentInput}
@@ -5659,6 +5648,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                  %
                                </button>
                             </div>
+                            <Button className="h-8 text-[9px] bg-primary-500 text-slate-900 border-none shrink-0 mt-3.5 px-3" onClick={confirmAddPayment}>
+                              <Plus size={12} className="mr-1" /> Adicionar
+                            </Button>
                          </div>
 
                          {newPaymentMode === 'percentual' && newPaymentInput !== '' && (
@@ -5710,26 +5702,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               <p className="text-[9px] text-white/40 uppercase">{PAYMENT_METHOD_OPTIONS.find(o => o.id === newPaymentMethod)?.label}</p>
                             )}
                          </div>
-
-                         <div className="flex gap-2 shrink-0">
-                            <Button variant="ghost" className="flex-1 h-8 text-[9px]" onClick={() => setIsAddPaymentOpen(false)}>Cancelar</Button>
-                            <Button className="flex-1 h-8 text-[9px] bg-primary-500 text-slate-900 border-none" onClick={confirmAddPayment}>Adicionar</Button>
-                         </div>
                       </div>
                     ) : (
                       <div className="flex-1 min-h-0 flex items-center justify-center text-center p-4">
-                         {paymentEntries.length === 0 ? (
-                           <p className="text-[9px] text-white/20 uppercase tracking-wider">Nenhum pagamento adicionado ainda</p>
-                         ) : remainingValue > 0 ? (
-                           <p className="text-[9px] text-amber-400/70 uppercase tracking-wider">Saldo Restante: R$ {remainingValue.toFixed(2).replace('.', ',')}</p>
-                         ) : (
-                           <p className="text-[9px] text-emerald-400/70 uppercase tracking-wider">Saldo Restante: R$ 0,00 — Quitado ✓</p>
-                         )}
+                         <p className="text-[9px] text-emerald-400/70 uppercase tracking-wider">Saldo Restante: R$ 0,00 — Quitado ✓</p>
                       </div>
                     )}
                  </div>
 
-                 {remainingValue > 0 && !isAddPaymentOpen && (
+                 {remainingValue > 0 && (
                    <div className="grid grid-cols-2 gap-1.5 shrink-0">
                       <button
                         type="button"
