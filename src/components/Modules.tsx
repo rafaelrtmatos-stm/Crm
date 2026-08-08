@@ -1,5 +1,6 @@
 import { AppContext } from '../App';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { ContractApprovalModule } from './ContractApprovalModule';
 import { 
   TrendingUp, 
@@ -3342,9 +3343,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [historySortOrder, setHistorySortOrder] = useState<'desc' | 'asc'>('desc');
   const [isStatusFilterOpen, setIsStatusFilterOpen] = useState(false);
   const statusFilterRef = React.useRef<HTMLDivElement>(null);
+  const statusFilterBtnRef = React.useRef<HTMLButtonElement>(null);
+  const statusDropdownMenuRef = React.useRef<HTMLDivElement>(null);
+  const [statusDropdownPos, setStatusDropdownPos] = useState<{ top: number; left: number; width: number } | null>(null);
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (statusFilterRef.current && !statusFilterRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      const insideButton = statusFilterRef.current && statusFilterRef.current.contains(target);
+      const insideMenu = statusDropdownMenuRef.current && statusDropdownMenuRef.current.contains(target);
+      if (!insideButton && !insideMenu) {
         setIsStatusFilterOpen(false);
       }
     };
@@ -4412,10 +4419,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     { id: 'cancelado', label: 'Cancelados' },
                   ];
                   const current = statusOptions.find(s => s.id === historyFilter) || statusOptions[0];
+                  const toggleOpen = () => {
+                    if (!isStatusFilterOpen && statusFilterBtnRef.current) {
+                      const rect = statusFilterBtnRef.current.getBoundingClientRect();
+                      setStatusDropdownPos({ top: rect.top, left: rect.left, width: rect.width });
+                    }
+                    setIsStatusFilterOpen(prev => !prev);
+                  };
                   return (
                     <>
                       <button
-                        onClick={() => setIsStatusFilterOpen(prev => !prev)}
+                        ref={statusFilterBtnRef}
+                        onClick={toggleOpen}
                         className={cn(
                           "flex items-center gap-2 px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-wider border transition-all whitespace-nowrap",
                           historyFilter !== 'todos'
@@ -4427,8 +4442,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                         <span>{current.label}</span>
                         <ChevronDown size={12} className={cn("transition-transform", isStatusFilterOpen && "rotate-180")} />
                       </button>
-                      {isStatusFilterOpen && (
-                        <div className="absolute top-full left-0 mt-2 w-52 bg-slate-900 border border-white/10 rounded-2xl shadow-2xl z-20 py-1.5 max-h-80 overflow-y-auto custom-scrollbar">
+                      {isStatusFilterOpen && statusDropdownPos && createPortal(
+                        <div
+                          ref={statusDropdownMenuRef}
+                          style={{
+                            position: 'fixed',
+                            left: statusDropdownPos.left,
+                            bottom: window.innerHeight - statusDropdownPos.top + 8,
+                            minWidth: Math.max(statusDropdownPos.width, 208),
+                          }}
+                          className="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl z-[100] py-1.5 max-h-96 overflow-y-auto custom-scrollbar"
+                        >
                           {statusOptions.map(f => (
                             <button
                               key={f.id}
@@ -4441,7 +4465,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               {f.label}
                             </button>
                           ))}
-                        </div>
+                        </div>,
+                        document.body
                       )}
                     </>
                   );
