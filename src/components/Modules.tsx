@@ -5662,6 +5662,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             <Button className="h-8 text-[9px] bg-primary-500 text-slate-900 border-none shrink-0 mt-3.5 px-3" onClick={confirmAddPayment}>
                               <Plus size={12} className="mr-1" /> Adicionar
                             </Button>
+                            {newPaymentMethod === 'pix' && pixConfig && (
+                              <button
+                                type="button"
+                                onClick={() => setIsPixQrModalOpen(true)}
+                                title="Gerar QR Code"
+                                className="flex items-center justify-center h-8 w-8 rounded-lg bg-primary-500/10 border border-primary-500/20 text-primary-300 hover:bg-primary-500/20 transition-all active:scale-95 shrink-0 mt-3.5"
+                              >
+                                <QrCode size={14} />
+                              </button>
+                            )}
                          </div>
 
                          {newPaymentMode === 'percentual' && newPaymentInput !== '' && (
@@ -5674,13 +5684,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               <p className="text-[9px] text-white/40">Nenhuma chave PIX cadastrada.</p>
                             )}
                             {newPaymentMethod === 'pix' && pixConfig && (
-                              <button
-                                type="button"
-                                onClick={() => setIsPixQrModalOpen(true)}
-                                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary-500 hover:bg-primary-400 text-slate-900 font-black text-[9px] uppercase tracking-widest transition-all active:scale-95"
-                              >
-                                <QrCode size={13} /> Gerar QR Code
-                              </button>
+                              <p className="text-[9px] text-white/40">Clique no ícone de QR Code ao lado do valor para gerar.</p>
                             )}
                             {newPaymentMethod === 'dinheiro' && (
                               <div className="w-full max-w-xs space-y-1">
@@ -6228,8 +6232,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
      )}
 
      {isPixQrModalOpen && pixConfig && (() => {
-       const pixAmount = downPayment === "" || typeof downPayment === 'string' ? total : Number(downPayment);
-       const amountToCharge = pixAmount > 0 ? pixAmount : total;
+       const rawInput = newPaymentInput === '' ? 0 : Number(newPaymentInput);
+       const typedAmount = newPaymentMode === 'percentual' ? (total * rawInput) / 100 : rawInput;
+       const amountToCharge = typedAmount > 0 ? typedAmount : remainingValue;
        const pixPayload = buildPixPayload({
          key: pixConfig.key,
          beneficiaryName: pixConfig.beneficiaryName,
