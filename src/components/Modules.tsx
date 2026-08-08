@@ -3335,7 +3335,15 @@ export const MetaAdsModule = ({ currentCompany }: { currentCompany: Company | nu
 // --- PDV / POS ---
 export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany: Company | null, addPendingOrder: (order: SaleOrder) => void }) => {
   const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare } = React.useContext(AppContext)!;
-  const [activeTab, setActiveTab] = useState<'venda' | 'historico' | 'estoque' | 'servicos' | 'clientes' | 'contratos'>('venda');
+  const [activeTab, setActiveTabState] = useState<'venda' | 'historico' | 'estoque' | 'servicos' | 'clientes' | 'contratos'>(() => {
+    const saved = typeof window !== 'undefined' ? localStorage.getItem('rpro_pos_subtab') : null;
+    const validSubTabs = ['venda', 'historico', 'estoque', 'servicos', 'clientes', 'contratos'];
+    return (saved && validSubTabs.includes(saved)) ? (saved as any) : 'venda';
+  });
+  const setActiveTab = (tab: 'venda' | 'historico' | 'estoque' | 'servicos' | 'clientes' | 'contratos') => {
+    setActiveTabState(tab);
+    if (typeof window !== 'undefined') localStorage.setItem('rpro_pos_subtab', tab);
+  };
   const [cart, setCart] = useState<SaleOrderItem[]>([]);
   const [search, setSearch] = useState('');
   const [selectedQty, setSelectedQty] = useState(1);
@@ -4329,6 +4337,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     resetPaymentEntries();
   };
 
+  const [isImportingVendas, setIsImportingVendas] = useState(false);
+  const vendasFileInputRef = React.useRef<HTMLInputElement>(null);
+
   if (!isRegisterOpen) {
     return (
       <div className="h-[calc(100vh-8rem)] flex items-center justify-center animate-in fade-in zoom-in-95 duration-500">
@@ -4369,8 +4380,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     }
   };
 
-  const [isImportingVendas, setIsImportingVendas] = useState(false);
-  const vendasFileInputRef = React.useRef<HTMLInputElement>(null);
   const handleImportVendasFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;

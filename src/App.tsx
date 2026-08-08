@@ -372,7 +372,15 @@ export default function App() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [isCreatingCompany, setIsCreatingCompany] = useState(false);
   const [currentCompany, setCurrentCompany] = useState<Company | null>(null);
-  const [activeTab, setActiveTab] = useState<MainTab>('dashboard');
+  const [activeTab, setActiveTabState] = useState<MainTab>(() => {
+    const saved = typeof window !== 'undefined' ? localStorage.getItem('rpro_active_tab') : null;
+    const validTabs: MainTab[] = ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'services', 'inventory', 'production', 'settings'];
+    return (saved && validTabs.includes(saved as MainTab)) ? (saved as MainTab) : 'dashboard';
+  });
+  const setActiveTab = (tab: MainTab) => {
+    setActiveTabState(tab);
+    if (typeof window !== 'undefined') localStorage.setItem('rpro_active_tab', tab);
+  };
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [pendingOrders, setPendingOrders] = useState<SaleOrder[]>([]);
   const [isRegisterOpen, setIsRegisterOpenLocal] = useState(false);
