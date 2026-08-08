@@ -5861,19 +5861,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     )}
                  </div>
 
-                 {remainingValue > 0 && (
-                   <button
-                     type="button"
-                     onClick={() => setIsScheduleModalOpen(true)}
-                     className={cn(
-                       "w-full h-8 sm:h-9 rounded-lg border flex items-center justify-center gap-1.5 text-[8.5px] sm:text-[9px] font-black uppercase tracking-wider transition-all active:scale-95 shrink-0",
-                       scheduledFor ? "bg-primary-500/10 border-primary-500/30 text-primary-300" : "bg-white/5 border-white/10 text-white/50 hover:text-white hover:border-white/20"
-                     )}
-                   >
-                     <CalendarClock size={12} />
-                     {scheduledFor ? safeFormat(scheduledFor, 'dd/MM HH:mm') : 'Agendar Entrega'}
-                   </button>
-                 )}
+                 <button
+                   type="button"
+                   onClick={() => setIsScheduleModalOpen(true)}
+                   className={cn(
+                     "w-full h-8 sm:h-9 rounded-lg border flex items-center justify-center gap-1.5 text-[8.5px] sm:text-[9px] font-black uppercase tracking-wider transition-all active:scale-95 shrink-0",
+                     scheduledFor ? "bg-primary-500/10 border-primary-500/30 text-primary-300" : "bg-white/5 border-white/10 text-white/50 hover:text-white hover:border-white/20"
+                   )}
+                 >
+                   <CalendarClock size={12} />
+                   {scheduledFor ? safeFormat(scheduledFor, 'dd/MM HH:mm') : 'Agendar Entrega'}
+                 </button>
               </div>
            </div>
 
@@ -5885,25 +5883,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   onClick={() => handleFinalize(true)}
                 >
                    <Clock size={16} />
-                   <span>AGENDAR ENTREGA & LANÇAR ENTRADA (R$ {(downPayment === '' ? 0 : Number(downPayment)).toFixed(2).replace('.', ',')})</span>
+                   <span>LANÇAR ENTRADA (R$ {(downPayment === '' ? 0 : Number(downPayment)).toFixed(2).replace('.', ',')})</span>
                 </Button>
               ) : (
-                <>
-                  <Button 
-                    variant="secondary" 
-                    className="flex-1 h-9 sm:h-11 text-[8px] sm:text-[9px] uppercase font-black tracking-wider border-white/10"
-                    onClick={() => handleFinalize(true)}
-                  >
-                    Salvar Orçamento
-                  </Button>
-                  <Button 
-                    className="flex-[1.5] h-9 sm:h-11 bg-primary-500 hover:bg-primary-400 text-slate-900 border-none shadow-lg shadow-primary-500/20 text-[8.5px] sm:text-[10px] font-black uppercase tracking-wider gap-1.5 cursor-pointer"
-                    onClick={() => handleFinalize(false)}
-                  >
-                     <CheckCircle2 size={16} />
-                     <span>FINALIZAR VENDA (TOTAL QUITADO)</span>
-                  </Button>
-                </>
+                <Button 
+                  className="w-full h-9 sm:h-11 bg-primary-500 hover:bg-primary-400 text-slate-900 border-none shadow-lg shadow-primary-500/20 text-[8.5px] sm:text-[10px] font-black uppercase tracking-wider gap-1.5 cursor-pointer"
+                  onClick={() => handleFinalize(false)}
+                >
+                   <CheckCircle2 size={16} />
+                   <span>FINALIZAR VENDA (TOTAL QUITADO)</span>
+                </Button>
               )}
            </div>
         </div>
