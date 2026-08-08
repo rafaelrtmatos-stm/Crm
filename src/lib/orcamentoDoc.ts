@@ -94,9 +94,18 @@ export async function renderOrcamentoCanvas({ orcamento: o, companyName, logoDar
   const tableHeaderH = 30;
   const tableH = tableHeaderH + tableRows * rowHeight;
 
+  const pagamentoPosteriorTexto = o.pagamentoPosteriorAutorizado
+    ? `Pagamento autorizado para ${o.pagamentoPosteriorData ? new Date(o.pagamentoPosteriorData).toLocaleDateString('pt-BR') : '-'}` +
+      (o.pagamentoPosteriorDias ? ` (${o.pagamentoPosteriorDias} dias de prazo concedido)` : '') +
+      (o.pagamentoPosteriorCondicao ? `. Condição: ${o.pagamentoPosteriorCondicao}` : '') +
+      (o.pagamentoPosteriorResponsavel ? `. Autorizado por: ${o.pagamentoPosteriorResponsavel}.` : '.') +
+      ' Esta condição é uma exceção expressamente registrada e não representa uma regra geral de pagamento.'
+    : '';
+
   const clauses: { title: string; text: string }[] = [
     { title: 'Prazo de Produção/Entrega', text: (o.prazoProducao || '') + (o.prazoDataPrevista ? ` Data prevista de conclusão: ${new Date(o.prazoDataPrevista).toLocaleDateString('pt-BR')}.` : '') },
     { title: 'Prazo de Pagamento (não é o mesmo que prazo de produção)', text: o.prazoPagamentoTexto || '' },
+    { title: 'Pagamento Posterior Autorizado (exceção)', text: pagamentoPosteriorTexto },
     { title: 'Condição de Entrega/Retirada', text: o.condicaoEntregaTexto || '' },
     { title: 'Multa e Juros por Atraso', text: o.multaJurosTexto || '' },
     { title: 'Garantia do Serviço', text: o.garantiaTexto || '' },

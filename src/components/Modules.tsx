@@ -289,6 +289,11 @@ const mapOrcamentoRow = (row: any): Orcamento => ({
   formasPagamento: Array.isArray(row.formas_pagamento) ? row.formas_pagamento : [],
   politicaPagamento: row.politica_pagamento || 'entrada_restante_entrega',
   entradaObrigatoria: !!row.entrada_obrigatoria,
+  pagamentoPosteriorAutorizado: !!row.pagamento_posterior_autorizado,
+  pagamentoPosteriorData: row.pagamento_posterior_data || undefined,
+  pagamentoPosteriorDias: row.pagamento_posterior_dias !== null ? Number(row.pagamento_posterior_dias) : undefined,
+  pagamentoPosteriorCondicao: row.pagamento_posterior_condicao || undefined,
+  pagamentoPosteriorResponsavel: row.pagamento_posterior_responsavel || undefined,
   prazoPagamentoTexto: row.prazo_pagamento_texto || undefined,
   condicaoEntregaTexto: row.condicao_entrega_texto || undefined,
   formaPagamentoTexto: row.forma_pagamento_texto || undefined,
@@ -3687,6 +3692,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     formasPagamento: [] as OrcamentoPagamento[],
     politicaPagamento: 'entrada_restante_entrega' as 'sem_entrada' | 'entrada_fixa' | 'entrada_percentual' | 'pagamento_integral' | 'entrada_restante_entrega' | 'entrada_parcelas',
     entradaObrigatoria: true,
+    pagamentoPosteriorAutorizado: false, pagamentoPosteriorData: '', pagamentoPosteriorDias: 0,
+    pagamentoPosteriorCondicao: '', pagamentoPosteriorResponsavel: '',
   };
   const [orcamentoForm, setOrcamentoForm] = useState({ ...emptyOrcamentoForm });
   const [savingOrcamento, setSavingOrcamento] = useState(false);
@@ -3746,6 +3753,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       formasPagamento: o.formasPagamento ? [...o.formasPagamento] : [],
       politicaPagamento: o.politicaPagamento || 'entrada_restante_entrega',
       entradaObrigatoria: o.entradaObrigatoria !== undefined ? o.entradaObrigatoria : true,
+      pagamentoPosteriorAutorizado: !!o.pagamentoPosteriorAutorizado,
+      pagamentoPosteriorData: o.pagamentoPosteriorData || '',
+      pagamentoPosteriorDias: o.pagamentoPosteriorDias || 0,
+      pagamentoPosteriorCondicao: o.pagamentoPosteriorCondicao || '',
+      pagamentoPosteriorResponsavel: o.pagamentoPosteriorResponsavel || '',
       validade: o.validade || '',
     });
     setOrcamentoModalOpen(true);
@@ -3791,19 +3803,20 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const buildPoliticaPagamentoTexto = (politica: string, entradaTexto: string, obrigatoria: boolean) => {
-    const obrigaTxt = obrigatoria ? ' O pagamento da entrada é obrigatório para o início da produção.' : '';
+    const obrigaTxt = obrigatoria ? ' O pagamento da entrada é condição obrigatória para o início da produção — a produção só começa após a confirmação desse pagamento.' : '';
+    const quandoEntrada = ` A entrada deve ser paga no ato da aprovação deste orçamento.`;
     switch (politica) {
       case 'sem_entrada':
-        return `Não é exigida entrada. O valor total deverá ser pago conforme condição definida no Prazo de Pagamento.`;
+        return `Não é exigida entrada. A produção tem início após a aprovação deste orçamento. O valor total deverá ser pago conforme condição definida no Prazo de Pagamento.`;
       case 'pagamento_integral':
-        return `Pagamento integral antecipado, no valor de R$ ${(Math.max(0, orcamentoItemsTotal() - (orcamentoForm.desconto || 0))).toFixed(2).replace('.', ',')}, antes do início da produção.`;
+        return `Pagamento integral antecipado, no valor de R$ ${(Math.max(0, orcamentoItemsTotal() - (orcamentoForm.desconto || 0))).toFixed(2).replace('.', ',')}, devido no ato da aprovação deste orçamento e antes do início da produção.`;
       case 'entrada_fixa':
       case 'entrada_percentual':
-        return `Entrada de ${entradaTexto} para iniciar a produção.${obrigaTxt}`;
+        return `Entrada de ${entradaTexto} para iniciar a produção.${quandoEntrada}${obrigaTxt}`;
       case 'entrada_restante_entrega':
-        return `Entrada de ${entradaTexto} para iniciar a produção${obrigaTxt} O saldo restante (R$ ${orcamentoSaldoRestante().toFixed(2).replace('.', ',')}) deverá ser quitado no momento da conclusão do serviço, antes da entrega ou retirada do material.`;
+        return `Entrada de ${entradaTexto} para iniciar a produção.${quandoEntrada}${obrigaTxt} O saldo restante (R$ ${orcamentoSaldoRestante().toFixed(2).replace('.', ',')}) deverá ser quitado no momento da conclusão do serviço e antes da entrega ou retirada do material.`;
       case 'entrada_parcelas':
-        return `Entrada de ${entradaTexto} para iniciar a produção${obrigaTxt} O saldo restante (R$ ${orcamentoSaldoRestante().toFixed(2).replace('.', ',')}) será pago em parcelas, conforme detalhado nas formas de pagamento abaixo.`;
+        return `Entrada de ${entradaTexto} para iniciar a produção.${quandoEntrada}${obrigaTxt} O saldo restante (R$ ${orcamentoSaldoRestante().toFixed(2).replace('.', ',')}) será pago em parcelas, conforme detalhado nas formas de pagamento abaixo, e o material só será liberado após a quitação integral, salvo autorização em contrário.`;
       default:
         return '';
     }
@@ -3883,6 +3896,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         formas_pagamento: orcamentoForm.formasPagamento,
         politica_pagamento: orcamentoForm.politicaPagamento,
         entrada_obrigatoria: orcamentoForm.entradaObrigatoria,
+        pagamento_posterior_autorizado: orcamentoForm.pagamentoPosteriorAutorizado,
+        pagamento_posterior_data: orcamentoForm.pagamentoPosteriorAutorizado ? (orcamentoForm.pagamentoPosteriorData || null) : null,
+        pagamento_posterior_dias: orcamentoForm.pagamentoPosteriorAutorizado ? (orcamentoForm.pagamentoPosteriorDias || null) : null,
+        pagamento_posterior_condicao: orcamentoForm.pagamentoPosteriorAutorizado ? (orcamentoForm.pagamentoPosteriorCondicao || null) : null,
+        pagamento_posterior_responsavel: orcamentoForm.pagamentoPosteriorAutorizado ? (orcamentoForm.pagamentoPosteriorResponsavel || null) : null,
         validade: orcamentoForm.validade || null,
       };
       let newId: string | null = null;
@@ -7161,6 +7179,40 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
                <p className="text-[10px] font-black uppercase text-amber-300 tracking-[2px]">Prazo de Pagamento (não é o mesmo que prazo de produção)</p>
                <textarea rows={2} value={orcamentoForm.prazoPagamentoTexto} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, prazoPagamentoTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-primary-500" />
+
+               <div className="bg-white/5 border border-white/10 rounded-xl p-3 space-y-2">
+                  <button
+                    onClick={() => setOrcamentoForm(prev => ({ ...prev, pagamentoPosteriorAutorizado: !prev.pagamentoPosteriorAutorizado }))}
+                    className="flex items-center gap-2 text-[10px] font-black uppercase text-white tracking-wider"
+                  >
+                     <div className={cn("w-4 h-4 rounded border flex items-center justify-center", orcamentoForm.pagamentoPosteriorAutorizado ? "bg-primary-500 border-primary-500" : "border-white/20")}>
+                        {orcamentoForm.pagamentoPosteriorAutorizado && <Check size={11} className="text-slate-900" />}
+                     </div>
+                     Pagamento Posterior Autorizado (exceção ao prazo padrão)
+                  </button>
+                  <p className="text-[9px] text-white/40">Só marque se você está concedendo, de forma expressa, um prazo diferente do padrão para este cliente pagar.</p>
+
+                  {orcamentoForm.pagamentoPosteriorAutorizado && (
+                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/5">
+                       <div className="space-y-0.5">
+                          <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Data de Vencimento</label>
+                          <input type="date" value={orcamentoForm.pagamentoPosteriorData} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, pagamentoPosteriorData: e.target.value })} className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-[10px] text-white" />
+                       </div>
+                       <div className="space-y-0.5">
+                          <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Prazo Concedido (dias)</label>
+                          <input type="number" min={0} value={orcamentoForm.pagamentoPosteriorDias} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, pagamentoPosteriorDias: Number(e.target.value) || 0 })} className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
+                       </div>
+                       <div className="space-y-0.5 col-span-2">
+                          <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Condição Especial</label>
+                          <input value={orcamentoForm.pagamentoPosteriorCondicao} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, pagamentoPosteriorCondicao: e.target.value })} placeholder="Ex: aguardar recebimento de outro pagamento" className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
+                       </div>
+                       <div className="space-y-0.5 col-span-2">
+                          <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Responsável pela Autorização</label>
+                          <input value={orcamentoForm.pagamentoPosteriorResponsavel} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, pagamentoPosteriorResponsavel: e.target.value })} placeholder="Nome de quem autorizou" className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
+                       </div>
+                    </div>
+                  )}
+               </div>
 
                <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px]">Condição de Entrega/Retirada</p>
                <textarea rows={2} value={orcamentoForm.condicaoEntregaTexto} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, condicaoEntregaTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-primary-500" />

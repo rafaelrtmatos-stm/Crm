@@ -495,6 +495,11 @@ export interface Orcamento {
   formasPagamento?: OrcamentoPagamento[];
   politicaPagamento?: 'sem_entrada' | 'entrada_fixa' | 'entrada_percentual' | 'pagamento_integral' | 'entrada_restante_entrega' | 'entrada_parcelas';
   entradaObrigatoria?: boolean;
+  pagamentoPosteriorAutorizado?: boolean;
+  pagamentoPosteriorData?: string;
+  pagamentoPosteriorDias?: number;
+  pagamentoPosteriorCondicao?: string;
+  pagamentoPosteriorResponsavel?: string;
   prazoPagamentoTexto?: string;
   condicaoEntregaTexto?: string;
   formaPagamentoTexto?: string;
