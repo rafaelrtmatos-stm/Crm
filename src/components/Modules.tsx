@@ -3552,11 +3552,25 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [isVerifying, setIsVerifying] = useState(false);
   const [salesToday, setSalesToday] = useState<SaleOrder[]>([]);
   const [allSalesHistory, setAllSalesHistory] = useState<SaleOrder[]>([]);
-  const [historyFilter, setHistoryFilter] = useState<
-    'todos' | 'em_aberto' | 'entrada_pendente' | 'parcial' | 'quitado' |
+  type StatusFilterId =
+    'em_aberto' | 'entrada_pendente' | 'parcial' | 'quitado' |
     'aguardando_arte' | 'aguardando_aprovacao' | 'em_producao' | 'acabamento' | 'pronto' |
-    'agendado' | 'em_rota' | 'entregue' | 'cancelado'
-  >('todos');
+    'agendado' | 'em_rota' | 'entregue' | 'cancelado';
+  const [selectedStatusFilters, setSelectedStatusFilters] = useState<Set<StatusFilterId>>(new Set());
+  const MAX_STATUS_FILTERS = 4;
+  const toggleStatusFilter = (id: StatusFilterId) => {
+    setSelectedStatusFilters(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        if (next.size >= MAX_STATUS_FILTERS) return prev; // limite de 4 classificacoes simultaneas
+        next.add(id);
+      }
+      return next;
+    });
+  };
+  const clearStatusFilters = () => setSelectedStatusFilters(new Set());
   const [historySearch, setHistorySearch] = useState('');
   const [historyViewMode, setHistoryViewMode] = useState<'miniatura' | 'normal' | 'lista'>('normal');
   const [historySortOrder, setHistorySortOrder] = useState<'desc' | 'asc'>('desc');
@@ -3629,7 +3643,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     await findOrCreateLeadAndOpenChat(digits, sale.customerName || 'Cliente', buildOrderShareMessage(sale, sale.customerName || 'Cliente'));
   };
 
-  const matchesStatusFilter = (sale: SaleOrder, filter: typeof historyFilter): boolean => {
+  const matchesStatusFilter = (sale: SaleOrder, filter: StatusFilterId): boolean => {
     const down = sale.downPayment || 0;
     const balance = sale.total - down;
     const isPartial = balance > 0 || sale.status === 'pending';
@@ -3664,6 +3678,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     }
   };
 
+  // Uma venda so passa se atender A TODAS as classificacoes selecionadas (AND)
+  const matchesAllSelectedFilters = (sale: SaleOrder, filters: Set<StatusFilterId>): boolean => {
+    for (const f of filters) {
+      if (!matchesStatusFilter(sale, f)) return false;
+    }
+    return true;
+  };
+
   const matchesHistorySearch = (sale: SaleOrder): boolean => {
     if (!historySearch.trim()) return true;
     const term = historySearch.toLowerCase().trim();
@@ -3675,20 +3697,26 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     return nameMatch || idMatch || !!itemMatch || phoneMatch;
   };
 
-  // Contagem por status (considera a busca atual, ignora o filtro de status em si) — usada no dropdown
+  // Contagem por classificacao: quantas O.S. restariam se essa classificacao TAMBEM estivesse marcada
+  // (facetado pela busca + demais classificacoes ja selecionadas) — atualiza sozinho a cada clique
   const statusFilterCounts = useMemo(() => {
     const searched = allSalesHistory.filter(matchesHistorySearch);
-    const ids: (typeof historyFilter)[] = [
-      'todos', 'em_aberto', 'entrada_pendente', 'parcial', 'quitado',
+    const baseFiltered = searched.filter(s => matchesAllSelectedFilters(s, selectedStatusFilters));
+    const ids: StatusFilterId[] = [
+      'em_aberto', 'entrada_pendente', 'parcial', 'quitado',
       'aguardando_arte', 'aguardando_aprovacao', 'em_producao', 'acabamento', 'pronto',
       'agendado', 'em_rota', 'entregue', 'cancelado',
     ];
-    const counts: Record<string, number> = {};
+    const counts: Record<string, number> = { todos: searched.length };
     ids.forEach(id => {
-      counts[id] = id === 'todos' ? searched.length : searched.filter(s => matchesStatusFilter(s, id)).length;
+      if (selectedStatusFilters.has(id)) {
+        counts[id] = baseFiltered.length;
+      } else {
+        counts[id] = baseFiltered.filter(s => matchesStatusFilter(s, id)).length;
+      }
     });
     return counts;
-  }, [allSalesHistory, historySearch]);
+  }, [allSalesHistory, historySearch, selectedStatusFilters]);
 
   const pendingOrScheduledSales = useMemo(() => {
     return allSalesHistory
@@ -3706,7 +3734,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const filteredSalesHistory = useMemo(() => {
     const filtered = allSalesHistory.filter(sale => {
-      if (!matchesStatusFilter(sale, historyFilter)) return false;
+      if (!matchesAllSelectedFilters(sale, selectedStatusFilters)) return false;
       if (!matchesHistorySearch(sale)) return false;
       return true;
     });
@@ -3714,7 +3742,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       const diff = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       return historySortOrder === 'desc' ? diff : -diff;
     });
-  }, [allSalesHistory, historyFilter, historySearch, historySortOrder]);
+  }, [allSalesHistory, selectedStatusFilters, historySearch, historySortOrder]);
 
   const handleToggleSelectAll = () => {
     setSelectedSaleIds(prev => {
@@ -4640,17 +4668,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
               <div className="w-px h-8 bg-white/10 shrink-0" />
 
-              {/* Grupo 3: Filtros de Status */}
+              {/* Grupo 3: Filtros de Status (ate 4 classificacoes ao mesmo tempo) */}
               <div className="relative shrink-0" ref={statusFilterRef}>
                 {(() => {
-                  const financeiroOptions = [
-                    { id: 'todos', label: 'Todos' },
+                  const financeiroOptions: { id: StatusFilterId; label: string }[] = [
                     { id: 'em_aberto', label: 'Em Aberto' },
                     { id: 'entrada_pendente', label: 'Entrada Pendente' },
                     { id: 'parcial', label: 'Parcialmente Pago' },
                     { id: 'quitado', label: '100% Quitados' },
                   ];
-                  const producaoOptions = [
+                  const producaoOptions: { id: StatusFilterId; label: string }[] = [
                     { id: 'aguardando_arte', label: 'Aguardando Arte' },
                     { id: 'aguardando_aprovacao', label: 'Aguardando Aprovação' },
                     { id: 'em_producao', label: 'Em Produção' },
@@ -4662,7 +4689,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     { id: 'cancelado', label: 'Cancelados' },
                   ];
                   const allOptions = [...financeiroOptions, ...producaoOptions];
-                  const current = allOptions.find(s => s.id === historyFilter) || financeiroOptions[0];
+                  const buttonLabel = selectedStatusFilters.size === 0
+                    ? 'Todos'
+                    : selectedStatusFilters.size === 1
+                      ? allOptions.find(o => selectedStatusFilters.has(o.id))?.label
+                      : `${selectedStatusFilters.size} Classificações`;
+                  const buttonCount = selectedStatusFilters.size === 0 ? statusFilterCounts.todos : filteredSalesHistory.length;
                   const toggleOpen = () => {
                     if (!isStatusFilterOpen && statusFilterBtnRef.current) {
                       const rect = statusFilterBtnRef.current.getBoundingClientRect();
@@ -4670,24 +4702,37 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     }
                     setIsStatusFilterOpen(prev => !prev);
                   };
-                  const renderItem = (f: { id: string; label: string }, activeClasses: string) => (
-                    <button
-                      key={f.id}
-                      onClick={() => { setHistoryFilter(f.id as any); setIsStatusFilterOpen(false); }}
-                      className={cn(
-                        "w-full flex items-center justify-between gap-2 text-left px-4 py-2 text-[10px] font-black uppercase tracking-wider transition-all",
-                        historyFilter === f.id ? activeClasses : "text-white/60 hover:bg-white/5 hover:text-white"
-                      )}
-                    >
-                      <span>{f.label}</span>
-                      <span className={cn(
-                        "text-[9px] font-mono px-1.5 py-0.5 rounded-full min-w-[20px] text-center",
-                        historyFilter === f.id ? "bg-black/20" : "bg-white/5 text-white/30"
-                      )}>
-                        {statusFilterCounts[f.id] ?? 0}
-                      </span>
-                    </button>
-                  );
+                  const renderItem = (f: { id: StatusFilterId; label: string }, activeClasses: string) => {
+                    const isSelected = selectedStatusFilters.has(f.id);
+                    const atLimit = !isSelected && selectedStatusFilters.size >= MAX_STATUS_FILTERS;
+                    return (
+                      <button
+                        key={f.id}
+                        onClick={() => toggleStatusFilter(f.id)}
+                        disabled={atLimit}
+                        className={cn(
+                          "w-full flex items-center justify-between gap-2 text-left px-4 py-2 text-[10px] font-black uppercase tracking-wider transition-all",
+                          isSelected ? activeClasses : atLimit ? "text-white/20 cursor-not-allowed" : "text-white/60 hover:bg-white/5 hover:text-white"
+                        )}
+                      >
+                        <span className="flex items-center gap-2">
+                          <span className={cn(
+                            "w-3.5 h-3.5 rounded-md border flex items-center justify-center shrink-0",
+                            isSelected ? "bg-current border-current" : "border-white/20"
+                          )}>
+                            {isSelected && <Check size={10} className="text-slate-900" />}
+                          </span>
+                          {f.label}
+                        </span>
+                        <span className={cn(
+                          "text-[9px] font-mono px-1.5 py-0.5 rounded-full min-w-[20px] text-center",
+                          isSelected ? "bg-black/20" : "bg-white/5 text-white/30"
+                        )}>
+                          {statusFilterCounts[f.id] ?? 0}
+                        </span>
+                      </button>
+                    );
+                  };
                   return (
                     <>
                       <button
@@ -4695,14 +4740,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                         onClick={toggleOpen}
                         className={cn(
                           "flex items-center gap-2 px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-wider border transition-all whitespace-nowrap",
-                          historyFilter !== 'todos'
+                          selectedStatusFilters.size > 0
                             ? "bg-primary-500 text-slate-900 border-primary-500 shadow-lg shadow-primary-500/20"
                             : "bg-white/5 border-white/10 text-white/60 hover:text-white"
                         )}
                       >
                         <ListFilter size={13} />
-                        <span>{current.label}</span>
-                        <span className="bg-black/20 text-[8px] px-1.5 py-0.5 rounded-full font-mono">{statusFilterCounts[historyFilter] ?? 0}</span>
+                        <span>{buttonLabel}</span>
+                        <span className="bg-black/20 text-[8px] px-1.5 py-0.5 rounded-full font-mono">{buttonCount}</span>
                         <ChevronDown size={12} className={cn("transition-transform", isStatusFilterOpen && "rotate-180")} />
                       </button>
                       {isStatusFilterOpen && statusDropdownPos && createPortal(
@@ -4712,10 +4757,24 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             position: 'fixed',
                             left: statusDropdownPos.left,
                             bottom: window.innerHeight - statusDropdownPos.top + 8,
-                            minWidth: Math.max(statusDropdownPos.width, 220),
+                            minWidth: Math.max(statusDropdownPos.width, 240),
                           }}
                           className="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl z-[100] py-2 max-h-[28rem] overflow-y-auto custom-scrollbar"
                         >
+                          <button
+                            onClick={clearStatusFilters}
+                            className={cn(
+                              "w-full flex items-center justify-between gap-2 text-left px-4 py-2 text-[10px] font-black uppercase tracking-wider transition-all mb-1",
+                              selectedStatusFilters.size === 0 ? "text-primary-400 bg-primary-500/10" : "text-white/60 hover:bg-white/5 hover:text-white"
+                            )}
+                          >
+                            <span>Todos</span>
+                            <span className={cn("text-[9px] font-mono px-1.5 py-0.5 rounded-full min-w-[20px] text-center", selectedStatusFilters.size === 0 ? "bg-black/20" : "bg-white/5 text-white/30")}>
+                              {statusFilterCounts.todos ?? 0}
+                            </span>
+                          </button>
+                          <div className="h-px bg-white/5 my-1 mx-3" />
+
                           <p className="px-4 pt-1 pb-1.5 text-[8px] font-bold uppercase tracking-[2px] text-white/25">Financeiro</p>
                           {financeiroOptions.map(f => renderItem(f, "text-emerald-400 bg-emerald-500/10"))}
 
@@ -4723,6 +4782,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
                           <p className="px-4 pt-1 pb-1.5 text-[8px] font-bold uppercase tracking-[2px] text-white/25">Produção</p>
                           {producaoOptions.map(f => renderItem(f, f.id === 'cancelado' ? "text-orange-400 bg-orange-500/10" : "text-blue-400 bg-blue-500/10"))}
+
+                          {selectedStatusFilters.size >= MAX_STATUS_FILTERS && (
+                            <p className="px-4 pt-2 text-[8px] text-white/30 uppercase tracking-wider">Máximo de {MAX_STATUS_FILTERS} classificações ao mesmo tempo</p>
+                          )}
                         </div>,
                         document.body
                       )}
