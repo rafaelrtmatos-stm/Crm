@@ -181,6 +181,7 @@ import { db } from '../firebase';
 import { supabase } from '../supabase';
 import { buildPixPayload } from '../lib/pix';
 import { renderReceiptCanvas, downloadCanvasAsPng, downloadCanvasAsPdf } from '../lib/receipt';
+import { renderOrcamentoCanvas } from '../lib/orcamentoDoc';
 import { exportClientesXlsx, parseClientesXlsx, exportProdutosXlsx, parseProdutosXlsx, exportVendasXlsx, parseVendasXlsx } from '../lib/spreadsheet';
 import { format } from 'date-fns';
 
@@ -280,7 +281,12 @@ const mapOrcamentoRow = (row: any): Orcamento => ({
   total: Number(row.total) || 0,
   observacoes: row.observacoes || undefined,
   prazoProducao: row.prazo_producao || undefined,
+  prazoPagamentoTexto: row.prazo_pagamento_texto || undefined,
+  condicaoEntregaTexto: row.condicao_entrega_texto || undefined,
   formaPagamentoTexto: row.forma_pagamento_texto || undefined,
+  multaJurosTexto: row.multa_juros_texto || undefined,
+  garantiaTexto: row.garantia_texto || undefined,
+  politicaCancelamentoTexto: row.politica_cancelamento_texto || undefined,
   entradaPercentual: row.entrada_percentual !== null ? Number(row.entrada_percentual) : undefined,
   entradaValor: row.entrada_valor !== null ? Number(row.entrada_valor) : undefined,
   validade: row.validade || undefined,
@@ -3661,7 +3667,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     customerName: '', cpfCnpj: '', phone: '', address: '', responsavel: '',
     items: [] as SaleOrderItem[], desconto: 0, observacoes: '',
     prazoProducao: 'Prazo de produção de até 5 dias úteis após confirmação do pagamento da entrada e aprovação da arte. O prazo de produção não é prazo de pagamento.',
+    prazoPagamentoTexto: 'O saldo deverá ser quitado no momento da conclusão do serviço e antes da entrega ou retirada do material. Eventual prazo posterior de pagamento somente será válido quando previamente autorizado e registrado neste orçamento.',
+    condicaoEntregaTexto: 'Entrega/retirada liberada somente após a quitação integral do valor, salvo autorização expressa em contrário.',
     formaPagamentoTexto: 'Entrada de 50% para iniciar a produção e saldo de 50% na conclusão do serviço, antes da entrega ou retirada.',
+    multaJurosTexto: 'Em caso de atraso no pagamento, incidirá multa de 2% sobre o valor em aberto, acrescida de juros de 1% ao mês (pro rata die), sem prejuízo de eventual correção monetária.',
+    garantiaTexto: 'Garantia de 90 dias para defeitos de fabricação/impressão, não cobrindo desgaste natural, mau uso, exposição inadequada ou danos causados por terceiros. Consulte o Código de Defesa do Consumidor (CDC) para direitos aplicáveis.',
+    politicaCancelamentoTexto: 'Cancelamento antes do início da produção: reembolso integral, descontadas eventuais despesas já realizadas. Após o início da produção ou para itens personalizados, não há reembolso dos valores já investidos em material e mão de obra.',
     entradaPercentual: 50, validade: '',
   };
   const [orcamentoForm, setOrcamentoForm] = useState({ ...emptyOrcamentoForm });
@@ -3695,7 +3706,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       customerName: o.customerName || '', cpfCnpj: o.cpfCnpj || '', phone: o.phone || '',
       address: o.address || '', responsavel: o.responsavel || '', items: [...o.items],
       desconto: o.desconto, observacoes: o.observacoes || '', prazoProducao: o.prazoProducao || '',
-      formaPagamentoTexto: o.formaPagamentoTexto || '', entradaPercentual: o.entradaPercentual || 0,
+      prazoPagamentoTexto: o.prazoPagamentoTexto || '', condicaoEntregaTexto: o.condicaoEntregaTexto || '',
+      formaPagamentoTexto: o.formaPagamentoTexto || '', multaJurosTexto: o.multaJurosTexto || '',
+      garantiaTexto: o.garantiaTexto || '', politicaCancelamentoTexto: o.politicaCancelamentoTexto || '',
+      entradaPercentual: o.entradaPercentual || 0,
       validade: o.validade || '',
     });
     setOrcamentoModalOpen(true);
@@ -3720,7 +3734,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         total,
         observacoes: orcamentoForm.observacoes || null,
         prazo_producao: orcamentoForm.prazoProducao || null,
+        prazo_pagamento_texto: orcamentoForm.prazoPagamentoTexto || null,
+        condicao_entrega_texto: orcamentoForm.condicaoEntregaTexto || null,
         forma_pagamento_texto: orcamentoForm.formaPagamentoTexto || null,
+        multa_juros_texto: orcamentoForm.multaJurosTexto || null,
+        garantia_texto: orcamentoForm.garantiaTexto || null,
+        politica_cancelamento_texto: orcamentoForm.politicaCancelamentoTexto || null,
         entrada_percentual: orcamentoForm.entradaPercentual || null,
         validade: orcamentoForm.validade || null,
       };
@@ -3762,6 +3781,30 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const msg = `*Orçamento ${o.numero} — Rafa Arts Graphics*\n\n${linhas}\n\n${o.desconto > 0 ? `Desconto: R$ ${o.desconto.toFixed(2)}\n` : ''}*Total: R$ ${o.total.toFixed(2)}*\n\n${o.prazoProducao ? `Prazo: ${o.prazoProducao}\n\n` : ''}${o.formaPagamentoTexto ? `Pagamento: ${o.formaPagamentoTexto}\n\n` : ''}${o.validade ? `Válido até: ${safeFormat(o.validade, 'dd/MM/yyyy')}` : ''}`;
     const phoneDigits = (o.phone || '').replace(/\D/g, '');
     window.open(`https://wa.me/${phoneDigits}?text=${encodeURIComponent(msg)}`, '_blank');
+  };
+
+  const handleDownloadOrcamentoPdf = async (o: Orcamento) => {
+    try {
+      const canvas = await renderOrcamentoCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoDarkUrl });
+      await downloadCanvasAsPdf(canvas, `Orcamento_${o.numero}.pdf`);
+    } catch (err) {
+      console.error('Erro ao gerar PDF do orçamento:', err);
+      alert('Não foi possível gerar o PDF do orçamento.');
+    }
+  };
+
+  const handlePrintOrcamento = async (o: Orcamento) => {
+    try {
+      const canvas = await renderOrcamentoCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoDarkUrl });
+      const dataUrl = canvas.toDataURL('image/png');
+      const win = window.open('', '_blank');
+      if (!win) return;
+      win.document.write(`<html><head><title>Orçamento ${o.numero}</title></head><body style="margin:0"><img src="${dataUrl}" style="width:100%" onload="window.print()" /></body></html>`);
+      win.document.close();
+    } catch (err) {
+      console.error('Erro ao imprimir orçamento:', err);
+      alert('Não foi possível preparar a impressão.');
+    }
   };
 
   const handleStartSaleFromOrcamento = (o: Orcamento) => {
@@ -5579,6 +5622,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                            <button onClick={() => updateOrcamentoStatus(o, 'aprovado')} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20">Aprovar</button>
                          )}
                          <button onClick={() => handleShareOrcamentoWhatsApp(o)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20">WhatsApp</button>
+                         <button onClick={() => handleDownloadOrcamentoPdf(o)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">PDF</button>
+                         <button onClick={() => handlePrintOrcamento(o)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Imprimir</button>
                          {o.status !== 'concluido' && o.status !== 'cancelado' && (
                            <button onClick={() => handleStartSaleFromOrcamento(o)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20">Iniciar Venda</button>
                          )}
@@ -6707,6 +6752,21 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
                <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px]">Forma de Pagamento / Política de Entrada</p>
                <textarea rows={2} value={orcamentoForm.formaPagamentoTexto} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, formaPagamentoTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-primary-500" />
+
+               <p className="text-[10px] font-black uppercase text-amber-300 tracking-[2px]">Prazo de Pagamento (não é o mesmo que prazo de produção)</p>
+               <textarea rows={2} value={orcamentoForm.prazoPagamentoTexto} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, prazoPagamentoTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-primary-500" />
+
+               <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px]">Condição de Entrega/Retirada</p>
+               <textarea rows={2} value={orcamentoForm.condicaoEntregaTexto} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, condicaoEntregaTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-primary-500" />
+
+               <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px]">Multa e Juros por Atraso</p>
+               <textarea rows={2} value={orcamentoForm.multaJurosTexto} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, multaJurosTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-primary-500" />
+
+               <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px]">Garantia do Serviço</p>
+               <textarea rows={2} value={orcamentoForm.garantiaTexto} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, garantiaTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-primary-500" />
+
+               <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px]">Política de Cancelamento</p>
+               <textarea rows={2} value={orcamentoForm.politicaCancelamentoTexto} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, politicaCancelamentoTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-primary-500" />
 
                <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px]">Observações</p>
                <textarea rows={2} value={orcamentoForm.observacoes} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, observacoes: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-primary-500" />

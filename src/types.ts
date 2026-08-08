@@ -477,7 +477,12 @@ export interface Orcamento {
   total: number;
   observacoes?: string;
   prazoProducao?: string;
+  prazoPagamentoTexto?: string;
+  condicaoEntregaTexto?: string;
   formaPagamentoTexto?: string;
+  multaJurosTexto?: string;
+  garantiaTexto?: string;
+  politicaCancelamentoTexto?: string;
   entradaPercentual?: number;
   entradaValor?: number;
   validade?: string;
