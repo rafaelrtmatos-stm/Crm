@@ -294,6 +294,10 @@ const mapOrcamentoRow = (row: any): Orcamento => ({
   pagamentoPosteriorDias: row.pagamento_posterior_dias !== null ? Number(row.pagamento_posterior_dias) : undefined,
   pagamentoPosteriorCondicao: row.pagamento_posterior_condicao || undefined,
   pagamentoPosteriorResponsavel: row.pagamento_posterior_responsavel || undefined,
+  multaPercentual: row.multa_percentual !== null ? Number(row.multa_percentual) : 2,
+  jurosModo: row.juros_modo || 'mensal',
+  jurosPercentual: row.juros_percentual !== null ? Number(row.juros_percentual) : 1,
+  diasTolerancia: row.dias_tolerancia !== null ? Number(row.dias_tolerancia) : 0,
   prazoPagamentoTexto: row.prazo_pagamento_texto || undefined,
   condicaoEntregaTexto: row.condicao_entrega_texto || undefined,
   formaPagamentoTexto: row.forma_pagamento_texto || undefined,
@@ -3694,6 +3698,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     entradaObrigatoria: true,
     pagamentoPosteriorAutorizado: false, pagamentoPosteriorData: '', pagamentoPosteriorDias: 0,
     pagamentoPosteriorCondicao: '', pagamentoPosteriorResponsavel: '',
+    multaPercentual: 2, jurosModo: 'mensal' as 'mensal' | 'diario', jurosPercentual: 1, diasTolerancia: 0,
   };
   const [orcamentoForm, setOrcamentoForm] = useState({ ...emptyOrcamentoForm });
   const [savingOrcamento, setSavingOrcamento] = useState(false);
@@ -3758,6 +3763,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       pagamentoPosteriorDias: o.pagamentoPosteriorDias || 0,
       pagamentoPosteriorCondicao: o.pagamentoPosteriorCondicao || '',
       pagamentoPosteriorResponsavel: o.pagamentoPosteriorResponsavel || '',
+      multaPercentual: o.multaPercentual !== undefined ? o.multaPercentual : 2,
+      jurosModo: o.jurosModo || 'mensal', jurosPercentual: o.jurosPercentual !== undefined ? o.jurosPercentual : 1,
+      diasTolerancia: o.diasTolerancia || 0,
       validade: o.validade || '',
     });
     setOrcamentoModalOpen(true);
@@ -3863,6 +3871,35 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     });
   };
 
+  const buildMultaJurosTexto = (multaPct: number, jurosModo: string, jurosPct: number, tolerancia: number) => {
+    const toleranciaTxt = tolerancia > 0 ? ` após ${tolerancia} dia(s) de tolerância` : '';
+    const jurosTxt = jurosModo === 'diario' ? `${jurosPct}% ao dia` : `${jurosPct}% ao mês (pro rata die)`;
+    return `Em caso de atraso no pagamento${toleranciaTxt}, incidirá multa de ${multaPct}% sobre o valor em aberto, acrescida de juros de ${jurosTxt}, calculados automaticamente sobre o saldo devedor até a data da efetiva quitação, sem prejuízo de eventual correção monetária.`;
+  };
+
+  const updateMultaJuros = (patch: { multaPercentual?: number; jurosModo?: 'mensal' | 'diario'; jurosPercentual?: number; diasTolerancia?: number }) => {
+    setOrcamentoForm(prev => {
+      const next = { ...prev, ...patch };
+      next.multaJurosTexto = buildMultaJurosTexto(next.multaPercentual, next.jurosModo, next.jurosPercentual, next.diasTolerancia);
+      return next;
+    });
+  };
+
+  // Calculadora de atraso: dado um saldo e dias em atraso, calcula multa + juros e o valor atualizado
+  const calcularAtraso = (saldo: number, diasAtraso: number) => {
+    const dias = orcamentoForm.diasTolerancia || 0;
+    const diasEfetivos = Math.max(0, diasAtraso - dias);
+    if (diasEfetivos <= 0) return { multa: 0, juros: 0, total: saldo, diasEfetivos: 0 };
+    const multa = saldo * ((orcamentoForm.multaPercentual || 0) / 100);
+    const taxaDiaria = orcamentoForm.jurosModo === 'diario'
+      ? (orcamentoForm.jurosPercentual || 0) / 100
+      : (orcamentoForm.jurosPercentual || 0) / 100 / 30;
+    const juros = saldo * taxaDiaria * diasEfetivos;
+    return { multa, juros, total: saldo + multa + juros, diasEfetivos };
+  };
+
+  const [simuladorDias, setSimuladorDias] = useState(10);
+
   const handleSaveOrcamento = async () => {
     if (!orcamentoForm.customerName.trim()) { alert('Informe o nome do cliente.'); return; }
     if (orcamentoForm.items.length === 0) { alert('Adicione ao menos um item.'); return; }
@@ -3901,6 +3938,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         pagamento_posterior_dias: orcamentoForm.pagamentoPosteriorAutorizado ? (orcamentoForm.pagamentoPosteriorDias || null) : null,
         pagamento_posterior_condicao: orcamentoForm.pagamentoPosteriorAutorizado ? (orcamentoForm.pagamentoPosteriorCondicao || null) : null,
         pagamento_posterior_responsavel: orcamentoForm.pagamentoPosteriorAutorizado ? (orcamentoForm.pagamentoPosteriorResponsavel || null) : null,
+        multa_percentual: orcamentoForm.multaPercentual,
+        juros_modo: orcamentoForm.jurosModo,
+        juros_percentual: orcamentoForm.jurosPercentual,
+        dias_tolerancia: orcamentoForm.diasTolerancia,
         validade: orcamentoForm.validade || null,
       };
       let newId: string | null = null;
@@ -7218,7 +7259,59 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                <textarea rows={2} value={orcamentoForm.condicaoEntregaTexto} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, condicaoEntregaTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-primary-500" />
 
                <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px]">Multa e Juros por Atraso</p>
+               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="space-y-0.5">
+                     <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Multa (%)</label>
+                     <input type="number" step="any" min={0} value={orcamentoForm.multaPercentual} onChange={(e) => updateMultaJuros({ multaPercentual: Number(e.target.value) || 0 })} className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500" />
+                  </div>
+                  <div className="space-y-0.5">
+                     <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Juros (%)</label>
+                     <input type="number" step="any" min={0} value={orcamentoForm.jurosPercentual} onChange={(e) => updateMultaJuros({ jurosPercentual: Number(e.target.value) || 0 })} className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500" />
+                  </div>
+                  <div className="space-y-0.5">
+                     <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Forma de Cálculo</label>
+                     <select value={orcamentoForm.jurosModo} onChange={(e) => updateMultaJuros({ jurosModo: e.target.value as any })} className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500 cursor-pointer">
+                        <option value="mensal" className="bg-slate-900">Juros ao mês</option>
+                        <option value="diario" className="bg-slate-900">Juros ao dia</option>
+                     </select>
+                  </div>
+                  <div className="space-y-0.5">
+                     <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Tolerância (dias)</label>
+                     <input type="number" min={0} value={orcamentoForm.diasTolerancia} onChange={(e) => updateMultaJuros({ diasTolerancia: Number(e.target.value) || 0 })} className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500" />
+                  </div>
+               </div>
+
                <textarea rows={2} value={orcamentoForm.multaJurosTexto} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, multaJurosTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-primary-500" />
+
+               {/* Simulador de atraso: calculo automatico */}
+               <div className="bg-black/20 rounded-xl p-3 space-y-2 border border-white/5">
+                  <div className="flex items-center justify-between gap-2">
+                     <span className="text-[9px] font-black uppercase text-white/40 tracking-wider">Simular atraso de</span>
+                     <div className="flex items-center gap-1.5">
+                        <input type="number" min={0} value={simuladorDias} onChange={(e) => setSimuladorDias(Number(e.target.value) || 0)} className="w-14 h-7 bg-slate-900/60 border border-white/10 rounded px-1.5 text-xs text-white text-center" />
+                        <span className="text-[9px] text-white/40 font-bold">dias, sobre R$ {orcamentoSaldoRestante().toFixed(2).replace('.', ',')} em aberto</span>
+                     </div>
+                  </div>
+                  {(() => {
+                     const calc = calcularAtraso(orcamentoSaldoRestante(), simuladorDias);
+                     return (
+                       <div className="grid grid-cols-3 gap-2 pt-1 border-t border-white/5">
+                          <div>
+                             <p className="text-[7px] font-black uppercase text-white/30 tracking-wider">Multa</p>
+                             <p className="text-xs font-black text-amber-400">R$ {calc.multa.toFixed(2).replace('.', ',')}</p>
+                          </div>
+                          <div>
+                             <p className="text-[7px] font-black uppercase text-white/30 tracking-wider">Juros ({calc.diasEfetivos}d)</p>
+                             <p className="text-xs font-black text-amber-400">R$ {calc.juros.toFixed(2).replace('.', ',')}</p>
+                          </div>
+                          <div>
+                             <p className="text-[7px] font-black uppercase text-white/30 tracking-wider">Valor Atualizado</p>
+                             <p className="text-xs font-black text-rose-400">R$ {calc.total.toFixed(2).replace('.', ',')}</p>
+                          </div>
+                       </div>
+                     );
+                  })()}
+               </div>
 
                <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px]">Garantia do Serviço</p>
                <textarea rows={2} value={orcamentoForm.garantiaTexto} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, garantiaTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-primary-500" />

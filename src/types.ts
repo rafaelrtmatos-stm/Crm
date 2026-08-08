@@ -500,6 +500,10 @@ export interface Orcamento {
   pagamentoPosteriorDias?: number;
   pagamentoPosteriorCondicao?: string;
   pagamentoPosteriorResponsavel?: string;
+  multaPercentual?: number;
+  jurosModo?: 'mensal' | 'diario';
+  jurosPercentual?: number;
+  diasTolerancia?: number;
   prazoPagamentoTexto?: string;
   condicaoEntregaTexto?: string;
   formaPagamentoTexto?: string;
