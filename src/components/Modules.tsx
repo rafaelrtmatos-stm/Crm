@@ -3347,6 +3347,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [cart, setCart] = useState<SaleOrderItem[]>([]);
   const [search, setSearch] = useState('');
   const [selectedQty, setSelectedQty] = useState(1);
+  const [dimensionModalProduct, setDimensionModalProduct] = useState<Product | null>(null);
+  const [dimWidth, setDimWidth] = useState<number | ''>('');
+  const [dimHeight, setDimHeight] = useState<number | ''>('');
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
@@ -3995,6 +3998,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [pixConfig, setPixConfig] = useState<{ key: string; beneficiaryName: string; city: string; bank?: string } | null>(null);
   const [isPixQrModalOpen, setIsPixQrModalOpen] = useState(false);
   const [logoDarkUrl, setLogoDarkUrl] = useState<string | null>(null);
+  const [enabledPaymentMethods, setEnabledPaymentMethods] = useState<string[]>(['pix', 'dinheiro', 'cartao_credito', 'cartao_debito']);
   const canManageHistory = !!(user?.isAdmin || user?.allowedActions?.includes('canManageSaleHistory'));
   const [editingSale, setEditingSale] = useState<SaleOrder | null>(null);
   const [editSaleForm, setEditSaleForm] = useState({ customerName: '', total: 0, downPayment: 0, paymentMethod: 'pix' });
@@ -4058,6 +4062,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const load = async () => {
       const { data } = await supabase.from('configuracoes').select('*').eq('company_id', 'rafa-arts').maybeSingle();
       setLogoDarkUrl(data?.logo_dark_url || null);
+      setEnabledPaymentMethods(Array.isArray(data?.enabled_payment_methods) && data.enabled_payment_methods.length > 0 ? data.enabled_payment_methods : ['pix', 'dinheiro', 'cartao_credito', 'cartao_debito']);
       if (data && data.pix_key) {
         setPixConfig({
           key: data.pix_key,
@@ -4130,45 +4135,61 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   ];
 
   const addToCart = (product: Product) => {
-    let area: number | undefined;
-    let dimensions: string | undefined;
-
     if (product.unitType === 'm2') {
-      const dimInput = prompt(`Digite as dimensões para ${product.name} (ex: 1,2x2,2):`);
-      if (dimInput) {
-        const parts = dimInput.toLowerCase().split('x').map(p => {
-          const val = parseFloat(p.trim().replace(',', '.'));
-          return isNaN(val) ? 0 : val;
-        });
-        if (parts.length === 2 && parts[0] > 0 && parts[1] > 0) {
-          area = parts[0] * parts[1];
-          dimensions = dimInput;
-        } else {
-          alert('Formato de dimensão inválido! Use LxH (ex: 1,2x2,2)');
-          return;
-        }
-      } else {
-        return;
-      }
+      setDimensionModalProduct(product);
+      setDimWidth('');
+      setDimHeight('');
+      return;
     }
-
     setCart(prev => {
-      const existing = prev.find(item => item.productId === product.id && item.dimensions === dimensions);
+      const existing = prev.find(item => item.productId === product.id && !item.dimensions);
       if (existing) {
-        return prev.map(item => (item.productId === product.id && item.dimensions === dimensions) 
-          ? { ...item, quantity: item.quantity + selectedQty } 
+        return prev.map(item => (item.productId === product.id && !item.dimensions)
+          ? { ...item, quantity: item.quantity + selectedQty }
           : item
         );
       }
-      return [...prev, { 
-        productId: product.id, 
-        name: product.name, 
-        price: product.price, 
+      return [...prev, {
+        productId: product.id,
+        name: product.name,
+        price: product.price,
+        quantity: selectedQty,
+      }];
+    });
+    setSelectedQty(1);
+  };
+
+  const confirmAddDimensionedItem = () => {
+    if (!dimensionModalProduct) return;
+    const w = dimWidth === '' ? 0 : Number(dimWidth);
+    const h = dimHeight === '' ? 0 : Number(dimHeight);
+    if (w <= 0 || h <= 0) {
+      alert('Informe largura e altura válidas.');
+      return;
+    }
+    const area = w * h;
+    const dimensions = `${w.toString().replace('.', ',')}x${h.toString().replace('.', ',')}`;
+    const product = dimensionModalProduct;
+    setCart(prev => {
+      const existing = prev.find(item => item.productId === product.id && item.dimensions === dimensions);
+      if (existing) {
+        return prev.map(item => (item.productId === product.id && item.dimensions === dimensions)
+          ? { ...item, quantity: item.quantity + selectedQty }
+          : item
+        );
+      }
+      return [...prev, {
+        productId: product.id,
+        name: product.name,
+        price: product.price,
         quantity: selectedQty,
         dimensions,
         area
       }];
     });
+    setDimensionModalProduct(null);
+    setDimWidth('');
+    setDimHeight('');
     setSelectedQty(1);
   };
 
@@ -4216,6 +4237,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     else if (paymentEntries.length > 1) setPaymentMethod('misto');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paymentEntries]);
+
+  useEffect(() => {
+    if (enabledPaymentMethods.length > 0 && !enabledPaymentMethods.includes(newPaymentMethod)) {
+      setNewPaymentMethod(enabledPaymentMethods[0] as PaymentEntry['method']);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabledPaymentMethods]);
 
   // O campo de valor sempre vem preenchido com o saldo restante — ao abrir o pagamento,
   // ao adicionar um pagamento (recalcula o que falta), ou ao trocar de forma de pagamento.
@@ -5686,7 +5714,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     {remainingValue > 0 ? (
                       <div className="flex-1 min-h-0 flex flex-col gap-1.5 bg-white/5 rounded-xl border border-white/5 p-2 overflow-hidden">
                          <div className="grid grid-cols-4 gap-1 shrink-0">
-                            {PAYMENT_METHOD_OPTIONS.map(m => (
+                            {PAYMENT_METHOD_OPTIONS.filter(m => enabledPaymentMethods.includes(m.id)).map(m => (
                               <button
                                 key={m.id}
                                 onClick={() => setNewPaymentMethod(m.id)}
@@ -6225,6 +6253,68 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
              >
                <CheckCircle2 size={16} />
                <span>{isWaSaving ? 'Salvando...' : 'Salvar e Abrir Conversa'}</span>
+             </Button>
+           </div>
+         </div>
+       </Modal>
+     )}
+
+     {dimensionModalProduct && (
+       <Modal
+         isOpen={!!dimensionModalProduct}
+         onClose={() => setDimensionModalProduct(null)}
+         title={`Metragem — ${dimensionModalProduct.name}`}
+         size="sm"
+       >
+         <div className="space-y-5 p-2">
+           <div className="grid grid-cols-2 gap-3">
+             <div className="space-y-1">
+               <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Largura (m)</label>
+               <Input
+                 type="number"
+                 step="any"
+                 autoFocus
+                 placeholder="Ex: 1,20"
+                 value={dimWidth}
+                 onChange={(e: any) => setDimWidth(e.target.value === '' ? '' : Number(e.target.value))}
+                 onKeyDown={(e: any) => { if (e.key === 'Enter') confirmAddDimensionedItem(); }}
+               />
+             </div>
+             <div className="space-y-1">
+               <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Altura (m)</label>
+               <Input
+                 type="number"
+                 step="any"
+                 placeholder="Ex: 2,20"
+                 value={dimHeight}
+                 onChange={(e: any) => setDimHeight(e.target.value === '' ? '' : Number(e.target.value))}
+                 onKeyDown={(e: any) => { if (e.key === 'Enter') confirmAddDimensionedItem(); }}
+               />
+             </div>
+           </div>
+
+           {dimWidth !== '' && dimHeight !== '' && Number(dimWidth) > 0 && Number(dimHeight) > 0 && (
+             <div className="bg-slate-900/60 rounded-2xl border border-white/10 p-4 space-y-1">
+               <div className="flex justify-between text-xs text-white/50">
+                 <span>Área</span>
+                 <span className="font-mono font-bold text-white">{(Number(dimWidth) * Number(dimHeight)).toFixed(2).replace('.', ',')} m²</span>
+               </div>
+               <div className="flex justify-between text-xs text-white/50">
+                 <span>Valor unitário (m²)</span>
+                 <span className="font-mono text-white">R$ {dimensionModalProduct.price.toFixed(2).replace('.', ',')}</span>
+               </div>
+               <div className="flex justify-between text-sm pt-1 border-t border-white/5">
+                 <span className="text-emerald-400 font-bold">Subtotal</span>
+                 <span className="font-mono font-black text-emerald-400">R$ {(Number(dimWidth) * Number(dimHeight) * dimensionModalProduct.price * selectedQty).toFixed(2).replace('.', ',')}</span>
+               </div>
+             </div>
+           )}
+
+           <div className="flex justify-end gap-3 pt-1">
+             <Button variant="ghost" onClick={() => setDimensionModalProduct(null)}>Cancelar</Button>
+             <Button className="bg-primary-500 hover:bg-primary-400 text-slate-900 font-black gap-2" onClick={confirmAddDimensionedItem}>
+               <Plus size={16} />
+               <span>Adicionar ao Carrinho</span>
              </Button>
            </div>
          </div>
@@ -7130,6 +7220,17 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
   const [pixCity, setPixCity] = useState('Santarem');
   const [pixBank, setPixBank] = useState('');
   const [savingPix, setSavingPix] = useState(false);
+  const ALL_PAYMENT_METHODS = [
+    { id: 'pix', label: 'Pix' },
+    { id: 'dinheiro', label: 'Dinheiro' },
+    { id: 'cartao_credito', label: 'Cartão de Crédito' },
+    { id: 'cartao_debito', label: 'Cartão de Débito' },
+    { id: 'transferencia', label: 'Transferência' },
+    { id: 'boleto', label: 'Boleto' },
+    { id: 'crediario', label: 'Crediário' },
+  ];
+  const [enabledPaymentMethods, setEnabledPaymentMethods] = useState<string[]>(['pix', 'dinheiro', 'cartao_credito', 'cartao_debito']);
+  const [savingPaymentMethods, setSavingPaymentMethods] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -7139,6 +7240,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
         setPixBeneficiary(data.beneficiary_name || currentCompany?.name || '');
         setPixCity(data.city || 'Santarem');
         setPixBank(data.pix_bank || '');
+        setEnabledPaymentMethods(Array.isArray(data.enabled_payment_methods) && data.enabled_payment_methods.length > 0 ? data.enabled_payment_methods : ['pix', 'dinheiro', 'cartao_credito', 'cartao_debito']);
       } else if (currentCompany?.name) {
         setPixBeneficiary(currentCompany.name);
       }
@@ -7150,6 +7252,31 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [currentCompany]);
+
+  const togglePaymentMethodEnabled = (id: string) => {
+    setEnabledPaymentMethods(prev => prev.includes(id) ? prev.filter(m => m !== id) : [...prev, id]);
+  };
+
+  const handleSavePaymentMethods = async () => {
+    if (enabledPaymentMethods.length === 0) {
+      alert('Deixe pelo menos uma forma de pagamento habilitada.');
+      return;
+    }
+    setSavingPaymentMethods(true);
+    try {
+      const { error } = await supabase.from('configuracoes').upsert({
+        company_id: 'rafa-arts',
+        enabled_payment_methods: enabledPaymentMethods,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'company_id' });
+      if (error) throw error;
+    } catch (err) {
+      console.error('Erro ao salvar formas de pagamento:', err);
+      alert('Não foi possível salvar.');
+    } finally {
+      setSavingPaymentMethods(false);
+    }
+  };
 
   const handleSavePixConfig = async () => {
     setSavingPix(true);
@@ -7524,6 +7651,47 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                       className="bg-primary-500 text-slate-900 border-none shadow-xl shadow-primary-500/20"
                     >
                       {savingPix ? 'Salvando...' : 'Salvar Configuração PIX'}
+                    </Button>
+                 </div>
+
+                 <div className="h-px bg-white/10" />
+
+                 <div className="space-y-6">
+                    <div className="flex items-center gap-4">
+                       <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 flex items-center justify-center text-emerald-400">
+                          <CreditCard size={24} />
+                       </div>
+                       <div>
+                          <h3 className="text-xl font-bold text-white tracking-tight italic uppercase">Formas de Pagamento no PDV</h3>
+                          <p className="text-xs text-white/30">Escolha quais opções aparecem na tela de pagamento (só o admin controla isso)</p>
+                       </div>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                       {ALL_PAYMENT_METHODS.map(m => {
+                          const isEnabled = enabledPaymentMethods.includes(m.id);
+                          return (
+                            <button
+                              key={m.id}
+                              onClick={() => togglePaymentMethodEnabled(m.id)}
+                              className={cn(
+                                "p-4 rounded-2xl border-2 flex flex-col items-center justify-center gap-2 transition-all",
+                                isEnabled ? "bg-primary-500/10 border-primary-500 text-primary-300" : "bg-white/5 border-white/10 text-white/30 hover:border-white/20"
+                              )}
+                            >
+                               <div className={cn("w-5 h-5 rounded-md border-2 flex items-center justify-center", isEnabled ? "bg-primary-500 border-primary-500" : "border-white/20")}>
+                                  {isEnabled && <Check size={12} className="text-slate-900" />}
+                               </div>
+                               <span className="text-[10px] font-black uppercase tracking-wider text-center">{m.label}</span>
+                            </button>
+                          );
+                       })}
+                    </div>
+                    <Button
+                      onClick={handleSavePaymentMethods}
+                      disabled={savingPaymentMethods}
+                      className="bg-primary-500 text-slate-900 border-none shadow-xl shadow-primary-500/20"
+                    >
+                      {savingPaymentMethods ? 'Salvando...' : 'Salvar Formas de Pagamento'}
                     </Button>
                  </div>
               </div>
