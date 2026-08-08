@@ -3686,6 +3686,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
   const [orcamentoForm, setOrcamentoForm] = useState({ ...emptyOrcamentoForm });
   const [savingOrcamento, setSavingOrcamento] = useState(false);
+  const [orcamentoFromCart, setOrcamentoFromCart] = useState(false);
+  const [highlightOrcamentoId, setHighlightOrcamentoId] = useState<string | null>(null);
 
   const loadOrcamentos = async () => {
     setIsLoadingOrcamentos(true);
@@ -3705,7 +3707,22 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const openNewOrcamento = () => {
     setEditingOrcamento(null);
+    setOrcamentoFromCart(false);
     setOrcamentoForm({ ...emptyOrcamentoForm });
+    setOrcamentoModalOpen(true);
+  };
+
+  const handleCreateOrcamentoFromCart = () => {
+    if (cart.length === 0) { alert('Adicione ao menos um item antes de criar o orçamento.'); return; }
+    setEditingOrcamento(null);
+    setOrcamentoFromCart(true);
+    setOrcamentoForm({
+      ...emptyOrcamentoForm,
+      clienteId: selectedCustomer?.id,
+      customerName: selectedCustomer?.name || '',
+      phone: selectedCustomer?.phone || '',
+      items: [...cart],
+    });
     setOrcamentoModalOpen(true);
   };
 
@@ -3823,16 +3840,30 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         formas_pagamento: orcamentoForm.formasPagamento,
         validade: orcamentoForm.validade || null,
       };
+      let newId: string | null = null;
       if (editingOrcamento) {
         const { error } = await supabase.from('orcamentos').update(payload).eq('id', editingOrcamento.id);
         if (error) throw error;
       } else {
         const numero = `ORC-${Date.now().toString().slice(-6)}`;
-        const { error } = await supabase.from('orcamentos').insert({ ...payload, numero, status: 'rascunho' });
+        const { data: inserted, error } = await supabase.from('orcamentos').insert({ ...payload, numero, status: 'rascunho' }).select().single();
         if (error) throw error;
+        newId = inserted?.id || null;
       }
       setOrcamentoModalOpen(false);
-      loadOrcamentos();
+      await loadOrcamentos();
+
+      // Veio da tela de venda: nao finaliza venda nenhuma, so limpa o carrinho e leva pra central de Orcamentos
+      if (!editingOrcamento && newId) {
+        if (orcamentoFromCart) {
+          setCart([]);
+          setSelectedCustomer(null);
+          setOrcamentoFromCart(false);
+        }
+        setActiveTab('orcamentos');
+        setHighlightOrcamentoId(newId);
+        setTimeout(() => setHighlightOrcamentoId(null), 4000);
+      }
     } catch (err) {
       console.error('Erro ao salvar orçamento:', err);
       alert('Não foi possível salvar o orçamento.');
@@ -5014,7 +5045,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 </div>
 
                <div className="shrink-0 p-3 sm:p-6 bg-slate-50 border-t border-slate-200 space-y-4 sticky bottom-0 z-10">
-                  <div className="flex gap-4 h-14 sm:h-24">
+                  <div className="flex gap-2 sm:gap-4 h-14 sm:h-24">
+                     <button
+                       disabled={cart.length === 0}
+                       onClick={handleCreateOrcamentoFromCart}
+                       className="flex-1 h-full bg-white border-2 border-slate-300 text-slate-700 rounded-2xl sm:rounded-[28px] flex flex-col items-center justify-center gap-0.5 sm:gap-1 hover:border-primary-400 hover:text-primary-600 transition-all disabled:opacity-50 disabled:grayscale active:scale-95"
+                     >
+                        <div className="flex items-center gap-1.5 sm:gap-3">
+                           <FileSpreadsheet size={16} className="sm:hidden" />
+                           <FileSpreadsheet size={22} className="hidden sm:block" />
+                           <span className="text-xs sm:text-base font-black uppercase tracking-tighter">CRIAR ORÇAMENTO</span>
+                        </div>
+                        <span className="hidden sm:block text-[9px] font-black opacity-40 uppercase tracking-[3px]">Não finaliza a venda</span>
+                     </button>
                      <button 
                        disabled={cart.length === 0}
                        onClick={() => {
@@ -5678,7 +5721,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     concluido: 'Concluído — Venda Gerada', recusado: 'Recusado', cancelado: 'Cancelado', expirado: 'Expirado',
                   };
                   return (
-                    <div key={o.id} className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-3">
+                    <div key={o.id} className={cn(
+                      "bg-white/5 border rounded-2xl p-4 space-y-3 transition-all",
+                      highlightOrcamentoId === o.id ? "border-primary-500 ring-2 ring-primary-500/40 shadow-lg shadow-primary-500/20" : "border-white/10"
+                    )}>
                       <div className="flex items-start justify-between gap-2">
                          <div className="min-w-0">
                             <p className="text-[9px] font-mono text-white/30">{o.numero}</p>
