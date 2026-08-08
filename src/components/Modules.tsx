@@ -3395,7 +3395,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [isVerifying, setIsVerifying] = useState(false);
   const [salesToday, setSalesToday] = useState<SaleOrder[]>([]);
   const [allSalesHistory, setAllSalesHistory] = useState<SaleOrder[]>([]);
-  const [historyFilter, setHistoryFilter] = useState<'todos' | 'em_aberto' | 'entrada_pendente' | 'parcial' | 'quitado' | 'em_producao' | 'agendado' | 'entregue' | 'cancelado'>('todos');
+  const [historyFilter, setHistoryFilter] = useState<
+    'todos' | 'em_aberto' | 'entrada_pendente' | 'parcial' | 'quitado' |
+    'aguardando_arte' | 'aguardando_aprovacao' | 'em_producao' | 'acabamento' | 'pronto' |
+    'agendado' | 'em_rota' | 'entregue' | 'cancelado'
+  >('todos');
   const [historySearch, setHistorySearch] = useState('');
   const [historyViewMode, setHistoryViewMode] = useState<'miniatura' | 'normal' | 'lista'>('normal');
   const [historySortOrder, setHistorySortOrder] = useState<'desc' | 'asc'>('desc');
@@ -3468,6 +3472,67 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     await findOrCreateLeadAndOpenChat(digits, sale.customerName || 'Cliente', buildOrderShareMessage(sale, sale.customerName || 'Cliente'));
   };
 
+  const matchesStatusFilter = (sale: SaleOrder, filter: typeof historyFilter): boolean => {
+    const down = sale.downPayment || 0;
+    const balance = sale.total - down;
+    const isPartial = balance > 0 || sale.status === 'pending';
+    const hasSomePayment = down > 0;
+    const isFullyPaid = sale.status === 'completed' || down >= sale.total;
+    switch (filter) {
+      case 'em_aberto':
+        return sale.status === 'pending';
+      case 'entrada_pendente':
+        return sale.status === 'pending' && !hasSomePayment;
+      case 'parcial':
+        return hasSomePayment && isPartial;
+      case 'quitado':
+        return isFullyPaid;
+      // Estagios de producao ainda sem campo proprio no sistema (fica em 0 ate existir)
+      case 'aguardando_arte':
+      case 'aguardando_aprovacao':
+      case 'acabamento':
+      case 'pronto':
+      case 'em_rota':
+        return false;
+      case 'em_producao':
+        return sale.status === 'pending' && hasSomePayment;
+      case 'agendado':
+        return !!sale.scheduledFor;
+      case 'entregue':
+        return isFullyPaid && !sale.scheduledFor;
+      case 'cancelado':
+        return sale.status === 'canceled';
+      default:
+        return true;
+    }
+  };
+
+  const matchesHistorySearch = (sale: SaleOrder): boolean => {
+    if (!historySearch.trim()) return true;
+    const term = historySearch.toLowerCase().trim();
+    const termDigits = term.replace(/\D/g, '');
+    const nameMatch = (sale.customerName || '').toLowerCase().includes(term);
+    const idMatch = sale.id.toLowerCase().includes(term);
+    const itemMatch = sale.items?.some(i => i.name.toLowerCase().includes(term));
+    const phoneMatch = termDigits.length >= 3 && (sale.customerPhone || '').replace(/\D/g, '').includes(termDigits);
+    return nameMatch || idMatch || !!itemMatch || phoneMatch;
+  };
+
+  // Contagem por status (considera a busca atual, ignora o filtro de status em si) — usada no dropdown
+  const statusFilterCounts = useMemo(() => {
+    const searched = allSalesHistory.filter(matchesHistorySearch);
+    const ids: (typeof historyFilter)[] = [
+      'todos', 'em_aberto', 'entrada_pendente', 'parcial', 'quitado',
+      'aguardando_arte', 'aguardando_aprovacao', 'em_producao', 'acabamento', 'pronto',
+      'agendado', 'em_rota', 'entregue', 'cancelado',
+    ];
+    const counts: Record<string, number> = {};
+    ids.forEach(id => {
+      counts[id] = id === 'todos' ? searched.length : searched.filter(s => matchesStatusFilter(s, id)).length;
+    });
+    return counts;
+  }, [allSalesHistory, historySearch]);
+
   const pendingOrScheduledSales = useMemo(() => {
     return allSalesHistory
       .filter(sale => {
@@ -3484,48 +3549,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const filteredSalesHistory = useMemo(() => {
     const filtered = allSalesHistory.filter(sale => {
-      const down = sale.downPayment || 0;
-      const balance = sale.total - down;
-      const isPartial = balance > 0 || sale.status === 'pending';
-      const hasSomePayment = down > 0;
-      const isFullyPaid = sale.status === 'completed' || down >= sale.total;
-      switch (historyFilter) {
-        case 'em_aberto':
-          if (sale.status !== 'pending') return false;
-          break;
-        case 'entrada_pendente':
-          if (!(sale.status === 'pending' && !hasSomePayment)) return false;
-          break;
-        case 'parcial':
-          if (!(hasSomePayment && isPartial)) return false;
-          break;
-        case 'quitado':
-          if (!isFullyPaid) return false;
-          break;
-        case 'em_producao':
-          if (!(sale.status === 'pending' && hasSomePayment)) return false;
-          break;
-        case 'agendado':
-          if (!sale.scheduledFor) return false;
-          break;
-        case 'entregue':
-          if (!(isFullyPaid && !sale.scheduledFor)) return false;
-          break;
-        case 'cancelado':
-          if (sale.status !== 'canceled') return false;
-          break;
-        default:
-          break;
-      }
-      if (historySearch.trim()) {
-        const term = historySearch.toLowerCase().trim();
-        const termDigits = term.replace(/\D/g, '');
-        const nameMatch = (sale.customerName || '').toLowerCase().includes(term);
-        const idMatch = sale.id.toLowerCase().includes(term);
-        const itemMatch = sale.items?.some(i => i.name.toLowerCase().includes(term));
-        const phoneMatch = termDigits.length >= 3 && (sale.customerPhone || '').replace(/\D/g, '').includes(termDigits);
-        if (!nameMatch && !idMatch && !itemMatch && !phoneMatch) return false;
-      }
+      if (!matchesStatusFilter(sale, historyFilter)) return false;
+      if (!matchesHistorySearch(sale)) return false;
       return true;
     });
     return filtered.sort((a, b) => {
@@ -4461,18 +4486,26 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               {/* Grupo 3: Filtros de Status */}
               <div className="relative shrink-0" ref={statusFilterRef}>
                 {(() => {
-                  const statusOptions = [
+                  const financeiroOptions = [
                     { id: 'todos', label: 'Todos' },
                     { id: 'em_aberto', label: 'Em Aberto' },
                     { id: 'entrada_pendente', label: 'Entrada Pendente' },
                     { id: 'parcial', label: 'Parcialmente Pago' },
                     { id: 'quitado', label: '100% Quitados' },
+                  ];
+                  const producaoOptions = [
+                    { id: 'aguardando_arte', label: 'Aguardando Arte' },
+                    { id: 'aguardando_aprovacao', label: 'Aguardando Aprovação' },
                     { id: 'em_producao', label: 'Em Produção' },
+                    { id: 'acabamento', label: 'Acabamento' },
+                    { id: 'pronto', label: 'Pronto para Retirada' },
                     { id: 'agendado', label: 'Agendados' },
+                    { id: 'em_rota', label: 'Em Rota' },
                     { id: 'entregue', label: 'Entregues' },
                     { id: 'cancelado', label: 'Cancelados' },
                   ];
-                  const current = statusOptions.find(s => s.id === historyFilter) || statusOptions[0];
+                  const allOptions = [...financeiroOptions, ...producaoOptions];
+                  const current = allOptions.find(s => s.id === historyFilter) || financeiroOptions[0];
                   const toggleOpen = () => {
                     if (!isStatusFilterOpen && statusFilterBtnRef.current) {
                       const rect = statusFilterBtnRef.current.getBoundingClientRect();
@@ -4480,6 +4513,24 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     }
                     setIsStatusFilterOpen(prev => !prev);
                   };
+                  const renderItem = (f: { id: string; label: string }, activeClasses: string) => (
+                    <button
+                      key={f.id}
+                      onClick={() => { setHistoryFilter(f.id as any); setIsStatusFilterOpen(false); }}
+                      className={cn(
+                        "w-full flex items-center justify-between gap-2 text-left px-4 py-2 text-[10px] font-black uppercase tracking-wider transition-all",
+                        historyFilter === f.id ? activeClasses : "text-white/60 hover:bg-white/5 hover:text-white"
+                      )}
+                    >
+                      <span>{f.label}</span>
+                      <span className={cn(
+                        "text-[9px] font-mono px-1.5 py-0.5 rounded-full min-w-[20px] text-center",
+                        historyFilter === f.id ? "bg-black/20" : "bg-white/5 text-white/30"
+                      )}>
+                        {statusFilterCounts[f.id] ?? 0}
+                      </span>
+                    </button>
+                  );
                   return (
                     <>
                       <button
@@ -4494,6 +4545,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       >
                         <ListFilter size={13} />
                         <span>{current.label}</span>
+                        <span className="bg-black/20 text-[8px] px-1.5 py-0.5 rounded-full font-mono">{statusFilterCounts[historyFilter] ?? 0}</span>
                         <ChevronDown size={12} className={cn("transition-transform", isStatusFilterOpen && "rotate-180")} />
                       </button>
                       {isStatusFilterOpen && statusDropdownPos && createPortal(
@@ -4503,22 +4555,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             position: 'fixed',
                             left: statusDropdownPos.left,
                             bottom: window.innerHeight - statusDropdownPos.top + 8,
-                            minWidth: Math.max(statusDropdownPos.width, 208),
+                            minWidth: Math.max(statusDropdownPos.width, 220),
                           }}
-                          className="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl z-[100] py-1.5 max-h-96 overflow-y-auto custom-scrollbar"
+                          className="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl z-[100] py-2 max-h-[28rem] overflow-y-auto custom-scrollbar"
                         >
-                          {statusOptions.map(f => (
-                            <button
-                              key={f.id}
-                              onClick={() => { setHistoryFilter(f.id as any); setIsStatusFilterOpen(false); }}
-                              className={cn(
-                                "w-full text-left px-4 py-2.5 text-[10px] font-black uppercase tracking-wider transition-all",
-                                historyFilter === f.id ? "text-primary-400 bg-primary-500/10" : "text-white/60 hover:bg-white/5 hover:text-white"
-                              )}
-                            >
-                              {f.label}
-                            </button>
-                          ))}
+                          <p className="px-4 pt-1 pb-1.5 text-[8px] font-bold uppercase tracking-[2px] text-white/25">Financeiro</p>
+                          {financeiroOptions.map(f => renderItem(f, "text-emerald-400 bg-emerald-500/10"))}
+
+                          <div className="h-px bg-white/5 my-1.5 mx-3" />
+
+                          <p className="px-4 pt-1 pb-1.5 text-[8px] font-bold uppercase tracking-[2px] text-white/25">Produção</p>
+                          {producaoOptions.map(f => renderItem(f, f.id === 'cancelado' ? "text-orange-400 bg-orange-500/10" : "text-blue-400 bg-blue-500/10"))}
                         </div>,
                         document.body
                       )}
