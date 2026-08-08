@@ -4284,15 +4284,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     return acc + (o.total || 0);
   }, 0);
 
-  const handleFinalize = async (isPending: boolean = false) => {
+  const handleFinalize = async (isPending: boolean = false, forceZeroPayment: boolean = false) => {
     // Play money sound
     try {
       const audio = new Audio('/sounds/cash-register.mp3');
       audio.play().catch(() => {});
     } catch (e) {}
 
-    const finalDownPayment = downPayment === '' || typeof downPayment === 'string' ? 0 : Number(downPayment);
+    const finalDownPayment = forceZeroPayment ? 0 : (downPayment === '' || typeof downPayment === 'string' ? 0 : Number(downPayment));
     const currentRemaining = Math.max(0, total - finalDownPayment);
+    const paymentsToSave = forceZeroPayment ? [] : paymentEntries;
 
     // Rule: If partial payment (entrada), ensure a scheduled delivery date is set
     let deliveryDate = scheduledFor;
@@ -4316,7 +4317,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       downPayment: finalDownPayment,
       receivedValue: finalDownPayment,
       paymentMethod,
-      payments: paymentEntries,
+      payments: paymentsToSave,
       pendingPaymentMethod: currentRemaining > 0 ? (pendingPaymentMethod || undefined) : undefined,
       status: isPartialSale ? 'pending' : 'completed',
       createdAt: new Date().toISOString(),
@@ -4333,7 +4334,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         down_payment: order.downPayment,
         received_value: order.receivedValue,
         payment_method: order.paymentMethod,
-        payments: paymentEntries,
+        payments: paymentsToSave,
         pending_payment_method: currentRemaining > 0 ? (pendingPaymentMethod || null) : null,
         status: order.status,
         scheduled_for: order.scheduledFor || null,
@@ -5710,7 +5711,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                     <span className="text-[8px] text-white/30 shrink-0">{safeFormat(p.date, 'dd/MM HH:mm')}</span>
                                  </div>
                                  <div className="flex items-center gap-2 shrink-0">
-                                    <span className="text-[10px] font-black text-emerald-400">R$ {p.value.toFixed(2).replace('.', ',')}</span>
+                                    <span className="text-[10px] font-black text-emerald-400">
+                                      R$ {p.value.toFixed(2).replace('.', ',')}
+                                      {p.installments && p.installments > 1 && (
+                                        <span className="text-[8px] text-white/30 font-normal ml-1">({p.installments}x R$ {(p.value / p.installments).toFixed(2).replace('.', ',')})</span>
+                                      )}
+                                    </span>
                                     {p.method === 'pix' && (
                                       <button
                                         onClick={() => { setPixQrAmount(p.value); setIsPixQrModalOpen(true); }}
@@ -5834,9 +5840,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                          ))}
                                        </select>
                                     </div>
+                                    {baseValue > 0 && (
+                                      <div className="p-1.5 bg-primary-500/10 border border-primary-500/20 rounded-lg flex justify-between items-center">
+                                         <span className="text-[7.5px] font-black text-primary-300 uppercase tracking-wider">Valor da Parcela</span>
+                                         <span className="text-xs font-black text-white">{newPaymentInstallments}x R$ {(finalValue / newPaymentInstallments).toFixed(2).replace('.', ',')}</span>
+                                      </div>
+                                    )}
                                     {fee > 0 && baseValue > 0 && (
                                       <div className="p-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg flex justify-between items-center">
-                                         <span className="text-[7.5px] font-black text-amber-400 uppercase tracking-wider">Com taxa ({fee}%)</span>
+                                         <span className="text-[7.5px] font-black text-amber-400 uppercase tracking-wider">Total Com Taxa ({fee}%)</span>
                                          <span className="text-xs font-black text-white">R$ {finalValue.toFixed(2).replace('.', ',')}</span>
                                       </div>
                                     )}
@@ -5877,9 +5889,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
            {/* Bottom Action Bar (ALWAYS VISIBLE - NO SCROLL) */}
            <div className="flex gap-2 pt-1 border-t border-white/5 shrink-0">
+              <Button
+                variant="secondary"
+                className="flex-1 h-9 sm:h-11 text-[8px] sm:text-[9px] uppercase font-black tracking-wider border-white/10"
+                onClick={() => {
+                  if (!confirm('Salvar como orçamento? Nenhum valor será registrado como recebido.')) return;
+                  handleFinalize(true, true);
+                }}
+              >
+                Orçamento
+              </Button>
               {remainingValue > 0 ? (
                 <Button 
-                  className="w-full h-9 sm:h-11 bg-amber-500 hover:bg-amber-400 text-slate-900 border-none shadow-lg shadow-amber-500/20 text-[9px] sm:text-[10px] font-black uppercase tracking-wider gap-2 cursor-pointer"
+                  className="flex-[2] h-9 sm:h-11 bg-amber-500 hover:bg-amber-400 text-slate-900 border-none shadow-lg shadow-amber-500/20 text-[9px] sm:text-[10px] font-black uppercase tracking-wider gap-2 cursor-pointer"
                   onClick={() => handleFinalize(true)}
                 >
                    <Clock size={16} />
@@ -5887,7 +5909,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 </Button>
               ) : (
                 <Button 
-                  className="w-full h-9 sm:h-11 bg-primary-500 hover:bg-primary-400 text-slate-900 border-none shadow-lg shadow-primary-500/20 text-[8.5px] sm:text-[10px] font-black uppercase tracking-wider gap-1.5 cursor-pointer"
+                  className="flex-[2] h-9 sm:h-11 bg-primary-500 hover:bg-primary-400 text-slate-900 border-none shadow-lg shadow-primary-500/20 text-[8.5px] sm:text-[10px] font-black uppercase tracking-wider gap-1.5 cursor-pointer"
                   onClick={() => handleFinalize(false)}
                 >
                    <CheckCircle2 size={16} />
