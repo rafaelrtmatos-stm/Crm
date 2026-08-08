@@ -4342,31 +4342,30 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               </div>
             </div>
 
-            {/* Barra de controles: Pesquisa | Ordenação & Visualização | Filtros de Status */}
-            <div className="flex flex-col xl:flex-row items-stretch xl:items-center gap-3 xl:gap-4 bg-white/[0.02] border border-white/5 rounded-2xl p-3">
+            {/* Barra de controles: Pesquisa | Ordenação & Visualização | Filtros de Status — tudo em uma linha */}
+            <div className="flex flex-nowrap items-center gap-3 bg-white/[0.02] border border-white/5 rounded-2xl p-3 overflow-x-auto custom-scrollbar">
               {/* Grupo 1: Pesquisa */}
-              <div className="relative w-full xl:w-64 shrink-0">
+              <div className="relative w-56 shrink-0">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" size={15} />
                 <input
                   value={historySearch}
                   onChange={e => setHistorySearch(e.target.value)}
-                  placeholder="Buscar cliente, telefone, nota, produto..."
+                  placeholder="Buscar cliente, telefone, nota..."
                   className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white placeholder-white/30 focus:outline-none focus:border-primary-500"
                 />
               </div>
 
-              <div className="hidden xl:block w-px h-8 bg-white/10 shrink-0" />
-              <div className="xl:hidden h-px w-full bg-white/10" />
+              <div className="w-px h-8 bg-white/10 shrink-0" />
 
               {/* Grupo 2: Ordenação & Visualização */}
-              <div className="flex items-center gap-2 flex-wrap shrink-0">
+              <div className="flex items-center gap-2 shrink-0">
                 <button
                   onClick={() => setHistorySortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
                   title={historySortOrder === 'desc' ? 'Mais recentes primeiro' : 'Mais antigas primeiro'}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-wider bg-white/5 border border-white/10 text-white/60 hover:text-white transition-all"
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-wider bg-white/5 border border-white/10 text-white/60 hover:text-white transition-all whitespace-nowrap"
                 >
                   {historySortOrder === 'desc' ? <ArrowDownWideNarrow size={13} /> : <ArrowUpWideNarrow size={13} />}
-                  <span>{historySortOrder === 'desc' ? 'Mais Recentes' : 'Mais Antigas'}</span>
+                  <span>{historySortOrder === 'desc' ? 'Recentes' : 'Antigas'}</span>
                 </button>
                 <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 gap-1">
                   {[
@@ -4379,22 +4378,20 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       onClick={() => setHistoryViewMode(v.id as any)}
                       title={v.label}
                       className={cn(
-                        "px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5",
+                        "px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 whitespace-nowrap",
                         historyViewMode === v.id ? "bg-primary-500 text-slate-900 shadow-lg font-black" : "text-white/40 hover:text-white"
                       )}
                     >
                       <v.icon size={13} />
-                      <span className="hidden sm:inline">{v.label}</span>
                     </button>
                   ))}
                 </div>
               </div>
 
-              <div className="hidden xl:block w-px h-8 bg-white/10 shrink-0" />
-              <div className="xl:hidden h-px w-full bg-white/10" />
+              <div className="w-px h-8 bg-white/10 shrink-0" />
 
               {/* Grupo 3: Filtros de Status */}
-              <div className="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
+              <div className="flex items-center gap-1.5 shrink-0">
                 {[
                   { id: 'todos', label: 'Todos' },
                   { id: 'em_aberto', label: 'Em Aberto' },
@@ -4410,7 +4407,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     key={f.id}
                     onClick={() => setHistoryFilter(f.id as any)}
                     className={cn(
-                      "px-3 py-1.5 rounded-full text-[8.5px] font-black uppercase tracking-wider transition-all border",
+                      "px-3 py-1.5 rounded-full text-[8.5px] font-black uppercase tracking-wider transition-all border whitespace-nowrap",
                       historyFilter === f.id
                         ? "bg-primary-500 text-slate-900 border-primary-500 shadow-lg shadow-primary-500/20"
                         : "bg-transparent text-white/40 border-white/10 hover:text-white hover:border-white/20"
