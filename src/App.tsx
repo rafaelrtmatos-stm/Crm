@@ -990,7 +990,7 @@ export default function App() {
 
   return (
     <AppContext.Provider value={contextValue}>
-      <div className="flex flex-col h-screen overflow-hidden relative">
+      <div className="app flex flex-col h-screen overflow-hidden relative">
         {/* Background Mesh */}
         <div className="fixed inset-0 z-[-1] mesh-gradient" />
 
