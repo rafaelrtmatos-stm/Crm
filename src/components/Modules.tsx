@@ -4210,12 +4210,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   // O campo de valor sempre vem preenchido com o saldo restante — ao abrir o pagamento,
   // ao adicionar um pagamento (recalcula o que falta), ou ao trocar de forma de pagamento.
+  // Nunca mexe no modo (R$ ou %) escolhido pelo usuário.
   useEffect(() => {
-    if (isPaymentModalOpen && newPaymentMode === 'valor') {
+    if (!isPaymentModalOpen) return;
+    if (newPaymentMode === 'valor') {
       setNewPaymentInput(remainingValue > 0 ? Number(remainingValue.toFixed(2)) : '');
+    } else if (newPaymentMode === 'percentual') {
+      const pct = total > 0 ? (remainingValue / total) * 100 : 0;
+      setNewPaymentInput(pct > 0 ? Number(pct.toFixed(2)) : '');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPaymentModalOpen, remainingValue, newPaymentMethod]);
+  }, [isPaymentModalOpen, remainingValue, newPaymentMethod, newPaymentMode]);
 
   const faturamentoHoje = salesToday.reduce((acc, o) => {
     if (o.status === 'pending') {
