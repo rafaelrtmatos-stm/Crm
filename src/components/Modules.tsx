@@ -4513,11 +4513,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         </div>
       </div>
 
-      <div className="flex flex-1 min-h-0 overflow-hidden">
+      <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-hidden">
         {activeTab === 'venda' && (
           <>
-            {/* Left Column: POS Display & Compact Cart Items Viewer */}
-            <div className="flex-1 bg-[#fef9c3] flex flex-col p-6 relative overflow-hidden justify-between">
+            {/* Cima no mobile / Esquerda no desktop: Terminal POS + Carrinho */}
+            <div className="h-[46%] md:h-auto md:flex-1 bg-[#fef9c3] flex flex-col p-4 sm:p-6 relative overflow-hidden justify-between shrink-0 md:shrink">
                {/* Top Bar */}
                <div className="flex justify-between items-center text-slate-900/50 pb-2 border-b border-slate-900/10">
                   <div className="flex items-center gap-2">
@@ -4640,8 +4640,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                </div>
             </div>
 
-            {/* Right Column: List & Actions */}
-            <div className="w-[42%] md:w-[450px] bg-white flex flex-col min-h-0 border-l border-slate-200 shadow-2xl relative">
+            {/* Embaixo no mobile / Direita no desktop: Lista de Produtos */}
+            <div className="flex-1 min-h-0 md:w-[450px] md:flex-none bg-white flex flex-col min-h-0 border-t md:border-t-0 md:border-l border-slate-200 shadow-2xl relative">
                {/* Search & Action Bar */}
                <div className="p-4 bg-slate-50 space-y-3">
                   <div className="flex gap-2 h-12">
