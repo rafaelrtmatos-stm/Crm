@@ -95,7 +95,7 @@ export async function renderOrcamentoCanvas({ orcamento: o, companyName, logoDar
   const tableH = tableHeaderH + tableRows * rowHeight;
 
   const clauses: { title: string; text: string }[] = [
-    { title: 'Prazo de Produção/Entrega', text: o.prazoProducao || '' },
+    { title: 'Prazo de Produção/Entrega', text: (o.prazoProducao || '') + (o.prazoDataPrevista ? ` Data prevista de conclusão: ${new Date(o.prazoDataPrevista).toLocaleDateString('pt-BR')}.` : '') },
     { title: 'Prazo de Pagamento (não é o mesmo que prazo de produção)', text: o.prazoPagamentoTexto || '' },
     { title: 'Condição de Entrega/Retirada', text: o.condicaoEntregaTexto || '' },
     { title: 'Multa e Juros por Atraso', text: o.multaJurosTexto || '' },

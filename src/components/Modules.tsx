@@ -281,6 +281,10 @@ const mapOrcamentoRow = (row: any): Orcamento => ({
   total: Number(row.total) || 0,
   observacoes: row.observacoes || undefined,
   prazoProducao: row.prazo_producao || undefined,
+  prazoDias: row.prazo_dias !== null ? Number(row.prazo_dias) : undefined,
+  prazoTipo: row.prazo_tipo || 'uteis',
+  prazoGatilho: row.prazo_gatilho || 'aprovacao',
+  prazoDataPrevista: row.prazo_data_prevista || undefined,
   prazoPagamentoTexto: row.prazo_pagamento_texto || undefined,
   condicaoEntregaTexto: row.condicao_entrega_texto || undefined,
   formaPagamentoTexto: row.forma_pagamento_texto || undefined,
@@ -3668,6 +3672,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     customerName: '', cpfCnpj: '', phone: '', address: '', responsavel: '',
     items: [] as SaleOrderItem[], desconto: 0, observacoes: '',
     prazoProducao: 'Prazo de produção de até 5 dias úteis após confirmação do pagamento da entrada e aprovação da arte. O prazo de produção não é prazo de pagamento.',
+    prazoDias: 5, prazoTipo: 'uteis' as 'uteis' | 'corridos', prazoGatilho: 'pagamento_entrada' as 'aprovacao' | 'pagamento_entrada' | 'aprovacao_arte' | 'entrega_material' | 'personalizado', prazoDataPrevista: '',
     prazoPagamentoTexto: 'O saldo deverá ser quitado no momento da conclusão do serviço e antes da entrega ou retirada do material. Eventual prazo posterior de pagamento somente será válido quando previamente autorizado e registrado neste orçamento.',
     condicaoEntregaTexto: 'Entrega/retirada liberada somente após a quitação integral do valor, salvo autorização expressa em contrário.',
     formaPagamentoTexto: 'Entrada de 50% para iniciar a produção e saldo de 50% na conclusão do serviço, antes da entrega ou retirada.',
@@ -3708,6 +3713,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       customerName: o.customerName || '', cpfCnpj: o.cpfCnpj || '', phone: o.phone || '',
       address: o.address || '', responsavel: o.responsavel || '', items: [...o.items],
       desconto: o.desconto, observacoes: o.observacoes || '', prazoProducao: o.prazoProducao || '',
+      prazoDias: o.prazoDias || 5, prazoTipo: o.prazoTipo || 'uteis', prazoGatilho: o.prazoGatilho || 'pagamento_entrada', prazoDataPrevista: o.prazoDataPrevista || '',
       prazoPagamentoTexto: o.prazoPagamentoTexto || '', condicaoEntregaTexto: o.condicaoEntregaTexto || '',
       formaPagamentoTexto: o.formaPagamentoTexto || '', multaJurosTexto: o.multaJurosTexto || '',
       garantiaTexto: o.garantiaTexto || '', politicaCancelamentoTexto: o.politicaCancelamentoTexto || '',
@@ -3718,6 +3724,29 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const orcamentoItemsTotal = () => orcamentoForm.items.reduce((sum, i) => sum + (i.area ? i.price * i.area * i.quantity : i.price * i.quantity), 0);
+
+  const PRAZO_GATILHO_LABELS: Record<string, string> = {
+    aprovacao: 'após a aprovação deste orçamento',
+    pagamento_entrada: 'após a confirmação do pagamento da entrada',
+    aprovacao_arte: 'após a aprovação da arte pelo cliente',
+    entrega_material: 'após a entrega dos materiais pelo cliente',
+  };
+
+  const buildPrazoTexto = (dias: number, tipo: 'uteis' | 'corridos', gatilho: string) => {
+    const tipoLabel = tipo === 'uteis' ? 'dias úteis' : 'dias corridos';
+    const gatilhoLabel = PRAZO_GATILHO_LABELS[gatilho] || '';
+    return `Prazo de produção de até ${dias} ${tipoLabel} ${gatilhoLabel}. O prazo de produção NÃO é o prazo de pagamento — são condições independentes.`;
+  };
+
+  const updatePrazoStructured = (patch: Partial<typeof orcamentoForm>) => {
+    setOrcamentoForm(prev => {
+      const next = { ...prev, ...patch };
+      if (next.prazoGatilho !== 'personalizado') {
+        next.prazoProducao = buildPrazoTexto(next.prazoDias, next.prazoTipo, next.prazoGatilho);
+      }
+      return next;
+    });
+  };
 
   const handleSaveOrcamento = async () => {
     if (!orcamentoForm.customerName.trim()) { alert('Informe o nome do cliente.'); return; }
@@ -3737,6 +3766,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         total,
         observacoes: orcamentoForm.observacoes || null,
         prazo_producao: orcamentoForm.prazoProducao || null,
+        prazo_dias: orcamentoForm.prazoDias || null,
+        prazo_tipo: orcamentoForm.prazoTipo || 'uteis',
+        prazo_gatilho: orcamentoForm.prazoGatilho || 'aprovacao',
+        prazo_data_prevista: orcamentoForm.prazoDataPrevista || null,
         prazo_pagamento_texto: orcamentoForm.prazoPagamentoTexto || null,
         condicao_entrega_texto: orcamentoForm.condicaoEntregaTexto || null,
         forma_pagamento_texto: orcamentoForm.formaPagamentoTexto || null,
@@ -6814,9 +6847,62 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
             <div className="space-y-3">
                <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px]">Prazo de Produção/Entrega</p>
-               <textarea rows={2} value={orcamentoForm.prazoProducao} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, prazoProducao: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-primary-500" />
 
-               <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px]">Forma de Pagamento / Política de Entrada</p>
+               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="space-y-1">
+                     <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Dias</label>
+                     <input
+                       type="number"
+                       min={1}
+                       value={orcamentoForm.prazoDias}
+                       onChange={(e) => updatePrazoStructured({ prazoDias: Math.max(1, Number(e.target.value) || 1) })}
+                       className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500"
+                     />
+                  </div>
+                  <div className="space-y-1">
+                     <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Tipo</label>
+                     <select
+                       value={orcamentoForm.prazoTipo}
+                       onChange={(e) => updatePrazoStructured({ prazoTipo: e.target.value as 'uteis' | 'corridos' })}
+                       className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500 cursor-pointer"
+                     >
+                       <option value="uteis" className="bg-slate-900">Dias Úteis</option>
+                       <option value="corridos" className="bg-slate-900">Dias Corridos</option>
+                     </select>
+                  </div>
+                  <div className="space-y-1 col-span-2">
+                     <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Contado a partir de</label>
+                     <select
+                       value={orcamentoForm.prazoGatilho}
+                       onChange={(e) => updatePrazoStructured({ prazoGatilho: e.target.value as any })}
+                       className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500 cursor-pointer"
+                     >
+                       <option value="aprovacao" className="bg-slate-900">Aprovação do orçamento</option>
+                       <option value="pagamento_entrada" className="bg-slate-900">Pagamento da entrada</option>
+                       <option value="aprovacao_arte" className="bg-slate-900">Aprovação da arte</option>
+                       <option value="entrega_material" className="bg-slate-900">Entrega de material pelo cliente</option>
+                       <option value="personalizado" className="bg-slate-900">Condição personalizada (texto livre)</option>
+                     </select>
+                  </div>
+               </div>
+
+               <Input label="Data Prevista de Conclusão (opcional)" type="date" value={orcamentoForm.prazoDataPrevista} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, prazoDataPrevista: e.target.value })} />
+
+               <textarea
+                 rows={2}
+                 value={orcamentoForm.prazoProducao}
+                 readOnly={orcamentoForm.prazoGatilho !== 'personalizado'}
+                 onChange={(e) => setOrcamentoForm({ ...orcamentoForm, prazoProducao: e.target.value })}
+                 className={cn(
+                   "w-full border rounded-xl px-3 py-2.5 text-xs resize-none focus:outline-none",
+                   orcamentoForm.prazoGatilho !== 'personalizado' ? "bg-white/[0.02] border-white/5 text-white/50" : "bg-white/5 border-white/10 text-white focus:border-primary-500"
+                 )}
+               />
+               <p className="text-[9px] text-amber-300/80 font-bold flex items-center gap-1.5">
+                  <AlertCircle size={12} /> Prazo de produção ≠ prazo de pagamento — essa distinção fica registrada e visível no PDF/WhatsApp enviado ao cliente.
+               </p>
+
+               <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px] pt-1">Forma de Pagamento / Política de Entrada</p>
                <textarea rows={2} value={orcamentoForm.formaPagamentoTexto} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, formaPagamentoTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-primary-500" />
 
                <p className="text-[10px] font-black uppercase text-amber-300 tracking-[2px]">Prazo de Pagamento (não é o mesmo que prazo de produção)</p>

@@ -477,6 +477,10 @@ export interface Orcamento {
   total: number;
   observacoes?: string;
   prazoProducao?: string;
+  prazoDias?: number;
+  prazoTipo?: 'uteis' | 'corridos';
+  prazoGatilho?: 'aprovacao' | 'pagamento_entrada' | 'aprovacao_arte' | 'entrega_material' | 'personalizado';
+  prazoDataPrevista?: string;
   prazoPagamentoTexto?: string;
   condicaoEntregaTexto?: string;
   formaPagamentoTexto?: string;
