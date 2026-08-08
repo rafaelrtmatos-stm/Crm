@@ -462,3 +462,28 @@ export interface MetaAd extends BaseEntity {
   clicks?: number;
   results?: number;
 }
+
+export interface Orcamento {
+  id: string;
+  numero: string;
+  clienteId?: string;
+  customerName?: string;
+  cpfCnpj?: string;
+  phone?: string;
+  address?: string;
+  responsavel?: string;
+  items: SaleOrderItem[];
+  desconto: number;
+  total: number;
+  observacoes?: string;
+  prazoProducao?: string;
+  formaPagamentoTexto?: string;
+  entradaPercentual?: number;
+  entradaValor?: number;
+  validade?: string;
+  status: 'rascunho' | 'enviado' | 'aprovado' | 'em_producao' | 'concluido' | 'recusado' | 'cancelado' | 'expirado';
+  vendaId?: string;
+  aprovadoEm?: string;
+  aprovadoPor?: string;
+  createdAt: string;
+}

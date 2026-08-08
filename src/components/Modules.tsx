@@ -70,6 +70,7 @@ import {
   ArrowDownWideNarrow,
   ArrowUpWideNarrow,
   ListFilter,
+  FileSpreadsheet,
   ClipboardList,
   CalendarClock,
   Share2,
@@ -142,6 +143,7 @@ import {
   SaleOrder, 
   SaleOrderItem,
   PaymentEntry,
+  Orcamento,
   InventoryItem,
   PrintingService,
   DashboardWidget,
@@ -263,6 +265,31 @@ const mapVendaRow = (row: any): SaleOrder => ({
   createdAt: row.created_at,
   scheduledFor: row.scheduled_for || undefined,
 } as SaleOrder);
+
+const mapOrcamentoRow = (row: any): Orcamento => ({
+  id: row.id,
+  numero: row.numero,
+  clienteId: row.cliente_id || undefined,
+  customerName: row.customer_name || undefined,
+  cpfCnpj: row.cpf_cnpj || undefined,
+  phone: row.phone || undefined,
+  address: row.address || undefined,
+  responsavel: row.responsavel || undefined,
+  items: row.items || [],
+  desconto: Number(row.desconto) || 0,
+  total: Number(row.total) || 0,
+  observacoes: row.observacoes || undefined,
+  prazoProducao: row.prazo_producao || undefined,
+  formaPagamentoTexto: row.forma_pagamento_texto || undefined,
+  entradaPercentual: row.entrada_percentual !== null ? Number(row.entrada_percentual) : undefined,
+  entradaValor: row.entrada_valor !== null ? Number(row.entrada_valor) : undefined,
+  validade: row.validade || undefined,
+  status: row.status,
+  vendaId: row.venda_id || undefined,
+  aprovadoEm: row.aprovado_em || undefined,
+  aprovadoPor: row.aprovado_por || undefined,
+  createdAt: row.created_at,
+});
 
 export const DashboardModule = ({ user, currentCompany, companies = [], pendingOrders = [], setActiveTab }: { user: AppUser | null, currentCompany: Company | null, companies?: Company[], pendingOrders?: SaleOrder[], setActiveTab?: (tab: any) => void }) => {
   const [isEditMode, setIsEditMode] = useState(false);
@@ -3335,12 +3362,12 @@ export const MetaAdsModule = ({ currentCompany }: { currentCompany: Company | nu
 // --- PDV / POS ---
 export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany: Company | null, addPendingOrder: (order: SaleOrder) => void }) => {
   const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare } = React.useContext(AppContext)!;
-  const [activeTab, setActiveTabState] = useState<'venda' | 'historico' | 'estoque' | 'servicos' | 'clientes' | 'contratos'>(() => {
+  const [activeTab, setActiveTabState] = useState<'venda' | 'historico' | 'estoque' | 'servicos' | 'orcamentos' | 'clientes' | 'contratos'>(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem('rpro_pos_subtab') : null;
-    const validSubTabs = ['venda', 'historico', 'estoque', 'servicos', 'clientes', 'contratos'];
+    const validSubTabs = ['venda', 'historico', 'estoque', 'servicos', 'orcamentos', 'clientes', 'contratos'];
     return (saved && validSubTabs.includes(saved)) ? (saved as any) : 'venda';
   });
-  const setActiveTab = (tab: 'venda' | 'historico' | 'estoque' | 'servicos' | 'clientes' | 'contratos') => {
+  const setActiveTab = (tab: 'venda' | 'historico' | 'estoque' | 'servicos' | 'orcamentos' | 'clientes' | 'contratos') => {
     setActiveTabState(tab);
     if (typeof window !== 'undefined') localStorage.setItem('rpro_pos_subtab', tab);
   };
@@ -3582,6 +3609,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
   const [lastFinalizedOrder, setLastFinalizedOrder] = useState<SaleOrder | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<{ id: string, name: string, phone: string } | null>(null);
+  const [linkedOrcamentoId, setLinkedOrcamentoId] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<'dinheiro' | 'pix' | 'cartao_credito' | 'cartao_debito' | 'misto'>('pix');
   const [cashReceived, setCashReceived] = useState<number | ''>('');
   const [downPayment, setDownPayment] = useState(0);
@@ -3623,6 +3651,127 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [isVerifying, setIsVerifying] = useState(false);
   const [salesToday, setSalesToday] = useState<SaleOrder[]>([]);
   const [allSalesHistory, setAllSalesHistory] = useState<SaleOrder[]>([]);
+
+  // ===== Orçamentos =====
+  const [allOrcamentos, setAllOrcamentos] = useState<Orcamento[]>([]);
+  const [isLoadingOrcamentos, setIsLoadingOrcamentos] = useState(false);
+  const [orcamentoModalOpen, setOrcamentoModalOpen] = useState(false);
+  const [editingOrcamento, setEditingOrcamento] = useState<Orcamento | null>(null);
+  const emptyOrcamentoForm = {
+    customerName: '', cpfCnpj: '', phone: '', address: '', responsavel: '',
+    items: [] as SaleOrderItem[], desconto: 0, observacoes: '',
+    prazoProducao: 'Prazo de produção de até 5 dias úteis após confirmação do pagamento da entrada e aprovação da arte. O prazo de produção não é prazo de pagamento.',
+    formaPagamentoTexto: 'Entrada de 50% para iniciar a produção e saldo de 50% na conclusão do serviço, antes da entrega ou retirada.',
+    entradaPercentual: 50, validade: '',
+  };
+  const [orcamentoForm, setOrcamentoForm] = useState({ ...emptyOrcamentoForm });
+  const [savingOrcamento, setSavingOrcamento] = useState(false);
+
+  const loadOrcamentos = async () => {
+    setIsLoadingOrcamentos(true);
+    try {
+      const { data } = await supabase.from('orcamentos').select('*').order('created_at', { ascending: false });
+      setAllOrcamentos((data || []).map(mapOrcamentoRow));
+    } catch (err) {
+      console.error('Erro ao carregar orçamentos:', err);
+    } finally {
+      setIsLoadingOrcamentos(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'orcamentos') loadOrcamentos();
+  }, [activeTab]);
+
+  const openNewOrcamento = () => {
+    setEditingOrcamento(null);
+    setOrcamentoForm({ ...emptyOrcamentoForm });
+    setOrcamentoModalOpen(true);
+  };
+
+  const openEditOrcamento = (o: Orcamento) => {
+    setEditingOrcamento(o);
+    setOrcamentoForm({
+      customerName: o.customerName || '', cpfCnpj: o.cpfCnpj || '', phone: o.phone || '',
+      address: o.address || '', responsavel: o.responsavel || '', items: [...o.items],
+      desconto: o.desconto, observacoes: o.observacoes || '', prazoProducao: o.prazoProducao || '',
+      formaPagamentoTexto: o.formaPagamentoTexto || '', entradaPercentual: o.entradaPercentual || 0,
+      validade: o.validade || '',
+    });
+    setOrcamentoModalOpen(true);
+  };
+
+  const orcamentoItemsTotal = () => orcamentoForm.items.reduce((sum, i) => sum + (i.area ? i.price * i.area * i.quantity : i.price * i.quantity), 0);
+
+  const handleSaveOrcamento = async () => {
+    if (!orcamentoForm.customerName.trim()) { alert('Informe o nome do cliente.'); return; }
+    if (orcamentoForm.items.length === 0) { alert('Adicione ao menos um item.'); return; }
+    setSavingOrcamento(true);
+    try {
+      const total = Math.max(0, orcamentoItemsTotal() - (orcamentoForm.desconto || 0));
+      const payload = {
+        customer_name: orcamentoForm.customerName,
+        cpf_cnpj: orcamentoForm.cpfCnpj || null,
+        phone: orcamentoForm.phone || null,
+        address: orcamentoForm.address || null,
+        responsavel: orcamentoForm.responsavel || null,
+        items: orcamentoForm.items,
+        desconto: orcamentoForm.desconto || 0,
+        total,
+        observacoes: orcamentoForm.observacoes || null,
+        prazo_producao: orcamentoForm.prazoProducao || null,
+        forma_pagamento_texto: orcamentoForm.formaPagamentoTexto || null,
+        entrada_percentual: orcamentoForm.entradaPercentual || null,
+        validade: orcamentoForm.validade || null,
+      };
+      if (editingOrcamento) {
+        const { error } = await supabase.from('orcamentos').update(payload).eq('id', editingOrcamento.id);
+        if (error) throw error;
+      } else {
+        const numero = `ORC-${Date.now().toString().slice(-6)}`;
+        const { error } = await supabase.from('orcamentos').insert({ ...payload, numero, status: 'rascunho' });
+        if (error) throw error;
+      }
+      setOrcamentoModalOpen(false);
+      loadOrcamentos();
+    } catch (err) {
+      console.error('Erro ao salvar orçamento:', err);
+      alert('Não foi possível salvar o orçamento.');
+    } finally {
+      setSavingOrcamento(false);
+    }
+  };
+
+  const updateOrcamentoStatus = async (o: Orcamento, status: Orcamento['status']) => {
+    const extra: any = {};
+    if (status === 'aprovado') { extra.aprovado_em = new Date().toISOString(); extra.aprovado_por = o.customerName; }
+    const { error } = await supabase.from('orcamentos').update({ status, ...extra }).eq('id', o.id);
+    if (error) { alert('Não foi possível atualizar o status.'); return; }
+    loadOrcamentos();
+  };
+
+  const handleDeleteOrcamento = async (o: Orcamento) => {
+    if (!confirm(`Excluir o orçamento ${o.numero}?`)) return;
+    const { error } = await supabase.from('orcamentos').delete().eq('id', o.id);
+    if (error) { alert('Não foi possível excluir.'); return; }
+    loadOrcamentos();
+  };
+
+  const handleShareOrcamentoWhatsApp = (o: Orcamento) => {
+    const linhas = o.items.map(i => `${i.quantity}x ${i.name} — R$ ${(i.area ? i.price * i.area * i.quantity : i.price * i.quantity).toFixed(2)}`).join('\n');
+    const msg = `*Orçamento ${o.numero} — Rafa Arts Graphics*\n\n${linhas}\n\n${o.desconto > 0 ? `Desconto: R$ ${o.desconto.toFixed(2)}\n` : ''}*Total: R$ ${o.total.toFixed(2)}*\n\n${o.prazoProducao ? `Prazo: ${o.prazoProducao}\n\n` : ''}${o.formaPagamentoTexto ? `Pagamento: ${o.formaPagamentoTexto}\n\n` : ''}${o.validade ? `Válido até: ${safeFormat(o.validade, 'dd/MM/yyyy')}` : ''}`;
+    const phoneDigits = (o.phone || '').replace(/\D/g, '');
+    window.open(`https://wa.me/${phoneDigits}?text=${encodeURIComponent(msg)}`, '_blank');
+  };
+
+  const handleStartSaleFromOrcamento = (o: Orcamento) => {
+    setCart([...o.items]);
+    setSelectedCustomer(o.clienteId ? { id: o.clienteId, name: o.customerName || 'Cliente', phone: o.phone || '' } : null);
+    setActiveTab('venda');
+    // Guarda o vinculo para gravar no momento de finalizar a venda
+    setLinkedOrcamentoId(o.id);
+  };
+
   type OrderStatusFilterId = 'em_aberto' | 'entrada_recebida' | 'quitado' | 'entregue' | 'cancelado';
   type PaymentFilterId = 'pix' | 'dinheiro' | 'cartao_debito' | 'cartao_credito' | 'transferencia' | 'boleto' | 'crediario';
 
@@ -4326,7 +4475,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
     // Save to Supabase
     try {
-      const { error } = await supabase.from('vendas').insert({
+      const { data: insertedVenda, error } = await supabase.from('vendas').insert({
         customer_name: order.customerName,
         customer_phone: selectedCustomer?.phone,
         items: order.items,
@@ -4338,8 +4487,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         pending_payment_method: currentRemaining > 0 ? (pendingPaymentMethod || null) : null,
         status: order.status,
         scheduled_for: order.scheduledFor || null,
-      });
+        orcamento_id: linkedOrcamentoId || null,
+      }).select().single();
       if (error) throw error;
+
+      // Se essa venda veio de um orçamento, marca o orçamento como Concluído — Venda Gerada
+      if (linkedOrcamentoId && insertedVenda) {
+        await supabase.from('orcamentos').update({ status: 'concluido', venda_id: insertedVenda.id }).eq('id', linkedOrcamentoId);
+        setLinkedOrcamentoId(null);
+      }
       
       // RULE: Always create Service/OS if pending or has balance OR specific items
       const hasServiceItems = cart.some(item => 
@@ -4472,6 +4628,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             { id: 'historico', label: 'Histórico & Abertas', icon: History },
             { id: 'estoque', label: 'Estoque / Produtos', icon: Box },
             { id: 'servicos', label: 'Serviços', icon: Wrench },
+            { id: 'orcamentos', label: 'Orçamentos', icon: FileSpreadsheet },
             { id: 'clientes', label: 'Clientes', icon: Users },
             { id: 'contratos', label: 'Contratos Rafa Art', icon: FileText }
           ].map(tab => (
@@ -5357,6 +5514,81 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             <button onClick={() => handleDeleteSale(sale)} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" title="Excluir"><Trash2 size={13} /></button>
                           </>
                         )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'orcamentos' && (
+          <div className="flex-1 p-4 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/40 space-y-6">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-white/10 pb-4">
+              <div>
+                <h2 className="text-xl md:text-2xl font-black text-white italic tracking-tighter uppercase">Orçamentos</h2>
+                <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">{allOrcamentos.length} orçamento(s)</p>
+              </div>
+              <Button icon={Plus} onClick={openNewOrcamento}>Novo Orçamento</Button>
+            </div>
+
+            {isLoadingOrcamentos ? (
+              <div className="flex justify-center py-16"><RefreshCw className="animate-spin text-primary-500" size={24} /></div>
+            ) : allOrcamentos.length === 0 ? (
+              <div className="text-center py-16 text-white/30 text-sm">Nenhum orçamento cadastrado ainda.</div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {allOrcamentos.map(o => {
+                  const statusStyles: Record<string, string> = {
+                    rascunho: 'bg-white/10 text-white/50',
+                    enviado: 'bg-blue-500/15 text-blue-400',
+                    aprovado: 'bg-emerald-500/15 text-emerald-400',
+                    em_producao: 'bg-amber-500/15 text-amber-400',
+                    concluido: 'bg-primary-500/15 text-primary-400',
+                    recusado: 'bg-rose-500/15 text-rose-400',
+                    cancelado: 'bg-rose-500/15 text-rose-400',
+                    expirado: 'bg-white/5 text-white/30',
+                  };
+                  const statusLabels: Record<string, string> = {
+                    rascunho: 'Rascunho', enviado: 'Enviado', aprovado: 'Aprovado', em_producao: 'Em Produção',
+                    concluido: 'Concluído — Venda Gerada', recusado: 'Recusado', cancelado: 'Cancelado', expirado: 'Expirado',
+                  };
+                  return (
+                    <div key={o.id} className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                         <div className="min-w-0">
+                            <p className="text-[9px] font-mono text-white/30">{o.numero}</p>
+                            <p className="font-black text-white truncate">{o.customerName}</p>
+                         </div>
+                         <span className={cn("text-[8px] font-black uppercase px-2 py-1 rounded-full shrink-0", statusStyles[o.status])}>{statusLabels[o.status]}</span>
+                      </div>
+                      <div className="flex justify-between items-baseline">
+                         <span className="text-[10px] text-white/30 uppercase font-bold">{o.items.length} item(ns)</span>
+                         <span className="text-lg font-black text-emerald-400 italic">R$ {o.total.toFixed(2).replace('.', ',')}</span>
+                      </div>
+                      {o.validade && (
+                        <p className="text-[9px] text-white/30">Válido até {safeFormat(o.validade, 'dd/MM/yyyy')}</p>
+                      )}
+                      <div className="flex flex-wrap gap-1.5 pt-2 border-t border-white/5">
+                         <button onClick={() => openEditOrcamento(o)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Editar</button>
+                         {o.status === 'rascunho' && (
+                           <button onClick={() => updateOrcamentoStatus(o, 'enviado')} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-500/20">Enviar</button>
+                         )}
+                         {(o.status === 'enviado' || o.status === 'rascunho') && (
+                           <button onClick={() => updateOrcamentoStatus(o, 'aprovado')} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20">Aprovar</button>
+                         )}
+                         <button onClick={() => handleShareOrcamentoWhatsApp(o)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20">WhatsApp</button>
+                         {o.status !== 'concluido' && o.status !== 'cancelado' && (
+                           <button onClick={() => handleStartSaleFromOrcamento(o)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20">Iniciar Venda</button>
+                         )}
+                         {o.status === 'concluido' && o.vendaId && (
+                           <span className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/30">Venda #{o.vendaId.slice(-6).toUpperCase()}</span>
+                         )}
+                         {o.status !== 'concluido' && (
+                           <button onClick={() => updateOrcamentoStatus(o, 'cancelado')} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 ml-auto">Cancelar</button>
+                         )}
+                         <button onClick={() => handleDeleteOrcamento(o)} className="text-white/30 hover:text-rose-400 p-1.5"><Trash2 size={12} /></button>
                       </div>
                     </div>
                   );
@@ -6379,6 +6611,113 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                <span>Adicionar ao Carrinho</span>
              </Button>
            </div>
+         </div>
+       </Modal>
+     )}
+
+     {orcamentoModalOpen && (
+       <Modal
+         isOpen={orcamentoModalOpen}
+         onClose={() => setOrcamentoModalOpen(false)}
+         title={editingOrcamento ? `Editar Orçamento ${editingOrcamento.numero}` : 'Novo Orçamento'}
+         size="lg"
+       >
+         <div className="space-y-5 max-h-[70vh] overflow-y-auto custom-scrollbar pr-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+               <Input label="Cliente *" value={orcamentoForm.customerName} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, customerName: e.target.value })} />
+               <Input label="CPF/CNPJ" value={orcamentoForm.cpfCnpj} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, cpfCnpj: e.target.value })} />
+               <Input label="Telefone/WhatsApp" value={orcamentoForm.phone} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, phone: e.target.value })} />
+               <Input label="Responsável pelo Atendimento" value={orcamentoForm.responsavel} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, responsavel: e.target.value })} />
+               <Input label="Endereço" className="sm:col-span-2" value={orcamentoForm.address} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, address: e.target.value })} />
+               <Input label="Validade" type="date" value={orcamentoForm.validade} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, validade: e.target.value })} />
+            </div>
+
+            <div className="h-px bg-white/10" />
+
+            <div className="space-y-2">
+               <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px]">Itens do Orçamento</p>
+               <div className="flex gap-2">
+                  <select
+                    onChange={(e) => {
+                       const product = products.find(p => p.id === e.target.value);
+                       if (!product) return;
+                       setOrcamentoForm(prev => ({ ...prev, items: [...prev.items, { productId: product.id, name: product.name, price: product.price, quantity: 1 }] }));
+                       e.target.value = '';
+                    }}
+                    className="flex-1 h-10 bg-white/5 border border-white/10 rounded-xl px-3 text-xs text-white focus:outline-none focus:border-primary-500 cursor-pointer"
+                  >
+                    <option value="" className="bg-slate-900">+ Adicionar produto/serviço do catálogo...</option>
+                    {products.map(p => <option key={p.id} value={p.id} className="bg-slate-900">{p.name} — R$ {p.price.toFixed(2)}</option>)}
+                  </select>
+                  <button
+                    onClick={() => {
+                       const desc = prompt('Descrição do item:');
+                       const valorStr = desc ? prompt('Valor unitário (R$):') : null;
+                       const valor = valorStr ? parseFloat(valorStr.replace(',', '.')) : NaN;
+                       if (desc && !isNaN(valor) && valor > 0) {
+                          setOrcamentoForm(prev => ({ ...prev, items: [...prev.items, { productId: 'manual', name: desc.toUpperCase(), price: valor, quantity: 1 }] }));
+                       }
+                    }}
+                    className="h-10 px-3 rounded-xl bg-white/5 border border-white/10 text-white/60 hover:text-white text-[10px] font-black uppercase whitespace-nowrap"
+                  >
+                    Item Livre
+                  </button>
+               </div>
+               <div className="space-y-1.5">
+                  {orcamentoForm.items.map((item, idx) => (
+                    <div key={idx} className="flex items-center justify-between gap-2 px-3 py-2 bg-white/5 border border-white/5 rounded-lg">
+                       <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <input
+                            type="number"
+                            min={1}
+                            value={item.quantity}
+                            onChange={(e) => {
+                               const qty = Math.max(1, Number(e.target.value) || 1);
+                               setOrcamentoForm(prev => ({ ...prev, items: prev.items.map((it, i) => i === idx ? { ...it, quantity: qty } : it) }));
+                            }}
+                            className="w-12 h-7 bg-slate-900/60 border border-white/10 rounded px-1.5 text-xs text-white text-center"
+                          />
+                          <span className="text-xs font-bold text-white truncate">{item.name}</span>
+                       </div>
+                       <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-xs font-black text-emerald-400">R$ {(item.price * item.quantity).toFixed(2).replace('.', ',')}</span>
+                          <button onClick={() => setOrcamentoForm(prev => ({ ...prev, items: prev.items.filter((_, i) => i !== idx) }))} className="text-white/30 hover:text-rose-400"><X size={13} /></button>
+                       </div>
+                    </div>
+                  ))}
+                  {orcamentoForm.items.length === 0 && <p className="text-xs text-white/30 py-3 text-center">Nenhum item adicionado ainda.</p>}
+               </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+               <Input label="Desconto (R$)" type="number" step="any" value={orcamentoForm.desconto} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, desconto: Number(e.target.value) || 0 })} />
+               <Input label="Entrada Sugerida (%)" type="number" step="any" value={orcamentoForm.entradaPercentual} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, entradaPercentual: Number(e.target.value) || 0 })} />
+            </div>
+
+            <div className="bg-slate-900/50 rounded-2xl p-4 border border-white/5 flex justify-between items-center">
+               <span className="text-[10px] font-black uppercase text-white/40 tracking-widest">Total do Orçamento</span>
+               <span className="text-xl font-black text-emerald-400 italic">R$ {Math.max(0, orcamentoItemsTotal() - (orcamentoForm.desconto || 0)).toFixed(2).replace('.', ',')}</span>
+            </div>
+
+            <div className="h-px bg-white/10" />
+
+            <div className="space-y-3">
+               <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px]">Prazo de Produção/Entrega</p>
+               <textarea rows={2} value={orcamentoForm.prazoProducao} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, prazoProducao: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-primary-500" />
+
+               <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px]">Forma de Pagamento / Política de Entrada</p>
+               <textarea rows={2} value={orcamentoForm.formaPagamentoTexto} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, formaPagamentoTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-primary-500" />
+
+               <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px]">Observações</p>
+               <textarea rows={2} value={orcamentoForm.observacoes} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, observacoes: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-primary-500" />
+            </div>
+
+            <div className="flex justify-end gap-3 pt-1">
+               <Button variant="ghost" onClick={() => setOrcamentoModalOpen(false)}>Cancelar</Button>
+               <Button disabled={savingOrcamento} onClick={handleSaveOrcamento} className="bg-primary-500 text-slate-900 border-none">
+                 {savingOrcamento ? 'Salvando...' : 'Salvar Orçamento'}
+               </Button>
+            </div>
          </div>
        </Modal>
      )}
