@@ -266,6 +266,7 @@ const mapVendaRow = (row: any): SaleOrder => ({
   status: row.status,
   createdAt: row.created_at,
   scheduledFor: row.scheduled_for || undefined,
+  deletedAt: row.deleted_at || undefined,
 } as SaleOrder);
 
 const mapOrcamentoRow = (row: any): Orcamento => ({
@@ -392,7 +393,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     const unsubRealEstate = onSnapshot(qRealEstate, (snap) => setRealEstateSales(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
     const loadSales = async () => {
-      const { data } = await supabase.from('vendas').select('*').order('created_at', { ascending: false });
+      const { data } = await supabase.from('vendas').select('*').is('deleted_at', null).order('created_at', { ascending: false });
       setRealSales((data || []).map(mapVendaRow));
     };
     loadSales();
@@ -3385,12 +3386,12 @@ export const MetaAdsModule = ({ currentCompany }: { currentCompany: Company | nu
 // --- PDV / POS ---
 export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany: Company | null, addPendingOrder: (order: SaleOrder) => void }) => {
   const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare } = React.useContext(AppContext)!;
-  const [activeTab, setActiveTabState] = useState<'venda' | 'historico' | 'estoque' | 'servicos' | 'orcamentos' | 'clientes' | 'contratos'>(() => {
+  const [activeTab, setActiveTabState] = useState<'venda' | 'historico' | 'estoque' | 'servicos' | 'orcamentos' | 'clientes' | 'contratos' | 'excluidos'>(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem('rpro_pos_subtab') : null;
-    const validSubTabs = ['venda', 'historico', 'estoque', 'servicos', 'orcamentos', 'clientes', 'contratos'];
+    const validSubTabs = ['venda', 'historico', 'estoque', 'servicos', 'orcamentos', 'clientes', 'contratos', 'excluidos'];
     return (saved && validSubTabs.includes(saved)) ? (saved as any) : 'venda';
   });
-  const setActiveTab = (tab: 'venda' | 'historico' | 'estoque' | 'servicos' | 'orcamentos' | 'clientes' | 'contratos') => {
+  const setActiveTab = (tab: 'venda' | 'historico' | 'estoque' | 'servicos' | 'orcamentos' | 'clientes' | 'contratos' | 'excluidos') => {
     setActiveTabState(tab);
     if (typeof window !== 'undefined') localStorage.setItem('rpro_pos_subtab', tab);
   };
@@ -4273,7 +4274,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
   const confirmBulkDeleteSales = async () => {
     const ids = Array.from(selectedSaleIds);
-    const { error } = await supabase.from('vendas').delete().in('id', ids);
+    const { error } = await supabase.from('vendas').update({ deleted_at: new Date().toISOString() }).in('id', ids);
     setIsBulkDeleteConfirmOpen(false);
     if (error) { console.error(error); alert('Não foi possível excluir as vendas selecionadas.'); return; }
     setSelectedSaleIds(new Set());
@@ -4444,17 +4445,54 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const handleDeleteSale = async (sale: SaleOrder) => {
-    if (!confirm(`Excluir permanentemente a venda #${sale.id.slice(-8).toUpperCase()} (R$ ${sale.total.toFixed(2)})? Essa ação não pode ser desfeita.`)) return;
-    const { error } = await supabase.from('vendas').delete().eq('id', sale.id);
+    if (!confirm(`Excluir a venda #${sale.id.slice(-8).toUpperCase()} (R$ ${sale.total.toFixed(2)})? Ela fica 30 dias na aba Excluídos antes de sumir de vez — você pode restaurar dentro desse prazo.`)) return;
+    const { error } = await supabase.from('vendas').update({ deleted_at: new Date().toISOString() }).eq('id', sale.id);
     if (error) { console.error(error); alert('Não foi possível excluir a venda.'); }
   };
+
+  const handleRestoreSale = async (sale: SaleOrder) => {
+    const { error } = await supabase.from('vendas').update({ deleted_at: null }).eq('id', sale.id);
+    if (error) { console.error(error); alert('Não foi possível restaurar a venda.'); return; }
+    loadDeletedSales();
+  };
+
+  const handlePermanentDeleteSale = async (sale: SaleOrder) => {
+    if (!confirm(`Excluir DEFINITIVAMENTE a venda #${sale.id.slice(-8).toUpperCase()}? Essa ação não pode ser desfeita.`)) return;
+    const { error } = await supabase.from('vendas').delete().eq('id', sale.id);
+    if (error) { console.error(error); alert('Não foi possível excluir.'); return; }
+    loadDeletedSales();
+  };
+
+  const [deletedSales, setDeletedSales] = useState<SaleOrder[]>([]);
+  const [isLoadingDeletedSales, setIsLoadingDeletedSales] = useState(false);
+
+  const loadDeletedSales = async () => {
+    setIsLoadingDeletedSales(true);
+    try {
+      // Purga automatica: excluidas ha mais de 30 dias somem de vez
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 30);
+      await supabase.from('vendas').delete().not('deleted_at', 'is', null).lt('deleted_at', cutoff.toISOString());
+
+      const { data } = await supabase.from('vendas').select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending: false });
+      setDeletedSales((data || []).map(mapVendaRow));
+    } catch (err) {
+      console.error('Erro ao carregar excluídos:', err);
+    } finally {
+      setIsLoadingDeletedSales(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'excluidos') loadDeletedSales();
+  }, [activeTab]);
 
   useEffect(() => {
     if (!currentCompany) return;
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
     const loadSales = async () => {
-      const { data } = await supabase.from('vendas').select('*');
+      const { data } = await supabase.from('vendas').select('*').is('deleted_at', null);
       const allSales = (data || []).map(mapVendaRow);
       allSales.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setAllSalesHistory(allSales);
@@ -4825,7 +4863,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const handleManualSync = async () => {
     setIsSyncing(true);
     try {
-      const { data: vendasData } = await supabase.from('vendas').select('*');
+      const { data: vendasData } = await supabase.from('vendas').select('*').is('deleted_at', null);
       const allSales = (vendasData || []).map(mapVendaRow);
       allSales.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setAllSalesHistory(allSales);
@@ -4888,7 +4926,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             { id: 'servicos', label: 'Serviços', icon: Wrench },
             { id: 'orcamentos', label: 'Orçamentos', icon: FileSpreadsheet },
             { id: 'clientes', label: 'Clientes', icon: Users },
-            { id: 'contratos', label: 'Contratos Rafa Art', icon: FileText }
+            { id: 'contratos', label: 'Contratos Rafa Art', icon: FileText },
+            { id: 'excluidos', label: 'Excluídos', icon: Trash2 }
           ].map(tab => (
             <button
               key={tab.id}
@@ -5882,6 +5921,50 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         {activeTab === 'contratos' && (
           <div className="flex-1 p-6 overflow-y-auto custom-scrollbar">
             <ContractApprovalModule currentCompany={currentCompany} />
+          </div>
+        )}
+
+        {activeTab === 'excluidos' && (
+          <div className="flex-1 p-4 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/40 space-y-6">
+            <div className="border-b border-white/10 pb-4">
+              <h2 className="text-xl md:text-2xl font-black text-white italic tracking-tighter uppercase">Excluídos</h2>
+              <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">
+                Ficam aqui por 30 dias e depois somem automaticamente — {deletedSales.length} nota(s)
+              </p>
+            </div>
+
+            {isLoadingDeletedSales ? (
+              <div className="flex justify-center py-16"><RefreshCw className="animate-spin text-primary-500" size={24} /></div>
+            ) : deletedSales.length === 0 ? (
+              <div className="text-center py-16 text-white/30 text-sm">Nenhuma nota excluída no momento.</div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {deletedSales.map(sale => {
+                  const deletedDate = sale.deletedAt ? new Date(sale.deletedAt) : new Date();
+                  const diasRestantes = Math.max(0, 30 - Math.floor((Date.now() - deletedDate.getTime()) / (1000 * 60 * 60 * 24)));
+                  return (
+                    <div key={sale.id} className="bg-white/5 border border-rose-500/20 rounded-2xl p-4 space-y-3">
+                       <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                             <p className="text-[9px] font-mono text-white/30">#{sale.id.slice(-8).toUpperCase()}</p>
+                             <p className="font-black text-white truncate">{sale.customerName || 'Cliente de Balcão'}</p>
+                          </div>
+                          <span className="text-[8px] font-black uppercase px-2 py-1 rounded-full bg-rose-500/15 text-rose-400 shrink-0">{diasRestantes}d p/ apagar</span>
+                       </div>
+                       <div className="flex justify-between items-baseline">
+                          <span className="text-[10px] text-white/30 uppercase font-bold">{sale.items?.length || 0} item(ns)</span>
+                          <span className="text-lg font-black text-white/60 italic">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
+                       </div>
+                       <p className="text-[9px] text-white/30">Excluída em {safeFormat(sale.deletedAt, 'dd/MM/yyyy HH:mm')}</p>
+                       <div className="flex gap-1.5 pt-2 border-t border-white/5">
+                          <button onClick={() => handleRestoreSale(sale)} className="flex-1 text-[9px] font-black uppercase px-2 py-2 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20">Restaurar</button>
+                          <button onClick={() => handlePermanentDeleteSale(sale)} className="flex-1 text-[9px] font-black uppercase px-2 py-2 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20">Excluir Agora</button>
+                       </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>

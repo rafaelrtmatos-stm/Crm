@@ -42,6 +42,7 @@ export interface SaleOrder {
   status: 'pending' | 'completed' | 'canceled';
   createdAt: string;
   scheduledFor?: string;
+  deletedAt?: string;
 }
 
 export type UserRole = 'admin' | 'gerente' | 'atendente' | 'caixa' | 'vendedor' | 'designer' | 'operador';
