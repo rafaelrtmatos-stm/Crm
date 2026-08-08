@@ -3368,7 +3368,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const proceedAfterCustomerStep = () => {
     setIsCustomerModalOpen(false);
     if (customerModalIntent === 'finalize') {
-      setDownPayment(total);
       setIsPaymentModalOpen(true);
     }
   };
