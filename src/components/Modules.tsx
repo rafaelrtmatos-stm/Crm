@@ -4677,25 +4677,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                <div className="shrink-0 p-6 bg-slate-50 border-t border-slate-200 space-y-4 sticky bottom-0 z-10">
                   <div className="flex gap-4 h-24">
                      <button 
-                       onClick={() => {
-                          setCustomerModalIntent('preselect');
-                          setIsCustomerModalOpen(true);
-                       }}
-                       className={cn(
-                         "flex-1 h-full rounded-[28px] border-2 flex flex-col items-center justify-center gap-1 transition-all active:scale-95",
-                         selectedCustomer ? "bg-amber-400 border-amber-600 text-slate-900" : "bg-white border-slate-200 text-slate-400"
-                       )}
-                     >
-                        <UserCheck size={24} />
-                        <span className="text-[9px] font-black uppercase tracking-widest">{selectedCustomer ? selectedCustomer.name : 'Venda em Aberto'}</span>
-                     </button>
-                     <button 
                        disabled={cart.length === 0}
                        onClick={() => {
                           setCustomerModalIntent('finalize');
                           setIsCustomerModalOpen(true);
                        }}
-                       className="flex-[2] h-full bg-primary-500 border-2 border-primary-600 text-slate-900 rounded-[28px] flex flex-col items-center justify-center gap-1 shadow-xl shadow-primary-500/20 hover:bg-primary-400 transition-all disabled:opacity-50 disabled:grayscale active:scale-95"
+                       className="flex-1 h-full bg-primary-500 border-2 border-primary-600 text-slate-900 rounded-[28px] flex flex-col items-center justify-center gap-1 shadow-xl shadow-primary-500/20 hover:bg-primary-400 transition-all disabled:opacity-50 disabled:grayscale active:scale-95"
                      >
                         <div className="flex items-center gap-3">
                            <ShoppingBag size={24} />
