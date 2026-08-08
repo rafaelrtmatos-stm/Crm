@@ -493,6 +493,8 @@ export interface Orcamento {
   prazoGatilho?: 'aprovacao' | 'pagamento_entrada' | 'aprovacao_arte' | 'entrega_material' | 'personalizado';
   prazoDataPrevista?: string;
   formasPagamento?: OrcamentoPagamento[];
+  politicaPagamento?: 'sem_entrada' | 'entrada_fixa' | 'entrada_percentual' | 'pagamento_integral' | 'entrada_restante_entrega' | 'entrada_parcelas';
+  entradaObrigatoria?: boolean;
   prazoPagamentoTexto?: string;
   condicaoEntregaTexto?: string;
   formaPagamentoTexto?: string;

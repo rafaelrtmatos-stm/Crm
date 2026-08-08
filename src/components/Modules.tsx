@@ -287,6 +287,8 @@ const mapOrcamentoRow = (row: any): Orcamento => ({
   prazoGatilho: row.prazo_gatilho || 'aprovacao',
   prazoDataPrevista: row.prazo_data_prevista || undefined,
   formasPagamento: Array.isArray(row.formas_pagamento) ? row.formas_pagamento : [],
+  politicaPagamento: row.politica_pagamento || 'entrada_restante_entrega',
+  entradaObrigatoria: !!row.entrada_obrigatoria,
   prazoPagamentoTexto: row.prazo_pagamento_texto || undefined,
   condicaoEntregaTexto: row.condicao_entrega_texto || undefined,
   formaPagamentoTexto: row.forma_pagamento_texto || undefined,
@@ -3683,6 +3685,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     politicaCancelamentoTexto: 'Cancelamento antes do início da produção: reembolso integral, descontadas eventuais despesas já realizadas. Após o início da produção ou para itens personalizados, não há reembolso dos valores já investidos em material e mão de obra.',
     entradaPercentual: 50, entradaValor: 0, entradaModo: 'percentual' as 'percentual' | 'valor', validade: '',
     formasPagamento: [] as OrcamentoPagamento[],
+    politicaPagamento: 'entrada_restante_entrega' as 'sem_entrada' | 'entrada_fixa' | 'entrada_percentual' | 'pagamento_integral' | 'entrada_restante_entrega' | 'entrada_parcelas',
+    entradaObrigatoria: true,
   };
   const [orcamentoForm, setOrcamentoForm] = useState({ ...emptyOrcamentoForm });
   const [savingOrcamento, setSavingOrcamento] = useState(false);
@@ -3740,6 +3744,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       entradaPercentual: o.entradaPercentual || 0, entradaValor: o.entradaValor || 0,
       entradaModo: (o.entradaValor && o.entradaValor > 0 && !o.entradaPercentual) ? 'valor' : 'percentual',
       formasPagamento: o.formasPagamento ? [...o.formasPagamento] : [],
+      politicaPagamento: o.politicaPagamento || 'entrada_restante_entrega',
+      entradaObrigatoria: o.entradaObrigatoria !== undefined ? o.entradaObrigatoria : true,
       validade: o.validade || '',
     });
     setOrcamentoModalOpen(true);
@@ -3775,6 +3781,34 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     cartao_parcelado: 'Cartão Parcelado', transferencia: 'Transferência', boleto: 'Boleto', outra: 'Outra',
   };
 
+  const POLITICA_PAGAMENTO_LABELS: Record<string, string> = {
+    sem_entrada: 'Sem Entrada',
+    entrada_fixa: 'Entrada Fixa (R$)',
+    entrada_percentual: 'Entrada Percentual (%)',
+    pagamento_integral: 'Pagamento Integral Antecipado',
+    entrada_restante_entrega: 'Entrada + Restante na Entrega',
+    entrada_parcelas: 'Entrada + Parcelas',
+  };
+
+  const buildPoliticaPagamentoTexto = (politica: string, entradaTexto: string, obrigatoria: boolean) => {
+    const obrigaTxt = obrigatoria ? ' O pagamento da entrada é obrigatório para o início da produção.' : '';
+    switch (politica) {
+      case 'sem_entrada':
+        return `Não é exigida entrada. O valor total deverá ser pago conforme condição definida no Prazo de Pagamento.`;
+      case 'pagamento_integral':
+        return `Pagamento integral antecipado, no valor de R$ ${(Math.max(0, orcamentoItemsTotal() - (orcamentoForm.desconto || 0))).toFixed(2).replace('.', ',')}, antes do início da produção.`;
+      case 'entrada_fixa':
+      case 'entrada_percentual':
+        return `Entrada de ${entradaTexto} para iniciar a produção.${obrigaTxt}`;
+      case 'entrada_restante_entrega':
+        return `Entrada de ${entradaTexto} para iniciar a produção${obrigaTxt} O saldo restante (R$ ${orcamentoSaldoRestante().toFixed(2).replace('.', ',')}) deverá ser quitado no momento da conclusão do serviço, antes da entrega ou retirada do material.`;
+      case 'entrada_parcelas':
+        return `Entrada de ${entradaTexto} para iniciar a produção${obrigaTxt} O saldo restante (R$ ${orcamentoSaldoRestante().toFixed(2).replace('.', ',')}) será pago em parcelas, conforme detalhado nas formas de pagamento abaixo.`;
+      default:
+        return '';
+    }
+  };
+
   const orcamentoEntradaValorCalc = () => {
     const totalItens = Math.max(0, orcamentoItemsTotal() - (orcamentoForm.desconto || 0));
     return orcamentoForm.entradaModo === 'percentual'
@@ -3805,6 +3839,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const removeOrcamentoFormaPagamento = (idx: number) => {
     setOrcamentoForm(prev => ({ ...prev, formasPagamento: prev.formasPagamento.filter((_, i) => i !== idx) }));
+  };
+
+  const updatePoliticaPagamento = (patch: { politicaPagamento?: any; entradaObrigatoria?: boolean; entradaModo?: 'percentual' | 'valor'; entradaPercentual?: number; entradaValor?: number }) => {
+    setOrcamentoForm(prev => {
+      const next = { ...prev, ...patch };
+      const entradaTexto = next.entradaModo === 'percentual' ? `${next.entradaPercentual || 0}%` : `R$ ${(next.entradaValor || 0).toFixed(2).replace('.', ',')}`;
+      next.formaPagamentoTexto = buildPoliticaPagamentoTexto(next.politicaPagamento, entradaTexto, next.entradaObrigatoria);
+      return next;
+    });
   };
 
   const handleSaveOrcamento = async () => {
@@ -3838,6 +3881,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         entrada_percentual: orcamentoForm.entradaModo === 'percentual' ? (orcamentoForm.entradaPercentual || null) : null,
         entrada_valor: orcamentoForm.entradaModo === 'valor' ? (orcamentoForm.entradaValor || null) : null,
         formas_pagamento: orcamentoForm.formasPagamento,
+        politica_pagamento: orcamentoForm.politicaPagamento,
+        entrada_obrigatoria: orcamentoForm.entradaObrigatoria,
         validade: orcamentoForm.validade || null,
       };
       let newId: string | null = null;
@@ -6932,14 +6977,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                        type="number"
                        step="any"
                        value={orcamentoForm.entradaModo === 'percentual' ? orcamentoForm.entradaPercentual : orcamentoForm.entradaValor}
-                       onChange={(e: any) => setOrcamentoForm(prev => prev.entradaModo === 'percentual'
-                         ? { ...prev, entradaPercentual: Number(e.target.value) || 0 }
-                         : { ...prev, entradaValor: Number(e.target.value) || 0 })}
+                       onChange={(e: any) => orcamentoForm.entradaModo === 'percentual'
+                         ? updatePoliticaPagamento({ entradaPercentual: Number(e.target.value) || 0 })
+                         : updatePoliticaPagamento({ entradaValor: Number(e.target.value) || 0 })}
                        className="flex-1 h-11 bg-white/5 border border-white/10 rounded-xl px-3 text-sm text-white focus:outline-none focus:border-primary-500"
                      />
                      <div className="flex bg-white/5 p-0.5 rounded-xl border border-white/10 shrink-0">
-                        <button onClick={() => setOrcamentoForm(prev => ({ ...prev, entradaModo: 'percentual' }))} className={cn("px-2.5 h-full rounded-lg text-[10px] font-black", orcamentoForm.entradaModo === 'percentual' ? "bg-primary-500 text-slate-900" : "text-white/40")}>%</button>
-                        <button onClick={() => setOrcamentoForm(prev => ({ ...prev, entradaModo: 'valor' }))} className={cn("px-2.5 h-full rounded-lg text-[10px] font-black", orcamentoForm.entradaModo === 'valor' ? "bg-primary-500 text-slate-900" : "text-white/40")}>R$</button>
+                        <button onClick={() => updatePoliticaPagamento({ entradaModo: 'percentual' })} className={cn("px-2.5 h-full rounded-lg text-[10px] font-black", orcamentoForm.entradaModo === 'percentual' ? "bg-primary-500 text-slate-900" : "text-white/40")}>%</button>
+                        <button onClick={() => updatePoliticaPagamento({ entradaModo: 'valor' })} className={cn("px-2.5 h-full rounded-lg text-[10px] font-black", orcamentoForm.entradaModo === 'valor' ? "bg-primary-500 text-slate-900" : "text-white/40")}>R$</button>
                      </div>
                   </div>
                </div>
@@ -7014,6 +7059,29 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                <p className="text-[9px] text-amber-300/80 font-bold flex items-center gap-1.5">
                   <AlertCircle size={12} /> Prazo de produção ≠ prazo de pagamento — essa distinção fica registrada e visível no PDF/WhatsApp enviado ao cliente.
                </p>
+
+               <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px] pt-1">Política de Pagamento</p>
+               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <select
+                    value={orcamentoForm.politicaPagamento}
+                    onChange={(e) => updatePoliticaPagamento({ politicaPagamento: e.target.value as any })}
+                    className="h-10 bg-white/5 border border-white/10 rounded-xl px-3 text-xs text-white focus:outline-none focus:border-primary-500 cursor-pointer"
+                  >
+                     {Object.entries(POLITICA_PAGAMENTO_LABELS).map(([id, label]) => <option key={id} value={id} className="bg-slate-900">{label}</option>)}
+                  </select>
+                  <button
+                    onClick={() => updatePoliticaPagamento({ entradaObrigatoria: !orcamentoForm.entradaObrigatoria })}
+                    className={cn(
+                      "h-10 rounded-xl border-2 flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-wider transition-all",
+                      orcamentoForm.entradaObrigatoria ? "bg-amber-500/10 border-amber-500/30 text-amber-400" : "bg-white/5 border-white/10 text-white/40"
+                    )}
+                  >
+                     <div className={cn("w-3.5 h-3.5 rounded border flex items-center justify-center", orcamentoForm.entradaObrigatoria ? "bg-amber-500 border-amber-500" : "border-white/20")}>
+                        {orcamentoForm.entradaObrigatoria && <Check size={10} className="text-slate-900" />}
+                     </div>
+                     Entrada obrigatória p/ iniciar produção
+                  </button>
+               </div>
 
                <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px] pt-1">Formas de Pagamento (combine quantas precisar)</p>
                <div className="space-y-2">
