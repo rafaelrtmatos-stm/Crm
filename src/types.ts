@@ -7,6 +7,9 @@ export interface Product {
   price: number;
   stock: number;
   unitType?: 'unit' | 'm2';
+  tipoItem?: 'produto' | 'material' | 'servico' | 'acabamento' | 'composto';
+  larguraRolo?: number;
+  controlaEstoque?: boolean;
 }
 
 export interface SaleOrderItem {
@@ -16,6 +19,7 @@ export interface SaleOrderItem {
   quantity: number;
   dimensions?: string; // L x H
   area?: number;
+  consumoEstoque?: number; // quantidade real baixada do estoque (m2 ou metro linear, dependendo do produto)
 }
 
 export interface PaymentEntry {
@@ -315,6 +319,12 @@ export interface InventoryItem extends BaseEntity {
   isService: boolean;
   isActive: boolean;
   provider?: string;
+  tipoItem?: 'produto' | 'material' | 'servico' | 'acabamento' | 'composto';
+  controlaEstoque?: boolean;
+  larguraRolo?: number;
+  estoqueMaximo?: number;
+  localizacao?: string;
+  descricao?: string;
 }
 
 export interface PrintingService extends BaseEntity {

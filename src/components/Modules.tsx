@@ -4646,6 +4646,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         price: Number(p.sale_price) || 0,
         stock: Number(p.current_stock) || 0,
         unitType: p.unit === 'm2' ? 'm2' : 'unit',
+        tipoItem: p.tipo_item || 'produto',
+        larguraRolo: p.largura_rolo ? Number(p.largura_rolo) : undefined,
+        controlaEstoque: p.controla_estoque !== false,
       })));
     };
     loadProducts();
@@ -4692,6 +4695,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const area = w * h;
     const dimensions = `${w.toString().replace('.', ',')}x${h.toString().replace('.', ',')}`;
     const product = dimensionModalProduct;
+    // Se o produto tem largura de rolo cadastrada, o consumo fisico do estoque e em metro linear,
+    // nao em m2 — o rolo so pode ser cortado ao longo do comprimento, aproveitando a largura toda.
+    const consumoUnitario = product.larguraRolo && product.larguraRolo > 0
+      ? area / product.larguraRolo
+      : area;
     setCart(prev => {
       const existing = prev.find(item => item.productId === product.id && item.dimensions === dimensions);
       if (existing) {
@@ -4706,7 +4714,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         price: product.price,
         quantity: selectedQty,
         dimensions,
-        area
+        area,
+        consumoEstoque: consumoUnitario
       }];
     });
     setDimensionModalProduct(null);
@@ -4858,11 +4867,25 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       // Baixa automatica de estoque para cada item vendido (produtos do catalogo real, ignora itens livres/manuais)
       for (const item of cart) {
         if (!item.productId || item.productId === 'manual') continue;
-        const qtdBaixa = item.area ? item.area * item.quantity : item.quantity;
-        const { data: prodAtual } = await supabase.from('produtos').select('current_stock').eq('id', item.productId).maybeSingle();
-        if (prodAtual) {
-          const novoEstoque = Math.max(0, (Number(prodAtual.current_stock) || 0) - qtdBaixa);
+        const qtdBaixa = item.consumoEstoque !== undefined
+          ? item.consumoEstoque * item.quantity
+          : (item.area ? item.area * item.quantity : item.quantity);
+        const { data: prodAtual } = await supabase.from('produtos').select('current_stock, controla_estoque, unit').eq('id', item.productId).maybeSingle();
+        if (prodAtual && prodAtual.controla_estoque !== false) {
+          const estoqueAnterior = Number(prodAtual.current_stock) || 0;
+          const novoEstoque = Math.max(0, estoqueAnterior - qtdBaixa);
           await supabase.from('produtos').update({ current_stock: novoEstoque }).eq('id', item.productId);
+          await supabase.from('movimentacoes_estoque').insert({
+            produto_id: item.productId,
+            produto_nome: item.name,
+            tipo: 'saida',
+            quantidade: qtdBaixa,
+            unidade: prodAtual.unit || (item.consumoEstoque !== undefined ? 'metro linear' : (item.area ? 'm²' : 'un')),
+            motivo: 'venda',
+            referencia: `Pedido #${order.id.slice(-8).toUpperCase()}`,
+            quantidade_anterior: estoqueAnterior,
+            quantidade_posterior: novoEstoque,
+          });
         }
       }
 
@@ -7103,6 +7126,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  <span>Valor unitário (m²)</span>
                  <span className="font-mono text-white">R$ {dimensionModalProduct.price.toFixed(2).replace('.', ',')}</span>
                </div>
+               {dimensionModalProduct.larguraRolo && dimensionModalProduct.larguraRolo > 0 && (
+                 <div className="flex justify-between text-xs text-amber-300 pt-1 border-t border-white/5">
+                    <span>Consumo do rolo ({dimensionModalProduct.larguraRolo}m largura)</span>
+                    <span className="font-mono font-bold">{((Number(dimWidth) * Number(dimHeight)) / dimensionModalProduct.larguraRolo * selectedQty).toFixed(2).replace('.', ',')} m linear</span>
+                 </div>
+               )}
                <div className="flex justify-between text-sm pt-1 border-t border-white/5">
                  <span className="text-emerald-400 font-bold">Subtotal</span>
                  <span className="font-mono font-black text-emerald-400">R$ {(Number(dimWidth) * Number(dimHeight) * dimensionModalProduct.price * selectedQty).toFixed(2).replace('.', ',')}</span>
@@ -8165,7 +8194,9 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
     salePrice: 0,
     costPrice: 0,
     isActive: true,
-    isService: false
+    isService: false,
+    tipoItem: 'produto',
+    controlaEstoque: true,
   });
 
   useEffect(() => {
@@ -8188,6 +8219,12 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
         isActive: row.is_active,
         provider: row.provider,
         createdAt: row.created_at,
+        tipoItem: row.tipo_item || 'produto',
+        controlaEstoque: row.controla_estoque !== false,
+        larguraRolo: row.largura_rolo ? Number(row.largura_rolo) : undefined,
+        estoqueMaximo: row.estoque_maximo ? Number(row.estoque_maximo) : undefined,
+        localizacao: row.localizacao,
+        descricao: row.descricao,
       } as InventoryItem)));
       setLoading(false);
     };
@@ -8236,10 +8273,16 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
         min_stock: formData.minStock,
         is_service: formData.isService,
         is_active: formData.isActive,
+        tipo_item: formData.tipoItem || 'produto',
+        controla_estoque: formData.controlaEstoque !== false,
+        largura_rolo: formData.larguraRolo || null,
+        estoque_maximo: formData.estoqueMaximo || null,
+        localizacao: formData.localizacao || null,
+        descricao: formData.descricao || null,
       });
       if (error) throw error;
       setIsModalOpen(false);
-      setFormData({ name: '', category: 'substrato', unit: 'un', currentStock: 0, minStock: 0, salePrice: 0, costPrice: 0, isActive: true, isService: false });
+      setFormData({ name: '', category: 'substrato', unit: 'un', currentStock: 0, minStock: 0, salePrice: 0, costPrice: 0, isActive: true, isService: false, tipoItem: 'produto', controlaEstoque: true });
     } catch (err) {
       console.error(err);
     }
@@ -8390,8 +8433,44 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
             </div>
             <Input label="PREÇO DE COMPRA (CUSTO)" type="number" prefix="R$" value={formData.costPrice} onChange={e => setFormData({...formData, costPrice: Number(e.target.value)})} />
             <Input label="PREÇO DE VENDA" type="number" prefix="R$" value={formData.salePrice} onChange={e => setFormData({...formData, salePrice: Number(e.target.value)})} />
-            <Input label="ESTOQUE ATUAL" type="number" value={formData.currentStock} onChange={e => setFormData({...formData, currentStock: Number(e.target.value)})} />
-            <Input label="ESTOQUE MÍNIMO (ALERTA)" type="number" value={formData.minStock} onChange={e => setFormData({...formData, minStock: Number(e.target.value)})} />
+
+            <div className="space-y-2">
+              <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">TIPO DE ITEM</p>
+              <select className="w-full h-12 bg-[#1a2333] border border-white/10 rounded-xl px-4 text-xs text-white outline-none" value={formData.tipoItem} onChange={e => setFormData({...formData, tipoItem: e.target.value as any})}>
+                <option value="produto">Produto</option>
+                <option value="material">Material</option>
+                <option value="servico">Serviço</option>
+                <option value="acabamento">Acabamento</option>
+                <option value="composto">Produto Composto</option>
+              </select>
+            </div>
+            <div className="space-y-2">
+              <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">CONTROLAR ESTOQUE?</p>
+              <div className="flex bg-[#1a2333] p-1 rounded-xl border border-white/10 h-12">
+                 <button type="button" onClick={() => setFormData({...formData, controlaEstoque: true})} className={cn("flex-1 rounded-lg text-xs font-black uppercase transition-all", formData.controlaEstoque !== false ? "bg-primary-500 text-slate-900" : "text-white/40")}>Sim</button>
+                 <button type="button" onClick={() => setFormData({...formData, controlaEstoque: false})} className={cn("flex-1 rounded-lg text-xs font-black uppercase transition-all", formData.controlaEstoque === false ? "bg-primary-500 text-slate-900" : "text-white/40")}>Não</button>
+              </div>
+            </div>
+
+            {formData.controlaEstoque !== false && (
+              <>
+                <Input label="ESTOQUE ATUAL" type="number" value={formData.currentStock} onChange={e => setFormData({...formData, currentStock: Number(e.target.value)})} />
+                <Input label="ESTOQUE MÍNIMO (ALERTA)" type="number" value={formData.minStock} onChange={e => setFormData({...formData, minStock: Number(e.target.value)})} />
+                <Input label="ESTOQUE MÁXIMO" type="number" value={formData.estoqueMaximo} onChange={e => setFormData({...formData, estoqueMaximo: Number(e.target.value)})} />
+                <Input label="LOCALIZAÇÃO" placeholder="Ex: Prateleira A2" value={formData.localizacao} onChange={e => setFormData({...formData, localizacao: e.target.value})} />
+              </>
+            )}
+
+            {formData.unit === 'm2' && (
+              <div className="md:col-span-2">
+                <Input label="LARGURA DO ROLO (m) — usado no cálculo de m² e no PDV" type="number" step="any" placeholder="Ex: 1.00" value={formData.larguraRolo} onChange={e => setFormData({...formData, larguraRolo: Number(e.target.value)})} />
+              </div>
+            )}
+
+            <div className="md:col-span-2">
+               <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2">DESCRIÇÃO</p>
+               <textarea rows={2} className="w-full bg-[#1a2333] border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none resize-none" value={formData.descricao || ''} onChange={e => setFormData({...formData, descricao: e.target.value})} />
+            </div>
           </div>
           <div className="flex gap-4 pt-4">
              <Button variant="secondary" className="flex-1 h-14" onClick={() => setIsModalOpen(false)}>Cancelar</Button>
