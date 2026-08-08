@@ -4553,69 +4553,71 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                </div>
 
                {/* Visualizador de Itens no PDV (Compact Items Cart List) */}
-               <div className="flex-1 min-h-0 my-2 bg-white/70 backdrop-blur-xs rounded-2xl border border-slate-900/10 p-3 flex flex-col overflow-hidden shadow-inner">
-                  <div className="flex items-center justify-between pb-2 border-b border-slate-900/10 mb-2">
-                     <span className="text-[9px] font-black uppercase tracking-wider text-slate-700">Visualizador de Itens ({cart.length})</span>
-                     <span className="text-[8px] font-bold text-slate-400 uppercase">Lista de Lançamento</span>
+               <div className="flex-1 min-h-0 my-1.5 sm:my-2 bg-white/70 backdrop-blur-xs rounded-2xl border border-slate-900/10 p-2 sm:p-3 flex flex-col overflow-hidden shadow-inner">
+                  <div className="flex items-center justify-between pb-1.5 sm:pb-2 border-b border-slate-900/10 mb-1.5 sm:mb-2">
+                     <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-wider text-slate-700">Itens ({cart.length})</span>
+                     <span className="hidden sm:inline text-[8px] font-bold text-slate-400 uppercase">Lista de Lançamento</span>
                   </div>
 
                   {cart.length === 0 ? (
-                     <div className="flex-1 flex flex-col items-center justify-center text-center p-6 space-y-2">
-                        <ShoppingBag size={28} className="text-slate-400/50 animate-bounce" />
-                        <p className="text-[10px] font-black text-slate-700 uppercase tracking-wider">Carrinho Livre</p>
-                        <p className="text-[9px] font-bold text-slate-500 max-w-[200px]">Selecione os produtos na lista ao lado para adicionar ao pedido.</p>
+                     <div className="flex-1 flex flex-col items-center justify-center text-center p-3 sm:p-6 space-y-1.5 sm:space-y-2">
+                        <ShoppingBag size={20} className="sm:hidden text-slate-400/50 animate-bounce" />
+                        <ShoppingBag size={28} className="hidden sm:block text-slate-400/50 animate-bounce" />
+                        <p className="text-[9px] sm:text-[10px] font-black text-slate-700 uppercase tracking-wider">Carrinho Livre</p>
+                        <p className="text-[8px] sm:text-[9px] font-bold text-slate-500 max-w-[200px]">Selecione os produtos na lista abaixo para adicionar ao pedido.</p>
                      </div>
                   ) : (
                      <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar divide-y divide-slate-200/60 pr-1">
                         {cart.map((item, idx) => {
                            const itemSubtotal = item.area ? item.price * item.area * item.quantity : item.price * item.quantity;
                            return (
-                              <div key={idx} className="py-1.5 px-2 flex items-center justify-between hover:bg-slate-900/5 rounded-lg transition-all group">
-                                 <div className="flex items-center gap-2 min-w-0 flex-1">
-                                    <span className="text-[9px] font-black text-slate-900 bg-slate-900/10 px-1.5 py-0.5 rounded-md min-w-[24px] text-center">
+                              <div key={idx} className="py-1 px-1.5 sm:py-1.5 sm:px-2 flex items-center justify-between hover:bg-slate-900/5 rounded-lg transition-all group">
+                                 <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
+                                    <span className="text-[8px] sm:text-[9px] font-black text-slate-900 bg-slate-900/10 px-1 py-0.5 sm:px-1.5 rounded-md min-w-[20px] sm:min-w-[24px] text-center shrink-0">
                                        {item.quantity}x
                                     </span>
                                     <div className="min-w-0 flex-1">
-                                       <p className="text-[10px] font-bold text-slate-900 uppercase truncate leading-tight tracking-tight">
+                                       <p className="text-[9px] sm:text-[10px] font-bold text-slate-900 uppercase truncate leading-tight tracking-tight">
                                           {item.name}
                                        </p>
                                        {item.dimensions && (
-                                          <p className="text-[8px] font-bold text-slate-500 tracking-wider">
+                                          <p className="text-[7px] sm:text-[8px] font-bold text-slate-500 tracking-wider">
                                              {item.dimensions} ({item.area?.toFixed(2).replace('.', ',')} m²)
                                           </p>
                                        )}
                                     </div>
                                  </div>
 
-                                 <div className="flex items-center gap-3 shrink-0 ml-2">
-                                    <div className="flex items-center gap-1 bg-slate-900/5 rounded-md p-0.5 border border-slate-900/10">
+                                 <div className="flex items-center gap-1.5 sm:gap-3 shrink-0 ml-1 sm:ml-2">
+                                    <div className="flex items-center gap-0.5 sm:gap-1 bg-slate-900/5 rounded-md p-0.5 border border-slate-900/10">
                                        <button
                                           onClick={() => updateCartQty(idx, -1)}
-                                          className="w-4 h-4 rounded bg-white text-slate-800 font-black text-[9px] flex items-center justify-center hover:bg-rose-500 hover:text-white transition-all cursor-pointer"
+                                          className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded bg-white text-slate-800 font-black text-[8px] sm:text-[9px] flex items-center justify-center hover:bg-rose-500 hover:text-white transition-all cursor-pointer"
                                           title="Diminuir"
                                        >
                                           -
                                        </button>
-                                       <span className="text-[9px] font-black px-1 text-slate-900">{item.quantity}</span>
+                                       <span className="text-[8px] sm:text-[9px] font-black px-0.5 sm:px-1 text-slate-900">{item.quantity}</span>
                                        <button
                                           onClick={() => updateCartQty(idx, 1)}
-                                          className="w-4 h-4 rounded bg-white text-slate-800 font-black text-[9px] flex items-center justify-center hover:bg-emerald-500 hover:text-white transition-all cursor-pointer"
+                                          className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded bg-white text-slate-800 font-black text-[8px] sm:text-[9px] flex items-center justify-center hover:bg-emerald-500 hover:text-white transition-all cursor-pointer"
                                           title="Aumentar"
                                        >
                                           +
                                        </button>
                                     </div>
 
-                                    <span className="text-[10px] font-black text-slate-900 tracking-tight min-w-[60px] text-right">
+                                    <span className="text-[9px] sm:text-[10px] font-black text-slate-900 tracking-tight min-w-[48px] sm:min-w-[60px] text-right">
                                        R$ {itemSubtotal.toFixed(2).replace('.', ',')}
                                     </span>
 
                                     <button
                                        onClick={() => removeFromCart(idx)}
-                                       className="text-slate-400 hover:text-rose-600 transition-colors p-1 cursor-pointer"
+                                       className="text-slate-400 hover:text-rose-600 transition-colors p-0.5 sm:p-1 cursor-pointer"
                                        title="Remover Item"
                                     >
-                                       <Trash2 size={12} />
+                                       <Trash2 size={11} className="sm:hidden" />
+                                       <Trash2 size={12} className="hidden sm:block" />
                                     </button>
                                  </div>
                               </div>
