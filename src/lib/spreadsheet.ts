@@ -22,6 +22,15 @@ function cellStr(v: any): string | undefined {
   return s === '' || s.toLowerCase() === 'nan' ? undefined : s;
 }
 
+// Normaliza variacoes de "unidade" (un, UN, Unidade, UNIDADE...) para um valor unico
+function normalizeUnidade(v: string | undefined): string {
+  if (!v) return 'un';
+  const s = v.trim().toLowerCase();
+  if (s === 'un' || s === 'unidade' || s === 'und' || s === 'unid') return 'un';
+  if (s === 'm2' || s === 'm²') return 'm2';
+  return v.trim();
+}
+
 // ================= CLIENTES =================
 export interface ClienteRow {
   full_name: string;
@@ -134,7 +143,7 @@ export function parseProdutosXlsx(data: ArrayBuffer): ProdutoRow[] {
       code: codeStr,
       category: cellStr(r['CATEGORIA']),
       subcategoria: cellStr(r['SUBCATEGORIA']),
-      unit: cellStr(r['UNIDADE']) || 'unidade',
+      unit: normalizeUnidade(cellStr(r['UNIDADE'])),
       cost_price: parseNumberBR(r['CUSTO']),
       sale_price: parseNumberBR(r['VAREJO']),
       preco_atacado: parseNumberBR(r['ATACADO']),

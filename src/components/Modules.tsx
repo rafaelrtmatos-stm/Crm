@@ -8319,6 +8319,12 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
   const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
+  const [isImportPreviewOpen, setIsImportPreviewOpen] = useState(false);
+  const [importPreviewRows, setImportPreviewRows] = useState<any[]>([]);
+  const [importFileName, setImportFileName] = useState('');
+  const [negStockChoice, setNegStockChoice] = useState<'manter' | 'zerar'>('manter');
+  const [isConfirmingImport, setIsConfirmingImport] = useState(false);
+
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -8327,23 +8333,47 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
       const buffer = await file.arrayBuffer();
       const rows = parseProdutosXlsx(buffer);
       if (rows.length === 0) {
-        alert('Nenhum produto válido encontrado na planilha. Confira se o modelo de colunas está correto.');
+        alert('Nenhum produto válido encontrado na planilha. Confira se a coluna DESCRIÇÃO está preenchida — é o único campo obrigatório.');
         return;
       }
+      setImportPreviewRows(rows);
+      setImportFileName(file.name);
+      setNegStockChoice('manter');
+      setIsImportPreviewOpen(true);
+    } catch (err) {
+      console.error('Erro ao ler a planilha:', err);
+      alert('Não foi possível ler o arquivo. Confira se é um .xlsx válido.');
+    } finally {
+      setIsImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
-      // Busca os produtos ja cadastrados pra decidir Atualizar (mesmo Codigo) x Cadastrar novo
-      const { data: existentes } = await supabase.from('produtos').select('id, code');
+  const confirmImportProdutos = async () => {
+    setIsConfirmingImport(true);
+    try {
+      const rows = importPreviewRows.map(r => ({
+        ...r,
+        current_stock: r.current_stock < 0 && negStockChoice === 'zerar' ? 0 : r.current_stock,
+      }));
+
+      // Busca os produtos ja cadastrados pra decidir Atualizar x Cadastrar novo (por Codigo, depois por Nome)
+      const { data: existentes } = await supabase.from('produtos').select('id, code, name');
       const porCodigo = new Map<string, string>();
+      const porNome = new Map<string, string>();
       (existentes || []).forEach((p: any) => {
         const cod = (p.code || '').toString().trim();
+        const nome = (p.name || '').toString().trim().toLowerCase();
         if (cod) porCodigo.set(cod, p.id);
+        if (nome) porNome.set(nome, p.id);
       });
 
       const paraInserir: any[] = [];
       const paraAtualizar: { id: string; row: any }[] = [];
       for (const row of rows) {
         const cod = (row.code || '').toString().trim();
-        const idExistente = cod && porCodigo.get(cod);
+        const nome = (row.name || '').toString().trim().toLowerCase();
+        const idExistente = (cod && porCodigo.get(cod)) || (nome && porNome.get(nome));
         if (idExistente) {
           paraAtualizar.push({ id: idExistente, row });
         } else {
@@ -8351,22 +8381,41 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
         }
       }
 
+      const falhas: string[] = [];
+      let novos = 0, atualizados = 0;
+
+      // Insere em lote; se o lote falhar, tenta linha por linha pra nao perder o arquivo inteiro por 1 produto ruim
       const batchSize = 200;
       for (let i = 0; i < paraInserir.length; i += batchSize) {
-        const { error } = await supabase.from('produtos').insert(paraInserir.slice(i, i + batchSize));
-        if (error) throw error;
+        const slice = paraInserir.slice(i, i + batchSize);
+        const { error } = await supabase.from('produtos').insert(slice);
+        if (!error) {
+          novos += slice.length;
+        } else {
+          for (const row of slice) {
+            const { error: rowError } = await supabase.from('produtos').insert(row);
+            if (rowError) falhas.push(`${row.name || 'sem nome'} (${row.code || 's/código'}): ${rowError.message}`);
+            else novos += 1;
+          }
+        }
       }
       for (const { id, row } of paraAtualizar) {
-        await supabase.from('produtos').update(row).eq('id', id);
+        const { error } = await supabase.from('produtos').update(row).eq('id', id);
+        if (error) falhas.push(`${row.name || 'sem nome'} (${row.code || 's/código'}): ${error.message}`);
+        else atualizados += 1;
       }
 
-      alert(`${paraInserir.length} produto(s) novo(s) cadastrado(s) e ${paraAtualizar.length} atualizado(s)!`);
-    } catch (err) {
+      setIsImportPreviewOpen(false);
+      if (falhas.length > 0) {
+        alert(`${novos} novo(s) cadastrado(s), ${atualizados} atualizado(s).\n\n${falhas.length} produto(s) NÃO foram importados:\n${falhas.slice(0, 10).join('\n')}${falhas.length > 10 ? `\n... e mais ${falhas.length - 10}` : ''}`);
+      } else {
+        alert(`${novos} produto(s) novo(s) cadastrado(s) e ${atualizados} atualizado(s) com sucesso!`);
+      }
+    } catch (err: any) {
       console.error('Erro ao importar produtos:', err);
-      alert('Não foi possível importar a planilha. Confira se o modelo de colunas está correto.');
+      alert(`Não foi possível importar: ${err?.message || 'erro desconhecido'}`);
     } finally {
-      setIsImporting(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      setIsConfirmingImport(false);
     }
   };
 
@@ -8431,6 +8480,69 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
         </div>
         <DataTable columns={columns} data={items} />
       </GlassCard>
+
+      {isImportPreviewOpen && (() => {
+        const semCodigo = importPreviewRows.filter(r => !r.code).length;
+        const comNegativo = importPreviewRows.filter(r => r.current_stock < 0);
+        return (
+          <Modal isOpen={isImportPreviewOpen} onClose={() => setIsImportPreviewOpen(false)} title="Importação de Estoque" size="md">
+            <div className="space-y-5">
+              <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-2">
+                 <p className="text-[9px] font-black uppercase text-white/30 tracking-widest">Arquivo</p>
+                 <p className="text-sm font-bold text-white truncate">{importFileName}</p>
+                 <div className="grid grid-cols-3 gap-3 pt-2 border-t border-white/5">
+                    <div>
+                       <p className="text-[8px] font-black uppercase text-white/30">Produtos</p>
+                       <p className="text-lg font-black text-white">{importPreviewRows.length}</p>
+                    </div>
+                    <div>
+                       <p className="text-[8px] font-black uppercase text-white/30">Sem Código</p>
+                       <p className="text-lg font-black text-amber-400">{semCodigo}</p>
+                    </div>
+                    <div>
+                       <p className="text-[8px] font-black uppercase text-white/30">Estoque Negativo</p>
+                       <p className="text-lg font-black text-rose-400">{comNegativo.length}</p>
+                    </div>
+                 </div>
+              </div>
+
+              {comNegativo.length > 0 && (
+                <div className="bg-rose-500/5 border border-rose-500/20 rounded-2xl p-4 space-y-3">
+                   <p className="text-xs font-bold text-rose-300">⚠ Existem produtos com estoque negativo. O que fazer?</p>
+                   <div className="space-y-1 max-h-24 overflow-y-auto custom-scrollbar text-[10px] text-white/50">
+                      {comNegativo.slice(0, 6).map((r, i) => (
+                        <p key={i}>{r.name}: <span className="text-rose-400 font-bold">{r.current_stock}</span></p>
+                      ))}
+                      {comNegativo.length > 6 && <p className="text-white/30">... e mais {comNegativo.length - 6}</p>}
+                   </div>
+                   <div className="flex gap-2">
+                      <button onClick={() => setNegStockChoice('manter')} className={cn("flex-1 h-10 rounded-xl text-[10px] font-black uppercase border-2", negStockChoice === 'manter' ? "bg-rose-500 border-rose-600 text-white" : "bg-white/5 border-white/10 text-white/40")}>Manter Valor Negativo</button>
+                      <button onClick={() => setNegStockChoice('zerar')} className={cn("flex-1 h-10 rounded-xl text-[10px] font-black uppercase border-2", negStockChoice === 'zerar' ? "bg-primary-500 border-primary-600 text-slate-900" : "bg-white/5 border-white/10 text-white/40")}>Converter para Zero</button>
+                   </div>
+                </div>
+              )}
+
+              <div className="max-h-56 overflow-y-auto custom-scrollbar space-y-1">
+                 {importPreviewRows.slice(0, 30).map((r, i) => (
+                   <div key={i} className="flex items-center justify-between gap-2 px-3 py-1.5 bg-white/5 rounded-lg text-[10px]">
+                      <span className="text-white truncate flex-1">{r.name}</span>
+                      <span className="text-white/30 shrink-0">{r.code || 's/código'}</span>
+                      <span className={cn("shrink-0 font-bold", r.current_stock < 0 ? "text-rose-400" : "text-white/50")}>{r.current_stock} {r.unit}</span>
+                   </div>
+                 ))}
+                 {importPreviewRows.length > 30 && <p className="text-[9px] text-white/30 text-center py-1">... e mais {importPreviewRows.length - 30} produto(s)</p>}
+              </div>
+
+              <div className="flex justify-end gap-3 pt-1">
+                 <Button variant="ghost" onClick={() => setIsImportPreviewOpen(false)}>Cancelar</Button>
+                 <Button disabled={isConfirmingImport} onClick={confirmImportProdutos} className="bg-primary-500 text-slate-900 border-none">
+                   {isConfirmingImport ? 'Importando...' : 'Confirmar Importação'}
+                 </Button>
+              </div>
+            </div>
+          </Modal>
+        );
+      })()}
 
       <Modal isOpen={isModalOpen} onClose={() => { setIsModalOpen(false); setEditingItemId(null); }} title={editingItemId ? 'EDITAR ITEM' : 'CADASTRO DE INSUMO / PRODUTO'}>
         <div className="p-6 space-y-6">
