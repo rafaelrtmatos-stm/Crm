@@ -4195,6 +4195,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const value = newPaymentMode === 'percentual' ? Number(((total * rawInput) / 100).toFixed(2)) : rawInput;
     if (value <= 0) { alert('Digite um valor válido para o pagamento.'); return; }
     setPaymentEntries(prev => [...prev, { method: newPaymentMethod, value, date: new Date().toISOString() }]);
+    setNewPaymentMode('valor');
   };
 
   const removePaymentEntry = (idx: number) => {
