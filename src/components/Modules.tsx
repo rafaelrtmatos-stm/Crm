@@ -3349,7 +3349,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
   const [allCustomers, setAllCustomers] = useState<any[]>([]);
   const [isLoadingCustomers, setIsLoadingCustomers] = useState(false);
-  const [customerSalesStats, setCustomerSalesStats] = useState<Record<string, { total: number; count: number; lastDate: string | null; hasPending: boolean }>>({});
+  const [customerSalesStats, setCustomerSalesStats] = useState<Record<string, { total: number; count: number; lastDate: string | null; hasPending: boolean; pendingBalance: number }>>({});
   const [customerSortBy, setCustomerSortBy] = useState<'recentes' | 'az' | 'ultima_compra' | 'maior_valor' | 'frequentes'>('recentes');
 
   // --- Cadastro (rápido + mais opções) ---
@@ -3388,17 +3388,22 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       setAllCustomers(data || []);
       // Agrega estatisticas de vendas por cliente (busca leve, so campos necessarios)
       const { data: vendasData } = await supabase.from('vendas').select('cliente_id, total, status, down_payment, created_at');
-      const stats: Record<string, { total: number; count: number; lastDate: string | null; hasPending: boolean }> = {};
+      const stats: Record<string, { total: number; count: number; lastDate: string | null; hasPending: boolean; pendingBalance: number }> = {};
       (vendasData || []).forEach((v: any) => {
         if (!v.cliente_id) return;
-        if (!stats[v.cliente_id]) stats[v.cliente_id] = { total: 0, count: 0, lastDate: null, hasPending: false };
+        if (!stats[v.cliente_id]) stats[v.cliente_id] = { total: 0, count: 0, lastDate: null, hasPending: false, pendingBalance: 0 };
         stats[v.cliente_id].total += Number(v.total) || 0;
         stats[v.cliente_id].count += 1;
         if (!stats[v.cliente_id].lastDate || new Date(v.created_at) > new Date(stats[v.cliente_id].lastDate!)) {
           stats[v.cliente_id].lastDate = v.created_at;
         }
         const down = Number(v.down_payment) || 0;
-        if (v.status === 'pending' || down < Number(v.total)) stats[v.cliente_id].hasPending = true;
+        const vTotal = Number(v.total) || 0;
+        const balance = Math.max(0, vTotal - down);
+        if ((v.status === 'pending' || balance > 0) && v.status !== 'canceled') {
+          stats[v.cliente_id].hasPending = true;
+          stats[v.cliente_id].pendingBalance += balance;
+        }
       });
       setCustomerSalesStats(stats);
     } catch (err) {
@@ -3630,6 +3635,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const clearPaymentFilters = () => setSelectedPaymentFilters(new Set());
 
   const [historySearch, setHistorySearch] = useState('');
+  const [historyDateFrom, setHistoryDateFrom] = useState('');
+  const [historyDateTo, setHistoryDateTo] = useState('');
   const [historyViewMode, setHistoryViewMode] = useState<'miniatura' | 'normal' | 'lista'>('normal');
   const [historySortOrder, setHistorySortOrder] = useState<'desc' | 'asc'>('desc');
 
@@ -3811,17 +3818,25 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   }, [allSalesHistory, historySortOrder]);
 
   const filteredSalesHistory = useMemo(() => {
+    const fromDate = historyDateFrom ? new Date(historyDateFrom + 'T00:00:00') : null;
+    const toDate = historyDateTo ? new Date(historyDateTo + 'T23:59:59') : null;
     const filtered = allSalesHistory.filter(sale => {
       if (!matchesOrderStatusGroup(sale, selectedOrderStatusFilters)) return false;
       if (!matchesPaymentGroup(sale, selectedPaymentFilters)) return false;
       if (!matchesHistorySearch(sale)) return false;
+      if (fromDate || toDate) {
+        const saleDate = new Date(sale.createdAt);
+        if (isNaN(saleDate.getTime())) return false;
+        if (fromDate && saleDate < fromDate) return false;
+        if (toDate && saleDate > toDate) return false;
+      }
       return true;
     });
     return filtered.sort((a, b) => {
       const diff = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       return historySortOrder === 'desc' ? diff : -diff;
     });
-  }, [allSalesHistory, selectedOrderStatusFilters, selectedPaymentFilters, historySearch, historySortOrder]);
+  }, [allSalesHistory, selectedOrderStatusFilters, selectedPaymentFilters, historySearch, historySortOrder, historyDateFrom, historyDateTo]);
 
   const handleToggleSelectAll = () => {
     setSelectedSaleIds(prev => {
@@ -4748,6 +4763,36 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
               <div className="w-px h-6 bg-white/10 shrink-0" />
 
+              {/* Grupo 1.5: Período personalizado */}
+              <div className="flex items-center gap-1 shrink-0">
+                <input
+                  type="date"
+                  value={historyDateFrom}
+                  onChange={(e) => setHistoryDateFrom(e.target.value)}
+                  title="De"
+                  className="bg-white/5 border border-white/10 rounded-lg px-1.5 py-2 text-[10px] text-white/70 focus:outline-none focus:border-primary-500 w-[108px]"
+                />
+                <span className="text-white/20 text-[9px]">até</span>
+                <input
+                  type="date"
+                  value={historyDateTo}
+                  onChange={(e) => setHistoryDateTo(e.target.value)}
+                  title="Até"
+                  className="bg-white/5 border border-white/10 rounded-lg px-1.5 py-2 text-[10px] text-white/70 focus:outline-none focus:border-primary-500 w-[108px]"
+                />
+                {(historyDateFrom || historyDateTo) && (
+                  <button
+                    onClick={() => { setHistoryDateFrom(''); setHistoryDateTo(''); }}
+                    title="Limpar período"
+                    className="p-1.5 rounded-lg bg-white/5 text-white/40 hover:text-rose-400 transition-colors"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+
+              <div className="w-px h-6 bg-white/10 shrink-0" />
+
               {/* Grupo 2: Ordenação & Visualização */}
               <div className="flex items-center gap-1.5 shrink-0">
                 <button
@@ -5340,7 +5385,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                      const stats = c._stats;
                      const isVip = !!c.is_vip;
                      const hasDebt = (c.dividas_em_aberto || 0) > 0;
-                     const hasPending = !!stats?.hasPending;
+                     const pendingBalance = stats?.pendingBalance || 0;
+                     const hasPending = pendingBalance > 0;
                      const isActive = !!(stats?.lastDate && (Date.now() - new Date(stats.lastDate).getTime()) < 90 * 24 * 60 * 60 * 1000);
                      return (
                        <div key={c.id} className="w-full p-4 rounded-2xl border bg-white/5 border-white/5 hover:bg-white/10 transition-all group relative">
@@ -5356,7 +5402,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                   <div className="flex items-center gap-1.5 flex-wrap">
                                      <span className="font-bold text-white truncate">{c.full_name}</span>
                                      {isActive && <span title="Cliente Ativo">🟢</span>}
-                                     {hasPending && <span title="Possui Entrada Pendente">🟡</span>}
                                      {hasDebt && <span title="Possui Débitos">🔴</span>}
                                      {isVip && <span title="Cliente VIP">⭐</span>}
                                   </div>
@@ -5369,6 +5414,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                     <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-[10px]">
                                        <span className="text-emerald-400 font-bold">Total: R$ {stats.total.toFixed(2).replace('.', ',')}</span>
                                        {stats.lastDate && <span className="text-white/30">Última compra: {format(new Date(stats.lastDate), 'dd/MM/yyyy')}</span>}
+                                    </div>
+                                  )}
+                                  {hasPending && (
+                                    <div className="mt-1.5 inline-flex items-center gap-1.5 px-2 py-1 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                                       <span className="text-[8px] font-black uppercase text-amber-400 tracking-wider">Conta em Aberto:</span>
+                                       <span className="text-[11px] font-black text-amber-300">R$ {pendingBalance.toFixed(2).replace('.', ',')}</span>
                                     </div>
                                   )}
                                </div>
@@ -5726,29 +5777,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  </div>
 
                  {remainingValue > 0 && (
-                   <div className="grid grid-cols-2 gap-1.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => setIsScheduleModalOpen(true)}
-                        className={cn(
-                          "h-8 sm:h-9 rounded-lg border flex items-center justify-center gap-1.5 text-[8.5px] sm:text-[9px] font-black uppercase tracking-wider transition-all active:scale-95",
-                          scheduledFor ? "bg-primary-500/10 border-primary-500/30 text-primary-300" : "bg-white/5 border-white/10 text-white/50 hover:text-white hover:border-white/20"
-                        )}
-                      >
-                        <CalendarClock size={12} />
-                        {scheduledFor ? safeFormat(scheduledFor, 'dd/MM HH:mm') : 'Agendar Entrega'}
-                      </button>
-                      <select
-                        value={pendingPaymentMethod}
-                        onChange={(e) => setPendingPaymentMethod(e.target.value)}
-                        className="h-8 sm:h-9 rounded-lg bg-white/5 border border-white/10 px-2 text-[8.5px] sm:text-[9px] font-black uppercase text-white/60 focus:outline-none focus:border-primary-500 cursor-pointer"
-                      >
-                        <option value="" className="bg-slate-900">Forma Prevista p/ Saldo</option>
-                        {PAYMENT_METHOD_OPTIONS.map(m => (
-                          <option key={m.id} value={m.id} className="bg-slate-900">{m.label}</option>
-                        ))}
-                      </select>
-                   </div>
+                   <button
+                     type="button"
+                     onClick={() => setIsScheduleModalOpen(true)}
+                     className={cn(
+                       "w-full h-8 sm:h-9 rounded-lg border flex items-center justify-center gap-1.5 text-[8.5px] sm:text-[9px] font-black uppercase tracking-wider transition-all active:scale-95 shrink-0",
+                       scheduledFor ? "bg-primary-500/10 border-primary-500/30 text-primary-300" : "bg-white/5 border-white/10 text-white/50 hover:text-white hover:border-white/20"
+                     )}
+                   >
+                     <CalendarClock size={12} />
+                     {scheduledFor ? safeFormat(scheduledFor, 'dd/MM HH:mm') : 'Agendar Entrega'}
+                   </button>
                  )}
               </div>
            </div>
