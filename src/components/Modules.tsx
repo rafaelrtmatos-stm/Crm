@@ -180,6 +180,13 @@ import { renderReceiptCanvas, downloadCanvasAsPng, downloadCanvasAsPdf } from '.
 import { exportClientesXlsx, parseClientesXlsx, exportProdutosXlsx, parseProdutosXlsx, exportVendasXlsx, parseVendasXlsx } from '../lib/spreadsheet';
 import { format } from 'date-fns';
 
+// Formata uma data com fallback seguro — evita "RangeError: Invalid time value"
+// quando vendas importadas de planilha tem um createdAt malformado ou vazio.
+function safeFormat(value: any, fmt: string, fallback: string = '—'): string {
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? fallback : format(d, fmt);
+}
+
 import { 
   calculateSLA, 
   extractTracking, 
@@ -419,8 +426,11 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
 
   const chartData = useMemo(() => {
     const groups: Record<string, any> = {};
+    const isValidDate = (d: Date) => d instanceof Date && !isNaN(d.getTime());
     filteredOrders.forEach(o => {
-      const day = format(new Date(o.createdAt), 'dd/MM');
+      const dateObj = new Date(o.createdAt);
+      if (!isValidDate(dateObj)) return;
+      const day = format(dateObj, 'dd/MM');
       if (!groups[day]) groups[day] = { day, total: 0, sales: 0, svcs: 0, entries: 0 };
       const val = o.status === 'pending' ? (o.downPayment || 0) : (o.total || 0);
       groups[day].total += val;
@@ -429,6 +439,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     });
     services.forEach(s => {
       const date = s.createdAt instanceof Timestamp ? s.createdAt.toDate() : new Date(s.createdAt);
+      if (!isValidDate(date)) return;
       const day = format(date, 'dd/MM');
       if (groups[day]) groups[day].svcs += 1;
       else groups[day] = { day, total: 0, sales: 0, svcs: 1, entries: 0 };
@@ -671,7 +682,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                           <div className="space-y-0.5">
                              <p className="text-[9px] text-white/30 truncate max-w-[140px] italic line-clamp-1">{s.service || 'Serviço s/ descrição'}</p>
                              <p className="text-[8px] text-white/40 uppercase font-bold">RESP: {s.responsibleName || s.responsible || 'Responsável'}</p>
-                             <p className="text-[7px] text-white/20">{s.createdAt ? format(new Date(s.createdAt), 'dd/MM HH:mm') : ''}</p>
+                             <p className="text-[7px] text-white/20">{s.createdAt ? safeFormat(s.createdAt, 'dd/MM HH:mm') : ''}</p>
                           </div>
                           <Badge variant={s.status === 'producao' ? 'primary' : 'warning'} className="text-[8px] h-5 px-1.5 uppercase font-black leading-none">
                             {s.status === 'producao' ? 'Em Produção' : 'Pendente'}
@@ -780,7 +791,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                  pendingEntries.map((o, idx) => {
                     const balance = o.total - (o.downPayment || 0);
                     const type = o.paymentMethod ? o.paymentMethod.replace('_', ' ') : 'Geral';
-                    const dateStr = format(new Date(o.createdAt), 'dd/MM/yyyy');
+                    const dateStr = safeFormat(o.createdAt, 'dd/MM/yyyy');
                     const domainStr = o.items?.[0]?.name ? 'Gráfica' : 'Serviços';
                     return (
                       <div 
@@ -916,7 +927,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                     <div key={o.id} className="p-4 bg-white/5 rounded-2xl flex justify-between items-center">
                        <div>
                           <p className="text-xs font-bold text-white uppercase">{o.customerName || 'Cliente Balcão'}</p>
-                          <p className="text-[9px] text-white/30 uppercase font-black">{format(new Date(o.createdAt), 'dd/MM HH:mm')}</p>
+                          <p className="text-[9px] text-white/30 uppercase font-black">{safeFormat(o.createdAt, 'dd/MM HH:mm')}</p>
                        </div>
                        <p className="text-sm font-black text-emerald-400">R$ {o.total.toFixed(2).replace('.', ',')}</p>
                     </div>
@@ -3787,7 +3798,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const balance = Math.max(0, total - down);
     const isPending = balance > 0 || order.status === 'pending';
     const itemsText = order.items.map(i => `• ${i.quantity}x ${i.name} (R$ ${((i.area ? i.price * i.area : i.price) * i.quantity).toFixed(2).replace('.', ',')})`).join('\n');
-    const deliveryStr = order.scheduledFor ? `\n📅 *Previsão de Entrega:* ${format(new Date(order.scheduledFor), 'dd/MM/yyyy HH:mm')}` : '';
+    const deliveryStr = order.scheduledFor ? `\n📅 *Previsão de Entrega:* ${safeFormat(order.scheduledFor, 'dd/MM/yyyy HH:mm')}` : '';
     return `Olá *${customerName || 'Cliente'}*!\n\nSegue resumo do seu pedido *#${order.id.slice(-8).toUpperCase()}* na *${currentCompany?.name || 'Rafa Arts Graphics'}*:\n\n${itemsText}\n\n💰 *Total do Pedido:* R$ ${total.toFixed(2).replace('.', ',')}\n✅ *Valor Recebido (Entrada):* R$ ${down.toFixed(2).replace('.', ',')}${isPending ? `\n🔴 *Valor que Falta Pagar:* R$ ${balance.toFixed(2).replace('.', ',')}` : '\n🎉 *Status:* 100% Quitado'}${deliveryStr}\n\nObrigado pela preferência!`;
   };
 
@@ -4825,7 +4836,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           <div className="flex-1 min-w-0 flex items-center gap-3">
                             <span className="text-[11px] font-black text-white truncate">{sale.customerName || 'Cliente de Balcão'}</span>
                             <span className="text-[9px] text-white/30 font-mono shrink-0">#{sale.id.slice(-8).toUpperCase()}</span>
-                            <span className="text-[9px] text-white/30 shrink-0 hidden sm:inline">{format(new Date(sale.createdAt), 'dd/MM HH:mm')}</span>
+                            <span className="text-[9px] text-white/30 shrink-0 hidden sm:inline">{safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
                           </div>
                           <Badge className={cn("text-[7.5px] font-black uppercase px-1.5 py-0.5 border-none shrink-0", isPartial ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300")}>
                             {isPartial ? 'PARCIAL' : 'QUITADO'}
@@ -4919,14 +4930,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                   {isPartial ? 'ENTRADA PAGA (FALTA SALDO)' : '100% QUITADO'}
                                 </Badge>
                               </div>
-                              <p className="text-[9px] text-white/30 font-mono mt-0.5">#{sale.id.slice(-8).toUpperCase()} • {format(new Date(sale.createdAt), 'dd/MM/yyyy HH:mm')}</p>
+                              <p className="text-[9px] text-white/30 font-mono mt-0.5">#{sale.id.slice(-8).toUpperCase()} • {safeFormat(sale.createdAt, 'dd/MM/yyyy HH:mm')}</p>
                             </div>
                           </div>
                           
                           {sale.scheduledFor && (
                             <div className="bg-primary-500/10 border border-primary-500/20 rounded-xl px-2.5 py-1 text-right">
                               <span className="text-[7.5px] font-black uppercase text-primary-300 tracking-wider block">Entrega Agendada</span>
-                              <span className="text-[9.5px] font-bold text-white">{format(new Date(sale.scheduledFor), 'dd/MM/yyyy HH:mm')}</span>
+                              <span className="text-[9.5px] font-bold text-white">{safeFormat(sale.scheduledFor, 'dd/MM/yyyy HH:mm')}</span>
                             </div>
                           )}
                         </div>
@@ -5072,10 +5083,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       <div className="flex-1 min-w-0 flex items-center gap-3 flex-wrap">
                         <span className="text-[11px] font-black text-white truncate">{sale.customerName || 'Cliente de Balcão'}</span>
                         <span className="text-[9px] text-white/30 font-mono shrink-0">#{sale.id.slice(-8).toUpperCase()}</span>
-                        <span className="text-[9px] text-white/30 shrink-0">{format(new Date(sale.createdAt), 'dd/MM HH:mm')}</span>
+                        <span className="text-[9px] text-white/30 shrink-0">{safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
                         {sale.scheduledFor && (
                           <span className="text-[8.5px] font-black uppercase bg-primary-500/10 text-primary-300 px-2 py-0.5 rounded-full border border-primary-500/20 shrink-0">
-                            Entrega: {format(new Date(sale.scheduledFor), 'dd/MM HH:mm')}
+                            Entrega: {safeFormat(sale.scheduledFor, 'dd/MM HH:mm')}
                           </span>
                         )}
                       </div>
@@ -5202,7 +5213,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                   <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-[10px] text-white/40">
                                      {c.phone && <span>{c.phone}</span>}
                                      {c.city && <span>{c.city}</span>}
-                                     {c.created_at && <span>Desde {format(new Date(c.created_at), 'dd/MM/yyyy')}</span>}
+                                     {c.created_at && <span>Desde {safeFormat(c.created_at, 'dd/MM/yyyy')}</span>}
                                   </div>
                                   {stats && (
                                     <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-[10px]">
@@ -5496,7 +5507,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                            )}
                          >
                            <CalendarClock size={13} />
-                           {scheduledFor ? `Entrega: ${format(new Date(scheduledFor), 'dd/MM/yyyy HH:mm')}` : 'Agendar Entrega'}
+                           {scheduledFor ? `Entrega: ${safeFormat(scheduledFor, 'dd/MM/yyyy HH:mm')}` : 'Agendar Entrega'}
                          </button>
                       </div>
                     )}
@@ -5675,7 +5686,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 {lastFinalizedOrder?.scheduledFor && (
                    <div className="flex justify-between text-[10px] text-primary-300 font-black bg-primary-500/10 p-2 rounded-lg border border-primary-500/20 mt-1.5">
                       <span>Entrega Agendada:</span>
-                      <span className="font-mono">{format(new Date(lastFinalizedOrder.scheduledFor), 'dd/MM/yyyy HH:mm')}</span>
+                      <span className="font-mono">{safeFormat(lastFinalizedOrder?.scheduledFor, 'dd/MM/yyyy HH:mm')}</span>
                    </div>
                 )}
              </div>
@@ -5752,12 +5763,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                      <div class="header">
                        <div style="font-size:14px;">${currentCompany?.name || 'Rafa Arts Graphics'}</div>
                        <div>COMPROVANTE DE PEDIDO / OS</div>
-                       <div>Ped #${order.id.slice(-8).toUpperCase()} - ${format(new Date(order.createdAt), 'dd/MM/yyyy HH:mm')}</div>
+                       <div>Ped #${order.id.slice(-8).toUpperCase()} - ${safeFormat(order.createdAt, 'dd/MM/yyyy HH:mm')}</div>
                      </div>
                      <div>
                        <strong>Cliente:</strong> ${order.customerName || 'Cliente de Balcão'}<br/>
                        ${selectedCustomer?.phone ? `<strong>Telefone:</strong> ${selectedCustomer.phone}<br/>` : ''}
-                       ${order.scheduledFor ? `<strong>Previsão Entrega:</strong> ${format(new Date(order.scheduledFor), 'dd/MM/yyyy HH:mm')}<br/>` : ''}
+                       ${order.scheduledFor ? `<strong>Previsão Entrega:</strong> ${safeFormat(order.scheduledFor, 'dd/MM/yyyy HH:mm')}<br/>` : ''}
                      </div>
                      <table>
                        <thead>
@@ -6177,7 +6188,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
              <div className="flex items-center justify-between border-b border-white/5 pb-3">
                <div>
                  <h3 className="text-lg font-black text-white uppercase">Pedido #{sale.id.slice(-8).toUpperCase()}</h3>
-                 <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest">{format(new Date(sale.createdAt), 'dd/MM/yyyy HH:mm')}</p>
+                 <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest">{safeFormat(sale.createdAt, 'dd/MM/yyyy HH:mm')}</p>
                </div>
                <Badge className={cn("text-[9px] font-black uppercase px-2.5 py-1 border-none", isPending ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300")}>
                  {isPending ? 'EM ABERTO' : 'QUITADO'}
