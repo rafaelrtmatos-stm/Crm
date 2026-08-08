@@ -3563,41 +3563,57 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [isVerifying, setIsVerifying] = useState(false);
   const [salesToday, setSalesToday] = useState<SaleOrder[]>([]);
   const [allSalesHistory, setAllSalesHistory] = useState<SaleOrder[]>([]);
-  type StatusFilterId =
-    'em_aberto' | 'entrada_pendente' | 'parcial' | 'quitado' |
-    'aguardando_arte' | 'aguardando_aprovacao' | 'em_producao' | 'acabamento' | 'pronto' |
-    'agendado' | 'em_rota' | 'entregue' | 'cancelado';
-  const [selectedStatusFilters, setSelectedStatusFilters] = useState<Set<StatusFilterId>>(new Set());
-  const MAX_STATUS_FILTERS = 4;
-  const toggleStatusFilter = (id: StatusFilterId) => {
-    setSelectedStatusFilters(prev => {
+  type OrderStatusFilterId = 'em_aberto' | 'entrada_recebida' | 'quitado' | 'entregue' | 'cancelado';
+  type PaymentFilterId = 'pix' | 'dinheiro' | 'cartao_debito' | 'cartao_credito' | 'transferencia' | 'boleto' | 'crediario';
+
+  const [selectedOrderStatusFilters, setSelectedOrderStatusFilters] = useState<Set<OrderStatusFilterId>>(new Set());
+  const toggleOrderStatusFilter = (id: OrderStatusFilterId) => {
+    setSelectedOrderStatusFilters(prev => {
       const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        if (next.size >= MAX_STATUS_FILTERS) return prev; // limite de 4 classificacoes simultaneas
-        next.add(id);
-      }
+      next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
   };
-  const clearStatusFilters = () => setSelectedStatusFilters(new Set());
+  const clearOrderStatusFilters = () => setSelectedOrderStatusFilters(new Set());
+
+  const [selectedPaymentFilters, setSelectedPaymentFilters] = useState<Set<PaymentFilterId>>(new Set());
+  const togglePaymentFilter = (id: PaymentFilterId) => {
+    setSelectedPaymentFilters(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+  const clearPaymentFilters = () => setSelectedPaymentFilters(new Set());
+
   const [historySearch, setHistorySearch] = useState('');
   const [historyViewMode, setHistoryViewMode] = useState<'miniatura' | 'normal' | 'lista'>('normal');
   const [historySortOrder, setHistorySortOrder] = useState<'desc' | 'asc'>('desc');
-  const [isStatusFilterOpen, setIsStatusFilterOpen] = useState(false);
-  const statusFilterRef = React.useRef<HTMLDivElement>(null);
-  const statusFilterBtnRef = React.useRef<HTMLButtonElement>(null);
-  const statusDropdownMenuRef = React.useRef<HTMLDivElement>(null);
-  const [statusDropdownPos, setStatusDropdownPos] = useState<{ top: number; left: number; width: number } | null>(null);
+
+  // Dropdown "Status do Pedido"
+  const [isOrderStatusOpen, setIsOrderStatusOpen] = useState(false);
+  const orderStatusRef = React.useRef<HTMLDivElement>(null);
+  const orderStatusBtnRef = React.useRef<HTMLButtonElement>(null);
+  const orderStatusMenuRef = React.useRef<HTMLDivElement>(null);
+  const [orderStatusPos, setOrderStatusPos] = useState<{ top: number; left: number; width: number } | null>(null);
+
+  // Dropdown "Forma de Pagamento"
+  const [isPaymentFilterOpen, setIsPaymentFilterOpen] = useState(false);
+  const paymentFilterRef = React.useRef<HTMLDivElement>(null);
+  const paymentFilterBtnRef = React.useRef<HTMLButtonElement>(null);
+  const paymentFilterMenuRef = React.useRef<HTMLDivElement>(null);
+  const [paymentFilterPos, setPaymentFilterPos] = useState<{ top: number; left: number; width: number } | null>(null);
+
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as Node;
-      const insideButton = statusFilterRef.current && statusFilterRef.current.contains(target);
-      const insideMenu = statusDropdownMenuRef.current && statusDropdownMenuRef.current.contains(target);
-      if (!insideButton && !insideMenu) {
-        setIsStatusFilterOpen(false);
-      }
+      const insideOrderBtn = orderStatusRef.current && orderStatusRef.current.contains(target);
+      const insideOrderMenu = orderStatusMenuRef.current && orderStatusMenuRef.current.contains(target);
+      if (!insideOrderBtn && !insideOrderMenu) setIsOrderStatusOpen(false);
+
+      const insidePayBtn = paymentFilterRef.current && paymentFilterRef.current.contains(target);
+      const insidePayMenu = paymentFilterMenuRef.current && paymentFilterMenuRef.current.contains(target);
+      if (!insidePayBtn && !insidePayMenu) setIsPaymentFilterOpen(false);
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -3654,34 +3670,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     await findOrCreateLeadAndOpenChat(digits, sale.customerName || 'Cliente', buildOrderShareMessage(sale, sale.customerName || 'Cliente'));
   };
 
-  const matchesStatusFilter = (sale: SaleOrder, filter: StatusFilterId): boolean => {
+  const matchesOrderStatusFilter = (sale: SaleOrder, filter: OrderStatusFilterId): boolean => {
     const down = sale.downPayment || 0;
-    const balance = sale.total - down;
-    const isPartial = balance > 0 || sale.status === 'pending';
-    const hasSomePayment = down > 0;
     const isFullyPaid = sale.status === 'completed' || down >= sale.total;
     switch (filter) {
       case 'em_aberto':
-        return sale.status === 'pending';
-      case 'entrada_pendente':
-        return sale.status === 'pending' && !hasSomePayment;
-      case 'parcial':
-        return hasSomePayment && isPartial;
+        return down === 0 && sale.status !== 'canceled';
+      case 'entrada_recebida':
+        return down > 0 && down < sale.total && sale.status !== 'canceled';
       case 'quitado':
-        return isFullyPaid;
-      // Estagios de producao ainda sem campo proprio no sistema (fica em 0 ate existir)
-      case 'aguardando_arte':
-      case 'aguardando_aprovacao':
-      case 'acabamento':
-      case 'pronto':
-      case 'em_rota':
-        return false;
-      case 'em_producao':
-        return sale.status === 'pending' && hasSomePayment;
-      case 'agendado':
-        return !!sale.scheduledFor;
+        return isFullyPaid && sale.status !== 'canceled';
       case 'entregue':
-        return isFullyPaid && !sale.scheduledFor;
+        return isFullyPaid && !sale.scheduledFor && sale.status !== 'canceled';
       case 'cancelado':
         return sale.status === 'canceled';
       default:
@@ -3689,12 +3689,39 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     }
   };
 
-  // Uma venda so passa se atender A TODAS as classificacoes selecionadas (AND)
-  const matchesAllSelectedFilters = (sale: SaleOrder, filters: Set<StatusFilterId>): boolean => {
-    for (const f of filters) {
-      if (!matchesStatusFilter(sale, f)) return false;
+  const matchesPaymentFilter = (sale: SaleOrder, filter: PaymentFilterId): boolean => {
+    const method = (sale.paymentMethod || '').toLowerCase();
+    switch (filter) {
+      case 'pix':
+        return method.includes('pix');
+      case 'dinheiro':
+        return method.includes('dinheiro');
+      case 'cartao_debito':
+        return method.includes('debito');
+      case 'cartao_credito':
+        return method.includes('credito');
+      case 'transferencia':
+        return method.includes('transferencia');
+      case 'boleto':
+        return method.includes('boleto');
+      case 'crediario':
+        return method.includes('crediario');
+      default:
+        return true;
     }
-    return true;
+  };
+
+  // Dentro de cada lista, selecionar varias = "ou" (um pedido so tem 1 status/1 pagamento).
+  // Entre as duas listas, o resultado e cruzado (E) — precisa bater com status E pagamento selecionados.
+  const matchesOrderStatusGroup = (sale: SaleOrder, filters: Set<OrderStatusFilterId>): boolean => {
+    if (filters.size === 0) return true;
+    for (const f of filters) if (matchesOrderStatusFilter(sale, f)) return true;
+    return false;
+  };
+  const matchesPaymentGroup = (sale: SaleOrder, filters: Set<PaymentFilterId>): boolean => {
+    if (filters.size === 0) return true;
+    for (const f of filters) if (matchesPaymentFilter(sale, f)) return true;
+    return false;
   };
 
   const matchesHistorySearch = (sale: SaleOrder): boolean => {
@@ -3708,26 +3735,23 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     return nameMatch || idMatch || !!itemMatch || phoneMatch;
   };
 
-  // Contagem por classificacao: quantas O.S. restariam se essa classificacao TAMBEM estivesse marcada
-  // (facetado pela busca + demais classificacoes ja selecionadas) — atualiza sozinho a cada clique
-  const statusFilterCounts = useMemo(() => {
-    const searched = allSalesHistory.filter(matchesHistorySearch);
-    const baseFiltered = searched.filter(s => matchesAllSelectedFilters(s, selectedStatusFilters));
-    const ids: StatusFilterId[] = [
-      'em_aberto', 'entrada_pendente', 'parcial', 'quitado',
-      'aguardando_arte', 'aguardando_aprovacao', 'em_producao', 'acabamento', 'pronto',
-      'agendado', 'em_rota', 'entregue', 'cancelado',
-    ];
+  // Contagens facetadas: quantas O.S. restam considerando a busca + a OUTRA lista ja selecionada
+  // (assim cada lista atualiza sozinha conforme a combinacao muda)
+  const orderStatusCounts = useMemo(() => {
+    const searched = allSalesHistory.filter(matchesHistorySearch).filter(s => matchesPaymentGroup(s, selectedPaymentFilters));
+    const ids: OrderStatusFilterId[] = ['em_aberto', 'entrada_recebida', 'quitado', 'entregue', 'cancelado'];
     const counts: Record<string, number> = { todos: searched.length };
-    ids.forEach(id => {
-      if (selectedStatusFilters.has(id)) {
-        counts[id] = baseFiltered.length;
-      } else {
-        counts[id] = baseFiltered.filter(s => matchesStatusFilter(s, id)).length;
-      }
-    });
+    ids.forEach(id => { counts[id] = searched.filter(s => matchesOrderStatusFilter(s, id)).length; });
     return counts;
-  }, [allSalesHistory, historySearch, selectedStatusFilters]);
+  }, [allSalesHistory, historySearch, selectedPaymentFilters]);
+
+  const paymentFilterCounts = useMemo(() => {
+    const searched = allSalesHistory.filter(matchesHistorySearch).filter(s => matchesOrderStatusGroup(s, selectedOrderStatusFilters));
+    const ids: PaymentFilterId[] = ['pix', 'dinheiro', 'cartao_debito', 'cartao_credito', 'transferencia', 'boleto', 'crediario'];
+    const counts: Record<string, number> = { todos: searched.length };
+    ids.forEach(id => { counts[id] = searched.filter(s => matchesPaymentFilter(s, id)).length; });
+    return counts;
+  }, [allSalesHistory, historySearch, selectedOrderStatusFilters]);
 
   const pendingOrScheduledSales = useMemo(() => {
     return allSalesHistory
@@ -3745,7 +3769,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const filteredSalesHistory = useMemo(() => {
     const filtered = allSalesHistory.filter(sale => {
-      if (!matchesAllSelectedFilters(sale, selectedStatusFilters)) return false;
+      if (!matchesOrderStatusGroup(sale, selectedOrderStatusFilters)) return false;
+      if (!matchesPaymentGroup(sale, selectedPaymentFilters)) return false;
       if (!matchesHistorySearch(sale)) return false;
       return true;
     });
@@ -3753,7 +3778,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       const diff = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       return historySortOrder === 'desc' ? diff : -diff;
     });
-  }, [allSalesHistory, selectedStatusFilters, historySearch, historySortOrder]);
+  }, [allSalesHistory, selectedOrderStatusFilters, selectedPaymentFilters, historySearch, historySortOrder]);
 
   const handleToggleSelectAll = () => {
     setSelectedSaleIds(prev => {
@@ -4680,131 +4705,166 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
               <div className="w-px h-8 bg-white/10 shrink-0" />
 
-              {/* Grupo 3: Filtros de Status (ate 4 classificacoes ao mesmo tempo) */}
-              <div className="relative shrink-0" ref={statusFilterRef}>
-                {(() => {
-                  const financeiroOptions: { id: StatusFilterId; label: string }[] = [
-                    { id: 'em_aberto', label: 'Em Aberto' },
-                    { id: 'entrada_pendente', label: 'Entrada Pendente' },
-                    { id: 'parcial', label: 'Parcialmente Pago' },
-                    { id: 'quitado', label: '100% Quitados' },
-                  ];
-                  const producaoOptions: { id: StatusFilterId; label: string }[] = [
-                    { id: 'aguardando_arte', label: 'Aguardando Arte' },
-                    { id: 'aguardando_aprovacao', label: 'Aguardando Aprovação' },
-                    { id: 'em_producao', label: 'Em Produção' },
-                    { id: 'acabamento', label: 'Acabamento' },
-                    { id: 'pronto', label: 'Pronto para Retirada' },
-                    { id: 'agendado', label: 'Agendados' },
-                    { id: 'em_rota', label: 'Em Rota' },
-                    { id: 'entregue', label: 'Entregues' },
-                    { id: 'cancelado', label: 'Cancelados' },
-                  ];
-                  const allOptions = [...financeiroOptions, ...producaoOptions];
-                  const buttonLabel = selectedStatusFilters.size === 0
+              {/* Grupo 3: Status do Pedido + Forma de Pagamento (duas listas independentes) */}
+              {(() => {
+                const orderStatusOptions: { id: OrderStatusFilterId; label: string }[] = [
+                  { id: 'em_aberto', label: 'Em Aberto' },
+                  { id: 'entrada_recebida', label: 'Entrada Recebida' },
+                  { id: 'quitado', label: 'Quitado' },
+                  { id: 'entregue', label: 'Entregue' },
+                  { id: 'cancelado', label: 'Cancelado' },
+                ];
+                const paymentOptions: { id: PaymentFilterId; label: string }[] = [
+                  { id: 'pix', label: 'Pix' },
+                  { id: 'dinheiro', label: 'Dinheiro' },
+                  { id: 'cartao_debito', label: 'Cartão de Débito' },
+                  { id: 'cartao_credito', label: 'Cartão de Crédito' },
+                  { id: 'transferencia', label: 'Transferência' },
+                  { id: 'boleto', label: 'Boleto' },
+                  { id: 'crediario', label: 'Crediário' },
+                ];
+
+                const renderFilterDropdown = <T extends string>(cfg: {
+                  label: string;
+                  options: { id: T; label: string }[];
+                  selected: Set<T>;
+                  toggle: (id: T) => void;
+                  clear: () => void;
+                  counts: Record<string, number>;
+                  isOpen: boolean;
+                  setIsOpen: (v: boolean | ((p: boolean) => boolean)) => void;
+                  containerRef: React.RefObject<HTMLDivElement>;
+                  btnRef: React.RefObject<HTMLButtonElement>;
+                  menuRef: React.RefObject<HTMLDivElement>;
+                  pos: { top: number; left: number; width: number } | null;
+                  setPos: (p: { top: number; left: number; width: number }) => void;
+                }) => {
+                  const buttonLabel = cfg.selected.size === 0
                     ? 'Todos'
-                    : selectedStatusFilters.size === 1
-                      ? allOptions.find(o => selectedStatusFilters.has(o.id))?.label
-                      : `${selectedStatusFilters.size} Classificações`;
-                  const buttonCount = selectedStatusFilters.size === 0 ? statusFilterCounts.todos : filteredSalesHistory.length;
+                    : cfg.selected.size === 1
+                      ? cfg.options.find(o => cfg.selected.has(o.id))?.label
+                      : `${cfg.selected.size} Selecionados`;
+                  const buttonCount = cfg.selected.size === 0 ? cfg.counts.todos ?? 0 : cfg.options.filter(o => cfg.selected.has(o.id)).reduce((sum, o) => sum + (cfg.counts[o.id] ?? 0), 0);
                   const toggleOpen = () => {
-                    if (!isStatusFilterOpen && statusFilterBtnRef.current) {
-                      const rect = statusFilterBtnRef.current.getBoundingClientRect();
-                      setStatusDropdownPos({ top: rect.top, left: rect.left, width: rect.width });
+                    if (!cfg.isOpen && cfg.btnRef.current) {
+                      const rect = cfg.btnRef.current.getBoundingClientRect();
+                      cfg.setPos({ top: rect.top, left: rect.left, width: rect.width });
                     }
-                    setIsStatusFilterOpen(prev => !prev);
-                  };
-                  const renderItem = (f: { id: StatusFilterId; label: string }, activeClasses: string) => {
-                    const isSelected = selectedStatusFilters.has(f.id);
-                    const atLimit = !isSelected && selectedStatusFilters.size >= MAX_STATUS_FILTERS;
-                    return (
-                      <button
-                        key={f.id}
-                        onClick={() => toggleStatusFilter(f.id)}
-                        disabled={atLimit}
-                        className={cn(
-                          "w-full flex items-center justify-between gap-2 text-left px-4 py-2 text-[10px] font-black uppercase tracking-wider transition-all",
-                          isSelected ? activeClasses : atLimit ? "text-white/20 cursor-not-allowed" : "text-white/60 hover:bg-white/5 hover:text-white"
-                        )}
-                      >
-                        <span className="flex items-center gap-2">
-                          <span className={cn(
-                            "w-3.5 h-3.5 rounded-md border flex items-center justify-center shrink-0",
-                            isSelected ? "bg-current border-current" : "border-white/20"
-                          )}>
-                            {isSelected && <Check size={10} className="text-slate-900" />}
-                          </span>
-                          {f.label}
-                        </span>
-                        <span className={cn(
-                          "text-[9px] font-mono px-1.5 py-0.5 rounded-full min-w-[20px] text-center",
-                          isSelected ? "bg-black/20" : "bg-white/5 text-white/30"
-                        )}>
-                          {statusFilterCounts[f.id] ?? 0}
-                        </span>
-                      </button>
-                    );
+                    cfg.setIsOpen(prev => !prev);
                   };
                   return (
-                    <>
+                    <div className="relative shrink-0" ref={cfg.containerRef}>
                       <button
-                        ref={statusFilterBtnRef}
+                        ref={cfg.btnRef}
                         onClick={toggleOpen}
                         className={cn(
                           "flex items-center gap-2 px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-wider border transition-all whitespace-nowrap",
-                          selectedStatusFilters.size > 0
+                          cfg.selected.size > 0
                             ? "bg-primary-500 text-slate-900 border-primary-500 shadow-lg shadow-primary-500/20"
                             : "bg-white/5 border-white/10 text-white/60 hover:text-white"
                         )}
                       >
                         <ListFilter size={13} />
+                        <span className="text-white/30 normal-case font-bold">{cfg.label}:</span>
                         <span>{buttonLabel}</span>
                         <span className="bg-black/20 text-[8px] px-1.5 py-0.5 rounded-full font-mono">{buttonCount}</span>
-                        <ChevronDown size={12} className={cn("transition-transform", isStatusFilterOpen && "rotate-180")} />
+                        <ChevronDown size={12} className={cn("transition-transform", cfg.isOpen && "rotate-180")} />
                       </button>
-                      {isStatusFilterOpen && statusDropdownPos && createPortal(
+                      {cfg.isOpen && cfg.pos && createPortal(
                         <div
-                          ref={statusDropdownMenuRef}
+                          ref={cfg.menuRef}
                           style={{
                             position: 'fixed',
-                            left: statusDropdownPos.left,
-                            bottom: window.innerHeight - statusDropdownPos.top + 8,
-                            minWidth: Math.max(statusDropdownPos.width, 240),
+                            left: cfg.pos.left,
+                            bottom: window.innerHeight - cfg.pos.top + 8,
+                            minWidth: Math.max(cfg.pos.width, 220),
                           }}
                           className="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl z-[100] py-2 max-h-[28rem] overflow-y-auto custom-scrollbar"
                         >
                           <button
-                            onClick={clearStatusFilters}
+                            onClick={cfg.clear}
                             className={cn(
                               "w-full flex items-center justify-between gap-2 text-left px-4 py-2 text-[10px] font-black uppercase tracking-wider transition-all mb-1",
-                              selectedStatusFilters.size === 0 ? "text-primary-400 bg-primary-500/10" : "text-white/60 hover:bg-white/5 hover:text-white"
+                              cfg.selected.size === 0 ? "text-primary-400 bg-primary-500/10" : "text-white/60 hover:bg-white/5 hover:text-white"
                             )}
                           >
                             <span>Todos</span>
-                            <span className={cn("text-[9px] font-mono px-1.5 py-0.5 rounded-full min-w-[20px] text-center", selectedStatusFilters.size === 0 ? "bg-black/20" : "bg-white/5 text-white/30")}>
-                              {statusFilterCounts.todos ?? 0}
+                            <span className={cn("text-[9px] font-mono px-1.5 py-0.5 rounded-full min-w-[20px] text-center", cfg.selected.size === 0 ? "bg-black/20" : "bg-white/5 text-white/30")}>
+                              {cfg.counts.todos ?? 0}
                             </span>
                           </button>
                           <div className="h-px bg-white/5 my-1 mx-3" />
-
-                          <p className="px-4 pt-1 pb-1.5 text-[8px] font-bold uppercase tracking-[2px] text-white/25">Financeiro</p>
-                          {financeiroOptions.map(f => renderItem(f, "text-emerald-400 bg-emerald-500/10"))}
-
-                          <div className="h-px bg-white/5 my-1.5 mx-3" />
-
-                          <p className="px-4 pt-1 pb-1.5 text-[8px] font-bold uppercase tracking-[2px] text-white/25">Produção</p>
-                          {producaoOptions.map(f => renderItem(f, f.id === 'cancelado' ? "text-orange-400 bg-orange-500/10" : "text-blue-400 bg-blue-500/10"))}
-
-                          {selectedStatusFilters.size >= MAX_STATUS_FILTERS && (
-                            <p className="px-4 pt-2 text-[8px] text-white/30 uppercase tracking-wider">Máximo de {MAX_STATUS_FILTERS} classificações ao mesmo tempo</p>
-                          )}
+                          {cfg.options.map(f => {
+                            const isSelected = cfg.selected.has(f.id);
+                            return (
+                              <button
+                                key={f.id}
+                                onClick={() => cfg.toggle(f.id)}
+                                className={cn(
+                                  "w-full flex items-center justify-between gap-2 text-left px-4 py-2 text-[10px] font-black uppercase tracking-wider transition-all",
+                                  isSelected ? "text-primary-400 bg-primary-500/10" : "text-white/60 hover:bg-white/5 hover:text-white"
+                                )}
+                              >
+                                <span className="flex items-center gap-2">
+                                  <span className={cn(
+                                    "w-3.5 h-3.5 rounded-md border flex items-center justify-center shrink-0",
+                                    isSelected ? "bg-current border-current" : "border-white/20"
+                                  )}>
+                                    {isSelected && <Check size={10} className="text-slate-900" />}
+                                  </span>
+                                  {f.label}
+                                </span>
+                                <span className={cn(
+                                  "text-[9px] font-mono px-1.5 py-0.5 rounded-full min-w-[20px] text-center",
+                                  isSelected ? "bg-black/20" : "bg-white/5 text-white/30"
+                                )}>
+                                  {cfg.counts[f.id] ?? 0}
+                                </span>
+                              </button>
+                            );
+                          })}
                         </div>,
                         document.body
                       )}
-                    </>
+                    </div>
                   );
-                })()}
-              </div>
+                };
+
+                return (
+                  <>
+                    {renderFilterDropdown({
+                      label: 'Status do Pedido',
+                      options: orderStatusOptions,
+                      selected: selectedOrderStatusFilters,
+                      toggle: toggleOrderStatusFilter,
+                      clear: clearOrderStatusFilters,
+                      counts: orderStatusCounts,
+                      isOpen: isOrderStatusOpen,
+                      setIsOpen: setIsOrderStatusOpen,
+                      containerRef: orderStatusRef,
+                      btnRef: orderStatusBtnRef,
+                      menuRef: orderStatusMenuRef,
+                      pos: orderStatusPos,
+                      setPos: setOrderStatusPos,
+                    })}
+                    {renderFilterDropdown({
+                      label: 'Pagamento',
+                      options: paymentOptions,
+                      selected: selectedPaymentFilters,
+                      toggle: togglePaymentFilter,
+                      clear: clearPaymentFilters,
+                      counts: paymentFilterCounts,
+                      isOpen: isPaymentFilterOpen,
+                      setIsOpen: setIsPaymentFilterOpen,
+                      containerRef: paymentFilterRef,
+                      btnRef: paymentFilterBtnRef,
+                      menuRef: paymentFilterMenuRef,
+                      pos: paymentFilterPos,
+                      setPos: setPaymentFilterPos,
+                    })}
+                  </>
+                );
+              })()}
             </div>
 
             {/* Orders List */}
