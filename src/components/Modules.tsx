@@ -70,6 +70,7 @@ import {
   ArrowDownWideNarrow,
   ArrowUpWideNarrow,
   ListFilter,
+  CalendarClock,
   Share2,
   Star,
   Tag,
@@ -3326,7 +3327,64 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [search, setSearch] = useState('');
   const [selectedQty, setSelectedQty] = useState(1);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
+  const [customerModalIntent, setCustomerModalIntent] = useState<'finalize' | 'preselect'>('preselect');
+  const [customerModalMode, setCustomerModalMode] = useState<'search' | 'create'>('search');
+  const [customerSearchTerm, setCustomerSearchTerm] = useState('');
+  const [customerSearchResults, setCustomerSearchResults] = useState<any[]>([]);
+  const [isSearchingCustomer, setIsSearchingCustomer] = useState(false);
+  const [newCustomerForm, setNewCustomerForm] = useState({ full_name: '', phone: '' });
+  const [isCreatingCustomer, setIsCreatingCustomer] = useState(false);
+
+  const proceedAfterCustomerStep = () => {
+    setIsCustomerModalOpen(false);
+    if (customerModalIntent === 'finalize') {
+      setDownPayment(total);
+      setIsPaymentModalOpen(true);
+    }
+  };
+
+  useEffect(() => {
+    if (!isCustomerModalOpen || customerModalMode !== 'search') return;
+    const term = customerSearchTerm.trim();
+    if (term.length < 2) { setCustomerSearchResults([]); return; }
+    setIsSearchingCustomer(true);
+    const timeout = setTimeout(async () => {
+      const { data } = await supabase
+        .from('clientes')
+        .select('id, full_name, phone')
+        .or(`full_name.ilike.%${term}%,phone.ilike.%${term}%,cpf_cnpj.ilike.%${term}%`)
+        .limit(20);
+      setCustomerSearchResults(data || []);
+      setIsSearchingCustomer(false);
+    }, 350);
+    return () => clearTimeout(timeout);
+  }, [customerSearchTerm, isCustomerModalOpen, customerModalMode]);
+
+  const handleCreateCustomerInline = async () => {
+    if (!newCustomerForm.full_name.trim()) {
+      alert('Digite o nome do cliente.');
+      return;
+    }
+    setIsCreatingCustomer(true);
+    try {
+      const { data, error } = await supabase.from('clientes').insert({
+        full_name: newCustomerForm.full_name,
+        phone: newCustomerForm.phone || null,
+      }).select().single();
+      if (error) throw error;
+      setSelectedCustomer({ id: data.id, name: data.full_name, phone: data.phone || '' });
+      setNewCustomerForm({ full_name: '', phone: '' });
+      setCustomerModalMode('search');
+      proceedAfterCustomerStep();
+    } catch (err) {
+      console.error('Erro ao cadastrar cliente:', err);
+      alert('Não foi possível cadastrar o cliente.');
+    } finally {
+      setIsCreatingCustomer(false);
+    }
+  };
   const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
   const [lastFinalizedOrder, setLastFinalizedOrder] = useState<SaleOrder | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<{ id: string, name: string, phone: string } | null>(null);
@@ -3835,13 +3893,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   }, 0);
 
   const handleFinalize = async (isPending: boolean = false) => {
-    if (!selectedCustomer && cart.length > 0) {
-      if (isPending || remainingValue > 0) {
-        setIsCustomerModalOpen(true);
-        return;
-      }
-    }
-
     // Play money sound
     try {
       const audio = new Audio('/sounds/cash-register.mp3');
@@ -4284,7 +4335,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                <div className="shrink-0 p-6 bg-slate-50 border-t border-slate-200 space-y-4 sticky bottom-0 z-10">
                   <div className="flex gap-4 h-24">
                      <button 
-                       onClick={() => setIsCustomerModalOpen(true)}
+                       onClick={() => {
+                          setCustomerModalIntent('preselect');
+                          setIsCustomerModalOpen(true);
+                       }}
                        className={cn(
                          "flex-1 h-full rounded-[28px] border-2 flex flex-col items-center justify-center gap-1 transition-all active:scale-95",
                          selectedCustomer ? "bg-amber-400 border-amber-600 text-slate-900" : "bg-white border-slate-200 text-slate-400"
@@ -4296,8 +4350,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                      <button 
                        disabled={cart.length === 0}
                        onClick={() => {
-                          setDownPayment(total);
-                          setIsPaymentModalOpen(true);
+                          setCustomerModalIntent('finalize');
+                          setIsCustomerModalOpen(true);
                        }}
                        className="flex-[2] h-full bg-primary-500 border-2 border-primary-600 text-slate-900 rounded-[28px] flex flex-col items-center justify-center gap-1 shadow-xl shadow-primary-500/20 hover:bg-primary-400 transition-all disabled:opacity-50 disabled:grayscale active:scale-95"
                      >
@@ -4794,43 +4848,90 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           </div>
         )}
       </div>
-      {/* Customer Modal / Em Aberto */}
+      {/* Customer Modal / Selecionar Cliente */}
       <Modal 
         isOpen={isCustomerModalOpen} 
         onClose={() => setIsCustomerModalOpen(false)} 
-        title="Venda em Aberto"
+        title="Selecionar Cliente"
       >
-        <div className="space-y-6">
-           <div className="space-y-2">
-              <p className="text-[10px] font-black uppercase text-white/40">Selecionar Cliente</p>
-              <Input icon={UserPlus} placeholder="Buscar cliente por nome ou CPF..." />
+        <div className="space-y-5">
+           <div className="flex bg-white/5 p-1 rounded-2xl border border-white/10 gap-1">
+              <button
+                onClick={() => setCustomerModalMode('search')}
+                className={cn(
+                  "flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all",
+                  customerModalMode === 'search' ? "bg-primary-500 text-slate-900 shadow-lg" : "text-white/40 hover:text-white"
+                )}
+              >
+                Pesquisar
+              </button>
+              <button
+                onClick={() => setCustomerModalMode('create')}
+                className={cn(
+                  "flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all",
+                  customerModalMode === 'create' ? "bg-primary-500 text-slate-900 shadow-lg" : "text-white/40 hover:text-white"
+                )}
+              >
+                Cadastrar
+              </button>
            </div>
-           
-           <div className="grid grid-cols-1 gap-2">
-              {[
-                { id: '1', name: 'Rafael Matos' },
-                { id: '2', name: 'Maria Silva' },
-                { id: '3', name: 'João Oliveira' },
-                { id: '4', name: 'Gráfica Express Ltda' }
-              ].map(c => (
-                <button 
-                  key={c.id} 
-                  onClick={() => {
-                    setSelectedCustomer(c);
-                    setIsCustomerModalOpen(false);
-                  }}
-                  className={cn(
-                    "p-4 rounded-2xl border text-left transition-all flex justify-between items-center group",
-                    selectedCustomer?.id === c.id ? "bg-primary-500 border-primary-400 text-white" : "bg-white/5 border-white/5 text-white/70 hover:bg-white/10"
-                  )}
-                >
-                  <span className="font-bold">{c.name}</span>
-                  <ChevronRight size={16} className="opacity-0 group-hover:opacity-100 transition-opacity" />
-                </button>
-              ))}
-           </div>
-           
-           <Button className="w-full h-14" onClick={() => setIsCustomerModalOpen(false)}>Confirmar Cliente</Button>
+
+           {customerModalMode === 'search' ? (
+             <div className="space-y-3">
+                <Input
+                  icon={Search}
+                  placeholder="Buscar por nome, telefone ou CPF/CNPJ..."
+                  value={customerSearchTerm}
+                  onChange={(e: any) => setCustomerSearchTerm(e.target.value)}
+                  autoFocus
+                />
+                <div className="max-h-72 overflow-y-auto custom-scrollbar space-y-2">
+                   {isSearchingCustomer && (
+                     <div className="flex justify-center py-6"><RefreshCw className="animate-spin text-primary-500" size={20} /></div>
+                   )}
+                   {!isSearchingCustomer && customerSearchTerm.trim().length >= 2 && customerSearchResults.length === 0 && (
+                     <p className="text-center text-xs text-white/30 py-6">Nenhum cliente encontrado. Tente Cadastrar.</p>
+                   )}
+                   {!isSearchingCustomer && customerSearchTerm.trim().length < 2 && (
+                     <p className="text-center text-xs text-white/30 py-6">Digite ao menos 2 letras para buscar.</p>
+                   )}
+                   {customerSearchResults.map(c => (
+                     <button 
+                       key={c.id} 
+                       onClick={() => {
+                         setSelectedCustomer({ id: c.id, name: c.full_name, phone: c.phone || '' });
+                         proceedAfterCustomerStep();
+                       }}
+                       className="w-full p-4 rounded-2xl border text-left transition-all flex justify-between items-center group bg-white/5 border-white/5 text-white/70 hover:bg-white/10"
+                     >
+                       <div>
+                         <span className="font-bold text-white block">{c.full_name}</span>
+                         {c.phone && <span className="text-[10px] text-white/40">{c.phone}</span>}
+                       </div>
+                       <ChevronRight size={16} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                     </button>
+                   ))}
+                </div>
+             </div>
+           ) : (
+             <div className="space-y-4">
+                <Input label="Nome do Cliente" value={newCustomerForm.full_name} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, full_name: e.target.value })} />
+                <Input label="Telefone / WhatsApp" placeholder="(93) 99999-9999" value={newCustomerForm.phone} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, phone: e.target.value })} />
+                <Button className="w-full h-14" disabled={isCreatingCustomer} onClick={handleCreateCustomerInline}>
+                  {isCreatingCustomer ? 'Cadastrando...' : 'Cadastrar e Selecionar'}
+                </Button>
+             </div>
+           )}
+
+           <button
+             onClick={() => {
+               setSelectedCustomer(null);
+               proceedAfterCustomerStep();
+             }}
+             className="w-full text-center py-3 text-[10px] font-black uppercase tracking-widest text-white/40 hover:text-white transition-all"
+           >
+             Pular (Cliente de Balcão)
+           </button>
         </div>
       </Modal>
 
@@ -4975,15 +5076,21 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                          }}
                        />
                     </div>
-                    <div className="col-span-2 space-y-0.5">
-                       <label className="text-[7.5px] sm:text-[8px] font-black text-white/40 uppercase tracking-widest block">Agendar entrega</label>
-                       <Input 
-                         type="datetime-local" 
-                         className="h-7 sm:h-8 text-[9px] sm:text-xs bg-slate-900/50"
-                         value={scheduledFor} 
-                         onChange={(e: any) => setScheduledFor(e.target.value)}
-                       />
-                    </div>
+                    {remainingValue > 0 && (
+                      <div className="col-span-2">
+                         <button
+                           type="button"
+                           onClick={() => setIsScheduleModalOpen(true)}
+                           className={cn(
+                             "w-full h-8 sm:h-9 rounded-lg border flex items-center justify-center gap-2 text-[9px] sm:text-[10px] font-black uppercase tracking-wider transition-all active:scale-95",
+                             scheduledFor ? "bg-primary-500/10 border-primary-500/30 text-primary-300" : "bg-white/5 border-white/10 text-white/50 hover:text-white hover:border-white/20"
+                           )}
+                         >
+                           <CalendarClock size={13} />
+                           {scheduledFor ? `Entrega: ${format(new Date(scheduledFor), 'dd/MM/yyyy HH:mm')}` : 'Agendar Entrega'}
+                         </button>
+                      </div>
+                    )}
                  </div>
 
                  <div className="bg-white/5 rounded-xl border border-white/5 p-2 flex-1 flex flex-col items-center justify-center text-center min-h-0 overflow-hidden relative">
@@ -5316,10 +5423,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                className="flex-col h-16 sm:h-20 gap-1 py-2 px-1 text-[7.5px] sm:text-[9px] uppercase font-black tracking-wide bg-primary-500 hover:bg-primary-400 text-slate-900 border-none shadow-lg shadow-primary-500/20 transition-all"
                onClick={() => {
                  setIsSuccessModalOpen(false);
+                 setIsCustomerModalOpen(false);
                  setSelectedCustomer(null);
                  setCart([]);
                  setDownPayment(0);
                  setScheduledFor('');
+                 setActiveTab('venda');
                }}
              >
                 Nova Venda
@@ -5494,6 +5603,54 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
              >
                <CheckCircle2 size={16} />
                <span>{isWaSaving ? 'Salvando...' : 'Salvar e Abrir Conversa'}</span>
+             </Button>
+           </div>
+         </div>
+       </Modal>
+     )}
+
+     {isScheduleModalOpen && (
+       <Modal
+         isOpen={isScheduleModalOpen}
+         onClose={() => setIsScheduleModalOpen(false)}
+         title="Agendar Entrega"
+         size="sm"
+       >
+         <div className="space-y-5 p-2">
+           <div className="bg-slate-900/60 rounded-2xl border border-white/10 p-4 space-y-2">
+             <div className="flex justify-between text-xs">
+               <span className="text-white/40 font-bold uppercase">Total da Venda</span>
+               <span className="text-white font-black">R$ {total.toFixed(2).replace('.', ',')}</span>
+             </div>
+             <div className="flex justify-between text-xs">
+               <span className="text-emerald-400 font-bold uppercase">Entrada Recebida</span>
+               <span className="text-emerald-400 font-black">R$ {(downPayment === "" ? 0 : Number(downPayment)).toFixed(2).replace('.', ',')}</span>
+             </div>
+             <div className="flex justify-between text-xs border-t border-white/5 pt-2">
+               <span className="text-rose-400 font-bold uppercase">Saldo Restante</span>
+               <span className="text-rose-400 font-black">R$ {remainingValue.toFixed(2).replace('.', ',')}</span>
+             </div>
+           </div>
+
+           <div className="space-y-1.5">
+             <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Data e Hora da Entrega</label>
+             <Input
+               type="datetime-local"
+               value={scheduledFor}
+               onChange={(e: any) => setScheduledFor(e.target.value)}
+               autoFocus
+             />
+           </div>
+
+           <div className="flex justify-end gap-3 pt-1">
+             <Button variant="ghost" onClick={() => setIsScheduleModalOpen(false)}>Cancelar</Button>
+             <Button
+               className="bg-primary-500 hover:bg-primary-400 text-slate-900 font-black gap-2"
+               disabled={!scheduledFor}
+               onClick={() => setIsScheduleModalOpen(false)}
+             >
+               <CheckCircle2 size={16} />
+               <span>OK</span>
              </Button>
            </div>
          </div>
