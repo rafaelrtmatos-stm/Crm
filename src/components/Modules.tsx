@@ -3373,10 +3373,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     }
   };
 
+  const [customerLoadError, setCustomerLoadError] = useState<string>('');
   const loadAllCustomers = async () => {
     setIsLoadingCustomers(true);
+    setCustomerLoadError('');
     try {
-      const { data } = await supabase.from('clientes').select('*').order('created_at', { ascending: false });
+      const { data, error, count } = await supabase.from('clientes').select('*', { count: 'exact' }).order('created_at', { ascending: false }).limit(2000);
+      if (error) {
+        console.error('Erro Supabase ao carregar clientes:', error);
+        setCustomerLoadError(`Erro: ${error.message} (código: ${error.code || 's/código'})`);
+        setAllCustomers([]);
+        return;
+      }
+      console.log('Clientes carregados:', data?.length, 'count total:', count);
       setAllCustomers(data || []);
       // Agrega estatisticas de vendas por cliente (busca leve, so campos necessarios)
       const { data: vendasData } = await supabase.from('vendas').select('cliente_id, total, status, down_payment, created_at');
@@ -5322,8 +5331,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    {isLoadingCustomers && (
                      <div className="flex justify-center py-10"><RefreshCw className="animate-spin text-primary-500" size={22} /></div>
                    )}
-                   {!isLoadingCustomers && filteredSortedCustomers.length === 0 && (
-                     <p className="text-center text-xs text-white/30 py-10">Nenhum cliente encontrado. Tente Cadastrar.</p>
+                   {!isLoadingCustomers && customerLoadError && (
+                     <p className="text-center text-xs text-rose-400 py-6 px-4">{customerLoadError}</p>
+                   )}
+                   {!isLoadingCustomers && !customerLoadError && filteredSortedCustomers.length === 0 && (
+                     <p className="text-center text-xs text-white/30 py-10">Nenhum cliente encontrado ({allCustomers.length} no total). Tente Cadastrar.</p>
                    )}
                    {!isLoadingCustomers && filteredSortedCustomers.map(c => {
                      const stats = c._stats;
