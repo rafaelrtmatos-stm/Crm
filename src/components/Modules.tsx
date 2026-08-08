@@ -3999,6 +3999,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [isPixQrModalOpen, setIsPixQrModalOpen] = useState(false);
   const [logoDarkUrl, setLogoDarkUrl] = useState<string | null>(null);
   const [enabledPaymentMethods, setEnabledPaymentMethods] = useState<string[]>(['pix', 'dinheiro', 'cartao_credito', 'cartao_debito']);
+  const [creditCardFees, setCreditCardFees] = useState<{ installments: number; feePercent: number }[]>(
+    Array.from({ length: 12 }, (_, i) => ({ installments: i + 1, feePercent: 0 }))
+  );
+  const [newPaymentInstallments, setNewPaymentInstallments] = useState(1);
   const canManageHistory = !!(user?.isAdmin || user?.allowedActions?.includes('canManageSaleHistory'));
   const [editingSale, setEditingSale] = useState<SaleOrder | null>(null);
   const [editSaleForm, setEditSaleForm] = useState({ customerName: '', total: 0, downPayment: 0, paymentMethod: 'pix' });
@@ -4063,6 +4067,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       const { data } = await supabase.from('configuracoes').select('*').eq('company_id', 'rafa-arts').maybeSingle();
       setLogoDarkUrl(data?.logo_dark_url || null);
       setEnabledPaymentMethods(Array.isArray(data?.enabled_payment_methods) && data.enabled_payment_methods.length > 0 ? data.enabled_payment_methods : ['pix', 'dinheiro', 'cartao_credito', 'cartao_debito']);
+      if (Array.isArray(data?.credit_card_fees) && data.credit_card_fees.length > 0) {
+        const byInstallment: Record<number, number> = {};
+        data.credit_card_fees.forEach((f: any) => { byInstallment[f.installments] = f.feePercent; });
+        setCreditCardFees(Array.from({ length: 12 }, (_, i) => ({ installments: i + 1, feePercent: byInstallment[i + 1] ?? 0 })));
+      }
       if (data && data.pix_key) {
         setPixConfig({
           key: data.pix_key,
@@ -4221,10 +4230,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const confirmAddPayment = () => {
     const rawInput = newPaymentInput === '' ? 0 : Number(newPaymentInput);
-    const value = newPaymentMode === 'percentual' ? Number(((total * rawInput) / 100).toFixed(2)) : rawInput;
-    if (value <= 0) { alert('Digite um valor válido para o pagamento.'); return; }
-    setPaymentEntries(prev => [...prev, { method: newPaymentMethod, value, date: new Date().toISOString() }]);
+    const baseValue = newPaymentMode === 'percentual' ? Number(((total * rawInput) / 100).toFixed(2)) : rawInput;
+    if (baseValue <= 0) { alert('Digite um valor válido para o pagamento.'); return; }
+    let value = baseValue;
+    let installments: number | undefined;
+    let feePercent: number | undefined;
+    if (newPaymentMethod === 'cartao_credito') {
+      installments = newPaymentInstallments;
+      feePercent = creditCardFees.find(f => f.installments === newPaymentInstallments)?.feePercent || 0;
+      value = Number((baseValue * (1 + feePercent / 100)).toFixed(2));
+    }
+    setPaymentEntries(prev => [...prev, { method: newPaymentMethod, value, date: new Date().toISOString(), installments, feePercent }]);
     setNewPaymentMode('valor');
+    setNewPaymentInstallments(1);
   };
 
   const removePaymentEntry = (idx: number) => {
@@ -5688,7 +5706,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               <div key={idx} className="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-white/5 border border-white/5 rounded-lg">
                                  <div className="flex items-center gap-2 min-w-0">
                                     {opt?.icon && <opt.icon size={12} className="text-primary-300 shrink-0" />}
-                                    <span className="text-[9px] font-black text-white uppercase truncate">{opt?.label || p.method}</span>
+                                    <span className="text-[9px] font-black text-white uppercase truncate">{opt?.label || p.method}{p.installments && p.installments > 1 ? ` ${p.installments}x` : ''}</span>
                                     <span className="text-[8px] text-white/30 shrink-0">{safeFormat(p.date, 'dd/MM HH:mm')}</span>
                                  </div>
                                  <div className="flex items-center gap-2 shrink-0">
@@ -5795,7 +5813,37 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                  )}
                               </div>
                             )}
-                            {(newPaymentMethod === 'cartao_credito' || newPaymentMethod === 'cartao_debito') && (
+                            {newPaymentMethod === 'cartao_credito' && (() => {
+                               const rawInput = newPaymentInput === '' ? 0 : Number(newPaymentInput);
+                               const baseValue = newPaymentMode === 'percentual' ? (total * rawInput) / 100 : rawInput;
+                               const fee = creditCardFees.find(f => f.installments === newPaymentInstallments)?.feePercent || 0;
+                               const finalValue = baseValue * (1 + fee / 100);
+                               return (
+                                 <div className="w-full max-w-xs space-y-2">
+                                    <div className="flex items-center justify-between gap-2">
+                                       <span className="text-[7.5px] font-black text-white/40 uppercase tracking-widest">Parcelas</span>
+                                       <select
+                                         value={newPaymentInstallments}
+                                         onChange={(e) => setNewPaymentInstallments(Number(e.target.value))}
+                                         className="h-7 bg-slate-900/80 border border-white/10 rounded px-2 text-[10px] text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer"
+                                       >
+                                         {creditCardFees.map(f => (
+                                           <option key={f.installments} value={f.installments} className="bg-slate-900">
+                                             {f.installments}x {f.feePercent > 0 ? `(+${f.feePercent}%)` : '(sem taxa)'}
+                                           </option>
+                                         ))}
+                                       </select>
+                                    </div>
+                                    {fee > 0 && baseValue > 0 && (
+                                      <div className="p-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg flex justify-between items-center">
+                                         <span className="text-[7.5px] font-black text-amber-400 uppercase tracking-wider">Com taxa ({fee}%)</span>
+                                         <span className="text-xs font-black text-white">R$ {finalValue.toFixed(2).replace('.', ',')}</span>
+                                      </div>
+                                    )}
+                                 </div>
+                               );
+                            })()}
+                            {newPaymentMethod === 'cartao_debito' && (
                               <div className="flex flex-col items-center gap-1">
                                  <Smartphone size={16} className="text-blue-400" />
                                  <p className="text-[8px] text-white/50">Insira/aproxime o cartão</p>
@@ -7231,6 +7279,10 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
   ];
   const [enabledPaymentMethods, setEnabledPaymentMethods] = useState<string[]>(['pix', 'dinheiro', 'cartao_credito', 'cartao_debito']);
   const [savingPaymentMethods, setSavingPaymentMethods] = useState(false);
+  const [creditCardFees, setCreditCardFees] = useState<{ installments: number; feePercent: number }[]>(
+    Array.from({ length: 12 }, (_, i) => ({ installments: i + 1, feePercent: 0 }))
+  );
+  const [savingCardFees, setSavingCardFees] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -7241,6 +7293,11 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
         setPixCity(data.city || 'Santarem');
         setPixBank(data.pix_bank || '');
         setEnabledPaymentMethods(Array.isArray(data.enabled_payment_methods) && data.enabled_payment_methods.length > 0 ? data.enabled_payment_methods : ['pix', 'dinheiro', 'cartao_credito', 'cartao_debito']);
+        if (Array.isArray(data.credit_card_fees) && data.credit_card_fees.length > 0) {
+          const byInstallment: Record<number, number> = {};
+          data.credit_card_fees.forEach((f: any) => { byInstallment[f.installments] = f.feePercent; });
+          setCreditCardFees(Array.from({ length: 12 }, (_, i) => ({ installments: i + 1, feePercent: byInstallment[i + 1] ?? 0 })));
+        }
       } else if (currentCompany?.name) {
         setPixBeneficiary(currentCompany.name);
       }
@@ -7275,6 +7332,27 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
       alert('Não foi possível salvar.');
     } finally {
       setSavingPaymentMethods(false);
+    }
+  };
+
+  const updateCreditCardFee = (installments: number, feePercent: number) => {
+    setCreditCardFees(prev => prev.map(f => f.installments === installments ? { ...f, feePercent } : f));
+  };
+
+  const handleSaveCreditCardFees = async () => {
+    setSavingCardFees(true);
+    try {
+      const { error } = await supabase.from('configuracoes').upsert({
+        company_id: 'rafa-arts',
+        credit_card_fees: creditCardFees,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'company_id' });
+      if (error) throw error;
+    } catch (err) {
+      console.error('Erro ao salvar taxas de cartão:', err);
+      alert('Não foi possível salvar.');
+    } finally {
+      setSavingCardFees(false);
     }
   };
 
@@ -7692,6 +7770,45 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                       className="bg-primary-500 text-slate-900 border-none shadow-xl shadow-primary-500/20"
                     >
                       {savingPaymentMethods ? 'Salvando...' : 'Salvar Formas de Pagamento'}
+                    </Button>
+                 </div>
+
+                 <div className="h-px bg-white/10" />
+
+                 <div className="space-y-6">
+                    <div className="flex items-center gap-4">
+                       <div className="w-12 h-12 rounded-2xl bg-blue-500/20 flex items-center justify-center text-blue-400">
+                          <Calculator size={24} />
+                       </div>
+                       <div>
+                          <h3 className="text-xl font-bold text-white tracking-tight italic uppercase">Taxas de Parcelamento (Crédito)</h3>
+                          <p className="text-xs text-white/30">Defina a taxa (%) somada ao valor conforme o número de parcelas escolhido no PDV</p>
+                       </div>
+                    </div>
+                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
+                       {creditCardFees.map(f => (
+                         <div key={f.installments} className="bg-white/5 border border-white/10 rounded-xl p-3 space-y-1.5">
+                            <label className="text-[9px] font-black uppercase text-white/40 tracking-wider block">{f.installments}x</label>
+                            <div className="relative">
+                               <input
+                                 type="number"
+                                 step="any"
+                                 min={0}
+                                 value={f.feePercent}
+                                 onChange={(e) => updateCreditCardFee(f.installments, e.target.value === '' ? 0 : Number(e.target.value))}
+                                 className="w-full h-9 bg-slate-900/60 border border-white/10 rounded-lg px-2 pr-6 text-xs text-white text-right font-bold focus:outline-none focus:border-primary-500"
+                               />
+                               <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-white/30 font-bold">%</span>
+                            </div>
+                         </div>
+                       ))}
+                    </div>
+                    <Button
+                      onClick={handleSaveCreditCardFees}
+                      disabled={savingCardFees}
+                      className="bg-primary-500 text-slate-900 border-none shadow-xl shadow-primary-500/20"
+                    >
+                      {savingCardFees ? 'Salvando...' : 'Salvar Taxas de Cartão'}
                     </Button>
                  </div>
               </div>

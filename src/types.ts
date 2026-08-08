@@ -22,6 +22,8 @@ export interface PaymentEntry {
   method: 'pix' | 'dinheiro' | 'cartao_debito' | 'cartao_credito' | 'transferencia' | 'boleto' | 'crediario';
   value: number;
   date: string;
+  installments?: number;
+  feePercent?: number;
 }
 
 export interface SaleOrder {
