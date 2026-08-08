@@ -70,6 +70,7 @@ import {
   ArrowDownWideNarrow,
   ArrowUpWideNarrow,
   ListFilter,
+  ClipboardList,
   CalendarClock,
   Share2,
   Star,
@@ -4658,31 +4659,30 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             </div>
 
             {/* Barra de controles: Pesquisa | Ordenação & Visualização | Filtros de Status — tudo em uma linha */}
-            <div className="flex flex-nowrap items-center gap-3 bg-white/[0.02] border border-white/5 rounded-2xl p-3 overflow-x-auto custom-scrollbar">
+            <div className="flex flex-nowrap items-center gap-2 bg-white/[0.02] border border-white/5 rounded-2xl p-2.5 overflow-x-auto custom-scrollbar">
               {/* Grupo 1: Pesquisa */}
-              <div className="relative w-56 shrink-0">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" size={15} />
+              <div className="relative w-40 xl:w-48 shrink-0">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/40" size={13} />
                 <input
                   value={historySearch}
                   onChange={e => setHistorySearch(e.target.value)}
-                  placeholder="Buscar cliente, telefone, nota..."
-                  className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white placeholder-white/30 focus:outline-none focus:border-primary-500"
+                  placeholder="Buscar..."
+                  className="w-full bg-white/5 border border-white/10 rounded-lg pl-8 pr-2 py-2 text-[11px] text-white placeholder-white/30 focus:outline-none focus:border-primary-500"
                 />
               </div>
 
-              <div className="w-px h-8 bg-white/10 shrink-0" />
+              <div className="w-px h-6 bg-white/10 shrink-0" />
 
               {/* Grupo 2: Ordenação & Visualização */}
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-1.5 shrink-0">
                 <button
                   onClick={() => setHistorySortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
                   title={historySortOrder === 'desc' ? 'Mais recentes primeiro' : 'Mais antigas primeiro'}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-wider bg-white/5 border border-white/10 text-white/60 hover:text-white transition-all whitespace-nowrap"
+                  className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 border border-white/10 text-white/60 hover:text-white transition-all shrink-0"
                 >
                   {historySortOrder === 'desc' ? <ArrowDownWideNarrow size={13} /> : <ArrowUpWideNarrow size={13} />}
-                  <span>{historySortOrder === 'desc' ? 'Recentes' : 'Antigas'}</span>
                 </button>
-                <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 gap-1">
+                <div className="flex bg-white/5 p-1 rounded-lg border border-white/10 gap-0.5">
                   {[
                     { id: 'miniatura', label: 'Miniaturas', icon: LayoutGrid },
                     { id: 'normal', label: 'Normal', icon: Square },
@@ -4693,17 +4693,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       onClick={() => setHistoryViewMode(v.id as any)}
                       title={v.label}
                       className={cn(
-                        "px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 whitespace-nowrap",
+                        "w-7 h-7 rounded-md transition-all flex items-center justify-center",
                         historyViewMode === v.id ? "bg-primary-500 text-slate-900 shadow-lg font-black" : "text-white/40 hover:text-white"
                       )}
                     >
-                      <v.icon size={13} />
+                      <v.icon size={12} />
                     </button>
                   ))}
                 </div>
               </div>
 
-              <div className="w-px h-8 bg-white/10 shrink-0" />
+              <div className="w-px h-6 bg-white/10 shrink-0" />
 
               {/* Grupo 3: Status do Pedido + Forma de Pagamento (duas listas independentes) */}
               {(() => {
@@ -4726,6 +4726,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
                 const renderFilterDropdown = <T extends string>(cfg: {
                   label: string;
+                  icon: any;
                   options: { id: T; label: string }[];
                   selected: Set<T>;
                   toggle: (id: T) => void;
@@ -4757,18 +4758,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       <button
                         ref={cfg.btnRef}
                         onClick={toggleOpen}
+                        title={`${cfg.label}: ${buttonLabel}`}
                         className={cn(
-                          "flex items-center gap-2 px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-wider border transition-all whitespace-nowrap",
+                          "flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-[10px] font-black uppercase tracking-wide border transition-all whitespace-nowrap",
                           cfg.selected.size > 0
                             ? "bg-primary-500 text-slate-900 border-primary-500 shadow-lg shadow-primary-500/20"
                             : "bg-white/5 border-white/10 text-white/60 hover:text-white"
                         )}
                       >
-                        <ListFilter size={13} />
-                        <span className="text-white/30 normal-case font-bold">{cfg.label}:</span>
+                        <cfg.icon size={13} className="shrink-0" />
                         <span>{buttonLabel}</span>
                         <span className="bg-black/20 text-[8px] px-1.5 py-0.5 rounded-full font-mono">{buttonCount}</span>
-                        <ChevronDown size={12} className={cn("transition-transform", cfg.isOpen && "rotate-180")} />
+                        <ChevronDown size={11} className={cn("transition-transform shrink-0", cfg.isOpen && "rotate-180")} />
                       </button>
                       {cfg.isOpen && cfg.pos && createPortal(
                         <div
@@ -4834,6 +4835,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   <>
                     {renderFilterDropdown({
                       label: 'Status do Pedido',
+                      icon: ClipboardList,
                       options: orderStatusOptions,
                       selected: selectedOrderStatusFilters,
                       toggle: toggleOrderStatusFilter,
@@ -4849,6 +4851,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     })}
                     {renderFilterDropdown({
                       label: 'Pagamento',
+                      icon: CreditCard,
                       options: paymentOptions,
                       selected: selectedPaymentFilters,
                       toggle: togglePaymentFilter,
