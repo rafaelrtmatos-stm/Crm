@@ -4060,6 +4060,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [historyViewMode, setHistoryViewMode] = useState<'miniatura' | 'normal' | 'lista'>('normal');
   const [historySortOrder, setHistorySortOrder] = useState<'desc' | 'asc'>('desc');
 
+  const [produtosCostMap, setProdutosCostMap] = useState<Record<string, number>>({});
+  useEffect(() => {
+    const loadCosts = async () => {
+      const { data } = await supabase.from('produtos').select('id, cost_price');
+      const map: Record<string, number> = {};
+      (data || []).forEach((p: any) => { map[p.id] = Number(p.cost_price) || 0; });
+      setProdutosCostMap(map);
+    };
+    loadCosts();
+  }, []);
+
   // Dropdown "Status do Pedido"
   const [isOrderStatusOpen, setIsOrderStatusOpen] = useState(false);
   const orderStatusRef = React.useRef<HTMLDivElement>(null);
@@ -4257,6 +4268,52 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       return historySortOrder === 'desc' ? diff : -diff;
     });
   }, [allSalesHistory, selectedOrderStatusFilters, selectedPaymentFilters, historySearch, historySortOrder, historyDateFrom, historyDateTo]);
+
+  // Resumo da Ordem de Servicos: usa o mesmo filtro de periodo (De/Ate) do Historico
+  const servicosResumo = useMemo(() => {
+    const fromDate = historyDateFrom ? new Date(historyDateFrom + 'T00:00:00') : null;
+    const toDate = historyDateTo ? new Date(historyDateTo + 'T23:59:59') : null;
+    const noPeriodo = allSalesHistory.filter(sale => {
+      if (sale.status === 'canceled') return false;
+      const saleDate = new Date(sale.createdAt);
+      if (isNaN(saleDate.getTime())) return false;
+      if (fromDate && saleDate < fromDate) return false;
+      if (toDate && saleDate > toDate) return false;
+      return true;
+    });
+
+    let faturamento = 0, liquido = 0, custoTotal = 0;
+    const comEntrada = { count: 0, total: 0, recebido: 0, pendente: 0 };
+    const emAberto = { count: 0, total: 0 };
+
+    noPeriodo.forEach(sale => {
+      const down = sale.downPayment || 0;
+      const total = sale.total || 0;
+      const isFullyPaid = sale.status === 'completed' || down >= total;
+      faturamento += total;
+      liquido += down;
+      (sale.items || []).forEach(item => {
+        const custoUnit = produtosCostMap[item.productId] || 0;
+        const qtd = item.area ? item.area * item.quantity : item.quantity;
+        custoTotal += custoUnit * qtd;
+      });
+      if (down > 0 && !isFullyPaid) {
+        comEntrada.count += 1;
+        comEntrada.total += total;
+        comEntrada.recebido += down;
+        comEntrada.pendente += Math.max(0, total - down);
+      } else if (down === 0) {
+        emAberto.count += 1;
+        emAberto.total += total;
+      }
+    });
+
+    return {
+      faturamento, liquido, lucro: liquido - custoTotal,
+      temCustoRegistrado: custoTotal > 0,
+      comEntrada, emAberto,
+    };
+  }, [allSalesHistory, historyDateFrom, historyDateTo, produtosCostMap]);
 
   const handleToggleSelectAll = () => {
     setSelectedSaleIds(prev => {
@@ -5748,6 +5805,74 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
         {activeTab === 'servicos' && (
           <div className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/40 space-y-6">
+            {/* Resumo da Ordem de Servicos — usa o mesmo filtro de periodo do Historico */}
+            <div className="space-y-3">
+               <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[9px] font-black uppercase text-white/30 tracking-widest">Período:</span>
+                  <input
+                    type="date"
+                    value={historyDateFrom}
+                    onChange={(e) => setHistoryDateFrom(e.target.value)}
+                    className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-[11px] text-white/70 focus:outline-none focus:border-primary-500"
+                  />
+                  <span className="text-white/20 text-[9px]">até</span>
+                  <input
+                    type="date"
+                    value={historyDateTo}
+                    onChange={(e) => setHistoryDateTo(e.target.value)}
+                    className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-[11px] text-white/70 focus:outline-none focus:border-primary-500"
+                  />
+                  {(historyDateFrom || historyDateTo) && (
+                    <button onClick={() => { setHistoryDateFrom(''); setHistoryDateTo(''); }} className="text-[9px] font-black uppercase text-white/30 hover:text-rose-400 px-2">Limpar</button>
+                  )}
+               </div>
+
+               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
+                     <p className="text-[9px] font-black uppercase text-white/40 tracking-widest">Faturamento</p>
+                     <p className="text-xl font-black text-white italic mt-1">R$ {servicosResumo.faturamento.toFixed(2).replace('.', ',')}</p>
+                  </div>
+                  <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
+                     <p className="text-[9px] font-black uppercase text-white/40 tracking-widest">Líquido (Recebido)</p>
+                     <p className="text-xl font-black text-emerald-400 italic mt-1">R$ {servicosResumo.liquido.toFixed(2).replace('.', ',')}</p>
+                  </div>
+                  <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
+                     <p className="text-[9px] font-black uppercase text-white/40 tracking-widest">Lucro</p>
+                     <p className="text-xl font-black text-primary-400 italic mt-1">R$ {servicosResumo.lucro.toFixed(2).replace('.', ',')}</p>
+                     {!servicosResumo.temCustoRegistrado && (
+                       <p className="text-[8px] text-amber-400/70 font-bold mt-1">Sem custo cadastrado nos produtos — lucro = líquido</p>
+                     )}
+                  </div>
+               </div>
+
+               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="bg-amber-500/5 border border-amber-500/20 rounded-2xl p-4 space-y-1.5">
+                     <p className="text-[10px] font-black uppercase text-amber-400 tracking-widest">Com Entrada</p>
+                     <p className="text-[10px] text-white/50 font-bold">{servicosResumo.comEntrada.count} serviço(s)</p>
+                     <div className="flex justify-between text-xs pt-1 border-t border-white/5">
+                        <span className="text-white/40">Total</span>
+                        <span className="font-black text-white">R$ {servicosResumo.comEntrada.total.toFixed(2).replace('.', ',')}</span>
+                     </div>
+                     <div className="flex justify-between text-xs">
+                        <span className="text-white/40">Recebido</span>
+                        <span className="font-black text-emerald-400">R$ {servicosResumo.comEntrada.recebido.toFixed(2).replace('.', ',')}</span>
+                     </div>
+                     <div className="flex justify-between text-xs">
+                        <span className="text-white/40">Pendente</span>
+                        <span className="font-black text-rose-400">R$ {servicosResumo.comEntrada.pendente.toFixed(2).replace('.', ',')}</span>
+                     </div>
+                  </div>
+                  <div className="bg-rose-500/5 border border-rose-500/20 rounded-2xl p-4 space-y-1.5">
+                     <p className="text-[10px] font-black uppercase text-rose-400 tracking-widest">Em Aberto</p>
+                     <p className="text-[10px] text-white/50 font-bold">{servicosResumo.emAberto.count} serviço(s)</p>
+                     <div className="flex justify-between text-xs pt-1 border-t border-white/5">
+                        <span className="text-white/40">Total</span>
+                        <span className="font-black text-white">R$ {servicosResumo.emAberto.total.toFixed(2).replace('.', ',')}</span>
+                     </div>
+                  </div>
+               </div>
+            </div>
+
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-white/10 pb-4">
               <div>
                 <h2 className="text-xl md:text-2xl font-black text-white italic tracking-tighter uppercase flex items-center gap-2">
