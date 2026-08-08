@@ -18,6 +18,12 @@ export interface SaleOrderItem {
   area?: number;
 }
 
+export interface PaymentEntry {
+  method: 'pix' | 'dinheiro' | 'cartao_debito' | 'cartao_credito' | 'transferencia' | 'boleto' | 'crediario';
+  value: number;
+  date: string;
+}
+
 export interface SaleOrder {
   id: string;
   companyId: string;
@@ -29,6 +35,8 @@ export interface SaleOrder {
   downPayment?: number;
   receivedValue?: number;
   paymentMethod?: 'dinheiro'|'pix'|'cartao_credito'|'cartao_debito'|'misto';
+  payments?: PaymentEntry[];
+  pendingPaymentMethod?: string;
   status: 'pending' | 'completed' | 'canceled';
   createdAt: string;
   scheduledFor?: string;

@@ -141,6 +141,7 @@ import {
   Product, 
   SaleOrder, 
   SaleOrderItem,
+  PaymentEntry,
   InventoryItem,
   PrintingService,
   DashboardWidget,
@@ -3561,6 +3562,39 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [cashReceived, setCashReceived] = useState<number | ''>('');
   const [downPayment, setDownPayment] = useState(0);
   const [scheduledFor, setScheduledFor] = useState('');
+
+  // Multiplas formas de pagamento na mesma venda
+  const PAYMENT_METHOD_OPTIONS: { id: PaymentEntry['method']; label: string; icon: any }[] = [
+    { id: 'pix', label: 'Pix', icon: QrCode },
+    { id: 'dinheiro', label: 'Dinheiro', icon: Banknote },
+    { id: 'cartao_debito', label: 'Débito', icon: Smartphone },
+    { id: 'cartao_credito', label: 'Crédito', icon: CreditCard },
+    { id: 'transferencia', label: 'Transferência', icon: ArrowDownWideNarrow },
+    { id: 'boleto', label: 'Boleto', icon: FileText },
+    { id: 'crediario', label: 'Crediário', icon: Calculator },
+  ];
+  const [paymentEntries, setPaymentEntries] = useState<PaymentEntry[]>([]);
+  const [isAddPaymentOpen, setIsAddPaymentOpen] = useState(false);
+  const [newPaymentMethod, setNewPaymentMethod] = useState<PaymentEntry['method']>('pix');
+  const [newPaymentMode, setNewPaymentMode] = useState<'valor' | 'percentual'>('valor');
+  const [newPaymentInput, setNewPaymentInput] = useState<number | ''>('');
+  const [pendingPaymentMethod, setPendingPaymentMethod] = useState<string>('');
+  const paymentEntriesTotal = paymentEntries.reduce((sum, p) => sum + (p.value || 0), 0);
+
+  const resetPaymentEntries = () => {
+    setPaymentEntries([]);
+    setIsAddPaymentOpen(false);
+    setNewPaymentInput('');
+    setNewPaymentMode('valor');
+    setPendingPaymentMethod('');
+  };
+
+  const openAddPayment = () => {
+    setNewPaymentMethod('pix');
+    setNewPaymentMode('valor');
+    setNewPaymentInput('');
+    setIsAddPaymentOpen(true);
+  };
   const [isVerifying, setIsVerifying] = useState(false);
   const [salesToday, setSalesToday] = useState<SaleOrder[]>([]);
   const [allSalesHistory, setAllSalesHistory] = useState<SaleOrder[]>([]);
@@ -4132,6 +4166,26 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   }, 0);
   const remainingValue = Math.max(0, total - (downPayment === '' || typeof downPayment === 'string' ? 0 : Number(downPayment)));
 
+  const confirmAddPayment = () => {
+    const rawInput = newPaymentInput === '' ? 0 : Number(newPaymentInput);
+    const value = newPaymentMode === 'percentual' ? Number(((total * rawInput) / 100).toFixed(2)) : rawInput;
+    if (value <= 0) { alert('Digite um valor válido para o pagamento.'); return; }
+    setPaymentEntries(prev => [...prev, { method: newPaymentMethod, value, date: new Date().toISOString() }]);
+    setIsAddPaymentOpen(false);
+    setNewPaymentInput('');
+  };
+
+  const removePaymentEntry = (idx: number) => {
+    setPaymentEntries(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  useEffect(() => {
+    setDownPayment(paymentEntriesTotal);
+    if (paymentEntries.length === 1) setPaymentMethod(paymentEntries[0].method as any);
+    else if (paymentEntries.length > 1) setPaymentMethod('misto');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paymentEntries]);
+
   const faturamentoHoje = salesToday.reduce((acc, o) => {
     if (o.status === 'pending') {
       return acc + (o.downPayment || 0);
@@ -4171,6 +4225,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       downPayment: finalDownPayment,
       receivedValue: finalDownPayment,
       paymentMethod,
+      payments: paymentEntries,
+      pendingPaymentMethod: currentRemaining > 0 ? (pendingPaymentMethod || undefined) : undefined,
       status: isPartialSale ? 'pending' : 'completed',
       createdAt: new Date().toISOString(),
       scheduledFor: deliveryDate || undefined
@@ -4186,6 +4242,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         down_payment: order.downPayment,
         received_value: order.receivedValue,
         payment_method: order.paymentMethod,
+        payments: paymentEntries,
+        pending_payment_method: currentRemaining > 0 ? (pendingPaymentMethod || null) : null,
         status: order.status,
         scheduled_for: order.scheduledFor || null,
       });
@@ -4231,6 +4289,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setCart([]);
     setDownPayment(0);
     setScheduledFor('');
+    resetPaymentEntries();
   };
 
   if (!isRegisterOpen) {
@@ -5515,168 +5574,186 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  </div>
               </div>
 
-              {/* Right Side: Payment Methods & Inputs */}
+              {/* Right Side: Multiple Payments */}
               <div className="md:col-span-7 flex flex-col justify-between min-h-0 overflow-hidden gap-1.5 sm:gap-2">
-                 <div className="space-y-1 shrink-0">
-                    <p className="text-[8px] sm:text-[9px] font-black uppercase text-white/30 tracking-widest px-0.5">Selecione o Recebimento</p>
-                    <div className="grid grid-cols-5 gap-1">
-                       {[
-                         { id: 'pix', label: 'Pix', icon: QrCode },
-                         { id: 'cartao_credito', label: 'Crédito', icon: CreditCard },
-                         { id: 'cartao_debito', label: 'Débito', icon: Smartphone },
-                         { id: 'dinheiro', label: 'Dinheiro', icon: Banknote },
-                         { id: 'misto', label: 'Misto', icon: Calculator },
-                       ].map(m => (
-                         <button 
-                           key={m.id} 
-                           onClick={() => {
-                              setPaymentMethod(m.id as any);
-                              setDownPayment(total);
-                            }}
-                           className={cn(
-                             "p-1 sm:p-1.5 rounded-lg border-2 flex flex-col items-center justify-center gap-0.5 transition-all active:scale-95 group cursor-pointer min-h-[40px]",
-                             paymentMethod === m.id ? "bg-primary-500 border-primary-600 text-slate-900 shadow-md shadow-primary-500/10" : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10"
-                           )}
-                         >
-                            <m.icon size={14} className={cn("transition-colors", paymentMethod === m.id ? "text-slate-900" : "text-white/60 group-hover:text-primary-300")} />
-                            <span className="text-[7px] sm:text-[8px] font-black uppercase tracking-tight truncate w-full text-center">{m.label}</span>
-                         </button>
-                       ))}
-                    </div>
-                 </div>
-
-                 <div className="grid grid-cols-2 gap-1.5 sm:gap-2 shrink-0">
-                    <div className="space-y-0.5">
-                       <label className="text-[7.5px] sm:text-[8px] font-black text-white/40 uppercase tracking-widest block">Entrada / Recebido (R$)</label>
-                       <Input 
-                         type="number" 
-                         step="any"
-                         className="h-7 sm:h-8 text-[10px] sm:text-xs bg-slate-900/50"
-                         value={downPayment === "" ? "" : downPayment} 
-                         onChange={(e: any) => {
-                            const val = e.target.value;
-                            setDownPayment(val === "" ? "" : Number(val));
-                         }}
-                       />
-                    </div>
-                    <div className="space-y-0.5">
-                       <label className="text-[7.5px] sm:text-[8px] font-black text-white/40 uppercase tracking-widest block">Ou por porcentagem (%)</label>
-                       <Input 
-                         type="number" 
-                         step="any"
-                         min={0}
-                         max={100}
-                         placeholder="Ex: 50"
-                         className="h-7 sm:h-8 text-[10px] sm:text-xs bg-slate-900/50"
-                         value={total > 0 && downPayment !== "" ? Number(((Number(downPayment) / total) * 100).toFixed(2)) : ""}
-                         onChange={(e: any) => {
-                            const pct = e.target.value === "" ? "" : Number(e.target.value);
-                            if (pct === "") { setDownPayment(""); return; }
-                            setDownPayment(Number(((total * pct) / 100).toFixed(2)));
-                         }}
-                       />
-                    </div>
-                    {remainingValue > 0 && (
-                      <div className="col-span-2">
+                 <div className="flex-1 min-h-0 flex flex-col gap-1.5 overflow-hidden">
+                    <div className="flex items-center justify-between shrink-0">
+                       <p className="text-[8px] sm:text-[9px] font-black uppercase text-white/30 tracking-widest px-0.5">Pagamentos ({paymentEntries.length})</p>
+                       {!isAddPaymentOpen && remainingValue > 0 && (
                          <button
-                           type="button"
-                           onClick={() => setIsScheduleModalOpen(true)}
-                           className={cn(
-                             "w-full h-8 sm:h-9 rounded-lg border flex items-center justify-center gap-2 text-[9px] sm:text-[10px] font-black uppercase tracking-wider transition-all active:scale-95",
-                             scheduledFor ? "bg-primary-500/10 border-primary-500/30 text-primary-300" : "bg-white/5 border-white/10 text-white/50 hover:text-white hover:border-white/20"
-                           )}
+                           onClick={openAddPayment}
+                           className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-primary-500/10 border border-primary-500/20 text-primary-300 hover:bg-primary-500/20 text-[9px] font-black uppercase tracking-wider transition-all active:scale-95"
                          >
-                           <CalendarClock size={13} />
-                           {scheduledFor ? `Entrega: ${safeFormat(scheduledFor, 'dd/MM/yyyy HH:mm')}` : 'Agendar Entrega'}
+                           <Plus size={12} /> Adicionar Pagamento
                          </button>
+                       )}
+                    </div>
+
+                    {/* Lista de pagamentos ja adicionados */}
+                    {paymentEntries.length > 0 && (
+                      <div className="space-y-1 shrink-0 max-h-24 overflow-y-auto custom-scrollbar">
+                         {paymentEntries.map((p, idx) => {
+                            const opt = PAYMENT_METHOD_OPTIONS.find(o => o.id === p.method);
+                            return (
+                              <div key={idx} className="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-white/5 border border-white/5 rounded-lg">
+                                 <div className="flex items-center gap-2 min-w-0">
+                                    {opt?.icon && <opt.icon size={12} className="text-primary-300 shrink-0" />}
+                                    <span className="text-[9px] font-black text-white uppercase truncate">{opt?.label || p.method}</span>
+                                    <span className="text-[8px] text-white/30 shrink-0">{safeFormat(p.date, 'dd/MM HH:mm')}</span>
+                                 </div>
+                                 <div className="flex items-center gap-2 shrink-0">
+                                    <span className="text-[10px] font-black text-emerald-400">R$ {p.value.toFixed(2).replace('.', ',')}</span>
+                                    <button onClick={() => removePaymentEntry(idx)} className="text-white/30 hover:text-rose-400 transition-colors"><X size={12} /></button>
+                                 </div>
+                              </div>
+                            );
+                         })}
+                      </div>
+                    )}
+
+                    {/* Formulario de adicionar pagamento */}
+                    {isAddPaymentOpen ? (
+                      <div className="flex-1 min-h-0 flex flex-col gap-1.5 bg-white/5 rounded-xl border border-white/5 p-2 overflow-hidden">
+                         <div className="grid grid-cols-4 gap-1 shrink-0">
+                            {PAYMENT_METHOD_OPTIONS.map(m => (
+                              <button
+                                key={m.id}
+                                onClick={() => setNewPaymentMethod(m.id)}
+                                className={cn(
+                                  "p-1 rounded-lg border-2 flex flex-col items-center justify-center gap-0.5 transition-all active:scale-95 min-h-[36px]",
+                                  newPaymentMethod === m.id ? "bg-primary-500 border-primary-600 text-slate-900" : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10"
+                                )}
+                              >
+                                 <m.icon size={12} />
+                                 <span className="text-[6.5px] font-black uppercase truncate w-full text-center">{m.label}</span>
+                              </button>
+                            ))}
+                         </div>
+
+                         <div className="flex items-center gap-1.5 shrink-0">
+                            <div className="flex-1 space-y-0.5">
+                               <label className="text-[7px] font-black text-white/40 uppercase tracking-widest block">
+                                 {newPaymentMode === 'valor' ? 'Valor (R$)' : 'Porcentagem (%)'}
+                               </label>
+                               <Input
+                                 type="number"
+                                 step="any"
+                                 autoFocus
+                                 placeholder={newPaymentMode === 'valor' ? `Máx. R$ ${remainingValue.toFixed(2).replace('.', ',')}` : 'Ex: 30'}
+                                 className="h-8 text-xs bg-slate-900/50"
+                                 value={newPaymentInput}
+                                 onChange={(e: any) => setNewPaymentInput(e.target.value === '' ? '' : Number(e.target.value))}
+                               />
+                            </div>
+                            <div className="flex bg-white/5 p-0.5 rounded-lg border border-white/10 shrink-0 mt-3.5">
+                               <button
+                                 onClick={() => setNewPaymentMode('valor')}
+                                 className={cn("px-2 h-7 rounded-md text-[9px] font-black uppercase transition-all", newPaymentMode === 'valor' ? "bg-primary-500 text-slate-900" : "text-white/40")}
+                               >
+                                 R$
+                               </button>
+                               <button
+                                 onClick={() => setNewPaymentMode('percentual')}
+                                 className={cn("px-2 h-7 rounded-md text-[9px] font-black uppercase transition-all", newPaymentMode === 'percentual' ? "bg-primary-500 text-slate-900" : "text-white/40")}
+                               >
+                                 %
+                               </button>
+                            </div>
+                         </div>
+
+                         {newPaymentMode === 'percentual' && newPaymentInput !== '' && (
+                            <p className="text-[9px] text-primary-300 font-bold shrink-0">= R$ {((total * Number(newPaymentInput)) / 100).toFixed(2).replace('.', ',')}</p>
+                         )}
+
+                         {/* Painel contextual pela forma escolhida */}
+                         <div className="flex-1 min-h-0 bg-black/20 rounded-lg p-2 flex flex-col items-center justify-center text-center overflow-hidden">
+                            {newPaymentMethod === 'pix' && !pixConfig && (
+                              <p className="text-[9px] text-white/40">Nenhuma chave PIX cadastrada.</p>
+                            )}
+                            {newPaymentMethod === 'pix' && pixConfig && (
+                              <button
+                                type="button"
+                                onClick={() => setIsPixQrModalOpen(true)}
+                                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary-500 hover:bg-primary-400 text-slate-900 font-black text-[9px] uppercase tracking-widest transition-all active:scale-95"
+                              >
+                                <QrCode size={13} /> Gerar QR Code
+                              </button>
+                            )}
+                            {newPaymentMethod === 'dinheiro' && (
+                              <div className="w-full max-w-xs space-y-1">
+                                 <div className="flex items-center justify-between gap-2">
+                                    <span className="text-[7.5px] font-black text-white/40 uppercase tracking-widest">Valor Recebido</span>
+                                    <input
+                                       type="number"
+                                       step="any"
+                                       className="h-6 w-24 text-[10px] bg-slate-900/80 text-white rounded px-1.5 text-right font-bold border border-white/10"
+                                       value={cashReceived === "" ? "" : cashReceived}
+                                       placeholder="0,00"
+                                       onChange={(e: any) => setCashReceived(e.target.value === "" ? "" : Number(e.target.value))}
+                                    />
+                                 </div>
+                                 {cashReceived !== "" && newPaymentInput !== '' && (
+                                    <div className="p-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-lg flex justify-between items-center">
+                                       <span className="text-[7.5px] font-black text-emerald-400 uppercase tracking-wider">Troco</span>
+                                       <span className="text-xs font-black text-white">R$ {Math.max(0, Number(cashReceived) - (newPaymentMode === 'percentual' ? (total * Number(newPaymentInput)) / 100 : Number(newPaymentInput))).toFixed(2).replace('.', ',')}</span>
+                                    </div>
+                                 )}
+                              </div>
+                            )}
+                            {(newPaymentMethod === 'cartao_credito' || newPaymentMethod === 'cartao_debito') && (
+                              <div className="flex flex-col items-center gap-1">
+                                 <Smartphone size={16} className="text-blue-400" />
+                                 <p className="text-[8px] text-white/50">Insira/aproxime o cartão</p>
+                              </div>
+                            )}
+                            {(newPaymentMethod === 'transferencia' || newPaymentMethod === 'boleto' || newPaymentMethod === 'crediario') && (
+                              <p className="text-[9px] text-white/40 uppercase">{PAYMENT_METHOD_OPTIONS.find(o => o.id === newPaymentMethod)?.label}</p>
+                            )}
+                         </div>
+
+                         <div className="flex gap-2 shrink-0">
+                            <Button variant="ghost" className="flex-1 h-8 text-[9px]" onClick={() => setIsAddPaymentOpen(false)}>Cancelar</Button>
+                            <Button className="flex-1 h-8 text-[9px] bg-primary-500 text-slate-900 border-none" onClick={confirmAddPayment}>Adicionar</Button>
+                         </div>
+                      </div>
+                    ) : (
+                      <div className="flex-1 min-h-0 flex items-center justify-center text-center p-4">
+                         {paymentEntries.length === 0 ? (
+                           <p className="text-[9px] text-white/20 uppercase tracking-wider">Nenhum pagamento adicionado ainda</p>
+                         ) : remainingValue > 0 ? (
+                           <p className="text-[9px] text-amber-400/70 uppercase tracking-wider">Saldo Restante: R$ {remainingValue.toFixed(2).replace('.', ',')}</p>
+                         ) : (
+                           <p className="text-[9px] text-emerald-400/70 uppercase tracking-wider">Saldo Restante: R$ 0,00 — Quitado ✓</p>
+                         )}
                       </div>
                     )}
                  </div>
 
-                 <div className="bg-white/5 rounded-xl border border-white/5 p-2 flex-1 flex flex-col items-center justify-center text-center min-h-0 overflow-hidden relative">
-                    {paymentMethod === 'pix' && !pixConfig && (
-                       <div className="flex flex-col items-center justify-center gap-2 text-center p-4">
-                          <AlertCircle size={24} className="text-amber-500" />
-                          <p className="text-[10px] text-white/50">Nenhuma chave PIX cadastrada. Configure em Configurações → Integrações.</p>
-                       </div>
-                    )}
-                    {paymentMethod === 'pix' && pixConfig && (() => {
-                       const pixAmount = downPayment === "" || typeof downPayment === 'string' ? total : Number(downPayment);
-                       return (
-                       <div className="flex flex-col items-center justify-center gap-3 w-full h-full min-h-0">
-                          <QrCode size={40} className="text-primary-400" />
-                          <p className="text-[10px] text-white/50 text-center px-4">Valor: <span className="font-black text-white">R$ {(pixAmount > 0 ? pixAmount : total).toFixed(2).replace('.', ',')}</span></p>
-                          <button
-                             type="button"
-                             onClick={() => setIsPixQrModalOpen(true)}
-                             className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary-500 hover:bg-primary-400 text-slate-900 font-black text-[10px] uppercase tracking-widest transition-all active:scale-95"
-                          >
-                             <QrCode size={14} />
-                             Gerar QR Code PIX
-                          </button>
-                       </div>
-                       );
-                    })()}
-
-                    {paymentMethod === 'dinheiro' && (
-                       <div className="flex flex-col items-center justify-center gap-1.5 w-full h-full p-1 min-h-0">
-                          <div className="flex items-center gap-2 text-emerald-400">
-                             <Banknote size={16} />
-                             <span className="text-[9px] font-black uppercase tracking-wider text-white">Calculadora de Troco</span>
-                          </div>
-                          
-                          <div className="w-full max-w-xs space-y-1">
-                             <div className="flex items-center justify-between gap-2">
-                                <span className="text-[7.5px] font-black text-white/40 uppercase tracking-widest">Valor Recebido</span>
-                                <input 
-                                   type="number"
-                                   step="any"
-                                   className="h-6 w-24 text-[10px] bg-slate-900/80 text-white rounded px-1.5 text-right font-bold border border-white/10"
-                                   value={cashReceived === "" ? "" : cashReceived}
-                                   placeholder="0,00"
-                                   onChange={(e: any) => {
-                                      const val = e.target.value;
-                                      setCashReceived(val === "" ? "" : Number(val));
-                                   }}
-                                />
-                             </div>
-                             
-                             {cashReceived !== "" && Number(cashReceived) >= downPayment && (
-                                <div className="p-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-lg flex justify-between items-center">
-                                   <span className="text-[7.5px] font-black text-emerald-400 uppercase tracking-wider">Troco</span>
-                                   <span className="text-xs font-black text-white">R$ {(Number(cashReceived) - downPayment).toFixed(2).replace('.', ',')}</span>
-                                </div>
-                             )}
-                             {cashReceived !== "" && Number(cashReceived) < downPayment && (
-                                <div className="p-1.5 bg-rose-500/10 border border-rose-500/20 rounded-lg flex justify-between items-center">
-                                   <span className="text-[7.5px] font-black text-rose-400 uppercase tracking-wider">Falta</span>
-                                   <span className="text-xs font-bold text-white/80">R$ {(downPayment - Number(cashReceived)).toFixed(2).replace('.', ',')}</span>
-                                </div>
-                             )}
-                          </div>
-                       </div>
-                    )}
-
-                    {(paymentMethod === 'cartao_credito' || paymentMethod === 'cartao_debito') && (
-                       <div className="flex flex-col items-center justify-center gap-1 py-1">
-                          <div className="w-8 h-8 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center border border-blue-500/30 animate-pulse">
-                             <Smartphone size={16} />
-                          </div>
-                          <h4 className="text-[10px] font-black text-white uppercase tracking-wider">Maquininha Integrada</h4>
-                          <p className="text-[8px] text-white/50 leading-tight max-w-[180px]">Insira/aproxime o cartão de <span className="text-white font-bold">R$ {downPayment.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></p>
-                       </div>
-                    )}
-
-                    {paymentMethod === 'misto' && (
-                       <div className="flex flex-col items-center justify-center gap-1 py-1 w-full">
-                          <div className="w-8 h-8 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center border border-indigo-500/30">
-                             <Calculator size={16} />
-                          </div>
-                          <h4 className="text-[10px] font-black text-white uppercase tracking-wider">Pagamento Misto</h4>
-                          <p className="text-[8px] text-white/50 leading-tight max-w-[180px]">Especifique os valores parcelados no campo de observações.</p>
-                       </div>
-                    )}
-                 </div>
+                 {remainingValue > 0 && !isAddPaymentOpen && (
+                   <div className="grid grid-cols-2 gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setIsScheduleModalOpen(true)}
+                        className={cn(
+                          "h-8 sm:h-9 rounded-lg border flex items-center justify-center gap-1.5 text-[8.5px] sm:text-[9px] font-black uppercase tracking-wider transition-all active:scale-95",
+                          scheduledFor ? "bg-primary-500/10 border-primary-500/30 text-primary-300" : "bg-white/5 border-white/10 text-white/50 hover:text-white hover:border-white/20"
+                        )}
+                      >
+                        <CalendarClock size={12} />
+                        {scheduledFor ? safeFormat(scheduledFor, 'dd/MM HH:mm') : 'Agendar Entrega'}
+                      </button>
+                      <select
+                        value={pendingPaymentMethod}
+                        onChange={(e) => setPendingPaymentMethod(e.target.value)}
+                        className="h-8 sm:h-9 rounded-lg bg-white/5 border border-white/10 px-2 text-[8.5px] sm:text-[9px] font-black uppercase text-white/60 focus:outline-none focus:border-primary-500 cursor-pointer"
+                      >
+                        <option value="" className="bg-slate-900">Forma Prevista p/ Saldo</option>
+                        {PAYMENT_METHOD_OPTIONS.map(m => (
+                          <option key={m.id} value={m.id} className="bg-slate-900">{m.label}</option>
+                        ))}
+                      </select>
+                   </div>
+                 )}
               </div>
            </div>
 
@@ -5928,6 +6005,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  setCart([]);
                  setDownPayment(0);
                  setScheduledFor('');
+                 resetPaymentEntries();
                  setActiveTab('venda');
                }}
              >
