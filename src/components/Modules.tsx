@@ -4971,6 +4971,21 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       const startOfDay = new Date();
       startOfDay.setHours(0, 0, 0, 0);
       setSalesToday(allSales.filter(sale => new Date(sale.createdAt) >= startOfDay));
+
+      // Reforca a atualizacao do catalogo de produtos tambem (alem do tempo real)
+      const { data: produtosData } = await supabase.from('produtos').select('*').or('is_active.is.null,is_active.eq.true').order('name', { ascending: true });
+      setProducts((produtosData || []).map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        code: p.code || '',
+        price: Number(p.sale_price) || 0,
+        stock: Number(p.current_stock) || 0,
+        unitType: p.unit === 'm2' ? 'm2' : 'unit',
+        tipoItem: p.tipo_item || 'produto',
+        larguraRolo: p.largura_rolo ? Number(p.largura_rolo) : undefined,
+        controlaEstoque: p.controla_estoque !== false,
+      })));
+
       setSyncedAt(new Date());
     } catch (err) {
       console.error('Erro ao sincronizar:', err);
