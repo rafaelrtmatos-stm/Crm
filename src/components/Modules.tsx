@@ -8211,41 +8211,40 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
     controlaEstoque: true,
   });
 
+  const loadInventoryItems = async () => {
+    const { data, error } = await supabase.from('produtos').select('*').order('name', { ascending: true });
+    if (error) { console.error('Erro ao carregar produtos:', error); setLoading(false); return; }
+    setItems((data || []).map((row: any) => ({
+      id: row.id,
+      name: row.name,
+      code: row.code,
+      category: row.category,
+      unit: row.unit,
+      salePrice: row.sale_price,
+      costPrice: row.cost_price,
+      currentStock: row.current_stock,
+      minStock: row.min_stock,
+      isService: row.is_service,
+      isActive: row.is_active,
+      provider: row.provider,
+      createdAt: row.created_at,
+      tipoItem: row.tipo_item || 'produto',
+      controlaEstoque: row.controla_estoque !== false,
+      larguraRolo: row.largura_rolo ? Number(row.largura_rolo) : undefined,
+      estoqueMaximo: row.estoque_maximo ? Number(row.estoque_maximo) : undefined,
+      localizacao: row.localizacao,
+      descricao: row.descricao,
+    } as InventoryItem)));
+    setLoading(false);
+  };
+
   useEffect(() => {
-    let active = true;
-    const load = async () => {
-      const { data, error } = await supabase.from('produtos').select('*').order('name', { ascending: true });
-      if (!active) return;
-      if (error) { console.error('Erro ao carregar produtos:', error); setLoading(false); return; }
-      setItems((data || []).map((row: any) => ({
-        id: row.id,
-        name: row.name,
-        code: row.code,
-        category: row.category,
-        unit: row.unit,
-        salePrice: row.sale_price,
-        costPrice: row.cost_price,
-        currentStock: row.current_stock,
-        minStock: row.min_stock,
-        isService: row.is_service,
-        isActive: row.is_active,
-        provider: row.provider,
-        createdAt: row.created_at,
-        tipoItem: row.tipo_item || 'produto',
-        controlaEstoque: row.controla_estoque !== false,
-        larguraRolo: row.largura_rolo ? Number(row.largura_rolo) : undefined,
-        estoqueMaximo: row.estoque_maximo ? Number(row.estoque_maximo) : undefined,
-        localizacao: row.localizacao,
-        descricao: row.descricao,
-      } as InventoryItem)));
-      setLoading(false);
-    };
-    load();
+    loadInventoryItems();
     const channel = supabase
       .channel('produtos-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'produtos' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'produtos' }, loadInventoryItems)
       .subscribe();
-    return () => { active = false; supabase.removeChannel(channel); };
+    return () => { supabase.removeChannel(channel); };
   }, [currentCompany]);
 
   const stats = [
@@ -8319,12 +8318,13 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
         ({ error } = await supabase.from('produtos').insert(payload));
       }
       if (error) throw error;
+      await loadInventoryItems();
       setIsModalOpen(false);
       setEditingItemId(null);
       setFormData({ name: '', category: 'substrato', unit: 'un', currentStock: 0, minStock: 0, salePrice: 0, costPrice: 0, isActive: true, isService: false, tipoItem: 'produto', controlaEstoque: true });
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert('Não foi possível salvar o item.');
+      alert(`Não foi possível salvar o item: ${err?.message || 'erro desconhecido'}`);
     }
   };
 
