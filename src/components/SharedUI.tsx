@@ -86,36 +86,61 @@ export const DataTable = ({ columns, data, loading }: any) => {
   );
 
   return (
-    <div className="overflow-x-auto custom-scrollbar">
-      <table className="w-full text-left border-separate border-spacing-y-3">
-        <thead>
-          <tr>
+    <>
+      {/* Mobile: cards empilhados (sem rolagem lateral) */}
+      <div className="sm:hidden space-y-3">
+        {data.map((row: any, i: number) => (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.03 }}
+            key={row.id || i}
+            className="bg-white/5 border border-white/5 rounded-2xl p-4 space-y-2.5"
+          >
             {columns.map((col: any) => (
-              <th key={col.key} className="px-6 py-2 text-[10px] font-black uppercase tracking-[2px] text-white/30">
-                {col.label}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {data.map((row: any, i: number) => (
-            <motion.tr
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.05 }}
-              key={row.id || i}
-              className="bg-white/5 hover:bg-white/10 backdrop-blur-md transition-all group cursor-pointer border-t border-white/5 first:border-t-0"
-            >
-              {columns.map((col: any) => (
-                <td key={col.key} className="px-6 py-4 text-sm font-medium text-white/80 group-hover:text-white transition-colors border-y border-white/5 first:border-l first:rounded-l-2xl last:border-r last:rounded-r-2xl">
+              <div key={col.key} className="flex items-start justify-between gap-3">
+                <span className="text-[9px] font-black uppercase tracking-wider text-white/30 shrink-0 pt-0.5">{col.label}</span>
+                <div className="text-sm font-medium text-white/80 text-right min-w-0">
                   {col.render ? col.render(row[col.key], row) : row[col.key]}
-                </td>
+                </div>
+              </div>
+            ))}
+          </motion.div>
+        ))}
+      </div>
+
+      {/* Desktop/tablet: tabela normal */}
+      <div className="hidden sm:block overflow-x-auto custom-scrollbar">
+        <table className="w-full text-left border-separate border-spacing-y-3">
+          <thead>
+            <tr>
+              {columns.map((col: any) => (
+                <th key={col.key} className="px-6 py-2 text-[10px] font-black uppercase tracking-[2px] text-white/30">
+                  {col.label}
+                </th>
               ))}
-            </motion.tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((row: any, i: number) => (
+              <motion.tr
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.05 }}
+                key={row.id || i}
+                className="bg-white/5 hover:bg-white/10 backdrop-blur-md transition-all group cursor-pointer border-t border-white/5 first:border-t-0"
+              >
+                {columns.map((col: any) => (
+                  <td key={col.key} className="px-6 py-4 text-sm font-medium text-white/80 group-hover:text-white transition-colors border-y border-white/5 first:border-l first:rounded-l-2xl last:border-r last:rounded-r-2xl">
+                    {col.render ? col.render(row[col.key], row) : row[col.key]}
+                  </td>
+                ))}
+              </motion.tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 };
 
