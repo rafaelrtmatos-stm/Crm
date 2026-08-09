@@ -5067,7 +5067,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   return (
     <div className="h-[calc(100dvh-6rem)] min-h-[500px] flex flex-col bg-slate-900/50 rounded-xl shadow-2xl border border-white/10 overflow-hidden animate-in fade-in slide-in-from-right-5 duration-500">
       {/* Tab Navigation */}
-      <div className="flex flex-wrap bg-white/5 p-1.5 gap-1.5 border-b border-white/10 items-center justify-between shrink-0">
+      <div className="flex flex-wrap bg-white/5 p-1 sm:p-1.5 gap-1 sm:gap-1.5 border-b border-white/10 items-center justify-between shrink-0">
         <div className="flex sm:flex-wrap gap-1 flex-1 min-w-0 justify-between sm:justify-start">
           {[
             { id: 'venda', label: 'Terminal Venda', icon: ShoppingBag },
@@ -5084,11 +5084,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               onClick={() => setActiveTab(tab.id as any)}
               title={tab.label}
               className={cn(
-                "flex items-center justify-center gap-1 flex-1 sm:flex-initial px-1 sm:px-2.5 py-2 sm:py-1.5 rounded-md sm:rounded-lg text-[9px] font-black uppercase tracking-tight sm:tracking-wider transition-all whitespace-nowrap",
+                "flex items-center justify-center gap-1 flex-1 sm:flex-initial px-1 sm:px-2.5 py-1 sm:py-1.5 rounded-md sm:rounded-lg text-[9px] font-black uppercase tracking-tight sm:tracking-wider transition-all whitespace-nowrap",
                 activeTab === tab.id ? "bg-primary-500 text-slate-900 shadow-xl" : "text-white/40 hover:bg-white/5 hover:text-white"
               )}
             >
-              <tab.icon size={20} className="sm:hidden shrink-0" />
+              <tab.icon size={18} className="sm:hidden shrink-0" />
               <tab.icon size={14} className="hidden sm:block shrink-0" />
               <span className="hidden sm:inline">{tab.label}</span>
             </button>
@@ -5123,7 +5123,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         {activeTab === 'venda' && (
           <>
             {/* Cima no mobile / Esquerda no desktop: Terminal POS + Carrinho */}
-            <div className="basis-[32%] shrink-0 grow-0 md:basis-auto md:flex-1 md:shrink bg-[#fef9c3] flex flex-col p-2 sm:p-6 relative overflow-hidden justify-between min-h-0">
+            <div className="basis-[60%] shrink-0 grow-0 md:basis-auto md:flex-1 md:shrink bg-[#fef9c3] flex flex-col pt-1 px-2 pb-2 sm:p-6 relative overflow-hidden justify-between min-h-0">
                {/* Top Bar */}
                <div className="flex justify-between items-center text-slate-900/50 pb-1 sm:pb-2 border-b border-slate-900/10">
                   <div className="flex items-center gap-1 sm:gap-2">
