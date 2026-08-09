@@ -29,3 +29,7 @@ alter table orcamentos add column if not exists dias_tolerancia integer default 
 
 -- Forca o Supabase a atualizar o "schema cache"
 NOTIFY pgrst, 'reload schema';
+
+-- Numero alternativo usado ao enviar pelo WhatsApp (nao substitui o telefone principal)
+alter table orcamentos add column if not exists telefone_alternativo text;
+NOTIFY pgrst, 'reload schema';

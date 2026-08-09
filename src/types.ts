@@ -511,6 +511,7 @@ export interface Orcamento {
   pagamentoPosteriorDias?: number;
   pagamentoPosteriorCondicao?: string;
   pagamentoPosteriorResponsavel?: string;
+  telefoneAlternativo?: string;
   multaPercentual?: number;
   jurosModo?: 'mensal' | 'diario';
   jurosPercentual?: number;

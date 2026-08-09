@@ -296,6 +296,7 @@ const mapOrcamentoRow = (row: any): Orcamento => ({
   pagamentoPosteriorDias: row.pagamento_posterior_dias !== null ? Number(row.pagamento_posterior_dias) : undefined,
   pagamentoPosteriorCondicao: row.pagamento_posterior_condicao || undefined,
   pagamentoPosteriorResponsavel: row.pagamento_posterior_responsavel || undefined,
+  telefoneAlternativo: row.telefone_alternativo || undefined,
   multaPercentual: row.multa_percentual !== null ? Number(row.multa_percentual) : 2,
   jurosModo: row.juros_modo || 'mensal',
   jurosPercentual: row.juros_percentual !== null ? Number(row.juros_percentual) : 1,
@@ -3403,6 +3404,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [dimWidth, setDimWidth] = useState<number | ''>('');
   const [dimHeight, setDimHeight] = useState<number | ''>('');
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [settlingOrder, setSettlingOrder] = useState<SaleOrder | null>(null);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
   const [customerModalIntent, setCustomerModalIntent] = useState<'finalize' | 'preselect' | 'orcamento'>('preselect');
@@ -4013,9 +4015,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       await supabase.from('orcamentos').update({ status: 'enviado' }).eq('id', o.id);
       loadOrcamentos();
     }
-    // Se o numero foi trocado, atualiza tambem no orcamento pra ficar salvo
+    // Se o numero foi trocado, salva como "telefone alternativo" (mantem o principal intacto)
     if (phoneDigits !== (o.phone || '').replace(/\D/g, '')) {
-      await supabase.from('orcamentos').update({ phone: waSendPhone }).eq('id', o.id);
+      await supabase.from('orcamentos').update({ telefone_alternativo: waSendPhone }).eq('id', o.id);
       loadOrcamentos();
     }
     setWaSendOrcamento(null);
@@ -4835,6 +4837,24 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   }, 0);
   const remainingValue = Math.max(0, total - (downPayment === '' || typeof downPayment === 'string' ? 0 : Number(downPayment)));
 
+  // Quitar Debito: abre a mesma tela de pagamento do Terminal, mas pra uma venda ja existente com saldo pendente
+  const paymentModalTotal = settlingOrder ? settlingOrder.total : total;
+  const paymentModalItems = settlingOrder ? settlingOrder.items : cart;
+  const alreadyPaidForSettle = settlingOrder ? (settlingOrder.downPayment || 0) : 0;
+  const paymentModalRemaining = settlingOrder
+    ? Math.max(0, paymentModalTotal - alreadyPaidForSettle - paymentEntriesTotal)
+    : remainingValue;
+
+  const openSettlePayment = (order: SaleOrder) => {
+    setSettlingOrder(order);
+    setSelectedCustomer(order.customerId ? { id: order.customerId, name: order.customerName || 'Cliente', phone: order.customerPhone || '' } : null);
+    setPaymentEntries([]);
+    setDownPayment(0);
+    setScheduledFor(order.scheduledFor || '');
+    setPendingPaymentMethod('');
+    setIsPaymentModalOpen(true);
+  };
+
   const confirmAddPayment = () => {
     const rawInput = newPaymentInput === '' ? 0 : Number(newPaymentInput);
     const baseValue = newPaymentMode === 'percentual' ? Number(((total * rawInput) / 100).toFixed(2)) : rawInput;
@@ -4876,13 +4896,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   useEffect(() => {
     if (!isPaymentModalOpen) return;
     if (newPaymentMode === 'valor') {
-      setNewPaymentInput(remainingValue > 0 ? Number(remainingValue.toFixed(2)) : '');
+      setNewPaymentInput(paymentModalRemaining > 0 ? Number(paymentModalRemaining.toFixed(2)) : '');
     } else if (newPaymentMode === 'percentual') {
-      const pct = total > 0 ? (remainingValue / total) * 100 : 0;
+      const pct = paymentModalTotal > 0 ? (paymentModalRemaining / paymentModalTotal) * 100 : 0;
       setNewPaymentInput(pct > 0 ? Number(pct.toFixed(2)) : '');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPaymentModalOpen, remainingValue, newPaymentMethod, newPaymentMode]);
+  }, [isPaymentModalOpen, paymentModalRemaining, newPaymentMethod, newPaymentMode]);
 
   const faturamentoHoje = salesToday.reduce((acc, o) => {
     if (o.status === 'pending') {
@@ -4897,6 +4917,39 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       const audio = new Audio('/sounds/cash-register.mp3');
       audio.play().catch(() => {});
     } catch (e) {}
+
+    // Quitar Debito: atualiza a venda ja existente em vez de criar uma nova
+    if (settlingOrder) {
+      const novoTotalPago = alreadyPaidForSettle + paymentEntriesTotal;
+      const novoSaldo = Math.max(0, paymentModalTotal - novoTotalPago);
+      const pagamentosAnteriores = settlingOrder.payments || [];
+      try {
+        const { error } = await supabase.from('vendas').update({
+          down_payment: novoTotalPago,
+          received_value: novoTotalPago,
+          payments: [...pagamentosAnteriores, ...paymentEntries],
+          status: novoSaldo <= 0 ? 'completed' : 'pending',
+          pending_payment_method: novoSaldo > 0 ? (pendingPaymentMethod || null) : null,
+          scheduled_for: scheduledFor || settlingOrder.scheduledFor || null,
+        }).eq('id', settlingOrder.id);
+        if (error) throw error;
+
+        const updatedOrder: SaleOrder = { ...settlingOrder, downPayment: novoTotalPago, receivedValue: novoTotalPago, status: novoSaldo <= 0 ? 'completed' : 'pending', payments: [...pagamentosAnteriores, ...paymentEntries] };
+        setLastFinalizedOrder(updatedOrder);
+        setIsSuccessModalOpen(true);
+        setIsPaymentModalOpen(false);
+        setSettlingOrder(null);
+        setSelectedCustomer(null);
+        setPaymentEntries([]);
+        setDownPayment(0);
+        setScheduledFor('');
+        setPendingPaymentMethod('');
+      } catch (err: any) {
+        console.error('Erro ao quitar débito:', err);
+        alert(`Não foi possível registrar o pagamento: ${err?.message || 'erro desconhecido'}`);
+      }
+      return;
+    }
 
     const finalDownPayment = forceZeroPayment ? 0 : (downPayment === '' || typeof downPayment === 'string' ? 0 : Number(downPayment));
     const currentRemaining = Math.max(0, total - finalDownPayment);
@@ -5751,7 +5804,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           <span className="text-[11px] font-black text-white shrink-0 w-20 text-right">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
                           <div className="flex gap-1 shrink-0">
                             {isPartial && (
-                              <button onClick={() => setSettleModalOrder(sale)} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar Saldo"><CheckCircle2 size={13} /></button>
+                              <button onClick={() => openSettlePayment(sale)} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar Débito"><CheckCircle2 size={13} /></button>
                             )}
                             <button onClick={() => openReceiptDetail(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={13} /></button>
                             {canManageHistory && (
@@ -5793,7 +5846,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           </div>
                           <p className="text-sm font-black text-white">R$ {sale.total.toFixed(2).replace('.', ',')}</p>
                           <div className="flex flex-wrap gap-1 pt-1">
-                            {isPartial && <button onClick={() => setSettleModalOrder(sale)} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar Saldo"><CheckCircle2 size={12} /></button>}
+                            {isPartial && <button onClick={() => openSettlePayment(sale)} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar Débito"><CheckCircle2 size={12} /></button>}
                             <button onClick={() => openReceiptDetail(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={12} /></button>
                             {canManageHistory && (
                               <>
@@ -5883,10 +5936,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             <Button
                               size="sm"
                               className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 text-[9px] font-black uppercase tracking-wider px-4 h-9"
-                              onClick={() => setSettleModalOrder(sale)}
+                              onClick={() => openSettlePayment(sale)}
                             >
                               <CheckCircle2 size={14} className="mr-1" />
-                              Quitar Saldo (R$ {balance.toFixed(2).replace('.', ',')})
+                              Quitar Débito (R$ {balance.toFixed(2).replace('.', ',')})
                             </Button>
                           )}
                           <Button
@@ -6080,7 +6133,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       <span className="text-[11px] font-black text-white shrink-0 w-20 text-right">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
                       <div className="flex gap-1 shrink-0">
                         {isPartial && (
-                          <button onClick={() => setSettleModalOrder(sale)} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar Saldo"><CheckCircle2 size={13} /></button>
+                          <button onClick={() => openSettlePayment(sale)} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar Débito"><CheckCircle2 size={13} /></button>
                         )}
                         <button onClick={() => openReceiptDetail(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={13} /></button>
                         {canManageHistory && (
@@ -6489,7 +6542,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       <Modal 
         isOpen={isPaymentModalOpen} 
         onClose={() => setIsPaymentModalOpen(false)} 
-        title="Finalizar Venda"
+        title={settlingOrder ? `Quitar Débito — Pedido #${settlingOrder.id.slice(-8).toUpperCase()}` : "Finalizar Venda"}
         size="lg"
         className="max-h-[98vh] my-auto"
         contentClassName="min-h-0"
@@ -6508,7 +6561,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  <Button 
                    variant="secondary" 
                    size="sm" 
-                   className="text-[7.5px] sm:text-[8px] uppercase tracking-widest h-6 sm:h-7 px-2 border-white/10 shrink-0"
+                   className={cn("text-[7.5px] sm:text-[8px] uppercase tracking-widest h-6 sm:h-7 px-2 border-white/10 shrink-0", settlingOrder && "invisible")}
+                   disabled={!!settlingOrder}
                    onClick={() => {
                       setIsPaymentModalOpen(false);
                       setIsCustomerModalOpen(true);
@@ -6521,7 +6575,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               <div className="p-2 sm:p-2.5 bg-slate-900 rounded-xl border border-white/5 flex justify-between items-center px-3 sm:px-4">
                  <div>
                     <p className="text-[7px] sm:text-[8px] font-black text-white/30 uppercase tracking-widest leading-none mb-0.5">Total a Pagar</p>
-                    <p className="text-sm sm:text-lg md:text-xl font-black text-white tracking-tighter italic leading-none">R$ {total.toFixed(2).replace('.', ',')}</p>
+                    <p className="text-sm sm:text-lg md:text-xl font-black text-white tracking-tighter italic leading-none">R$ {paymentModalTotal.toFixed(2).replace('.', ',')}</p>
                  </div>
                  <Badge variant="primary" className="bg-emerald-500/10 text-emerald-400 border-none font-black text-[8px] sm:text-[9px] tracking-widest uppercase py-0.5 px-2">Conferido</Badge>
               </div>
@@ -6532,9 +6586,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               {/* Left Side: Items & Summary Details */}
               <div className="md:col-span-5 flex flex-col justify-between min-h-0 overflow-hidden gap-1.5 sm:gap-2">
                  <div className="flex-1 flex flex-col gap-1 overflow-hidden min-h-0 bg-white/5 rounded-xl border border-white/5 p-2">
-                    <p className="text-[8px] sm:text-[9px] font-black uppercase text-white/40 tracking-widest shrink-0">Resumo da Nota ({cart.length})</p>
+                    <p className="text-[8px] sm:text-[9px] font-black uppercase text-white/40 tracking-widest shrink-0">Resumo da Nota ({paymentModalItems.length})</p>
                     <div className="flex-1 overflow-y-auto custom-scrollbar divide-y divide-white/5 min-h-[50px]">
-                       {cart.map((item, idx) => (
+                       {paymentModalItems.map((item, idx) => (
                           <div key={idx} className="py-1 px-1.5 flex justify-between items-center hover:bg-white/5 transition-colors">
                              <div className="flex items-center gap-1.5 min-w-0">
                                 <span className="text-[8px] font-black text-white/40 bg-white/10 px-1 py-0.5 rounded text-center min-w-[18px]">{item.quantity}x</span>
@@ -6555,12 +6609,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
                  <div className="p-2 sm:p-2.5 bg-white/3 rounded-xl border border-white/5 flex justify-between items-center shrink-0">
                     <div>
-                       <p className="text-[7.5px] sm:text-[8px] font-black text-white/30 uppercase tracking-widest leading-none">Pago / Entrada</p>
-                       <p className="text-xs font-black text-emerald-400 mt-0.5">R$ {(downPayment === '' || typeof downPayment === 'string' ? 0 : Number(downPayment)).toFixed(2).replace('.', ',')}</p>
+                       <p className="text-[7.5px] sm:text-[8px] font-black text-white/30 uppercase tracking-widest leading-none">{settlingOrder ? 'Entrada Já Recebida' : 'Pago / Entrada'}</p>
+                       <p className="text-xs font-black text-emerald-400 mt-0.5">R$ {(settlingOrder ? alreadyPaidForSettle : (downPayment === '' || typeof downPayment === 'string' ? 0 : Number(downPayment))).toFixed(2).replace('.', ',')}</p>
                     </div>
                     <div className="text-right">
                        <p className="text-[7.5px] sm:text-[8px] font-black text-white/30 uppercase tracking-widest leading-none">Saldo Restante</p>
-                       <p className={cn("text-xs font-black mt-0.5", remainingValue > 0 ? "text-rose-400" : "text-white/40")}>R$ {remainingValue.toFixed(2).replace('.', ',')}</p>
+                       <p className={cn("text-xs font-black mt-0.5", paymentModalRemaining > 0 ? "text-rose-400" : "text-white/40")}>R$ {paymentModalRemaining.toFixed(2).replace('.', ',')}</p>
                     </div>
                  </div>
               </div>
@@ -6607,7 +6661,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     )}
 
                     {/* Formulario de pagamento — sempre visivel */}
-                    {remainingValue > 0 ? (
+                    {paymentModalRemaining > 0 ? (
                       <div className="flex-1 min-h-0 flex flex-col gap-1.5 bg-white/5 rounded-xl border border-white/5 p-2 overflow-hidden">
                          <div className="grid grid-cols-4 gap-1 shrink-0">
                             {PAYMENT_METHOD_OPTIONS.filter(m => enabledPaymentMethods.includes(m.id)).map(m => (
@@ -6633,7 +6687,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                <Input
                                  type="number"
                                  step="any"
-                                 placeholder={newPaymentMode === 'valor' ? `Máx. R$ ${remainingValue.toFixed(2).replace('.', ',')}` : 'Ex: 30'}
+                                 placeholder={newPaymentMode === 'valor' ? `Máx. R$ ${paymentModalRemaining.toFixed(2).replace('.', ',')}` : 'Ex: 30'}
                                  className="h-8 text-xs bg-slate-900/50"
                                  value={newPaymentInput}
                                  onChange={(e: any) => setNewPaymentInput(e.target.value === '' ? '' : Number(e.target.value))}
@@ -6761,23 +6815,25 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
            {/* Bottom Action Bar (ALWAYS VISIBLE - NO SCROLL) */}
            <div className="flex gap-2 pt-1 border-t border-white/5 shrink-0">
-              <Button
-                variant="secondary"
-                className="flex-1 h-9 sm:h-11 text-[8px] sm:text-[9px] uppercase font-black tracking-wider border-white/10"
-                onClick={() => {
-                  setIsPaymentModalOpen(false);
-                  handleCreateOrcamentoFromCart();
-                }}
-              >
-                Orçamento
-              </Button>
-              {remainingValue > 0 ? (
+              {!settlingOrder && (
+                <Button
+                  variant="secondary"
+                  className="flex-1 h-9 sm:h-11 text-[8px] sm:text-[9px] uppercase font-black tracking-wider border-white/10"
+                  onClick={() => {
+                    setIsPaymentModalOpen(false);
+                    handleCreateOrcamentoFromCart();
+                  }}
+                >
+                  Orçamento
+                </Button>
+              )}
+              {paymentModalRemaining > 0 ? (
                 <Button 
                   className="flex-[2] h-9 sm:h-11 bg-amber-500 hover:bg-amber-400 text-slate-900 border-none shadow-lg shadow-amber-500/20 text-[9px] sm:text-[10px] font-black uppercase tracking-wider gap-2 cursor-pointer"
                   onClick={() => handleFinalize(true)}
                 >
                    <Clock size={16} />
-                   <span>LANÇAR ENTRADA (R$ {(downPayment === '' ? 0 : Number(downPayment)).toFixed(2).replace('.', ',')})</span>
+                   <span>{settlingOrder ? `REGISTRAR PAGAMENTO (R$ ${paymentEntriesTotal.toFixed(2).replace('.', ',')})` : `LANÇAR ENTRADA (R$ ${(downPayment === '' ? 0 : Number(downPayment)).toFixed(2).replace('.', ',')})`}</span>
                 </Button>
               ) : (
                 <Button 
@@ -6785,7 +6841,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   onClick={() => handleFinalize(false)}
                 >
                    <CheckCircle2 size={16} />
-                   <span>FINALIZAR VENDA (TOTAL QUITADO)</span>
+                   <span>{settlingOrder ? 'QUITAR DÉBITO (TOTAL PAGO)' : 'FINALIZAR VENDA (TOTAL QUITADO)'}</span>
                 </Button>
               )}
            </div>
@@ -7269,7 +7325,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               onChange={(e: any) => setWaSendPhone(e.target.value)}
               autoFocus
             />
-            <p className="text-[10px] text-white/30">Pode trocar o número aqui se precisar mandar pra outro contato — o número fica salvo no orçamento depois de enviar.</p>
+            <p className="text-[10px] text-white/30">Pode trocar o número aqui pra mandar pra outro contato — o telefone principal do orçamento não é alterado, fica guardado só como número alternativo de envio.</p>
+            {waSendOrcamento.telefoneAlternativo && waSendPhone === (waSendOrcamento.phone || '') && (
+              <button
+                onClick={() => setWaSendPhone(waSendOrcamento.telefoneAlternativo || '')}
+                className="text-[10px] text-primary-300 hover:text-primary-200 font-bold"
+              >
+                Usar último número alternativo: {waSendOrcamento.telefoneAlternativo}
+              </button>
+            )}
             <div className="flex justify-end gap-3 pt-1">
                <Button variant="ghost" onClick={() => setWaSendOrcamento(null)}>Cancelar</Button>
                <Button className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 border-none" onClick={confirmShareOrcamentoWhatsApp}>Enviar</Button>
