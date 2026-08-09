@@ -5123,7 +5123,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         {activeTab === 'venda' && (
           <>
             {/* Cima no mobile / Esquerda no desktop: Terminal POS + Carrinho */}
-            <div className="basis-[60%] shrink-0 grow-0 md:basis-auto md:flex-1 md:shrink bg-[#fef9c3] flex flex-col pt-1 px-2 pb-2 sm:p-6 relative overflow-hidden justify-between min-h-0">
+            <div className="basis-[50%] shrink-0 grow-0 md:basis-auto md:flex-1 md:shrink bg-[#fef9c3] flex flex-col pt-1 px-2 pb-2 sm:p-6 relative overflow-hidden justify-between min-h-0">
                {/* Top Bar */}
                <div className="flex justify-between items-center text-slate-900/50 pb-1 sm:pb-2 border-b border-slate-900/10">
                   <div className="flex items-center gap-1 sm:gap-2">
@@ -5253,24 +5253,25 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             {/* Embaixo no mobile / Direita no desktop: Lista de Produtos */}
             <div className="flex-1 min-h-0 md:w-[450px] md:flex-none bg-white flex flex-col min-h-0 border-t md:border-t-0 md:border-l border-slate-200 shadow-2xl relative">
                {/* Search & Action Bar */}
-               <div className="p-4 bg-slate-50 space-y-3">
-                  <div className="flex gap-2 h-12">
+               <div className="p-2 sm:p-4 bg-slate-50 space-y-1.5 sm:space-y-3 shrink-0">
+                  <div className="flex gap-1.5 sm:gap-2 h-9 sm:h-12">
                      {(user?.isAdmin || user?.allowedActions?.includes('canAddProduct')) && (
                        <button 
                           onClick={() => setIsQuickProductOpen(true)}
                           title="Cadastrar Produto"
-                          className="w-11 shrink-0 bg-white border-2 border-primary-400 text-primary-600 rounded-xl hover:bg-primary-50 transition-all shadow-sm active:scale-95 flex items-center justify-center"
+                          className="w-9 sm:w-11 shrink-0 bg-white border-2 border-primary-400 text-primary-600 rounded-lg sm:rounded-xl hover:bg-primary-50 transition-all shadow-sm active:scale-95 flex items-center justify-center"
                        >
-                          <PlusSquare size={18} />
+                          <PlusSquare size={15} className="sm:hidden" />
+                          <PlusSquare size={18} className="hidden sm:block" />
                        </button>
                      )}
-                     <div className="flex-[2] flex gap-1 bg-white border-2 border-slate-200 rounded-xl p-1 overflow-x-auto no-scrollbar">
+                     <div className="flex-[2] flex gap-1 bg-white border-2 border-slate-200 rounded-lg sm:rounded-xl p-1 overflow-x-auto no-scrollbar">
                         {[1, 2, 3, 4, 5].map(q => (
                           <button 
                             key={q} 
                             onClick={() => setSelectedQty(q)}
                             className={cn(
-                              "flex-1 rounded-lg text-sm font-black transition-all",
+                              "flex-1 rounded-md sm:rounded-lg text-xs sm:text-sm font-black transition-all",
                               selectedQty === q ? "bg-primary-500 text-slate-900" : "text-slate-400 hover:text-slate-600"
                             )}
                           >
@@ -5280,11 +5281,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                      </div>
                   </div>
                   <div className="relative">
-                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
+                     <Search className="absolute left-2.5 sm:left-3 top-1/2 -translate-y-1/2 text-slate-300" size={14} />
                      <input 
                        value={search}
                        onChange={(e) => setSearch(e.target.value)}
-                       className="w-full h-11 bg-white border-2 border-slate-200 rounded-xl pl-10 pr-4 text-xs font-bold text-slate-700 placeholder:text-slate-300 outline-none focus:border-primary-500 transition-all"
+                       className="w-full h-8 sm:h-11 bg-white border-2 border-slate-200 rounded-lg sm:rounded-xl pl-8 sm:pl-10 pr-3 sm:pr-4 text-[11px] sm:text-xs font-bold text-slate-700 placeholder:text-slate-300 outline-none focus:border-primary-500 transition-all"
                        placeholder="BUSCAR OU BIPAR..."
                      />
                   </div>
@@ -5297,7 +5298,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                         <div 
                           key={product.id} 
                           onClick={() => addToCart(product)}
-                          className="flex items-center px-4 py-1.5 hover:bg-primary-50 transition-colors group cursor-pointer border-b border-slate-50 last:border-0"
+                          className="flex items-center px-3 sm:px-4 py-1.5 sm:py-1.5 hover:bg-primary-50 transition-colors group cursor-pointer border-b border-slate-50 last:border-0"
                         >
                            <div className="flex-1 min-w-0">
                               <p className="text-[9px] font-black text-slate-800 truncate leading-none uppercase tracking-tight">{product.name}</p>
@@ -5317,8 +5318,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    </div>
                 </div>
 
-               <div className="shrink-0 p-3 sm:p-6 bg-slate-50 border-t border-slate-200 space-y-4 sticky bottom-0 z-10">
-                  <div className="flex gap-2 sm:gap-4 h-14 sm:h-24">
+               <div className="shrink-0 p-1.5 sm:p-6 bg-slate-50 border-t border-slate-200 space-y-4 sticky bottom-0 z-10">
+                  <div className="flex gap-2 sm:gap-4 h-11 sm:h-24">
                      <button 
                        disabled={cart.length === 0}
                        onClick={() => {
