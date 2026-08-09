@@ -5409,9 +5409,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             </div>
 
             {/* Barra de controles: Pesquisa | Ordenação & Visualização | Filtros de Status — tudo em uma linha */}
-            <div className="flex flex-nowrap items-center gap-2 bg-white/[0.02] border border-white/5 rounded-2xl p-2.5 overflow-x-auto custom-scrollbar">
+            <div className="flex flex-wrap items-center gap-2 bg-white/[0.02] border border-white/5 rounded-2xl p-2.5">
               {/* Grupo 1: Pesquisa */}
-              <div className="relative w-40 xl:w-48 shrink-0">
+              <div className="relative w-full sm:w-40 xl:w-48 shrink-0">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/40" size={13} />
                 <input
                   value={historySearch}
@@ -5999,17 +5999,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   const balance = sale.total - down;
                   const isPartial = balance > 0 || sale.status === 'pending';
                   return (
-                    <div key={sale.id} className="flex items-center gap-3 bg-slate-900/60 hover:bg-slate-900 border border-white/5 rounded-xl px-3 py-2.5 transition-all flex-wrap">
-                      <div className="flex-1 min-w-0 flex items-center gap-3 flex-wrap">
-                        <span className="text-[11px] font-black text-white">{sale.customerName || 'Cliente de Balcão'}</span>
-                        <span className="text-[9px] text-white/30 font-mono shrink-0">#{sale.id.slice(-8).toUpperCase()}</span>
-                        <span className="text-[9px] text-white/30 shrink-0">{safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
+                    <div key={sale.id} className="flex items-center gap-2 sm:gap-3 bg-slate-900/60 hover:bg-slate-900 border border-white/5 rounded-xl px-3 py-2.5 transition-all overflow-x-auto custom-scrollbar">
+                      <div className="flex items-center gap-2 sm:gap-3 shrink-0 sm:min-w-0 sm:flex-1">
+                        <span className="text-[11px] font-black text-white whitespace-nowrap">{sale.customerName || 'Cliente de Balcão'}</span>
+                        <span className="hidden sm:inline text-[9px] text-white/30 font-mono shrink-0">#{sale.id.slice(-8).toUpperCase()}</span>
+                        <span className="hidden sm:inline text-[9px] text-white/30 shrink-0">{safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
                         {sale.scheduledFor && (
-                          <span className="text-[8.5px] font-black uppercase bg-primary-500/10 text-primary-300 px-2 py-0.5 rounded-full border border-primary-500/20 shrink-0">
+                          <span className="hidden sm:inline text-[8.5px] font-black uppercase bg-primary-500/10 text-primary-300 px-2 py-0.5 rounded-full border border-primary-500/20 shrink-0">
                             Entrega: {safeFormat(sale.scheduledFor, 'dd/MM HH:mm')}
                           </span>
                         )}
                       </div>
+                      <div className="flex-1 sm:hidden" />
                       {isPartial && (
                         <Badge className="text-[7.5px] font-black uppercase px-1.5 py-0.5 border-none shrink-0 bg-amber-500/20 text-amber-300">PARCIAL</Badge>
                       )}
