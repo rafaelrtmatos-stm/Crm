@@ -5049,15 +5049,30 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         status: r.status,
         ...(r.createdAt ? { created_at: r.createdAt } : {}),
       }));
+      const falhasVendas: string[] = [];
+      let vendasNovas = 0;
       const batchSize = 200;
       for (let i = 0; i < payload.length; i += batchSize) {
-        const { error } = await supabase.from('vendas').insert(payload.slice(i, i + batchSize));
-        if (error) throw error;
+        const slice = payload.slice(i, i + batchSize);
+        const { error } = await supabase.from('vendas').insert(slice);
+        if (!error) {
+          vendasNovas += slice.length;
+        } else {
+          for (const row of slice) {
+            const { error: rowError } = await supabase.from('vendas').insert(row);
+            if (rowError) falhasVendas.push(`${row.customer_name || 'sem cliente'}: ${rowError.message}`);
+            else vendasNovas += 1;
+          }
+        }
       }
-      alert(`${rows.length} venda(s) importada(s) com sucesso!`);
-    } catch (err) {
+      if (falhasVendas.length > 0) {
+        alert(`${vendasNovas} venda(s) importada(s).\n\n${falhasVendas.length} venda(s) NÃO foram importadas:\n${falhasVendas.slice(0, 10).join('\n')}${falhasVendas.length > 10 ? `\n... e mais ${falhasVendas.length - 10}` : ''}`);
+      } else {
+        alert(`${vendasNovas} venda(s) importada(s) com sucesso!`);
+      }
+    } catch (err: any) {
       console.error('Erro ao importar vendas:', err);
-      alert('Não foi possível importar a planilha. Confira se o modelo de colunas está correto.');
+      alert(`Não foi possível importar: ${err?.message || 'erro desconhecido'}`);
     } finally {
       setIsImportingVendas(false);
       if (vendasFileInputRef.current) vendasFileInputRef.current.value = '';
@@ -7930,19 +7945,37 @@ export const ContactsModule = ({ currentCompany }: { currentCompany: Company | n
         }
       }
 
+      const falhas: string[] = [];
+      let novos = 0, atualizados = 0;
+
       const batchSize = 200;
       for (let i = 0; i < paraInserir.length; i += batchSize) {
-        const { error } = await supabase.from('clientes').insert(paraInserir.slice(i, i + batchSize));
-        if (error) throw error;
+        const slice = paraInserir.slice(i, i + batchSize);
+        const { error } = await supabase.from('clientes').insert(slice);
+        if (!error) {
+          novos += slice.length;
+        } else {
+          for (const row of slice) {
+            const { error: rowError } = await supabase.from('clientes').insert(row);
+            if (rowError) falhas.push(`${row.full_name || 'sem nome'}: ${rowError.message}`);
+            else novos += 1;
+          }
+        }
       }
       for (const { id, row } of paraAtualizar) {
-        await supabase.from('clientes').update(row).eq('id', id);
+        const { error } = await supabase.from('clientes').update(row).eq('id', id);
+        if (error) falhas.push(`${row.full_name || 'sem nome'}: ${error.message}`);
+        else atualizados += 1;
       }
 
-      alert(`${paraInserir.length} cliente(s) novo(s) cadastrado(s) e ${paraAtualizar.length} atualizado(s)!`);
-    } catch (err) {
+      if (falhas.length > 0) {
+        alert(`${novos} novo(s) cadastrado(s), ${atualizados} atualizado(s).\n\n${falhas.length} cliente(s) NÃO foram importados:\n${falhas.slice(0, 10).join('\n')}${falhas.length > 10 ? `\n... e mais ${falhas.length - 10}` : ''}`);
+      } else {
+        alert(`${novos} cliente(s) novo(s) cadastrado(s) e ${atualizados} atualizado(s)!`);
+      }
+    } catch (err: any) {
       console.error('Erro ao importar clientes:', err);
-      alert('Não foi possível importar a planilha. Confira se o modelo de colunas está correto.');
+      alert(`Não foi possível importar: ${err?.message || 'erro desconhecido'}`);
     } finally {
       setIsImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
