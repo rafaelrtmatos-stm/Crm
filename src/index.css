@@ -217,6 +217,39 @@ svg {
   color: #ffffff !important;
 }
 
+/* Cobertura ampla: qualquer fundo escuro usado em cards/paineis/modais em qualquer tela
+   (slate-900, slate-950, slate-800, preto puro, opacidades em colchete) vira claro,
+   com texto escuro por cima. Nao mexe em text-* pra nao estragar paineis ja claros
+   (ex: carrinho amarelo do Terminal, que usa texto escuro de proposito). */
+.light-theme [class*="bg-slate-900"],
+.light-theme [class*="bg-slate-950"],
+.light-theme [class*="bg-slate-800"],
+.light-theme [class*="bg-black/"],
+.light-theme [class*="bg-white/["],
+.light-theme [class*="hover:bg-slate-900"],
+.light-theme [class*="hover:bg-white/["] {
+  background-color: rgba(255, 255, 255, 0.96) !important;
+  color: #0f172a !important;
+}
+.light-theme [class*="bg-slate-900"] *,
+.light-theme [class*="bg-slate-950"] *,
+.light-theme [class*="bg-slate-800"] *,
+.light-theme [class*="bg-black/"] *,
+.light-theme [class*="bg-white/["] * {
+  color: #0f172a;
+}
+.light-theme [class*="border-slate-900"],
+.light-theme [class*="border-slate-800"],
+.light-theme [class*="border-white/["] {
+  border-color: rgba(203, 213, 225, 0.9) !important;
+}
+/* Excecoes: paineis que ja sao claros de proposito (fundo amarelo/branco do Terminal
+   de Venda) mantem o texto escuro original, sem forcar branco em nada dentro deles */
+.light-theme [class*="bg-[#fef9c3]"],
+.light-theme [class*="bg-[#fef9c3]"] * {
+  color: inherit;
+}
+
 /* As areas de rolagem interna (listas, modais, etc.) precisam reativar o touch,
    ja que o body acima tem touch-action: none para travar o app inteiro. */
 .custom-scrollbar,
