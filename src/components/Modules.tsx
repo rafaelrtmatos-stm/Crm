@@ -6001,7 +6001,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   return (
                     <div key={sale.id} className="flex items-center gap-3 bg-slate-900/60 hover:bg-slate-900 border border-white/5 rounded-xl px-3 py-2.5 transition-all flex-wrap">
                       <div className="flex-1 min-w-0 flex items-center gap-3 flex-wrap">
-                        <span className="text-[11px] font-black text-white truncate min-w-[70px] max-w-[45vw] sm:max-w-none">{sale.customerName || 'Cliente de Balcão'}</span>
+                        <span className="text-[11px] font-black text-white">{sale.customerName || 'Cliente de Balcão'}</span>
                         <span className="text-[9px] text-white/30 font-mono shrink-0">#{sale.id.slice(-8).toUpperCase()}</span>
                         <span className="text-[9px] text-white/30 shrink-0">{safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
                         {sale.scheduledFor && (
