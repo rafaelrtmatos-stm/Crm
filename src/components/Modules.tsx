@@ -4055,6 +4055,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const clearPaymentFilters = () => setSelectedPaymentFilters(new Set());
 
   const [historySearch, setHistorySearch] = useState('');
+  const [historyClienteIdFilter, setHistoryClienteIdFilter] = useState<string | null>(null);
   const [historyDateFrom, setHistoryDateFrom] = useState('');
   const [historyDateTo, setHistoryDateTo] = useState('');
   const [historyViewMode, setHistoryViewMode] = useState<'miniatura' | 'normal' | 'lista'>('normal');
@@ -4206,6 +4207,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const matchesHistorySearch = (sale: SaleOrder): boolean => {
+    // Filtro preciso por cliente_id (evita confundir clientes com nomes iguais) — tem prioridade sobre o texto
+    if (historyClienteIdFilter) {
+      return sale.customerId === historyClienteIdFilter;
+    }
     if (!historySearch.trim()) return true;
     const term = historySearch.toLowerCase().trim();
     const termDigits = term.replace(/\D/g, '');
@@ -4224,7 +4229,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const counts: Record<string, number> = { todos: searched.length };
     ids.forEach(id => { counts[id] = searched.filter(s => matchesOrderStatusFilter(s, id)).length; });
     return counts;
-  }, [allSalesHistory, historySearch, selectedPaymentFilters]);
+  }, [allSalesHistory, historySearch, historyClienteIdFilter, selectedPaymentFilters]);
 
   const paymentFilterCounts = useMemo(() => {
     const searched = allSalesHistory.filter(matchesHistorySearch).filter(s => matchesOrderStatusGroup(s, selectedOrderStatusFilters));
@@ -4232,7 +4237,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const counts: Record<string, number> = { todos: searched.length };
     ids.forEach(id => { counts[id] = searched.filter(s => matchesPaymentFilter(s, id)).length; });
     return counts;
-  }, [allSalesHistory, historySearch, selectedOrderStatusFilters]);
+  }, [allSalesHistory, historySearch, historyClienteIdFilter, selectedOrderStatusFilters]);
 
   const pendingOrScheduledSales = useMemo(() => {
     return allSalesHistory
@@ -4267,7 +4272,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       const diff = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       return historySortOrder === 'desc' ? diff : -diff;
     });
-  }, [allSalesHistory, selectedOrderStatusFilters, selectedPaymentFilters, historySearch, historySortOrder, historyDateFrom, historyDateTo]);
+  }, [allSalesHistory, selectedOrderStatusFilters, selectedPaymentFilters, historySearch, historyClienteIdFilter, historySortOrder, historyDateFrom, historyDateTo]);
 
   // Resumo da Ordem de Servicos: usa o mesmo filtro de periodo (De/Ate) do Historico
   const servicosResumo = useMemo(() => {
@@ -5381,7 +5386,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 </button>
                 <button
                   title="Exportar Planilha"
-                  onClick={() => exportVendasXlsx(allSalesHistory)}
+                  onClick={() => exportVendasXlsx(filteredSalesHistory)}
                   className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all"
                 >
                   <Download size={13} />
@@ -5415,10 +5420,22 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/40" size={13} />
                 <input
                   value={historySearch}
-                  onChange={e => setHistorySearch(e.target.value)}
+                  onChange={e => { setHistorySearch(e.target.value); setHistoryClienteIdFilter(null); }}
                   placeholder="Buscar..."
-                  className="w-full bg-white/5 border border-white/10 rounded-lg pl-8 pr-2 py-2 text-[11px] text-white placeholder-white/30 focus:outline-none focus:border-primary-500"
+                  className={cn(
+                    "w-full bg-white/5 border rounded-lg pl-8 pr-7 py-2 text-[11px] text-white placeholder-white/30 focus:outline-none focus:border-primary-500",
+                    historyClienteIdFilter ? "border-primary-500/50" : "border-white/10"
+                  )}
                 />
+                {historyClienteIdFilter && (
+                  <button
+                    onClick={() => { setHistorySearch(''); setHistoryClienteIdFilter(null); }}
+                    title="Limpar filtro do cliente"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-primary-400 hover:text-white"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
               </div>
 
               <div className="w-px h-6 bg-white/10 shrink-0" />
@@ -6115,7 +6132,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
         {activeTab === 'clientes' && (
           <div className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/30">
-            <ContactsModule currentCompany={currentCompany} />
+            <ContactsModule
+              currentCompany={currentCompany}
+              onViewHistoryForClient={(clienteId: string, clienteName: string) => {
+                setHistoryClienteIdFilter(clienteId);
+                setHistorySearch(clienteName);
+                setActiveTab('historico');
+              }}
+            />
           </div>
         )}
 
@@ -7902,13 +7926,49 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 };
 
 // --- CONTACTS ---
-export const ContactsModule = ({ currentCompany }: { currentCompany: Company | null }) => {
+export const ContactsModule = ({ currentCompany, onViewHistoryForClient }: { currentCompany: Company | null; onViewHistoryForClient?: (clienteId: string, clienteName: string) => void }) => {
   const [clientes, setClientes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({ full_name: '', phone: '', email: '', cpf_cnpj: '', city: '', state: '' });
   const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  // Estatisticas de vendas por cliente (ultimo pedido, faturamento, pago, pendente) e custo dos produtos (pro lucro)
+  const [clienteStats, setClienteStats] = useState<Record<string, { lastDate: string; count: number; total: number; pago: number; pendente: number; custoTotal: number }>>({});
+  const [produtosCostMap, setProdutosCostMap] = useState<Record<string, number>>({});
+  const [fichaCliente, setFichaCliente] = useState<any | null>(null);
+
+  useEffect(() => {
+    const loadStats = async () => {
+      const { data: vendasData } = await supabase.from('vendas').select('cliente_id, total, down_payment, status, items, created_at').is('deleted_at', null).not('cliente_id', 'is', null);
+      const { data: produtosData } = await supabase.from('produtos').select('id, cost_price');
+      const costMap: Record<string, number> = {};
+      (produtosData || []).forEach((p: any) => { costMap[p.id] = Number(p.cost_price) || 0; });
+      setProdutosCostMap(costMap);
+
+      const stats: Record<string, { lastDate: string; count: number; total: number; pago: number; pendente: number; custoTotal: number }> = {};
+      (vendasData || []).forEach((v: any) => {
+        if (!v.cliente_id) return;
+        if (!stats[v.cliente_id]) stats[v.cliente_id] = { lastDate: v.created_at, count: 0, total: 0, pago: 0, pendente: 0, custoTotal: 0 };
+        const s = stats[v.cliente_id];
+        const total = Number(v.total) || 0;
+        const down = v.down_payment !== null ? Number(v.down_payment) : (v.status === 'completed' ? total : 0);
+        const isFullyPaid = v.status === 'completed' || down >= total;
+        s.count += 1;
+        s.total += total;
+        s.pago += isFullyPaid ? total : down;
+        s.pendente += Math.max(0, total - down);
+        (v.items || []).forEach((item: any) => {
+          const custoUnit = costMap[item.productId] || 0;
+          s.custoTotal += custoUnit * (item.area ? item.area * item.quantity : item.quantity);
+        });
+        if (new Date(v.created_at) > new Date(s.lastDate)) s.lastDate = v.created_at;
+      });
+      setClienteStats(stats);
+    };
+    loadStats();
+  }, []);
 
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -8021,10 +8081,25 @@ export const ContactsModule = ({ currentCompany }: { currentCompany: Company | n
   };
 
   const columns = [
-    { key: 'full_name', label: 'Nome' },
-    { key: 'email', label: 'Email' },
-    { key: 'phone', label: 'Telefone' },
-    { key: 'city', label: 'Cidade' },
+    { key: 'full_name', label: 'Nome', render: (v: string) => <span className="font-bold text-white">{v}</span> },
+    { key: 'phone', label: 'WhatsApp', render: (v: string) => v ? (
+        <button
+          onClick={(e: any) => { e.stopPropagation(); window.open(`https://wa.me/${v.replace(/\D/g, '')}`, '_blank'); }}
+          className="flex items-center gap-1.5 text-emerald-400 hover:text-emerald-300 font-bold"
+        >
+          <MessageSquare size={13} /> {v}
+        </button>
+      ) : <span className="text-white/20">—</span>
+    },
+    { key: 'ultimo', label: 'Último Pedido/Serviço', render: (_: any, row: any) => {
+        const s = clienteStats[row.id];
+        return s ? <span className="text-white/60 text-xs">{safeFormat(s.lastDate, 'dd/MM/yyyy')}</span> : <span className="text-white/20 text-xs">—</span>;
+      }
+    },
+    { key: 'exibir', label: '', render: (_: any, row: any) => (
+        <Button variant="secondary" size="sm" onClick={(e: any) => { e.stopPropagation?.(); setFichaCliente(row); }}>Exibir</Button>
+      )
+    },
   ];
 
   if (loading && clientes.length === 0) return (
@@ -8081,6 +8156,79 @@ export const ContactsModule = ({ currentCompany }: { currentCompany: Company | n
           </div>
         </div>
       </Modal>
+
+      {fichaCliente && (() => {
+        const s = clienteStats[fichaCliente.id];
+        const lucro = s ? s.total - s.custoTotal : 0;
+        return (
+          <Modal isOpen={!!fichaCliente} onClose={() => setFichaCliente(null)} title="Ficha do Cliente" size="md">
+            <div className="space-y-5 p-2">
+               <div>
+                  <h3 className="text-xl font-black text-white italic">{fichaCliente.full_name}</h3>
+                  {fichaCliente.phone && (
+                    <button
+                      onClick={() => window.open(`https://wa.me/${fichaCliente.phone.replace(/\D/g, '')}`, '_blank')}
+                      className="flex items-center gap-1.5 text-emerald-400 hover:text-emerald-300 font-bold text-sm mt-1"
+                    >
+                      <MessageSquare size={14} /> {fichaCliente.phone}
+                    </button>
+                  )}
+               </div>
+
+               <div className="grid grid-cols-2 gap-3 text-xs">
+                  {fichaCliente.email && <div><p className="text-white/30 uppercase font-bold text-[9px]">E-mail</p><p className="text-white">{fichaCliente.email}</p></div>}
+                  {fichaCliente.cpf_cnpj && <div><p className="text-white/30 uppercase font-bold text-[9px]">CPF/CNPJ</p><p className="text-white">{fichaCliente.cpf_cnpj}</p></div>}
+                  {fichaCliente.city && <div><p className="text-white/30 uppercase font-bold text-[9px]">Cidade</p><p className="text-white">{fichaCliente.city}{fichaCliente.state ? ` - ${fichaCliente.state}` : ''}</p></div>}
+               </div>
+
+               <div className="h-px bg-white/10" />
+
+               {s ? (
+                 <>
+                   <button
+                     onClick={() => { onViewHistoryForClient?.(fichaCliente.id, fichaCliente.full_name); setFichaCliente(null); }}
+                     className="w-full flex items-center justify-between bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl px-4 py-3 transition-all"
+                   >
+                      <div className="text-left">
+                         <p className="text-[9px] font-black uppercase text-white/40">Último Pedido/Serviço</p>
+                         <p className="text-sm font-bold text-white">{safeFormat(s.lastDate, 'dd/MM/yyyy HH:mm')}</p>
+                      </div>
+                      <ChevronRight size={16} className="text-primary-400" />
+                   </button>
+
+                   <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-white/5 rounded-xl p-3 border border-white/5">
+                         <p className="text-[9px] font-black uppercase text-white/40">Faturamento Total</p>
+                         <p className="text-lg font-black text-white">R$ {s.total.toFixed(2).replace('.', ',')}</p>
+                      </div>
+                      <div className="bg-white/5 rounded-xl p-3 border border-white/5">
+                         <p className="text-[9px] font-black uppercase text-white/40">Lucro Total</p>
+                         <p className="text-lg font-black text-emerald-400">R$ {lucro.toFixed(2).replace('.', ',')}</p>
+                      </div>
+                      <div className="bg-emerald-500/10 rounded-xl p-3 border border-emerald-500/20">
+                         <p className="text-[9px] font-black uppercase text-emerald-400/70">Valores Pagos</p>
+                         <p className="text-lg font-black text-emerald-400">R$ {s.pago.toFixed(2).replace('.', ',')}</p>
+                      </div>
+                      <div className="bg-amber-500/10 rounded-xl p-3 border border-amber-500/20">
+                         <p className="text-[9px] font-black uppercase text-amber-400/70">Valores Pendentes</p>
+                         <p className="text-lg font-black text-amber-400">R$ {s.pendente.toFixed(2).replace('.', ',')}</p>
+                      </div>
+                   </div>
+                 </>
+               ) : (
+                 <p className="text-center text-xs text-white/30 py-6">Esse cliente ainda não tem pedidos/serviços registrados.</p>
+               )}
+
+               {fichaCliente.notes && (
+                 <div>
+                    <p className="text-[9px] font-black uppercase text-white/40 mb-1">Observações</p>
+                    <p className="text-xs text-white/60 bg-white/5 rounded-xl p-3 border border-white/5">{fichaCliente.notes}</p>
+                 </div>
+               )}
+            </div>
+          </Modal>
+        );
+      })()}
     </div>
   );
 };
