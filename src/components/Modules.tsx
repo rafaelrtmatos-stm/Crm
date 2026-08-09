@@ -4636,21 +4636,21 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const [products, setProducts] = useState<Product[]>([]);
+  const loadProducts = async () => {
+    const { data } = await supabase.from('produtos').select('*').or('is_active.is.null,is_active.eq.true').order('name', { ascending: true });
+    setProducts((data || []).map((p: any) => ({
+      id: p.id,
+      name: p.name,
+      code: p.code || '',
+      price: Number(p.sale_price) || 0,
+      stock: Number(p.current_stock) || 0,
+      unitType: p.unit === 'm2' ? 'm2' : 'unit',
+      tipoItem: p.tipo_item || 'produto',
+      larguraRolo: p.largura_rolo ? Number(p.largura_rolo) : undefined,
+      controlaEstoque: p.controla_estoque !== false,
+    })));
+  };
   useEffect(() => {
-    const loadProducts = async () => {
-      const { data } = await supabase.from('produtos').select('*').or('is_active.is.null,is_active.eq.true').order('name', { ascending: true });
-      setProducts((data || []).map((p: any) => ({
-        id: p.id,
-        name: p.name,
-        code: p.code || '',
-        price: Number(p.sale_price) || 0,
-        stock: Number(p.current_stock) || 0,
-        unitType: p.unit === 'm2' ? 'm2' : 'unit',
-        tipoItem: p.tipo_item || 'produto',
-        larguraRolo: p.largura_rolo ? Number(p.largura_rolo) : undefined,
-        controlaEstoque: p.controla_estoque !== false,
-      })));
-    };
     loadProducts();
     const channel = supabase
       .channel('pos-produtos')
@@ -4658,6 +4658,40 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, []);
+
+  // Cadastro rapido de produto direto pelo Terminal de Venda (mesma tabela do Estoque)
+  const [isQuickProductOpen, setIsQuickProductOpen] = useState(false);
+  const [isSavingQuickProduct, setIsSavingQuickProduct] = useState(false);
+  const emptyQuickProductForm = { name: '', code: '', category: '', unit: 'un' as 'un' | 'm2', costPrice: 0, salePrice: 0, currentStock: 0 };
+  const [quickProductForm, setQuickProductForm] = useState({ ...emptyQuickProductForm });
+
+  const handleSaveQuickProduct = async () => {
+    if (!quickProductForm.name.trim()) { alert('Digite o nome do produto.'); return; }
+    setIsSavingQuickProduct(true);
+    try {
+      const { error } = await supabase.from('produtos').insert({
+        name: quickProductForm.name,
+        code: quickProductForm.code || null,
+        category: quickProductForm.category || null,
+        unit: quickProductForm.unit,
+        cost_price: quickProductForm.costPrice || 0,
+        sale_price: quickProductForm.salePrice || 0,
+        current_stock: quickProductForm.currentStock || 0,
+        is_active: true,
+      });
+      if (error) throw error;
+      await loadProducts();
+      setIsQuickProductOpen(false);
+      setQuickProductForm({ ...emptyQuickProductForm });
+      // Permanece na aba Terminal Venda (nao navega pra Estoque)
+    } catch (err: any) {
+      console.error('Erro ao cadastrar produto:', err);
+      alert(`Não foi possível cadastrar: ${err?.message || 'erro desconhecido'}`);
+    } finally {
+      setIsSavingQuickProduct(false);
+    }
+  };
+
 
   const addToCart = (product: Product) => {
     if (product.unitType === 'm2') {
@@ -5089,35 +5123,35 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         {activeTab === 'venda' && (
           <>
             {/* Cima no mobile / Esquerda no desktop: Terminal POS + Carrinho */}
-            <div className="basis-[36%] shrink-0 grow-0 md:basis-auto md:flex-1 md:shrink bg-[#fef9c3] flex flex-col p-2.5 sm:p-6 relative overflow-hidden justify-between min-h-0">
+            <div className="basis-[32%] shrink-0 grow-0 md:basis-auto md:flex-1 md:shrink bg-[#fef9c3] flex flex-col p-2 sm:p-6 relative overflow-hidden justify-between min-h-0">
                {/* Top Bar */}
-               <div className="flex justify-between items-center text-slate-900/50 pb-1.5 sm:pb-2 border-b border-slate-900/10">
-                  <div className="flex items-center gap-1.5 sm:gap-2">
-                     <ShoppingBag size={12} className="sm:hidden text-slate-900" />
+               <div className="flex justify-between items-center text-slate-900/50 pb-1 sm:pb-2 border-b border-slate-900/10">
+                  <div className="flex items-center gap-1 sm:gap-2">
+                     <ShoppingBag size={10} className="sm:hidden text-slate-900" />
                      <ShoppingBag size={16} className="hidden sm:block text-slate-900" />
-                     <p className="text-[7px] sm:text-[10px] font-black uppercase tracking-[1.5px] sm:tracking-[3px]">Rafa Arts POS Terminal</p>
+                     <p className="text-[6px] sm:text-[10px] font-black uppercase tracking-[1px] sm:tracking-[3px]">Rafa Arts POS Terminal</p>
                   </div>
-                  <div className="flex items-center gap-1.5 sm:gap-3">
+                  <div className="flex items-center gap-1 sm:gap-3">
                      <p className="hidden sm:block text-[10px] font-black uppercase tracking-[3px]">#001-ALPHA</p>
                      {cart.length > 0 && (
                         <button
                            onClick={clearCart}
-                           className="text-[7px] sm:text-[9px] font-bold uppercase text-rose-700 bg-rose-500/10 hover:bg-rose-500/20 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-md transition-all flex items-center gap-1 cursor-pointer"
+                           className="text-[6px] sm:text-[9px] font-bold uppercase text-rose-700 bg-rose-500/10 hover:bg-rose-500/20 px-1 sm:px-2 py-0.5 sm:py-1 rounded-md transition-all flex items-center gap-0.5 sm:gap-1 cursor-pointer"
                            title="Limpar Carrinho"
                         >
-                           <Trash2 size={8} className="sm:hidden" />
+                           <Trash2 size={7} className="sm:hidden" />
                            <Trash2 size={10} className="hidden sm:block" />
-                           Limpar
+                           <span className="hidden xs:inline sm:inline">Limpar</span>
                         </button>
                      )}
                   </div>
                </div>
 
                {/* Total Banner */}
-               <div className="py-1.5 sm:py-3 px-2.5 sm:px-4 bg-slate-900/5 rounded-xl sm:rounded-2xl border border-slate-900/10 flex items-center justify-between my-1 sm:my-2">
+               <div className="py-1 sm:py-3 px-2 sm:px-4 bg-slate-900/5 rounded-lg sm:rounded-2xl border border-slate-900/10 flex items-center justify-between my-0.5 sm:my-2">
                   <div>
                      <p className="text-[6.5px] sm:text-[9px] font-black uppercase tracking-[1.5px] sm:tracking-[3px] text-slate-900/40">Total da Nota</p>
-                     <h1 className="text-lg sm:text-3xl md:text-4xl font-black text-slate-900 tracking-tighter italic">
+                     <h1 className="text-base sm:text-3xl md:text-4xl font-black text-slate-900 tracking-tighter italic">
                         R$ {total.toFixed(2).replace('.', ',')}
                      </h1>
                   </div>
@@ -5221,39 +5255,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                {/* Search & Action Bar */}
                <div className="p-4 bg-slate-50 space-y-3">
                   <div className="flex gap-2 h-12">
-                     <button 
-                        onClick={() => {
-                          const desc = prompt('Descrição (ex: ADESIVO):');
-                          const input = prompt('Valor Unitário ou Fórmula M2 (ex: 1,2x2,2=50,00):');
-                          if (desc && input) {
-                            if (input.includes('x') && input.includes('=')) {
-                               const [dims, priceM2Str] = input.split('=');
-                               const parts = dims.toLowerCase().split('x').map(p => parseFloat(p.trim().replace(',', '.')));
-                               const priceM2 = parseFloat(priceM2Str.trim().replace(',', '.'));
-                               if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1]) && !isNaN(priceM2)) {
-                                  const area = parts[0] * parts[1];
-                                  setCart(prev => [...prev, { 
-                                    productId: 'manual', 
-                                    name: desc.toUpperCase(), 
-                                    price: priceM2, 
-                                    quantity: 1, 
-                                    dimensions: dims.trim(), 
-                                    area 
-                                  }]);
-                                  return;
-                               }
-                            }
-                            const val = parseFloat(input.replace(',', '.'));
-                            if (!isNaN(val) && val > 0) {
-                               setCart(prev => [...prev, { productId: 'manual', name: desc.toUpperCase(), price: val, quantity: 1 }]);
-                            }
-                          }
-                        }}
-                        className="flex-1 bg-white border-2 border-primary-400 text-primary-600 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-primary-50 transition-all shadow-sm active:scale-95 flex flex-col items-center justify-center gap-1"
-                     >
-                        <PlusSquare size={16} />
-                        Caixa Livre
-                     </button>
+                     {(user?.isAdmin || user?.allowedActions?.includes('canAddProduct')) && (
+                       <button 
+                          onClick={() => setIsQuickProductOpen(true)}
+                          title="Cadastrar Produto"
+                          className="w-11 shrink-0 bg-white border-2 border-primary-400 text-primary-600 rounded-xl hover:bg-primary-50 transition-all shadow-sm active:scale-95 flex items-center justify-center"
+                       >
+                          <PlusSquare size={18} />
+                       </button>
+                     )}
                      <div className="flex-[2] flex gap-1 bg-white border-2 border-slate-200 rounded-xl p-1 overflow-x-auto no-scrollbar">
                         {[1, 2, 3, 4, 5].map(q => (
                           <button 
@@ -7165,6 +7175,46 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
        </Modal>
      )}
 
+     {isQuickProductOpen && (
+       <Modal
+         isOpen={isQuickProductOpen}
+         onClose={() => setIsQuickProductOpen(false)}
+         title="Cadastrar Produto"
+         size="sm"
+       >
+         <div className="space-y-4 p-2">
+            <Input label="Nome do Produto *" autoFocus value={quickProductForm.name} onChange={(e: any) => setQuickProductForm({ ...quickProductForm, name: e.target.value })} />
+            <div className="grid grid-cols-2 gap-3">
+               <Input label="Código" value={quickProductForm.code} onChange={(e: any) => setQuickProductForm({ ...quickProductForm, code: e.target.value })} />
+               <Input label="Categoria" value={quickProductForm.category} onChange={(e: any) => setQuickProductForm({ ...quickProductForm, category: e.target.value })} />
+            </div>
+            <div className="space-y-1">
+               <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Medida</label>
+               <select
+                 value={quickProductForm.unit}
+                 onChange={(e) => setQuickProductForm({ ...quickProductForm, unit: e.target.value as any })}
+                 className="w-full h-11 bg-white/5 border border-white/10 rounded-xl px-3 text-sm text-white focus:outline-none focus:border-primary-500 cursor-pointer"
+               >
+                 <option value="un" className="bg-slate-900">Unidade</option>
+                 <option value="m2" className="bg-slate-900">Metro Quadrado (m²)</option>
+               </select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+               <Input label="Custo (R$)" type="number" step="any" value={quickProductForm.costPrice} onChange={(e: any) => setQuickProductForm({ ...quickProductForm, costPrice: Number(e.target.value) || 0 })} />
+               <Input label="Venda (R$)" type="number" step="any" value={quickProductForm.salePrice} onChange={(e: any) => setQuickProductForm({ ...quickProductForm, salePrice: Number(e.target.value) || 0 })} />
+            </div>
+            <Input label="Estoque Inicial" type="number" value={quickProductForm.currentStock} onChange={(e: any) => setQuickProductForm({ ...quickProductForm, currentStock: Number(e.target.value) || 0 })} />
+
+            <div className="flex justify-end gap-3 pt-1">
+               <Button variant="ghost" onClick={() => setIsQuickProductOpen(false)}>Cancelar</Button>
+               <Button disabled={isSavingQuickProduct} onClick={handleSaveQuickProduct} className="bg-primary-500 text-slate-900 border-none">
+                 {isSavingQuickProduct ? 'Salvando...' : 'Cadastrar Produto'}
+               </Button>
+            </div>
+         </div>
+       </Modal>
+     )}
+
      {orcamentoModalOpen && (
        <Modal
          isOpen={orcamentoModalOpen}
@@ -8991,6 +9041,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     { id: 'canTranscribeAudio', label: 'Transcrever Áudios', desc: 'Habilita conversão automática de voz para texto via IA' },
     { id: 'canManageSaleHistory', label: 'Gerenciar Histórico de Vendas', desc: 'Permite reabrir, editar ou excluir vendas já registradas no PDV' },
     { id: 'canCloseCashRegister', label: 'Fechar Caixa', desc: 'Permite fechar o caixa do PDV (abrir continua restrito ao admin)' },
+    { id: 'canAddProduct', label: 'Cadastrar Produto', desc: 'Permite cadastrar um novo produto direto pelo Terminal de Venda' },
   ];
 
   return (
