@@ -5034,7 +5034,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     <div className="h-[calc(100dvh-6rem)] min-h-[500px] flex flex-col bg-slate-900/50 rounded-xl shadow-2xl border border-white/10 overflow-hidden animate-in fade-in slide-in-from-right-5 duration-500">
       {/* Tab Navigation */}
       <div className="flex flex-wrap bg-white/5 p-1.5 gap-1.5 border-b border-white/10 items-center justify-between shrink-0">
-        <div className="flex flex-wrap gap-1 flex-1 min-w-0">
+        <div className="flex sm:flex-wrap gap-1 flex-1 min-w-0 justify-between sm:justify-start">
           {[
             { id: 'venda', label: 'Terminal Venda', icon: ShoppingBag },
             { id: 'historico', label: 'Histórico & Abertas', icon: History },
@@ -5048,14 +5048,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
+              title={tab.label}
               className={cn(
-                "flex items-center gap-1 px-1.5 sm:px-2.5 py-1.5 rounded-md sm:rounded-lg text-[7px] sm:text-[9px] font-black uppercase tracking-tight sm:tracking-wider transition-all whitespace-nowrap",
+                "flex items-center justify-center gap-1 flex-1 sm:flex-initial px-1 sm:px-2.5 py-2 sm:py-1.5 rounded-md sm:rounded-lg text-[9px] font-black uppercase tracking-tight sm:tracking-wider transition-all whitespace-nowrap",
                 activeTab === tab.id ? "bg-primary-500 text-slate-900 shadow-xl" : "text-white/40 hover:bg-white/5 hover:text-white"
               )}
             >
-              <tab.icon size={11} className="sm:hidden shrink-0" />
+              <tab.icon size={20} className="sm:hidden shrink-0" />
               <tab.icon size={14} className="hidden sm:block shrink-0" />
-              <span>{tab.label}</span>
+              <span className="hidden sm:inline">{tab.label}</span>
             </button>
           ))}
         </div>
@@ -5088,22 +5089,24 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         {activeTab === 'venda' && (
           <>
             {/* Cima no mobile / Esquerda no desktop: Terminal POS + Carrinho */}
-            <div className="basis-[46%] shrink-0 grow-0 md:basis-auto md:flex-1 md:shrink bg-[#fef9c3] flex flex-col p-4 sm:p-6 relative overflow-hidden justify-between min-h-0">
+            <div className="basis-[36%] shrink-0 grow-0 md:basis-auto md:flex-1 md:shrink bg-[#fef9c3] flex flex-col p-2.5 sm:p-6 relative overflow-hidden justify-between min-h-0">
                {/* Top Bar */}
-               <div className="flex justify-between items-center text-slate-900/50 pb-2 border-b border-slate-900/10">
-                  <div className="flex items-center gap-2">
-                     <ShoppingBag size={16} className="text-slate-900" />
-                     <p className="text-[10px] font-black uppercase tracking-[3px]">Rafa Arts POS Terminal</p>
+               <div className="flex justify-between items-center text-slate-900/50 pb-1.5 sm:pb-2 border-b border-slate-900/10">
+                  <div className="flex items-center gap-1.5 sm:gap-2">
+                     <ShoppingBag size={12} className="sm:hidden text-slate-900" />
+                     <ShoppingBag size={16} className="hidden sm:block text-slate-900" />
+                     <p className="text-[7px] sm:text-[10px] font-black uppercase tracking-[1.5px] sm:tracking-[3px]">Rafa Arts POS Terminal</p>
                   </div>
-                  <div className="flex items-center gap-3">
-                     <p className="text-[10px] font-black uppercase tracking-[3px]">#001-ALPHA</p>
+                  <div className="flex items-center gap-1.5 sm:gap-3">
+                     <p className="hidden sm:block text-[10px] font-black uppercase tracking-[3px]">#001-ALPHA</p>
                      {cart.length > 0 && (
                         <button
                            onClick={clearCart}
-                           className="text-[9px] font-bold uppercase text-rose-700 bg-rose-500/10 hover:bg-rose-500/20 px-2 py-1 rounded-md transition-all flex items-center gap-1 cursor-pointer"
+                           className="text-[7px] sm:text-[9px] font-bold uppercase text-rose-700 bg-rose-500/10 hover:bg-rose-500/20 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-md transition-all flex items-center gap-1 cursor-pointer"
                            title="Limpar Carrinho"
                         >
-                           <Trash2 size={10} />
+                           <Trash2 size={8} className="sm:hidden" />
+                           <Trash2 size={10} className="hidden sm:block" />
                            Limpar
                         </button>
                      )}
@@ -5111,22 +5114,22 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                </div>
 
                {/* Total Banner */}
-               <div className="py-3 px-4 bg-slate-900/5 rounded-2xl border border-slate-900/10 flex items-center justify-between my-2">
+               <div className="py-1.5 sm:py-3 px-2.5 sm:px-4 bg-slate-900/5 rounded-xl sm:rounded-2xl border border-slate-900/10 flex items-center justify-between my-1 sm:my-2">
                   <div>
-                     <p className="text-[9px] font-black uppercase tracking-[3px] text-slate-900/40">Total da Nota</p>
-                     <h1 className="text-3xl md:text-4xl font-black text-slate-900 tracking-tighter italic">
+                     <p className="text-[6.5px] sm:text-[9px] font-black uppercase tracking-[1.5px] sm:tracking-[3px] text-slate-900/40">Total da Nota</p>
+                     <h1 className="text-lg sm:text-3xl md:text-4xl font-black text-slate-900 tracking-tighter italic">
                         R$ {total.toFixed(2).replace('.', ',')}
                      </h1>
                   </div>
-                  <Badge className="bg-slate-900 text-white border-none py-1.5 px-4 rounded-full font-black uppercase tracking-widest text-[9px]">
+                  <Badge className="bg-slate-900 text-white border-none py-1 sm:py-1.5 px-2.5 sm:px-4 rounded-full font-black uppercase tracking-widest text-[7px] sm:text-[9px]">
                      {cart.length} {cart.length === 1 ? 'Item' : 'Itens'}
                   </Badge>
                </div>
 
                {/* Visualizador de Itens no PDV (Compact Items Cart List) */}
-               <div className="flex-1 min-h-0 my-1.5 sm:my-2 bg-white/70 backdrop-blur-xs rounded-2xl border border-slate-900/10 p-2 sm:p-3 flex flex-col overflow-hidden shadow-inner">
-                  <div className="flex items-center justify-between pb-1.5 sm:pb-2 border-b border-slate-900/10 mb-1.5 sm:mb-2">
-                     <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-wider text-slate-700">Itens ({cart.length})</span>
+               <div className="flex-1 min-h-0 my-1 sm:my-2 bg-white/70 backdrop-blur-xs rounded-xl sm:rounded-2xl border border-slate-900/10 p-1.5 sm:p-3 flex flex-col overflow-hidden shadow-inner">
+                  <div className="flex items-center justify-between pb-1 sm:pb-2 border-b border-slate-900/10 mb-1 sm:mb-2">
+                     <span className="text-[7px] sm:text-[9px] font-black uppercase tracking-wider text-slate-700">Itens ({cart.length})</span>
                      <span className="hidden sm:inline text-[8px] font-bold text-slate-400 uppercase">Lista de Lançamento</span>
                   </div>
 
