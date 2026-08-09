@@ -5016,10 +5016,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   return (
-    <div className="h-[calc(100dvh-6rem)] min-h-[500px] flex flex-col bg-slate-900/50 rounded-[40px] shadow-2xl border border-white/10 overflow-hidden animate-in fade-in slide-in-from-right-5 duration-500">
+    <div className="h-[calc(100dvh-6rem)] min-h-[500px] flex flex-col bg-slate-900/50 rounded-xl shadow-2xl border border-white/10 overflow-hidden animate-in fade-in slide-in-from-right-5 duration-500">
       {/* Tab Navigation */}
-      <div className="flex flex-wrap bg-white/5 p-2 gap-2 border-b border-white/10 items-center justify-between shrink-0">
-        <div className="flex flex-nowrap gap-1.5 overflow-x-auto custom-scrollbar flex-1 min-w-0">
+      <div className="flex flex-wrap bg-white/5 p-1.5 gap-1.5 border-b border-white/10 items-center justify-between shrink-0">
+        <div className="flex flex-wrap gap-1 flex-1 min-w-0">
           {[
             { id: 'venda', label: 'Terminal Venda', icon: ShoppingBag },
             { id: 'historico', label: 'Histórico & Abertas', icon: History },
@@ -5034,12 +5034,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
               className={cn(
-                "flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 rounded-xl text-[8.5px] sm:text-[9px] font-black uppercase tracking-wider transition-all whitespace-nowrap shrink-0",
+                "flex items-center gap-1 px-1.5 sm:px-2.5 py-1.5 rounded-md sm:rounded-lg text-[7px] sm:text-[9px] font-black uppercase tracking-tight sm:tracking-wider transition-all whitespace-nowrap",
                 activeTab === tab.id ? "bg-primary-500 text-slate-900 shadow-xl" : "text-white/40 hover:bg-white/5 hover:text-white"
               )}
             >
-              <tab.icon size={14} />
-              <span className="hidden sm:inline">{tab.label}</span>
+              <tab.icon size={11} className="sm:hidden shrink-0" />
+              <tab.icon size={14} className="hidden sm:block shrink-0" />
+              <span>{tab.label}</span>
             </button>
           ))}
         </div>
@@ -5991,13 +5992,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
         {activeTab === 'orcamentos' && (
           <div className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/40 space-y-6">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-white/10 pb-4">
-              <div>
-                <h2 className="text-xl md:text-2xl font-black text-white italic tracking-tighter uppercase">Orçamentos</h2>
-                <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">{allOrcamentos.length} orçamento(s)</p>
-              </div>
-              <Button icon={Plus} onClick={openNewOrcamento}>Novo Orçamento</Button>
-            </div>
+            <SectionHeader
+              title="Orçamentos"
+              subtitle={`${allOrcamentos.length} orçamento(s)`}
+              actions={<Button icon={Plus} onClick={openNewOrcamento}>Novo Orçamento</Button>}
+            />
 
             {isLoadingOrcamentos ? (
               <div className="flex justify-center py-16"><RefreshCw className="animate-spin text-primary-500" size={24} /></div>
@@ -6083,12 +6082,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
         {activeTab === 'excluidos' && (
           <div className="flex-1 p-4 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/40 space-y-6">
-            <div className="border-b border-white/10 pb-4">
-              <h2 className="text-xl md:text-2xl font-black text-white italic tracking-tighter uppercase">Excluídos</h2>
-              <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">
-                Ficam aqui por 30 dias e depois somem automaticamente — {deletedSales.length} nota(s)
-              </p>
-            </div>
+            <SectionHeader
+              title="Excluídos"
+              subtitle={`Ficam aqui por 30 dias e depois somem automaticamente — ${deletedSales.length} nota(s)`}
+            />
 
             {isLoadingDeletedSales ? (
               <div className="flex justify-center py-16"><RefreshCw className="animate-spin text-primary-500" size={24} /></div>
