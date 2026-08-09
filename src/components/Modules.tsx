@@ -3969,9 +3969,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         setHighlightOrcamentoId(newId);
         setTimeout(() => setHighlightOrcamentoId(null), 4000);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro ao salvar orçamento:', err);
-      alert('Não foi possível salvar o orçamento.');
+      alert(`Não foi possível salvar o orçamento: ${err?.message || 'erro desconhecido'}`);
     } finally {
       setSavingOrcamento(false);
     }
@@ -3992,12 +3992,22 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     loadOrcamentos();
   };
 
-  const handleShareOrcamentoWhatsApp = (o: Orcamento) => {
+  const handleShareOrcamentoWhatsApp = async (o: Orcamento) => {
+    const phoneDigits = (o.phone || '').replace(/\D/g, '');
+    if (!phoneDigits) {
+      alert('Esse orçamento não tem telefone cadastrado. Edite o orçamento e informe o WhatsApp do cliente antes de enviar.');
+      return;
+    }
     const linhas = o.items.map(i => `${i.quantity}x ${i.name} — R$ ${(i.area ? i.price * i.area * i.quantity : i.price * i.quantity).toFixed(2)}`).join('\n');
     const msg = `*Orçamento ${o.numero} — Rafa Arts Graphics*\n\n${linhas}\n\n${o.desconto > 0 ? `Desconto: R$ ${o.desconto.toFixed(2)}\n` : ''}*Total: R$ ${o.total.toFixed(2)}*\n\n${o.prazoProducao ? `Prazo: ${o.prazoProducao}\n\n` : ''}${o.formaPagamentoTexto ? `Pagamento: ${o.formaPagamentoTexto}\n\n` : ''}${o.validade ? `Válido até: ${safeFormat(o.validade, 'dd/MM/yyyy')}` : ''}`;
-    const phoneDigits = (o.phone || '').replace(/\D/g, '');
-    window.open(`https://wa.me/${phoneDigits}?text=${encodeURIComponent(msg)}`, '_blank');
+    await findOrCreateLeadAndOpenChat(phoneDigits, o.customerName || 'Cliente', msg);
+    if (o.status === 'rascunho') {
+      await supabase.from('orcamentos').update({ status: 'enviado' }).eq('id', o.id);
+      loadOrcamentos();
+    }
   };
+
+  const [viewingOrcamento, setViewingOrcamento] = useState<Orcamento | null>(null);
 
   const handleDownloadOrcamentoPdf = async (o: Orcamento) => {
     try {
@@ -4006,6 +4016,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     } catch (err) {
       console.error('Erro ao gerar PDF do orçamento:', err);
       alert('Não foi possível gerar o PDF do orçamento.');
+    }
+  };
+
+  const handleDownloadOrcamentoImagem = async (o: Orcamento) => {
+    try {
+      const canvas = await renderOrcamentoCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoDarkUrl });
+      downloadCanvasAsPng(canvas, `Orcamento_${o.numero}.png`);
+    } catch (err) {
+      console.error('Erro ao gerar imagem do orçamento:', err);
+      alert('Não foi possível gerar a imagem do orçamento.');
     }
   };
 
@@ -4666,6 +4686,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   // Cadastro rapido de produto direto pelo Terminal de Venda (mesma tabela do Estoque)
   const [isQuickProductOpen, setIsQuickProductOpen] = useState(false);
+  const [quickProductAddToOrcamento, setQuickProductAddToOrcamento] = useState(false);
   const [isSavingQuickProduct, setIsSavingQuickProduct] = useState(false);
   const emptyQuickProductForm = { name: '', code: '', category: '', unit: 'un' as 'un' | 'm2', costPrice: 0, salePrice: 0, currentStock: 0 };
   const [quickProductForm, setQuickProductForm] = useState({ ...emptyQuickProductForm });
@@ -4674,7 +4695,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     if (!quickProductForm.name.trim()) { alert('Digite o nome do produto.'); return; }
     setIsSavingQuickProduct(true);
     try {
-      const { error } = await supabase.from('produtos').insert({
+      const { data, error } = await supabase.from('produtos').insert({
         name: quickProductForm.name,
         code: quickProductForm.code || null,
         category: quickProductForm.category || null,
@@ -4683,12 +4704,23 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         sale_price: quickProductForm.salePrice || 0,
         current_stock: quickProductForm.currentStock || 0,
         is_active: true,
-      });
+      }).select().single();
       if (error) throw error;
       await loadProducts();
+
+      // Se veio do orcamento, adiciona o produto recem criado direto nos itens do orcamento
+      // e permanece na mesma tela do orcamento (nao navega pra Terminal Venda)
+      if (quickProductAddToOrcamento && data) {
+        setOrcamentoForm(prev => ({
+          ...prev,
+          items: [...prev.items, { productId: data.id, name: data.name, price: Number(data.sale_price) || 0, quantity: 1 }],
+        }));
+        setQuickProductAddToOrcamento(false);
+      }
+
       setIsQuickProductOpen(false);
       setQuickProductForm({ ...emptyQuickProductForm });
-      // Permanece na aba Terminal Venda (nao navega pra Estoque)
+      // Permanece na aba/tela onde o usuario estava (Terminal Venda ou Orcamentos)
     } catch (err: any) {
       console.error('Erro ao cadastrar produto:', err);
       alert(`Não foi possível cadastrar: ${err?.message || 'erro desconhecido'}`);
@@ -6102,15 +6134,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       )}
                       <div className="flex flex-wrap gap-1.5 pt-2 border-t border-white/5">
                          <button onClick={() => openEditOrcamento(o)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Editar</button>
-                         {o.status === 'rascunho' && (
-                           <button onClick={() => updateOrcamentoStatus(o, 'enviado')} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-500/20">Enviar</button>
-                         )}
-                         {(o.status === 'enviado' || o.status === 'rascunho') && (
+                         {(o.status === 'rascunho' || o.status === 'enviado') && (
                            <button onClick={() => updateOrcamentoStatus(o, 'aprovado')} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20">Aprovar</button>
                          )}
                          <button onClick={() => handleShareOrcamentoWhatsApp(o)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20">WhatsApp</button>
-                         <button onClick={() => handleDownloadOrcamentoPdf(o)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">PDF</button>
-                         <button onClick={() => handlePrintOrcamento(o)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Imprimir</button>
+                         <button onClick={() => setViewingOrcamento(o)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Exibir</button>
                          {o.status !== 'concluido' && o.status !== 'cancelado' && (
                            <button onClick={() => handleStartSaleFromOrcamento(o)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20">Iniciar Venda</button>
                          )}
@@ -7216,6 +7244,59 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
        </Modal>
      )}
 
+     {viewingOrcamento && (
+       <Modal
+         isOpen={!!viewingOrcamento}
+         onClose={() => setViewingOrcamento(null)}
+         title={`Orçamento ${viewingOrcamento.numero}`}
+         size="md"
+       >
+         <div className="space-y-5 p-2">
+            <div className="bg-slate-900/60 rounded-2xl border border-white/10 p-4 space-y-2">
+               <div className="flex justify-between text-xs">
+                  <span className="text-white/40 font-bold uppercase">Cliente</span>
+                  <span className="text-white font-black">{viewingOrcamento.customerName}</span>
+               </div>
+               {viewingOrcamento.phone && (
+                 <div className="flex justify-between text-xs">
+                    <span className="text-white/40 font-bold uppercase">Telefone</span>
+                    <span className="text-white font-black">{viewingOrcamento.phone}</span>
+                 </div>
+               )}
+               <div className="flex justify-between text-xs pt-1 border-t border-white/5">
+                  <span className="text-white/40 font-bold uppercase">Itens</span>
+                  <span className="text-white font-black">{viewingOrcamento.items.length}</span>
+               </div>
+               <div className="flex justify-between text-sm">
+                  <span className="text-emerald-400 font-bold uppercase">Total</span>
+                  <span className="text-emerald-400 font-black">R$ {viewingOrcamento.total.toFixed(2).replace('.', ',')}</span>
+               </div>
+               {viewingOrcamento.validade && (
+                 <div className="flex justify-between text-xs">
+                    <span className="text-white/40 font-bold uppercase">Válido até</span>
+                    <span className="text-white font-black">{safeFormat(viewingOrcamento.validade, 'dd/MM/yyyy')}</span>
+                 </div>
+               )}
+            </div>
+
+            <div className="space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar">
+               {viewingOrcamento.items.map((item, idx) => (
+                 <div key={idx} className="flex items-center justify-between px-3 py-2 bg-white/5 border border-white/5 rounded-lg text-xs">
+                    <span className="text-white/70">{item.quantity}x {item.name}</span>
+                    <span className="text-white font-bold">R$ {(item.area ? item.price * item.area * item.quantity : item.price * item.quantity).toFixed(2).replace('.', ',')}</span>
+                 </div>
+               ))}
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 pt-2">
+               <Button variant="secondary" icon={Printer} onClick={() => handlePrintOrcamento(viewingOrcamento)}>Imprimir</Button>
+               <Button variant="secondary" icon={ImageIcon} onClick={() => handleDownloadOrcamentoImagem(viewingOrcamento)}>Imagem</Button>
+               <Button variant="secondary" icon={FileText} onClick={() => handleDownloadOrcamentoPdf(viewingOrcamento)}>PDF</Button>
+            </div>
+         </div>
+       </Modal>
+     )}
+
      {isQuickProductOpen && (
        <Modal
          isOpen={isQuickProductOpen}
@@ -7314,17 +7395,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     {products.map(p => <option key={p.id} value={p.id} className="bg-slate-900">{p.name} — R$ {p.price.toFixed(2)}</option>)}
                   </select>
                   <button
-                    onClick={() => {
-                       const desc = prompt('Descrição do item:');
-                       const valorStr = desc ? prompt('Valor unitário (R$):') : null;
-                       const valor = valorStr ? parseFloat(valorStr.replace(',', '.')) : NaN;
-                       if (desc && !isNaN(valor) && valor > 0) {
-                          setOrcamentoForm(prev => ({ ...prev, items: [...prev.items, { productId: 'manual', name: desc.toUpperCase(), price: valor, quantity: 1 }] }));
-                       }
-                    }}
-                    className="h-10 px-3 rounded-xl bg-white/5 border border-white/10 text-white/60 hover:text-white text-[10px] font-black uppercase whitespace-nowrap"
+                    onClick={() => { setQuickProductAddToOrcamento(true); setIsQuickProductOpen(true); }}
+                    className="h-10 px-3 rounded-xl bg-primary-500/10 border border-primary-500/20 text-primary-300 hover:bg-primary-500/20 text-[10px] font-black uppercase whitespace-nowrap flex items-center gap-1.5"
                   >
-                    Item Livre
+                    <PlusSquare size={13} /> Novo Produto
                   </button>
                </div>
                <div className="space-y-1.5">
