@@ -70,6 +70,7 @@ import {
   ArrowDownWideNarrow,
   ArrowUpWideNarrow,
   ListFilter,
+  Link2,
   FileSpreadsheet,
   ClipboardList,
   CalendarClock,
@@ -3992,12 +3993,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     loadOrcamentos();
   };
 
-  const handleShareOrcamentoWhatsApp = async (o: Orcamento) => {
-    const phoneDigits = (o.phone || '').replace(/\D/g, '');
-    if (!phoneDigits) {
-      alert('Esse orçamento não tem telefone cadastrado. Edite o orçamento e informe o WhatsApp do cliente antes de enviar.');
-      return;
-    }
+  const [waSendOrcamento, setWaSendOrcamento] = useState<Orcamento | null>(null);
+  const [waSendPhone, setWaSendPhone] = useState('');
+
+  const openShareOrcamentoWhatsApp = (o: Orcamento) => {
+    setWaSendOrcamento(o);
+    setWaSendPhone(o.phone || '');
+  };
+
+  const confirmShareOrcamentoWhatsApp = async () => {
+    const o = waSendOrcamento;
+    if (!o) return;
+    const phoneDigits = waSendPhone.replace(/\D/g, '');
+    if (!phoneDigits) { alert('Digite um telefone válido.'); return; }
     const linhas = o.items.map(i => `${i.quantity}x ${i.name} — R$ ${(i.area ? i.price * i.area * i.quantity : i.price * i.quantity).toFixed(2)}`).join('\n');
     const msg = `*Orçamento ${o.numero} — Rafa Arts Graphics*\n\n${linhas}\n\n${o.desconto > 0 ? `Desconto: R$ ${o.desconto.toFixed(2)}\n` : ''}*Total: R$ ${o.total.toFixed(2)}*\n\n${o.prazoProducao ? `Prazo: ${o.prazoProducao}\n\n` : ''}${o.formaPagamentoTexto ? `Pagamento: ${o.formaPagamentoTexto}\n\n` : ''}${o.validade ? `Válido até: ${safeFormat(o.validade, 'dd/MM/yyyy')}` : ''}`;
     await findOrCreateLeadAndOpenChat(phoneDigits, o.customerName || 'Cliente', msg);
@@ -4005,6 +4013,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       await supabase.from('orcamentos').update({ status: 'enviado' }).eq('id', o.id);
       loadOrcamentos();
     }
+    // Se o numero foi trocado, atualiza tambem no orcamento pra ficar salvo
+    if (phoneDigits !== (o.phone || '').replace(/\D/g, '')) {
+      await supabase.from('orcamentos').update({ phone: waSendPhone }).eq('id', o.id);
+      loadOrcamentos();
+    }
+    setWaSendOrcamento(null);
   };
 
   const [viewingOrcamento, setViewingOrcamento] = useState<Orcamento | null>(null);
@@ -6137,7 +6151,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                          {(o.status === 'rascunho' || o.status === 'enviado') && (
                            <button onClick={() => updateOrcamentoStatus(o, 'aprovado')} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20">Aprovar</button>
                          )}
-                         <button onClick={() => handleShareOrcamentoWhatsApp(o)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20">WhatsApp</button>
+                         <button onClick={() => openShareOrcamentoWhatsApp(o)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20">WhatsApp</button>
                          <button onClick={() => setViewingOrcamento(o)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Exibir</button>
                          {o.status !== 'concluido' && o.status !== 'cancelado' && (
                            <button onClick={() => handleStartSaleFromOrcamento(o)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20">Iniciar Venda</button>
@@ -7244,6 +7258,26 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
        </Modal>
      )}
 
+     {waSendOrcamento && (
+       <Modal isOpen={!!waSendOrcamento} onClose={() => setWaSendOrcamento(null)} title="Enviar Orçamento pelo WhatsApp" size="sm">
+         <div className="space-y-4 p-2">
+            <p className="text-xs text-white/50">Orçamento <span className="text-white font-bold">{waSendOrcamento.numero}</span> — {waSendOrcamento.customerName}</p>
+            <Input
+              label="Número de WhatsApp"
+              placeholder="(93) 99999-9999"
+              value={waSendPhone}
+              onChange={(e: any) => setWaSendPhone(e.target.value)}
+              autoFocus
+            />
+            <p className="text-[10px] text-white/30">Pode trocar o número aqui se precisar mandar pra outro contato — o número fica salvo no orçamento depois de enviar.</p>
+            <div className="flex justify-end gap-3 pt-1">
+               <Button variant="ghost" onClick={() => setWaSendOrcamento(null)}>Cancelar</Button>
+               <Button className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 border-none" onClick={confirmShareOrcamentoWhatsApp}>Enviar</Button>
+            </div>
+         </div>
+       </Modal>
+     )}
+
      {viewingOrcamento && (
        <Modal
          isOpen={!!viewingOrcamento}
@@ -8012,6 +8046,84 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient }: { cur
   const [clienteStats, setClienteStats] = useState<Record<string, { lastDate: string; count: number; total: number; pago: number; pendente: number; custoTotal: number }>>({});
   const [produtosCostMap, setProdutosCostMap] = useState<Record<string, number>>({});
   const [fichaCliente, setFichaCliente] = useState<any | null>(null);
+  const [isLinkingVendas, setIsLinkingVendas] = useState(false);
+  const [clienteSearchTerm, setClienteSearchTerm] = useState('');
+  const [clienteSortBy, setClienteSortBy] = useState<'nome' | 'data' | 'valor' | 'servicos'>('nome');
+  const [clienteLetraAtiva, setClienteLetraAtiva] = useState<string | null>(null);
+  const clienteRowRefs = React.useRef<Record<string, HTMLDivElement | null>>({});
+
+  const filteredSortedClientes = useMemo(() => {
+    let list = clientes;
+    const term = clienteSearchTerm.trim().toLowerCase();
+    if (term) {
+      list = list.filter(c => (c.full_name || '').toLowerCase().includes(term) || (c.phone || '').includes(term));
+    }
+    if (clienteLetraAtiva) {
+      list = list.filter(c => (c.full_name || '').trim().toUpperCase().startsWith(clienteLetraAtiva));
+    }
+    const withStats = list.map(c => ({ ...c, _stats: clienteStats[c.id] }));
+    switch (clienteSortBy) {
+      case 'data':
+        return withStats.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+      case 'valor':
+        return withStats.sort((a, b) => (b._stats?.total || 0) - (a._stats?.total || 0));
+      case 'servicos':
+        return withStats.sort((a, b) => (b._stats?.count || 0) - (a._stats?.count || 0));
+      default:
+        return withStats.sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
+    }
+  }, [clientes, clienteSearchTerm, clienteSortBy, clienteLetraAtiva, clienteStats]);
+
+  const alfabeto = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+  const letrasDisponiveis = new Set(clientes.map(c => (c.full_name || '').trim().toUpperCase()[0]).filter(Boolean));
+
+  const scrollToLetra = (letra: string) => {
+    setClienteLetraAtiva(null);
+    setClienteSortBy('nome');
+    setTimeout(() => {
+      const ordenados = clientes.slice().sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
+      const target = ordenados.find(c => (c.full_name || '').trim().toUpperCase().startsWith(letra));
+      if (target) clienteRowRefs.current[target.id]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
+  };
+
+
+  const handleLinkVendasToClientes = async () => {
+    setIsLinkingVendas(true);
+    try {
+      const { data: vendasSemCliente } = await supabase.from('vendas').select('id, customer_name, customer_phone').is('cliente_id', null).is('deleted_at', null);
+      if (!vendasSemCliente || vendasSemCliente.length === 0) {
+        alert('Todas as vendas já estão vinculadas a um cliente cadastrado.');
+        return;
+      }
+      const { data: todosClientes } = await supabase.from('clientes').select('id, full_name, phone');
+      const porNome = new Map<string, string>();
+      const porTelefone = new Map<string, string>();
+      (todosClientes || []).forEach((c: any) => {
+        const nome = (c.full_name || '').trim().toLowerCase();
+        const tel = (c.phone || '').replace(/\D/g, '');
+        if (nome) porNome.set(nome, c.id);
+        if (tel) porTelefone.set(tel, c.id);
+      });
+
+      let vinculadas = 0;
+      for (const v of vendasSemCliente) {
+        const nome = (v.customer_name || '').trim().toLowerCase();
+        const tel = (v.customer_phone || '').replace(/\D/g, '');
+        const clienteId = (nome && porNome.get(nome)) || (tel && porTelefone.get(tel));
+        if (clienteId) {
+          await supabase.from('vendas').update({ cliente_id: clienteId }).eq('id', v.id);
+          vinculadas += 1;
+        }
+      }
+      alert(`${vinculadas} de ${vendasSemCliente.length} venda(s) sem cliente foram vinculadas com sucesso (por nome ou telefone igual ao cadastro).`);
+    } catch (err: any) {
+      console.error('Erro ao vincular vendas:', err);
+      alert(`Não foi possível vincular: ${err?.message || 'erro desconhecido'}`);
+    } finally {
+      setIsLinkingVendas(false);
+    }
+  };
 
   useEffect(() => {
     const loadStats = async () => {
@@ -8205,13 +8317,97 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient }: { cur
             >
               <Download size={14} />
             </button>
+            <button
+              disabled={isLinkingVendas}
+              title="Vincular vendas importadas aos clientes cadastrados (por nome/telefone)"
+              onClick={handleLinkVendasToClientes}
+              className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all disabled:opacity-50"
+            >
+              <Link2 size={14} className={cn(isLinkingVendas && "animate-pulse")} />
+            </button>
             <Button icon={Plus} onClick={() => setIsModalOpen(true)}>Novo Cliente</Button>
           </div>
         }
       />
-      <GlassCard className="p-4 border-white/5 bg-white/[0.02]">
-        <DataTable columns={columns} data={clientes} />
-      </GlassCard>
+      <div className="flex items-center gap-2 flex-wrap">
+         <div className="relative flex-1 min-w-[180px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" size={14} />
+            <input
+              value={clienteSearchTerm}
+              onChange={(e) => setClienteSearchTerm(e.target.value)}
+              placeholder="Pesquisar por nome ou telefone..."
+              className="w-full h-10 bg-white/5 border border-white/10 rounded-xl pl-9 pr-3 text-xs text-white placeholder-white/30 focus:outline-none focus:border-primary-500"
+            />
+         </div>
+         <select
+           value={clienteSortBy}
+           onChange={(e) => setClienteSortBy(e.target.value as any)}
+           className="h-10 bg-white/5 border border-white/10 rounded-xl px-3 text-[10px] font-black uppercase text-white/70 focus:outline-none focus:border-primary-500 cursor-pointer"
+         >
+           <option value="nome" className="bg-slate-900">Ordem Alfabética (Nome)</option>
+           <option value="data" className="bg-slate-900">Data de Cadastro</option>
+           <option value="valor" className="bg-slate-900">Maior Valor Comprado</option>
+           <option value="servicos" className="bg-slate-900">Mais Serviços/Pedidos</option>
+         </select>
+         {clienteLetraAtiva && (
+           <button onClick={() => setClienteLetraAtiva(null)} className="h-10 px-3 rounded-xl bg-primary-500/10 border border-primary-500/20 text-primary-300 text-[10px] font-black uppercase flex items-center gap-1.5">
+             Letra "{clienteLetraAtiva}" <X size={12} />
+           </button>
+         )}
+         <span className="text-[10px] text-white/30 font-bold uppercase">{filteredSortedClientes.length} cliente(s)</span>
+      </div>
+
+      <div className="flex gap-3">
+         <GlassCard className="p-4 border-white/5 bg-white/[0.02] flex-1 min-w-0">
+            <div className="max-h-[65vh] overflow-y-auto custom-scrollbar space-y-1.5">
+               {filteredSortedClientes.map(c => {
+                  const s = c._stats;
+                  return (
+                    <div
+                      key={c.id}
+                      ref={(el) => { clienteRowRefs.current[c.id] = el; }}
+                      className="flex items-center justify-between gap-3 px-3 py-2.5 bg-white/5 hover:bg-white/10 rounded-xl transition-all"
+                    >
+                       <div className="min-w-0 flex-1">
+                          <p className="font-bold text-white truncate">{c.full_name}</p>
+                          {s && <p className="text-[9px] text-white/30">{s.count} pedido(s) · R$ {s.total.toFixed(2).replace('.', ',')}</p>}
+                       </div>
+                       {c.phone ? (
+                         <button
+                           onClick={() => window.open(`https://wa.me/${c.phone.replace(/\D/g, '')}`, '_blank')}
+                           className="flex items-center gap-1.5 text-emerald-400 hover:text-emerald-300 font-bold text-xs shrink-0"
+                         >
+                           <MessageSquare size={13} /> {c.phone}
+                         </button>
+                       ) : <span className="text-white/20 text-xs shrink-0">—</span>}
+                       <span className="text-white/40 text-[10px] shrink-0 hidden sm:block w-20 text-right">{s ? safeFormat(s.lastDate, 'dd/MM/yyyy') : '—'}</span>
+                       <Button variant="secondary" size="sm" onClick={() => setFichaCliente(c)} className="shrink-0">Exibir</Button>
+                    </div>
+                  );
+               })}
+               {filteredSortedClientes.length === 0 && (
+                 <p className="text-center text-xs text-white/30 py-10">Nenhum cliente encontrado.</p>
+               )}
+            </div>
+         </GlassCard>
+
+         {/* Barra lateral A-Z */}
+         <div className="hidden md:flex flex-col gap-0.5 shrink-0 bg-white/[0.02] border border-white/5 rounded-2xl p-1.5 h-fit sticky top-0">
+            {alfabeto.map(letra => (
+              <button
+                key={letra}
+                disabled={!letrasDisponiveis.has(letra)}
+                onClick={() => scrollToLetra(letra)}
+                className={cn(
+                  "w-6 h-5 rounded text-[9px] font-black transition-all",
+                  letrasDisponiveis.has(letra) ? "text-white/50 hover:bg-primary-500 hover:text-slate-900" : "text-white/10 cursor-not-allowed"
+                )}
+              >
+                {letra}
+              </button>
+            ))}
+         </div>
+      </div>
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="NOVO CLIENTE">
         <div className="p-6 space-y-4">
           <Input label="NOME COMPLETO" value={formData.full_name} onChange={(e: any) => setFormData({ ...formData, full_name: e.target.value })} />
