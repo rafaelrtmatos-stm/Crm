@@ -4854,6 +4854,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const clearCart = () => {
     setCart([]);
+    setSelectedCustomer(null);
   };
 
   const total = cart.reduce((acc, item) => {
@@ -5480,8 +5481,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                        <button 
                          disabled={cart.length === 0}
                          onClick={() => {
-                            setCustomerModalIntent('finalize');
-                            setIsCustomerModalOpen(true);
+                            if (selectedCustomer) {
+                               setIsPaymentModalOpen(true);
+                            } else {
+                               setCustomerModalIntent('finalize');
+                               setIsCustomerModalOpen(true);
+                            }
                          }}
                          className="flex-1 h-full bg-primary-500 border-2 border-primary-600 text-slate-900 rounded-2xl sm:rounded-[28px] flex flex-col items-center justify-center gap-0.5 sm:gap-1 shadow-xl shadow-primary-500/20 hover:bg-primary-400 transition-all disabled:opacity-50 disabled:grayscale active:scale-95"
                        >
