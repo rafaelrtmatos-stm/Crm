@@ -795,13 +795,57 @@ export default function App() {
         return;
       }
 
-      if (!usuarioRow) {
-        setAuthError('Usuário não encontrado. Solicite o cadastro ao administrador (rafaelrtmatos@gmail.com).');
-        setIsSubmitting(false);
-        return;
-      }
+      let userData: AppUser;
 
-      const userData = mapUsuarioRow(usuarioRow);
+      if (usuarioRow) {
+        userData = mapUsuarioRow(usuarioRow);
+      } else {
+        // Nao achou no Supabase — pode ser um usuario antigo, criado antes da migracao, que ainda so existe no Firebase.
+        // Busca la como reserva; se achar, migra automaticamente pro Supabase pra da proxima vez ja vir de la.
+        const qLegacy = query(collection(db, 'users'), where('email', '==', trimmedEmail));
+        const snapLegacy = await getDocs(qLegacy);
+
+        if (snapLegacy.empty) {
+          setAuthError('Usuário não encontrado. Solicite o cadastro ao administrador (rafaelrtmatos@gmail.com).');
+          setIsSubmitting(false);
+          return;
+        }
+
+        const legacyDoc = snapLegacy.docs[0];
+        const legacyData = legacyDoc.data() as any;
+
+        if (legacyData.isActive === false) {
+          setAuthError('Sua conta está inativa. Entre em contato com o administrador.');
+          setIsSubmitting(false);
+          return;
+        }
+        if (legacyData.password && legacyData.password !== trimmedPassword) {
+          setAuthError('Senha incorreta! Verifique sua senha e tente novamente.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        // Migra o usuario antigo pro Supabase agora que a senha ja foi conferida
+        const { data: migrado, error: migrarErr } = await supabase.from('usuarios').insert({
+          name: legacyData.name,
+          email: trimmedEmail,
+          password: legacyData.password || null,
+          role: legacyData.role || 'atendente',
+          is_admin: !!legacyData.isAdmin,
+          is_active: legacyData.isActive !== false,
+          allowed_tabs: legacyData.allowedTabs || null,
+          allowed_actions: legacyData.allowedActions || null,
+        }).select().single();
+
+        if (migrarErr || !migrado) {
+          console.error('Erro ao migrar usuário antigo para o Supabase:', migrarErr);
+          // Se falhou por já existir (ex: outra aba migrou primeiro), busca o que já foi criado
+          const { data: jaMigrado } = await supabase.from('usuarios').select('*').eq('email', trimmedEmail).maybeSingle();
+          userData = jaMigrado ? mapUsuarioRow(jaMigrado) : ({ id: legacyDoc.id, ...legacyData } as AppUser);
+        } else {
+          userData = mapUsuarioRow(migrado);
+        }
+      }
 
       if (!userData.isActive) {
         setAuthError('Sua conta está inativa. Entre em contato com o administrador.');
@@ -809,8 +853,8 @@ export default function App() {
         return;
       }
 
-      // Check password
-      if (userData.password && userData.password !== trimmedPassword) {
+      // Check password (pula essa checagem de novo se ja veio validada do fluxo de migracao acima)
+      if (usuarioRow && userData.password && userData.password !== trimmedPassword) {
         setAuthError('Senha incorreta! Verifique sua senha e tente novamente.');
         setIsSubmitting(false);
         return;
