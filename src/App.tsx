@@ -749,7 +749,7 @@ export default function App() {
       const snap = await getDocs(q);
 
       if (snap.empty) {
-        setAuthError('Usuário não encontrado no repositório. Solicite o cadastro ao administrador (rafaelrtmatos@gmail.com).');
+        setAuthError('Usuário não encontrado. Solicite o cadastro ao administrador (rafaelrtmatos@gmail.com).');
         setIsSubmitting(false);
         return;
       }
@@ -758,7 +758,7 @@ export default function App() {
       const userData = { id: userDoc.id, ...userDoc.data() } as AppUser;
 
       if (!userData.isActive) {
-        setAuthError('Sua conta está inativa no repositório. Entre em contato com o administrador.');
+        setAuthError('Sua conta está inativa. Entre em contato com o administrador.');
         setIsSubmitting(false);
         return;
       }
@@ -782,7 +782,7 @@ export default function App() {
       }
     } catch (err) {
       console.error('Erro na autenticação:', err);
-      setAuthError('Erro de conexão ao verificar credenciais no repositório. Tente novamente.');
+      setAuthError('Erro de conexão ao verificar credenciais. Tente novamente.');
     } finally {
       setIsSubmitting(false);
     }
@@ -934,7 +934,7 @@ export default function App() {
           </div>
           
           <p className="text-xs sm:text-sm font-semibold text-slate-300 tracking-wide max-w-sm">
-            Acesso ao Repositório do Sistema de Gestão
+            Acesso ao Sistema de Gestão
           </p>
         </div>
 
@@ -1021,7 +1021,7 @@ export default function App() {
             © 2026 RAFA ARTS GRAPHICS
           </p>
           <p className="text-[10px] uppercase tracking-widest text-white font-semibold">
-            AUTENTICAÇÃO DE USUÁRIOS DO REPOSITÓRIO
+            SISTEMA DE GESTÃO RAFA ARTS GRAPHICS
           </p>
         </div>
       </div>
