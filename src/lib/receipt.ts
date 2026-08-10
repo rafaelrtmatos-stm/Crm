@@ -135,6 +135,77 @@ const COMPANY_CONTACT = {
   endereco: 'Avenida Maracanã, nº 287 – Eusonio Barbalho, Santarém – PA',
 };
 
+// Desenha um pequeno icone com fundo circular colorido, usado ao lado dos titulos das secoes
+function drawBadgeIcon(ctx: CanvasRenderingContext2D, kind: string, cx: number, cy: number, bg: string, fg: string) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, 9, 0, Math.PI * 2);
+  ctx.fillStyle = bg;
+  ctx.fill();
+  ctx.strokeStyle = fg;
+  ctx.fillStyle = fg;
+  ctx.lineWidth = 1;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  const s = 3.4;
+  switch (kind) {
+    case 'user':
+      ctx.beginPath(); ctx.arc(cx, cy - s * 0.5, s * 0.45, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx, cy + s * 1.15, s * 0.95, Math.PI, 0, true); ctx.stroke();
+      break;
+    case 'doc':
+      ctx.beginPath(); ctx.rect(cx - s * 0.7, cy - s, s * 1.4, s * 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx - s * 0.35, cy - s * 0.3); ctx.lineTo(cx + s * 0.35, cy - s * 0.3); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx - s * 0.35, cy + s * 0.2); ctx.lineTo(cx + s * 0.35, cy + s * 0.2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx - s * 0.35, cy + s * 0.7); ctx.lineTo(cx + s * 0.1, cy + s * 0.7); ctx.stroke();
+      break;
+    case 'money':
+      ctx.font = `900 11px Arial`;
+      ctx.textAlign = 'center';
+      ctx.fillText('$', cx, cy + 4);
+      break;
+    case 'clip':
+      ctx.beginPath(); ctx.rect(cx - s * 0.75, cy - s, s * 1.5, s * 2.1); ctx.stroke();
+      ctx.beginPath(); ctx.rect(cx - s * 0.3, cy - s * 1.2, s * 0.6, s * 0.4); ctx.stroke();
+      break;
+    case 'whatsapp':
+      ctx.beginPath(); ctx.arc(cx, cy, s * 1.05, 0, Math.PI * 2); ctx.stroke();
+      break;
+    case 'insta':
+      roundRect(ctx, cx - s, cy - s, s * 2, s * 2, s * 0.6);
+      ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx, cy, s * 0.55, 0, Math.PI * 2); ctx.stroke();
+      break;
+    case 'face':
+      ctx.font = `900 11px Arial`;
+      ctx.textAlign = 'center';
+      ctx.fillText('f', cx, cy + 4);
+      break;
+    case 'mail':
+      ctx.beginPath(); ctx.rect(cx - s, cy - s * 0.7, s * 2, s * 1.4); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx - s, cy - s * 0.6); ctx.lineTo(cx, cy + s * 0.1); ctx.lineTo(cx + s, cy - s * 0.6); ctx.stroke();
+      break;
+    case 'globe':
+      ctx.beginPath(); ctx.arc(cx, cy, s, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(cx, cy, s * 0.45, s, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx - s, cy); ctx.lineTo(cx + s, cy); ctx.stroke();
+      break;
+    case 'check':
+      ctx.beginPath(); ctx.arc(cx, cy, s * 1.1, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cx - s * 0.5, cy);
+      ctx.lineTo(cx - s * 0.1, cy + s * 0.4);
+      ctx.lineTo(cx + s * 0.5, cy - s * 0.4);
+      ctx.stroke();
+      break;
+    case 'pin':
+      ctx.beginPath(); ctx.arc(cx, cy - s * 0.2, s * 0.85, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx, cy + s * 0.6); ctx.lineTo(cx, cy + s * 1.3); ctx.stroke();
+      break;
+  }
+  ctx.restore();
+}
+
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -202,7 +273,7 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
   const tableH = tableHeaderH + tableRows * rowHeight;
   const totalCardH = 150;
   const obsH = 30 + OBSERVACOES.length * 16 + 14;
-  const footerH = 150;
+  const footerH = 195;
   const height = headerH + pipelineH + infoCardsH + 20 + tableH + 22 + totalCardH + 26 + obsH + 22 + footerH + 40;
 
   let logoImg: HTMLImageElement | null = null;
@@ -317,21 +388,22 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
   }
   y += pipelineH;
 
-  const infoCard = (x: number, title: string, rows: string[], cardH: number) => {
+  const infoCard = (x: number, title: string, rows: string[], cardH: number, iconKind: string) => {
     drawCard(ctx, x, y, halfW, cardH);
+    drawBadgeIcon(ctx, iconKind, x + 20, y + 17, '#DBEAFE', ACCENT);
     ctx.textAlign = 'left';
     ctx.fillStyle = TEXT_FAINT;
     ctx.font = `800 8px ${FONT}`;
-    ctx.fillText(title.toUpperCase(), x + 16, y + 20);
+    ctx.fillText(title.toUpperCase(), x + 36, y + 20);
     rows.forEach((line, i) => {
       ctx.font = i === 0 ? `800 12px ${FONT}` : `600 9.5px ${FONT}`;
       ctx.fillStyle = i === 0 ? TEXT : TEXT_DIM;
       const displayLine = line.length > 46 ? line.slice(0, 46) + '…' : line;
-      ctx.fillText(displayLine, x + 16, y + 42 + i * 17);
+      ctx.fillText(displayLine, x + 16, y + 46 + i * 17);
     });
   };
-  infoCard(marginX, 'Cliente', clienteRows, infoCardsH);
-  infoCard(marginX + halfW + cardGap, 'Dados da Ordem', pedidoRows, infoCardsH);
+  infoCard(marginX, 'Cliente', clienteRows, infoCardsH, 'user');
+  infoCard(marginX + halfW + cardGap, 'Dados da Ordem', pedidoRows, infoCardsH, 'doc');
   y += infoCardsH + 20;
 
   drawCard(ctx, marginX, y, width - marginX * 2, tableH);
@@ -383,10 +455,11 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
   y += tableH + 22;
 
   drawCard(ctx, marginX, y, width - marginX * 2, totalCardH);
+  drawBadgeIcon(ctx, 'money', marginX + 22, y + 19, '#DCFCE7', GREEN);
   ctx.fillStyle = TEXT_FAINT;
   ctx.font = `800 8px ${FONT}`;
   ctx.textAlign = 'left';
-  ctx.fillText('RESUMO FINANCEIRO', marginX + 18, y + 22);
+  ctx.fillText('RESUMO FINANCEIRO', marginX + 38, y + 22);
 
   ctx.fillStyle = ACCENT;
   ctx.font = `900 9px ${FONT}`;
@@ -420,22 +493,27 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
   const badgeColor = isPending ? AMBER : GREEN;
   const badgeBg = isPending ? '#FEF3C7' : '#DCFCE7';
   ctx.font = `900 9px ${FONT}`;
-  const badgeW = ctx.measureText(badgeText).width + 24;
+  const badgeExtra = isPending ? 0 : 14;
+  const badgeW = ctx.measureText(badgeText).width + 24 + badgeExtra;
   roundRect(ctx, width - marginX - 18 - badgeW, y + totalCardH - 34, badgeW, 22, 11);
   ctx.fillStyle = badgeBg;
   ctx.fill();
   ctx.fillStyle = badgeColor;
   ctx.textAlign = 'center';
-  ctx.fillText(badgeText, width - marginX - 18 - badgeW / 2, y + totalCardH - 19);
+  ctx.fillText(badgeText, width - marginX - 18 - badgeW / 2 - badgeExtra / 2, y + totalCardH - 19);
+  if (!isPending) {
+    drawBadgeIcon(ctx, 'check', width - marginX - 18 - 10, y + totalCardH - 23, badgeBg, badgeColor);
+  }
 
   y += totalCardH + 26;
 
   // Bloco unico de Observacoes Importantes
   drawCard(ctx, marginX, y, width - marginX * 2, obsH);
+  drawBadgeIcon(ctx, 'clip', marginX + 22, y + 17, '#DBEAFE', ACCENT);
   ctx.textAlign = 'left';
   ctx.fillStyle = TEXT_FAINT;
   ctx.font = `800 8px ${FONT}`;
-  ctx.fillText('OBSERVAÇÕES IMPORTANTES', marginX + 18, y + 20);
+  ctx.fillText('OBSERVAÇÕES IMPORTANTES', marginX + 38, y + 20);
   OBSERVACOES.forEach((obs, i) => {
     ctx.fillStyle = GREEN;
     ctx.font = `900 9px ${FONT}`;
@@ -448,41 +526,56 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
 
   // Rodape: agradecimento + contatos reais + QR Code
   const footerTop = y;
-  ctx.textAlign = 'left';
-  ctx.fillStyle = TEXT;
+  ctx.strokeStyle = BORDER;
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(marginX, y + 8); ctx.lineTo(marginX + 130, y + 8); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(width - marginX - 130, y + 8); ctx.lineTo(width - marginX, y + 8); ctx.stroke();
+  ctx.textAlign = 'center';
+  ctx.fillStyle = ACCENT;
   ctx.font = 'italic 800 14px Georgia';
-  ctx.fillText('Obrigado pela preferência!', marginX, y + 14);
+  ctx.fillText('Obrigado pela preferência!', width / 2, y + 13);
 
+  ctx.textAlign = 'left';
   ctx.font = `800 8px ${FONT}`;
   ctx.fillStyle = TEXT_FAINT;
-  ctx.fillText('FALE CONOSCO', marginX, y + 40);
+  ctx.fillText('FALE CONOSCO', marginX, y + 42);
 
-  const contactLine = (label: string, value: string, ly: number) => {
-    ctx.font = `700 8px ${FONT}`;
-    ctx.fillStyle = TEXT_DIM;
-    ctx.fillText(label, marginX, ly);
-    ctx.font = `700 9px ${FONT}`;
+  const colGap = 130;
+  const contactItem = (icon: string, bg: string, fg: string, label: string, value: string, col: number, row: number) => {
+    const ix = marginX + col * colGap;
+    const iy = y + 62 + row * 32;
+    drawBadgeIcon(ctx, icon, ix + 8, iy, bg, fg);
+    ctx.textAlign = 'left';
+    ctx.font = `700 7.5px ${FONT}`;
+    ctx.fillStyle = TEXT_FAINT;
+    ctx.fillText(label, ix + 20, iy - 4);
+    ctx.font = `800 8.5px ${FONT}`;
     ctx.fillStyle = TEXT;
-    ctx.fillText(value, marginX + 62, ly);
+    ctx.fillText(value, ix + 20, iy + 8);
   };
-  contactLine('WhatsApp', COMPANY_CONTACT.whatsapp, y + 58);
-  contactLine('Instagram', COMPANY_CONTACT.instagram, y + 74);
-  contactLine('Facebook', COMPANY_CONTACT.facebook, y + 90);
-  contactLine('E-mail', COMPANY_CONTACT.email, y + 106);
-  contactLine('Site', COMPANY_CONTACT.site, y + 122);
+  contactItem('whatsapp', '#DCFCE7', GREEN, 'WhatsApp', COMPANY_CONTACT.whatsapp, 0, 0);
+  contactItem('insta', '#FCE7F3', '#DB2777', 'Instagram', COMPANY_CONTACT.instagram, 1, 0);
+  contactItem('face', '#DBEAFE', ACCENT, 'Facebook', COMPANY_CONTACT.facebook, 0, 1);
+  contactItem('mail', '#FEF3C7', AMBER, 'E-mail', COMPANY_CONTACT.email, 1, 1);
+  drawBadgeIcon(ctx, 'globe', marginX + 8, y + 62 + 64, '#E0E7FF', '#4F46E5');
+  ctx.textAlign = 'left';
+  ctx.font = `700 7.5px ${FONT}`;
+  ctx.fillStyle = TEXT_FAINT;
+  ctx.fillText('Site', marginX + 20, y + 62 + 60);
+  ctx.font = `800 8.5px ${FONT}`;
+  ctx.fillStyle = TEXT;
+  ctx.fillText(COMPANY_CONTACT.site, marginX + 20, y + 62 + 72);
 
-  ctx.font = `700 8px ${FONT}`;
-  ctx.fillStyle = TEXT_DIM;
-  ctx.fillText('Endereço', marginX, y + 138);
+  drawBadgeIcon(ctx, 'pin', marginX + 8, y + 62 + 96, '#FEE2E2', RED);
   ctx.font = `600 8px ${FONT}`;
   ctx.fillStyle = TEXT;
-  ctx.fillText(COMPANY_CONTACT.endereco, marginX, y + 149, width - 190);
+  ctx.fillText(COMPANY_CONTACT.endereco, marginX + 20, y + 62 + 99, width - 260);
 
   // QR Code no canto direito do rodape
   if (qrImg) {
     const qrSize = 78;
     const qrX = width - marginX - qrSize;
-    const qrY = footerTop;
+    const qrY = footerTop + 20;
     ctx.textAlign = 'center';
     ctx.font = `800 7.5px ${FONT}`;
     ctx.fillStyle = TEXT_FAINT;
@@ -490,9 +583,22 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
     ctx.drawImage(qrImg, qrX, qrY + 6, qrSize, qrSize);
     ctx.font = `600 7px ${FONT}`;
     ctx.fillStyle = TEXT_DIM;
-    ctx.fillText('Escaneie o QR Code', qrX + qrSize / 2, qrY + qrSize + 20);
-    ctx.fillText('e acesse nosso site', qrX + qrSize / 2, qrY + qrSize + 31);
+    ctx.fillText('Escaneie o QR Code', qrX + qrSize / 2, qrY + qrSize + 18);
+    ctx.fillText('e acesse nosso site', qrX + qrSize / 2, qrY + qrSize + 29);
+    ctx.fillStyle = ACCENT;
+    ctx.font = `700 7.5px ${FONT}`;
+    ctx.fillText(COMPANY_CONTACT.site, qrX + qrSize / 2, qrY + qrSize + 43);
   }
+
+  // Barra final de validade do documento
+  const barY = footerTop + 165;
+  roundRect(ctx, marginX, barY, width - marginX * 2, 24, 8);
+  ctx.fillStyle = ACCENT;
+  ctx.fill();
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = `700 8px ${FONT}`;
+  ctx.textAlign = 'center';
+  ctx.fillText('Documento válido como comprovante de serviço. Guarde para sua segurança.', width / 2, barY + 16);
 
   return canvas;
 }
