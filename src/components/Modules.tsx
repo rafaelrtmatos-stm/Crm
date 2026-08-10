@@ -5018,33 +5018,58 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const validas = pecas.filter(p => p.largura > 0 && p.altura > 0);
     if (validas.length === 0 || larguraRoloM <= 0) return null;
 
-    // Ordena da peca mais larga pra mais estreita — ajuda a encaixar melhor (guloso)
-    const ordenadas = [...validas].sort((a, b) => b.largura - a.largura);
-    const cortes: { pecas: { largura: number; altura: number }[]; larguraUsada: number; comprimento: number }[] = [];
-
-    for (const peca of ordenadas) {
-      if (peca.largura > larguraRoloM + 0.0001) {
-        // Peca mais larga que o proprio rolo — nao cabe de jeito nenhum, corte dedicado mesmo assim (avisa na tela)
-        cortes.push({ pecas: [peca], larguraUsada: peca.largura, comprimento: peca.altura });
-        continue;
-      }
-      // Tenta encaixar num corte ja aberto que ainda tenha espaco na largura
-      let encaixou = false;
-      for (const corte of cortes) {
-        if (corte.larguraUsada + peca.largura <= larguraRoloM + 0.0001) {
-          corte.pecas.push(peca);
-          corte.larguraUsada += peca.largura;
-          corte.comprimento = Math.max(corte.comprimento, peca.altura);
-          encaixou = true;
-          break;
+    // Empacota um conjunto de pecas JA orientadas (guloso: mais larga primeiro, encaixa no primeiro corte que sobra espaco)
+    const empacotar = (pecasOrientadas: { largura: number; altura: number }[]) => {
+      const ordenadas = [...pecasOrientadas].sort((a, b) => b.largura - a.largura);
+      const cortes: { pecas: { largura: number; altura: number }[]; larguraUsada: number; comprimento: number }[] = [];
+      for (const peca of ordenadas) {
+        let encaixou = false;
+        for (const corte of cortes) {
+          if (corte.larguraUsada + peca.largura <= larguraRoloM + 0.0001) {
+            corte.pecas.push(peca);
+            corte.larguraUsada += peca.largura;
+            corte.comprimento = Math.max(corte.comprimento, peca.altura);
+            encaixou = true;
+            break;
+          }
+        }
+        if (!encaixou) {
+          cortes.push({ pecas: [peca], larguraUsada: peca.largura, comprimento: peca.altura });
         }
       }
-      if (!encaixou) {
-        cortes.push({ pecas: [peca], larguraUsada: peca.largura, comprimento: peca.altura });
-      }
+      const metrosLineares = cortes.reduce((s, c) => s + c.comprimento, 0);
+      return { cortes, metrosLineares };
+    };
+
+    // Pra cada peca, testa as duas orientacoes possiveis (normal e girada 90°) e so considera
+    // as que cabem na largura do rolo — assim uma peca pode "deitar" pra encaixar ao lado de outra
+    // (ex: peca de 1,00x0,80 pode virar 0,80x1,00 pra caber junto com uma de 0,70m de largura)
+    const opcoesPorPeca = validas.map(p => {
+      const normal = { largura: p.largura, altura: p.altura };
+      const girada = { largura: p.altura, altura: p.largura };
+      const cabem = [normal, girada].filter(o => o.largura <= larguraRoloM + 0.0001);
+      return cabem.length > 0 ? cabem : [normal]; // nenhuma orientacao cabe -> usa normal mesmo, o aviso de "nao cabe" aparece na tela
+    });
+
+    // Testa todas as combinacoes de orientacao entre as pecas e fica com a que da o MELHOR aproveitamento
+    // (menos metros lineares no total). Limitado pra nao travar a tela se vierem muitas pecas de uma vez.
+    const totalCombinacoes = opcoesPorPeca.reduce((acc, opcoes) => acc * opcoes.length, 1);
+    let melhor: { cortes: { pecas: { largura: number; altura: number }[]; larguraUsada: number; comprimento: number }[]; metrosLineares: number } | null = null;
+    if (totalCombinacoes <= 4096) {
+      const combinar = (index: number, atual: { largura: number; altura: number }[]) => {
+        if (index === opcoesPorPeca.length) {
+          const resultado = empacotar(atual);
+          if (!melhor || resultado.metrosLineares < melhor.metrosLineares - 0.0001) melhor = resultado;
+          return;
+        }
+        for (const opcao of opcoesPorPeca[index]) combinar(index + 1, [...atual, opcao]);
+      };
+      combinar(0, []);
+    } else {
+      melhor = empacotar(validas);
     }
 
-    const metrosLineares = cortes.reduce((s, c) => s + c.comprimento, 0);
+    const { cortes, metrosLineares } = melhor!;
     const areaUtilizada = validas.reduce((s, p) => s + p.largura * p.altura, 0);
     const areaRetirada = cortes.reduce((s, c) => s + larguraRoloM * c.comprimento, 0);
     const desperdicio = Math.max(0, areaRetirada - areaUtilizada);
@@ -10109,7 +10134,32 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
             <option value="preco" className="bg-slate-900">Preço de Venda</option>
           </select>
         </div>
-        <DataTable columns={columns} data={sortedFilteredItems} />
+        <div className="flex flex-col gap-1.5">
+           {sortedFilteredItems.length === 0 ? (
+             <div className="py-16 text-center bg-white/5 rounded-3xl border border-dashed border-white/10 space-y-2">
+                <Package size={36} className="mx-auto text-white/20" />
+                <p className="text-sm font-bold text-white/40 uppercase">Nenhum item encontrado</p>
+             </div>
+           ) : sortedFilteredItems.map((item: InventoryItem) => (
+             <div key={item.id} className="flex items-center gap-3 bg-slate-900/60 hover:bg-slate-900 border border-white/5 rounded-xl px-3 py-2 transition-all">
+                <div className="flex-1 min-w-0 flex items-center gap-3 overflow-x-auto custom-scrollbar">
+                   <span className="text-[11px] font-black text-white uppercase italic whitespace-nowrap">{item.name}</span>
+                   <span className="text-[9px] text-white/30 font-mono shrink-0">{item.code || 'S/C'}</span>
+                   <Badge variant="outline" className="uppercase text-[9px] opacity-60 shrink-0">{item.category || 'Geral'}</Badge>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                   <span className={cn("text-[11px] font-black", item.currentStock <= (item.minStock || 0) ? "text-amber-500" : "text-white")}>{item.currentStock} {item.unit}</span>
+                   {item.currentStock <= (item.minStock || 0) && <AlertCircle size={12} className="text-amber-500 animate-pulse" />}
+                </div>
+                <span className="text-[11px] font-black text-white shrink-0 w-20 text-right">R$ {item.salePrice.toLocaleString('pt-BR')}</span>
+                <Badge variant={item.isActive ? 'success' : 'outline'} className="text-[9px] shrink-0">{item.isActive ? 'ATIVO' : 'INATIVO'}</Badge>
+                <div className="flex gap-1 shrink-0">
+                   <button onClick={() => openEditItem(item)} title="Editar" className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20"><Pencil size={13} /></button>
+                   <button onClick={() => handleDeleteItem(item)} title="Excluir" className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20"><Trash2 size={13} /></button>
+                </div>
+             </div>
+           ))}
+        </div>
       </GlassCard>
 
       {isImportPreviewOpen && (() => {
