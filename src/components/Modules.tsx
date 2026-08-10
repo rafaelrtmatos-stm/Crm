@@ -5679,8 +5679,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                      <Search className="absolute left-2.5 sm:left-3 top-1/2 -translate-y-1/2 text-slate-300" size={14} />
                      <input 
                        value={search}
-                       onChange={(e) => setSearch(e.target.value)}
-                       className="w-full h-8 sm:h-11 bg-white border-2 border-slate-200 rounded-lg sm:rounded-xl pl-8 sm:pl-10 pr-3 sm:pr-4 text-[11px] sm:text-xs font-bold text-slate-700 placeholder:text-slate-300 outline-none focus:border-primary-500 transition-all"
+                       onChange={(e) => setSearch(e.target.value.toUpperCase())}
+                       className="w-full h-8 sm:h-11 bg-white border-2 border-slate-200 rounded-lg sm:rounded-xl pl-8 sm:pl-10 pr-3 sm:pr-4 text-[11px] sm:text-xs font-bold text-slate-700 placeholder:text-slate-300 outline-none focus:border-primary-500 transition-all uppercase"
                        placeholder="BUSCAR OU BIPAR..."
                      />
                   </div>
@@ -9280,7 +9280,7 @@ export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved }: {
     setSaving(true);
     try {
       const payload = {
-        name: formData.name,
+        name: formData.name.trim().toUpperCase(),
         code: formData.code || null,
         category: formData.category || null,
         unit: formData.unit,
@@ -9322,7 +9322,7 @@ export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved }: {
       <div className="p-6 space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="md:col-span-2">
-            <Input label="NOME DO ITEM" value={formData.name} onChange={(e: any) => setFormData({ ...formData, name: e.target.value })} />
+            <Input label="NOME DO ITEM" value={formData.name} onChange={(e: any) => setFormData({ ...formData, name: e.target.value.toUpperCase() })} className="uppercase" />
           </div>
           <Input label="CÓDIGO INTERNO (SKU)" value={formData.code} onChange={(e: any) => setFormData({ ...formData, code: e.target.value })} />
           <div className="space-y-2">
@@ -9722,7 +9722,7 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
       <GlassCard className="p-4 border-white/5 bg-white/[0.02]">
         <div className="flex items-center gap-2 mb-6 px-4 flex-wrap">
           <div className="flex-1 min-w-[180px]">
-            <Input icon={Search} placeholder="Filtrar por nome, código ou categoria..." value={estoqueSearchTerm} onChange={(e: any) => setEstoqueSearchTerm(e.target.value)} />
+            <Input icon={Search} placeholder="Filtrar por nome, código ou categoria..." value={estoqueSearchTerm} onChange={(e: any) => setEstoqueSearchTerm(e.target.value.toUpperCase())} className="uppercase" />
           </div>
           <select
             value={estoqueSortBy}
