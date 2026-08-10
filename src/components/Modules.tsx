@@ -3452,8 +3452,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [selectedQty, setSelectedQty] = useState(1);
   const [dimensionModalProduct, setDimensionModalProduct] = useState<Product | null>(null);
   const [etiquetaModalProduct, setEtiquetaModalProduct] = useState<Product | null>(null);
-  const emptyEtiquetaForm = { quantidade: 100, largura: 8, altura: 8, larguraMaterial: 0 };
+  const emptyEtiquetaForm = { quantidade: 100, largura: 8, altura: 8, larguraMaterial: 0, metrosInput: 0, valorInput: 0 };
   const [etiquetaForm, setEtiquetaForm] = useState({ ...emptyEtiquetaForm });
+  const [etiquetaInputMode, setEtiquetaInputMode] = useState<'quantidade' | 'metros' | 'valor'>('quantidade');
   const [dimWidth, setDimWidth] = useState<number | ''>('');
   const [dimHeight, setDimHeight] = useState<number | ''>('');
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -4885,6 +4886,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     if (product.unitType === 'etiqueta') {
       setEtiquetaModalProduct(product);
       setEtiquetaForm({ ...emptyEtiquetaForm, larguraMaterial: product.larguraRolo || 1.02 });
+      setEtiquetaInputMode('quantidade');
       return;
     }
     setCart(prev => {
@@ -4906,39 +4908,56 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const calcularEtiquetas = (product: Product) => {
-    const { quantidade, largura, altura, larguraMaterial } = etiquetaForm;
+    const { largura, altura, larguraMaterial } = etiquetaForm;
     const larguraRoloCm = (larguraMaterial || product.larguraRolo || 1) * 100;
-    if (quantidade <= 0 || largura <= 0 || altura <= 0 || larguraRoloCm <= 0) return null;
+    if (largura <= 0 || altura <= 0 || larguraRoloCm <= 0) return null;
 
-    // Orientacao A: etiqueta na posicao normal (largura x altura)
+    // Quantas etiquetas cabem por metro linear do rolo, testando as duas orientacoes
+    // (normal e rotacionada 90 graus) e usando a que da mais unidades por metro (melhor aproveitamento)
     const porFileiraA = Math.max(1, Math.floor(larguraRoloCm / largura));
-    const fileirasA = Math.ceil(quantidade / porFileiraA);
-    const metrosA = (fileirasA * altura) / 100;
+    const unidadesPorMetroA = porFileiraA * (100 / altura);
 
-    // Orientacao B: etiqueta rotacionada 90 graus (altura x largura)
     const porFileiraB = Math.max(1, Math.floor(larguraRoloCm / altura));
-    const fileirasB = Math.ceil(quantidade / porFileiraB);
-    const metrosB = (fileirasB * largura) / 100;
+    const unidadesPorMetroB = porFileiraB * (100 / largura);
 
-    // Usa a orientacao que da o melhor aproveitamento (menos metros lineares)
-    const usarB = metrosB < metrosA;
+    const usarB = unidadesPorMetroB > unidadesPorMetroA;
     const porFileira = usarB ? porFileiraB : porFileiraA;
-    const fileiras = usarB ? fileirasB : fileirasA;
-    const metrosLineares = usarB ? metrosB : metrosA;
+    const unidadesPorMetro = usarB ? unidadesPorMetroB : unidadesPorMetroA;
+
+    // Regra de 3: a partir do campo que o usuario preencheu (quantidade, metros ou valor),
+    // calcula os outros dois automaticamente
+    let quantidade: number;
+    let metrosLineares: number;
+    const IMPRESSAO_MINIMA = 30;
+
+    if (etiquetaInputMode === 'metros') {
+      metrosLineares = etiquetaForm.metrosInput;
+      if (metrosLineares <= 0) return null;
+      quantidade = Math.round(metrosLineares * unidadesPorMetro);
+    } else if (etiquetaInputMode === 'valor') {
+      const valorInput = etiquetaForm.valorInput;
+      if (valorInput <= 0 || product.price <= 0) return null;
+      metrosLineares = valorInput / product.price;
+      quantidade = Math.round(metrosLineares * unidadesPorMetro);
+    } else {
+      quantidade = etiquetaForm.quantidade;
+      if (quantidade <= 0) return null;
+      metrosLineares = quantidade / unidadesPorMetro;
+    }
 
     const valorCalculado = metrosLineares * product.price;
-    const IMPRESSAO_MINIMA = 30;
     const valorFinal = Math.max(valorCalculado, IMPRESSAO_MINIMA);
+    const fileiras = Math.ceil(quantidade / porFileira);
 
-    return { porFileira, fileiras, metrosLineares, valorCalculado, valorFinal, rotacionada: usarB };
+    return { porFileira, fileiras, metrosLineares, valorCalculado, valorFinal, rotacionada: usarB, quantidade, unidadesPorMetro };
   };
 
   const confirmAddEtiquetaItem = async () => {
     if (!etiquetaModalProduct) return;
     const calc = calcularEtiquetas(etiquetaModalProduct);
-    if (!calc) { alert('Preencha quantidade, largura, altura e a largura do material corretamente.'); return; }
-    const { quantidade, largura, altura, larguraMaterial } = etiquetaForm;
-    const dimensoesLabel = `${quantidade}un ${largura}x${altura}cm`;
+    if (!calc) { alert('Preencha as dimensões, a largura do material e a quantidade/metros/valor desejado.'); return; }
+    const { largura, altura, larguraMaterial } = etiquetaForm;
+    const dimensoesLabel = `${calc.quantidade}un ${largura}x${altura}cm`;
     setCart(prev => [...prev, {
       productId: etiquetaModalProduct.id,
       name: etiquetaModalProduct.name,
@@ -7744,8 +7763,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
        return (
          <Modal isOpen={!!etiquetaModalProduct} onClose={() => setEtiquetaModalProduct(null)} title="Etiqueta Adesiva — Calculadora" size="sm">
            <div className="space-y-4 p-2">
-              <div className="grid grid-cols-3 gap-2">
-                 <Input label="Quantidade" type="number" value={etiquetaForm.quantidade} onChange={(e: any) => setEtiquetaForm({ ...etiquetaForm, quantidade: Number(e.target.value) || 0 })} />
+              <div className="grid grid-cols-2 gap-2">
                  <Input label="Largura (cm)" type="number" step="any" value={etiquetaForm.largura} onChange={(e: any) => setEtiquetaForm({ ...etiquetaForm, largura: Number(e.target.value) || 0 })} />
                  <Input label="Altura (cm)" type="number" step="any" value={etiquetaForm.altura} onChange={(e: any) => setEtiquetaForm({ ...etiquetaForm, altura: Number(e.target.value) || 0 })} />
               </div>
@@ -7758,8 +7776,30 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               />
               <p className="text-[9px] text-white/30 -mt-2">Vem pré-preenchida com a largura cadastrada do material — pode editar aqui, e o novo valor fica salvo pra próxima vez.</p>
 
+              <div className="space-y-1.5">
+                 <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">O cliente informou...</label>
+                 <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 gap-1">
+                    <button onClick={() => setEtiquetaInputMode('quantidade')} className={cn("flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all", etiquetaInputMode === 'quantidade' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Quantidade</button>
+                    <button onClick={() => setEtiquetaInputMode('metros')} className={cn("flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all", etiquetaInputMode === 'metros' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Metros</button>
+                    <button onClick={() => setEtiquetaInputMode('valor')} className={cn("flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all", etiquetaInputMode === 'valor' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Valor (R$)</button>
+                 </div>
+                 {etiquetaInputMode === 'quantidade' && (
+                   <Input label="Quantidade de Etiquetas" type="number" autoFocus value={etiquetaForm.quantidade} onChange={(e: any) => setEtiquetaForm({ ...etiquetaForm, quantidade: Number(e.target.value) || 0 })} />
+                 )}
+                 {etiquetaInputMode === 'metros' && (
+                   <Input label="Metros Lineares Desejados" type="number" step="any" autoFocus value={etiquetaForm.metrosInput} onChange={(e: any) => setEtiquetaForm({ ...etiquetaForm, metrosInput: Number(e.target.value) || 0 })} />
+                 )}
+                 {etiquetaInputMode === 'valor' && (
+                   <Input label="Valor Disponível (R$)" type="number" step="any" autoFocus value={etiquetaForm.valorInput} onChange={(e: any) => setEtiquetaForm({ ...etiquetaForm, valorInput: Number(e.target.value) || 0 })} />
+                 )}
+              </div>
+
               {calc ? (
                 <div className="bg-slate-900/60 rounded-2xl border border-white/10 p-4 space-y-1.5">
+                   <div className="flex justify-between text-xs text-white/50">
+                      <span>Quantidade de etiquetas</span>
+                      <span className="font-mono font-bold text-white">{calc.quantidade} un</span>
+                   </div>
                    <div className="flex justify-between text-xs text-white/50">
                       <span>Etiquetas por fileira</span>
                       <span className="font-mono font-bold text-white">{calc.porFileira} {calc.rotacionada ? '(rotacionada)' : ''}</span>
@@ -7784,7 +7824,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    </div>
                 </div>
               ) : (
-                <p className="text-center text-xs text-white/30 py-4">Preencha quantidade, largura e altura pra calcular.</p>
+                <p className="text-center text-xs text-white/30 py-4">Preencha as dimensões, a largura do material e a quantidade/metros/valor pra calcular.</p>
               )}
 
               <div className="flex justify-end gap-3 pt-1">
