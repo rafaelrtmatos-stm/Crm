@@ -5863,10 +5863,20 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           {canManageHistory && (
                             <input type="checkbox" checked={selectedSaleIds.has(sale.id)} onChange={() => toggleSaleSelection(sale.id)} className="w-3.5 h-3.5 shrink-0 accent-primary-500" />
                           )}
-                          <div className="flex-1 min-w-0 flex items-center gap-3">
-                            <span className="text-[11px] font-black text-white truncate min-w-[70px] max-w-[45vw] sm:max-w-none">{sale.customerName || 'Cliente de Balcão'}</span>
-                            <span className="text-[9px] text-white/30 font-mono shrink-0">#{sale.id.slice(-8).toUpperCase()}</span>
-                            <span className="text-[9px] text-white/30 shrink-0 hidden sm:inline">{safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
+                          <div className="flex-1 min-w-0 flex items-center gap-3 overflow-x-auto custom-scrollbar">
+                            <span className="text-[11px] font-black text-white whitespace-nowrap">{sale.customerName || 'Cliente de Balcão'}</span>
+                            {sale.items && sale.items.length > 0 && (
+                              <span className="text-[9px] text-white/40 italic whitespace-nowrap" title={sale.items[sale.items.length - 1].name}>
+                                {sale.items[sale.items.length - 1].name}{sale.items.length > 1 ? ` (+${sale.items.length - 1})` : ''}
+                              </span>
+                            )}
+                            {sale.observacoes && (
+                              <span className="text-[9px] text-amber-300/70 italic whitespace-nowrap" title={sale.observacoes}>
+                                "{sale.observacoes}"
+                              </span>
+                            )}
+                            <span className="hidden sm:inline text-[9px] text-white/30 font-mono shrink-0">#{sale.id.slice(-8).toUpperCase()}</span>
+                            <span className="hidden sm:inline text-[9px] text-white/30 shrink-0">{safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
                           </div>
                           <Badge className={cn("text-[7.5px] font-black uppercase px-1.5 py-0.5 border-none shrink-0", isPartial ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300")}>
                             {isPartial ? `PARCIAL — falta R$ ${balance.toFixed(2).replace('.', ',')}` : 'PAGO'}
@@ -5912,6 +5922,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           </div>
                           <div>
                             <p className="text-[10px] font-black text-white uppercase truncate">{sale.customerName || 'Cliente de Balcão'}</p>
+                            {sale.items && sale.items.length > 0 && (
+                              <p className="text-[8px] text-white/40 italic truncate" title={sale.items[sale.items.length - 1].name}>
+                                {sale.items[sale.items.length - 1].name}{sale.items.length > 1 ? ` (+${sale.items.length - 1})` : ''}
+                              </p>
+                            )}
                             <p className="text-[8px] text-white/30 font-mono">#{sale.id.slice(-8).toUpperCase()}</p>
                           </div>
                           <p className="text-sm font-black text-white">R$ {sale.total.toFixed(2).replace('.', ',')}</p>
