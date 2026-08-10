@@ -4610,23 +4610,24 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     if (activeTab === 'excluidos') loadDeletedSales();
   }, [activeTab]);
 
-  useEffect(() => {
-    if (!currentCompany) return;
+  const loadSalesHistory = async () => {
+    const { data } = await supabase.from('vendas').select('*').is('deleted_at', null);
+    const allSales = (data || []).map(mapVendaRow);
+    allSales.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    setAllSalesHistory(allSales);
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
-    const loadSales = async () => {
-      const { data } = await supabase.from('vendas').select('*').is('deleted_at', null);
-      const allSales = (data || []).map(mapVendaRow);
-      allSales.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      setAllSalesHistory(allSales);
-      const todaySales = allSales.filter(sale => {
-        const d = new Date(sale.createdAt);
-        return d >= startOfDay;
-      });
-      setSalesToday(todaySales);
-    };
-    loadSales();
-    const channel = supabase.channel('pos-vendas').on('postgres_changes', { event: '*', schema: 'public', table: 'vendas' }, loadSales).subscribe();
+    const todaySales = allSales.filter(sale => {
+      const d = new Date(sale.createdAt);
+      return d >= startOfDay;
+    });
+    setSalesToday(todaySales);
+  };
+
+  useEffect(() => {
+    if (!currentCompany) return;
+    loadSalesHistory();
+    const channel = supabase.channel('pos-vendas').on('postgres_changes', { event: '*', schema: 'public', table: 'vendas' }, loadSalesHistory).subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [currentCompany]);
 
@@ -4962,6 +4963,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
         const updatedOrder: SaleOrder = { ...settlingOrder, downPayment: novoTotalPago, receivedValue: novoTotalPago, status: novoSaldo <= 0 ? 'completed' : 'pending', payments: [...pagamentosAnteriores, ...paymentEntries] };
         setLastFinalizedOrder(updatedOrder);
+        await loadSalesHistory();
         setIsSuccessModalOpen(true);
         setIsPaymentModalOpen(false);
         setSettlingOrder(null);
@@ -5090,6 +5092,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       addPendingOrder(order);
     }
     
+    await loadSalesHistory();
     setLastFinalizedOrder(order);
     setIsSuccessModalOpen(true);
     setIsPaymentModalOpen(false);
