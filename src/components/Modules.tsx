@@ -8019,6 +8019,24 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       <span>Metros lineares</span>
                       <span className="font-mono font-bold text-white">{calc.metrosLineares.toFixed(2).replace('.', ',')} m</span>
                    </div>
+                   {(() => {
+                      const areaMaterial = calc.metrosLineares * etiquetaForm.larguraMaterial;
+                      const areaImpressa = calc.quantidade * (etiquetaForm.largura / 100) * (etiquetaForm.altura / 100);
+                      const desperdicio = Math.max(0, areaMaterial - areaImpressa);
+                      const aproveitamento = areaMaterial > 0 ? (areaImpressa / areaMaterial) * 100 : 0;
+                      return (
+                        <>
+                          <div className="flex justify-between text-xs text-rose-300 pt-1 border-t border-white/5">
+                             <span>Área desperdiçada</span>
+                             <span className="font-mono font-bold">{desperdicio.toFixed(3).replace('.', ',')} m²</span>
+                          </div>
+                          <div className="flex justify-between text-xs text-emerald-300">
+                             <span>Aproveitamento</span>
+                             <span className="font-mono font-bold">{aproveitamento.toFixed(2).replace('.', ',')}%</span>
+                          </div>
+                        </>
+                      );
+                   })()}
                    {calc.valorFinal > calc.valorCalculado && (
                      <div className="flex justify-between text-[10px] text-amber-400 pt-1 border-t border-white/5">
                         <span>Impressão mínima aplicada</span>
@@ -8104,6 +8122,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   const cabeComoEsta = w <= rolo;
                   const cabeGirada = h <= rolo;
                   const naoCabeEmNenhuma = !cabeComoEsta && !cabeGirada;
+                  const areaUsada = w * h * selectedQty;
+                  const areaRetirada = rolo * consumo * selectedQty;
+                  const desperdicio = Math.max(0, areaRetirada - areaUsada);
+                  const aproveitamento = areaRetirada > 0 ? (areaUsada / areaRetirada) * 100 : 0;
                   return (
                     <div className="pt-1 border-t border-white/5 space-y-1">
                        <div className="flex justify-between text-xs text-amber-300">
@@ -8112,6 +8134,23 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                        </div>
                        {naoCabeEmNenhuma && (
                          <p className="text-[9px] text-rose-400">⚠ Nenhuma orientação cabe na largura do material — confira as medidas.</p>
+                       )}
+                       {!naoCabeEmNenhuma && (
+                         <>
+                           <div className="flex justify-between text-xs text-rose-300">
+                              <span>Área desperdiçada</span>
+                              <span className="font-mono font-bold">{desperdicio.toFixed(2).replace('.', ',')} m²</span>
+                           </div>
+                           <div className="flex justify-between text-xs text-emerald-300">
+                              <span>Aproveitamento</span>
+                              <span className="font-mono font-bold">{aproveitamento.toFixed(2).replace('.', ',')}%</span>
+                           </div>
+                           {desperdicio <= 0.001 ? (
+                             <p className="text-[9px] text-emerald-400 font-bold">✓ Sem desperdício — a peça aproveita 100% da largura ou do comprimento do material.</p>
+                           ) : (
+                             <p className="text-[9px] text-amber-400">⚠ Sobra de material após o melhor aproveitamento possível.</p>
+                           )}
+                         </>
                        )}
                     </div>
                   );
@@ -10008,31 +10047,36 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
 
   return (
     <div className="space-y-8 animate-in fade-in zoom-in-95 duration-500">
-      <SectionHeader 
-        title="Gestão de Insumos" 
-        subtitle="Controle de Estoque e Matéria-Prima (Foco Gráfica)" 
-        actions={
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportFile} />
-            <button
-              disabled={isImporting}
-              title={isImporting ? 'Importando...' : 'Importar Planilha'}
-              onClick={() => fileInputRef.current?.click()}
-              className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all disabled:opacity-50"
-            >
-              <Upload size={14} className={cn(isImporting && "animate-pulse")} />
-            </button>
-            <button
-              title="Exportar Planilha"
-              onClick={() => exportProdutosXlsx(items.map(i => ({ ...i, sale_price: i.salePrice, cost_price: i.costPrice, current_stock: i.currentStock, min_stock: i.minStock })))}
-              className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all"
-            >
-              <Download size={14} />
-            </button>
-            <Button icon={Plus} onClick={() => { setEditingItemId(null); setFormData({ name: '', category: 'substrato', unit: 'un', currentStock: 0, minStock: 0, salePrice: 0, costPrice: 0, isActive: true, isService: false, tipoItem: 'produto', controlaEstoque: true }); setIsModalOpen(true); }}>Novo Item</Button>
-          </div>
-        }
-      />
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-white/10 pb-4">
+        <div>
+          <h2 className="text-xl md:text-2xl font-black text-white italic tracking-tighter uppercase flex items-center gap-2">
+            <Package className="text-primary-400" size={22} />
+            Gestão de Insumos
+          </h2>
+          <p className="text-[10px] md:text-xs text-white/40 font-bold uppercase tracking-widest mt-1">
+            Controle de Estoque e Matéria-Prima (Foco Gráfica)
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportFile} />
+          <button
+            disabled={isImporting}
+            title={isImporting ? 'Importando...' : 'Importar Planilha'}
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all disabled:opacity-50"
+          >
+            <Upload size={14} className={cn(isImporting && "animate-pulse")} />
+          </button>
+          <button
+            title="Exportar Planilha"
+            onClick={() => exportProdutosXlsx(items.map(i => ({ ...i, sale_price: i.salePrice, cost_price: i.costPrice, current_stock: i.currentStock, min_stock: i.minStock })))}
+            className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all"
+          >
+            <Download size={14} />
+          </button>
+          <Button icon={Plus} onClick={() => { setEditingItemId(null); setFormData({ name: '', category: 'substrato', unit: 'un', currentStock: 0, minStock: 0, salePrice: 0, costPrice: 0, isActive: true, isService: false, tipoItem: 'produto', controlaEstoque: true }); setIsModalOpen(true); }}>Novo Item</Button>
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {stats.map((s, i) => (
