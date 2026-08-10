@@ -3709,6 +3709,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [orcamentoForm, setOrcamentoForm] = useState({ ...emptyOrcamentoForm });
   const [savingOrcamento, setSavingOrcamento] = useState(false);
   const [orcamentoFromCart, setOrcamentoFromCart] = useState(false);
+  const [orcamentoItemsEditMode, setOrcamentoItemsEditMode] = useState(false);
+
+  const handleReturnItemsToOrcamento = () => {
+    setOrcamentoForm(prev => ({ ...prev, items: [...cart] }));
+    setCart([]);
+    setOrcamentoItemsEditMode(false);
+    setActiveTab('orcamentos');
+    setOrcamentoModalOpen(true);
+  };
   const [highlightOrcamentoId, setHighlightOrcamentoId] = useState<string | null>(null);
 
   const loadOrcamentos = async () => {
@@ -5455,21 +5464,35 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
                <div className="shrink-0 p-1.5 sm:p-6 bg-slate-50 border-t border-slate-200 space-y-4 sticky bottom-0 z-10">
                   <div className="flex gap-2 sm:gap-4 h-11 sm:h-24">
-                     <button 
-                       disabled={cart.length === 0}
-                       onClick={() => {
-                          setCustomerModalIntent('finalize');
-                          setIsCustomerModalOpen(true);
-                       }}
-                       className="flex-1 h-full bg-primary-500 border-2 border-primary-600 text-slate-900 rounded-2xl sm:rounded-[28px] flex flex-col items-center justify-center gap-0.5 sm:gap-1 shadow-xl shadow-primary-500/20 hover:bg-primary-400 transition-all disabled:opacity-50 disabled:grayscale active:scale-95"
-                     >
-                        <div className="flex items-center gap-1.5 sm:gap-3">
-                           <ShoppingBag size={16} className="sm:hidden" />
-                           <ShoppingBag size={24} className="hidden sm:block" />
-                           <span className="text-xs sm:text-lg font-black uppercase tracking-tighter">FINALIZAR VENDA</span>
-                        </div>
-                        <span className="hidden sm:block text-[10px] font-black opacity-40 uppercase tracking-[4px]">Ir para pagamento e fechamento</span>
-                     </button>
+                     {orcamentoItemsEditMode ? (
+                       <button
+                         onClick={handleReturnItemsToOrcamento}
+                         className="flex-1 h-full bg-primary-500 border-2 border-primary-600 text-slate-900 rounded-2xl sm:rounded-[28px] flex flex-col items-center justify-center gap-0.5 sm:gap-1 shadow-xl shadow-primary-500/20 hover:bg-primary-400 transition-all active:scale-95"
+                       >
+                          <div className="flex items-center gap-1.5 sm:gap-3">
+                             <FileSpreadsheet size={16} className="sm:hidden" />
+                             <FileSpreadsheet size={24} className="hidden sm:block" />
+                             <span className="text-xs sm:text-lg font-black uppercase tracking-tighter">VOLTAR AO ORÇAMENTO ({cart.length})</span>
+                          </div>
+                          <span className="hidden sm:block text-[10px] font-black opacity-40 uppercase tracking-[4px]">Salva os itens escolhidos e retorna</span>
+                       </button>
+                     ) : (
+                       <button 
+                         disabled={cart.length === 0}
+                         onClick={() => {
+                            setCustomerModalIntent('finalize');
+                            setIsCustomerModalOpen(true);
+                         }}
+                         className="flex-1 h-full bg-primary-500 border-2 border-primary-600 text-slate-900 rounded-2xl sm:rounded-[28px] flex flex-col items-center justify-center gap-0.5 sm:gap-1 shadow-xl shadow-primary-500/20 hover:bg-primary-400 transition-all disabled:opacity-50 disabled:grayscale active:scale-95"
+                       >
+                          <div className="flex items-center gap-1.5 sm:gap-3">
+                             <ShoppingBag size={16} className="sm:hidden" />
+                             <ShoppingBag size={24} className="hidden sm:block" />
+                             <span className="text-xs sm:text-lg font-black uppercase tracking-tighter">FINALIZAR VENDA</span>
+                          </div>
+                          <span className="hidden sm:block text-[10px] font-black opacity-40 uppercase tracking-[4px]">Ir para pagamento e fechamento</span>
+                       </button>
+                     )}
                   </div>
                </div>
             </div>
@@ -7509,26 +7532,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
             <div className="space-y-2">
                <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px]">Itens do Orçamento</p>
-               <div className="flex gap-2">
-                  <select
-                    onChange={(e) => {
-                       const product = products.find(p => p.id === e.target.value);
-                       if (!product) return;
-                       setOrcamentoForm(prev => ({ ...prev, items: [...prev.items, { productId: product.id, name: product.name, price: product.price, quantity: 1 }] }));
-                       e.target.value = '';
-                    }}
-                    className="flex-1 h-10 bg-white/5 border border-white/10 rounded-xl px-3 text-xs text-white focus:outline-none focus:border-primary-500 cursor-pointer"
-                  >
-                    <option value="" className="bg-slate-900">+ Adicionar produto/serviço do catálogo...</option>
-                    {products.map(p => <option key={p.id} value={p.id} className="bg-slate-900">{p.name} — R$ {p.price.toFixed(2)}</option>)}
-                  </select>
-                  <button
-                    onClick={() => { setQuickProductAddToOrcamento(true); setIsQuickProductOpen(true); }}
-                    className="h-10 px-3 rounded-xl bg-primary-500/10 border border-primary-500/20 text-primary-300 hover:bg-primary-500/20 text-[10px] font-black uppercase whitespace-nowrap flex items-center gap-1.5"
-                  >
-                    <PlusSquare size={13} /> Novo Produto
-                  </button>
-               </div>
+               <button
+                 onClick={() => {
+                    setCart([...orcamentoForm.items]);
+                    setOrcamentoModalOpen(false);
+                    setOrcamentoItemsEditMode(true);
+                    setActiveTab('venda');
+                 }}
+                 className="w-full h-11 rounded-xl bg-primary-500/10 border border-primary-500/20 text-primary-300 hover:bg-primary-500/20 text-[11px] font-black uppercase tracking-wider flex items-center justify-center gap-2"
+               >
+                 <Plus size={15} /> Adicionar Item
+               </button>
                <div className="space-y-1.5">
                   {orcamentoForm.items.map((item, idx) => (
                     <div key={idx} className="flex items-center justify-between gap-2 px-3 py-2 bg-white/5 border border-white/5 rounded-lg flex-wrap">
