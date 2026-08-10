@@ -41,6 +41,7 @@ import {
   ShieldCheck,
   Key
 } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   BarChart, 
@@ -597,6 +598,46 @@ export default function App() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Login rapido: lista de usuarios ativos pra clicar e entrar direto, sem digitar senha
+  const [quickLoginUsers, setQuickLoginUsers] = useState<AppUser[]>([]);
+  const [isLoadingQuickLogin, setIsLoadingQuickLogin] = useState(true);
+
+  useEffect(() => {
+    const loadQuickLoginUsers = async () => {
+      try {
+        const adminDocRef = doc(db, 'users', 'admin-rafael');
+        const adminSnap = await getDoc(adminDocRef);
+        const list: AppUser[] = [];
+        if (adminSnap.exists()) {
+          list.push({ ...(adminSnap.data() as AppUser), id: adminSnap.id });
+        } else {
+          list.push({
+            id: 'admin-rafael', name: 'Rafael Matos (ADM)', email: 'rafaelrtmatos@gmail.com',
+            password: 'Geper3tp@', role: 'admin', isAdmin: true, isActive: true,
+            allowedTabs: ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'production', 'settings'],
+            allowedActions: [],
+            createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+          } as AppUser);
+        }
+        const usersSnap = await getDocs(query(collection(db, 'users'), where('isActive', '==', true)));
+        usersSnap.docs.forEach(d => {
+          if (d.id !== 'admin-rafael') list.push({ id: d.id, ...d.data() } as AppUser);
+        });
+        setQuickLoginUsers(list);
+      } catch (err) {
+        console.error('Erro ao carregar usuários para login rápido:', err);
+      } finally {
+        setIsLoadingQuickLogin(false);
+      }
+    };
+    loadQuickLoginUsers();
+  }, []);
+
+  const handleQuickLogin = (userData: AppUser) => {
+    setUser(userData);
+    sessionStorage.setItem('rpro_logged_user_id', userData.id);
+  };
+
   const handleLogout = async () => {
     sessionStorage.removeItem('rpro_logged_user_id');
     localStorage.removeItem('rpro_simulated_user_id');
@@ -842,93 +883,38 @@ export default function App() {
           </p>
         </div>
 
-        {/* Login Form Card */}
-        <form onSubmit={handlePasswordLogin} className="bg-[#0e0e13]/95 backdrop-blur-3xl p-6 sm:p-8 rounded-[28px] border border-white/10 shadow-2xl space-y-5">
-          <div className="space-y-4">
-            {/* E-mail Field */}
-            <div>
-              <label className="text-[11px] font-bold uppercase text-white tracking-wider mb-2 flex items-center gap-2 block">
-                <Mail size={14} className="text-red-500" /> E-MAIL DE ACESSO
-              </label>
-              <div className="relative">
-                <Mail size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-red-500 pointer-events-none" />
-                <input
-                  type="email"
-                  required
-                  value={loginEmail}
-                  onChange={(e) => setLoginEmail(e.target.value)}
-                  placeholder="Digite seu e-mail"
-                  className="w-full bg-[#07070a] border border-white/20 focus:border-red-500 focus:ring-1 focus:ring-red-500 rounded-xl pl-11 pr-4 py-3.5 text-white font-medium focus:outline-none transition-all text-sm placeholder:text-white/50"
-                />
-              </div>
-            </div>
+        {/* Quick Login Card - botoes por usuario, sem senha */}
+        <div className="bg-[#0e0e13]/95 backdrop-blur-3xl p-6 sm:p-8 rounded-[28px] border border-white/10 shadow-2xl space-y-4">
+          <p className="text-[11px] font-bold uppercase text-white/60 tracking-wider text-center mb-1">Toque no seu nome para entrar</p>
 
-            {/* Password Field */}
-            <div>
-              <label className="text-[11px] font-bold uppercase text-white tracking-wider mb-2 flex items-center gap-2 block">
-                <Lock size={14} className="text-red-500" /> SENHA DE ACESSO
-              </label>
-              <div className="relative">
-                <Lock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-red-500 pointer-events-none" />
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  required
-                  value={loginPassword}
-                  onChange={(e) => setLoginPassword(e.target.value)}
-                  placeholder="Digite sua senha"
-                  className="w-full bg-[#07070a] border border-white/20 focus:border-red-500 focus:ring-1 focus:ring-red-500 rounded-xl pl-11 pr-12 py-3.5 text-white font-medium focus:outline-none transition-all text-sm placeholder:text-white/50"
-                />
+          {isLoadingQuickLogin ? (
+            <div className="flex justify-center py-8">
+              <div className="w-8 h-8 border-4 border-red-600/30 border-t-red-500 rounded-full animate-spin" />
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              {quickLoginUsers.map(u => (
                 <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/70 hover:text-red-500 transition-colors cursor-pointer p-1"
+                  key={u.id}
+                  onClick={() => handleQuickLogin(u)}
+                  className="w-full flex items-center gap-3.5 bg-[#07070a] hover:bg-red-950/30 border border-white/10 hover:border-red-500/50 rounded-xl px-4 py-3.5 transition-all group cursor-pointer active:scale-[0.99]"
                 >
-                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  <div className="w-10 h-10 rounded-full bg-red-600/15 border border-red-500/30 flex items-center justify-center shrink-0 text-red-400 font-black text-sm uppercase group-hover:bg-red-600/25 transition-all">
+                    {(u.name || '?').trim().charAt(0)}
+                  </div>
+                  <div className="flex-1 text-left min-w-0">
+                    <p className="text-sm font-bold text-white truncate">{u.name}</p>
+                    <p className="text-[10px] text-white/40 uppercase tracking-wider font-semibold">{u.isAdmin ? 'Administrador' : (u.role || 'Usuário')}</p>
+                  </div>
+                  <ChevronRight size={18} className="text-white/20 group-hover:text-red-400 transition-all shrink-0" />
                 </button>
-              </div>
-            </div>
-          </div>
-
-          {authError && (
-            <div className="p-3.5 rounded-xl bg-red-950/40 border border-red-600/50 text-white text-xs font-semibold flex items-start gap-2.5 animate-in fade-in duration-200">
-              <AlertCircle size={18} className="shrink-0 text-red-500 mt-0.5" />
-              <span>{authError}</span>
+              ))}
+              {quickLoginUsers.length === 0 && (
+                <p className="text-center text-xs text-white/40 py-4">Nenhum usuário ativo cadastrado ainda.</p>
+              )}
             </div>
           )}
-
-          {/* Submit Button */}
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="w-full py-4 bg-red-600 hover:bg-red-500 active:bg-red-700 disabled:opacity-50 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-red-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer border-0 active:scale-[0.99] mt-2"
-          >
-            <Lock size={18} />
-            {isSubmitting ? 'Autenticando...' : 'ENTRAR NO SISTEMA'}
-          </button>
-
-          {/* Divider */}
-          <div className="flex items-center gap-4 py-1">
-            <div className="h-[1px] bg-white/20 flex-1" />
-            <span className="text-[10px] font-bold text-white uppercase tracking-widest">OU</span>
-            <div className="h-[1px] bg-white/20 flex-1" />
-          </div>
-
-          {/* Quick Admin Helper Button */}
-          <div className="text-center pt-0.5">
-            <button
-              type="button"
-              onClick={() => {
-                setLoginEmail('rafaelrtmatos@gmail.com');
-                setLoginPassword('Geper3tp@');
-                setAuthError(null);
-              }}
-              className="text-xs font-medium text-white hover:text-red-400 transition-all cursor-pointer bg-transparent border-0 inline-flex items-center justify-center gap-1.5"
-            >
-              <Key size={14} className="text-red-500 shrink-0" />
-              <span>Preencher credenciais Admin <span className="text-red-500 font-bold">(seuemail@gmail.com)</span></span>
-            </button>
-          </div>
-        </form>
+        </div>
 
         {/* Footer */}
         <div className="text-center space-y-1 pt-2">

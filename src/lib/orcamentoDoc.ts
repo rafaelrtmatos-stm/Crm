@@ -1,4 +1,5 @@
 import type { Orcamento } from '../types';
+import { drawBadgeIcon, COMPANY_CONTACT } from './receipt';
 
 export interface OrcamentoRenderInput {
   orcamento: Orcamento;
@@ -84,6 +85,13 @@ export async function renderOrcamentoCanvas({ orcamento: o, companyName, logoDar
     try { logoImg = await loadImage(logoDarkUrl); } catch { logoImg = null; }
   }
 
+  let qrImg: HTMLImageElement | null = null;
+  try {
+    const QRCode = (await import('qrcode')).default;
+    const qrDataUrl = await QRCode.toDataURL(COMPANY_CONTACT.siteUrl, { margin: 1, width: 200, color: { dark: TEXT, light: '#FFFFFF00' } });
+    qrImg = await loadImage(qrDataUrl);
+  } catch { qrImg = null; }
+
   // Primeiro passamos com um canvas de medição para calcular a altura total
   const measureCanvas = document.createElement('canvas');
   const mctx = measureCanvas.getContext('2d')!;
@@ -128,7 +136,7 @@ export async function renderOrcamentoCanvas({ orcamento: o, companyName, logoDar
   const totalCardH = 96;
   const paymentCardH = 78;
   const acceptH = o.status === 'aprovado' || o.status === 'em_producao' || o.status === 'concluido' ? 46 : 0;
-  const footerH = 60;
+  const footerH = 220;
   const height = headerH + infoCardsH + 20 + tableH + 20 + totalCardH + 16 + paymentCardH + 20 + clausesH + acceptH + footerH + 60;
 
   const canvas = document.createElement('canvas');
@@ -176,16 +184,17 @@ export async function renderOrcamentoCanvas({ orcamento: o, companyName, logoDar
   y += headerH;
 
   const halfW = (width - marginX * 2 - 14) / 2;
-  const infoCard = (x: number, w: number, title: string, rows: string[]) => {
+  const infoCard = (x: number, w: number, title: string, rows: string[], iconKind: string) => {
     drawCard(ctx, x, y, w, infoCardsH);
+    drawBadgeIcon(ctx, iconKind, x + 20, y + 17, '#DBEAFE', ACCENT);
     ctx.textAlign = 'left';
     ctx.fillStyle = TEXT_FAINT;
     ctx.font = `800 8px ${FONT}`;
-    ctx.fillText(title.toUpperCase(), x + 16, y + 20);
+    ctx.fillText(title.toUpperCase(), x + 36, y + 20);
     rows.forEach((line, i) => {
       ctx.font = i === 0 ? `800 12px ${FONT}` : `600 9.5px ${FONT}`;
       ctx.fillStyle = i === 0 ? TEXT : TEXT_DIM;
-      ctx.fillText(line, x + 16, y + 40 + i * 16);
+      ctx.fillText(line, x + 16, y + 44 + i * 16);
     });
   };
   const clienteRows = [o.customerName || '-'];
@@ -196,8 +205,8 @@ export async function renderOrcamentoCanvas({ orcamento: o, companyName, logoDar
     `Responsável: ${o.responsavel || '-'}`,
     o.validade ? `Válido até: ${new Date(o.validade + 'T00:00:00').toLocaleDateString('pt-BR')}` : 'Sem validade definida',
   ];
-  infoCard(marginX, halfW, 'Cliente', clienteRows);
-  infoCard(marginX + halfW + 14, halfW, 'Dados do Orçamento', orcamentoRows);
+  infoCard(marginX, halfW, 'Cliente', clienteRows, 'user');
+  infoCard(marginX + halfW + 14, halfW, 'Dados do Orçamento', orcamentoRows, 'doc');
   y += infoCardsH + 20;
 
   drawCard(ctx, marginX, y, width - marginX * 2, tableH);
@@ -322,14 +331,82 @@ export async function renderOrcamentoCanvas({ orcamento: o, companyName, logoDar
     y += acceptH;
   }
 
+  const footerTop = y;
+  ctx.strokeStyle = BORDER;
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(marginX, y + 8); ctx.lineTo(marginX + 130, y + 8); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(width - marginX - 130, y + 8); ctx.lineTo(width - marginX, y + 8); ctx.stroke();
   ctx.textAlign = 'center';
-  ctx.fillStyle = TEXT;
-  ctx.font = 'italic 800 13px Georgia';
-  ctx.fillText('Obrigado pela preferência!', width / 2, y + 10);
-  y += 18;
+  ctx.fillStyle = ACCENT;
+  ctx.font = 'italic 800 14px Georgia';
+  ctx.fillText('Obrigado pela preferência!', width / 2, y + 13);
   ctx.font = `600 8px ${FONT}`;
   ctx.fillStyle = TEXT_FAINT;
-  ctx.fillText('Este orçamento não constitui pedido em produção até a aprovação formal do cliente.', width / 2, y + 8);
+  ctx.fillText('Este orçamento não constitui pedido em produção até a aprovação formal do cliente.', width / 2, y + 30);
+
+  y += 38;
+  ctx.textAlign = 'left';
+  ctx.font = `800 8px ${FONT}`;
+  ctx.fillStyle = TEXT_FAINT;
+  ctx.fillText('FALE CONOSCO', marginX, y + 4);
+
+  const colGap = 130;
+  const contactItem = (icon: string, bg: string, fg: string, label: string, value: string, col: number, row: number) => {
+    const ix = marginX + col * colGap;
+    const iy = y + 24 + row * 32;
+    drawBadgeIcon(ctx, icon, ix + 8, iy, bg, fg);
+    ctx.textAlign = 'left';
+    ctx.font = `700 7.5px ${FONT}`;
+    ctx.fillStyle = TEXT_FAINT;
+    ctx.fillText(label, ix + 20, iy - 4);
+    ctx.font = `800 8.5px ${FONT}`;
+    ctx.fillStyle = TEXT;
+    ctx.fillText(value, ix + 20, iy + 8);
+  };
+  contactItem('whatsapp', '#DCFCE7', GREEN, 'WhatsApp', COMPANY_CONTACT.whatsapp, 0, 0);
+  contactItem('insta', '#FCE7F3', '#DB2777', 'Instagram', COMPANY_CONTACT.instagram, 1, 0);
+  contactItem('face', '#DBEAFE', ACCENT, 'Facebook', COMPANY_CONTACT.facebook, 0, 1);
+  contactItem('mail', '#FEF3C7', AMBER, 'E-mail', COMPANY_CONTACT.email, 1, 1);
+  drawBadgeIcon(ctx, 'globe', marginX + 8, y + 24 + 64, '#E0E7FF', '#4F46E5');
+  ctx.textAlign = 'left';
+  ctx.font = `700 7.5px ${FONT}`;
+  ctx.fillStyle = TEXT_FAINT;
+  ctx.fillText('Site', marginX + 20, y + 24 + 60);
+  ctx.font = `800 8.5px ${FONT}`;
+  ctx.fillStyle = TEXT;
+  ctx.fillText(COMPANY_CONTACT.site, marginX + 20, y + 24 + 72);
+
+  drawBadgeIcon(ctx, 'pin', marginX + 8, y + 24 + 96, '#FEE2E2', '#DC2626');
+  ctx.font = `600 8px ${FONT}`;
+  ctx.fillStyle = TEXT;
+  ctx.fillText(COMPANY_CONTACT.endereco, marginX + 20, y + 24 + 99, width - 260);
+
+  if (qrImg) {
+    const qrSize = 78;
+    const qrX = width - marginX - qrSize;
+    const qrY = footerTop + 58;
+    ctx.textAlign = 'center';
+    ctx.font = `800 7.5px ${FONT}`;
+    ctx.fillStyle = TEXT_FAINT;
+    ctx.fillText('ACESSE NOSSO SITE', qrX + qrSize / 2, qrY);
+    ctx.drawImage(qrImg, qrX, qrY + 6, qrSize, qrSize);
+    ctx.font = `600 7px ${FONT}`;
+    ctx.fillStyle = TEXT_DIM;
+    ctx.fillText('Escaneie o QR Code', qrX + qrSize / 2, qrY + qrSize + 18);
+    ctx.fillText('e acesse nosso site', qrX + qrSize / 2, qrY + qrSize + 29);
+    ctx.fillStyle = ACCENT;
+    ctx.font = `700 7.5px ${FONT}`;
+    ctx.fillText(COMPANY_CONTACT.site, qrX + qrSize / 2, qrY + qrSize + 43);
+  }
+
+  const barY = footerTop + 185;
+  roundRect(ctx, marginX, barY, width - marginX * 2, 24, 8);
+  ctx.fillStyle = ACCENT;
+  ctx.fill();
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = `700 8px ${FONT}`;
+  ctx.textAlign = 'center';
+  ctx.fillText('Este documento é um orçamento e não substitui a Ordem de Serviço após aprovação.', width / 2, barY + 16);
 
   return canvas;
 }

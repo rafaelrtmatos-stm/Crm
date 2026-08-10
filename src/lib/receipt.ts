@@ -10,7 +10,7 @@ export interface ReceiptRenderInput {
   logoDarkUrl?: string | null;
 }
 
-function loadImage(src: string): Promise<HTMLImageElement> {
+export function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);
@@ -125,7 +125,7 @@ function drawStageIcon(ctx: CanvasRenderingContext2D, stageIndex: number, cx: nu
 }
 
 // Dados fixos de contato da empresa (usados no rodape do documento)
-const COMPANY_CONTACT = {
+export const COMPANY_CONTACT = {
   whatsapp: '(93) 99211-2108',
   instagram: 'Rafa Artes Gráficos',
   facebook: 'Rafa Artes Gráficos',
@@ -136,7 +136,7 @@ const COMPANY_CONTACT = {
 };
 
 // Desenha um pequeno icone com fundo circular colorido, usado ao lado dos titulos das secoes
-function drawBadgeIcon(ctx: CanvasRenderingContext2D, kind: string, cx: number, cy: number, bg: string, fg: string) {
+export function drawBadgeIcon(ctx: CanvasRenderingContext2D, kind: string, cx: number, cy: number, bg: string, fg: string) {
   ctx.save();
   ctx.beginPath();
   ctx.arc(cx, cy, 9, 0, Math.PI * 2);
@@ -206,7 +206,7 @@ function drawBadgeIcon(ctx: CanvasRenderingContext2D, kind: string, cx: number, 
   ctx.restore();
 }
 
-function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+export function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
   ctx.arcTo(x + w, y, x + w, y + h, r);
@@ -216,7 +216,7 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.closePath();
 }
 
-function drawCard(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
+export function drawCard(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
   ctx.save();
   ctx.shadowColor = 'rgba(17,24,39,0.06)';
   ctx.shadowBlur = 12;
