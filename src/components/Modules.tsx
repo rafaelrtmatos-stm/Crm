@@ -5002,16 +5002,33 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const clearCart = () => {
     setCart([]);
     setSelectedCustomer(null);
-    setSaleDiscountValue(0);
+    setSaleDiscountValue(0); setSaleDiscountInput('');
   };
 
   const [saleDiscountValue, setSaleDiscountValue] = useState<number>(0);
+  const [saleDiscountMode, setSaleDiscountMode] = useState<'percentual' | 'valor' | 'final'>('valor');
+  const [saleDiscountInput, setSaleDiscountInput] = useState<number | ''>('');
   const cartRawTotal = cart.reduce((acc, item) => {
     const itemTotal = item.area ? item.price * item.area * item.quantity : item.price * item.quantity;
     return acc + itemTotal;
   }, 0);
   const total = Math.max(0, cartRawTotal - saleDiscountValue);
   const remainingValue = Math.max(0, total - (downPayment === '' || typeof downPayment === 'string' ? 0 : Number(downPayment)));
+
+  // Aplica o desconto da venda a partir do modo escolhido (%, R$ de desconto, ou valor final desejado)
+  const applySaleDiscountInput = () => {
+    const val = saleDiscountInput === '' ? 0 : Number(saleDiscountInput);
+    let novoDesconto = 0;
+    if (saleDiscountMode === 'percentual') {
+      novoDesconto = cartRawTotal * (val / 100);
+    } else if (saleDiscountMode === 'valor') {
+      novoDesconto = val;
+    } else {
+      // valor final desejado: desconto = total original - valor final que o cliente quer pagar
+      novoDesconto = Math.max(0, cartRawTotal - val);
+    }
+    setSaleDiscountValue(Math.max(0, Math.min(cartRawTotal, novoDesconto)));
+  };
 
   // Quitar Debito: abre a mesma tela de pagamento do Terminal, mas pra uma venda ja existente com saldo pendente
   const paymentModalTotal = settlingOrder ? settlingOrder.total : total;
@@ -5273,7 +5290,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setDownPayment(0);
     setOrderObservacoes('');
     setScheduledFor('');
-    setSaleDiscountValue(0);
+    setSaleDiscountValue(0); setSaleDiscountInput('');
     resetPaymentEntries();
   };
 
@@ -6864,17 +6881,27 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               </div>
 
               {!settlingOrder && (
-                <div className="flex items-center gap-2 px-1">
-                   <label className="text-[7px] sm:text-[8px] font-black text-white/40 uppercase tracking-widest shrink-0">Desconto na Venda (R$)</label>
-                   <input
-                     type="number"
-                     step="any"
-                     min={0}
-                     value={saleDiscountValue || ''}
-                     onChange={(e) => setSaleDiscountValue(Math.max(0, Number(e.target.value) || 0))}
-                     placeholder="0,00"
-                     className="flex-1 h-7 bg-white/5 border border-white/10 rounded-lg px-2 text-[10px] text-white focus:outline-none focus:border-primary-500"
-                   />
+                <div className="space-y-1.5 px-1">
+                   <div className="flex bg-white/5 p-0.5 rounded-lg border border-white/10 gap-0.5">
+                      <button onClick={() => { setSaleDiscountMode('percentual'); setSaleDiscountInput(''); }} className={cn("flex-1 py-1 rounded text-[8px] font-black uppercase transition-all", saleDiscountMode === 'percentual' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Desc. %</button>
+                      <button onClick={() => { setSaleDiscountMode('valor'); setSaleDiscountInput(''); }} className={cn("flex-1 py-1 rounded text-[8px] font-black uppercase transition-all", saleDiscountMode === 'valor' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Desc. R$</button>
+                      <button onClick={() => { setSaleDiscountMode('final'); setSaleDiscountInput(''); }} className={cn("flex-1 py-1 rounded text-[8px] font-black uppercase transition-all", saleDiscountMode === 'final' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Valor Final</button>
+                   </div>
+                   <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        step="any"
+                        min={0}
+                        value={saleDiscountInput}
+                        onChange={(e) => setSaleDiscountInput(e.target.value === '' ? '' : Number(e.target.value))}
+                        placeholder={saleDiscountMode === 'percentual' ? '% de desconto' : saleDiscountMode === 'valor' ? 'R$ de desconto' : 'R$ valor final da venda'}
+                        className="flex-1 h-7 bg-white/5 border border-white/10 rounded-lg px-2 text-[10px] text-white focus:outline-none focus:border-primary-500"
+                      />
+                      <button onClick={applySaleDiscountInput} className="h-7 px-3 rounded-lg bg-primary-500/10 border border-primary-500/20 text-primary-300 text-[9px] font-black uppercase hover:bg-primary-500/20 shrink-0">Aplicar</button>
+                      {saleDiscountValue > 0 && (
+                        <button onClick={() => { setSaleDiscountValue(0); setSaleDiscountInput(''); }} className="h-7 px-2 rounded-lg bg-rose-500/10 text-rose-400 text-[9px] font-black uppercase hover:bg-rose-500/20 shrink-0">Limpar</button>
+                      )}
+                   </div>
                 </div>
               )}
 
@@ -7825,88 +7852,21 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
        </Modal>
      )}
 
-     {isQuickProductOpen && (
-       <Modal
-         isOpen={isQuickProductOpen}
-         onClose={() => setIsQuickProductOpen(false)}
-         title="Cadastrar Produto"
-         size="md"
-       >
-         <div className="space-y-4 p-2 max-h-[70vh] overflow-y-auto custom-scrollbar">
-            <Input label="Nome do Produto *" autoFocus value={quickProductForm.name} onChange={(e: any) => setQuickProductForm({ ...quickProductForm, name: e.target.value })} />
-            <div className="grid grid-cols-2 gap-3">
-               <Input label="Código" value={quickProductForm.code} onChange={(e: any) => setQuickProductForm({ ...quickProductForm, code: e.target.value })} />
-               <Input label="Categoria" value={quickProductForm.category} onChange={(e: any) => setQuickProductForm({ ...quickProductForm, category: e.target.value })} />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-               <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Medida</label>
-                  <select
-                    value={quickProductForm.unit}
-                    onChange={(e) => setQuickProductForm({ ...quickProductForm, unit: e.target.value as any })}
-                    className="w-full h-11 bg-white/5 border border-white/10 rounded-xl px-3 text-sm text-white focus:outline-none focus:border-primary-500 cursor-pointer"
-                  >
-                    <option value="un" className="bg-slate-900">Unidade</option>
-                    <option value="m2" className="bg-slate-900">Metro Quadrado (m²)</option>
-                    <option value="etiqueta" className="bg-slate-900">Etiqueta Adesiva (cálculo especial)</option>
-                  </select>
-               </div>
-               <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Tipo de Item</label>
-                  <select
-                    value={quickProductForm.tipoItem}
-                    onChange={(e) => setQuickProductForm({ ...quickProductForm, tipoItem: e.target.value as any })}
-                    className="w-full h-11 bg-white/5 border border-white/10 rounded-xl px-3 text-sm text-white focus:outline-none focus:border-primary-500 cursor-pointer"
-                  >
-                    <option value="produto" className="bg-slate-900">Produto</option>
-                    <option value="material" className="bg-slate-900">Material</option>
-                    <option value="servico" className="bg-slate-900">Serviço</option>
-                    <option value="acabamento" className="bg-slate-900">Acabamento</option>
-                    <option value="composto" className="bg-slate-900">Produto Composto</option>
-                  </select>
-               </div>
-            </div>
-            {(quickProductForm.unit === 'm2' || quickProductForm.unit === 'etiqueta') && (
-              <Input label="Largura do Rolo (m)" type="number" step="any" placeholder="Ex: 1.02" value={quickProductForm.larguraRolo} onChange={(e: any) => setQuickProductForm({ ...quickProductForm, larguraRolo: Number(e.target.value) || 0 })} />
-            )}
-            <div className="grid grid-cols-2 gap-3">
-               <Input label="Custo (R$)" type="number" step="any" value={quickProductForm.costPrice} onChange={(e: any) => setQuickProductForm({ ...quickProductForm, costPrice: Number(e.target.value) || 0 })} />
-               <Input label="Venda (R$)" type="number" step="any" value={quickProductForm.salePrice} onChange={(e: any) => setQuickProductForm({ ...quickProductForm, salePrice: Number(e.target.value) || 0 })} />
-            </div>
-
-            <div className="space-y-1">
-               <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Controlar Estoque?</label>
-               <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 h-11">
-                  <button type="button" onClick={() => setQuickProductForm({ ...quickProductForm, controlaEstoque: true })} className={cn("flex-1 rounded-lg text-xs font-black uppercase transition-all", quickProductForm.controlaEstoque ? "bg-primary-500 text-slate-900" : "text-white/40")}>Sim</button>
-                  <button type="button" onClick={() => setQuickProductForm({ ...quickProductForm, controlaEstoque: false })} className={cn("flex-1 rounded-lg text-xs font-black uppercase transition-all", !quickProductForm.controlaEstoque ? "bg-primary-500 text-slate-900" : "text-white/40")}>Não</button>
-               </div>
-            </div>
-
-            {quickProductForm.controlaEstoque && (
-              <>
-                <div className="grid grid-cols-3 gap-3">
-                   <Input label="Estoque Inicial" type="number" value={quickProductForm.currentStock} onChange={(e: any) => setQuickProductForm({ ...quickProductForm, currentStock: Number(e.target.value) || 0 })} />
-                   <Input label="Estoque Mínimo" type="number" value={quickProductForm.minStock} onChange={(e: any) => setQuickProductForm({ ...quickProductForm, minStock: Number(e.target.value) || 0 })} />
-                   <Input label="Estoque Máximo" type="number" value={quickProductForm.estoqueMaximo} onChange={(e: any) => setQuickProductForm({ ...quickProductForm, estoqueMaximo: Number(e.target.value) || 0 })} />
-                </div>
-                <Input label="Localização" placeholder="Ex: Prateleira A2" value={quickProductForm.localizacao} onChange={(e: any) => setQuickProductForm({ ...quickProductForm, localizacao: e.target.value })} />
-              </>
-            )}
-
-            <div>
-               <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block mb-1">Descrição</label>
-               <textarea rows={2} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-primary-500" value={quickProductForm.descricao} onChange={(e) => setQuickProductForm({ ...quickProductForm, descricao: e.target.value })} />
-            </div>
-
-            <div className="flex justify-end gap-3 pt-1">
-               <Button variant="ghost" onClick={() => setIsQuickProductOpen(false)}>Cancelar</Button>
-               <Button disabled={isSavingQuickProduct} onClick={handleSaveQuickProduct} className="bg-primary-500 text-slate-900 border-none">
-                 {isSavingQuickProduct ? 'Salvando...' : 'Cadastrar Produto'}
-               </Button>
-            </div>
-         </div>
-       </Modal>
-     )}
+     <ProdutoFormModal
+       isOpen={isQuickProductOpen}
+       onClose={() => setIsQuickProductOpen(false)}
+       editingItem={null}
+       onSaved={(saved) => {
+         loadProducts();
+         if (quickProductAddToOrcamento && saved) {
+           setOrcamentoForm(prev => ({
+             ...prev,
+             items: [...prev.items, { productId: saved.id, name: saved.name, price: Number(saved.sale_price) || 0, quantity: 1 }],
+           }));
+           setQuickProductAddToOrcamento(false);
+         }
+       }}
+     />
 
      {orcamentoModalOpen && (
        <Modal
@@ -9237,6 +9197,149 @@ export const ServicesModule = ({ currentCompany }: { currentCompany: Company | n
 };
 
 // --- INVENTORY ---
+// Modal de cadastro/edicao de produto — COMPONENTE UNICO usado tanto no Estoque quanto no Terminal de Venda,
+// pra garantir que "Adicionar Produto" no PDV seja literalmente o mesmo formulario/logica do Estoque.
+export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved }: {
+  isOpen: boolean;
+  onClose: () => void;
+  editingItem: InventoryItem | null;
+  onSaved: (savedRow: any) => void;
+}) => {
+  const emptyForm: Partial<InventoryItem> = {
+    name: '', code: '', category: 'substrato', unit: 'un', currentStock: 0, minStock: 0,
+    salePrice: 0, costPrice: 0, isActive: true, isService: false,
+    tipoItem: 'produto', controlaEstoque: true, estoqueMaximo: 0, localizacao: '', descricao: '', larguraRolo: 0,
+  };
+  const [formData, setFormData] = useState<Partial<InventoryItem>>(emptyForm);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setFormData(editingItem ? { ...editingItem } : { ...emptyForm });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, editingItem]);
+
+  const handleSave = async () => {
+    if (!formData.name?.trim()) { alert('Digite o nome do item.'); return; }
+    setSaving(true);
+    try {
+      const payload = {
+        name: formData.name,
+        code: formData.code || null,
+        category: formData.category || null,
+        unit: formData.unit,
+        sale_price: formData.salePrice || 0,
+        cost_price: formData.costPrice || 0,
+        current_stock: formData.currentStock || 0,
+        min_stock: formData.minStock || 0,
+        is_service: formData.isService || false,
+        is_active: formData.isActive !== false,
+        tipo_item: formData.tipoItem || 'produto',
+        controla_estoque: formData.controlaEstoque !== false,
+        estoque_maximo: formData.estoqueMaximo || null,
+        localizacao: formData.localizacao || null,
+        descricao: formData.descricao || null,
+        largura_rolo: formData.larguraRolo || null,
+      };
+      let saved: any;
+      if (editingItem) {
+        const { data, error } = await supabase.from('produtos').update(payload).eq('id', editingItem.id).select().single();
+        if (error) throw error;
+        saved = data;
+      } else {
+        const { data, error } = await supabase.from('produtos').insert(payload).select().single();
+        if (error) throw error;
+        saved = data;
+      }
+      onSaved(saved);
+      onClose();
+    } catch (err: any) {
+      console.error('Erro ao salvar produto:', err);
+      alert(`Não foi possível salvar o item: ${err?.message || 'erro desconhecido'}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title={editingItem ? 'EDITAR ITEM' : 'CADASTRO DE INSUMO / PRODUTO'}>
+      <div className="p-6 space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="md:col-span-2">
+            <Input label="NOME DO ITEM" value={formData.name} onChange={(e: any) => setFormData({ ...formData, name: e.target.value })} />
+          </div>
+          <Input label="CÓDIGO INTERNO (SKU)" value={formData.code} onChange={(e: any) => setFormData({ ...formData, code: e.target.value })} />
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">CATEGORIA</p>
+            <select className="w-full h-12 bg-[#1a2333] border border-white/10 rounded-xl px-4 text-xs text-white outline-none" value={formData.category} onChange={(e) => setFormData({ ...formData, category: e.target.value as any })}>
+              <option value="substrato">Substrato (Lona/Vinil/Papel)</option>
+              <option value="tinta">Tintas / Toners</option>
+              <option value="acabamento">Acabamento (Ilhós/Verniz)</option>
+              <option value="diversos">Diversos</option>
+            </select>
+          </div>
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">UNIDADE</p>
+            <select className="w-full h-12 bg-[#1a2333] border border-white/10 rounded-xl px-4 text-xs text-white outline-none" value={formData.unit} onChange={(e) => setFormData({ ...formData, unit: e.target.value as any })}>
+              <option value="un">Unidade (un)</option>
+              <option value="kg">Quilograma (kg)</option>
+              <option value="m">Metro Linear (m)</option>
+              <option value="m2">Metro Quadrado (m2)</option>
+              <option value="rolo">Rolo</option>
+              <option value="litro">Litro (l)</option>
+              <option value="etiqueta">Etiqueta Adesiva (cálculo especial)</option>
+            </select>
+          </div>
+          <Input label="PREÇO DE COMPRA (CUSTO)" type="number" prefix="R$" value={formData.costPrice} onChange={(e: any) => setFormData({ ...formData, costPrice: Number(e.target.value) })} />
+          <Input label="PREÇO DE VENDA" type="number" prefix="R$" value={formData.salePrice} onChange={(e: any) => setFormData({ ...formData, salePrice: Number(e.target.value) })} />
+
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">TIPO DE ITEM</p>
+            <select className="w-full h-12 bg-[#1a2333] border border-white/10 rounded-xl px-4 text-xs text-white outline-none" value={formData.tipoItem} onChange={(e) => setFormData({ ...formData, tipoItem: e.target.value as any })}>
+              <option value="produto">Produto</option>
+              <option value="material">Material</option>
+              <option value="servico">Serviço</option>
+              <option value="acabamento">Acabamento</option>
+              <option value="composto">Produto Composto</option>
+            </select>
+          </div>
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">CONTROLAR ESTOQUE?</p>
+            <div className="flex bg-[#1a2333] p-1 rounded-xl border border-white/10 h-12">
+               <button type="button" onClick={() => setFormData({ ...formData, controlaEstoque: true })} className={cn("flex-1 rounded-lg text-xs font-black uppercase transition-all", formData.controlaEstoque !== false ? "bg-primary-500 text-slate-900" : "text-white/40")}>Sim</button>
+               <button type="button" onClick={() => setFormData({ ...formData, controlaEstoque: false })} className={cn("flex-1 rounded-lg text-xs font-black uppercase transition-all", formData.controlaEstoque === false ? "bg-primary-500 text-slate-900" : "text-white/40")}>Não</button>
+            </div>
+          </div>
+
+          {formData.controlaEstoque !== false && (
+            <>
+              <Input label="ESTOQUE ATUAL" type="number" value={formData.currentStock} onChange={(e: any) => setFormData({ ...formData, currentStock: Number(e.target.value) })} />
+              <Input label="ESTOQUE MÍNIMO (ALERTA)" type="number" value={formData.minStock} onChange={(e: any) => setFormData({ ...formData, minStock: Number(e.target.value) })} />
+              <Input label="ESTOQUE MÁXIMO" type="number" value={formData.estoqueMaximo} onChange={(e: any) => setFormData({ ...formData, estoqueMaximo: Number(e.target.value) })} />
+              <Input label="LOCALIZAÇÃO" placeholder="Ex: Prateleira A2" value={formData.localizacao} onChange={(e: any) => setFormData({ ...formData, localizacao: e.target.value })} />
+            </>
+          )}
+
+          {(formData.unit === 'm2' || formData.unit === 'etiqueta') && (
+            <div className="md:col-span-2">
+              <Input label="LARGURA DO ROLO (m) — usado no cálculo de m²/etiquetas e no PDV" type="number" step="any" placeholder="Ex: 1.02" value={formData.larguraRolo} onChange={(e: any) => setFormData({ ...formData, larguraRolo: Number(e.target.value) })} />
+            </div>
+          )}
+
+          <div className="md:col-span-2">
+             <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2">DESCRIÇÃO</p>
+             <textarea rows={2} className="w-full bg-[#1a2333] border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none resize-none" value={formData.descricao || ''} onChange={(e) => setFormData({ ...formData, descricao: e.target.value })} />
+          </div>
+        </div>
+        <div className="flex gap-4 pt-4">
+           <Button variant="secondary" className="flex-1 h-14" onClick={onClose}>Cancelar</Button>
+           <Button disabled={saving} className="flex-[2] h-14 bg-primary-500 text-slate-900 border-none shadow-xl shadow-primary-500/20" onClick={handleSave}>{saving ? 'Salvando...' : (editingItem ? 'Salvar Alterações' : 'Salvar Item')}</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+};
+
 export const InventoryModule = ({ currentCompany }: { currentCompany: Company | null }) => {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -9635,81 +9738,12 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
         );
       })()}
 
-      <Modal isOpen={isModalOpen} onClose={() => { setIsModalOpen(false); setEditingItemId(null); }} title={editingItemId ? 'EDITAR ITEM' : 'CADASTRO DE INSUMO / PRODUTO'}>
-        <div className="p-6 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="md:col-span-2">
-              <Input label="NOME DO ITEM" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
-            </div>
-            <Input label="CÓDIGO INTERNO (SKU)" value={formData.code} onChange={e => setFormData({...formData, code: e.target.value})} />
-            <div className="space-y-2">
-              <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">CATEGORIA</p>
-              <select className="w-full h-12 bg-[#1a2333] border border-white/10 rounded-xl px-4 text-xs text-white outline-none" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value as any})}>
-                <option value="substrato">Substrato (Lona/Vinil/Papel)</option>
-                <option value="tinta">Tintas / Toners</option>
-                <option value="acabamento">Acabamento (Ilhós/Verniz)</option>
-                <option value="diversos">Diversos</option>
-              </select>
-            </div>
-            <div className="space-y-2">
-              <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">UNIDADE</p>
-              <select className="w-full h-12 bg-[#1a2333] border border-white/10 rounded-xl px-4 text-xs text-white outline-none" value={formData.unit} onChange={e => setFormData({...formData, unit: e.target.value as any})}>
-                <option value="un">Unidade (un)</option>
-                <option value="kg">Quilograma (kg)</option>
-                <option value="m">Metro Linear (m)</option>
-                <option value="m2">Metro Quadrado (m2)</option>
-                <option value="rolo">Rolo</option>
-                <option value="litro">Litro (l)</option>
-                <option value="etiqueta">Etiqueta Adesiva (cálculo especial)</option>
-              </select>
-            </div>
-            <Input label="PREÇO DE COMPRA (CUSTO)" type="number" prefix="R$" value={formData.costPrice} onChange={e => setFormData({...formData, costPrice: Number(e.target.value)})} />
-            <Input label="PREÇO DE VENDA" type="number" prefix="R$" value={formData.salePrice} onChange={e => setFormData({...formData, salePrice: Number(e.target.value)})} />
-
-            <div className="space-y-2">
-              <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">TIPO DE ITEM</p>
-              <select className="w-full h-12 bg-[#1a2333] border border-white/10 rounded-xl px-4 text-xs text-white outline-none" value={formData.tipoItem} onChange={e => setFormData({...formData, tipoItem: e.target.value as any})}>
-                <option value="produto">Produto</option>
-                <option value="material">Material</option>
-                <option value="servico">Serviço</option>
-                <option value="acabamento">Acabamento</option>
-                <option value="composto">Produto Composto</option>
-              </select>
-            </div>
-            <div className="space-y-2">
-              <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">CONTROLAR ESTOQUE?</p>
-              <div className="flex bg-[#1a2333] p-1 rounded-xl border border-white/10 h-12">
-                 <button type="button" onClick={() => setFormData({...formData, controlaEstoque: true})} className={cn("flex-1 rounded-lg text-xs font-black uppercase transition-all", formData.controlaEstoque !== false ? "bg-primary-500 text-slate-900" : "text-white/40")}>Sim</button>
-                 <button type="button" onClick={() => setFormData({...formData, controlaEstoque: false})} className={cn("flex-1 rounded-lg text-xs font-black uppercase transition-all", formData.controlaEstoque === false ? "bg-primary-500 text-slate-900" : "text-white/40")}>Não</button>
-              </div>
-            </div>
-
-            {formData.controlaEstoque !== false && (
-              <>
-                <Input label="ESTOQUE ATUAL" type="number" value={formData.currentStock} onChange={e => setFormData({...formData, currentStock: Number(e.target.value)})} />
-                <Input label="ESTOQUE MÍNIMO (ALERTA)" type="number" value={formData.minStock} onChange={e => setFormData({...formData, minStock: Number(e.target.value)})} />
-                <Input label="ESTOQUE MÁXIMO" type="number" value={formData.estoqueMaximo} onChange={e => setFormData({...formData, estoqueMaximo: Number(e.target.value)})} />
-                <Input label="LOCALIZAÇÃO" placeholder="Ex: Prateleira A2" value={formData.localizacao} onChange={e => setFormData({...formData, localizacao: e.target.value})} />
-              </>
-            )}
-
-            {(formData.unit === 'm2' || formData.unit === 'etiqueta') && (
-              <div className="md:col-span-2">
-                <Input label="LARGURA DO ROLO (m) — usado no cálculo de m²/etiquetas e no PDV" type="number" step="any" placeholder="Ex: 1.02" value={formData.larguraRolo} onChange={e => setFormData({...formData, larguraRolo: Number(e.target.value)})} />
-              </div>
-            )}
-
-            <div className="md:col-span-2">
-               <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2">DESCRIÇÃO</p>
-               <textarea rows={2} className="w-full bg-[#1a2333] border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none resize-none" value={formData.descricao || ''} onChange={e => setFormData({...formData, descricao: e.target.value})} />
-            </div>
-          </div>
-          <div className="flex gap-4 pt-4">
-             <Button variant="secondary" className="flex-1 h-14" onClick={() => { setIsModalOpen(false); setEditingItemId(null); }}>Cancelar</Button>
-             <Button className="flex-[2] h-14 bg-primary-500 text-slate-900 border-none shadow-xl shadow-primary-500/20" onClick={handleSave}>{editingItemId ? 'Salvar Alterações' : 'Salvar Item'}</Button>
-          </div>
-        </div>
-      </Modal>
+      <ProdutoFormModal
+        isOpen={isModalOpen}
+        onClose={() => { setIsModalOpen(false); setEditingItemId(null); }}
+        editingItem={editingItemId ? items.find(i => i.id === editingItemId) || null : null}
+        onSaved={() => { loadInventoryItems(); setEditingItemId(null); }}
+      />
     </div>
   );
 };
