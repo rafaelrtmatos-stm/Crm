@@ -196,6 +196,24 @@ function safeFormat(value: any, fmt: string, fallback: string = '—'): string {
   return isNaN(d.getTime()) ? fallback : format(d, fmt);
 }
 
+// Mapeia uma linha da tabela 'usuarios' (Supabase) pro formato AppUser.
+// Usuarios comuns vivem no Supabase; so o admin master continua no Firebase.
+function mapUsuarioRow(row: any): AppUser {
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    password: row.password || undefined,
+    role: row.role || 'atendente',
+    isAdmin: !!row.is_admin,
+    isActive: row.is_active !== false,
+    allowedTabs: Array.isArray(row.allowed_tabs) ? row.allowed_tabs : undefined,
+    allowedActions: Array.isArray(row.allowed_actions) ? row.allowed_actions : undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  } as AppUser;
+}
+
 // Nome de arquivo padronizado pra recibos/orcamentos baixados: NomeDoCliente_dd-MM-yyyy
 function buildFileName(prefix: string, customerName: string | undefined, dateValue: any, ext: string): string {
   const safeName = (customerName || 'Cliente')
@@ -10387,12 +10405,29 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
   }, [currentCompany]);
 
   useEffect(() => {
-    // Realtime users list
+    // Lista combinada: admin master fica no Firebase, usuarios comuns vivem no Supabase
+    let firebaseUsers: AppUser[] = [];
+    let supabaseUsers: AppUser[] = [];
+    const merge = () => setUsersList([...firebaseUsers, ...supabaseUsers]);
+
     const q = query(collection(db, 'users'));
-    const unsub = onSnapshot(q, (snap) => {
-      setUsersList(snap.docs.map(d => ({ id: d.id, ...d.data() } as AppUser)));
+    const unsubFirebase = onSnapshot(q, (snap) => {
+      firebaseUsers = snap.docs.map(d => ({ id: d.id, ...d.data() } as AppUser));
+      merge();
     });
-    return () => unsub();
+
+    const loadSupabaseUsers = async () => {
+      const { data } = await supabase.from('usuarios').select('*').order('name', { ascending: true });
+      supabaseUsers = (data || []).map(mapUsuarioRow);
+      merge();
+    };
+    loadSupabaseUsers();
+    const channel = supabase
+      .channel('usuarios-list')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'usuarios' }, loadSupabaseUsers)
+      .subscribe();
+
+    return () => { unsubFirebase(); supabase.removeChannel(channel); };
   }, []);
 
   const handleSave = async () => {
@@ -10425,16 +10460,31 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
   const handleSaveUserPermissions = async () => {
     if (!editingUser) return;
     try {
-      await updateDoc(doc(db, 'users', editingUser.id), {
-        name: editedName,
-        email: editedEmail,
-        ...(editedPassword ? { password: editedPassword } : {}),
-        role: editedRole,
-        allowedTabs: editedTabs,
-        allowedActions: editedActions,
-        updatedAt: Timestamp.now()
-      });
-      alert('Dados e senha do usuário atualizados no repositório!');
+      if (editingUser.id === 'admin-rafael') {
+        // Admin master continua no Firebase
+        await updateDoc(doc(db, 'users', editingUser.id), {
+          name: editedName,
+          email: editedEmail,
+          ...(editedPassword ? { password: editedPassword } : {}),
+          role: editedRole,
+          allowedTabs: editedTabs,
+          allowedActions: editedActions,
+          updatedAt: Timestamp.now()
+        });
+      } else {
+        // Usuarios comuns vivem no Supabase
+        const { error } = await supabase.from('usuarios').update({
+          name: editedName,
+          email: editedEmail,
+          ...(editedPassword ? { password: editedPassword } : {}),
+          role: editedRole,
+          allowed_tabs: editedTabs,
+          allowed_actions: editedActions,
+          updated_at: new Date().toISOString(),
+        }).eq('id', editingUser.id);
+        if (error) throw error;
+      }
+      alert('Dados e senha do usuário atualizados!');
       setEditingUser(null);
     } catch (err: any) {
       console.error('Erro ao salvar permissões:', err);
@@ -10448,7 +10498,6 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
       return;
     }
     try {
-      const newUid = 'user-' + Date.now();
       const defaultTabs = ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'production', 'settings'];
       const defaultActions = [
         'canStartNote', 'canSendSavedMessage', 'canCreateCard', 'canAddTask',
@@ -10456,21 +10505,19 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
         'canViewCustomerData', 'canViewAttachments', 'canTranscribeAudio'
       ];
 
-      const newUserData = {
+      const { error } = await supabase.from('usuarios').insert({
         name: newUserName,
         email: newUserEmail.trim().toLowerCase(),
         password: newUserPassword || '123456',
         role: newUserRole,
-        isAdmin: newUserRole === 'admin',
-        isActive: true,
-        allowedTabs: defaultTabs,
-        allowedActions: defaultActions,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
+        is_admin: newUserRole === 'admin',
+        is_active: true,
+        allowed_tabs: defaultTabs,
+        allowed_actions: defaultActions,
+      });
+      if (error) throw error;
 
-      await setDoc(doc(db, 'users', newUid), newUserData);
-      alert(`Novo usuário [${newUserName}] cadastrado com sucesso no repositório!\n\nE-mail: ${newUserEmail}\nSenha: ${newUserPassword || '123456'}\n\nEle já pode fazer login na tela inicial com essas credenciais.`);
+      alert(`Novo usuário [${newUserName}] cadastrado com sucesso!\n\nE-mail: ${newUserEmail}\nSenha: ${newUserPassword || '123456'}\n\nEle já pode fazer login na tela inicial com essas credenciais.`);
       setIsCreateModalOpen(false);
       setNewUserName('');
       setNewUserEmail('');

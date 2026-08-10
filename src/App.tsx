@@ -350,6 +350,24 @@ import { ModuleErrorBoundary } from './components/SharedUI';
 
 // --- MAIN APP ---
 
+// Mapeia uma linha da tabela 'usuarios' (Supabase) pro formato AppUser usado pelo sistema.
+// Usuarios comuns vivem no Supabase; so o admin master continua no Firebase (bootstrap fixo).
+function mapUsuarioRow(row: any): AppUser {
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    password: row.password || undefined,
+    role: row.role || 'atendente',
+    isAdmin: !!row.is_admin,
+    isActive: row.is_active !== false,
+    allowedTabs: Array.isArray(row.allowed_tabs) ? row.allowed_tabs : undefined,
+    allowedActions: Array.isArray(row.allowed_actions) ? row.allowed_actions : undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  } as AppUser;
+}
+
 export default function App() {
   const [loading, setLoading] = useState(true);
   const [logoLightUrl, setLogoLightUrl] = useState<string | null>(null);
@@ -744,18 +762,26 @@ export default function App() {
         return;
       }
 
-      // 2. QUERY FIRESTORE USERS COLLECTION DATABASE REPOSITORY
-      const q = query(collection(db, 'users'), where('email', '==', trimmedEmail));
-      const snap = await getDocs(q);
+      // 2. QUERY SUPABASE (usuarios comuns vivem la, so o admin master fica no Firebase)
+      const { data: usuarioRow, error: usuarioErr } = await supabase
+        .from('usuarios')
+        .select('*')
+        .eq('email', trimmedEmail)
+        .maybeSingle();
 
-      if (snap.empty) {
+      if (usuarioErr) {
+        setAuthError(`Erro ao verificar credenciais: ${usuarioErr.message}`);
+        setIsSubmitting(false);
+        return;
+      }
+
+      if (!usuarioRow) {
         setAuthError('Usuário não encontrado. Solicite o cadastro ao administrador (rafaelrtmatos@gmail.com).');
         setIsSubmitting(false);
         return;
       }
 
-      const userDoc = snap.docs[0];
-      const userData = { id: userDoc.id, ...userDoc.data() } as AppUser;
+      const userData = mapUsuarioRow(usuarioRow);
 
       if (!userData.isActive) {
         setAuthError('Sua conta está inativa. Entre em contato com o administrador.');
@@ -833,7 +859,24 @@ export default function App() {
           await setDoc(userDocRef, adminData);
           setUser(adminData);
         } else {
-          sessionStorage.removeItem('rpro_logged_user_id');
+          // Nao achou no Firebase (nao e o admin master) — tenta no Supabase, onde vivem os usuarios comuns
+          try {
+            const { data: usuarioRow } = await supabase.from('usuarios').select('*').eq('id', targetUserId).maybeSingle();
+            if (usuarioRow) {
+              setUser(mapUsuarioRow(usuarioRow));
+              const channel = supabase
+                .channel(`usuario-sessao-${targetUserId}`)
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'usuarios', filter: `id=eq.${targetUserId}` }, (payload: any) => {
+                  if (payload.new) setUser(mapUsuarioRow(payload.new));
+                })
+                .subscribe();
+              userUnsub = () => { supabase.removeChannel(channel); };
+            } else {
+              sessionStorage.removeItem('rpro_logged_user_id');
+            }
+          } catch (e) {
+            sessionStorage.removeItem('rpro_logged_user_id');
+          }
         }
       }
       setLoading(false);
