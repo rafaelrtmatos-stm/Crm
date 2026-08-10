@@ -268,6 +268,9 @@ const mapVendaRow = (row: any): SaleOrder => ({
   createdAt: row.created_at,
   scheduledFor: row.scheduled_for || undefined,
   deletedAt: row.deleted_at || undefined,
+  serviceStatus: row.service_status || 'pedido_recebido',
+  statusHistory: Array.isArray(row.status_history) ? row.status_history : [],
+  responsavel: row.responsavel || undefined,
 } as SaleOrder);
 
 const mapOrcamentoRow = (row: any): Orcamento => ({

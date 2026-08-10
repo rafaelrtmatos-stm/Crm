@@ -4,6 +4,9 @@ export interface ReceiptRenderInput {
   order: SaleOrder;
   companyName: string;
   customerPhone?: string;
+  customerCpf?: string;
+  customerAddress?: string;
+  responsavel?: string;
   logoDarkUrl?: string | null;
 }
 
@@ -31,15 +34,106 @@ const FONT = 'Arial';
 
 const PIPELINE_STAGES = [
   'Pedido Recebido', 'Aguardando Arte', 'Arte em Desenvolvimento', 'Aguardando Aprovação',
-  'Produção', 'Acabamento', 'Pronto', 'Entregue',
+  'Produção', 'Acabamento', 'Produto Entregue',
 ];
 
 function getPipelineIndex(order: SaleOrder): number {
-  if (order.status === 'completed') return 7;
+  if (order.status === 'completed') return 6;
   const down = order.downPayment ?? order.receivedValue ?? 0;
-  if (down > 0) return 4;
+  if (down > 0) return 3;
   return 0;
 }
+
+// Icones simples desenhados a mao (sem depender de emoji/fonte, funciona igual em qualquer navegador e no PDF)
+function drawStageIcon(ctx: CanvasRenderingContext2D, stageIndex: number, cx: number, cy: number, color: string) {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = 1.1;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  const s = 3.2; // escala do icone
+  switch (stageIndex) {
+    case 0: // Pedido Recebido - check
+      ctx.beginPath();
+      ctx.moveTo(cx - s, cy);
+      ctx.lineTo(cx - s / 3, cy + s * 0.8);
+      ctx.lineTo(cx + s, cy - s * 0.8);
+      ctx.stroke();
+      break;
+    case 1: // Aguardando Arte - ampulheta
+      ctx.beginPath();
+      ctx.moveTo(cx - s, cy - s); ctx.lineTo(cx + s, cy - s);
+      ctx.lineTo(cx - s * 0.15, cy); ctx.lineTo(cx + s, cy + s);
+      ctx.lineTo(cx - s, cy + s); ctx.lineTo(cx + s * 0.15, cy);
+      ctx.closePath();
+      ctx.stroke();
+      break;
+    case 2: // Arte em Desenvolvimento - lapis
+      ctx.beginPath();
+      ctx.moveTo(cx - s, cy + s);
+      ctx.lineTo(cx + s * 0.4, cy - s);
+      ctx.lineTo(cx + s, cy - s * 0.4);
+      ctx.lineTo(cx - s * 0.4, cy + s);
+      ctx.closePath();
+      ctx.stroke();
+      break;
+    case 3: // Aguardando Aprovacao - pessoa
+      ctx.beginPath();
+      ctx.arc(cx, cy - s * 0.6, s * 0.5, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(cx, cy + s * 1.3, s * 1.1, Math.PI, 0, true);
+      ctx.stroke();
+      break;
+    case 4: // Producao - engrenagem
+      ctx.beginPath();
+      ctx.arc(cx, cy, s * 0.6, 0, Math.PI * 2);
+      ctx.stroke();
+      for (let a = 0; a < 8; a++) {
+        const ang = (a / 8) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.moveTo(cx + Math.cos(ang) * s * 0.75, cy + Math.sin(ang) * s * 0.75);
+        ctx.lineTo(cx + Math.cos(ang) * s * 1.15, cy + Math.sin(ang) * s * 1.15);
+        ctx.stroke();
+      }
+      break;
+    case 5: // Acabamento - caixa
+      ctx.beginPath();
+      ctx.rect(cx - s, cy - s * 0.7, s * 2, s * 1.4);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cx - s, cy - s * 0.7); ctx.lineTo(cx, cy); ctx.lineTo(cx + s, cy - s * 0.7);
+      ctx.stroke();
+      break;
+    case 6: // Produto Entregue - caminhao
+      ctx.beginPath();
+      ctx.rect(cx - s * 1.2, cy - s * 0.5, s * 1.4, s * 0.9);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cx + s * 0.2, cy - s * 0.1);
+      ctx.lineTo(cx + s * 0.9, cy - s * 0.1);
+      ctx.lineTo(cx + s * 1.2, cy + s * 0.4);
+      ctx.lineTo(cx + s * 0.2, cy + s * 0.4);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx - s * 0.6, cy + s * 0.5, s * 0.28, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx + s * 0.65, cy + s * 0.5, s * 0.28, 0, Math.PI * 2); ctx.stroke();
+      break;
+  }
+  ctx.restore();
+}
+
+// Dados fixos de contato da empresa (usados no rodape do documento)
+const COMPANY_CONTACT = {
+  whatsapp: '(93) 99211-2108',
+  instagram: 'Rafa Artes Gráficos',
+  facebook: 'Rafa Artes Gráficos',
+  email: 'contato@rafaartesgraficos.com.br',
+  site: 'rafaartesgraficos.com.br',
+  siteUrl: 'https://rafaartesgraficos.com.br',
+  endereco: 'Avenida Maracanã, nº 287 – Eusonio Barbalho, Santarém – PA',
+};
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   ctx.beginPath();
@@ -68,7 +162,7 @@ function drawCard(ctx: CanvasRenderingContext2D, x: number, y: number, w: number
 
 // Desenha o recibo/OS em um canvas (usado para exportar PNG, PDF e impressão)
 // Estilo SaaS premium claro (Stripe/Linear/Notion), com barra de status e total em destaque.
-export async function renderReceiptCanvas({ order, companyName, customerPhone, logoDarkUrl }: ReceiptRenderInput): Promise<HTMLCanvasElement> {
+export async function renderReceiptCanvas({ order, companyName, customerPhone, customerCpf, customerAddress, responsavel, logoDarkUrl }: ReceiptRenderInput): Promise<HTMLCanvasElement> {
   const scale = 2.5;
   const width = 640;
   const rowHeight = 32;
@@ -82,19 +176,47 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, l
   const cardGap = 14;
   const halfW = (width - marginX * 2 - cardGap) / 2;
 
+  // Conteudo dinamico dos cards de Cliente / Dados da Ordem (precisa saber antes de fixar a altura do canvas)
+  const clienteRows = [order.customerName || 'Cliente de Balcão'];
+  if (customerPhone) clienteRows.push(`Tel/WhatsApp: ${customerPhone}`);
+  if (customerCpf) clienteRows.push(`CPF: ${customerCpf}`);
+  if (customerAddress) clienteRows.push(`Endereço: ${customerAddress}`);
+  const pedidoRows = [
+    order.status === 'completed' ? 'Situação: Finalizada' : order.status === 'canceled' ? 'Situação: Cancelada' : 'Situação: Aberta',
+    order.scheduledFor ? `Previsão: ${new Date(order.scheduledFor).toLocaleString('pt-BR')}` : 'Sem entrega agendada',
+  ];
+  if (responsavel) pedidoRows.push(`Atendimento: ${responsavel}`);
+  if (order.paymentMethod) pedidoRows.push(`Pagamento: ${order.paymentMethod.toUpperCase()}`);
+
+  const OBSERVACOES = [
+    'Produção iniciada somente após aprovação da arte pelo cliente.',
+    'Alterações após aprovação poderão gerar novo orçamento e/ou alteração do prazo.',
+    'Confira o material no ato da retirada.',
+    'Garantia de 90 dias, sem prejuízo da garantia legal prevista no CDC — Lei nº 8.078/1990, art. 26.',
+  ];
+
   const headerH = 76;
   const pipelineH = 64;
-  const infoCardsH = 92;
+  const infoCardsH = Math.max(92, 46 + Math.max(clienteRows.length, pedidoRows.length) * 17);
   const tableHeaderH = 32;
   const tableH = tableHeaderH + tableRows * rowHeight;
   const totalCardH = 150;
-  const footerH = 90;
-  const height = headerH + pipelineH + infoCardsH + tableH + totalCardH + footerH + 130;
+  const obsH = 30 + OBSERVACOES.length * 16 + 14;
+  const footerH = 150;
+  const height = headerH + pipelineH + infoCardsH + 20 + tableH + 22 + totalCardH + 26 + obsH + 22 + footerH + 40;
 
   let logoImg: HTMLImageElement | null = null;
   if (logoDarkUrl) {
     try { logoImg = await loadImage(logoDarkUrl); } catch (e) { logoImg = null; }
   }
+
+  // QR Code apontando pro site (gerado como imagem, funcional de verdade)
+  let qrImg: HTMLImageElement | null = null;
+  try {
+    const QRCode = (await import('qrcode')).default;
+    const qrDataUrl = await QRCode.toDataURL(COMPANY_CONTACT.siteUrl, { margin: 1, width: 200, color: { dark: TEXT, light: '#FFFFFF00' } });
+    qrImg = await loadImage(qrDataUrl);
+  } catch (e) { qrImg = null; }
 
   const canvas = document.createElement('canvas');
   canvas.width = width * scale;
@@ -159,16 +281,30 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, l
     for (let i = 0; i < stageCount; i++) {
       const cx = trackX + (trackW * i) / (stageCount - 1);
       const done = i <= stageIdx;
+      const isCurrent = i === stageIdx;
+      const radius = isCurrent ? 7 : 5;
       ctx.beginPath();
-      ctx.arc(cx, trackY, 5, 0, Math.PI * 2);
+      ctx.arc(cx, trackY, radius, 0, Math.PI * 2);
       ctx.fillStyle = done ? GREEN : CARD;
       ctx.fill();
       ctx.strokeStyle = done ? GREEN : BORDER;
-      ctx.lineWidth = 2;
+      ctx.lineWidth = isCurrent ? 3 : 2;
       ctx.stroke();
+      drawStageIcon(ctx, i, cx, trackY, done ? '#FFFFFF' : TEXT_FAINT);
       ctx.fillStyle = done ? TEXT : TEXT_FAINT;
       const label = PIPELINE_STAGES[i];
-      ctx.fillText(label, cx, trackY + 20, trackW / stageCount - 4);
+      ctx.font = isCurrent ? `800 7px ${FONT}` : `700 7px ${FONT}`;
+      const labelMaxW = trackW / stageCount - 4;
+      if (i === 0) {
+        ctx.textAlign = 'left';
+        ctx.fillText(label, Math.max(marginX, cx - labelMaxW / 2), trackY + 22, labelMaxW + 20);
+      } else if (i === stageCount - 1) {
+        ctx.textAlign = 'right';
+        ctx.fillText(label, Math.min(width - marginX, cx + labelMaxW / 2), trackY + 22, labelMaxW + 20);
+      } else {
+        ctx.textAlign = 'center';
+        ctx.fillText(label, cx, trackY + 22, labelMaxW);
+      }
     }
   } else {
     roundRect(ctx, marginX, y, width - marginX * 2, 32, 8);
@@ -181,26 +317,21 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, l
   }
   y += pipelineH;
 
-  const infoCard = (x: number, title: string, rows: string[]) => {
-    drawCard(ctx, x, y, halfW, infoCardsH);
+  const infoCard = (x: number, title: string, rows: string[], cardH: number) => {
+    drawCard(ctx, x, y, halfW, cardH);
     ctx.textAlign = 'left';
     ctx.fillStyle = TEXT_FAINT;
     ctx.font = `800 8px ${FONT}`;
     ctx.fillText(title.toUpperCase(), x + 16, y + 20);
     rows.forEach((line, i) => {
-      ctx.font = i === 0 ? `800 12px ${FONT}` : `600 10px ${FONT}`;
+      ctx.font = i === 0 ? `800 12px ${FONT}` : `600 9.5px ${FONT}`;
       ctx.fillStyle = i === 0 ? TEXT : TEXT_DIM;
-      ctx.fillText(line, x + 16, y + 42 + i * 17);
+      const displayLine = line.length > 46 ? line.slice(0, 46) + '…' : line;
+      ctx.fillText(displayLine, x + 16, y + 42 + i * 17);
     });
   };
-  const clienteRows = [order.customerName || 'Cliente de Balcão'];
-  if (customerPhone) clienteRows.push(customerPhone);
-  const pedidoRows = [
-    order.status === 'completed' ? 'Situação: Finalizada' : order.status === 'canceled' ? 'Situação: Cancelada' : 'Situação: Aberta',
-    order.scheduledFor ? `Previsão: ${new Date(order.scheduledFor).toLocaleString('pt-BR')}` : 'Sem entrega agendada',
-  ];
-  infoCard(marginX, 'Cliente', clienteRows);
-  infoCard(marginX + halfW + cardGap, 'Dados da Ordem', pedidoRows);
+  infoCard(marginX, 'Cliente', clienteRows, infoCardsH);
+  infoCard(marginX + halfW + cardGap, 'Dados da Ordem', pedidoRows, infoCardsH);
   y += infoCardsH + 20;
 
   drawCard(ctx, marginX, y, width - marginX * 2, tableH);
@@ -299,18 +430,69 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, l
 
   y += totalCardH + 26;
 
-  ctx.textAlign = 'center';
+  // Bloco unico de Observacoes Importantes
+  drawCard(ctx, marginX, y, width - marginX * 2, obsH);
+  ctx.textAlign = 'left';
+  ctx.fillStyle = TEXT_FAINT;
+  ctx.font = `800 8px ${FONT}`;
+  ctx.fillText('OBSERVAÇÕES IMPORTANTES', marginX + 18, y + 20);
+  OBSERVACOES.forEach((obs, i) => {
+    ctx.fillStyle = GREEN;
+    ctx.font = `900 9px ${FONT}`;
+    ctx.fillText('✓', marginX + 18, y + 40 + i * 16);
+    ctx.fillStyle = TEXT_DIM;
+    ctx.font = `600 8.5px ${FONT}`;
+    ctx.fillText(obs, marginX + 32, y + 40 + i * 16, width - marginX * 2 - 50);
+  });
+  y += obsH + 22;
+
+  // Rodape: agradecimento + contatos reais + QR Code
+  const footerTop = y;
+  ctx.textAlign = 'left';
   ctx.fillStyle = TEXT;
   ctx.font = 'italic 800 14px Georgia';
-  ctx.fillText('Obrigado pela preferência!', width / 2, y);
-  y += 20;
-  ctx.font = `700 8.5px ${FONT}`;
-  ctx.fillStyle = TEXT_DIM;
-  ctx.fillText('WhatsApp  ·  Instagram  ·  Facebook  ·  Site  ·  E-mail  ·  Endereço', width / 2, y);
-  y += 18;
-  ctx.font = `600 8px ${FONT}`;
+  ctx.fillText('Obrigado pela preferência!', marginX, y + 14);
+
+  ctx.font = `800 8px ${FONT}`;
   ctx.fillStyle = TEXT_FAINT;
-  ctx.fillText('Produção inicia apenas após aprovação da arte  ·  Garantia de 90 dias  ·  Confira o material na retirada', width / 2, y);
+  ctx.fillText('FALE CONOSCO', marginX, y + 40);
+
+  const contactLine = (label: string, value: string, ly: number) => {
+    ctx.font = `700 8px ${FONT}`;
+    ctx.fillStyle = TEXT_DIM;
+    ctx.fillText(label, marginX, ly);
+    ctx.font = `700 9px ${FONT}`;
+    ctx.fillStyle = TEXT;
+    ctx.fillText(value, marginX + 62, ly);
+  };
+  contactLine('WhatsApp', COMPANY_CONTACT.whatsapp, y + 58);
+  contactLine('Instagram', COMPANY_CONTACT.instagram, y + 74);
+  contactLine('Facebook', COMPANY_CONTACT.facebook, y + 90);
+  contactLine('E-mail', COMPANY_CONTACT.email, y + 106);
+  contactLine('Site', COMPANY_CONTACT.site, y + 122);
+
+  ctx.font = `700 8px ${FONT}`;
+  ctx.fillStyle = TEXT_DIM;
+  ctx.fillText('Endereço', marginX, y + 138);
+  ctx.font = `600 8px ${FONT}`;
+  ctx.fillStyle = TEXT;
+  ctx.fillText(COMPANY_CONTACT.endereco, marginX, y + 149, width - 190);
+
+  // QR Code no canto direito do rodape
+  if (qrImg) {
+    const qrSize = 78;
+    const qrX = width - marginX - qrSize;
+    const qrY = footerTop;
+    ctx.textAlign = 'center';
+    ctx.font = `800 7.5px ${FONT}`;
+    ctx.fillStyle = TEXT_FAINT;
+    ctx.fillText('ACESSE NOSSO SITE', qrX + qrSize / 2, qrY);
+    ctx.drawImage(qrImg, qrX, qrY + 6, qrSize, qrSize);
+    ctx.font = `600 7px ${FONT}`;
+    ctx.fillStyle = TEXT_DIM;
+    ctx.fillText('Escaneie o QR Code', qrX + qrSize / 2, qrY + qrSize + 20);
+    ctx.fillText('e acesse nosso site', qrX + qrSize / 2, qrY + qrSize + 31);
+  }
 
   return canvas;
 }

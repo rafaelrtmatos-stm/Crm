@@ -44,6 +44,9 @@ export interface SaleOrder {
   payments?: PaymentEntry[];
   pendingPaymentMethod?: string;
   status: 'pending' | 'completed' | 'canceled';
+  serviceStatus?: 'pedido_recebido' | 'aguardando_arte' | 'arte_em_desenvolvimento' | 'aguardando_aprovacao' | 'producao' | 'acabamento' | 'produto_entregue';
+  statusHistory?: { status: string; changedAt: string }[];
+  responsavel?: string;
   createdAt: string;
   scheduledFor?: string;
   deletedAt?: string;
