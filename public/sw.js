@@ -2,7 +2,7 @@
 // para o sistema continuar abrindo mesmo sem internet.
 // Isso NÃO sincroniza dados (vendas, clientes etc) — só garante que a interface carregue offline.
 
-const CACHE_NAME = 'rafa-arts-shell-v1';
+const CACHE_NAME = 'rafa-arts-shell-v2';
 const OFFLINE_URL = '/';
 
 self.addEventListener('install', (event) => {
@@ -35,10 +35,12 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Navegação (abrir/recarregar a página): tenta rede, cai pro cache (app shell) se offline.
+  // Navegação (abrir/recarregar a página): sempre busca fresco da rede (ignora cache HTTP
+  // do proprio navegador, que senao pode servir um index.html antigo mesmo com F5),
+  // cai pro cache (app shell) so se estiver realmente offline.
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request).catch(() => caches.match(OFFLINE_URL))
+      fetch(request, { cache: 'no-store' }).catch(() => caches.match(OFFLINE_URL))
     );
     return;
   }
