@@ -354,13 +354,16 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [logoLightUrl, setLogoLightUrl] = useState<string | null>(null);
   const [logoDarkUrl, setLogoDarkUrl] = useState<string | null>(null);
+  const [logosReady, setLogosReady] = useState(false);
   useEffect(() => {
     const loadLogos = async () => {
       try {
         const { data } = await supabase.from('configuracoes').select('logo_light_url, logo_dark_url').eq('company_id', 'rafa-arts').maybeSingle();
         setLogoLightUrl(data?.logo_light_url || null);
         setLogoDarkUrl(data?.logo_dark_url || null);
-      } catch (e) { /* mantem logo padrao */ }
+      } catch (e) { /* mantem logo padrao */ } finally {
+        setLogosReady(true);
+      }
     };
     loadLogos();
     const channel = supabase
@@ -809,7 +812,11 @@ export default function App() {
   if (loading) return (
     <div className="h-screen w-full flex items-center justify-center bg-[#07070a]">
       <div className="flex flex-col items-center gap-6">
-        <BrandLogo imageUrl={theme === 'light' ? (logoDarkUrl || logoLightUrl) : logoLightUrl} size="xl" widthPx={210} layout="stacked" />
+        {logosReady ? (
+          <BrandLogo imageUrl={theme === 'light' ? (logoDarkUrl || logoLightUrl) : logoLightUrl} size="xl" widthPx={105} layout="stacked" />
+        ) : (
+          <div style={{ width: 105, height: 64 }} />
+        )}
         <div className="w-10 h-10 border-4 border-red-600/30 border-t-red-500 rounded-full animate-spin mt-2" />
         <p className="text-xs font-bold uppercase tracking-widest text-slate-400 animate-pulse">Iniciando Sistema de Gestão...</p>
       </div>
@@ -856,7 +863,11 @@ export default function App() {
         {/* Header Badge & Title with Separated Rafa Arts Graphics Logo */}
         <div className="flex flex-col items-center text-center space-y-3">
           <div className="px-6 py-4 rounded-3xl bg-[#0c0c12]/90 border border-slate-800 shadow-2xl shadow-red-950/60 backdrop-blur-xl">
-            <BrandLogo imageUrl={theme === 'light' ? (logoDarkUrl || logoLightUrl) : logoLightUrl} size="xl" layout="stacked" />
+            {logosReady ? (
+              <BrandLogo imageUrl={theme === 'light' ? (logoDarkUrl || logoLightUrl) : logoLightUrl} size="xl" widthPx={210} layout="stacked" />
+            ) : (
+              <div style={{ width: 210, height: 128 }} />
+            )}
           </div>
           
           <p className="text-xs sm:text-sm font-semibold text-slate-300 tracking-wide max-w-sm">
@@ -957,7 +968,11 @@ export default function App() {
   if (companies.length === 0) return (
     <div className="min-h-screen w-full flex items-center justify-center bg-[#050508] p-4">
       <div className="max-w-md w-full flex flex-col items-center gap-5 text-center bg-white/[0.03] border border-white/10 rounded-2xl p-8">
-        <BrandLogo imageUrl={theme === 'light' ? (logoDarkUrl || logoLightUrl) : logoLightUrl} size="lg" layout="stacked" />
+        {logosReady ? (
+          <BrandLogo imageUrl={theme === 'light' ? (logoDarkUrl || logoLightUrl) : logoLightUrl} size="lg" layout="stacked" />
+        ) : (
+          <div style={{ width: 320, height: 195 }} />
+        )}
         <h2 className="text-lg font-black text-white uppercase tracking-wider">Nenhuma empresa encontrada</h2>
         <p className="text-sm text-white/50">
           O sistema não encontrou nenhuma empresa ativa cadastrada. Isso costuma acontecer se o registro da empresa foi apagado no banco de dados. Clique abaixo para recriar o cadastro da Rafa Arts Graphics.
@@ -1035,7 +1050,11 @@ export default function App() {
               >
               <div className="flex items-center justify-between mb-8 px-1">
                 <div className="flex items-center gap-3">
-                  <BrandLogo imageUrl={theme === 'light' ? (logoDarkUrl || logoLightUrl) : logoLightUrl} size="md" layout="stacked" />
+                  {logosReady ? (
+                    <BrandLogo imageUrl={theme === 'light' ? (logoDarkUrl || logoLightUrl) : logoLightUrl} size="md" layout="stacked" />
+                  ) : (
+                    <div style={{ width: 220, height: 135 }} />
+                  )}
                 </div>
                 <button 
                   onClick={() => setIsSidebarOpen(false)}
