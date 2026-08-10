@@ -3452,7 +3452,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [selectedQty, setSelectedQty] = useState(1);
   const [dimensionModalProduct, setDimensionModalProduct] = useState<Product | null>(null);
   const [etiquetaModalProduct, setEtiquetaModalProduct] = useState<Product | null>(null);
-  const emptyEtiquetaForm = { quantidade: 100, largura: 8, altura: 8, material: '', formato: 'quadrada' as 'redonda' | 'quadrada' | 'retangular' | 'personalizado' };
+  const emptyEtiquetaForm = { quantidade: 100, largura: 8, altura: 8, larguraMaterial: 0 };
   const [etiquetaForm, setEtiquetaForm] = useState({ ...emptyEtiquetaForm });
   const [dimWidth, setDimWidth] = useState<number | ''>('');
   const [dimHeight, setDimHeight] = useState<number | ''>('');
@@ -4884,7 +4884,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     }
     if (product.unitType === 'etiqueta') {
       setEtiquetaModalProduct(product);
-      setEtiquetaForm({ ...emptyEtiquetaForm });
+      setEtiquetaForm({ ...emptyEtiquetaForm, larguraMaterial: product.larguraRolo || 1.02 });
       return;
     }
     setCart(prev => {
@@ -4906,9 +4906,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const calcularEtiquetas = (product: Product) => {
-    const larguraRoloCm = (product.larguraRolo || 1) * 100;
-    const { quantidade, largura, altura } = etiquetaForm;
-    if (quantidade <= 0 || largura <= 0 || altura <= 0) return null;
+    const { quantidade, largura, altura, larguraMaterial } = etiquetaForm;
+    const larguraRoloCm = (larguraMaterial || product.larguraRolo || 1) * 100;
+    if (quantidade <= 0 || largura <= 0 || altura <= 0 || larguraRoloCm <= 0) return null;
 
     // Orientacao A: etiqueta na posicao normal (largura x altura)
     const porFileiraA = Math.max(1, Math.floor(larguraRoloCm / largura));
@@ -4933,13 +4933,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     return { porFileira, fileiras, metrosLineares, valorCalculado, valorFinal, rotacionada: usarB };
   };
 
-  const confirmAddEtiquetaItem = () => {
+  const confirmAddEtiquetaItem = async () => {
     if (!etiquetaModalProduct) return;
     const calc = calcularEtiquetas(etiquetaModalProduct);
-    if (!calc) { alert('Preencha quantidade, largura e altura corretamente.'); return; }
-    const { quantidade, largura, altura, material, formato } = etiquetaForm;
-    const formatoLabel = { redonda: 'Redonda', quadrada: 'Quadrada', retangular: 'Retangular', personalizado: 'Personalizada' }[formato];
-    const dimensoesLabel = `${quantidade}un ${largura}x${altura}cm - ${formatoLabel}${material ? ` (${material})` : ''}`;
+    if (!calc) { alert('Preencha quantidade, largura, altura e a largura do material corretamente.'); return; }
+    const { quantidade, largura, altura, larguraMaterial } = etiquetaForm;
+    const dimensoesLabel = `${quantidade}un ${largura}x${altura}cm`;
     setCart(prev => [...prev, {
       productId: etiquetaModalProduct.id,
       name: etiquetaModalProduct.name,
@@ -4948,6 +4947,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       dimensions: dimensoesLabel,
       consumoEstoque: calc.metrosLineares,
     }]);
+    // Se a largura do material foi mudada, salva como novo padrao pra proxima vez
+    if (larguraMaterial && larguraMaterial !== etiquetaModalProduct.larguraRolo) {
+      await supabase.from('produtos').update({ largura_rolo: larguraMaterial }).eq('id', etiquetaModalProduct.id);
+    }
     setEtiquetaModalProduct(null);
   };
 
@@ -7726,24 +7729,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  <Input label="Largura (cm)" type="number" step="any" value={etiquetaForm.largura} onChange={(e: any) => setEtiquetaForm({ ...etiquetaForm, largura: Number(e.target.value) || 0 })} />
                  <Input label="Altura (cm)" type="number" step="any" value={etiquetaForm.altura} onChange={(e: any) => setEtiquetaForm({ ...etiquetaForm, altura: Number(e.target.value) || 0 })} />
               </div>
-              <Input label="Material (opcional)" placeholder="Ex: Vinil Branco Brilho" value={etiquetaForm.material} onChange={(e: any) => setEtiquetaForm({ ...etiquetaForm, material: e.target.value })} />
-              <div className="space-y-1.5">
-                 <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Formato</label>
-                 <div className="grid grid-cols-4 gap-1.5">
-                    {(['redonda', 'quadrada', 'retangular', 'personalizado'] as const).map(f => (
-                      <button
-                        key={f}
-                        onClick={() => setEtiquetaForm({ ...etiquetaForm, formato: f })}
-                        className={cn(
-                          "h-9 rounded-lg text-[9px] font-black uppercase border-2 transition-all",
-                          etiquetaForm.formato === f ? "bg-primary-500 border-primary-600 text-slate-900" : "bg-white/5 border-white/10 text-white/50"
-                        )}
-                      >
-                        {f}
-                      </button>
-                    ))}
-                 </div>
-              </div>
+              <Input
+                label="Largura do Material (m)"
+                type="number"
+                step="any"
+                value={etiquetaForm.larguraMaterial}
+                onChange={(e: any) => setEtiquetaForm({ ...etiquetaForm, larguraMaterial: Number(e.target.value) || 0 })}
+              />
+              <p className="text-[9px] text-white/30 -mt-2">Vem pré-preenchida com a largura cadastrada do material — pode editar aqui, e o novo valor fica salvo pra próxima vez.</p>
 
               {calc ? (
                 <div className="bg-slate-900/60 rounded-2xl border border-white/10 p-4 space-y-1.5">
