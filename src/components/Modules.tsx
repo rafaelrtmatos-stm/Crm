@@ -4558,6 +4558,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [creditCardFees, setCreditCardFees] = useState<{ installments: number; feePercent: number }[]>(
     Array.from({ length: 12 }, (_, i) => ({ installments: i + 1, feePercent: 0 }))
   );
+  const [debitCardFeePercent, setDebitCardFeePercent] = useState(0);
   const [newPaymentInstallments, setNewPaymentInstallments] = useState(1);
   const canManageHistory = !!(user?.isAdmin || user?.allowedActions?.includes('canManageSaleHistory'));
   const [editingSale, setEditingSale] = useState<SaleOrder | null>(null);
@@ -4669,6 +4670,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         data.credit_card_fees.forEach((f: any) => { byInstallment[f.installments] = f.feePercent; });
         setCreditCardFees(Array.from({ length: 12 }, (_, i) => ({ installments: i + 1, feePercent: byInstallment[i + 1] ?? 0 })));
       }
+      setDebitCardFeePercent(Number(data?.debit_card_fee_percent) || 0);
       if (data && data.pix_key) {
         setPixConfig({
           key: data.pix_key,
@@ -4758,7 +4760,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [isQuickProductOpen, setIsQuickProductOpen] = useState(false);
   const [quickProductAddToOrcamento, setQuickProductAddToOrcamento] = useState(false);
   const [isSavingQuickProduct, setIsSavingQuickProduct] = useState(false);
-  const emptyQuickProductForm = { name: '', code: '', category: '', unit: 'un' as 'un' | 'm2', costPrice: 0, salePrice: 0, currentStock: 0 };
+  const emptyQuickProductForm = {
+    name: '', code: '', category: '', unit: 'un' as 'un' | 'm2' | 'etiqueta', costPrice: 0, salePrice: 0, currentStock: 0,
+    tipoItem: 'produto' as 'produto' | 'material' | 'servico' | 'acabamento' | 'composto',
+    controlaEstoque: true, minStock: 0, estoqueMaximo: 0, localizacao: '', descricao: '', larguraRolo: 0,
+  };
   const [quickProductForm, setQuickProductForm] = useState({ ...emptyQuickProductForm });
 
   const handleSaveQuickProduct = async () => {
@@ -4774,6 +4780,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         sale_price: quickProductForm.salePrice || 0,
         current_stock: quickProductForm.currentStock || 0,
         is_active: true,
+        tipo_item: quickProductForm.tipoItem,
+        controla_estoque: quickProductForm.controlaEstoque,
+        min_stock: quickProductForm.minStock || 0,
+        estoque_maximo: quickProductForm.estoqueMaximo || null,
+        localizacao: quickProductForm.localizacao || null,
+        descricao: quickProductForm.descricao || null,
+        largura_rolo: quickProductForm.larguraRolo || null,
       }).select().single();
       if (error) throw error;
       await loadProducts();
@@ -4933,7 +4946,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const [discountItemIndex, setDiscountItemIndex] = useState<number | null>(null);
-  const [discountMode, setDiscountMode] = useState<'percentual' | 'valor'>('percentual');
+  const [discountMode, setDiscountMode] = useState<'percentual' | 'valor' | 'preco'>('percentual');
   const [discountInput, setDiscountInput] = useState<number | ''>('');
 
   const openItemDiscount = (index: number) => {
@@ -4948,8 +4961,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       const updated = [...prev];
       const item = updated[discountItemIndex];
       const original = item.precoOriginal ?? item.price;
-      const subtotalOriginal = item.area ? original * item.area : original;
       const val = discountInput === '' ? 0 : Number(discountInput);
+
+      if (discountMode === 'preco') {
+        // Editar preco direto do item (nao mexe no preco cadastrado do produto no Estoque)
+        updated[discountItemIndex] = { ...item, price: Math.max(0, val), precoOriginal: original, descontoValor: undefined };
+        return updated;
+      }
+
+      const subtotalOriginal = item.area ? original * item.area : original;
       const descontoValor = discountMode === 'percentual' ? subtotalOriginal * (val / 100) : val;
       const novoSubtotal = Math.max(0, subtotalOriginal - descontoValor);
       const novoPreco = item.area ? novoSubtotal / item.area : novoSubtotal;
@@ -4970,15 +4990,27 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     });
   };
 
+  const [obsItemIndex, setObsItemIndex] = useState<number | null>(null);
+  const updateItemObservacao = (index: number, texto: string) => {
+    setCart(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], observacao: texto || undefined };
+      return updated;
+    });
+  };
+
   const clearCart = () => {
     setCart([]);
     setSelectedCustomer(null);
+    setSaleDiscountValue(0);
   };
 
-  const total = cart.reduce((acc, item) => {
+  const [saleDiscountValue, setSaleDiscountValue] = useState<number>(0);
+  const cartRawTotal = cart.reduce((acc, item) => {
     const itemTotal = item.area ? item.price * item.area * item.quantity : item.price * item.quantity;
     return acc + itemTotal;
   }, 0);
+  const total = Math.max(0, cartRawTotal - saleDiscountValue);
   const remainingValue = Math.max(0, total - (downPayment === '' || typeof downPayment === 'string' ? 0 : Number(downPayment)));
 
   // Quitar Debito: abre a mesma tela de pagamento do Terminal, mas pra uma venda ja existente com saldo pendente
@@ -5009,6 +5041,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     if (newPaymentMethod === 'cartao_credito') {
       installments = newPaymentInstallments;
       feePercent = creditCardFees.find(f => f.installments === newPaymentInstallments)?.feePercent || 0;
+      value = Number((baseValue * (1 + feePercent / 100)).toFixed(2));
+    } else if (newPaymentMethod === 'cartao_debito' && debitCardFeePercent > 0) {
+      feePercent = debitCardFeePercent;
       value = Number((baseValue * (1 + feePercent / 100)).toFixed(2));
     }
     setPaymentEntries(prev => [...prev, { method: newPaymentMethod, value, date: new Date().toISOString(), installments, feePercent }]);
@@ -5080,7 +5115,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
         const updatedOrder: SaleOrder = { ...settlingOrder, downPayment: novoTotalPago, receivedValue: novoTotalPago, status: novoSaldo <= 0 ? 'completed' : 'pending', payments: [...pagamentosAnteriores, ...paymentEntries] };
         setLastFinalizedOrder(updatedOrder);
-        await loadSalesHistory();
+        // Atualiza so essa venda localmente (nao recarrega a tabela inteira, que fica lenta com muitas vendas)
+        setAllSalesHistory(prev => prev.map(s => s.id === settlingOrder.id ? updatedOrder : s));
+        setSalesToday(prev => prev.map(s => s.id === settlingOrder.id ? updatedOrder : s));
         setIsSuccessModalOpen(true);
         setIsPaymentModalOpen(false);
         setSettlingOrder(null);
@@ -5132,8 +5169,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     };
 
     // Save to Supabase
+    let insertedVenda: any = null;
     try {
-      const { data: insertedVenda, error } = await supabase.from('vendas').insert({
+      const { data: insertedVendaResult, error } = await supabase.from('vendas').insert({
         customer_name: order.customerName,
         customer_phone: selectedCustomer?.phone,
         items: order.items,
@@ -5149,10 +5187,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         orcamento_id: linkedOrcamentoId || null,
       }).select().single();
       if (error) throw error;
+      insertedVenda = insertedVendaResult;
 
       // Baixa automatica de estoque para cada item vendido (produtos do catalogo real, ignora itens livres/manuais)
-      for (const item of cart) {
-        if (!item.productId || item.productId === 'manual') continue;
+      // Roda em paralelo (Promise.all) em vez de um item de cada vez, pra nao deixar o fechamento lento
+      await Promise.all(cart.filter(item => item.productId && item.productId !== 'manual').map(async (item) => {
         const qtdBaixa = item.consumoEstoque !== undefined
           ? item.consumoEstoque * item.quantity
           : (item.area ? item.area * item.quantity : item.quantity);
@@ -5160,20 +5199,22 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         if (prodAtual && prodAtual.controla_estoque !== false) {
           const estoqueAnterior = Number(prodAtual.current_stock) || 0;
           const novoEstoque = Math.max(0, estoqueAnterior - qtdBaixa);
-          await supabase.from('produtos').update({ current_stock: novoEstoque }).eq('id', item.productId);
-          await supabase.from('movimentacoes_estoque').insert({
-            produto_id: item.productId,
-            produto_nome: item.name,
-            tipo: 'saida',
-            quantidade: qtdBaixa,
-            unidade: prodAtual.unit || (item.consumoEstoque !== undefined ? 'metro linear' : (item.area ? 'm²' : 'un')),
-            motivo: 'venda',
-            referencia: `Pedido #${order.id.slice(-8).toUpperCase()}`,
-            quantidade_anterior: estoqueAnterior,
-            quantidade_posterior: novoEstoque,
-          });
+          await Promise.all([
+            supabase.from('produtos').update({ current_stock: novoEstoque }).eq('id', item.productId),
+            supabase.from('movimentacoes_estoque').insert({
+              produto_id: item.productId,
+              produto_nome: item.name,
+              tipo: 'saida',
+              quantidade: qtdBaixa,
+              unidade: prodAtual.unit || (item.consumoEstoque !== undefined ? 'metro linear' : (item.area ? 'm²' : 'un')),
+              motivo: 'venda',
+              referencia: `Pedido #${order.id.slice(-8).toUpperCase()}`,
+              quantidade_anterior: estoqueAnterior,
+              quantidade_posterior: novoEstoque,
+            }),
+          ]);
         }
-      }
+      }));
 
       // Se essa venda veio de um orçamento, marca o orçamento como Concluído — Venda Gerada
       if (linkedOrcamentoId && insertedVenda) {
@@ -5212,7 +5253,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       addPendingOrder(order);
     }
     
-    await loadSalesHistory();
+    // Adiciona a venda recem criada localmente (usa o id/dados reais vindos do banco)
+    // em vez de recarregar a tabela inteira, que fica lenta conforme o historico cresce
+    if (insertedVenda) {
+      const novaVendaMapeada = mapVendaRow(insertedVenda);
+      setAllSalesHistory(prev => [novaVendaMapeada, ...prev]);
+      const inicioHoje = new Date();
+      inicioHoje.setHours(0, 0, 0, 0);
+      if (new Date(novaVendaMapeada.createdAt) >= inicioHoje) {
+        setSalesToday(prev => [novaVendaMapeada, ...prev]);
+      }
+    }
     setLastFinalizedOrder(order);
     setIsSuccessModalOpen(true);
     setIsPaymentModalOpen(false);
@@ -5222,6 +5273,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setDownPayment(0);
     setOrderObservacoes('');
     setScheduledFor('');
+    setSaleDiscountValue(0);
     resetPaymentEntries();
   };
 
@@ -5448,7 +5500,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                         {cart.map((item, idx) => {
                            const itemSubtotal = item.area ? item.price * item.area * item.quantity : item.price * item.quantity;
                            return (
-                              <div key={idx} className="py-1 px-1.5 sm:py-1.5 sm:px-2 flex items-center justify-between hover:bg-slate-900/5 rounded-lg transition-all group">
+                              <div key={idx} className="py-1 px-1.5 sm:py-1.5 sm:px-2 hover:bg-slate-900/5 rounded-lg transition-all group">
+                              <div className="flex items-center justify-between">
                                  <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
                                     <span className="text-[8px] sm:text-[9px] font-black text-slate-900 bg-slate-900/10 px-1 py-0.5 sm:px-1.5 rounded-md min-w-[20px] sm:min-w-[24px] text-center shrink-0">
                                        {item.quantity}x
@@ -5490,12 +5543,21 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                     </div>
 
                                     <button
+                                       onClick={() => setObsItemIndex(obsItemIndex === idx ? null : idx)}
+                                       className={cn("p-0.5 sm:p-1 transition-colors cursor-pointer", item.observacao ? "text-amber-600" : "text-slate-400 hover:text-primary-600")}
+                                       title="Observação do item"
+                                    >
+                                       <MessageSquare size={11} className="sm:hidden" />
+                                       <MessageSquare size={12} className="hidden sm:block" />
+                                    </button>
+
+                                    <button
                                        onClick={() => item.descontoValor ? removeItemDiscount(idx) : openItemDiscount(idx)}
                                        className={cn(
                                          "p-0.5 sm:p-1 transition-colors cursor-pointer",
                                          item.descontoValor ? "text-emerald-600 hover:text-rose-600" : "text-slate-400 hover:text-primary-600"
                                        )}
-                                       title={item.descontoValor ? "Remover desconto" : "Aplicar desconto neste item"}
+                                       title={item.descontoValor ? "Remover desconto" : "Desconto / editar preço"}
                                     >
                                        <Percent size={11} className="sm:hidden" />
                                        <Percent size={12} className="hidden sm:block" />
@@ -5514,6 +5576,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                        <Trash2 size={12} className="hidden sm:block" />
                                     </button>
                                  </div>
+                              </div>
+                              {(obsItemIndex === idx || item.observacao) && (
+                                <input
+                                  value={item.observacao || ''}
+                                  onChange={(e) => updateItemObservacao(idx, e.target.value)}
+                                  onFocus={() => setObsItemIndex(idx)}
+                                  placeholder="Observação deste item (ex: cor, acabamento, pedido do cliente)..."
+                                  className="w-full mt-1 h-6 bg-amber-50 border border-amber-200 rounded-md px-2 text-[8px] sm:text-[9px] text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-amber-400"
+                                />
+                              )}
                               </div>
                            );
                         })}
@@ -6791,9 +6863,24 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  </Button>
               </div>
 
+              {!settlingOrder && (
+                <div className="flex items-center gap-2 px-1">
+                   <label className="text-[7px] sm:text-[8px] font-black text-white/40 uppercase tracking-widest shrink-0">Desconto na Venda (R$)</label>
+                   <input
+                     type="number"
+                     step="any"
+                     min={0}
+                     value={saleDiscountValue || ''}
+                     onChange={(e) => setSaleDiscountValue(Math.max(0, Number(e.target.value) || 0))}
+                     placeholder="0,00"
+                     className="flex-1 h-7 bg-white/5 border border-white/10 rounded-lg px-2 text-[10px] text-white focus:outline-none focus:border-primary-500"
+                   />
+                </div>
+              )}
+
               <div className="p-2 sm:p-2.5 bg-slate-900 rounded-xl border border-white/5 flex justify-between items-center px-3 sm:px-4">
                  <div>
-                    <p className="text-[7px] sm:text-[8px] font-black text-white/30 uppercase tracking-widest leading-none mb-0.5">Total a Pagar</p>
+                    <p className="text-[7px] sm:text-[8px] font-black text-white/30 uppercase tracking-widest leading-none mb-0.5">Total a Pagar{saleDiscountValue > 0 ? ` (com desconto de R$ ${saleDiscountValue.toFixed(2).replace('.', ',')})` : ''}</p>
                     <p className="text-sm sm:text-lg md:text-xl font-black text-white tracking-tighter italic leading-none">R$ {paymentModalTotal.toFixed(2).replace('.', ',')}</p>
                  </div>
                  <Badge variant="primary" className="bg-emerald-500/10 text-emerald-400 border-none font-black text-[8px] sm:text-[9px] tracking-widest uppercase py-0.5 px-2">Conferido</Badge>
@@ -6964,6 +7051,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                  )}
                               </div>
                             )}
+                            {newPaymentMethod === 'cartao_debito' && debitCardFeePercent > 0 && (() => {
+                               const rawInput = newPaymentInput === '' ? 0 : Number(newPaymentInput);
+                               const baseValue = newPaymentMode === 'percentual' ? (total * rawInput) / 100 : rawInput;
+                               const finalValue = baseValue * (1 + debitCardFeePercent / 100);
+                               return baseValue > 0 ? (
+                                 <div className="w-full max-w-xs p-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg flex justify-between items-center">
+                                    <span className="text-[7.5px] font-black text-amber-400 uppercase tracking-wider">Total Com Taxa ({debitCardFeePercent}%)</span>
+                                    <span className="text-xs font-black text-white">R$ {finalValue.toFixed(2).replace('.', ',')}</span>
+                                 </div>
+                               ) : null;
+                            })()}
                             {newPaymentMethod === 'cartao_credito' && (() => {
                                const rawInput = newPaymentInput === '' ? 0 : Number(newPaymentInput);
                                const baseValue = newPaymentMode === 'percentual' ? (total * rawInput) / 100 : rawInput;
@@ -7484,25 +7582,28 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
      )}
 
      {discountItemIndex !== null && cart[discountItemIndex] && (
-       <Modal isOpen={discountItemIndex !== null} onClose={() => setDiscountItemIndex(null)} title="Aplicar Desconto no Item" size="sm">
+       <Modal isOpen={discountItemIndex !== null} onClose={() => setDiscountItemIndex(null)} title="Desconto / Preço do Item" size="sm">
          <div className="space-y-4 p-2">
             <p className="text-xs text-white/50">Item: <span className="text-white font-bold">{cart[discountItemIndex].name}</span></p>
             <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 gap-1">
-               <button onClick={() => setDiscountMode('percentual')} className={cn("flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all", discountMode === 'percentual' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Percentual (%)</button>
-               <button onClick={() => setDiscountMode('valor')} className={cn("flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all", discountMode === 'valor' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Valor Fixo (R$)</button>
+               <button onClick={() => setDiscountMode('percentual')} className={cn("flex-1 py-2 rounded-lg text-[9px] font-black uppercase transition-all", discountMode === 'percentual' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Desc. %</button>
+               <button onClick={() => setDiscountMode('valor')} className={cn("flex-1 py-2 rounded-lg text-[9px] font-black uppercase transition-all", discountMode === 'valor' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Desc. R$</button>
+               <button onClick={() => setDiscountMode('preco')} className={cn("flex-1 py-2 rounded-lg text-[9px] font-black uppercase transition-all", discountMode === 'preco' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Editar Preço</button>
             </div>
             <Input
-              label={discountMode === 'percentual' ? 'Desconto (%)' : 'Desconto (R$)'}
+              label={discountMode === 'percentual' ? 'Desconto (%)' : discountMode === 'valor' ? 'Desconto (R$)' : 'Novo Preço (R$)'}
               type="number"
               step="any"
               autoFocus
               value={discountInput}
               onChange={(e: any) => setDiscountInput(e.target.value === '' ? '' : Number(e.target.value))}
             />
-            <p className="text-[10px] text-white/30">O desconto afeta só esse item nessa venda — o preço cadastrado do produto não muda.</p>
+            <p className="text-[10px] text-white/30">
+              {discountMode === 'preco' ? 'Define o preço só nesse item, nessa venda — o preço cadastrado do produto no Estoque não muda.' : 'O desconto afeta só esse item nessa venda — o preço cadastrado do produto não muda.'}
+            </p>
             <div className="flex justify-end gap-3 pt-1">
                <Button variant="ghost" onClick={() => setDiscountItemIndex(null)}>Cancelar</Button>
-               <Button className="bg-primary-500 text-slate-900 border-none" onClick={applyItemDiscount}>Aplicar Desconto</Button>
+               <Button className="bg-primary-500 text-slate-900 border-none" onClick={applyItemDiscount}>{discountMode === 'preco' ? 'Salvar Preço' : 'Aplicar Desconto'}</Button>
             </div>
          </div>
        </Modal>
@@ -7729,30 +7830,73 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
          isOpen={isQuickProductOpen}
          onClose={() => setIsQuickProductOpen(false)}
          title="Cadastrar Produto"
-         size="sm"
+         size="md"
        >
-         <div className="space-y-4 p-2">
+         <div className="space-y-4 p-2 max-h-[70vh] overflow-y-auto custom-scrollbar">
             <Input label="Nome do Produto *" autoFocus value={quickProductForm.name} onChange={(e: any) => setQuickProductForm({ ...quickProductForm, name: e.target.value })} />
             <div className="grid grid-cols-2 gap-3">
                <Input label="Código" value={quickProductForm.code} onChange={(e: any) => setQuickProductForm({ ...quickProductForm, code: e.target.value })} />
                <Input label="Categoria" value={quickProductForm.category} onChange={(e: any) => setQuickProductForm({ ...quickProductForm, category: e.target.value })} />
             </div>
-            <div className="space-y-1">
-               <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Medida</label>
-               <select
-                 value={quickProductForm.unit}
-                 onChange={(e) => setQuickProductForm({ ...quickProductForm, unit: e.target.value as any })}
-                 className="w-full h-11 bg-white/5 border border-white/10 rounded-xl px-3 text-sm text-white focus:outline-none focus:border-primary-500 cursor-pointer"
-               >
-                 <option value="un" className="bg-slate-900">Unidade</option>
-                 <option value="m2" className="bg-slate-900">Metro Quadrado (m²)</option>
-               </select>
+            <div className="grid grid-cols-2 gap-3">
+               <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Medida</label>
+                  <select
+                    value={quickProductForm.unit}
+                    onChange={(e) => setQuickProductForm({ ...quickProductForm, unit: e.target.value as any })}
+                    className="w-full h-11 bg-white/5 border border-white/10 rounded-xl px-3 text-sm text-white focus:outline-none focus:border-primary-500 cursor-pointer"
+                  >
+                    <option value="un" className="bg-slate-900">Unidade</option>
+                    <option value="m2" className="bg-slate-900">Metro Quadrado (m²)</option>
+                    <option value="etiqueta" className="bg-slate-900">Etiqueta Adesiva (cálculo especial)</option>
+                  </select>
+               </div>
+               <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Tipo de Item</label>
+                  <select
+                    value={quickProductForm.tipoItem}
+                    onChange={(e) => setQuickProductForm({ ...quickProductForm, tipoItem: e.target.value as any })}
+                    className="w-full h-11 bg-white/5 border border-white/10 rounded-xl px-3 text-sm text-white focus:outline-none focus:border-primary-500 cursor-pointer"
+                  >
+                    <option value="produto" className="bg-slate-900">Produto</option>
+                    <option value="material" className="bg-slate-900">Material</option>
+                    <option value="servico" className="bg-slate-900">Serviço</option>
+                    <option value="acabamento" className="bg-slate-900">Acabamento</option>
+                    <option value="composto" className="bg-slate-900">Produto Composto</option>
+                  </select>
+               </div>
             </div>
+            {(quickProductForm.unit === 'm2' || quickProductForm.unit === 'etiqueta') && (
+              <Input label="Largura do Rolo (m)" type="number" step="any" placeholder="Ex: 1.02" value={quickProductForm.larguraRolo} onChange={(e: any) => setQuickProductForm({ ...quickProductForm, larguraRolo: Number(e.target.value) || 0 })} />
+            )}
             <div className="grid grid-cols-2 gap-3">
                <Input label="Custo (R$)" type="number" step="any" value={quickProductForm.costPrice} onChange={(e: any) => setQuickProductForm({ ...quickProductForm, costPrice: Number(e.target.value) || 0 })} />
                <Input label="Venda (R$)" type="number" step="any" value={quickProductForm.salePrice} onChange={(e: any) => setQuickProductForm({ ...quickProductForm, salePrice: Number(e.target.value) || 0 })} />
             </div>
-            <Input label="Estoque Inicial" type="number" value={quickProductForm.currentStock} onChange={(e: any) => setQuickProductForm({ ...quickProductForm, currentStock: Number(e.target.value) || 0 })} />
+
+            <div className="space-y-1">
+               <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Controlar Estoque?</label>
+               <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 h-11">
+                  <button type="button" onClick={() => setQuickProductForm({ ...quickProductForm, controlaEstoque: true })} className={cn("flex-1 rounded-lg text-xs font-black uppercase transition-all", quickProductForm.controlaEstoque ? "bg-primary-500 text-slate-900" : "text-white/40")}>Sim</button>
+                  <button type="button" onClick={() => setQuickProductForm({ ...quickProductForm, controlaEstoque: false })} className={cn("flex-1 rounded-lg text-xs font-black uppercase transition-all", !quickProductForm.controlaEstoque ? "bg-primary-500 text-slate-900" : "text-white/40")}>Não</button>
+               </div>
+            </div>
+
+            {quickProductForm.controlaEstoque && (
+              <>
+                <div className="grid grid-cols-3 gap-3">
+                   <Input label="Estoque Inicial" type="number" value={quickProductForm.currentStock} onChange={(e: any) => setQuickProductForm({ ...quickProductForm, currentStock: Number(e.target.value) || 0 })} />
+                   <Input label="Estoque Mínimo" type="number" value={quickProductForm.minStock} onChange={(e: any) => setQuickProductForm({ ...quickProductForm, minStock: Number(e.target.value) || 0 })} />
+                   <Input label="Estoque Máximo" type="number" value={quickProductForm.estoqueMaximo} onChange={(e: any) => setQuickProductForm({ ...quickProductForm, estoqueMaximo: Number(e.target.value) || 0 })} />
+                </div>
+                <Input label="Localização" placeholder="Ex: Prateleira A2" value={quickProductForm.localizacao} onChange={(e: any) => setQuickProductForm({ ...quickProductForm, localizacao: e.target.value })} />
+              </>
+            )}
+
+            <div>
+               <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block mb-1">Descrição</label>
+               <textarea rows={2} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-primary-500" value={quickProductForm.descricao} onChange={(e) => setQuickProductForm({ ...quickProductForm, descricao: e.target.value })} />
+            </div>
 
             <div className="flex justify-end gap-3 pt-1">
                <Button variant="ghost" onClick={() => setIsQuickProductOpen(false)}>Cancelar</Button>
@@ -9684,6 +9828,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
   const [creditCardFees, setCreditCardFees] = useState<{ installments: number; feePercent: number }[]>(
     Array.from({ length: 12 }, (_, i) => ({ installments: i + 1, feePercent: 0 }))
   );
+  const [debitCardFeePercent, setDebitCardFeePercent] = useState(0);
   const [savingCardFees, setSavingCardFees] = useState(false);
 
   useEffect(() => {
@@ -9700,6 +9845,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
           data.credit_card_fees.forEach((f: any) => { byInstallment[f.installments] = f.feePercent; });
           setCreditCardFees(Array.from({ length: 12 }, (_, i) => ({ installments: i + 1, feePercent: byInstallment[i + 1] ?? 0 })));
         }
+        setDebitCardFeePercent(Number(data.debit_card_fee_percent) || 0);
       } else if (currentCompany?.name) {
         setPixBeneficiary(currentCompany.name);
       }
@@ -9747,12 +9893,13 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
       const { error } = await supabase.from('configuracoes').upsert({
         company_id: 'rafa-arts',
         credit_card_fees: creditCardFees,
+        debit_card_fee_percent: debitCardFeePercent,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'company_id' });
       if (error) throw error;
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro ao salvar taxas de cartão:', err);
-      alert('Não foi possível salvar.');
+      alert(`Não foi possível salvar: ${err?.message || 'erro desconhecido'}`);
     } finally {
       setSavingCardFees(false);
     }
@@ -9770,9 +9917,9 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
         updated_at: new Date().toISOString(),
       }, { onConflict: 'company_id' });
       if (error) throw error;
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro ao salvar configuração PIX:', err);
-      alert('Não foi possível salvar a configuração PIX.');
+      alert(`Não foi possível salvar a configuração PIX: ${err?.message || 'erro desconhecido'}`);
     } finally {
       setSavingPix(false);
     }
@@ -9855,9 +10002,9 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
       });
       alert('Dados e senha do usuário atualizados no repositório!');
       setEditingUser(null);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro ao salvar permissões:', err);
-      alert('Erro ao salvar permissões do usuário.');
+      alert(`Erro ao salvar permissões do usuário: ${err?.message || 'erro desconhecido'}`);
     }
   };
 
@@ -9895,9 +10042,9 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
       setNewUserEmail('');
       setNewUserPassword('');
       setNewUserRole('atendente');
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro ao criar usuário:', err);
-      alert('Erro ao criar usuário no repositório.');
+      alert(`Erro ao criar usuário no repositório: ${err?.message || 'erro desconhecido'}`);
     }
   };
 
@@ -10206,6 +10353,35 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                          </div>
                        ))}
                     </div>
+
+                    <div className="h-px bg-white/10" />
+
+                    <div className="flex items-center gap-4">
+                       <div className="w-12 h-12 rounded-2xl bg-amber-500/20 flex items-center justify-center text-amber-400">
+                          <CreditCard size={24} />
+                       </div>
+                       <div>
+                          <h3 className="text-xl font-bold text-white tracking-tight italic uppercase">Taxa do Cartão de Débito</h3>
+                          <p className="text-xs text-white/30">Taxa (%) somada ao valor quando o pagamento for no débito</p>
+                       </div>
+                    </div>
+                    <div className="max-w-[160px]">
+                       <div className="bg-white/5 border border-white/10 rounded-xl p-3 space-y-1.5">
+                          <label className="text-[9px] font-black uppercase text-white/40 tracking-wider block">Taxa do Débito</label>
+                          <div className="relative">
+                             <input
+                               type="number"
+                               step="any"
+                               min={0}
+                               value={debitCardFeePercent}
+                               onChange={(e) => setDebitCardFeePercent(e.target.value === '' ? 0 : Number(e.target.value))}
+                               className="w-full h-9 bg-slate-900/60 border border-white/10 rounded-lg px-2 pr-6 text-xs text-white text-right font-bold focus:outline-none focus:border-primary-500"
+                             />
+                             <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-white/30 font-bold">%</span>
+                          </div>
+                       </div>
+                    </div>
+
                     <Button
                       onClick={handleSaveCreditCardFees}
                       disabled={savingCardFees}

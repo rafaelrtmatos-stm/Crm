@@ -22,6 +22,7 @@ export interface SaleOrderItem {
   consumoEstoque?: number; // quantidade real baixada do estoque (m2 ou metro linear, dependendo do produto)
   descontoValor?: number; // desconto em R$ aplicado a esse item especifico (nao altera o preco cadastrado do produto)
   precoOriginal?: number; // preco antes do desconto, guardado para auditoria/exibicao
+  observacao?: string; // observacao livre por item do carrinho
 }
 
 export interface PaymentEntry {
