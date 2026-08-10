@@ -4954,6 +4954,21 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setEtiquetaModalProduct(null);
   };
 
+  // Consumo linear real do rolo: testa as duas orientacoes da peca e usa a dimensao
+  // que sobra como comprimento consumido, aproveitando a largura do rolo ao maximo.
+  // Ex: peca 80x70cm cabe deitada ou em pe num rolo largo -> usa a MENOR medida como comprimento (70cm).
+  // Ex: peca 3m x 0,50m num rolo de 1m -> só cabe de um jeito (0,50m na largura) -> consome os 3m inteiros.
+  const calcularConsumoLinear = (w: number, h: number, larguraRolo?: number): number => {
+    const area = w * h;
+    if (!larguraRolo || larguraRolo <= 0) return area;
+    const cabeComoEsta = w <= larguraRolo;
+    const cabeGirada = h <= larguraRolo;
+    if (cabeComoEsta && cabeGirada) return Math.min(w, h);
+    if (cabeComoEsta) return h;
+    if (cabeGirada) return w;
+    return area / larguraRolo; // nenhuma orientacao cabe — fallback, tela avisa o usuario nesse caso
+  };
+
   const confirmAddDimensionedItem = () => {
     if (!dimensionModalProduct) return;
     const w = dimWidth === '' ? 0 : Number(dimWidth);
@@ -4965,11 +4980,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const area = w * h;
     const dimensions = `${w.toString().replace('.', ',')}x${h.toString().replace('.', ',')}`;
     const product = dimensionModalProduct;
-    // Se o produto tem largura de rolo cadastrada, o consumo fisico do estoque e em metro linear,
-    // nao em m2 — o rolo so pode ser cortado ao longo do comprimento, aproveitando a largura toda.
-    const consumoUnitario = product.larguraRolo && product.larguraRolo > 0
-      ? area / product.larguraRolo
-      : area;
+    let consumoUnitario = area;
+    if (product.larguraRolo && product.larguraRolo > 0) {
+      const rolo = product.larguraRolo;
+      const cabeComoEsta = w <= rolo;
+      const cabeGirada = h <= rolo;
+      if (!cabeComoEsta && !cabeGirada) {
+        alert(`Atenção: nem ${w}m nem ${h}m cabem na largura do rolo (${rolo}m) em nenhuma orientação. Confira as medidas.`);
+      }
+      consumoUnitario = calcularConsumoLinear(w, h, rolo);
+    }
     setCart(prev => {
       const existing = prev.find(item => item.productId === product.id && item.dimensions === dimensions);
       if (existing) {
@@ -7820,12 +7840,26 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  <span>Valor unitário (m²)</span>
                  <span className="font-mono text-white">R$ {dimensionModalProduct.price.toFixed(2).replace('.', ',')}</span>
                </div>
-               {dimensionModalProduct.larguraRolo && dimensionModalProduct.larguraRolo > 0 && (
-                 <div className="flex justify-between text-xs text-amber-300 pt-1 border-t border-white/5">
-                    <span>Consumo do rolo ({dimensionModalProduct.larguraRolo}m largura)</span>
-                    <span className="font-mono font-bold">{((Number(dimWidth) * Number(dimHeight)) / dimensionModalProduct.larguraRolo * selectedQty).toFixed(2).replace('.', ',')} m linear</span>
-                 </div>
-               )}
+               {dimensionModalProduct.larguraRolo && dimensionModalProduct.larguraRolo > 0 && (() => {
+                  const w = Number(dimWidth);
+                  const h = Number(dimHeight);
+                  const rolo = dimensionModalProduct.larguraRolo!;
+                  const consumo = calcularConsumoLinear(w, h, rolo);
+                  const cabeComoEsta = w <= rolo;
+                  const cabeGirada = h <= rolo;
+                  const naoCabeEmNenhuma = !cabeComoEsta && !cabeGirada;
+                  return (
+                    <div className="pt-1 border-t border-white/5 space-y-1">
+                       <div className="flex justify-between text-xs text-amber-300">
+                          <span>Consumo do rolo ({rolo}m largura)</span>
+                          <span className="font-mono font-bold">{(consumo * selectedQty).toFixed(2).replace('.', ',')} m linear</span>
+                       </div>
+                       {naoCabeEmNenhuma && (
+                         <p className="text-[9px] text-rose-400">⚠ Nenhuma orientação cabe na largura do rolo — confira as medidas.</p>
+                       )}
+                    </div>
+                  );
+               })()}
                <div className="flex justify-between text-sm pt-1 border-t border-white/5">
                  <span className="text-emerald-400 font-bold">Subtotal</span>
                  <span className="font-mono font-black text-emerald-400">R$ {(Number(dimWidth) * Number(dimHeight) * dimensionModalProduct.price * selectedQty).toFixed(2).replace('.', ',')}</span>
