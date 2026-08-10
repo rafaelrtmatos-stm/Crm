@@ -4734,7 +4734,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const [products, setProducts] = useState<Product[]>([]);
   const loadProducts = async () => {
-    const { data } = await supabase.from('produtos').select('*').or('is_active.is.null,is_active.eq.true').order('name', { ascending: true });
+    const { data } = await supabase.from('produtos').select('*').order('name', { ascending: true });
     setProducts((data || []).map((p: any) => ({
       id: p.id,
       name: p.name,
@@ -5330,7 +5330,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       setSalesToday(allSales.filter(sale => new Date(sale.createdAt) >= startOfDay));
 
       // Reforca a atualizacao do catalogo de produtos tambem (alem do tempo real)
-      const { data: produtosData } = await supabase.from('produtos').select('*').or('is_active.is.null,is_active.eq.true').order('name', { ascending: true });
+      const { data: produtosData } = await supabase.from('produtos').select('*').order('name', { ascending: true });
       setProducts((produtosData || []).map((p: any) => ({
         id: p.id,
         name: p.name,
@@ -9308,6 +9308,13 @@ export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved }: {
             <div className="flex bg-[#1a2333] p-1 rounded-xl border border-white/10 h-12">
                <button type="button" onClick={() => setFormData({ ...formData, controlaEstoque: true })} className={cn("flex-1 rounded-lg text-xs font-black uppercase transition-all", formData.controlaEstoque !== false ? "bg-primary-500 text-slate-900" : "text-white/40")}>Sim</button>
                <button type="button" onClick={() => setFormData({ ...formData, controlaEstoque: false })} className={cn("flex-1 rounded-lg text-xs font-black uppercase transition-all", formData.controlaEstoque === false ? "bg-primary-500 text-slate-900" : "text-white/40")}>Não</button>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">STATUS DO PRODUTO</p>
+            <div className="flex bg-[#1a2333] p-1 rounded-xl border border-white/10 h-12">
+               <button type="button" onClick={() => setFormData({ ...formData, isActive: true })} className={cn("flex-1 rounded-lg text-xs font-black uppercase transition-all", formData.isActive !== false ? "bg-emerald-500 text-slate-900" : "text-white/40")}>Ativo</button>
+               <button type="button" onClick={() => setFormData({ ...formData, isActive: false })} className={cn("flex-1 rounded-lg text-xs font-black uppercase transition-all", formData.isActive === false ? "bg-rose-500 text-white" : "text-white/40")}>Inativo</button>
             </div>
           </div>
 
