@@ -835,7 +835,7 @@ export default function App() {
   };
 
   if (!user) return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-[#050508] p-4 sm:p-6 relative overflow-hidden select-none">
+    <div className="min-h-screen w-full flex items-center justify-center bg-[#050508] p-4 sm:p-6 relative overflow-y-auto select-none">
       {/* Background Red Glow & Diagonal Accents */}
       <div className="absolute top-0 left-0 w-full h-full pointer-events-none overflow-hidden">
         {/* Top-left red glow */}
