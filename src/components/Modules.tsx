@@ -3457,6 +3457,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [etiquetaInputMode, setEtiquetaInputMode] = useState<'quantidade' | 'metros' | 'valor'>('quantidade');
   const [dimWidth, setDimWidth] = useState<number | ''>('');
   const [dimHeight, setDimHeight] = useState<number | ''>('');
+  const [dimLarguraMaterial, setDimLarguraMaterial] = useState<number>(0);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [settlingOrder, setSettlingOrder] = useState<SaleOrder | null>(null);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
@@ -4881,6 +4882,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       setDimensionModalProduct(product);
       setDimWidth('');
       setDimHeight('');
+      setDimLarguraMaterial(product.larguraRolo || 0);
       return;
     }
     if (product.unitType === 'etiqueta') {
@@ -4988,7 +4990,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     return area / larguraRolo; // nenhuma orientacao cabe — fallback, tela avisa o usuario nesse caso
   };
 
-  const confirmAddDimensionedItem = () => {
+  const confirmAddDimensionedItem = async () => {
     if (!dimensionModalProduct) return;
     const w = dimWidth === '' ? 0 : Number(dimWidth);
     const h = dimHeight === '' ? 0 : Number(dimHeight);
@@ -5000,14 +5002,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const dimensions = `${w.toString().replace('.', ',')}x${h.toString().replace('.', ',')}`;
     const product = dimensionModalProduct;
     let consumoUnitario = area;
-    if (product.larguraRolo && product.larguraRolo > 0) {
-      const rolo = product.larguraRolo;
+    const rolo = dimLarguraMaterial || product.larguraRolo || 0;
+    if (rolo > 0) {
       const cabeComoEsta = w <= rolo;
       const cabeGirada = h <= rolo;
       if (!cabeComoEsta && !cabeGirada) {
-        alert(`Atenção: nem ${w}m nem ${h}m cabem na largura do rolo (${rolo}m) em nenhuma orientação. Confira as medidas.`);
+        alert(`Atenção: nem ${w}m nem ${h}m cabem na largura do material (${rolo}m) em nenhuma orientação. Confira as medidas.`);
       }
       consumoUnitario = calcularConsumoLinear(w, h, rolo);
+    }
+    // Se a largura do material foi mudada, salva como novo padrao pra proxima vez
+    if (dimLarguraMaterial && dimLarguraMaterial !== product.larguraRolo) {
+      await supabase.from('produtos').update({ largura_rolo: dimLarguraMaterial }).eq('id', product.id);
     }
     setCart(prev => {
       const existing = prev.find(item => item.productId === product.id && item.dimensions === dimensions);
@@ -7870,6 +7876,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
              </div>
            </div>
 
+           <Input
+             label="Largura do Material (m)"
+             type="number"
+             step="any"
+             value={dimLarguraMaterial}
+             onChange={(e: any) => setDimLarguraMaterial(Number(e.target.value) || 0)}
+           />
+           <p className="text-[9px] text-white/30 -mt-3">Vem pré-preenchida com a largura cadastrada do material — pode editar aqui, e o novo valor fica salvo pra próxima vez.</p>
+
            {dimWidth !== '' && dimHeight !== '' && Number(dimWidth) > 0 && Number(dimHeight) > 0 && (
              <div className="bg-slate-900/60 rounded-2xl border border-white/10 p-4 space-y-1">
                <div className="flex justify-between text-xs text-white/50">
@@ -7880,10 +7895,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  <span>Valor unitário (m²)</span>
                  <span className="font-mono text-white">R$ {dimensionModalProduct.price.toFixed(2).replace('.', ',')}</span>
                </div>
-               {dimensionModalProduct.larguraRolo && dimensionModalProduct.larguraRolo > 0 && (() => {
+               {dimLarguraMaterial > 0 && (() => {
                   const w = Number(dimWidth);
                   const h = Number(dimHeight);
-                  const rolo = dimensionModalProduct.larguraRolo!;
+                  const rolo = dimLarguraMaterial;
                   const consumo = calcularConsumoLinear(w, h, rolo);
                   const cabeComoEsta = w <= rolo;
                   const cabeGirada = h <= rolo;
@@ -7891,11 +7906,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   return (
                     <div className="pt-1 border-t border-white/5 space-y-1">
                        <div className="flex justify-between text-xs text-amber-300">
-                          <span>Consumo do rolo ({rolo}m largura)</span>
+                          <span>Consumo do material ({rolo}m largura)</span>
                           <span className="font-mono font-bold">{(consumo * selectedQty).toFixed(2).replace('.', ',')} m linear</span>
                        </div>
                        {naoCabeEmNenhuma && (
-                         <p className="text-[9px] text-rose-400">⚠ Nenhuma orientação cabe na largura do rolo — confira as medidas.</p>
+                         <p className="text-[9px] text-rose-400">⚠ Nenhuma orientação cabe na largura do material — confira as medidas.</p>
                        )}
                     </div>
                   );
