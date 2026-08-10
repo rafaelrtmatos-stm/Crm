@@ -3458,6 +3458,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [dimWidth, setDimWidth] = useState<number | ''>('');
   const [dimHeight, setDimHeight] = useState<number | ''>('');
   const [dimLarguraMaterial, setDimLarguraMaterial] = useState<number>(0);
+
+  // Insulfilm: modal proprio pra aproveitamento entre varias pecas da mesma nota (corte fisico do rolo)
+  const [insulfilmModalProduct, setInsulfilmModalProduct] = useState<Product | null>(null);
+  const [insulfilmLarguraMaterial, setInsulfilmLarguraMaterial] = useState<number>(1.5);
+  const [insulfilmPecas, setInsulfilmPecas] = useState<{ id: string; largura: number; altura: number }[]>([]);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [settlingOrder, setSettlingOrder] = useState<SaleOrder | null>(null);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
@@ -4878,6 +4883,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
 
   const addToCart = (product: Product) => {
+    if (product.unitType === 'm2' && product.name.toUpperCase().includes('INSULFILM')) {
+      setInsulfilmModalProduct(product);
+      setInsulfilmLarguraMaterial(product.larguraRolo || 1.5);
+      setInsulfilmPecas([{ id: 'p1', largura: 0, altura: 0 }]);
+      return;
+    }
     if (product.unitType === 'm2') {
       setDimensionModalProduct(product);
       setDimWidth('');
@@ -4914,17 +4925,21 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const larguraRoloCm = (larguraMaterial || product.larguraRolo || 1) * 100;
     if (largura <= 0 || altura <= 0 || larguraRoloCm <= 0) return null;
 
-    // Quantas etiquetas cabem por metro linear do rolo, testando as duas orientacoes
-    // (normal e rotacionada 90 graus) e usando a que da mais unidades por metro (melhor aproveitamento)
+    // Quantas etiquetas cabem por metro linear do material, testando as duas orientacoes
+    // (normal e rotacionada 90 graus) e usando a que da mais unidades por metro (melhor aproveitamento).
+    // IMPORTANTE: tanto as colunas (largura) quanto as linhas (por metro de comprimento) sao
+    // arredondadas pra baixo — nao da pra imprimir etiqueta fracionada, entao 100/8=12,5 vira 12, nao 12,5.
     const porFileiraA = Math.max(1, Math.floor(larguraRoloCm / largura));
-    const unidadesPorMetroA = porFileiraA * (100 / altura);
+    const linhasPorMetroA = Math.max(1, Math.floor(100 / altura));
+    const unidadesPorMetroA = porFileiraA * linhasPorMetroA;
 
     const porFileiraB = Math.max(1, Math.floor(larguraRoloCm / altura));
-    const unidadesPorMetroB = porFileiraB * (100 / largura);
+    const linhasPorMetroB = Math.max(1, Math.floor(100 / largura));
+    const unidadesPorMetroB = porFileiraB * linhasPorMetroB;
 
     const usarB = unidadesPorMetroB > unidadesPorMetroA;
     const porFileira = usarB ? porFileiraB : porFileiraA;
-    const unidadesPorMetro = usarB ? unidadesPorMetroB : unidadesPorMetroA;
+    const alturaEfetiva = usarB ? largura : altura; // dimensao que determina o comprimento gasto do material por linha
 
     // Regra de 3: a partir do campo que o usuario preencheu (quantidade, metros ou valor),
     // calcula os outros dois automaticamente
@@ -4935,23 +4950,26 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     if (etiquetaInputMode === 'metros') {
       metrosLineares = etiquetaForm.metrosInput;
       if (metrosLineares <= 0) return null;
-      quantidade = Math.round(metrosLineares * unidadesPorMetro);
+      const linhas = Math.floor((metrosLineares * 100) / alturaEfetiva);
+      quantidade = linhas * porFileira;
     } else if (etiquetaInputMode === 'valor') {
       const valorInput = etiquetaForm.valorInput;
       if (valorInput <= 0 || product.price <= 0) return null;
       metrosLineares = valorInput / product.price;
-      quantidade = Math.round(metrosLineares * unidadesPorMetro);
+      const linhas = Math.floor((metrosLineares * 100) / alturaEfetiva);
+      quantidade = linhas * porFileira;
     } else {
       quantidade = etiquetaForm.quantidade;
       if (quantidade <= 0) return null;
-      metrosLineares = quantidade / unidadesPorMetro;
+      const fileiras = Math.ceil(quantidade / porFileira);
+      metrosLineares = (fileiras * alturaEfetiva) / 100;
     }
 
     const valorCalculado = metrosLineares * product.price;
     const valorFinal = Math.max(valorCalculado, IMPRESSAO_MINIMA);
     const fileiras = Math.ceil(quantidade / porFileira);
 
-    return { porFileira, fileiras, metrosLineares, valorCalculado, valorFinal, rotacionada: usarB, quantidade, unidadesPorMetro };
+    return { porFileira, fileiras, metrosLineares, valorCalculado, valorFinal, rotacionada: usarB, quantidade, unidadesPorMetro: usarB ? unidadesPorMetroB : unidadesPorMetroA };
   };
 
   const confirmAddEtiquetaItem = async () => {
@@ -4973,6 +4991,71 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       await supabase.from('produtos').update({ largura_rolo: larguraMaterial }).eq('id', etiquetaModalProduct.id);
     }
     setEtiquetaModalProduct(null);
+  };
+
+  // Insulfilm: aproveitamento entre TODAS as pecas da mesma nota, respeitando o corte fisico do rolo.
+  // Agrupa pecas lado a lado dentro da largura do rolo (bin-packing guloso), e o comprimento
+  // consumido por corte e o MAIOR comprimento entre as pecas daquele corte.
+  const otimizarCortesInsulfilm = (pecas: { largura: number; altura: number }[], larguraRoloM: number) => {
+    const validas = pecas.filter(p => p.largura > 0 && p.altura > 0);
+    if (validas.length === 0 || larguraRoloM <= 0) return null;
+
+    // Ordena da peca mais larga pra mais estreita — ajuda a encaixar melhor (guloso)
+    const ordenadas = [...validas].sort((a, b) => b.largura - a.largura);
+    const cortes: { pecas: { largura: number; altura: number }[]; larguraUsada: number; comprimento: number }[] = [];
+
+    for (const peca of ordenadas) {
+      if (peca.largura > larguraRoloM + 0.0001) {
+        // Peca mais larga que o proprio rolo — nao cabe de jeito nenhum, corte dedicado mesmo assim (avisa na tela)
+        cortes.push({ pecas: [peca], larguraUsada: peca.largura, comprimento: peca.altura });
+        continue;
+      }
+      // Tenta encaixar num corte ja aberto que ainda tenha espaco na largura
+      let encaixou = false;
+      for (const corte of cortes) {
+        if (corte.larguraUsada + peca.largura <= larguraRoloM + 0.0001) {
+          corte.pecas.push(peca);
+          corte.larguraUsada += peca.largura;
+          corte.comprimento = Math.max(corte.comprimento, peca.altura);
+          encaixou = true;
+          break;
+        }
+      }
+      if (!encaixou) {
+        cortes.push({ pecas: [peca], larguraUsada: peca.largura, comprimento: peca.altura });
+      }
+    }
+
+    const metrosLineares = cortes.reduce((s, c) => s + c.comprimento, 0);
+    const areaUtilizada = validas.reduce((s, p) => s + p.largura * p.altura, 0);
+    const areaRetirada = cortes.reduce((s, c) => s + larguraRoloM * c.comprimento, 0);
+    const desperdicio = Math.max(0, areaRetirada - areaUtilizada);
+    const aproveitamento = areaRetirada > 0 ? (areaUtilizada / areaRetirada) * 100 : 0;
+
+    return { cortes, metrosLineares, areaUtilizada, areaRetirada, desperdicio, aproveitamento };
+  };
+
+  const confirmAddInsulfilmItem = async () => {
+    if (!insulfilmModalProduct) return;
+    const calc = otimizarCortesInsulfilm(insulfilmPecas, insulfilmLarguraMaterial);
+    if (!calc) { alert('Informe largura e altura válidas de pelo menos uma peça.'); return; }
+    const IMPRESSAO_MINIMA = 30;
+    const valorCalculado = calc.areaRetirada * insulfilmModalProduct.price;
+    const valorFinal = Math.max(valorCalculado, IMPRESSAO_MINIMA);
+    const pecasLabel = insulfilmPecas.filter(p => p.largura > 0 && p.altura > 0).map(p => `${p.largura}x${p.altura}`).join(' + ');
+    setCart(prev => [...prev, {
+      productId: insulfilmModalProduct.id,
+      name: insulfilmModalProduct.name,
+      price: valorFinal,
+      quantity: 1,
+      dimensions: `${pecasLabel} (${calc.cortes.length} corte${calc.cortes.length > 1 ? 's' : ''})`,
+      area: calc.areaUtilizada,
+      consumoEstoque: calc.metrosLineares,
+    }]);
+    if (insulfilmLarguraMaterial && insulfilmLarguraMaterial !== insulfilmModalProduct.larguraRolo) {
+      await supabase.from('produtos').update({ largura_rolo: insulfilmLarguraMaterial }).eq('id', insulfilmModalProduct.id);
+    }
+    setInsulfilmModalProduct(null);
   };
 
   // Consumo linear real do rolo: testa as duas orientacoes da peca e usa a dimensao
@@ -7763,6 +7846,106 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
          </div>
        </Modal>
      )}
+
+     {insulfilmModalProduct && (() => {
+       const calc = otimizarCortesInsulfilm(insulfilmPecas, insulfilmLarguraMaterial);
+       const IMPRESSAO_MINIMA = 30;
+       const valorCalculado = calc ? calc.areaRetirada * insulfilmModalProduct.price : 0;
+       const valorFinal = Math.max(valorCalculado, IMPRESSAO_MINIMA);
+       const addPeca = () => setInsulfilmPecas(prev => [...prev, { id: 'p' + Date.now(), largura: 0, altura: 0 }]);
+       const removePeca = (id: string) => setInsulfilmPecas(prev => prev.filter(p => p.id !== id));
+       const updatePeca = (id: string, field: 'largura' | 'altura', value: number) => setInsulfilmPecas(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p));
+       return (
+         <Modal isOpen={!!insulfilmModalProduct} onClose={() => setInsulfilmModalProduct(null)} title="Metragem — Película Insulfilm" size="md">
+           <div className="space-y-4 p-2 max-h-[75vh] overflow-y-auto custom-scrollbar">
+              <Input
+                label="Largura do Rolo (m)"
+                type="number"
+                step="any"
+                value={insulfilmLarguraMaterial}
+                onChange={(e: any) => setInsulfilmLarguraMaterial(Number(e.target.value) || 0)}
+              />
+              <p className="text-[9px] text-white/30 -mt-2">Vem pré-preenchida com a largura cadastrada — pode editar aqui, e o novo valor fica salvo pra próxima vez.</p>
+
+              <div className="space-y-2">
+                 <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-black uppercase text-white/60 tracking-wider">Peças (vidros) desta nota</label>
+                    <button onClick={addPeca} className="text-[9px] font-black uppercase text-primary-400 hover:text-primary-300 flex items-center gap-1">
+                       <Plus size={12} /> Adicionar Peça
+                    </button>
+                 </div>
+                 {insulfilmPecas.map((p, i) => (
+                   <div key={p.id} className="flex items-center gap-2">
+                      <span className="text-[9px] font-black text-white/30 w-10 shrink-0">Peça {i + 1}</span>
+                      <input type="number" step="any" placeholder="Largura (m)" value={p.largura || ''} onChange={(e) => updatePeca(p.id, 'largura', Number(e.target.value) || 0)} className="flex-1 h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500" />
+                      <span className="text-white/20 text-xs">×</span>
+                      <input type="number" step="any" placeholder="Altura (m)" value={p.altura || ''} onChange={(e) => updatePeca(p.id, 'altura', Number(e.target.value) || 0)} className="flex-1 h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500" />
+                      {insulfilmPecas.length > 1 && (
+                        <button onClick={() => removePeca(p.id)} className="text-rose-400 hover:text-rose-300 shrink-0"><Trash2 size={14} /></button>
+                      )}
+                   </div>
+                 ))}
+              </div>
+
+              {calc ? (
+                <div className="space-y-2">
+                   <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-3 space-y-1">
+                      <p className="text-[9px] font-black uppercase text-amber-300">Consumo do Rolo</p>
+                      <div className="flex justify-between text-xs text-white/70"><span>Largura do rolo</span><span className="font-mono font-bold text-white">{insulfilmLarguraMaterial.toFixed(2).replace('.', ',')} m</span></div>
+                      <div className="flex justify-between text-xs text-white/70"><span>Consumo linear</span><span className="font-mono font-bold text-white">{calc.metrosLineares.toFixed(2).replace('.', ',')} m</span></div>
+                      <div className="flex justify-between text-xs text-white/70"><span>Área retirada do rolo</span><span className="font-mono font-bold text-white">{calc.areaRetirada.toFixed(2).replace('.', ',')} m²</span></div>
+                   </div>
+
+                   <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-3 space-y-1">
+                      <p className="text-[9px] font-black uppercase text-emerald-300">Aproveitamento — {calc.cortes.length} corte{calc.cortes.length > 1 ? 's' : ''}</p>
+                      {calc.cortes.map((c, i) => (
+                        <div key={i} className="flex justify-between text-xs text-white/70">
+                           <span>Corte {i + 1}: {c.pecas.map(p => p.largura.toFixed(2).replace('.', ',')).join(' + ')} m</span>
+                           <span className="font-mono font-bold text-white">{c.comprimento.toFixed(2).replace('.', ',')} m</span>
+                        </div>
+                      ))}
+                      <div className="flex justify-between text-xs pt-1 border-t border-white/5"><span className="text-white/70">Aproveitamento</span><span className="font-mono font-bold text-emerald-400">{calc.aproveitamento.toFixed(2).replace('.', ',')}%</span></div>
+                   </div>
+
+                   <div className="bg-rose-500/10 border border-rose-500/20 rounded-2xl p-3 space-y-1">
+                      <p className="text-[9px] font-black uppercase text-rose-300">Desperdício</p>
+                      <div className="flex justify-between text-xs text-white/70"><span>Área desperdiçada</span><span className="font-mono font-bold text-white">{calc.desperdicio.toFixed(2).replace('.', ',')} m²</span></div>
+                   </div>
+
+                   {calc.desperdicio <= 0.001 ? (
+                     <p className="text-[10px] text-emerald-400 font-bold text-center">✓ SEM DESPERDÍCIO — as peças foram aproveitadas no mesmo corte do rolo.</p>
+                   ) : (
+                     <p className="text-[10px] text-amber-400 font-bold text-center">⚠ Desperdício — sobra de material após o melhor aproveitamento possível.</p>
+                   )}
+                   {calc.cortes.length > 1 && (
+                     <p className="text-[10px] text-white/40 text-center">{calc.cortes.length} cortes necessários — nem todas as peças cabem juntas na largura do rolo.</p>
+                   )}
+
+                   <div className="bg-slate-900/60 rounded-2xl border border-white/10 p-4 space-y-1.5">
+                      {valorFinal > valorCalculado && (
+                        <div className="flex justify-between text-[10px] text-amber-400 pb-1 border-b border-white/5">
+                           <span>Impressão mínima aplicada</span>
+                           <span className="font-mono font-bold">R$ 30,00</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between text-sm">
+                         <span className="text-emerald-400 font-bold">Subtotal (sobre área retirada do rolo)</span>
+                         <span className="font-mono font-black text-emerald-400">R$ {valorFinal.toFixed(2).replace('.', ',')}</span>
+                      </div>
+                   </div>
+                </div>
+              ) : (
+                <p className="text-center text-xs text-white/30 py-4">Informe largura e altura de pelo menos uma peça pra calcular.</p>
+              )}
+
+              <div className="flex justify-end gap-3 pt-1">
+                 <Button variant="ghost" onClick={() => setInsulfilmModalProduct(null)}>Cancelar</Button>
+                 <Button disabled={!calc} className="bg-primary-500 text-slate-900 border-none" onClick={confirmAddInsulfilmItem}>Adicionar ao Carrinho</Button>
+              </div>
+           </div>
+         </Modal>
+       );
+     })()}
 
      {etiquetaModalProduct && (() => {
        const calc = calcularEtiquetas(etiquetaModalProduct);
