@@ -6,7 +6,7 @@ export interface Product {
   code: string;
   price: number;
   stock: number;
-  unitType?: 'unit' | 'm2';
+  unitType?: 'unit' | 'm2' | 'etiqueta';
   tipoItem?: 'produto' | 'material' | 'servico' | 'acabamento' | 'composto';
   larguraRolo?: number;
   controlaEstoque?: boolean;
@@ -20,6 +20,8 @@ export interface SaleOrderItem {
   dimensions?: string; // L x H
   area?: number;
   consumoEstoque?: number; // quantidade real baixada do estoque (m2 ou metro linear, dependendo do produto)
+  descontoValor?: number; // desconto em R$ aplicado a esse item especifico (nao altera o preco cadastrado do produto)
+  precoOriginal?: number; // preco antes do desconto, guardado para auditoria/exibicao
 }
 
 export interface PaymentEntry {
@@ -315,7 +317,7 @@ export interface InventoryItem extends BaseEntity {
   name: string;
   code?: string;
   category?: 'substrato' | 'tinta' | 'acabamento' | 'diversos';
-  unit: 'un' | 'kg' | 'm' | 'm2' | 'rolo' | 'litro';
+  unit: 'un' | 'kg' | 'm' | 'm2' | 'rolo' | 'litro' | 'etiqueta';
   salePrice: number;
   costPrice?: number;
   currentStock: number;

@@ -71,6 +71,7 @@ import {
   ArrowUpWideNarrow,
   ListFilter,
   Link2,
+  Percent,
   FileSpreadsheet,
   ClipboardList,
   CalendarClock,
@@ -3416,6 +3417,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [search, setSearch] = useState('');
   const [selectedQty, setSelectedQty] = useState(1);
   const [dimensionModalProduct, setDimensionModalProduct] = useState<Product | null>(null);
+  const [etiquetaModalProduct, setEtiquetaModalProduct] = useState<Product | null>(null);
+  const emptyEtiquetaForm = { quantidade: 100, largura: 8, altura: 8, material: '', formato: 'quadrada' as 'redonda' | 'quadrada' | 'retangular' | 'personalizado' };
+  const [etiquetaForm, setEtiquetaForm] = useState({ ...emptyEtiquetaForm });
   const [dimWidth, setDimWidth] = useState<number | ''>('');
   const [dimHeight, setDimHeight] = useState<number | ''>('');
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -4213,6 +4217,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     await downloadCanvasAsPdf(canvas, buildFileName('Recibo', sale.customerName, sale.createdAt, 'pdf'));
   };
 
+  const handleDownloadReceiptImagem = async (sale: SaleOrder) => {
+    const canvas = await renderReceiptCanvas({ order: sale, companyName: currentCompany?.name || 'Rafa Arts Graphics', customerPhone: sale.customerPhone, logoDarkUrl });
+    downloadCanvasAsPng(canvas, buildFileName('Recibo', sale.customerName, sale.createdAt, 'png'));
+  };
+
   const handleShareReceiptWhatsApp = async (sale: SaleOrder) => {
     if (!sale.customerPhone) {
       alert('Essa venda não tem telefone de WhatsApp cadastrado. Edite a venda para adicionar o telefone do cliente.');
@@ -4730,7 +4739,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       code: p.code || '',
       price: Number(p.sale_price) || 0,
       stock: Number(p.current_stock) || 0,
-      unitType: p.unit === 'm2' ? 'm2' : 'unit',
+      unitType: p.unit === 'm2' ? 'm2' : p.unit === 'etiqueta' ? 'etiqueta' : 'unit',
       tipoItem: p.tipo_item || 'produto',
       larguraRolo: p.largura_rolo ? Number(p.largura_rolo) : undefined,
       controlaEstoque: p.controla_estoque !== false,
@@ -4798,6 +4807,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       setDimHeight('');
       return;
     }
+    if (product.unitType === 'etiqueta') {
+      setEtiquetaModalProduct(product);
+      setEtiquetaForm({ ...emptyEtiquetaForm });
+      return;
+    }
     setCart(prev => {
       const existing = prev.find(item => item.productId === product.id && !item.dimensions);
       if (existing) {
@@ -4814,6 +4828,52 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       }];
     });
     setSelectedQty(1);
+  };
+
+  const calcularEtiquetas = (product: Product) => {
+    const larguraRoloCm = (product.larguraRolo || 1) * 100;
+    const { quantidade, largura, altura } = etiquetaForm;
+    if (quantidade <= 0 || largura <= 0 || altura <= 0) return null;
+
+    // Orientacao A: etiqueta na posicao normal (largura x altura)
+    const porFileiraA = Math.max(1, Math.floor(larguraRoloCm / largura));
+    const fileirasA = Math.ceil(quantidade / porFileiraA);
+    const metrosA = (fileirasA * altura) / 100;
+
+    // Orientacao B: etiqueta rotacionada 90 graus (altura x largura)
+    const porFileiraB = Math.max(1, Math.floor(larguraRoloCm / altura));
+    const fileirasB = Math.ceil(quantidade / porFileiraB);
+    const metrosB = (fileirasB * largura) / 100;
+
+    // Usa a orientacao que da o melhor aproveitamento (menos metros lineares)
+    const usarB = metrosB < metrosA;
+    const porFileira = usarB ? porFileiraB : porFileiraA;
+    const fileiras = usarB ? fileirasB : fileirasA;
+    const metrosLineares = usarB ? metrosB : metrosA;
+
+    const valorCalculado = metrosLineares * product.price;
+    const IMPRESSAO_MINIMA = 30;
+    const valorFinal = Math.max(valorCalculado, IMPRESSAO_MINIMA);
+
+    return { porFileira, fileiras, metrosLineares, valorCalculado, valorFinal, rotacionada: usarB };
+  };
+
+  const confirmAddEtiquetaItem = () => {
+    if (!etiquetaModalProduct) return;
+    const calc = calcularEtiquetas(etiquetaModalProduct);
+    if (!calc) { alert('Preencha quantidade, largura e altura corretamente.'); return; }
+    const { quantidade, largura, altura, material, formato } = etiquetaForm;
+    const formatoLabel = { redonda: 'Redonda', quadrada: 'Quadrada', retangular: 'Retangular', personalizado: 'Personalizada' }[formato];
+    const dimensoesLabel = `${quantidade}un ${largura}x${altura}cm - ${formatoLabel}${material ? ` (${material})` : ''}`;
+    setCart(prev => [...prev, {
+      productId: etiquetaModalProduct.id,
+      name: etiquetaModalProduct.name,
+      price: calc.valorFinal,
+      quantity: 1,
+      dimensions: dimensoesLabel,
+      consumoEstoque: calc.metrosLineares,
+    }]);
+    setEtiquetaModalProduct(null);
   };
 
   const confirmAddDimensionedItem = () => {
@@ -4870,6 +4930,44 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const removeFromCart = (index: number) => {
     setCart(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const [discountItemIndex, setDiscountItemIndex] = useState<number | null>(null);
+  const [discountMode, setDiscountMode] = useState<'percentual' | 'valor'>('percentual');
+  const [discountInput, setDiscountInput] = useState<number | ''>('');
+
+  const openItemDiscount = (index: number) => {
+    setDiscountItemIndex(index);
+    setDiscountMode('percentual');
+    setDiscountInput('');
+  };
+
+  const applyItemDiscount = () => {
+    if (discountItemIndex === null) return;
+    setCart(prev => {
+      const updated = [...prev];
+      const item = updated[discountItemIndex];
+      const original = item.precoOriginal ?? item.price;
+      const subtotalOriginal = item.area ? original * item.area : original;
+      const val = discountInput === '' ? 0 : Number(discountInput);
+      const descontoValor = discountMode === 'percentual' ? subtotalOriginal * (val / 100) : val;
+      const novoSubtotal = Math.max(0, subtotalOriginal - descontoValor);
+      const novoPreco = item.area ? novoSubtotal / item.area : novoSubtotal;
+      updated[discountItemIndex] = { ...item, price: novoPreco, precoOriginal: original, descontoValor };
+      return updated;
+    });
+    setDiscountItemIndex(null);
+  };
+
+  const removeItemDiscount = (index: number) => {
+    setCart(prev => {
+      const updated = [...prev];
+      const item = updated[index];
+      if (item.precoOriginal !== undefined) {
+        updated[index] = { ...item, price: item.precoOriginal, precoOriginal: undefined, descontoValor: undefined };
+      }
+      return updated;
+    });
   };
 
   const clearCart = () => {
@@ -5170,7 +5268,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         code: p.code || '',
         price: Number(p.sale_price) || 0,
         stock: Number(p.current_stock) || 0,
-        unitType: p.unit === 'm2' ? 'm2' : 'unit',
+        unitType: p.unit === 'm2' ? 'm2' : p.unit === 'etiqueta' ? 'etiqueta' : 'unit',
         tipoItem: p.tipo_item || 'produto',
         larguraRolo: p.largura_rolo ? Number(p.largura_rolo) : undefined,
         controlaEstoque: p.controla_estoque !== false,
@@ -5361,7 +5459,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                        </p>
                                        {item.dimensions && (
                                           <p className="text-[7px] sm:text-[8px] font-bold text-slate-500 tracking-wider">
-                                             {item.dimensions} ({item.area?.toFixed(2).replace('.', ',')} m²)
+                                             {item.dimensions}{item.area ? ` (${item.area.toFixed(2).replace('.', ',')} m²)` : ''}
+                                          </p>
+                                       )}
+                                       {item.descontoValor !== undefined && item.descontoValor > 0 && (
+                                          <p className="text-[7px] sm:text-[8px] font-bold text-emerald-600">
+                                             Desconto: -R$ {item.descontoValor.toFixed(2).replace('.', ',')}
                                           </p>
                                        )}
                                     </div>
@@ -5385,6 +5488,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                           +
                                        </button>
                                     </div>
+
+                                    <button
+                                       onClick={() => item.descontoValor ? removeItemDiscount(idx) : openItemDiscount(idx)}
+                                       className={cn(
+                                         "p-0.5 sm:p-1 transition-colors cursor-pointer",
+                                         item.descontoValor ? "text-emerald-600 hover:text-rose-600" : "text-slate-400 hover:text-primary-600"
+                                       )}
+                                       title={item.descontoValor ? "Remover desconto" : "Aplicar desconto neste item"}
+                                    >
+                                       <Percent size={11} className="sm:hidden" />
+                                       <Percent size={12} className="hidden sm:block" />
+                                    </button>
 
                                     <span className="text-[9px] sm:text-[10px] font-black text-slate-900 tracking-tight min-w-[48px] sm:min-w-[60px] text-right">
                                        R$ {itemSubtotal.toFixed(2).replace('.', ',')}
@@ -7368,6 +7483,98 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
        </Modal>
      )}
 
+     {discountItemIndex !== null && cart[discountItemIndex] && (
+       <Modal isOpen={discountItemIndex !== null} onClose={() => setDiscountItemIndex(null)} title="Aplicar Desconto no Item" size="sm">
+         <div className="space-y-4 p-2">
+            <p className="text-xs text-white/50">Item: <span className="text-white font-bold">{cart[discountItemIndex].name}</span></p>
+            <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 gap-1">
+               <button onClick={() => setDiscountMode('percentual')} className={cn("flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all", discountMode === 'percentual' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Percentual (%)</button>
+               <button onClick={() => setDiscountMode('valor')} className={cn("flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all", discountMode === 'valor' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Valor Fixo (R$)</button>
+            </div>
+            <Input
+              label={discountMode === 'percentual' ? 'Desconto (%)' : 'Desconto (R$)'}
+              type="number"
+              step="any"
+              autoFocus
+              value={discountInput}
+              onChange={(e: any) => setDiscountInput(e.target.value === '' ? '' : Number(e.target.value))}
+            />
+            <p className="text-[10px] text-white/30">O desconto afeta só esse item nessa venda — o preço cadastrado do produto não muda.</p>
+            <div className="flex justify-end gap-3 pt-1">
+               <Button variant="ghost" onClick={() => setDiscountItemIndex(null)}>Cancelar</Button>
+               <Button className="bg-primary-500 text-slate-900 border-none" onClick={applyItemDiscount}>Aplicar Desconto</Button>
+            </div>
+         </div>
+       </Modal>
+     )}
+
+     {etiquetaModalProduct && (() => {
+       const calc = calcularEtiquetas(etiquetaModalProduct);
+       return (
+         <Modal isOpen={!!etiquetaModalProduct} onClose={() => setEtiquetaModalProduct(null)} title="Etiqueta Adesiva — Calculadora" size="sm">
+           <div className="space-y-4 p-2">
+              <div className="grid grid-cols-3 gap-2">
+                 <Input label="Quantidade" type="number" value={etiquetaForm.quantidade} onChange={(e: any) => setEtiquetaForm({ ...etiquetaForm, quantidade: Number(e.target.value) || 0 })} />
+                 <Input label="Largura (cm)" type="number" step="any" value={etiquetaForm.largura} onChange={(e: any) => setEtiquetaForm({ ...etiquetaForm, largura: Number(e.target.value) || 0 })} />
+                 <Input label="Altura (cm)" type="number" step="any" value={etiquetaForm.altura} onChange={(e: any) => setEtiquetaForm({ ...etiquetaForm, altura: Number(e.target.value) || 0 })} />
+              </div>
+              <Input label="Material (opcional)" placeholder="Ex: Vinil Branco Brilho" value={etiquetaForm.material} onChange={(e: any) => setEtiquetaForm({ ...etiquetaForm, material: e.target.value })} />
+              <div className="space-y-1.5">
+                 <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Formato</label>
+                 <div className="grid grid-cols-4 gap-1.5">
+                    {(['redonda', 'quadrada', 'retangular', 'personalizado'] as const).map(f => (
+                      <button
+                        key={f}
+                        onClick={() => setEtiquetaForm({ ...etiquetaForm, formato: f })}
+                        className={cn(
+                          "h-9 rounded-lg text-[9px] font-black uppercase border-2 transition-all",
+                          etiquetaForm.formato === f ? "bg-primary-500 border-primary-600 text-slate-900" : "bg-white/5 border-white/10 text-white/50"
+                        )}
+                      >
+                        {f}
+                      </button>
+                    ))}
+                 </div>
+              </div>
+
+              {calc ? (
+                <div className="bg-slate-900/60 rounded-2xl border border-white/10 p-4 space-y-1.5">
+                   <div className="flex justify-between text-xs text-white/50">
+                      <span>Etiquetas por fileira</span>
+                      <span className="font-mono font-bold text-white">{calc.porFileira} {calc.rotacionada ? '(rotacionada)' : ''}</span>
+                   </div>
+                   <div className="flex justify-between text-xs text-white/50">
+                      <span>Fileiras necessárias</span>
+                      <span className="font-mono font-bold text-white">{calc.fileiras}</span>
+                   </div>
+                   <div className="flex justify-between text-xs text-white/50">
+                      <span>Metros lineares</span>
+                      <span className="font-mono font-bold text-white">{calc.metrosLineares.toFixed(2).replace('.', ',')} m</span>
+                   </div>
+                   {calc.valorFinal > calc.valorCalculado && (
+                     <div className="flex justify-between text-[10px] text-amber-400 pt-1 border-t border-white/5">
+                        <span>Impressão mínima aplicada</span>
+                        <span className="font-mono font-bold">R$ 30,00</span>
+                     </div>
+                   )}
+                   <div className="flex justify-between text-sm pt-1 border-t border-white/5">
+                      <span className="text-emerald-400 font-bold">Valor Total</span>
+                      <span className="font-mono font-black text-emerald-400">R$ {calc.valorFinal.toFixed(2).replace('.', ',')}</span>
+                   </div>
+                </div>
+              ) : (
+                <p className="text-center text-xs text-white/30 py-4">Preencha quantidade, largura e altura pra calcular.</p>
+              )}
+
+              <div className="flex justify-end gap-3 pt-1">
+                 <Button variant="ghost" onClick={() => setEtiquetaModalProduct(null)}>Cancelar</Button>
+                 <Button disabled={!calc} className="bg-primary-500 text-slate-900 border-none" onClick={confirmAddEtiquetaItem}>Adicionar ao Carrinho</Button>
+              </div>
+           </div>
+         </Modal>
+       );
+     })()}
+
      {dimensionModalProduct && (
        <Modal
          isOpen={!!dimensionModalProduct}
@@ -8188,9 +8395,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
              </div>
 
              {/* Ações */}
-             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2">
+             <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-2">
                <Button variant="secondary" size="sm" icon={Printer} className="text-[9px] uppercase tracking-wider font-black h-11" onClick={() => handlePrintReceipt(sale)}>
                  Imprimir
+               </Button>
+               <Button variant="secondary" size="sm" icon={ImageIcon} className="text-[9px] uppercase tracking-wider font-black h-11" onClick={() => handleDownloadReceiptImagem(sale)}>
+                 Imagem
                </Button>
                <Button variant="secondary" size="sm" icon={FileText} className="text-[9px] uppercase tracking-wider font-black h-11" onClick={() => handleDownloadReceiptPdf(sale)}>
                  Baixar PDF
@@ -9306,6 +9516,7 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
                 <option value="m2">Metro Quadrado (m2)</option>
                 <option value="rolo">Rolo</option>
                 <option value="litro">Litro (l)</option>
+                <option value="etiqueta">Etiqueta Adesiva (cálculo especial)</option>
               </select>
             </div>
             <Input label="PREÇO DE COMPRA (CUSTO)" type="number" prefix="R$" value={formData.costPrice} onChange={e => setFormData({...formData, costPrice: Number(e.target.value)})} />
@@ -9338,9 +9549,9 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
               </>
             )}
 
-            {formData.unit === 'm2' && (
+            {(formData.unit === 'm2' || formData.unit === 'etiqueta') && (
               <div className="md:col-span-2">
-                <Input label="LARGURA DO ROLO (m) — usado no cálculo de m² e no PDV" type="number" step="any" placeholder="Ex: 1.00" value={formData.larguraRolo} onChange={e => setFormData({...formData, larguraRolo: Number(e.target.value)})} />
+                <Input label="LARGURA DO ROLO (m) — usado no cálculo de m²/etiquetas e no PDV" type="number" step="any" placeholder="Ex: 1.02" value={formData.larguraRolo} onChange={e => setFormData({...formData, larguraRolo: Number(e.target.value)})} />
               </div>
             )}
 
