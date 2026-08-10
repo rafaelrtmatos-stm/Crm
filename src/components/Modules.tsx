@@ -72,6 +72,7 @@ import {
   ListFilter,
   Link2,
   Percent,
+  Wifi,
   FileSpreadsheet,
   ClipboardList,
   CalendarClock,
@@ -9858,6 +9859,31 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
   const logoLightInputRef = React.useRef<HTMLInputElement>(null);
   const logoDarkInputRef = React.useRef<HTMLInputElement>(null);
 
+  // Sessoes ativas (IP + dispositivo) de todos os usuarios, pra o admin poder desconectar
+  const [activeSessions, setActiveSessions] = useState<any[]>([]);
+  useEffect(() => {
+    if (!user?.isAdmin) return;
+    const q = query(collection(db, 'sessions'), where('isRevoked', '==', false));
+    const unsub = onSnapshot(q, (snap) => {
+      const sessions = snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+      // So mostra sessoes com atividade nos ultimos 30 minutos (mais antigas provavelmente ja fecharam a aba)
+      const now = Date.now();
+      const recent = sessions.filter(s => now - new Date(s.lastSeenAt || s.loginAt).getTime() < 30 * 60 * 1000);
+      recent.sort((a, b) => new Date(b.lastSeenAt || b.loginAt).getTime() - new Date(a.lastSeenAt || a.loginAt).getTime());
+      setActiveSessions(recent);
+    });
+    return () => unsub();
+  }, [user?.isAdmin]);
+
+  const handleDisconnectSession = async (sessionId: string) => {
+    if (!confirm('Desconectar essa sessão agora? A pessoa vai ser deslogada automaticamente.')) return;
+    try {
+      await updateDoc(doc(db, 'sessions', sessionId), { isRevoked: true });
+    } catch (err: any) {
+      alert(`Não foi possível desconectar: ${err?.message || 'erro desconhecido'}`);
+    }
+  };
+
   useEffect(() => {
     const load = async () => {
       const { data } = await supabase.from('configuracoes').select('logo_light_url, logo_dark_url').eq('company_id', 'rafa-arts').maybeSingle();
@@ -10638,6 +10664,39 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                   </div>
                 ) : (
                   <div className="space-y-6">
+                    {user?.isAdmin && (
+                      <div className="bg-white/[0.02] border border-white/10 rounded-3xl p-6 space-y-4">
+                         <div>
+                            <h3 className="text-lg font-bold text-white tracking-tight italic uppercase flex items-center gap-2">
+                               <Wifi size={18} className="text-primary-400" /> Sessões Ativas ({activeSessions.length})
+                            </h3>
+                            <p className="text-[11px] text-white/30 font-medium">Quem está acessando agora, de qual IP e aparelho — desconecte remotamente se precisar</p>
+                         </div>
+                         {activeSessions.length === 0 ? (
+                            <p className="text-xs text-white/30 py-2">Nenhuma sessão ativa nos últimos 30 minutos.</p>
+                         ) : (
+                            <div className="space-y-2">
+                               {activeSessions.map(s => (
+                                 <div key={s.id} className="flex items-center justify-between gap-3 bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 flex-wrap">
+                                    <div className="min-w-0">
+                                       <p className="text-xs font-bold text-white">{s.userName}</p>
+                                       <p className="text-[10px] text-white/40">IP: {s.ip} · {s.device}</p>
+                                       <p className="text-[9px] text-white/20">Visto por último: {safeFormat(s.lastSeenAt || s.loginAt, 'dd/MM/yyyy HH:mm')}</p>
+                                    </div>
+                                    <button
+                                      onClick={() => handleDisconnectSession(s.id)}
+                                      className="text-[9px] font-black uppercase px-3 py-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 shrink-0"
+                                    >
+                                      Desconectar
+                                    </button>
+                                 </div>
+                               ))}
+                            </div>
+                         )}
+                         <p className="text-[9px] text-white/20">Não é possível ver o endereço MAC do aparelho — nenhum sistema web consegue, é bloqueado por privacidade dos navegadores. Pra bloquear alguém de vez (não só desconectar essa sessão), inative o usuário na lista abaixo.</p>
+                      </div>
+                    )}
+
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                       <div>
                         <h3 className="text-xl font-bold text-white tracking-tight italic uppercase">Membros de Equipe</h3>

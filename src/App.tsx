@@ -607,6 +607,67 @@ export default function App() {
     if (rememberedEmail) setLoginEmail(rememberedEmail);
   }, []);
 
+  // Identifica o dispositivo/navegador a partir do user agent (nao existe forma de ler o MAC —
+  // navegadores bloqueiam isso por privacidade, nao ha nenhum sistema web que consiga)
+  const describeDevice = () => {
+    const ua = navigator.userAgent;
+    let os = 'Desconhecido';
+    if (/android/i.test(ua)) os = 'Android';
+    else if (/iphone|ipad|ipod/i.test(ua)) os = 'iOS';
+    else if (/windows/i.test(ua)) os = 'Windows';
+    else if (/mac os/i.test(ua)) os = 'macOS';
+    else if (/linux/i.test(ua)) os = 'Linux';
+    let browser = 'Navegador';
+    if (/edg\//i.test(ua)) browser = 'Edge';
+    else if (/chrome\//i.test(ua) && !/edg\//i.test(ua)) browser = 'Chrome';
+    else if (/safari\//i.test(ua) && !/chrome\//i.test(ua)) browser = 'Safari';
+    else if (/firefox\//i.test(ua)) browser = 'Firefox';
+    return `${os} · ${browser}`;
+  };
+
+  // Registra a sessao (IP publico + dispositivo) no repositorio, e fica escutando
+  // se o admin desconectou essa sessao remotamente — se sim, desloga na hora.
+  const registerSession = async (uid: string, uname: string) => {
+    try {
+      const sessionId = 'sess-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+      sessionStorage.setItem('rpro_session_id', sessionId);
+
+      let ip = 'desconhecido';
+      try {
+        const res = await fetch('https://api.ipify.org?format=json');
+        const j = await res.json();
+        ip = j.ip || 'desconhecido';
+      } catch (e) { /* segue sem IP se a consulta falhar */ }
+
+      await setDoc(doc(db, 'sessions', sessionId), {
+        userId: uid,
+        userName: uname,
+        ip,
+        device: describeDevice(),
+        userAgent: navigator.userAgent,
+        loginAt: new Date().toISOString(),
+        lastSeenAt: new Date().toISOString(),
+        isRevoked: false,
+      });
+
+      // Escuta se essa sessao foi desconectada pelo admin
+      onSnapshot(doc(db, 'sessions', sessionId), (snap) => {
+        if (snap.exists() && snap.data()?.isRevoked) {
+          alert('Sua sessão foi desconectada pelo administrador.');
+          handleLogout();
+        }
+      });
+
+      // Atualiza "visto por ultimo" a cada 2 minutos, enquanto a aba estiver aberta
+      const heartbeat = setInterval(() => {
+        updateDoc(doc(db, 'sessions', sessionId), { lastSeenAt: new Date().toISOString() }).catch(() => {});
+      }, 120000);
+      window.addEventListener('beforeunload', () => clearInterval(heartbeat));
+    } catch (e) {
+      console.error('Erro ao registrar sessão:', e);
+    }
+  };
+
   const handleLogout = async () => {
     sessionStorage.removeItem('rpro_logged_user_id');
     localStorage.removeItem('rpro_simulated_user_id');
@@ -671,6 +732,7 @@ export default function App() {
 
         setUser(adminData);
         sessionStorage.setItem('rpro_logged_user_id', adminData.id);
+        registerSession(adminData.id, adminData.name);
         if (rememberMe) {
           localStorage.setItem('rpro_remembered_user_id', adminData.id);
           localStorage.setItem('rpro_remembered_email', trimmedEmail);
@@ -710,6 +772,7 @@ export default function App() {
 
       setUser(userData);
       sessionStorage.setItem('rpro_logged_user_id', userData.id);
+      registerSession(userData.id, userData.name);
       if (rememberMe) {
         localStorage.setItem('rpro_remembered_user_id', userData.id);
         localStorage.setItem('rpro_remembered_email', trimmedEmail);
