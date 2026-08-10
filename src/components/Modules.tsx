@@ -3434,6 +3434,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setIsCustomerModalOpen(false);
     if (customerModalIntent === 'finalize') {
       setIsPaymentModalOpen(true);
+    } else if (customerModalIntent === 'orcamento') {
+      setOrcamentoModalOpen(true);
     }
   };
 
@@ -4094,8 +4096,22 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [historyClienteIdFilter, setHistoryClienteIdFilter] = useState<string | null>(null);
   const [historyDateFrom, setHistoryDateFrom] = useState('');
   const [historyDateTo, setHistoryDateTo] = useState('');
-  const [historyViewMode, setHistoryViewMode] = useState<'miniatura' | 'normal' | 'lista'>('normal');
-  const [historySortOrder, setHistorySortOrder] = useState<'desc' | 'asc'>('desc');
+  const [historyViewMode, setHistoryViewModeState] = useState<'miniatura' | 'normal' | 'lista'>(() => {
+    const saved = localStorage.getItem('rpro_history_view_mode');
+    return (saved === 'miniatura' || saved === 'normal' || saved === 'lista') ? saved : 'normal';
+  });
+  const setHistoryViewMode = (mode: 'miniatura' | 'normal' | 'lista') => {
+    setHistoryViewModeState(mode);
+    localStorage.setItem('rpro_history_view_mode', mode);
+  };
+  const [historySortOrder, setHistorySortOrderState] = useState<'desc' | 'asc'>(() => {
+    const saved = localStorage.getItem('rpro_history_sort_order');
+    return saved === 'asc' ? 'asc' : 'desc';
+  });
+  const setHistorySortOrder = (order: 'desc' | 'asc') => {
+    setHistorySortOrderState(order);
+    localStorage.setItem('rpro_history_sort_order', order);
+  };
 
   const [produtosCostMap, setProdutosCostMap] = useState<Record<string, number>>({});
   useEffect(() => {
@@ -5572,7 +5588,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               {/* Grupo 2: Ordenação & Visualização */}
               <div className="flex items-center gap-1.5 shrink-0">
                 <button
-                  onClick={() => setHistorySortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
+                  onClick={() => setHistorySortOrder(historySortOrder === 'desc' ? 'asc' : 'desc')}
                   title={historySortOrder === 'desc' ? 'Mais recentes primeiro' : 'Mais antigas primeiro'}
                   className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 border border-white/10 text-white/60 hover:text-white transition-all shrink-0"
                 >
@@ -6078,7 +6094,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <button
-                  onClick={() => setHistorySortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
+                  onClick={() => setHistorySortOrder(historySortOrder === 'desc' ? 'asc' : 'desc')}
                   title={historySortOrder === 'desc' ? 'Mais recentes primeiro' : 'Mais antigas primeiro'}
                   className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 border border-white/10 text-white/60 hover:text-white transition-all"
                 >
@@ -6120,6 +6136,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                         <span className="text-[11px] font-black text-white whitespace-nowrap">{sale.customerName || 'Cliente de Balcão'}</span>
                         <span className="hidden sm:inline text-[9px] text-white/30 font-mono shrink-0">#{sale.id.slice(-8).toUpperCase()}</span>
                         <span className="hidden sm:inline text-[9px] text-white/30 shrink-0">{safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
+                        {sale.items && sale.items.length > 0 && (
+                          <span className="hidden sm:inline text-[9px] text-white/40 italic truncate max-w-[140px]" title={sale.items[sale.items.length - 1].name}>
+                            {sale.items[sale.items.length - 1].name}{sale.items.length > 1 ? ` (+${sale.items.length - 1})` : ''}
+                          </span>
+                        )}
                         {sale.scheduledFor && (
                           <span className="hidden sm:inline text-[8.5px] font-black uppercase bg-primary-500/10 text-primary-300 px-2 py-0.5 rounded-full border border-primary-500/20 shrink-0">
                             Entrega: {safeFormat(sale.scheduledFor, 'dd/MM HH:mm')}
@@ -6128,7 +6149,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       </div>
                       <div className="flex-1 sm:hidden" />
                       {isPartial && (
-                        <Badge className="text-[7.5px] font-black uppercase px-1.5 py-0.5 border-none shrink-0 bg-amber-500/20 text-amber-300">PARCIAL</Badge>
+                        <Badge className="text-[7.5px] font-black uppercase px-1.5 py-0.5 border-none shrink-0 bg-amber-500/20 text-amber-300">PARCIAL — falta R$ {balance.toFixed(2).replace('.', ',')}</Badge>
                       )}
                       <span className="text-[11px] font-black text-white shrink-0 w-20 text-right">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
                       <div className="flex gap-1 shrink-0">
@@ -6294,24 +6315,33 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         size={customerModalMode === 'create' ? 'md' : 'lg'}
       >
         <div className="space-y-5">
-           <div className="flex bg-white/5 p-1 rounded-2xl border border-white/10 gap-1">
+           <div className="flex items-center justify-between gap-2">
+              <div className="flex bg-white/5 p-1 rounded-2xl border border-white/10 gap-1 flex-1">
+                 <button
+                   onClick={() => { setCustomerModalMode('search'); setEditingCustomerId(null); }}
+                   className={cn(
+                     "flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all",
+                     customerModalMode === 'search' ? "bg-primary-500 text-slate-900 shadow-lg" : "text-white/40 hover:text-white"
+                   )}
+                 >
+                   Pesquisar Cliente
+                 </button>
+                 <button
+                   onClick={() => { setCustomerModalMode('create'); setNewCustomerForm({ ...emptyCustomerForm }); setEditingCustomerId(null); setIsMoreOptionsOpen(false); }}
+                   className={cn(
+                     "flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all",
+                     customerModalMode === 'create' ? "bg-primary-500 text-slate-900 shadow-lg" : "text-white/40 hover:text-white"
+                   )}
+                 >
+                   Cadastrar Cliente
+                 </button>
+              </div>
               <button
-                onClick={() => { setCustomerModalMode('search'); setEditingCustomerId(null); }}
-                className={cn(
-                  "flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all",
-                  customerModalMode === 'search' ? "bg-primary-500 text-slate-900 shadow-lg" : "text-white/40 hover:text-white"
-                )}
+                onClick={() => { setSelectedCustomer(null); proceedAfterCustomerStep(); }}
+                className="text-[9px] font-black uppercase text-white/30 hover:text-white/60 whitespace-nowrap px-1 transition-all shrink-0"
+                title="Continuar sem selecionar cliente"
               >
-                Pesquisar Cliente
-              </button>
-              <button
-                onClick={() => { setCustomerModalMode('create'); setNewCustomerForm({ ...emptyCustomerForm }); setEditingCustomerId(null); setIsMoreOptionsOpen(false); }}
-                className={cn(
-                  "flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all",
-                  customerModalMode === 'create' ? "bg-primary-500 text-slate-900 shadow-lg" : "text-white/40 hover:text-white"
-                )}
-              >
-                Cadastrar Cliente
+                Cliente Balcão
               </button>
            </div>
 
@@ -8112,7 +8142,14 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient }: { cur
   const [fichaCliente, setFichaCliente] = useState<any | null>(null);
   const [isLinkingVendas, setIsLinkingVendas] = useState(false);
   const [clienteSearchTerm, setClienteSearchTerm] = useState('');
-  const [clienteSortBy, setClienteSortBy] = useState<'nome' | 'data' | 'valor' | 'servicos'>('nome');
+  const [clienteSortBy, setClienteSortByState] = useState<'nome' | 'data' | 'valor' | 'servicos'>(() => {
+    const saved = localStorage.getItem('rpro_clientes_sort');
+    return (saved === 'nome' || saved === 'data' || saved === 'valor' || saved === 'servicos') ? saved : 'nome';
+  });
+  const setClienteSortBy = (v: 'nome' | 'data' | 'valor' | 'servicos') => {
+    setClienteSortByState(v);
+    localStorage.setItem('rpro_clientes_sort', v);
+  };
   const [clienteLetraAtiva, setClienteLetraAtiva] = useState<string | null>(null);
   const clienteRowRefs = React.useRef<Record<string, HTMLDivElement | null>>({});
 
@@ -8824,6 +8861,35 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
   ];
 
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [estoqueSortBy, setEstoqueSortByState] = useState<'nome' | 'data' | 'estoque' | 'preco'>(() => {
+    const saved = localStorage.getItem('rpro_estoque_sort');
+    return (saved === 'nome' || saved === 'data' || saved === 'estoque' || saved === 'preco') ? saved : 'nome';
+  });
+  const setEstoqueSortBy = (v: 'nome' | 'data' | 'estoque' | 'preco') => {
+    setEstoqueSortByState(v);
+    localStorage.setItem('rpro_estoque_sort', v);
+  };
+  const [estoqueSearchTerm, setEstoqueSearchTerm] = useState('');
+
+  const sortedFilteredItems = useMemo(() => {
+    let list = items;
+    const term = estoqueSearchTerm.trim().toLowerCase();
+    if (term) {
+      list = list.filter(i => (i.name || '').toLowerCase().includes(term) || (i.code || '').toLowerCase().includes(term) || (i.category || '').toLowerCase().includes(term));
+    }
+    const sorted = [...list];
+    switch (estoqueSortBy) {
+      case 'data':
+        return sorted.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+      case 'estoque':
+        return sorted.sort((a, b) => (b.currentStock || 0) - (a.currentStock || 0));
+      case 'preco':
+        return sorted.sort((a, b) => (b.salePrice || 0) - (a.salePrice || 0));
+      default:
+        return sorted.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    }
+  }, [items, estoqueSearchTerm, estoqueSortBy]);
+
 
   const openEditItem = (item: InventoryItem) => {
     setEditingItemId(item.id);
@@ -9051,16 +9117,22 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
       </div>
 
       <GlassCard className="p-4 border-white/5 bg-white/[0.02]">
-        <div className="flex items-center gap-4 mb-6 px-4">
-          <div className="flex-1">
-            <Input icon={Search} placeholder="Filtrar por nome, código ou categoria..." />
+        <div className="flex items-center gap-2 mb-6 px-4 flex-wrap">
+          <div className="flex-1 min-w-[180px]">
+            <Input icon={Search} placeholder="Filtrar por nome, código ou categoria..." value={estoqueSearchTerm} onChange={(e: any) => setEstoqueSearchTerm(e.target.value)} />
           </div>
-          <div className="flex gap-2">
-            <Button variant="secondary" icon={Filter} className="text-[10px] uppercase tracking-widest font-black">Filtrar</Button>
-            <Button variant="secondary" icon={Printer} className="text-[10px] uppercase tracking-widest font-black">Relatório</Button>
-          </div>
+          <select
+            value={estoqueSortBy}
+            onChange={(e) => setEstoqueSortBy(e.target.value as any)}
+            className="h-10 bg-white/5 border border-white/10 rounded-xl px-3 text-[10px] font-black uppercase text-white/70 focus:outline-none focus:border-primary-500 cursor-pointer"
+          >
+            <option value="nome" className="bg-slate-900">Ordem Alfabética (Nome)</option>
+            <option value="data" className="bg-slate-900">Data de Cadastro</option>
+            <option value="estoque" className="bg-slate-900">Quantidade em Estoque</option>
+            <option value="preco" className="bg-slate-900">Preço de Venda</option>
+          </select>
         </div>
-        <DataTable columns={columns} data={items} />
+        <DataTable columns={columns} data={sortedFilteredItems} />
       </GlassCard>
 
       {isImportPreviewOpen && (() => {
