@@ -194,6 +194,17 @@ function safeFormat(value: any, fmt: string, fallback: string = '—'): string {
   return isNaN(d.getTime()) ? fallback : format(d, fmt);
 }
 
+// Nome de arquivo padronizado pra recibos/orcamentos baixados: NomeDoCliente_dd-MM-yyyy
+function buildFileName(prefix: string, customerName: string | undefined, dateValue: any, ext: string): string {
+  const safeName = (customerName || 'Cliente')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // remove acentos
+    .replace(/[^a-zA-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 40) || 'Cliente';
+  const dateStr = safeFormat(dateValue || new Date().toISOString(), 'dd-MM-yyyy', format(new Date(), 'dd-MM-yyyy'));
+  return `${prefix}_${safeName}_${dateStr}.${ext}`;
+}
+
 import { 
   calculateSLA, 
   extractTracking, 
@@ -4000,7 +4011,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const extra: any = {};
     if (status === 'aprovado') { extra.aprovado_em = new Date().toISOString(); extra.aprovado_por = o.customerName; }
     const { error } = await supabase.from('orcamentos').update({ status, ...extra }).eq('id', o.id);
-    if (error) { alert('Não foi possível atualizar o status.'); return; }
+    if (error) { console.error('Erro ao atualizar status do orçamento:', error); alert(`Não foi possível atualizar o status: ${error.message}`); return; }
     loadOrcamentos();
   };
 
@@ -4044,7 +4055,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const handleDownloadOrcamentoPdf = async (o: Orcamento) => {
     try {
       const canvas = await renderOrcamentoCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoDarkUrl });
-      await downloadCanvasAsPdf(canvas, `Orcamento_${o.numero}.pdf`);
+      await downloadCanvasAsPdf(canvas, buildFileName('Orcamento', o.customerName, o.createdAt, 'pdf'));
     } catch (err) {
       console.error('Erro ao gerar PDF do orçamento:', err);
       alert('Não foi possível gerar o PDF do orçamento.');
@@ -4054,7 +4065,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const handleDownloadOrcamentoImagem = async (o: Orcamento) => {
     try {
       const canvas = await renderOrcamentoCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoDarkUrl });
-      downloadCanvasAsPng(canvas, `Orcamento_${o.numero}.png`);
+      downloadCanvasAsPng(canvas, buildFileName('Orcamento', o.customerName, o.createdAt, 'png'));
     } catch (err) {
       console.error('Erro ao gerar imagem do orçamento:', err);
       alert('Não foi possível gerar a imagem do orçamento.');
@@ -4199,7 +4210,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const handleDownloadReceiptPdf = async (sale: SaleOrder) => {
     const canvas = await renderReceiptCanvas({ order: sale, companyName: currentCompany?.name || 'Rafa Arts Graphics', customerPhone: sale.customerPhone, logoDarkUrl });
-    await downloadCanvasAsPdf(canvas, `Recibo_${sale.id.slice(-8).toUpperCase()}.pdf`);
+    await downloadCanvasAsPdf(canvas, buildFileName('Recibo', sale.customerName, sale.createdAt, 'pdf'));
   };
 
   const handleShareReceiptWhatsApp = async (sale: SaleOrder) => {
@@ -5858,7 +5869,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             <span className="text-[9px] text-white/30 shrink-0 hidden sm:inline">{safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
                           </div>
                           <Badge className={cn("text-[7.5px] font-black uppercase px-1.5 py-0.5 border-none shrink-0", isPartial ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300")}>
-                            {isPartial ? 'PARCIAL' : 'QUITADO'}
+                            {isPartial ? `PARCIAL — falta R$ ${balance.toFixed(2).replace('.', ',')}` : 'PAGO'}
                           </Badge>
                           <span className="text-[11px] font-black text-white shrink-0 w-20 text-right">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
                           <div className="flex gap-1 shrink-0">
@@ -5896,7 +5907,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               <input type="checkbox" checked={selectedSaleIds.has(sale.id)} onChange={() => toggleSaleSelection(sale.id)} className="w-3.5 h-3.5 mt-0.5 shrink-0 accent-primary-500" />
                             )}
                             <Badge className={cn("text-[6.5px] font-black uppercase px-1.5 py-0.5 border-none ml-auto", isPartial ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300")}>
-                              {isPartial ? 'PARCIAL' : 'QUITADO'}
+                              {isPartial ? `FALTA R$ ${balance.toFixed(2).replace('.', ',')}` : 'PAGO'}
                             </Badge>
                           </div>
                           <div>
@@ -5946,7 +5957,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                     isPartial ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300"
                                   )}
                                 >
-                                  {isPartial ? 'ENTRADA PAGA (FALTA SALDO)' : '100% QUITADO'}
+                                  {isPartial ? `FALTA R$ ${balance.toFixed(2).replace('.', ',')}` : 'PAGO'}
                                 </Badge>
                               </div>
                               <p className="text-[9px] text-white/30 font-mono mt-0.5">#{sale.id.slice(-8).toUpperCase()} • {safeFormat(sale.createdAt, 'dd/MM/yyyy HH:mm')}</p>
@@ -7114,7 +7125,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    customerPhone: selectedCustomer?.phone,
                    logoDarkUrl,
                  });
-                 downloadCanvasAsPng(canvas, `Comprovante_${lastFinalizedOrder.id.slice(-8).toUpperCase()}.png`);
+                 downloadCanvasAsPng(canvas, buildFileName('Comprovante', lastFinalizedOrder.customerName, lastFinalizedOrder.createdAt, 'png'));
                }}
              >
                 Imagem
@@ -7133,7 +7144,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    customerPhone: selectedCustomer?.phone,
                    logoDarkUrl,
                  });
-                 await downloadCanvasAsPdf(canvas, `Comprovante_${lastFinalizedOrder.id.slice(-8).toUpperCase()}.pdf`);
+                 await downloadCanvasAsPdf(canvas, buildFileName('Comprovante', lastFinalizedOrder.customerName, lastFinalizedOrder.createdAt, 'pdf'));
                }}
              >
                 PDF
