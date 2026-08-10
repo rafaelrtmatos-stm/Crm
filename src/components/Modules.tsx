@@ -4141,6 +4141,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setHistorySortOrderState(order);
     localStorage.setItem('rpro_history_sort_order', order);
   };
+  const [servicosSortBy, setServicosSortByState] = useState<'data' | 'nome' | 'valor' | 'status'>(() => {
+    const saved = localStorage.getItem('rpro_servicos_sort');
+    return (saved === 'data' || saved === 'nome' || saved === 'valor' || saved === 'status') ? saved : 'data';
+  });
+  const setServicosSortBy = (v: 'data' | 'nome' | 'valor' | 'status') => {
+    setServicosSortByState(v);
+    localStorage.setItem('rpro_servicos_sort', v);
+  };
 
   const [produtosCostMap, setProdutosCostMap] = useState<Record<string, number>>({});
   useEffect(() => {
@@ -4326,18 +4334,30 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   }, [allSalesHistory, historySearch, historyClienteIdFilter, selectedOrderStatusFilters]);
 
   const pendingOrScheduledSales = useMemo(() => {
-    return allSalesHistory
-      .filter(sale => {
-        const down = sale.downPayment || 0;
-        const balance = sale.total - down;
-        const isPartial = balance > 0 || sale.status === 'pending';
-        return isPartial || !!sale.scheduledFor;
-      })
-      .sort((a, b) => {
-        const diff = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-        return historySortOrder === 'desc' ? diff : -diff;
-      });
-  }, [allSalesHistory, historySortOrder]);
+    const filtered = allSalesHistory.filter(sale => {
+      const down = sale.downPayment || 0;
+      const balance = sale.total - down;
+      const isPartial = balance > 0 || sale.status === 'pending';
+      return isPartial || !!sale.scheduledFor;
+    });
+    return filtered.sort((a, b) => {
+      let cmp = 0;
+      switch (servicosSortBy) {
+        case 'nome':
+          cmp = (a.customerName || '').localeCompare(b.customerName || '');
+          break;
+        case 'valor':
+          cmp = (a.total || 0) - (b.total || 0);
+          break;
+        case 'status':
+          cmp = (a.status || '').localeCompare(b.status || '');
+          break;
+        default:
+          cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      }
+      return historySortOrder === 'desc' ? -cmp : cmp;
+    });
+  }, [allSalesHistory, historySortOrder, servicosSortBy]);
 
   const filteredSalesHistory = useMemo(() => {
     const fromDate = historyDateFrom ? new Date(historyDateFrom + 'T00:00:00') : null;
@@ -5664,12 +5684,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                        placeholder="BUSCAR OU BIPAR..."
                      />
                   </div>
+                  <p className="text-[9px] font-bold text-slate-400 px-1">
+                     {products.filter(p => p.name.toUpperCase().includes(search.toUpperCase())).length} de {products.length} produto(s) — role a lista pra ver todos
+                  </p>
                </div>
 
                 {/* COMPACT PRODUCT LIST */}
                 <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-white">
                    <div className="divide-y divide-slate-50">
-                      {products.filter(p => p.name.includes(search.toUpperCase())).map(product => (
+                      {products.filter(p => p.name.toUpperCase().includes(search.toUpperCase())).map(product => (
                         <div 
                           key={product.id} 
                           onClick={() => addToCart(product)}
@@ -6366,9 +6389,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 </p>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
+                <select
+                  value={servicosSortBy}
+                  onChange={(e) => setServicosSortBy(e.target.value as any)}
+                  className="h-8 bg-white/5 border border-white/10 rounded-lg px-2 text-[10px] font-black uppercase text-white/70 focus:outline-none focus:border-primary-500 cursor-pointer"
+                >
+                  <option value="data" className="bg-slate-900">Data</option>
+                  <option value="nome" className="bg-slate-900">Nome do Cliente</option>
+                  <option value="valor" className="bg-slate-900">Valor</option>
+                  <option value="status" className="bg-slate-900">Status</option>
+                </select>
                 <button
                   onClick={() => setHistorySortOrder(historySortOrder === 'desc' ? 'asc' : 'desc')}
-                  title={historySortOrder === 'desc' ? 'Mais recentes primeiro' : 'Mais antigas primeiro'}
+                  title={historySortOrder === 'desc' ? 'Maior/Mais recente primeiro' : 'Menor/Mais antiga primeiro'}
                   className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 border border-white/10 text-white/60 hover:text-white transition-all"
                 >
                   {historySortOrder === 'desc' ? <ArrowDownWideNarrow size={13} /> : <ArrowUpWideNarrow size={13} />}
@@ -8535,6 +8568,7 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient }: { cur
 
   // Estatisticas de vendas por cliente (ultimo pedido, faturamento, pago, pendente) e custo dos produtos (pro lucro)
   const [clienteStats, setClienteStats] = useState<Record<string, { lastDate: string; count: number; total: number; pago: number; pendente: number; custoTotal: number }>>({});
+  const [clienteVendas, setClienteVendas] = useState<Record<string, any[]>>({});
   const [produtosCostMap, setProdutosCostMap] = useState<Record<string, number>>({});
   const [fichaCliente, setFichaCliente] = useState<any | null>(null);
   const [isLinkingVendas, setIsLinkingVendas] = useState(false);
@@ -8625,13 +8659,14 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient }: { cur
 
   useEffect(() => {
     const loadStats = async () => {
-      const { data: vendasData } = await supabase.from('vendas').select('cliente_id, total, down_payment, status, items, created_at').is('deleted_at', null).not('cliente_id', 'is', null);
+      const { data: vendasData } = await supabase.from('vendas').select('id, cliente_id, total, down_payment, status, items, created_at').is('deleted_at', null).not('cliente_id', 'is', null);
       const { data: produtosData } = await supabase.from('produtos').select('id, cost_price');
       const costMap: Record<string, number> = {};
       (produtosData || []).forEach((p: any) => { costMap[p.id] = Number(p.cost_price) || 0; });
       setProdutosCostMap(costMap);
 
       const stats: Record<string, { lastDate: string; count: number; total: number; pago: number; pendente: number; custoTotal: number }> = {};
+      const vendasPorCliente: Record<string, any[]> = {};
       (vendasData || []).forEach((v: any) => {
         if (!v.cliente_id) return;
         if (!stats[v.cliente_id]) stats[v.cliente_id] = { lastDate: v.created_at, count: 0, total: 0, pago: 0, pendente: 0, custoTotal: 0 };
@@ -8648,7 +8683,15 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient }: { cur
           s.custoTotal += custoUnit * (item.area ? item.area * item.quantity : item.quantity);
         });
         if (new Date(v.created_at) > new Date(s.lastDate)) s.lastDate = v.created_at;
+
+        if (!vendasPorCliente[v.cliente_id]) vendasPorCliente[v.cliente_id] = [];
+        vendasPorCliente[v.cliente_id].push({
+          id: v.id, total, down, isFullyPaid, status: v.status, createdAt: v.created_at,
+          itemsSummary: (v.items || []).map((i: any) => i.name).join(', ') || 'Sem itens',
+        });
       });
+      Object.values(vendasPorCliente).forEach(list => list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+      setClienteVendas(vendasPorCliente);
       setClienteStats(stats);
     };
     loadStats();
@@ -8953,16 +8996,29 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient }: { cur
 
                {s ? (
                  <>
-                   <button
-                     onClick={() => { onViewHistoryForClient?.(fichaCliente.id, fichaCliente.full_name); setFichaCliente(null); }}
-                     className="w-full flex items-center justify-between bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl px-4 py-3 transition-all"
-                   >
-                      <div className="text-left">
-                         <p className="text-[9px] font-black uppercase text-white/40">Último Pedido/Serviço</p>
-                         <p className="text-sm font-bold text-white">{safeFormat(s.lastDate, 'dd/MM/yyyy HH:mm')}</p>
-                      </div>
-                      <ChevronRight size={16} className="text-primary-400" />
-                   </button>
+                   <div className="flex items-center justify-between">
+                      <p className="text-[9px] font-black uppercase text-white/40">Serviços Feitos ({s.count})</p>
+                      <button
+                        onClick={() => { onViewHistoryForClient?.(fichaCliente.id, fichaCliente.full_name); setFichaCliente(null); }}
+                        className="text-[9px] font-black uppercase text-primary-400 hover:text-primary-300 flex items-center gap-1"
+                      >
+                        Ver no Histórico <ChevronRight size={12} />
+                      </button>
+                   </div>
+                   <div className="space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar">
+                      {(clienteVendas[fichaCliente.id] || []).slice(0, 10).map(v => (
+                        <div key={v.id} className="flex items-center justify-between gap-2 bg-white/5 border border-white/5 rounded-lg px-3 py-2">
+                           <div className="min-w-0 flex-1">
+                              <p className="text-[10px] font-bold text-white truncate">{v.itemsSummary}</p>
+                              <p className="text-[9px] text-white/30">{safeFormat(v.createdAt, 'dd/MM/yyyy HH:mm')}</p>
+                           </div>
+                           <div className="text-right shrink-0">
+                              <p className="text-[10px] font-black text-white">R$ {v.total.toFixed(2).replace('.', ',')}</p>
+                              <p className={cn("text-[8px] font-black uppercase", v.isFullyPaid ? "text-emerald-400" : "text-amber-400")}>{v.isFullyPaid ? 'Pago' : 'Pendente'}</p>
+                           </div>
+                        </div>
+                      ))}
+                   </div>
 
                    <div className="grid grid-cols-2 gap-3">
                       <div className="bg-white/5 rounded-xl p-3 border border-white/5">
@@ -8974,7 +9030,7 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient }: { cur
                          <p className="text-lg font-black text-emerald-400">R$ {lucro.toFixed(2).replace('.', ',')}</p>
                       </div>
                       <div className="bg-emerald-500/10 rounded-xl p-3 border border-emerald-500/20">
-                         <p className="text-[9px] font-black uppercase text-emerald-400/70">Valores Pagos</p>
+                         <p className="text-[9px] font-black uppercase text-emerald-400/70">Valor Líquido Recebido</p>
                          <p className="text-lg font-black text-emerald-400">R$ {s.pago.toFixed(2).replace('.', ',')}</p>
                       </div>
                       <div className="bg-amber-500/10 rounded-xl p-3 border border-amber-500/20">

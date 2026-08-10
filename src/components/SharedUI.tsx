@@ -58,22 +58,34 @@ export const GlassCard = ({ children, className, hover = true, ...props }: {
 );
 
 // --- INPUTS ---
-export const Input = ({ icon: Icon, label, className, ...props }: any) => (
-  <div className="space-y-1.5 w-full">
-    {label && <label className="text-[10px] font-black uppercase tracking-[2px] text-white/40 ml-1">{label}</label>}
-    <div className="relative group">
-      {Icon && <Icon className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 group-focus-within:text-primary-400 transition-colors" size={18} />}
-      <input
-        className={cn(
-          "w-full bg-white/5 border border-white/10 rounded-2xl py-3 px-4 text-sm text-white placeholder:text-white/20 outline-none focus:bg-white/10 focus:border-primary-500/50 transition-all",
-          Icon && "pl-12",
-          className
-        )}
-        {...props}
-      />
+export const Input = ({ icon: Icon, label, className, onFocus, type, ...props }: any) => {
+  const handleFocus = (e: any) => {
+    // Em campos numericos, seleciona o conteudo ao focar — assim digitar ja substitui
+    // o valor (ex: "0"), sem precisar apagar manualmente ou posicionar o cursor.
+    if (type === 'number') {
+      e.target.select();
+    }
+    onFocus?.(e);
+  };
+  return (
+    <div className="space-y-1.5 w-full">
+      {label && <label className="text-[10px] font-black uppercase tracking-[2px] text-white/40 ml-1">{label}</label>}
+      <div className="relative group">
+        {Icon && <Icon className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 group-focus-within:text-primary-400 transition-colors" size={18} />}
+        <input
+          type={type}
+          onFocus={handleFocus}
+          className={cn(
+            "w-full bg-white/5 border border-white/10 rounded-2xl py-3 px-4 text-sm text-white placeholder:text-white/20 outline-none focus:bg-white/10 focus:border-primary-500/50 transition-all",
+            Icon && "pl-12",
+            className
+          )}
+          {...props}
+        />
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 // --- TABLES ---
 export const DataTable = ({ columns, data, loading }: any) => {
