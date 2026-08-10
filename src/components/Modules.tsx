@@ -9821,19 +9821,19 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
   const columns = [
     { key: 'name', label: 'Item / Insumo', render: (v: string, row: InventoryItem) => (
       <div className="flex flex-col">
-        <span className="font-bold text-white uppercase italic">{v}</span>
-        <span className="text-[10px] text-white/30 uppercase font-black tracking-widest">{row.code || 'S/C'}</span>
+        <span className="text-[11px] font-bold text-white uppercase italic">{v}</span>
+        <span className="text-[9px] text-white/30 uppercase font-black tracking-widest">{row.code || 'S/C'}</span>
       </div>
     )},
     { key: 'category', label: 'Categoria', render: (v: string) => <Badge variant="outline" className="uppercase text-[9px] opacity-60">{v || 'Geral'}</Badge> },
     { key: 'currentStock', label: 'Qtd. Atual', render: (v: number, row: InventoryItem) => (
       <div className="flex items-center gap-2">
-        <span className={cn("font-black", v <= (row.minStock || 0) ? "text-amber-500" : "text-white")}>{v} {row.unit}</span>
+        <span className={cn("text-[11px] font-black", v <= (row.minStock || 0) ? "text-amber-500" : "text-white")}>{v} {row.unit}</span>
         {v <= (row.minStock || 0) && <AlertCircle size={12} className="text-amber-500 animate-pulse" />}
       </div>
     )},
-    { key: 'salePrice', label: 'Preço Venda', render: (v: number) => `R$ ${v.toLocaleString('pt-BR')}` },
-    { key: 'isActive', label: 'Status', render: (v: boolean) => <Badge variant={v ? 'success' : 'outline'}>{v ? 'ATIVO' : 'INATIVO'}</Badge> },
+    { key: 'salePrice', label: 'Preço Venda', render: (v: number) => <span className="text-[11px]">{`R$ ${v.toLocaleString('pt-BR')}`}</span> },
+    { key: 'isActive', label: 'Status', render: (v: boolean) => <Badge variant={v ? 'success' : 'outline'} className="text-[9px]">{v ? 'ATIVO' : 'INATIVO'}</Badge> },
     { key: 'actions', label: 'Ações', render: (_: any, row: InventoryItem) => (
       <div className="flex items-center gap-1.5">
         <button onClick={() => openEditItem(row)} title="Editar" className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20"><Pencil size={13} /></button>
