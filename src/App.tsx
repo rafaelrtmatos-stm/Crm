@@ -809,7 +809,7 @@ export default function App() {
   if (loading) return (
     <div className="h-screen w-full flex items-center justify-center bg-[#07070a]">
       <div className="flex flex-col items-center gap-6">
-        <BrandLogo imageUrl={logoLightUrl} size="xl" layout="stacked" />
+        <BrandLogo imageUrl={logoLightUrl} size="xl" widthPx={210} layout="stacked" />
         <div className="w-10 h-10 border-4 border-red-600/30 border-t-red-500 rounded-full animate-spin mt-2" />
         <p className="text-xs font-bold uppercase tracking-widest text-slate-400 animate-pulse">Iniciando Sistema de Gestão...</p>
       </div>

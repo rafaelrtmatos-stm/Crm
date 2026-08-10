@@ -5,6 +5,7 @@ interface RafaArtsLogoProps {
   size?: 'sm' | 'md' | 'lg' | 'xl';
   layout?: 'stacked' | 'horizontal';
   className?: string;
+  widthPx?: number;
 }
 
 const SIZE_PX: Record<string, number> = { sm: 140, md: 220, lg: 320, xl: 420 };
@@ -17,9 +18,10 @@ export const BrandLogo: React.FC<RafaArtsLogoProps & { imageUrl?: string | null 
   size = 'md',
   layout = 'stacked',
   className = '',
+  widthPx,
 }) => {
   if (imageUrl) {
-    const width = SIZE_PX[size] || SIZE_PX.md;
+    const width = widthPx || SIZE_PX[size] || SIZE_PX.md;
     return (
       <img
         src={imageUrl}
@@ -29,13 +31,14 @@ export const BrandLogo: React.FC<RafaArtsLogoProps & { imageUrl?: string | null 
       />
     );
   }
-  return <RafaArtsLogo size={size} layout={layout} className={className} />;
+  return <RafaArtsLogo size={size} layout={layout} className={className} widthPx={widthPx} />;
 };
 
 export const RafaArtsLogo: React.FC<RafaArtsLogoProps> = ({
   size = 'md',
   layout = 'stacked',
   className = '',
+  widthPx,
 }) => {
   const sizeMap = {
     sm: { width: 140, height: 85 },
@@ -44,7 +47,8 @@ export const RafaArtsLogo: React.FC<RafaArtsLogoProps> = ({
     xl: { width: 420, height: 255 },
   };
 
-  const { width } = sizeMap[size] || sizeMap.md;
+  const { width: mappedWidth } = sizeMap[size] || sizeMap.md;
+  const width = widthPx || mappedWidth;
 
   const fontStyle = "Montserrat, 'Arial Black', Impact, system-ui, sans-serif";
 
