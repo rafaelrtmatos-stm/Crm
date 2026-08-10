@@ -6148,7 +6148,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             <span className="hidden sm:inline text-[9px] text-white/30 shrink-0">{safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
                           </div>
                           <Badge className={cn("text-[7.5px] font-black uppercase px-1.5 py-0.5 border-none shrink-0", isPartial ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300")}>
-                            {isPartial ? `PARCIAL — falta R$ ${balance.toFixed(2).replace('.', ',')}` : 'PAGO'}
+                            {isPartial ? `FALTA R$ ${balance.toFixed(2).replace('.', ',')}` : 'PAGO'}
                           </Badge>
                           <span className="text-[11px] font-black text-white shrink-0 w-20 text-right">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
                           <div className="flex gap-1 shrink-0">
@@ -6507,7 +6507,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       </div>
                       <div className="flex-1 sm:hidden" />
                       {isPartial && (
-                        <Badge className="text-[7.5px] font-black uppercase px-1.5 py-0.5 border-none shrink-0 bg-amber-500/20 text-amber-300">PARCIAL — falta R$ {balance.toFixed(2).replace('.', ',')}</Badge>
+                        <Badge className="text-[7.5px] font-black uppercase px-1.5 py-0.5 border-none shrink-0 bg-amber-500/20 text-amber-300">FALTA R$ {balance.toFixed(2).replace('.', ',')}</Badge>
                       )}
                       <span className="text-[11px] font-black text-white shrink-0 w-20 text-right">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
                       <div className="flex gap-1 shrink-0">
