@@ -237,12 +237,15 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
   const scale = 2.5;
   const width = 640;
   const rowHeight = 32;
+  const obsRowExtra = 14;
   const total = order.total;
   const down = order.downPayment ?? order.receivedValue ?? (order.status === 'completed' ? total : 0);
   const balance = Math.max(0, total - down);
   const isPending = balance > 0 || order.status === 'pending';
   const items = order.items || [];
   const tableRows = Math.max(items.length, 3);
+  const rowHeights = Array.from({ length: tableRows }, (_, i) => rowHeight + (items[i]?.observacao ? obsRowExtra : 0));
+  const totalRowsHeight = rowHeights.reduce((a, b) => a + b, 0);
   const marginX = 28;
   const cardGap = 14;
   const halfW = (width - marginX * 2 - cardGap) / 2;
@@ -270,7 +273,7 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
   const pipelineH = 64;
   const infoCardsH = Math.max(92, 46 + Math.max(clienteRows.length, pedidoRows.length) * 17);
   const tableHeaderH = 32;
-  const tableH = tableHeaderH + tableRows * rowHeight;
+  const tableH = tableHeaderH + totalRowsHeight;
   const totalCardH = 150;
   const obsH = 30 + OBSERVACOES.length * 16 + 14;
   const footerH = 195;
@@ -425,6 +428,7 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
   let rowY = y + tableHeaderH;
   for (let i = 0; i < tableRows; i++) {
     const item = items[i];
+    const thisRowHeight = rowHeights[i];
     if (item) {
       const unitPrice = item.area ? item.price * item.area : item.price;
       const subtotal = unitPrice * item.quantity;
@@ -441,16 +445,23 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
       ctx.fillStyle = TEXT;
       ctx.font = `800 10.5px ${FONT}`;
       ctx.fillText(`R$ ${subtotal.toFixed(2).replace('.', ',')}`, width - marginX - 16, rowY + 21);
+      if (item.observacao) {
+        ctx.textAlign = 'left';
+        ctx.fillStyle = TEXT_FAINT;
+        ctx.font = `italic 500 8.5px ${FONT}`;
+        const obsLabel = item.observacao.length > 55 ? item.observacao.slice(0, 55) + '…' : item.observacao;
+        ctx.fillText(`Obs: ${obsLabel}`, marginX + 74, rowY + 33);
+      }
     }
     if (i < tableRows - 1) {
       ctx.strokeStyle = BORDER;
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(marginX + 16, rowY + rowHeight);
-      ctx.lineTo(width - marginX - 16, rowY + rowHeight);
+      ctx.moveTo(marginX + 16, rowY + thisRowHeight);
+      ctx.lineTo(width - marginX - 16, rowY + thisRowHeight);
       ctx.stroke();
     }
-    rowY += rowHeight;
+    rowY += thisRowHeight;
   }
   y += tableH + 22;
 

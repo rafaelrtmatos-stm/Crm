@@ -97,10 +97,13 @@ export async function renderOrcamentoCanvas({ orcamento: o, companyName, logoDar
   const mctx = measureCanvas.getContext('2d')!;
 
   const rowHeight = 30;
+  const obsRowExtra = 14;
   const items = o.items || [];
   const tableRows = Math.max(items.length, 1);
+  const rowHeights = Array.from({ length: tableRows }, (_, i) => rowHeight + (items[i]?.observacao ? obsRowExtra : 0));
+  const totalRowsHeight = rowHeights.reduce((a, b) => a + b, 0);
   const tableHeaderH = 30;
-  const tableH = tableHeaderH + tableRows * rowHeight;
+  const tableH = tableHeaderH + totalRowsHeight;
 
   const pagamentoPosteriorTexto = o.pagamentoPosteriorAutorizado
     ? `Pagamento autorizado para ${o.pagamentoPosteriorData ? new Date(o.pagamentoPosteriorData).toLocaleDateString('pt-BR') : '-'}` +
@@ -227,6 +230,7 @@ export async function renderOrcamentoCanvas({ orcamento: o, companyName, logoDar
   let rowY = y + tableHeaderH;
   for (let i = 0; i < tableRows; i++) {
     const item = items[i];
+    const thisRowHeight = rowHeights[i];
     if (item) {
       const unitPrice = item.area ? item.price * item.area : item.price;
       const subtotal = unitPrice * item.quantity;
@@ -243,15 +247,22 @@ export async function renderOrcamentoCanvas({ orcamento: o, companyName, logoDar
       ctx.fillStyle = TEXT;
       ctx.font = `800 10px ${FONT}`;
       ctx.fillText(`R$ ${subtotal.toFixed(2).replace('.', ',')}`, width - marginX - 16, rowY + 20);
+      if (item.observacao) {
+        ctx.textAlign = 'left';
+        ctx.fillStyle = TEXT_FAINT;
+        ctx.font = `italic 500 8px ${FONT}`;
+        const obsLabel = item.observacao.length > 60 ? item.observacao.slice(0, 60) + '…' : item.observacao;
+        ctx.fillText(`Obs: ${obsLabel}`, marginX + 60, rowY + 32);
+      }
     }
     if (i < tableRows - 1) {
       ctx.strokeStyle = BORDER;
       ctx.beginPath();
-      ctx.moveTo(marginX + 16, rowY + rowHeight);
-      ctx.lineTo(width - marginX - 16, rowY + rowHeight);
+      ctx.moveTo(marginX + 16, rowY + thisRowHeight);
+      ctx.lineTo(width - marginX - 16, rowY + thisRowHeight);
       ctx.stroke();
     }
-    rowY += rowHeight;
+    rowY += thisRowHeight;
   }
   y += tableH + 20;
 

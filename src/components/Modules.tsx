@@ -3403,6 +3403,39 @@ export const MetaAdsModule = ({ currentCompany }: { currentCompany: Company | nu
 };
 
 // --- PDV / POS ---
+// Cronometro de contagem regressiva ate a previsao de entrega. Se ja passou da hora,
+// para de contar e fica vermelho (nao fica contando "atraso" indefinidamente).
+const EntregaCountdown = ({ scheduledFor }: { scheduledFor: string }) => {
+  const target = new Date(scheduledFor).getTime();
+  const [now, setNow] = useState(() => Date.now());
+  const overdue = now >= target;
+
+  useEffect(() => {
+    if (overdue) return;
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [overdue]);
+
+  const diff = Math.max(0, target - now);
+  const totalSeconds = Math.floor(diff / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const countdownLabel = days > 0 ? `${days}d ${hours}h` : `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+
+  return (
+    <span
+      className={cn(
+        "hidden sm:inline text-[8.5px] font-black uppercase px-2 py-0.5 rounded-full border shrink-0",
+        overdue ? "bg-rose-500/15 text-rose-400 border-rose-500/30" : "bg-primary-500/10 text-primary-300 border-primary-500/20"
+      )}
+    >
+      Entrega: {safeFormat(scheduledFor, 'dd/MM HH:mm')} {overdue ? '· ATRASADO' : `· faltam ${countdownLabel}`}
+    </span>
+  );
+};
+
 export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany: Company | null, addPendingOrder: (order: SaleOrder) => void }) => {
   const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare } = React.useContext(AppContext)!;
   const [activeTab, setActiveTabState] = useState<'venda' | 'historico' | 'estoque' | 'servicos' | 'orcamentos' | 'clientes' | 'contratos' | 'excluidos'>(() => {
@@ -4142,11 +4175,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setHistorySortOrderState(order);
     localStorage.setItem('rpro_history_sort_order', order);
   };
-  const [servicosSortBy, setServicosSortByState] = useState<'data' | 'nome' | 'valor' | 'status'>(() => {
+  const [servicosSortBy, setServicosSortByState] = useState<'data' | 'nome' | 'valor' | 'status' | 'agendamento'>(() => {
     const saved = localStorage.getItem('rpro_servicos_sort');
-    return (saved === 'data' || saved === 'nome' || saved === 'valor' || saved === 'status') ? saved : 'data';
+    return (saved === 'data' || saved === 'nome' || saved === 'valor' || saved === 'status' || saved === 'agendamento') ? saved : 'data';
   });
-  const setServicosSortBy = (v: 'data' | 'nome' | 'valor' | 'status') => {
+  const setServicosSortBy = (v: 'data' | 'nome' | 'valor' | 'status' | 'agendamento') => {
     setServicosSortByState(v);
     localStorage.setItem('rpro_servicos_sort', v);
   };
@@ -4342,6 +4375,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       return isPartial || !!sale.scheduledFor;
     });
     return filtered.sort((a, b) => {
+      if (servicosSortBy === 'agendamento') {
+        // Sem agendamento sempre vai pro fim da lista, em qualquer direcao escolhida
+        if (!a.scheduledFor && !b.scheduledFor) return 0;
+        if (!a.scheduledFor) return 1;
+        if (!b.scheduledFor) return -1;
+        const cmp = new Date(a.scheduledFor).getTime() - new Date(b.scheduledFor).getTime();
+        return historySortOrder === 'desc' ? -cmp : cmp;
+      }
       let cmp = 0;
       switch (servicosSortBy) {
         case 'nome':
@@ -6207,12 +6248,20 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             </div>
                           </div>
                           
-                          {sale.scheduledFor && (
-                            <div className="bg-primary-500/10 border border-primary-500/20 rounded-xl px-2.5 py-1 text-right">
-                              <span className="text-[7.5px] font-black uppercase text-primary-300 tracking-wider block">Entrega Agendada</span>
-                              <span className="text-[9.5px] font-bold text-white">{safeFormat(sale.scheduledFor, 'dd/MM/yyyy HH:mm')}</span>
-                            </div>
-                          )}
+                          {sale.scheduledFor && (() => {
+                            const overdue = new Date(sale.scheduledFor).getTime() <= Date.now();
+                            return (
+                              <div className={cn(
+                                "border rounded-xl px-2.5 py-1 text-right",
+                                overdue ? "bg-rose-500/10 border-rose-500/20" : "bg-primary-500/10 border-primary-500/20"
+                              )}>
+                                <span className={cn("text-[7.5px] font-black uppercase tracking-wider block", overdue ? "text-rose-300" : "text-primary-300")}>
+                                  {overdue ? 'Entrega Atrasada' : 'Entrega Agendada'}
+                                </span>
+                                <span className="text-[9.5px] font-bold text-white">{safeFormat(sale.scheduledFor, 'dd/MM/yyyy HH:mm')}</span>
+                              </div>
+                            );
+                          })()}
                         </div>
 
                         {/* Items Summary */}
@@ -6399,6 +6448,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   <option value="nome" className="bg-slate-900">Nome do Cliente</option>
                   <option value="valor" className="bg-slate-900">Valor</option>
                   <option value="status" className="bg-slate-900">Status</option>
+                  <option value="agendamento" className="bg-slate-900">Ordem de Agendamento</option>
                 </select>
                 <button
                   onClick={() => setHistorySortOrder(historySortOrder === 'desc' ? 'asc' : 'desc')}
@@ -6453,11 +6503,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                         )}
                         <span className="hidden sm:inline text-[9px] text-white/30 font-mono shrink-0">#{sale.id.slice(-8).toUpperCase()}</span>
                         <span className="hidden sm:inline text-[9px] text-white/30 shrink-0">{safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
-                        {sale.scheduledFor && (
-                          <span className="hidden sm:inline text-[8.5px] font-black uppercase bg-primary-500/10 text-primary-300 px-2 py-0.5 rounded-full border border-primary-500/20 shrink-0">
-                            Entrega: {safeFormat(sale.scheduledFor, 'dd/MM HH:mm')}
-                          </span>
-                        )}
+                        {sale.scheduledFor && <EntregaCountdown scheduledFor={sale.scheduledFor} />}
                       </div>
                       <div className="flex-1 sm:hidden" />
                       {isPartial && (
