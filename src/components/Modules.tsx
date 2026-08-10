@@ -10236,12 +10236,15 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
   const [activeSessions, setActiveSessions] = useState<any[]>([]);
   useEffect(() => {
     if (!user?.isAdmin) return;
+    const minhaSessaoId = sessionStorage.getItem('rpro_session_id');
     const q = query(collection(db, 'sessions'), where('isRevoked', '==', false));
     const unsub = onSnapshot(q, (snap) => {
       const sessions = snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
       // So mostra sessoes com atividade nos ultimos 30 minutos (mais antigas provavelmente ja fecharam a aba)
+      // e nunca mostra a PROPRIA sessao de quem esta olhando — evita clicar Desconectar em si mesmo
+      // sem querer quando a lista reordena sozinha (o "visto por ultimo" atualiza a cada 2min)
       const now = Date.now();
-      const recent = sessions.filter(s => now - new Date(s.lastSeenAt || s.loginAt).getTime() < 30 * 60 * 1000);
+      const recent = sessions.filter(s => s.id !== minhaSessaoId && now - new Date(s.lastSeenAt || s.loginAt).getTime() < 30 * 60 * 1000);
       recent.sort((a, b) => new Date(b.lastSeenAt || b.loginAt).getTime() - new Date(a.lastSeenAt || a.loginAt).getTime());
       setActiveSessions(recent);
     });

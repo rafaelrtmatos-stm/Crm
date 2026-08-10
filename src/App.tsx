@@ -643,9 +643,21 @@ export default function App() {
     return `${os} · ${browser}`;
   };
 
+  // Guarda o "desligar" do escutador de desconexao remota e do heartbeat da sessao atual,
+  // pra nunca deixar um escutador de uma sessao antiga (ja desconectada) ativo por engano
+  const sessaoListenerRef = React.useRef<(() => void) | null>(null);
+
+  const pararEscutaDeSessao = () => {
+    if (sessaoListenerRef.current) {
+      sessaoListenerRef.current();
+      sessaoListenerRef.current = null;
+    }
+  };
+
   // Registra a sessao (IP publico + dispositivo) no repositorio, e fica escutando
   // se o admin desconectou essa sessao remotamente — se sim, desloga na hora.
   const registerSession = async (uid: string, uname: string) => {
+    pararEscutaDeSessao(); // desliga qualquer escutador de uma sessao anterior antes de criar um novo
     try {
       const sessionId = 'sess-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
       sessionStorage.setItem('rpro_session_id', sessionId);
@@ -669,7 +681,10 @@ export default function App() {
       });
 
       // Escuta se essa sessao foi desconectada pelo admin
-      onSnapshot(doc(db, 'sessions', sessionId), (snap) => {
+      const unsubSnapshot = onSnapshot(doc(db, 'sessions', sessionId), (snap) => {
+        // So desloga se essa sessao (sessionId) ainda for a sessao ativa no momento —
+        // evita que um escutador antigo derrube uma sessao nova por engano
+        if (sessionStorage.getItem('rpro_session_id') !== sessionId) return;
         if (snap.exists() && snap.data()?.isRevoked) {
           alert('Sua sessão foi desconectada pelo administrador.');
           handleLogout();
@@ -678,16 +693,21 @@ export default function App() {
 
       // Atualiza "visto por ultimo" a cada 2 minutos, enquanto a aba estiver aberta
       const heartbeat = setInterval(() => {
+        if (sessionStorage.getItem('rpro_session_id') !== sessionId) { clearInterval(heartbeat); return; }
         updateDoc(doc(db, 'sessions', sessionId), { lastSeenAt: new Date().toISOString() }).catch(() => {});
       }, 120000);
       window.addEventListener('beforeunload', () => clearInterval(heartbeat));
+
+      sessaoListenerRef.current = () => { unsubSnapshot(); clearInterval(heartbeat); };
     } catch (e) {
       console.error('Erro ao registrar sessão:', e);
     }
   };
 
   const handleLogout = async () => {
+    pararEscutaDeSessao();
     sessionStorage.removeItem('rpro_logged_user_id');
+    sessionStorage.removeItem('rpro_session_id');
     localStorage.removeItem('rpro_simulated_user_id');
     localStorage.removeItem('rpro_remembered_user_id');
     setSimulatedUserIdState(null);
