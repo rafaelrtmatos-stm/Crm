@@ -50,6 +50,7 @@ export interface SaleOrder {
   createdAt: string;
   scheduledFor?: string;
   deletedAt?: string;
+  observacoes?: string;
 }
 
 export type UserRole = 'admin' | 'gerente' | 'atendente' | 'caixa' | 'vendedor' | 'designer' | 'operador';

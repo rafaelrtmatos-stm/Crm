@@ -268,6 +268,7 @@ const mapVendaRow = (row: any): SaleOrder => ({
   createdAt: row.created_at,
   scheduledFor: row.scheduled_for || undefined,
   deletedAt: row.deleted_at || undefined,
+  observacoes: row.observacoes || undefined,
   serviceStatus: row.service_status || 'pedido_recebido',
   statusHistory: Array.isArray(row.status_history) ? row.status_history : [],
   responsavel: row.responsavel || undefined,
@@ -3646,6 +3647,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [cashReceived, setCashReceived] = useState<number | ''>('');
   const [downPayment, setDownPayment] = useState(0);
   const [scheduledFor, setScheduledFor] = useState('');
+  const [orderObservacoes, setOrderObservacoes] = useState('');
 
   // Multiplas formas de pagamento na mesma venda
   const PAYMENT_METHOD_OPTIONS: { id: PaymentEntry['method']; label: string; icon: any }[] = [
@@ -4539,7 +4541,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [newPaymentInstallments, setNewPaymentInstallments] = useState(1);
   const canManageHistory = !!(user?.isAdmin || user?.allowedActions?.includes('canManageSaleHistory'));
   const [editingSale, setEditingSale] = useState<SaleOrder | null>(null);
-  const [editSaleForm, setEditSaleForm] = useState({ customerName: '', total: 0, downPayment: 0, paymentMethod: 'pix' });
+  const [editSaleForm, setEditSaleForm] = useState({ customerName: '', total: 0, downPayment: 0, paymentMethod: 'pix', observacoes: '' });
 
   const handleReopenSale = async (sale: SaleOrder) => {
     if (!confirm(`Reabrir a venda #${sale.id.slice(-8).toUpperCase()}? Ela voltará a aparecer como pendente.`)) return;
@@ -4554,6 +4556,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       total: sale.total,
       downPayment: sale.downPayment || 0,
       paymentMethod: sale.paymentMethod || 'pix',
+      observacoes: sale.observacoes || '',
     });
   };
 
@@ -4564,10 +4567,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       total: editSaleForm.total,
       down_payment: editSaleForm.downPayment,
       payment_method: editSaleForm.paymentMethod,
+      observacoes: editSaleForm.observacoes || null,
       status: editSaleForm.downPayment >= editSaleForm.total ? 'completed' : 'pending',
     }).eq('id', editingSale.id);
     if (error) { console.error(error); alert('Não foi possível salvar as alterações.'); return; }
     setEditingSale(null);
+    loadSalesHistory();
   };
 
   const handleDeleteSale = async (sale: SaleOrder) => {
@@ -4974,6 +4979,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         setPaymentEntries([]);
         setDownPayment(0);
         setScheduledFor('');
+        setOrderObservacoes('');
         setPendingPaymentMethod('');
       } catch (err: any) {
         console.error('Erro ao quitar débito:', err);
@@ -5012,7 +5018,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       pendingPaymentMethod: currentRemaining > 0 ? (pendingPaymentMethod || undefined) : undefined,
       status: isPartialSale ? 'pending' : 'completed',
       createdAt: new Date().toISOString(),
-      scheduledFor: deliveryDate || undefined
+      scheduledFor: deliveryDate || undefined,
+      observacoes: orderObservacoes || undefined
     };
 
     // Save to Supabase
@@ -5029,6 +5036,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         pending_payment_method: currentRemaining > 0 ? (pendingPaymentMethod || null) : null,
         status: order.status,
         scheduled_for: order.scheduledFor || null,
+        observacoes: orderObservacoes || null,
         orcamento_id: linkedOrcamentoId || null,
       }).select().single();
       if (error) throw error;
@@ -5103,6 +5111,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     // Reset cart but keep customer for the success modal
     setCart([]);
     setDownPayment(0);
+    setOrderObservacoes('');
     setScheduledFor('');
     resetPaymentEntries();
   };
@@ -6168,13 +6177,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     <div key={sale.id} className="flex items-center gap-2 sm:gap-3 bg-slate-900/60 hover:bg-slate-900 border border-white/5 rounded-xl px-3 py-2.5 transition-all overflow-x-auto custom-scrollbar">
                       <div className="flex items-center gap-2 sm:gap-3 shrink-0 sm:min-w-0 sm:flex-1">
                         <span className="text-[11px] font-black text-white whitespace-nowrap">{sale.customerName || 'Cliente de Balcão'}</span>
-                        <span className="hidden sm:inline text-[9px] text-white/30 font-mono shrink-0">#{sale.id.slice(-8).toUpperCase()}</span>
-                        <span className="hidden sm:inline text-[9px] text-white/30 shrink-0">{safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
                         {sale.items && sale.items.length > 0 && (
-                          <span className="hidden sm:inline text-[9px] text-white/40 italic truncate max-w-[140px]" title={sale.items[sale.items.length - 1].name}>
+                          <span className="text-[9px] text-white/40 italic whitespace-nowrap" title={sale.items[sale.items.length - 1].name}>
                             {sale.items[sale.items.length - 1].name}{sale.items.length > 1 ? ` (+${sale.items.length - 1})` : ''}
                           </span>
                         )}
+                        {sale.observacoes && (
+                          <span className="text-[9px] text-amber-300/70 italic whitespace-nowrap" title={sale.observacoes}>
+                            "{sale.observacoes}"
+                          </span>
+                        )}
+                        <span className="hidden sm:inline text-[9px] text-white/30 font-mono shrink-0">#{sale.id.slice(-8).toUpperCase()}</span>
+                        <span className="hidden sm:inline text-[9px] text-white/30 shrink-0">{safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
                         {sale.scheduledFor && (
                           <span className="hidden sm:inline text-[8.5px] font-black uppercase bg-primary-500/10 text-primary-300 px-2 py-0.5 rounded-full border border-primary-500/20 shrink-0">
                             Entrega: {safeFormat(sale.scheduledFor, 'dd/MM HH:mm')}
@@ -6874,6 +6888,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    <CalendarClock size={12} />
                    {scheduledFor ? safeFormat(scheduledFor, 'dd/MM HH:mm') : 'Agendar Entrega'}
                  </button>
+
+                 <input
+                   value={orderObservacoes}
+                   onChange={(e) => setOrderObservacoes(e.target.value)}
+                   placeholder="Observação (opcional, aparece na lista de Serviços)"
+                   className="w-full h-8 sm:h-9 rounded-lg border border-white/10 bg-white/5 px-2.5 text-[9px] sm:text-[10px] text-white placeholder-white/30 focus:outline-none focus:border-primary-500 shrink-0"
+                 />
               </div>
            </div>
 
@@ -7126,6 +7147,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  setIsCustomerModalOpen(false);
                  setSelectedCustomer(null);
                  setCart([]);
+                 setOrderObservacoes('');
                  setDownPayment(0);
                  setScheduledFor('');
                  resetPaymentEntries();
@@ -7250,6 +7272,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  </button>
                ))}
              </div>
+           </div>
+           <div className="space-y-2">
+              <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Observações</label>
+              <textarea
+                rows={2}
+                value={editSaleForm.observacoes}
+                onChange={(e) => setEditSaleForm({ ...editSaleForm, observacoes: e.target.value })}
+                placeholder="Ex: cliente pediu pra deixar na portaria, cor específica, etc."
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-primary-500"
+              />
            </div>
            <div className="flex justify-end gap-3 pt-2">
              <Button variant="ghost" onClick={() => setEditingSale(null)}>Cancelar</Button>
