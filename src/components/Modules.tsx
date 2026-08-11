@@ -5918,6 +5918,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setCart([]);
     setSelectedCustomer(null);
     setSaleDiscountValue(0); setSaleDiscountInput('');
+    // Limpa tambem qualquer estado de "editando pedido existente" ou "quitando debito" que
+    // tenha ficado preso de uma acao anterior cancelada — senao a proxima nota nova herda
+    // dados (valor ja pago, itens) de um pedido antigo sem querer.
+    setEditingFullOrder(null);
+    setSettlingOrder(null);
+    setScheduledFor('');
+    setOrderObservacoes('');
+    setDownPayment(0);
+    resetPaymentEntries();
   };
 
   const [saleDiscountValue, setSaleDiscountValue] = useState<number>(0);
