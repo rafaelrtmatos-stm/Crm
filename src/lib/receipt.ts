@@ -45,7 +45,7 @@ const FONT = 'Arial';
 
 const PIPELINE_STAGES = [
   'Pedido Recebido', 'Aguardando Arte', 'Arte em Desenvolvimento', 'Aguardando Aprovação',
-  'Produção', 'Acabamento', 'Produto Entregue',
+  'Produção', 'Acabamento', 'Aguardando Retirada', 'Produto Entregue',
 ];
 
 const STAGE_ID_TO_INDEX: Record<string, number> = {
@@ -55,7 +55,8 @@ const STAGE_ID_TO_INDEX: Record<string, number> = {
   aguardando_aprovacao: 3,
   producao: 4,
   acabamento: 5,
-  produto_entregue: 6,
+  aguardando_retirada: 6,
+  produto_entregue: 7,
 };
 
 function getPipelineIndex(order: SaleOrder): number {
@@ -64,7 +65,7 @@ function getPipelineIndex(order: SaleOrder): number {
     return STAGE_ID_TO_INDEX[order.serviceStatus];
   }
   // Fallback pra pedidos antigos sem etapa definida — adivinha pelo status/entrada, como era antes
-  if (order.status === 'completed') return 6;
+  if (order.status === 'completed') return PIPELINE_STAGES.length - 1;
   const down = order.downPayment ?? order.receivedValue ?? 0;
   if (down > 0) return 3;
   return 0;
@@ -132,7 +133,19 @@ function drawStageIcon(ctx: CanvasRenderingContext2D, stageIndex: number, cx: nu
       ctx.moveTo(cx - s, cy - s * 0.7); ctx.lineTo(cx, cy); ctx.lineTo(cx + s, cy - s * 0.7);
       ctx.stroke();
       break;
-    case 6: // Produto Entregue - caminhao
+    case 6: // Aguardando Retirada - sacola
+      ctx.beginPath();
+      ctx.moveTo(cx - s * 0.9, cy - s * 0.3);
+      ctx.lineTo(cx - s * 1.1, cy + s * 1.1);
+      ctx.lineTo(cx + s * 1.1, cy + s * 1.1);
+      ctx.lineTo(cx + s * 0.9, cy - s * 0.3);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(cx, cy - s * 0.5, s * 0.5, Math.PI, 0, false);
+      ctx.stroke();
+      break;
+    case 7: // Produto Entregue - caminhao
       ctx.beginPath();
       ctx.rect(cx - s * 1.2, cy - s * 0.5, s * 1.4, s * 0.9);
       ctx.stroke();

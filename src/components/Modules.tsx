@@ -9271,7 +9271,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  <option value="aguardando_aprovacao" className="bg-slate-900">4. Aguardando Aprovação</option>
                  <option value="producao" className="bg-slate-900">5. Produção</option>
                  <option value="acabamento" className="bg-slate-900">6. Acabamento</option>
-                 <option value="produto_entregue" className="bg-slate-900">7. Produto Entregue</option>
+                 <option value="aguardando_retirada" className="bg-slate-900">7. Aguardando Retirada</option>
+                 <option value="produto_entregue" className="bg-slate-900">8. Produto Entregue</option>
                </select>
                <p className="text-[9px] text-white/30">Controla a linha de evolução mostrada no recibo — marca essa etapa como atual e as anteriores como concluídas.</p>
              </div>
