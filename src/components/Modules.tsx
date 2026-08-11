@@ -4572,10 +4572,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     await openReceiptDetail(mapVendaRow(data));
   };
 
-  // Se outra aba (ex: Ordem de Servico) pediu pra abrir um recibo especifico, atende assim que o Terminal montar
+  // Se outra aba (ex: Ordem de Servico) pediu pra abrir um recibo especifico, atende assim que o Terminal montar.
+  // Nao precisa trocar de sub-aba: o recibo e um modal que aparece por cima de qualquer uma delas.
   useEffect(() => {
     if (!pendingReceiptOpenId) return;
-    setActiveTab('historico');
     openReceiptById(pendingReceiptOpenId).then(() => setReceiptOpenedFromProduction(true));
     setPendingReceiptOpenId(null);
   }, [pendingReceiptOpenId]);
