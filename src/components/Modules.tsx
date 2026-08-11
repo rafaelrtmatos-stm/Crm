@@ -3691,7 +3691,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     } catch (e) { /* navegador sem suporte a audio, ignora silenciosamente */ }
   };
 
-  const [alertToast, setAlertToast] = useState<string | null>(null);
+  const [alertToast, setAlertToast] = useState<{ message: string; saleId?: string } | null>(null);
 
   const [activeTab, setActiveTabState] = useState<'venda' | 'historico' | 'estoque' | 'servicos' | 'orcamentos' | 'clientes' | 'contratos' | 'excluidos'>(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem('rpro_pos_subtab') : null;
@@ -4022,8 +4022,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             if (primeiraVez) return; // ja tinha passado antes da gente ver esse pedido — nao alerta retroativo
             playAlertBeep();
             const label = threshold === 0 ? 'na hora marcada agora' : `em ${threshold} minuto${threshold > 1 ? 's' : ''}`;
-            setAlertToast(`⏰ Entrega de ${sale.customerName || 'cliente'} ${label}`);
-            setTimeout(() => setAlertToast(prev => prev === `⏰ Entrega de ${sale.customerName || 'cliente'} ${label}` ? null : prev), 10000);
+            const msg = `⏰ Entrega de ${sale.customerName || 'cliente'} ${label}`;
+            setAlertToast({ message: msg, saleId: sale.id });
+            setTimeout(() => setAlertToast(prev => prev?.message === msg ? null : prev), 12000);
           }
         });
       });
@@ -6337,7 +6338,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                      </button>
                      <button
                        type="button"
-                       onClick={() => { playAlertBeep(); setAlertToast('⏰ Teste de alerta — se você ouviu o bipe e viu esse aviso, está tudo funcionando!'); setTimeout(() => setAlertToast(null), 6000); }}
+                       onClick={() => { playAlertBeep(); setAlertToast({ message: '⏰ Teste de alerta — se você ouviu o bipe e viu esse aviso, está tudo funcionando!' }); setTimeout(() => setAlertToast(null), 6000); }}
                        title="Testar o som e o aviso agora, sem precisar esperar um horário real"
                        className="px-2 py-1 rounded-lg bg-white/5 text-white/40 hover:text-white border-0 cursor-pointer text-[8px] font-black uppercase tracking-wider"
                      >
@@ -6354,9 +6355,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             </div>
 
             {alertToast && (
-              <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] bg-amber-500 text-slate-950 font-black text-sm px-6 py-3 rounded-2xl shadow-2xl animate-in slide-in-from-top-4 flex items-center gap-3">
-                 {alertToast}
-                 <button onClick={() => setAlertToast(null)} className="text-slate-900/50 hover:text-slate-900 border-0 bg-transparent cursor-pointer"><X size={16} /></button>
+              <div
+                onClick={() => { if (alertToast.saleId) { openReceiptById(alertToast.saleId); setAlertToast(null); } }}
+                className={cn(
+                  "fixed top-4 right-4 z-[100] bg-amber-500 text-slate-950 font-black text-sm px-5 py-3 rounded-2xl shadow-2xl animate-in slide-in-from-top-4 flex items-center gap-3 max-w-[calc(100vw-2rem)] sm:max-w-sm",
+                  alertToast.saleId ? "cursor-pointer hover:bg-amber-400 active:scale-95 transition-all" : ""
+                )}
+              >
+                 <span className="flex-1">{alertToast.message}</span>
+                 {alertToast.saleId && <ChevronRight size={16} className="shrink-0" />}
+                 <button onClick={(e) => { e.stopPropagation(); setAlertToast(null); }} className="text-slate-900/50 hover:text-slate-900 border-0 bg-transparent cursor-pointer shrink-0"><X size={16} /></button>
               </div>
             )}
 
