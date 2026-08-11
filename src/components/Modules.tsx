@@ -3804,7 +3804,8 @@ export const MetaAdsModule = ({ currentCompany }: { currentCompany: Company | nu
 const EntregaCountdown = ({ scheduledFor, onEdit, onDeliver, onDeleteSchedule }: { scheduledFor: string; onEdit?: () => void; onDeliver?: () => void; onDeleteSchedule?: () => void }) => {
   const target = new Date(scheduledFor).getTime();
   const [now, setNow] = useState(() => Date.now());
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
+  const btnRef = React.useRef<HTMLButtonElement>(null);
   const overdue = now >= target;
 
   useEffect(() => {
@@ -3824,10 +3825,17 @@ const EntregaCountdown = ({ scheduledFor, onEdit, onDeliver, onDeleteSchedule }:
   const hasActions = onEdit || onDeliver || onDeleteSchedule;
 
   return (
-    <div className="relative hidden sm:inline-block shrink-0">
+    <div className="hidden sm:inline-block shrink-0">
       <button
+        ref={btnRef}
         type="button"
-        onClick={(e) => { e.stopPropagation(); if (hasActions) setMenuOpen(v => !v); }}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (!hasActions) return;
+          if (menuPos) { setMenuPos(null); return; }
+          const rect = btnRef.current?.getBoundingClientRect();
+          if (rect) setMenuPos({ top: rect.bottom + 4, left: rect.left });
+        }}
         className={cn(
           "text-[8.5px] font-black uppercase px-2 py-0.5 rounded-full border shrink-0 border-0",
           hasActions && "cursor-pointer",
@@ -3836,27 +3844,31 @@ const EntregaCountdown = ({ scheduledFor, onEdit, onDeliver, onDeleteSchedule }:
       >
         Entrega: {safeFormat(scheduledFor, 'dd/MM HH:mm')} {overdue ? '· ATRASADO' : `· faltam ${countdownLabel}`}
       </button>
-      {menuOpen && (
+      {menuPos && createPortal(
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
-          <div className="absolute top-full left-0 mt-1 z-50 bg-[#1a2333] border border-white/10 rounded-xl shadow-2xl py-1 min-w-[160px] animate-in fade-in zoom-in-95 duration-150">
+          <div className="fixed inset-0 z-[200]" onClick={() => setMenuPos(null)} />
+          <div
+            className="fixed z-[201] bg-[#1a2333] border border-white/10 rounded-xl shadow-2xl py-1 min-w-[180px] animate-in fade-in zoom-in-95 duration-150"
+            style={{ top: menuPos.top, left: menuPos.left }}
+          >
              {onEdit && (
-               <button onClick={() => { setMenuOpen(false); onEdit(); }} className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left cursor-pointer bg-transparent border-0">
+               <button onClick={() => { setMenuPos(null); onEdit(); }} className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left cursor-pointer bg-transparent border-0">
                   <Pencil size={12} /> Editar Agendamento
                </button>
              )}
              {onDeliver && (
-               <button onClick={() => { setMenuOpen(false); onDeliver(); }} className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-bold text-emerald-400 hover:bg-emerald-500/10 text-left cursor-pointer bg-transparent border-0">
+               <button onClick={() => { setMenuPos(null); onDeliver(); }} className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-bold text-emerald-400 hover:bg-emerald-500/10 text-left cursor-pointer bg-transparent border-0">
                   <CheckCircle2 size={12} /> Marcar como Entregue
                </button>
              )}
              {onDeleteSchedule && (
-               <button onClick={() => { setMenuOpen(false); onDeleteSchedule(); }} className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-bold text-rose-400 hover:bg-rose-500/10 text-left cursor-pointer bg-transparent border-0">
+               <button onClick={() => { setMenuPos(null); onDeleteSchedule(); }} className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-bold text-rose-400 hover:bg-rose-500/10 text-left cursor-pointer bg-transparent border-0">
                   <Trash2 size={12} /> Excluir Agendamento
                </button>
              )}
           </div>
-        </>
+        </>,
+        document.body
       )}
     </div>
   );
@@ -3923,6 +3935,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [settlingOrder, setSettlingOrder] = useState<SaleOrder | null>(null);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [isScheduleActionsMenuOpen, setIsScheduleActionsMenuOpen] = useState(false);
+  const [scheduleMenuPos, setScheduleMenuPos] = useState<{ bottom: number; left: number; width: number } | null>(null);
+  const scheduleBtnRef = React.useRef<HTMLButtonElement>(null);
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
   const [customerModalIntent, setCustomerModalIntent] = useState<'finalize' | 'preselect' | 'orcamento'>('preselect');
   const [customerModalMode, setCustomerModalMode] = useState<'search' | 'create'>('search');
@@ -8447,11 +8461,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     )}
                  </div>
 
-                 <div className="relative shrink-0">
+                 <div className="shrink-0">
                    <button
+                     ref={scheduleBtnRef}
                      type="button"
                      onClick={() => {
-                       if (scheduledFor && settlingOrder) { setIsScheduleActionsMenuOpen(v => !v); return; }
+                       if (scheduledFor && settlingOrder) {
+                         if (isScheduleActionsMenuOpen) { setIsScheduleActionsMenuOpen(false); return; }
+                         const rect = scheduleBtnRef.current?.getBoundingClientRect();
+                         if (rect) setScheduleMenuPos({ bottom: window.innerHeight - rect.top + 4, left: rect.left, width: rect.width });
+                         setIsScheduleActionsMenuOpen(true);
+                         return;
+                       }
                        setIsScheduleModalOpen(true);
                      }}
                      className={cn(
@@ -8462,10 +8483,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                      <CalendarClock size={12} />
                      {scheduledFor ? safeFormat(scheduledFor, 'dd/MM HH:mm') : 'Agendar Entrega'}
                    </button>
-                   {isScheduleActionsMenuOpen && (
+                   {isScheduleActionsMenuOpen && scheduleMenuPos && createPortal(
                      <>
-                       <div className="fixed inset-0 z-40" onClick={() => setIsScheduleActionsMenuOpen(false)} />
-                       <div className="absolute bottom-full left-0 mb-1 z-50 bg-[#1a2333] border border-white/10 rounded-xl shadow-2xl py-1 w-full min-w-[160px] animate-in fade-in zoom-in-95 duration-150">
+                       <div className="fixed inset-0 z-[200]" onClick={() => setIsScheduleActionsMenuOpen(false)} />
+                       <div
+                         className="fixed z-[201] bg-[#1a2333] border border-white/10 rounded-xl shadow-2xl py-1 animate-in fade-in zoom-in-95 duration-150"
+                         style={{ bottom: scheduleMenuPos.bottom, left: scheduleMenuPos.left, width: scheduleMenuPos.width }}
+                       >
                           <button onClick={() => { setIsScheduleActionsMenuOpen(false); setIsScheduleModalOpen(true); }} className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left cursor-pointer bg-transparent border-0">
                              <Pencil size={12} /> Editar Agendamento
                           </button>
@@ -8491,7 +8515,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                              <Trash2 size={12} /> Excluir Agendamento
                           </button>
                        </div>
-                     </>
+                     </>,
+                     document.body
                    )}
                  </div>
 
