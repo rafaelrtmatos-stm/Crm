@@ -1329,6 +1329,10 @@ export default function App() {
                         setPrefilledCustomer(cliente);
                         setActiveTab('pos');
                       }}
+                      onOpenReceiptById={(saleId: string) => {
+                        setPendingReceiptOpenId(saleId);
+                        setActiveTab('pos');
+                      }}
                     />
                   )}
                   {activeTab === 'clientes_espera' && <ModuleErrorBoundary label="Clientes em Espera"><ClientesEsperaModule currentCompany={currentCompany} user={user} /></ModuleErrorBoundary>}
