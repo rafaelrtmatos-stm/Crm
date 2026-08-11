@@ -47,6 +47,8 @@ import {
   BarChart3,
   Printer,
   X,
+  Bell,
+  BellOff,
   ChevronRight,
   Mic,
   Image as ImageIcon,
@@ -3614,6 +3616,40 @@ const EntregaCountdown = ({ scheduledFor }: { scheduledFor: string }) => {
 
 export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany: Company | null, addPendingOrder: (order: SaleOrder) => void }) => {
   const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare } = React.useContext(AppContext)!;
+  const [soundAlertsEnabled, setSoundAlertsEnabledState] = useState(() => localStorage.getItem('rpro_sound_alerts_enabled') !== 'false');
+  const setSoundAlertsEnabled = (v: boolean) => {
+    setSoundAlertsEnabledState(v);
+    localStorage.setItem('rpro_sound_alerts_enabled', v ? 'true' : 'false');
+  };
+  const alertedThresholdsRef = React.useRef<Set<string>>(new Set());
+
+  // Toca um bipe simples via Web Audio (sem depender de nenhum arquivo de audio)
+  const playAlertBeep = () => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      const ctx = new AudioCtx();
+      const playBeep = (delayMs: number) => {
+        setTimeout(() => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.value = 880;
+          gain.gain.setValueAtTime(0.25, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.35);
+        }, delayMs);
+      };
+      playBeep(0);
+      playBeep(450);
+      playBeep(900);
+    } catch (e) { /* navegador sem suporte a audio, ignora silenciosamente */ }
+  };
+
+  const [alertToast, setAlertToast] = useState<string | null>(null);
+
   const [activeTab, setActiveTabState] = useState<'venda' | 'historico' | 'estoque' | 'servicos' | 'orcamentos' | 'clientes' | 'contratos' | 'excluidos'>(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem('rpro_pos_subtab') : null;
     const validSubTabs = ['venda', 'historico', 'estoque', 'servicos', 'orcamentos', 'clientes', 'contratos', 'excluidos'];
@@ -3917,6 +3953,33 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [isVerifying, setIsVerifying] = useState(false);
   const [salesToday, setSalesToday] = useState<SaleOrder[]>([]);
   const [allSalesHistory, setAllSalesHistory] = useState<SaleOrder[]>([]);
+
+  // Alerta sonoro de horario do pedido: 1h, 30min, 15min, 5min antes e na hora exata.
+  // So verifica pedidos com entrega agendada, ainda nao finalizados/cancelados.
+  useEffect(() => {
+    if (!soundAlertsEnabled) return;
+    const THRESHOLDS = [60, 30, 15, 5, 0];
+    const checkAlerts = () => {
+      const now = Date.now();
+      allSalesHistory.forEach(sale => {
+        if (!sale.scheduledFor || sale.status === 'completed' || sale.status === 'canceled' || sale.deletedAt) return;
+        const minutesUntil = (new Date(sale.scheduledFor).getTime() - now) / 60000;
+        THRESHOLDS.forEach(threshold => {
+          const key = `${sale.id}-${threshold}`;
+          if (minutesUntil <= threshold && minutesUntil > threshold - 1 && !alertedThresholdsRef.current.has(key)) {
+            alertedThresholdsRef.current.add(key);
+            playAlertBeep();
+            const label = threshold === 0 ? 'na hora marcada agora' : `em ${threshold} minuto${threshold > 1 ? 's' : ''}`;
+            setAlertToast(`⏰ Entrega de ${sale.customerName || 'cliente'} ${label}`);
+            setTimeout(() => setAlertToast(prev => prev === `⏰ Entrega de ${sale.customerName || 'cliente'} ${label}` ? null : prev), 10000);
+          }
+        });
+      });
+    };
+    checkAlerts();
+    const interval = setInterval(checkAlerts, 20000);
+    return () => clearInterval(interval);
+  }, [allSalesHistory, soundAlertsEnabled]);
 
   // ===== Orçamentos =====
   const [allOrcamentos, setAllOrcamentos] = useState<Orcamento[]>([]);
@@ -4416,6 +4479,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
   const [viewingReceiptSale, setViewingReceiptSale] = useState<SaleOrder | null>(null);
   const [viewingReceiptEmail, setViewingReceiptEmail] = useState<string | undefined>(undefined);
+  const handleDuplicateSale = (sale: SaleOrder) => {
+    // Carrega os mesmos itens e cliente no carrinho — so falta escolher a nova data e finalizar.
+    // Nao copia pagamento/status: a nova nota comeca do zero (nao paga ainda).
+    setCart(sale.items.map(item => ({ ...item })));
+    if (sale.customerId) {
+      setSelectedCustomer({ id: sale.customerId, name: sale.customerName || '', phone: sale.customerPhone || '' });
+    } else {
+      setSelectedCustomer(null);
+    }
+    setActiveTab('venda');
+    alert(`Pedido de ${sale.customerName || 'cliente'} duplicado! Os mesmos itens já estão no carrinho — só falta escolher a nova data de entrega e finalizar.`);
+  };
+
   const openReceiptDetail = async (sale: SaleOrder) => {
     setViewingReceiptSale(sale);
     setViewingReceiptEmail(undefined);
@@ -6064,9 +6140,23 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
                {/* Bottom Automation Bar */}
                <div className="pt-2 border-t border-slate-900/10 flex justify-between items-center text-slate-900">
-                  <div className="flex items-center gap-2">
-                     <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                     <span className="text-[9px] font-black uppercase tracking-wider opacity-70">PDV Conectado</span>
+                  <div className="flex items-center gap-3">
+                     <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                        <span className="text-[9px] font-black uppercase tracking-wider opacity-70">PDV Conectado</span>
+                     </div>
+                     <button
+                       type="button"
+                       onClick={() => setSoundAlertsEnabled(!soundAlertsEnabled)}
+                       title={soundAlertsEnabled ? 'Alerta sonoro de horário ativado — clique pra desativar' : 'Alerta sonoro de horário desativado — clique pra ativar'}
+                       className={cn(
+                         "flex items-center gap-1 px-2 py-1 rounded-lg border-0 cursor-pointer transition-all",
+                         soundAlertsEnabled ? "bg-primary-500/20 text-primary-700" : "bg-slate-900/10 text-slate-400"
+                       )}
+                     >
+                        {soundAlertsEnabled ? <Bell size={12} /> : <BellOff size={12} />}
+                        <span className="text-[8px] font-black uppercase tracking-wider">{soundAlertsEnabled ? 'Alertas On' : 'Alertas Off'}</span>
+                     </button>
                   </div>
                   {user?.isAdmin && (
                     <div className="text-right">
@@ -6076,6 +6166,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   )}
                </div>
             </div>
+
+            {alertToast && (
+              <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] bg-amber-500 text-slate-950 font-black text-sm px-6 py-3 rounded-2xl shadow-2xl animate-in slide-in-from-top-4 flex items-center gap-3">
+                 {alertToast}
+                 <button onClick={() => setAlertToast(null)} className="text-slate-900/50 hover:text-slate-900 border-0 bg-transparent cursor-pointer"><X size={16} /></button>
+              </div>
+            )}
 
             {/* Embaixo no mobile / Direita no desktop: Lista de Produtos */}
             <div className="flex-1 min-h-0 md:w-[450px] md:flex-none bg-white flex flex-col min-h-0 border-t md:border-t-0 md:border-l border-slate-200 shadow-2xl relative">
@@ -6545,6 +6642,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             {isPartial && (
                               <button onClick={() => openSettlePayment(sale)} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar Débito"><CheckCircle2 size={13} /></button>
                             )}
+                            <button onClick={() => handleDuplicateSale(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Duplicar Pedido"><Copy size={13} /></button>
                             <button onClick={() => openReceiptDetail(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={13} /></button>
                             {canManageHistory && (
                               <>
@@ -6591,6 +6689,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           <p className="text-sm font-black text-white">R$ {sale.total.toFixed(2).replace('.', ',')}</p>
                           <div className="flex flex-wrap gap-1 pt-1">
                             {isPartial && <button onClick={() => openSettlePayment(sale)} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar Débito"><CheckCircle2 size={12} /></button>}
+                            <button onClick={() => handleDuplicateSale(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Duplicar Pedido"><Copy size={12} /></button>
                             <button onClick={() => openReceiptDetail(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={12} /></button>
                             {canManageHistory && (
                               <>
@@ -6906,7 +7005,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                         {isPartial && (
                           <button onClick={() => openSettlePayment(sale)} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar Débito"><CheckCircle2 size={13} /></button>
                         )}
-                        <button onClick={() => openReceiptDetail(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={13} /></button>
+                        <button onClick={() => handleDuplicateSale(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Duplicar Pedido"><Copy size={13} /></button>
+                            <button onClick={() => openReceiptDetail(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={13} /></button>
                         {canManageHistory && (
                           <>
                             <button onClick={() => startEditSale(sale)} className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20" title="Editar"><Pencil size={13} /></button>
