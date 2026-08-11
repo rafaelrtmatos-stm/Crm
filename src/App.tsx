@@ -1294,7 +1294,7 @@ export default function App() {
                   {activeTab === 'messages' && <MessagesModule currentCompany={currentCompany} user={user} />}
                   {activeTab === 'pos' && <ModuleErrorBoundary label="o PDV"><POSModule currentCompany={currentCompany} addPendingOrder={addPendingOrder} /></ModuleErrorBoundary>}
                   {activeTab === 'contacts' && <ContactsModule currentCompany={currentCompany} />}
-                  {activeTab === 'inventory' && <InventoryModule currentCompany={currentCompany} />}
+                  {activeTab === 'inventory' && <InventoryModule currentCompany={currentCompany} user={user} />}
                   {activeTab === 'services' && <ServicesModule currentCompany={currentCompany} />}
                   {activeTab === 'production' && <ProductionModule currentCompany={currentCompany} />}
                   {activeTab === 'settings' && <SettingsModule currentCompany={currentCompany} user={user} />}

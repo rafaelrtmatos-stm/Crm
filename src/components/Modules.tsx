@@ -354,6 +354,16 @@ const mapOrcamentoRow = (row: any): Orcamento => ({
 
 export const DashboardModule = ({ user, currentCompany, companies = [], pendingOrders = [], setActiveTab }: { user: AppUser | null, currentCompany: Company | null, companies?: Company[], pendingOrders?: SaleOrder[], setActiveTab?: (tab: any) => void }) => {
   const [isEditMode, setIsEditMode] = useState(false);
+  const [valorEmEstoque, setValorEmEstoque] = useState(0);
+  useEffect(() => {
+    if (!user?.isAdmin) return;
+    const loadValorEstoque = async () => {
+      const { data } = await supabase.from('produtos').select('cost_price, current_stock');
+      const total = (data || []).reduce((acc: number, p: any) => acc + (Number(p.cost_price) || 0) * (Number(p.current_stock) || 0), 0);
+      setValorEmEstoque(total);
+    };
+    loadValorEstoque();
+  }, [user?.isAdmin]);
   const [widgets, setWidgets] = useState<DashboardWidget[]>(DEFAULT_WIDGETS);
   const [selectedWidget, setSelectedWidget] = useState<DashboardWidget | null>(null);
   const [period, setPeriod] = useState('Semana');
@@ -670,6 +680,19 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
           </div>
         } 
       />
+
+      {user?.isAdmin && (
+        <GlassCard className="p-6 border-white/5 flex items-center gap-6 group relative overflow-hidden max-w-md">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-white/5 rounded-full -mr-12 -mt-12 group-hover:scale-150 transition-transform duration-1000" />
+          <div className="p-4 rounded-2xl bg-white/5 text-emerald-400">
+            <Banknote size={24} />
+          </div>
+          <div>
+            <p className="text-[10px] font-black uppercase text-white/30 tracking-widest mb-1">Valor em Estoque</p>
+            <h4 className="text-xl font-black text-white">R$ {valorEmEstoque.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h4>
+          </div>
+        </GlassCard>
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         {[
@@ -6561,7 +6584,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
         {activeTab === 'estoque' && (
           <div className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/30">
-            <InventoryModule currentCompany={currentCompany} />
+            <InventoryModule currentCompany={currentCompany} user={user} />
           </div>
         )}
 
@@ -6589,23 +6612,25 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   )}
                </div>
 
-               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
-                     <p className="text-[9px] font-black uppercase text-white/40 tracking-widest">Faturamento</p>
-                     <p className="text-xl font-black text-white italic mt-1">R$ {servicosResumo.faturamento.toFixed(2).replace('.', ',')}</p>
-                  </div>
-                  <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
-                     <p className="text-[9px] font-black uppercase text-white/40 tracking-widest">Líquido (Recebido)</p>
-                     <p className="text-xl font-black text-emerald-400 italic mt-1">R$ {servicosResumo.liquido.toFixed(2).replace('.', ',')}</p>
-                  </div>
-                  <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
-                     <p className="text-[9px] font-black uppercase text-white/40 tracking-widest">Lucro</p>
-                     <p className="text-xl font-black text-primary-400 italic mt-1">R$ {servicosResumo.lucro.toFixed(2).replace('.', ',')}</p>
-                     {!servicosResumo.temCustoRegistrado && (
-                       <p className="text-[8px] text-amber-400/70 font-bold mt-1">Sem custo cadastrado nos produtos — lucro = líquido</p>
-                     )}
-                  </div>
-               </div>
+               {user?.isAdmin && (
+                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
+                       <p className="text-[9px] font-black uppercase text-white/40 tracking-widest">Faturamento</p>
+                       <p className="text-xl font-black text-white italic mt-1">R$ {servicosResumo.faturamento.toFixed(2).replace('.', ',')}</p>
+                    </div>
+                    <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
+                       <p className="text-[9px] font-black uppercase text-white/40 tracking-widest">Líquido (Recebido)</p>
+                       <p className="text-xl font-black text-emerald-400 italic mt-1">R$ {servicosResumo.liquido.toFixed(2).replace('.', ',')}</p>
+                    </div>
+                    <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
+                       <p className="text-[9px] font-black uppercase text-white/40 tracking-widest">Lucro</p>
+                       <p className="text-xl font-black text-primary-400 italic mt-1">R$ {servicosResumo.lucro.toFixed(2).replace('.', ',')}</p>
+                       {!servicosResumo.temCustoRegistrado && (
+                         <p className="text-[8px] text-amber-400/70 font-bold mt-1">Sem custo cadastrado nos produtos — lucro = líquido</p>
+                       )}
+                    </div>
+                 </div>
+               )}
 
                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="bg-amber-500/5 border border-amber-500/20 rounded-2xl p-4 space-y-1.5">
@@ -9897,7 +9922,8 @@ export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved }: {
   );
 };
 
-export const InventoryModule = ({ currentCompany }: { currentCompany: Company | null }) => {
+export const InventoryModule = ({ currentCompany, user }: { currentCompany: Company | null; user: AppUser | null }) => {
+  const canManageInventory = !!(user?.isAdmin || user?.allowedActions?.includes('canManageInventory'));
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -9952,11 +9978,26 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
     return () => { supabase.removeChannel(channel); };
   }, [currentCompany]);
 
-  const stats = [
-    { label: 'Itens Totais', val: items.length, icon: Package, color: 'text-primary-400' },
-    { label: 'Estoque Baixo', val: items.filter(i => i.currentStock <= i.minStock).length, icon: AlertCircle, color: 'text-amber-500' },
-    { label: 'Valor em Estoque', val: `R$ ${items.reduce((acc, i) => acc + (i.costPrice || 0) * i.currentStock, 0).toLocaleString('pt-BR')}`, icon: Banknote, color: 'text-emerald-400' },
-  ];
+  const [maisVendidos, setMaisVendidos] = useState<{ nome: string; quantidade: number }[]>([]);
+  useEffect(() => {
+    const loadMaisVendidos = async () => {
+      const { data } = await supabase.from('vendas').select('items').is('deleted_at', null);
+      const contagem: Record<string, number> = {};
+      (data || []).forEach((v: any) => {
+        (v.items || []).forEach((item: any) => {
+          contagem[item.name] = (contagem[item.name] || 0) + (item.quantity || 0);
+        });
+      });
+      const ordenado = Object.entries(contagem)
+        .map(([nome, quantidade]) => ({ nome, quantidade }))
+        .sort((a, b) => b.quantidade - a.quantidade)
+        .slice(0, 3);
+      setMaisVendidos(ordenado);
+    };
+    loadMaisVendidos();
+  }, [currentCompany]);
+
+  const totalUnidadesEstoque = items.reduce((acc, i) => acc + (Number(i.currentStock) || 0), 0);
 
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [estoqueSortBy, setEstoqueSortByState] = useState<'nome' | 'data' | 'estoque' | 'preco'>(() => {
@@ -10184,15 +10225,19 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
           </p>
         </div>
         <div className="flex items-center gap-1.5 flex-wrap">
-          <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportFile} />
-          <button
-            disabled={isImporting}
-            title={isImporting ? 'Importando...' : 'Importar Planilha'}
-            onClick={() => fileInputRef.current?.click()}
-            className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all disabled:opacity-50"
-          >
-            <Upload size={14} className={cn(isImporting && "animate-pulse")} />
-          </button>
+          {canManageInventory && (
+            <>
+              <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportFile} />
+              <button
+                disabled={isImporting}
+                title={isImporting ? 'Importando...' : 'Importar Planilha'}
+                onClick={() => fileInputRef.current?.click()}
+                className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all disabled:opacity-50"
+              >
+                <Upload size={14} className={cn(isImporting && "animate-pulse")} />
+              </button>
+            </>
+          )}
           <button
             title="Exportar Planilha"
             onClick={() => exportProdutosXlsx(items.map(i => ({ ...i, sale_price: i.salePrice, cost_price: i.costPrice, current_stock: i.currentStock, min_stock: i.minStock })))}
@@ -10200,23 +10245,41 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
           >
             <Download size={14} />
           </button>
-          <Button icon={Plus} onClick={() => { setEditingItemId(null); setFormData({ name: '', category: 'substrato', unit: 'un', currentStock: 0, minStock: 0, salePrice: 0, costPrice: 0, isActive: true, isService: false, tipoItem: 'produto', controlaEstoque: true }); setIsModalOpen(true); }}>Novo Item</Button>
+          {canManageInventory && (
+            <Button icon={Plus} onClick={() => { setEditingItemId(null); setFormData({ name: '', category: 'substrato', unit: 'un', currentStock: 0, minStock: 0, salePrice: 0, costPrice: 0, isActive: true, isService: false, tipoItem: 'produto', controlaEstoque: true }); setIsModalOpen(true); }}>Novo Item</Button>
+          )}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {stats.map((s, i) => (
-          <GlassCard key={i} className="p-6 border-white/5 flex items-center gap-6 group relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-24 h-24 bg-white/5 rounded-full -mr-12 -mt-12 group-hover:scale-150 transition-transform duration-1000" />
-            <div className={cn("p-4 rounded-2xl bg-white/5", s.color)}>
-              <s.icon size={24} />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <GlassCard className="p-6 border-white/5 flex items-center gap-6 group relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-white/5 rounded-full -mr-12 -mt-12 group-hover:scale-150 transition-transform duration-1000" />
+          <div className="p-4 rounded-2xl bg-white/5 text-primary-400">
+            <Package size={24} />
+          </div>
+          <div>
+            <p className="text-[10px] font-black uppercase text-white/30 tracking-widest mb-1">Quantidade em Estoque</p>
+            <h4 className="text-xl font-black text-white">{totalUnidadesEstoque.toLocaleString('pt-BR')} un ({items.length} itens)</h4>
+          </div>
+        </GlassCard>
+        <GlassCard className="p-6 border-white/5 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-white/5 rounded-full -mr-12 -mt-12" />
+          <p className="text-[10px] font-black uppercase text-white/30 tracking-widest mb-3 flex items-center gap-2">
+            <TrendingUp size={14} className="text-emerald-400" /> Itens Mais Vendidos
+          </p>
+          {maisVendidos.length === 0 ? (
+            <p className="text-xs text-white/30">Nenhuma venda registrada ainda.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {maisVendidos.map((m, i) => (
+                <div key={i} className="flex justify-between items-center text-xs">
+                  <span className="text-white/70 truncate">{i + 1}. {m.nome}</span>
+                  <span className="font-black text-emerald-400 shrink-0 ml-2">{m.quantidade}x</span>
+                </div>
+              ))}
             </div>
-            <div>
-              <p className="text-[10px] font-black uppercase text-white/30 tracking-widest mb-1">{s.label}</p>
-              <h4 className="text-xl font-black text-white">{s.val}</h4>
-            </div>
-          </GlassCard>
-        ))}
+          )}
+        </GlassCard>
       </div>
 
       <GlassCard className="p-4 border-white/5 bg-white/[0.02]">
@@ -10254,10 +10317,12 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
                 </div>
                 <span className="text-[11px] font-black text-white shrink-0 w-20 text-right">R$ {item.salePrice.toLocaleString('pt-BR')}</span>
                 <Badge variant={item.isActive ? 'success' : 'outline'} className="text-[9px] shrink-0">{item.isActive ? 'ATIVO' : 'INATIVO'}</Badge>
-                <div className="flex gap-1 shrink-0">
-                   <button onClick={() => openEditItem(item)} title="Editar" className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20"><Pencil size={13} /></button>
-                   <button onClick={() => handleDeleteItem(item)} title="Excluir" className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20"><Trash2 size={13} /></button>
-                </div>
+                {canManageInventory && (
+                  <div className="flex gap-1 shrink-0">
+                     <button onClick={() => openEditItem(item)} title="Editar" className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20"><Pencil size={13} /></button>
+                     <button onClick={() => handleDeleteItem(item)} title="Excluir" className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20"><Trash2 size={13} /></button>
+                  </div>
+                )}
              </div>
            ))}
         </div>
