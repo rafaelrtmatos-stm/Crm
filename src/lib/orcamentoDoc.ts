@@ -172,7 +172,7 @@ export async function renderOrcamentoCanvas({ orcamento: o, companyName, logoDar
   ctx.textAlign = 'right';
   ctx.fillStyle = ACCENT;
   ctx.font = `900 14px ${FONT}`;
-  ctx.fillText('ORÇAMENTO', width - marginX, y + 6);
+  ctx.fillText(o.documentType === 'contrato' ? 'CONTRATO' : 'ORÇAMENTO', width - marginX, y + 6);
   ctx.fillStyle = TEXT_FAINT;
   ctx.font = `700 8.5px ${FONT}`;
   ctx.fillText(`Nº ${o.numero}  ·  ${new Date(o.createdAt).toLocaleDateString('pt-BR')}`, width - marginX, y + 21);
@@ -296,7 +296,7 @@ export async function renderOrcamentoCanvas({ orcamento: o, companyName, logoDar
   ctx.textAlign = 'left';
   ctx.fillStyle = ACCENT;
   ctx.font = `900 10px ${FONT}`;
-  ctx.fillText('TOTAL DO ORÇAMENTO', marginX + 18, y + totalCardH - 14);
+  ctx.fillText(o.documentType === 'contrato' ? 'VALOR DO CONTRATO' : 'TOTAL DO ORÇAMENTO', marginX + 18, y + totalCardH - 14);
   ctx.textAlign = 'right';
   ctx.fillStyle = TEXT;
   ctx.font = `900 20px ${FONT}`;

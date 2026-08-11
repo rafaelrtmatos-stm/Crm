@@ -52,6 +52,8 @@ export interface SaleOrder {
   serviceStatus?: 'pedido_recebido' | 'aguardando_arte' | 'arte_em_desenvolvimento' | 'aguardando_aprovacao' | 'producao' | 'acabamento' | 'aguardando_retirada' | 'produto_entregue';
   statusHistory?: { status: string; changedAt: string }[];
   responsavel?: string;
+  orcamentoId?: string;
+  contratoId?: string;
   createdAt: string;
   scheduledFor?: string;
   deletedAt?: string;
@@ -508,6 +510,7 @@ export interface OrcamentoPagamento {
 export interface Orcamento {
   id: string;
   numero: string;
+  documentType?: 'orcamento' | 'contrato';
   clienteId?: string;
   customerName?: string;
   cpfCnpj?: string;

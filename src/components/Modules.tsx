@@ -44,6 +44,7 @@ import {
   Banknote,
   Check,
   CheckSquare,
+  FileSignature,
   Package,
   PlusCircle,
   BarChart3,
@@ -370,11 +371,14 @@ const mapVendaRow = (row: any): SaleOrder => ({
   serviceStatus: row.service_status || undefined,
   statusHistory: Array.isArray(row.status_history) ? row.status_history : [],
   responsavel: row.responsavel || undefined,
+  orcamentoId: row.orcamento_id || undefined,
+  contratoId: row.contrato_id || undefined,
 } as SaleOrder);
 
 const mapOrcamentoRow = (row: any): Orcamento => ({
   id: row.id,
   numero: row.numero,
+  documentType: row.document_type === 'contrato' ? 'contrato' : 'orcamento',
   clienteId: row.cliente_id || undefined,
   customerName: row.customer_name || undefined,
   cpfCnpj: row.cpf_cnpj || undefined,
@@ -4210,6 +4214,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [orcamentoModalOpen, setOrcamentoModalOpen] = useState(false);
   const [editingOrcamento, setEditingOrcamento] = useState<Orcamento | null>(null);
   const emptyOrcamentoForm = {
+    documentType: 'orcamento' as 'orcamento' | 'contrato',
+    vendaId: undefined as string | undefined,
     clienteId: undefined as string | undefined,
     customerName: '', cpfCnpj: '', phone: '', address: '', responsavel: '',
     items: [] as SaleOrderItem[], desconto: 0, observacoes: '',
@@ -4281,9 +4287,29 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setOrcamentoModalOpen(true);
   };
 
+  // Gera um Orcamento ou Contrato a partir de uma nota ja existente no Historico — vem com
+  // cliente, itens e valor ja preenchidos, e ja fica vinculado aquela nota (venda_id).
+  const handleCreateDocumentFromNota = (sale: SaleOrder, documentType: 'orcamento' | 'contrato') => {
+    setEditingOrcamento(null);
+    setOrcamentoFromCart(false);
+    setOrcamentoForm({
+      ...emptyOrcamentoForm,
+      documentType,
+      vendaId: sale.id,
+      clienteId: sale.customerId,
+      customerName: sale.customerName || '',
+      phone: sale.customerPhone || '',
+      items: sale.items ? [...sale.items] : [],
+      desconto: sale.discountValue || 0,
+    });
+    setOrcamentoModalOpen(true);
+  };
+
   const openEditOrcamento = (o: Orcamento) => {
     setEditingOrcamento(o);
     setOrcamentoForm({
+      documentType: o.documentType || 'orcamento',
+      vendaId: o.vendaId,
       clienteId: o.clienteId,
       customerName: o.customerName || '', cpfCnpj: o.cpfCnpj || '', phone: o.phone || '',
       address: o.address || '', responsavel: o.responsavel || '', items: [...o.items],
@@ -4445,7 +4471,42 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setSavingOrcamento(true);
     try {
       const total = Math.max(0, orcamentoItemsTotal() - (orcamentoForm.desconto || 0));
+      const isContrato = orcamentoForm.documentType === 'contrato';
+
+      // Se esse Orcamento/Contrato ainda nao tem uma Nota vinculada, cria a Nota AGORA (em
+      // aberto, sem pagamento) so pra existir o registro no Historico — o faturamento so
+      // conta de verdade quando essa nota for paga, gerar o documento aqui nao fatura nada.
+      let vendaId = orcamentoForm.vendaId || null;
+      if (!vendaId) {
+        const { data: novaVenda, error: vendaError } = await supabase.from('vendas').insert({
+          cliente_id: orcamentoForm.clienteId || null,
+          customer_name: orcamentoForm.customerName,
+          customer_phone: orcamentoForm.phone || null,
+          items: orcamentoForm.items,
+          total,
+          discount_value: orcamentoForm.desconto || null,
+          down_payment: 0,
+          received_value: 0,
+          status: 'pending',
+          observacoes: orcamentoForm.observacoes || null,
+        }).select().single();
+        if (vendaError) throw vendaError;
+        vendaId = novaVenda.id;
+        setAllSalesHistory(prev => [mapVendaRow(novaVenda), ...prev]);
+      } else {
+        // Ja tem nota vinculada: mantem os itens/valor em sincronia com o que foi editado aqui
+        const { error: syncError } = await supabase.from('vendas').update({
+          items: orcamentoForm.items,
+          total,
+          discount_value: orcamentoForm.desconto || null,
+        }).eq('id', vendaId);
+        if (syncError) throw syncError;
+        setAllSalesHistory(prev => prev.map(s => s.id === vendaId ? { ...s, items: [...orcamentoForm.items], total, discountValue: orcamentoForm.desconto || undefined } : s));
+      }
+
       const payload = {
+        document_type: orcamentoForm.documentType,
+        venda_id: vendaId,
         cliente_id: orcamentoForm.clienteId || null,
         customer_name: orcamentoForm.customerName,
         cpf_cnpj: orcamentoForm.cpfCnpj || null,
@@ -4487,12 +4548,22 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       if (editingOrcamento) {
         const { error } = await supabase.from('orcamentos').update(payload).eq('id', editingOrcamento.id);
         if (error) throw error;
+        newId = editingOrcamento.id;
       } else {
-        const numero = `ORC-${Date.now().toString().slice(-6)}`;
+        const prefixo = isContrato ? 'CTR' : 'ORC';
+        const numero = `${prefixo}-${Date.now().toString().slice(-6)}`;
         const { data: inserted, error } = await supabase.from('orcamentos').insert({ ...payload, numero, status: 'rascunho' }).select().single();
         if (error) throw error;
         newId = inserted?.id || null;
       }
+
+      // Vincula a nota de volta pro documento (orcamento_id ou contrato_id, dependendo do tipo)
+      if (newId && vendaId) {
+        const fkField = isContrato ? 'contrato_id' : 'orcamento_id';
+        await supabase.from('vendas').update({ [fkField]: newId }).eq('id', vendaId);
+        setAllSalesHistory(prev => prev.map(s => s.id === vendaId ? { ...s, [isContrato ? 'contratoId' : 'orcamentoId']: newId } as SaleOrder : s));
+      }
+
       setOrcamentoModalOpen(false);
       await loadOrcamentos();
 
@@ -5789,12 +5860,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       // a peca na largura do material, sempre preferindo o lado menor quando os dois cabem)
       const valorCalculado = consumoUnitario * product.price * selectedQty;
       const valorFinal = Math.max(valorCalculado, product.valorMinimo || 0);
+      const dimensoesTexto = `${dimensions} (${consumoUnitario.toFixed(2).replace('.', ',')}m linear)`;
       setCart(prev => [...prev, {
         productId: product.id,
         name: product.name,
         price: valorFinal,
         quantity: 1,
-        dimensions: `${dimensions} (${consumoUnitario.toFixed(2).replace('.', ',')}m linear)`,
+        dimensions: dimensoesTexto,
+        // Se o usuario nao escrever nada na observacao, a medida usada pra gerar o item
+        // fica registrada ali mesmo, pra nao se perder e aparecer certinho no recibo/nota
+        observacao: dimensoesTexto,
         consumoEstoque: consumoUnitario * selectedQty,
       }]);
       setDimensionModalProduct(null);
@@ -5828,6 +5903,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         price: precoUnitarioEfetivo,
         quantity: selectedQty,
         dimensions,
+        // Se o usuario nao escrever nada na observacao, a medida (m²) usada pra gerar o item
+        // fica registrada ali mesmo, pra nao se perder e aparecer certinho no recibo/nota
+        observacao: `${dimensions} (${area.toFixed(2).replace('.', ',')}m²)`,
         area,
         consumoEstoque: consumoUnitario
       }];
@@ -6081,6 +6159,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         }).eq('id', editingFullOrder.id).select();
         if (error) throw error;
         if (!data || data.length === 0) throw new Error('O pedido não foi encontrado pra atualizar — pode ter sido removido ou alterado por outra pessoa.');
+
+        // Se essa nota tem Orcamento e/ou Contrato vinculados, mantem os itens/valor deles
+        // em sincronia com o que foi editado aqui na nota
+        const idsVinculados = [editingFullOrder.orcamentoId, editingFullOrder.contratoId].filter(Boolean) as string[];
+        if (idsVinculados.length > 0) {
+          await Promise.all(idsVinculados.map(id =>
+            supabase.from('orcamentos').update({ items: cart, total, desconto: saleDiscountValue || 0 }).eq('id', id)
+          ));
+        }
 
         const updatedOrder: SaleOrder = {
           ...editingFullOrder,
@@ -7165,6 +7252,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             )}
                             <button onClick={() => handleDuplicateSale(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Duplicar Pedido"><Copy size={13} /></button>
                             <button onClick={() => openReceiptDetail(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={13} /></button>
+                            {!sale.contratoId && <button onClick={() => handleCreateDocumentFromNota(sale, 'contrato')} className="p-1.5 rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20" title="Gerar Contrato a partir desta nota"><FileSignature size={13} /></button>}
                             {canManageHistory && (
                               <>
                                 {!isPartial && <button onClick={() => handleReopenSale(sale)} className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20" title="Reabrir"><History size={13} /></button>}
@@ -7212,6 +7300,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             {isPartial && <button onClick={() => openSettlePayment(sale)} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar Débito"><CheckCircle2 size={12} /></button>}
                             <button onClick={() => handleDuplicateSale(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Duplicar Pedido"><Copy size={12} /></button>
                             <button onClick={() => openReceiptDetail(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={12} /></button>
+                            {!sale.contratoId && <button onClick={() => handleCreateDocumentFromNota(sale, 'contrato')} className="p-1.5 rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20" title="Gerar Contrato a partir desta nota"><FileSignature size={12} /></button>}
                             {canManageHistory && (
                               <>
                                 {!isPartial && <button onClick={() => handleReopenSale(sale)} className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20" title="Reabrir"><History size={12} /></button>}
@@ -7530,6 +7619,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                         )}
                         <button onClick={() => handleDuplicateSale(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Duplicar Pedido"><Copy size={13} /></button>
                             <button onClick={() => openReceiptDetail(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={13} /></button>
+                        {!sale.contratoId && <button onClick={() => handleCreateDocumentFromNota(sale, 'contrato')} className="p-1.5 rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20" title="Gerar Contrato a partir desta nota"><FileSignature size={13} /></button>}
                         {canManageHistory && (
                           <>
                             <button onClick={() => handleStartFullEdit(sale)} className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20" title="Editar"><Pencil size={13} /></button>
@@ -7548,9 +7638,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         {activeTab === 'orcamentos' && (
           <div className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/40 space-y-6">
             <SectionHeader
-              title="Orçamentos"
-              subtitle={`${allOrcamentos.length} orçamento(s)`}
-              actions={<Button icon={Plus} onClick={openNewOrcamento}>Novo Orçamento</Button>}
+              title="Orçamentos & Contratos"
+              subtitle={`${allOrcamentos.length} documento(s)`}
+              actions={
+                <div className="flex gap-2">
+                  <Button icon={Plus} onClick={openNewOrcamento}>Novo Orçamento</Button>
+                  <Button icon={FileSignature} variant="secondary" onClick={() => { openNewOrcamento(); setOrcamentoForm(prev => ({ ...prev, documentType: 'contrato' })); }}>Novo Contrato</Button>
+                </div>
+              }
             />
 
             {isLoadingOrcamentos ? (
@@ -7574,6 +7669,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     rascunho: 'Rascunho', enviado: 'Enviado', aprovado: 'Aprovado', em_producao: 'Em Produção',
                     concluido: 'Concluído — Venda Gerada', recusado: 'Recusado', cancelado: 'Cancelado', expirado: 'Expirado',
                   };
+                  // Status de pagamento buscado AO VIVO na nota vinculada (fonte unica de verdade,
+                  // nao duplica dado — se a nota for paga, aparece pago aqui automaticamente)
+                  const vendaVinculada = o.vendaId ? allSalesHistory.find(s => s.id === o.vendaId) : undefined;
+                  const estaPago = vendaVinculada && (vendaVinculada.status === 'completed' || (vendaVinculada.downPayment || 0) >= vendaVinculada.total);
                   return (
                     <div key={o.id} className={cn(
                       "bg-white/5 border rounded-2xl p-4 space-y-3 transition-all",
@@ -7581,7 +7680,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     )}>
                       <div className="flex items-start justify-between gap-2">
                          <div className="min-w-0">
-                            <p className="text-[9px] font-mono text-white/30">{o.numero}</p>
+                            <div className="flex items-center gap-1.5">
+                               <span className={cn("text-[7px] font-black uppercase px-1.5 py-0.5 rounded", o.documentType === 'contrato' ? "bg-purple-500/20 text-purple-300" : "bg-primary-500/20 text-primary-300")}>
+                                 {o.documentType === 'contrato' ? 'Contrato' : 'Orçamento'}
+                               </span>
+                               {vendaVinculada && (
+                                 <span className={cn("text-[7px] font-black uppercase px-1.5 py-0.5 rounded", estaPago ? "bg-emerald-500/20 text-emerald-400" : "bg-amber-500/20 text-amber-400")}>
+                                   {estaPago ? '✓ Pago' : 'Pendente'}
+                                 </span>
+                               )}
+                            </div>
+                            <p className="text-[9px] font-mono text-white/30 mt-1">{o.numero}</p>
                             <p className="font-black text-white truncate">{o.customerName}</p>
                          </div>
                          <span className={cn("text-[8px] font-black uppercase px-2 py-1 rounded-full shrink-0", statusStyles[o.status])}>{statusLabels[o.status]}</span>
@@ -7600,11 +7709,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                          )}
                          <button onClick={() => openShareOrcamentoWhatsApp(o)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20">WhatsApp</button>
                          <button onClick={() => setViewingOrcamento(o)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Exibir</button>
-                         {o.status !== 'concluido' && o.status !== 'cancelado' && (
-                           <button onClick={() => handleStartSaleFromOrcamento(o)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20">Iniciar Venda</button>
-                         )}
-                         {o.status === 'concluido' && o.vendaId && (
-                           <span className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/30">Venda #{o.vendaId.slice(-6).toUpperCase()}</span>
+                         {vendaVinculada && (
+                           <button onClick={() => { openReceiptById(vendaVinculada.id); }} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Ver Nota</button>
                          )}
                          {o.status !== 'concluido' && (
                            <button onClick={() => updateOrcamentoStatus(o, 'cancelado')} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 ml-auto">Cancelar</button>
@@ -9254,10 +9360,26 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
        <Modal
          isOpen={orcamentoModalOpen}
          onClose={() => setOrcamentoModalOpen(false)}
-         title={editingOrcamento ? `Editar Orçamento ${editingOrcamento.numero}` : 'Novo Orçamento'}
+         title={editingOrcamento ? `Editar ${editingOrcamento.documentType === 'contrato' ? 'Contrato' : 'Orçamento'} ${editingOrcamento.numero}` : (orcamentoForm.documentType === 'contrato' ? 'Novo Contrato' : 'Novo Orçamento')}
          size="lg"
        >
          <div className="space-y-5 max-h-[70vh] overflow-y-auto custom-scrollbar pr-1">
+            {!editingOrcamento && (
+              <div className="flex items-center bg-white/5 p-1 rounded-xl border border-white/10 w-fit">
+                 <button
+                   onClick={() => setOrcamentoForm({ ...orcamentoForm, documentType: 'orcamento' })}
+                   className={cn("px-4 h-9 rounded-lg text-[10px] font-black uppercase tracking-wide cursor-pointer border-0", orcamentoForm.documentType === 'orcamento' ? "bg-primary-500 text-slate-900" : "bg-transparent text-white/40")}
+                 >
+                   Orçamento
+                 </button>
+                 <button
+                   onClick={() => setOrcamentoForm({ ...orcamentoForm, documentType: 'contrato' })}
+                   className={cn("px-4 h-9 rounded-lg text-[10px] font-black uppercase tracking-wide cursor-pointer border-0", orcamentoForm.documentType === 'contrato' ? "bg-purple-500 text-white" : "bg-transparent text-white/40")}
+                 >
+                   Contrato
+                 </button>
+              </div>
+            )}
             <div className="flex items-center justify-between">
                <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px]">Dados do Cliente</p>
                <button
