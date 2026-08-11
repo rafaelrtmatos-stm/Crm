@@ -4481,16 +4481,23 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [viewingReceiptSale, setViewingReceiptSale] = useState<SaleOrder | null>(null);
   const [viewingReceiptEmail, setViewingReceiptEmail] = useState<string | undefined>(undefined);
   const handleDuplicateSale = (sale: SaleOrder) => {
-    // Carrega os mesmos itens e cliente no carrinho — so falta escolher a nova data e finalizar.
-    // Nao copia pagamento/status: a nova nota comeca do zero (nao paga ainda).
+    // Carrega os mesmos itens e cliente no carrinho — nao copia pagamento/status, a nova nota comeca do zero.
     setCart(sale.items.map(item => ({ ...item })));
-    if (sale.customerId) {
-      setSelectedCustomer({ id: sale.customerId, name: sale.customerName || '', phone: sale.customerPhone || '' });
-    } else {
-      setSelectedCustomer(null);
-    }
     setActiveTab('venda');
-    alert(`Pedido de ${sale.customerName || 'cliente'} duplicado! Os mesmos itens já estão no carrinho — só falta escolher a nova data de entrega e finalizar.`);
+    if (sale.customerId) {
+      // Cliente ja identificado — pula a busca de cliente e vai direto pra tela de pagamento,
+      // igual o botao "Finalizar Venda" ja faz quando ha um cliente selecionado.
+      setSelectedCustomer({ id: sale.customerId, name: sale.customerName || '', phone: sale.customerPhone || '' });
+      setDownPayment(0);
+      setPaymentEntries([]);
+      setScheduledFor('');
+      setPendingPaymentMethod('');
+      setIsPaymentModalOpen(true);
+    } else {
+      // Pedido avulso (sem cliente cadastrado) — precisa escolher/criar o cliente antes de finalizar
+      setSelectedCustomer(null);
+      alert(`Pedido de ${sale.customerName || 'cliente avulso'} duplicado! Os itens já estão no carrinho, mas esse pedido não tinha cliente cadastrado — selecione um cliente antes de finalizar.`);
+    }
   };
 
   const openReceiptDetail = async (sale: SaleOrder) => {
