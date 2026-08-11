@@ -7590,6 +7590,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                  className="flex-1 h-10 bg-white/5 border border-white/10 rounded-xl px-3 text-xs text-white placeholder-white/30 focus:outline-none focus:border-primary-500"
                                />
                                <input
+          onFocus={(e: any) => e.target.select()}
                                  placeholder="Valor (R$)"
                                  type="number"
                                  value={p.valor}
@@ -7684,6 +7685,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    </div>
                    <div className="flex items-center gap-2">
                       <input
+          onFocus={(e: any) => e.target.select()}
                         type="number"
                         step="any"
                         min={0}
@@ -7857,6 +7859,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                  <div className="flex items-center justify-between gap-2">
                                     <span className="text-[7.5px] font-black text-white/40 uppercase tracking-widest">Valor Recebido</span>
                                     <input
+          onFocus={(e: any) => e.target.select()}
                                        type="number"
                                        step="any"
                                        className="h-6 w-24 text-[10px] bg-slate-900/80 text-white rounded px-1.5 text-right font-bold border border-white/10"
@@ -8502,9 +8505,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  {insulfilmPecas.map((p, i) => (
                    <div key={p.id} className="flex items-center gap-2">
                       <span className="text-[9px] font-black text-white/30 w-10 shrink-0">Peça {i + 1}</span>
-                      <input type="number" step="any" placeholder="Largura (m)" value={p.largura || ''} onChange={(e) => updatePeca(p.id, 'largura', Number(e.target.value) || 0)} className="flex-1 h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500" />
+                      <input
+          onFocus={(e: any) => e.target.select()} type="number" step="any" placeholder="Largura (m)" value={p.largura || ''} onChange={(e) => updatePeca(p.id, 'largura', Number(e.target.value) || 0)} className="flex-1 h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500" />
                       <span className="text-white/20 text-xs">×</span>
-                      <input type="number" step="any" placeholder="Altura (m)" value={p.altura || ''} onChange={(e) => updatePeca(p.id, 'altura', Number(e.target.value) || 0)} className="flex-1 h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500" />
+                      <input
+          onFocus={(e: any) => e.target.select()} type="number" step="any" placeholder="Altura (m)" value={p.altura || ''} onChange={(e) => updatePeca(p.id, 'altura', Number(e.target.value) || 0)} className="flex-1 h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500" />
                       {insulfilmPecas.length > 1 && (
                         <button onClick={() => removePeca(p.id)} className="text-rose-400 hover:text-rose-300 shrink-0"><Trash2 size={14} /></button>
                       )}
@@ -8958,6 +8963,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     <div key={idx} className="flex items-center justify-between gap-2 px-3 py-2 bg-white/5 border border-white/5 rounded-lg flex-wrap">
                        <div className="flex items-center gap-2 min-w-0 flex-1">
                           <input
+          onFocus={(e: any) => e.target.select()}
                             type="number"
                             min={1}
                             value={item.quantity}
@@ -8986,6 +8992,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           <div className="flex flex-col items-end">
                              <span className="text-[7px] font-black text-white/30 uppercase tracking-wider">Valor Unit.</span>
                              <input
+          onFocus={(e: any) => e.target.select()}
                                type="number"
                                step="any"
                                value={item.price}
@@ -9011,6 +9018,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Entrada</label>
                   <div className="flex gap-1.5">
                      <input
+          onFocus={(e: any) => e.target.select()}
                        type="number"
                        step="any"
                        value={orcamentoForm.entradaModo === 'percentual' ? orcamentoForm.entradaPercentual : orcamentoForm.entradaValor}
@@ -9047,6 +9055,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   <div className="space-y-1">
                      <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Dias</label>
                      <input
+          onFocus={(e: any) => e.target.select()}
                        type="number"
                        min={1}
                        value={orcamentoForm.prazoDias}
@@ -9143,7 +9152,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           )}
                           <div className="space-y-0.5 w-24">
                              <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Valor (R$)</label>
-                             <input type="number" step="any" value={f.valor} onChange={(e) => updateOrcamentoFormaPagamento(idx, { valor: Number(e.target.value) || 0 })} className="w-full h-9 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
+                             <input
+          onFocus={(e: any) => e.target.select()} type="number" step="any" value={f.valor} onChange={(e) => updateOrcamentoFormaPagamento(idx, { valor: Number(e.target.value) || 0 })} className="w-full h-9 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
                           </div>
                           <button onClick={() => removeOrcamentoFormaPagamento(idx)} className="h-9 w-9 flex items-center justify-center rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 shrink-0"><Trash2 size={13} /></button>
                        </div>
@@ -9152,7 +9162,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-white/5">
                             <div className="space-y-0.5">
                                <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Parcelas</label>
-                               <input type="number" min={1} value={f.parcelas || 1} onChange={(e) => {
+                               <input
+          onFocus={(e: any) => e.target.select()} type="number" min={1} value={f.parcelas || 1} onChange={(e) => {
                                   const parcelas = Math.max(1, Number(e.target.value) || 1);
                                   updateOrcamentoFormaPagamento(idx, { parcelas, valorParcela: Number(((f.valor || 0) / parcelas).toFixed(2)) });
                                }} className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
@@ -9169,7 +9180,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             </div>
                             <div className="space-y-0.5">
                                <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Intervalo (dias)</label>
-                               <input type="number" min={1} value={f.intervaloDias || 30} onChange={(e) => updateOrcamentoFormaPagamento(idx, { intervaloDias: Number(e.target.value) || 30 })} className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
+                               <input
+          onFocus={(e: any) => e.target.select()} type="number" min={1} value={f.intervaloDias || 30} onChange={(e) => updateOrcamentoFormaPagamento(idx, { intervaloDias: Number(e.target.value) || 30 })} className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
                             </div>
                          </div>
                        )}
@@ -9219,7 +9231,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                        </div>
                        <div className="space-y-0.5">
                           <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Prazo Concedido (dias)</label>
-                          <input type="number" min={0} value={orcamentoForm.pagamentoPosteriorDias} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, pagamentoPosteriorDias: Number(e.target.value) || 0 })} className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
+                          <input
+          onFocus={(e: any) => e.target.select()} type="number" min={0} value={orcamentoForm.pagamentoPosteriorDias} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, pagamentoPosteriorDias: Number(e.target.value) || 0 })} className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
                        </div>
                        <div className="space-y-0.5 col-span-2">
                           <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Condição Especial</label>
@@ -9240,11 +9253,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   <div className="space-y-0.5">
                      <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Multa (%)</label>
-                     <input type="number" step="any" min={0} value={orcamentoForm.multaPercentual} onChange={(e) => updateMultaJuros({ multaPercentual: Number(e.target.value) || 0 })} className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500" />
+                     <input
+          onFocus={(e: any) => e.target.select()} type="number" step="any" min={0} value={orcamentoForm.multaPercentual} onChange={(e) => updateMultaJuros({ multaPercentual: Number(e.target.value) || 0 })} className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500" />
                   </div>
                   <div className="space-y-0.5">
                      <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Juros (%)</label>
-                     <input type="number" step="any" min={0} value={orcamentoForm.jurosPercentual} onChange={(e) => updateMultaJuros({ jurosPercentual: Number(e.target.value) || 0 })} className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500" />
+                     <input
+          onFocus={(e: any) => e.target.select()} type="number" step="any" min={0} value={orcamentoForm.jurosPercentual} onChange={(e) => updateMultaJuros({ jurosPercentual: Number(e.target.value) || 0 })} className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500" />
                   </div>
                   <div className="space-y-0.5">
                      <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Forma de Cálculo</label>
@@ -9255,7 +9270,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   </div>
                   <div className="space-y-0.5">
                      <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Tolerância (dias)</label>
-                     <input type="number" min={0} value={orcamentoForm.diasTolerancia} onChange={(e) => updateMultaJuros({ diasTolerancia: Number(e.target.value) || 0 })} className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500" />
+                     <input
+          onFocus={(e: any) => e.target.select()} type="number" min={0} value={orcamentoForm.diasTolerancia} onChange={(e) => updateMultaJuros({ diasTolerancia: Number(e.target.value) || 0 })} className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500" />
                   </div>
                </div>
 
@@ -9266,7 +9282,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   <div className="flex items-center justify-between gap-2">
                      <span className="text-[9px] font-black uppercase text-white/40 tracking-wider">Simular atraso de</span>
                      <div className="flex items-center gap-1.5">
-                        <input type="number" min={0} value={simuladorDias} onChange={(e) => setSimuladorDias(Number(e.target.value) || 0)} className="w-14 h-7 bg-slate-900/60 border border-white/10 rounded px-1.5 text-xs text-white text-center" />
+                        <input
+          onFocus={(e: any) => e.target.select()} type="number" min={0} value={simuladorDias} onChange={(e) => setSimuladorDias(Number(e.target.value) || 0)} className="w-14 h-7 bg-slate-900/60 border border-white/10 rounded px-1.5 text-xs text-white text-center" />
                         <span className="text-[9px] text-white/40 font-bold">dias, sobre R$ {orcamentoSaldoRestante().toFixed(2).replace('.', ',')} em aberto</span>
                      </div>
                   </div>
@@ -12331,6 +12348,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                             <label className="text-[9px] font-black uppercase text-white/40 tracking-wider block">{f.installments}x</label>
                             <div className="relative">
                                <input
+          onFocus={(e: any) => e.target.select()}
                                  type="number"
                                  step="any"
                                  min={0}
@@ -12360,6 +12378,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                           <label className="text-[9px] font-black uppercase text-white/40 tracking-wider block">Taxa do Débito</label>
                           <div className="relative">
                              <input
+          onFocus={(e: any) => e.target.select()}
                                type="number"
                                step="any"
                                min={0}
