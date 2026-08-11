@@ -11106,18 +11106,16 @@ const OrdemServicoCard = ({ pedido, onDropdownChange }: { key?: any; pedido: Sal
       <GlassCard
         onClick={() => { setPendingReceiptOpenId(pedido.id); setRootActiveTab('pos'); }}
         className={cn(
-          "p-4 border-white/10 space-y-2 cursor-grab active:cursor-grabbing hover:border-primary-500/30 transition-all",
+          "p-2 border-white/10 space-y-1 cursor-grab active:cursor-grabbing hover:border-primary-500/30 transition-all",
           isDragging ? "shadow-2xl ring-2 ring-primary-500 scale-105" : ""
         )}
       >
-        <div className="flex items-start justify-between gap-2">
-           <div className="min-w-0">
-              <p className="font-bold text-white text-xs truncate">#{pedido.id.slice(-8).toUpperCase()} — {pedido.customerName || 'Cliente de Balcão'}</p>
-              <p className="text-[9px] text-white/30 uppercase font-black truncate">{(pedido.items || []).map(i => i.name).join(', ') || 'Sem itens'}</p>
-           </div>
+        <div className="min-w-0">
+           <p className="font-bold text-white text-[9px] truncate leading-tight">#{pedido.id.slice(-6).toUpperCase()} {pedido.customerName || 'Balcão'}</p>
+           <p className="text-[8px] text-white/30 uppercase font-black truncate leading-tight">{(pedido.items || []).map(i => i.name).join(', ') || 'Sem itens'}</p>
         </div>
         {pedido.scheduledFor && (
-          <span className="inline-block text-[8px] font-black uppercase bg-primary-500/10 text-primary-300 px-2 py-0.5 rounded-full border border-primary-500/20">
+          <span className="inline-block text-[7px] font-black uppercase bg-primary-500/10 text-primary-300 px-1.5 py-0.5 rounded-full border border-primary-500/20 leading-none">
             {safeFormat(pedido.scheduledFor, 'dd/MM HH:mm')}
           </span>
         )}
@@ -11126,7 +11124,7 @@ const OrdemServicoCard = ({ pedido, onDropdownChange }: { key?: any; pedido: Sal
           onPointerDown={(e: any) => e.stopPropagation()}
           onClick={(e: any) => e.stopPropagation()}
           onChange={(e: any) => { e.stopPropagation(); onDropdownChange(pedido, e.target.value); }}
-          className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-[10px] text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer"
+          className="w-full h-6 bg-slate-900/60 border border-white/10 rounded-md px-1 text-[8px] text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer"
         >
           {STAGE_ORDER.map(id => (
             <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
@@ -11141,15 +11139,15 @@ const OrdemServicoColumn = ({ stageId, pedidos, onDropdownChange }: { key?: any;
   const { setNodeRef, isOver } = useDroppable({ id: stageId, data: { type: 'column', stageId } });
 
   return (
-    <div className="w-72 shrink-0 flex flex-col gap-3">
-      <div className="flex items-center gap-2 px-1">
-         <h3 className="text-[10px] font-black uppercase tracking-[2px] text-white/50 truncate">{STAGE_LABELS[stageId]}</h3>
-         <Badge className="bg-white/5 border-none opacity-50 px-2 py-0 h-5 flex items-center shrink-0">{pedidos.length}</Badge>
+    <div className="min-w-0 flex flex-col gap-1.5">
+      <div className="flex items-center gap-1 px-0.5">
+         <h3 className="text-[7.5px] font-black uppercase tracking-wide text-white/50 truncate leading-tight">{STAGE_LABELS[stageId]}</h3>
+         <Badge className="bg-white/5 border-none opacity-50 px-1.5 py-0 h-4 flex items-center shrink-0 text-[8px]">{pedidos.length}</Badge>
       </div>
       <div
         ref={setNodeRef}
         className={cn(
-          "bg-white/[0.03] border rounded-[28px] p-3 flex flex-col gap-2.5 min-h-[400px] max-h-[calc(100vh-20rem)] overflow-y-auto custom-scrollbar transition-colors",
+          "bg-white/[0.03] border rounded-2xl p-1.5 flex flex-col gap-1.5 min-h-[400px] max-h-[calc(100vh-20rem)] overflow-y-auto custom-scrollbar transition-colors",
           isOver ? "border-primary-500/50 bg-primary-500/5" : "border-white/5"
         )}
       >
@@ -11314,7 +11312,7 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
       </div>
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={onDragStart} onDragEnd={onDragEnd}>
-        <div className="flex gap-4 overflow-x-auto custom-scrollbar pb-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-1.5 md:gap-2 pb-4">
           {STAGE_ORDER.map(stageId => (
             <OrdemServicoColumn
               key={stageId}
