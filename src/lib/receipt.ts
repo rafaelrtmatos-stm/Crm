@@ -48,7 +48,22 @@ const PIPELINE_STAGES = [
   'Produção', 'Acabamento', 'Produto Entregue',
 ];
 
+const STAGE_ID_TO_INDEX: Record<string, number> = {
+  pedido_recebido: 0,
+  aguardando_arte: 1,
+  arte_em_desenvolvimento: 2,
+  aguardando_aprovacao: 3,
+  producao: 4,
+  acabamento: 5,
+  produto_entregue: 6,
+};
+
 function getPipelineIndex(order: SaleOrder): number {
+  // Se o pedido tem uma etapa definida manualmente (campo "Etapa atual"), usa ela — é a fonte da verdade.
+  if (order.serviceStatus && order.serviceStatus in STAGE_ID_TO_INDEX) {
+    return STAGE_ID_TO_INDEX[order.serviceStatus];
+  }
+  // Fallback pra pedidos antigos sem etapa definida — adivinha pelo status/entrada, como era antes
   if (order.status === 'completed') return 6;
   const down = order.downPayment ?? order.receivedValue ?? 0;
   if (down > 0) return 3;
