@@ -183,6 +183,40 @@ export function exportVendasXlsx(vendas: any[]) {
   downloadWorkbook(wb, `VENDAS_${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
 
+// ================= FICHA DO CLIENTE =================
+export function exportFichaClienteXlsx(cliente: any, servicos: any[], stats: { total: number; pago: number; pendente: number; count: number }) {
+  const dadosRows = [
+    ['Nome', cliente.full_name || ''],
+    ['Telefone', cliente.phone || ''],
+    ['E-mail', cliente.email || ''],
+    ['CPF/CNPJ', cliente.cpf_cnpj || ''],
+    ['Endereço', [cliente.logradouro, cliente.numero, cliente.distrito, cliente.city, cliente.state].filter(Boolean).join(', ')],
+    [],
+    ['Serviços Feitos', stats.count],
+    ['Faturamento Total (R$)', stats.total],
+    ['Valor Recebido (R$)', stats.pago],
+    ['Valor Pendente (R$)', stats.pendente],
+  ];
+  const wsDados = XLSX.utils.aoa_to_sheet(dadosRows);
+
+  const servicosHeaders = ['NÚMERO', 'DATA', 'ITENS', 'VALOR (R$)', 'SITUAÇÃO'];
+  const servicosRows = servicos.map(s => [
+    `#${String(s.id).slice(-8).toUpperCase()}`,
+    new Date(s.createdAt).toLocaleString('pt-BR'),
+    s.itemsSummary || '',
+    s.total || 0,
+    s.isFullyPaid ? 'Pago' : 'Pendente',
+  ]);
+  const wsServicos = XLSX.utils.aoa_to_sheet([servicosHeaders, ...servicosRows]);
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, wsDados, 'Dados do Cliente');
+  XLSX.utils.book_append_sheet(wb, wsServicos, 'Serviços');
+  const nomeArquivo = (cliente.full_name || 'cliente').replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '_');
+  downloadWorkbook(wb, `FICHA_${nomeArquivo}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+}
+
+
 export interface VendaImportRow {
   status: string;
   customerName?: string;

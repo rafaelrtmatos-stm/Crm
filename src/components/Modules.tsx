@@ -194,7 +194,7 @@ import { showAlert, showConfirm, showPrompt } from '../lib/notify';
 import { buildPixPayload } from '../lib/pix';
 import { renderReceiptCanvas, downloadCanvasAsPng, downloadCanvasAsPdf, COMPANY_CONTACT, CompanyContactInfo } from '../lib/receipt';
 import { renderOrcamentoCanvas } from '../lib/orcamentoDoc';
-import { exportClientesXlsx, parseClientesXlsx, exportProdutosXlsx, parseProdutosXlsx, exportVendasXlsx, parseVendasXlsx } from '../lib/spreadsheet';
+import { exportClientesXlsx, parseClientesXlsx, exportProdutosXlsx, parseProdutosXlsx, exportVendasXlsx, parseVendasXlsx, exportFichaClienteXlsx } from '../lib/spreadsheet';
 import { format } from 'date-fns';
 
 // Formata uma data com fallback seguro — evita "RangeError: Invalid time value"
@@ -10161,15 +10161,44 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
         return (
           <Modal isOpen={!!fichaCliente} onClose={() => setFichaCliente(null)} title="Ficha do Cliente" size="md">
             <div className="space-y-5 p-2">
-               <div>
-                  <h3 className="text-xl font-black text-white italic">{fichaCliente.full_name}</h3>
-                  {fichaCliente.phone && (
-                    <button
-                      onClick={() => window.open(`https://wa.me/${fichaCliente.phone.replace(/\D/g, '')}`, '_blank')}
-                      className="flex items-center gap-1.5 text-emerald-400 hover:text-emerald-300 font-bold text-sm mt-1"
-                    >
-                      <MessageSquare size={14} /> {fichaCliente.phone}
-                    </button>
+               <div className="flex items-start justify-between gap-3">
+                  <div>
+                     <h3 className="text-xl font-black text-white italic">{fichaCliente.full_name}</h3>
+                     {fichaCliente.phone && (
+                       <button
+                         onClick={() => window.open(`https://wa.me/${fichaCliente.phone.replace(/\D/g, '')}`, '_blank')}
+                         className="flex items-center gap-1.5 text-emerald-400 hover:text-emerald-300 font-bold text-sm mt-1"
+                       >
+                         <MessageSquare size={14} /> {fichaCliente.phone}
+                       </button>
+                     )}
+                  </div>
+                  {s && (
+                    <div className="flex items-center gap-1.5 shrink-0">
+                       <button
+                         title="Exportar em PDF"
+                         onClick={async () => {
+                           const { exportFichaClientePdf } = await import('../lib/fichaClientePdf');
+                           await exportFichaClientePdf({
+                             cliente: fichaCliente,
+                             servicos: clienteVendas[fichaCliente.id] || [],
+                             stats: { total: s.total, pago: s.pago, pendente: s.pendente, count: s.count },
+                           });
+                         }}
+                         className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all"
+                       >
+                         <FileText size={14} />
+                       </button>
+                       <button
+                         title="Exportar em Planilha"
+                         onClick={() => {
+                           exportFichaClienteXlsx(fichaCliente, clienteVendas[fichaCliente.id] || [], { total: s.total, pago: s.pago, pendente: s.pendente, count: s.count });
+                         }}
+                         className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all"
+                       >
+                         <Download size={14} />
+                       </button>
+                    </div>
                   )}
                </div>
 
