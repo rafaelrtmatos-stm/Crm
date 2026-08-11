@@ -419,6 +419,7 @@ const mapOrcamentoRow = (row: any): Orcamento => ({
 });
 
 export const DashboardModule = ({ user, currentCompany, companies = [], pendingOrders = [], setActiveTab }: { user: AppUser | null, currentCompany: Company | null, companies?: Company[], pendingOrders?: SaleOrder[], setActiveTab?: (tab: any) => void }) => {
+  const { setPendingReceivablesFilter } = React.useContext(AppContext)!;
   const [isEditMode, setIsEditMode] = useState(false);
   const [valorEmEstoque, setValorEmEstoque] = useState(0);
 
@@ -922,7 +923,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
             { label: 'Lucro Líquido', val: `R$ ${netProfit.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, diff: `Margem: ${totalRevenue > 0 ? ((netProfit / totalRevenue) * 100).toFixed(0) : '65'}%`, color: 'emerald', action: () => setIsRevenueModalOpen(true) },
             { label: 'Markup Médio', val: `${avgMarkup.toFixed(2).replace('.', ',')}x`, diff: 'Faturamento/Custo', color: 'primary', action: () => setActiveTab?.('inventory') },
             { label: 'Pto Equilíbrio', val: `R$ ${breakevenPoint.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`, diff: `${Math.min(100, Math.round((totalRevenue / breakevenPoint) * 100))}% Reatido`, color: 'purple', action: () => setIsRevenueModalOpen(true) },
-            { label: 'A Receber', val: `R$ ${pendingValue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, diff: 'Balancete Aberto', color: 'rose', action: () => setActiveTab?.('pos') },
+            { label: 'A Receber', val: `R$ ${pendingValue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, diff: 'Balancete Aberto', color: 'rose', action: () => { setPendingReceivablesFilter(true); setActiveTab?.('pos'); } },
           ].map((item, i) => (
             <GlassCard 
               key={i} 
@@ -3806,7 +3807,7 @@ const EntregaCountdown = ({ scheduledFor }: { scheduledFor: string }) => {
 };
 
 export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany: Company | null, addPendingOrder: (order: SaleOrder) => void }) => {
-  const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare, pendingReceiptOpenId, setPendingReceiptOpenId, pendingHistoryClientFilter, setPendingHistoryClientFilter, prefilledCustomer, setPrefilledCustomer } = React.useContext(AppContext)!;
+  const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare, pendingReceiptOpenId, setPendingReceiptOpenId, pendingHistoryClientFilter, setPendingHistoryClientFilter, prefilledCustomer, setPrefilledCustomer, pendingReceivablesFilter, setPendingReceivablesFilter } = React.useContext(AppContext)!;
   const [soundAlertsEnabled, setSoundAlertsEnabledState] = useState(() => localStorage.getItem('rpro_sound_alerts_enabled') !== 'false');
   const setSoundAlertsEnabled = (v: boolean) => {
     setSoundAlertsEnabledState(v);
@@ -4739,6 +4740,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setActiveTab('historico');
     setPendingHistoryClientFilter(null);
   }, [pendingHistoryClientFilter]);
+
+  // Se o card "A Receber" do Dashboard pediu pra ver as notas com saldo em aberto
+  useEffect(() => {
+    if (!pendingReceivablesFilter) return;
+    setHistoryClienteIdFilter(null);
+    setHistorySearch('');
+    setSelectedOrderStatusFilters(new Set(['em_aberto', 'entrada_recebida']));
+    setActiveTab('historico');
+    setPendingReceivablesFilter(false);
+  }, [pendingReceivablesFilter]);
 
   // Se a aba Contatos pediu pra iniciar uma venda ja com o cliente selecionado
   useEffect(() => {

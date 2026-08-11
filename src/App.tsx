@@ -126,6 +126,8 @@ interface AppContextType {
   setPendingReceiptOpenId: (id: string | null) => void;
   pendingHistoryClientFilter: { clienteId: string; clienteName: string } | null;
   setPendingHistoryClientFilter: (v: { clienteId: string; clienteName: string } | null) => void;
+  pendingReceivablesFilter: boolean;
+  setPendingReceivablesFilter: (v: boolean) => void;
   simulatedUserId: string | null;
   setSimulatedUserId: (id: string | null) => void;
   theme: 'dark' | 'light';
@@ -457,6 +459,7 @@ export default function App() {
   const [pendingWhatsAppShare, setPendingWhatsAppShare] = useState<{ leadId: string; prefillMessage: string } | null>(null);
   const [pendingReceiptOpenId, setPendingReceiptOpenId] = useState<string | null>(null);
   const [pendingHistoryClientFilter, setPendingHistoryClientFilter] = useState<{ clienteId: string; clienteName: string } | null>(null);
+  const [pendingReceivablesFilter, setPendingReceivablesFilter] = useState(false);
   const [simulatedUserId, setSimulatedUserIdState] = useState<string | null>(localStorage.getItem('rpro_simulated_user_id'));
   const [unrepliedLeadsCount, setUnrepliedLeadsCount] = useState(0);
 
@@ -1245,6 +1248,8 @@ export default function App() {
     setPendingReceiptOpenId,
     pendingHistoryClientFilter,
     setPendingHistoryClientFilter,
+    pendingReceivablesFilter,
+    setPendingReceivablesFilter,
     simulatedUserId,
     setSimulatedUserId,
     theme,
