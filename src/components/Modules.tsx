@@ -11023,37 +11023,121 @@ export const ClientesEsperaModule = ({ currentCompany, user }: { currentCompany:
   );
 };
 
+// Agrupa as 8 etapas do pipeline em 3 blocos visuais (kanban), mantendo a etapa real de cada pedido
+const KANBAN_GROUPS: { id: string; name: string; icon: any; color: string; stages: string[] }[] = [
+  { id: 'fila', name: 'Fila de Espera', icon: Clock3, color: 'text-white/40', stages: ['pedido_recebido', 'aguardando_arte', 'arte_em_desenvolvimento', 'aguardando_aprovacao'] },
+  { id: 'proc', name: 'Em Processamento', icon: Zap, color: 'text-primary-300', stages: ['producao', 'acabamento'] },
+  { id: 'ready', name: 'Finalizado / Entrega', icon: CheckCircle2, color: 'text-emerald-400', stages: ['aguardando_retirada', 'produto_entregue'] },
+];
+
+const STAGE_LABELS: Record<string, string> = {
+  pedido_recebido: 'Pedido Recebido', aguardando_arte: 'Aguardando Arte', arte_em_desenvolvimento: 'Arte em Desenvolvimento',
+  aguardando_aprovacao: 'Aguardando Aprovação', producao: 'Produção', acabamento: 'Acabamento',
+  aguardando_retirada: 'Aguardando Retirada', produto_entregue: 'Produto Entregue',
+};
+
 export const ProductionModule = ({ currentCompany }: { currentCompany: Company | null }) => {
+  const [pedidos, setPedidos] = useState<SaleOrder[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showEntregues, setShowEntregues] = useState(false);
+
+  const loadPedidos = async () => {
+    const { data } = await supabase.from('vendas').select('*').is('deleted_at', null).neq('status', 'canceled').order('created_at', { ascending: true });
+    setPedidos((data || []).map(mapVendaRow));
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    loadPedidos();
+    const channel = supabase.channel('production-vendas').on('postgres_changes', { event: '*', schema: 'public', table: 'vendas' }, loadPedidos).subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [currentCompany]);
+
+  const handleAdvanceStage = async (pedido: SaleOrder, novaEtapa: string) => {
+    const { error } = await supabase.from('vendas').update({ service_status: novaEtapa }).eq('id', pedido.id);
+    if (error) showAlert(`Não foi possível atualizar a etapa: ${error.message}`);
+  };
+
+  if (loading) return (
+    <div className="h-96 flex items-center justify-center">
+       <RefreshCw className="animate-spin text-primary-500" />
+    </div>
+  );
+
   return (
     <div className="space-y-8 animate-in fade-in zoom-in-95 duration-500">
-      <SectionHeader title="Linha de Produção" subtitle="Status operacional em tempo real" />
+      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 border-b border-white/10 pb-4">
+         <div>
+            <h2 className="text-xl md:text-2xl font-black text-white italic tracking-tighter uppercase flex items-center gap-2">
+               <Layers className="text-primary-400" size={22} /> Ordem de Serviço
+            </h2>
+            <p className="text-[10px] md:text-xs text-white/40 font-bold uppercase tracking-widest mt-1">Fila de produção — todos os pedidos, agrupados pela etapa atual</p>
+         </div>
+         <button
+           onClick={() => setShowEntregues(!showEntregues)}
+           className={cn(
+             "text-[9px] font-black uppercase px-3 py-2 rounded-lg border-0 cursor-pointer transition-all",
+             showEntregues ? "bg-primary-500/20 text-primary-300" : "bg-white/5 text-white/40"
+           )}
+         >
+           {showEntregues ? '✓ Mostrando Entregues' : 'Ocultar Entregues Antigos'}
+         </button>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        {[
-          { id: 'fila', name: 'Fila de Espera', icon: Clock3, color: 'text-white/40' },
-          { id: 'proc', name: 'Em Processamento', icon: Zap, color: 'text-primary-300' },
-          { id: 'ready', name: 'Finalizado / Entrega', icon: CheckCircle2, color: 'text-emerald-400' },
-        ].map(step => (
-          <div key={step.id} className="space-y-5">
-            <div className="flex items-center gap-3 px-2">
-               <step.icon size={18} className={step.color} />
-               <h3 className="text-[11px] font-black uppercase tracking-[2px] text-white/50">{step.name}</h3>
+        {KANBAN_GROUPS.map(group => {
+          const pedidosDoGrupo = pedidos.filter(p => {
+            const etapa = p.serviceStatus || 'pedido_recebido';
+            if (!group.stages.includes(etapa)) return false;
+            if (etapa === 'produto_entregue' && !showEntregues) {
+              // So esconde entregues com mais de 2 dias, pra nao sumir da tela na hora
+              const dias = (Date.now() - new Date(p.createdAt).getTime()) / (1000 * 60 * 60 * 24);
+              return dias <= 2;
+            }
+            return true;
+          });
+          return (
+            <div key={group.id} className="space-y-5">
+              <div className="flex items-center gap-3 px-2">
+                 <group.icon size={18} className={group.color} />
+                 <h3 className="text-[11px] font-black uppercase tracking-[2px] text-white/50">{group.name} ({pedidosDoGrupo.length})</h3>
+              </div>
+              <div className="bg-white/5 border border-white/10 rounded-[32px] p-4 min-h-[300px] flex flex-col gap-3">
+                 {pedidosDoGrupo.length === 0 ? (
+                   <div className="flex flex-col items-center justify-center grow opacity-10 py-10">
+                      <group.icon size={48} />
+                   </div>
+                 ) : pedidosDoGrupo.map(pedido => {
+                   const etapaAtual = pedido.serviceStatus || 'pedido_recebido';
+                   return (
+                     <GlassCard key={pedido.id} className="p-4 border-white/10 space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                           <div className="min-w-0">
+                              <p className="font-bold text-white text-xs truncate">#{pedido.id.slice(-8).toUpperCase()} — {pedido.customerName || 'Cliente de Balcão'}</p>
+                              <p className="text-[9px] text-white/30 uppercase font-black truncate">{(pedido.items || []).map(i => i.name).join(', ') || 'Sem itens'}</p>
+                           </div>
+                           {pedido.scheduledFor && (
+                             <span className="shrink-0 text-[8px] font-black uppercase bg-primary-500/10 text-primary-300 px-2 py-0.5 rounded-full border border-primary-500/20">
+                               {safeFormat(pedido.scheduledFor, 'dd/MM HH:mm')}
+                             </span>
+                           )}
+                        </div>
+                        <select
+                          value={etapaAtual}
+                          onChange={(e) => handleAdvanceStage(pedido, e.target.value)}
+                          className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-[10px] text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer"
+                        >
+                          {Object.entries(STAGE_LABELS).map(([id, label]) => (
+                            <option key={id} value={id} className="bg-slate-900">{label}</option>
+                          ))}
+                        </select>
+                     </GlassCard>
+                   );
+                 })}
+              </div>
             </div>
-            <div className="bg-white/5 border border-white/10 rounded-[32px] p-6 min-h-[400px] flex flex-col gap-4">
-               {step.id === 'proc' && (
-                 <GlassCard className="p-5 border-primary-500/20 bg-primary-500/5">
-                    <p className="font-bold text-white text-sm mb-1">OS #1042 - Banner 1x1m</p>
-                    <p className="text-[10px] text-white/30 uppercase font-black mb-4">Rafael Matos</p>
-                    <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden">
-                       <div className="w-3/4 h-full bg-primary-400" />
-                    </div>
-                 </GlassCard>
-               )}
-               <div className="flex flex-col items-center justify-center grow opacity-10">
-                  <step.icon size={48} />
-               </div>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -11506,7 +11590,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     { id: 'clientes_espera', label: 'Clientes em Espera' },
     { id: 'contacts', label: 'Clientes' },
     { id: 'crm', label: 'Funil CRM' },
-    { id: 'production', label: 'Produção' },
+    { id: 'production', label: 'Ordem de Serviço' },
     { id: 'inventory', label: 'Estoque' },
     { id: 'settings', label: 'Configurações' },
   ];
@@ -11518,7 +11602,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     { id: 'pos', label: 'PDV Gráfica', desc: 'Faturamento rápido, caixa e vendas' },
     { id: 'contacts', label: 'Contatos', desc: 'Gestão de clientes e histórico de compras' },
     { id: 'clientes_espera', label: 'Clientes em Espera', desc: 'Fila de atendimento com tempo de espera em tempo real' },
-    { id: 'production', label: 'Produção', desc: 'Fila de fabricação e acabamentos gráficos' },
+    { id: 'production', label: 'Ordem de Serviço', desc: 'Fila de producao com todos os pedidos e etapa atual de cada um' },
     { id: 'settings', label: 'Opções', desc: 'Parâmetro de configurações do Rafa Arts Graphics' },
   ];
 
