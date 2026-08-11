@@ -6587,7 +6587,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             { id: 'servicos', label: 'Serviços', icon: Wrench },
             { id: 'orcamentos', label: 'Orçamentos', icon: FileSpreadsheet },
             { id: 'clientes', label: 'Clientes', icon: Users },
-            { id: 'contratos', label: 'Contratos Rafa Art', icon: FileText },
+            { id: 'contratos', label: 'Contratos', icon: FileText },
             { id: 'excluidos', label: 'Excluídos', icon: Trash2 }
           ].map(tab => (
             <button
