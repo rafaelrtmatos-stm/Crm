@@ -9225,9 +9225,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
            isOpen={!!viewingReceiptSale}
            onClose={() => setViewingReceiptSale(null)}
            title="Visualizar Recibo"
-           size="md"
+           size="lg"
          >
-           <div className="space-y-4 p-2">
+           <div className="space-y-3 p-2">
              <div className="flex items-center justify-between border-b border-white/5 pb-3">
                <div>
                  <h3 className="text-lg font-black text-white uppercase">Pedido #{sale.id.slice(-8).toUpperCase()}</h3>
@@ -9238,75 +9238,81 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                </Badge>
              </div>
 
-             {/* Dados do Cliente */}
-             <div className="bg-slate-900/50 rounded-2xl p-4 border border-white/5 space-y-2">
-               <h4 className="text-[9px] font-black uppercase text-primary-300 tracking-[2px] mb-1">Cliente</h4>
-               <p className="text-sm font-black text-white">{sale.customerName || 'Cliente de Balcão'}</p>
-               {sale.customerPhone ? (
-                 <button
-                   onClick={() => handleOpenChatFromReceipt(sale)}
-                   className="flex items-center gap-2 text-emerald-400 hover:text-emerald-300 text-xs font-bold underline decoration-dotted"
-                   title="Abrir conversa no Funil de Atendimento"
-                 >
-                   <MessageSquare size={13} />
-                   {sale.customerPhone}
-                 </button>
-               ) : (
-                 <p className="text-xs text-white/30">Sem telefone cadastrado</p>
-               )}
-               {viewingReceiptEmail && <p className="text-xs text-white/50">{viewingReceiptEmail}</p>}
-             </div>
-
-             {/* Etapa Atual — controla a linha de evolucao do pedido mostrada no recibo */}
-             <div className="bg-slate-900/50 rounded-2xl p-4 border border-white/5 space-y-2">
-               <h4 className="text-[9px] font-black uppercase text-primary-300 tracking-[2px] mb-1">Etapa Atual</h4>
-               <select
-                 value={sale.serviceStatus || 'pedido_recebido'}
-                 onChange={(e) => handleUpdateServiceStatus(sale.id, e.target.value)}
-                 className="w-full h-11 bg-slate-950/80 border border-white/10 rounded-xl px-3 text-xs text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer"
-               >
-                 <option value="pedido_recebido" className="bg-slate-900">1. Pedido Recebido</option>
-                 <option value="aguardando_arte" className="bg-slate-900">2. Aguardando Arte</option>
-                 <option value="arte_em_desenvolvimento" className="bg-slate-900">3. Arte em Desenvolvimento</option>
-                 <option value="aguardando_aprovacao" className="bg-slate-900">4. Aguardando Aprovação</option>
-                 <option value="producao" className="bg-slate-900">5. Produção</option>
-                 <option value="acabamento" className="bg-slate-900">6. Acabamento</option>
-                 <option value="aguardando_retirada" className="bg-slate-900">7. Aguardando Retirada</option>
-                 <option value="produto_entregue" className="bg-slate-900">8. Produto Entregue</option>
-               </select>
-               <p className="text-[9px] text-white/30">Controla a linha de evolução mostrada no recibo — marca essa etapa como atual e as anteriores como concluídas.</p>
-             </div>
-
-             {/* Itens */}
-             <div className="bg-slate-900/50 rounded-2xl p-4 border border-white/5 space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar">
-               <h4 className="text-[9px] font-black uppercase text-primary-300 tracking-[2px] mb-1">Produtos</h4>
-               {sale.items?.map((item, idx) => (
-                 <div key={idx} className="flex justify-between text-xs text-white/70">
-                   <span>{item.quantity}x {item.name}</span>
-                   <span className="font-bold text-white/90">R$ {((item.area ? item.price * item.area : item.price) * item.quantity).toFixed(2).replace('.', ',')}</span>
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+               <div className="space-y-3">
+                 {/* Dados do Cliente */}
+                 <div className="bg-slate-900/50 rounded-2xl p-4 border border-white/5 space-y-2">
+                   <h4 className="text-[9px] font-black uppercase text-primary-300 tracking-[2px] mb-1">Cliente</h4>
+                   <p className="text-sm font-black text-white">{sale.customerName || 'Cliente de Balcão'}</p>
+                   {sale.customerPhone ? (
+                     <button
+                       onClick={() => handleOpenChatFromReceipt(sale)}
+                       className="flex items-center gap-2 text-emerald-400 hover:text-emerald-300 text-xs font-bold underline decoration-dotted"
+                       title="Abrir conversa no Funil de Atendimento"
+                     >
+                       <MessageSquare size={13} />
+                       {sale.customerPhone}
+                     </button>
+                   ) : (
+                     <p className="text-xs text-white/30">Sem telefone cadastrado</p>
+                   )}
+                   {viewingReceiptEmail && <p className="text-xs text-white/50">{viewingReceiptEmail}</p>}
                  </div>
-               ))}
-             </div>
 
-             {/* Valores */}
-             <div className="bg-slate-900/50 rounded-2xl p-4 border border-white/5 space-y-1.5">
-               <div className="flex justify-between text-xs text-white/50">
-                 <span>Total</span>
-                 <span className="font-mono font-bold text-white">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
-               </div>
-               <div className="flex justify-between text-xs text-emerald-400 font-bold">
-                 <span>Recebido</span>
-                 <span className="font-mono">R$ {down.toFixed(2).replace('.', ',')}</span>
-               </div>
-               {isPending && (
-                 <div className="flex justify-between text-xs text-rose-400 font-bold">
-                   <span>Falta Pagar</span>
-                   <span className="font-mono">R$ {balance.toFixed(2).replace('.', ',')}</span>
+                 {/* Etapa Atual — controla a linha de evolucao do pedido mostrada no recibo */}
+                 <div className="bg-slate-900/50 rounded-2xl p-4 border border-white/5 space-y-2">
+                   <h4 className="text-[9px] font-black uppercase text-primary-300 tracking-[2px] mb-1">Etapa Atual</h4>
+                   <select
+                     value={sale.serviceStatus || 'pedido_recebido'}
+                     onChange={(e) => handleUpdateServiceStatus(sale.id, e.target.value)}
+                     className="w-full h-11 bg-slate-950/80 border border-white/10 rounded-xl px-3 text-xs text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer"
+                   >
+                     <option value="pedido_recebido" className="bg-slate-900">1. Pedido Recebido</option>
+                     <option value="aguardando_arte" className="bg-slate-900">2. Aguardando Arte</option>
+                     <option value="arte_em_desenvolvimento" className="bg-slate-900">3. Arte em Desenvolvimento</option>
+                     <option value="aguardando_aprovacao" className="bg-slate-900">4. Aguardando Aprovação</option>
+                     <option value="producao" className="bg-slate-900">5. Produção</option>
+                     <option value="acabamento" className="bg-slate-900">6. Acabamento</option>
+                     <option value="aguardando_retirada" className="bg-slate-900">7. Aguardando Retirada</option>
+                     <option value="produto_entregue" className="bg-slate-900">8. Produto Entregue</option>
+                   </select>
+                   <p className="text-[9px] text-white/30">Controla a linha de evolução mostrada no recibo.</p>
                  </div>
-               )}
-               <div className="flex justify-between text-xs text-white/40 pt-1 border-t border-white/5">
-                 <span>Forma de Pagamento</span>
-                 <span className="font-bold uppercase">{sale.paymentMethod || '-'}</span>
+               </div>
+
+               <div className="space-y-3">
+                 {/* Itens */}
+                 <div className="bg-slate-900/50 rounded-2xl p-4 border border-white/5 space-y-1.5 max-h-36 overflow-y-auto custom-scrollbar">
+                   <h4 className="text-[9px] font-black uppercase text-primary-300 tracking-[2px] mb-1">Produtos</h4>
+                   {sale.items?.map((item, idx) => (
+                     <div key={idx} className="flex justify-between text-xs text-white/70">
+                       <span>{item.quantity}x {item.name}</span>
+                       <span className="font-bold text-white/90">R$ {((item.area ? item.price * item.area : item.price) * item.quantity).toFixed(2).replace('.', ',')}</span>
+                     </div>
+                   ))}
+                 </div>
+
+                 {/* Valores */}
+                 <div className="bg-slate-900/50 rounded-2xl p-4 border border-white/5 space-y-1.5">
+                   <div className="flex justify-between text-xs text-white/50">
+                     <span>Total</span>
+                     <span className="font-mono font-bold text-white">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
+                   </div>
+                   <div className="flex justify-between text-xs text-emerald-400 font-bold">
+                     <span>Recebido</span>
+                     <span className="font-mono">R$ {down.toFixed(2).replace('.', ',')}</span>
+                   </div>
+                   {isPending && (
+                     <div className="flex justify-between text-xs text-rose-400 font-bold">
+                       <span>Falta Pagar</span>
+                       <span className="font-mono">R$ {balance.toFixed(2).replace('.', ',')}</span>
+                     </div>
+                   )}
+                   <div className="flex justify-between text-xs text-white/40 pt-1 border-t border-white/5">
+                     <span>Forma de Pagamento</span>
+                     <span className="font-bold uppercase">{sale.paymentMethod || '-'}</span>
+                   </div>
+                 </div>
                </div>
              </div>
 
