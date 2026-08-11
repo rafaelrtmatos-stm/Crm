@@ -48,6 +48,15 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number)
   return lines;
 }
 
+// Forca 2 linhas sempre que o rotulo tiver mais de uma palavra (visual mais consistente entre etapas),
+// dividindo as palavras ao meio. Rotulo de 1 palavra so (ex: "Produção") fica numa linha so.
+function forceTwoLines(label: string): string[] {
+  const words = label.split(' ');
+  if (words.length <= 1) return [label];
+  const mid = Math.ceil(words.length / 2);
+  return [words.slice(0, mid).join(' '), words.slice(mid).join(' ')];
+}
+
 // ---------- Paleta (tema claro premium) ----------
 const BG = '#F5F7FA';
 const CARD = '#FFFFFF';
@@ -94,10 +103,10 @@ function drawStageIcon(ctx: CanvasRenderingContext2D, stageIndex: number, cx: nu
   ctx.save();
   ctx.strokeStyle = color;
   ctx.fillStyle = color;
-  ctx.lineWidth = 1.1;
+  ctx.lineWidth = 1.4;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  const s = 3.2; // escala do icone
+  const s = 4.4; // escala do icone (aumentada pra acompanhar o circulo maior)
   switch (stageIndex) {
     case 0: // Pedido Recebido - check
       ctx.beginPath();
@@ -328,15 +337,11 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
   ];
 
   const headerH = 76;
-  // Mede com antecedencia se algum rotulo da linha de evolucao vai precisar quebrar em 2 linhas,
-  // pra ja reservar a altura certa (nunca deixa texto/icone de uma secao encostar ou sobrepor o de baixo)
-  const measureCanvasPipeline = document.createElement('canvas');
-  const measureCtxPipeline = measureCanvasPipeline.getContext('2d')!;
-  measureCtxPipeline.font = `800 7px ${FONT}`;
-  const pipelineTrackW = width - marginX * 2;
-  const pipelineLabelMaxW = pipelineTrackW / PIPELINE_STAGES.length - 4;
-  const anyLabelWraps = PIPELINE_STAGES.some(label => wrapText(measureCtxPipeline, label, pipelineLabelMaxW + 16).length > 1);
-  const pipelineH = anyLabelWraps ? 73 : 64;
+  // Como agora forcamos 2 linhas em qualquer rotulo com mais de uma palavra, e os icones ficaram
+  // maiores, reserva sempre a altura maior quando pelo menos um rotulo tiver mais de uma palavra —
+  // garante que a secao de baixo (Cliente/Dados da Ordem) nunca fique colada ou sobreposta.
+  const anyLabelWraps = PIPELINE_STAGES.some(label => label.split(' ').length > 1);
+  const pipelineH = anyLabelWraps ? 82 : 68;
   const infoCardsH = Math.max(92, 46 + Math.max(clienteRows.length, pedidoRows.length) * 17);
   const tableHeaderH = 32;
   const tableH = tableHeaderH + totalRowsHeight;
@@ -422,7 +427,7 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
       const cx = trackX + (trackW * i) / (stageCount - 1);
       const done = i <= stageIdx;
       const isCurrent = i === stageIdx;
-      const radius = isCurrent ? 7 : 5;
+      const radius = isCurrent ? 10 : 8;
       ctx.beginPath();
       ctx.arc(cx, trackY, radius, 0, Math.PI * 2);
       ctx.fillStyle = done ? GREEN : CARD;
@@ -438,11 +443,11 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
       const isFirst = i === 0;
       const isLast = i === stageCount - 1;
       const wrapW = isFirst || isLast ? labelMaxW + 20 : labelMaxW;
-      const lines = wrapText(ctx, label, wrapW).slice(0, 2); // no maximo 2 linhas — nunca espreme/corta em cima de outro texto
+      const lines = forceTwoLines(label); // rotulo com mais de 1 palavra sempre em 2 linhas
       const lineX = isFirst ? Math.max(marginX, cx - labelMaxW / 2) : isLast ? Math.min(width - marginX, cx + labelMaxW / 2) : cx;
       ctx.textAlign = isFirst ? 'left' : isLast ? 'right' : 'center';
       lines.forEach((line, li) => {
-        ctx.fillText(line, lineX, trackY + 22 + li * 9, wrapW + 20);
+        ctx.fillText(line, lineX, trackY + 26 + li * 10, wrapW + 20);
       });
     }
   } else {
