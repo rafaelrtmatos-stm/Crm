@@ -301,6 +301,15 @@ export function drawCard(ctx: CanvasRenderingContext2D, x: number, y: number, w:
 // Estilo SaaS premium claro (Stripe/Linear/Notion), com barra de status e total em destaque.
 export async function renderReceiptCanvas({ order, companyName, customerPhone, customerCpf, customerAddress, responsavel, logoDarkUrl, companyContact }: ReceiptRenderInput): Promise<HTMLCanvasElement> {
   const CONTACT: CompanyContactInfo = { ...COMPANY_CONTACT, ...(companyContact || {}) };
+
+  let qrImg: HTMLImageElement | null = null;
+  if (CONTACT.siteUrl) {
+    try {
+      const QRCode = (await import('qrcode')).default;
+      const qrDataUrl = await QRCode.toDataURL(CONTACT.siteUrl, { margin: 1, width: 200, color: { dark: '#0f172a', light: '#FFFFFF00' } });
+      qrImg = await loadImage(qrDataUrl);
+    } catch { qrImg = null; }
+  }
   const scale = 2.5;
   const width = 640;
   const rowHeight = 32;
@@ -658,6 +667,21 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
   ctx.font = `600 8px ${FONT}`;
   ctx.fillStyle = TEXT;
   ctx.fillText(CONTACT.endereco, marginX + 20, y + 62 + 99, width - 260);
+
+  if (qrImg) {
+    const qrSize = 72;
+    const qrX = width - marginX - qrSize;
+    const qrY = y + 46;
+    ctx.textAlign = 'center';
+    ctx.font = `800 7px ${FONT}`;
+    ctx.fillStyle = TEXT_FAINT;
+    ctx.fillText('ACESSE NOSSO SITE', qrX + qrSize / 2, qrY);
+    ctx.drawImage(qrImg, qrX, qrY + 6, qrSize, qrSize);
+    ctx.font = `700 7px ${FONT}`;
+    ctx.fillStyle = ACCENT;
+    ctx.fillText(CONTACT.site, qrX + qrSize / 2, qrY + qrSize + 18);
+    ctx.textAlign = 'left';
+  }
 
   // Barra final de validade do documento
   const barY = footerTop + 165;
