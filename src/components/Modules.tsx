@@ -4826,6 +4826,47 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setSelectedSaleIds(new Set());
     loadSalesHistory();
   };
+
+  // Edicao em massa: so aplica os campos que o usuario marcar, pra nao sobrescrever nada sem querer
+  const [isBulkEditOpen, setIsBulkEditOpen] = useState(false);
+  const [bulkEditFields, setBulkEditFields] = useState({
+    paymentMethod: { on: false, value: 'pix' as string },
+    scheduledFor: { on: false, value: '' },
+    serviceStatus: { on: false, value: 'pedido_recebido' as string },
+    observacoes: { on: false, value: '' },
+  });
+  const [isSavingBulkEdit, setIsSavingBulkEdit] = useState(false);
+
+  const handleOpenBulkEdit = () => {
+    if (selectedSaleIds.size === 0) return;
+    setBulkEditFields({
+      paymentMethod: { on: false, value: 'pix' },
+      scheduledFor: { on: false, value: '' },
+      serviceStatus: { on: false, value: 'pedido_recebido' },
+      observacoes: { on: false, value: '' },
+    });
+    setIsBulkEditOpen(true);
+  };
+
+  const handleSaveBulkEdit = async () => {
+    const camposAtivos = bulkEditFields.paymentMethod.on || bulkEditFields.scheduledFor.on || bulkEditFields.serviceStatus.on || bulkEditFields.observacoes.on;
+    if (!camposAtivos) { showAlert('Marque pelo menos um campo pra alterar.'); return; }
+    if (!(await showConfirm(`Aplicar essas alterações em ${selectedSaleIds.size} venda(s) selecionada(s)?`))) return;
+    setIsSavingBulkEdit(true);
+    const payload: Record<string, any> = {};
+    if (bulkEditFields.paymentMethod.on) payload.payment_method = bulkEditFields.paymentMethod.value;
+    if (bulkEditFields.scheduledFor.on) payload.scheduled_for = bulkEditFields.scheduledFor.value || null;
+    if (bulkEditFields.serviceStatus.on) payload.service_status = bulkEditFields.serviceStatus.value;
+    if (bulkEditFields.observacoes.on) payload.observacoes = bulkEditFields.observacoes.value || null;
+    const ids = Array.from(selectedSaleIds);
+    const { error } = await supabase.from('vendas').update(payload).in('id', ids);
+    setIsSavingBulkEdit(false);
+    if (error) { console.error(error); showAlert('Não foi possível salvar as alterações em massa.'); return; }
+    showAlert(`${ids.length} venda(s) atualizada(s) com sucesso!`);
+    setIsBulkEditOpen(false);
+    setSelectedSaleIds(new Set());
+    loadSalesHistory();
+  };
   const [settleModalOrder, setSettleModalOrder] = useState<SaleOrder | null>(null);
   const [settleMethod, setSettleMethod] = useState<'pix' | 'dinheiro' | 'cartao_credito' | 'cartao_debito'>('pix');
   const [isWhatsAppFormOpen, setIsWhatsAppFormOpen] = useState(false);
@@ -6416,6 +6457,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       onClick={handleBulkClose}
                     >
                       Fechar ({selectedSaleIds.size})
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-white/10"
+                      onClick={handleOpenBulkEdit}
+                    >
+                      Editar em Massa ({selectedSaleIds.size})
                     </Button>
                     <Button
                       size="sm"
@@ -9316,6 +9365,86 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
              <Button className="bg-rose-500 hover:bg-rose-400 text-white font-black gap-2" onClick={confirmBulkDeleteSales}>
                <Trash2 size={16} />
                <span>Excluir Definitivamente</span>
+             </Button>
+           </div>
+         </div>
+       </Modal>
+     )}
+
+     {isBulkEditOpen && (
+       <Modal isOpen={isBulkEditOpen} onClose={() => setIsBulkEditOpen(false)} title="Editar em Massa" size="sm">
+         <div className="space-y-4 p-2">
+           <p className="text-xs text-white/40">Marque só os campos que quer alterar em <strong className="text-white">{selectedSaleIds.size} venda(s)</strong> selecionada(s). O que não marcar continua como está em cada uma.</p>
+
+           <div className="space-y-2 bg-white/5 border border-white/10 rounded-2xl p-4">
+             <label className="flex items-center gap-2 cursor-pointer">
+               <input type="checkbox" checked={bulkEditFields.paymentMethod.on} onChange={(e) => setBulkEditFields({ ...bulkEditFields, paymentMethod: { ...bulkEditFields.paymentMethod, on: e.target.checked } })} className="w-4 h-4 accent-primary-500" />
+               <span className="text-[10px] font-black uppercase text-white/70">Forma de Pagamento</span>
+             </label>
+             {bulkEditFields.paymentMethod.on && (
+               <div className="grid grid-cols-2 gap-2 pl-6">
+                 {[{ id: 'pix', label: 'PIX' }, { id: 'dinheiro', label: 'Dinheiro' }, { id: 'cartao_credito', label: 'Cartão Crédito' }, { id: 'cartao_debito', label: 'Cartão Débito' }].map(m => (
+                   <button key={m.id} type="button" onClick={() => setBulkEditFields({ ...bulkEditFields, paymentMethod: { on: true, value: m.id } })}
+                     className={cn("py-2 px-3 rounded-lg border text-[10px] font-bold", bulkEditFields.paymentMethod.value === m.id ? "bg-primary-500 border-primary-400 text-slate-900" : "bg-white/5 border-white/10 text-white/60")}>
+                     {m.label}
+                   </button>
+                 ))}
+               </div>
+             )}
+           </div>
+
+           <div className="space-y-2 bg-white/5 border border-white/10 rounded-2xl p-4">
+             <label className="flex items-center gap-2 cursor-pointer">
+               <input type="checkbox" checked={bulkEditFields.scheduledFor.on} onChange={(e) => setBulkEditFields({ ...bulkEditFields, scheduledFor: { ...bulkEditFields.scheduledFor, on: e.target.checked } })} className="w-4 h-4 accent-primary-500" />
+               <span className="text-[10px] font-black uppercase text-white/70">Data/Hora de Entrega</span>
+             </label>
+             {bulkEditFields.scheduledFor.on && (
+               <input
+                 type="datetime-local"
+                 value={bulkEditFields.scheduledFor.value}
+                 onChange={(e) => setBulkEditFields({ ...bulkEditFields, scheduledFor: { on: true, value: e.target.value } })}
+                 className="ml-6 h-10 bg-slate-900/80 border border-white/10 rounded-lg px-3 text-xs text-white focus:outline-none focus:border-primary-500"
+               />
+             )}
+           </div>
+
+           <div className="space-y-2 bg-white/5 border border-white/10 rounded-2xl p-4">
+             <label className="flex items-center gap-2 cursor-pointer">
+               <input type="checkbox" checked={bulkEditFields.serviceStatus.on} onChange={(e) => setBulkEditFields({ ...bulkEditFields, serviceStatus: { ...bulkEditFields.serviceStatus, on: e.target.checked } })} className="w-4 h-4 accent-primary-500" />
+               <span className="text-[10px] font-black uppercase text-white/70">Etapa Atual</span>
+             </label>
+             {bulkEditFields.serviceStatus.on && (
+               <select
+                 value={bulkEditFields.serviceStatus.value}
+                 onChange={(e) => setBulkEditFields({ ...bulkEditFields, serviceStatus: { on: true, value: e.target.value } })}
+                 className="ml-6 h-10 bg-slate-900/80 border border-white/10 rounded-lg px-3 text-xs text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer"
+               >
+                 {STAGE_ORDER.map(id => (
+                   <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
+                 ))}
+               </select>
+             )}
+           </div>
+
+           <div className="space-y-2 bg-white/5 border border-white/10 rounded-2xl p-4">
+             <label className="flex items-center gap-2 cursor-pointer">
+               <input type="checkbox" checked={bulkEditFields.observacoes.on} onChange={(e) => setBulkEditFields({ ...bulkEditFields, observacoes: { ...bulkEditFields.observacoes, on: e.target.checked } })} className="w-4 h-4 accent-primary-500" />
+               <span className="text-[10px] font-black uppercase text-white/70">Observações (substitui a de cada uma)</span>
+             </label>
+             {bulkEditFields.observacoes.on && (
+               <textarea
+                 rows={2}
+                 value={bulkEditFields.observacoes.value}
+                 onChange={(e) => setBulkEditFields({ ...bulkEditFields, observacoes: { on: true, value: e.target.value } })}
+                 className="ml-6 w-[calc(100%-1.5rem)] bg-slate-900/80 border border-white/10 rounded-lg px-3 py-2 text-xs text-white resize-none focus:outline-none focus:border-primary-500"
+               />
+             )}
+           </div>
+
+           <div className="flex justify-end gap-3 pt-1">
+             <Button variant="ghost" onClick={() => setIsBulkEditOpen(false)}>Cancelar</Button>
+             <Button className="bg-primary-500 hover:bg-primary-400 text-slate-900 font-black" disabled={isSavingBulkEdit} onClick={handleSaveBulkEdit}>
+               {isSavingBulkEdit ? 'Salvando...' : `Aplicar em ${selectedSaleIds.size} venda(s)`}
              </Button>
            </div>
          </div>
