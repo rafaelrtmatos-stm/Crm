@@ -43,6 +43,7 @@ import {
   Smartphone,
   Banknote,
   Check,
+  CheckSquare,
   Package,
   PlusCircle,
   BarChart3,
@@ -11348,23 +11349,34 @@ const STAGE_LABELS: Record<string, string> = {
   aguardando_retirada: 'Aguardando Retirada', produto_entregue: 'Produto Entregue',
 };
 
-const OrdemServicoCard = ({ pedido, onDropdownChange }: { key?: any; pedido: SaleOrder; onDropdownChange: (pedido: SaleOrder, novaEtapa: string) => void }) => {
+const OrdemServicoCard = ({ pedido, onDropdownChange, selectMode, selected, onToggleSelect }: { key?: any; pedido: SaleOrder; onDropdownChange: (pedido: SaleOrder, novaEtapa: string) => void; selectMode?: boolean; selected?: boolean; onToggleSelect?: (id: string) => void }) => {
   const { setActiveTab: setRootActiveTab, setPendingReceiptOpenId } = React.useContext(AppContext)!;
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: pedido.id,
     data: { type: 'card', pedido },
+    disabled: selectMode,
   });
   const style = { transform: CSS.Translate.toString(transform), transition };
 
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners} className={cn(isDragging ? "z-50" : "relative")}>
       <GlassCard
-        onClick={() => { setPendingReceiptOpenId(pedido.id); setRootActiveTab('pos'); }}
+        onClick={() => { if (selectMode) { onToggleSelect?.(pedido.id); return; } setPendingReceiptOpenId(pedido.id); setRootActiveTab('pos'); }}
         className={cn(
-          "group p-2 rounded-lg border-white/10 space-y-1 cursor-grab active:cursor-grabbing hover:border-primary-500/30 hover:scale-[1.08] hover:z-20 hover:shadow-xl transition-all",
+          "group p-2 rounded-lg border-white/10 space-y-1 hover:border-primary-500/30 hover:scale-[1.08] hover:z-20 hover:shadow-xl transition-all relative",
+          selectMode ? "cursor-pointer" : "cursor-grab active:cursor-grabbing",
+          selected ? "ring-2 ring-primary-500 border-primary-500/50 bg-primary-500/10" : "",
           isDragging ? "shadow-2xl ring-2 ring-primary-500 scale-105" : ""
         )}
       >
+        {selectMode && (
+          <div className={cn(
+            "absolute top-1 right-1 w-4 h-4 rounded flex items-center justify-center border shrink-0 z-10",
+            selected ? "bg-primary-500 border-primary-500" : "bg-slate-900/60 border-white/20"
+          )}>
+            {selected && <Check size={10} className="text-slate-900" />}
+          </div>
+        )}
         <div className="min-w-0">
            <p className="font-bold text-white text-[9px] truncate group-hover:whitespace-normal group-hover:break-words leading-tight">#{pedido.id.slice(-6).toUpperCase()} {pedido.customerName || 'Balcão'}</p>
            <p className="text-[8px] text-white/30 uppercase font-black truncate group-hover:whitespace-normal group-hover:break-words leading-tight">{(pedido.items || []).map(i => i.name).join(', ') || 'Sem itens'}</p>
@@ -11379,7 +11391,8 @@ const OrdemServicoCard = ({ pedido, onDropdownChange }: { key?: any; pedido: Sal
           onPointerDown={(e: any) => e.stopPropagation()}
           onClick={(e: any) => e.stopPropagation()}
           onChange={(e: any) => { e.stopPropagation(); onDropdownChange(pedido, e.target.value); }}
-          className="w-full h-6 bg-slate-900/60 border border-white/10 rounded-md px-1 text-[8px] text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer"
+          disabled={selectMode}
+          className="w-full h-6 bg-slate-900/60 border border-white/10 rounded-md px-1 text-[8px] text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer disabled:opacity-40"
         >
           {STAGE_ORDER.map(id => (
             <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
@@ -11390,7 +11403,7 @@ const OrdemServicoCard = ({ pedido, onDropdownChange }: { key?: any; pedido: Sal
   );
 };
 
-const OrdemServicoColumn = ({ stageId, pedidos, onDropdownChange }: { key?: any; stageId: string; pedidos: SaleOrder[]; onDropdownChange: (pedido: SaleOrder, novaEtapa: string) => void }) => {
+const OrdemServicoColumn = ({ stageId, pedidos, onDropdownChange, selectMode, selectedIds, onToggleSelect }: { key?: any; stageId: string; pedidos: SaleOrder[]; onDropdownChange: (pedido: SaleOrder, novaEtapa: string) => void; selectMode?: boolean; selectedIds?: Set<string>; onToggleSelect?: (id: string) => void }) => {
   const { setNodeRef, isOver } = useDroppable({ id: stageId, data: { type: 'column', stageId } });
 
   return (
@@ -11408,7 +11421,7 @@ const OrdemServicoColumn = ({ stageId, pedidos, onDropdownChange }: { key?: any;
       >
         <SortableContext items={pedidos.map(p => p.id)} strategy={verticalListSortingStrategy}>
           {pedidos.map(pedido => (
-            <OrdemServicoCard key={pedido.id} pedido={pedido} onDropdownChange={onDropdownChange} />
+            <OrdemServicoCard key={pedido.id} pedido={pedido} onDropdownChange={onDropdownChange} selectMode={selectMode} selected={selectedIds?.has(pedido.id)} onToggleSelect={onToggleSelect} />
           ))}
         </SortableContext>
         {pedidos.length === 0 && (
@@ -11422,16 +11435,27 @@ const OrdemServicoColumn = ({ stageId, pedidos, onDropdownChange }: { key?: any;
 };
 
 // Linha compacta usada no modo "Lista" — todos os pedidos numa lista so, ordenados por entrega/pedido
-const OrdemServicoListRow = ({ pedido, onDropdownChange }: { key?: any; pedido: SaleOrder; onDropdownChange: (pedido: SaleOrder, novaEtapa: string) => void }) => {
+const OrdemServicoListRow = ({ pedido, onDropdownChange, selectMode, selected, onToggleSelect }: { key?: any; pedido: SaleOrder; onDropdownChange: (pedido: SaleOrder, novaEtapa: string) => void; selectMode?: boolean; selected?: boolean; onToggleSelect?: (id: string) => void }) => {
   const { setActiveTab: setRootActiveTab, setPendingReceiptOpenId } = React.useContext(AppContext)!;
   const dias = pedido.scheduledFor ? Math.floor((new Date(pedido.scheduledFor).getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : null;
   const atrasado = pedido.scheduledFor && new Date(pedido.scheduledFor).getTime() < Date.now();
 
   return (
     <div
-      onClick={() => { setPendingReceiptOpenId(pedido.id); setRootActiveTab('pos'); }}
-      className="flex items-center gap-3 bg-white/5 hover:bg-white/10 border border-white/5 hover:border-primary-500/30 rounded-xl px-3 py-2.5 cursor-pointer transition-all"
+      onClick={() => { if (selectMode) { onToggleSelect?.(pedido.id); return; } setPendingReceiptOpenId(pedido.id); setRootActiveTab('pos'); }}
+      className={cn(
+        "flex items-center gap-3 bg-white/5 hover:bg-white/10 border rounded-xl px-3 py-2.5 cursor-pointer transition-all",
+        selected ? "ring-2 ring-primary-500 border-primary-500/50 bg-primary-500/10" : "border-white/5 hover:border-primary-500/30"
+      )}
     >
+       {selectMode && (
+         <div className={cn(
+           "w-5 h-5 rounded flex items-center justify-center border shrink-0",
+           selected ? "bg-primary-500 border-primary-500" : "bg-slate-900/60 border-white/20"
+         )}>
+           {selected && <Check size={12} className="text-slate-900" />}
+         </div>
+       )}
        <div className="min-w-0 flex-1">
           <p className="font-bold text-white text-xs truncate">#{pedido.id.slice(-6).toUpperCase()} — {pedido.customerName || 'Cliente de Balcão'}</p>
           <p className="text-[9px] text-white/30 uppercase font-black truncate">{(pedido.items || []).map(i => i.name).join(', ') || 'Sem itens'}</p>
@@ -11448,7 +11472,8 @@ const OrdemServicoListRow = ({ pedido, onDropdownChange }: { key?: any; pedido: 
          value={pedido.serviceStatus || 'pedido_recebido'}
          onClick={(e: any) => e.stopPropagation()}
          onChange={(e: any) => { e.stopPropagation(); onDropdownChange(pedido, e.target.value); }}
-         className="shrink-0 w-40 h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-[10px] text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer"
+         disabled={selectMode}
+         className="shrink-0 w-40 h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-[10px] text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer disabled:opacity-40"
        >
          {STAGE_ORDER.map(id => (
            <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
@@ -11480,6 +11505,21 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
   });
   const setViewMode = (v: 'quadro' | 'etapa' | 'lista') => { setViewModeState(v); localStorage.setItem('rpro_ordem_servico_view', v); };
   const [etapaSelecionada, setEtapaSelecionada] = useState<string>('pedido_recebido');
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isBulkEditOpen, setIsBulkEditOpen] = useState(false);
+  const [isSavingBulkEdit, setIsSavingBulkEdit] = useState(false);
+  const [bulkFields, setBulkFields] = useState({
+    serviceStatus: { on: false, value: 'pedido_recebido' as string },
+    scheduledFor: { on: false, value: '' },
+  });
+  const toggleSelected = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -11510,6 +11550,38 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
     const confirmado = await showConfirm(`Mudar o pedido de ${pedido.customerName || 'cliente'} para "${STAGE_LABELS[novaEtapa]}"?`);
     if (!confirmado) return;
     handleAdvanceStage(pedido, novaEtapa);
+  };
+
+  const handleOpenBulkEdit = () => {
+    if (selectedIds.size === 0) return;
+    setBulkFields({ serviceStatus: { on: false, value: 'pedido_recebido' }, scheduledFor: { on: false, value: '' } });
+    setIsBulkEditOpen(true);
+  };
+
+  const handleSaveBulkEdit = async () => {
+    if (!bulkFields.serviceStatus.on && !bulkFields.scheduledFor.on) { showAlert('Marque pelo menos um campo pra alterar.'); return; }
+    if (!(await showConfirm(`Aplicar essas alterações em ${selectedIds.size} pedido(s) selecionado(s)?`))) return;
+    setIsSavingBulkEdit(true);
+    const payload: Record<string, any> = {};
+    if (bulkFields.serviceStatus.on) payload.service_status = bulkFields.serviceStatus.value;
+    if (bulkFields.scheduledFor.on) payload.scheduled_for = bulkFields.scheduledFor.value || null;
+    const ids = Array.from(selectedIds);
+    const { data, error } = await supabase.from('vendas').update(payload).in('id', ids).select();
+    setIsSavingBulkEdit(false);
+    if (error) { showAlert(`Não foi possível salvar as alterações em massa: ${error.message}`); return; }
+    // Atualiza local na hora, sem esperar o realtime
+    setPedidos(prev => prev.map(p => {
+      if (!ids.includes(p.id)) return p;
+      return {
+        ...p,
+        serviceStatus: bulkFields.serviceStatus.on ? (bulkFields.serviceStatus.value as any) : p.serviceStatus,
+        scheduledFor: bulkFields.scheduledFor.on ? (bulkFields.scheduledFor.value || undefined) : p.scheduledFor,
+      };
+    }));
+    showAlert(`${data?.length || ids.length} pedido(s) atualizado(s) com sucesso!`);
+    setIsBulkEditOpen(false);
+    setSelectedIds(new Set());
+    setSelectMode(false);
   };
 
   const onDragStart = (event: DragStartEvent) => setActiveDragId(event.active.id as string);
@@ -11624,6 +11696,27 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
             >
               {showEntregues ? '✓ Mostrando Entregues' : 'Ocultar Entregues Antigos'}
             </button>
+            {selectMode ? (
+              <>
+                <span className="text-[9px] font-black uppercase text-white/50 px-1">{selectedIds.size} selecionado(s)</span>
+                <Button size="sm" disabled={selectedIds.size === 0} className="bg-primary-500 hover:bg-primary-400 text-slate-900 text-[9px] font-black uppercase tracking-wider px-3 h-9 border-none" onClick={handleOpenBulkEdit}>
+                  Editar em Massa
+                </Button>
+                <button
+                  onClick={() => { setSelectMode(false); setSelectedIds(new Set()); }}
+                  className="text-[9px] font-black uppercase px-3 h-9 rounded-lg border-0 cursor-pointer bg-white/5 text-white/40 hover:text-white"
+                >
+                  Cancelar
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setSelectMode(true)}
+                className="flex items-center gap-1.5 text-[9px] font-black uppercase px-3 h-9 rounded-lg border-0 cursor-pointer bg-white/5 text-white/40 hover:text-white transition-all"
+              >
+                <CheckSquare size={13} /> Selecionar
+              </button>
+            )}
          </div>
       </div>
 
@@ -11636,6 +11729,9 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
                 stageId={stageId}
                 pedidos={pedidosOrdenados.filter(p => (p.serviceStatus || 'pedido_recebido') === stageId)}
                 onDropdownChange={handleAdvanceStageWithConfirm}
+                selectMode={selectMode}
+                selectedIds={selectedIds}
+                onToggleSelect={toggleSelected}
               />
             ))}
           </div>
@@ -11666,7 +11762,7 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
            </div>
            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               {pedidosOrdenados.filter(p => (p.serviceStatus || 'pedido_recebido') === etapaSelecionada).map(pedido => (
-                <OrdemServicoCard key={pedido.id} pedido={pedido} onDropdownChange={handleAdvanceStageWithConfirm} />
+                <OrdemServicoCard key={pedido.id} pedido={pedido} onDropdownChange={handleAdvanceStageWithConfirm} selectMode={selectMode} selected={selectedIds.has(pedido.id)} onToggleSelect={toggleSelected} />
               ))}
               {pedidosOrdenados.filter(p => (p.serviceStatus || 'pedido_recebido') === etapaSelecionada).length === 0 && (
                 <div className="col-span-full flex flex-col items-center justify-center py-20 opacity-10">
@@ -11680,7 +11776,7 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
       {viewMode === 'lista' && (
         <div className="space-y-2">
            {pedidosOrdenados.map(pedido => (
-             <OrdemServicoListRow key={pedido.id} pedido={pedido} onDropdownChange={handleAdvanceStageWithConfirm} />
+             <OrdemServicoListRow key={pedido.id} pedido={pedido} onDropdownChange={handleAdvanceStageWithConfirm} selectMode={selectMode} selected={selectedIds.has(pedido.id)} onToggleSelect={toggleSelected} />
            ))}
            {pedidosOrdenados.length === 0 && (
              <div className="flex flex-col items-center justify-center py-20 opacity-10">
@@ -11688,6 +11784,56 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
              </div>
            )}
         </div>
+      )}
+
+      {isBulkEditOpen && (
+        <Modal isOpen={isBulkEditOpen} onClose={() => setIsBulkEditOpen(false)} title="Editar em Massa" size="sm">
+          <div className="space-y-4 p-2">
+             <p className="text-xs text-white/50">Marque os campos que quer alterar em <strong className="text-white">{selectedIds.size} pedido(s)</strong> selecionado(s):</p>
+
+             <div className="space-y-3">
+                <div className={cn("rounded-2xl border p-3 space-y-2 transition-all", bulkFields.serviceStatus.on ? "border-primary-500/40 bg-primary-500/5" : "border-white/10")}>
+                   <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={bulkFields.serviceStatus.on} onChange={(e) => setBulkFields({ ...bulkFields, serviceStatus: { ...bulkFields.serviceStatus, on: e.target.checked } })} className="w-4 h-4 accent-primary-500" />
+                      <span className="text-[10px] font-black uppercase text-white/70 tracking-wider">Mudar Etapa</span>
+                   </label>
+                   {bulkFields.serviceStatus.on && (
+                     <select
+                       value={bulkFields.serviceStatus.value}
+                       onChange={(e) => setBulkFields({ ...bulkFields, serviceStatus: { ...bulkFields.serviceStatus, value: e.target.value } })}
+                       className="w-full h-10 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white font-bold focus:outline-none focus:border-primary-500"
+                     >
+                       {STAGE_ORDER.map(id => (
+                         <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
+                       ))}
+                     </select>
+                   )}
+                </div>
+
+                <div className={cn("rounded-2xl border p-3 space-y-2 transition-all", bulkFields.scheduledFor.on ? "border-primary-500/40 bg-primary-500/5" : "border-white/10")}>
+                   <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={bulkFields.scheduledFor.on} onChange={(e) => setBulkFields({ ...bulkFields, scheduledFor: { ...bulkFields.scheduledFor, on: e.target.checked } })} className="w-4 h-4 accent-primary-500" />
+                      <span className="text-[10px] font-black uppercase text-white/70 tracking-wider">Reagendar Entrega</span>
+                   </label>
+                   {bulkFields.scheduledFor.on && (
+                     <input
+                       type="datetime-local"
+                       value={bulkFields.scheduledFor.value}
+                       onChange={(e) => setBulkFields({ ...bulkFields, scheduledFor: { ...bulkFields.scheduledFor, value: e.target.value } })}
+                       className="w-full h-10 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500"
+                     />
+                   )}
+                </div>
+             </div>
+
+             <div className="flex justify-end gap-3 pt-1">
+               <Button variant="ghost" onClick={() => setIsBulkEditOpen(false)}>Cancelar</Button>
+               <Button className="bg-primary-500 hover:bg-primary-400 text-slate-900 font-black" disabled={isSavingBulkEdit} onClick={handleSaveBulkEdit}>
+                 {isSavingBulkEdit ? 'Salvando...' : `Aplicar em ${selectedIds.size} pedido(s)`}
+               </Button>
+             </div>
+          </div>
+        </Modal>
       )}
     </div>
   );
