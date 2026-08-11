@@ -188,6 +188,8 @@ import {
   Modal, 
   Drawer,
   ChartErrorBoundary,
+  PhoneInputBR,
+  CpfCnpjInput,
   cn 
 } from './SharedUI';
 import { collection, query, where, onSnapshot, orderBy, Timestamp, addDoc, doc, updateDoc, getDocs, setDoc, limit, deleteDoc } from 'firebase/firestore';
@@ -8036,7 +8038,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 <Input label="E-mail" type="email" value={newCustomerForm.email} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, email: e.target.value })} />
                 <Input label="Logradouro" value={newCustomerForm.logradouro} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, logradouro: e.target.value })} />
                 <div className="grid grid-cols-2 gap-3">
-                   <Input label="WhatsApp (Telefone)" placeholder="(93) 99999-9999" value={newCustomerForm.phone} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, phone: e.target.value })} />
+                   <PhoneInputBR label="WhatsApp (Telefone)" value={newCustomerForm.phone} onChange={(v: string) => setNewCustomerForm({ ...newCustomerForm, phone: v })} />
                    <Input label="Bairro" value={newCustomerForm.distrito} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, distrito: e.target.value })} />
                 </div>
 
@@ -8054,7 +8056,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           <p className="text-[9px] font-black uppercase text-primary-300 tracking-[2px]">Dados Pessoais</p>
                           <div className="grid grid-cols-2 gap-3">
                              <Input label="Data de Nascimento" type="date" value={newCustomerForm.nascimento} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, nascimento: e.target.value })} />
-                             <Input label="CPF / CNPJ" value={newCustomerForm.cpf_cnpj} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, cpf_cnpj: e.target.value })} />
+                             <CpfCnpjInput label="CPF / CNPJ" value={newCustomerForm.cpf_cnpj} onChange={(v: string) => setNewCustomerForm({ ...newCustomerForm, cpf_cnpj: v })} />
                              <Input label="Cidade" value={newCustomerForm.city} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, city: e.target.value })} />
                              <Input label="Estado" value={newCustomerForm.state} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, state: e.target.value })} />
                              <Input label="Complemento" className="col-span-2" value={newCustomerForm.complemento} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, complemento: e.target.value })} />
@@ -9528,8 +9530,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                <Input label="Cliente *" value={orcamentoForm.customerName} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, customerName: e.target.value, clienteId: undefined })} />
-               <Input label="CPF/CNPJ" value={orcamentoForm.cpfCnpj} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, cpfCnpj: e.target.value })} />
-               <Input label="Telefone/WhatsApp" value={orcamentoForm.phone} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, phone: e.target.value })} />
+               <CpfCnpjInput label="CPF/CNPJ" value={orcamentoForm.cpfCnpj} onChange={(v: string) => setOrcamentoForm({ ...orcamentoForm, cpfCnpj: v })} />
+               <PhoneInputBR label="Telefone/WhatsApp" value={orcamentoForm.phone} onChange={(v: string) => setOrcamentoForm({ ...orcamentoForm, phone: v })} />
                <Input label="Responsável pelo Atendimento" value={orcamentoForm.responsavel} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, responsavel: e.target.value })} />
                <Input label="Endereço" className="sm:col-span-2" value={orcamentoForm.address} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, address: e.target.value })} />
                <div className="space-y-1">
@@ -10753,11 +10755,11 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
         <div className="p-6 space-y-4">
           <Input label="NOME COMPLETO" value={formData.full_name} onChange={(e: any) => setFormData({ ...formData, full_name: e.target.value })} />
           <div className="grid grid-cols-2 gap-4">
-            <Input label="TELEFONE" value={formData.phone} onChange={(e: any) => setFormData({ ...formData, phone: e.target.value })} />
+            <PhoneInputBR label="TELEFONE" value={formData.phone} onChange={(v: string) => setFormData({ ...formData, phone: v })} />
             <Input label="EMAIL" value={formData.email} onChange={(e: any) => setFormData({ ...formData, email: e.target.value })} />
           </div>
           <div className="grid grid-cols-3 gap-4">
-            <Input label="CPF/CNPJ" value={formData.cpf_cnpj} onChange={(e: any) => setFormData({ ...formData, cpf_cnpj: e.target.value })} />
+            <CpfCnpjInput label="CPF/CNPJ" value={formData.cpf_cnpj} onChange={(v: string) => setFormData({ ...formData, cpf_cnpj: v })} />
             <Input label="CIDADE" value={formData.city} onChange={(e: any) => setFormData({ ...formData, city: e.target.value })} />
             <Input label="ESTADO" value={formData.state} onChange={(e: any) => setFormData({ ...formData, state: e.target.value })} />
           </div>
@@ -11113,7 +11115,7 @@ export const ServicesModule = ({ currentCompany }: { currentCompany: Company | n
                 <div className="md:col-span-2">
                   <Input label="NOME DO CLIENTE" value={formData.client} onChange={(e: any) => setFormData({...formData, client: e.target.value})} />
                 </div>
-                <Input label="TELEFONE / CONTATO" value={formData.phone} placeholder="(00) 00000-0000" onChange={(e: any) => setFormData({...formData, phone: e.target.value})} />
+                <PhoneInputBR label="TELEFONE / CONTATO" value={formData.phone} onChange={(v: string) => setFormData({...formData, phone: v})} />
                 <div className="space-y-1">
                   <p className="text-[9px] font-bold text-white/40 uppercase tracking-widest">Prioridade</p>
                   <select 
@@ -11976,7 +11978,7 @@ export const ClientesEsperaModule = ({ currentCompany, user }: { currentCompany:
       <Modal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} title="Adicionar Cliente à Fila" size="sm">
         <div className="space-y-4 p-2">
           <Input label="Nome do Cliente" autoFocus value={newNome} onChange={(e: any) => setNewNome(e.target.value)} />
-          <Input label="Telefone (opcional)" value={newTelefone} onChange={(e: any) => setNewTelefone(e.target.value)} />
+          <PhoneInputBR label="Telefone (opcional)" value={newTelefone} onChange={(v: string) => setNewTelefone(v)} />
           <Input label="Motivo (opcional)" placeholder="Ex: Retirar pedido, orçamento..." value={newMotivo} onChange={(e: any) => setNewMotivo(e.target.value)} />
           <div className="flex justify-end gap-3 pt-1">
             <Button variant="ghost" onClick={() => setIsAddModalOpen(false)}>Cancelar</Button>
@@ -13148,7 +13150,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                    <h3 className="text-xl font-bold text-white tracking-tight italic uppercase">Contato / Redes Sociais</h3>
                    <p className="text-xs text-white/40">Essas informações aparecem no rodapé do Recibo (Ordem de Serviço) e do Orçamento, e o Site é usado pra gerar o QR Code desses documentos.</p>
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <Input label="WhatsApp" placeholder="Ex: (93) 99211-2108" value={contactWhatsapp} onChange={(e: any) => setContactWhatsapp(e.target.value)} />
+                      <PhoneInputBR label="WhatsApp" value={contactWhatsapp} onChange={(v: string) => setContactWhatsapp(v)} />
                       <Input label="Instagram" placeholder="Ex: Rafa Artes Gráficos" value={contactInstagram} onChange={(e: any) => setContactInstagram(e.target.value)} />
                       <Input label="Facebook" placeholder="Ex: Rafa Artes Gráficos" value={contactFacebook} onChange={(e: any) => setContactFacebook(e.target.value)} />
                       <Input label="E-mail" placeholder="Ex: contato@suaempresa.com.br" value={contactEmail} onChange={(e: any) => setContactEmail(e.target.value)} />

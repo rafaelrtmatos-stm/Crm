@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { Search, Filter, ChevronRight, X, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { formatPhoneBR, formatCpfCnpj, validateCpfCnpj } from '../lib/validators';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -83,6 +84,77 @@ export const Input = ({ icon: Icon, label, className, onFocus, type, ...props }:
           {...props}
         />
       </div>
+    </div>
+  );
+};
+
+// --- TELEFONE (BR) ---
+// Campo de telefone com bandeira do Brasil + "+55" fixo, formatando automaticamente
+// enquanto digita (DDD e numero). O valor entregue via onChange e so o que a pessoa
+// digitou (com a formatacao visual tipo "(93) 99211-2108"), sem o "+55" junto.
+export const PhoneInputBR = ({ label, value, onChange, placeholder, className }: { label?: string; value: string; onChange: (v: string) => void; placeholder?: string; className?: string }) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const formatted = formatPhoneBR(e.target.value);
+    onChange(formatted);
+  };
+  return (
+    <div className="space-y-1.5 w-full">
+      {label && <label className="text-[10px] font-black uppercase tracking-[2px] text-white/40 ml-1">{label}</label>}
+      <div className="relative group">
+        <div className="absolute left-3.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5 pointer-events-none">
+          <span className="text-base leading-none">🇧🇷</span>
+          <span className="text-xs font-bold text-white/40">+55</span>
+          <span className="w-px h-4 bg-white/10" />
+        </div>
+        <input
+          type="tel"
+          inputMode="numeric"
+          value={value}
+          onChange={handleChange}
+          placeholder={placeholder || '(93) 99999-9999'}
+          className={cn(
+            "w-full bg-white/5 border border-white/10 rounded-2xl py-3 pr-4 text-sm text-white placeholder:text-white/20 outline-none focus:bg-white/10 focus:border-primary-500/50 transition-all pl-[5.2rem]",
+            className
+          )}
+        />
+      </div>
+    </div>
+  );
+};
+
+// --- CPF/CNPJ (com validacao de digito verificador) ---
+export const CpfCnpjInput = ({ label, value, onChange, className }: { label?: string; value: string; onChange: (v: string) => void; className?: string }) => {
+  const digits = value.replace(/\D/g, '');
+  const completo = digits.length === 11 || digits.length === 14;
+  const { valid } = validateCpfCnpj(value);
+  const mostrarErro = completo && !valid;
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    onChange(formatCpfCnpj(e.target.value));
+  };
+
+  return (
+    <div className="space-y-1.5 w-full">
+      {label && <label className="text-[10px] font-black uppercase tracking-[2px] text-white/40 ml-1">{label}</label>}
+      <div className="relative group">
+        <input
+          type="text"
+          inputMode="numeric"
+          value={value}
+          onChange={handleChange}
+          placeholder="000.000.000-00"
+          className={cn(
+            "w-full bg-white/5 border rounded-2xl py-3 px-4 text-sm text-white placeholder:text-white/20 outline-none transition-all",
+            mostrarErro ? "border-rose-500/60 focus:border-rose-500" : "border-white/10 focus:bg-white/10 focus:border-primary-500/50",
+            className
+          )}
+        />
+      </div>
+      {mostrarErro && (
+        <p className="text-[9px] text-rose-400 font-bold ml-1">
+          {digits.length === 11 ? 'CPF inválido — confira os números digitados.' : 'CNPJ inválido — confira os números digitados.'}
+        </p>
+      )}
     </div>
   );
 };
