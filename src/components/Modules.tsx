@@ -11150,6 +11150,7 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
   const [pedidos, setPedidos] = useState<SaleOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [showEntregues, setShowEntregues] = useState(false);
+  const [ordemSearch, setOrdemSearch] = useState('');
   const [ordemSortBy, setOrdemSortByState] = useState<'entrega' | 'pedido'>(() => {
     const saved = localStorage.getItem('rpro_ordem_servico_sort');
     return saved === 'entrega' || saved === 'pedido' ? saved : 'pedido';
@@ -11186,6 +11187,13 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
     if (error) showAlert(`Não foi possível atualizar a etapa: ${error.message}`);
   };
 
+  // Usada na lista suspensa dentro do card — pergunta antes de mudar (arrastar ja e um gesto deliberado, nao pergunta)
+  const handleAdvanceStageWithConfirm = async (pedido: SaleOrder, novaEtapa: string) => {
+    const confirmado = await showConfirm(`Mudar o pedido de ${pedido.customerName || 'cliente'} para "${STAGE_LABELS[novaEtapa]}"?`);
+    if (!confirmado) return;
+    handleAdvanceStage(pedido, novaEtapa);
+  };
+
   const onDragStart = (event: DragStartEvent) => setActiveDragId(event.active.id as string);
 
   const onDragEnd = (event: DragEndEvent) => {
@@ -11216,6 +11224,12 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
       return dias <= 2;
     }
     return true;
+  }).filter(p => {
+    const termo = ordemSearch.trim().toLowerCase();
+    if (!termo) return true;
+    const nomeMatch = (p.customerName || '').toLowerCase().includes(termo);
+    const itemMatch = (p.items || []).some(i => i.name.toLowerCase().includes(termo));
+    return nomeMatch || itemMatch;
   }).sort((a, b) => {
     if (ordemSortBy === 'entrega') {
       if (!a.scheduledFor && !b.scheduledFor) return 0;
@@ -11240,6 +11254,15 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
             <p className="text-[10px] md:text-xs text-white/40 font-bold uppercase tracking-widest mt-1">Arraste o pedido entre as colunas, ou clique nele pra ver o histórico completo</p>
          </div>
          <div className="flex items-center gap-2 flex-wrap">
+            <div className="relative">
+               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
+               <input
+                 value={ordemSearch}
+                 onChange={(e) => setOrdemSearch(e.target.value)}
+                 placeholder="Buscar por nome ou produto..."
+                 className="h-9 w-52 bg-white/5 border border-white/10 rounded-lg pl-9 pr-3 text-[10px] text-white placeholder:text-white/30 font-bold focus:outline-none focus:border-primary-500"
+               />
+            </div>
             <select
               value={ordemSortBy}
               onChange={(e) => setOrdemSortBy(e.target.value as any)}
@@ -11275,12 +11298,12 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
               key={stageId}
               stageId={stageId}
               pedidos={pedidosOrdenados.filter(p => (p.serviceStatus || 'pedido_recebido') === stageId)}
-              onDropdownChange={handleAdvanceStage}
+              onDropdownChange={handleAdvanceStageWithConfirm}
             />
           ))}
         </div>
         <DragOverlay>
-          {activeDragPedido ? <OrdemServicoCard pedido={activeDragPedido} onDropdownChange={handleAdvanceStage} /> : null}
+          {activeDragPedido ? <OrdemServicoCard pedido={activeDragPedido} onDropdownChange={handleAdvanceStageWithConfirm} /> : null}
         </DragOverlay>
       </DndContext>
     </div>
