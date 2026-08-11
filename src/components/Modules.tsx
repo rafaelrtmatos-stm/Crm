@@ -180,7 +180,7 @@ import {
   ChartErrorBoundary,
   cn 
 } from './SharedUI';
-import { collection, query, where, onSnapshot, orderBy, Timestamp, addDoc, doc, updateDoc, getDocs, setDoc, limit } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy, Timestamp, addDoc, doc, updateDoc, getDocs, setDoc, limit, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { supabase } from '../supabase';
 import { buildPixPayload } from '../lib/pix';
@@ -10827,6 +10827,31 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     }
   };
 
+  const handleDeleteUser = async (u: AppUser) => {
+    if (u.id === 'admin-rafael') {
+      alert('Não é possível excluir o administrador master do sistema.');
+      return;
+    }
+    if (u.id === user?.id) {
+      alert('Você não pode excluir a própria conta enquanto está logado nela.');
+      return;
+    }
+    if (!confirm(`Excluir o usuário "${u.name}" (${u.email}) permanentemente? Essa ação não pode ser desfeita.`)) return;
+    try {
+      const isSupabaseUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(u.id);
+      if (isSupabaseUuid) {
+        const { error } = await supabase.from('usuarios').delete().eq('id', u.id);
+        if (error) throw error;
+      } else {
+        // Usuario legado que ainda so existe no Firebase (nunca logou depois da migracao pro Supabase)
+        await deleteDoc(doc(db, 'users', u.id));
+      }
+    } catch (err: any) {
+      console.error('Erro ao excluir usuário:', err);
+      alert(`Erro ao excluir usuário: ${err?.message || 'erro desconhecido'}`);
+    }
+  };
+
   const tabOptions = [
     { id: 'dashboard', label: 'Dashboard', desc: 'Painel de controle e faturamento consolidado' },
     { id: 'crm', label: 'Funil CRM', desc: 'Criação e movimentação de Leads / Contatos comerciais' },
@@ -11438,6 +11463,16 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                               >
                                 <Eye size={16} />
                               </button>
+                              {user?.isAdmin && u.id !== 'admin-rafael' && u.id !== user?.id && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteUser(u)}
+                                  className="px-4 py-3 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition-all font-bold text-xs flex items-center justify-center cursor-pointer border-0"
+                                  title="Excluir Usuário"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              )}
                             </div>
                           </div>
                         );
