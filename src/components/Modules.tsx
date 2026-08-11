@@ -10777,7 +10777,11 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     setEditedEmail(u.email);
     setEditedPassword(u.password || '');
     setEditedRole(u.role as any || 'atendente');
-    setEditedTabs(u.allowedTabs || ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'production', 'settings']);
+    // Se o usuario nao tem allowedTabs definido ainda, o padrao NAO inclui Configuracoes —
+    // só quem já é admin (ou for promovido nessa mesma tela) deveria ver essa aba.
+    setEditedTabs(u.allowedTabs || (u.isAdmin || u.role === 'admin'
+      ? ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'production', 'settings']
+      : ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'production']));
     setEditedActions(u.allowedActions || [
       'canStartNote', 'canSendSavedMessage', 'canCreateCard', 'canAddTask',
       'canStartPosSale', 'canStartRealEstateSale', 'canMoveLead',
@@ -10811,6 +10815,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
           email: editedEmail,
           ...(editedPassword ? { password: editedPassword } : {}),
           role: editedRole,
+          is_admin: editedRole === 'admin',
           allowed_tabs: editedTabs,
           allowed_actions: editedActions,
           updated_at: new Date().toISOString(),
