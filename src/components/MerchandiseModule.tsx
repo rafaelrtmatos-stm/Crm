@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Box, Plus, AlertCircle, ShoppingBag, Trash2, Edit2, Check, ArrowRight, ShieldAlert, DollarSign, Calculator, Layers, FileText } from 'lucide-react';
 import { MerchandiseItem } from '../types';
+import { showAlert } from '../lib/notify';
 
 interface MerchandiseModuleProps {
   onAttachItemsToContract?: (items: MerchandiseItem[], totalValue: number, description: string) => void;
@@ -99,7 +100,7 @@ export const MerchandiseModule: React.FC<MerchandiseModuleProps> = ({ onAttachIt
   const handleSaveItem = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formDescription || formSalePrice <= 0) {
-      alert('Preencha a descrição e o valor de venda.');
+      showAlert('Preencha a descrição e o valor de venda.');
       return;
     }
 
@@ -176,7 +177,7 @@ export const MerchandiseModule: React.FC<MerchandiseModuleProps> = ({ onAttachIt
 
   const handleSendToContract = () => {
     if (selectedItemsList.length === 0) {
-      alert('Selecione ao menos um item de mercadoria.');
+      showAlert('Selecione ao menos um item de mercadoria.');
       return;
     }
 
@@ -187,7 +188,7 @@ export const MerchandiseModule: React.FC<MerchandiseModuleProps> = ({ onAttachIt
     if (onAttachItemsToContract) {
       onAttachItemsToContract(selectedItemsList, totalCartValue, descriptionString);
     } else {
-      alert(`Itens selecionados adicionados ao contrato!\nTotal: R$ ${totalCartValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
+      showAlert(`Itens selecionados adicionados ao contrato!\nTotal: R$ ${totalCartValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
     }
   };
 

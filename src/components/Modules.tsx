@@ -188,7 +188,7 @@ import {
 import { collection, query, where, onSnapshot, orderBy, Timestamp, addDoc, doc, updateDoc, getDocs, setDoc, limit, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { supabase } from '../supabase';
-import { showAlert, showConfirm } from '../lib/notify';
+import { showAlert, showConfirm, showPrompt } from '../lib/notify';
 import { buildPixPayload } from '../lib/pix';
 import { renderReceiptCanvas, downloadCanvasAsPng, downloadCanvasAsPdf, COMPANY_CONTACT, CompanyContactInfo } from '../lib/receipt';
 import { renderOrcamentoCanvas } from '../lib/orcamentoDoc';
@@ -1465,7 +1465,7 @@ export const ChatPanel = ({
 
   const handleSimulateClientMessage = async (customText?: string) => {
     if (!conversation || !currentCompany) return;
-    const clientText = customText || prompt('Digite a mensagem enviada pelo cliente para teste:', 'Olá! Gostaria de saber como está o andamento do meu pedido e prazo de entrega.') || '';
+    const clientText = customText || (await showPrompt('Digite a mensagem enviada pelo cliente para teste:', 'Olá! Gostaria de saber como está o andamento do meu pedido e prazo de entrega.')) || '';
     if (!clientText.trim()) return;
 
     try {
@@ -1987,7 +1987,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                   {/* Quick Add Funnel */}
                   <button 
                     onClick={async () => {
-                      const name = prompt('Nome do novo funil:');
+                      const name = await showPrompt('Nome do novo funil:');
                       if(name && currentCompany) {
                         const far = await addDoc(collection(db, 'funnels'), {
                            companyId: currentCompany.id,
@@ -2041,7 +2041,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
             
             <button 
               onClick={async () => {
-                const name = prompt('Nome da nova etapa:');
+                const name = await showPrompt('Nome da nova etapa:');
                 if(name && selectedFunnelId) {
                   await addDoc(collection(db, 'funnelStages'), {
                     funnelId: selectedFunnelId,

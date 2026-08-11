@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Palette, Layout, Type, Image as ImageIcon, Printer, Download, Eye, RotateCcw, Check, FileText } from 'lucide-react';
 import { PdfCustomization, CompanyConfig } from '../types';
+import { showAlert } from '../lib/notify';
 
 interface PdfTemplateEditorProps {
   companyConfig: CompanyConfig;
@@ -41,7 +42,10 @@ export const PdfTemplateEditor: React.FC<PdfTemplateEditorProps> = ({
 
   const handlePrintPdf = () => {
     const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
+    if (!printWindow) {
+      showAlert('Não foi possível gerar o PDF do contrato: o navegador bloqueou a janela de impressão. Permita pop-ups para este site e tente de novo.');
+      return;
+    }
 
     const logoHtml = companyConfig.logoUrl ? `
       <div style="text-align: ${config.logoPosition}; margin-bottom: 20px;">

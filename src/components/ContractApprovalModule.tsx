@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { showAlert } from '../lib/notify';
 import { 
   FileText, 
   CheckCircle2, 
@@ -155,7 +156,7 @@ export const ContractApprovalModule = ({ currentCompany, onContractApproved }: C
   // Handle generating contract text & hash
   const handleGenerateContract = async () => {
     if (!clientName || totalAmount <= 0) {
-      alert('Por favor, preencha o nome do cliente e o valor total.');
+      showAlert('Por favor, preencha o nome do cliente e o valor total.');
       return;
     }
 
@@ -188,7 +189,7 @@ export const ContractApprovalModule = ({ currentCompany, onContractApproved }: C
   // Trigger sending SMS/WhatsApp verification code
   const handleSendVerificationCode = () => {
     if (!termsAgreed) {
-      alert('Você precisa marcar a caixa "Li e concordo com os termos" para continuar.');
+      showAlert('Você precisa marcar a caixa "Li e concordo com os termos" para continuar.');
       return;
     }
 
@@ -277,7 +278,7 @@ export const ContractApprovalModule = ({ currentCompany, onContractApproved }: C
     } catch (err) {
       console.error('Erro ao salvar contrato:', err);
       setIsSavingContract(false);
-      alert('Ocorreu um erro ao registrar a assinatura. Tente novamente.');
+      showAlert('Ocorreu um erro ao registrar a assinatura. Tente novamente.');
     }
   };
 
@@ -442,7 +443,7 @@ export const ContractApprovalModule = ({ currentCompany, onContractApproved }: C
             setTotalAmount(totalVal);
             setServiceDescription(desc);
             setActiveModuleView('budget');
-            alert(`✅ ${itemsList.length} item(ns) incorporado(s) com sucesso ao Orçamento! Total: R$ ${totalVal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
+            showAlert(`✅ ${itemsList.length} item(ns) incorporado(s) com sucesso ao Orçamento! Total: R$ ${totalVal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
           }}
         />
       )}
@@ -482,7 +483,7 @@ export const ContractApprovalModule = ({ currentCompany, onContractApproved }: C
             <button
               onClick={() => {
                 navigator.clipboard.writeText(generatedCode);
-                alert(`Código ${generatedCode} copiado para a área de transferência!`);
+                showAlert(`Código ${generatedCode} copiado para a área de transferência!`);
               }}
               className="px-3 py-1 rounded-lg bg-emerald-500 text-slate-950 text-[10px] font-black uppercase tracking-widest hover:bg-emerald-400 cursor-pointer"
             >
@@ -1135,7 +1136,7 @@ export const ContractApprovalModule = ({ currentCompany, onContractApproved }: C
                     type="button"
                     onClick={() => {
                       navigator.clipboard.writeText('44.222.111/0001-99');
-                      alert('Chave PIX copiada!');
+                      showAlert('Chave PIX copiada!');
                     }}
                     className="px-3 py-1.5 bg-primary-500/10 hover:bg-primary-500/20 text-primary-300 text-[9px] font-black uppercase rounded-lg border border-primary-500/20 cursor-pointer"
                   >
@@ -1154,7 +1155,7 @@ export const ContractApprovalModule = ({ currentCompany, onContractApproved }: C
                     type="button"
                     onClick={() => {
                       navigator.clipboard.writeText(`00020101021126580014br.gov.bcb.pix011844222111000199520400005303986540${downPaymentAmount.toFixed(2)}5802BR5915RafaArt6009SAOPAULO`);
-                      alert('Código PIX Copia e Cola copiado!');
+                      showAlert('Código PIX Copia e Cola copiado!');
                     }}
                     className="px-3 py-1.5 bg-primary-500/10 hover:bg-primary-500/20 text-primary-300 text-[9px] font-black uppercase rounded-lg border border-primary-500/20 cursor-pointer shrink-0"
                   >
