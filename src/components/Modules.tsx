@@ -7425,11 +7425,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                          onChange={(e) => setNewPaymentInstallments(Number(e.target.value))}
                                          className="h-7 bg-slate-900/80 border border-white/10 rounded px-2 text-[10px] text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer"
                                        >
-                                         {creditCardFees.map(f => (
-                                           <option key={f.installments} value={f.installments} className="bg-slate-900">
-                                             {f.installments}x {f.feePercent > 0 ? `(+${f.feePercent}%)` : '(sem taxa)'}
-                                           </option>
-                                         ))}
+                                         {creditCardFees.map(f => {
+                                           const valorComTaxa = baseValue * (1 + f.feePercent / 100);
+                                           const valorParcela = valorComTaxa / f.installments;
+                                           return (
+                                             <option key={f.installments} value={f.installments} className="bg-slate-900">
+                                               {baseValue > 0
+                                                 ? `${f.installments}x de R$ ${valorParcela.toFixed(2).replace('.', ',')}${f.feePercent > 0 ? ` (+${f.feePercent}%)` : ''}`
+                                                 : `${f.installments}x ${f.feePercent > 0 ? `(+${f.feePercent}%)` : '(sem taxa)'}`}
+                                             </option>
+                                           );
+                                         })}
                                        </select>
                                     </div>
                                     {baseValue > 0 && (
