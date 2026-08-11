@@ -2280,6 +2280,7 @@ const GenericListView = ({ title, subtitle, columns, data, icon, onAdd, noHeader
 export const MessagesModule = ({ currentCompany, user }: { currentCompany: Company | null, user: AppUser | null }) => {
   const { pendingWhatsAppShare, setPendingWhatsAppShare } = React.useContext(AppContext)!;
   const [selectedChat, setSelectedChat] = useState<any>(null);
+  const lastSeenIncomingRef = React.useRef<number | null>(null);
   const [chatInitialDraft, setChatInitialDraft] = useState('');
   const [leads, setLeads] = useState<Lead[]>([]);
   const [filter, setFilter] = useState('');
@@ -2608,6 +2609,37 @@ export const MessagesModule = ({ currentCompany, user }: { currentCompany: Compa
         }
       }
     });
+  }, [currentCompany]);
+
+  // Toca o som de notificacao quando chega uma mensagem NOVA do cliente (incoming),
+  // em qualquer conversa — nao precisa estar com o chat especifico aberto pra ouvir
+  useEffect(() => {
+    if (!currentCompany) return;
+    const q = query(
+      collection(db, 'messages'),
+      where('companyId', '==', currentCompany.id),
+      where('direction', '==', 'incoming'),
+      orderBy('createdAt', 'desc'),
+      limit(1)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      if (snap.empty) return;
+      const ultima = snap.docs[0].data() as any;
+      const ts = ultima.createdAt?.toMillis ? ultima.createdAt.toMillis() : new Date(ultima.createdAt).getTime();
+      if (lastSeenIncomingRef.current === null) {
+        // Primeira carga da tela — so guarda a referencia, nao notifica mensagens que ja estavam la
+        lastSeenIncomingRef.current = ts;
+        return;
+      }
+      if (ts > lastSeenIncomingRef.current) {
+        lastSeenIncomingRef.current = ts;
+        try {
+          const audio = new Audio('/sounds/notification.mp3');
+          audio.play().catch(() => {});
+        } catch (e) { /* ignora se o navegador bloquear */ }
+      }
+    });
+    return () => unsub();
   }, [currentCompany]);
 
   const unrepliedCount = leads.filter(l => l.waitingSince).length;
