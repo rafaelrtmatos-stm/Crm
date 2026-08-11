@@ -1128,14 +1128,14 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                  label="Valor do Lote (R$)" 
                  type="number" 
                  placeholder="150000" 
-                 value={lotForm.value} 
+                 value={lotForm.value || ''} 
                  onChange={(e) => setLotForm({ ...lotForm, value: e.target.value })} 
                />
                <Input 
                  label="Entrada / Sinal (R$)" 
                  type="number" 
                  placeholder="1500" 
-                 value={lotForm.downPayment} 
+                 value={lotForm.downPayment || ''} 
                  onChange={(e) => setLotForm({ ...lotForm, downPayment: e.target.value })} 
                />
             </div>
@@ -3405,7 +3405,7 @@ export const MetaAdsModule = ({ currentCompany }: { currentCompany: Company | nu
                            <p className="text-[10px] font-black uppercase text-white/30">Orçamento</p>
                            <Input 
                              type="number" 
-                             value={formData.budget} 
+                             value={formData.budget || ''} 
                              onChange={(e) => setFormData({ ...formData, budget: Number(e.target.value) })} 
                            />
                         </div>
@@ -3428,7 +3428,7 @@ export const MetaAdsModule = ({ currentCompany }: { currentCompany: Company | nu
                         <p className="text-[10px] font-black uppercase text-white/30">Orçamento Diário</p>
                         <Input 
                           type="number" 
-                          value={formData.dailyBudget} 
+                          value={formData.dailyBudget || ''} 
                           onChange={(e) => setFormData({ ...formData, dailyBudget: Number(e.target.value) })} 
                         />
                      </div>
@@ -7574,7 +7574,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
                        <div className="space-y-3">
                           <p className="text-[9px] font-black uppercase text-primary-300 tracking-[2px]">Financeiro</p>
-                          <Input label="Limite de Crédito (R$)" type="number" step="any" value={newCustomerForm.limite_credito} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, limite_credito: e.target.value })} />
+                          <Input label="Limite de Crédito (R$)" type="number" step="any" value={newCustomerForm.limite_credito || ''} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, limite_credito: e.target.value })} />
                        </div>
 
                        <div className="space-y-3">
@@ -7597,7 +7597,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           onFocus={(e: any) => e.target.select()}
                                  placeholder="Valor (R$)"
                                  type="number"
-                                 value={p.valor}
+                                 value={p.valor || ''}
                                  onChange={(e) => updatePatrimonioRow(idx, 'valor', e.target.value)}
                                  className="w-32 h-10 bg-white/5 border border-white/10 rounded-xl px-3 text-xs text-white placeholder-white/30 focus:outline-none focus:border-primary-500"
                                />
@@ -7693,7 +7693,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                         type="number"
                         step="any"
                         min={0}
-                        value={saleDiscountInput}
+                        value={saleDiscountInput || ''}
                         onChange={(e) => setSaleDiscountInput(e.target.value === '' ? '' : Number(e.target.value))}
                         placeholder={saleDiscountMode === 'percentual' ? '% de desconto' : saleDiscountMode === 'valor' ? 'R$ de desconto' : 'R$ valor final da venda'}
                         className="flex-1 h-7 bg-white/5 border border-white/10 rounded-lg px-2 text-[10px] text-white focus:outline-none focus:border-primary-500"
@@ -8325,8 +8325,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
          <div className="space-y-4 p-4">
            <Input label="Nome do Cliente" value={editSaleForm.customerName} onChange={(e: any) => setEditSaleForm({ ...editSaleForm, customerName: e.target.value })} />
            <div className="grid grid-cols-2 gap-4">
-             <Input label="Valor Total (R$)" type="number" step="any" value={editSaleForm.total} onChange={(e: any) => setEditSaleForm({ ...editSaleForm, total: Number(e.target.value) })} />
-             <Input label="Valor Pago / Entrada (R$)" type="number" step="any" value={editSaleForm.downPayment} onChange={(e: any) => setEditSaleForm({ ...editSaleForm, downPayment: Number(e.target.value) })} />
+             <Input label="Valor Total (R$)" type="number" step="any" value={editSaleForm.total || ''} onChange={(e: any) => setEditSaleForm({ ...editSaleForm, total: Number(e.target.value) })} />
+             <Input label="Valor Pago / Entrada (R$)" type="number" step="any" value={editSaleForm.downPayment || ''} onChange={(e: any) => setEditSaleForm({ ...editSaleForm, downPayment: Number(e.target.value) })} />
            </div>
            <div className="space-y-2">
              <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Forma de Pagamento</label>
@@ -8458,7 +8458,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               type="number"
               step="any"
               autoFocus
-              value={discountInput}
+              value={discountInput || ''}
               onChange={(e: any) => setDiscountInput(e.target.value === '' ? '' : Number(e.target.value))}
             />
             <p className="text-[10px] text-white/30">
@@ -8494,7 +8494,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 label="Largura do Rolo (m)"
                 type="number"
                 step="any"
-                value={insulfilmLarguraMaterial}
+                value={insulfilmLarguraMaterial || ''}
                 onChange={(e: any) => setInsulfilmLarguraMaterial(Number(e.target.value) || 0)}
               />
               <p className="text-[9px] text-white/30 -mt-2">Vem pré-preenchida com a largura cadastrada — pode editar aqui, e o novo valor fica salvo pra próxima vez.</p>
@@ -8587,14 +8587,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
          <Modal isOpen={!!etiquetaModalProduct} onClose={() => setEtiquetaModalProduct(null)} title="Etiqueta Adesiva — Calculadora" size="sm">
            <div className="space-y-4 p-2">
               <div className="grid grid-cols-2 gap-2">
-                 <Input label="Largura (cm)" type="number" step="any" value={etiquetaForm.largura} onChange={(e: any) => setEtiquetaForm({ ...etiquetaForm, largura: Number(e.target.value) || 0 })} />
-                 <Input label="Altura (cm)" type="number" step="any" value={etiquetaForm.altura} onChange={(e: any) => setEtiquetaForm({ ...etiquetaForm, altura: Number(e.target.value) || 0 })} />
+                 <Input label="Largura (cm)" type="number" step="any" value={etiquetaForm.largura || ''} onChange={(e: any) => setEtiquetaForm({ ...etiquetaForm, largura: Number(e.target.value) || 0 })} />
+                 <Input label="Altura (cm)" type="number" step="any" value={etiquetaForm.altura || ''} onChange={(e: any) => setEtiquetaForm({ ...etiquetaForm, altura: Number(e.target.value) || 0 })} />
               </div>
               <Input
                 label="Largura do Material (m)"
                 type="number"
                 step="any"
-                value={etiquetaForm.larguraMaterial}
+                value={etiquetaForm.larguraMaterial || ''}
                 onChange={(e: any) => setEtiquetaForm({ ...etiquetaForm, larguraMaterial: Number(e.target.value) || 0 })}
               />
               <p className="text-[9px] text-white/30 -mt-2">Vem pré-preenchida com a largura cadastrada do material — pode editar aqui, e o novo valor fica salvo pra próxima vez.</p>
@@ -8607,13 +8607,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     <button onClick={() => setEtiquetaInputMode('valor')} className={cn("flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all", etiquetaInputMode === 'valor' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Valor (R$)</button>
                  </div>
                  {etiquetaInputMode === 'quantidade' && (
-                   <Input label="Quantidade de Etiquetas" type="number" autoFocus value={etiquetaForm.quantidade} onChange={(e: any) => setEtiquetaForm({ ...etiquetaForm, quantidade: Number(e.target.value) || 0 })} />
+                   <Input label="Quantidade de Etiquetas" type="number" autoFocus value={etiquetaForm.quantidade || ''} onChange={(e: any) => setEtiquetaForm({ ...etiquetaForm, quantidade: Number(e.target.value) || 0 })} />
                  )}
                  {etiquetaInputMode === 'metros' && (
-                   <Input label="Metros Lineares Desejados" type="number" step="any" autoFocus value={etiquetaForm.metrosInput} onChange={(e: any) => setEtiquetaForm({ ...etiquetaForm, metrosInput: Number(e.target.value) || 0 })} />
+                   <Input label="Metros Lineares Desejados" type="number" step="any" autoFocus value={etiquetaForm.metrosInput || ''} onChange={(e: any) => setEtiquetaForm({ ...etiquetaForm, metrosInput: Number(e.target.value) || 0 })} />
                  )}
                  {etiquetaInputMode === 'valor' && (
-                   <Input label="Valor Disponível (R$)" type="number" step="any" autoFocus value={etiquetaForm.valorInput} onChange={(e: any) => setEtiquetaForm({ ...etiquetaForm, valorInput: Number(e.target.value) || 0 })} />
+                   <Input label="Valor Disponível (R$)" type="number" step="any" autoFocus value={etiquetaForm.valorInput || ''} onChange={(e: any) => setEtiquetaForm({ ...etiquetaForm, valorInput: Number(e.target.value) || 0 })} />
                  )}
               </div>
 
@@ -8693,7 +8693,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  step="any"
                  autoFocus
                  placeholder="Ex: 1,20"
-                 value={dimWidth}
+                 value={dimWidth || ''}
                  onChange={(e: any) => setDimWidth(e.target.value === '' ? '' : Number(e.target.value))}
                  onKeyDown={(e: any) => { if (e.key === 'Enter') confirmAddDimensionedItem(); }}
                />
@@ -8704,7 +8704,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  type="number"
                  step="any"
                  placeholder="Ex: 2,20"
-                 value={dimHeight}
+                 value={dimHeight || ''}
                  onChange={(e: any) => setDimHeight(e.target.value === '' ? '' : Number(e.target.value))}
                  onKeyDown={(e: any) => { if (e.key === 'Enter') confirmAddDimensionedItem(); }}
                />
@@ -8715,7 +8715,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
              label="Largura do Material (m)"
              type="number"
              step="any"
-             value={dimLarguraMaterial}
+             value={dimLarguraMaterial || ''}
              onChange={(e: any) => setDimLarguraMaterial(Number(e.target.value) || 0)}
            />
            <p className="text-[9px] text-white/30 -mt-3">Vem pré-preenchida com a largura cadastrada do material — pode editar aqui, e o novo valor fica salvo pra próxima vez.</p>
@@ -8970,7 +8970,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           onFocus={(e: any) => e.target.select()}
                             type="number"
                             min={1}
-                            value={item.quantity}
+                            value={item.quantity || ''}
                             onChange={(e) => {
                                const qty = Math.max(1, Number(e.target.value) || 1);
                                setOrcamentoForm(prev => ({ ...prev, items: prev.items.map((it, i) => i === idx ? { ...it, quantity: qty } : it) }));
@@ -8999,7 +8999,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           onFocus={(e: any) => e.target.select()}
                                type="number"
                                step="any"
-                               value={item.price}
+                               value={item.price || ''}
                                onChange={(e) => {
                                   const price = Math.max(0, Number(e.target.value) || 0);
                                   setOrcamentoForm(prev => ({ ...prev, items: prev.items.map((it, i) => i === idx ? { ...it, price } : it) }));
@@ -9017,7 +9017,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
-               <Input label="Desconto (R$)" type="number" step="any" value={orcamentoForm.desconto} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, desconto: Number(e.target.value) || 0 })} />
+               <Input label="Desconto (R$)" type="number" step="any" value={orcamentoForm.desconto || ''} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, desconto: Number(e.target.value) || 0 })} />
                <div className="space-y-1">
                   <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Entrada</label>
                   <div className="flex gap-1.5">
@@ -9062,7 +9062,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           onFocus={(e: any) => e.target.select()}
                        type="number"
                        min={1}
-                       value={orcamentoForm.prazoDias}
+                       value={orcamentoForm.prazoDias || ''}
                        onChange={(e) => updatePrazoStructured({ prazoDias: Math.max(1, Number(e.target.value) || 1) })}
                        className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500"
                      />
@@ -9157,7 +9157,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           <div className="space-y-0.5 w-24">
                              <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Valor (R$)</label>
                              <input
-          onFocus={(e: any) => e.target.select()} type="number" step="any" value={f.valor} onChange={(e) => updateOrcamentoFormaPagamento(idx, { valor: Number(e.target.value) || 0 })} className="w-full h-9 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
+          onFocus={(e: any) => e.target.select()} type="number" step="any" value={f.valor || ''} onChange={(e) => updateOrcamentoFormaPagamento(idx, { valor: Number(e.target.value) || 0 })} className="w-full h-9 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
                           </div>
                           <button onClick={() => removeOrcamentoFormaPagamento(idx)} className="h-9 w-9 flex items-center justify-center rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 shrink-0"><Trash2 size={13} /></button>
                        </div>
@@ -9236,7 +9236,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                        <div className="space-y-0.5">
                           <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Prazo Concedido (dias)</label>
                           <input
-          onFocus={(e: any) => e.target.select()} type="number" min={0} value={orcamentoForm.pagamentoPosteriorDias} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, pagamentoPosteriorDias: Number(e.target.value) || 0 })} className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
+          onFocus={(e: any) => e.target.select()} type="number" min={0} value={orcamentoForm.pagamentoPosteriorDias || ''} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, pagamentoPosteriorDias: Number(e.target.value) || 0 })} className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
                        </div>
                        <div className="space-y-0.5 col-span-2">
                           <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Condição Especial</label>
@@ -9258,12 +9258,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   <div className="space-y-0.5">
                      <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Multa (%)</label>
                      <input
-          onFocus={(e: any) => e.target.select()} type="number" step="any" min={0} value={orcamentoForm.multaPercentual} onChange={(e) => updateMultaJuros({ multaPercentual: Number(e.target.value) || 0 })} className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500" />
+          onFocus={(e: any) => e.target.select()} type="number" step="any" min={0} value={orcamentoForm.multaPercentual || ''} onChange={(e) => updateMultaJuros({ multaPercentual: Number(e.target.value) || 0 })} className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500" />
                   </div>
                   <div className="space-y-0.5">
                      <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Juros (%)</label>
                      <input
-          onFocus={(e: any) => e.target.select()} type="number" step="any" min={0} value={orcamentoForm.jurosPercentual} onChange={(e) => updateMultaJuros({ jurosPercentual: Number(e.target.value) || 0 })} className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500" />
+          onFocus={(e: any) => e.target.select()} type="number" step="any" min={0} value={orcamentoForm.jurosPercentual || ''} onChange={(e) => updateMultaJuros({ jurosPercentual: Number(e.target.value) || 0 })} className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500" />
                   </div>
                   <div className="space-y-0.5">
                      <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Forma de Cálculo</label>
@@ -9275,7 +9275,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   <div className="space-y-0.5">
                      <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Tolerância (dias)</label>
                      <input
-          onFocus={(e: any) => e.target.select()} type="number" min={0} value={orcamentoForm.diasTolerancia} onChange={(e) => updateMultaJuros({ diasTolerancia: Number(e.target.value) || 0 })} className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500" />
+          onFocus={(e: any) => e.target.select()} type="number" min={0} value={orcamentoForm.diasTolerancia || ''} onChange={(e) => updateMultaJuros({ diasTolerancia: Number(e.target.value) || 0 })} className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500" />
                   </div>
                </div>
 
@@ -9287,7 +9287,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                      <span className="text-[9px] font-black uppercase text-white/40 tracking-wider">Simular atraso de</span>
                      <div className="flex items-center gap-1.5">
                         <input
-          onFocus={(e: any) => e.target.select()} type="number" min={0} value={simuladorDias} onChange={(e) => setSimuladorDias(Number(e.target.value) || 0)} className="w-14 h-7 bg-slate-900/60 border border-white/10 rounded px-1.5 text-xs text-white text-center" />
+          onFocus={(e: any) => e.target.select()} type="number" min={0} value={simuladorDias || ''} onChange={(e) => setSimuladorDias(Number(e.target.value) || 0)} className="w-14 h-7 bg-slate-900/60 border border-white/10 rounded px-1.5 text-xs text-white text-center" />
                         <span className="text-[9px] text-white/40 font-bold">dias, sobre R$ {orcamentoSaldoRestante().toFixed(2).replace('.', ',')} em aberto</span>
                      </div>
                   </div>
@@ -10517,8 +10517,8 @@ export const ServicesModule = ({ currentCompany }: { currentCompany: Company | n
                 <div className="md:col-span-2">
                   <Input label="DESCRIÇÃO DO SERVIÇO" value={formData.serviceDesc} placeholder="EX: BANNER IMPRESSO 1X1M ILHÓS" onChange={(e: any) => setFormData({...formData, serviceDesc: e.target.value})} />
                 </div>
-                <Input label="VALOR TOTAL (R$)" type="number" value={formData.totalValue} onChange={(e: any) => setFormData({...formData, totalValue: Number(e.target.value)})} />
-                <Input label="VALOR DE ENTRADA / SINAL PAGO (R$)" type="number" value={formData.downPaymentValue} onChange={(e: any) => setFormData({...formData, downPaymentValue: Number(e.target.value)})} />
+                <Input label="VALOR TOTAL (R$)" type="number" value={formData.totalValue || ''} onChange={(e: any) => setFormData({...formData, totalValue: Number(e.target.value)})} />
+                <Input label="VALOR DE ENTRADA / SINAL PAGO (R$)" type="number" value={formData.downPaymentValue || ''} onChange={(e: any) => setFormData({...formData, downPaymentValue: Number(e.target.value)})} />
               </div>
               <div className="flex gap-4 pt-4">
                 <Button variant="secondary" className="flex-1 h-14" onClick={() => setIsModalOpen(false)}>Cancelar</Button>
@@ -10636,8 +10636,8 @@ export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved }: {
               <option value="etiqueta">Etiqueta Adesiva (cálculo especial)</option>
             </select>
           </div>
-          <Input label="PREÇO DE COMPRA (CUSTO)" type="number" prefix="R$" value={formData.costPrice} onChange={(e: any) => setFormData({ ...formData, costPrice: Number(e.target.value) })} />
-          <Input label="PREÇO DE VENDA" type="number" prefix="R$" value={formData.salePrice} onChange={(e: any) => setFormData({ ...formData, salePrice: Number(e.target.value) })} />
+          <Input label="PREÇO DE COMPRA (CUSTO)" type="number" prefix="R$" value={formData.costPrice || ''} onChange={(e: any) => setFormData({ ...formData, costPrice: Number(e.target.value) })} />
+          <Input label="PREÇO DE VENDA" type="number" prefix="R$" value={formData.salePrice || ''} onChange={(e: any) => setFormData({ ...formData, salePrice: Number(e.target.value) })} />
 
           <div className="space-y-2">
             <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">TIPO DE ITEM</p>
@@ -10666,22 +10666,22 @@ export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved }: {
 
           {formData.controlaEstoque !== false && (
             <>
-              <Input label="ESTOQUE ATUAL" type="number" value={formData.currentStock} onChange={(e: any) => setFormData({ ...formData, currentStock: Number(e.target.value) })} />
-              <Input label="ESTOQUE MÍNIMO (ALERTA)" type="number" value={formData.minStock} onChange={(e: any) => setFormData({ ...formData, minStock: Number(e.target.value) })} />
-              <Input label="ESTOQUE MÁXIMO" type="number" value={formData.estoqueMaximo} onChange={(e: any) => setFormData({ ...formData, estoqueMaximo: Number(e.target.value) })} />
-              <Input label="LOCALIZAÇÃO" placeholder="Ex: Prateleira A2" value={formData.localizacao} onChange={(e: any) => setFormData({ ...formData, localizacao: e.target.value })} />
+              <Input label="ESTOQUE ATUAL" type="number" value={formData.currentStock || ''} onChange={(e: any) => setFormData({ ...formData, currentStock: Number(e.target.value) })} />
+              <Input label="ESTOQUE MÍNIMO (ALERTA)" type="number" value={formData.minStock || ''} onChange={(e: any) => setFormData({ ...formData, minStock: Number(e.target.value) })} />
+              <Input label="ESTOQUE MÁXIMO" type="number" value={formData.estoqueMaximo || ''} onChange={(e: any) => setFormData({ ...formData, estoqueMaximo: Number(e.target.value) })} />
+              <Input label="LOCALIZAÇÃO" placeholder="Ex: Prateleira A2" value={formData.localizacao || ''} onChange={(e: any) => setFormData({ ...formData, localizacao: e.target.value })} />
             </>
           )}
 
           {(formData.unit === 'm2' || formData.unit === 'etiqueta' || formData.unit === 'm') && (
             <div className="md:col-span-2">
-              <Input label="LARGURA DO ROLO/MATERIAL (m) — usado no cálculo automático e no PDV" type="number" step="any" placeholder="Ex: 1.02" value={formData.larguraRolo} onChange={(e: any) => setFormData({ ...formData, larguraRolo: Number(e.target.value) })} />
+              <Input label="LARGURA DO ROLO/MATERIAL (m) — usado no cálculo automático e no PDV" type="number" step="any" placeholder="Ex: 1.02" value={formData.larguraRolo || ''} onChange={(e: any) => setFormData({ ...formData, larguraRolo: Number(e.target.value) })} />
             </div>
           )}
 
           {(formData.unit === 'm2' || formData.unit === 'etiqueta' || formData.unit === 'm') && (
             <div className="md:col-span-2">
-              <Input label="VALOR MÍNIMO (R$) — cobrança mínima, mesmo se o cálculo der menos" type="number" step="any" placeholder="Ex: 20.00" value={formData.valorMinimo} onChange={(e: any) => setFormData({ ...formData, valorMinimo: Number(e.target.value) })} />
+              <Input label="VALOR MÍNIMO (R$) — cobrança mínima, mesmo se o cálculo der menos" type="number" step="any" placeholder="Ex: 20.00" value={formData.valorMinimo || ''} onChange={(e: any) => setFormData({ ...formData, valorMinimo: Number(e.target.value) })} />
             </div>
           )}
 
@@ -12678,7 +12678,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                                  type="number"
                                  step="any"
                                  min={0}
-                                 value={f.feePercent}
+                                 value={f.feePercent || ''}
                                  onChange={(e) => updateCreditCardFee(f.installments, e.target.value === '' ? 0 : Number(e.target.value))}
                                  className="w-full h-9 bg-slate-900/60 border border-white/10 rounded-lg px-2 pr-6 text-xs text-white text-right font-bold focus:outline-none focus:border-primary-500"
                                />
@@ -12708,7 +12708,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                                type="number"
                                step="any"
                                min={0}
-                               value={debitCardFeePercent}
+                               value={debitCardFeePercent || ''}
                                onChange={(e) => setDebitCardFeePercent(e.target.value === '' ? 0 : Number(e.target.value))}
                                className="w-full h-9 bg-slate-900/60 border border-white/10 rounded-lg px-2 pr-6 text-xs text-white text-right font-bold focus:outline-none focus:border-primary-500"
                              />
