@@ -843,74 +843,78 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         );
       })()}
 
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        {[
-          { label: 'Faturamento', val: `R$ ${totalRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, diff: 'Hoje/Período', color: 'emerald', action: () => setIsRevenueModalOpen(true) },
-          { label: 'Lucro Líquido', val: `R$ ${netProfit.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, diff: `Margem: ${totalRevenue > 0 ? ((netProfit / totalRevenue) * 100).toFixed(0) : '65'}%`, color: 'emerald', action: () => setIsRevenueModalOpen(true) },
-          { label: 'Markup Médio', val: `${avgMarkup.toFixed(2).replace('.', ',')}x`, diff: 'Faturamento/Custo', color: 'primary', action: () => setActiveTab?.('inventory') },
-          { label: 'Pto Equilíbrio', val: `R$ ${breakevenPoint.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`, diff: `${Math.min(100, Math.round((totalRevenue / breakevenPoint) * 100))}% Reatido`, color: 'purple', action: () => setIsRevenueModalOpen(true) },
-          { label: 'A Receber', val: `R$ ${pendingValue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, diff: 'Balancete Aberto', color: 'rose', action: () => setActiveTab?.('pos') },
-        ].map((item, i) => (
-          <GlassCard 
-            key={i} 
-            onClick={item.action}
-            className="p-4 border-white/5 flex flex-col justify-center transition-all cursor-pointer hover:border-primary-500/30 group relative overflow-hidden"
-          >
-             <div className="absolute top-0 right-0 w-16 h-16 bg-white/5 rounded-full -mr-8 -mt-8 group-hover:bg-primary-500/10 transition-all" />
-             <p className="text-[8px] font-black uppercase tracking-widest text-white/30 mb-1">{item.label}</p>
-             <div className="flex items-end justify-between">
-                <h5 className="text-sm font-black text-white">{item.val}</h5>
-                <span className={cn("text-[8px] font-bold", item.color === 'emerald' ? 'text-emerald-400' : 'text-primary-300')}>
-                  {item.diff}
-                </span>
+      {user?.isAdmin && (
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+          {[
+            { label: 'Faturamento', val: `R$ ${totalRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, diff: 'Hoje/Período', color: 'emerald', action: () => setIsRevenueModalOpen(true) },
+            { label: 'Lucro Líquido', val: `R$ ${netProfit.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, diff: `Margem: ${totalRevenue > 0 ? ((netProfit / totalRevenue) * 100).toFixed(0) : '65'}%`, color: 'emerald', action: () => setIsRevenueModalOpen(true) },
+            { label: 'Markup Médio', val: `${avgMarkup.toFixed(2).replace('.', ',')}x`, diff: 'Faturamento/Custo', color: 'primary', action: () => setActiveTab?.('inventory') },
+            { label: 'Pto Equilíbrio', val: `R$ ${breakevenPoint.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`, diff: `${Math.min(100, Math.round((totalRevenue / breakevenPoint) * 100))}% Reatido`, color: 'purple', action: () => setIsRevenueModalOpen(true) },
+            { label: 'A Receber', val: `R$ ${pendingValue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, diff: 'Balancete Aberto', color: 'rose', action: () => setActiveTab?.('pos') },
+          ].map((item, i) => (
+            <GlassCard 
+              key={i} 
+              onClick={item.action}
+              className="p-4 border-white/5 flex flex-col justify-center transition-all cursor-pointer hover:border-primary-500/30 group relative overflow-hidden"
+            >
+               <div className="absolute top-0 right-0 w-16 h-16 bg-white/5 rounded-full -mr-8 -mt-8 group-hover:bg-primary-500/10 transition-all" />
+               <p className="text-[8px] font-black uppercase tracking-widest text-white/30 mb-1">{item.label}</p>
+               <div className="flex items-end justify-between">
+                  <h5 className="text-sm font-black text-white">{item.val}</h5>
+                  <span className={cn("text-[8px] font-bold", item.color === 'emerald' ? 'text-emerald-400' : 'text-primary-300')}>
+                    {item.diff}
+                  </span>
+               </div>
+            </GlassCard>
+          ))}
+        </div>
+      )}
+
+      <div className={cn("grid gap-8", user?.isAdmin ? "grid-cols-1 lg:grid-cols-3" : "grid-cols-1")}>
+        {user?.isAdmin && (
+          <GlassCard className="lg:col-span-2 p-8 border-white/5 bg-white/[0.02]">
+             <div className="flex items-center justify-between mb-8">
+                <div>
+                   <h3 className="text-xl font-black text-white italic tracking-tighter uppercase">Análise de Performance</h3>
+                   <p className="text-xs text-white/30 font-bold tracking-widest uppercase">Evolução do Faturamento por Período</p>
+                </div>
+                <Button variant="ghost" icon={Maximize2} onClick={() => setIsRevenueModalOpen(true)} />
+             </div>
+             
+             <div className="h-[350px] w-full">
+                <ChartErrorBoundary>
+                <ResponsiveContainer width="100%" height="100%">
+                   <AreaChart 
+                     data={chartData.length > 0 ? chartData : [
+                       { day: 'Seg', total: 400 }, { day: 'Ter', total: 600 }, { day: 'Qua', total: 300 }
+                     ]}
+                     onClick={(data: any) => {
+                        if (data?.activePayload) {
+                           setRevenueDataPoint(data.activePayload[0].payload);
+                           setIsRevenueModalOpen(true);
+                        }
+                     }}
+                   >
+                      <defs>
+                         <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#4cc9f0" stopOpacity={0.3}/>
+                            <stop offset="95%" stopColor="#4cc9f0" stopOpacity={0}/>
+                         </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
+                      <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.3)', fontWeight: 800 }} />
+                      <YAxis hide />
+                      <Tooltip 
+                         cursor={{ stroke: '#4cc9f0', strokeWidth: 1, strokeDasharray: '5 5' }}
+                         contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', backdropFilter: 'blur(10px)' }}
+                      />
+                      <Area type="monotone" dataKey="total" stroke="#4cc9f0" strokeWidth={3} fillOpacity={1} fill="url(#colorRevenue)" />
+                   </AreaChart>
+                </ResponsiveContainer>
+                </ChartErrorBoundary>
              </div>
           </GlassCard>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <GlassCard className="lg:col-span-2 p-8 border-white/5 bg-white/[0.02]">
-           <div className="flex items-center justify-between mb-8">
-              <div>
-                 <h3 className="text-xl font-black text-white italic tracking-tighter uppercase">Análise de Performance</h3>
-                 <p className="text-xs text-white/30 font-bold tracking-widest uppercase">Evolução do Faturamento por Período</p>
-              </div>
-              <Button variant="ghost" icon={Maximize2} onClick={() => setIsRevenueModalOpen(true)} />
-           </div>
-           
-           <div className="h-[350px] w-full">
-              <ChartErrorBoundary>
-              <ResponsiveContainer width="100%" height="100%">
-                 <AreaChart 
-                   data={chartData.length > 0 ? chartData : [
-                     { day: 'Seg', total: 400 }, { day: 'Ter', total: 600 }, { day: 'Qua', total: 300 }
-                   ]}
-                   onClick={(data: any) => {
-                      if (data?.activePayload) {
-                         setRevenueDataPoint(data.activePayload[0].payload);
-                         setIsRevenueModalOpen(true);
-                      }
-                   }}
-                 >
-                    <defs>
-                       <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#4cc9f0" stopOpacity={0.3}/>
-                          <stop offset="95%" stopColor="#4cc9f0" stopOpacity={0}/>
-                       </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
-                    <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.3)', fontWeight: 800 }} />
-                    <YAxis hide />
-                    <Tooltip 
-                       cursor={{ stroke: '#4cc9f0', strokeWidth: 1, strokeDasharray: '5 5' }}
-                       contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', backdropFilter: 'blur(10px)' }}
-                    />
-                    <Area type="monotone" dataKey="total" stroke="#4cc9f0" strokeWidth={3} fillOpacity={1} fill="url(#colorRevenue)" />
-                 </AreaChart>
-              </ResponsiveContainer>
-              </ChartErrorBoundary>
-           </div>
-        </GlassCard>
+        )}
 
         <div className="space-y-8 flex flex-col min-w-0">
             <GlassCard className="p-8 border-white/5 bg-white/[0.02] flex-1 overflow-hidden">
@@ -1160,7 +1164,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
          </div>
       </Modal>
 
-      <Modal isOpen={isRevenueModalOpen} onClose={() => setIsRevenueModalOpen(false)} title="Detalhamento Operacional">
+      <Modal isOpen={isRevenueModalOpen && !!user?.isAdmin} onClose={() => setIsRevenueModalOpen(false)} title="Detalhamento Operacional">
          <div className="space-y-8 p-4">
             <div className="grid grid-cols-2 gap-4">
                <div className="p-6 bg-emerald-500/10 rounded-3xl border border-emerald-500/10">
