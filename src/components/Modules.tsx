@@ -3625,7 +3625,7 @@ const EntregaCountdown = ({ scheduledFor }: { scheduledFor: string }) => {
 };
 
 export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany: Company | null, addPendingOrder: (order: SaleOrder) => void }) => {
-  const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare } = React.useContext(AppContext)!;
+  const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare, pendingReceiptOpenId, setPendingReceiptOpenId, pendingHistoryClientFilter, setPendingHistoryClientFilter, prefilledCustomer, setPrefilledCustomer } = React.useContext(AppContext)!;
   const [soundAlertsEnabled, setSoundAlertsEnabledState] = useState(() => localStorage.getItem('rpro_sound_alerts_enabled') !== 'false');
   const setSoundAlertsEnabled = (v: boolean) => {
     setSoundAlertsEnabledState(v);
@@ -4516,6 +4516,31 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     await openReceiptDetail(mapVendaRow(data));
   };
 
+  // Se outra aba (ex: Ordem de Servico) pediu pra abrir um recibo especifico, atende assim que o Terminal montar
+  useEffect(() => {
+    if (!pendingReceiptOpenId) return;
+    setActiveTab('historico');
+    openReceiptById(pendingReceiptOpenId);
+    setPendingReceiptOpenId(null);
+  }, [pendingReceiptOpenId]);
+
+  // Se a aba Contatos (fora do Terminal) pediu pra ver o historico de um cliente especifico
+  useEffect(() => {
+    if (!pendingHistoryClientFilter) return;
+    setHistoryClienteIdFilter(pendingHistoryClientFilter.clienteId);
+    setHistorySearch(pendingHistoryClientFilter.clienteName);
+    setActiveTab('historico');
+    setPendingHistoryClientFilter(null);
+  }, [pendingHistoryClientFilter]);
+
+  // Se a aba Contatos pediu pra iniciar uma venda ja com o cliente selecionado
+  useEffect(() => {
+    if (!prefilledCustomer) return;
+    setSelectedCustomer({ id: prefilledCustomer.id || '', name: prefilledCustomer.name, phone: prefilledCustomer.phone });
+    setActiveTab('venda');
+    setPrefilledCustomer(null);
+  }, [prefilledCustomer]);
+
   const openReceiptDetail = async (sale: SaleOrder) => {
     setViewingReceiptSale(sale);
     setViewingReceiptEmail(undefined);
@@ -4620,7 +4645,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const matchesHistorySearch = (sale: SaleOrder): boolean => {
     // Filtro preciso por cliente_id (evita confundir clientes com nomes iguais) — tem prioridade sobre o texto
     if (historyClienteIdFilter) {
-      return sale.customerId === historyClienteIdFilter;
+      if (sale.customerId) return sale.customerId === historyClienteIdFilter;
+      // Venda orfa (sem cliente_id vinculado ainda) — casa pelo nome como reserva,
+      // mesma logica usada na Ficha do Cliente pra reconhecer vendas antigas/importadas
+      const nomeFiltro = historySearch.toLowerCase().trim();
+      return !!nomeFiltro && (sale.customerName || '').toLowerCase().trim() === nomeFiltro;
     }
     if (!historySearch.trim()) return true;
     const term = historySearch.toLowerCase().trim();
@@ -11046,6 +11075,7 @@ const STAGE_LABELS: Record<string, string> = {
 };
 
 export const ProductionModule = ({ currentCompany }: { currentCompany: Company | null }) => {
+  const { setActiveTab: setRootActiveTab, setPendingReceiptOpenId } = React.useContext(AppContext)!;
   const [pedidos, setPedidos] = useState<SaleOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [showEntregues, setShowEntregues] = useState(false);
@@ -11158,7 +11188,11 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
                  ) : pedidosDoGrupo.map(pedido => {
                    const etapaAtual = pedido.serviceStatus || 'pedido_recebido';
                    return (
-                     <GlassCard key={pedido.id} className="p-4 border-white/10 space-y-2">
+                     <GlassCard
+                       key={pedido.id}
+                       className="p-4 border-white/10 space-y-2 cursor-pointer hover:border-primary-500/30 transition-all"
+                       onClick={() => { setPendingReceiptOpenId(pedido.id); setRootActiveTab('pos'); }}
+                     >
                         <div className="flex items-start justify-between gap-2">
                            <div className="min-w-0">
                               <p className="font-bold text-white text-xs truncate">#{pedido.id.slice(-8).toUpperCase()} — {pedido.customerName || 'Cliente de Balcão'}</p>
@@ -11172,7 +11206,8 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
                         </div>
                         <select
                           value={etapaAtual}
-                          onChange={(e) => handleAdvanceStage(pedido, e.target.value)}
+                          onClick={(e: any) => e.stopPropagation()}
+                          onChange={(e: any) => { e.stopPropagation(); handleAdvanceStage(pedido, e.target.value); }}
                           className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-[10px] text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer"
                         >
                           {Object.entries(STAGE_LABELS).map(([id, label]) => (

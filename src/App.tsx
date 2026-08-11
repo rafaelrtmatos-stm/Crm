@@ -122,6 +122,10 @@ interface AppContextType {
   setPrefilledCustomer: (customer: { id?: string, name: string, phone: string } | null) => void;
   pendingWhatsAppShare: { leadId: string; prefillMessage: string } | null;
   setPendingWhatsAppShare: (v: { leadId: string; prefillMessage: string } | null) => void;
+  pendingReceiptOpenId: string | null;
+  setPendingReceiptOpenId: (id: string | null) => void;
+  pendingHistoryClientFilter: { clienteId: string; clienteName: string } | null;
+  setPendingHistoryClientFilter: (v: { clienteId: string; clienteName: string } | null) => void;
   simulatedUserId: string | null;
   setSimulatedUserId: (id: string | null) => void;
   theme: 'dark' | 'light';
@@ -437,6 +441,8 @@ export default function App() {
   const [lastMessageId, setLastMessageId] = useState<string | null>(null);
   const [prefilledCustomer, setPrefilledCustomer] = useState<{ id?: string, name: string, phone: string } | null>(null);
   const [pendingWhatsAppShare, setPendingWhatsAppShare] = useState<{ leadId: string; prefillMessage: string } | null>(null);
+  const [pendingReceiptOpenId, setPendingReceiptOpenId] = useState<string | null>(null);
+  const [pendingHistoryClientFilter, setPendingHistoryClientFilter] = useState<{ clienteId: string; clienteName: string } | null>(null);
   const [simulatedUserId, setSimulatedUserIdState] = useState<string | null>(localStorage.getItem('rpro_simulated_user_id'));
   const [unrepliedLeadsCount, setUnrepliedLeadsCount] = useState(0);
 
@@ -1190,6 +1196,10 @@ export default function App() {
     setPrefilledCustomer,
     pendingWhatsAppShare,
     setPendingWhatsAppShare,
+    pendingReceiptOpenId,
+    setPendingReceiptOpenId,
+    pendingHistoryClientFilter,
+    setPendingHistoryClientFilter,
     simulatedUserId,
     setSimulatedUserId,
     theme,
@@ -1308,7 +1318,19 @@ export default function App() {
                   {activeTab === 'crm' && <CRMModule currentCompany={currentCompany} user={user} />}
                   {activeTab === 'messages' && <MessagesModule currentCompany={currentCompany} user={user} />}
                   {activeTab === 'pos' && <ModuleErrorBoundary label="o PDV"><POSModule currentCompany={currentCompany} addPendingOrder={addPendingOrder} /></ModuleErrorBoundary>}
-                  {activeTab === 'contacts' && <ContactsModule currentCompany={currentCompany} />}
+                  {activeTab === 'contacts' && (
+                    <ContactsModule
+                      currentCompany={currentCompany}
+                      onViewHistoryForClient={(clienteId: string, clienteName: string) => {
+                        setPendingHistoryClientFilter({ clienteId, clienteName });
+                        setActiveTab('pos');
+                      }}
+                      onStartSaleForClient={(cliente) => {
+                        setPrefilledCustomer(cliente);
+                        setActiveTab('pos');
+                      }}
+                    />
+                  )}
                   {activeTab === 'clientes_espera' && <ModuleErrorBoundary label="Clientes em Espera"><ClientesEsperaModule currentCompany={currentCompany} user={user} /></ModuleErrorBoundary>}
                   {activeTab === 'inventory' && <InventoryModule currentCompany={currentCompany} user={user} />}
                   {activeTab === 'services' && <ServicesModule currentCompany={currentCompany} />}
