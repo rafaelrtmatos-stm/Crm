@@ -4962,7 +4962,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [newPaymentInstallments, setNewPaymentInstallments] = useState(1);
   const canManageHistory = !!(user?.isAdmin || user?.allowedActions?.includes('canManageSaleHistory'));
   const [editingSale, setEditingSale] = useState<SaleOrder | null>(null);
-  const [editSaleForm, setEditSaleForm] = useState({ customerName: '', total: 0, downPayment: 0, paymentMethod: 'pix', observacoes: '' });
+  const [editSaleForm, setEditSaleForm] = useState({ customerName: '', total: 0, downPayment: 0, paymentMethod: 'pix', observacoes: '', scheduledFor: '' });
 
   const handleReopenSale = async (sale: SaleOrder) => {
     if (!(await showConfirm(`Reabrir a venda #${sale.id.slice(-8).toUpperCase()}? Ela voltará a aparecer como pendente.`))) return;
@@ -4978,6 +4978,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       downPayment: sale.downPayment || 0,
       paymentMethod: sale.paymentMethod || 'pix',
       observacoes: sale.observacoes || '',
+      scheduledFor: sale.scheduledFor ? sale.scheduledFor.slice(0, 16) : '',
     });
   };
 
@@ -4989,6 +4990,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       down_payment: editSaleForm.downPayment,
       payment_method: editSaleForm.paymentMethod,
       observacoes: editSaleForm.observacoes || null,
+      scheduled_for: editSaleForm.scheduledFor || null,
       status: editSaleForm.downPayment >= editSaleForm.total ? 'completed' : 'pending',
     }).eq('id', editingSale.id);
     if (error) { console.error(error); showAlert('Não foi possível salvar as alterações.'); return; }
@@ -8211,6 +8213,26 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    {m.label}
                  </button>
                ))}
+             </div>
+           </div>
+           <div className="space-y-2">
+             <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Data/Hora de Entrega Agendada</label>
+             <div className="flex gap-2">
+               <input
+                 type="datetime-local"
+                 value={editSaleForm.scheduledFor}
+                 onChange={(e: any) => setEditSaleForm({ ...editSaleForm, scheduledFor: e.target.value })}
+                 className="flex-1 h-11 bg-white/5 border border-white/10 rounded-xl px-3 text-xs text-white focus:outline-none focus:border-primary-500"
+               />
+               {editSaleForm.scheduledFor && (
+                 <button
+                   type="button"
+                   onClick={() => setEditSaleForm({ ...editSaleForm, scheduledFor: '' })}
+                   className="px-3 rounded-xl border border-white/10 text-white/50 hover:text-rose-400 hover:border-rose-500/30 bg-transparent cursor-pointer text-xs font-bold"
+                 >
+                   Remover
+                 </button>
+               )}
              </div>
            </div>
            <div className="space-y-2">
