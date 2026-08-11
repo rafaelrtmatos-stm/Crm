@@ -489,7 +489,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
 
     try {
       try {
-        const audio = new Audio('/sounds/cash-register.mp3');
+        const audio = new Audio('/sounds/sale-complete.mp3');
         audio.play().catch(() => {});
       } catch (e) {}
 
@@ -5211,7 +5211,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
     try {
       try {
-        const audio = new Audio('/sounds/cash-register.mp3');
+        const audio = new Audio('/sounds/sale-complete.mp3');
         audio.play().catch(() => {});
       } catch (e) {}
 
@@ -5811,7 +5811,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const handleFinalize = async (isPending: boolean = false, forceZeroPayment: boolean = false) => {
     // Play money sound
     try {
-      const audio = new Audio('/sounds/cash-register.mp3');
+      const audio = new Audio('/sounds/sale-complete.mp3');
       audio.play().catch(() => {});
     } catch (e) {}
 
