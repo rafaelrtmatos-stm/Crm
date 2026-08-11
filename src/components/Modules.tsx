@@ -9290,7 +9290,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
              <Button
                className="bg-primary-500 hover:bg-primary-400 text-slate-900 font-black gap-2"
                disabled={!scheduledFor}
-               onClick={() => setIsScheduleModalOpen(false)}
+               onClick={async () => {
+                 setIsScheduleModalOpen(false);
+                 // Quitar Debito de um pedido ja existente: salva o agendamento na hora, direto no banco,
+                 // sem depender de tambem confirmar um pagamento junto (antes so salvava se pagasse algo)
+                 if (settlingOrder) {
+                   const { error } = await supabase.from('vendas').update({ scheduled_for: scheduledFor || null }).eq('id', settlingOrder.id);
+                   if (error) { showAlert(`Não foi possível salvar o agendamento: ${error.message}`); return; }
+                   const updated = { ...settlingOrder, scheduledFor: scheduledFor || undefined };
+                   setSettlingOrder(updated);
+                   setAllSalesHistory(prev => prev.map(s => s.id === settlingOrder.id ? updated : s));
+                   showAlert('Agendamento atualizado!');
+                 }
+               }}
              >
                <CheckCircle2 size={16} />
                <span>OK</span>
