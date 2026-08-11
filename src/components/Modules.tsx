@@ -4043,16 +4043,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setOrcamentoModalOpen(true);
   };
 
-  const handleCreateOrcamentoFromCart = () => {
-    if (cart.length === 0) { alert('Adicione ao menos um item antes de criar o orçamento.'); return; }
+  const handleCreateOrcamentoFromCart = (overrideItems?: SaleOrderItem[], overrideCustomer?: { id?: string; name?: string; phone?: string }) => {
+    const items = overrideItems || cart;
+    if (items.length === 0) { alert('Adicione ao menos um item antes de criar o orçamento.'); return; }
     setEditingOrcamento(null);
     setOrcamentoFromCart(true);
     setOrcamentoForm({
       ...emptyOrcamentoForm,
-      clienteId: selectedCustomer?.id,
-      customerName: selectedCustomer?.name || '',
-      phone: selectedCustomer?.phone || '',
-      items: [...cart],
+      clienteId: overrideCustomer?.id ?? selectedCustomer?.id,
+      customerName: overrideCustomer?.name ?? selectedCustomer?.name ?? '',
+      phone: overrideCustomer?.phone ?? selectedCustomer?.phone ?? '',
+      items: [...items],
     });
     setOrcamentoModalOpen(true);
   };
@@ -7739,18 +7740,24 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
            {/* Bottom Action Bar (ALWAYS VISIBLE - NO SCROLL) */}
            <div className="flex gap-2 pt-1 border-t border-white/5 shrink-0">
-              {!settlingOrder && (
-                <Button
-                  variant="secondary"
-                  className="flex-1 h-9 sm:h-11 text-[8px] sm:text-[9px] uppercase font-black tracking-wider bg-emerald-500 hover:bg-emerald-400 text-slate-900 border-none shadow-lg shadow-emerald-500/20"
-                  onClick={() => {
-                    setIsPaymentModalOpen(false);
+              <Button
+                variant="secondary"
+                className="flex-1 h-9 sm:h-11 text-[8px] sm:text-[9px] uppercase font-black tracking-wider bg-emerald-500 hover:bg-emerald-400 text-slate-900 border-none shadow-lg shadow-emerald-500/20"
+                onClick={() => {
+                  setIsPaymentModalOpen(false);
+                  if (settlingOrder) {
+                    handleCreateOrcamentoFromCart(settlingOrder.items, {
+                      id: settlingOrder.customerId,
+                      name: settlingOrder.customerName,
+                      phone: settlingOrder.customerPhone,
+                    });
+                  } else {
                     handleCreateOrcamentoFromCart();
-                  }}
-                >
-                  Orçamento
-                </Button>
-              )}
+                  }
+                }}
+              >
+                Orçamento
+              </Button>
               {paymentModalRemaining > 0 ? (
                 <Button 
                   className="flex-[2] h-9 sm:h-11 bg-amber-500 hover:bg-amber-400 text-slate-900 border-none shadow-lg shadow-amber-500/20 text-[9px] sm:text-[10px] font-black uppercase tracking-wider gap-2 cursor-pointer"
