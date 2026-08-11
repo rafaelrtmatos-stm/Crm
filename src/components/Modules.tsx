@@ -4501,6 +4501,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     }
   };
 
+  const openReceiptById = async (saleId: string) => {
+    const { data, error } = await supabase.from('vendas').select('*').eq('id', saleId).maybeSingle();
+    if (error || !data) { showAlert('Não foi possível abrir esse pedido.'); return; }
+    await openReceiptDetail(mapVendaRow(data));
+  };
+
   const openReceiptDetail = async (sale: SaleOrder) => {
     setViewingReceiptSale(sale);
     setViewingReceiptEmail(undefined);
@@ -4756,6 +4762,30 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setIsBulkDeleteConfirmOpen(false);
     if (error) { console.error(error); showAlert('Não foi possível excluir as vendas selecionadas.'); return; }
     setSelectedSaleIds(new Set());
+  };
+
+  const handleBulkMarkAsPaid = async () => {
+    if (selectedSaleIds.size === 0) return;
+    if (!(await showConfirm(`Marcar ${selectedSaleIds.size} venda(s) selecionada(s) como paga/quitada (100% recebido)?`))) return;
+    const ids = Array.from(selectedSaleIds);
+    const vendasSelecionadas = filteredSalesHistory.filter(s => ids.includes(s.id));
+    for (const s of vendasSelecionadas) {
+      await supabase.from('vendas').update({ down_payment: s.total, received_value: s.total, status: 'completed' }).eq('id', s.id);
+    }
+    showAlert(`${vendasSelecionadas.length} venda(s) marcada(s) como paga(s)!`);
+    setSelectedSaleIds(new Set());
+    loadSalesHistory();
+  };
+
+  const handleBulkClose = async () => {
+    if (selectedSaleIds.size === 0) return;
+    if (!(await showConfirm(`Fechar (finalizar) ${selectedSaleIds.size} venda(s) selecionada(s)? Elas vão sair da lista de abertas.`))) return;
+    const ids = Array.from(selectedSaleIds);
+    const { error } = await supabase.from('vendas').update({ status: 'completed' }).in('id', ids);
+    if (error) { console.error(error); showAlert('Não foi possível fechar as vendas selecionadas.'); return; }
+    showAlert(`${ids.length} venda(s) fechada(s)!`);
+    setSelectedSaleIds(new Set());
+    loadSalesHistory();
   };
   const [settleModalOrder, setSettleModalOrder] = useState<SaleOrder | null>(null);
   const [settleMethod, setSettleMethod] = useState<'pix' | 'dinheiro' | 'cartao_credito' | 'cartao_debito'>('pix');
@@ -6334,6 +6364,20 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     </Button>
                     <Button
                       size="sm"
+                      className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 text-[9px] font-black uppercase tracking-wider px-3 h-9 border-none"
+                      onClick={handleBulkMarkAsPaid}
+                    >
+                      Marcar como Pago ({selectedSaleIds.size})
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="bg-primary-500 hover:bg-primary-400 text-slate-900 text-[9px] font-black uppercase tracking-wider px-3 h-9 border-none"
+                      onClick={handleBulkClose}
+                    >
+                      Fechar ({selectedSaleIds.size})
+                    </Button>
+                    <Button
+                      size="sm"
                       className="bg-rose-500 hover:bg-rose-400 text-white text-[9px] font-black uppercase tracking-wider px-3 h-9 border-none"
                       onClick={handleBulkDeleteSales}
                     >
@@ -7115,6 +7159,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 setSelectedCustomer(cliente);
                 setActiveTab('venda');
               }}
+              onOpenReceiptById={openReceiptById}
             />
           </div>
         )}
@@ -9344,7 +9389,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 };
 
 // --- CONTACTS ---
-export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStartSaleForClient }: { currentCompany: Company | null; onViewHistoryForClient?: (clienteId: string, clienteName: string) => void; onStartSaleForClient?: (cliente: { id: string; name: string; phone: string }) => void }) => {
+export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStartSaleForClient, onOpenReceiptById }: { currentCompany: Company | null; onViewHistoryForClient?: (clienteId: string, clienteName: string) => void; onStartSaleForClient?: (cliente: { id: string; name: string; phone: string }) => void; onOpenReceiptById?: (saleId: string) => void }) => {
   const [clientes, setClientes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -9893,8 +9938,14 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
                    </div>
                    <div className="space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar">
                       {(clienteVendas[fichaCliente.id] || []).slice(0, 10).map(v => (
-                        <div key={v.id} className="flex items-center justify-between gap-2 bg-white/5 border border-white/5 rounded-lg px-3 py-2">
+                        <button
+                          key={v.id}
+                          onClick={() => { onOpenReceiptById?.(v.id); setFichaCliente(null); }}
+                          disabled={!onOpenReceiptById}
+                          className="w-full flex items-center justify-between gap-2 bg-white/5 hover:bg-white/10 border border-white/5 hover:border-primary-500/30 rounded-lg px-3 py-2 transition-all text-left cursor-pointer disabled:cursor-default disabled:hover:bg-white/5"
+                        >
                            <div className="min-w-0 flex-1">
+                              <p className="text-[9px] font-mono font-black text-primary-400">#{v.id.slice(-8).toUpperCase()}</p>
                               <p className="text-[10px] font-bold text-white truncate">{v.itemsSummary}</p>
                               <p className="text-[9px] text-white/30">{safeFormat(v.createdAt, 'dd/MM/yyyy HH:mm')}</p>
                            </div>
@@ -9902,7 +9953,7 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
                               <p className="text-[10px] font-black text-white">R$ {v.total.toFixed(2).replace('.', ',')}</p>
                               <p className={cn("text-[8px] font-black uppercase", v.isFullyPaid ? "text-emerald-400" : "text-amber-400")}>{v.isFullyPaid ? 'Pago' : 'Pendente'}</p>
                            </div>
-                        </div>
+                        </button>
                       ))}
                    </div>
 
