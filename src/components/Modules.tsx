@@ -9372,10 +9372,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   </div>
                </div>
                <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Valor da Entrada</label>
-                  <div className="h-11 flex items-center px-3 bg-white/5 border border-white/10 rounded-xl text-sm text-emerald-400 font-bold">
-                    R$ {orcamentoEntradaValorCalc().toFixed(2).replace('.', ',')}
-                  </div>
+                  <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Valor da Entrada (R$)</label>
+                  <input
+          onFocus={(e: any) => e.target.select()}
+                    type="number"
+                    step="any"
+                    placeholder="Personalizado"
+                    value={orcamentoForm.entradaModo === 'valor' ? orcamentoForm.entradaValor : orcamentoEntradaValorCalc() || ''}
+                    onChange={(e: any) => updatePoliticaPagamento({ entradaModo: 'valor', entradaValor: (e.target.value === '' ? '' : Number(e.target.value)) })}
+                    className="w-full h-11 bg-white/5 border border-white/10 rounded-xl px-3 text-sm text-emerald-400 font-bold focus:outline-none focus:border-primary-500"
+                  />
                </div>
             </div>
 
