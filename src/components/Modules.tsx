@@ -5087,7 +5087,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const handleSaveEditSale = async () => {
     if (!editingSale) return;
-    const { error } = await supabase.from('vendas').update({
+    const { data, error } = await supabase.from('vendas').update({
       customer_name: editSaleForm.customerName,
       total: editSaleForm.total,
       down_payment: editSaleForm.downPayment,
@@ -5095,8 +5095,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       observacoes: editSaleForm.observacoes || null,
       scheduled_for: editSaleForm.scheduledFor || null,
       status: editSaleForm.downPayment >= editSaleForm.total ? 'completed' : 'pending',
-    }).eq('id', editingSale.id);
+    }).eq('id', editingSale.id).select();
     if (error) { console.error(error); showAlert('Não foi possível salvar as alterações.'); return; }
+    if (!data || data.length === 0) { showAlert('Nada foi salvo — o pedido pode ter sido removido ou alterado por outra pessoa. Feche e abra a tela de novo.'); return; }
     setEditingSale(null);
     loadSalesHistory();
   };
@@ -5750,7 +5751,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setSelectedCustomer(order.customerId ? { id: order.customerId, name: order.customerName || 'Cliente', phone: order.customerPhone || '' } : null);
     setPaymentEntries([]);
     setDownPayment(0);
-    setScheduledFor(order.scheduledFor || '');
+    setScheduledFor(order.scheduledFor ? order.scheduledFor.slice(0, 16) : '');
     setPendingPaymentMethod('');
     setIsPaymentModalOpen(true);
   };
@@ -5827,15 +5828,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       const novoSaldo = Math.max(0, paymentModalTotal - novoTotalPago);
       const pagamentosAnteriores = settlingOrder.payments || [];
       try {
-        const { error } = await supabase.from('vendas').update({
+        const { data, error } = await supabase.from('vendas').update({
           down_payment: novoTotalPago,
           received_value: novoTotalPago,
           payments: [...pagamentosAnteriores, ...paymentEntries],
           status: novoSaldo <= 0 ? 'completed' : 'pending',
           pending_payment_method: novoSaldo > 0 ? (pendingPaymentMethod || null) : null,
           scheduled_for: scheduledFor || settlingOrder.scheduledFor || null,
-        }).eq('id', settlingOrder.id);
+        }).eq('id', settlingOrder.id).select();
         if (error) throw error;
+        if (!data || data.length === 0) throw new Error('O pedido não foi encontrado pra atualizar — pode ter sido removido ou alterado por outra pessoa.');
 
         const updatedOrder: SaleOrder = { ...settlingOrder, downPayment: novoTotalPago, receivedValue: novoTotalPago, status: novoSaldo <= 0 ? 'completed' : 'pending', payments: [...pagamentosAnteriores, ...paymentEntries], scheduledFor: scheduledFor || settlingOrder.scheduledFor || undefined };
         setLastFinalizedOrder(updatedOrder);
@@ -9372,11 +9374,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  // Quitar Debito de um pedido ja existente: salva o agendamento na hora, direto no banco,
                  // sem depender de tambem confirmar um pagamento junto (antes so salvava se pagasse algo)
                  if (settlingOrder) {
-                   const { error } = await supabase.from('vendas').update({ scheduled_for: scheduledFor || null }).eq('id', settlingOrder.id);
+                   const { data, error } = await supabase.from('vendas').update({ scheduled_for: scheduledFor || null }).eq('id', settlingOrder.id).select();
                    if (error) { showAlert(`Não foi possível salvar o agendamento: ${error.message}`); return; }
+                   if (!data || data.length === 0) { showAlert('O agendamento não foi salvo — o pedido pode ter sido removido ou alterado por outra pessoa. Feche e abra a tela de novo.'); return; }
                    const updated = { ...settlingOrder, scheduledFor: scheduledFor || undefined };
                    setSettlingOrder(updated);
                    setAllSalesHistory(prev => prev.map(s => s.id === settlingOrder.id ? updated : s));
+                   setSalesToday(prev => prev.map(s => s.id === settlingOrder.id ? updated : s));
                    showAlert('Agendamento atualizado!');
                  }
                }}

@@ -2,7 +2,7 @@
 // para o sistema continuar abrindo mesmo sem internet.
 // Isso NÃO sincroniza dados (vendas, clientes etc) — só garante que a interface carregue offline.
 
-const CACHE_NAME = 'rafa-arts-shell-v5';
+const CACHE_NAME = 'rafa-arts-shell-v6';
 const OFFLINE_URL = '/';
 
 self.addEventListener('install', (event) => {
