@@ -8876,8 +8876,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
            size="sm"
          >
            <div className="flex flex-col items-center gap-4 p-2">
-             <div className="w-56 h-56 max-w-full bg-white rounded-2xl p-3 shadow-lg flex items-center justify-center shrink-0">
-               <img src={`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(pixPayload)}`} alt="QR Code PIX" className="h-full w-full object-contain" referrerPolicy="no-referrer" />
+             <div className="w-[336px] h-[336px] max-w-full bg-white rounded-2xl p-3 shadow-lg flex items-center justify-center shrink-0">
+               <img src={`https://api.qrserver.com/v1/create-qr-code/?size=450x450&data=${encodeURIComponent(pixPayload)}`} alt="QR Code PIX" className="h-full w-full object-contain" referrerPolicy="no-referrer" />
              </div>
 
              <div className="w-full bg-slate-900/60 rounded-2xl border border-white/10 p-4 space-y-2">
