@@ -173,7 +173,9 @@ import {
   Bar,
   Cell,
   PieChart,
-  Pie
+  Pie,
+  LineChart,
+  Line
 } from 'recharts';
 import { 
   SectionHeader, 
@@ -465,6 +467,8 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   const [customRange, setCustomRange] = useState({ start: '', end: '' });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isRevenueModalOpen, setIsRevenueModalOpen] = useState(false);
+  const [showLinhaFaturamento, setShowLinhaFaturamento] = useState(true);
+  const [showLinhaLucro, setShowLinhaLucro] = useState(true);
   const [revenueDataPoint, setRevenueDataPoint] = useState<any>(null);
    const [realSales, setRealSales] = useState<SaleOrder[]>([]);
   const [services, setServices] = useState<any[]>([]);
@@ -654,6 +658,72 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   const IconMap: Record<string, any> = {
     TrendingUp, Target, Clock, MessageSquare, ShoppingBag, Users, FileText, BarChart2, PieChartIcon, Trophy, Activity, Timer, CalendarDays, Wrench, Home
   };
+
+  // Analise Detalhada (modal "Analise de Performance") — independente do filtro de periodo do Dashboard,
+  // sempre olha pro dia/mes/ano corrente e os ultimos 30 dias, a partir de todas as vendas reais.
+  const analiseDetalhada = useMemo(() => {
+    const custoDoPedido = (o: SaleOrder) => {
+      let c = 0;
+      o.items?.forEach(item => {
+        const invItem = inventory.find(i => i.id === item.productId || i.name?.toLowerCase() === item.name?.toLowerCase());
+        const unitCost = invItem && typeof invItem.costPrice === 'number' ? invItem.costPrice : (item.price || 0) * 0.35;
+        c += item.area ? unitCost * item.area * item.quantity : unitCost * item.quantity;
+      });
+      if (o.status === 'pending' && o.total > 0) c *= (o.downPayment || 0) / o.total;
+      return c;
+    };
+    const faturamentoDoPedido = (o: SaleOrder) => o.status === 'pending' ? (o.downPayment || 0) : (o.total || 0);
+
+    const now = new Date();
+    const startOfDay = new Date(now); startOfDay.setHours(0, 0, 0, 0);
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfYear = new Date(now.getFullYear(), 0, 1);
+
+    const calcPeriodo = (desde: Date) => {
+      const vendas = realSales.filter(o => o.status !== 'canceled' && new Date(o.createdAt) >= desde);
+      const faturamento = vendas.reduce((acc, o) => acc + faturamentoDoPedido(o), 0);
+      const custo = vendas.reduce((acc, o) => acc + custoDoPedido(o), 0);
+      return { faturamento, lucro: Math.max(0, faturamento - custo), count: vendas.length };
+    };
+
+    const dia = calcPeriodo(startOfDay);
+    const mes = calcPeriodo(startOfMonth);
+    const ano = calcPeriodo(startOfYear);
+    const mediaDiariaMes = mes.faturamento / now.getDate();
+
+    // Produtos mais vendidos no ano corrente
+    const produtosMap: Record<string, { name: string; qty: number; total: number }> = {};
+    realSales.filter(o => o.status !== 'canceled' && new Date(o.createdAt) >= startOfYear).forEach(o => {
+      o.items?.forEach(item => {
+        if (!produtosMap[item.name]) produtosMap[item.name] = { name: item.name, qty: 0, total: 0 };
+        produtosMap[item.name].qty += item.quantity || 1;
+        produtosMap[item.name].total += item.area ? (item.price || 0) * item.area * item.quantity : (item.price || 0) * item.quantity;
+      });
+    });
+    const produtosMaisVendidos = Object.values(produtosMap).sort((a, b) => b.qty - a.qty).slice(0, 8);
+
+    // Linha dos ultimos 30 dias: faturamento e lucro por dia
+    const porDia: Record<string, { faturamento: number; custo: number }> = {};
+    realSales.filter(o => o.status !== 'canceled').forEach(o => {
+      const d = new Date(o.createdAt);
+      if (isNaN(d.getTime())) return;
+      const diffDias = Math.floor((startOfDay.getTime() - new Date(d).setHours(0, 0, 0, 0)) / 86400000);
+      if (diffDias < 0 || diffDias > 29) return;
+      const key = format(d, 'dd/MM');
+      if (!porDia[key]) porDia[key] = { faturamento: 0, custo: 0 };
+      porDia[key].faturamento += faturamentoDoPedido(o);
+      porDia[key].custo += custoDoPedido(o);
+    });
+    const linha30dias: { day: string; faturamento: number; lucro: number }[] = [];
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(now); d.setDate(now.getDate() - i);
+      const key = format(d, 'dd/MM');
+      const v = porDia[key] || { faturamento: 0, custo: 0 };
+      linha30dias.push({ day: key, faturamento: v.faturamento, lucro: Math.max(0, v.faturamento - v.custo) });
+    }
+
+    return { dia, mes, ano, mediaDiariaMes, produtosMaisVendidos, linha30dias };
+  }, [realSales, inventory]);
 
   const addWidget = (type: WidgetType) => {
     const newWidget: DashboardWidget = {
@@ -1166,27 +1236,99 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
          </div>
       </Modal>
 
-      <Modal isOpen={isRevenueModalOpen && !!user?.isAdmin} onClose={() => setIsRevenueModalOpen(false)} title="Detalhamento Operacional">
-         <div className="space-y-8 p-4">
-            <div className="grid grid-cols-2 gap-4">
-               <div className="p-6 bg-emerald-500/10 rounded-3xl border border-emerald-500/10">
-                  <p className="text-[10px] font-black uppercase text-emerald-500 tracking-widest mb-1">Valor Total</p>
-                  <p className="text-2xl font-black text-white">R$ {(revenueDataPoint?.total || totalRevenue).toLocaleString()}</p>
+      <Modal isOpen={isRevenueModalOpen && !!user?.isAdmin} onClose={() => setIsRevenueModalOpen(false)} title="Análise Detalhada" size="xl">
+         <div className="space-y-8 p-2 sm:p-4">
+            {/* Faturamento e lucro por periodo */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+               <div className="p-4 bg-emerald-500/10 rounded-2xl border border-emerald-500/10">
+                  <p className="text-[9px] font-black uppercase text-emerald-500 tracking-widest mb-1">Faturamento Hoje</p>
+                  <p className="text-lg font-black text-white">R$ {analiseDetalhada.dia.faturamento.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                </div>
-               <div className="p-6 bg-primary-500/10 rounded-3xl border border-primary-500/10">
-                  <p className="text-[10px] font-black uppercase text-primary-300 tracking-widest mb-1">Vendas (PDV)</p>
-                  <p className="text-2xl font-black text-white">{revenueDataPoint?.sales || totalSalesCount} un</p>
+               <div className="p-4 bg-primary-500/10 rounded-2xl border border-primary-500/10">
+                  <p className="text-[9px] font-black uppercase text-primary-300 tracking-widest mb-1">Faturamento Mês</p>
+                  <p className="text-lg font-black text-white">R$ {analiseDetalhada.mes.faturamento.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                </div>
-               <div className="p-6 bg-white/5 rounded-3xl border border-white/10">
-                  <p className="text-[10px] font-black uppercase text-white/40 tracking-widest mb-1">Serviços (OS)</p>
-                  <p className="text-2xl font-black text-white">{revenueDataPoint?.svcs || services.length} un</p>
+               <div className="p-4 bg-purple-500/10 rounded-2xl border border-purple-500/10">
+                  <p className="text-[9px] font-black uppercase text-purple-300 tracking-widest mb-1">Faturamento Ano</p>
+                  <p className="text-lg font-black text-white">R$ {analiseDetalhada.ano.faturamento.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                </div>
-               <div className="p-6 bg-rose-500/10 rounded-3xl border border-rose-500/10">
-                  <p className="text-[10px] font-black uppercase text-rose-400 tracking-widest mb-1">Entradas Pendentes</p>
-                  <p className="text-2xl font-black text-white">{revenueDataPoint?.entries || pendingEntries.length} un</p>
+               <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
+                  <p className="text-[9px] font-black uppercase text-white/40 tracking-widest mb-1">Média Diária (Mês)</p>
+                  <p className="text-lg font-black text-white">R$ {analiseDetalhada.mediaDiariaMes.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+               </div>
+               <div className="p-4 bg-emerald-500/5 rounded-2xl border border-emerald-500/20">
+                  <p className="text-[9px] font-black uppercase text-emerald-400 tracking-widest mb-1">Lucro do Mês</p>
+                  <p className="text-lg font-black text-emerald-400">R$ {analiseDetalhada.mes.lucro.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                </div>
             </div>
-            
+
+            {/* Grafico de linha: faturamento e lucro, ultimos 30 dias */}
+            <div className="bg-white/[0.02] border border-white/5 rounded-3xl p-5">
+               <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                  <h4 className="text-[10px] font-black uppercase text-white/40 tracking-widest">Faturamento x Lucro — Últimos 30 Dias</h4>
+                  <div className="flex items-center gap-2">
+                     <button
+                       onClick={() => setShowLinhaFaturamento(!showLinhaFaturamento)}
+                       className={cn(
+                         "flex items-center gap-1.5 px-2.5 h-7 rounded-lg text-[9px] font-black uppercase border cursor-pointer transition-all",
+                         showLinhaFaturamento ? "bg-[#4cc9f0]/15 text-[#4cc9f0] border-[#4cc9f0]/30" : "bg-white/5 text-white/30 border-white/10"
+                       )}
+                     >
+                       <div className="w-2 h-2 rounded-full bg-[#4cc9f0]" /> Ver Linha de Faturamento
+                     </button>
+                     <button
+                       onClick={() => setShowLinhaLucro(!showLinhaLucro)}
+                       className={cn(
+                         "flex items-center gap-1.5 px-2.5 h-7 rounded-lg text-[9px] font-black uppercase border cursor-pointer transition-all",
+                         showLinhaLucro ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" : "bg-white/5 text-white/30 border-white/10"
+                       )}
+                     >
+                       <div className="w-2 h-2 rounded-full bg-emerald-400" /> Ver Linha de Lucro
+                     </button>
+                  </div>
+               </div>
+               <div className="h-[260px] w-full">
+                  <ChartErrorBoundary>
+                  <ResponsiveContainer width="100%" height="100%">
+                     <LineChart data={analiseDetalhada.linha30dias}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
+                        <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: 'rgba(255,255,255,0.3)', fontWeight: 800 }} interval={2} />
+                        <YAxis hide />
+                        <Tooltip
+                           cursor={{ stroke: 'rgba(255,255,255,0.2)', strokeWidth: 1 }}
+                           contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', backdropFilter: 'blur(10px)' }}
+                           formatter={(value: any, name: string) => [`R$ ${Number(value).toFixed(2).replace('.', ',')}`, name === 'faturamento' ? 'Faturamento' : 'Lucro']}
+                        />
+                        {showLinhaFaturamento && <Line type="monotone" dataKey="faturamento" stroke="#4cc9f0" strokeWidth={2.5} dot={false} />}
+                        {showLinhaLucro && <Line type="monotone" dataKey="lucro" stroke="#34d399" strokeWidth={2.5} dot={false} />}
+                     </LineChart>
+                  </ResponsiveContainer>
+                  </ChartErrorBoundary>
+               </div>
+            </div>
+
+            {/* Produtos mais vendidos */}
+            <div className="space-y-3">
+               <h4 className="text-[10px] font-black uppercase text-white/30 tracking-widest italic">Produtos Mais Vendidos (Ano)</h4>
+               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {analiseDetalhada.produtosMaisVendidos.length === 0 && (
+                    <p className="text-xs text-white/30 col-span-full text-center py-6">Nenhuma venda registrada ainda este ano.</p>
+                  )}
+                  {analiseDetalhada.produtosMaisVendidos.map((p, i) => (
+                    <div key={p.name} className="flex items-center justify-between gap-3 bg-white/5 border border-white/5 rounded-xl px-4 py-2.5">
+                       <div className="flex items-center gap-2.5 min-w-0">
+                          <span className="text-[10px] font-black text-primary-400 shrink-0">#{i + 1}</span>
+                          <span className="text-xs font-bold text-white truncate">{p.name}</span>
+                       </div>
+                       <div className="text-right shrink-0">
+                          <p className="text-xs font-black text-white">{p.qty} un</p>
+                          <p className="text-[9px] text-emerald-400 font-bold">R$ {p.total.toFixed(2).replace('.', ',')}</p>
+                       </div>
+                    </div>
+                  ))}
+               </div>
+            </div>
+
             <div className="space-y-4">
                <h4 className="text-[10px] font-black uppercase text-white/30 tracking-widest italic">Últimos Lançamentos</h4>
                <div className="space-y-2">
