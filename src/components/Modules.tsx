@@ -3633,6 +3633,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     localStorage.setItem('rpro_sound_alerts_enabled', v ? 'true' : 'false');
   };
   const alertedThresholdsRef = React.useRef<Set<string>>(new Set());
+  const initializedSalesRef = React.useRef<Set<string>>(new Set());
 
   // Toca um bipe simples via Web Audio (sem depender de nenhum arquivo de audio)
   const playAlertBeep = () => {
@@ -3975,10 +3976,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       allSalesHistory.forEach(sale => {
         if (!sale.scheduledFor || sale.status === 'completed' || sale.status === 'canceled' || sale.deletedAt) return;
         const minutesUntil = (new Date(sale.scheduledFor).getTime() - now) / 60000;
+        // Primeira vez que vemos esse pedido nessa sessao (aba aberta agora, ou pedido novo) —
+        // se algum limite ja passou antes da gente ter chance de ver, marca como "ja alertado" SEM
+        // tocar som (nao alerta retroativo de coisa que ja passou antes de abrir a tela)
+        const primeiraVez = !initializedSalesRef.current.has(sale.id);
+        if (primeiraVez) initializedSalesRef.current.add(sale.id);
         THRESHOLDS.forEach(threshold => {
           const key = `${sale.id}-${threshold}`;
-          if (minutesUntil <= threshold && minutesUntil > threshold - 1 && !alertedThresholdsRef.current.has(key)) {
+          // Sem janela de tempo estreita — so verifica se ja cruzou o limite e ainda nao alertou.
+          // Assim nao depende do temporizador rodar EXATAMENTE no minuto certo (o navegador atrasa
+          // temporizadores em aba em segundo plano, o que fazia a janela antiga de 1min ser perdida).
+          if (minutesUntil <= threshold && !alertedThresholdsRef.current.has(key)) {
             alertedThresholdsRef.current.add(key);
+            if (primeiraVez) return; // ja tinha passado antes da gente ver esse pedido — nao alerta retroativo
             playAlertBeep();
             const label = threshold === 0 ? 'na hora marcada agora' : `em ${threshold} minuto${threshold > 1 ? 's' : ''}`;
             setAlertToast(`⏰ Entrega de ${sale.customerName || 'cliente'} ${label}`);
@@ -3988,7 +3998,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       });
     };
     checkAlerts();
-    const interval = setInterval(checkAlerts, 20000);
+    const interval = setInterval(checkAlerts, 15000);
     return () => clearInterval(interval);
   }, [allSalesHistory, soundAlertsEnabled]);
 
@@ -6293,6 +6303,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                      >
                         {soundAlertsEnabled ? <Bell size={12} /> : <BellOff size={12} />}
                         <span className="text-[8px] font-black uppercase tracking-wider">{soundAlertsEnabled ? 'Alertas On' : 'Alertas Off'}</span>
+                     </button>
+                     <button
+                       type="button"
+                       onClick={() => { playAlertBeep(); setAlertToast('⏰ Teste de alerta — se você ouviu o bipe e viu esse aviso, está tudo funcionando!'); setTimeout(() => setAlertToast(null), 6000); }}
+                       title="Testar o som e o aviso agora, sem precisar esperar um horário real"
+                       className="px-2 py-1 rounded-lg bg-white/5 text-white/40 hover:text-white border-0 cursor-pointer text-[8px] font-black uppercase tracking-wider"
+                     >
+                        Testar
                      </button>
                   </div>
                   {user?.isAdmin && (
