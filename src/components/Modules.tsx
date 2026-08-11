@@ -6270,8 +6270,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     
     // Adiciona a venda recem criada localmente (usa o id/dados reais vindos do banco)
     // em vez de recarregar a tabela inteira, que fica lenta conforme o historico cresce
+    let novaVendaMapeada: SaleOrder = order;
     if (insertedVenda) {
-      const novaVendaMapeada = mapVendaRow(insertedVenda);
+      novaVendaMapeada = mapVendaRow(insertedVenda);
       setAllSalesHistory(prev => [novaVendaMapeada, ...prev]);
       const inicioHoje = new Date();
       inicioHoje.setHours(0, 0, 0, 0);
@@ -6279,7 +6280,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         setSalesToday(prev => [novaVendaMapeada, ...prev]);
       }
     }
-    setLastFinalizedOrder(order);
+    // Usa a venda com o id REAL do banco (nao o id local temporario "ord_..."), senao
+    // qualquer acao feita a partir da tela de sucesso (ex: mudar Etapa Atual) falha
+    // tentando usar um id que nao existe de verdade no banco.
+    setLastFinalizedOrder(novaVendaMapeada);
     setIsSuccessModalOpen(true);
     setIsPaymentModalOpen(false);
     
