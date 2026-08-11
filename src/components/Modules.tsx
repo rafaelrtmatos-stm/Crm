@@ -662,6 +662,8 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
 
   // Analise Detalhada (modal "Analise de Performance") — independente do filtro de periodo do Dashboard,
   // sempre olha pro dia/mes/ano corrente e os ultimos 30 dias, a partir de todas as vendas reais.
+  const [analisePeriodo, setAnalisePeriodo] = useState<'hoje' | 'semana' | 'mes' | 'ano'>('mes');
+
   const analiseDetalhada = useMemo(() => {
     const custoDoPedido = (o: SaleOrder) => {
       let c = 0;
@@ -677,8 +679,13 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
 
     const now = new Date();
     const startOfDay = new Date(now); startOfDay.setHours(0, 0, 0, 0);
+    const startOfWeek = new Date(now); startOfWeek.setDate(now.getDate() - now.getDay()); startOfWeek.setHours(0, 0, 0, 0);
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const startOfYear = new Date(now.getFullYear(), 0, 1);
+
+    const inicioPeriodo = analisePeriodo === 'hoje' ? startOfDay : analisePeriodo === 'semana' ? startOfWeek : analisePeriodo === 'mes' ? startOfMonth : startOfYear;
+    const diasNoPeriodo = Math.max(1, Math.ceil((now.getTime() - inicioPeriodo.getTime()) / 86400000) + 1);
+    const diasParaGrafico = analisePeriodo === 'hoje' ? 7 : analisePeriodo === 'semana' ? 7 : analisePeriodo === 'mes' ? 30 : 365;
 
     const calcPeriodo = (desde: Date) => {
       const vendas = realSales.filter(o => o.status !== 'canceled' && new Date(o.createdAt) >= desde);
@@ -687,44 +694,51 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       return { faturamento, lucro: Math.max(0, faturamento - custo), count: vendas.length };
     };
 
-    const dia = calcPeriodo(startOfDay);
-    const mes = calcPeriodo(startOfMonth);
-    const ano = calcPeriodo(startOfYear);
-    const mediaDiariaMes = mes.faturamento / now.getDate();
+    const periodo = calcPeriodo(inicioPeriodo);
+    const mediaDiariaPeriodo = periodo.faturamento / diasNoPeriodo;
 
-    // Produtos mais vendidos no ano corrente
+    // Produtos mais vendidos no periodo selecionado
     const produtosMap: Record<string, { name: string; qty: number; total: number }> = {};
-    realSales.filter(o => o.status !== 'canceled' && new Date(o.createdAt) >= startOfYear).forEach(o => {
+    realSales.filter(o => o.status !== 'canceled' && new Date(o.createdAt) >= inicioPeriodo).forEach(o => {
       o.items?.forEach(item => {
         if (!produtosMap[item.name]) produtosMap[item.name] = { name: item.name, qty: 0, total: 0 };
         produtosMap[item.name].qty += item.quantity || 1;
         produtosMap[item.name].total += item.area ? (item.price || 0) * item.area * item.quantity : (item.price || 0) * item.quantity;
       });
     });
-    const produtosMaisVendidos = Object.values(produtosMap).sort((a, b) => b.qty - a.qty).slice(0, 8);
+    const produtosMaisVendidos = Object.values(produtosMap).sort((a, b) => b.qty - a.qty).slice(0, 6);
 
-    // Linha dos ultimos 30 dias: faturamento e lucro por dia
-    const porDia: Record<string, { faturamento: number; custo: number }> = {};
+    // Linha do periodo (por dia, ou por mes se for "ano")
+    const porBucket: Record<string, { faturamento: number; custo: number }> = {};
     realSales.filter(o => o.status !== 'canceled').forEach(o => {
       const d = new Date(o.createdAt);
       if (isNaN(d.getTime())) return;
       const diffDias = Math.floor((startOfDay.getTime() - new Date(d).setHours(0, 0, 0, 0)) / 86400000);
-      if (diffDias < 0 || diffDias > 29) return;
-      const key = format(d, 'dd/MM');
-      if (!porDia[key]) porDia[key] = { faturamento: 0, custo: 0 };
-      porDia[key].faturamento += faturamentoDoPedido(o);
-      porDia[key].custo += custoDoPedido(o);
+      if (diffDias < 0 || diffDias >= diasParaGrafico) return;
+      const key = analisePeriodo === 'ano' ? format(d, 'MM/yyyy') : format(d, 'dd/MM');
+      if (!porBucket[key]) porBucket[key] = { faturamento: 0, custo: 0 };
+      porBucket[key].faturamento += faturamentoDoPedido(o);
+      porBucket[key].custo += custoDoPedido(o);
     });
-    const linha30dias: { day: string; faturamento: number; lucro: number }[] = [];
-    for (let i = 29; i >= 0; i--) {
-      const d = new Date(now); d.setDate(now.getDate() - i);
-      const key = format(d, 'dd/MM');
-      const v = porDia[key] || { faturamento: 0, custo: 0 };
-      linha30dias.push({ day: key, faturamento: v.faturamento, lucro: Math.max(0, v.faturamento - v.custo) });
+    const linhaGrafico: { day: string; faturamento: number; lucro: number }[] = [];
+    if (analisePeriodo === 'ano') {
+      for (let i = 11; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const key = format(d, 'MM/yyyy');
+        const v = porBucket[key] || { faturamento: 0, custo: 0 };
+        linhaGrafico.push({ day: format(d, 'MM/yy'), faturamento: v.faturamento, lucro: Math.max(0, v.faturamento - v.custo) });
+      }
+    } else {
+      for (let i = diasParaGrafico - 1; i >= 0; i--) {
+        const d = new Date(now); d.setDate(now.getDate() - i);
+        const key = format(d, 'dd/MM');
+        const v = porBucket[key] || { faturamento: 0, custo: 0 };
+        linhaGrafico.push({ day: key, faturamento: v.faturamento, lucro: Math.max(0, v.faturamento - v.custo) });
+      }
     }
 
-    return { dia, mes, ano, mediaDiariaMes, produtosMaisVendidos, linha30dias };
-  }, [realSales, inventory]);
+    return { periodo, mediaDiariaPeriodo, produtosMaisVendidos, linhaGrafico };
+  }, [realSales, inventory, analisePeriodo]);
 
   const addWidget = (type: WidgetType) => {
     const newWidget: DashboardWidget = {
@@ -1238,113 +1252,116 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       </Modal>
 
       <Modal isOpen={isRevenueModalOpen && !!user?.isAdmin} onClose={() => setIsRevenueModalOpen(false)} title="Análise Detalhada" size="xl">
-         <div className="space-y-8 p-2 sm:p-4">
-            {/* Faturamento e lucro por periodo */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-               <div className="p-4 bg-emerald-500/10 rounded-2xl border border-emerald-500/10">
-                  <p className="text-[9px] font-black uppercase text-emerald-500 tracking-widest mb-1">Faturamento Hoje</p>
-                  <p className="text-lg font-black text-white">R$ {analiseDetalhada.dia.faturamento.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+         <div className="space-y-4 p-1 sm:p-2">
+            {/* Seletor de periodo */}
+            <div className="flex items-center bg-white/5 border border-white/10 rounded-xl p-1 w-fit">
+               {[
+                 { id: 'hoje', label: 'Hoje' },
+                 { id: 'semana', label: 'Semana' },
+                 { id: 'mes', label: 'Mês' },
+                 { id: 'ano', label: 'Ano' },
+               ].map(p => (
+                 <button
+                   key={p.id}
+                   onClick={() => setAnalisePeriodo(p.id as any)}
+                   className={cn(
+                     "px-3.5 h-8 rounded-lg text-[10px] font-black uppercase tracking-wide cursor-pointer border-0 transition-all",
+                     analisePeriodo === p.id ? "bg-primary-500 text-slate-900" : "bg-transparent text-white/40 hover:text-white"
+                   )}
+                 >
+                   {p.label}
+                 </button>
+               ))}
+            </div>
+
+            {/* Cards do periodo selecionado */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+               <div className="p-3 bg-primary-500/10 rounded-xl border border-primary-500/10">
+                  <p className="text-[8px] font-black uppercase text-primary-300 tracking-widest mb-1">Faturamento</p>
+                  <p className="text-base font-black text-white">R$ {analiseDetalhada.periodo.faturamento.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                </div>
-               <div className="p-4 bg-primary-500/10 rounded-2xl border border-primary-500/10">
-                  <p className="text-[9px] font-black uppercase text-primary-300 tracking-widest mb-1">Faturamento Mês</p>
-                  <p className="text-lg font-black text-white">R$ {analiseDetalhada.mes.faturamento.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+               <div className="p-3 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
+                  <p className="text-[8px] font-black uppercase text-emerald-400 tracking-widest mb-1">Lucro</p>
+                  <p className="text-base font-black text-emerald-400">R$ {analiseDetalhada.periodo.lucro.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                </div>
-               <div className="p-4 bg-purple-500/10 rounded-2xl border border-purple-500/10">
-                  <p className="text-[9px] font-black uppercase text-purple-300 tracking-widest mb-1">Faturamento Ano</p>
-                  <p className="text-lg font-black text-white">R$ {analiseDetalhada.ano.faturamento.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+               <div className="p-3 bg-white/5 rounded-xl border border-white/10">
+                  <p className="text-[8px] font-black uppercase text-white/40 tracking-widest mb-1">Média Diária</p>
+                  <p className="text-base font-black text-white">R$ {analiseDetalhada.mediaDiariaPeriodo.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                </div>
-               <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
-                  <p className="text-[9px] font-black uppercase text-white/40 tracking-widest mb-1">Média Diária (Mês)</p>
-                  <p className="text-lg font-black text-white">R$ {analiseDetalhada.mediaDiariaMes.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-               </div>
-               <div className="p-4 bg-emerald-500/5 rounded-2xl border border-emerald-500/20">
-                  <p className="text-[9px] font-black uppercase text-emerald-400 tracking-widest mb-1">Lucro do Mês</p>
-                  <p className="text-lg font-black text-emerald-400">R$ {analiseDetalhada.mes.lucro.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+               <div className="p-3 bg-purple-500/10 rounded-xl border border-purple-500/10">
+                  <p className="text-[8px] font-black uppercase text-purple-300 tracking-widest mb-1">Vendas</p>
+                  <p className="text-base font-black text-white">{analiseDetalhada.periodo.count} un</p>
                </div>
             </div>
 
-            {/* Grafico de linha: faturamento e lucro, ultimos 30 dias */}
-            <div className="bg-white/[0.02] border border-white/5 rounded-3xl p-5">
-               <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-                  <h4 className="text-[10px] font-black uppercase text-white/40 tracking-widest">Faturamento x Lucro — Últimos 30 Dias</h4>
-                  <div className="flex items-center gap-2">
-                     <button
-                       onClick={() => setShowLinhaFaturamento(!showLinhaFaturamento)}
-                       className={cn(
-                         "flex items-center gap-1.5 px-2.5 h-7 rounded-lg text-[9px] font-black uppercase border cursor-pointer transition-all",
-                         showLinhaFaturamento ? "bg-[#4cc9f0]/15 text-[#4cc9f0] border-[#4cc9f0]/30" : "bg-white/5 text-white/30 border-white/10"
-                       )}
-                     >
-                       <div className="w-2 h-2 rounded-full bg-[#4cc9f0]" /> Ver Linha de Faturamento
-                     </button>
-                     <button
-                       onClick={() => setShowLinhaLucro(!showLinhaLucro)}
-                       className={cn(
-                         "flex items-center gap-1.5 px-2.5 h-7 rounded-lg text-[9px] font-black uppercase border cursor-pointer transition-all",
-                         showLinhaLucro ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" : "bg-white/5 text-white/30 border-white/10"
-                       )}
-                     >
-                       <div className="w-2 h-2 rounded-full bg-emerald-400" /> Ver Linha de Lucro
-                     </button>
+            {/* Grafico + Produtos mais vendidos lado a lado */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+               <div className="lg:col-span-2 bg-white/[0.02] border border-white/5 rounded-2xl p-3">
+                  <div className="flex items-center justify-between mb-2 flex-wrap gap-1.5">
+                     <h4 className="text-[9px] font-black uppercase text-white/40 tracking-widest">Faturamento x Lucro</h4>
+                     <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => setShowLinhaFaturamento(!showLinhaFaturamento)}
+                          className={cn(
+                            "flex items-center gap-1 px-2 h-6 rounded-md text-[8px] font-black uppercase border cursor-pointer transition-all",
+                            showLinhaFaturamento ? "bg-[#4cc9f0]/15 text-[#4cc9f0] border-[#4cc9f0]/30" : "bg-white/5 text-white/30 border-white/10"
+                          )}
+                        >
+                          <div className="w-1.5 h-1.5 rounded-full bg-[#4cc9f0]" /> Faturamento
+                        </button>
+                        <button
+                          onClick={() => setShowLinhaLucro(!showLinhaLucro)}
+                          className={cn(
+                            "flex items-center gap-1 px-2 h-6 rounded-md text-[8px] font-black uppercase border cursor-pointer transition-all",
+                            showLinhaLucro ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" : "bg-white/5 text-white/30 border-white/10"
+                          )}
+                        >
+                          <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Lucro
+                        </button>
+                     </div>
+                  </div>
+                  <div className="h-[190px] w-full">
+                     <ChartErrorBoundary>
+                     <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={analiseDetalhada.linhaGrafico}>
+                           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
+                           <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 8, fill: 'rgba(255,255,255,0.3)', fontWeight: 800 }} interval="preserveStartEnd" />
+                           <YAxis hide />
+                           <Tooltip
+                              cursor={{ stroke: 'rgba(255,255,255,0.2)', strokeWidth: 1 }}
+                              contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', backdropFilter: 'blur(10px)' }}
+                              formatter={(value: any, name: string) => [`R$ ${Number(value).toFixed(2).replace('.', ',')}`, name === 'faturamento' ? 'Faturamento' : 'Lucro']}
+                           />
+                           {showLinhaFaturamento && <Line type="monotone" dataKey="faturamento" stroke="#4cc9f0" strokeWidth={2} dot={false} />}
+                           {showLinhaLucro && <Line type="monotone" dataKey="lucro" stroke="#34d399" strokeWidth={2} dot={false} />}
+                        </LineChart>
+                     </ResponsiveContainer>
+                     </ChartErrorBoundary>
                   </div>
                </div>
-               <div className="h-[260px] w-full">
-                  <ChartErrorBoundary>
-                  <ResponsiveContainer width="100%" height="100%">
-                     <LineChart data={analiseDetalhada.linha30dias}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
-                        <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: 'rgba(255,255,255,0.3)', fontWeight: 800 }} interval={2} />
-                        <YAxis hide />
-                        <Tooltip
-                           cursor={{ stroke: 'rgba(255,255,255,0.2)', strokeWidth: 1 }}
-                           contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', backdropFilter: 'blur(10px)' }}
-                           formatter={(value: any, name: string) => [`R$ ${Number(value).toFixed(2).replace('.', ',')}`, name === 'faturamento' ? 'Faturamento' : 'Lucro']}
-                        />
-                        {showLinhaFaturamento && <Line type="monotone" dataKey="faturamento" stroke="#4cc9f0" strokeWidth={2.5} dot={false} />}
-                        {showLinhaLucro && <Line type="monotone" dataKey="lucro" stroke="#34d399" strokeWidth={2.5} dot={false} />}
-                     </LineChart>
-                  </ResponsiveContainer>
-                  </ChartErrorBoundary>
+
+               <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-3 flex flex-col">
+                  <h4 className="text-[9px] font-black uppercase text-white/40 tracking-widest mb-2">Mais Vendidos</h4>
+                  <div className="space-y-1.5 flex-1 overflow-y-auto custom-scrollbar max-h-[190px]">
+                     {analiseDetalhada.produtosMaisVendidos.length === 0 && (
+                       <p className="text-[10px] text-white/30 text-center py-6">Sem vendas nesse período.</p>
+                     )}
+                     {analiseDetalhada.produtosMaisVendidos.map((p, i) => (
+                       <div key={p.name} className="flex items-center justify-between gap-2 bg-white/5 border border-white/5 rounded-lg px-2.5 py-1.5">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                             <span className="text-[9px] font-black text-primary-400 shrink-0">#{i + 1}</span>
+                             <span className="text-[10px] font-bold text-white truncate">{p.name}</span>
+                          </div>
+                          <div className="text-right shrink-0">
+                             <p className="text-[10px] font-black text-white">{p.qty}un</p>
+                          </div>
+                       </div>
+                     ))}
+                  </div>
                </div>
             </div>
 
-            {/* Produtos mais vendidos */}
-            <div className="space-y-3">
-               <h4 className="text-[10px] font-black uppercase text-white/30 tracking-widest italic">Produtos Mais Vendidos (Ano)</h4>
-               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {analiseDetalhada.produtosMaisVendidos.length === 0 && (
-                    <p className="text-xs text-white/30 col-span-full text-center py-6">Nenhuma venda registrada ainda este ano.</p>
-                  )}
-                  {analiseDetalhada.produtosMaisVendidos.map((p, i) => (
-                    <div key={p.name} className="flex items-center justify-between gap-3 bg-white/5 border border-white/5 rounded-xl px-4 py-2.5">
-                       <div className="flex items-center gap-2.5 min-w-0">
-                          <span className="text-[10px] font-black text-primary-400 shrink-0">#{i + 1}</span>
-                          <span className="text-xs font-bold text-white truncate">{p.name}</span>
-                       </div>
-                       <div className="text-right shrink-0">
-                          <p className="text-xs font-black text-white">{p.qty} un</p>
-                          <p className="text-[9px] text-emerald-400 font-bold">R$ {p.total.toFixed(2).replace('.', ',')}</p>
-                       </div>
-                    </div>
-                  ))}
-               </div>
-            </div>
-
-            <div className="space-y-4">
-               <h4 className="text-[10px] font-black uppercase text-white/30 tracking-widest italic">Últimos Lançamentos</h4>
-               <div className="space-y-2">
-                  {filteredOrders.slice(0, 5).map(o => (
-                    <div key={o.id} className="p-4 bg-white/5 rounded-2xl flex justify-between items-center">
-                       <div>
-                          <p className="text-xs font-bold text-white uppercase">{o.customerName || 'Cliente Balcão'}</p>
-                          <p className="text-[9px] text-white/30 uppercase font-black">{safeFormat(o.createdAt, 'dd/MM HH:mm')}</p>
-                       </div>
-                       <p className="text-sm font-black text-emerald-400">R$ {o.total.toFixed(2).replace('.', ',')}</p>
-                    </div>
-                  ))}
-               </div>
-            </div>
-            <Button className="w-full h-14" onClick={() => setActiveTab?.('pos')}>Ver Histórico de Vendas</Button>
+            <Button className="w-full h-11" onClick={() => setActiveTab?.('pos')}>Ver Histórico de Vendas</Button>
          </div>
       </Modal>
 
