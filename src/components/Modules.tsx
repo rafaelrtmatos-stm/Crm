@@ -11039,6 +11039,16 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
   const [pedidos, setPedidos] = useState<SaleOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [showEntregues, setShowEntregues] = useState(false);
+  const [ordemSortBy, setOrdemSortByState] = useState<'entrega' | 'pedido'>(() => {
+    const saved = localStorage.getItem('rpro_ordem_servico_sort');
+    return saved === 'entrega' || saved === 'pedido' ? saved : 'pedido';
+  });
+  const [ordemSortDir, setOrdemSortDirState] = useState<'asc' | 'desc'>(() => {
+    const saved = localStorage.getItem('rpro_ordem_servico_dir');
+    return saved === 'asc' || saved === 'desc' ? saved : 'asc';
+  });
+  const setOrdemSortBy = (v: 'entrega' | 'pedido') => { setOrdemSortByState(v); localStorage.setItem('rpro_ordem_servico_sort', v); };
+  const setOrdemSortDir = (v: 'asc' | 'desc') => { setOrdemSortDirState(v); localStorage.setItem('rpro_ordem_servico_dir', v); };
 
   const loadPedidos = async () => {
     const { data } = await supabase.from('vendas').select('*').is('deleted_at', null).neq('status', 'canceled').order('created_at', { ascending: true });
@@ -11072,15 +11082,33 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
             </h2>
             <p className="text-[10px] md:text-xs text-white/40 font-bold uppercase tracking-widest mt-1">Fila de produção — todos os pedidos, agrupados pela etapa atual</p>
          </div>
-         <button
-           onClick={() => setShowEntregues(!showEntregues)}
-           className={cn(
-             "text-[9px] font-black uppercase px-3 py-2 rounded-lg border-0 cursor-pointer transition-all",
-             showEntregues ? "bg-primary-500/20 text-primary-300" : "bg-white/5 text-white/40"
-           )}
-         >
-           {showEntregues ? '✓ Mostrando Entregues' : 'Ocultar Entregues Antigos'}
-         </button>
+         <div className="flex items-center gap-2 flex-wrap">
+            <select
+              value={ordemSortBy}
+              onChange={(e) => setOrdemSortBy(e.target.value as any)}
+              className="h-9 bg-white/5 border border-white/10 rounded-lg px-2.5 text-[10px] text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer"
+            >
+              <option value="pedido" className="bg-slate-900">Hora do Pedido</option>
+              <option value="entrega" className="bg-slate-900">Hora de Entrega</option>
+            </select>
+            <button
+              onClick={() => setOrdemSortDir(ordemSortDir === 'asc' ? 'desc' : 'asc')}
+              title={ordemSortDir === 'asc' ? 'Crescente (mais antigo primeiro)' : 'Decrescente (mais recente primeiro)'}
+              className="flex items-center gap-1 h-9 px-2.5 bg-white/5 border border-white/10 rounded-lg text-[10px] text-white font-bold hover:border-primary-500/40 cursor-pointer"
+            >
+              {ordemSortDir === 'asc' ? <ArrowUpWideNarrow size={13} /> : <ArrowDownWideNarrow size={13} />}
+              {ordemSortDir === 'asc' ? 'Crescente' : 'Decrescente'}
+            </button>
+            <button
+              onClick={() => setShowEntregues(!showEntregues)}
+              className={cn(
+                "text-[9px] font-black uppercase px-3 h-9 rounded-lg border-0 cursor-pointer transition-all",
+                showEntregues ? "bg-primary-500/20 text-primary-300" : "bg-white/5 text-white/40"
+              )}
+            >
+              {showEntregues ? '✓ Mostrando Entregues' : 'Ocultar Entregues Antigos'}
+            </button>
+         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -11094,6 +11122,17 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
               return dias <= 2;
             }
             return true;
+          }).sort((a, b) => {
+            if (ordemSortBy === 'entrega') {
+              // Pedido sem entrega agendada sempre vai pro fim, em qualquer direcao
+              if (!a.scheduledFor && !b.scheduledFor) return 0;
+              if (!a.scheduledFor) return 1;
+              if (!b.scheduledFor) return -1;
+              const diff = new Date(a.scheduledFor).getTime() - new Date(b.scheduledFor).getTime();
+              return ordemSortDir === 'asc' ? diff : -diff;
+            }
+            const diff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+            return ordemSortDir === 'asc' ? diff : -diff;
           });
           return (
             <div key={group.id} className="space-y-5">
