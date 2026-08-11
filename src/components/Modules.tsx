@@ -3976,6 +3976,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [isAddPaymentOpen, setIsAddPaymentOpen] = useState(false);
   const [newPaymentMethod, setNewPaymentMethod] = useState<PaymentEntry['method']>('pix');
   const [newPaymentMode, setNewPaymentMode] = useState<'valor' | 'percentual'>('valor');
+  const [useCustomPaymentDate, setUseCustomPaymentDate] = useState(false);
+  const [customPaymentDate, setCustomPaymentDate] = useState('');
   const [newPaymentInput, setNewPaymentInput] = useState<number | ''>('');
   const [pendingPaymentMethod, setPendingPaymentMethod] = useState<string>('');
   const [pixQrAmount, setPixQrAmount] = useState<number>(0);
@@ -5772,9 +5774,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       feePercent = debitCardFeePercent;
       value = Number((baseValue * (1 + feePercent / 100)).toFixed(2));
     }
-    setPaymentEntries(prev => [...prev, { method: newPaymentMethod, value, date: new Date().toISOString(), installments, feePercent }]);
+    const dataLancamento = useCustomPaymentDate && customPaymentDate ? new Date(customPaymentDate).toISOString() : new Date().toISOString();
+    setPaymentEntries(prev => [...prev, { method: newPaymentMethod, value, date: dataLancamento, installments, feePercent }]);
     setNewPaymentMode('valor');
     setNewPaymentInstallments(1);
+    setUseCustomPaymentDate(false);
+    setCustomPaymentDate('');
   };
 
   const removePaymentEntry = (idx: number) => {
@@ -7845,6 +7850,34 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               <Plus size={12} className="mr-1" /> Adicionar
                             </Button>
                          </div>
+
+                         {!useCustomPaymentDate ? (
+                           <button
+                             onClick={() => setUseCustomPaymentDate(true)}
+                             className="flex items-center gap-1 text-[8px] font-black uppercase text-white/30 hover:text-primary-400 shrink-0 self-start border-0 bg-transparent cursor-pointer"
+                           >
+                             <CalendarClock size={11} /> Lançar com data/hora retroativa
+                           </button>
+                         ) : (
+                           <div className="flex items-center gap-1.5 shrink-0">
+                              <div className="flex-1 space-y-0.5">
+                                 <label className="text-[7px] font-black text-white/40 uppercase tracking-widest block">Data/Hora do Pagamento</label>
+                                 <input
+                                   type="datetime-local"
+                                   value={customPaymentDate}
+                                   onChange={(e) => setCustomPaymentDate(e.target.value)}
+                                   className="w-full h-8 bg-slate-900/50 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500"
+                                 />
+                              </div>
+                              <button
+                                onClick={() => { setUseCustomPaymentDate(false); setCustomPaymentDate(''); }}
+                                title="Usar a hora de agora"
+                                className="h-8 px-2 rounded-lg border border-white/10 text-white/40 hover:text-rose-400 hover:border-rose-500/30 bg-transparent cursor-pointer text-[9px] font-bold shrink-0"
+                              >
+                                <X size={12} />
+                              </button>
+                           </div>
+                         )}
 
                          {newPaymentMode === 'percentual' && newPaymentInput !== '' && (
                             <p className="text-[9px] text-primary-300 font-bold shrink-0">= R$ {((total * Number(newPaymentInput)) / 100).toFixed(2).replace('.', ',')}</p>
