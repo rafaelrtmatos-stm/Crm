@@ -972,8 +972,9 @@ export default function App() {
     // If admin, show everything
     if (user?.isAdmin) return true;
     
-    // Always show dashboard and settings
-    if (['dashboard', 'settings'].includes(item.id)) return true;
+    // Se nao tem admin nem allowedTabs definido, mostra so o Dashboard por padrao —
+    // Configuracoes NUNCA deve aparecer de graca pra quem nao e admin
+    if (item.id === 'dashboard') return true;
     
     // Otherwise check company active modules
     return currentCompany?.activeModules?.includes(item.id) ?? true;
