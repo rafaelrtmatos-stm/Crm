@@ -187,6 +187,7 @@ import {
 import { collection, query, where, onSnapshot, orderBy, Timestamp, addDoc, doc, updateDoc, getDocs, setDoc, limit, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { supabase } from '../supabase';
+import { showAlert, showConfirm } from '../lib/notify';
 import { buildPixPayload } from '../lib/pix';
 import { renderReceiptCanvas, downloadCanvasAsPng, downloadCanvasAsPdf, COMPANY_CONTACT, CompanyContactInfo } from '../lib/receipt';
 import { renderOrcamentoCanvas } from '../lib/orcamentoDoc';
@@ -514,11 +515,11 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         });
       }
 
-      alert(`Saldo de R$ ${balanceToSettle.toFixed(2).replace('.', ',')} quitado com sucesso!\nA venda/serviço foi totalmente quitada.`);
+      showAlert(`Saldo de R$ ${balanceToSettle.toFixed(2).replace('.', ',')} quitado com sucesso!\nA venda/serviço foi totalmente quitada.`);
       setSettleModalOrder(null);
     } catch (err) {
       console.error('Erro ao quitar saldo:', err);
-      alert('Erro ao quitar saldo do pedido.');
+      showAlert('Erro ao quitar saldo do pedido.');
     }
   };
 
@@ -1506,7 +1507,7 @@ export const ChatPanel = ({
   ];
 
   const quickActions = [
-    { id: 'note', icon: StickyNote, label: 'Nota Interna', color: 'text-amber-400', permission: permissions.canStartNote, onClick: () => alert('Nota interna simulada no sistema') },
+    { id: 'note', icon: StickyNote, label: 'Nota Interna', color: 'text-amber-400', permission: permissions.canStartNote, onClick: () => showAlert('Nota interna simulada no sistema') },
     { id: 'saved', icon: MessageSquare, label: 'Msg Salva', color: 'text-primary-300', permission: permissions.canSendSavedMessage, onClick: () => setShowQuickTemplates(!showQuickTemplates) },
     { id: 'card', icon: LayoutDashboard, label: 'Criar Card', color: 'text-emerald-400', permission: permissions.canCreateCard },
     { id: 'task', icon: ListTodo, label: 'Tarefa', color: 'text-purple-400', permission: permissions.canAddTask },
@@ -2486,7 +2487,7 @@ export const MessagesModule = ({ currentCompany, user }: { currentCompany: Compa
     } catch (error) {
       console.error(error);
       setSyncStatus('idle');
-      alert('Erro ao sincronizar mensagens.');
+      showAlert('Erro ao sincronizar mensagens.');
     }
   };
 
@@ -2506,10 +2507,10 @@ export const MessagesModule = ({ currentCompany, user }: { currentCompany: Compa
       });
 
       setIsSimulateModalOpen(false);
-      alert(`Mensagem do canal [${simChannel}] recebida com sucesso!\nO lead "${simName}" foi gerado/atualizado automaticamente na etapa ENTRADA do Funil CRM.`);
+      showAlert(`Mensagem do canal [${simChannel}] recebida com sucesso!\nO lead "${simName}" foi gerado/atualizado automaticamente na etapa ENTRADA do Funil CRM.`);
     } catch (err) {
       console.error(err);
-      alert('Erro ao simular envio de mensagem.');
+      showAlert('Erro ao simular envio de mensagem.');
     }
   };
 
@@ -3847,7 +3848,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const handleCreateCustomerInline = async () => {
     if (!newCustomerForm.full_name.trim()) {
-      alert('Digite o nome do cliente.');
+      showAlert('Digite o nome do cliente.');
       return;
     }
     setIsCreatingCustomer(true);
@@ -3888,23 +3889,23 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       }
     } catch (err) {
       console.error('Erro ao salvar cliente:', err);
-      alert('Não foi possível salvar o cliente.');
+      showAlert('Não foi possível salvar o cliente.');
     } finally {
       setIsCreatingCustomer(false);
     }
   };
 
   const handleDeleteCustomer = async (c: any) => {
-    if (!confirm(`Excluir o cliente "${c.full_name}"? Essa ação não pode ser desfeita.`)) return;
+    if (!(await showConfirm(`Excluir o cliente "${c.full_name}"? Essa ação não pode ser desfeita.`))) return;
     const { error } = await supabase.from('clientes').delete().eq('id', c.id);
-    if (error) { alert('Não foi possível excluir o cliente.'); return; }
+    if (error) { showAlert('Não foi possível excluir o cliente.'); return; }
     loadAllCustomers();
   };
 
   const handleViewCustomerHistory = (c: any) => {
     const stats = customerSalesStats[c.id];
-    if (!stats) { alert(`${c.full_name} ainda não tem vendas registradas.`); return; }
-    alert(`Histórico de ${c.full_name}\n\nTotal de compras: ${stats.count}\nValor total: R$ ${stats.total.toFixed(2).replace('.', ',')}\nÚltima compra: ${stats.lastDate ? format(new Date(stats.lastDate), 'dd/MM/yyyy') : '—'}`);
+    if (!stats) { showAlert(`${c.full_name} ainda não tem vendas registradas.`); return; }
+    showAlert(`Histórico de ${c.full_name}\n\nTotal de compras: ${stats.count}\nValor total: R$ ${stats.total.toFixed(2).replace('.', ',')}\nÚltima compra: ${stats.lastDate ? format(new Date(stats.lastDate), 'dd/MM/yyyy') : '—'}`);
   };
 
   const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
@@ -4045,7 +4046,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const handleCreateOrcamentoFromCart = (overrideItems?: SaleOrderItem[], overrideCustomer?: { id?: string; name?: string; phone?: string }) => {
     const items = overrideItems || cart;
-    if (items.length === 0) { alert('Adicione ao menos um item antes de criar o orçamento.'); return; }
+    if (items.length === 0) { showAlert('Adicione ao menos um item antes de criar o orçamento.'); return; }
     setEditingOrcamento(null);
     setOrcamentoFromCart(true);
     setOrcamentoForm({
@@ -4217,8 +4218,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [simuladorDias, setSimuladorDias] = useState(10);
 
   const handleSaveOrcamento = async () => {
-    if (!orcamentoForm.customerName.trim()) { alert('Informe o nome do cliente.'); return; }
-    if (orcamentoForm.items.length === 0) { alert('Adicione ao menos um item.'); return; }
+    if (!orcamentoForm.customerName.trim()) { showAlert('Informe o nome do cliente.'); return; }
+    if (orcamentoForm.items.length === 0) { showAlert('Adicione ao menos um item.'); return; }
     setSavingOrcamento(true);
     try {
       const total = Math.max(0, orcamentoItemsTotal() - (orcamentoForm.desconto || 0));
@@ -4286,7 +4287,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       }
     } catch (err: any) {
       console.error('Erro ao salvar orçamento:', err);
-      alert(`Não foi possível salvar o orçamento: ${err?.message || 'erro desconhecido'}`);
+      showAlert(`Não foi possível salvar o orçamento: ${err?.message || 'erro desconhecido'}`);
     } finally {
       setSavingOrcamento(false);
     }
@@ -4296,14 +4297,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const extra: any = {};
     if (status === 'aprovado') { extra.aprovado_em = new Date().toISOString(); extra.aprovado_por = o.customerName; }
     const { error } = await supabase.from('orcamentos').update({ status, ...extra }).eq('id', o.id);
-    if (error) { console.error('Erro ao atualizar status do orçamento:', error); alert(`Não foi possível atualizar o status: ${error.message}`); return; }
+    if (error) { console.error('Erro ao atualizar status do orçamento:', error); showAlert(`Não foi possível atualizar o status: ${error.message}`); return; }
     loadOrcamentos();
   };
 
   const handleDeleteOrcamento = async (o: Orcamento) => {
-    if (!confirm(`Excluir o orçamento ${o.numero}?`)) return;
+    if (!(await showConfirm(`Excluir o orçamento ${o.numero}?`))) return;
     const { error } = await supabase.from('orcamentos').delete().eq('id', o.id);
-    if (error) { alert('Não foi possível excluir.'); return; }
+    if (error) { showAlert('Não foi possível excluir.'); return; }
     loadOrcamentos();
   };
 
@@ -4319,7 +4320,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const o = waSendOrcamento;
     if (!o) return;
     const phoneDigits = waSendPhone.replace(/\D/g, '');
-    if (!phoneDigits) { alert('Digite um telefone válido.'); return; }
+    if (!phoneDigits) { showAlert('Digite um telefone válido.'); return; }
     const linhas = o.items.map(i => `${i.quantity}x ${i.name} — R$ ${(i.area ? i.price * i.area * i.quantity : i.price * i.quantity).toFixed(2)}`).join('\n');
     const msg = `*Orçamento ${o.numero} — Rafa Arts Graphics*\n\n${linhas}\n\n${o.desconto > 0 ? `Desconto: R$ ${o.desconto.toFixed(2)}\n` : ''}*Total: R$ ${o.total.toFixed(2)}*\n\n${o.prazoProducao ? `Prazo: ${o.prazoProducao}\n\n` : ''}${o.formaPagamentoTexto ? `Pagamento: ${o.formaPagamentoTexto}\n\n` : ''}${o.validade ? `Válido até: ${safeFormat(o.validade, 'dd/MM/yyyy')}` : ''}`;
     await findOrCreateLeadAndOpenChat(phoneDigits, o.customerName || 'Cliente', msg);
@@ -4343,7 +4344,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       await downloadCanvasAsPdf(canvas, buildFileName('Orcamento', o.customerName, o.createdAt, 'pdf'));
     } catch (err) {
       console.error('Erro ao gerar PDF do orçamento:', err);
-      alert('Não foi possível gerar o PDF do orçamento.');
+      showAlert('Não foi possível gerar o PDF do orçamento.');
     }
   };
 
@@ -4353,7 +4354,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       downloadCanvasAsPng(canvas, buildFileName('Orcamento', o.customerName, o.createdAt, 'png'));
     } catch (err) {
       console.error('Erro ao gerar imagem do orçamento:', err);
-      alert('Não foi possível gerar a imagem do orçamento.');
+      showAlert('Não foi possível gerar a imagem do orçamento.');
     }
   };
 
@@ -4367,7 +4368,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       win.document.close();
     } catch (err) {
       console.error('Erro ao imprimir orçamento:', err);
-      alert('Não foi possível preparar a impressão.');
+      showAlert('Não foi possível preparar a impressão.');
     }
   };
 
@@ -4496,7 +4497,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     } else {
       // Pedido avulso (sem cliente cadastrado) — precisa escolher/criar o cliente antes de finalizar
       setSelectedCustomer(null);
-      alert(`Pedido de ${sale.customerName || 'cliente avulso'} duplicado! Os itens já estão no carrinho, mas esse pedido não tinha cliente cadastrado — selecione um cliente antes de finalizar.`);
+      showAlert(`Pedido de ${sale.customerName || 'cliente avulso'} duplicado! Os itens já estão no carrinho, mas esse pedido não tinha cliente cadastrado — selecione um cliente antes de finalizar.`);
     }
   };
 
@@ -4516,7 +4517,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const canvas = await renderReceiptCanvas({ order: sale, companyName: currentCompany?.name || 'Rafa Arts Graphics', customerPhone: sale.customerPhone, logoDarkUrl, companyContact });
     const dataUrl = canvas.toDataURL('image/png');
     const printWin = window.open('', '_blank', 'width=500,height=800');
-    if (!printWin) { alert('Permita pop-ups para imprimir.'); return; }
+    if (!printWin) { showAlert('Permita pop-ups para imprimir.'); return; }
     printWin.document.write(`<!DOCTYPE html><html><head><title>Recibo #${sale.id.slice(-8).toUpperCase()}</title><style>body{margin:0;background:#F5F7FA;display:flex;justify-content:center;}img{width:100%;max-width:560px;}</style></head><body><img src="${dataUrl}" onload="window.print();window.close();" /></body></html>`);
     printWin.document.close();
   };
@@ -4533,7 +4534,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const handleShareReceiptWhatsApp = async (sale: SaleOrder) => {
     if (!sale.customerPhone) {
-      alert('Essa venda não tem telefone de WhatsApp cadastrado. Edite a venda para adicionar o telefone do cliente.');
+      showAlert('Essa venda não tem telefone de WhatsApp cadastrado. Edite a venda para adicionar o telefone do cliente.');
       return;
     }
     setViewingReceiptSale(null);
@@ -4753,7 +4754,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const ids = Array.from(selectedSaleIds);
     const { error } = await supabase.from('vendas').update({ deleted_at: new Date().toISOString() }).in('id', ids);
     setIsBulkDeleteConfirmOpen(false);
-    if (error) { console.error(error); alert('Não foi possível excluir as vendas selecionadas.'); return; }
+    if (error) { console.error(error); showAlert('Não foi possível excluir as vendas selecionadas.'); return; }
     setSelectedSaleIds(new Set());
   };
   const [settleModalOrder, setSettleModalOrder] = useState<SaleOrder | null>(null);
@@ -4836,7 +4837,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       setIsSuccessModalOpen(false);
     } catch (err) {
       console.error('Erro ao localizar/criar lead:', err);
-      alert('Não foi possível abrir a conversa no Funil de Atendimento.');
+      showAlert('Não foi possível abrir a conversa no Funil de Atendimento.');
     }
   };
 
@@ -4849,7 +4850,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const handleSaveWhatsAppCustomer = async () => {
     const digits = waFormPhone.replace(/\D/g, '');
     if (!waFormName.trim() || digits.length < 8) {
-      alert('Preencha o nome e um número de WhatsApp válido.');
+      showAlert('Preencha o nome e um número de WhatsApp válido.');
       return;
     }
     setIsWaSaving(true);
@@ -4872,7 +4873,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       }
     } catch (err) {
       console.error('Erro ao salvar cliente:', err);
-      alert('Não foi possível salvar o cliente.');
+      showAlert('Não foi possível salvar o cliente.');
     } finally {
       setIsWaSaving(false);
     }
@@ -4895,9 +4896,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [editSaleForm, setEditSaleForm] = useState({ customerName: '', total: 0, downPayment: 0, paymentMethod: 'pix', observacoes: '' });
 
   const handleReopenSale = async (sale: SaleOrder) => {
-    if (!confirm(`Reabrir a venda #${sale.id.slice(-8).toUpperCase()}? Ela voltará a aparecer como pendente.`)) return;
+    if (!(await showConfirm(`Reabrir a venda #${sale.id.slice(-8).toUpperCase()}? Ela voltará a aparecer como pendente.`))) return;
     const { error } = await supabase.from('vendas').update({ status: 'pending' }).eq('id', sale.id);
-    if (error) { console.error(error); alert('Não foi possível reabrir a venda.'); }
+    if (error) { console.error(error); showAlert('Não foi possível reabrir a venda.'); }
   };
 
   const startEditSale = (sale: SaleOrder) => {
@@ -4921,33 +4922,33 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       observacoes: editSaleForm.observacoes || null,
       status: editSaleForm.downPayment >= editSaleForm.total ? 'completed' : 'pending',
     }).eq('id', editingSale.id);
-    if (error) { console.error(error); alert('Não foi possível salvar as alterações.'); return; }
+    if (error) { console.error(error); showAlert('Não foi possível salvar as alterações.'); return; }
     setEditingSale(null);
     loadSalesHistory();
   };
 
   const handleUpdateServiceStatus = async (saleId: string, newStatus: string) => {
     const { error } = await supabase.from('vendas').update({ service_status: newStatus }).eq('id', saleId);
-    if (error) { alert(`Não foi possível atualizar a etapa: ${error.message}`); return; }
+    if (error) { showAlert(`Não foi possível atualizar a etapa: ${error.message}`); return; }
     setViewingReceiptSale(prev => prev && prev.id === saleId ? { ...prev, serviceStatus: newStatus as any } : prev);
   };
 
   const handleDeleteSale = async (sale: SaleOrder) => {
-    if (!confirm(`Excluir a venda #${sale.id.slice(-8).toUpperCase()} (R$ ${sale.total.toFixed(2)})? Ela fica 30 dias na aba Excluídos antes de sumir de vez — você pode restaurar dentro desse prazo.`)) return;
+    if (!(await showConfirm(`Excluir a venda #${sale.id.slice(-8).toUpperCase()} (R$ ${sale.total.toFixed(2)})? Ela fica 30 dias na aba Excluídos antes de sumir de vez — você pode restaurar dentro desse prazo.`))) return;
     const { error } = await supabase.from('vendas').update({ deleted_at: new Date().toISOString() }).eq('id', sale.id);
-    if (error) { console.error(error); alert('Não foi possível excluir a venda.'); }
+    if (error) { console.error(error); showAlert('Não foi possível excluir a venda.'); }
   };
 
   const handleRestoreSale = async (sale: SaleOrder) => {
     const { error } = await supabase.from('vendas').update({ deleted_at: null }).eq('id', sale.id);
-    if (error) { console.error(error); alert('Não foi possível restaurar a venda.'); return; }
+    if (error) { console.error(error); showAlert('Não foi possível restaurar a venda.'); return; }
     loadDeletedSales();
   };
 
   const handlePermanentDeleteSale = async (sale: SaleOrder) => {
-    if (!confirm(`Excluir DEFINITIVAMENTE a venda #${sale.id.slice(-8).toUpperCase()}? Essa ação não pode ser desfeita.`)) return;
+    if (!(await showConfirm(`Excluir DEFINITIVAMENTE a venda #${sale.id.slice(-8).toUpperCase()}? Essa ação não pode ser desfeita.`))) return;
     const { error } = await supabase.from('vendas').delete().eq('id', sale.id);
-    if (error) { console.error(error); alert('Não foi possível excluir.'); return; }
+    if (error) { console.error(error); showAlert('Não foi possível excluir.'); return; }
     loadDeletedSales();
   };
 
@@ -5069,11 +5070,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         });
       }
 
-      alert(`Saldo de R$ ${balanceToSettle.toFixed(2).replace('.', ',')} quitado com sucesso!\nA venda/serviço foi totalmente quitada.`);
+      showAlert(`Saldo de R$ ${balanceToSettle.toFixed(2).replace('.', ',')} quitado com sucesso!\nA venda/serviço foi totalmente quitada.`);
       setSettleModalOrder(null);
     } catch (err) {
       console.error('Erro ao quitar saldo:', err);
-      alert('Erro ao quitar saldo do pedido.');
+      showAlert('Erro ao quitar saldo do pedido.');
     }
   };
 
@@ -5114,7 +5115,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [quickProductForm, setQuickProductForm] = useState({ ...emptyQuickProductForm });
 
   const handleSaveQuickProduct = async () => {
-    if (!quickProductForm.name.trim()) { alert('Digite o nome do produto.'); return; }
+    if (!quickProductForm.name.trim()) { showAlert('Digite o nome do produto.'); return; }
     setIsSavingQuickProduct(true);
     try {
       const { data, error } = await supabase.from('produtos').insert({
@@ -5152,7 +5153,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       // Permanece na aba/tela onde o usuario estava (Terminal Venda ou Orcamentos)
     } catch (err: any) {
       console.error('Erro ao cadastrar produto:', err);
-      alert(`Não foi possível cadastrar: ${err?.message || 'erro desconhecido'}`);
+      showAlert(`Não foi possível cadastrar: ${err?.message || 'erro desconhecido'}`);
     } finally {
       setIsSavingQuickProduct(false);
     }
@@ -5252,7 +5253,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const confirmAddEtiquetaItem = async () => {
     if (!etiquetaModalProduct) return;
     const calc = calcularEtiquetas(etiquetaModalProduct);
-    if (!calc) { alert('Preencha as dimensões, a largura do material e a quantidade/metros/valor desejado.'); return; }
+    if (!calc) { showAlert('Preencha as dimensões, a largura do material e a quantidade/metros/valor desejado.'); return; }
     const { largura, altura, larguraMaterial } = etiquetaForm;
     const dimensoesLabel = `${calc.quantidade}un ${largura}x${altura}cm`;
     setCart(prev => [...prev, {
@@ -5340,7 +5341,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const confirmAddInsulfilmItem = async () => {
     if (!insulfilmModalProduct) return;
     const calc = otimizarCortesInsulfilm(insulfilmPecas, insulfilmLarguraMaterial);
-    if (!calc) { alert('Informe largura e altura válidas de pelo menos uma peça.'); return; }
+    if (!calc) { showAlert('Informe largura e altura válidas de pelo menos uma peça.'); return; }
     const IMPRESSAO_MINIMA = insulfilmModalProduct.valorMinimo ?? 30;
     const valorCalculado = calc.areaRetirada * insulfilmModalProduct.price;
     const valorFinal = Math.max(valorCalculado, IMPRESSAO_MINIMA);
@@ -5380,7 +5381,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const w = dimWidth === '' ? 0 : Number(dimWidth);
     const h = dimHeight === '' ? 0 : Number(dimHeight);
     if (w <= 0 || h <= 0) {
-      alert('Informe largura e altura válidas.');
+      showAlert('Informe largura e altura válidas.');
       return;
     }
     const area = w * h;
@@ -5392,7 +5393,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       const cabeComoEsta = w <= rolo;
       const cabeGirada = h <= rolo;
       if (!cabeComoEsta && !cabeGirada) {
-        alert(`Atenção: nem ${w}m nem ${h}m cabem na largura do material (${rolo}m) em nenhuma orientação. Confira as medidas.`);
+        showAlert(`Atenção: nem ${w}m nem ${h}m cabem na largura do material (${rolo}m) em nenhuma orientação. Confira as medidas.`);
       }
       consumoUnitario = calcularConsumoLinear(w, h, rolo);
     }
@@ -5583,7 +5584,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const confirmAddPayment = () => {
     const rawInput = newPaymentInput === '' ? 0 : Number(newPaymentInput);
     const baseValue = newPaymentMode === 'percentual' ? Number(((total * rawInput) / 100).toFixed(2)) : rawInput;
-    if (baseValue <= 0) { alert('Digite um valor válido para o pagamento.'); return; }
+    if (baseValue <= 0) { showAlert('Digite um valor válido para o pagamento.'); return; }
     let value = baseValue;
     let installments: number | undefined;
     let feePercent: number | undefined;
@@ -5678,7 +5679,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         setPendingPaymentMethod('');
       } catch (err: any) {
         console.error('Erro ao quitar débito:', err);
-        alert(`Não foi possível registrar o pagamento: ${err?.message || 'erro desconhecido'}`);
+        showAlert(`Não foi possível registrar o pagamento: ${err?.message || 'erro desconhecido'}`);
       }
       return;
     }
@@ -5879,7 +5880,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       setSyncedAt(new Date());
     } catch (err) {
       console.error('Erro ao sincronizar:', err);
-      alert('Não foi possível sincronizar agora. Verifique sua conexão.');
+      showAlert('Não foi possível sincronizar agora. Verifique sua conexão.');
     } finally {
       setIsSyncing(false);
     }
@@ -5893,7 +5894,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       const buffer = await file.arrayBuffer();
       const rows = parseVendasXlsx(buffer);
       if (rows.length === 0) {
-        alert('Nenhuma venda válida encontrada na planilha. Confira se o modelo de colunas está correto.');
+        showAlert('Nenhuma venda válida encontrada na planilha. Confira se o modelo de colunas está correto.');
         return;
       }
       const payload = rows.map(r => ({
@@ -5922,13 +5923,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         }
       }
       if (falhasVendas.length > 0) {
-        alert(`${vendasNovas} venda(s) importada(s).\n\n${falhasVendas.length} venda(s) NÃO foram importadas:\n${falhasVendas.slice(0, 10).join('\n')}${falhasVendas.length > 10 ? `\n... e mais ${falhasVendas.length - 10}` : ''}`);
+        showAlert(`${vendasNovas} venda(s) importada(s).\n\n${falhasVendas.length} venda(s) NÃO foram importadas:\n${falhasVendas.slice(0, 10).join('\n')}${falhasVendas.length > 10 ? `\n... e mais ${falhasVendas.length - 10}` : ''}`);
       } else {
-        alert(`${vendasNovas} venda(s) importada(s) com sucesso!`);
+        showAlert(`${vendasNovas} venda(s) importada(s) com sucesso!`);
       }
     } catch (err: any) {
       console.error('Erro ao importar vendas:', err);
-      alert(`Não foi possível importar: ${err?.message || 'erro desconhecido'}`);
+      showAlert(`Não foi possível importar: ${err?.message || 'erro desconhecido'}`);
     } finally {
       setIsImportingVendas(false);
       if (vendasFileInputRef.current) vendasFileInputRef.current.value = '';
@@ -9167,7 +9168,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   type="button"
                   onClick={() => {
                      navigator.clipboard.writeText(pixConfig.key);
-                     alert("Chave PIX copiada!");
+                     showAlert("Chave PIX copiada!");
                   }}
                   className="flex-1 py-2.5 rounded-xl bg-primary-500/10 border border-primary-500/20 text-primary-300 hover:bg-primary-500/20 text-[10px] font-black uppercase tracking-wider transition-all active:scale-95"
                >
@@ -9177,7 +9178,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   type="button"
                   onClick={() => {
                      navigator.clipboard.writeText(pixPayload);
-                     alert("Código Pix Copia e Cola copiado!");
+                     showAlert("Código Pix Copia e Cola copiado!");
                   }}
                   className="flex-1 py-2.5 rounded-xl bg-primary-500/10 border border-primary-500/20 text-primary-300 hover:bg-primary-500/20 text-[10px] font-black uppercase tracking-wider transition-all active:scale-95"
                >
@@ -9410,33 +9411,33 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
     try {
       const { data: vendasSemCliente } = await supabase.from('vendas').select('id, customer_name, customer_phone').is('cliente_id', null).is('deleted_at', null);
       if (!vendasSemCliente || vendasSemCliente.length === 0) {
-        alert('Todas as vendas já estão vinculadas a um cliente cadastrado.');
+        showAlert('Todas as vendas já estão vinculadas a um cliente cadastrado.');
         return;
       }
       const { data: todosClientes } = await supabase.from('clientes').select('id, full_name, phone');
       const porNome = new Map<string, string>();
-      const porTelefone = new Map<string, string>();
+      const porTelefone8 = new Map<string, string>();
       (todosClientes || []).forEach((c: any) => {
         const nome = (c.full_name || '').trim().toLowerCase();
         const tel = (c.phone || '').replace(/\D/g, '');
         if (nome) porNome.set(nome, c.id);
-        if (tel) porTelefone.set(tel, c.id);
+        if (tel.length >= 8) porTelefone8.set(tel.slice(-8), c.id);
       });
 
       let vinculadas = 0;
       for (const v of vendasSemCliente) {
         const nome = (v.customer_name || '').trim().toLowerCase();
         const tel = (v.customer_phone || '').replace(/\D/g, '');
-        const clienteId = (nome && porNome.get(nome)) || (tel && porTelefone.get(tel));
+        const clienteId = (nome && porNome.get(nome)) || (tel.length >= 8 && porTelefone8.get(tel.slice(-8)));
         if (clienteId) {
           await supabase.from('vendas').update({ cliente_id: clienteId }).eq('id', v.id);
           vinculadas += 1;
         }
       }
-      alert(`${vinculadas} de ${vendasSemCliente.length} venda(s) sem cliente foram vinculadas com sucesso (por nome ou telefone igual ao cadastro).`);
+      showAlert(`${vinculadas} de ${vendasSemCliente.length} venda(s) sem cliente foram vinculadas com sucesso (por nome ou telefone igual ao cadastro).`);
     } catch (err: any) {
       console.error('Erro ao vincular vendas:', err);
-      alert(`Não foi possível vincular: ${err?.message || 'erro desconhecido'}`);
+      showAlert(`Não foi possível vincular: ${err?.message || 'erro desconhecido'}`);
     } finally {
       setIsLinkingVendas(false);
     }
@@ -9444,18 +9445,37 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
 
   useEffect(() => {
     const loadStats = async () => {
-      const { data: vendasData } = await supabase.from('vendas').select('id, cliente_id, total, down_payment, status, items, created_at').is('deleted_at', null).not('cliente_id', 'is', null);
+      // Busca TODAS as vendas (nao so as ja vinculadas a um cliente) — vendas orfas (sem cliente_id)
+      // sao casadas por nome/telefone na hora, pra nao depender de rodar a vinculacao manual antes.
+      const { data: vendasData } = await supabase.from('vendas').select('id, cliente_id, customer_name, customer_phone, total, down_payment, status, items, created_at').is('deleted_at', null);
       const { data: produtosData } = await supabase.from('produtos').select('id, cost_price');
       const costMap: Record<string, number> = {};
       (produtosData || []).forEach((p: any) => { costMap[p.id] = Number(p.cost_price) || 0; });
       setProdutosCostMap(costMap);
 
+      // Mapas de busca por nome e pelos ultimos 8 digitos do telefone (mais tolerante a formatacao/DDD diferente)
+      const porNome = new Map<string, string>();
+      const porTelefone8 = new Map<string, string>();
+      clientes.forEach((c: any) => {
+        const nome = (c.full_name || '').trim().toLowerCase();
+        const tel = (c.phone || '').replace(/\D/g, '');
+        if (nome) porNome.set(nome, c.id);
+        if (tel.length >= 8) porTelefone8.set(tel.slice(-8), c.id);
+      });
+      const resolveClienteId = (v: any): string | null => {
+        if (v.cliente_id) return v.cliente_id;
+        const nome = (v.customer_name || '').trim().toLowerCase();
+        const tel = (v.customer_phone || '').replace(/\D/g, '');
+        return (nome && porNome.get(nome)) || (tel.length >= 8 && porTelefone8.get(tel.slice(-8))) || null;
+      };
+
       const stats: Record<string, { lastDate: string; count: number; total: number; pago: number; pendente: number; custoTotal: number }> = {};
       const vendasPorCliente: Record<string, any[]> = {};
       (vendasData || []).forEach((v: any) => {
-        if (!v.cliente_id) return;
-        if (!stats[v.cliente_id]) stats[v.cliente_id] = { lastDate: v.created_at, count: 0, total: 0, pago: 0, pendente: 0, custoTotal: 0 };
-        const s = stats[v.cliente_id];
+        const clienteId = resolveClienteId(v);
+        if (!clienteId) return;
+        if (!stats[clienteId]) stats[clienteId] = { lastDate: v.created_at, count: 0, total: 0, pago: 0, pendente: 0, custoTotal: 0 };
+        const s = stats[clienteId];
         const total = Number(v.total) || 0;
         const down = v.down_payment !== null ? Number(v.down_payment) : (v.status === 'completed' ? total : 0);
         const isFullyPaid = v.status === 'completed' || down >= total;
@@ -9469,8 +9489,8 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
         });
         if (new Date(v.created_at) > new Date(s.lastDate)) s.lastDate = v.created_at;
 
-        if (!vendasPorCliente[v.cliente_id]) vendasPorCliente[v.cliente_id] = [];
-        vendasPorCliente[v.cliente_id].push({
+        if (!vendasPorCliente[clienteId]) vendasPorCliente[clienteId] = [];
+        vendasPorCliente[clienteId].push({
           id: v.id, total, down, isFullyPaid, status: v.status, createdAt: v.created_at,
           itemsSummary: (v.items || []).map((i: any) => i.name).join(', ') || 'Sem itens',
         });
@@ -9479,8 +9499,8 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
       setClienteVendas(vendasPorCliente);
       setClienteStats(stats);
     };
-    loadStats();
-  }, []);
+    if (clientes.length > 0) loadStats();
+  }, [clientes]);
 
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -9490,7 +9510,7 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
       const buffer = await file.arrayBuffer();
       const rows = parseClientesXlsx(buffer);
       if (rows.length === 0) {
-        alert('Nenhum cliente válido encontrado na planilha. Confira se o modelo de colunas está correto.');
+        showAlert('Nenhum cliente válido encontrado na planilha. Confira se o modelo de colunas está correto.');
         return;
       }
 
@@ -9542,13 +9562,13 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
       }
 
       if (falhas.length > 0) {
-        alert(`${novos} novo(s) cadastrado(s), ${atualizados} atualizado(s).\n\n${falhas.length} cliente(s) NÃO foram importados:\n${falhas.slice(0, 10).join('\n')}${falhas.length > 10 ? `\n... e mais ${falhas.length - 10}` : ''}`);
+        showAlert(`${novos} novo(s) cadastrado(s), ${atualizados} atualizado(s).\n\n${falhas.length} cliente(s) NÃO foram importados:\n${falhas.slice(0, 10).join('\n')}${falhas.length > 10 ? `\n... e mais ${falhas.length - 10}` : ''}`);
       } else {
-        alert(`${novos} cliente(s) novo(s) cadastrado(s) e ${atualizados} atualizado(s)!`);
+        showAlert(`${novos} cliente(s) novo(s) cadastrado(s) e ${atualizados} atualizado(s)!`);
       }
     } catch (err: any) {
       console.error('Erro ao importar clientes:', err);
-      alert(`Não foi possível importar: ${err?.message || 'erro desconhecido'}`);
+      showAlert(`Não foi possível importar: ${err?.message || 'erro desconhecido'}`);
     } finally {
       setIsImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -9588,7 +9608,7 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
       setFormData({ full_name: '', phone: '', email: '', cpf_cnpj: '', city: '', state: '' });
     } catch (err) {
       console.error(err);
-      alert('Não foi possível salvar o cliente.');
+      showAlert('Não foi possível salvar o cliente.');
     }
   };
 
@@ -9651,11 +9671,12 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
           </button>
           <button
             disabled={isLinkingVendas}
-            title="Vincular vendas importadas aos clientes cadastrados (por nome/telefone)"
+            title="Vincula no banco de dados as vendas que ainda nao tem cliente vinculado, casando por nome ou telefone"
             onClick={handleLinkVendasToClientes}
-            className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 h-9 rounded-lg bg-primary-500/10 border border-primary-500/20 text-primary-400 hover:bg-primary-500/20 transition-all disabled:opacity-50 text-[10px] font-black uppercase tracking-wide"
           >
             <Link2 size={14} className={cn(isLinkingVendas && "animate-pulse")} />
+            <span className="hidden sm:inline">Vincular Vendas</span>
           </button>
           <Button icon={Plus} onClick={() => setIsModalOpen(true)}>Novo Cliente</Button>
         </div>
@@ -10090,7 +10111,7 @@ export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved }: {
   }, [isOpen, editingItem]);
 
   const handleSave = async () => {
-    if (!formData.name?.trim()) { alert('Digite o nome do item.'); return; }
+    if (!formData.name?.trim()) { showAlert('Digite o nome do item.'); return; }
     setSaving(true);
     try {
       // Gera codigo automatico se o usuario nao digitou nenhum (so pra item novo, edicao mantem o que ja tem)
@@ -10132,7 +10153,7 @@ export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved }: {
       onClose();
     } catch (err: any) {
       console.error('Erro ao salvar produto:', err);
-      alert(`Não foi possível salvar o item: ${err?.message || 'erro desconhecido'}`);
+      showAlert(`Não foi possível salvar o item: ${err?.message || 'erro desconhecido'}`);
     } finally {
       setSaving(false);
     }
@@ -10345,9 +10366,9 @@ export const InventoryModule = ({ currentCompany, user }: { currentCompany: Comp
   };
 
   const handleDeleteItem = async (item: InventoryItem) => {
-    if (!confirm(`Excluir "${item.name}"? Essa ação não pode ser desfeita. Prefira inativar se quiser manter o histórico.`)) return;
+    if (!(await showConfirm(`Excluir "${item.name}"? Essa ação não pode ser desfeita. Prefira inativar se quiser manter o histórico.`))) return;
     const { error } = await supabase.from('produtos').delete().eq('id', item.id);
-    if (error) { alert('Não foi possível excluir. Tente inativar o item em vez de excluir.'); }
+    if (error) { showAlert('Não foi possível excluir. Tente inativar o item em vez de excluir.'); }
   };
 
   const columns = [
@@ -10407,7 +10428,7 @@ export const InventoryModule = ({ currentCompany, user }: { currentCompany: Comp
       setFormData({ name: '', category: 'substrato', unit: 'un', currentStock: 0, minStock: 0, salePrice: 0, costPrice: 0, isActive: true, isService: false, tipoItem: 'produto', controlaEstoque: true });
     } catch (err: any) {
       console.error(err);
-      alert(`Não foi possível salvar o item: ${err?.message || 'erro desconhecido'}`);
+      showAlert(`Não foi possível salvar o item: ${err?.message || 'erro desconhecido'}`);
     }
   };
 
@@ -10428,7 +10449,7 @@ export const InventoryModule = ({ currentCompany, user }: { currentCompany: Comp
       const buffer = await file.arrayBuffer();
       const rows = parseProdutosXlsx(buffer);
       if (rows.length === 0) {
-        alert('Nenhum produto válido encontrado na planilha. Confira se a coluna DESCRIÇÃO está preenchida — é o único campo obrigatório.');
+        showAlert('Nenhum produto válido encontrado na planilha. Confira se a coluna DESCRIÇÃO está preenchida — é o único campo obrigatório.');
         return;
       }
       setImportPreviewRows(rows);
@@ -10437,7 +10458,7 @@ export const InventoryModule = ({ currentCompany, user }: { currentCompany: Comp
       setIsImportPreviewOpen(true);
     } catch (err) {
       console.error('Erro ao ler a planilha:', err);
-      alert('Não foi possível ler o arquivo. Confira se é um .xlsx válido.');
+      showAlert('Não foi possível ler o arquivo. Confira se é um .xlsx válido.');
     } finally {
       setIsImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -10502,13 +10523,13 @@ export const InventoryModule = ({ currentCompany, user }: { currentCompany: Comp
 
       setIsImportPreviewOpen(false);
       if (falhas.length > 0) {
-        alert(`${novos} novo(s) cadastrado(s), ${atualizados} atualizado(s).\n\n${falhas.length} produto(s) NÃO foram importados:\n${falhas.slice(0, 10).join('\n')}${falhas.length > 10 ? `\n... e mais ${falhas.length - 10}` : ''}`);
+        showAlert(`${novos} novo(s) cadastrado(s), ${atualizados} atualizado(s).\n\n${falhas.length} produto(s) NÃO foram importados:\n${falhas.slice(0, 10).join('\n')}${falhas.length > 10 ? `\n... e mais ${falhas.length - 10}` : ''}`);
       } else {
-        alert(`${novos} produto(s) novo(s) cadastrado(s) e ${atualizados} atualizado(s) com sucesso!`);
+        showAlert(`${novos} produto(s) novo(s) cadastrado(s) e ${atualizados} atualizado(s) com sucesso!`);
       }
     } catch (err: any) {
       console.error('Erro ao importar produtos:', err);
-      alert(`Não foi possível importar: ${err?.message || 'erro desconhecido'}`);
+      showAlert(`Não foi possível importar: ${err?.message || 'erro desconhecido'}`);
     } finally {
       setIsConfirmingImport(false);
     }
@@ -10749,7 +10770,7 @@ export const ClientesEsperaModule = ({ currentCompany, user }: { currentCompany:
   }, [currentCompany]);
 
   const handleAdicionar = async () => {
-    if (!newNome.trim()) { alert('Digite o nome do cliente.'); return; }
+    if (!newNome.trim()) { showAlert('Digite o nome do cliente.'); return; }
     try {
       const { error } = await supabase.from('fila_espera').insert({
         cliente_nome: newNome.trim(),
@@ -10762,7 +10783,7 @@ export const ClientesEsperaModule = ({ currentCompany, user }: { currentCompany:
       setIsAddModalOpen(false);
       setNewNome(''); setNewTelefone(''); setNewMotivo('');
     } catch (err: any) {
-      alert(`Erro ao adicionar cliente à fila: ${err?.message || 'erro desconhecido'}`);
+      showAlert(`Erro ao adicionar cliente à fila: ${err?.message || 'erro desconhecido'}`);
     }
   };
 
@@ -10771,7 +10792,7 @@ export const ClientesEsperaModule = ({ currentCompany, user }: { currentCompany:
       const { error } = await supabase.from('fila_espera').update({ status: 'em_atendimento', atendido_por: user?.name || null }).eq('id', id);
       if (error) throw error;
     } catch (err: any) {
-      alert(`Erro: ${err?.message || 'erro desconhecido'}`);
+      showAlert(`Erro: ${err?.message || 'erro desconhecido'}`);
     }
   };
 
@@ -10787,12 +10808,12 @@ export const ClientesEsperaModule = ({ currentCompany, user }: { currentCompany:
       }).eq('id', item.id);
       if (error) throw error;
     } catch (err: any) {
-      alert(`Erro: ${err?.message || 'erro desconhecido'}`);
+      showAlert(`Erro: ${err?.message || 'erro desconhecido'}`);
     }
   };
 
   const handleRemover = async (id: string) => {
-    if (!confirm('Remover esse cliente da fila?')) return;
+    if (!(await showConfirm('Remover esse cliente da fila?'))) return;
     await supabase.from('fila_espera').delete().eq('id', id);
   };
 
@@ -10972,11 +10993,11 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
   }, [user?.isAdmin]);
 
   const handleDisconnectSession = async (sessionId: string) => {
-    if (!confirm('Desconectar essa sessão agora? A pessoa vai ser deslogada automaticamente.')) return;
+    if (!(await showConfirm('Desconectar essa sessão agora? A pessoa vai ser deslogada automaticamente.'))) return;
     try {
       await updateDoc(doc(db, 'sessions', sessionId), { isRevoked: true });
     } catch (err: any) {
-      alert(`Não foi possível desconectar: ${err?.message || 'erro desconhecido'}`);
+      showAlert(`Não foi possível desconectar: ${err?.message || 'erro desconhecido'}`);
     }
   };
 
@@ -10998,7 +11019,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 800 * 1024) {
-      alert('A imagem precisa ter no máximo 800KB. Comprima a logo e tente novamente.');
+      showAlert('A imagem precisa ter no máximo 800KB. Comprima a logo e tente novamente.');
       return;
     }
     setSavingLogo(variant);
@@ -11019,7 +11040,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
       if (variant === 'light') setLogoLight(dataUrl); else setLogoDark(dataUrl);
     } catch (err) {
       console.error('Erro ao salvar logo:', err);
-      alert('Não foi possível salvar a logo.');
+      showAlert('Não foi possível salvar a logo.');
     } finally {
       setSavingLogo(null);
     }
@@ -11098,7 +11119,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
 
   const handleSavePaymentMethods = async () => {
     if (enabledPaymentMethods.length === 0) {
-      alert('Deixe pelo menos uma forma de pagamento habilitada.');
+      showAlert('Deixe pelo menos uma forma de pagamento habilitada.');
       return;
     }
     setSavingPaymentMethods(true);
@@ -11111,7 +11132,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
       if (error) throw error;
     } catch (err) {
       console.error('Erro ao salvar formas de pagamento:', err);
-      alert('Não foi possível salvar.');
+      showAlert('Não foi possível salvar.');
     } finally {
       setSavingPaymentMethods(false);
     }
@@ -11133,7 +11154,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
       if (error) throw error;
     } catch (err: any) {
       console.error('Erro ao salvar taxas de cartão:', err);
-      alert(`Não foi possível salvar: ${err?.message || 'erro desconhecido'}`);
+      showAlert(`Não foi possível salvar: ${err?.message || 'erro desconhecido'}`);
     } finally {
       setSavingCardFees(false);
     }
@@ -11153,7 +11174,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
       if (error) throw error;
     } catch (err: any) {
       console.error('Erro ao salvar configuração PIX:', err);
-      alert(`Não foi possível salvar a configuração PIX: ${err?.message || 'erro desconhecido'}`);
+      showAlert(`Não foi possível salvar a configuração PIX: ${err?.message || 'erro desconhecido'}`);
     } finally {
       setSavingPix(false);
     }
@@ -11173,10 +11194,10 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
         updated_at: new Date().toISOString(),
       }, { onConflict: 'company_id' });
       if (error) throw error;
-      alert('Informações de contato salvas! Já valem para os próximos recibos e orçamentos.');
+      showAlert('Informações de contato salvas! Já valem para os próximos recibos e orçamentos.');
     } catch (err: any) {
       console.error('Erro ao salvar informações de contato:', err);
-      alert(`Não foi possível salvar: ${err?.message || 'erro desconhecido'}`);
+      showAlert(`Não foi possível salvar: ${err?.message || 'erro desconhecido'}`);
     } finally {
       setSavingContact(false);
     }
@@ -11243,7 +11264,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
         logoUrl,
         updatedAt: Timestamp.now()
       });
-      alert('Configurações salvas com sucesso!');
+      showAlert('Configurações salvas com sucesso!');
     } catch (err) {
       console.error(err);
     }
@@ -11308,17 +11329,17 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
           if (error) throw error;
         }
       }
-      alert('Dados e senha do usuário atualizados!');
+      showAlert('Dados e senha do usuário atualizados!');
       setEditingUser(null);
     } catch (err: any) {
       console.error('Erro ao salvar permissões:', err);
-      alert(`Erro ao salvar permissões do usuário: ${err?.message || 'erro desconhecido'}`);
+      showAlert(`Erro ao salvar permissões do usuário: ${err?.message || 'erro desconhecido'}`);
     }
   };
 
   const handleCreateUser = async () => {
     if (!newUserName || !newUserEmail) {
-      alert('Por favor, preencha o nome e o e-mail.');
+      showAlert('Por favor, preencha o nome e o e-mail.');
       return;
     }
     try {
@@ -11345,7 +11366,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
       });
       if (error) throw error;
 
-      alert(`Novo usuário [${newUserName}] cadastrado com sucesso!\n\nE-mail: ${newUserEmail}\nSenha: ${newUserPassword || '123456'}\n\nEle já pode fazer login na tela inicial com essas credenciais.`);
+      showAlert(`Novo usuário [${newUserName}] cadastrado com sucesso!\n\nE-mail: ${newUserEmail}\nSenha: ${newUserPassword || '123456'}\n\nEle já pode fazer login na tela inicial com essas credenciais.`);
       setIsCreateModalOpen(false);
       setNewUserName('');
       setNewUserEmail('');
@@ -11353,20 +11374,20 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
       setNewUserRole('atendente');
     } catch (err: any) {
       console.error('Erro ao criar usuário:', err);
-      alert(`Erro ao criar usuário no repositório: ${err?.message || 'erro desconhecido'}`);
+      showAlert(`Erro ao criar usuário no repositório: ${err?.message || 'erro desconhecido'}`);
     }
   };
 
   const handleDeleteUser = async (u: AppUser) => {
     if (u.id === 'admin-rafael') {
-      alert('Não é possível excluir o administrador master do sistema.');
+      showAlert('Não é possível excluir o administrador master do sistema.');
       return;
     }
     if (u.id === user?.id) {
-      alert('Você não pode excluir a própria conta enquanto está logado nela.');
+      showAlert('Você não pode excluir a própria conta enquanto está logado nela.');
       return;
     }
-    if (!confirm(`Excluir o usuário "${u.name}" (${u.email}) permanentemente? Essa ação não pode ser desfeita.`)) return;
+    if (!(await showConfirm(`Excluir o usuário "${u.name}" (${u.email}) permanentemente? Essa ação não pode ser desfeita.`))) return;
     try {
       const isSupabaseUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(u.id);
       if (isSupabaseUuid) {
@@ -11378,7 +11399,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
       }
     } catch (err: any) {
       console.error('Erro ao excluir usuário:', err);
-      alert(`Erro ao excluir usuário: ${err?.message || 'erro desconhecido'}`);
+      showAlert(`Erro ao excluir usuário: ${err?.message || 'erro desconhecido'}`);
     }
   };
 
@@ -11784,7 +11805,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                           type="button"
                           onClick={() => {
                             setSimulatedUserId(editingUser.id);
-                            alert(`Simulando sessão de ${editingUser.name}!`);
+                            showAlert(`Simulando sessão de ${editingUser.name}!`);
                           }}
                           className="flex items-center gap-2 px-6 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-2xl transition-all shadow-lg text-slate-950 border-0 cursor-pointer"
                         >
@@ -12082,7 +12103,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                                 type="button"
                                 onClick={() => {
                                   setSimulatedUserId(u.id);
-                                  alert(`Alternando visualização para: ${u.name}`);
+                                  showAlert(`Alternando visualização para: ${u.name}`);
                                 }}
                                 className="px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white hover:text-amber-400 transition-all font-bold text-xs flex items-center justify-center cursor-pointer border-0"
                                 title="Simular Sessão"

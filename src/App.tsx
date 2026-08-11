@@ -42,6 +42,7 @@ import {
   Key
 } from 'lucide-react';
 import { ChevronRight } from 'lucide-react';
+import { NotifyHost, showAlert } from './lib/notify';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   BarChart, 
@@ -689,7 +690,7 @@ export default function App() {
         // evita que um escutador antigo derrube uma sessao nova por engano
         if (sessionStorage.getItem('rpro_session_id') !== sessionId) return;
         if (snap.exists() && snap.data()?.isRevoked) {
-          alert('Sua sessão foi desconectada pelo administrador.');
+          showAlert('Sua sessão foi desconectada pelo administrador.');
           handleLogout();
         }
       });
@@ -1019,7 +1020,7 @@ export default function App() {
       });
     } catch (err) {
       console.error('Erro ao criar empresa:', err);
-      alert('Não foi possível criar a empresa. Veja o console para detalhes.');
+      showAlert('Não foi possível criar a empresa. Veja o console para detalhes.');
     } finally {
       setIsCreatingCompany(false);
     }
@@ -1320,6 +1321,7 @@ export default function App() {
         </main>
       </div>
     </div>
+    <NotifyHost />
     </AppContext.Provider>
   );
 }
