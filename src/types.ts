@@ -6,10 +6,11 @@ export interface Product {
   code: string;
   price: number;
   stock: number;
-  unitType?: 'unit' | 'm2' | 'etiqueta';
+  unitType?: 'unit' | 'm2' | 'etiqueta' | 'metro';
   tipoItem?: 'produto' | 'material' | 'servico' | 'acabamento' | 'composto';
   larguraRolo?: number;
   controlaEstoque?: boolean;
+  valorMinimo?: number;
 }
 
 export interface SaleOrderItem {
@@ -332,6 +333,7 @@ export interface InventoryItem extends BaseEntity {
   estoqueMaximo?: number;
   localizacao?: string;
   descricao?: string;
+  valorMinimo?: number;
 }
 
 export interface PrintingService extends BaseEntity {

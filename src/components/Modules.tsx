@@ -4828,10 +4828,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       code: p.code || '',
       price: Number(p.sale_price) || 0,
       stock: Number(p.current_stock) || 0,
-      unitType: p.unit === 'm2' ? 'm2' : p.unit === 'etiqueta' ? 'etiqueta' : 'unit',
+      unitType: p.unit === 'm2' ? 'm2' : p.unit === 'etiqueta' ? 'etiqueta' : p.unit === 'm' ? 'metro' : 'unit',
       tipoItem: p.tipo_item || 'produto',
       larguraRolo: p.largura_rolo ? Number(p.largura_rolo) : undefined,
       controlaEstoque: p.controla_estoque !== false,
+      valorMinimo: p.valor_minimo ? Number(p.valor_minimo) : undefined,
     })));
   };
   useEffect(() => {
@@ -4907,7 +4908,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       setInsulfilmPecas([{ id: 'p1', largura: 0, altura: 0 }]);
       return;
     }
-    if (product.unitType === 'm2') {
+    if (product.unitType === 'm2' || product.unitType === 'metro') {
       setDimensionModalProduct(product);
       setDimWidth('');
       setDimHeight('');
@@ -4963,7 +4964,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     // calcula os outros dois automaticamente
     let quantidade: number;
     let metrosLineares: number;
-    const IMPRESSAO_MINIMA = 30;
+    const IMPRESSAO_MINIMA = product.valorMinimo ?? 30;
 
     if (etiquetaInputMode === 'metros') {
       metrosLineares = etiquetaForm.metrosInput;
@@ -5082,7 +5083,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     if (!insulfilmModalProduct) return;
     const calc = otimizarCortesInsulfilm(insulfilmPecas, insulfilmLarguraMaterial);
     if (!calc) { alert('Informe largura e altura válidas de pelo menos uma peça.'); return; }
-    const IMPRESSAO_MINIMA = 30;
+    const IMPRESSAO_MINIMA = insulfilmModalProduct.valorMinimo ?? 30;
     const valorCalculado = calc.areaRetirada * insulfilmModalProduct.price;
     const valorFinal = Math.max(valorCalculado, IMPRESSAO_MINIMA);
     const pecasLabel = insulfilmPecas.filter(p => p.largura > 0 && p.altura > 0).map(p => `${p.largura}x${p.altura}`).join(' + ');
@@ -5141,6 +5142,37 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     if (dimLarguraMaterial && dimLarguraMaterial !== product.larguraRolo) {
       await supabase.from('produtos').update({ largura_rolo: dimLarguraMaterial }).eq('id', product.id);
     }
+
+    if (product.unitType === 'metro') {
+      // Metro linear puro: preco cobrado e sobre o consumo linear (lado que "sobra" ao encaixar
+      // a peca na largura do material, sempre preferindo o lado menor quando os dois cabem)
+      const valorCalculado = consumoUnitario * product.price * selectedQty;
+      const valorFinal = Math.max(valorCalculado, product.valorMinimo || 0);
+      setCart(prev => [...prev, {
+        productId: product.id,
+        name: product.name,
+        price: valorFinal,
+        quantity: 1,
+        dimensions: `${dimensions} (${consumoUnitario.toFixed(2).replace('.', ',')}m linear)`,
+        consumoEstoque: consumoUnitario * selectedQty,
+      }]);
+      setDimensionModalProduct(null);
+      setDimWidth('');
+      setDimHeight('');
+      setSelectedQty(1);
+      return;
+    }
+
+    // m2: aplica o valor minimo ajustando o preco unitario, pra manter a formula preco x area x qtd
+    // usada em todo o resto do sistema (carrinho, recibo, orcamento) sem precisar mexer nela
+    let precoUnitarioEfetivo = product.price;
+    if (product.valorMinimo && area > 0) {
+      const valorCalculado = product.price * area * selectedQty;
+      if (valorCalculado < product.valorMinimo) {
+        precoUnitarioEfetivo = product.valorMinimo / (area * selectedQty);
+      }
+    }
+
     setCart(prev => {
       const existing = prev.find(item => item.productId === product.id && item.dimensions === dimensions);
       if (existing) {
@@ -5152,7 +5184,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       return [...prev, {
         productId: product.id,
         name: product.name,
-        price: product.price,
+        price: precoUnitarioEfetivo,
         quantity: selectedQty,
         dimensions,
         area,
@@ -5573,10 +5605,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         code: p.code || '',
         price: Number(p.sale_price) || 0,
         stock: Number(p.current_stock) || 0,
-        unitType: p.unit === 'm2' ? 'm2' : p.unit === 'etiqueta' ? 'etiqueta' : 'unit',
+        unitType: p.unit === 'm2' ? 'm2' : p.unit === 'etiqueta' ? 'etiqueta' : p.unit === 'm' ? 'metro' : 'unit',
         tipoItem: p.tipo_item || 'produto',
         larguraRolo: p.largura_rolo ? Number(p.largura_rolo) : undefined,
         controlaEstoque: p.controla_estoque !== false,
+        valorMinimo: p.valor_minimo ? Number(p.valor_minimo) : undefined,
       })));
 
       setSyncedAt(new Date());
@@ -7892,7 +7925,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
      {insulfilmModalProduct && (() => {
        const calc = otimizarCortesInsulfilm(insulfilmPecas, insulfilmLarguraMaterial);
-       const IMPRESSAO_MINIMA = 30;
+       const IMPRESSAO_MINIMA = insulfilmModalProduct.valorMinimo ?? 30;
        const valorCalculado = calc ? calc.areaRetirada * insulfilmModalProduct.price : 0;
        const valorFinal = Math.max(valorCalculado, IMPRESSAO_MINIMA);
        const addPeca = () => setInsulfilmPecas(prev => [...prev, { id: 'p' + Date.now(), largura: 0, altura: 0 }]);
@@ -7968,7 +8001,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       {valorFinal > valorCalculado && (
                         <div className="flex justify-between text-[10px] text-amber-400 pb-1 border-b border-white/5">
                            <span>Impressão mínima aplicada</span>
-                           <span className="font-mono font-bold">R$ 30,00</span>
+                           <span className="font-mono font-bold">R$ {IMPRESSAO_MINIMA.toFixed(2).replace('.', ',')}</span>
                         </div>
                       )}
                       <div className="flex justify-between text-sm">
@@ -8065,7 +8098,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    {calc.valorFinal > calc.valorCalculado && (
                      <div className="flex justify-between text-[10px] text-amber-400 pt-1 border-t border-white/5">
                         <span>Impressão mínima aplicada</span>
-                        <span className="font-mono font-bold">R$ 30,00</span>
+                        <span className="font-mono font-bold">R$ {(etiquetaModalProduct.valorMinimo ?? 30).toFixed(2).replace('.', ',')}</span>
                      </div>
                    )}
                    <div className="flex justify-between text-sm pt-1 border-t border-white/5">
@@ -8129,29 +8162,41 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
            />
            <p className="text-[9px] text-white/30 -mt-3">Vem pré-preenchida com a largura cadastrada do material — pode editar aqui, e o novo valor fica salvo pra próxima vez.</p>
 
-           {dimWidth !== '' && dimHeight !== '' && Number(dimWidth) > 0 && Number(dimHeight) > 0 && (
-             <div className="bg-slate-900/60 rounded-2xl border border-white/10 p-4 space-y-1">
-               <div className="flex justify-between text-xs text-white/50">
-                 <span>Área</span>
-                 <span className="font-mono font-bold text-white">{(Number(dimWidth) * Number(dimHeight)).toFixed(2).replace('.', ',')} m²</span>
-               </div>
-               <div className="flex justify-between text-xs text-white/50">
-                 <span>Valor unitário (m²)</span>
-                 <span className="font-mono text-white">R$ {dimensionModalProduct.price.toFixed(2).replace('.', ',')}</span>
-               </div>
-               {dimLarguraMaterial > 0 && (() => {
-                  const w = Number(dimWidth);
-                  const h = Number(dimHeight);
-                  const rolo = dimLarguraMaterial;
-                  const consumo = calcularConsumoLinear(w, h, rolo);
-                  const cabeComoEsta = w <= rolo;
-                  const cabeGirada = h <= rolo;
-                  const naoCabeEmNenhuma = !cabeComoEsta && !cabeGirada;
-                  const areaUsada = w * h * selectedQty;
-                  const areaRetirada = rolo * consumo * selectedQty;
-                  const desperdicio = Math.max(0, areaRetirada - areaUsada);
-                  const aproveitamento = areaRetirada > 0 ? (areaUsada / areaRetirada) * 100 : 0;
-                  return (
+           {dimWidth !== '' && dimHeight !== '' && Number(dimWidth) > 0 && Number(dimHeight) > 0 && (() => {
+              const w = Number(dimWidth);
+              const h = Number(dimHeight);
+              const isMetro = dimensionModalProduct.unitType === 'metro';
+              const rolo = dimLarguraMaterial;
+              const consumo = rolo > 0 ? calcularConsumoLinear(w, h, rolo) : (w * h);
+              const cabeComoEsta = rolo > 0 ? w <= rolo : true;
+              const cabeGirada = rolo > 0 ? h <= rolo : true;
+              const naoCabeEmNenhuma = rolo > 0 && !cabeComoEsta && !cabeGirada;
+              const areaUsada = w * h * selectedQty;
+              const areaRetirada = rolo * consumo * selectedQty;
+              const desperdicio = Math.max(0, areaRetirada - areaUsada);
+              const aproveitamento = areaRetirada > 0 ? (areaUsada / areaRetirada) * 100 : 0;
+              const valorCalculado = isMetro
+                ? consumo * dimensionModalProduct.price * selectedQty
+                : w * h * dimensionModalProduct.price * selectedQty;
+              const valorFinal = Math.max(valorCalculado, dimensionModalProduct.valorMinimo || 0);
+              return (
+                <div className="bg-slate-900/60 rounded-2xl border border-white/10 p-4 space-y-1">
+                  {isMetro ? (
+                    <div className="flex justify-between text-xs text-white/50">
+                      <span>Consumo linear (lado que sobra do material)</span>
+                      <span className="font-mono font-bold text-white">{consumo.toFixed(2).replace('.', ',')} m</span>
+                    </div>
+                  ) : (
+                    <div className="flex justify-between text-xs text-white/50">
+                      <span>Área</span>
+                      <span className="font-mono font-bold text-white">{(w * h).toFixed(2).replace('.', ',')} m²</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-xs text-white/50">
+                    <span>Valor unitário ({isMetro ? 'metro linear' : 'm²'})</span>
+                    <span className="font-mono text-white">R$ {dimensionModalProduct.price.toFixed(2).replace('.', ',')}</span>
+                  </div>
+                  {rolo > 0 && !isMetro && (
                     <div className="pt-1 border-t border-white/5 space-y-1">
                        <div className="flex justify-between text-xs text-amber-300">
                           <span>Consumo do material ({rolo}m largura)</span>
@@ -8178,14 +8223,23 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                          </>
                        )}
                     </div>
-                  );
-               })()}
-               <div className="flex justify-between text-sm pt-1 border-t border-white/5">
-                 <span className="text-emerald-400 font-bold">Subtotal</span>
-                 <span className="font-mono font-black text-emerald-400">R$ {(Number(dimWidth) * Number(dimHeight) * dimensionModalProduct.price * selectedQty).toFixed(2).replace('.', ',')}</span>
-               </div>
-             </div>
-           )}
+                  )}
+                  {naoCabeEmNenhuma && isMetro && (
+                    <p className="text-[9px] text-rose-400">⚠ Nenhuma orientação cabe na largura do material — confira as medidas.</p>
+                  )}
+                  {valorFinal > valorCalculado && (
+                    <div className="flex justify-between text-[10px] text-amber-400 pt-1 border-t border-white/5">
+                       <span>Valor mínimo aplicado</span>
+                       <span className="font-mono font-bold">R$ {dimensionModalProduct.valorMinimo?.toFixed(2).replace('.', ',')}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-sm pt-1 border-t border-white/5">
+                    <span className="text-emerald-400 font-bold">Subtotal</span>
+                    <span className="font-mono font-black text-emerald-400">R$ {valorFinal.toFixed(2).replace('.', ',')}</span>
+                  </div>
+                </div>
+              );
+           })()}
 
            <div className="flex justify-end gap-3 pt-1">
              <Button variant="ghost" onClick={() => setDimensionModalProduct(null)}>Cancelar</Button>
@@ -9659,6 +9713,7 @@ export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved }: {
     name: '', code: '', category: 'substrato', unit: 'un', currentStock: 0, minStock: 0,
     salePrice: 0, costPrice: 0, isActive: true, isService: false,
     tipoItem: 'produto', controlaEstoque: true, estoqueMaximo: 0, localizacao: '', descricao: '', larguraRolo: 0,
+    valorMinimo: 0,
   };
   const [formData, setFormData] = useState<Partial<InventoryItem>>(emptyForm);
   const [saving, setSaving] = useState(false);
@@ -9690,6 +9745,7 @@ export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved }: {
         localizacao: formData.localizacao || null,
         descricao: formData.descricao || null,
         largura_rolo: formData.larguraRolo || null,
+        valor_minimo: formData.valorMinimo || null,
       };
       let saved: any;
       if (editingItem) {
@@ -9777,9 +9833,15 @@ export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved }: {
             </>
           )}
 
-          {(formData.unit === 'm2' || formData.unit === 'etiqueta') && (
+          {(formData.unit === 'm2' || formData.unit === 'etiqueta' || formData.unit === 'm') && (
             <div className="md:col-span-2">
-              <Input label="LARGURA DO ROLO (m) — usado no cálculo de m²/etiquetas e no PDV" type="number" step="any" placeholder="Ex: 1.02" value={formData.larguraRolo} onChange={(e: any) => setFormData({ ...formData, larguraRolo: Number(e.target.value) })} />
+              <Input label="LARGURA DO ROLO/MATERIAL (m) — usado no cálculo automático e no PDV" type="number" step="any" placeholder="Ex: 1.02" value={formData.larguraRolo} onChange={(e: any) => setFormData({ ...formData, larguraRolo: Number(e.target.value) })} />
+            </div>
+          )}
+
+          {(formData.unit === 'm2' || formData.unit === 'etiqueta' || formData.unit === 'm') && (
+            <div className="md:col-span-2">
+              <Input label="VALOR MÍNIMO (R$) — cobrança mínima, mesmo se o cálculo der menos" type="number" step="any" placeholder="Ex: 20.00" value={formData.valorMinimo} onChange={(e: any) => setFormData({ ...formData, valorMinimo: Number(e.target.value) })} />
             </div>
           )}
 
@@ -9838,6 +9900,7 @@ export const InventoryModule = ({ currentCompany }: { currentCompany: Company | 
       estoqueMaximo: row.estoque_maximo ? Number(row.estoque_maximo) : undefined,
       localizacao: row.localizacao,
       descricao: row.descricao,
+      valorMinimo: row.valor_minimo ? Number(row.valor_minimo) : undefined,
     } as InventoryItem)));
     setLoading(false);
   };
