@@ -5831,7 +5831,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         }).eq('id', settlingOrder.id);
         if (error) throw error;
 
-        const updatedOrder: SaleOrder = { ...settlingOrder, downPayment: novoTotalPago, receivedValue: novoTotalPago, status: novoSaldo <= 0 ? 'completed' : 'pending', payments: [...pagamentosAnteriores, ...paymentEntries] };
+        const updatedOrder: SaleOrder = { ...settlingOrder, downPayment: novoTotalPago, receivedValue: novoTotalPago, status: novoSaldo <= 0 ? 'completed' : 'pending', payments: [...pagamentosAnteriores, ...paymentEntries], scheduledFor: scheduledFor || settlingOrder.scheduledFor || undefined };
         setLastFinalizedOrder(updatedOrder);
         // Atualiza so essa venda localmente (nao recarrega a tabela inteira, que fica lenta com muitas vendas)
         setAllSalesHistory(prev => prev.map(s => s.id === settlingOrder.id ? updatedOrder : s));
