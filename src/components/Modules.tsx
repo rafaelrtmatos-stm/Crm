@@ -4521,6 +4521,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     }
   };
 
+  const handleClosePaymentModal = () => {
+    setIsPaymentModalOpen(false);
+    if (receiptOpenedFromProduction) {
+      setReceiptOpenedFromProduction(false);
+      setRootActiveTab('production');
+    }
+  };
+
   const openReceiptById = async (saleId: string) => {
     const { data, error } = await supabase.from('vendas').select('*').eq('id', saleId).maybeSingle();
     if (error || !data) { showAlert('Não foi possível abrir esse pedido.'); return; }
@@ -7577,7 +7585,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       {/* Payment Modal */}
       <Modal 
         isOpen={isPaymentModalOpen} 
-        onClose={() => setIsPaymentModalOpen(false)} 
+        onClose={handleClosePaymentModal} 
         title={settlingOrder ? `Quitar Débito — Pedido #${settlingOrder.id.slice(-8).toUpperCase()}` : "Finalizar Venda"}
         size="lg"
         className="max-h-[98vh] my-auto"
@@ -7939,6 +7947,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
        onClose={() => {
          setIsSuccessModalOpen(false);
          setSelectedCustomer(null);
+         if (receiptOpenedFromProduction) {
+           setReceiptOpenedFromProduction(false);
+           setRootActiveTab('production');
+         }
        }} 
        title={lastFinalizedOrder?.status === 'pending' ? 'Entrada Salva / Nota Aberta 📝' : 'Venda Finalizada 🎉'}
        size="lg"
@@ -9564,20 +9576,30 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
              </div>
 
              {/* Ações */}
-             <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-2">
-               <Button variant="secondary" size="sm" icon={Printer} className="text-[9px] uppercase tracking-wider font-black h-11" onClick={() => handlePrintReceipt(sale)}>
+             <div className="flex flex-wrap gap-2 pt-2">
+               {isPending && (
+                 <Button
+                   size="sm"
+                   icon={CheckCircle2}
+                   className="flex-1 min-w-[110px] text-[9px] uppercase tracking-wider font-black h-11 bg-emerald-500 hover:bg-emerald-400 text-slate-900 border-none"
+                   onClick={() => { setViewingReceiptSale(null); openSettlePayment(sale); }}
+                 >
+                   Pagar
+                 </Button>
+               )}
+               <Button variant="secondary" size="sm" icon={Printer} className="flex-1 min-w-[110px] text-[9px] uppercase tracking-wider font-black h-11" onClick={() => handlePrintReceipt(sale)}>
                  Imprimir
                </Button>
-               <Button variant="secondary" size="sm" icon={ImageIcon} className="text-[9px] uppercase tracking-wider font-black h-11" onClick={() => handleDownloadReceiptImagem(sale)}>
+               <Button variant="secondary" size="sm" icon={ImageIcon} className="flex-1 min-w-[110px] text-[9px] uppercase tracking-wider font-black h-11" onClick={() => handleDownloadReceiptImagem(sale)}>
                  Imagem
                </Button>
-               <Button variant="secondary" size="sm" icon={FileText} className="text-[9px] uppercase tracking-wider font-black h-11" onClick={() => handleDownloadReceiptPdf(sale)}>
+               <Button variant="secondary" size="sm" icon={FileText} className="flex-1 min-w-[110px] text-[9px] uppercase tracking-wider font-black h-11" onClick={() => handleDownloadReceiptPdf(sale)}>
                  Baixar PDF
                </Button>
-               <Button variant="secondary" size="sm" icon={Share2} className="text-[9px] uppercase tracking-wider font-black h-11 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/10" onClick={() => handleShareReceiptWhatsApp(sale)}>
+               <Button variant="secondary" size="sm" icon={Share2} className="flex-1 min-w-[110px] text-[9px] uppercase tracking-wider font-black h-11 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/10" onClick={() => handleShareReceiptWhatsApp(sale)}>
                  WhatsApp
                </Button>
-               <Button variant="ghost" size="sm" className="text-[9px] uppercase tracking-wider font-black h-11" onClick={handleCloseReceiptViewer}>
+               <Button variant="ghost" size="sm" className="flex-1 min-w-[110px] text-[9px] uppercase tracking-wider font-black h-11" onClick={handleCloseReceiptViewer}>
                  Fechar
                </Button>
              </div>
@@ -11246,13 +11268,13 @@ const OrdemServicoCard = ({ pedido, onDropdownChange }: { key?: any; pedido: Sal
       <GlassCard
         onClick={() => { setPendingReceiptOpenId(pedido.id); setRootActiveTab('pos'); }}
         className={cn(
-          "p-2 border-white/10 space-y-1 cursor-grab active:cursor-grabbing hover:border-primary-500/30 transition-all",
+          "group p-2 rounded-lg border-white/10 space-y-1 cursor-grab active:cursor-grabbing hover:border-primary-500/30 hover:scale-[1.08] hover:z-20 hover:shadow-xl transition-all",
           isDragging ? "shadow-2xl ring-2 ring-primary-500 scale-105" : ""
         )}
       >
         <div className="min-w-0">
-           <p className="font-bold text-white text-[9px] truncate leading-tight">#{pedido.id.slice(-6).toUpperCase()} {pedido.customerName || 'Balcão'}</p>
-           <p className="text-[8px] text-white/30 uppercase font-black truncate leading-tight">{(pedido.items || []).map(i => i.name).join(', ') || 'Sem itens'}</p>
+           <p className="font-bold text-white text-[9px] truncate group-hover:whitespace-normal group-hover:break-words leading-tight">#{pedido.id.slice(-6).toUpperCase()} {pedido.customerName || 'Balcão'}</p>
+           <p className="text-[8px] text-white/30 uppercase font-black truncate group-hover:whitespace-normal group-hover:break-words leading-tight">{(pedido.items || []).map(i => i.name).join(', ') || 'Sem itens'}</p>
         </div>
         {pedido.scheduledFor && (
           <span className="inline-block text-[7px] font-black uppercase bg-primary-500/10 text-primary-300 px-1.5 py-0.5 rounded-full border border-primary-500/20 leading-none">
