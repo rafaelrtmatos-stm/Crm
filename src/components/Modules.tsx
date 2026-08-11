@@ -11409,12 +11409,25 @@ const OrdemServicoCard = ({ pedido, onDropdownChange, selectMode, selected, onTo
   );
 };
 
-const OrdemServicoColumn = ({ stageId, pedidos, onDropdownChange, selectMode, selectedIds, onToggleSelect }: { key?: any; stageId: string; pedidos: SaleOrder[]; onDropdownChange: (pedido: SaleOrder, novaEtapa: string) => void; selectMode?: boolean; selectedIds?: Set<string>; onToggleSelect?: (id: string) => void }) => {
+const OrdemServicoColumn = ({ stageId, pedidos, onDropdownChange, selectMode, selectedIds, onToggleSelect, onToggleSelectAll }: { key?: any; stageId: string; pedidos: SaleOrder[]; onDropdownChange: (pedido: SaleOrder, novaEtapa: string) => void; selectMode?: boolean; selectedIds?: Set<string>; onToggleSelect?: (id: string) => void; onToggleSelectAll?: (ids: string[]) => void }) => {
   const { setNodeRef, isOver } = useDroppable({ id: stageId, data: { type: 'column', stageId } });
+  const todosSelecionados = selectMode && pedidos.length > 0 && pedidos.every(p => selectedIds?.has(p.id));
 
   return (
     <div className="min-w-0 flex flex-col gap-1.5">
       <div className="flex items-center gap-1 px-0.5">
+         {selectMode && pedidos.length > 0 && (
+           <button
+             onClick={() => onToggleSelectAll?.(pedidos.map(p => p.id))}
+             title="Selecionar todos desta coluna"
+             className={cn(
+               "w-3.5 h-3.5 rounded flex items-center justify-center border shrink-0 cursor-pointer",
+               todosSelecionados ? "bg-primary-500 border-primary-500" : "bg-slate-900/60 border-white/20"
+             )}
+           >
+             {todosSelecionados && <Check size={9} className="text-slate-900" />}
+           </button>
+         )}
          <h3 className="text-[7.5px] font-black uppercase tracking-wide text-white/50 truncate leading-tight">{STAGE_LABELS[stageId]}</h3>
          <Badge className="bg-white/5 border-none opacity-50 px-1.5 py-0 h-4 flex items-center shrink-0 text-[8px]">{pedidos.length}</Badge>
       </div>
@@ -11523,6 +11536,16 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
     setSelectedIds(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  // Selecionar Todos de uma coluna/grupo: se todos ja estao marcados, desmarca todos; senao marca todos
+  const toggleSelectedGroup = (ids: string[]) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      const todosMarcados = ids.every(id => next.has(id));
+      ids.forEach(id => { if (todosMarcados) next.delete(id); else next.add(id); });
       return next;
     });
   };
@@ -11738,6 +11761,7 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
                 selectMode={selectMode}
                 selectedIds={selectedIds}
                 onToggleSelect={toggleSelected}
+                onToggleSelectAll={toggleSelectedGroup}
               />
             ))}
           </div>
@@ -11766,6 +11790,14 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
                 );
               })}
            </div>
+           {selectMode && pedidosOrdenados.filter(p => (p.serviceStatus || 'pedido_recebido') === etapaSelecionada).length > 0 && (
+             <button
+               onClick={() => toggleSelectedGroup(pedidosOrdenados.filter(p => (p.serviceStatus || 'pedido_recebido') === etapaSelecionada).map(p => p.id))}
+               className="flex items-center gap-1.5 text-[9px] font-black uppercase text-white/50 hover:text-white cursor-pointer border-0 bg-transparent"
+             >
+               <CheckSquare size={13} /> Selecionar todos desta etapa
+             </button>
+           )}
            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               {pedidosOrdenados.filter(p => (p.serviceStatus || 'pedido_recebido') === etapaSelecionada).map(pedido => (
                 <OrdemServicoCard key={pedido.id} pedido={pedido} onDropdownChange={handleAdvanceStageWithConfirm} selectMode={selectMode} selected={selectedIds.has(pedido.id)} onToggleSelect={toggleSelected} />
