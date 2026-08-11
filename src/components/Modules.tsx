@@ -9625,7 +9625,15 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
     },
     { key: 'ultimo', label: 'Último Pedido/Serviço', render: (_: any, row: any) => {
         const s = clienteStats[row.id];
-        return s ? <span className="text-white/60 text-xs">{safeFormat(s.lastDate, 'dd/MM/yyyy')}</span> : <span className="text-white/20 text-xs">—</span>;
+        if (!s) return <span className="text-white/20 text-xs">—</span>;
+        const dias = Math.floor((Date.now() - new Date(s.lastDate).getTime()) / (1000 * 60 * 60 * 24));
+        const cor = dias >= 60 ? 'text-rose-400' : dias >= 30 ? 'text-amber-400' : 'text-white/60';
+        return (
+          <span className={cn("text-xs font-bold flex items-center gap-1.5", cor)}>
+            {dias >= 30 && <AlertCircle size={12} />}
+            {safeFormat(s.lastDate, 'dd/MM/yyyy')}
+          </span>
+        );
       }
     },
     { key: 'exibir', label: '', render: (_: any, row: any) => (
@@ -9837,6 +9845,43 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
 
                {s ? (
                  <>
+                   {(() => {
+                     const diasDesdeUltimo = Math.floor((Date.now() - new Date(s.lastDate).getTime()) / (1000 * 60 * 60 * 24));
+                     const nivelAlerta = diasDesdeUltimo >= 60 ? 'critico' : diasDesdeUltimo >= 30 ? 'atencao' : 'ok';
+                     return (
+                       <div className={cn(
+                         "rounded-2xl p-4 border flex items-center justify-between gap-3",
+                         nivelAlerta === 'critico' ? "bg-rose-500/10 border-rose-500/30" :
+                         nivelAlerta === 'atencao' ? "bg-amber-500/10 border-amber-500/30" :
+                         "bg-emerald-500/10 border-emerald-500/20"
+                       )}>
+                         <div>
+                            <p className={cn(
+                              "text-[9px] font-black uppercase tracking-widest",
+                              nivelAlerta === 'critico' ? "text-rose-400" : nivelAlerta === 'atencao' ? "text-amber-400" : "text-emerald-400"
+                            )}>Último Serviço</p>
+                            <p className="text-sm font-black text-white">{safeFormat(s.lastDate, 'dd/MM/yyyy')} — {diasDesdeUltimo} dia{diasDesdeUltimo !== 1 ? 's' : ''} atrás</p>
+                            {nivelAlerta !== 'ok' && (
+                              <p className={cn("text-[10px] font-bold mt-0.5", nivelAlerta === 'critico' ? "text-rose-300" : "text-amber-300")}>
+                                {nivelAlerta === 'critico' ? '⚠ Já faz tempo — vale a pena chamar pra ver se precisa de algo novo.' : 'Comece a ficar de olho — pode ser hora de um follow-up.'}
+                              </p>
+                            )}
+                         </div>
+                         {nivelAlerta !== 'ok' && fichaCliente.phone && (
+                           <button
+                             onClick={() => window.open(`https://wa.me/${fichaCliente.phone!.replace(/\D/g, '')}`, '_blank')}
+                             className={cn(
+                               "shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-wide border-0 cursor-pointer",
+                               nivelAlerta === 'critico' ? "bg-rose-500 text-white hover:bg-rose-400" : "bg-amber-500 text-slate-900 hover:bg-amber-400"
+                             )}
+                           >
+                             <MessageSquare size={13} /> Chamar
+                           </button>
+                         )}
+                       </div>
+                     );
+                   })()}
+
                    <div className="flex items-center justify-between">
                       <p className="text-[9px] font-black uppercase text-white/40">Serviços Feitos ({s.count})</p>
                       <button
