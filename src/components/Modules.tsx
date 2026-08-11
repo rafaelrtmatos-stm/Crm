@@ -419,7 +419,7 @@ const mapOrcamentoRow = (row: any): Orcamento => ({
 });
 
 export const DashboardModule = ({ user, currentCompany, companies = [], pendingOrders = [], setActiveTab }: { user: AppUser | null, currentCompany: Company | null, companies?: Company[], pendingOrders?: SaleOrder[], setActiveTab?: (tab: any) => void }) => {
-  const { setPendingReceivablesFilter } = React.useContext(AppContext)!;
+  const { setPendingReceivablesFilter, setPendingGoToHistorico } = React.useContext(AppContext)!;
   const [isEditMode, setIsEditMode] = useState(false);
   const [valorEmEstoque, setValorEmEstoque] = useState(0);
 
@@ -1361,7 +1361,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                </div>
             </div>
 
-            <Button className="w-full h-11" onClick={() => setActiveTab?.('pos')}>Ver Histórico de Vendas</Button>
+            <Button className="w-full h-11" onClick={() => { setPendingGoToHistorico(true); setActiveTab?.('pos'); }}>Ver Histórico de Vendas</Button>
          </div>
       </Modal>
 
@@ -3824,7 +3824,7 @@ const EntregaCountdown = ({ scheduledFor }: { scheduledFor: string }) => {
 };
 
 export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany: Company | null, addPendingOrder: (order: SaleOrder) => void }) => {
-  const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare, pendingReceiptOpenId, setPendingReceiptOpenId, pendingHistoryClientFilter, setPendingHistoryClientFilter, prefilledCustomer, setPrefilledCustomer, pendingReceivablesFilter, setPendingReceivablesFilter } = React.useContext(AppContext)!;
+  const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare, pendingReceiptOpenId, setPendingReceiptOpenId, pendingHistoryClientFilter, setPendingHistoryClientFilter, prefilledCustomer, setPrefilledCustomer, pendingReceivablesFilter, setPendingReceivablesFilter, pendingGoToHistorico, setPendingGoToHistorico } = React.useContext(AppContext)!;
   const [soundAlertsEnabled, setSoundAlertsEnabledState] = useState(() => localStorage.getItem('rpro_sound_alerts_enabled') !== 'false');
   const setSoundAlertsEnabled = (v: boolean) => {
     setSoundAlertsEnabledState(v);
@@ -4767,6 +4767,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setActiveTab('historico');
     setPendingReceivablesFilter(false);
   }, [pendingReceivablesFilter]);
+
+  // Se a Analise Detalhada do Dashboard (ou outro atalho generico) pediu pra ir pro Historico, sem filtro nenhum
+  useEffect(() => {
+    if (!pendingGoToHistorico) return;
+    setActiveTab('historico');
+    setPendingGoToHistorico(false);
+  }, [pendingGoToHistorico]);
 
   // Se a aba Contatos pediu pra iniciar uma venda ja com o cliente selecionado
   useEffect(() => {

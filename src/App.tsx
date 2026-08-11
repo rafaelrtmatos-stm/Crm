@@ -128,6 +128,8 @@ interface AppContextType {
   setPendingHistoryClientFilter: (v: { clienteId: string; clienteName: string } | null) => void;
   pendingReceivablesFilter: boolean;
   setPendingReceivablesFilter: (v: boolean) => void;
+  pendingGoToHistorico: boolean;
+  setPendingGoToHistorico: (v: boolean) => void;
   simulatedUserId: string | null;
   setSimulatedUserId: (id: string | null) => void;
   theme: 'dark' | 'light';
@@ -460,6 +462,7 @@ export default function App() {
   const [pendingReceiptOpenId, setPendingReceiptOpenId] = useState<string | null>(null);
   const [pendingHistoryClientFilter, setPendingHistoryClientFilter] = useState<{ clienteId: string; clienteName: string } | null>(null);
   const [pendingReceivablesFilter, setPendingReceivablesFilter] = useState(false);
+  const [pendingGoToHistorico, setPendingGoToHistorico] = useState(false);
   const [simulatedUserId, setSimulatedUserIdState] = useState<string | null>(localStorage.getItem('rpro_simulated_user_id'));
   const [unrepliedLeadsCount, setUnrepliedLeadsCount] = useState(0);
 
@@ -1250,6 +1253,8 @@ export default function App() {
     setPendingHistoryClientFilter,
     pendingReceivablesFilter,
     setPendingReceivablesFilter,
+    pendingGoToHistorico,
+    setPendingGoToHistorico,
     simulatedUserId,
     setSimulatedUserId,
     theme,
