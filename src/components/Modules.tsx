@@ -5253,17 +5253,23 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       const item = updated[discountItemIndex];
       const original = item.precoOriginal ?? item.price;
       const val = discountInput === '' ? 0 : Number(discountInput);
+      const qty = item.quantity || 1;
+
+      // Subtotal ORIGINAL da linha inteira (todas as unidades, considerando area se houver)
+      const subtotalOriginalLinha = item.area ? original * item.area * qty : original * qty;
 
       if (discountMode === 'preco') {
-        // Editar preco direto do item (nao mexe no preco cadastrado do produto no Estoque)
-        updated[discountItemIndex] = { ...item, price: Math.max(0, val), precoOriginal: original, descontoValor: undefined };
+        // O valor digitado e o TOTAL da linha inteira (todas as unidades juntas) — nao por unidade.
+        // Ex: 2 unidades, digitou 120,00 -> as duas juntas valem 120,00 (60,00 cada), nao 120,00 cada.
+        const novoSubtotalLinha = Math.max(0, val);
+        const novoPreco = item.area ? novoSubtotalLinha / (item.area * qty) : novoSubtotalLinha / qty;
+        updated[discountItemIndex] = { ...item, price: novoPreco, precoOriginal: original, descontoValor: undefined };
         return updated;
       }
 
-      const subtotalOriginal = item.area ? original * item.area : original;
-      const descontoValor = discountMode === 'percentual' ? subtotalOriginal * (val / 100) : val;
-      const novoSubtotal = Math.max(0, subtotalOriginal - descontoValor);
-      const novoPreco = item.area ? novoSubtotal / item.area : novoSubtotal;
+      const descontoValor = discountMode === 'percentual' ? subtotalOriginalLinha * (val / 100) : val;
+      const novoSubtotalLinha = Math.max(0, subtotalOriginalLinha - descontoValor);
+      const novoPreco = item.area ? novoSubtotalLinha / (item.area * qty) : novoSubtotalLinha / qty;
       updated[discountItemIndex] = { ...item, price: novoPreco, precoOriginal: original, descontoValor };
       return updated;
     });
@@ -7924,17 +7930,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
        </Modal>
      )}
 
-     {discountItemIndex !== null && cart[discountItemIndex] && (
+     {discountItemIndex !== null && cart[discountItemIndex] && (() => {
+       const itemQty = cart[discountItemIndex].quantity || 1;
+       return (
        <Modal isOpen={discountItemIndex !== null} onClose={() => setDiscountItemIndex(null)} title="Desconto / Preço do Item" size="sm">
          <div className="space-y-4 p-2">
-            <p className="text-xs text-white/50">Item: <span className="text-white font-bold">{cart[discountItemIndex].name}</span></p>
+            <p className="text-xs text-white/50">Item: <span className="text-white font-bold">{cart[discountItemIndex].name}</span>{itemQty > 1 && <span className="text-white/40"> ({itemQty} unidades)</span>}</p>
             <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 gap-1">
                <button onClick={() => setDiscountMode('percentual')} className={cn("flex-1 py-2 rounded-lg text-[9px] font-black uppercase transition-all", discountMode === 'percentual' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Desc. %</button>
                <button onClick={() => setDiscountMode('valor')} className={cn("flex-1 py-2 rounded-lg text-[9px] font-black uppercase transition-all", discountMode === 'valor' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Desc. R$</button>
                <button onClick={() => setDiscountMode('preco')} className={cn("flex-1 py-2 rounded-lg text-[9px] font-black uppercase transition-all", discountMode === 'preco' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Editar Preço</button>
             </div>
             <Input
-              label={discountMode === 'percentual' ? 'Desconto (%)' : discountMode === 'valor' ? 'Desconto (R$)' : 'Novo Preço (R$)'}
+              label={discountMode === 'percentual' ? 'Desconto (%)' : discountMode === 'valor' ? `Desconto (R$)${itemQty > 1 ? ' — total das ' + itemQty + ' unidades' : ''}` : `Novo Preço${itemQty > 1 ? ` (R$) — TOTAL das ${itemQty} unidades juntas` : ' (R$)'}`}
               type="number"
               step="any"
               autoFocus
@@ -7942,7 +7950,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               onChange={(e: any) => setDiscountInput(e.target.value === '' ? '' : Number(e.target.value))}
             />
             <p className="text-[10px] text-white/30">
-              {discountMode === 'preco' ? 'Define o preço só nesse item, nessa venda — o preço cadastrado do produto no Estoque não muda.' : 'O desconto afeta só esse item nessa venda — o preço cadastrado do produto não muda.'}
+              {discountMode === 'preco'
+                ? (itemQty > 1
+                    ? `Digite o valor total das ${itemQty} unidades juntas (não o valor de cada uma) — o sistema divide automaticamente. O preço cadastrado do produto no Estoque não muda.`
+                    : 'Define o preço só nesse item, nessa venda — o preço cadastrado do produto no Estoque não muda.')
+                : (itemQty > 1
+                    ? `O desconto é sobre o total das ${itemQty} unidades juntas — o preço cadastrado do produto não muda.`
+                    : 'O desconto afeta só esse item nessa venda — o preço cadastrado do produto não muda.')}
             </p>
             <div className="flex justify-end gap-3 pt-1">
                <Button variant="ghost" onClick={() => setDiscountItemIndex(null)}>Cancelar</Button>
@@ -7950,7 +7964,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             </div>
          </div>
        </Modal>
-     )}
+       );
+     })()}
 
      {insulfilmModalProduct && (() => {
        const calc = otimizarCortesInsulfilm(insulfilmPecas, insulfilmLarguraMaterial);
