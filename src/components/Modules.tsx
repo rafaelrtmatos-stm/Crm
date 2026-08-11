@@ -7745,7 +7745,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               {!settlingOrder && (
                 <Button
                   variant="secondary"
-                  className="flex-1 h-9 sm:h-11 text-[8px] sm:text-[9px] uppercase font-black tracking-wider border-white/10"
+                  className="flex-1 h-9 sm:h-11 text-[8px] sm:text-[9px] uppercase font-black tracking-wider bg-emerald-500 hover:bg-emerald-400 text-slate-900 border-none shadow-lg shadow-emerald-500/20"
                   onClick={() => {
                     setIsPaymentModalOpen(false);
                     handleCreateOrcamentoFromCart();
