@@ -123,6 +123,7 @@ export async function renderOrcamentoCanvas({ orcamento: o, companyName, logoDar
     { title: 'Multa e Juros por Atraso', text: o.multaJurosTexto || '' },
     { title: 'Garantia do Serviço', text: o.garantiaTexto || '' },
     { title: 'Política de Cancelamento', text: o.politicaCancelamentoTexto || '' },
+    ...(o.documentType === 'contrato' ? [{ title: 'Cláusulas Contratuais', text: o.clausulasContratoTexto || '' }] : []),
     { title: 'Observações', text: o.observacoes || '' },
   ].filter(c => c.text.trim().length > 0);
 

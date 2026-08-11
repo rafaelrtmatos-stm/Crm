@@ -190,6 +190,7 @@ import {
   ChartErrorBoundary,
   PhoneInputBR,
   CpfCnpjInput,
+  RgInput,
   cn 
 } from './SharedUI';
 import { collection, query, where, onSnapshot, orderBy, Timestamp, addDoc, doc, updateDoc, getDocs, setDoc, limit, deleteDoc } from 'firebase/firestore';
@@ -200,6 +201,7 @@ import { buildPixPayload } from '../lib/pix';
 import { renderReceiptCanvas, downloadCanvasAsPng, downloadCanvasAsPdf, COMPANY_CONTACT, CompanyContactInfo } from '../lib/receipt';
 import { renderOrcamentoCanvas } from '../lib/orcamentoDoc';
 import { exportClientesXlsx, parseClientesXlsx, exportProdutosXlsx, parseProdutosXlsx, exportVendasXlsx, parseVendasXlsx, exportFichaClienteXlsx } from '../lib/spreadsheet';
+import { buildContratoClausulasTexto } from '../lib/contratoTemplate';
 import { format } from 'date-fns';
 
 // Formata uma data com fallback seguro — evita "RangeError: Invalid time value"
@@ -420,6 +422,7 @@ const mapOrcamentoRow = (row: any): Orcamento => ({
   validade: row.validade || undefined,
   status: row.status,
   vendaId: row.venda_id || undefined,
+  clausulasContratoTexto: row.clausulas_contrato_texto || undefined,
   aprovadoEm: row.aprovado_em || undefined,
   aprovadoPor: row.aprovado_por || undefined,
   createdAt: row.created_at,
@@ -3953,7 +3956,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   // --- Cadastro (rápido + mais opções) ---
   const emptyCustomerForm = {
     full_name: '', cep: '', numero: '', email: '', logradouro: '', phone: '', distrito: '',
-    nascimento: '', cpf_cnpj: '', city: '', state: '', complemento: '',
+    nascimento: '', cpf_cnpj: '', rg: '', city: '', state: '', complemento: '',
     limite_credito: '', patrimonios: [] as { propriedade: string; valor: string }[], notes: '',
   };
   const [newCustomerForm, setNewCustomerForm] = useState({ ...emptyCustomerForm });
@@ -4034,6 +4037,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         (c.full_name || '').toLowerCase().includes(term) ||
         (c.email || '').toLowerCase().includes(term) ||
         (c.cpf_cnpj || '').toLowerCase().includes(term) ||
+        (c.rg || '').toLowerCase().includes(term) ||
         (digits.length >= 3 && (c.phone || '').replace(/\D/g, '').includes(digits))
       );
     }
@@ -4098,7 +4102,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setNewCustomerForm({
       full_name: c.full_name || '', cep: c.cep || '', numero: c.numero || '', email: c.email || '',
       logradouro: c.logradouro || '', phone: c.phone || '', distrito: c.distrito || '',
-      nascimento: c.nascimento || '', cpf_cnpj: c.cpf_cnpj || '', city: c.city || '', state: c.state || '',
+      nascimento: c.nascimento || '', cpf_cnpj: c.cpf_cnpj || '', rg: c.rg || '', city: c.city || '', state: c.state || '',
       complemento: c.complemento || '', limite_credito: c.limite_credito ? String(c.limite_credito) : '',
       patrimonios: Array.isArray(c.patrimonios) ? c.patrimonios : [], notes: c.notes || '',
     });
@@ -4123,6 +4127,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         distrito: newCustomerForm.distrito || null,
         nascimento: newCustomerForm.nascimento || null,
         cpf_cnpj: newCustomerForm.cpf_cnpj || null,
+        rg: newCustomerForm.rg || null,
         city: newCustomerForm.city || null,
         state: newCustomerForm.state || null,
         complemento: newCustomerForm.complemento || null,
@@ -4263,6 +4268,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const emptyOrcamentoForm = {
     documentType: 'orcamento' as 'orcamento' | 'contrato',
     vendaId: undefined as string | undefined,
+    clausulasContratoTexto: '',
     clienteId: undefined as string | undefined,
     customerName: '', cpfCnpj: '', phone: '', address: '', responsavel: '',
     items: [] as SaleOrderItem[], desconto: 0, observacoes: '',
@@ -4285,6 +4291,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [orcamentoForm, setOrcamentoForm] = useState({ ...emptyOrcamentoForm });
   const [savingOrcamento, setSavingOrcamento] = useState(false);
   const [orcamentoFromCart, setOrcamentoFromCart] = useState(false);
+  const [contratoStatusFilter, setContratoStatusFilter] = useState('todos');
+  const [contratoSearchTerm, setContratoSearchTerm] = useState('');
   const [orcamentoItemsEditMode, setOrcamentoItemsEditMode] = useState(false);
 
   const handleReturnItemsToOrcamento = () => {
@@ -4348,6 +4356,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       phone: sale.customerPhone || '',
       items: sale.items ? [...sale.items] : [],
       desconto: sale.discountValue || 0,
+      clausulasContratoTexto: documentType === 'contrato' ? buildContratoClausulasTexto({ companyName: currentCompany?.name || 'RAFA ARTS GRAPHICS' }) : '',
     });
     setOrcamentoModalOpen(true);
   };
@@ -4357,6 +4366,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setOrcamentoForm({
       documentType: o.documentType || 'orcamento',
       vendaId: o.vendaId,
+      clausulasContratoTexto: o.clausulasContratoTexto || '',
       clienteId: o.clienteId,
       customerName: o.customerName || '', cpfCnpj: o.cpfCnpj || '', phone: o.phone || '',
       address: o.address || '', responsavel: o.responsavel || '', items: [...o.items],
@@ -4553,6 +4563,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
       const payload = {
         document_type: orcamentoForm.documentType,
+        clausulas_contrato_texto: orcamentoForm.documentType === 'contrato' ? (orcamentoForm.clausulasContratoTexto || null) : null,
         venda_id: vendaId,
         cliente_id: orcamentoForm.clienteId || null,
         customer_name: orcamentoForm.customerName,
@@ -6589,9 +6600,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             { id: 'estoque', label: 'Estoque / Produtos', icon: Box },
             { id: 'servicos', label: 'Serviços', icon: Wrench },
             { id: 'orcamentos', label: 'Orçamentos', icon: FileSpreadsheet },
-            { id: 'clientes', label: 'Clientes', icon: Users },
             { id: 'contratos', label: 'Contratos', icon: FileText },
-            { id: 'excluidos', label: 'Excluídos', icon: Trash2 }
+            { id: 'excluidos', label: 'Excluídos', icon: Trash2 },
+            { id: 'clientes', label: 'Clientes', icon: Users }
           ].map(tab => (
             <button
               key={tab.id}
@@ -7827,11 +7838,178 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           </div>
         )}
 
-        {activeTab === 'contratos' && (
-          <div className="flex-1 p-6 overflow-y-auto custom-scrollbar">
-            <ContractApprovalModule currentCompany={currentCompany} />
-          </div>
-        )}
+        {activeTab === 'contratos' && (() => {
+          const contratos = allOrcamentos.filter(o => o.documentType === 'contrato');
+          const CONTRATO_STATUS_LABELS: Record<string, string> = {
+            rascunho: 'Rascunho', enviado: 'Aguardando Aceite', aprovado: 'Aceito', em_producao: 'Em Execução',
+            concluido: 'Concluído', cancelado: 'Cancelado', encerrado: 'Encerrado', recusado: 'Cancelado', expirado: 'Cancelado',
+          };
+          const CONTRATO_STATUS_STYLES: Record<string, string> = {
+            rascunho: 'bg-white/10 text-white/50', enviado: 'bg-blue-500/15 text-blue-400', aprovado: 'bg-emerald-500/15 text-emerald-400',
+            em_producao: 'bg-amber-500/15 text-amber-400', concluido: 'bg-primary-500/15 text-primary-400',
+            cancelado: 'bg-rose-500/15 text-rose-400', encerrado: 'bg-white/5 text-white/30', recusado: 'bg-rose-500/15 text-rose-400', expirado: 'bg-white/5 text-white/30',
+          };
+          const term = contratoSearchTerm.trim().toLowerCase();
+          const contratosFiltrados = contratos.filter(c => {
+            if (contratoStatusFilter !== 'todos' && c.status !== contratoStatusFilter) return false;
+            if (!term) return true;
+            const vendaVinc = c.vendaId ? allSalesHistory.find(s => s.id === c.vendaId) : undefined;
+            const orcamentoIrmao = vendaVinc?.orcamentoId ? allOrcamentos.find(o => o.id === vendaVinc.orcamentoId) : undefined;
+            return (
+              c.numero.toLowerCase().includes(term) ||
+              (c.customerName || '').toLowerCase().includes(term) ||
+              (c.cpfCnpj || '').toLowerCase().includes(term) ||
+              (c.phone || '').replace(/\D/g, '').includes(term.replace(/\D/g, '')) ||
+              (orcamentoIrmao?.numero || '').toLowerCase().includes(term)
+            );
+          });
+          const valorTotalContratado = contratos.filter(c => c.status !== 'cancelado' && c.status !== 'encerrado').reduce((acc, c) => acc + c.total, 0);
+          const dashCards = [
+            { label: 'Ativos', val: contratos.filter(c => c.status === 'aprovado' || c.status === 'em_producao').length, color: 'text-emerald-400' },
+            { label: 'Aguardando Aceite', val: contratos.filter(c => c.status === 'enviado').length, color: 'text-blue-400' },
+            { label: 'Em Execução', val: contratos.filter(c => c.status === 'em_producao').length, color: 'text-amber-400' },
+            { label: 'Concluídos', val: contratos.filter(c => c.status === 'concluido').length, color: 'text-primary-400' },
+            { label: 'Cancelados', val: contratos.filter(c => c.status === 'cancelado' || c.status === 'encerrado').length, color: 'text-rose-400' },
+          ];
+
+          return (
+            <div className="flex-1 p-4 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/40 space-y-6">
+              <SectionHeader
+                title="Contratos"
+                subtitle={`${contratos.length} contrato(s)`}
+                actions={
+                  <Button
+                    icon={FileSignature}
+                    onClick={() => {
+                      setEditingOrcamento(null);
+                      setOrcamentoFromCart(false);
+                      setOrcamentoForm({
+                        ...emptyOrcamentoForm,
+                        documentType: 'contrato',
+                        clausulasContratoTexto: buildContratoClausulasTexto({ companyName: currentCompany?.name || 'RAFA ARTS GRAPHICS' }),
+                      });
+                      setOrcamentoModalOpen(true);
+                    }}
+                  >
+                    Novo Contrato
+                  </Button>
+                }
+              />
+
+              {/* Dashboard */}
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                {dashCards.map(card => (
+                  <div key={card.label} className="bg-white/5 border border-white/10 rounded-2xl p-4">
+                     <p className="text-[8px] font-black uppercase text-white/30 tracking-widest mb-1">{card.label}</p>
+                     <p className={cn("text-2xl font-black italic", card.color)}>{card.val}</p>
+                  </div>
+                ))}
+                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-4">
+                   <p className="text-[8px] font-black uppercase text-emerald-400 tracking-widest mb-1">Valor Total Contratado</p>
+                   <p className="text-lg font-black italic text-emerald-400">R$ {valorTotalContratado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                </div>
+              </div>
+
+              {/* Filtros */}
+              <div className="flex flex-col sm:flex-row gap-3">
+                 <div className="flex gap-1.5 overflow-x-auto custom-scrollbar pb-1">
+                    {[
+                      { id: 'todos', label: 'Todos' },
+                      { id: 'rascunho', label: 'Rascunhos' },
+                      { id: 'enviado', label: 'Aguardando Aceite' },
+                      { id: 'aprovado', label: 'Aceitos' },
+                      { id: 'em_producao', label: 'Em Execução' },
+                      { id: 'concluido', label: 'Concluídos' },
+                      { id: 'cancelado', label: 'Cancelados' },
+                      { id: 'encerrado', label: 'Encerrados' },
+                    ].map(f => (
+                      <button
+                        key={f.id}
+                        onClick={() => setContratoStatusFilter(f.id)}
+                        className={cn(
+                          "shrink-0 px-3 h-9 rounded-lg text-[9px] font-black uppercase tracking-wide cursor-pointer border transition-all",
+                          contratoStatusFilter === f.id ? "bg-purple-500 text-white border-purple-500" : "bg-white/5 text-white/50 border-white/10 hover:text-white"
+                        )}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                 </div>
+                 <div className="relative flex-1 min-w-[200px]">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
+                    <input
+                      value={contratoSearchTerm}
+                      onChange={(e) => setContratoSearchTerm(e.target.value)}
+                      placeholder="Buscar por número, cliente, CPF/CNPJ, telefone ou nº do orçamento..."
+                      className="w-full h-9 bg-white/5 border border-white/10 rounded-lg pl-9 pr-3 text-[11px] text-white placeholder:text-white/30 focus:outline-none focus:border-primary-500"
+                    />
+                 </div>
+              </div>
+
+              {/* Lista */}
+              {isLoadingOrcamentos ? (
+                <div className="flex justify-center py-16"><RefreshCw className="animate-spin text-primary-500" size={24} /></div>
+              ) : contratosFiltrados.length === 0 ? (
+                <div className="text-center py-16 text-white/30 text-sm">Nenhum contrato encontrado.</div>
+              ) : (
+                <div className="space-y-2">
+                   {contratosFiltrados.map(c => {
+                     const vendaVinc = c.vendaId ? allSalesHistory.find(s => s.id === c.vendaId) : undefined;
+                     const orcamentoIrmao = vendaVinc?.orcamentoId ? allOrcamentos.find(o => o.id === vendaVinc.orcamentoId) : undefined;
+                     const servico = (c.items || []).map(i => i.name).join(', ') || 'Sem itens';
+                     return (
+                       <div key={c.id} className="bg-white/5 border border-white/10 rounded-2xl p-4 flex flex-col md:flex-row md:items-center gap-3 md:gap-6">
+                          <div className="min-w-0 flex-1">
+                             <div className="flex items-center gap-2 flex-wrap">
+                                <p className="font-mono text-[9px] text-purple-300">{c.numero}</p>
+                                <span className={cn("text-[8px] font-black uppercase px-2 py-0.5 rounded-full", CONTRATO_STATUS_STYLES[c.status])}>{CONTRATO_STATUS_LABELS[c.status] || c.status}</span>
+                                {orcamentoIrmao && <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-primary-500/10 text-primary-300">Orç. {orcamentoIrmao.numero}</span>}
+                             </div>
+                             <p className="font-black text-white truncate mt-1">{c.customerName}</p>
+                             <p className="text-[10px] text-white/40 truncate">{c.cpfCnpj || 'CPF/CNPJ não informado'} · {c.phone || 'sem telefone'}</p>
+                             <p className="text-[10px] text-white/30 truncate mt-0.5">Serviço: {servico}</p>
+                          </div>
+                          <div className="text-left md:text-right shrink-0">
+                             <p className="text-lg font-black text-emerald-400 italic">R$ {c.total.toFixed(2).replace('.', ',')}</p>
+                             <p className="text-[9px] text-white/30">Criado {safeFormat(c.createdAt, 'dd/MM/yyyy')}</p>
+                             {c.aprovadoEm && <p className="text-[9px] text-emerald-400/70">Aceito {safeFormat(c.aprovadoEm, 'dd/MM/yyyy')}</p>}
+                          </div>
+                          <div className="flex flex-wrap gap-1.5 md:flex-col shrink-0">
+                             <button onClick={() => setViewingOrcamento(c)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Visualizar</button>
+                             <button onClick={() => openEditOrcamento(c)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Editar</button>
+                             <button onClick={() => openShareOrcamentoWhatsApp(c)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20">Enviar</button>
+                             {(c.status === 'rascunho' || c.status === 'enviado') && (
+                               <button onClick={() => updateOrcamentoStatus(c, 'aprovado')} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20">Marcar Aceito</button>
+                             )}
+                             {c.status === 'aprovado' && (
+                               <button onClick={() => updateOrcamentoStatus(c, 'em_producao')} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20">Iniciar Execução</button>
+                             )}
+                             {c.status === 'em_producao' && (
+                               <button onClick={() => updateOrcamentoStatus(c, 'concluido')} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20">Concluir</button>
+                             )}
+                             {vendaVinc && (
+                               <button onClick={() => openReceiptById(vendaVinc.id)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Ver Nota</button>
+                             )}
+                             {c.status !== 'cancelado' && c.status !== 'encerrado' && (
+                               <button
+                                 onClick={async () => {
+                                   if (!(await showConfirm(`Encerrar o contrato ${c.numero}?`))) return;
+                                   updateOrcamentoStatus(c, 'encerrado');
+                                 }}
+                                 className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20"
+                               >
+                                 Encerrar
+                               </button>
+                             )}
+                          </div>
+                       </div>
+                     );
+                   })}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {activeTab === 'excluidos' && (
           <div className="flex-1 p-4 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/40 space-y-6">
@@ -8057,6 +8235,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           <div className="grid grid-cols-2 gap-3">
                              <Input label="Data de Nascimento" type="date" value={newCustomerForm.nascimento} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, nascimento: e.target.value })} />
                              <CpfCnpjInput label="CPF / CNPJ" value={newCustomerForm.cpf_cnpj} onChange={(v: string) => setNewCustomerForm({ ...newCustomerForm, cpf_cnpj: v })} />
+                             <RgInput label="RG" value={newCustomerForm.rg} onChange={(v: string) => setNewCustomerForm({ ...newCustomerForm, rg: v })} />
                              <Input label="Cidade" value={newCustomerForm.city} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, city: e.target.value })} />
                              <Input label="Estado" value={newCustomerForm.state} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, state: e.target.value })} />
                              <Input label="Complemento" className="col-span-2" value={newCustomerForm.complemento} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, complemento: e.target.value })} />
@@ -9504,7 +9683,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    Orçamento
                  </button>
                  <button
-                   onClick={() => setOrcamentoForm({ ...orcamentoForm, documentType: 'contrato' })}
+                   onClick={() => setOrcamentoForm({
+                     ...orcamentoForm,
+                     documentType: 'contrato',
+                     clausulasContratoTexto: orcamentoForm.clausulasContratoTexto || buildContratoClausulasTexto({ companyName: currentCompany?.name || 'RAFA ARTS GRAPHICS', prazoProducaoTexto: orcamentoForm.prazoProducao }),
+                   })}
                    className={cn("px-4 h-9 rounded-lg text-[10px] font-black uppercase tracking-wide cursor-pointer border-0", orcamentoForm.documentType === 'contrato' ? "bg-purple-500 text-white" : "bg-transparent text-white/40")}
                  >
                    Contrato
@@ -9919,6 +10102,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
                <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px]">Política de Cancelamento</p>
                <textarea rows={2} value={orcamentoForm.politicaCancelamentoTexto} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, politicaCancelamentoTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-primary-500" />
+
+               {orcamentoForm.documentType === 'contrato' && (
+                 <>
+                   <p className="text-[10px] font-black uppercase text-purple-300 tracking-[2px]">Cláusulas do Contrato</p>
+                   <textarea
+                     rows={14}
+                     value={orcamentoForm.clausulasContratoTexto}
+                     onChange={(e) => setOrcamentoForm({ ...orcamentoForm, clausulasContratoTexto: e.target.value })}
+                     className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-[11px] text-white/80 leading-relaxed resize-y focus:outline-none focus:border-primary-500 font-mono"
+                   />
+                 </>
+               )}
 
                <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px]">Observações</p>
                <textarea rows={2} value={orcamentoForm.observacoes} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, observacoes: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-primary-500" />
@@ -10340,6 +10535,12 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
   const [clienteVendas, setClienteVendas] = useState<Record<string, any[]>>({});
   const [produtosCostMap, setProdutosCostMap] = useState<Record<string, number>>({});
   const [fichaCliente, setFichaCliente] = useState<any | null>(null);
+  const [fichaContratos, setFichaContratos] = useState<Orcamento[]>([]);
+  useEffect(() => {
+    if (!fichaCliente?.id) { setFichaContratos([]); return; }
+    supabase.from('orcamentos').select('*').eq('cliente_id', fichaCliente.id).eq('document_type', 'contrato').order('created_at', { ascending: false })
+      .then(({ data }) => setFichaContratos((data || []).map(mapOrcamentoRow)));
+  }, [fichaCliente?.id]);
   const [isLinkingVendas, setIsLinkingVendas] = useState(false);
   const [clienteSearchTerm, setClienteSearchTerm] = useState('');
   const [clienteSortBy, setClienteSortByState] = useState<'nome' | 'data' | 'valor' | 'servicos'>(() => {
@@ -10820,6 +11021,7 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
                <div className="grid grid-cols-2 gap-3 text-xs">
                   {fichaCliente.email && <div><p className="text-white/30 uppercase font-bold text-[9px]">E-mail</p><p className="text-white">{fichaCliente.email}</p></div>}
                   {fichaCliente.cpf_cnpj && <div><p className="text-white/30 uppercase font-bold text-[9px]">CPF/CNPJ</p><p className="text-white">{fichaCliente.cpf_cnpj}</p></div>}
+                  {fichaCliente.rg && <div><p className="text-white/30 uppercase font-bold text-[9px]">RG</p><p className="text-white">{fichaCliente.rg}</p></div>}
                   {fichaCliente.nascimento && <div><p className="text-white/30 uppercase font-bold text-[9px]">Aniversário</p><p className="text-white">{safeFormat(fichaCliente.nascimento, 'dd/MM/yyyy')}</p></div>}
                   {(fichaCliente.logradouro || fichaCliente.city) && (
                     <div className="col-span-2">
@@ -10923,6 +11125,26 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
                         </button>
                       ))}
                    </div>
+
+                   {fichaContratos.length > 0 && (
+                     <div className="space-y-1.5">
+                        <p className="text-[9px] font-black uppercase text-white/40">Contratos ({fichaContratos.length})</p>
+                        <div className="space-y-1.5 max-h-32 overflow-y-auto custom-scrollbar">
+                           {fichaContratos.map(c => (
+                             <div key={c.id} className="flex items-center justify-between gap-2 bg-purple-500/5 border border-purple-500/10 rounded-lg px-3 py-2">
+                                <div className="min-w-0 flex-1">
+                                   <p className="text-[9px] font-mono font-black text-purple-300">{c.numero}</p>
+                                   <p className="text-[9px] text-white/30">{safeFormat(c.createdAt, 'dd/MM/yyyy')}</p>
+                                </div>
+                                <div className="text-right shrink-0">
+                                   <p className="text-[10px] font-black text-white">R$ {c.total.toFixed(2).replace('.', ',')}</p>
+                                   <p className="text-[8px] font-black uppercase text-white/40">{c.status}</p>
+                                </div>
+                             </div>
+                           ))}
+                        </div>
+                     </div>
+                   )}
 
                    <div className="grid grid-cols-2 gap-3">
                       <div className="bg-white/5 rounded-xl p-3 border border-white/5">

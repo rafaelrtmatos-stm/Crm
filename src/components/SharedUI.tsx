@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { Search, Filter, ChevronRight, X, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { formatPhoneBR, formatCpfCnpj, validateCpfCnpj } from '../lib/validators';
+import { formatPhoneBR, formatCpfCnpj, validateCpfCnpj, looksLikeValidRG } from '../lib/validators';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -154,6 +154,37 @@ export const CpfCnpjInput = ({ label, value, onChange, className }: { label?: st
         <p className="text-[9px] text-rose-400 font-bold ml-1">
           {digits.length === 11 ? 'CPF inválido — confira os números digitados.' : 'CNPJ inválido — confira os números digitados.'}
         </p>
+      )}
+    </div>
+  );
+};
+
+// --- RG ---
+// RG nao tem digito verificador padronizado nacionalmente (so SP usa um calculo proprio),
+// entao aqui so avisa se o tamanho estiver bem fora do plausivel (a maioria dos estados
+// usa entre 7 e 10 caracteres, contando o digito verificador quando existe)
+export const RgInput = ({ label, value, onChange, className }: { label?: string; value: string; onChange: (v: string) => void; className?: string }) => {
+  const clean = value.replace(/[^\dXx.\-]/g, '');
+  const mostrarErro = clean.length > 0 && !looksLikeValidRG(clean);
+
+  return (
+    <div className="space-y-1.5 w-full">
+      {label && <label className="text-[10px] font-black uppercase tracking-[2px] text-white/40 ml-1">{label}</label>}
+      <div className="relative group">
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="00.000.000-0"
+          className={cn(
+            "w-full bg-white/5 border rounded-2xl py-3 px-4 text-sm text-white placeholder:text-white/20 outline-none transition-all",
+            mostrarErro ? "border-rose-500/60 focus:border-rose-500" : "border-white/10 focus:bg-white/10 focus:border-primary-500/50",
+            className
+          )}
+        />
+      </div>
+      {mostrarErro && (
+        <p className="text-[9px] text-rose-400 font-bold ml-1">RG parece incompleto ou com tamanho incomum — confira os números.</p>
       )}
     </div>
   );

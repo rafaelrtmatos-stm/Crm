@@ -548,8 +548,9 @@ export interface Orcamento {
   entradaPercentual?: number;
   entradaValor?: number;
   validade?: string;
-  status: 'rascunho' | 'enviado' | 'aprovado' | 'em_producao' | 'concluido' | 'recusado' | 'cancelado' | 'expirado';
+  status: 'rascunho' | 'enviado' | 'aprovado' | 'em_producao' | 'concluido' | 'recusado' | 'cancelado' | 'expirado' | 'encerrado';
   vendaId?: string;
+  clausulasContratoTexto?: string;
   aprovadoEm?: string;
   aprovadoPor?: string;
   createdAt: string;
