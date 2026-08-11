@@ -152,7 +152,9 @@ import {
   PrintingService,
   DashboardWidget,
   DashboardLayout,
-  WidgetType
+  WidgetType,
+  ModuleCrudPermission,
+  ModulePermissions
 } from '../types';
 import { 
   AreaChart, 
@@ -209,9 +211,65 @@ function mapUsuarioRow(row: any): AppUser {
     isActive: row.is_active !== false,
     allowedTabs: Array.isArray(row.allowed_tabs) ? row.allowed_tabs : undefined,
     allowedActions: Array.isArray(row.allowed_actions) ? row.allowed_actions : undefined,
+    modulePermissions: row.module_permissions && typeof row.module_permissions === 'object' ? row.module_permissions : undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   } as AppUser;
+}
+
+// Permissoes granulares padrao (visualizar/criar/editar/excluir) por perfil.
+// O admin sempre tem acesso total independente disso (checado a parte via isAdmin).
+const ALL_MODULE_IDS = ['dashboard', 'pos', 'messages', 'clientes_espera', 'contacts', 'crm', 'production', 'inventory', 'settings'];
+function fullAccess(): ModuleCrudPermission { return { view: true, create: true, edit: true, delete: true }; }
+function noAccess(): ModuleCrudPermission { return { view: false, create: false, edit: false, delete: false }; }
+function viewOnly(): ModuleCrudPermission { return { view: true, create: false, edit: false, delete: false }; }
+function viewCreateEdit(): ModuleCrudPermission { return { view: true, create: true, edit: true, delete: false }; }
+function viewEdit(): ModuleCrudPermission { return { view: true, create: false, edit: true, delete: false }; }
+
+function getDefaultModulePermissions(role: string): ModulePermissions {
+  const empty: ModulePermissions = {};
+  ALL_MODULE_IDS.forEach(m => { empty[m] = noAccess(); });
+
+  switch (role) {
+    case 'admin':
+      ALL_MODULE_IDS.forEach(m => { empty[m] = fullAccess(); });
+      return empty;
+    case 'gerente':
+      // Acesso amplo, exceto Configuracoes (critico)
+      ALL_MODULE_IDS.forEach(m => { empty[m] = m === 'settings' ? viewOnly() : fullAccess(); });
+      return empty;
+    case 'atendente':
+      empty.dashboard = viewOnly();
+      empty.pos = viewCreateEdit();
+      empty.messages = viewCreateEdit();
+      empty.clientes_espera = viewEdit();
+      empty.contacts = viewCreateEdit();
+      return empty;
+    case 'operador': // Producao
+      empty.dashboard = viewOnly();
+      empty.pos = viewOnly();
+      empty.production = viewCreateEdit();
+      return empty;
+    case 'vendedor':
+      empty.dashboard = viewOnly();
+      empty.contacts = viewCreateEdit();
+      empty.messages = viewCreateEdit();
+      empty.clientes_espera = viewEdit();
+      empty.crm = viewCreateEdit();
+      return empty;
+    case 'designer':
+      empty.dashboard = viewOnly();
+      empty.pos = viewOnly();
+      empty.production = viewCreateEdit();
+      return empty;
+    case 'caixa':
+      empty.dashboard = viewOnly();
+      empty.pos = fullAccess();
+      return empty;
+    default:
+      empty.dashboard = viewOnly();
+      return empty;
+  }
 }
 
 // Nome de arquivo padronizado pra recibos/orcamentos baixados: NomeDoCliente_dd-MM-yyyy
@@ -355,6 +413,37 @@ const mapOrcamentoRow = (row: any): Orcamento => ({
 export const DashboardModule = ({ user, currentCompany, companies = [], pendingOrders = [], setActiveTab }: { user: AppUser | null, currentCompany: Company | null, companies?: Company[], pendingOrders?: SaleOrder[], setActiveTab?: (tab: any) => void }) => {
   const [isEditMode, setIsEditMode] = useState(false);
   const [valorEmEstoque, setValorEmEstoque] = useState(0);
+
+  // Cards por permissao: Clientes em Espera / Tempo de Espera
+  const [filaEspera, setFilaEspera] = useState<any[]>([]);
+  const [filaFinalizadosHoje, setFilaFinalizadosHoje] = useState<any[]>([]);
+  useEffect(() => {
+    const canSeeFila = user?.isAdmin || user?.modulePermissions?.clientes_espera?.view;
+    if (!canSeeFila) return;
+    const load = async () => {
+      const { data: emEspera } = await supabase.from('fila_espera').select('*').in('status', ['aguardando', 'em_atendimento']).order('waiting_started_at', { ascending: true });
+      setFilaEspera(emEspera || []);
+      const { data: hoje } = await supabase.from('fila_espera').select('*').eq('status', 'finalizado').gte('waiting_ended_at', new Date(new Date().setHours(0, 0, 0, 0)).toISOString());
+      setFilaFinalizadosHoje(hoje || []);
+    };
+    load();
+    const channel = supabase.channel('dash-fila-espera').on('postgres_changes', { event: '*', schema: 'public', table: 'fila_espera' }, load).subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [user?.isAdmin, user?.modulePermissions]);
+
+  // Card: Mensagens (conversas ativas com leads que ja trocaram mensagem)
+  const [conversasAtivas, setConversasAtivas] = useState(0);
+  useEffect(() => {
+    const canSeeMsg = user?.isAdmin || user?.modulePermissions?.messages?.view;
+    if (!canSeeMsg || !currentCompany) return;
+    const q = query(collection(db, 'leads'), where('companyId', '==', currentCompany.id));
+    const unsub = onSnapshot(q, (snap) => {
+      const comMensagem = snap.docs.filter(d => !!(d.data() as any).lastMessageText).length;
+      setConversasAtivas(comMensagem);
+    });
+    return () => unsub();
+  }, [user?.isAdmin, user?.modulePermissions, currentCompany]);
+
   useEffect(() => {
     if (!user?.isAdmin) return;
     const loadValorEstoque = async () => {
@@ -693,6 +782,52 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
           </div>
         </GlassCard>
       )}
+
+      {(() => {
+        const canOS = user?.isAdmin || user?.modulePermissions?.pos?.view;
+        const canMsg = user?.isAdmin || user?.modulePermissions?.messages?.view;
+        const canFila = user?.isAdmin || user?.modulePermissions?.clientes_espera?.view;
+        if (!canOS && !canMsg && !canFila) return null;
+
+        const aguardandoFila = filaEspera.filter(f => f.status === 'aguardando');
+        const tempos = filaFinalizadosHoje.filter(f => f.waiting_duration_seconds != null).map(f => f.waiting_duration_seconds);
+        const tempoMedio = tempos.length > 0 ? Math.round(tempos.reduce((a: number, b: number) => a + b, 0) / tempos.length) : 0;
+        const maiorEspera = tempos.length > 0 ? Math.max(...tempos) : 0;
+        const fmtMinSec = (s: number) => `${String(Math.floor(s / 60)).padStart(2, '0')}min ${String(s % 60).padStart(2, '0')}s`;
+
+        return (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            {canOS && (
+              <GlassCard onClick={() => setActiveTab?.('pos')} className="p-5 border-white/5 cursor-pointer hover:border-primary-500/30 transition-all space-y-2">
+                <p className="text-[9px] font-black uppercase text-white/30 tracking-widest">Ordens de Serviço</p>
+                <h4 className="text-2xl font-black text-white">{pendingOrders.length} <span className="text-xs text-white/40 font-bold">em andamento</span></h4>
+                <p className="text-[10px] text-primary-400 font-bold uppercase">Ver todas →</p>
+              </GlassCard>
+            )}
+            {canMsg && (
+              <GlassCard onClick={() => setActiveTab?.('messages')} className="p-5 border-white/5 cursor-pointer hover:border-primary-500/30 transition-all space-y-2">
+                <p className="text-[9px] font-black uppercase text-white/30 tracking-widest">Mensagens Recebidas</p>
+                <h4 className="text-2xl font-black text-white">{conversasAtivas} <span className="text-xs text-white/40 font-bold">conversas ativas</span></h4>
+                <p className="text-[10px] text-primary-400 font-bold uppercase">Ver mensagens →</p>
+              </GlassCard>
+            )}
+            {canFila && (
+              <GlassCard onClick={() => setActiveTab?.('clientes_espera')} className="p-5 border-white/5 cursor-pointer hover:border-primary-500/30 transition-all space-y-2">
+                <p className="text-[9px] font-black uppercase text-white/30 tracking-widest">Clientes em Espera</p>
+                <h4 className="text-2xl font-black text-white">{aguardandoFila.length} <span className="text-xs text-white/40 font-bold">aguardando</span></h4>
+                <p className="text-[10px] text-primary-400 font-bold uppercase">Atender próximo →</p>
+              </GlassCard>
+            )}
+            {canFila && (
+              <GlassCard className="p-5 border-white/5 space-y-2">
+                <p className="text-[9px] font-black uppercase text-white/30 tracking-widest">Tempo de Espera</p>
+                <h4 className="text-lg font-black text-white">Média: {fmtMinSec(tempoMedio)}</h4>
+                <p className="text-[10px] text-amber-400 font-bold">Maior: {fmtMinSec(maiorEspera)}</p>
+              </GlassCard>
+            )}
+          </div>
+        );
+      })()}
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         {[
@@ -10429,6 +10564,202 @@ export const InventoryModule = ({ currentCompany, user }: { currentCompany: Comp
 };
 
 // --- PRODUCTION ---
+// Cronometro de CONTAGEM (conta pra cima, elapsed) — usado na Fila de Clientes em Espera
+const ElapsedTimer = ({ startedAt }: { startedAt: string }) => {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+  const diffSeconds = Math.max(0, Math.floor((now - new Date(startedAt).getTime()) / 1000));
+  const minutes = Math.floor(diffSeconds / 60);
+  const seconds = diffSeconds % 60;
+  return <span className="font-mono font-black">{String(minutes).padStart(2, '0')}min {String(seconds).padStart(2, '0')}s</span>;
+};
+
+export const ClientesEsperaModule = ({ currentCompany, user }: { currentCompany: Company | null; user: AppUser | null }) => {
+  const [fila, setFila] = useState<any[]>([]);
+  const [finalizados, setFinalizados] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [newNome, setNewNome] = useState('');
+  const [newTelefone, setNewTelefone] = useState('');
+  const [newMotivo, setNewMotivo] = useState('');
+
+  const perm = user?.isAdmin ? { view: true, create: true, edit: true, delete: true } : (user?.modulePermissions?.clientes_espera || { view: true, create: false, edit: false, delete: false });
+
+  const load = async () => {
+    const { data: emEspera } = await supabase.from('fila_espera').select('*').in('status', ['aguardando', 'em_atendimento']).order('waiting_started_at', { ascending: true });
+    setFila(emEspera || []);
+    const { data: hoje } = await supabase.from('fila_espera').select('*').eq('status', 'finalizado').gte('waiting_ended_at', new Date(new Date().setHours(0, 0, 0, 0)).toISOString()).order('waiting_ended_at', { ascending: false });
+    setFinalizados(hoje || []);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    load();
+    const channel = supabase.channel('fila-espera-changes').on('postgres_changes', { event: '*', schema: 'public', table: 'fila_espera' }, load).subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [currentCompany]);
+
+  const handleAdicionar = async () => {
+    if (!newNome.trim()) { alert('Digite o nome do cliente.'); return; }
+    try {
+      const { error } = await supabase.from('fila_espera').insert({
+        cliente_nome: newNome.trim(),
+        cliente_telefone: newTelefone.trim() || null,
+        motivo: newMotivo.trim() || null,
+        status: 'aguardando',
+        waiting_started_at: new Date().toISOString(),
+      });
+      if (error) throw error;
+      setIsAddModalOpen(false);
+      setNewNome(''); setNewTelefone(''); setNewMotivo('');
+    } catch (err: any) {
+      alert(`Erro ao adicionar cliente à fila: ${err?.message || 'erro desconhecido'}`);
+    }
+  };
+
+  const handleAtender = async (id: string) => {
+    try {
+      const { error } = await supabase.from('fila_espera').update({ status: 'em_atendimento', atendido_por: user?.name || null }).eq('id', id);
+      if (error) throw error;
+    } catch (err: any) {
+      alert(`Erro: ${err?.message || 'erro desconhecido'}`);
+    }
+  };
+
+  const handleFinalizar = async (item: any) => {
+    try {
+      const inicio = new Date(item.waiting_started_at).getTime();
+      const fim = Date.now();
+      const duracao = Math.max(0, Math.floor((fim - inicio) / 1000));
+      const { error } = await supabase.from('fila_espera').update({
+        status: 'finalizado',
+        waiting_ended_at: new Date().toISOString(),
+        waiting_duration_seconds: duracao,
+      }).eq('id', item.id);
+      if (error) throw error;
+    } catch (err: any) {
+      alert(`Erro: ${err?.message || 'erro desconhecido'}`);
+    }
+  };
+
+  const handleRemover = async (id: string) => {
+    if (!confirm('Remover esse cliente da fila?')) return;
+    await supabase.from('fila_espera').delete().eq('id', id);
+  };
+
+  const aguardando = fila.filter(f => f.status === 'aguardando');
+  const emAtendimento = fila.filter(f => f.status === 'em_atendimento');
+  const temposFinalizados = finalizados.filter(f => f.waiting_duration_seconds != null).map(f => f.waiting_duration_seconds);
+  const tempoMedio = temposFinalizados.length > 0 ? Math.round(temposFinalizados.reduce((a, b) => a + b, 0) / temposFinalizados.length) : 0;
+  const maiorEspera = temposFinalizados.length > 0 ? Math.max(...temposFinalizados) : 0;
+  const fmtMinSec = (totalSeconds: number) => `${String(Math.floor(totalSeconds / 60)).padStart(2, '0')}min ${String(totalSeconds % 60).padStart(2, '0')}s`;
+
+  if (!perm.view) {
+    return (
+      <div className="h-96 flex flex-col items-center justify-center gap-3 text-center">
+        <AlertCircle size={32} className="text-white/20" />
+        <p className="text-sm font-bold text-white/40 uppercase">Você não tem permissão para ver essa área.</p>
+      </div>
+    );
+  }
+
+  if (loading) return (
+    <div className="h-96 flex items-center justify-center">
+      <RefreshCw className="animate-spin text-primary-500" />
+    </div>
+  );
+
+  return (
+    <div className="space-y-8 animate-in fade-in zoom-in-95 duration-500">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-white/10 pb-4">
+        <div>
+          <h2 className="text-xl md:text-2xl font-black text-white italic tracking-tighter uppercase flex items-center gap-2">
+            <Clock className="text-primary-400" size={22} />
+            Clientes em Espera
+          </h2>
+          <p className="text-[10px] md:text-xs text-white/40 font-bold uppercase tracking-widest mt-1">Fila de atendimento com tempo de espera em tempo real</p>
+        </div>
+        {(perm.create || user?.isAdmin) && (
+          <Button icon={Plus} onClick={() => setIsAddModalOpen(true)}>Adicionar à Fila</Button>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <GlassCard className="p-5 border-white/5">
+          <p className="text-[9px] font-black uppercase text-white/30 tracking-widest">Em Espera Agora</p>
+          <h4 className="text-2xl font-black text-white mt-1">{aguardando.length}</h4>
+        </GlassCard>
+        <GlassCard className="p-5 border-white/5">
+          <p className="text-[9px] font-black uppercase text-white/30 tracking-widest">Tempo Médio (hoje)</p>
+          <h4 className="text-2xl font-black text-emerald-400 mt-1">{fmtMinSec(tempoMedio)}</h4>
+        </GlassCard>
+        <GlassCard className="p-5 border-white/5">
+          <p className="text-[9px] font-black uppercase text-white/30 tracking-widest">Maior Espera (hoje)</p>
+          <h4 className="text-2xl font-black text-amber-400 mt-1">{fmtMinSec(maiorEspera)}</h4>
+        </GlassCard>
+      </div>
+
+      {emAtendimento.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-sm font-black uppercase text-emerald-400 tracking-widest">Em Atendimento</h3>
+          {emAtendimento.map(item => (
+            <div key={item.id} className="flex items-center gap-3 bg-emerald-500/5 border border-emerald-500/20 rounded-xl px-4 py-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-white">{item.cliente_nome}</p>
+                <p className="text-[10px] text-white/40">{item.cliente_telefone} {item.motivo && `· ${item.motivo}`} {item.atendido_por && `· Atendido por ${item.atendido_por}`}</p>
+              </div>
+              <ElapsedTimer startedAt={item.waiting_started_at} />
+              {(perm.edit || user?.isAdmin) && (
+                <Button variant="secondary" className="shrink-0" onClick={() => handleFinalizar(item)}>Finalizar</Button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="space-y-3">
+        <h3 className="text-sm font-black uppercase text-white/50 tracking-widest">Aguardando ({aguardando.length})</h3>
+        {aguardando.length === 0 ? (
+          <div className="py-12 text-center bg-white/5 rounded-3xl border border-dashed border-white/10">
+            <p className="text-sm font-bold text-white/30 uppercase">Nenhum cliente aguardando</p>
+          </div>
+        ) : aguardando.map(item => (
+          <div key={item.id} className="flex items-center gap-3 bg-slate-900/60 hover:bg-slate-900 border border-white/5 rounded-xl px-4 py-3 transition-all">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-white">{item.cliente_nome}</p>
+              <p className="text-[10px] text-white/40">{item.cliente_telefone} {item.motivo && `· ${item.motivo}`}</p>
+            </div>
+            <ElapsedTimer startedAt={item.waiting_started_at} />
+            <div className="flex gap-1.5 shrink-0">
+              {(perm.edit || user?.isAdmin) && (
+                <Button className="bg-primary-500 text-slate-900 border-none" onClick={() => handleAtender(item.id)}>Atender</Button>
+              )}
+              {(perm.delete || user?.isAdmin) && (
+                <button onClick={() => handleRemover(item.id)} className="p-2.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" title="Remover"><Trash2 size={14} /></button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <Modal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} title="Adicionar Cliente à Fila" size="sm">
+        <div className="space-y-4 p-2">
+          <Input label="Nome do Cliente" autoFocus value={newNome} onChange={(e: any) => setNewNome(e.target.value)} />
+          <Input label="Telefone (opcional)" value={newTelefone} onChange={(e: any) => setNewTelefone(e.target.value)} />
+          <Input label="Motivo (opcional)" placeholder="Ex: Retirar pedido, orçamento..." value={newMotivo} onChange={(e: any) => setNewMotivo(e.target.value)} />
+          <div className="flex justify-end gap-3 pt-1">
+            <Button variant="ghost" onClick={() => setIsAddModalOpen(false)}>Cancelar</Button>
+            <Button className="bg-primary-500 text-slate-900 border-none" onClick={handleAdicionar}>Adicionar</Button>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+};
+
 export const ProductionModule = ({ currentCompany }: { currentCompany: Company | null }) => {
   return (
     <div className="space-y-8 animate-in fade-in zoom-in-95 duration-500">
@@ -10716,6 +11047,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
   const [editedRole, setEditedRole] = useState<'admin' | 'gerente' | 'atendente' | 'caixa' | 'vendedor' | 'designer' | 'operador'>('atendente');
   const [editedTabs, setEditedTabs] = useState<string[]>([]);
   const [editedActions, setEditedActions] = useState<string[]>([]);
+  const [editedModulePermissions, setEditedModulePermissions] = useState<ModulePermissions>({});
 
   // Create User Modal State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -10780,13 +11112,14 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     // Se o usuario nao tem allowedTabs definido ainda, o padrao NAO inclui Configuracoes —
     // só quem já é admin (ou for promovido nessa mesma tela) deveria ver essa aba.
     setEditedTabs(u.allowedTabs || (u.isAdmin || u.role === 'admin'
-      ? ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'production', 'settings']
-      : ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'production']));
+      ? ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'clientes_espera', 'production', 'settings']
+      : ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'clientes_espera', 'production']));
     setEditedActions(u.allowedActions || [
       'canStartNote', 'canSendSavedMessage', 'canCreateCard', 'canAddTask',
       'canStartPosSale', 'canStartRealEstateSale', 'canMoveLead',
       'canViewCustomerData', 'canViewAttachments', 'canTranscribeAudio'
     ]);
+    setEditedModulePermissions(u.modulePermissions || getDefaultModulePermissions(u.role || 'atendente'));
   };
 
   const handleSaveUserPermissions = async () => {
@@ -10818,6 +11151,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
           is_admin: editedRole === 'admin',
           allowed_tabs: editedTabs,
           allowed_actions: editedActions,
+          module_permissions: editedModulePermissions,
           updated_at: new Date().toISOString(),
         };
         if (isUuid) {
@@ -10844,8 +11178,8 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     try {
       const cargosComOpcoes = ['admin', 'gerente'];
       const defaultTabs = cargosComOpcoes.includes(newUserRole)
-        ? ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'production', 'settings']
-        : ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'production'];
+        ? ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'clientes_espera', 'production', 'settings']
+        : ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'clientes_espera', 'production'];
       const defaultActions = [
         'canStartNote', 'canSendSavedMessage', 'canCreateCard', 'canAddTask',
         'canStartPosSale', 'canStartRealEstateSale', 'canMoveLead',
@@ -10861,6 +11195,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
         is_active: true,
         allowed_tabs: defaultTabs,
         allowed_actions: defaultActions,
+        module_permissions: getDefaultModulePermissions(newUserRole),
       });
       if (error) throw error;
 
@@ -10901,12 +11236,25 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     }
   };
 
+  const MODULE_DEFINITIONS = [
+    { id: 'dashboard', label: 'Dashboard' },
+    { id: 'pos', label: 'Ordens de Serviço / PDV' },
+    { id: 'messages', label: 'Mensagens' },
+    { id: 'clientes_espera', label: 'Clientes em Espera' },
+    { id: 'contacts', label: 'Clientes' },
+    { id: 'crm', label: 'Funil CRM' },
+    { id: 'production', label: 'Produção' },
+    { id: 'inventory', label: 'Estoque' },
+    { id: 'settings', label: 'Configurações' },
+  ];
+
   const tabOptions = [
     { id: 'dashboard', label: 'Dashboard', desc: 'Painel de controle e faturamento consolidado' },
     { id: 'crm', label: 'Funil CRM', desc: 'Criação e movimentação de Leads / Contatos comerciais' },
     { id: 'messages', label: 'Mensagens / Chats', desc: 'Canal de atendimento direto integrado' },
     { id: 'pos', label: 'PDV Gráfica', desc: 'Faturamento rápido, caixa e vendas' },
     { id: 'contacts', label: 'Contatos', desc: 'Gestão de clientes e histórico de compras' },
+    { id: 'clientes_espera', label: 'Clientes em Espera', desc: 'Fila de atendimento com tempo de espera em tempo real' },
     { id: 'production', label: 'Produção', desc: 'Fila de fabricação e acabamentos gráficos' },
     { id: 'settings', label: 'Opções', desc: 'Parâmetro de configurações do Rafa Arts Graphics' },
   ];
@@ -11320,6 +11668,67 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                         <option value="designer">Designer Gráfico</option>
                         <option value="operador">Operador de Impressão</option>
                       </select>
+                    </div>
+
+                    <div className="space-y-6 pt-6 border-t border-white/5">
+                      <div className="flex items-center justify-between flex-wrap gap-3">
+                         <div>
+                            <h4 className="text-lg font-bold text-white uppercase italic tracking-tight font-black">Permissões por Módulo</h4>
+                            <p className="text-xs text-white/30 font-medium">Controle fino de Visualizar / Criar / Editar / Excluir em cada área do sistema</p>
+                         </div>
+                         <button
+                           type="button"
+                           onClick={() => setEditedModulePermissions(getDefaultModulePermissions(editedRole))}
+                           className="text-[10px] font-black uppercase text-primary-400 hover:text-primary-300 bg-primary-500/10 px-3 py-2 rounded-lg border-0 cursor-pointer"
+                         >
+                           Aplicar padrão do cargo ({editedRole})
+                         </button>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left border-separate border-spacing-y-1.5">
+                          <thead>
+                            <tr>
+                              <th className="text-[9px] font-black uppercase text-white/30 tracking-widest px-3 py-1">Módulo</th>
+                              <th className="text-[9px] font-black uppercase text-white/30 tracking-widest px-3 py-1 text-center">Ver</th>
+                              <th className="text-[9px] font-black uppercase text-white/30 tracking-widest px-3 py-1 text-center">Criar</th>
+                              <th className="text-[9px] font-black uppercase text-white/30 tracking-widest px-3 py-1 text-center">Editar</th>
+                              <th className="text-[9px] font-black uppercase text-white/30 tracking-widest px-3 py-1 text-center">Excluir</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {MODULE_DEFINITIONS.map((mod) => {
+                              const perm = editedModulePermissions[mod.id] || { view: false, create: false, edit: false, delete: false };
+                              const toggle = (field: keyof ModuleCrudPermission) => {
+                                setEditedModulePermissions(prev => {
+                                  const current = prev[mod.id] || { view: false, create: false, edit: false, delete: false };
+                                  const updated = { ...current, [field]: !current[field] };
+                                  // Se desmarcar "Ver", desmarca tudo junto (nao faz sentido criar/editar sem ver)
+                                  if (field === 'view' && !updated.view) {
+                                    updated.create = false; updated.edit = false; updated.delete = false;
+                                  }
+                                  return { ...prev, [mod.id]: updated };
+                                });
+                              };
+                              return (
+                                <tr key={mod.id} className="bg-white/[0.03]">
+                                  <td className="px-3 py-2.5 text-xs font-bold text-white rounded-l-xl">{mod.label}</td>
+                                  {(['view', 'create', 'edit', 'delete'] as const).map(field => (
+                                    <td key={field} className={cn("px-3 py-2.5 text-center", field === 'delete' && "rounded-r-xl")}>
+                                      <input
+                                        type="checkbox"
+                                        checked={!!perm[field]}
+                                        disabled={field !== 'view' && !perm.view}
+                                        onChange={() => toggle(field)}
+                                        className="w-4 h-4 accent-primary-500 cursor-pointer disabled:opacity-20 disabled:cursor-not-allowed"
+                                      />
+                                    </td>
+                                  ))}
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
 
                     <div className="space-y-6 pt-6 border-t border-white/5">

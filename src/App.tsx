@@ -345,7 +345,8 @@ import {
   ServicesModule,
   InventoryModule,
   ProductionModule,
-  SettingsModule
+  SettingsModule,
+  ClientesEsperaModule
 } from './components/Modules';
 import { ModuleErrorBoundary } from './components/SharedUI';
 
@@ -364,6 +365,7 @@ function mapUsuarioRow(row: any): AppUser {
     isActive: row.is_active !== false,
     allowedTabs: Array.isArray(row.allowed_tabs) ? row.allowed_tabs : undefined,
     allowedActions: Array.isArray(row.allowed_actions) ? row.allowed_actions : undefined,
+    modulePermissions: row.module_permissions && typeof row.module_permissions === 'object' ? row.module_permissions : undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   } as AppUser;
@@ -970,6 +972,7 @@ export default function App() {
     { id: 'messages', label: 'Mensagens', icon: MessageSquare },
     { id: 'pos', label: 'PDV Gráfica', icon: ShoppingBag },
     { id: 'contacts', label: 'Contatos', icon: Users },
+    { id: 'clientes_espera', label: 'Clientes em Espera', icon: Clock },
     { id: 'production', label: 'Produção', icon: Layers },
     { id: 'settings', label: 'Opções', icon: Settings },
   ].filter(item => {
@@ -1305,6 +1308,7 @@ export default function App() {
                   {activeTab === 'messages' && <MessagesModule currentCompany={currentCompany} user={user} />}
                   {activeTab === 'pos' && <ModuleErrorBoundary label="o PDV"><POSModule currentCompany={currentCompany} addPendingOrder={addPendingOrder} /></ModuleErrorBoundary>}
                   {activeTab === 'contacts' && <ContactsModule currentCompany={currentCompany} />}
+                  {activeTab === 'clientes_espera' && <ModuleErrorBoundary label="Clientes em Espera"><ClientesEsperaModule currentCompany={currentCompany} user={user} /></ModuleErrorBoundary>}
                   {activeTab === 'inventory' && <InventoryModule currentCompany={currentCompany} user={user} />}
                   {activeTab === 'services' && <ServicesModule currentCompany={currentCompany} />}
                   {activeTab === 'production' && <ProductionModule currentCompany={currentCompany} />}

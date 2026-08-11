@@ -92,6 +92,15 @@ export interface Company extends BaseEntity {
   activeModules: string[]; // ['crm', 'messages', 'pos', 'real_estate', ...]
 }
 
+export interface ModuleCrudPermission {
+  view: boolean;
+  create: boolean;
+  edit: boolean;
+  delete: boolean;
+}
+
+export type ModulePermissions = Record<string, ModuleCrudPermission>;
+
 export interface AppUser extends BaseEntity {
   name: string;
   email: string;
@@ -105,6 +114,7 @@ export interface AppUser extends BaseEntity {
   allowedCompanies?: string[]; // IDs of companies this user can access
   allowedTabs?: string[];      // IDs of tabs this user can access
   allowedActions?: string[];   // Specific action permissions allowed
+  modulePermissions?: ModulePermissions; // Permissoes granulares (ver/criar/editar/excluir) por modulo
 }
 
 export interface Lead extends BaseEntity {
