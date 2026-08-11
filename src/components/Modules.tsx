@@ -4511,6 +4511,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     }
   };
 
+  const [receiptOpenedFromProduction, setReceiptOpenedFromProduction] = useState(false);
+
+  const handleCloseReceiptViewer = () => {
+    setViewingReceiptSale(null);
+    if (receiptOpenedFromProduction) {
+      setReceiptOpenedFromProduction(false);
+      setRootActiveTab('production');
+    }
+  };
+
   const openReceiptById = async (saleId: string) => {
     const { data, error } = await supabase.from('vendas').select('*').eq('id', saleId).maybeSingle();
     if (error || !data) { showAlert('Não foi possível abrir esse pedido.'); return; }
@@ -4521,7 +4531,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   useEffect(() => {
     if (!pendingReceiptOpenId) return;
     setActiveTab('historico');
-    openReceiptById(pendingReceiptOpenId);
+    openReceiptById(pendingReceiptOpenId).then(() => setReceiptOpenedFromProduction(true));
     setPendingReceiptOpenId(null);
   }, [pendingReceiptOpenId]);
 
@@ -4545,6 +4555,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const openReceiptDetail = async (sale: SaleOrder) => {
     setViewingReceiptSale(sale);
     setViewingReceiptEmail(undefined);
+    setReceiptOpenedFromProduction(false); // reseta por padrao; so fica true se vier explicitamente da Ordem de Servico
     const phoneDigits = (sale.customerPhone || '').replace(/\D/g, '');
     if (phoneDigits.length >= 8) {
       try {
@@ -9459,7 +9470,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
        return (
          <Modal
            isOpen={!!viewingReceiptSale}
-           onClose={() => setViewingReceiptSale(null)}
+           onClose={handleCloseReceiptViewer}
            title="Visualizar Recibo"
            size="lg"
          >
@@ -9566,7 +9577,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                <Button variant="secondary" size="sm" icon={Share2} className="text-[9px] uppercase tracking-wider font-black h-11 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/10" onClick={() => handleShareReceiptWhatsApp(sale)}>
                  WhatsApp
                </Button>
-               <Button variant="ghost" size="sm" className="text-[9px] uppercase tracking-wider font-black h-11" onClick={() => setViewingReceiptSale(null)}>
+               <Button variant="ghost" size="sm" className="text-[9px] uppercase tracking-wider font-black h-11" onClick={handleCloseReceiptViewer}>
                  Fechar
                </Button>
              </div>
