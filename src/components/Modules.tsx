@@ -6820,6 +6820,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 setHistorySearch(clienteName);
                 setActiveTab('historico');
               }}
+              onStartSaleForClient={(cliente) => {
+                setSelectedCustomer(cliente);
+                setActiveTab('venda');
+              }}
             />
           </div>
         )}
@@ -9006,7 +9010,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 };
 
 // --- CONTACTS ---
-export const ContactsModule = ({ currentCompany, onViewHistoryForClient }: { currentCompany: Company | null; onViewHistoryForClient?: (clienteId: string, clienteName: string) => void }) => {
+export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStartSaleForClient }: { currentCompany: Company | null; onViewHistoryForClient?: (clienteId: string, clienteName: string) => void; onStartSaleForClient?: (cliente: { id: string; name: string; phone: string }) => void }) => {
   const [clientes, setClientes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -9285,39 +9289,44 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient }: { cur
 
   return (
     <div className="space-y-8 animate-in fade-in zoom-in-95 duration-500">
-      <SectionHeader
-        title="Base de Contatos"
-        subtitle="Gestão unificada de clientes"
-        actions={
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportFile} />
-            <button
-              disabled={isImporting}
-              title={isImporting ? 'Importando...' : 'Importar Planilha'}
-              onClick={() => fileInputRef.current?.click()}
-              className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all disabled:opacity-50"
-            >
-              <Upload size={14} className={cn(isImporting && "animate-pulse")} />
-            </button>
-            <button
-              title="Exportar Planilha"
-              onClick={() => exportClientesXlsx(clientes)}
-              className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all"
-            >
-              <Download size={14} />
-            </button>
-            <button
-              disabled={isLinkingVendas}
-              title="Vincular vendas importadas aos clientes cadastrados (por nome/telefone)"
-              onClick={handleLinkVendasToClientes}
-              className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all disabled:opacity-50"
-            >
-              <Link2 size={14} className={cn(isLinkingVendas && "animate-pulse")} />
-            </button>
-            <Button icon={Plus} onClick={() => setIsModalOpen(true)}>Novo Cliente</Button>
-          </div>
-        }
-      />
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-white/10 pb-4">
+        <div>
+          <h2 className="text-xl md:text-2xl font-black text-white italic tracking-tighter uppercase flex items-center gap-2">
+            <Users className="text-primary-400" size={22} />
+            Base de Contatos
+          </h2>
+          <p className="text-[10px] md:text-xs text-white/40 font-bold uppercase tracking-widest mt-1">
+            Gestão unificada de clientes
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportFile} />
+          <button
+            disabled={isImporting}
+            title={isImporting ? 'Importando...' : 'Importar Planilha'}
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all disabled:opacity-50"
+          >
+            <Upload size={14} className={cn(isImporting && "animate-pulse")} />
+          </button>
+          <button
+            title="Exportar Planilha"
+            onClick={() => exportClientesXlsx(clientes)}
+            className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all"
+          >
+            <Download size={14} />
+          </button>
+          <button
+            disabled={isLinkingVendas}
+            title="Vincular vendas importadas aos clientes cadastrados (por nome/telefone)"
+            onClick={handleLinkVendasToClientes}
+            className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all disabled:opacity-50"
+          >
+            <Link2 size={14} className={cn(isLinkingVendas && "animate-pulse")} />
+          </button>
+          <Button icon={Plus} onClick={() => setIsModalOpen(true)}>Novo Cliente</Button>
+        </div>
+      </div>
       <div className="flex items-center gap-2 flex-wrap">
          <div className="relative flex-1 min-w-[180px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" size={14} />
@@ -9355,22 +9364,22 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient }: { cur
                     <div
                       key={c.id}
                       ref={(el) => { clienteRowRefs.current[c.id] = el; }}
-                      className="flex items-center justify-between gap-3 px-3 py-2.5 bg-white/5 hover:bg-white/10 rounded-xl transition-all"
+                      className="flex items-center gap-3 bg-slate-900/60 hover:bg-slate-900 border border-white/5 rounded-xl px-3 py-2 transition-all"
                     >
                        <div className="min-w-0 flex-1">
-                          <p className="font-bold text-white truncate">{c.full_name}</p>
+                          <p className="text-[11px] font-black text-white uppercase italic truncate">{c.full_name}</p>
                           {s && <p className="text-[9px] text-white/30">{s.count} pedido(s) · R$ {s.total.toFixed(2).replace('.', ',')}</p>}
                        </div>
                        {c.phone ? (
                          <button
                            onClick={() => window.open(`https://wa.me/${c.phone.replace(/\D/g, '')}`, '_blank')}
-                           className="flex items-center gap-1.5 text-emerald-400 hover:text-emerald-300 font-bold text-xs shrink-0"
+                           className="flex items-center gap-1.5 text-emerald-400 hover:text-emerald-300 font-bold text-[11px] shrink-0"
                          >
                            <MessageSquare size={13} /> {c.phone}
                          </button>
-                       ) : <span className="text-white/20 text-xs shrink-0">—</span>}
-                       <span className="text-white/40 text-[10px] shrink-0 hidden sm:block w-20 text-right">{s ? safeFormat(s.lastDate, 'dd/MM/yyyy') : '—'}</span>
-                       <Button variant="secondary" size="sm" onClick={() => setFichaCliente(c)} className="shrink-0">Exibir</Button>
+                       ) : <span className="text-white/20 text-[11px] shrink-0">—</span>}
+                       <span className="text-white/40 text-[9px] shrink-0 hidden sm:block w-20 text-right">{s ? safeFormat(s.lastDate, 'dd/MM/yyyy') : '—'}</span>
+                       <button onClick={() => setFichaCliente(c)} className="text-[9px] font-black uppercase px-3 py-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20 shrink-0">Exibir</button>
                     </div>
                   );
                })}
@@ -9437,10 +9446,40 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient }: { cur
                <div className="grid grid-cols-2 gap-3 text-xs">
                   {fichaCliente.email && <div><p className="text-white/30 uppercase font-bold text-[9px]">E-mail</p><p className="text-white">{fichaCliente.email}</p></div>}
                   {fichaCliente.cpf_cnpj && <div><p className="text-white/30 uppercase font-bold text-[9px]">CPF/CNPJ</p><p className="text-white">{fichaCliente.cpf_cnpj}</p></div>}
-                  {fichaCliente.city && <div><p className="text-white/30 uppercase font-bold text-[9px]">Cidade</p><p className="text-white">{fichaCliente.city}{fichaCliente.state ? ` - ${fichaCliente.state}` : ''}</p></div>}
+                  {fichaCliente.nascimento && <div><p className="text-white/30 uppercase font-bold text-[9px]">Aniversário</p><p className="text-white">{safeFormat(fichaCliente.nascimento, 'dd/MM/yyyy')}</p></div>}
+                  {(fichaCliente.logradouro || fichaCliente.city) && (
+                    <div className="col-span-2">
+                       <p className="text-white/30 uppercase font-bold text-[9px]">Endereço</p>
+                       <p className="text-white">
+                          {[
+                            fichaCliente.logradouro && `${fichaCliente.logradouro}${fichaCliente.numero ? `, ${fichaCliente.numero}` : ''}`,
+                            fichaCliente.complemento,
+                            fichaCliente.distrito,
+                            fichaCliente.city && `${fichaCliente.city}${fichaCliente.state ? ` - ${fichaCliente.state}` : ''}`,
+                            fichaCliente.cep,
+                          ].filter(Boolean).join(', ')}
+                       </p>
+                    </div>
+                  )}
                </div>
 
+               {fichaCliente.notes && (
+                 <div>
+                    <p className="text-[9px] font-black uppercase text-white/40 mb-1">Observações</p>
+                    <p className="text-xs text-white/60 bg-white/5 rounded-xl p-3 border border-white/5">{fichaCliente.notes}</p>
+                 </div>
+               )}
+
                <div className="h-px bg-white/10" />
+
+               {onStartSaleForClient && (
+                 <button
+                   onClick={() => { onStartSaleForClient({ id: fichaCliente.id, name: fichaCliente.full_name, phone: fichaCliente.phone || '' }); setFichaCliente(null); }}
+                   className="w-full flex items-center justify-center gap-2 bg-primary-500 hover:bg-primary-400 text-slate-900 font-black text-xs uppercase tracking-wider py-3 rounded-2xl transition-all"
+                 >
+                   <ShoppingBag size={16} /> Iniciar Venda com este Cliente
+                 </button>
+               )}
 
                {s ? (
                  <>
@@ -9489,13 +9528,6 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient }: { cur
                  </>
                ) : (
                  <p className="text-center text-xs text-white/30 py-6">Esse cliente ainda não tem pedidos/serviços registrados.</p>
-               )}
-
-               {fichaCliente.notes && (
-                 <div>
-                    <p className="text-[9px] font-black uppercase text-white/40 mb-1">Observações</p>
-                    <p className="text-xs text-white/60 bg-white/5 rounded-xl p-3 border border-white/5">{fichaCliente.notes}</p>
-                 </div>
                )}
             </div>
           </Modal>
@@ -9728,9 +9760,15 @@ export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved }: {
     if (!formData.name?.trim()) { alert('Digite o nome do item.'); return; }
     setSaving(true);
     try {
+      // Gera codigo automatico se o usuario nao digitou nenhum (so pra item novo, edicao mantem o que ja tem)
+      let codigoFinal = formData.code?.trim();
+      if (!codigoFinal && !editingItem) {
+        const prefixo = (formData.category || formData.name || 'PRD').replace(/[^A-Za-zÀ-ÿ]/g, '').slice(0, 3).toUpperCase() || 'PRD';
+        codigoFinal = `${prefixo}-${String(Date.now()).slice(-6)}`;
+      }
       const payload = {
         name: formData.name.trim().toUpperCase(),
-        code: formData.code || null,
+        code: codigoFinal || null,
         category: formData.category || null,
         unit: formData.unit,
         sale_price: formData.salePrice || 0,
@@ -9774,7 +9812,7 @@ export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved }: {
           <div className="md:col-span-2">
             <Input label="NOME DO ITEM" value={formData.name} onChange={(e: any) => setFormData({ ...formData, name: e.target.value.toUpperCase() })} className="uppercase" />
           </div>
-          <Input label="CÓDIGO INTERNO (SKU)" value={formData.code} onChange={(e: any) => setFormData({ ...formData, code: e.target.value })} />
+          <Input label="CÓDIGO INTERNO (SKU)" placeholder="Deixe em branco pra gerar automático" value={formData.code} onChange={(e: any) => setFormData({ ...formData, code: e.target.value })} />
           <div className="space-y-2">
             <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">CATEGORIA</p>
             <select className="w-full h-12 bg-[#1a2333] border border-white/10 rounded-xl px-4 text-xs text-white outline-none" value={formData.category} onChange={(e) => setFormData({ ...formData, category: e.target.value as any })}>
@@ -10632,8 +10670,13 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
           updatedAt: Timestamp.now()
         });
       } else {
-        // Usuarios comuns vivem no Supabase
-        const { error } = await supabase.from('usuarios').update({
+        // Usuarios comuns vivem no Supabase. Se o id atual ja e um UUID valido (usuario ja
+        // existe no Supabase), atualiza por id normalmente — assim funciona certo mesmo trocando
+        // o e-mail. Se nao for um UUID (usuario antigo, criado antes da migracao, id do Firebase
+        // tipo "user-1699999999"), o update por id nao acharia nada — nesse caso faz upsert por
+        // e-mail, que migra ele pro Supabase na hora com os dados ja editados.
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(editingUser.id);
+        const payload = {
           name: editedName,
           email: editedEmail,
           ...(editedPassword ? { password: editedPassword } : {}),
@@ -10641,8 +10684,14 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
           allowed_tabs: editedTabs,
           allowed_actions: editedActions,
           updated_at: new Date().toISOString(),
-        }).eq('id', editingUser.id);
-        if (error) throw error;
+        };
+        if (isUuid) {
+          const { error } = await supabase.from('usuarios').update(payload).eq('id', editingUser.id);
+          if (error) throw error;
+        } else {
+          const { error } = await supabase.from('usuarios').upsert(payload, { onConflict: 'email' });
+          if (error) throw error;
+        }
       }
       alert('Dados e senha do usuário atualizados!');
       setEditingUser(null);
@@ -10658,7 +10707,10 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
       return;
     }
     try {
-      const defaultTabs = ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'production', 'settings'];
+      const cargosComOpcoes = ['admin', 'gerente'];
+      const defaultTabs = cargosComOpcoes.includes(newUserRole)
+        ? ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'production', 'settings']
+        : ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'production'];
       const defaultActions = [
         'canStartNote', 'canSendSavedMessage', 'canCreateCard', 'canAddTask',
         'canStartPosSale', 'canStartRealEstateSale', 'canMoveLead',
