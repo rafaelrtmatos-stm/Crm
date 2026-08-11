@@ -5286,6 +5286,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const { error } = await supabase.from('vendas').update({ service_status: newStatus }).eq('id', saleId);
     if (error) { showAlert(`Não foi possível atualizar a etapa: ${error.message}`); return; }
     setViewingReceiptSale(prev => prev && prev.id === saleId ? { ...prev, serviceStatus: newStatus as any } : prev);
+    setLastFinalizedOrder(prev => prev && prev.id === saleId ? { ...prev, serviceStatus: newStatus as any } : prev);
+    setAllSalesHistory(prev => prev.map(s => s.id === saleId ? { ...s, serviceStatus: newStatus as any } : s));
+    setSalesToday(prev => prev.map(s => s.id === saleId ? { ...s, serviceStatus: newStatus as any } : s));
   };
 
   const handleDeleteSale = async (sale: SaleOrder) => {
@@ -8276,6 +8279,20 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    <div className="flex justify-between text-[10px] text-primary-300 font-black bg-primary-500/10 p-2 rounded-lg border border-primary-500/20 mt-1.5">
                       <span>Entrega Agendada:</span>
                       <span className="font-mono">{safeFormat(lastFinalizedOrder?.scheduledFor, 'dd/MM/yyyy HH:mm')}</span>
+                   </div>
+                )}
+                {lastFinalizedOrder?.status === 'pending' && lastFinalizedOrder?.id && (
+                   <div className="pt-2 border-t border-white/5 space-y-1">
+                      <label className="text-[9px] font-black uppercase text-white/40 tracking-widest block">Etapa Atual</label>
+                      <select
+                        value={lastFinalizedOrder.serviceStatus || 'pedido_recebido'}
+                        onChange={(e) => handleUpdateServiceStatus(lastFinalizedOrder.id, e.target.value)}
+                        className="w-full h-9 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer"
+                      >
+                        {STAGE_ORDER.map(id => (
+                          <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
+                        ))}
+                      </select>
                    </div>
                 )}
              </div>
