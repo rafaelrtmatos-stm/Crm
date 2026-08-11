@@ -9374,12 +9374,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
            title="Pagamento via PIX"
            size="sm"
          >
-           <div className="flex flex-col items-center gap-4 p-2">
-             <div className="w-[336px] h-[336px] max-w-full bg-white rounded-2xl p-3 shadow-lg flex items-center justify-center shrink-0">
+           <div className="flex flex-col items-center gap-2.5 p-1">
+             <div className="w-[280px] h-[280px] max-w-full bg-white rounded-2xl p-2.5 shadow-lg flex items-center justify-center shrink-0">
                <img src={`https://api.qrserver.com/v1/create-qr-code/?size=450x450&data=${encodeURIComponent(pixPayload)}`} alt="QR Code PIX" className="h-full w-full object-contain" referrerPolicy="no-referrer" />
              </div>
 
-             <div className="w-full bg-slate-900/60 rounded-2xl border border-white/10 p-4 space-y-2">
+             <div className="w-full bg-slate-900/60 rounded-2xl border border-white/10 p-3 space-y-1.5">
                <div className="flex justify-between text-xs">
                  <span className="text-white/40 font-bold uppercase">Valor</span>
                  <span className="text-white font-black">R$ {amountToCharge.toFixed(2).replace('.', ',')}</span>
@@ -9407,7 +9407,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                      navigator.clipboard.writeText(pixConfig.key);
                      showAlert("Chave PIX copiada!");
                   }}
-                  className="flex-1 py-2.5 rounded-xl bg-primary-500/10 border border-primary-500/20 text-primary-300 hover:bg-primary-500/20 text-[10px] font-black uppercase tracking-wider transition-all active:scale-95"
+                  className="flex-1 py-2 rounded-xl bg-primary-500/10 border border-primary-500/20 text-primary-300 hover:bg-primary-500/20 text-[10px] font-black uppercase tracking-wider transition-all active:scale-95"
                >
                   Copiar Chave
                </button>
@@ -9417,12 +9417,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                      navigator.clipboard.writeText(pixPayload);
                      showAlert("Código Pix Copia e Cola copiado!");
                   }}
-                  className="flex-1 py-2.5 rounded-xl bg-primary-500/10 border border-primary-500/20 text-primary-300 hover:bg-primary-500/20 text-[10px] font-black uppercase tracking-wider transition-all active:scale-95"
+                  className="flex-1 py-2 rounded-xl bg-primary-500/10 border border-primary-500/20 text-primary-300 hover:bg-primary-500/20 text-[10px] font-black uppercase tracking-wider transition-all active:scale-95"
                >
                   Copia e Cola
                </button>
              </div>
-             <Button variant="ghost" className="w-full" onClick={() => setIsPixQrModalOpen(false)}>Fechar</Button>
+             <Button variant="ghost" size="sm" className="w-full" onClick={() => setIsPixQrModalOpen(false)}>Fechar</Button>
            </div>
          </Modal>
        );
