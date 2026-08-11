@@ -4884,7 +4884,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [newPaymentInstallments, setNewPaymentInstallments] = useState(1);
   const canManageHistory = !!(user?.isAdmin || user?.allowedActions?.includes('canManageSaleHistory'));
   const [editingSale, setEditingSale] = useState<SaleOrder | null>(null);
-  const [editSaleForm, setEditSaleForm] = useState({ customerName: '', total: 0, downPayment: 0, paymentMethod: 'pix', observacoes: '', serviceStatus: 'pedido_recebido' as string });
+  const [editSaleForm, setEditSaleForm] = useState({ customerName: '', total: 0, downPayment: 0, paymentMethod: 'pix', observacoes: '' });
 
   const handleReopenSale = async (sale: SaleOrder) => {
     if (!confirm(`Reabrir a venda #${sale.id.slice(-8).toUpperCase()}? Ela voltará a aparecer como pendente.`)) return;
@@ -4894,20 +4894,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const startEditSale = (sale: SaleOrder) => {
     setEditingSale(sale);
-    // Se o pedido ainda nao tem etapa definida manualmente, sugere uma etapa inicial coerente
-    // com o status atual (finalizado = ultima etapa, com entrada = meio do caminho, senao = inicio)
-    const etapaSugerida = sale.serviceStatus || (
-      sale.status === 'completed' ? 'produto_entregue' :
-      (sale.downPayment ?? sale.receivedValue ?? 0) > 0 ? 'aguardando_aprovacao' :
-      'pedido_recebido'
-    );
     setEditSaleForm({
       customerName: sale.customerName || '',
       total: sale.total,
       downPayment: sale.downPayment || 0,
       paymentMethod: sale.paymentMethod || 'pix',
       observacoes: sale.observacoes || '',
-      serviceStatus: etapaSugerida,
     });
   };
 
@@ -4919,12 +4911,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       down_payment: editSaleForm.downPayment,
       payment_method: editSaleForm.paymentMethod,
       observacoes: editSaleForm.observacoes || null,
-      service_status: editSaleForm.serviceStatus,
       status: editSaleForm.downPayment >= editSaleForm.total ? 'completed' : 'pending',
     }).eq('id', editingSale.id);
     if (error) { console.error(error); alert('Não foi possível salvar as alterações.'); return; }
     setEditingSale(null);
     loadSalesHistory();
+  };
+
+  const handleUpdateServiceStatus = async (saleId: string, newStatus: string) => {
+    const { error } = await supabase.from('vendas').update({ service_status: newStatus }).eq('id', saleId);
+    if (error) { alert(`Não foi possível atualizar a etapa: ${error.message}`); return; }
+    setViewingReceiptSale(prev => prev && prev.id === saleId ? { ...prev, serviceStatus: newStatus as any } : prev);
   };
 
   const handleDeleteSale = async (sale: SaleOrder) => {
@@ -8118,23 +8115,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
              </div>
            </div>
            <div className="space-y-2">
-             <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Etapa Atual</label>
-             <select
-               value={editSaleForm.serviceStatus}
-               onChange={(e) => setEditSaleForm({ ...editSaleForm, serviceStatus: e.target.value })}
-               className="w-full h-11 bg-slate-900/80 border border-white/10 rounded-xl px-3 text-xs text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer"
-             >
-               <option value="pedido_recebido" className="bg-slate-900">1. Pedido Recebido</option>
-               <option value="aguardando_arte" className="bg-slate-900">2. Aguardando Arte</option>
-               <option value="arte_em_desenvolvimento" className="bg-slate-900">3. Arte em Desenvolvimento</option>
-               <option value="aguardando_aprovacao" className="bg-slate-900">4. Aguardando Aprovação</option>
-               <option value="producao" className="bg-slate-900">5. Produção</option>
-               <option value="acabamento" className="bg-slate-900">6. Acabamento</option>
-               <option value="produto_entregue" className="bg-slate-900">7. Produto Entregue</option>
-             </select>
-             <p className="text-[9px] text-white/30">Controla a linha de evolução do pedido mostrada no recibo — marca essa etapa como atual e todas as anteriores como concluídas.</p>
-           </div>
-           <div className="space-y-2">
               <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Observações</label>
               <textarea
                 rows={2}
@@ -9261,6 +9241,25 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  <p className="text-xs text-white/30">Sem telefone cadastrado</p>
                )}
                {viewingReceiptEmail && <p className="text-xs text-white/50">{viewingReceiptEmail}</p>}
+             </div>
+
+             {/* Etapa Atual — controla a linha de evolucao do pedido mostrada no recibo */}
+             <div className="bg-slate-900/50 rounded-2xl p-4 border border-white/5 space-y-2">
+               <h4 className="text-[9px] font-black uppercase text-primary-300 tracking-[2px] mb-1">Etapa Atual</h4>
+               <select
+                 value={sale.serviceStatus || 'pedido_recebido'}
+                 onChange={(e) => handleUpdateServiceStatus(sale.id, e.target.value)}
+                 className="w-full h-11 bg-slate-950/80 border border-white/10 rounded-xl px-3 text-xs text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer"
+               >
+                 <option value="pedido_recebido" className="bg-slate-900">1. Pedido Recebido</option>
+                 <option value="aguardando_arte" className="bg-slate-900">2. Aguardando Arte</option>
+                 <option value="arte_em_desenvolvimento" className="bg-slate-900">3. Arte em Desenvolvimento</option>
+                 <option value="aguardando_aprovacao" className="bg-slate-900">4. Aguardando Aprovação</option>
+                 <option value="producao" className="bg-slate-900">5. Produção</option>
+                 <option value="acabamento" className="bg-slate-900">6. Acabamento</option>
+                 <option value="produto_entregue" className="bg-slate-900">7. Produto Entregue</option>
+               </select>
+               <p className="text-[9px] text-white/30">Controla a linha de evolução mostrada no recibo — marca essa etapa como atual e as anteriores como concluídas.</p>
              </div>
 
              {/* Itens */}
