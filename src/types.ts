@@ -496,7 +496,7 @@ export interface MetaAd extends BaseEntity {
 export interface OrcamentoPagamento {
   metodo: 'pix' | 'dinheiro' | 'cartao_debito' | 'cartao_credito' | 'cartao_parcelado' | 'transferencia' | 'boleto' | 'outra';
   metodoOutraLabel?: string;
-  valor: number;
+  valor: number | '';
   parcelas?: number;
   valorParcela?: number;
   dataVencimento?: string;
