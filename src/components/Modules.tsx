@@ -562,7 +562,17 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         yesterday.setDate(now.getDate() - 1);
         return orderDate.toDateString() === yesterday.toDateString();
       }
-      const days = period === 'Semana' ? 7 : period === '30 dias' ? 30 : 0;
+      if (period === 'Semana') {
+        // Semana do calendario de verdade (domingo a sabado), nao uma janela corrida de 7 dias
+        const startOfWeek = new Date(now);
+        startOfWeek.setDate(now.getDate() - now.getDay());
+        startOfWeek.setHours(0, 0, 0, 0);
+        const endOfWeek = new Date(startOfWeek);
+        endOfWeek.setDate(startOfWeek.getDate() + 6);
+        endOfWeek.setHours(23, 59, 59, 999);
+        return orderDate >= startOfWeek && orderDate <= endOfWeek;
+      }
+      const days = period === '30 dias' ? 30 : 0;
       if (days > 0) {
         const past = new Date(now);
         past.setDate(now.getDate() - days);
