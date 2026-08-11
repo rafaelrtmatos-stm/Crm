@@ -126,7 +126,8 @@ import {
   defaultDropAnimationSideEffects,
   DragStartEvent,
   DragOverEvent,
-  DragEndEvent
+  DragEndEvent,
+  useDroppable
 } from '@dnd-kit/core';
 import {
   arrayMove,
@@ -11061,12 +11062,8 @@ export const ClientesEsperaModule = ({ currentCompany, user }: { currentCompany:
   );
 };
 
-// Agrupa as 8 etapas do pipeline em 3 blocos visuais (kanban), mantendo a etapa real de cada pedido
-const KANBAN_GROUPS: { id: string; name: string; icon: any; color: string; stages: string[] }[] = [
-  { id: 'fila', name: 'Fila de Espera', icon: Clock3, color: 'text-white/40', stages: ['pedido_recebido', 'aguardando_arte', 'arte_em_desenvolvimento', 'aguardando_aprovacao'] },
-  { id: 'proc', name: 'Em Processamento', icon: Zap, color: 'text-primary-300', stages: ['producao', 'acabamento'] },
-  { id: 'ready', name: 'Finalizado / Entrega', icon: CheckCircle2, color: 'text-emerald-400', stages: ['aguardando_retirada', 'produto_entregue'] },
-];
+// As 8 etapas do pipeline, na ordem — cada uma vira uma coluna de verdade agora
+const STAGE_ORDER = ['pedido_recebido', 'aguardando_arte', 'arte_em_desenvolvimento', 'aguardando_aprovacao', 'producao', 'acabamento', 'aguardando_retirada', 'produto_entregue'];
 
 const STAGE_LABELS: Record<string, string> = {
   pedido_recebido: 'Pedido Recebido', aguardando_arte: 'Aguardando Arte', arte_em_desenvolvimento: 'Arte em Desenvolvimento',
@@ -11074,8 +11071,82 @@ const STAGE_LABELS: Record<string, string> = {
   aguardando_retirada: 'Aguardando Retirada', produto_entregue: 'Produto Entregue',
 };
 
-export const ProductionModule = ({ currentCompany }: { currentCompany: Company | null }) => {
+const OrdemServicoCard = ({ pedido, onDropdownChange }: { key?: any; pedido: SaleOrder; onDropdownChange: (pedido: SaleOrder, novaEtapa: string) => void }) => {
   const { setActiveTab: setRootActiveTab, setPendingReceiptOpenId } = React.useContext(AppContext)!;
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: pedido.id,
+    data: { type: 'card', pedido },
+  });
+  const style = { transform: CSS.Translate.toString(transform), transition };
+
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners} className={cn(isDragging ? "z-50" : "relative")}>
+      <GlassCard
+        onClick={() => { setPendingReceiptOpenId(pedido.id); setRootActiveTab('pos'); }}
+        className={cn(
+          "p-4 border-white/10 space-y-2 cursor-grab active:cursor-grabbing hover:border-primary-500/30 transition-all",
+          isDragging ? "shadow-2xl ring-2 ring-primary-500 scale-105" : ""
+        )}
+      >
+        <div className="flex items-start justify-between gap-2">
+           <div className="min-w-0">
+              <p className="font-bold text-white text-xs truncate">#{pedido.id.slice(-8).toUpperCase()} — {pedido.customerName || 'Cliente de Balcão'}</p>
+              <p className="text-[9px] text-white/30 uppercase font-black truncate">{(pedido.items || []).map(i => i.name).join(', ') || 'Sem itens'}</p>
+           </div>
+        </div>
+        {pedido.scheduledFor && (
+          <span className="inline-block text-[8px] font-black uppercase bg-primary-500/10 text-primary-300 px-2 py-0.5 rounded-full border border-primary-500/20">
+            {safeFormat(pedido.scheduledFor, 'dd/MM HH:mm')}
+          </span>
+        )}
+        <select
+          value={pedido.serviceStatus || 'pedido_recebido'}
+          onPointerDown={(e: any) => e.stopPropagation()}
+          onClick={(e: any) => e.stopPropagation()}
+          onChange={(e: any) => { e.stopPropagation(); onDropdownChange(pedido, e.target.value); }}
+          className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-[10px] text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer"
+        >
+          {STAGE_ORDER.map(id => (
+            <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
+          ))}
+        </select>
+      </GlassCard>
+    </div>
+  );
+};
+
+const OrdemServicoColumn = ({ stageId, pedidos, onDropdownChange }: { key?: any; stageId: string; pedidos: SaleOrder[]; onDropdownChange: (pedido: SaleOrder, novaEtapa: string) => void }) => {
+  const { setNodeRef, isOver } = useDroppable({ id: stageId, data: { type: 'column', stageId } });
+
+  return (
+    <div className="w-72 shrink-0 flex flex-col gap-3">
+      <div className="flex items-center gap-2 px-1">
+         <h3 className="text-[10px] font-black uppercase tracking-[2px] text-white/50 truncate">{STAGE_LABELS[stageId]}</h3>
+         <Badge className="bg-white/5 border-none opacity-50 px-2 py-0 h-5 flex items-center shrink-0">{pedidos.length}</Badge>
+      </div>
+      <div
+        ref={setNodeRef}
+        className={cn(
+          "bg-white/[0.03] border rounded-[28px] p-3 flex flex-col gap-2.5 min-h-[400px] max-h-[calc(100vh-20rem)] overflow-y-auto custom-scrollbar transition-colors",
+          isOver ? "border-primary-500/50 bg-primary-500/5" : "border-white/5"
+        )}
+      >
+        <SortableContext items={pedidos.map(p => p.id)} strategy={verticalListSortingStrategy}>
+          {pedidos.map(pedido => (
+            <OrdemServicoCard key={pedido.id} pedido={pedido} onDropdownChange={onDropdownChange} />
+          ))}
+        </SortableContext>
+        {pedidos.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-16 opacity-10">
+             <Layers size={28} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export const ProductionModule = ({ currentCompany }: { currentCompany: Company | null }) => {
   const [pedidos, setPedidos] = useState<SaleOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [showEntregues, setShowEntregues] = useState(false);
@@ -11089,6 +11160,12 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
   });
   const setOrdemSortBy = (v: 'entrega' | 'pedido') => { setOrdemSortByState(v); localStorage.setItem('rpro_ordem_servico_sort', v); };
   const setOrdemSortDir = (v: 'asc' | 'desc') => { setOrdemSortDirState(v); localStorage.setItem('rpro_ordem_servico_dir', v); };
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
 
   const loadPedidos = async () => {
     const { data } = await supabase.from('vendas').select('*').is('deleted_at', null).neq('status', 'canceled').order('created_at', { ascending: true });
@@ -11103,8 +11180,27 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
   }, [currentCompany]);
 
   const handleAdvanceStage = async (pedido: SaleOrder, novaEtapa: string) => {
+    // Atualiza local na hora (nao espera o realtime) pra mover o card instantaneamente
+    setPedidos(prev => prev.map(p => p.id === pedido.id ? { ...p, serviceStatus: novaEtapa as any } : p));
     const { error } = await supabase.from('vendas').update({ service_status: novaEtapa }).eq('id', pedido.id);
     if (error) showAlert(`Não foi possível atualizar a etapa: ${error.message}`);
+  };
+
+  const onDragStart = (event: DragStartEvent) => setActiveDragId(event.active.id as string);
+
+  const onDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    setActiveDragId(null);
+    if (!over) return;
+    const pedido = pedidos.find(p => p.id === active.id);
+    if (!pedido) return;
+    // Solta em cima de uma coluna vazia (id = stageId) ou em cima de outro card (pega a etapa do card)
+    const overStageId = STAGE_ORDER.includes(over.id as string)
+      ? (over.id as string)
+      : pedidos.find(p => p.id === over.id)?.serviceStatus || 'pedido_recebido';
+    if (overStageId && (pedido.serviceStatus || 'pedido_recebido') !== overStageId) {
+      handleAdvanceStage(pedido, overStageId);
+    }
   };
 
   if (loading) return (
@@ -11113,6 +11209,27 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
     </div>
   );
 
+  const pedidosOrdenados = [...pedidos].filter(p => {
+    const etapa = p.serviceStatus || 'pedido_recebido';
+    if (etapa === 'produto_entregue' && !showEntregues) {
+      const dias = (Date.now() - new Date(p.createdAt).getTime()) / (1000 * 60 * 60 * 24);
+      return dias <= 2;
+    }
+    return true;
+  }).sort((a, b) => {
+    if (ordemSortBy === 'entrega') {
+      if (!a.scheduledFor && !b.scheduledFor) return 0;
+      if (!a.scheduledFor) return 1;
+      if (!b.scheduledFor) return -1;
+      const diff = new Date(a.scheduledFor).getTime() - new Date(b.scheduledFor).getTime();
+      return ordemSortDir === 'asc' ? diff : -diff;
+    }
+    const diff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    return ordemSortDir === 'asc' ? diff : -diff;
+  });
+
+  const activeDragPedido = pedidos.find(p => p.id === activeDragId);
+
   return (
     <div className="space-y-8 animate-in fade-in zoom-in-95 duration-500">
       <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 border-b border-white/10 pb-4">
@@ -11120,7 +11237,7 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
             <h2 className="text-xl md:text-2xl font-black text-white italic tracking-tighter uppercase flex items-center gap-2">
                <Layers className="text-primary-400" size={22} /> Ordem de Serviço
             </h2>
-            <p className="text-[10px] md:text-xs text-white/40 font-bold uppercase tracking-widest mt-1">Fila de produção — todos os pedidos, agrupados pela etapa atual</p>
+            <p className="text-[10px] md:text-xs text-white/40 font-bold uppercase tracking-widest mt-1">Arraste o pedido entre as colunas, ou clique nele pra ver o histórico completo</p>
          </div>
          <div className="flex items-center gap-2 flex-wrap">
             <select
@@ -11151,77 +11268,21 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
          </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        {KANBAN_GROUPS.map(group => {
-          const pedidosDoGrupo = pedidos.filter(p => {
-            const etapa = p.serviceStatus || 'pedido_recebido';
-            if (!group.stages.includes(etapa)) return false;
-            if (etapa === 'produto_entregue' && !showEntregues) {
-              // So esconde entregues com mais de 2 dias, pra nao sumir da tela na hora
-              const dias = (Date.now() - new Date(p.createdAt).getTime()) / (1000 * 60 * 60 * 24);
-              return dias <= 2;
-            }
-            return true;
-          }).sort((a, b) => {
-            if (ordemSortBy === 'entrega') {
-              // Pedido sem entrega agendada sempre vai pro fim, em qualquer direcao
-              if (!a.scheduledFor && !b.scheduledFor) return 0;
-              if (!a.scheduledFor) return 1;
-              if (!b.scheduledFor) return -1;
-              const diff = new Date(a.scheduledFor).getTime() - new Date(b.scheduledFor).getTime();
-              return ordemSortDir === 'asc' ? diff : -diff;
-            }
-            const diff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-            return ordemSortDir === 'asc' ? diff : -diff;
-          });
-          return (
-            <div key={group.id} className="space-y-5">
-              <div className="flex items-center gap-3 px-2">
-                 <group.icon size={18} className={group.color} />
-                 <h3 className="text-[11px] font-black uppercase tracking-[2px] text-white/50">{group.name} ({pedidosDoGrupo.length})</h3>
-              </div>
-              <div className="bg-white/5 border border-white/10 rounded-[32px] p-4 min-h-[300px] flex flex-col gap-3">
-                 {pedidosDoGrupo.length === 0 ? (
-                   <div className="flex flex-col items-center justify-center grow opacity-10 py-10">
-                      <group.icon size={48} />
-                   </div>
-                 ) : pedidosDoGrupo.map(pedido => {
-                   const etapaAtual = pedido.serviceStatus || 'pedido_recebido';
-                   return (
-                     <GlassCard
-                       key={pedido.id}
-                       className="p-4 border-white/10 space-y-2 cursor-pointer hover:border-primary-500/30 transition-all"
-                       onClick={() => { setPendingReceiptOpenId(pedido.id); setRootActiveTab('pos'); }}
-                     >
-                        <div className="flex items-start justify-between gap-2">
-                           <div className="min-w-0">
-                              <p className="font-bold text-white text-xs truncate">#{pedido.id.slice(-8).toUpperCase()} — {pedido.customerName || 'Cliente de Balcão'}</p>
-                              <p className="text-[9px] text-white/30 uppercase font-black truncate">{(pedido.items || []).map(i => i.name).join(', ') || 'Sem itens'}</p>
-                           </div>
-                           {pedido.scheduledFor && (
-                             <span className="shrink-0 text-[8px] font-black uppercase bg-primary-500/10 text-primary-300 px-2 py-0.5 rounded-full border border-primary-500/20">
-                               {safeFormat(pedido.scheduledFor, 'dd/MM HH:mm')}
-                             </span>
-                           )}
-                        </div>
-                        <select
-                          value={etapaAtual}
-                          onClick={(e: any) => e.stopPropagation()}
-                          onChange={(e: any) => { e.stopPropagation(); handleAdvanceStage(pedido, e.target.value); }}
-                          className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-[10px] text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer"
-                        >
-                          {Object.entries(STAGE_LABELS).map(([id, label]) => (
-                            <option key={id} value={id} className="bg-slate-900">{label}</option>
-                          ))}
-                        </select>
-                     </GlassCard>
-                   );
-                 })}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={onDragStart} onDragEnd={onDragEnd}>
+        <div className="flex gap-4 overflow-x-auto custom-scrollbar pb-4">
+          {STAGE_ORDER.map(stageId => (
+            <OrdemServicoColumn
+              key={stageId}
+              stageId={stageId}
+              pedidos={pedidosOrdenados.filter(p => (p.serviceStatus || 'pedido_recebido') === stageId)}
+              onDropdownChange={handleAdvanceStage}
+            />
+          ))}
+        </div>
+        <DragOverlay>
+          {activeDragPedido ? <OrdemServicoCard pedido={activeDragPedido} onDropdownChange={handleAdvanceStage} /> : null}
+        </DragOverlay>
+      </DndContext>
     </div>
   );
 };
