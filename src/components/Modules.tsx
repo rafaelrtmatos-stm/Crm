@@ -4119,6 +4119,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
   const [lastFinalizedOrder, setLastFinalizedOrder] = useState<SaleOrder | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<{ id: string, name: string, phone: string } | null>(null);
+  const [editingFullOrder, setEditingFullOrder] = useState<SaleOrder | null>(null);
   const [linkedOrcamentoId, setLinkedOrcamentoId] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<'dinheiro' | 'pix' | 'cartao_credito' | 'cartao_debito' | 'misto'>('pix');
   const [cashReceived, setCashReceived] = useState<number | ''>('');
@@ -5257,6 +5258,22 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     if (error) { console.error(error); showAlert('Não foi possível reabrir a venda.'); }
   };
 
+  // Abre a nota inteira no Terminal de Vendas pra editar os itens do carrinho, com o cliente ja
+  // preenchido (nao precisa escolher de novo). Ao avancar, vai pro pagamento e ATUALIZA a nota
+  // existente em vez de criar uma nova.
+  const handleStartFullEdit = (sale: SaleOrder) => {
+    setEditingFullOrder(sale);
+    setCart(sale.items ? [...sale.items] : []);
+    setSelectedCustomer(
+      sale.customerId
+        ? { id: sale.customerId, name: sale.customerName || 'Cliente', phone: sale.customerPhone || '' }
+        : (sale.customerName ? { id: '', name: sale.customerName, phone: sale.customerPhone || '' } : null)
+    );
+    setOrderObservacoes(sale.observacoes || '');
+    setScheduledFor(sale.scheduledFor ? sale.scheduledFor.slice(0, 16) : '');
+    setActiveTab('venda');
+  };
+
   const startEditSale = (sale: SaleOrder) => {
     setEditingSale(sale);
     setEditSaleForm({
@@ -5928,8 +5945,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   // Quitar Debito: abre a mesma tela de pagamento do Terminal, mas pra uma venda ja existente com saldo pendente
   const paymentModalTotal = settlingOrder ? settlingOrder.total : total;
   const paymentModalItems = settlingOrder ? settlingOrder.items : cart;
-  const alreadyPaidForSettle = settlingOrder ? (settlingOrder.downPayment || 0) : 0;
-  const paymentModalRemaining = settlingOrder
+  const alreadyPaidForSettle = settlingOrder ? (settlingOrder.downPayment || 0) : (editingFullOrder ? (editingFullOrder.downPayment || 0) : 0);
+  const paymentModalRemaining = (settlingOrder || editingFullOrder)
     ? Math.max(0, paymentModalTotal - alreadyPaidForSettle - paymentEntriesTotal)
     : remainingValue;
 
@@ -6011,6 +6028,79 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       const audio = new Audio('/sounds/sale-complete.mp3');
       audio.play().catch(() => {});
     } catch (e) {}
+
+    // Edicao completa de uma nota ja existente (itens do carrinho alterados): atualiza a mesma
+    // linha no banco (itens + total) em vez de criar uma venda nova, e ajusta o estoque so pela
+    // DIFERENCA entre o que tinha antes e o que ficou agora (nao deduz tudo de novo).
+    if (editingFullOrder) {
+      const totalPago = (editingFullOrder.downPayment || 0) + paymentEntriesTotal;
+      const novoSaldo = Math.max(0, total - totalPago);
+      try {
+        // Ajusta estoque so pela diferenca de consumo entre os itens antigos e os novos
+        const consumoItem = (i: any) => i.consumoEstoque !== undefined ? i.consumoEstoque * i.quantity : (i.area ? i.area * i.quantity : i.quantity);
+        const consumoAntigo: Record<string, number> = {};
+        (editingFullOrder.items || []).forEach((i: any) => { if (i.productId && i.productId !== 'manual') consumoAntigo[i.productId] = (consumoAntigo[i.productId] || 0) + consumoItem(i); });
+        const consumoNovo: Record<string, number> = {};
+        cart.forEach((i: any) => { if (i.productId && i.productId !== 'manual') consumoNovo[i.productId] = (consumoNovo[i.productId] || 0) + consumoItem(i); });
+        const todosIds = new Set([...Object.keys(consumoAntigo), ...Object.keys(consumoNovo)]);
+        await Promise.all(Array.from(todosIds).map(async (pid) => {
+          const delta = (consumoNovo[pid] || 0) - (consumoAntigo[pid] || 0);
+          if (delta === 0) return;
+          const { data: prodAtual } = await supabase.from('produtos').select('current_stock, controla_estoque').eq('id', pid).maybeSingle();
+          if (prodAtual && prodAtual.controla_estoque !== false) {
+            const novoEstoque = Math.max(0, (Number(prodAtual.current_stock) || 0) - delta);
+            await supabase.from('produtos').update({ current_stock: novoEstoque }).eq('id', pid);
+          }
+        }));
+
+        const { data, error } = await supabase.from('vendas').update({
+          cliente_id: selectedCustomer?.id || null,
+          customer_name: selectedCustomer?.name || editingFullOrder.customerName,
+          customer_phone: selectedCustomer?.phone || editingFullOrder.customerPhone,
+          items: cart,
+          total,
+          down_payment: totalPago,
+          received_value: totalPago,
+          payments: [...(editingFullOrder.payments || []), ...paymentEntries],
+          status: novoSaldo <= 0 ? 'completed' : 'pending',
+          observacoes: orderObservacoes || null,
+          scheduled_for: scheduledFor || editingFullOrder.scheduledFor || null,
+        }).eq('id', editingFullOrder.id).select();
+        if (error) throw error;
+        if (!data || data.length === 0) throw new Error('O pedido não foi encontrado pra atualizar — pode ter sido removido ou alterado por outra pessoa.');
+
+        const updatedOrder: SaleOrder = {
+          ...editingFullOrder,
+          customerId: selectedCustomer?.id || editingFullOrder.customerId,
+          customerName: selectedCustomer?.name || editingFullOrder.customerName,
+          customerPhone: selectedCustomer?.phone || editingFullOrder.customerPhone,
+          items: [...cart],
+          total,
+          downPayment: totalPago,
+          receivedValue: totalPago,
+          payments: [...(editingFullOrder.payments || []), ...paymentEntries],
+          status: novoSaldo <= 0 ? 'completed' : 'pending',
+          observacoes: orderObservacoes || undefined,
+          scheduledFor: scheduledFor || editingFullOrder.scheduledFor || undefined,
+        };
+        setLastFinalizedOrder(updatedOrder);
+        setAllSalesHistory(prev => prev.map(s => s.id === editingFullOrder.id ? updatedOrder : s));
+        setSalesToday(prev => prev.map(s => s.id === editingFullOrder.id ? updatedOrder : s));
+        setIsSuccessModalOpen(true);
+        setIsPaymentModalOpen(false);
+        setEditingFullOrder(null);
+        setCart([]);
+        setSelectedCustomer(null);
+        setPaymentEntries([]);
+        setDownPayment(0);
+        setScheduledFor('');
+        setOrderObservacoes('');
+      } catch (err: any) {
+        console.error('Erro ao salvar edição da nota:', err);
+        showAlert(`Não foi possível salvar as alterações: ${err?.message || 'erro desconhecido'}`);
+      }
+      return;
+    }
 
     // Quitar Debito: atualiza a venda ja existente em vez de criar uma nova
     if (settlingOrder) {
@@ -7056,7 +7146,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             {canManageHistory && (
                               <>
                                 {!isPartial && <button onClick={() => handleReopenSale(sale)} className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20" title="Reabrir"><History size={13} /></button>}
-                                <button onClick={() => startEditSale(sale)} className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20" title="Editar"><Pencil size={13} /></button>
+                                <button onClick={() => handleStartFullEdit(sale)} className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20" title="Editar"><Pencil size={13} /></button>
                                 <button onClick={() => handleDeleteSale(sale)} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" title="Excluir"><Trash2 size={13} /></button>
                               </>
                             )}
@@ -7103,7 +7193,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             {canManageHistory && (
                               <>
                                 {!isPartial && <button onClick={() => handleReopenSale(sale)} className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20" title="Reabrir"><History size={12} /></button>}
-                                <button onClick={() => startEditSale(sale)} className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20" title="Editar"><Pencil size={12} /></button>
+                                <button onClick={() => handleStartFullEdit(sale)} className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20" title="Editar"><Pencil size={12} /></button>
                                 <button onClick={() => handleDeleteSale(sale)} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" title="Excluir"><Trash2 size={12} /></button>
                               </>
                             )}
@@ -7226,7 +7316,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                 variant="secondary"
                                 size="sm"
                                 className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-primary-500/20 text-primary-400 hover:bg-primary-500/10"
-                                onClick={() => startEditSale(sale)}
+                                onClick={() => handleStartFullEdit(sale)}
                               >
                                 Editar
                               </Button>
@@ -7420,7 +7510,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             <button onClick={() => openReceiptDetail(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={13} /></button>
                         {canManageHistory && (
                           <>
-                            <button onClick={() => startEditSale(sale)} className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20" title="Editar"><Pencil size={13} /></button>
+                            <button onClick={() => handleStartFullEdit(sale)} className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20" title="Editar"><Pencil size={13} /></button>
                             <button onClick={() => handleDeleteSale(sale)} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" title="Excluir"><Trash2 size={13} /></button>
                           </>
                         )}
@@ -7839,7 +7929,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       <Modal 
         isOpen={isPaymentModalOpen} 
         onClose={handleClosePaymentModal} 
-        title={settlingOrder ? `Quitar Débito — Pedido #${settlingOrder.id.slice(-8).toUpperCase()}` : "Finalizar Venda"}
+        title={settlingOrder ? `Quitar Débito — Pedido #${settlingOrder.id.slice(-8).toUpperCase()}` : editingFullOrder ? `Salvar Alterações — Pedido #${editingFullOrder.id.slice(-8).toUpperCase()}` : "Finalizar Venda"}
         size="lg"
         className="max-h-[98vh] my-auto"
         contentClassName="min-h-0"
