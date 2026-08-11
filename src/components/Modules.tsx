@@ -7431,19 +7431,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                            return (
                                              <option key={f.installments} value={f.installments} className="bg-slate-900">
                                                {baseValue > 0
-                                                 ? `${f.installments}x de R$ ${valorParcela.toFixed(2).replace('.', ',')}${f.feePercent > 0 ? ` (+${f.feePercent}%)` : ''}`
-                                                 : `${f.installments}x ${f.feePercent > 0 ? `(+${f.feePercent}%)` : '(sem taxa)'}`}
+                                                 ? `${f.installments}x de R$ ${valorParcela.toFixed(2).replace('.', ',')}`
+                                                 : `${f.installments}x`}
                                              </option>
                                            );
                                          })}
                                        </select>
                                     </div>
-                                    {baseValue > 0 && (
-                                      <div className="p-1.5 bg-primary-500/10 border border-primary-500/20 rounded-lg flex justify-between items-center">
-                                         <span className="text-[7.5px] font-black text-primary-300 uppercase tracking-wider">Valor da Parcela</span>
-                                         <span className="text-xs font-black text-white">{newPaymentInstallments}x R$ {(finalValue / newPaymentInstallments).toFixed(2).replace('.', ',')}</span>
-                                      </div>
-                                    )}
                                     {fee > 0 && baseValue > 0 && (
                                       <div className="p-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg flex justify-between items-center">
                                          <span className="text-[7.5px] font-black text-amber-400 uppercase tracking-wider">Total Com Taxa ({fee}%)</span>
