@@ -7095,32 +7095,34 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  </div>
                )}
 
-               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="bg-amber-500/5 border border-amber-500/20 rounded-2xl p-4 space-y-1.5">
-                     <p className="text-[10px] font-black uppercase text-amber-400 tracking-widest">Com Entrada</p>
-                     <p className="text-[10px] text-white/50 font-bold">{servicosResumo.comEntrada.count} serviço(s)</p>
-                     <div className="flex justify-between text-xs pt-1 border-t border-white/5">
-                        <span className="text-white/40">Total</span>
-                        <span className="font-black text-white">R$ {servicosResumo.comEntrada.total.toFixed(2).replace('.', ',')}</span>
-                     </div>
-                     <div className="flex justify-between text-xs">
-                        <span className="text-white/40">Recebido</span>
-                        <span className="font-black text-emerald-400">R$ {servicosResumo.comEntrada.recebido.toFixed(2).replace('.', ',')}</span>
-                     </div>
-                     <div className="flex justify-between text-xs">
-                        <span className="text-white/40">Pendente</span>
-                        <span className="font-black text-rose-400">R$ {servicosResumo.comEntrada.pendente.toFixed(2).replace('.', ',')}</span>
-                     </div>
-                  </div>
-                  <div className="bg-rose-500/5 border border-rose-500/20 rounded-2xl p-4 space-y-1.5">
-                     <p className="text-[10px] font-black uppercase text-rose-400 tracking-widest">Em Aberto</p>
-                     <p className="text-[10px] text-white/50 font-bold">{servicosResumo.emAberto.count} serviço(s)</p>
-                     <div className="flex justify-between text-xs pt-1 border-t border-white/5">
-                        <span className="text-white/40">Total</span>
-                        <span className="font-black text-white">R$ {servicosResumo.emAberto.total.toFixed(2).replace('.', ',')}</span>
-                     </div>
-                  </div>
-               </div>
+               {user?.isAdmin && (
+                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="bg-amber-500/5 border border-amber-500/20 rounded-2xl p-4 space-y-1.5">
+                       <p className="text-[10px] font-black uppercase text-amber-400 tracking-widest">Com Entrada</p>
+                       <p className="text-[10px] text-white/50 font-bold">{servicosResumo.comEntrada.count} serviço(s)</p>
+                       <div className="flex justify-between text-xs pt-1 border-t border-white/5">
+                          <span className="text-white/40">Total</span>
+                          <span className="font-black text-white">R$ {servicosResumo.comEntrada.total.toFixed(2).replace('.', ',')}</span>
+                       </div>
+                       <div className="flex justify-between text-xs">
+                          <span className="text-white/40">Recebido</span>
+                          <span className="font-black text-emerald-400">R$ {servicosResumo.comEntrada.recebido.toFixed(2).replace('.', ',')}</span>
+                       </div>
+                       <div className="flex justify-between text-xs">
+                          <span className="text-white/40">Pendente</span>
+                          <span className="font-black text-rose-400">R$ {servicosResumo.comEntrada.pendente.toFixed(2).replace('.', ',')}</span>
+                       </div>
+                    </div>
+                    <div className="bg-rose-500/5 border border-rose-500/20 rounded-2xl p-4 space-y-1.5">
+                       <p className="text-[10px] font-black uppercase text-rose-400 tracking-widest">Em Aberto</p>
+                       <p className="text-[10px] text-white/50 font-bold">{servicosResumo.emAberto.count} serviço(s)</p>
+                       <div className="flex justify-between text-xs pt-1 border-t border-white/5">
+                          <span className="text-white/40">Total</span>
+                          <span className="font-black text-white">R$ {servicosResumo.emAberto.total.toFixed(2).replace('.', ',')}</span>
+                       </div>
+                    </div>
+                 </div>
+               )}
             </div>
 
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-white/10 pb-4">
