@@ -1,5 +1,15 @@
 import type { SaleOrder } from '../types';
 
+export interface CompanyContactInfo {
+  whatsapp: string;
+  instagram: string;
+  facebook: string;
+  email: string;
+  site: string;
+  siteUrl: string;
+  endereco: string;
+}
+
 export interface ReceiptRenderInput {
   order: SaleOrder;
   companyName: string;
@@ -8,6 +18,7 @@ export interface ReceiptRenderInput {
   customerAddress?: string;
   responsavel?: string;
   logoDarkUrl?: string | null;
+  companyContact?: Partial<CompanyContactInfo>;
 }
 
 export function loadImage(src: string): Promise<HTMLImageElement> {
@@ -233,7 +244,8 @@ export function drawCard(ctx: CanvasRenderingContext2D, x: number, y: number, w:
 
 // Desenha o recibo/OS em um canvas (usado para exportar PNG, PDF e impressão)
 // Estilo SaaS premium claro (Stripe/Linear/Notion), com barra de status e total em destaque.
-export async function renderReceiptCanvas({ order, companyName, customerPhone, customerCpf, customerAddress, responsavel, logoDarkUrl }: ReceiptRenderInput): Promise<HTMLCanvasElement> {
+export async function renderReceiptCanvas({ order, companyName, customerPhone, customerCpf, customerAddress, responsavel, logoDarkUrl, companyContact }: ReceiptRenderInput): Promise<HTMLCanvasElement> {
+  const CONTACT: CompanyContactInfo = { ...COMPANY_CONTACT, ...(companyContact || {}) };
   const scale = 2.5;
   const width = 640;
   const rowHeight = 32;
@@ -288,7 +300,7 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
   let qrImg: HTMLImageElement | null = null;
   try {
     const QRCode = (await import('qrcode')).default;
-    const qrDataUrl = await QRCode.toDataURL(COMPANY_CONTACT.siteUrl, { margin: 1, width: 200, color: { dark: TEXT, light: '#FFFFFF00' } });
+    const qrDataUrl = await QRCode.toDataURL(CONTACT.siteUrl, { margin: 1, width: 200, color: { dark: TEXT, light: '#FFFFFF00' } });
     qrImg = await loadImage(qrDataUrl);
   } catch (e) { qrImg = null; }
 
@@ -564,10 +576,10 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
     ctx.fillStyle = TEXT;
     ctx.fillText(value, ix + 20, iy + 8);
   };
-  contactItem('whatsapp', '#DCFCE7', GREEN, 'WhatsApp', COMPANY_CONTACT.whatsapp, 0, 0);
-  contactItem('insta', '#FCE7F3', '#DB2777', 'Instagram', COMPANY_CONTACT.instagram, 1, 0);
-  contactItem('face', '#DBEAFE', ACCENT, 'Facebook', COMPANY_CONTACT.facebook, 0, 1);
-  contactItem('mail', '#FEF3C7', AMBER, 'E-mail', COMPANY_CONTACT.email, 1, 1);
+  contactItem('whatsapp', '#DCFCE7', GREEN, 'WhatsApp', CONTACT.whatsapp, 0, 0);
+  contactItem('insta', '#FCE7F3', '#DB2777', 'Instagram', CONTACT.instagram, 1, 0);
+  contactItem('face', '#DBEAFE', ACCENT, 'Facebook', CONTACT.facebook, 0, 1);
+  contactItem('mail', '#FEF3C7', AMBER, 'E-mail', CONTACT.email, 1, 1);
   drawBadgeIcon(ctx, 'globe', marginX + 8, y + 62 + 64, '#E0E7FF', '#4F46E5');
   ctx.textAlign = 'left';
   ctx.font = `700 7.5px ${FONT}`;
@@ -575,12 +587,12 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
   ctx.fillText('Site', marginX + 20, y + 62 + 60);
   ctx.font = `800 8.5px ${FONT}`;
   ctx.fillStyle = TEXT;
-  ctx.fillText(COMPANY_CONTACT.site, marginX + 20, y + 62 + 72);
+  ctx.fillText(CONTACT.site, marginX + 20, y + 62 + 72);
 
   drawBadgeIcon(ctx, 'pin', marginX + 8, y + 62 + 96, '#FEE2E2', RED);
   ctx.font = `600 8px ${FONT}`;
   ctx.fillStyle = TEXT;
-  ctx.fillText(COMPANY_CONTACT.endereco, marginX + 20, y + 62 + 99, width - 260);
+  ctx.fillText(CONTACT.endereco, marginX + 20, y + 62 + 99, width - 260);
 
   // QR Code no canto direito do rodape
   if (qrImg) {
@@ -598,7 +610,7 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
     ctx.fillText('e acesse nosso site', qrX + qrSize / 2, qrY + qrSize + 29);
     ctx.fillStyle = ACCENT;
     ctx.font = `700 7.5px ${FONT}`;
-    ctx.fillText(COMPANY_CONTACT.site, qrX + qrSize / 2, qrY + qrSize + 43);
+    ctx.fillText(CONTACT.site, qrX + qrSize / 2, qrY + qrSize + 43);
   }
 
   // Barra final de validade do documento

@@ -184,7 +184,7 @@ import { collection, query, where, onSnapshot, orderBy, Timestamp, addDoc, doc, 
 import { db } from '../firebase';
 import { supabase } from '../supabase';
 import { buildPixPayload } from '../lib/pix';
-import { renderReceiptCanvas, downloadCanvasAsPng, downloadCanvasAsPdf } from '../lib/receipt';
+import { renderReceiptCanvas, downloadCanvasAsPng, downloadCanvasAsPdf, COMPANY_CONTACT, CompanyContactInfo } from '../lib/receipt';
 import { renderOrcamentoCanvas } from '../lib/orcamentoDoc';
 import { exportClientesXlsx, parseClientesXlsx, exportProdutosXlsx, parseProdutosXlsx, exportVendasXlsx, parseVendasXlsx } from '../lib/spreadsheet';
 import { format } from 'date-fns';
@@ -4140,7 +4140,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const handleDownloadOrcamentoPdf = async (o: Orcamento) => {
     try {
-      const canvas = await renderOrcamentoCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoDarkUrl });
+      const canvas = await renderOrcamentoCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoDarkUrl, companyContact });
       await downloadCanvasAsPdf(canvas, buildFileName('Orcamento', o.customerName, o.createdAt, 'pdf'));
     } catch (err) {
       console.error('Erro ao gerar PDF do orçamento:', err);
@@ -4150,7 +4150,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const handleDownloadOrcamentoImagem = async (o: Orcamento) => {
     try {
-      const canvas = await renderOrcamentoCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoDarkUrl });
+      const canvas = await renderOrcamentoCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoDarkUrl, companyContact });
       downloadCanvasAsPng(canvas, buildFileName('Orcamento', o.customerName, o.createdAt, 'png'));
     } catch (err) {
       console.error('Erro ao gerar imagem do orçamento:', err);
@@ -4160,7 +4160,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const handlePrintOrcamento = async (o: Orcamento) => {
     try {
-      const canvas = await renderOrcamentoCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoDarkUrl });
+      const canvas = await renderOrcamentoCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoDarkUrl, companyContact });
       const dataUrl = canvas.toDataURL('image/png');
       const win = window.open('', '_blank');
       if (!win) return;
@@ -4294,7 +4294,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const handlePrintReceipt = async (sale: SaleOrder) => {
-    const canvas = await renderReceiptCanvas({ order: sale, companyName: currentCompany?.name || 'Rafa Arts Graphics', customerPhone: sale.customerPhone, logoDarkUrl });
+    const canvas = await renderReceiptCanvas({ order: sale, companyName: currentCompany?.name || 'Rafa Arts Graphics', customerPhone: sale.customerPhone, logoDarkUrl, companyContact });
     const dataUrl = canvas.toDataURL('image/png');
     const printWin = window.open('', '_blank', 'width=500,height=800');
     if (!printWin) { alert('Permita pop-ups para imprimir.'); return; }
@@ -4303,12 +4303,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const handleDownloadReceiptPdf = async (sale: SaleOrder) => {
-    const canvas = await renderReceiptCanvas({ order: sale, companyName: currentCompany?.name || 'Rafa Arts Graphics', customerPhone: sale.customerPhone, logoDarkUrl });
+    const canvas = await renderReceiptCanvas({ order: sale, companyName: currentCompany?.name || 'Rafa Arts Graphics', customerPhone: sale.customerPhone, logoDarkUrl, companyContact });
     await downloadCanvasAsPdf(canvas, buildFileName('Recibo', sale.customerName, sale.createdAt, 'pdf'));
   };
 
   const handleDownloadReceiptImagem = async (sale: SaleOrder) => {
-    const canvas = await renderReceiptCanvas({ order: sale, companyName: currentCompany?.name || 'Rafa Arts Graphics', customerPhone: sale.customerPhone, logoDarkUrl });
+    const canvas = await renderReceiptCanvas({ order: sale, companyName: currentCompany?.name || 'Rafa Arts Graphics', customerPhone: sale.customerPhone, logoDarkUrl, companyContact });
     downloadCanvasAsPng(canvas, buildFileName('Recibo', sale.customerName, sale.createdAt, 'png'));
   };
 
@@ -4664,6 +4664,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [pixConfig, setPixConfig] = useState<{ key: string; beneficiaryName: string; city: string; bank?: string } | null>(null);
   const [isPixQrModalOpen, setIsPixQrModalOpen] = useState(false);
   const [logoDarkUrl, setLogoDarkUrl] = useState<string | null>(null);
+  const [companyContact, setCompanyContact] = useState<CompanyContactInfo>(COMPANY_CONTACT);
   const [enabledPaymentMethods, setEnabledPaymentMethods] = useState<string[]>(['pix', 'dinheiro', 'cartao_credito', 'cartao_debito']);
   const [creditCardFees, setCreditCardFees] = useState<{ installments: number; feePercent: number }[]>(
     Array.from({ length: 12 }, (_, i) => ({ installments: i + 1, feePercent: 0 }))
@@ -4774,6 +4775,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const load = async () => {
       const { data } = await supabase.from('configuracoes').select('*').eq('company_id', 'rafa-arts').maybeSingle();
       setLogoDarkUrl(data?.logo_dark_url || null);
+      setCompanyContact({
+        whatsapp: data?.contact_whatsapp || COMPANY_CONTACT.whatsapp,
+        instagram: data?.contact_instagram || COMPANY_CONTACT.instagram,
+        facebook: data?.contact_facebook || COMPANY_CONTACT.facebook,
+        email: data?.contact_email || COMPANY_CONTACT.email,
+        site: data?.contact_site || COMPANY_CONTACT.site,
+        siteUrl: data?.contact_site ? (data.contact_site.startsWith('http') ? data.contact_site : `https://${data.contact_site}`) : COMPANY_CONTACT.siteUrl,
+        endereco: data?.contact_endereco || COMPANY_CONTACT.endereco,
+      });
       setEnabledPaymentMethods(Array.isArray(data?.enabled_payment_methods) && data.enabled_payment_methods.length > 0 ? data.enabled_payment_methods : ['pix', 'dinheiro', 'cartao_credito', 'cartao_debito']);
       if (Array.isArray(data?.credit_card_fees) && data.credit_card_fees.length > 0) {
         const byInstallment: Record<number, number> = {};
@@ -7701,6 +7711,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    companyName: currentCompany?.name || 'Rafa Arts Graphics',
                    customerPhone: selectedCustomer?.phone,
                    logoDarkUrl,
+                   companyContact,
                  });
                  downloadCanvasAsPng(canvas, buildFileName('Comprovante', lastFinalizedOrder.customerName, lastFinalizedOrder.createdAt, 'png'));
                }}
@@ -7720,6 +7731,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    companyName: currentCompany?.name || 'Rafa Arts Graphics',
                    customerPhone: selectedCustomer?.phone,
                    logoDarkUrl,
+                   companyContact,
                  });
                  await downloadCanvasAsPdf(canvas, buildFileName('Comprovante', lastFinalizedOrder.customerName, lastFinalizedOrder.createdAt, 'pdf'));
                }}
@@ -10561,6 +10573,15 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
   const [debitCardFeePercent, setDebitCardFeePercent] = useState(0);
   const [savingCardFees, setSavingCardFees] = useState(false);
 
+  // Contato/identidade exibidos em Recibo, Orçamento (endereco, redes sociais, site usado no QR Code)
+  const [contactWhatsapp, setContactWhatsapp] = useState('');
+  const [contactInstagram, setContactInstagram] = useState('');
+  const [contactFacebook, setContactFacebook] = useState('');
+  const [contactEmail, setContactEmail] = useState('');
+  const [contactSite, setContactSite] = useState('');
+  const [contactEndereco, setContactEndereco] = useState('');
+  const [savingContact, setSavingContact] = useState(false);
+
   useEffect(() => {
     const load = async () => {
       const { data } = await supabase.from('configuracoes').select('*').eq('company_id', 'rafa-arts').maybeSingle();
@@ -10576,6 +10597,12 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
           setCreditCardFees(Array.from({ length: 12 }, (_, i) => ({ installments: i + 1, feePercent: byInstallment[i + 1] ?? 0 })));
         }
         setDebitCardFeePercent(Number(data.debit_card_fee_percent) || 0);
+        setContactWhatsapp(data.contact_whatsapp || COMPANY_CONTACT.whatsapp);
+        setContactInstagram(data.contact_instagram || COMPANY_CONTACT.instagram);
+        setContactFacebook(data.contact_facebook || COMPANY_CONTACT.facebook);
+        setContactEmail(data.contact_email || COMPANY_CONTACT.email);
+        setContactSite(data.contact_site || COMPANY_CONTACT.site);
+        setContactEndereco(data.contact_endereco || COMPANY_CONTACT.endereco);
       } else if (currentCompany?.name) {
         setPixBeneficiary(currentCompany.name);
       }
@@ -10652,6 +10679,29 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
       alert(`Não foi possível salvar a configuração PIX: ${err?.message || 'erro desconhecido'}`);
     } finally {
       setSavingPix(false);
+    }
+  };
+
+  const handleSaveContactInfo = async () => {
+    setSavingContact(true);
+    try {
+      const { error } = await supabase.from('configuracoes').upsert({
+        company_id: 'rafa-arts',
+        contact_whatsapp: contactWhatsapp,
+        contact_instagram: contactInstagram,
+        contact_facebook: contactFacebook,
+        contact_email: contactEmail,
+        contact_site: contactSite,
+        contact_endereco: contactEndereco,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'company_id' });
+      if (error) throw error;
+      alert('Informações de contato salvas! Já valem para os próximos recibos e orçamentos.');
+    } catch (err: any) {
+      console.error('Erro ao salvar informações de contato:', err);
+      alert(`Não foi possível salvar: ${err?.message || 'erro desconhecido'}`);
+    } finally {
+      setSavingContact(false);
     }
   };
 
@@ -11011,6 +11061,28 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                          <p className="text-[11px] text-slate-500 leading-relaxed">Interface clara e nítida com fundo suave e excelente contraste diurno.</p>
                       </button>
                    </div>
+                </div>
+
+                <div className="h-px bg-white/10" />
+
+                <div className="space-y-6">
+                   <h3 className="text-xl font-bold text-white tracking-tight italic uppercase">Contato / Redes Sociais</h3>
+                   <p className="text-xs text-white/40">Essas informações aparecem no rodapé do Recibo (Ordem de Serviço) e do Orçamento, e o Site é usado pra gerar o QR Code desses documentos.</p>
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <Input label="WhatsApp" placeholder="Ex: (93) 99211-2108" value={contactWhatsapp} onChange={(e: any) => setContactWhatsapp(e.target.value)} />
+                      <Input label="Instagram" placeholder="Ex: Rafa Artes Gráficos" value={contactInstagram} onChange={(e: any) => setContactInstagram(e.target.value)} />
+                      <Input label="Facebook" placeholder="Ex: Rafa Artes Gráficos" value={contactFacebook} onChange={(e: any) => setContactFacebook(e.target.value)} />
+                      <Input label="E-mail" placeholder="Ex: contato@suaempresa.com.br" value={contactEmail} onChange={(e: any) => setContactEmail(e.target.value)} />
+                      <Input label="Site (usado no QR Code)" placeholder="Ex: suaempresa.com.br" value={contactSite} onChange={(e: any) => setContactSite(e.target.value)} />
+                      <Input label="Endereço" placeholder="Ex: Avenida Maracanã, nº 287 – Santarém – PA" value={contactEndereco} onChange={(e: any) => setContactEndereco(e.target.value)} className="md:col-span-2" />
+                   </div>
+                   <Button
+                     onClick={handleSaveContactInfo}
+                     disabled={savingContact}
+                     className="bg-primary-500 text-slate-900 border-none shadow-xl shadow-primary-500/20"
+                   >
+                     {savingContact ? 'Salvando...' : 'Salvar Contato / Identidade'}
+                   </Button>
                 </div>
              </div>
            )}
