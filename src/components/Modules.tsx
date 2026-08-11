@@ -358,6 +358,7 @@ const mapVendaRow = (row: any): SaleOrder => ({
   customerPhone: row.customer_phone,
   items: row.items || [],
   total: Number(row.total) || 0,
+  discountValue: row.discount_value ? Number(row.discount_value) : undefined,
   downPayment: row.down_payment !== null ? Number(row.down_payment) : undefined,
   receivedValue: row.received_value !== null ? Number(row.received_value) : undefined,
   paymentMethod: row.payment_method,
@@ -5271,6 +5272,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     );
     setOrderObservacoes(sale.observacoes || '');
     setScheduledFor(sale.scheduledFor ? sale.scheduledFor.slice(0, 16) : '');
+    setSaleDiscountValue(sale.discountValue || 0);
+    setSaleDiscountInput('');
     setActiveTab('venda');
   };
 
@@ -6059,6 +6062,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           customer_phone: selectedCustomer?.phone || editingFullOrder.customerPhone,
           items: cart,
           total,
+          discount_value: saleDiscountValue || null,
           down_payment: totalPago,
           received_value: totalPago,
           payments: [...(editingFullOrder.payments || []), ...paymentEntries],
@@ -6076,6 +6080,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           customerPhone: selectedCustomer?.phone || editingFullOrder.customerPhone,
           items: [...cart],
           total,
+          discountValue: saleDiscountValue || undefined,
           downPayment: totalPago,
           receivedValue: totalPago,
           payments: [...(editingFullOrder.payments || []), ...paymentEntries],
@@ -6095,6 +6100,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         setDownPayment(0);
         setScheduledFor('');
         setOrderObservacoes('');
+        setSaleDiscountValue(0);
+        setSaleDiscountInput('');
       } catch (err: any) {
         console.error('Erro ao salvar edição da nota:', err);
         showAlert(`Não foi possível salvar as alterações: ${err?.message || 'erro desconhecido'}`);
@@ -6163,6 +6170,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       customerName: selectedCustomer?.name || 'Cliente de Balcão',
       items: [...cart],
       total,
+      discountValue: saleDiscountValue || undefined,
       downPayment: finalDownPayment,
       receivedValue: finalDownPayment,
       paymentMethod,
@@ -6191,6 +6199,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         scheduled_for: order.scheduledFor || null,
         observacoes: orderObservacoes || null,
         orcamento_id: linkedOrcamentoId || null,
+        discount_value: saleDiscountValue || null,
       }).select().single();
       if (error) throw error;
       insertedVenda = insertedVendaResult;
@@ -9974,6 +9983,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
                  {/* Valores */}
                  <div className="bg-slate-900/50 rounded-2xl p-4 border border-white/5 space-y-1.5">
+                   {!!sale.discountValue && (
+                     <>
+                       <div className="flex justify-between text-xs text-white/40">
+                         <span>Subtotal</span>
+                         <span className="font-mono">R$ {(sale.total + sale.discountValue).toFixed(2).replace('.', ',')}</span>
+                       </div>
+                       <div className="flex justify-between text-xs text-rose-400 font-bold">
+                         <span>Desconto Aplicado</span>
+                         <span className="font-mono">- R$ {sale.discountValue.toFixed(2).replace('.', ',')}</span>
+                       </div>
+                     </>
+                   )}
                    <div className="flex justify-between text-xs text-white/50">
                      <span>Total</span>
                      <span className="font-mono font-bold text-white">R$ {sale.total.toFixed(2).replace('.', ',')}</span>

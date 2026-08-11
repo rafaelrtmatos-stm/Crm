@@ -345,7 +345,7 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
   const infoCardsH = Math.max(92, 46 + Math.max(clienteRows.length, pedidoRows.length) * 17);
   const tableHeaderH = 32;
   const tableH = tableHeaderH + totalRowsHeight;
-  const totalCardH = 150;
+  const totalCardH = order.discountValue ? 168 : 150;
   const obsH = 30 + OBSERVACOES.length * 16 + 14;
   const footerH = 195;
   const height = headerH + pipelineH + infoCardsH + 20 + tableH + 22 + totalCardH + 26 + obsH + 22 + footerH + 40;
@@ -538,10 +538,23 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
 
   ctx.fillStyle = ACCENT;
   ctx.font = `900 9px ${FONT}`;
-  ctx.fillText('TOTAL GERAL', marginX + 18, y + 46);
-  ctx.fillStyle = TEXT;
-  ctx.font = `900 34px ${FONT}`;
-  ctx.fillText(`R$ ${total.toFixed(2).replace('.', ',')}`, marginX + 18, y + 82);
+  if (order.discountValue) {
+    const subtotal = total + order.discountValue;
+    ctx.fillStyle = TEXT_FAINT;
+    ctx.font = `700 8px ${FONT}`;
+    ctx.fillText(`Subtotal: R$ ${subtotal.toFixed(2).replace('.', ',')}   ·   Desconto: -R$ ${order.discountValue.toFixed(2).replace('.', ',')}`, marginX + 18, y + 40);
+    ctx.fillStyle = ACCENT;
+    ctx.font = `900 9px ${FONT}`;
+    ctx.fillText('TOTAL GERAL', marginX + 18, y + 58);
+    ctx.fillStyle = TEXT;
+    ctx.font = `900 34px ${FONT}`;
+    ctx.fillText(`R$ ${total.toFixed(2).replace('.', ',')}`, marginX + 18, y + 94);
+  } else {
+    ctx.fillText('TOTAL GERAL', marginX + 18, y + 46);
+    ctx.fillStyle = TEXT;
+    ctx.font = `900 34px ${FONT}`;
+    ctx.fillText(`R$ ${total.toFixed(2).replace('.', ',')}`, marginX + 18, y + 82);
+  }
 
   ctx.strokeStyle = BORDER;
   ctx.beginPath();

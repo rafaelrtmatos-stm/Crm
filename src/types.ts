@@ -42,6 +42,7 @@ export interface SaleOrder {
   customerPhone?: string;
   items: SaleOrderItem[];
   total: number;
+  discountValue?: number;
   downPayment?: number;
   receivedValue?: number;
   paymentMethod?: 'dinheiro'|'pix'|'cartao_credito'|'cartao_debito'|'misto';
