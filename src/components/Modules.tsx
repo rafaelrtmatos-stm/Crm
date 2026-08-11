@@ -9583,7 +9583,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
            <div className="space-y-3 p-2">
              <div className="flex items-center justify-between border-b border-white/5 pb-3">
                <div>
-                 <h3 className="text-lg font-black text-white uppercase">Pedido #{sale.id.slice(-8).toUpperCase()}</h3>
+                 <button
+                   onClick={() => { navigator.clipboard.writeText(sale.id.slice(-8).toUpperCase()); showAlert('Número do pedido copiado! Cole na busca do Histórico de Pedidos.'); }}
+                   className="flex items-center gap-1.5 text-lg font-black text-white uppercase hover:text-primary-300 transition-colors bg-transparent border-0 cursor-pointer p-0"
+                   title="Clique para copiar o número do pedido"
+                 >
+                   Pedido #{sale.id.slice(-8).toUpperCase()} <Copy size={14} className="opacity-50" />
+                 </button>
                  <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest">{safeFormat(sale.createdAt, 'dd/MM/yyyy HH:mm')}</p>
                </div>
                <Badge className={cn("text-[9px] font-black uppercase px-2.5 py-1 border-none", isPending ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300")}>

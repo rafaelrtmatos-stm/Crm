@@ -355,14 +355,6 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
     try { logoImg = await loadImage(logoDarkUrl); } catch (e) { logoImg = null; }
   }
 
-  // QR Code apontando pro site (gerado como imagem, funcional de verdade)
-  let qrImg: HTMLImageElement | null = null;
-  try {
-    const QRCode = (await import('qrcode')).default;
-    const qrDataUrl = await QRCode.toDataURL(CONTACT.siteUrl, { margin: 1, width: 200, color: { dark: TEXT, light: '#FFFFFF00' } });
-    qrImg = await loadImage(qrDataUrl);
-  } catch (e) { qrImg = null; }
-
   const canvas = document.createElement('canvas');
   canvas.width = width * scale;
   canvas.height = height * scale;
@@ -394,9 +386,11 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
   ctx.fillStyle = ACCENT;
   ctx.font = `900 15px ${FONT}`;
   ctx.fillText('ORDEM DE SERVIÇO', width - marginX, y + 8);
+  // Numero do pedido + data numa linha propria, mais abaixo — evita colidir com o final da tagline
+  // da esquerda (antes ficavam na mesma linha e o texto comprido caia em cima da palavra "BANNERS")
   ctx.fillStyle = TEXT_FAINT;
   ctx.font = `700 9px ${FONT}`;
-  ctx.fillText(`#${order.id.slice(-8).toUpperCase()}  ·  ${new Date(order.createdAt).toLocaleString('pt-BR')}`, width - marginX, y + 24);
+  ctx.fillText(`#${order.id.slice(-8).toUpperCase()}  ·  ${new Date(order.createdAt).toLocaleString('pt-BR')}`, width - marginX, y + 40);
 
   y += headerH;
 
@@ -651,25 +645,6 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
   ctx.font = `600 8px ${FONT}`;
   ctx.fillStyle = TEXT;
   ctx.fillText(CONTACT.endereco, marginX + 20, y + 62 + 99, width - 260);
-
-  // QR Code no canto direito do rodape
-  if (qrImg) {
-    const qrSize = 78;
-    const qrX = width - marginX - qrSize;
-    const qrY = footerTop + 20;
-    ctx.textAlign = 'center';
-    ctx.font = `800 7.5px ${FONT}`;
-    ctx.fillStyle = TEXT_FAINT;
-    ctx.fillText('ACESSE NOSSO SITE', qrX + qrSize / 2, qrY);
-    ctx.drawImage(qrImg, qrX, qrY + 6, qrSize, qrSize);
-    ctx.font = `600 7px ${FONT}`;
-    ctx.fillStyle = TEXT_DIM;
-    ctx.fillText('Escaneie o QR Code', qrX + qrSize / 2, qrY + qrSize + 18);
-    ctx.fillText('e acesse nosso site', qrX + qrSize / 2, qrY + qrSize + 29);
-    ctx.fillStyle = ACCENT;
-    ctx.font = `700 7.5px ${FONT}`;
-    ctx.fillText(CONTACT.site, qrX + qrSize / 2, qrY + qrSize + 43);
-  }
 
   // Barra final de validade do documento
   const barY = footerTop + 165;
