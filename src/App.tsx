@@ -399,6 +399,20 @@ export default function App() {
     return () => { supabase.removeChannel(channel); };
   }, []);
   const [user, setUser] = useState<AppUser | null>(null);
+
+  // Cache local do usuario logado — permite continuar logado (com os dados da ultima sincronizacao)
+  // mesmo sem internet, depois de ja ter logado online pelo menos uma vez.
+  const cacheUserOffline = (u: AppUser) => {
+    try { localStorage.setItem('rpro_cached_user', JSON.stringify(u)); } catch (e) { /* localStorage cheio/bloqueado, ignora */ }
+  };
+  const getCachedUser = (userId: string): AppUser | null => {
+    try {
+      const raw = localStorage.getItem('rpro_cached_user');
+      if (!raw) return null;
+      const cached = JSON.parse(raw) as AppUser;
+      return cached.id === userId ? cached : null;
+    } catch (e) { return null; }
+  };
   const [companies, setCompanies] = useState<Company[]>([]);
   const [isCreatingCompany, setIsCreatingCompany] = useState(false);
   const [currentCompany, setCurrentCompany] = useState<Company | null>(null);
@@ -779,6 +793,7 @@ export default function App() {
         }
 
         setUser(adminData);
+        cacheUserOffline(adminData);
         sessionStorage.setItem('rpro_logged_user_id', adminData.id);
         registerSession(adminData.id, adminData.name);
         if (rememberMe) {
@@ -880,6 +895,7 @@ export default function App() {
       }
 
       setUser(userData);
+      cacheUserOffline(userData);
       sessionStorage.setItem('rpro_logged_user_id', userData.id);
       registerSession(userData.id, userData.name);
       if (rememberMe) {
@@ -917,47 +933,76 @@ export default function App() {
       const targetUserId = simulatedUserId || savedUserId;
 
       if (targetUserId) {
-        const userDocRef = doc(db, 'users', targetUserId);
-        const snap = await getDoc(userDocRef);
-        if (snap.exists()) {
-          const uData = { id: snap.id, ...snap.data() } as AppUser;
-          setUser(uData);
-          userUnsub = onSnapshot(userDocRef, (s) => {
-            if (s.exists()) {
-              setUser({ id: s.id, ...s.data() } as AppUser);
-            }
-          });
-        } else if (targetUserId === 'admin-rafael') {
-          const adminData: AppUser = {
-            id: 'admin-rafael',
-            name: 'Rafael Matos (ADM)',
-            email: 'rafaelrtmatos@gmail.com',
-            password: 'Geper3tp@',
-            role: 'admin',
-            isAdmin: true,
-            isActive: true,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          };
-          await setDoc(userDocRef, adminData);
-          setUser(adminData);
-        } else {
-          // Nao achou no Firebase (nao e o admin master) — tenta no Supabase, onde vivem os usuarios comuns
-          try {
+        // Sem internet: usa direto os dados da ultima vez que logou online, sem tentar rede.
+        // Isso permite continuar usando o sistema (com os dados de quando sincronizou por ultimo)
+        // mesmo sem conexao, contanto que ja tenha logado com internet pelo menos uma vez antes.
+        if (!navigator.onLine) {
+          const cached = getCachedUser(targetUserId);
+          if (cached) {
+            setUser(cached);
+            setLoading(false);
+            return;
+          }
+        }
+
+        try {
+          const userDocRef = doc(db, 'users', targetUserId);
+          const snap = await getDoc(userDocRef);
+          if (snap.exists()) {
+            const uData = { id: snap.id, ...snap.data() } as AppUser;
+            setUser(uData);
+            cacheUserOffline(uData);
+            userUnsub = onSnapshot(userDocRef, (s) => {
+              if (s.exists()) {
+                const fresh = { id: s.id, ...s.data() } as AppUser;
+                setUser(fresh);
+                cacheUserOffline(fresh);
+              }
+            });
+          } else if (targetUserId === 'admin-rafael') {
+            const adminData: AppUser = {
+              id: 'admin-rafael',
+              name: 'Rafael Matos (ADM)',
+              email: 'rafaelrtmatos@gmail.com',
+              password: 'Geper3tp@',
+              role: 'admin',
+              isAdmin: true,
+              isActive: true,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            };
+            await setDoc(userDocRef, adminData);
+            setUser(adminData);
+            cacheUserOffline(adminData);
+          } else {
+            // Nao achou no Firebase (nao e o admin master) — tenta no Supabase, onde vivem os usuarios comuns
             const { data: usuarioRow } = await supabase.from('usuarios').select('*').eq('id', targetUserId).maybeSingle();
             if (usuarioRow) {
-              setUser(mapUsuarioRow(usuarioRow));
+              const uData = mapUsuarioRow(usuarioRow);
+              setUser(uData);
+              cacheUserOffline(uData);
               const channel = supabase
                 .channel(`usuario-sessao-${targetUserId}`)
                 .on('postgres_changes', { event: '*', schema: 'public', table: 'usuarios', filter: `id=eq.${targetUserId}` }, (payload: any) => {
-                  if (payload.new) setUser(mapUsuarioRow(payload.new));
+                  if (payload.new) {
+                    const fresh = mapUsuarioRow(payload.new);
+                    setUser(fresh);
+                    cacheUserOffline(fresh);
+                  }
                 })
                 .subscribe();
               userUnsub = () => { supabase.removeChannel(channel); };
             } else {
               sessionStorage.removeItem('rpro_logged_user_id');
             }
-          } catch (e) {
+          }
+        } catch (e) {
+          // Falhou por causa da rede (sem internet, instavel, etc) — tenta os dados salvos localmente
+          // da ultima vez que logou online, em vez de simplesmente deslogar a pessoa.
+          const cached = getCachedUser(targetUserId);
+          if (cached) {
+            setUser(cached);
+          } else {
             sessionStorage.removeItem('rpro_logged_user_id');
           }
         }
