@@ -7975,7 +7975,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       <button onClick={() => { setSaleDiscountMode('valor'); setSaleDiscountInput(''); }} className={cn("flex-1 py-1 rounded text-[8px] font-black uppercase transition-all", saleDiscountMode === 'valor' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Desc. R$</button>
                       <button onClick={() => { setSaleDiscountMode('final'); setSaleDiscountInput(''); }} className={cn("flex-1 py-1 rounded text-[8px] font-black uppercase transition-all", saleDiscountMode === 'final' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Valor Final</button>
                    </div>
-                   <div className="flex items-center gap-2">
+                   <div className="flex items-center gap-2 flex-wrap">
                       <input
           onFocus={(e: any) => e.target.select()}
                         type="number"
@@ -7984,7 +7984,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                         value={saleDiscountInput}
                         onChange={(e) => setSaleDiscountInput(e.target.value === '' ? '' : Number(e.target.value))}
                         placeholder={saleDiscountMode === 'percentual' ? '% de desconto' : saleDiscountMode === 'valor' ? 'R$ de desconto' : 'R$ valor final da venda'}
-                        className="flex-1 h-7 bg-white/5 border border-white/10 rounded-lg px-2 text-[10px] text-white focus:outline-none focus:border-primary-500"
+                        className="flex-1 min-w-0 h-7 bg-white/5 border border-white/10 rounded-lg px-2 text-[10px] text-white focus:outline-none focus:border-primary-500"
                       />
                       <button onClick={applySaleDiscountInput} className="h-7 px-3 rounded-lg bg-primary-500/10 border border-primary-500/20 text-primary-300 text-[9px] font-black uppercase hover:bg-primary-500/20 shrink-0">Aplicar</button>
                       {saleDiscountValue > 0 && (
