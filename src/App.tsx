@@ -85,6 +85,7 @@ import {
   addDoc,
   updateDoc,
   getDocs,
+  deleteDoc,
   Timestamp
 } from 'firebase/firestore';
 
@@ -841,9 +842,18 @@ export default function App() {
           console.error('Erro ao migrar usuário antigo para o Supabase:', migrarErr);
           // Se falhou por já existir (ex: outra aba migrou primeiro), busca o que já foi criado
           const { data: jaMigrado } = await supabase.from('usuarios').select('*').eq('email', trimmedEmail).maybeSingle();
-          userData = jaMigrado ? mapUsuarioRow(jaMigrado) : ({ id: legacyDoc.id, ...legacyData } as AppUser);
+          if (jaMigrado) {
+            userData = mapUsuarioRow(jaMigrado);
+            // Ja existe no Supabase (outra aba/sessao migrou primeiro) — apaga o residuo do Firebase tambem
+            try { await deleteDoc(doc(db, 'users', legacyDoc.id)); } catch (e) { /* ignora se ja nao existir */ }
+          } else {
+            userData = { id: legacyDoc.id, ...legacyData } as AppUser;
+          }
         } else {
           userData = mapUsuarioRow(migrado);
+          // Migracao concluida com sucesso — apaga o registro antigo do Firebase pra nao ficar
+          // aparecendo duplicado na lista de usuarios (um "fantasma" do Firebase + o novo do Supabase)
+          try { await deleteDoc(doc(db, 'users', legacyDoc.id)); } catch (e) { /* ignora se ja nao existir */ }
         }
       }
 
