@@ -30,6 +30,24 @@ export function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
+// Quebra um texto em varias linhas, cada uma cabendo dentro de maxWidth (usa a fonte ja setada no ctx)
+function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let current = '';
+  for (const word of words) {
+    const test = current ? `${current} ${word}` : word;
+    if (ctx.measureText(test).width > maxWidth && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = test;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
 // ---------- Paleta (tema claro premium) ----------
 const BG = '#F5F7FA';
 const CARD = '#FFFFFF';
@@ -310,7 +328,15 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
   ];
 
   const headerH = 76;
-  const pipelineH = 64;
+  // Mede com antecedencia se algum rotulo da linha de evolucao vai precisar quebrar em 2 linhas,
+  // pra ja reservar a altura certa (nunca deixa texto/icone de uma secao encostar ou sobrepor o de baixo)
+  const measureCanvasPipeline = document.createElement('canvas');
+  const measureCtxPipeline = measureCanvasPipeline.getContext('2d')!;
+  measureCtxPipeline.font = `800 7px ${FONT}`;
+  const pipelineTrackW = width - marginX * 2;
+  const pipelineLabelMaxW = pipelineTrackW / PIPELINE_STAGES.length - 4;
+  const anyLabelWraps = PIPELINE_STAGES.some(label => wrapText(measureCtxPipeline, label, pipelineLabelMaxW + 16).length > 1);
+  const pipelineH = anyLabelWraps ? 73 : 64;
   const infoCardsH = Math.max(92, 46 + Math.max(clienteRows.length, pedidoRows.length) * 17);
   const tableHeaderH = 32;
   const tableH = tableHeaderH + totalRowsHeight;
@@ -409,16 +435,15 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
       const label = PIPELINE_STAGES[i];
       ctx.font = isCurrent ? `800 7px ${FONT}` : `700 7px ${FONT}`;
       const labelMaxW = trackW / stageCount - 4;
-      if (i === 0) {
-        ctx.textAlign = 'left';
-        ctx.fillText(label, Math.max(marginX, cx - labelMaxW / 2), trackY + 22, labelMaxW + 20);
-      } else if (i === stageCount - 1) {
-        ctx.textAlign = 'right';
-        ctx.fillText(label, Math.min(width - marginX, cx + labelMaxW / 2), trackY + 22, labelMaxW + 20);
-      } else {
-        ctx.textAlign = 'center';
-        ctx.fillText(label, cx, trackY + 22, labelMaxW);
-      }
+      const isFirst = i === 0;
+      const isLast = i === stageCount - 1;
+      const wrapW = isFirst || isLast ? labelMaxW + 20 : labelMaxW;
+      const lines = wrapText(ctx, label, wrapW).slice(0, 2); // no maximo 2 linhas — nunca espreme/corta em cima de outro texto
+      const lineX = isFirst ? Math.max(marginX, cx - labelMaxW / 2) : isLast ? Math.min(width - marginX, cx + labelMaxW / 2) : cx;
+      ctx.textAlign = isFirst ? 'left' : isLast ? 'right' : 'center';
+      lines.forEach((line, li) => {
+        ctx.fillText(line, lineX, trackY + 22 + li * 9, wrapW + 20);
+      });
     }
   } else {
     roundRect(ctx, marginX, y, width - marginX * 2, 32, 8);
