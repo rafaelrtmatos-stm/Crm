@@ -36,14 +36,26 @@ function crc16(payload: string): string {
 
 export interface PixPayloadInput {
   key: string;
+  keyType?: 'cpf' | 'cnpj' | 'email' | 'telefone' | 'aleatoria';
   beneficiaryName: string;
   city: string;
   amount?: number; // se omitido, gera um QR sem valor fixo (cliente digita)
   txid?: string; // identificador da transação, opcional
 }
 
-export function buildPixPayload({ key, beneficiaryName, city, amount, txid }: PixPayloadInput): string {
-  const merchantAccountInfo = tlv('00', 'br.gov.bcb.pix') + tlv('01', key);
+// Chave tipo telefone exige o formato +55DDDNUMERO (E.164) no payload — normaliza
+// independente de como a pessoa digitou (com ou sem +55, com ou sem formatação)
+function normalizePixKey(key: string, keyType?: string): string {
+  if (keyType !== 'telefone') return key.trim();
+  const digits = key.replace(/\D/g, '');
+  if (digits.length === 10 || digits.length === 11) return `+55${digits}`; // DDD + numero, sem o 55
+  if (digits.length === 12 || digits.length === 13) return `+${digits}`; // ja tem o 55 na frente
+  return key.trim(); // formato nao reconhecido, manda como veio pra nao quebrar
+}
+
+export function buildPixPayload({ key, keyType, beneficiaryName, city, amount, txid }: PixPayloadInput): string {
+  const normalizedKey = normalizePixKey(key, keyType);
+  const merchantAccountInfo = tlv('00', 'br.gov.bcb.pix') + tlv('01', normalizedKey);
   const additionalData = tlv('05', (txid && txid.trim()) || '***');
 
   let payload =

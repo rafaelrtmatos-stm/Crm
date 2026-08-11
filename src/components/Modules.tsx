@@ -5356,7 +5356,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncedAt, setSyncedAt] = useState<Date | null>(null);
-  const [pixConfig, setPixConfig] = useState<{ key: string; beneficiaryName: string; city: string; bank?: string } | null>(null);
+  const [pixConfig, setPixConfig] = useState<{ key: string; keyType?: 'cpf' | 'cnpj' | 'email' | 'telefone' | 'aleatoria'; beneficiaryName: string; city: string; bank?: string } | null>(null);
   const [isPixQrModalOpen, setIsPixQrModalOpen] = useState(false);
   const [logoDarkUrl, setLogoDarkUrl] = useState<string | null>(null);
   const [companyContact, setCompanyContact] = useState<CompanyContactInfo>(COMPANY_CONTACT);
@@ -5520,6 +5520,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       if (data && data.pix_key) {
         setPixConfig({
           key: data.pix_key,
+          keyType: data.pix_key_type || undefined,
           beneficiaryName: data.beneficiary_name || currentCompany?.name || 'RAFA ARTS GRAPHICS',
           city: data.city || 'Santarem',
           bank: data.pix_bank || '',
@@ -9997,6 +9998,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
        const amountToCharge = pixQrAmount > 0 ? pixQrAmount : remainingValue;
        const pixPayload = buildPixPayload({
          key: pixConfig.key,
+         keyType: pixConfig.keyType,
          beneficiaryName: pixConfig.beneficiaryName,
          city: pixConfig.city,
          amount: amountToCharge,
@@ -12604,6 +12606,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
 
   // Configuracao PIX (Supabase, sincronizada em tempo real)
   const [pixKey, setPixKey] = useState('');
+  const [pixKeyType, setPixKeyType] = useState<'cpf' | 'cnpj' | 'email' | 'telefone' | 'aleatoria'>('aleatoria');
   const [pixBeneficiary, setPixBeneficiary] = useState('');
   const [pixCity, setPixCity] = useState('Santarem');
   const [pixBank, setPixBank] = useState('');
@@ -12639,6 +12642,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
       const { data } = await supabase.from('configuracoes').select('*').eq('company_id', 'rafa-arts').maybeSingle();
       if (data) {
         setPixKey(data.pix_key || '');
+        setPixKeyType(data.pix_key_type || 'aleatoria');
         setPixBeneficiary(data.beneficiary_name || currentCompany?.name || '');
         setPixCity(data.city || 'Santarem');
         setPixBank(data.pix_bank || '');
@@ -12720,6 +12724,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
       const { error } = await supabase.from('configuracoes').upsert({
         company_id: 'rafa-arts',
         pix_key: pixKey,
+        pix_key_type: pixKeyType,
         beneficiary_name: pixBeneficiary,
         city: pixCity,
         pix_bank: pixBank,
@@ -13213,6 +13218,23 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                    </div>
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                       <Input label="Chave PIX" value={pixKey} onChange={(e: any) => setPixKey(e.target.value)} placeholder="CPF, CNPJ, telefone, e-mail ou chave aleatória" />
+                      <div className="space-y-1.5">
+                         <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Tipo de Chave</label>
+                         <select
+                           value={pixKeyType}
+                           onChange={(e: any) => setPixKeyType(e.target.value)}
+                           className="w-full h-11 bg-white/5 border border-white/10 rounded-xl px-3 text-sm text-white focus:outline-none focus:border-primary-500"
+                         >
+                           <option value="cpf" className="bg-slate-900">CPF</option>
+                           <option value="cnpj" className="bg-slate-900">CNPJ</option>
+                           <option value="email" className="bg-slate-900">E-mail</option>
+                           <option value="telefone" className="bg-slate-900">Telefone</option>
+                           <option value="aleatoria" className="bg-slate-900">Chave Aleatória</option>
+                         </select>
+                         {pixKeyType === 'telefone' && (
+                           <p className="text-[9px] text-amber-400/80">Pode digitar com ou sem +55 — o sistema formata sozinho certo pro QR Code.</p>
+                         )}
+                      </div>
                       <Input label="Nome do Beneficiário" value={pixBeneficiary} onChange={(e: any) => setPixBeneficiary(e.target.value)} />
                       <Input label="Banco" placeholder="Ex: Nubank, Banco do Brasil..." value={pixBank} onChange={(e: any) => setPixBank(e.target.value)} />
                       <Input label="Cidade (para o QR Code)" value={pixCity} onChange={(e: any) => setPixCity(e.target.value)} />
