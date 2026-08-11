@@ -3801,9 +3801,10 @@ export const MetaAdsModule = ({ currentCompany }: { currentCompany: Company | nu
 // --- PDV / POS ---
 // Cronometro de contagem regressiva ate a previsao de entrega. Se ja passou da hora,
 // para de contar e fica vermelho (nao fica contando "atraso" indefinidamente).
-const EntregaCountdown = ({ scheduledFor }: { scheduledFor: string }) => {
+const EntregaCountdown = ({ scheduledFor, onEdit, onDeliver, onDeleteSchedule }: { scheduledFor: string; onEdit?: () => void; onDeliver?: () => void; onDeleteSchedule?: () => void }) => {
   const target = new Date(scheduledFor).getTime();
   const [now, setNow] = useState(() => Date.now());
+  const [menuOpen, setMenuOpen] = useState(false);
   const overdue = now >= target;
 
   useEffect(() => {
@@ -3820,15 +3821,44 @@ const EntregaCountdown = ({ scheduledFor }: { scheduledFor: string }) => {
   const seconds = totalSeconds % 60;
   const countdownLabel = days > 0 ? `${days}d ${hours}h` : `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 
+  const hasActions = onEdit || onDeliver || onDeleteSchedule;
+
   return (
-    <span
-      className={cn(
-        "hidden sm:inline text-[8.5px] font-black uppercase px-2 py-0.5 rounded-full border shrink-0",
-        overdue ? "bg-rose-500/15 text-rose-400 border-rose-500/30" : "bg-primary-500/10 text-primary-300 border-primary-500/20"
+    <div className="relative hidden sm:inline-block shrink-0">
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); if (hasActions) setMenuOpen(v => !v); }}
+        className={cn(
+          "text-[8.5px] font-black uppercase px-2 py-0.5 rounded-full border shrink-0 border-0",
+          hasActions && "cursor-pointer",
+          overdue ? "bg-rose-500/15 text-rose-400 border-rose-500/30" : "bg-primary-500/10 text-primary-300 border-primary-500/20"
+        )}
+      >
+        Entrega: {safeFormat(scheduledFor, 'dd/MM HH:mm')} {overdue ? '· ATRASADO' : `· faltam ${countdownLabel}`}
+      </button>
+      {menuOpen && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+          <div className="absolute top-full left-0 mt-1 z-50 bg-[#1a2333] border border-white/10 rounded-xl shadow-2xl py-1 min-w-[160px] animate-in fade-in zoom-in-95 duration-150">
+             {onEdit && (
+               <button onClick={() => { setMenuOpen(false); onEdit(); }} className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left cursor-pointer bg-transparent border-0">
+                  <Pencil size={12} /> Editar Agendamento
+               </button>
+             )}
+             {onDeliver && (
+               <button onClick={() => { setMenuOpen(false); onDeliver(); }} className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-bold text-emerald-400 hover:bg-emerald-500/10 text-left cursor-pointer bg-transparent border-0">
+                  <CheckCircle2 size={12} /> Marcar como Entregue
+               </button>
+             )}
+             {onDeleteSchedule && (
+               <button onClick={() => { setMenuOpen(false); onDeleteSchedule(); }} className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-bold text-rose-400 hover:bg-rose-500/10 text-left cursor-pointer bg-transparent border-0">
+                  <Trash2 size={12} /> Excluir Agendamento
+               </button>
+             )}
+          </div>
+        </>
       )}
-    >
-      Entrega: {safeFormat(scheduledFor, 'dd/MM HH:mm')} {overdue ? '· ATRASADO' : `· faltam ${countdownLabel}`}
-    </span>
+    </div>
   );
 };
 
@@ -3892,6 +3922,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [settlingOrder, setSettlingOrder] = useState<SaleOrder | null>(null);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+  const [isScheduleActionsMenuOpen, setIsScheduleActionsMenuOpen] = useState(false);
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
   const [customerModalIntent, setCustomerModalIntent] = useState<'finalize' | 'preselect' | 'orcamento'>('preselect');
   const [customerModalMode, setCustomerModalMode] = useState<'search' | 'create'>('search');
@@ -4774,7 +4805,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
   const [viewingReceiptSale, setViewingReceiptSale] = useState<SaleOrder | null>(null);
   const [viewingReceiptEmail, setViewingReceiptEmail] = useState<string | undefined>(undefined);
-  const handleDuplicateSale = (sale: SaleOrder) => {
+  const handleDuplicateSale = async (sale: SaleOrder) => {
+    if (!(await showConfirm(`Duplicar pedido de ${sale.customerName || 'cliente'}?`))) return;
     // Carrega os mesmos itens e cliente no carrinho — nao copia pagamento/status, a nova nota comeca do zero.
     setCart(sale.items.map(item => ({ ...item })));
     setActiveTab('venda');
@@ -6050,6 +6082,33 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setIsPaymentModalOpen(true);
   };
 
+  // As 3 acoes do card de Entrega (clicavel em Servicos/Notas em Aberto e tambem disponivel
+  // dentro de Quitar Debito): editar a data, marcar como entregue, ou excluir o agendamento.
+  const handleEditScheduleFromCard = (sale: SaleOrder) => {
+    openSettlePayment(sale);
+    setIsScheduleModalOpen(true);
+  };
+
+  const handleDeliverFromCard = async (sale: SaleOrder) => {
+    if (!(await showConfirm(`Marcar o pedido de ${sale.customerName || 'cliente'} como entregue?`))) return;
+    const { error } = await supabase.from('vendas').update({ service_status: 'produto_entregue' }).eq('id', sale.id);
+    if (error) { showAlert(`Não foi possível marcar como entregue: ${error.message}`); return; }
+    const atualizado = { ...sale, serviceStatus: 'produto_entregue' as any };
+    setAllSalesHistory(prev => prev.map(s => s.id === sale.id ? atualizado : s));
+    setSalesToday(prev => prev.map(s => s.id === sale.id ? atualizado : s));
+    showAlert('Pedido marcado como entregue!');
+  };
+
+  const handleDeleteScheduleFromCard = async (sale: SaleOrder) => {
+    if (!(await showConfirm(`Excluir o agendamento de entrega do pedido de ${sale.customerName || 'cliente'}?`))) return;
+    const { error } = await supabase.from('vendas').update({ scheduled_for: null }).eq('id', sale.id);
+    if (error) { showAlert(`Não foi possível excluir o agendamento: ${error.message}`); return; }
+    const atualizado = { ...sale, scheduledFor: undefined };
+    setAllSalesHistory(prev => prev.map(s => s.id === sale.id ? atualizado : s));
+    setSalesToday(prev => prev.map(s => s.id === sale.id ? atualizado : s));
+    showAlert('Agendamento excluído!');
+  };
+
   const confirmAddPayment = () => {
     const rawInput = newPaymentInput === '' ? 0 : Number(newPaymentInput);
     const baseValue = newPaymentMode === 'percentual' ? Number(((total * rawInput) / 100).toFixed(2)) : rawInput;
@@ -7250,8 +7309,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             {isPartial && (
                               <button onClick={() => openSettlePayment(sale)} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar Débito"><CheckCircle2 size={13} /></button>
                             )}
-                            <button onClick={() => handleDuplicateSale(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Duplicar Pedido"><Copy size={13} /></button>
                             <button onClick={() => openReceiptDetail(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={13} /></button>
+                            <button onClick={() => handleDuplicateSale(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Duplicar Pedido"><Copy size={13} /></button>
                             {!sale.contratoId && <button onClick={() => handleCreateDocumentFromNota(sale, 'contrato')} className="p-1.5 rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20" title="Gerar Contrato a partir desta nota"><FileSignature size={13} /></button>}
                             {canManageHistory && (
                               <>
@@ -7298,8 +7357,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           <p className="text-sm font-black text-white">R$ {sale.total.toFixed(2).replace('.', ',')}</p>
                           <div className="flex flex-wrap gap-1 pt-1">
                             {isPartial && <button onClick={() => openSettlePayment(sale)} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar Débito"><CheckCircle2 size={12} /></button>}
-                            <button onClick={() => handleDuplicateSale(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Duplicar Pedido"><Copy size={12} /></button>
                             <button onClick={() => openReceiptDetail(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={12} /></button>
+                            <button onClick={() => handleDuplicateSale(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Duplicar Pedido"><Copy size={12} /></button>
                             {!sale.contratoId && <button onClick={() => handleCreateDocumentFromNota(sale, 'contrato')} className="p-1.5 rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20" title="Gerar Contrato a partir desta nota"><FileSignature size={12} /></button>}
                             {canManageHistory && (
                               <>
@@ -7606,7 +7665,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                         )}
                         <span className="hidden sm:inline text-[9px] text-white/30 font-mono shrink-0">#{sale.id.slice(-8).toUpperCase()}</span>
                         <span className="hidden sm:inline text-[9px] text-white/30 shrink-0">{safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
-                        {sale.scheduledFor && <EntregaCountdown scheduledFor={sale.scheduledFor} />}
+                        {sale.scheduledFor && (
+                          <EntregaCountdown
+                            scheduledFor={sale.scheduledFor}
+                            onEdit={() => handleEditScheduleFromCard(sale)}
+                            onDeliver={() => handleDeliverFromCard(sale)}
+                            onDeleteSchedule={() => handleDeleteScheduleFromCard(sale)}
+                          />
+                        )}
                       </div>
                       <div className="flex-1 sm:hidden" />
                       {isPartial && (
@@ -7617,8 +7683,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                         {isPartial && (
                           <button onClick={() => openSettlePayment(sale)} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar Débito"><CheckCircle2 size={13} /></button>
                         )}
+                        <button onClick={() => openReceiptDetail(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={13} /></button>
                         <button onClick={() => handleDuplicateSale(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Duplicar Pedido"><Copy size={13} /></button>
-                            <button onClick={() => openReceiptDetail(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={13} /></button>
                         {!sale.contratoId && <button onClick={() => handleCreateDocumentFromNota(sale, 'contrato')} className="p-1.5 rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20" title="Gerar Contrato a partir desta nota"><FileSignature size={13} /></button>}
                         {canManageHistory && (
                           <>
@@ -8380,17 +8446,53 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     )}
                  </div>
 
-                 <button
-                   type="button"
-                   onClick={() => setIsScheduleModalOpen(true)}
-                   className={cn(
-                     "w-full h-8 sm:h-9 rounded-lg border flex items-center justify-center gap-1.5 text-[8.5px] sm:text-[9px] font-black uppercase tracking-wider transition-all active:scale-95 shrink-0",
-                     scheduledFor ? "bg-primary-500/10 border-primary-500/30 text-primary-300" : "bg-white/5 border-white/10 text-white/50 hover:text-white hover:border-white/20"
+                 <div className="relative shrink-0">
+                   <button
+                     type="button"
+                     onClick={() => {
+                       if (scheduledFor && settlingOrder) { setIsScheduleActionsMenuOpen(v => !v); return; }
+                       setIsScheduleModalOpen(true);
+                     }}
+                     className={cn(
+                       "w-full h-8 sm:h-9 rounded-lg border flex items-center justify-center gap-1.5 text-[8.5px] sm:text-[9px] font-black uppercase tracking-wider transition-all active:scale-95",
+                       scheduledFor ? "bg-primary-500/10 border-primary-500/30 text-primary-300" : "bg-white/5 border-white/10 text-white/50 hover:text-white hover:border-white/20"
+                     )}
+                   >
+                     <CalendarClock size={12} />
+                     {scheduledFor ? safeFormat(scheduledFor, 'dd/MM HH:mm') : 'Agendar Entrega'}
+                   </button>
+                   {isScheduleActionsMenuOpen && (
+                     <>
+                       <div className="fixed inset-0 z-40" onClick={() => setIsScheduleActionsMenuOpen(false)} />
+                       <div className="absolute bottom-full left-0 mb-1 z-50 bg-[#1a2333] border border-white/10 rounded-xl shadow-2xl py-1 w-full min-w-[160px] animate-in fade-in zoom-in-95 duration-150">
+                          <button onClick={() => { setIsScheduleActionsMenuOpen(false); setIsScheduleModalOpen(true); }} className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left cursor-pointer bg-transparent border-0">
+                             <Pencil size={12} /> Editar Agendamento
+                          </button>
+                          <button onClick={() => { setIsScheduleActionsMenuOpen(false); if (settlingOrder) handleDeliverFromCard(settlingOrder); }} className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-bold text-emerald-400 hover:bg-emerald-500/10 text-left cursor-pointer bg-transparent border-0">
+                             <CheckCircle2 size={12} /> Marcar como Entregue
+                          </button>
+                          <button
+                            onClick={async () => {
+                              setIsScheduleActionsMenuOpen(false);
+                              if (!settlingOrder) return;
+                              if (!(await showConfirm(`Excluir o agendamento de entrega do pedido de ${settlingOrder.customerName || 'cliente'}?`))) return;
+                              setScheduledFor('');
+                              const { error } = await supabase.from('vendas').update({ scheduled_for: null }).eq('id', settlingOrder.id);
+                              if (error) { showAlert(`Não foi possível excluir o agendamento: ${error.message}`); return; }
+                              const atualizado = { ...settlingOrder, scheduledFor: undefined };
+                              setSettlingOrder(atualizado);
+                              setAllSalesHistory(prev => prev.map(s => s.id === settlingOrder.id ? atualizado : s));
+                              setSalesToday(prev => prev.map(s => s.id === settlingOrder.id ? atualizado : s));
+                              showAlert('Agendamento excluído!');
+                            }}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-bold text-rose-400 hover:bg-rose-500/10 text-left cursor-pointer bg-transparent border-0"
+                          >
+                             <Trash2 size={12} /> Excluir Agendamento
+                          </button>
+                       </div>
+                     </>
                    )}
-                 >
-                   <CalendarClock size={12} />
-                   {scheduledFor ? safeFormat(scheduledFor, 'dd/MM HH:mm') : 'Agendar Entrega'}
-                 </button>
+                 </div>
 
                  <input
                    value={orderObservacoes}
