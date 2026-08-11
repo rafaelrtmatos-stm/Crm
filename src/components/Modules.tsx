@@ -571,12 +571,14 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         return orderDate.toDateString() === yesterday.toDateString();
       }
       if (period === 'Semana') {
-        // Semana do calendario de verdade (domingo a sabado), nao uma janela corrida de 7 dias
+        // Semana comercial: segunda a sabado (domingo fica de fora, loja fechada)
+        const dayOfWeek = now.getDay(); // 0=domingo, 1=segunda, ..., 6=sabado
+        const diffParaSegunda = dayOfWeek === 0 ? -6 : 1 - dayOfWeek; // domingo conta como fim da semana anterior
         const startOfWeek = new Date(now);
-        startOfWeek.setDate(now.getDate() - now.getDay());
+        startOfWeek.setDate(now.getDate() + diffParaSegunda);
         startOfWeek.setHours(0, 0, 0, 0);
         const endOfWeek = new Date(startOfWeek);
-        endOfWeek.setDate(startOfWeek.getDate() + 6);
+        endOfWeek.setDate(startOfWeek.getDate() + 5); // segunda + 5 dias = sabado
         endOfWeek.setHours(23, 59, 59, 999);
         return orderDate >= startOfWeek && orderDate <= endOfWeek;
       }
@@ -679,7 +681,9 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
 
     const now = new Date();
     const startOfDay = new Date(now); startOfDay.setHours(0, 0, 0, 0);
-    const startOfWeek = new Date(now); startOfWeek.setDate(now.getDate() - now.getDay()); startOfWeek.setHours(0, 0, 0, 0);
+    const diaSemanaAtual = now.getDay(); // 0=domingo, 1=segunda, ..., 6=sabado
+    const diffParaSegunda = diaSemanaAtual === 0 ? -6 : 1 - diaSemanaAtual; // domingo conta como fim da semana anterior
+    const startOfWeek = new Date(now); startOfWeek.setDate(now.getDate() + diffParaSegunda); startOfWeek.setHours(0, 0, 0, 0);
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const startOfYear = new Date(now.getFullYear(), 0, 1);
 
