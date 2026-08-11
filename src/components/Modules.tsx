@@ -3670,25 +3670,20 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   // Toca um bipe simples via Web Audio (sem depender de nenhum arquivo de audio)
   const playAlertBeep = () => {
     try {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      const ctx = new AudioCtx();
-      const playBeep = (delayMs: number) => {
-        setTimeout(() => {
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.type = 'sine';
-          osc.frequency.value = 880;
-          gain.gain.setValueAtTime(0.25, ctx.currentTime);
-          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-          osc.start();
-          osc.stop(ctx.currentTime + 0.35);
-        }, delayMs);
+      let tocadas = 0;
+      const tocarProxima = () => {
+        if (tocadas >= 3) return;
+        tocadas += 1;
+        const audio = new Audio('/sounds/service-alert.mp3');
+        audio.addEventListener('ended', () => {
+          if (tocadas < 3) setTimeout(tocarProxima, 500);
+        });
+        audio.play().catch(() => {
+          // Se o navegador bloquear o audio, ainda tenta as proximas repeticoes no tempo certo
+          if (tocadas < 3) setTimeout(tocarProxima, 500);
+        });
       };
-      playBeep(0);
-      playBeep(450);
-      playBeep(900);
+      tocarProxima();
     } catch (e) { /* navegador sem suporte a audio, ignora silenciosamente */ }
   };
 
