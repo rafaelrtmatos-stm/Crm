@@ -839,7 +839,6 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
           { label: 'Markup Médio', val: `${avgMarkup.toFixed(2).replace('.', ',')}x`, diff: 'Faturamento/Custo', color: 'primary', action: () => setActiveTab?.('inventory') },
           { label: 'Pto Equilíbrio', val: `R$ ${breakevenPoint.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`, diff: `${Math.min(100, Math.round((totalRevenue / breakevenPoint) * 100))}% Reatido`, color: 'purple', action: () => setIsRevenueModalOpen(true) },
           { label: 'A Receber', val: `R$ ${pendingValue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, diff: 'Balancete Aberto', color: 'rose', action: () => setActiveTab?.('pos') },
-          { label: 'Ordem de Serviço', val: services.length.toString(), diff: 'Ativas no PDV', color: 'amber', action: () => setActiveTab?.('services') }
         ].map((item, i) => (
           <GlassCard 
             key={i} 
