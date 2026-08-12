@@ -12569,24 +12569,26 @@ export const InventoryModule = ({ currentCompany, user }: { currentCompany: Comp
                 <p className="text-sm font-bold text-white/40 uppercase">Nenhum item encontrado</p>
              </div>
            ) : sortedFilteredItems.map((item: InventoryItem) => (
-             <div key={item.id} className="flex items-center gap-3 bg-slate-900/60 hover:bg-slate-900 border border-white/5 rounded-xl px-3 py-2 transition-all">
-                <div className="flex-1 min-w-0 flex items-center gap-3 overflow-x-auto custom-scrollbar">
-                   <span className="text-[11px] font-black text-white uppercase italic whitespace-nowrap">{item.name}</span>
+             <div key={item.id} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 bg-slate-900/60 hover:bg-slate-900 border border-white/5 rounded-xl px-3 py-2.5 sm:py-2 transition-all">
+                <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
+                   <span className="text-[11px] font-black text-white uppercase italic break-words">{item.name}</span>
                    <span className="text-[9px] text-white/30 font-mono shrink-0">{item.code || 'S/C'}</span>
                    <Badge variant="outline" className="uppercase text-[9px] opacity-60 shrink-0">{item.category || 'Geral'}</Badge>
                 </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                   <span className={cn("text-[11px] font-black", item.currentStock <= (item.minStock || 0) ? "text-amber-500" : "text-white")}>{item.currentStock} {item.unit}</span>
-                   {item.currentStock <= (item.minStock || 0) && <AlertCircle size={12} className="text-amber-500 animate-pulse" />}
+                <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-3 shrink-0">
+                   <div className="flex items-center gap-1.5 shrink-0">
+                      <span className={cn("text-[11px] font-black", item.currentStock <= (item.minStock || 0) ? "text-amber-500" : "text-white")}>{item.currentStock} {item.unit}</span>
+                      {item.currentStock <= (item.minStock || 0) && <AlertCircle size={12} className="text-amber-500 animate-pulse" />}
+                   </div>
+                   <span className="text-[11px] font-black text-white shrink-0 sm:w-20 sm:text-right">R$ {item.salePrice.toLocaleString('pt-BR')}</span>
+                   <Badge variant={item.isActive ? 'success' : 'outline'} className="text-[9px] shrink-0">{item.isActive ? 'ATIVO' : 'INATIVO'}</Badge>
+                   {canManageInventory && (
+                     <div className="flex gap-1 shrink-0">
+                        <button onClick={() => openEditItem(item)} title="Editar" className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20"><Pencil size={13} /></button>
+                        <button onClick={() => handleDeleteItem(item)} title="Excluir" className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20"><Trash2 size={13} /></button>
+                     </div>
+                   )}
                 </div>
-                <span className="text-[11px] font-black text-white shrink-0 w-20 text-right">R$ {item.salePrice.toLocaleString('pt-BR')}</span>
-                <Badge variant={item.isActive ? 'success' : 'outline'} className="text-[9px] shrink-0">{item.isActive ? 'ATIVO' : 'INATIVO'}</Badge>
-                {canManageInventory && (
-                  <div className="flex gap-1 shrink-0">
-                     <button onClick={() => openEditItem(item)} title="Editar" className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20"><Pencil size={13} /></button>
-                     <button onClick={() => handleDeleteItem(item)} title="Excluir" className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20"><Trash2 size={13} /></button>
-                  </div>
-                )}
              </div>
            ))}
         </div>
