@@ -375,6 +375,7 @@ function mapUsuarioRow(row: any): AppUser {
     isAdmin: !!row.is_admin,
     isActive: row.is_active !== false,
     allowedTabs: Array.isArray(row.allowed_tabs) ? row.allowed_tabs : undefined,
+    allowedPdvTabs: Array.isArray(row.allowed_pdv_tabs) ? row.allowed_pdv_tabs : undefined,
     allowedActions: Array.isArray(row.allowed_actions) ? row.allowed_actions : undefined,
     modulePermissions: row.module_permissions && typeof row.module_permissions === 'object' ? row.module_permissions : undefined,
     createdAt: row.created_at,

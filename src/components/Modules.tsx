@@ -227,6 +227,7 @@ function mapUsuarioRow(row: any): AppUser {
     isAdmin: !!row.is_admin,
     isActive: row.is_active !== false,
     allowedTabs: Array.isArray(row.allowed_tabs) ? row.allowed_tabs : undefined,
+    allowedPdvTabs: Array.isArray(row.allowed_pdv_tabs) ? row.allowed_pdv_tabs : undefined,
     allowedActions: Array.isArray(row.allowed_actions) ? row.allowed_actions : undefined,
     modulePermissions: row.module_permissions && typeof row.module_permissions === 'object' ? row.module_permissions : undefined,
     createdAt: row.created_at,
@@ -7009,9 +7010,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             if (idxB === -1) return -1;
             return idxA - idxB;
           }).filter(tab => {
-            if (!pdvMenuConfig) return true;
-            const cfg = pdvMenuConfig.find(m => m.id === tab.id);
-            return cfg ? cfg.visible : true;
+            // Config global do admin (Configuracoes > Menu Lateral > Abas do PDV)
+            if (pdvMenuConfig) {
+              const cfg = pdvMenuConfig.find(m => m.id === tab.id);
+              if (cfg && !cfg.visible) return false;
+            }
+            // Permissao individual desse usuario especifico (admin sempre ve tudo)
+            if (!user?.isAdmin && user?.allowedPdvTabs && !user.allowedPdvTabs.includes(tab.id)) return false;
+            return true;
           }).map(tab => (
             <button
               key={tab.id}
@@ -13694,6 +13700,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
   const [editedPassword, setEditedPassword] = useState('');
   const [editedRole, setEditedRole] = useState<'admin' | 'gerente' | 'atendente' | 'caixa' | 'vendedor' | 'designer' | 'operador'>('atendente');
   const [editedTabs, setEditedTabs] = useState<string[]>([]);
+  const [editedPdvTabs, setEditedPdvTabs] = useState<string[]>([]);
   const [editedActions, setEditedActions] = useState<string[]>([]);
   const [editedModulePermissions, setEditedModulePermissions] = useState<ModulePermissions>({});
 
@@ -13762,6 +13769,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     setEditedTabs(u.allowedTabs || (u.isAdmin || u.role === 'admin'
       ? ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'clientes_espera', 'production', 'settings']
       : ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'clientes_espera', 'production']));
+    setEditedPdvTabs(u.allowedPdvTabs || ['venda', 'historico', 'estoque', 'servicos', 'orcamentos', 'contratos', 'excluidos', 'clientes']);
     setEditedActions(u.allowedActions || [
       'canStartNote', 'canSendSavedMessage', 'canCreateCard', 'canAddTask',
       'canStartPosSale', 'canStartRealEstateSale', 'canMoveLead',
@@ -13781,6 +13789,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
           ...(editedPassword ? { password: editedPassword } : {}),
           role: editedRole,
           allowedTabs: editedTabs,
+          allowedPdvTabs: editedPdvTabs,
           allowedActions: editedActions,
           updatedAt: Timestamp.now()
         });
@@ -13798,6 +13807,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
           role: editedRole,
           is_admin: editedRole === 'admin',
           allowed_tabs: editedTabs,
+          allowed_pdv_tabs: editedPdvTabs,
           allowed_actions: editedActions,
           module_permissions: editedModulePermissions,
           updated_at: new Date().toISOString(),
@@ -13842,6 +13852,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
         is_admin: newUserRole === 'admin',
         is_active: true,
         allowed_tabs: defaultTabs,
+        allowed_pdv_tabs: ['venda', 'historico', 'estoque', 'servicos', 'orcamentos', 'contratos', 'excluidos', 'clientes'],
         allowed_actions: defaultActions,
         module_permissions: getDefaultModulePermissions(newUserRole),
       });
@@ -14460,9 +14471,12 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
 
                     <div className="space-y-6 pt-6 border-t border-white/5">
                       <div className="flex items-center justify-between flex-wrap gap-3">
-                         <div>
-                            <h4 className="text-lg font-bold text-white uppercase italic tracking-tight font-black">Permissões por Módulo</h4>
-                            <p className="text-xs text-white/30 font-medium">Controle fino de Visualizar / Criar / Editar / Excluir em cada área do sistema</p>
+                         <div className="flex items-center gap-3">
+                            <span className="w-7 h-7 rounded-full bg-primary-500/15 text-primary-400 text-xs font-black flex items-center justify-center shrink-0">1</span>
+                            <div>
+                               <h4 className="text-lg font-bold text-white uppercase italic tracking-tight font-black">Permissões por Módulo</h4>
+                               <p className="text-xs text-white/30 font-medium">Controle fino de Visualizar / Criar / Editar / Excluir em cada área do sistema</p>
+                            </div>
                          </div>
                          <button
                            type="button"
@@ -14520,8 +14534,13 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                     </div>
 
                     <div className="space-y-6 pt-6 border-t border-white/5">
-                      <h4 className="text-lg font-bold text-white uppercase italic tracking-tight font-black">Abas Permitidas no Sistema</h4>
-                      <p className="text-xs text-white/30 -mt-4 font-medium">Marque quais abas estarão visíveis no painel lateral do usuário</p>
+                      <div className="flex items-center gap-3">
+                         <span className="w-7 h-7 rounded-full bg-primary-500/15 text-primary-400 text-xs font-black flex items-center justify-center shrink-0">2</span>
+                         <div>
+                            <h4 className="text-lg font-bold text-white uppercase italic tracking-tight font-black">Abas Permitidas no Sistema</h4>
+                            <p className="text-xs text-white/30 font-medium">Marque quais abas estarão visíveis no painel lateral do usuário</p>
+                         </div>
+                      </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {tabOptions.map((opt) => {
                           const isAllowed = editedTabs.includes(opt.id);
@@ -14554,9 +14573,61 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                       </div>
                     </div>
 
+                    {editedTabs.includes('pos') && (
+                      <div className="space-y-6 pt-6 border-t border-white/5">
+                         <div className="flex items-center gap-3">
+                            <span className="w-7 h-7 rounded-full bg-purple-500/15 text-purple-400 text-xs font-black flex items-center justify-center shrink-0">3</span>
+                            <div>
+                               <h4 className="text-lg font-bold text-white uppercase italic tracking-tight font-black">Abas do PDV</h4>
+                               <p className="text-xs text-white/30 font-medium">Marque quais abas de dentro do PDV (Terminal Venda, Histórico, Estoque, etc) esse usuário pode ver</p>
+                            </div>
+                         </div>
+                         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                            {[
+                              { id: 'venda', label: 'Terminal Venda' },
+                              { id: 'historico', label: 'Histórico & Abertas' },
+                              { id: 'estoque', label: 'Estoque / Produtos' },
+                              { id: 'servicos', label: 'Serviços' },
+                              { id: 'orcamentos', label: 'Orçamentos' },
+                              { id: 'contratos', label: 'Contratos' },
+                              { id: 'excluidos', label: 'Excluídos' },
+                              { id: 'clientes', label: 'Clientes' },
+                            ].map((opt) => {
+                              const isAllowed = editedPdvTabs.includes(opt.id);
+                              return (
+                                <button
+                                  key={opt.id}
+                                  type="button"
+                                  onClick={() => {
+                                    if (isAllowed) {
+                                      setEditedPdvTabs(prev => prev.filter(t => t !== opt.id));
+                                    } else {
+                                      setEditedPdvTabs(prev => [...prev, opt.id]);
+                                    }
+                                  }}
+                                  className={cn(
+                                    "flex items-center justify-center text-center p-3 rounded-2xl border transition-all duration-300 relative cursor-pointer text-[11px] font-bold uppercase tracking-wide",
+                                    isAllowed
+                                      ? "bg-purple-500/10 border-purple-500 text-white"
+                                      : "bg-slate-950/40 border-white/5 text-white/40 hover:border-white/10 hover:text-white"
+                                  )}
+                                >
+                                  {opt.label}
+                                </button>
+                              );
+                            })}
+                         </div>
+                      </div>
+                    )}
+
                     <div className="space-y-6 pt-6 border-t border-white/5">
-                      <h4 className="text-lg font-bold text-white uppercase italic tracking-tight font-black">Permissões de Ações Detalhadas</h4>
-                      <p className="text-xs text-white/30 -mt-4 font-medium">Defina quais ações e flows internos de segurança este usuário pode executar</p>
+                      <div className="flex items-center gap-3">
+                         <span className="w-7 h-7 rounded-full bg-primary-500/15 text-primary-400 text-xs font-black flex items-center justify-center shrink-0">4</span>
+                         <div>
+                            <h4 className="text-lg font-bold text-white uppercase italic tracking-tight font-black">Permissões de Ações Detalhadas</h4>
+                            <p className="text-xs text-white/30 font-medium">Defina quais ações e flows internos de segurança este usuário pode executar</p>
+                         </div>
+                      </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {actionOptions.map((act) => {
                           const isAllowed = editedActions.includes(act.id);
