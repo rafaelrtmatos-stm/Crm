@@ -45,6 +45,7 @@ import {
   Check,
   CheckSquare,
   FileSignature,
+  Ban,
   Package,
   PlusCircle,
   BarChart3,
@@ -4268,6 +4269,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [lastFinalizedOrder, setLastFinalizedOrder] = useState<SaleOrder | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<{ id: string, name: string, phone: string } | null>(null);
   const [editingFullOrder, setEditingFullOrder] = useState<SaleOrder | null>(null);
+  const [editingCreatedAt, setEditingCreatedAt] = useState('');
   const [linkedOrcamentoId, setLinkedOrcamentoId] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<'dinheiro' | 'pix' | 'cartao_credito' | 'cartao_debito' | 'misto'>('pix');
   const [cashReceived, setCashReceived] = useState<number | ''>('');
@@ -5768,6 +5770,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     if (error) { console.error(error); showAlert('Não foi possível reabrir a venda.'); }
   };
 
+  const handleCancelSale = async (sale: SaleOrder) => {
+    if (!(await showConfirm(`Cancelar o pedido de ${sale.customerName || 'cliente'} (R$ ${sale.total.toFixed(2).replace('.', ',')})? Ele deixa de contar como venda ativa, mas continua no histórico marcado como cancelado.`))) return;
+    const { error } = await supabase.from('vendas').update({ status: 'canceled' }).eq('id', sale.id);
+    if (error) { showAlert(`Não foi possível cancelar o pedido: ${error.message}`); return; }
+    const atualizado = { ...sale, status: 'canceled' as const };
+    setAllSalesHistory(prev => prev.map(s => s.id === sale.id ? atualizado : s));
+    setSalesToday(prev => prev.map(s => s.id === sale.id ? atualizado : s));
+    showAlert('Pedido cancelado!');
+  };
+
   // Abre a nota inteira no Terminal de Vendas pra editar os itens do carrinho, com o cliente ja
   // preenchido (nao precisa escolher de novo). Ao avancar, vai pro pagamento e ATUALIZA a nota
   // existente em vez de criar uma nova.
@@ -5783,6 +5795,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setScheduledFor(sale.scheduledFor ? sale.scheduledFor.slice(0, 16) : '');
     setSaleDiscountValue(sale.discountValue || 0);
     setSaleDiscountInput('');
+    setEditingCreatedAt(sale.createdAt ? sale.createdAt.slice(0, 16) : '');
     setActiveTab('venda');
   };
 
@@ -6444,6 +6457,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setScheduledFor('');
     setOrderObservacoes('');
     setDownPayment(0);
+    setEditingCreatedAt('');
     resetPaymentEntries();
   };
 
@@ -6623,6 +6637,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           status: novoSaldo <= 0 ? 'completed' : 'pending',
           observacoes: orderObservacoes || null,
           scheduled_for: scheduledFor || editingFullOrder.scheduledFor || null,
+          created_at: editingCreatedAt ? new Date(editingCreatedAt).toISOString() : editingFullOrder.createdAt,
         }).eq('id', editingFullOrder.id).select();
         if (error) throw error;
         if (!data || data.length === 0) throw new Error('O pedido não foi encontrado pra atualizar — pode ter sido removido ou alterado por outra pessoa.');
@@ -6650,6 +6665,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           status: novoSaldo <= 0 ? 'completed' : 'pending',
           observacoes: orderObservacoes || undefined,
           scheduledFor: scheduledFor || editingFullOrder.scheduledFor || undefined,
+          createdAt: editingCreatedAt ? new Date(editingCreatedAt).toISOString() : editingFullOrder.createdAt,
         };
         setLastFinalizedOrder(updatedOrder);
         setAllSalesHistory(prev => prev.map(s => s.id === editingFullOrder.id ? updatedOrder : s));
@@ -6665,6 +6681,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         setOrderObservacoes('');
         setSaleDiscountValue(0);
         setSaleDiscountInput('');
+        setEditingCreatedAt('');
       } catch (err: any) {
         console.error('Erro ao salvar edição da nota:', err);
         showAlert(`Não foi possível salvar as alterações: ${err?.message || 'erro desconhecido'}`);
@@ -7735,6 +7752,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             {canManageHistory && (
                               <>
                                 {!isPartial && <button onClick={() => handleReopenSale(sale)} className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20" title="Reabrir"><History size={13} /></button>}
+                                {sale.status !== 'canceled' && <button onClick={() => handleCancelSale(sale)} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" title="Cancelar Pedido"><Ban size={13} /></button>}
                                 <button onClick={async () => { if (!(await showConfirm('Editar este pedido?'))) return; handleStartFullEdit(sale); }} className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20" title="Editar"><Pencil size={13} /></button>
                                 <button onClick={() => handleDeleteSale(sale)} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" title="Excluir"><Trash2 size={13} /></button>
                               </>
@@ -7783,6 +7801,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             {canManageHistory && (
                               <>
                                 {!isPartial && <button onClick={() => handleReopenSale(sale)} className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20" title="Reabrir"><History size={12} /></button>}
+                                {sale.status !== 'canceled' && <button onClick={() => handleCancelSale(sale)} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" title="Cancelar Pedido"><Ban size={12} /></button>}
                                 <button onClick={async () => { if (!(await showConfirm('Editar este pedido?'))) return; handleStartFullEdit(sale); }} className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20" title="Editar"><Pencil size={12} /></button>
                                 <button onClick={() => handleDeleteSale(sale)} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" title="Excluir"><Trash2 size={12} /></button>
                               </>
@@ -7900,6 +7919,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                   onClick={() => handleReopenSale(sale)}
                                 >
                                   Reabrir
+                                </Button>
+                              )}
+                              {sale.status !== 'canceled' && (
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-rose-500/20 text-rose-400 hover:bg-rose-500/10"
+                                  onClick={() => handleCancelSale(sale)}
+                                >
+                                  Cancelar
                                 </Button>
                               )}
                               <Button
@@ -9116,6 +9145,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                      document.body
                    )}
                  </div>
+
+                 {editingFullOrder && (
+                   <div className="w-full space-y-1">
+                      <label className="text-[8px] font-black uppercase text-white/40 tracking-widest block">Data/Hora do Pedido</label>
+                      <input
+                        type="datetime-local"
+                        value={editingCreatedAt}
+                        onChange={(e) => setEditingCreatedAt(e.target.value)}
+                        className="w-full h-8 sm:h-9 rounded-lg border border-white/10 bg-white/5 px-2.5 text-[9px] sm:text-[10px] text-white focus:outline-none focus:border-primary-500"
+                      />
+                   </div>
+                 )}
 
                  <input
                    value={orderObservacoes}
