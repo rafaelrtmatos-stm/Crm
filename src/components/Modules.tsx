@@ -13362,6 +13362,42 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
 
   // Sessoes ativas (IP + dispositivo) de todos os usuarios, pra o admin poder desconectar
   const [activeSessions, setActiveSessions] = useState<any[]>([]);
+
+  // Menu lateral principal (onde fica PDV, Contatos etc) — admin escolhe o que aparece e a ordem
+  const MENU_ITEMS_DEFAULT = [
+    { id: 'dashboard', label: 'Dashboard' },
+    { id: 'crm', label: 'Funil CRM' },
+    { id: 'messages', label: 'Mensagens' },
+    { id: 'pos', label: 'PDV Gráfica' },
+    { id: 'contacts', label: 'Contatos' },
+    { id: 'clientes_espera', label: 'Clientes em Espera' },
+    { id: 'production', label: 'Ordem de Serviço' },
+    { id: 'settings', label: 'Opções' },
+  ];
+  const [menuConfig, setMenuConfig] = useState<{ id: string; visible: boolean }[]>(MENU_ITEMS_DEFAULT.map(m => ({ id: m.id, visible: true })));
+  const [menuConfigDragId, setMenuConfigDragId] = useState<string | null>(null);
+  const [savingMenuConfig, setSavingMenuConfig] = useState(false);
+  useEffect(() => {
+    if (!user?.isAdmin) return;
+    supabase.from('configuracoes').select('menu_config').eq('company_id', 'rafa-arts').maybeSingle().then(({ data }) => {
+      if (data?.menu_config && Array.isArray(data.menu_config) && data.menu_config.length > 0) {
+        // Garante que qualquer item novo do sistema (que a config salva ainda nao conhece) tambem apareça
+        const salvos = data.menu_config as { id: string; visible: boolean }[];
+        const idsSalvos = new Set(salvos.map(s => s.id));
+        const faltando = MENU_ITEMS_DEFAULT.filter(m => !idsSalvos.has(m.id)).map(m => ({ id: m.id, visible: true }));
+        setMenuConfig([...salvos, ...faltando]);
+      }
+    });
+  }, [user?.isAdmin]);
+
+  const handleSaveMenuConfig = async () => {
+    setSavingMenuConfig(true);
+    const { error } = await supabase.from('configuracoes').update({ menu_config: menuConfig }).eq('company_id', 'rafa-arts');
+    setSavingMenuConfig(false);
+    if (error) { showAlert(`Não foi possível salvar: ${error.message}`); return; }
+    showAlert('Menu lateral atualizado! Recarregue a página pra ver a nova ordem.');
+  };
+
   useEffect(() => {
     if (!user?.isAdmin) return;
     const minhaSessaoId = sessionStorage.getItem('rpro_session_id');
@@ -13841,7 +13877,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
       />
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-10">
         <GlassCard className="p-0 overflow-hidden h-fit border-white/5">
-           {['Geral', 'Identidade', 'CRM / Funis', 'Integrações', 'Usuários e Permissões', 'Backup'].map((tab) => (
+           {['Geral', 'Identidade', 'Menu Lateral', 'CRM / Funis', 'Integrações', 'Usuários e Permissões', 'Backup'].map((tab) => (
              <button 
                key={tab} 
                onClick={() => setActiveTab(tab)}
@@ -13994,6 +14030,72 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                      {savingContact ? 'Salvando...' : 'Salvar Contato / Identidade'}
                    </Button>
                 </div>
+             </div>
+           )}
+
+           {activeTab === 'Menu Lateral' && (
+             <div className="space-y-6">
+                <div>
+                   <h3 className="text-xl font-bold text-white tracking-tight italic uppercase">Menu Lateral</h3>
+                   <p className="text-xs text-white/40 mt-1">Escolha o que aparece no menu lateral do sistema (onde fica PDV, Contatos, etc) e a ordem de cada item. Arraste pra reordenar.</p>
+                </div>
+
+                {!user?.isAdmin ? (
+                  <p className="text-xs text-white/30">Só o administrador pode alterar o menu lateral.</p>
+                ) : (
+                  <>
+                    <div className="space-y-2">
+                       {menuConfig.map((item, idx) => {
+                         const info = MENU_ITEMS_DEFAULT.find(m => m.id === item.id);
+                         const isSettings = item.id === 'settings';
+                         return (
+                           <div
+                             key={item.id}
+                             draggable
+                             onDragStart={() => setMenuConfigDragId(item.id)}
+                             onDragOver={(e) => e.preventDefault()}
+                             onDrop={(e) => {
+                                e.preventDefault();
+                                if (!menuConfigDragId || menuConfigDragId === item.id) return;
+                                setMenuConfig(prev => {
+                                   const fromIdx = prev.findIndex(p => p.id === menuConfigDragId);
+                                   const toIdx = prev.findIndex(p => p.id === item.id);
+                                   if (fromIdx === -1 || toIdx === -1) return prev;
+                                   const next = [...prev];
+                                   const [moved] = next.splice(fromIdx, 1);
+                                   next.splice(toIdx, 0, moved);
+                                   return next;
+                                });
+                                setMenuConfigDragId(null);
+                             }}
+                             className={cn(
+                               "flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3 cursor-grab active:cursor-grabbing transition-all",
+                               menuConfigDragId === item.id ? "opacity-40" : "",
+                               !item.visible ? "opacity-50" : ""
+                             )}
+                           >
+                              <GripVertical size={16} className="text-white/30 shrink-0" />
+                              <span className="text-xs font-black text-white/30 w-5 shrink-0">{idx + 1}</span>
+                              <span className="flex-1 text-sm font-bold text-white">{info?.label || item.id}</span>
+                              <label className={cn("flex items-center gap-2 shrink-0", isSettings ? "opacity-40" : "cursor-pointer")}>
+                                 <input
+                                   type="checkbox"
+                                   checked={item.visible}
+                                   disabled={isSettings}
+                                   onChange={(e) => setMenuConfig(prev => prev.map(p => p.id === item.id ? { ...p, visible: e.target.checked } : p))}
+                                   className="w-4 h-4 accent-primary-500"
+                                 />
+                                 <span className="text-[9px] font-black uppercase text-white/40">{isSettings ? 'Sempre visível' : (item.visible ? 'Visível' : 'Oculto')}</span>
+                              </label>
+                           </div>
+                         );
+                       })}
+                    </div>
+                    <Button icon={Save} disabled={savingMenuConfig} onClick={handleSaveMenuConfig}>
+                      {savingMenuConfig ? 'Salvando...' : 'Salvar Menu Lateral'}
+                    </Button>
+                  </>
+                )}
              </div>
            )}
 

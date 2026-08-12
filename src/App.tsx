@@ -422,6 +422,14 @@ export default function App() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [isCreatingCompany, setIsCreatingCompany] = useState(false);
   const [currentCompany, setCurrentCompany] = useState<Company | null>(null);
+  const [menuConfig, setMenuConfig] = useState<{ id: string; visible: boolean }[] | null>(null);
+  useEffect(() => {
+    supabase.from('configuracoes').select('menu_config').eq('company_id', 'rafa-arts').maybeSingle().then(({ data }) => {
+      if (data?.menu_config && Array.isArray(data.menu_config) && data.menu_config.length > 0) {
+        setMenuConfig(data.menu_config);
+      }
+    });
+  }, []);
   const [activeTab, setActiveTabState] = useState<MainTab>(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem('rpro_active_tab') : null;
     const validTabs: MainTab[] = ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'services', 'inventory', 'production', 'settings'];
@@ -1052,6 +1060,20 @@ export default function App() {
     
     // Otherwise check company active modules
     return currentCompany?.activeModules?.includes(item.id) ?? true;
+  }).sort((a, b) => {
+    // Ordem escolhida pelo admin em Configuracoes > Menu Lateral (se nao configurado, mantem a ordem padrao)
+    if (!menuConfig) return 0;
+    const idxA = menuConfig.findIndex(m => m.id === a.id);
+    const idxB = menuConfig.findIndex(m => m.id === b.id);
+    if (idxA === -1 && idxB === -1) return 0;
+    if (idxA === -1) return 1;
+    if (idxB === -1) return -1;
+    return idxA - idxB;
+  }).filter(item => {
+    // Item escondido pelo admin (exceto Opcoes, que sempre fica visivel pra admin nao se trancar fora)
+    if (!menuConfig || item.id === 'settings') return true;
+    const cfg = menuConfig.find(m => m.id === item.id);
+    return cfg ? cfg.visible : true;
   });
 
   if (loading) return (
