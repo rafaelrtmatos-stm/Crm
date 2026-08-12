@@ -3978,6 +3978,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
   const alertedThresholdsRef = React.useRef<Set<string>>(new Set());
   const initializedSalesRef = React.useRef<Set<string>>(new Set());
+  const [pdvMenuConfig, setPdvMenuConfig] = useState<{ id: string; visible: boolean }[] | null>(null);
+  useEffect(() => {
+    supabase.from('configuracoes').select('pdv_menu_config').eq('company_id', 'rafa-arts').maybeSingle().then(({ data }) => {
+      if (data?.pdv_menu_config && Array.isArray(data.pdv_menu_config) && data.pdv_menu_config.length > 0) {
+        setPdvMenuConfig(data.pdv_menu_config);
+      }
+    });
+  }, []);
 
   // Toca um bipe simples via Web Audio (sem depender de nenhum arquivo de audio)
   const playAlertBeep = () => {
@@ -6992,7 +7000,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             { id: 'contratos', label: 'Contratos', icon: FileText },
             { id: 'excluidos', label: 'Excluídos', icon: Trash2 },
             { id: 'clientes', label: 'Clientes', icon: Users }
-          ].map(tab => (
+          ].sort((a, b) => {
+            if (!pdvMenuConfig) return 0;
+            const idxA = pdvMenuConfig.findIndex(m => m.id === a.id);
+            const idxB = pdvMenuConfig.findIndex(m => m.id === b.id);
+            if (idxA === -1 && idxB === -1) return 0;
+            if (idxA === -1) return 1;
+            if (idxB === -1) return -1;
+            return idxA - idxB;
+          }).filter(tab => {
+            if (!pdvMenuConfig) return true;
+            const cfg = pdvMenuConfig.find(m => m.id === tab.id);
+            return cfg ? cfg.visible : true;
+          }).map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
@@ -13398,6 +13418,41 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     showAlert('Menu lateral atualizado! Recarregue a página pra ver a nova ordem.');
   };
 
+  // Abas horizontais de dentro do PDV (Terminal Venda, Historico, Estoque, Servicos, Orcamentos,
+  // Contratos, Excluidos, Clientes) — mesma logica de ordem/visibilidade configuravel
+  const PDV_TABS_DEFAULT = [
+    { id: 'venda', label: 'Terminal Venda' },
+    { id: 'historico', label: 'Histórico & Abertas' },
+    { id: 'estoque', label: 'Estoque / Produtos' },
+    { id: 'servicos', label: 'Serviços' },
+    { id: 'orcamentos', label: 'Orçamentos' },
+    { id: 'contratos', label: 'Contratos' },
+    { id: 'excluidos', label: 'Excluídos' },
+    { id: 'clientes', label: 'Clientes' },
+  ];
+  const [pdvMenuConfigForm, setPdvMenuConfigForm] = useState<{ id: string; visible: boolean }[]>(PDV_TABS_DEFAULT.map(m => ({ id: m.id, visible: true })));
+  const [pdvMenuConfigDragId, setPdvMenuConfigDragId] = useState<string | null>(null);
+  const [savingPdvMenuConfig, setSavingPdvMenuConfig] = useState(false);
+  useEffect(() => {
+    if (!user?.isAdmin) return;
+    supabase.from('configuracoes').select('pdv_menu_config').eq('company_id', 'rafa-arts').maybeSingle().then(({ data }) => {
+      if (data?.pdv_menu_config && Array.isArray(data.pdv_menu_config) && data.pdv_menu_config.length > 0) {
+        const salvos = data.pdv_menu_config as { id: string; visible: boolean }[];
+        const idsSalvos = new Set(salvos.map(s => s.id));
+        const faltando = PDV_TABS_DEFAULT.filter(m => !idsSalvos.has(m.id)).map(m => ({ id: m.id, visible: true }));
+        setPdvMenuConfigForm([...salvos, ...faltando]);
+      }
+    });
+  }, [user?.isAdmin]);
+
+  const handleSavePdvMenuConfig = async () => {
+    setSavingPdvMenuConfig(true);
+    const { error } = await supabase.from('configuracoes').update({ pdv_menu_config: pdvMenuConfigForm }).eq('company_id', 'rafa-arts');
+    setSavingPdvMenuConfig(false);
+    if (error) { showAlert(`Não foi possível salvar: ${error.message}`); return; }
+    showAlert('Abas do PDV atualizadas! Recarregue a página pra ver a nova ordem.');
+  };
+
   useEffect(() => {
     if (!user?.isAdmin) return;
     const minhaSessaoId = sessionStorage.getItem('rpro_session_id');
@@ -14093,6 +14148,61 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                     </div>
                     <Button icon={Save} disabled={savingMenuConfig} onClick={handleSaveMenuConfig}>
                       {savingMenuConfig ? 'Salvando...' : 'Salvar Menu Lateral'}
+                    </Button>
+
+                    <div className="h-px bg-white/10 my-4" />
+
+                    <div>
+                       <h3 className="text-xl font-bold text-white tracking-tight italic uppercase">Abas do PDV</h3>
+                       <p className="text-xs text-white/40 mt-1">Escolha o que aparece e a ordem das abas horizontais de dentro do PDV (Terminal Venda, Histórico, Estoque, Serviços, Orçamentos, Contratos, Excluídos, Clientes).</p>
+                    </div>
+                    <div className="space-y-2">
+                       {pdvMenuConfigForm.map((item, idx) => {
+                         const info = PDV_TABS_DEFAULT.find(m => m.id === item.id);
+                         return (
+                           <div
+                             key={item.id}
+                             draggable
+                             onDragStart={() => setPdvMenuConfigDragId(item.id)}
+                             onDragOver={(e) => e.preventDefault()}
+                             onDrop={(e) => {
+                                e.preventDefault();
+                                if (!pdvMenuConfigDragId || pdvMenuConfigDragId === item.id) return;
+                                setPdvMenuConfigForm(prev => {
+                                   const fromIdx = prev.findIndex(p => p.id === pdvMenuConfigDragId);
+                                   const toIdx = prev.findIndex(p => p.id === item.id);
+                                   if (fromIdx === -1 || toIdx === -1) return prev;
+                                   const next = [...prev];
+                                   const [moved] = next.splice(fromIdx, 1);
+                                   next.splice(toIdx, 0, moved);
+                                   return next;
+                                });
+                                setPdvMenuConfigDragId(null);
+                             }}
+                             className={cn(
+                               "flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3 cursor-grab active:cursor-grabbing transition-all",
+                               pdvMenuConfigDragId === item.id ? "opacity-40" : "",
+                               !item.visible ? "opacity-50" : ""
+                             )}
+                           >
+                              <GripVertical size={16} className="text-white/30 shrink-0" />
+                              <span className="text-xs font-black text-white/30 w-5 shrink-0">{idx + 1}</span>
+                              <span className="flex-1 text-sm font-bold text-white">{info?.label || item.id}</span>
+                              <label className="flex items-center gap-2 shrink-0 cursor-pointer">
+                                 <input
+                                   type="checkbox"
+                                   checked={item.visible}
+                                   onChange={(e) => setPdvMenuConfigForm(prev => prev.map(p => p.id === item.id ? { ...p, visible: e.target.checked } : p))}
+                                   className="w-4 h-4 accent-primary-500"
+                                 />
+                                 <span className="text-[9px] font-black uppercase text-white/40">{item.visible ? 'Visível' : 'Oculto'}</span>
+                              </label>
+                           </div>
+                         );
+                       })}
+                    </div>
+                    <Button icon={Save} disabled={savingPdvMenuConfig} onClick={handleSavePdvMenuConfig}>
+                      {savingPdvMenuConfig ? 'Salvando...' : 'Salvar Abas do PDV'}
                     </Button>
                   </>
                 )}
