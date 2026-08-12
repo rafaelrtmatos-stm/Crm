@@ -8192,6 +8192,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   const statusStyles: Record<string, string> = {
                     rascunho: 'bg-white/10 text-white/50',
                     enviado: 'bg-blue-500/15 text-blue-400',
+                    em_espera: 'bg-amber-500/15 text-amber-400',
                     aprovado: 'bg-emerald-500/15 text-emerald-400',
                     em_producao: 'bg-amber-500/15 text-amber-400',
                     concluido: 'bg-primary-500/15 text-primary-400',
@@ -8200,7 +8201,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     expirado: 'bg-white/5 text-white/30',
                   };
                   const statusLabels: Record<string, string> = {
-                    rascunho: 'Rascunho', enviado: 'Enviado', aprovado: 'Aprovado', em_producao: 'Em Produção',
+                    rascunho: 'Rascunho', enviado: 'Enviado', em_espera: 'Em Espera', aprovado: 'Aprovado', em_producao: 'Em Produção',
                     concluido: 'Concluído — Venda Gerada', recusado: 'Recusado', cancelado: 'Cancelado', expirado: 'Expirado',
                   };
                   // Status de pagamento buscado AO VIVO na nota vinculada (fonte unica de verdade,
@@ -8236,11 +8237,28 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       {o.validade && (
                         <p className="text-[9px] text-white/30">Válido até {safeFormat(o.validade, 'dd/MM/yyyy')}</p>
                       )}
-                      <div className="flex flex-wrap gap-1.5 pt-2 border-t border-white/5">
+                      <div className="flex flex-wrap gap-1.5 pt-2 border-t border-white/5 items-center">
                          <button onClick={() => openEditOrcamento(o)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Editar</button>
-                         {(o.status === 'rascunho' || o.status === 'enviado') && (
-                           <button onClick={() => updateOrcamentoStatus(o, 'aprovado')} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20">Aprovar</button>
-                         )}
+                         <select
+                           value={o.status}
+                           onChange={async (e) => {
+                              const novoStatus = e.target.value as Orcamento['status'];
+                              if (novoStatus === o.status) return;
+                              if (!(await showConfirm(`Mudar o status do orçamento ${o.numero} para "${statusLabels[novoStatus]}"?`))) return;
+                              updateOrcamentoStatus(o, novoStatus);
+                           }}
+                           className="h-[26px] bg-white/5 border border-white/10 rounded-lg px-2 text-[8px] font-black uppercase text-white focus:outline-none focus:border-primary-500 cursor-pointer"
+                         >
+                           <option value="rascunho" className="bg-slate-900">Rascunho</option>
+                           <option value="enviado" className="bg-slate-900">Enviado</option>
+                           <option value="em_espera" className="bg-slate-900">Em Espera</option>
+                           <option value="aprovado" className="bg-slate-900">Aprovado</option>
+                           <option value="em_producao" className="bg-slate-900">Em Produção</option>
+                           <option value="concluido" className="bg-slate-900">Concluído</option>
+                           <option value="recusado" className="bg-slate-900">Recusado</option>
+                           <option value="cancelado" className="bg-slate-900">Cancelado</option>
+                           <option value="expirado" className="bg-slate-900">Expirado</option>
+                         </select>
                          <button onClick={() => openShareOrcamentoWhatsApp(o)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20">WhatsApp</button>
                          <button onClick={() => setViewingOrcamento(o)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Exibir</button>
                          {vendaVinculada && (
@@ -8261,10 +8279,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                              Gerar Contrato
                            </button>
                          )}
-                         {o.status !== 'concluido' && (
-                           <button onClick={() => updateOrcamentoStatus(o, 'cancelado')} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 ml-auto">Cancelar</button>
-                         )}
-                         <button onClick={() => handleDeleteOrcamento(o)} className="text-white/30 hover:text-rose-400 p-1.5"><Trash2 size={12} /></button>
+                         <button onClick={() => handleDeleteOrcamento(o)} className="text-white/30 hover:text-rose-400 p-1.5 ml-auto"><Trash2 size={12} /></button>
                       </div>
                     </div>
                   );
