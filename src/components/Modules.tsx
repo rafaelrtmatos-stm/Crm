@@ -506,66 +506,12 @@ ${itensDescricao || 'A definir conforme orçamento vinculado.'}
 4. VALOR E CONDIÇÕES DE PAGAMENTO
 O valor total dos serviços é de R$ ${total.toFixed(2).replace('.', ',')}${desconto > 0 ? ` (já com desconto de R$ ${desconto.toFixed(2).replace('.', ',')} aplicado)` : ''}.
 ${formaPagamentoTexto || 'A forma de pagamento será combinada entre as partes no ato da contratação.'}
+Em caso de atraso no pagamento, incidirá multa de ${multaPct}% sobre o valor em aberto, acrescida de juros de ${jurosPct}% ao mês (ou proporcional ao período de atraso).
 
 5. PRAZO DE PRODUÇÃO E ENTREGA
 ${prazoTexto || 'O prazo de produção e entrega será informado ao CONTRATANTE conforme a complexidade do serviço, contado a partir da aprovação da arte e confirmação do pagamento, quando exigido.'}
 
-6. APROVAÇÃO DE ARTE
-Sempre que aplicável, a produção somente terá início após a aprovação formal da arte pelo CONTRATANTE, por meio eletrônico (WhatsApp, e-mail ou sistema).
-
-7. ALTERAÇÕES APÓS APROVAÇÃO
-Alterações solicitadas após a aprovação da arte poderão gerar custos adicionais e/ou impactar o prazo de entrega, a critério da CONTRATADA.
-
-8. OBRIGAÇÕES DA CONTRATADA
-Executar os serviços com qualidade técnica, dentro do prazo acordado, e manter o CONTRATANTE informado sobre o andamento da produção.
-
-9. OBRIGAÇÕES DO CONTRATANTE
-Fornecer as informações, arquivos e aprovações necessárias em tempo hábil, e efetuar os pagamentos nas condições e prazos acordados.
-
-10. ATRASO DE PAGAMENTO
-Em caso de atraso no pagamento, incidirá multa de ${multaPct}% sobre o valor em aberto, acrescida de juros de ${jurosPct}% ao mês (ou proporcional ao período de atraso), sem prejuízo de outras medidas cabíveis.
-
-11. SUSPENSÃO DOS SERVIÇOS POR INADIMPLÊNCIA
-A CONTRATADA poderá suspender a produção e/ou entrega dos serviços em caso de inadimplência do CONTRATANTE, até a regularização do pagamento.
-
-12. CANCELAMENTO
-O cancelamento do serviço após início da produção poderá implicar na retenção de valores já despendidos com material e mão de obra, proporcionalmente ao estágio de execução.
-
-13. ENTREGA E RETIRADA
-A entrega ou retirada do material será realizada conforme combinado entre as partes, mediante confirmação do CONTRATANTE.
-
-14. INSTALAÇÃO
-Quando contratada, a instalação será realizada em data e horário previamente agendados com o CONTRATANTE.
-
-15. GARANTIA
-Os serviços possuem garantia contra defeitos de fabricação, não cobrindo danos causados por uso inadequado, intempéries ou mau uso após a entrega.
-
-16. RESPONSABILIDADE SOBRE ARQUIVOS, TEXTOS, IMAGENS E MARCAS FORNECIDOS PELO CLIENTE
-O CONTRATANTE declara ser responsável pela titularidade e/ou autorização de uso de todos os arquivos, textos, imagens e marcas fornecidos para a execução do serviço, isentando a CONTRATADA de qualquer responsabilidade por violação de direitos de terceiros.
-
-17. PROPRIEDADE DOS ARQUIVOS EDITÁVEIS
-Os arquivos-fonte/editáveis utilizados na produção permanecem de propriedade da CONTRATADA, salvo acordo expresso em contrário.
-
-18. ACEITE ELETRÔNICO
-Este contrato poderá ser aceito eletronicamente pelo CONTRATANTE, tendo a mesma validade de uma assinatura física, nos termos da legislação vigente.
-
-19. COMUNICAÇÕES POR MEIOS ELETRÔNICOS
-As comunicações entre as partes poderão ser realizadas por meios eletrônicos (WhatsApp, e-mail, sistema), sendo consideradas válidas para todos os efeitos deste contrato.
-
-20. PROTEÇÃO DE DADOS (LGPD)
-Os dados pessoais do CONTRATANTE serão tratados pela CONTRATADA em conformidade com a Lei Geral de Proteção de Dados (Lei nº 13.709/2018), sendo utilizados exclusivamente para a execução deste contrato.
-
-21. USO DE IMAGENS PARA PORTFÓLIO
-Salvo manifestação em contrário do CONTRATANTE, a CONTRATADA poderá utilizar imagens do serviço executado para fins de divulgação e portfólio.
-
-22. RESCISÃO
-O presente contrato poderá ser rescindido por qualquer das partes, mediante comunicação prévia, respeitadas as obrigações já assumidas até a data da rescisão.
-
-23. DISPOSIÇÕES GERAIS
-Este contrato representa o entendimento integral entre as partes, substituindo entendimentos verbais anteriores sobre o mesmo objeto.
-
-24. FORO
-Fica eleito o foro da comarca do domicílio da CONTRATADA para dirimir eventuais controvérsias decorrentes deste contrato.
+${buildContratoClausulasTexto({ companyName, prazoProducaoTexto: prazoTexto })}
 
 ${observacoes ? `\nOBSERVAÇÕES ADICIONAIS:\n${observacoes}\n` : ''}
 E por estarem de acordo, as partes firmam o presente instrumento.`;
@@ -4722,7 +4668,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const handleDownloadContratoPdf = async (c: Contrato) => {
-    const { downloadContratoPdf } = await import('../lib/contratoPdf');
     await downloadContratoPdf(`${c.numero}${c.versao > 1 ? ` (v${c.versao})` : ''}`, c.customerName, c.textoContrato || 'Contrato sem texto gerado.');
   };
 
@@ -8419,6 +8364,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           </div>
                           <div className="flex flex-wrap gap-1.5 md:flex-col shrink-0">
                              <button onClick={() => setViewingContrato(c)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Visualizar</button>
+                             {c.versao > 1 && (
+                               <button onClick={() => setViewingContratoHistorico(c)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Ver Histórico</button>
+                             )}
                              <button onClick={() => openEditContrato(c)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">{podeEditarDireto ? 'Editar' : 'Editar (Nova Versão)'}</button>
                              {c.versao > 1 && (
                                <button onClick={() => setViewingContratoHistorico(c)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Ver Histórico</button>
