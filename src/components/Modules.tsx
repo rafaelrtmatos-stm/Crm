@@ -4935,7 +4935,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
       const payload = {
         document_type: orcamentoForm.documentType,
-        clausulas_contrato_texto: orcamentoForm.documentType === 'contrato' ? (orcamentoForm.clausulasContratoTexto || null) : null,
         venda_id: vendaId,
         cliente_id: orcamentoForm.clienteId || null,
         customer_name: orcamentoForm.customerName,
@@ -10126,30 +10125,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
        <Modal
          isOpen={orcamentoModalOpen}
          onClose={() => setOrcamentoModalOpen(false)}
-         title={editingOrcamento ? `Editar ${editingOrcamento.documentType === 'contrato' ? 'Contrato' : 'Orçamento'} ${editingOrcamento.numero}` : (orcamentoForm.documentType === 'contrato' ? 'Novo Contrato' : 'Novo Orçamento')}
+         title={editingOrcamento ? `Editar Orçamento ${editingOrcamento.numero}` : 'Novo Orçamento'}
          size="lg"
        >
          <div className="space-y-5 max-h-[70vh] overflow-y-auto custom-scrollbar pr-1">
-            {!editingOrcamento && (
-              <div className="flex items-center bg-white/5 p-1 rounded-xl border border-white/10 w-fit">
-                 <button
-                   onClick={() => setOrcamentoForm({ ...orcamentoForm, documentType: 'orcamento' })}
-                   className={cn("px-4 h-9 rounded-lg text-[10px] font-black uppercase tracking-wide cursor-pointer border-0", orcamentoForm.documentType === 'orcamento' ? "bg-primary-500 text-slate-900" : "bg-transparent text-white/40")}
-                 >
-                   Orçamento
-                 </button>
-                 <button
-                   onClick={() => setOrcamentoForm({
-                     ...orcamentoForm,
-                     documentType: 'contrato',
-                     clausulasContratoTexto: orcamentoForm.clausulasContratoTexto || buildContratoClausulasTexto({ companyName: currentCompany?.name || 'RAFA ARTS GRAPHICS', prazoProducaoTexto: orcamentoForm.prazoProducao }),
-                   })}
-                   className={cn("px-4 h-9 rounded-lg text-[10px] font-black uppercase tracking-wide cursor-pointer border-0", orcamentoForm.documentType === 'contrato' ? "bg-purple-500 text-white" : "bg-transparent text-white/40")}
-                 >
-                   Contrato
-                 </button>
-              </div>
-            )}
             <div className="flex items-center justify-between">
                <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px]">Dados do Cliente</p>
                <button
@@ -10558,18 +10537,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
                <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px]">Política de Cancelamento</p>
                <textarea rows={2} value={orcamentoForm.politicaCancelamentoTexto} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, politicaCancelamentoTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-primary-500" />
-
-               {orcamentoForm.documentType === 'contrato' && (
-                 <>
-                   <p className="text-[10px] font-black uppercase text-purple-300 tracking-[2px]">Cláusulas do Contrato</p>
-                   <textarea
-                     rows={14}
-                     value={orcamentoForm.clausulasContratoTexto}
-                     onChange={(e) => setOrcamentoForm({ ...orcamentoForm, clausulasContratoTexto: e.target.value })}
-                     className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-[11px] text-white/80 leading-relaxed resize-y focus:outline-none focus:border-primary-500 font-mono"
-                   />
-                 </>
-               )}
 
                <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px]">Observações</p>
                <textarea rows={2} value={orcamentoForm.observacoes} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, observacoes: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-primary-500" />
