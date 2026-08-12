@@ -8176,26 +8176,26 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           </div>
         )}
 
-        {activeTab === 'orcamentos' && (
+        {activeTab === 'orcamentos' && (() => {
+          // Filtra fora registros antigos que tinham sido marcados como "contrato" de uma
+          // abordagem anterior (antes dos Contratos terem tabela propria) - esses ja foram
+          // migrados pra tabela contratos de verdade, nao devem aparecer aqui
+          const orcamentosDeVerdade = allOrcamentos.filter(o => o.documentType !== 'contrato');
+          return (
           <div className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/40 space-y-6">
             <SectionHeader
-              title="Orçamentos & Contratos"
-              subtitle={`${allOrcamentos.length} documento(s)`}
-              actions={
-                <div className="flex gap-2">
-                  <Button icon={Plus} onClick={openNewOrcamento}>Novo Orçamento</Button>
-                  <Button icon={FileSignature} variant="secondary" onClick={() => { openNewOrcamento(); setOrcamentoForm(prev => ({ ...prev, documentType: 'contrato' })); }}>Novo Contrato</Button>
-                </div>
-              }
+              title="Orçamentos"
+              subtitle={`${orcamentosDeVerdade.length} orçamento(s)`}
+              actions={<Button icon={Plus} onClick={openNewOrcamento}>Novo Orçamento</Button>}
             />
 
             {isLoadingOrcamentos ? (
               <div className="flex justify-center py-16"><RefreshCw className="animate-spin text-primary-500" size={24} /></div>
-            ) : allOrcamentos.length === 0 ? (
+            ) : orcamentosDeVerdade.length === 0 ? (
               <div className="text-center py-16 text-white/30 text-sm">Nenhum orçamento cadastrado ainda.</div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {allOrcamentos.map(o => {
+                {orcamentosDeVerdade.map(o => {
                   const statusStyles: Record<string, string> = {
                     rascunho: 'bg-white/10 text-white/50',
                     enviado: 'bg-blue-500/15 text-blue-400',
@@ -8279,7 +8279,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               </div>
             )}
           </div>
-        )}
+          );
+        })()}
 
         {activeTab === 'clientes' && (
           <div className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/30">
@@ -8353,8 +8354,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               </div>
 
               {/* Filtros */}
-              <div className="flex flex-col sm:flex-row gap-3">
-                 <div className="flex gap-1.5 overflow-x-auto custom-scrollbar pb-1">
+              <div className="flex flex-col gap-3">
+                 <div className="flex flex-wrap gap-1.5">
                     {[
                       { id: 'todos', label: 'Todos' },
                       { id: 'rascunho', label: 'Rascunhos' },
@@ -8369,7 +8370,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                         key={f.id}
                         onClick={() => setContratoStatusFilter(f.id)}
                         className={cn(
-                          "shrink-0 px-3 h-9 rounded-lg text-[9px] font-black uppercase tracking-wide cursor-pointer border transition-all",
+                          "px-3 h-9 rounded-lg text-[9px] font-black uppercase tracking-wide cursor-pointer border transition-all",
                           contratoStatusFilter === f.id ? "bg-purple-500 text-white border-purple-500" : "bg-white/5 text-white/50 border-white/10 hover:text-white"
                         )}
                       >
@@ -8377,7 +8378,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       </button>
                     ))}
                  </div>
-                 <div className="relative flex-1 min-w-[200px]">
+                 <div className="relative w-full">
                     <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
                     <input
                       value={contratoSearchTerm}
