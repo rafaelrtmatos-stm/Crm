@@ -4480,6 +4480,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [editingContrato, setEditingContrato] = useState<Contrato | null>(null);
   const [savingContrato, setSavingContrato] = useState(false);
   const [viewingContrato, setViewingContrato] = useState<Contrato | null>(null);
+  const [viewingContratoHistorico, setViewingContratoHistorico] = useState<Contrato | null>(null);
   const [highlightContratoId, setHighlightContratoId] = useState<string | null>(null);
   const emptyContratoForm = {
     clienteId: undefined as string | undefined,
@@ -4693,7 +4694,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
       setContratoModalOpen(false);
       await loadContratos();
-      if (!editingContrato && newId) {
+      if (newId && (!editingContrato || precisaNovaVersao)) {
         setActiveTab('contratos');
         setHighlightContratoId(newId);
         setTimeout(() => setHighlightContratoId(null), 4000);
@@ -8301,12 +8302,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         {activeTab === 'contratos' && (() => {
           // So mostra a versao MAIS RECENTE de cada contrato na lista (versoes antigas ficam
           // guardadas no historico, acessiveis a partir da versao atual)
-          const idsComVersaoMaisNova = new Set(allContratos.map(c => c.numero));
-          const contratos = allContratos.filter(c => {
-            const outrasVersoes = allContratos.filter(o => o.numero === c.numero);
-            const maisRecente = outrasVersoes.reduce((a, b) => (b.versao > a.versao ? b : a), outrasVersoes[0]);
-            return maisRecente.id === c.id;
+          const versaoMaisRecentePorNumero = new Map<string, Contrato>();
+          allContratos.forEach(c => {
+            const atual = versaoMaisRecentePorNumero.get(c.numero);
+            if (!atual || c.versao > atual.versao) versaoMaisRecentePorNumero.set(c.numero, c);
           });
+          const contratos = Array.from(versaoMaisRecentePorNumero.values());
           const term = contratoSearchTerm.trim().toLowerCase();
           const contratosFiltrados = contratos.filter(c => {
             if (contratoStatusFilter !== 'todos' && c.status !== contratoStatusFilter) return false;
@@ -8418,6 +8419,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           <div className="flex flex-wrap gap-1.5 md:flex-col shrink-0">
                              <button onClick={() => setViewingContrato(c)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Visualizar</button>
                              <button onClick={() => openEditContrato(c)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">{podeEditarDireto ? 'Editar' : 'Editar (Nova Versão)'}</button>
+                             {c.versao > 1 && (
+                               <button onClick={() => setViewingContratoHistorico(c)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Ver Histórico</button>
+                             )}
                              <button onClick={() => handleDuplicateContrato(c)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Duplicar</button>
                              <button onClick={() => handleDownloadContratoPdf(c)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Gerar PDF</button>
                              {c.phone && (
@@ -10720,6 +10724,51 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               <Button disabled={savingContrato} onClick={handleSaveContrato} className="bg-purple-500 hover:bg-purple-400 text-white border-none">
                 {savingContrato ? 'Salvando...' : (editingContrato && editingContrato.status !== 'rascunho' ? `Criar Versão ${editingContrato.versao + 1}` : 'Salvar Contrato')}
               </Button>
+            </div>
+         </div>
+       </Modal>
+     )}
+
+     {viewingContratoHistorico && (() => {
+       // Monta a cadeia de versoes desse contrato (numero igual), da mais antiga pra mais nova
+       const todasVersoes = allContratos.filter(c => c.numero === viewingContratoHistorico.numero).sort((a, b) => a.versao - b.versao);
+       return (
+         <Modal isOpen={!!viewingContratoHistorico} onClose={() => setViewingContratoHistorico(null)} title={`Histórico — Contrato ${viewingContratoHistorico.numero}`} size="sm">
+            <div className="space-y-2 p-1">
+               {todasVersoes.map(v => (
+                 <div key={v.id} className={cn("flex items-center justify-between gap-3 rounded-xl px-4 py-3 border", v.versao === viewingContratoHistorico.versao ? "bg-purple-500/10 border-purple-500/30" : "bg-white/5 border-white/10")}>
+                    <div className="min-w-0">
+                       <p className="text-xs font-black text-white">Versão {v.versao}{v.versao === todasVersoes[todasVersoes.length - 1].versao ? ' (atual)' : ''}</p>
+                       <p className="text-[9px] text-white/40">{CONTRATO_STATUS_LABELS[v.status] || v.status} · Criado {safeFormat(v.createdAt, 'dd/MM/yyyy HH:mm')}</p>
+                    </div>
+                    <button onClick={() => handleDownloadContratoPdf(v)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10 shrink-0">PDF</button>
+                 </div>
+               ))}
+            </div>
+         </Modal>
+       );
+     })()}
+
+     {viewingContrato && (
+       <Modal
+         isOpen={!!viewingContrato}
+         onClose={() => setViewingContrato(null)}
+         title={`Contrato ${viewingContrato.numero}${viewingContrato.versao > 1 ? ` · v${viewingContrato.versao}` : ''}`}
+         size="md"
+       >
+         <div className="space-y-4 p-1">
+            <div className="flex items-center justify-between">
+               <span className={cn("text-[9px] font-black uppercase px-2 py-1 rounded-full", CONTRATO_STATUS_STYLES[viewingContrato.status])}>
+                 {CONTRATO_STATUS_LABELS[viewingContrato.status] || viewingContrato.status}
+               </span>
+               <span className="text-lg font-black text-emerald-400 italic">R$ {viewingContrato.total.toFixed(2).replace('.', ',')}</span>
+            </div>
+            <div className="bg-slate-900/60 border border-white/10 rounded-2xl p-4 max-h-[55vh] overflow-y-auto custom-scrollbar">
+               <pre className="text-[11px] text-white/80 whitespace-pre-wrap font-sans leading-relaxed">{viewingContrato.textoContrato || 'Esse contrato ainda não tem texto gerado.'}</pre>
+            </div>
+            <div className="flex justify-end gap-3">
+               <Button variant="ghost" onClick={() => setViewingContrato(null)}>Fechar</Button>
+               <Button className="bg-purple-500 hover:bg-purple-400 text-white border-none" onClick={() => handleDownloadContratoPdf(viewingContrato)}>Baixar PDF</Button>
             </div>
          </div>
        </Modal>
