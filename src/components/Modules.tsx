@@ -6319,9 +6319,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         price: valorFinal,
         quantity: 1,
         dimensions: dimensoesTexto,
-        // Se o usuario nao escrever nada na observacao, a medida usada pra gerar o item
-        // fica registrada ali mesmo, pra nao se perder e aparecer certinho no recibo/nota
-        observacao: dimensoesTexto,
         consumoEstoque: consumoUnitario * selectedQty,
       }]);
       setDimensionModalProduct(null);
@@ -6355,9 +6352,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         price: precoUnitarioEfetivo,
         quantity: selectedQty,
         dimensions,
-        // Se o usuario nao escrever nada na observacao, a medida (m²) usada pra gerar o item
-        // fica registrada ali mesmo, pra nao se perder e aparecer certinho no recibo/nota
-        observacao: `${dimensions} (${area.toFixed(2).replace('.', ',')}m²)`,
         area,
         consumoEstoque: consumoUnitario
       }];
@@ -11044,9 +11038,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  <div className="bg-slate-900/50 rounded-2xl p-4 border border-white/5 space-y-1.5 max-h-36 overflow-y-auto custom-scrollbar">
                    <h4 className="text-[9px] font-black uppercase text-primary-300 tracking-[2px] mb-1">Produtos</h4>
                    {sale.items?.map((item, idx) => (
-                     <div key={idx} className="flex justify-between text-xs text-white/70">
-                       <span>{item.quantity}x {item.name}</span>
-                       <span className="font-bold text-white/90">R$ {((item.area ? item.price * item.area : item.price) * item.quantity).toFixed(2).replace('.', ',')}</span>
+                     <div key={idx} className="flex justify-between text-xs text-white/70 gap-2">
+                       <div className="min-w-0">
+                          <span>{item.quantity}x {item.name}</span>
+                          {item.dimensions && <p className="text-[9px] text-primary-400 font-bold">Medida: {item.dimensions}</p>}
+                          {item.observacao && <p className="text-[9px] text-white/40 italic truncate">Obs: {item.observacao}</p>}
+                       </div>
+                       <span className="font-bold text-white/90 shrink-0">R$ {((item.area ? item.price * item.area : item.price) * item.quantity).toFixed(2).replace('.', ',')}</span>
                      </div>
                    ))}
                  </div>

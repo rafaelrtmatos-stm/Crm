@@ -100,9 +100,12 @@ export async function renderOrcamentoCanvas({ orcamento: o, companyName, logoDar
 
   const rowHeight = 30;
   const obsRowExtra = 14;
+  const dimRowExtra = 12;
   const items = o.items || [];
   const tableRows = Math.max(items.length, 1);
-  const rowHeights = Array.from({ length: tableRows }, (_, i) => rowHeight + (items[i]?.observacao ? obsRowExtra : 0));
+  const rowHeights = Array.from({ length: tableRows }, (_, i) =>
+    rowHeight + (items[i]?.observacao ? obsRowExtra : 0) + (items[i]?.dimensions ? dimRowExtra : 0)
+  );
   const totalRowsHeight = rowHeights.reduce((a, b) => a + b, 0);
   const tableHeaderH = 30;
   const tableH = tableHeaderH + totalRowsHeight;
@@ -250,12 +253,20 @@ export async function renderOrcamentoCanvas({ orcamento: o, companyName, logoDar
       ctx.fillStyle = TEXT;
       ctx.font = `800 10px ${FONT}`;
       ctx.fillText(`R$ ${subtotal.toFixed(2).replace('.', ',')}`, width - marginX - 16, rowY + 20);
+      let extraLineY = rowY + 32;
+      if (item.dimensions) {
+        ctx.textAlign = 'left';
+        ctx.fillStyle = ACCENT;
+        ctx.font = `700 8px ${FONT}`;
+        ctx.fillText(`Medida: ${item.dimensions}`, marginX + 60, extraLineY);
+        extraLineY += 12;
+      }
       if (item.observacao) {
         ctx.textAlign = 'left';
         ctx.fillStyle = TEXT_FAINT;
         ctx.font = `italic 500 8px ${FONT}`;
         const obsLabel = item.observacao.length > 60 ? item.observacao.slice(0, 60) + '…' : item.observacao;
-        ctx.fillText(`Obs: ${obsLabel}`, marginX + 60, rowY + 32);
+        ctx.fillText(`Obs: ${obsLabel}`, marginX + 60, extraLineY);
       }
     }
     if (i < tableRows - 1) {

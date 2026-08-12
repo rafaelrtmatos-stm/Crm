@@ -314,13 +314,16 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
   const width = 640;
   const rowHeight = 32;
   const obsRowExtra = 14;
+  const dimRowExtra = 12;
   const total = order.total;
   const down = order.downPayment ?? order.receivedValue ?? (order.status === 'completed' ? total : 0);
   const balance = Math.max(0, total - down);
   const isPending = balance > 0 || order.status === 'pending';
   const items = order.items || [];
   const tableRows = Math.max(items.length, 3);
-  const rowHeights = Array.from({ length: tableRows }, (_, i) => rowHeight + (items[i]?.observacao ? obsRowExtra : 0));
+  const rowHeights = Array.from({ length: tableRows }, (_, i) =>
+    rowHeight + (items[i]?.observacao ? obsRowExtra : 0) + (items[i]?.dimensions ? dimRowExtra : 0)
+  );
   const totalRowsHeight = rowHeights.reduce((a, b) => a + b, 0);
   const marginX = 28;
   const cardGap = 14;
@@ -518,12 +521,20 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
       ctx.fillStyle = TEXT;
       ctx.font = `800 10.5px ${FONT}`;
       ctx.fillText(`R$ ${subtotal.toFixed(2).replace('.', ',')}`, width - marginX - 16, rowY + 21);
+      let extraLineY = rowY + 33;
+      if (item.dimensions) {
+        ctx.textAlign = 'left';
+        ctx.fillStyle = ACCENT;
+        ctx.font = `700 8.5px ${FONT}`;
+        ctx.fillText(`Medida: ${item.dimensions}`, marginX + 74, extraLineY);
+        extraLineY += 12;
+      }
       if (item.observacao) {
         ctx.textAlign = 'left';
         ctx.fillStyle = TEXT_FAINT;
         ctx.font = `italic 500 8.5px ${FONT}`;
         const obsLabel = item.observacao.length > 55 ? item.observacao.slice(0, 55) + '…' : item.observacao;
-        ctx.fillText(`Obs: ${obsLabel}`, marginX + 74, rowY + 33);
+        ctx.fillText(`Obs: ${obsLabel}`, marginX + 74, extraLineY);
       }
     }
     if (i < tableRows - 1) {
