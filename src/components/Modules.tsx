@@ -3921,7 +3921,7 @@ const EntregaCountdown = ({ scheduledFor, onEdit, onDeliver, onDeleteSchedule }:
   const hasActions = onEdit || onDeliver || onDeleteSchedule;
 
   return (
-    <div className="hidden sm:inline-block shrink-0">
+    <div className="inline-block shrink-0">
       <button
         ref={btnRef}
         type="button"
@@ -7864,20 +7864,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             </div>
                           </div>
                           
-                          {sale.scheduledFor && (() => {
-                            const overdue = new Date(sale.scheduledFor).getTime() <= Date.now();
-                            return (
-                              <div className={cn(
-                                "border rounded-xl px-2.5 py-1 text-right",
-                                overdue ? "bg-rose-500/10 border-rose-500/20" : "bg-primary-500/10 border-primary-500/20"
-                              )}>
-                                <span className={cn("text-[7.5px] font-black uppercase tracking-wider block", overdue ? "text-rose-300" : "text-primary-300")}>
-                                  {overdue ? 'Entrega Atrasada' : 'Entrega Agendada'}
-                                </span>
-                                <span className="text-[9.5px] font-bold text-white">{safeFormat(sale.scheduledFor, 'dd/MM/yyyy HH:mm')}</span>
-                              </div>
-                            );
-                          })()}
+                          {sale.scheduledFor && (
+                            <EntregaCountdown
+                              scheduledFor={sale.scheduledFor}
+                              onEdit={() => handleEditScheduleFromCard(sale)}
+                              onDeliver={() => handleDeliverFromCard(sale)}
+                              onDeleteSchedule={() => handleDeleteScheduleFromCard(sale)}
+                            />
+                          )}
                         </div>
 
                         {/* Items Summary */}
@@ -7928,6 +7922,24 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           >
                             Recibo
                           </Button>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-white/10"
+                            onClick={() => handleDuplicateSale(sale)}
+                          >
+                            Duplicar
+                          </Button>
+                          {!sale.contratoId && (
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-purple-500/20 text-purple-300 hover:bg-purple-500/10"
+                              onClick={async () => { if (!(await showConfirm('Gerar um contrato a partir desta nota?'))) return; handleCreateContratoFromNota(sale); }}
+                            >
+                              Gerar Contrato
+                            </Button>
+                          )}
                           {canManageHistory && (
                             <>
                               {!isPartial && (
