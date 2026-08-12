@@ -550,8 +550,38 @@ export interface Orcamento {
   validade?: string;
   status: 'rascunho' | 'enviado' | 'aprovado' | 'em_producao' | 'concluido' | 'recusado' | 'cancelado' | 'expirado' | 'encerrado';
   vendaId?: string;
+  contratoId?: string;
   clausulasContratoTexto?: string;
   aprovadoEm?: string;
   aprovadoPor?: string;
   createdAt: string;
+}
+
+export type ContratoStatus = 'rascunho' | 'aguardando_aceite' | 'aceito' | 'em_execucao' | 'concluido' | 'cancelado' | 'encerrado';
+
+export interface Contrato {
+  id: string;
+  numero: string;
+  versao: number;
+  contratoAnteriorId?: string;
+  clienteId?: string;
+  customerName: string;
+  cpfCnpj?: string;
+  phone?: string;
+  address?: string;
+  responsavel?: string;
+  vendaId?: string;
+  orcamentoId?: string;
+  items: SaleOrderItem[];
+  desconto: number;
+  total: number;
+  formaPagamentoTexto?: string;
+  prazoTexto?: string;
+  multaPercentual?: number;
+  jurosPercentual?: number;
+  observacoes?: string;
+  textoContrato?: string;
+  status: ContratoStatus;
+  createdAt: string;
+  updatedAt?: string;
 }

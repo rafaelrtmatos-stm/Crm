@@ -153,6 +153,8 @@ import {
   SaleOrderItem,
   PaymentEntry,
   Orcamento,
+  Contrato,
+  ContratoStatus,
   OrcamentoPagamento,
   InventoryItem,
   PrintingService,
@@ -201,6 +203,7 @@ import { buildPixPayload } from '../lib/pix';
 import { renderReceiptCanvas, downloadCanvasAsPng, downloadCanvasAsPdf, COMPANY_CONTACT, CompanyContactInfo } from '../lib/receipt';
 import { renderOrcamentoCanvas } from '../lib/orcamentoDoc';
 import { exportClientesXlsx, parseClientesXlsx, exportProdutosXlsx, parseProdutosXlsx, exportVendasXlsx, parseVendasXlsx, exportFichaClienteXlsx } from '../lib/spreadsheet';
+import { downloadContratoPdf } from '../lib/contratoPdf';
 import { buildContratoClausulasTexto } from '../lib/contratoTemplate';
 import { format } from 'date-fns';
 
@@ -427,6 +430,146 @@ const mapOrcamentoRow = (row: any): Orcamento => ({
   aprovadoPor: row.aprovado_por || undefined,
   createdAt: row.created_at,
 });
+
+const mapContratoRow = (row: any): Contrato => ({
+  id: row.id,
+  numero: row.numero,
+  versao: row.versao || 1,
+  contratoAnteriorId: row.contrato_anterior_id || undefined,
+  clienteId: row.cliente_id || undefined,
+  customerName: row.customer_name || '',
+  cpfCnpj: row.cpf_cnpj || undefined,
+  phone: row.phone || undefined,
+  address: row.address || undefined,
+  vendaId: row.venda_id || undefined,
+  orcamentoId: row.orcamento_id || undefined,
+  items: row.items || [],
+  desconto: Number(row.desconto) || 0,
+  total: Number(row.total) || 0,
+  formaPagamentoTexto: row.forma_pagamento_texto || undefined,
+  prazoTexto: row.prazo_texto || undefined,
+  multaPercentual: row.multa_percentual !== null && row.multa_percentual !== undefined ? Number(row.multa_percentual) : undefined,
+  jurosPercentual: row.juros_percentual !== null && row.juros_percentual !== undefined ? Number(row.juros_percentual) : undefined,
+  observacoes: row.observacoes || undefined,
+  textoContrato: row.texto_contrato || undefined,
+  status: row.status || 'rascunho',
+  responsavel: row.responsavel || undefined,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at || undefined,
+});
+
+const CONTRATO_STATUS_LABELS: Record<string, string> = {
+  rascunho: 'Rascunho', aguardando_aceite: 'Aguardando Aceite', aceito: 'Aceito',
+  em_execucao: 'Em Execução', concluido: 'Concluído', cancelado: 'Cancelado', encerrado: 'Encerrado',
+};
+
+const CONTRATO_STATUS_STYLES: Record<string, string> = {
+  rascunho: 'bg-white/10 text-white/50',
+  aguardando_aceite: 'bg-amber-500/15 text-amber-400',
+  aceito: 'bg-emerald-500/15 text-emerald-400',
+  em_execucao: 'bg-blue-500/15 text-blue-400',
+  concluido: 'bg-primary-500/15 text-primary-400',
+  cancelado: 'bg-rose-500/15 text-rose-400',
+  encerrado: 'bg-white/5 text-white/30',
+};
+
+// Monta o texto completo do modelo de contrato de prestacao de servicos grafica, com base
+// nos dados preenchidos. Estrutura compativel com a legislacao brasileira (CC, CDC quando
+// aplicavel), sem inventar clausula incompativel — percentuais/prazos vem dos dados reais.
+function buildTextoContrato(params: {
+  companyName: string; companyDoc?: string; companyAddress?: string;
+  customerName: string; cpfCnpj?: string; phone?: string; address?: string;
+  items: SaleOrderItem[]; total: number; desconto: number;
+  formaPagamentoTexto?: string; prazoTexto?: string; observacoes?: string;
+  numero: string; multaPercentual?: number; jurosPercentual?: number;
+}): string {
+  const {
+    companyName, customerName, cpfCnpj, phone, address, items, total, desconto,
+    formaPagamentoTexto, prazoTexto, observacoes, numero, multaPercentual, jurosPercentual,
+  } = params;
+  const itensDescricao = items.map(i => `- ${i.name}${i.dimensions ? ` (${i.dimensions})` : ''} — Qtd: ${i.quantity}`).join('\n');
+  const multaPct = multaPercentual ?? 2;
+  const jurosPct = jurosPercentual ?? 1;
+
+  return `CONTRATO DE PRESTAÇÃO DE SERVIÇOS GRÁFICOS Nº ${numero}
+
+1. IDENTIFICAÇÃO DAS PARTES
+CONTRATADA: ${companyName}, doravante denominada CONTRATADA.
+CONTRATANTE: ${customerName}${cpfCnpj ? `, portador(a) do CPF/CNPJ nº ${cpfCnpj}` : ''}${phone ? `, telefone/contato ${phone}` : ''}${address ? `, com endereço em ${address}` : ''}, doravante denominado(a) CONTRATANTE.
+
+2. OBJETO DO CONTRATO
+O presente contrato tem por objeto a prestação de serviços gráficos pela CONTRATADA ao CONTRATANTE, conforme especificações e itens descritos na cláusula 3.
+
+3. DESCRIÇÃO DOS SERVIÇOS
+${itensDescricao || 'A definir conforme orçamento vinculado.'}
+
+4. VALOR E CONDIÇÕES DE PAGAMENTO
+O valor total dos serviços é de R$ ${total.toFixed(2).replace('.', ',')}${desconto > 0 ? ` (já com desconto de R$ ${desconto.toFixed(2).replace('.', ',')} aplicado)` : ''}.
+${formaPagamentoTexto || 'A forma de pagamento será combinada entre as partes no ato da contratação.'}
+
+5. PRAZO DE PRODUÇÃO E ENTREGA
+${prazoTexto || 'O prazo de produção e entrega será informado ao CONTRATANTE conforme a complexidade do serviço, contado a partir da aprovação da arte e confirmação do pagamento, quando exigido.'}
+
+6. APROVAÇÃO DE ARTE
+Sempre que aplicável, a produção somente terá início após a aprovação formal da arte pelo CONTRATANTE, por meio eletrônico (WhatsApp, e-mail ou sistema).
+
+7. ALTERAÇÕES APÓS APROVAÇÃO
+Alterações solicitadas após a aprovação da arte poderão gerar custos adicionais e/ou impactar o prazo de entrega, a critério da CONTRATADA.
+
+8. OBRIGAÇÕES DA CONTRATADA
+Executar os serviços com qualidade técnica, dentro do prazo acordado, e manter o CONTRATANTE informado sobre o andamento da produção.
+
+9. OBRIGAÇÕES DO CONTRATANTE
+Fornecer as informações, arquivos e aprovações necessárias em tempo hábil, e efetuar os pagamentos nas condições e prazos acordados.
+
+10. ATRASO DE PAGAMENTO
+Em caso de atraso no pagamento, incidirá multa de ${multaPct}% sobre o valor em aberto, acrescida de juros de ${jurosPct}% ao mês (ou proporcional ao período de atraso), sem prejuízo de outras medidas cabíveis.
+
+11. SUSPENSÃO DOS SERVIÇOS POR INADIMPLÊNCIA
+A CONTRATADA poderá suspender a produção e/ou entrega dos serviços em caso de inadimplência do CONTRATANTE, até a regularização do pagamento.
+
+12. CANCELAMENTO
+O cancelamento do serviço após início da produção poderá implicar na retenção de valores já despendidos com material e mão de obra, proporcionalmente ao estágio de execução.
+
+13. ENTREGA E RETIRADA
+A entrega ou retirada do material será realizada conforme combinado entre as partes, mediante confirmação do CONTRATANTE.
+
+14. INSTALAÇÃO
+Quando contratada, a instalação será realizada em data e horário previamente agendados com o CONTRATANTE.
+
+15. GARANTIA
+Os serviços possuem garantia contra defeitos de fabricação, não cobrindo danos causados por uso inadequado, intempéries ou mau uso após a entrega.
+
+16. RESPONSABILIDADE SOBRE ARQUIVOS, TEXTOS, IMAGENS E MARCAS FORNECIDOS PELO CLIENTE
+O CONTRATANTE declara ser responsável pela titularidade e/ou autorização de uso de todos os arquivos, textos, imagens e marcas fornecidos para a execução do serviço, isentando a CONTRATADA de qualquer responsabilidade por violação de direitos de terceiros.
+
+17. PROPRIEDADE DOS ARQUIVOS EDITÁVEIS
+Os arquivos-fonte/editáveis utilizados na produção permanecem de propriedade da CONTRATADA, salvo acordo expresso em contrário.
+
+18. ACEITE ELETRÔNICO
+Este contrato poderá ser aceito eletronicamente pelo CONTRATANTE, tendo a mesma validade de uma assinatura física, nos termos da legislação vigente.
+
+19. COMUNICAÇÕES POR MEIOS ELETRÔNICOS
+As comunicações entre as partes poderão ser realizadas por meios eletrônicos (WhatsApp, e-mail, sistema), sendo consideradas válidas para todos os efeitos deste contrato.
+
+20. PROTEÇÃO DE DADOS (LGPD)
+Os dados pessoais do CONTRATANTE serão tratados pela CONTRATADA em conformidade com a Lei Geral de Proteção de Dados (Lei nº 13.709/2018), sendo utilizados exclusivamente para a execução deste contrato.
+
+21. USO DE IMAGENS PARA PORTFÓLIO
+Salvo manifestação em contrário do CONTRATANTE, a CONTRATADA poderá utilizar imagens do serviço executado para fins de divulgação e portfólio.
+
+22. RESCISÃO
+O presente contrato poderá ser rescindido por qualquer das partes, mediante comunicação prévia, respeitadas as obrigações já assumidas até a data da rescisão.
+
+23. DISPOSIÇÕES GERAIS
+Este contrato representa o entendimento integral entre as partes, substituindo entendimentos verbais anteriores sobre o mesmo objeto.
+
+24. FORO
+Fica eleito o foro da comarca do domicílio da CONTRATADA para dirimir eventuais controvérsias decorrentes deste contrato.
+
+${observacoes ? `\nOBSERVAÇÕES ADICIONAIS:\n${observacoes}\n` : ''}
+E por estarem de acordo, as partes firmam o presente instrumento.`;
+}
 
 export const DashboardModule = ({ user, currentCompany, companies = [], pendingOrders = [], setActiveTab }: { user: AppUser | null, currentCompany: Company | null, companies?: Company[], pendingOrders?: SaleOrder[], setActiveTab?: (tab: any) => void }) => {
   const { setPendingReceivablesFilter, setPendingGoToHistorico } = React.useContext(AppContext)!;
@@ -3880,7 +4023,7 @@ const EntregaCountdown = ({ scheduledFor, onEdit, onDeliver, onDeleteSchedule }:
 };
 
 export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany: Company | null, addPendingOrder: (order: SaleOrder) => void }) => {
-  const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare, pendingReceiptOpenId, setPendingReceiptOpenId, pendingHistoryClientFilter, setPendingHistoryClientFilter, prefilledCustomer, setPrefilledCustomer, pendingReceivablesFilter, setPendingReceivablesFilter, pendingGoToHistorico, setPendingGoToHistorico } = React.useContext(AppContext)!;
+  const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare, pendingReceiptOpenId, setPendingReceiptOpenId, pendingHistoryClientFilter, setPendingHistoryClientFilter, prefilledCustomer, setPrefilledCustomer, pendingReceivablesFilter, setPendingReceivablesFilter, pendingGoToHistorico, setPendingGoToHistorico, pendingOpenContratoId, setPendingOpenContratoId } = React.useContext(AppContext)!;
   const [soundAlertsEnabled, setSoundAlertsEnabledState] = useState(() => localStorage.getItem('rpro_sound_alerts_enabled') !== 'false');
   const setSoundAlertsEnabled = (v: boolean) => {
     setSoundAlertsEnabledState(v);
@@ -3943,7 +4086,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [scheduleMenuPos, setScheduleMenuPos] = useState<{ bottom: number; left: number; width: number } | null>(null);
   const scheduleBtnRef = React.useRef<HTMLButtonElement>(null);
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
-  const [customerModalIntent, setCustomerModalIntent] = useState<'finalize' | 'preselect' | 'orcamento'>('preselect');
+  const [customerModalIntent, setCustomerModalIntent] = useState<'finalize' | 'preselect' | 'orcamento' | 'contrato'>('preselect');
   const [customerModalMode, setCustomerModalMode] = useState<'search' | 'create'>('search');
 
   // --- Pesquisa de clientes ---
@@ -3972,6 +4115,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       setIsPaymentModalOpen(true);
     } else if (customerModalIntent === 'orcamento') {
       setOrcamentoModalOpen(true);
+    } else if (customerModalIntent === 'contrato') {
+      setContratoModalOpen(true);
     }
   };
 
@@ -4302,6 +4447,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setActiveTab('orcamentos');
     setOrcamentoModalOpen(true);
   };
+  const [contratoItemsEditMode, setContratoItemsEditMode] = useState(false);
+  const handleReturnItemsToContrato = () => {
+    setContratoForm(prev => ({ ...prev, items: [...cart] }));
+    setCart([]);
+    setContratoItemsEditMode(false);
+    setActiveTab('contratos');
+    setContratoModalOpen(true);
+  };
   const [highlightOrcamentoId, setHighlightOrcamentoId] = useState<string | null>(null);
 
   const loadOrcamentos = async () => {
@@ -4319,6 +4472,277 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   useEffect(() => {
     if (activeTab === 'orcamentos') loadOrcamentos();
   }, [activeTab]);
+
+  // ================= CONTRATOS (tabela propria, separada de orcamentos) =================
+  const [allContratos, setAllContratos] = useState<Contrato[]>([]);
+  const [isLoadingContratos, setIsLoadingContratos] = useState(false);
+  const [contratoModalOpen, setContratoModalOpen] = useState(false);
+  const [editingContrato, setEditingContrato] = useState<Contrato | null>(null);
+  const [savingContrato, setSavingContrato] = useState(false);
+  const [viewingContrato, setViewingContrato] = useState<Contrato | null>(null);
+  const [highlightContratoId, setHighlightContratoId] = useState<string | null>(null);
+  const emptyContratoForm = {
+    clienteId: undefined as string | undefined,
+    customerName: '', cpfCnpj: '', phone: '', address: '', responsavel: '',
+    items: [] as SaleOrderItem[], desconto: 0, observacoes: '',
+    formaPagamentoTexto: 'Entrada de 50% para iniciar a produção e saldo de 50% na conclusão do serviço, antes da entrega ou retirada.',
+    prazoTexto: 'Prazo de produção de até 5 dias úteis após confirmação do pagamento da entrada e aprovação da arte.',
+    multaPercentual: 2, jurosPercentual: 1,
+    vendaId: undefined as string | undefined,
+    orcamentoId: undefined as string | undefined,
+  };
+  const [contratoForm, setContratoForm] = useState({ ...emptyContratoForm });
+
+  const loadContratos = async () => {
+    setIsLoadingContratos(true);
+    try {
+      const { data } = await supabase.from('contratos').select('*').is('deleted_at', null).order('created_at', { ascending: false });
+      setAllContratos((data || []).map(mapContratoRow));
+    } catch (err) {
+      console.error('Erro ao carregar contratos:', err);
+    } finally {
+      setIsLoadingContratos(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'contratos') loadContratos();
+  }, [activeTab]);
+
+  const openNewContrato = () => {
+    setEditingContrato(null);
+    setContratoForm({ ...emptyContratoForm });
+    setContratoModalOpen(true);
+  };
+
+  // Gera um Contrato a partir de uma Nota ja existente no Historico — vem com cliente/itens/valor
+  // ja preenchidos, e ja fica vinculado aquela nota (venda_id). Se a nota tiver orcamento vinculado,
+  // o contrato tambem fica vinculado ao mesmo orcamento.
+  const handleCreateContratoFromNota = (sale: SaleOrder) => {
+    setEditingContrato(null);
+    setContratoForm({
+      ...emptyContratoForm,
+      vendaId: sale.id,
+      orcamentoId: sale.orcamentoId,
+      clienteId: sale.customerId,
+      customerName: sale.customerName || '',
+      phone: sale.customerPhone || '',
+      items: sale.items ? [...sale.items] : [],
+      desconto: sale.discountValue || 0,
+    });
+    setContratoModalOpen(true);
+  };
+
+  // Gera um Contrato a partir de um Orcamento — herda cliente/itens/valor/prazo/forma de
+  // pagamento do orcamento, e fica vinculado tanto ao orcamento quanto a nota dele (se existir)
+  const handleCreateContratoFromOrcamento = (o: Orcamento) => {
+    setEditingContrato(null);
+    setContratoForm({
+      ...emptyContratoForm,
+      orcamentoId: o.id,
+      vendaId: o.vendaId,
+      clienteId: o.clienteId,
+      customerName: o.customerName || '',
+      cpfCnpj: o.cpfCnpj || '',
+      phone: o.phone || '',
+      address: o.address || '',
+      items: [...o.items],
+      desconto: o.desconto || 0,
+      formaPagamentoTexto: o.formaPagamentoTexto || emptyContratoForm.formaPagamentoTexto,
+      prazoTexto: o.prazoProducao || emptyContratoForm.prazoTexto,
+      multaPercentual: o.multaPercentual ?? 2,
+      jurosPercentual: o.jurosPercentual ?? 1,
+    });
+    setContratoModalOpen(true);
+  };
+
+  const openEditContrato = (c: Contrato) => {
+    setEditingContrato(c);
+    setContratoForm({
+      clienteId: c.clienteId,
+      customerName: c.customerName,
+      cpfCnpj: c.cpfCnpj || '',
+      phone: c.phone || '',
+      address: c.address || '',
+      responsavel: c.responsavel || '',
+      items: [...c.items],
+      desconto: c.desconto || 0,
+      observacoes: c.observacoes || '',
+      formaPagamentoTexto: c.formaPagamentoTexto || '',
+      prazoTexto: c.prazoTexto || '',
+      multaPercentual: 2,
+      jurosPercentual: 1,
+      vendaId: c.vendaId,
+      orcamentoId: c.orcamentoId,
+    });
+    setContratoModalOpen(true);
+  };
+
+  const contratoItemsTotal = () => contratoForm.items.reduce((acc, item) => acc + (item.area ? item.price * item.area * item.quantity : item.price * item.quantity), 0);
+
+  const handleSaveContrato = async () => {
+    if (!contratoForm.customerName.trim()) { showAlert('Informe o nome do cliente.'); return; }
+    if (contratoForm.items.length === 0) { showAlert('Adicione ao menos um item.'); return; }
+    setSavingContrato(true);
+    try {
+      const total = Math.max(0, contratoItemsTotal() - (contratoForm.desconto || 0));
+
+      // Sem Nota vinculada ainda: cria a Nota agora (em aberto, sem pagamento) — o faturamento
+      // so conta de verdade quando ela for paga, gerar o contrato aqui nao fatura nada
+      let vendaId = contratoForm.vendaId || null;
+      if (!vendaId) {
+        const { data: novaVenda, error: vendaError } = await supabase.from('vendas').insert({
+          cliente_id: contratoForm.clienteId || null,
+          customer_name: contratoForm.customerName,
+          customer_phone: contratoForm.phone || null,
+          items: contratoForm.items,
+          total,
+          discount_value: contratoForm.desconto || null,
+          down_payment: 0,
+          received_value: 0,
+          status: 'pending',
+          observacoes: contratoForm.observacoes || null,
+          orcamento_id: contratoForm.orcamentoId || null,
+        }).select().single();
+        if (vendaError) throw vendaError;
+        vendaId = novaVenda.id;
+        setAllSalesHistory(prev => [mapVendaRow(novaVenda), ...prev]);
+      } else {
+        const { error: syncError } = await supabase.from('vendas').update({
+          items: contratoForm.items,
+          total,
+          discount_value: contratoForm.desconto || null,
+        }).eq('id', vendaId);
+        if (syncError) throw syncError;
+        setAllSalesHistory(prev => prev.map(s => s.id === vendaId ? { ...s, items: [...contratoForm.items], total, discountValue: contratoForm.desconto || undefined } : s));
+      }
+
+      const textoContrato = buildTextoContrato({
+        companyName: currentCompany?.name || 'RAFA ARTS GRAPHICS',
+        customerName: contratoForm.customerName,
+        cpfCnpj: contratoForm.cpfCnpj,
+        phone: contratoForm.phone,
+        address: contratoForm.address,
+        items: contratoForm.items,
+        total,
+        desconto: contratoForm.desconto || 0,
+        formaPagamentoTexto: contratoForm.formaPagamentoTexto,
+        prazoTexto: contratoForm.prazoTexto,
+        observacoes: contratoForm.observacoes,
+        numero: editingContrato?.numero || `CTR-${Date.now().toString().slice(-6)}`,
+        multaPercentual: contratoForm.multaPercentual,
+        jurosPercentual: contratoForm.jurosPercentual,
+      });
+
+      const payload = {
+        cliente_id: contratoForm.clienteId || null,
+        customer_name: contratoForm.customerName,
+        cpf_cnpj: contratoForm.cpfCnpj || null,
+        phone: contratoForm.phone || null,
+        address: contratoForm.address || null,
+        responsavel: contratoForm.responsavel || null,
+        venda_id: vendaId,
+        orcamento_id: contratoForm.orcamentoId || null,
+        items: contratoForm.items,
+        desconto: contratoForm.desconto || 0,
+        total,
+        forma_pagamento_texto: contratoForm.formaPagamentoTexto || null,
+        prazo_texto: contratoForm.prazoTexto || null,
+        multa_percentual: contratoForm.multaPercentual === '' || contratoForm.multaPercentual == null ? 2 : contratoForm.multaPercentual,
+        juros_percentual: contratoForm.jurosPercentual === '' || contratoForm.jurosPercentual == null ? 1 : contratoForm.jurosPercentual,
+        observacoes: contratoForm.observacoes || null,
+        texto_contrato: textoContrato,
+        updated_at: new Date().toISOString(),
+      };
+
+      let newId: string | null = null;
+      // Contrato que ja saiu do rascunho (ja foi aceito/executado/etc): editar cria uma VERSAO
+      // NOVA em vez de sobrescrever a atual, mantendo o historico da versao anterior intacto
+      const precisaNovaVersao = editingContrato && editingContrato.status !== 'rascunho';
+      if (editingContrato && !precisaNovaVersao) {
+        const { error } = await supabase.from('contratos').update(payload).eq('id', editingContrato.id);
+        if (error) throw error;
+        newId = editingContrato.id;
+      } else if (precisaNovaVersao && editingContrato) {
+        const { data: inserted, error } = await supabase.from('contratos').insert({
+          ...payload,
+          numero: editingContrato.numero,
+          versao: editingContrato.versao + 1,
+          contrato_anterior_id: editingContrato.id,
+          status: 'aguardando_aceite',
+        }).select().single();
+        if (error) throw error;
+        newId = inserted?.id || null;
+        // A venda/orcamento passam a apontar pra versao nova (mais recente)
+      } else {
+        const numero = `CTR-${Date.now().toString().slice(-6)}`;
+        const { data: inserted, error } = await supabase.from('contratos').insert({ ...payload, numero, status: 'rascunho' }).select().single();
+        if (error) throw error;
+        newId = inserted?.id || null;
+      }
+
+      // Vincula a nota de volta pro contrato, e o orcamento (se tiver) tambem
+      if (newId && vendaId) {
+        await supabase.from('vendas').update({ contrato_id: newId }).eq('id', vendaId);
+        setAllSalesHistory(prev => prev.map(s => s.id === vendaId ? { ...s, contratoId: newId! } as SaleOrder : s));
+      }
+      if (newId && contratoForm.orcamentoId) {
+        await supabase.from('orcamentos').update({ contrato_id: newId }).eq('id', contratoForm.orcamentoId);
+        setAllOrcamentos(prev => prev.map(o => o.id === contratoForm.orcamentoId ? { ...o, contratoId: newId! } : o));
+      }
+
+      setContratoModalOpen(false);
+      await loadContratos();
+      if (!editingContrato && newId) {
+        setActiveTab('contratos');
+        setHighlightContratoId(newId);
+        setTimeout(() => setHighlightContratoId(null), 4000);
+      }
+    } catch (err: any) {
+      console.error('Erro ao salvar contrato:', err);
+      showAlert(`Não foi possível salvar o contrato: ${err?.message || 'erro desconhecido'}`);
+    } finally {
+      setSavingContrato(false);
+    }
+  };
+
+  const handleUpdateContratoStatus = async (c: Contrato, status: ContratoStatus) => {
+    if (!(await showConfirm(`Mudar o status do contrato ${c.numero} para "${CONTRATO_STATUS_LABELS[status]}"?`))) return;
+    const { error } = await supabase.from('contratos').update({ status, updated_at: new Date().toISOString() }).eq('id', c.id);
+    if (error) { showAlert(`Não foi possível atualizar o status: ${error.message}`); return; }
+    setAllContratos(prev => prev.map(ct => ct.id === c.id ? { ...ct, status } : ct));
+  };
+
+  const handleDeleteContrato = async (c: Contrato) => {
+    if (!(await showConfirm(`Excluir o contrato ${c.numero}? Essa ação não pode ser desfeita.`))) return;
+    const { error } = await supabase.from('contratos').update({ deleted_at: new Date().toISOString() }).eq('id', c.id);
+    if (error) { showAlert(`Não foi possível excluir o contrato: ${error.message}`); return; }
+    setAllContratos(prev => prev.filter(ct => ct.id !== c.id));
+  };
+
+  const handleDownloadContratoPdf = async (c: Contrato) => {
+    const { downloadContratoPdf } = await import('../lib/contratoPdf');
+    await downloadContratoPdf(`${c.numero}${c.versao > 1 ? ` (v${c.versao})` : ''}`, c.customerName, c.textoContrato || 'Contrato sem texto gerado.');
+  };
+
+  const handleDuplicateContrato = (c: Contrato) => {
+    setEditingContrato(null);
+    setContratoForm({
+      ...emptyContratoForm,
+      clienteId: c.clienteId,
+      customerName: c.customerName,
+      cpfCnpj: c.cpfCnpj || '',
+      phone: c.phone || '',
+      address: c.address || '',
+      items: c.items.map(i => ({ ...i })),
+      desconto: c.desconto,
+      observacoes: c.observacoes || '',
+      formaPagamentoTexto: c.formaPagamentoTexto || '',
+      prazoTexto: c.prazoTexto || '',
+      // duplicar NAO herda venda/orcamento vinculados — vira um contrato novo e independente
+    });
+    setContratoModalOpen(true);
+  };
 
   const openNewOrcamento = () => {
     setEditingOrcamento(null);
@@ -4910,6 +5334,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setActiveTab('historico');
     setPendingGoToHistorico(false);
   }, [pendingGoToHistorico]);
+
+  // Se a Ficha do Cliente (fora do Terminal) pediu pra abrir um contrato especifico
+  useEffect(() => {
+    if (!pendingOpenContratoId) return;
+    setActiveTab('contratos');
+    setHighlightContratoId(pendingOpenContratoId);
+    setTimeout(() => setHighlightContratoId(null), 4000);
+    setPendingOpenContratoId(null);
+  }, [pendingOpenContratoId]);
 
   // Se a aba Contatos pediu pra iniciar uma venda ja com o cliente selecionado
   useEffect(() => {
@@ -6933,6 +7366,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           </div>
                           <span className="hidden sm:block text-[10px] font-black opacity-40 uppercase tracking-[4px]">Salva os itens escolhidos e retorna</span>
                        </button>
+                     ) : contratoItemsEditMode ? (
+                       <button
+                         onClick={handleReturnItemsToContrato}
+                         className="flex-1 h-full bg-purple-500 border-2 border-purple-600 text-white rounded-2xl sm:rounded-[28px] flex flex-col items-center justify-center gap-0.5 sm:gap-1 shadow-xl shadow-purple-500/20 hover:bg-purple-400 transition-all active:scale-95"
+                       >
+                          <div className="flex items-center gap-1.5 sm:gap-3">
+                             <FileSignature size={16} className="sm:hidden" />
+                             <FileSignature size={24} className="hidden sm:block" />
+                             <span className="text-xs sm:text-lg font-black uppercase tracking-tighter">VOLTAR AO CONTRATO ({cart.length})</span>
+                          </div>
+                          <span className="hidden sm:block text-[10px] font-black opacity-40 uppercase tracking-[4px]">Salva os itens escolhidos e retorna</span>
+                       </button>
                      ) : (
                        <button 
                          disabled={cart.length === 0}
@@ -7340,7 +7785,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             )}
                             <button onClick={async () => { if (!(await showConfirm('Abrir o recibo deste pedido?'))) return; openReceiptDetail(sale); }} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={13} /></button>
                             <button onClick={() => handleDuplicateSale(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Duplicar Pedido"><Copy size={13} /></button>
-                            {!sale.contratoId && <button onClick={async () => { if (!(await showConfirm('Gerar um contrato a partir desta nota?'))) return; handleCreateDocumentFromNota(sale, 'contrato'); }} className="p-1.5 rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20" title="Gerar Contrato a partir desta nota"><FileSignature size={13} /></button>}
+                            {!sale.contratoId && <button onClick={async () => { if (!(await showConfirm('Gerar um contrato a partir desta nota?'))) return; handleCreateContratoFromNota(sale); }} className="p-1.5 rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20" title="Gerar Contrato a partir desta nota"><FileSignature size={13} /></button>}
                             {canManageHistory && (
                               <>
                                 {!isPartial && <button onClick={() => handleReopenSale(sale)} className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20" title="Reabrir"><History size={13} /></button>}
@@ -7388,7 +7833,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             {isPartial && <button onClick={async () => { if (!(await showConfirm('Abrir a tela de pagamento deste pedido?'))) return; openSettlePayment(sale); }} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar Débito"><CheckCircle2 size={12} /></button>}
                             <button onClick={async () => { if (!(await showConfirm('Abrir o recibo deste pedido?'))) return; openReceiptDetail(sale); }} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={12} /></button>
                             <button onClick={() => handleDuplicateSale(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Duplicar Pedido"><Copy size={12} /></button>
-                            {!sale.contratoId && <button onClick={async () => { if (!(await showConfirm('Gerar um contrato a partir desta nota?'))) return; handleCreateDocumentFromNota(sale, 'contrato'); }} className="p-1.5 rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20" title="Gerar Contrato a partir desta nota"><FileSignature size={12} /></button>}
+                            {!sale.contratoId && <button onClick={async () => { if (!(await showConfirm('Gerar um contrato a partir desta nota?'))) return; handleCreateContratoFromNota(sale); }} className="p-1.5 rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20" title="Gerar Contrato a partir desta nota"><FileSignature size={12} /></button>}
                             {canManageHistory && (
                               <>
                                 {!isPartial && <button onClick={() => handleReopenSale(sale)} className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20" title="Reabrir"><History size={12} /></button>}
@@ -7714,7 +8159,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                         )}
                         <button onClick={async () => { if (!(await showConfirm('Abrir o recibo deste pedido?'))) return; openReceiptDetail(sale); }} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={13} /></button>
                         <button onClick={() => handleDuplicateSale(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Duplicar Pedido"><Copy size={13} /></button>
-                        {!sale.contratoId && <button onClick={async () => { if (!(await showConfirm('Gerar um contrato a partir desta nota?'))) return; handleCreateDocumentFromNota(sale, 'contrato'); }} className="p-1.5 rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20" title="Gerar Contrato a partir desta nota"><FileSignature size={13} /></button>}
+                        {!sale.contratoId && <button onClick={async () => { if (!(await showConfirm('Gerar um contrato a partir desta nota?'))) return; handleCreateContratoFromNota(sale); }} className="p-1.5 rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20" title="Gerar Contrato a partir desta nota"><FileSignature size={13} /></button>}
                         {canManageHistory && (
                           <>
                             <button onClick={async () => { if (!(await showConfirm('Editar este pedido?'))) return; handleStartFullEdit(sale); }} className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20" title="Editar"><Pencil size={13} /></button>
@@ -7807,6 +8252,21 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                          {vendaVinculada && (
                            <button onClick={() => { openReceiptById(vendaVinculada.id); }} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Ver Nota</button>
                          )}
+                         {o.contratoId ? (
+                           <button
+                             onClick={() => { setActiveTab('contratos'); setHighlightContratoId(o.contratoId!); setTimeout(() => setHighlightContratoId(null), 4000); }}
+                             className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20"
+                           >
+                             Abrir Contrato
+                           </button>
+                         ) : (
+                           <button
+                             onClick={async () => { if (!(await showConfirm('Gerar um contrato a partir deste orçamento?'))) return; handleCreateContratoFromOrcamento(o); }}
+                             className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20"
+                           >
+                             Gerar Contrato
+                           </button>
+                         )}
                          {o.status !== 'concluido' && (
                            <button onClick={() => updateOrcamentoStatus(o, 'cancelado')} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 ml-auto">Cancelar</button>
                          )}
@@ -7839,35 +8299,32 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         )}
 
         {activeTab === 'contratos' && (() => {
-          const contratos = allOrcamentos.filter(o => o.documentType === 'contrato');
-          const CONTRATO_STATUS_LABELS: Record<string, string> = {
-            rascunho: 'Rascunho', enviado: 'Aguardando Aceite', aprovado: 'Aceito', em_producao: 'Em Execução',
-            concluido: 'Concluído', cancelado: 'Cancelado', encerrado: 'Encerrado', recusado: 'Cancelado', expirado: 'Cancelado',
-          };
-          const CONTRATO_STATUS_STYLES: Record<string, string> = {
-            rascunho: 'bg-white/10 text-white/50', enviado: 'bg-blue-500/15 text-blue-400', aprovado: 'bg-emerald-500/15 text-emerald-400',
-            em_producao: 'bg-amber-500/15 text-amber-400', concluido: 'bg-primary-500/15 text-primary-400',
-            cancelado: 'bg-rose-500/15 text-rose-400', encerrado: 'bg-white/5 text-white/30', recusado: 'bg-rose-500/15 text-rose-400', expirado: 'bg-white/5 text-white/30',
-          };
+          // So mostra a versao MAIS RECENTE de cada contrato na lista (versoes antigas ficam
+          // guardadas no historico, acessiveis a partir da versao atual)
+          const idsComVersaoMaisNova = new Set(allContratos.map(c => c.numero));
+          const contratos = allContratos.filter(c => {
+            const outrasVersoes = allContratos.filter(o => o.numero === c.numero);
+            const maisRecente = outrasVersoes.reduce((a, b) => (b.versao > a.versao ? b : a), outrasVersoes[0]);
+            return maisRecente.id === c.id;
+          });
           const term = contratoSearchTerm.trim().toLowerCase();
           const contratosFiltrados = contratos.filter(c => {
             if (contratoStatusFilter !== 'todos' && c.status !== contratoStatusFilter) return false;
             if (!term) return true;
-            const vendaVinc = c.vendaId ? allSalesHistory.find(s => s.id === c.vendaId) : undefined;
-            const orcamentoIrmao = vendaVinc?.orcamentoId ? allOrcamentos.find(o => o.id === vendaVinc.orcamentoId) : undefined;
+            const orcamentoVinc = c.orcamentoId ? allOrcamentos.find(o => o.id === c.orcamentoId) : undefined;
             return (
               c.numero.toLowerCase().includes(term) ||
               (c.customerName || '').toLowerCase().includes(term) ||
               (c.cpfCnpj || '').toLowerCase().includes(term) ||
               (c.phone || '').replace(/\D/g, '').includes(term.replace(/\D/g, '')) ||
-              (orcamentoIrmao?.numero || '').toLowerCase().includes(term)
+              (orcamentoVinc?.numero || '').toLowerCase().includes(term)
             );
           });
           const valorTotalContratado = contratos.filter(c => c.status !== 'cancelado' && c.status !== 'encerrado').reduce((acc, c) => acc + c.total, 0);
           const dashCards = [
-            { label: 'Ativos', val: contratos.filter(c => c.status === 'aprovado' || c.status === 'em_producao').length, color: 'text-emerald-400' },
-            { label: 'Aguardando Aceite', val: contratos.filter(c => c.status === 'enviado').length, color: 'text-blue-400' },
-            { label: 'Em Execução', val: contratos.filter(c => c.status === 'em_producao').length, color: 'text-amber-400' },
+            { label: 'Ativos', val: contratos.filter(c => c.status === 'aceito' || c.status === 'em_execucao').length, color: 'text-emerald-400' },
+            { label: 'Aguardando Aceite', val: contratos.filter(c => c.status === 'aguardando_aceite').length, color: 'text-blue-400' },
+            { label: 'Em Execução', val: contratos.filter(c => c.status === 'em_execucao').length, color: 'text-amber-400' },
             { label: 'Concluídos', val: contratos.filter(c => c.status === 'concluido').length, color: 'text-primary-400' },
             { label: 'Cancelados', val: contratos.filter(c => c.status === 'cancelado' || c.status === 'encerrado').length, color: 'text-rose-400' },
           ];
@@ -7877,23 +8334,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               <SectionHeader
                 title="Contratos"
                 subtitle={`${contratos.length} contrato(s)`}
-                actions={
-                  <Button
-                    icon={FileSignature}
-                    onClick={() => {
-                      setEditingOrcamento(null);
-                      setOrcamentoFromCart(false);
-                      setOrcamentoForm({
-                        ...emptyOrcamentoForm,
-                        documentType: 'contrato',
-                        clausulasContratoTexto: buildContratoClausulasTexto({ companyName: currentCompany?.name || 'RAFA ARTS GRAPHICS' }),
-                      });
-                      setOrcamentoModalOpen(true);
-                    }}
-                  >
-                    Novo Contrato
-                  </Button>
-                }
+                actions={<Button icon={FileSignature} onClick={openNewContrato}>Novo Contrato</Button>}
               />
 
               {/* Dashboard */}
@@ -7916,9 +8357,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     {[
                       { id: 'todos', label: 'Todos' },
                       { id: 'rascunho', label: 'Rascunhos' },
-                      { id: 'enviado', label: 'Aguardando Aceite' },
-                      { id: 'aprovado', label: 'Aceitos' },
-                      { id: 'em_producao', label: 'Em Execução' },
+                      { id: 'aguardando_aceite', label: 'Aguardando Aceite' },
+                      { id: 'aceito', label: 'Aceitos' },
+                      { id: 'em_execucao', label: 'Em Execução' },
                       { id: 'concluido', label: 'Concluídos' },
                       { id: 'cancelado', label: 'Cancelados' },
                       { id: 'encerrado', label: 'Encerrados' },
@@ -7947,7 +8388,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               </div>
 
               {/* Lista */}
-              {isLoadingOrcamentos ? (
+              {isLoadingContratos ? (
                 <div className="flex justify-center py-16"><RefreshCw className="animate-spin text-primary-500" size={24} /></div>
               ) : contratosFiltrados.length === 0 ? (
                 <div className="text-center py-16 text-white/30 text-sm">Nenhum contrato encontrado.</div>
@@ -7955,15 +8396,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 <div className="space-y-2">
                    {contratosFiltrados.map(c => {
                      const vendaVinc = c.vendaId ? allSalesHistory.find(s => s.id === c.vendaId) : undefined;
-                     const orcamentoIrmao = vendaVinc?.orcamentoId ? allOrcamentos.find(o => o.id === vendaVinc.orcamentoId) : undefined;
+                     const orcamentoVinc = c.orcamentoId ? allOrcamentos.find(o => o.id === c.orcamentoId) : undefined;
                      const servico = (c.items || []).map(i => i.name).join(', ') || 'Sem itens';
+                     const podeEditarDireto = c.status === 'rascunho';
                      return (
-                       <div key={c.id} className="bg-white/5 border border-white/10 rounded-2xl p-4 flex flex-col md:flex-row md:items-center gap-3 md:gap-6">
+                       <div key={c.id} className={cn("bg-white/5 border rounded-2xl p-4 flex flex-col md:flex-row md:items-center gap-3 md:gap-6", highlightContratoId === c.id ? "border-purple-500 ring-2 ring-purple-500/40" : "border-white/10")}>
                           <div className="min-w-0 flex-1">
                              <div className="flex items-center gap-2 flex-wrap">
-                                <p className="font-mono text-[9px] text-purple-300">{c.numero}</p>
+                                <p className="font-mono text-[9px] text-purple-300">{c.numero}{c.versao > 1 ? ` · v${c.versao}` : ''}</p>
                                 <span className={cn("text-[8px] font-black uppercase px-2 py-0.5 rounded-full", CONTRATO_STATUS_STYLES[c.status])}>{CONTRATO_STATUS_LABELS[c.status] || c.status}</span>
-                                {orcamentoIrmao && <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-primary-500/10 text-primary-300">Orç. {orcamentoIrmao.numero}</span>}
+                                {orcamentoVinc && <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-primary-500/10 text-primary-300">Orç. {orcamentoVinc.numero}</span>}
                              </div>
                              <p className="font-black text-white truncate mt-1">{c.customerName}</p>
                              <p className="text-[10px] text-white/40 truncate">{c.cpfCnpj || 'CPF/CNPJ não informado'} · {c.phone || 'sem telefone'}</p>
@@ -7972,35 +8414,41 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           <div className="text-left md:text-right shrink-0">
                              <p className="text-lg font-black text-emerald-400 italic">R$ {c.total.toFixed(2).replace('.', ',')}</p>
                              <p className="text-[9px] text-white/30">Criado {safeFormat(c.createdAt, 'dd/MM/yyyy')}</p>
-                             {c.aprovadoEm && <p className="text-[9px] text-emerald-400/70">Aceito {safeFormat(c.aprovadoEm, 'dd/MM/yyyy')}</p>}
                           </div>
                           <div className="flex flex-wrap gap-1.5 md:flex-col shrink-0">
-                             <button onClick={() => setViewingOrcamento(c)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Visualizar</button>
-                             <button onClick={() => openEditOrcamento(c)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Editar</button>
-                             <button onClick={() => openShareOrcamentoWhatsApp(c)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20">Enviar</button>
-                             {(c.status === 'rascunho' || c.status === 'enviado') && (
-                               <button onClick={() => updateOrcamentoStatus(c, 'aprovado')} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20">Marcar Aceito</button>
+                             <button onClick={() => setViewingContrato(c)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Visualizar</button>
+                             <button onClick={() => openEditContrato(c)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">{podeEditarDireto ? 'Editar' : 'Editar (Nova Versão)'}</button>
+                             <button onClick={() => handleDuplicateContrato(c)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Duplicar</button>
+                             <button onClick={() => handleDownloadContratoPdf(c)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Gerar PDF</button>
+                             {c.phone && (
+                               <button
+                                 onClick={() => window.open(`https://wa.me/${c.phone!.replace(/\D/g, '')}?text=${encodeURIComponent(`Olá ${c.customerName}! Segue o contrato ${c.numero} no valor de R$ ${c.total.toFixed(2).replace('.', ',')}.`)}`, '_blank')}
+                                 className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
+                               >
+                                 Enviar
+                               </button>
                              )}
-                             {c.status === 'aprovado' && (
-                               <button onClick={() => updateOrcamentoStatus(c, 'em_producao')} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20">Iniciar Execução</button>
+                             {(c.status === 'rascunho' || c.status === 'aguardando_aceite') && (
+                               <button onClick={() => handleUpdateContratoStatus(c, 'aceito')} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20">Marcar Aceito</button>
                              )}
-                             {c.status === 'em_producao' && (
-                               <button onClick={() => updateOrcamentoStatus(c, 'concluido')} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20">Concluir</button>
+                             {c.status === 'aceito' && (
+                               <button onClick={() => handleUpdateContratoStatus(c, 'em_execucao')} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20">Iniciar Execução</button>
+                             )}
+                             {c.status === 'em_execucao' && (
+                               <button onClick={() => handleUpdateContratoStatus(c, 'concluido')} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20">Concluir</button>
                              )}
                              {vendaVinc && (
                                <button onClick={() => openReceiptById(vendaVinc.id)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Ver Nota</button>
                              )}
+                             {orcamentoVinc && (
+                               <button onClick={() => { setActiveTab('orcamentos'); setHighlightOrcamentoId(orcamentoVinc.id); setTimeout(() => setHighlightOrcamentoId(null), 4000); }} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-primary-500/10 text-primary-300 hover:bg-primary-500/20">Abrir Orçamento</button>
+                             )}
                              {c.status !== 'cancelado' && c.status !== 'encerrado' && (
-                               <button
-                                 onClick={async () => {
-                                   if (!(await showConfirm(`Encerrar o contrato ${c.numero}?`))) return;
-                                   updateOrcamentoStatus(c, 'encerrado');
-                                 }}
-                                 className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20"
-                               >
-                                 Encerrar
+                               <button onClick={() => handleUpdateContratoStatus(c, c.status === 'concluido' ? 'encerrado' : 'cancelado')} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20">
+                                 {c.status === 'concluido' ? 'Encerrar' : 'Cancelar'}
                                </button>
                              )}
+                             <button onClick={() => handleDeleteContrato(c)} className="text-white/30 hover:text-rose-400 p-1.5 self-end md:self-auto"><Trash2 size={12} /></button>
                           </div>
                        </div>
                      );
@@ -8149,6 +8597,20 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                 }));
                                 setIsCustomerModalOpen(false);
                                 setOrcamentoModalOpen(true);
+                                return;
+                              }
+                              if (customerModalIntent === 'contrato') {
+                                const enderecoParts = [c.logradouro, c.numero, c.distrito, c.city].filter(Boolean);
+                                setContratoForm(prev => ({
+                                  ...prev,
+                                  clienteId: c.id,
+                                  customerName: c.full_name,
+                                  phone: c.phone || '',
+                                  cpfCnpj: c.cpf_cnpj || '',
+                                  address: enderecoParts.join(', '),
+                                }));
+                                setIsCustomerModalOpen(false);
+                                setContratoModalOpen(true);
                                 return;
                               }
                               proceedAfterCustomerStep();
@@ -10129,6 +10591,140 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
        </Modal>
      )}
 
+     {contratoModalOpen && (
+       <Modal
+         isOpen={contratoModalOpen}
+         onClose={() => setContratoModalOpen(false)}
+         title={editingContrato ? (editingContrato.status === 'rascunho' ? `Editar Contrato ${editingContrato.numero}` : `Editar ${editingContrato.numero} — cria Versão ${editingContrato.versao + 1}`) : 'Novo Contrato'}
+         size="lg"
+       >
+         <div className="space-y-5 max-h-[70vh] overflow-y-auto custom-scrollbar pr-1">
+            {editingContrato && editingContrato.status !== 'rascunho' && (
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 text-[11px] text-amber-300">
+                Esse contrato já saiu de rascunho — salvar aqui cria uma <strong>nova versão</strong> (v{editingContrato.versao + 1}), mantendo a versão atual guardada no histórico.
+              </div>
+            )}
+
+            <div className="flex items-center justify-between">
+               <p className="text-[10px] font-black uppercase text-purple-300 tracking-[2px]">Dados do Cliente</p>
+               <button
+                 onClick={() => {
+                    setContratoModalOpen(false);
+                    setCustomerModalIntent('contrato');
+                    setCustomerModalMode('search');
+                    setIsCustomerModalOpen(true);
+                 }}
+                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-300 hover:bg-purple-500/20 text-[9px] font-black uppercase tracking-wider transition-all"
+               >
+                 <Users size={13} /> Buscar Cliente
+               </button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+               <Input label="Nome do Cliente" value={contratoForm.customerName} onChange={(e: any) => setContratoForm({ ...contratoForm, customerName: e.target.value })} />
+               <CpfCnpjInput label="CPF/CNPJ" value={contratoForm.cpfCnpj} onChange={(v: string) => setContratoForm({ ...contratoForm, cpfCnpj: v })} />
+               <PhoneInputBR label="Telefone/WhatsApp" value={contratoForm.phone} onChange={(v: string) => setContratoForm({ ...contratoForm, phone: v })} />
+               <Input label="Endereço" value={contratoForm.address} onChange={(e: any) => setContratoForm({ ...contratoForm, address: e.target.value })} />
+               <Input label="Responsável (opcional)" value={contratoForm.responsavel} onChange={(e: any) => setContratoForm({ ...contratoForm, responsavel: e.target.value })} />
+            </div>
+
+            <div className="h-px bg-white/10" />
+
+            <div className="space-y-2">
+               <p className="text-[10px] font-black uppercase text-purple-300 tracking-[2px]">Itens / Serviços</p>
+               <button
+                 onClick={() => {
+                    setCart([...contratoForm.items]);
+                    setContratoModalOpen(false);
+                    setContratoItemsEditMode(true);
+                    setActiveTab('venda');
+                 }}
+                 className="w-full h-11 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-300 hover:bg-purple-500/20 text-[11px] font-black uppercase tracking-wider flex items-center justify-center gap-2"
+               >
+                 <Plus size={15} /> Adicionar Item
+               </button>
+               <div className="space-y-1.5">
+                  {contratoForm.items.map((item, idx) => (
+                    <div key={idx} className="flex items-center justify-between gap-2 px-3 py-2 bg-white/5 border border-white/5 rounded-lg flex-wrap">
+                       <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <input
+          onFocus={(e: any) => e.target.select()}
+                            type="number"
+                            min={1}
+                            value={item.quantity}
+                            onChange={(e) => {
+                               const qty = Math.max(1, Number(e.target.value) || 1);
+                               setContratoForm(prev => ({ ...prev, items: prev.items.map((it, i) => i === idx ? { ...it, quantity: qty } : it) }));
+                            }}
+                            className="w-12 h-7 bg-slate-900/60 border border-white/10 rounded px-1.5 text-xs text-white text-center"
+                          />
+                          <p className="text-xs font-bold text-white truncate flex-1">{item.name}</p>
+                       </div>
+                       <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-xs font-black text-emerald-400 min-w-[70px] text-right">R$ {(item.price * item.quantity).toFixed(2).replace('.', ',')}</span>
+                          <button onClick={() => setContratoForm(prev => ({ ...prev, items: prev.items.filter((_, i) => i !== idx) }))} className="text-white/30 hover:text-rose-400"><X size={13} /></button>
+                       </div>
+                    </div>
+                  ))}
+                  {contratoForm.items.length === 0 && <p className="text-xs text-white/30 py-3 text-center">Nenhum item adicionado ainda.</p>}
+               </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+               <Input label="Desconto (R$)" type="number" step="any" value={contratoForm.desconto} onChange={(e: any) => setContratoForm({ ...contratoForm, desconto: (e.target.value === '' ? '' : Number(e.target.value)) })} />
+               <div className="flex items-center justify-between bg-white/5 border border-white/10 rounded-xl px-4 h-11">
+                  <span className="text-[10px] font-black uppercase text-white/40 tracking-widest">Total do Contrato</span>
+                  <span className="text-lg font-black text-emerald-400 italic">R$ {Math.max(0, contratoItemsTotal() - (contratoForm.desconto || 0)).toFixed(2).replace('.', ',')}</span>
+               </div>
+            </div>
+
+            <div className="h-px bg-white/10" />
+
+            <div className="space-y-3">
+               <p className="text-[10px] font-black uppercase text-purple-300 tracking-[2px]">Forma de Pagamento e Prazo</p>
+               <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Forma de Pagamento</label>
+                  <textarea
+                    value={contratoForm.formaPagamentoTexto}
+                    onChange={(e) => setContratoForm({ ...contratoForm, formaPagamentoTexto: e.target.value })}
+                    rows={2}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-primary-500 resize-none"
+                  />
+               </div>
+               <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Prazo de Produção/Entrega</label>
+                  <textarea
+                    value={contratoForm.prazoTexto}
+                    onChange={(e) => setContratoForm({ ...contratoForm, prazoTexto: e.target.value })}
+                    rows={2}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-primary-500 resize-none"
+                  />
+               </div>
+               <div className="grid grid-cols-2 gap-3">
+                  <Input label="Multa por Atraso (%)" type="number" step="any" value={contratoForm.multaPercentual} onChange={(e: any) => setContratoForm({ ...contratoForm, multaPercentual: (e.target.value === '' ? '' : Number(e.target.value)) })} />
+                  <Input label="Juros ao Mês (%)" type="number" step="any" value={contratoForm.jurosPercentual} onChange={(e: any) => setContratoForm({ ...contratoForm, jurosPercentual: (e.target.value === '' ? '' : Number(e.target.value)) })} />
+               </div>
+            </div>
+
+            <div className="space-y-1">
+               <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Observações</label>
+               <textarea
+                 value={contratoForm.observacoes}
+                 onChange={(e) => setContratoForm({ ...contratoForm, observacoes: e.target.value })}
+                 rows={2}
+                 className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-primary-500 resize-none"
+               />
+            </div>
+
+            <div className="flex justify-end gap-3 pt-1">
+              <Button variant="ghost" onClick={() => setContratoModalOpen(false)}>Cancelar</Button>
+              <Button disabled={savingContrato} onClick={handleSaveContrato} className="bg-purple-500 hover:bg-purple-400 text-white border-none">
+                {savingContrato ? 'Salvando...' : (editingContrato && editingContrato.status !== 'rascunho' ? `Criar Versão ${editingContrato.versao + 1}` : 'Salvar Contrato')}
+              </Button>
+            </div>
+         </div>
+       </Modal>
+     )}
+
      {isScheduleModalOpen && (
        <Modal
          isOpen={isScheduleModalOpen}
@@ -10523,6 +11119,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
 // --- CONTACTS ---
 export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStartSaleForClient, onOpenReceiptById }: { currentCompany: Company | null; onViewHistoryForClient?: (clienteId: string, clienteName: string) => void; onStartSaleForClient?: (cliente: { id: string; name: string; phone: string }) => void; onOpenReceiptById?: (saleId: string) => void }) => {
+  const { setActiveTab: setRootActiveTab, setPendingOpenContratoId } = React.useContext(AppContext)!;
   const [clientes, setClientes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -10535,11 +11132,11 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
   const [clienteVendas, setClienteVendas] = useState<Record<string, any[]>>({});
   const [produtosCostMap, setProdutosCostMap] = useState<Record<string, number>>({});
   const [fichaCliente, setFichaCliente] = useState<any | null>(null);
-  const [fichaContratos, setFichaContratos] = useState<Orcamento[]>([]);
+  const [fichaContratos, setFichaContratos] = useState<Contrato[]>([]);
   useEffect(() => {
     if (!fichaCliente?.id) { setFichaContratos([]); return; }
-    supabase.from('orcamentos').select('*').eq('cliente_id', fichaCliente.id).eq('document_type', 'contrato').order('created_at', { ascending: false })
-      .then(({ data }) => setFichaContratos((data || []).map(mapOrcamentoRow)));
+    supabase.from('contratos').select('*').eq('cliente_id', fichaCliente.id).is('deleted_at', null).order('created_at', { ascending: false })
+      .then(({ data }) => setFichaContratos((data || []).map(mapContratoRow)));
   }, [fichaCliente?.id]);
   const [isLinkingVendas, setIsLinkingVendas] = useState(false);
   const [clienteSearchTerm, setClienteSearchTerm] = useState('');
@@ -11131,16 +11728,20 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
                         <p className="text-[9px] font-black uppercase text-white/40">Contratos ({fichaContratos.length})</p>
                         <div className="space-y-1.5 max-h-32 overflow-y-auto custom-scrollbar">
                            {fichaContratos.map(c => (
-                             <div key={c.id} className="flex items-center justify-between gap-2 bg-purple-500/5 border border-purple-500/10 rounded-lg px-3 py-2">
+                             <button
+                               key={c.id}
+                               onClick={() => { setPendingOpenContratoId(c.id); setRootActiveTab('pos'); setFichaCliente(null); }}
+                               className="w-full flex items-center justify-between gap-2 bg-purple-500/5 hover:bg-purple-500/10 border border-purple-500/10 rounded-lg px-3 py-2 text-left cursor-pointer transition-all"
+                             >
                                 <div className="min-w-0 flex-1">
-                                   <p className="text-[9px] font-mono font-black text-purple-300">{c.numero}</p>
+                                   <p className="text-[9px] font-mono font-black text-purple-300">{c.numero}{c.versao > 1 ? ` · v${c.versao}` : ''}</p>
                                    <p className="text-[9px] text-white/30">{safeFormat(c.createdAt, 'dd/MM/yyyy')}</p>
                                 </div>
                                 <div className="text-right shrink-0">
                                    <p className="text-[10px] font-black text-white">R$ {c.total.toFixed(2).replace('.', ',')}</p>
-                                   <p className="text-[8px] font-black uppercase text-white/40">{c.status}</p>
+                                   <p className="text-[8px] font-black uppercase text-white/40">{CONTRATO_STATUS_LABELS[c.status] || c.status}</p>
                                 </div>
-                             </div>
+                             </button>
                            ))}
                         </div>
                      </div>
