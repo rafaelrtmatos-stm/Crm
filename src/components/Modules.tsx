@@ -1333,7 +1333,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
               label="Nome do Comprador" 
               placeholder="Ex: Rafael Matos" 
               value={lotForm.customerName} 
-              onChange={(e) => setLotForm({ ...lotForm, customerName: e.target.value })} 
+              onChange={(e) => setLotForm({ ...lotForm, customerName: e.target.value.toUpperCase() })} 
             />
             <div className="grid grid-cols-2 gap-4">
                <Input 
@@ -8168,6 +8168,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                         {!sale.contratoId && <button onClick={async () => { if (!(await showConfirm('Gerar um contrato a partir desta nota?'))) return; handleCreateContratoFromNota(sale); }} className="p-1.5 rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20" title="Gerar Contrato a partir desta nota"><FileSignature size={13} /></button>}
                         {canManageHistory && (
                           <>
+                            {sale.status !== 'canceled' && <button onClick={() => handleCancelSale(sale)} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" title="Cancelar Pedido"><Ban size={13} /></button>}
                             <button onClick={async () => { if (!(await showConfirm('Editar este pedido?'))) return; handleStartFullEdit(sale); }} className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20" title="Editar"><Pencil size={13} /></button>
                             <button onClick={() => handleDeleteSale(sale)} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" title="Excluir"><Trash2 size={13} /></button>
                           </>
@@ -8689,7 +8690,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
              </div>
            ) : (
              <div className="space-y-4">
-                <Input ref={customerNameInputRef} label="Nome *" value={newCustomerForm.full_name} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, full_name: e.target.value })} />
+                <Input ref={customerNameInputRef} label="Nome *" value={newCustomerForm.full_name} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, full_name: e.target.value.toUpperCase() })} />
                 <div className="grid grid-cols-2 gap-3">
                    <div className="relative">
                       <Input
@@ -9584,7 +9585,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
          size="md"
        >
          <div className="space-y-4 p-4">
-           <Input label="Nome do Cliente" value={editSaleForm.customerName} onChange={(e: any) => setEditSaleForm({ ...editSaleForm, customerName: e.target.value })} />
+           <Input label="Nome do Cliente" value={editSaleForm.customerName} onChange={(e: any) => setEditSaleForm({ ...editSaleForm, customerName: e.target.value.toUpperCase() })} />
            <div className="grid grid-cols-2 gap-4">
              <Input label="Valor Total (R$)" type="number" step="any" value={editSaleForm.total} onChange={(e: any) => setEditSaleForm({ ...editSaleForm, total: Number(e.target.value) })} />
              <Input label="Valor Pago / Entrada (R$)" type="number" step="any" value={editSaleForm.downPayment} onChange={(e: any) => setEditSaleForm({ ...editSaleForm, downPayment: Number(e.target.value) })} />
@@ -9664,7 +9665,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
        >
          <div className="space-y-4 p-4">
            <p className="text-xs text-white/50">Essa venda ainda não tem um cliente com WhatsApp vinculado. Cadastre para compartilhar o comprovante e já deixar a conversa pronta no Funil de Atendimento.</p>
-           <Input label="Nome do Cliente" value={waFormName} onChange={(e: any) => setWaFormName(e.target.value)} />
+           <Input label="Nome do Cliente" value={waFormName} onChange={(e: any) => setWaFormName(e.target.value.toUpperCase())} />
            <div>
              <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block mb-1.5">WhatsApp *</label>
              <div className="flex gap-2">
@@ -10194,7 +10195,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               <p className="text-[9px] text-emerald-400 font-bold -mt-3">✓ Vinculado ao cadastro de clientes</p>
             )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-               <Input label="Cliente *" value={orcamentoForm.customerName} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, customerName: e.target.value, clienteId: undefined })} />
+               <Input label="Cliente *" value={orcamentoForm.customerName} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, customerName: e.target.value.toUpperCase(), clienteId: undefined })} />
                <CpfCnpjInput label="CPF/CNPJ" value={orcamentoForm.cpfCnpj} onChange={(v: string) => setOrcamentoForm({ ...orcamentoForm, cpfCnpj: v })} />
                <PhoneInputBR label="Telefone/WhatsApp" value={orcamentoForm.phone} onChange={(v: string) => setOrcamentoForm({ ...orcamentoForm, phone: v })} />
                <Input label="Responsável pelo Atendimento" value={orcamentoForm.responsavel} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, responsavel: e.target.value })} />
@@ -10628,7 +10629,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                </button>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-               <Input label="Nome do Cliente" value={contratoForm.customerName} onChange={(e: any) => setContratoForm({ ...contratoForm, customerName: e.target.value })} />
+               <Input label="Nome do Cliente" value={contratoForm.customerName} onChange={(e: any) => setContratoForm({ ...contratoForm, customerName: e.target.value.toUpperCase() })} />
                <CpfCnpjInput label="CPF/CNPJ" value={contratoForm.cpfCnpj} onChange={(v: string) => setContratoForm({ ...contratoForm, cpfCnpj: v })} />
                <PhoneInputBR label="Telefone/WhatsApp" value={contratoForm.phone} onChange={(v: string) => setContratoForm({ ...contratoForm, phone: v })} />
                <Input label="Endereço" value={contratoForm.address} onChange={(e: any) => setContratoForm({ ...contratoForm, address: e.target.value })} />
@@ -11608,7 +11609,7 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
       </div>
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="NOVO CLIENTE">
         <div className="p-6 space-y-4">
-          <Input label="NOME COMPLETO" value={formData.full_name} onChange={(e: any) => setFormData({ ...formData, full_name: e.target.value })} />
+          <Input label="NOME COMPLETO" value={formData.full_name} onChange={(e: any) => setFormData({ ...formData, full_name: e.target.value.toUpperCase() })} />
           <div className="grid grid-cols-2 gap-4">
             <PhoneInputBR label="TELEFONE" value={formData.phone} onChange={(v: string) => setFormData({ ...formData, phone: v })} />
             <Input label="EMAIL" value={formData.email} onChange={(e: any) => setFormData({ ...formData, email: e.target.value })} />
@@ -12859,7 +12860,7 @@ export const ClientesEsperaModule = ({ currentCompany, user }: { currentCompany:
 
       <Modal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} title="Adicionar Cliente à Fila" size="sm">
         <div className="space-y-4 p-2">
-          <Input label="Nome do Cliente" autoFocus value={newNome} onChange={(e: any) => setNewNome(e.target.value)} />
+          <Input label="Nome do Cliente" autoFocus value={newNome} onChange={(e: any) => setNewNome(e.target.value.toUpperCase())} />
           <PhoneInputBR label="Telefone (opcional)" value={newTelefone} onChange={(v: string) => setNewTelefone(v)} />
           <Input label="Motivo (opcional)" placeholder="Ex: Retirar pedido, orçamento..." value={newMotivo} onChange={(e: any) => setNewMotivo(e.target.value)} />
           <div className="flex justify-end gap-3 pt-1">
