@@ -640,7 +640,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   useEffect(() => {
     if (!currentCompany) return;
     const qSvc = query(collection(db, 'services'), where('companyId', '==', currentCompany.id), orderBy('createdAt', 'desc'));
-    const qRealEstate = query(collection(db, 'serviceContracts'), where('companyId', '==', currentCompany.id), orderBy('createdAt', 'desc'));
+    const qRealEstate = query(collection(db, 'realEstateSales'), where('companyId', '==', currentCompany.id), orderBy('createdAt', 'desc'));
     
     const unsubSvc = onSnapshot(qSvc, (snap) => setServices(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
     const unsubRealEstate = onSnapshot(qRealEstate, (snap) => setRealEstateSales(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
