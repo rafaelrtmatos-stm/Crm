@@ -9255,7 +9255,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                      ref={scheduleBtnRef}
                      type="button"
                      onClick={() => {
-                       if (scheduledFor && settlingOrder) {
+                       if (scheduledFor && (settlingOrder || editingFullOrder)) {
                          if (isScheduleActionsMenuOpen) { setIsScheduleActionsMenuOpen(false); return; }
                          const rect = scheduleBtnRef.current?.getBoundingClientRect();
                          if (rect) setScheduleMenuPos({ bottom: window.innerHeight - rect.top + 4, left: rect.left, width: rect.width });
@@ -9282,21 +9282,23 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           <button onClick={() => { setIsScheduleActionsMenuOpen(false); setIsScheduleModalOpen(true); }} className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left cursor-pointer bg-transparent border-0">
                              <Pencil size={12} /> Editar Agendamento
                           </button>
-                          <button onClick={() => { setIsScheduleActionsMenuOpen(false); if (settlingOrder) handleDeliverFromCard(settlingOrder); }} className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-bold text-emerald-400 hover:bg-emerald-500/10 text-left cursor-pointer bg-transparent border-0">
+                          <button onClick={() => { setIsScheduleActionsMenuOpen(false); if (settlingOrder) handleDeliverFromCard(settlingOrder); else if (editingFullOrder) handleDeliverFromCard(editingFullOrder); }} className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-bold text-emerald-400 hover:bg-emerald-500/10 text-left cursor-pointer bg-transparent border-0">
                              <CheckCircle2 size={12} /> Marcar como Entregue
                           </button>
                           <button
                             onClick={async () => {
                               setIsScheduleActionsMenuOpen(false);
-                              if (!settlingOrder) return;
-                              if (!(await showConfirm(`Excluir o agendamento de entrega do pedido de ${settlingOrder.customerName || 'cliente'}?`))) return;
+                              const pedidoAtual = settlingOrder || editingFullOrder;
+                              if (!pedidoAtual) return;
+                              if (!(await showConfirm(`Excluir o agendamento de entrega do pedido de ${pedidoAtual.customerName || 'cliente'}?`))) return;
                               setScheduledFor('');
-                              const { error } = await supabase.from('vendas').update({ scheduled_for: null }).eq('id', settlingOrder.id);
+                              const { error } = await supabase.from('vendas').update({ scheduled_for: null }).eq('id', pedidoAtual.id);
                               if (error) { showAlert(`Não foi possível excluir o agendamento: ${error.message}`); return; }
-                              const atualizado = { ...settlingOrder, scheduledFor: undefined };
-                              setSettlingOrder(atualizado);
-                              setAllSalesHistory(prev => prev.map(s => s.id === settlingOrder.id ? atualizado : s));
-                              setSalesToday(prev => prev.map(s => s.id === settlingOrder.id ? atualizado : s));
+                              const atualizado = { ...pedidoAtual, scheduledFor: undefined };
+                              if (settlingOrder) setSettlingOrder(atualizado);
+                              if (editingFullOrder) setEditingFullOrder(atualizado);
+                              setAllSalesHistory(prev => prev.map(s => s.id === pedidoAtual.id ? atualizado : s));
+                              setSalesToday(prev => prev.map(s => s.id === pedidoAtual.id ? atualizado : s));
                               showAlert('Agendamento excluído!');
                             }}
                             className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-bold text-rose-400 hover:bg-rose-500/10 text-left cursor-pointer bg-transparent border-0"
