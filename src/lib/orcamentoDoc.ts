@@ -206,7 +206,7 @@ export async function renderOrcamentoCanvas({ orcamento: o, companyName, logoDar
       ctx.fillText(line, x + 16, y + 44 + i * 16);
     });
   };
-  const clienteRows = [o.customerName || '-'];
+  const clienteRows = [(o.customerName || '-').toUpperCase()];
   if (o.cpfCnpj) clienteRows.push(`CPF/CNPJ: ${o.cpfCnpj}`);
   if (o.phone) clienteRows.push(o.phone);
   if (o.address) clienteRows.push(o.address);
@@ -244,7 +244,8 @@ export async function renderOrcamentoCanvas({ orcamento: o, companyName, logoDar
       ctx.fillStyle = TEXT;
       ctx.font = `700 10px ${FONT}`;
       ctx.fillText(String(item.quantity), marginX + 16, rowY + 20);
-      const nameLabel = item.name.length > 36 ? item.name.slice(0, 36) + '…' : item.name;
+      const itemNameUpper = item.name.toUpperCase();
+      const nameLabel = itemNameUpper.length > 36 ? itemNameUpper.slice(0, 36) + '…' : itemNameUpper;
       ctx.font = `600 10px ${FONT}`;
       ctx.fillText(nameLabel, marginX + 60, rowY + 20);
       ctx.textAlign = 'right';

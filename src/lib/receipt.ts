@@ -330,7 +330,7 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
   const halfW = (width - marginX * 2 - cardGap) / 2;
 
   // Conteudo dinamico dos cards de Cliente / Dados da Ordem (precisa saber antes de fixar a altura do canvas)
-  const clienteRows = [order.customerName || 'Cliente de Balcão'];
+  const clienteRows = [(order.customerName || 'Cliente de Balcão').toUpperCase()];
   if (customerPhone) clienteRows.push(`Tel/WhatsApp: ${customerPhone}`);
   if (customerCpf) clienteRows.push(`CPF: ${customerCpf}`);
   if (customerAddress) clienteRows.push(`Endereço: ${customerAddress}`);
@@ -518,7 +518,8 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
       ctx.fillStyle = TEXT;
       ctx.font = `700 10.5px ${FONT}`;
       ctx.fillText(String(item.quantity), marginX + 16, rowY + 21);
-      const nameLabel = item.name.length > 32 ? item.name.slice(0, 32) + '…' : item.name;
+      const itemNameUpper = item.name.toUpperCase();
+      const nameLabel = itemNameUpper.length > 32 ? itemNameUpper.slice(0, 32) + '…' : itemNameUpper;
       ctx.font = `600 10.5px ${FONT}`;
       ctx.fillText(nameLabel, marginX + 74, rowY + 21);
       ctx.textAlign = 'right';

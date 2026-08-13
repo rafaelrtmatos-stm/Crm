@@ -7789,7 +7789,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                         <div className="space-y-1 text-xs text-white/70 bg-white/5 p-3 rounded-xl border border-white/5">
                           {sale.items?.map((item, idx) => (
                             <div key={idx} className="flex justify-between items-center text-[11px]">
-                              <span>{item.quantity}x {item.name} {item.dimensions ? `(${item.dimensions})` : ''}</span>
+                              <span>{item.quantity}x {item.name.toUpperCase()} {item.dimensions ? `(${item.dimensions})` : ''}</span>
                               <span className="font-bold text-white/80">R$ {((item.area ? item.price * item.area : item.price) * item.quantity).toFixed(2).replace('.', ',')}</span>
                             </div>
                           ))}
@@ -9235,7 +9235,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
              <div className="space-y-1.5">
                 {lastFinalizedOrder?.items.map((item, idx) => (
                    <div key={idx} className="flex justify-between text-[11px] font-bold text-white/70">
-                      <span>{item.quantity}x {item.name}</span>
+                      <span>{item.quantity}x {item.name.toUpperCase()}</span>
                       <span>R$ {(item.price * item.quantity).toFixed(2)}</span>
                    </div>
                 ))}
@@ -10082,7 +10082,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             <div className="space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar">
                {viewingOrcamento.items.map((item, idx) => (
                  <div key={idx} className="flex items-center justify-between px-3 py-2 bg-white/5 border border-white/5 rounded-lg text-xs">
-                    <span className="text-white/70">{item.quantity}x {item.name}</span>
+                    <span className="text-white/70">{item.quantity}x {item.name.toUpperCase()}</span>
                     <span className="text-white font-bold">R$ {(item.area ? item.price * item.area * item.quantity : item.price * item.quantity).toFixed(2).replace('.', ',')}</span>
                  </div>
                ))}
@@ -10994,7 +10994,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  {/* Dados do Cliente */}
                  <div className="bg-slate-900/50 rounded-2xl p-4 border border-white/5 space-y-2">
                    <h4 className="text-[9px] font-black uppercase text-primary-300 tracking-[2px] mb-1">Cliente</h4>
-                   <p className="text-sm font-black text-white">{sale.customerName || 'Cliente de Balcão'}</p>
+                   <p className="text-sm font-black text-white">{(sale.customerName || 'Cliente de Balcão').toUpperCase()}</p>
                    {sale.customerPhone ? (
                      <button
                        onClick={() => handleOpenChatFromReceipt(sale)}
@@ -11038,7 +11038,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    {sale.items?.map((item, idx) => (
                      <div key={idx} className="flex justify-between text-xs text-white/70 gap-2">
                        <div className="min-w-0">
-                          <span>{item.quantity}x {item.name}</span>
+                          <span>{item.quantity}x {item.name.toUpperCase()}</span>
                           {item.dimensions && <p className="text-[9px] text-primary-400 font-bold">Medida: {item.dimensions}</p>}
                           {item.observacao && <p className="text-[9px] text-white/40 italic truncate">Obs: {item.observacao}</p>}
                        </div>
