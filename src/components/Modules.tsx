@@ -8187,6 +8187,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           // abordagem anterior (antes dos Contratos terem tabela propria) - esses ja foram
           // migrados pra tabela contratos de verdade, nao devem aparecer aqui
           const orcamentosDeVerdade = allOrcamentos.filter(o => o.documentType !== 'contrato');
+          const statusAprovados = ['aprovado', 'em_producao', 'concluido'];
+          const statusNaoAprovados = ['rascunho', 'enviado', 'em_espera'];
+          const valorAprovado = orcamentosDeVerdade.filter(o => statusAprovados.includes(o.status)).reduce((acc, o) => acc + o.total, 0);
+          const valorNaoAprovado = orcamentosDeVerdade.filter(o => statusNaoAprovados.includes(o.status)).reduce((acc, o) => acc + o.total, 0);
+          const orcamentosDashCards = [
+            { label: 'Em Espera', val: orcamentosDeVerdade.filter(o => o.status === 'em_espera').length, color: 'text-amber-400' },
+            { label: 'Enviados', val: orcamentosDeVerdade.filter(o => o.status === 'enviado').length, color: 'text-blue-400' },
+            { label: 'Aprovados', val: orcamentosDeVerdade.filter(o => statusAprovados.includes(o.status)).length, color: 'text-emerald-400' },
+            { label: 'Recusados/Cancelados', val: orcamentosDeVerdade.filter(o => o.status === 'recusado' || o.status === 'cancelado' || o.status === 'expirado').length, color: 'text-rose-400' },
+          ];
           return (
           <div className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/40 space-y-6">
             <SectionHeader
@@ -8194,6 +8204,24 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               subtitle={`${orcamentosDeVerdade.length} orçamento(s)`}
               actions={<Button icon={Plus} onClick={openNewOrcamento}>Novo Orçamento</Button>}
             />
+
+            {/* Dashboard */}
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+              {orcamentosDashCards.map(card => (
+                <div key={card.label} className="bg-white/5 border border-white/10 rounded-2xl p-4">
+                   <p className="text-[8px] font-black uppercase text-white/30 tracking-widest mb-1">{card.label}</p>
+                   <p className={cn("text-2xl font-black italic", card.color)}>{card.val}</p>
+                </div>
+              ))}
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4">
+                 <p className="text-[8px] font-black uppercase text-amber-400 tracking-widest mb-1">Valor Não Aprovado</p>
+                 <p className="text-lg font-black italic text-amber-400">R$ {valorNaoAprovado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+              </div>
+              <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-4">
+                 <p className="text-[8px] font-black uppercase text-emerald-400 tracking-widest mb-1">Valor Aprovado</p>
+                 <p className="text-lg font-black italic text-emerald-400">R$ {valorAprovado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+              </div>
+            </div>
 
             {isLoadingOrcamentos ? (
               <div className="flex justify-center py-16"><RefreshCw className="animate-spin text-primary-500" size={24} /></div>
@@ -8344,6 +8372,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             );
           });
           const valorTotalContratado = contratos.filter(c => c.status !== 'cancelado' && c.status !== 'encerrado').reduce((acc, c) => acc + c.total, 0);
+          const valorContratosAceitos = contratos.filter(c => c.status === 'aceito' || c.status === 'em_execucao' || c.status === 'concluido').reduce((acc, c) => acc + c.total, 0);
           const dashCards = [
             { label: 'Ativos', val: contratos.filter(c => c.status === 'aceito' || c.status === 'em_execucao').length, color: 'text-emerald-400' },
             { label: 'Aguardando Aceite', val: contratos.filter(c => c.status === 'aguardando_aceite').length, color: 'text-blue-400' },
@@ -8368,6 +8397,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                      <p className={cn("text-2xl font-black italic", card.color)}>{card.val}</p>
                   </div>
                 ))}
+                <div className="bg-blue-500/10 border border-blue-500/20 rounded-2xl p-4">
+                   <p className="text-[8px] font-black uppercase text-blue-400 tracking-widest mb-1">Valor de Contratos Aceitos</p>
+                   <p className="text-lg font-black italic text-blue-400">R$ {valorContratosAceitos.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                </div>
                 <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-4">
                    <p className="text-[8px] font-black uppercase text-emerald-400 tracking-widest mb-1">Valor Total Contratado</p>
                    <p className="text-lg font-black italic text-emerald-400">R$ {valorTotalContratado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
