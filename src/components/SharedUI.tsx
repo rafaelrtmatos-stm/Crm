@@ -287,12 +287,10 @@ export const Button = ({ children, variant = 'primary', className, icon: Icon, .
 export const SectionHeader = ({ title, subtitle, actions }: any) => (
   <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 mb-10">
     <div>
-      <h2 className="text-3xl font-extralight text-white tracking-tight">
-        {title ? title.split(' ').map((word: string, i: number) => 
-          i === 1 ? <span key={i} className="font-bold text-primary-300 pl-1">{word} </span> : word + ' '
-        ) : null}
+      <h2 className="text-xl md:text-2xl font-black text-white italic tracking-tighter uppercase">
+        {title}
       </h2>
-      <p className="text-white/40 text-[10px] font-black uppercase tracking-[2px] mt-1">{subtitle}</p>
+      <p className="text-[10px] md:text-xs text-white/40 font-bold uppercase tracking-widest mt-1">{subtitle}</p>
     </div>
     {actions && <div className="flex items-center gap-3">{actions}</div>}
   </header>
