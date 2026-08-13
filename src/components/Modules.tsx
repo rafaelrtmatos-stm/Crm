@@ -492,37 +492,96 @@ function buildTextoContrato(params: {
   numero: string; multaPercentual?: number; jurosPercentual?: number;
 }): string {
   const {
-    companyName, customerName, cpfCnpj, phone, address, items, total, desconto,
-    formaPagamentoTexto, prazoTexto, observacoes, numero, multaPercentual, jurosPercentual,
+    customerName, cpfCnpj, address, items, total, desconto,
+    formaPagamentoTexto, prazoTexto, observacoes, multaPercentual,
   } = params;
-  const itensDescricao = items.map(i => `- ${i.name}${i.dimensions ? ` (${i.dimensions})` : ''} — Qtd: ${i.quantity}`).join('\n');
+  // Dados fixos da CONTRATADA (empresa) — mesmo modelo/redacao usado no contrato padrao da empresa
+  const CONTRATADA_NOME = 'RAFAEL TAVARES MATOS 02580326260';
+  const CONTRATADA_CNPJ = '28.884.125/0001-40';
+  const CONTRATADA_ENDERECO = 'DO 01, 1445, Santarém - PA, CEP 68035010';
+
+  const itensDescricao = items.map(i => `- ${i.name.toUpperCase()}${i.dimensions ? ` (${i.dimensions})` : ''} — Qtd: ${i.quantity}`).join('\n') || 'A definir conforme orçamento vinculado.';
   const multaPct = multaPercentual ?? 2;
-  const jurosPct = jurosPercentual ?? 1;
+  const dataHoje = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
 
-  return `CONTRATO DE PRESTAÇÃO DE SERVIÇOS GRÁFICOS Nº ${numero}
+  return `CONTRATO DE PRESTAÇÃO DE SERVIÇOS
 
-1. IDENTIFICAÇÃO DAS PARTES
-CONTRATADA: ${companyName}, doravante denominada CONTRATADA.
-CONTRATANTE: ${customerName}${cpfCnpj ? `, portador(a) do CPF/CNPJ nº ${cpfCnpj}` : ''}${phone ? `, telefone/contato ${phone}` : ''}${address ? `, com endereço em ${address}` : ''}, doravante denominado(a) CONTRATANTE.
+DAS PARTES
 
-2. OBJETO DO CONTRATO
-O presente contrato tem por objeto a prestação de serviços gráficos pela CONTRATADA ao CONTRATANTE, conforme especificações e itens descritos na cláusula 3.
+${CONTRATADA_NOME}, pessoa jurídica de direito privado, inscrita no CNPJ n° ${CONTRATADA_CNPJ}, com sede em ${CONTRATADA_ENDERECO}, sendo aqui denominada CONTRATADA.
 
-3. DESCRIÇÃO DOS SERVIÇOS
-${itensDescricao || 'A definir conforme orçamento vinculado.'}
+${customerName.toUpperCase()}${cpfCnpj ? `, portador(a) do CPF/CNPJ nº ${cpfCnpj}` : ''}${address ? `, residente e domiciliado(a) em ${address}` : ''}, sendo aqui denominado(a) CONTRATANTE.
 
-4. VALOR E CONDIÇÕES DE PAGAMENTO
-O valor total dos serviços é de R$ ${total.toFixed(2).replace('.', ',')}${desconto > 0 ? ` (já com desconto de R$ ${desconto.toFixed(2).replace('.', ',')} aplicado)` : ''}.
-${formaPagamentoTexto || 'A forma de pagamento será combinada entre as partes no ato da contratação.'}
-Em caso de atraso no pagamento, incidirá multa de ${multaPct}% sobre o valor em aberto, acrescida de juros de ${jurosPct}% ao mês (ou proporcional ao período de atraso).
+Assim sendo, ambas as partes decidem celebrar o presente CONTRATO DE PRESTAÇÃO DE SERVIÇOS, mediante as cláusulas e condições definidas a seguir.
 
-5. PRAZO DE PRODUÇÃO E ENTREGA
-${prazoTexto || 'O prazo de produção e entrega será informado ao CONTRATANTE conforme a complexidade do serviço, contado a partir da aprovação da arte e confirmação do pagamento, quando exigido.'}
+CLÁUSULA PRIMEIRA — DO OBJETO
 
-${buildContratoClausulasTexto({ companyName, prazoProducaoTexto: prazoTexto })}
+1.1 Este contrato refere-se à prestação de serviços gráficos pela CONTRATADA, conforme os itens descritos na Cláusula Quarta, e demais termos e condições detalhados neste presente contrato.
 
+CLÁUSULA SEGUNDA — OBRIGAÇÕES DA CONTRATANTE
+
+2.1 Caberá à CONTRATANTE fornecer à CONTRATADA todas as informações, artes, textos, imagens e materiais necessários à realização do serviço, especificando os detalhes fundamentais à consecução.
+
+2.2 O pagamento deve ser efetuado pela CONTRATANTE de acordo com a forma e condições estabelecidas na Cláusula Quinta deste contrato.
+
+CLÁUSULA TERCEIRA — OBRIGAÇÕES DA CONTRATADA
+
+3.1 A CONTRATADA deverá realizar os serviços solicitados pela CONTRATANTE conforme acordado.
+
+3.2 A CONTRATADA se obriga a manter absoluto sigilo sobre os dados, materiais, informações e documentos da CONTRATANTE, mesmo após a conclusão dos serviços ou do término da relação contratual, sendo vedada a comercialização desses dados ou o uso para outras finalidades — ressalvado o uso de imagens do resultado final para fins de portfólio, salvo objeção expressa da CONTRATANTE.
+
+3.3 Será de responsabilidade da CONTRATADA o ônus trabalhista ou tributário referente a eventuais funcionários envolvidos na prestação do serviço, ficando a CONTRATANTE isenta de qualquer obrigação em relação a eles.
+
+CLÁUSULA QUARTA — DOS SERVIÇOS
+
+4.1 A CONTRATADA realizará os serviços contratados conforme as especificações abaixo:
+${itensDescricao}
+
+CLÁUSULA QUINTA — DO PREÇO E DAS CONDIÇÕES DE PAGAMENTO
+
+5.1 A CONTRATANTE se responsabiliza a pagar o valor de R$ ${total.toFixed(2).replace('.', ',')}${desconto > 0 ? ` (já com desconto de R$ ${desconto.toFixed(2).replace('.', ',')} aplicado)` : ''} à CONTRATADA pelos serviços prestados.
+
+5.2 ${formaPagamentoTexto || 'A forma de pagamento será combinada entre as partes no ato da contratação.'}
+
+5.3 Caso haja atraso no pagamento, será devida multa moratória no valor de ${multaPct}% sobre a parcela inadimplida.
+
+5.4 Considera-se o cumprimento integral do contrato o momento em que todos os serviços especificados tenham sido concluídos, sob aprovação e revisão final da CONTRATANTE.
+
+CLÁUSULA SEXTA — DO DESCUMPRIMENTO
+
+6.1 O descumprimento de qualquer uma das cláusulas por qualquer parte poderá implicar na rescisão deste contrato.
+
+CLÁUSULA SÉTIMA — DO PRAZO DE PRODUÇÃO E ENTREGA
+
+7.1 ${prazoTexto || 'O prazo de produção e entrega será informado à CONTRATANTE conforme a complexidade do serviço, contado a partir da aprovação da arte e confirmação do pagamento, quando exigido.'}
+
+7.2 A CONTRATADA deverá comunicar eventual impossibilidade de cumprimento do prazo, podendo as partes estabelecer novo prazo de comum acordo.
+
+CLÁUSULA OITAVA — DA RESCISÃO IMOTIVADA
+
+8.1 Poderá o presente instrumento ser rescindido por qualquer das partes, a qualquer momento, sem motivo relevante, cabendo à CONTRATANTE pagar apenas os valores referentes aos serviços já em andamento ou concluídos até a data da rescisão.
+
+CLÁUSULA NONA — DA OBSERVÂNCIA À LGPD
+
+9.1 A CONTRATANTE expressa consentimento de que a CONTRATADA irá coletar, tratar e compartilhar os dados necessários ao cumprimento deste contrato, nos termos do Art. 7º, inc. V, da Lei Geral de Proteção de Dados (Lei nº 13.709/2018), e demais leis referentes à utilização de dados.
+
+CLÁUSULA DÉCIMA — DA AUSÊNCIA DE VÍNCULO TRABALHISTA
+
+10.1 Este contrato expressa a total inexistência de vínculo trabalhista entre as partes, não havendo subordinação, pessoalidade ou habitualidade que configure qualquer vínculo empregatício.
+
+CLÁUSULA DÉCIMA PRIMEIRA — DO FORO
+
+11.1 Para dirimir quaisquer controvérsias oriundas do presente contrato, as partes elegem o foro da Comarca de Santarém, Estado do Pará.
 ${observacoes ? `\nOBSERVAÇÕES ADICIONAIS:\n${observacoes}\n` : ''}
-E por estarem de acordo, as partes firmam o presente instrumento.`;
+Justos e de acordo, firmam o presente instrumento.
+
+Santarém, ${dataHoje}.
+
+___________________________________________
+${customerName.toUpperCase()} — CONTRATANTE
+
+___________________________________________
+${CONTRATADA_NOME} — CONTRATADA`;
 }
 
 export const DashboardModule = ({ user, currentCompany, companies = [], pendingOrders = [], setActiveTab }: { user: AppUser | null, currentCompany: Company | null, companies?: Company[], pendingOrders?: SaleOrder[], setActiveTab?: (tab: any) => void }) => {
