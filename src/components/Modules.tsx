@@ -372,6 +372,7 @@ const mapVendaRow = (row: any): SaleOrder => ({
   downPayment: row.down_payment !== null ? Number(row.down_payment) : undefined,
   receivedValue: row.received_value !== null ? Number(row.received_value) : undefined,
   paymentMethod: row.payment_method,
+  payments: Array.isArray(row.payments) ? row.payments : undefined,
   status: row.status,
   createdAt: row.created_at,
   scheduledFor: row.scheduled_for || undefined,
