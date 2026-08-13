@@ -580,20 +580,9 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
    const [realSales, setRealSales] = useState<SaleOrder[]>([]);
   const [services, setServices] = useState<any[]>([]);
   const [inventory, setInventory] = useState<any[]>([]);
-  const [realEstateSales, setRealEstateSales] = useState<any[]>([]);
   const { setCurrentCompany, setPrefilledCustomer } = React.useContext(AppContext)!;
-  const [isLotModalOpen, setIsLotModalOpen] = useState(false);
   const [settleModalOrder, setSettleModalOrder] = useState<SaleOrder | null>(null);
   const [settleMethod, setSettleMethod] = useState<'pix' | 'dinheiro' | 'cartao_credito' | 'cartao_debito'>('pix');
-  const [lotForm, setLotForm] = useState({
-    lotName: '',
-    quadra: '',
-    value: '',
-    customerName: '',
-    customerPhone: '',
-    downPayment: '',
-    responsibleName: ''
-  });
 
   const handleSettleBalanceInDashboard = async (order: SaleOrder) => {
     if (!currentCompany || !order) return;
@@ -640,10 +629,8 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   useEffect(() => {
     if (!currentCompany) return;
     const qSvc = query(collection(db, 'services'), where('companyId', '==', currentCompany.id), orderBy('createdAt', 'desc'));
-    const qRealEstate = query(collection(db, 'realEstateSales'), where('companyId', '==', currentCompany.id), orderBy('createdAt', 'desc'));
     
     const unsubSvc = onSnapshot(qSvc, (snap) => setServices(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-    const unsubRealEstate = onSnapshot(qRealEstate, (snap) => setRealEstateSales(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
     const loadSales = async () => {
       const { data } = await supabase.from('vendas').select('*').is('deleted_at', null).order('created_at', { ascending: false });
@@ -663,7 +650,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     loadInventory();
     const invChannel = supabase.channel('dashboard-produtos').on('postgres_changes', { event: '*', schema: 'public', table: 'produtos' }, loadInventory).subscribe();
     
-    return () => { unsubSvc(); unsubRealEstate(); supabase.removeChannel(salesChannel); supabase.removeChannel(invChannel); };
+    return () => { unsubSvc(); supabase.removeChannel(salesChannel); supabase.removeChannel(invChannel); };
   }, [currentCompany]);
 
   const getFilteredOrders = () => {
@@ -739,8 +726,6 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   const totalSalesCount = filteredOrders.length;
   const pendingEntries = realSales.filter(o => o.status === 'pending');
   const pendingValue = pendingEntries.reduce((acc, o) => acc + ((o.total || 0) - (o.downPayment || 0)), 0);
-  const totalRealEstateSalesCount = realEstateSales.length;
-  const totalRealEstateSalesValue = realEstateSales.reduce((acc, s) => acc + (s.value || 0), 0);
 
   const chartData = useMemo(() => {
     const groups: Record<string, any> = {};
@@ -882,37 +867,6 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     setIsRevenueModalOpen(false);
     // Redirecting to POS for sales history since documents/reports is removed
     setActiveTab('pos');
-  };
-
-  const handleSaveLotSale = async () => {
-    if(!lotForm.lotName || !lotForm.value || !lotForm.customerName || !currentCompany) return;
-    try {
-      await addDoc(collection(db, 'realEstateSales'), {
-        companyId: currentCompany.id,
-        lotName: lotForm.lotName,
-        quadra: lotForm.quadra || 'Q1',
-        value: Number(lotForm.value),
-        customerName: lotForm.customerName,
-        customerPhone: lotForm.customerPhone || '',
-        downPayment: Number(lotForm.downPayment || 0),
-        status: 'completed',
-        responsibleName: lotForm.responsibleName || 'Corretor Fernando',
-        createdAt: new Date().toISOString()
-      });
-      // Reset form
-      setLotForm({
-        lotName: '',
-        quadra: '',
-        value: '',
-        customerName: '',
-        customerPhone: '',
-        downPayment: '',
-        responsibleName: ''
-      });
-      setIsLotModalOpen(false);
-    } catch(err) {
-      console.error('Falha ao salvar lote:', err);
-    }
   };
 
   return (
@@ -1296,70 +1250,6 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
             </div>
          </GlassCard>
       </div>
-
-      {/* Real Estate Sales Modal Simulation */}
-      <Modal 
-         isOpen={isLotModalOpen} 
-         onClose={() => setIsLotModalOpen(false)} 
-         title="Lançar Venda de Lote (Imobiliária)"
-      >
-         <div className="space-y-6 p-6">
-            <div className="grid grid-cols-2 gap-4">
-               <Input 
-                 label="Identificação do Lote" 
-                 placeholder="Ex: Lote 14" 
-                 value={lotForm.lotName} 
-                 onChange={(e) => setLotForm({ ...lotForm, lotName: e.target.value })} 
-               />
-               <Input 
-                 label="Quadra / Bloco" 
-                 placeholder="Ex: Quadra C" 
-                 value={lotForm.quadra} 
-                 onChange={(e) => setLotForm({ ...lotForm, quadra: e.target.value })} 
-               />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-               <Input 
-                 label="Valor do Lote (R$)" 
-                 type="number" 
-                 placeholder="150000" 
-                 value={lotForm.value} 
-                 onChange={(e) => setLotForm({ ...lotForm, value: e.target.value })} 
-               />
-               <Input 
-                 label="Entrada / Sinal (R$)" 
-                 type="number" 
-                 placeholder="1500" 
-                 value={lotForm.downPayment} 
-                 onChange={(e) => setLotForm({ ...lotForm, downPayment: e.target.value })} 
-               />
-            </div>
-            <Input 
-              label="Nome do Comprador" 
-              placeholder="Ex: Rafael Matos" 
-              value={lotForm.customerName} 
-              onChange={(e) => setLotForm({ ...lotForm, customerName: e.target.value.toUpperCase() })} 
-            />
-            <div className="grid grid-cols-2 gap-4">
-               <Input 
-                 label="WhatsApp do Comprador" 
-                 placeholder="(62) 99999-5555" 
-                 value={lotForm.customerPhone} 
-                 onChange={(e) => setLotForm({ ...lotForm, customerPhone: e.target.value })} 
-               />
-               <Input 
-                 label="Corretor Responsável" 
-                 placeholder="Ex: Fernando Santos" 
-                 value={lotForm.responsibleName} 
-                 onChange={(e) => setLotForm({ ...lotForm, responsibleName: e.target.value })} 
-               />
-            </div>
-            <div className="flex gap-4 pt-4 border-t border-white/10">
-               <Button className="flex-1" icon={Check} onClick={handleSaveLotSale}>Registrar Contrato</Button>
-               <Button variant="ghost" className="text-rose-400" onClick={() => setIsLotModalOpen(false)}>Cancelar</Button>
-            </div>
-         </div>
-      </Modal>
 
       <Modal isOpen={isRevenueModalOpen && !!user?.isAdmin} onClose={() => setIsRevenueModalOpen(false)} title="Análise Detalhada" size="xl">
          <div className="space-y-4 p-1 sm:p-2">
@@ -1773,7 +1663,6 @@ export const ChatPanel = ({
     canCreateCard: true,
     canAddTask: true,
     canStartPosSale: true,
-    canStartRealEstateSale: true,
     canMoveLead: true,
     canViewCustomerData: true,
     canViewAttachments: true,
@@ -1807,19 +1696,6 @@ export const ChatPanel = ({
         if (setPrefilledCustomer) {
           setPrefilledCustomer({ name: conversation.name, phone: conversation.phone || '' });
           setRootActiveTab?.('pos');
-        }
-      }
-    },
-    { 
-      id: 'lot', 
-      icon: Building2, 
-      label: 'Venda Lote', 
-      color: 'text-indigo-400', 
-      permission: permissions.canStartRealEstateSale,
-      onClick: () => {
-        if (setPrefilledCustomer) {
-          setPrefilledCustomer({ name: conversation.name, phone: conversation.phone || '' });
-          setRootActiveTab?.('dashboard');
         }
       }
     },
@@ -4606,7 +4482,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         formaPagamentoTexto: contratoForm.formaPagamentoTexto,
         prazoTexto: contratoForm.prazoTexto,
         observacoes: contratoForm.observacoes,
-        numero: editingContrato?.numero || `CTR-${Date.now().toString().slice(-6)}`,
+        numero: editingContrato?.numero || `CTR-${Date.now().toString(36).toUpperCase()}`,
         multaPercentual: contratoForm.multaPercentual,
         jurosPercentual: contratoForm.jurosPercentual,
       });
@@ -4652,7 +4528,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         newId = inserted?.id || null;
         // A venda/orcamento passam a apontar pra versao nova (mais recente)
       } else {
-        const numero = `CTR-${Date.now().toString().slice(-6)}`;
+        const numero = `CTR-${Date.now().toString(36).toUpperCase()}`;
         const { data: inserted, error } = await supabase.from('contratos').insert({ ...payload, numero, status: 'rascunho' }).select().single();
         if (error) throw error;
         newId = inserted?.id || null;
@@ -5008,7 +4884,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         newId = editingOrcamento.id;
       } else {
         const prefixo = isContrato ? 'CTR' : 'ORC';
-        const numero = `${prefixo}-${Date.now().toString().slice(-6)}`;
+        const numero = `${prefixo}-${Date.now().toString(36).toUpperCase()}`;
         const { data: inserted, error } = await supabase.from('orcamentos').insert({ ...payload, numero, status: 'rascunho' }).select().single();
         if (error) throw error;
         newId = inserted?.id || null;
@@ -13888,7 +13764,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     setEditedPdvTabs(u.allowedPdvTabs || ['venda', 'historico', 'estoque', 'servicos', 'orcamentos', 'contratos', 'excluidos', 'clientes']);
     setEditedActions(u.allowedActions || [
       'canStartNote', 'canSendSavedMessage', 'canCreateCard', 'canAddTask',
-      'canStartPosSale', 'canStartRealEstateSale', 'canMoveLead',
+      'canStartPosSale', 'canMoveLead',
       'canViewCustomerData', 'canViewAttachments', 'canTranscribeAudio'
     ]);
     setEditedModulePermissions(u.modulePermissions || getDefaultModulePermissions(u.role || 'atendente'));
@@ -13956,7 +13832,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
         : ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'clientes_espera', 'production'];
       const defaultActions = [
         'canStartNote', 'canSendSavedMessage', 'canCreateCard', 'canAddTask',
-        'canStartPosSale', 'canStartRealEstateSale', 'canMoveLead',
+        'canStartPosSale', 'canMoveLead',
         'canViewCustomerData', 'canViewAttachments', 'canTranscribeAudio'
       ];
 

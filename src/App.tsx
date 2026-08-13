@@ -792,7 +792,7 @@ export default function App() {
           allowedTabs: ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'production', 'settings'],
           allowedActions: [
             'canStartNote', 'canSendSavedMessage', 'canCreateCard', 'canAddTask',
-            'canStartPosSale', 'canStartRealEstateSale', 'canMoveLead',
+            'canStartPosSale', 'canMoveLead',
             'canViewCustomerData', 'canViewAttachments', 'canTranscribeAudio'
           ],
           createdAt: new Date().toISOString(),
