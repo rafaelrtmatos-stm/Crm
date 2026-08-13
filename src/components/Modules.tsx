@@ -1069,13 +1069,6 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
 
         return (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-            {canOS && (
-              <GlassCard onClick={() => setActiveTab?.('pos')} className="p-5 border-white/5 cursor-pointer hover:border-primary-500/30 transition-all space-y-2">
-                <p className="text-[9px] font-black uppercase text-white/30 tracking-widest">Ordens de Serviço</p>
-                <h4 className="text-2xl font-black text-white">{pendingOrders.length} <span className="text-xs text-white/40 font-bold">em andamento</span></h4>
-                <p className="text-[10px] text-primary-400 font-bold uppercase">Ver todas →</p>
-              </GlassCard>
-            )}
             {canMsg && (
               <GlassCard onClick={() => setActiveTab?.('messages')} className="p-5 border-white/5 cursor-pointer hover:border-primary-500/30 transition-all space-y-2">
                 <p className="text-[9px] font-black uppercase text-white/30 tracking-widest">Mensagens Recebidas</p>
@@ -1245,46 +1238,54 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                   <Button 
                     size="sm" 
                     icon={Plus} 
-                    onClick={() => setActiveTab?.('contract_approval')}
+                    onClick={() => setActiveTab?.('pos')}
                     className="text-[9px] uppercase tracking-widest font-black h-8 px-3 bg-red-600 hover:bg-red-700 text-white"
                   >
-                    Novo Contrato PDV
+                    Ir pro PDV
                   </Button>
                </div>
 
-               {/* Total Stats Card */}
+               {/* Total Stats Card — dados reais */}
                <div className="grid grid-cols-2 gap-4 mb-6">
                   <div className="p-4 bg-red-500/10 rounded-2xl border border-red-500/10">
-                     <p className="text-[9px] font-black text-red-400 uppercase tracking-widest mb-1">Total de Contratos</p>
-                     <p className="text-2xl font-black text-white">24 un</p>
+                     <p className="text-[9px] font-black text-red-400 uppercase tracking-widest mb-1">Vendas Este Mês</p>
+                     <p className="text-2xl font-black text-white">{realSales.filter(o => { const d = new Date(o.createdAt); const now = new Date(); return o.status !== 'canceled' && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); }).length} un</p>
                   </div>
                   <div className="p-4 bg-emerald-500/10 rounded-2xl border border-emerald-500/10">
-                     <p className="text-[9px] font-black text-emerald-400 uppercase tracking-widest mb-1">Faturamento Bruto</p>
-                     <p className="text-xl font-black text-white">R$ 48.950,00</p>
+                     <p className="text-[9px] font-black text-emerald-400 uppercase tracking-widest mb-1">Faturamento do Mês</p>
+                     <p className="text-xl font-black text-white">R$ {realSales.filter(o => { const d = new Date(o.createdAt); const now = new Date(); return o.status !== 'canceled' && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); }).reduce((acc, o) => acc + (o.status === 'pending' ? (o.downPayment || 0) : (o.total || 0)), 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                   </div>
                </div>
 
-               {/* Merchandise / Contracts Quick List */}
+               {/* Vendas mais recentes — dados reais */}
                <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-                  {[
-                     { client: 'Carlos Alberto Oliveira', service: 'Fachada ACM 3x1m LED', value: 3800, status: 'Aceito Eletronicamente' },
-                     { client: 'Mariana Santos', service: '1.000 Panfletos + 500 Cartões', value: 450, status: 'Entrada PIX Paga' },
-                     { client: 'Roberto Souza', service: 'Adesivação de Frota (2 Vans)', value: 2600, status: 'Aguardando Aceite' }
-                  ].map((s, idx) => (
-                    <div key={idx} className="p-4 bg-white/5 border border-white/5 rounded-2xl flex justify-between items-center group hover:bg-white/10 transition-all">
-                       <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                             <span className="text-[11px] font-black text-white uppercase italic">{s.service}</span>
-                             <Badge variant="outline" className="text-[8px] py-0 px-1 border-red-500/30 text-red-400 leading-none h-4">{s.status}</Badge>
-                          </div>
-                          <p className="text-[9px] text-white/40 font-bold uppercase tracking-wider">Cliente: {s.client}</p>
-                       </div>
-                       <div className="text-right">
-                          <p className="text-xs font-black text-emerald-400">R$ {s.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-                          <p className="text-[8px] text-white/40 uppercase font-black">Entrada 50%: R$ {(s.value / 2).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-                       </div>
+                  {realSales.filter(o => o.status !== 'canceled').slice(0, 6).length === 0 ? (
+                    <div className="text-center py-8 opacity-20 border border-dashed border-white/10 rounded-2xl">
+                       <p className="text-[10px] font-black uppercase tracking-widest">Nenhuma venda registrada ainda</p>
                     </div>
-                  ))}
+                  ) : (
+                    realSales.filter(o => o.status !== 'canceled').slice(0, 6).map((o) => (
+                      <div
+                        key={o.id}
+                        onClick={() => setActiveTab?.('pos')}
+                        className="p-4 bg-white/5 border border-white/5 rounded-2xl flex justify-between items-center group hover:bg-white/10 transition-all cursor-pointer"
+                      >
+                         <div className="space-y-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                               <span className="text-[11px] font-black text-white uppercase italic truncate">{(o.items?.[0]?.name || 'Serviço/Produto').toUpperCase()}{(o.items?.length || 0) > 1 ? ` +${o.items!.length - 1}` : ''}</span>
+                               <Badge variant="outline" className={cn("text-[8px] py-0 px-1 leading-none h-4", o.status === 'pending' ? "border-amber-500/30 text-amber-400" : "border-emerald-500/30 text-emerald-400")}>
+                                 {o.status === 'pending' ? 'Em Aberto' : 'Pago'}
+                               </Badge>
+                            </div>
+                            <p className="text-[9px] text-white/40 font-bold uppercase tracking-wider truncate">Cliente: {(o.customerName || 'Cliente de Balcão').toUpperCase()}</p>
+                         </div>
+                         <div className="text-right shrink-0 ml-2">
+                            <p className="text-xs font-black text-emerald-400">R$ {o.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                            <p className="text-[8px] text-white/40 uppercase font-black">Pago: R$ {(o.downPayment || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                         </div>
+                      </div>
+                    ))
+                  )}
                </div>
             </div>
          </GlassCard>
@@ -1320,10 +1321,8 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                       <div 
                         key={o.id || idx} 
                         onClick={() => {
-                          if (setPrefilledCustomer) {
-                            setPrefilledCustomer({ name: o.customerName || 'Cliente Balcão', phone: o.phone || o.customerPhone || '' });
-                            setActiveTab?.('pos');
-                          }
+                          setPendingReceivablesFilter(true);
+                          setActiveTab?.('pos');
                         }} 
                         className="p-4 bg-white/5 border border-white/10 rounded-2xl hover:border-primary-400 hover:bg-white/10 cursor-pointer transition-all flex justify-between items-center group relative overflow-hidden"
                       >
@@ -13545,6 +13544,9 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
 // --- SETTINGS ---
 export const SettingsModule = ({ currentCompany, user }: { currentCompany: Company | null; user: AppUser | null }) => {
   const [activeTab, setActiveTab] = useState('Geral');
+  useEffect(() => {
+    if (activeTab === 'Comissões') loadColaboradores();
+  }, [activeTab]);
   const [logoUrl, setLogoUrl] = useState(currentCompany?.logoUrl || '');
   const [logoLight, setLogoLight] = useState<string | null>(null);
   const [logoDark, setLogoDark] = useState<string | null>(null);
@@ -13554,6 +13556,77 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
 
   // Sessoes ativas (IP + dispositivo) de todos os usuarios, pra o admin poder desconectar
   const [activeSessions, setActiveSessions] = useState<any[]>([]);
+
+  // --- Comissoes: gestao de colaboradores (nome/senha/cargo/salario/comissao/meta) ---
+  const [colaboradoresList, setColaboradoresList] = useState<any[]>([]);
+  const [isLoadingColaboradores, setIsLoadingColaboradores] = useState(false);
+  const [editingColaborador, setEditingColaborador] = useState<any | null>(null);
+  const [colaboradorForm, setColaboradorForm] = useState({
+    nome: '', senha: '', cargo: '', salarioBase: 0, comissaoPadraoPercentual: 10, metaSemanal: 0,
+  });
+  const [savingColaborador, setSavingColaborador] = useState(false);
+
+  const loadColaboradores = async () => {
+    setIsLoadingColaboradores(true);
+    const { data } = await supabase.from('colaboradores').select('*').order('nome', { ascending: true });
+    setColaboradoresList(data || []);
+    setIsLoadingColaboradores(false);
+  };
+
+  const openNewColaborador = () => {
+    setEditingColaborador(null);
+    setColaboradorForm({ nome: '', senha: '', cargo: '', salarioBase: 0, comissaoPadraoPercentual: 10, metaSemanal: 0 });
+  };
+
+  const openEditColaborador = (c: any) => {
+    setEditingColaborador(c);
+    setColaboradorForm({
+      nome: c.nome || '', senha: c.senha || '', cargo: c.cargo || '',
+      salarioBase: Number(c.salario_base) || 0, comissaoPadraoPercentual: Number(c.comissao_padrao_percentual) || 10,
+      metaSemanal: Number(c.meta_semanal) || 0,
+    });
+  };
+
+  const handleSaveColaborador = async () => {
+    if (!colaboradorForm.nome.trim() || !colaboradorForm.senha.trim()) { showAlert('Preencha nome e senha do colaborador.'); return; }
+    setSavingColaborador(true);
+    const payload = {
+      nome: colaboradorForm.nome.trim(),
+      senha: colaboradorForm.senha,
+      cargo: colaboradorForm.cargo || null,
+      salario_base: colaboradorForm.salarioBase || 0,
+      comissao_padrao_percentual: colaboradorForm.comissaoPadraoPercentual || 0,
+      meta_semanal: colaboradorForm.metaSemanal || 0,
+      updated_at: new Date().toISOString(),
+    };
+    if (editingColaborador) {
+      const { error } = await supabase.from('colaboradores').update(payload).eq('id', editingColaborador.id);
+      setSavingColaborador(false);
+      if (error) { showAlert(`Não foi possível salvar: ${error.message}`); return; }
+    } else {
+      const { error } = await supabase.from('colaboradores').insert(payload);
+      setSavingColaborador(false);
+      if (error) { showAlert(`Não foi possível criar: ${error.message}`); return; }
+    }
+    setEditingColaborador(null);
+    openNewColaborador();
+    await loadColaboradores();
+    showAlert('Colaborador salvo!');
+  };
+
+  const handleToggleColaboradorAtivo = async (c: any) => {
+    const { error } = await supabase.from('colaboradores').update({ ativo: !c.ativo }).eq('id', c.id);
+    if (error) { showAlert(`Não foi possível atualizar: ${error.message}`); return; }
+    await loadColaboradores();
+  };
+
+  const handleDeleteColaborador = async (c: any) => {
+    if (!(await showConfirm(`Excluir o colaborador ${c.nome}? Isso também apaga todos os serviços/comissões lançados por ele. Essa ação não pode ser desfeita.`))) return;
+    const { error } = await supabase.from('colaboradores').delete().eq('id', c.id);
+    if (error) { showAlert(`Não foi possível excluir: ${error.message}`); return; }
+    await loadColaboradores();
+  };
+
 
   // Menu lateral principal (onde fica PDV, Contatos etc) — admin escolhe o que aparece e a ordem
   const MENU_ITEMS_DEFAULT = [
@@ -14117,7 +14190,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
       />
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-10">
         <GlassCard className="p-0 overflow-hidden h-fit border-white/5">
-           {['Geral', 'Identidade', 'Menu Lateral', 'CRM / Funis', 'Integrações', 'Usuários e Permissões', 'Backup'].map((tab) => (
+           {['Geral', 'Identidade', 'Menu Lateral', 'CRM / Funis', 'Comissões', 'Integrações', 'Usuários e Permissões', 'Backup'].map((tab) => (
              <button 
                key={tab} 
                onClick={() => setActiveTab(tab)}
@@ -14429,6 +14502,58 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                       </div>
                    </div>
                 </div>
+             </div>
+           )}
+
+           {activeTab === 'Comissões' && (
+             <div className="space-y-8">
+                <div>
+                   <h3 className="text-xl font-black text-white italic tracking-tighter uppercase">Colaboradores</h3>
+                   <p className="text-xs text-white/40 mt-1">Crie o acesso de cada colaborador (nome + senha) pro app de Comissões. Eles entram em <span className="text-primary-300 font-bold">/comissoes</span> e só veem os próprios serviços lançados.</p>
+                </div>
+
+                {/* Formulário de criar/editar */}
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-4">
+                   <h4 className="text-sm font-black uppercase text-primary-300">{editingColaborador ? `Editando: ${editingColaborador.nome}` : 'Novo Colaborador'}</h4>
+                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <Input label="Nome" value={colaboradorForm.nome} onChange={(e: any) => setColaboradorForm({ ...colaboradorForm, nome: e.target.value })} />
+                      <Input label="Senha" value={colaboradorForm.senha} onChange={(e: any) => setColaboradorForm({ ...colaboradorForm, senha: e.target.value })} placeholder="Senha de acesso" />
+                      <Input label="Cargo (opcional)" value={colaboradorForm.cargo} onChange={(e: any) => setColaboradorForm({ ...colaboradorForm, cargo: e.target.value })} />
+                      <Input label="Salário Base (R$)" type="number" value={colaboradorForm.salarioBase} onChange={(e: any) => setColaboradorForm({ ...colaboradorForm, salarioBase: Number(e.target.value) || 0 })} />
+                      <Input label="Comissão Padrão (%)" type="number" value={colaboradorForm.comissaoPadraoPercentual} onChange={(e: any) => setColaboradorForm({ ...colaboradorForm, comissaoPadraoPercentual: Number(e.target.value) || 0 })} />
+                      <Input label="Meta Semanal (R$)" type="number" value={colaboradorForm.metaSemanal} onChange={(e: any) => setColaboradorForm({ ...colaboradorForm, metaSemanal: Number(e.target.value) || 0 })} />
+                   </div>
+                   <div className="flex justify-end gap-3">
+                      {editingColaborador && <Button variant="ghost" onClick={openNewColaborador}>Cancelar Edição</Button>}
+                      <Button disabled={savingColaborador} onClick={handleSaveColaborador}>{savingColaborador ? 'Salvando...' : (editingColaborador ? 'Salvar Alterações' : 'Criar Colaborador')}</Button>
+                   </div>
+                </div>
+
+                {/* Lista */}
+                {isLoadingColaboradores ? (
+                  <div className="flex justify-center py-10"><RefreshCw className="animate-spin text-primary-500" size={22} /></div>
+                ) : colaboradoresList.length === 0 ? (
+                  <div className="text-center py-10 text-white/30 text-sm">Nenhum colaborador cadastrado ainda.</div>
+                ) : (
+                  <div className="space-y-2">
+                     {colaboradoresList.map((c) => (
+                       <div key={c.id} className={cn("flex items-center gap-3 bg-white/5 border rounded-xl px-4 py-3", c.ativo ? "border-white/10" : "border-white/5 opacity-50")}>
+                          <div className="min-w-0 flex-1">
+                             <div className="flex items-center gap-2">
+                                <p className="font-bold text-white truncate">{c.nome}</p>
+                                {!c.ativo && <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-400">Inativo</span>}
+                             </div>
+                             <p className="text-[10px] text-white/30">{c.cargo || 'Sem cargo definido'} · Salário R$ {Number(c.salario_base || 0).toFixed(2).replace('.', ',')} · Comissão {c.comissao_padrao_percentual || 0}%</p>
+                          </div>
+                          <button onClick={() => openEditColaborador(c)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20 shrink-0">Editar</button>
+                          <button onClick={() => handleToggleColaboradorAtivo(c)} className={cn("text-[8px] font-black uppercase px-2 py-1.5 rounded-lg shrink-0", c.ativo ? "bg-amber-500/10 text-amber-400 hover:bg-amber-500/20" : "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20")}>
+                             {c.ativo ? 'Desativar' : 'Ativar'}
+                          </button>
+                          <button onClick={() => handleDeleteColaborador(c)} className="text-white/30 hover:text-rose-400 p-1.5 shrink-0"><Trash2 size={13} /></button>
+                       </div>
+                     ))}
+                  </div>
+                )}
              </div>
            )}
 
