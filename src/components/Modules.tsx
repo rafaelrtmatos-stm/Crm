@@ -466,6 +466,21 @@ const PAYMENT_METHOD_LABELS_PT: Record<string, string> = {
   transferencia: 'TRANSFERÊNCIA', boleto: 'BOLETO', crediario: 'CREDIÁRIO',
 };
 
+// Mostra o primeiro nome sempre inteiro, e so trunca o resto se precisar (ex: "Rafael Tava…")
+function formatNamePreview(fullName: string, maxTotalChars: number = 16): string {
+  const nome = (fullName || '').trim();
+  if (!nome) return '';
+  const partes = nome.split(/\s+/);
+  if (partes.length <= 1) return partes[0];
+  const primeiro = partes[0];
+  const resto = partes.slice(1).join(' ');
+  const completo = `${primeiro} ${resto}`;
+  if (completo.length <= maxTotalChars) return completo;
+  const restanteDisponivel = maxTotalChars - primeiro.length - 1;
+  if (restanteDisponivel <= 0) return `${primeiro}…`;
+  return `${primeiro} ${resto.slice(0, restanteDisponivel)}…`;
+}
+
 const CONTRATO_STATUS_LABELS: Record<string, string> = {
   rascunho: 'Rascunho', aguardando_aceite: 'Aguardando Aceite', aceito: 'Aceito',
   em_execucao: 'Em Execução', concluido: 'Concluído', cancelado: 'Cancelado', encerrado: 'Encerrado',
@@ -8655,7 +8670,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             <div className="flex items-start justify-between gap-2">
                                <div className="min-w-0">
                                   <div className="flex items-center gap-1.5 flex-wrap">
-                                     <span className="font-bold text-white truncate">{c.full_name}</span>
+                                     <span className="font-bold text-white truncate">{(c.full_name || '').toUpperCase()}</span>
                                      {isActive && <span title="Cliente Ativo">🟢</span>}
                                      {hasDebt && <span title="Possui Débitos">🔴</span>}
                                      {isVip && <span title="Cliente VIP">⭐</span>}
@@ -12937,7 +12952,7 @@ const OrdemServicoCard = ({ pedido, onDropdownChange, selectMode, selected, onTo
           </div>
         )}
         <div className="min-w-0">
-           <p className="font-bold text-white text-[9px] truncate group-hover:whitespace-normal group-hover:break-words leading-tight">#{pedido.id.slice(-6).toUpperCase()} {pedido.customerName || 'Balcão'}</p>
+           <p title={pedido.customerName || 'Balcão'} className="font-bold text-white text-[9px] truncate leading-tight">#{pedido.id.slice(-6).toUpperCase()} {formatNamePreview((pedido.customerName || 'Balcão').toUpperCase(), 14)}</p>
            <p className="text-[8px] text-white/30 uppercase font-black truncate group-hover:whitespace-normal group-hover:break-words leading-tight">{(pedido.items || []).map(i => i.name).join(', ') || 'Sem itens'}</p>
         </div>
         {pedido.scheduledFor && (
@@ -13029,7 +13044,7 @@ const OrdemServicoListRow = ({ pedido, onDropdownChange, selectMode, selected, o
          </div>
        )}
        <div className="min-w-0 flex-1">
-          <p className="font-bold text-white text-xs truncate">#{pedido.id.slice(-6).toUpperCase()} — {pedido.customerName || 'Cliente de Balcão'}</p>
+          <p title={pedido.customerName || 'Cliente de Balcão'} className="font-bold text-white text-xs truncate">#{pedido.id.slice(-6).toUpperCase()} — {formatNamePreview((pedido.customerName || 'Cliente de Balcão').toUpperCase(), 22)}</p>
           <p className="text-[9px] text-white/30 uppercase font-black truncate">{(pedido.items || []).map(i => i.name).join(', ') || 'Sem itens'}</p>
        </div>
        {pedido.scheduledFor && (
