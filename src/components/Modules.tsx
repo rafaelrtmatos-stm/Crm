@@ -4329,6 +4329,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   // So verifica pedidos com entrega agendada, ainda nao finalizados/cancelados.
   useEffect(() => {
     if (!soundAlertsEnabled) return;
+    // Pede permissao pra notificacao nativa do navegador (aparece mesmo com a aba minimizada
+    // ou trocada, diferente do aviso amarelo de dentro do sistema que só aparece com a aba aberta)
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
     const THRESHOLDS = [60, 30, 15, 5, 0];
     const checkAlerts = () => {
       const now = Date.now();
@@ -4353,6 +4358,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             const msg = `⏰ Entrega de ${sale.customerName || 'cliente'} ${label}`;
             setAlertToast({ message: msg, saleId: sale.id });
             setTimeout(() => setAlertToast(prev => prev?.message === msg ? null : prev), 12000);
+            // Notificacao nativa do navegador — aparece mesmo com a aba minimizada, em segundo
+            // plano ou trocada por outra (o navegador tem que estar aberto, so nao precisa estar
+            // na tela). So dispara se a pessoa ja autorizou notificacoes.
+            if ('Notification' in window && Notification.permission === 'granted') {
+              try {
+                const notif = new Notification('Rafa Arts — Entrega Agendada', { body: msg, icon: '/icon-192.png', tag: key });
+                notif.onclick = () => { window.focus(); notif.close(); };
+              } catch {}
+            }
           }
         });
       });
@@ -7252,6 +7266,23 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                      >
                         Testar
                      </button>
+                     {'Notification' in window && Notification.permission !== 'granted' && (
+                       <button
+                         type="button"
+                         onClick={async () => {
+                            const perm = await Notification.requestPermission();
+                            if (perm === 'granted') {
+                              showAlert('Notificações do navegador ativadas! Agora os alertas de entrega aparecem mesmo com a aba minimizada ou trocada.');
+                            } else {
+                              showAlert('Notificação não autorizada. Pra ativar depois, vai nas configurações do navegador/site e permite notificações pra esse site.');
+                            }
+                         }}
+                         title="Ativa notificação do navegador, que aparece mesmo com a aba minimizada"
+                         className="px-2 py-1 rounded-lg bg-amber-500/20 text-amber-700 hover:bg-amber-500/30 border-0 cursor-pointer text-[8px] font-black uppercase tracking-wider"
+                       >
+                          Ativar Notificação do Navegador
+                       </button>
+                     )}
                   </div>
                   {user?.isAdmin && (
                     <div className="text-right">
