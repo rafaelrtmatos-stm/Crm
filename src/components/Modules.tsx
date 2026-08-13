@@ -460,6 +460,11 @@ const mapContratoRow = (row: any): Contrato => ({
   updatedAt: row.updated_at || undefined,
 });
 
+const PAYMENT_METHOD_LABELS_PT: Record<string, string> = {
+  pix: 'PIX', dinheiro: 'DINHEIRO', cartao_debito: 'DÉBITO', cartao_credito: 'CRÉDITO',
+  transferencia: 'TRANSFERÊNCIA', boleto: 'BOLETO', crediario: 'CREDIÁRIO',
+};
+
 const CONTRATO_STATUS_LABELS: Record<string, string> = {
   rascunho: 'Rascunho', aguardando_aceite: 'Aguardando Aceite', aceito: 'Aceito',
   em_execucao: 'Em Execução', concluido: 'Concluído', cancelado: 'Cancelado', encerrado: 'Encerrado',
@@ -11194,10 +11199,22 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                        <span className="font-mono">R$ {balance.toFixed(2).replace('.', ',')}</span>
                      </div>
                    )}
-                   <div className="flex justify-between text-xs text-white/40 pt-1 border-t border-white/5">
-                     <span>Forma de Pagamento</span>
-                     <span className="font-bold uppercase">{sale.paymentMethod || '-'}</span>
-                   </div>
+                   {sale.payments && sale.payments.length > 1 ? (
+                     <div className="pt-1 border-t border-white/5 space-y-1">
+                        <span className="text-xs text-white/40">Pagamentos ({sale.payments.length}x)</span>
+                        {sale.payments.map((p, i) => (
+                          <div key={i} className="flex justify-between text-xs text-white/60">
+                             <span>{i + 1}. {PAYMENT_METHOD_LABELS_PT[p.method] || p.method.toUpperCase()}</span>
+                             <span className="font-mono font-bold text-white">R$ {p.value.toFixed(2).replace('.', ',')}</span>
+                          </div>
+                        ))}
+                     </div>
+                   ) : (
+                     <div className="flex justify-between text-xs text-white/40 pt-1 border-t border-white/5">
+                       <span>Forma de Pagamento</span>
+                       <span className="font-bold uppercase">{sale.paymentMethod || '-'}</span>
+                     </div>
+                   )}
                  </div>
                </div>
              </div>

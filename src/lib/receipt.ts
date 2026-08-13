@@ -357,7 +357,13 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
   const infoCardsH = Math.max(92, 46 + Math.max(clienteRows.length, pedidoRows.length) * 17);
   const tableHeaderH = 32;
   const tableH = tableHeaderH + totalRowsHeight;
-  const totalCardH = order.discountValue ? 168 : 150;
+  const paymentBreakdown = (order.payments && order.payments.length > 1) ? order.payments : null;
+  const PAYMENT_METHOD_LABELS: Record<string, string> = {
+    pix: 'PIX', dinheiro: 'DINHEIRO', cartao_debito: 'DÉBITO', cartao_credito: 'CRÉDITO',
+    transferencia: 'TRANSFERÊNCIA', boleto: 'BOLETO', crediario: 'CREDIÁRIO',
+  };
+  const paymentBreakdownExtra = paymentBreakdown ? (paymentBreakdown.length - 1) * 14 : 0;
+  const totalCardH = (order.discountValue ? 168 : 150) + paymentBreakdownExtra;
   const obsH = 30 + OBSERVACOES.length * 16 + 14;
   const footerH = 195;
   const height = headerH + pipelineH + infoCardsH + 20 + tableH + 22 + totalCardH + 26 + obsH + 22 + footerH + 40;
@@ -594,8 +600,28 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
     ctx.fillText(value, width - marginX - 18, ry);
   };
   payRow('Entrada Recebida', `R$ ${down.toFixed(2).replace('.', ',')}`, GREEN, y + 42);
-  payRow('Forma de Pagamento', (order.paymentMethod || '-').toUpperCase(), TEXT, y + 66);
-  payRow('Saldo Pendente', isPending ? `R$ ${balance.toFixed(2).replace('.', ',')}` : 'R$ 0,00', isPending ? AMBER : TEXT_DIM, y + 90);
+  if (paymentBreakdown) {
+    ctx.textAlign = 'left';
+    ctx.fillStyle = TEXT_DIM;
+    ctx.font = `600 9.5px ${FONT}`;
+    ctx.fillText('Pagamentos', rightX, y + 66);
+    paymentBreakdown.forEach((p, i) => {
+      const ry = y + 66 + 14 * (i + 1);
+      const label = PAYMENT_METHOD_LABELS[p.method] || p.method.toUpperCase();
+      ctx.textAlign = 'left';
+      ctx.fillStyle = TEXT_DIM;
+      ctx.font = `600 8.5px ${FONT}`;
+      ctx.fillText(`${i + 1}. ${label}`, rightX + 4, ry);
+      ctx.textAlign = 'right';
+      ctx.fillStyle = TEXT;
+      ctx.font = `800 9.5px ${FONT}`;
+      ctx.fillText(`R$ ${p.value.toFixed(2).replace('.', ',')}`, width - marginX - 18, ry);
+    });
+    payRow('Saldo Pendente', isPending ? `R$ ${balance.toFixed(2).replace('.', ',')}` : 'R$ 0,00', isPending ? AMBER : TEXT_DIM, y + 66 + 14 * (paymentBreakdown.length + 1));
+  } else {
+    payRow('Forma de Pagamento', (order.paymentMethod || '-').toUpperCase(), TEXT, y + 66);
+    payRow('Saldo Pendente', isPending ? `R$ ${balance.toFixed(2).replace('.', ',')}` : 'R$ 0,00', isPending ? AMBER : TEXT_DIM, y + 90);
+  }
 
   const badgeText = isPending ? 'PENDENTE' : 'PAGO';
   const badgeColor = isPending ? AMBER : GREEN;
