@@ -1489,7 +1489,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
             <div className="p-4 bg-white/5 rounded-2xl border border-white/10 space-y-2">
               <div className="flex justify-between items-center">
                 <span className="text-xs font-bold text-white/50">Cliente:</span>
-                <span className="text-sm font-black text-white">{settleModalOrder.customerName || 'Cliente de Balcão'}</span>
+                <span className="text-sm font-black text-white">{(settleModalOrder.customerName || 'Cliente de Balcão').toUpperCase()}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-xs font-bold text-white/50">Total do Pedido:</span>
@@ -7655,7 +7655,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             <input type="checkbox" checked={selectedSaleIds.has(sale.id)} onChange={() => toggleSaleSelection(sale.id)} className="w-3.5 h-3.5 shrink-0 accent-primary-500" />
                           )}
                           <div className="flex-1 min-w-0 flex items-center gap-3 overflow-x-auto custom-scrollbar">
-                            <span className="text-[11px] font-black text-white whitespace-nowrap">{sale.customerName || 'Cliente de Balcão'}</span>
+                            <span className="text-[11px] font-black text-white whitespace-nowrap">{(sale.customerName || 'Cliente de Balcão').toUpperCase()}</span>
                             {sale.items && sale.items.length > 0 && (
                               <span className="text-[9px] text-white/40 italic whitespace-nowrap" title={sale.items[sale.items.length - 1].name}>
                                 {sale.items[sale.items.length - 1].name}{sale.items.length > 1 ? ` (+${sale.items.length - 1})` : ''}
@@ -8044,7 +8044,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   return (
                     <div key={sale.id} className="flex items-center gap-2 sm:gap-3 bg-slate-900/60 hover:bg-slate-900 border border-white/5 rounded-xl px-3 py-2.5 transition-all overflow-x-auto custom-scrollbar">
                       <div className="flex items-center gap-2 sm:gap-3 shrink-0 sm:min-w-0 sm:flex-1">
-                        <span className="text-[11px] font-black text-white whitespace-nowrap">{sale.customerName || 'Cliente de Balcão'}</span>
+                        <span className="text-[11px] font-black text-white whitespace-nowrap">{(sale.customerName || 'Cliente de Balcão').toUpperCase()}</span>
                         {sale.items && sale.items.length > 0 && (
                           <span className="text-[9px] text-white/40 italic whitespace-nowrap" title={sale.items[sale.items.length - 1].name}>
                             {sale.items[sale.items.length - 1].name}{sale.items.length > 1 ? ` (+${sale.items.length - 1})` : ''}
@@ -8179,7 +8179,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                )}
                             </div>
                             <p className="text-[9px] font-mono text-white/30 mt-1">{o.numero}</p>
-                            <p className="font-black text-white truncate">{o.customerName}</p>
+                            <p className="font-black text-white truncate">{(o.customerName || '').toUpperCase()}</p>
                          </div>
                          <span className={cn("text-[8px] font-black uppercase px-2 py-1 rounded-full shrink-0", statusStyles[o.status])}>{statusLabels[o.status]}</span>
                       </div>
@@ -8375,7 +8375,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                 <span className={cn("text-[8px] font-black uppercase px-2 py-0.5 rounded-full", CONTRATO_STATUS_STYLES[c.status])}>{CONTRATO_STATUS_LABELS[c.status] || c.status}</span>
                                 {orcamentoVinc && <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-primary-500/10 text-primary-300">Orç. {orcamentoVinc.numero}</span>}
                              </div>
-                             <p className="font-black text-white truncate mt-1">{c.customerName}</p>
+                             <p className="font-black text-white truncate mt-1">{(c.customerName || '').toUpperCase()}</p>
                              <p className="text-[10px] text-white/40 truncate">{c.cpfCnpj || 'CPF/CNPJ não informado'} · {c.phone || 'sem telefone'}</p>
                              <p className="text-[10px] text-white/30 truncate mt-0.5">Serviço: {servico}</p>
                           </div>
@@ -8454,7 +8454,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                        <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
                              <p className="text-[9px] font-mono text-white/30">#{sale.id.slice(-8).toUpperCase()}</p>
-                             <p className="font-black text-white truncate">{sale.customerName || 'Cliente de Balcão'}</p>
+                             <p className="font-black text-white truncate">{(sale.customerName || 'Cliente de Balcão').toUpperCase()}</p>
                           </div>
                           <span className="text-[8px] font-black uppercase px-2 py-1 rounded-full bg-rose-500/15 text-rose-400 shrink-0">{diasRestantes}d p/ apagar</span>
                        </div>
@@ -9352,7 +9352,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                        <div>Ped #${order.id.slice(-8).toUpperCase()} - ${safeFormat(order.createdAt, 'dd/MM/yyyy HH:mm')}</div>
                      </div>
                      <div>
-                       <strong>Cliente:</strong> ${order.customerName || 'Cliente de Balcão'}<br/>
+                       <strong>Cliente:</strong> ${(order.customerName || 'Cliente de Balcão').toUpperCase()}<br/>
                        ${selectedCustomer?.phone ? `<strong>Telefone:</strong> ${selectedCustomer.phone}<br/>` : ''}
                        ${order.scheduledFor ? `<strong>Previsão Entrega:</strong> ${safeFormat(order.scheduledFor, 'dd/MM/yyyy HH:mm')}<br/>` : ''}
                      </div>
@@ -9466,7 +9466,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
            <div className="p-4 bg-white/5 rounded-2xl border border-white/10 space-y-2">
              <div className="flex justify-between items-center">
                <span className="text-xs font-bold text-white/50">Cliente:</span>
-               <span className="text-sm font-black text-white">{settleModalOrder.customerName || 'Cliente de Balcão'}</span>
+               <span className="text-sm font-black text-white">{(settleModalOrder.customerName || 'Cliente de Balcão').toUpperCase()}</span>
              </div>
              <div className="flex justify-between items-center">
                <span className="text-xs font-bold text-white/50">Total do Pedido:</span>
@@ -10020,7 +10020,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
      {waSendOrcamento && (
        <Modal isOpen={!!waSendOrcamento} onClose={() => setWaSendOrcamento(null)} title="Enviar Orçamento pelo WhatsApp" size="sm">
          <div className="space-y-4 p-2">
-            <p className="text-xs text-white/50">Orçamento <span className="text-white font-bold">{waSendOrcamento.numero}</span> — {waSendOrcamento.customerName}</p>
+            <p className="text-xs text-white/50">Orçamento <span className="text-white font-bold">{waSendOrcamento.numero}</span> — {(waSendOrcamento.customerName || '').toUpperCase()}</p>
             <Input
               label="Número de WhatsApp"
               placeholder="(93) 99999-9999"
