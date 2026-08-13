@@ -102,6 +102,8 @@ export async function renderOrcamentoCanvas({ orcamento: o, companyName, logoDar
   const obsRowExtra = 14;
   const dimRowExtra = 12;
   const items = o.items || [];
+  const subtotalBrutoOrcamento = items.reduce((acc, i) => acc + (i.area ? i.price * i.area : i.price) * i.quantity, 0);
+  const descontoOrcamento = o.desconto || 0;
   const tableRows = Math.max(items.length, 1);
   const rowHeights = Array.from({ length: tableRows }, (_, i) =>
     rowHeight + (items[i]?.observacao ? obsRowExtra : 0) + (items[i]?.dimensions ? dimRowExtra : 0)
@@ -238,8 +240,11 @@ export async function renderOrcamentoCanvas({ orcamento: o, companyName, logoDar
     const item = items[i];
     const thisRowHeight = rowHeights[i];
     if (item) {
-      const unitPrice = item.area ? item.price * item.area : item.price;
-      const subtotal = unitPrice * item.quantity;
+      const unitPriceBruto = item.area ? item.price * item.area : item.price;
+      const subtotalBruto = unitPriceBruto * item.quantity;
+      const fatiaDesconto = descontoOrcamento > 0 && subtotalBrutoOrcamento > 0 ? (subtotalBruto / subtotalBrutoOrcamento) * descontoOrcamento : 0;
+      const subtotal = Math.max(0, subtotalBruto - fatiaDesconto);
+      const unitPrice = item.quantity > 0 ? subtotal / item.quantity : subtotal;
       ctx.textAlign = 'left';
       ctx.fillStyle = TEXT;
       ctx.font = `700 10px ${FONT}`;

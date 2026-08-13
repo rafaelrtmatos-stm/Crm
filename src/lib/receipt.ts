@@ -320,6 +320,12 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
   const balance = Math.max(0, total - down);
   const isPending = balance > 0 || order.status === 'pending';
   const items = order.items || [];
+  // Desconto do pedido (order.discountValue) e um valor unico pro pedido inteiro — pra mostrar
+  // "quanto ficou cada item depois do desconto", distribui ele proporcionalmente pelo peso de
+  // cada item no subtotal bruto (sem desconto). Ex: metro linear R$120, pedido com desconto de
+  // R$20 nesse unico item -> mostra R$100 no lugar de R$120.
+  const subtotalBrutoPedido = items.reduce((acc, i) => acc + (i.area ? i.price * i.area : i.price) * i.quantity, 0);
+  const descontoPedido = order.discountValue || 0;
   const tableRows = Math.max(items.length, 3);
   const rowHeights = Array.from({ length: tableRows }, (_, i) =>
     rowHeight + (items[i]?.observacao ? obsRowExtra : 0) + (items[i]?.dimensions ? dimRowExtra : 0)
@@ -512,8 +518,12 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
     const item = items[i];
     const thisRowHeight = rowHeights[i];
     if (item) {
-      const unitPrice = item.area ? item.price * item.area : item.price;
-      const subtotal = unitPrice * item.quantity;
+      const unitPriceBruto = item.area ? item.price * item.area : item.price;
+      const subtotalBruto = unitPriceBruto * item.quantity;
+      // Fatia desse item no desconto total do pedido, proporcional ao peso dele no subtotal bruto
+      const fatiaDesconto = descontoPedido > 0 && subtotalBrutoPedido > 0 ? (subtotalBruto / subtotalBrutoPedido) * descontoPedido : 0;
+      const subtotal = Math.max(0, subtotalBruto - fatiaDesconto);
+      const unitPrice = item.quantity > 0 ? subtotal / item.quantity : subtotal;
       ctx.textAlign = 'left';
       ctx.fillStyle = TEXT;
       ctx.font = `700 10.5px ${FONT}`;
