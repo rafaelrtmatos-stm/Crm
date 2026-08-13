@@ -8163,9 +8163,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           const valorAprovado = orcamentosDeVerdade.filter(o => statusAprovados.includes(o.status)).reduce((acc, o) => acc + o.total, 0);
           const valorNaoAprovado = orcamentosDeVerdade.filter(o => statusNaoAprovados.includes(o.status)).reduce((acc, o) => acc + o.total, 0);
           const orcamentosDashCards = [
+            { label: 'Rascunhos', val: orcamentosDeVerdade.filter(o => o.status === 'rascunho').length, color: 'text-white/60' },
             { label: 'Em Espera', val: orcamentosDeVerdade.filter(o => o.status === 'em_espera').length, color: 'text-amber-400' },
             { label: 'Enviados', val: orcamentosDeVerdade.filter(o => o.status === 'enviado').length, color: 'text-blue-400' },
-            { label: 'Aprovados', val: orcamentosDeVerdade.filter(o => statusAprovados.includes(o.status)).length, color: 'text-emerald-400' },
+            { label: 'Aprovados', val: orcamentosDeVerdade.filter(o => o.status === 'aprovado').length, color: 'text-emerald-400' },
             { label: 'Recusados/Cancelados', val: orcamentosDeVerdade.filter(o => o.status === 'recusado' || o.status === 'cancelado' || o.status === 'expirado').length, color: 'text-rose-400' },
           ];
           return (
@@ -8177,7 +8178,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             />
 
             {/* Dashboard */}
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-3">
               {orcamentosDashCards.map(card => (
                 <div key={card.label} className="bg-white/5 border border-white/10 rounded-2xl p-4">
                    <p className="text-[8px] font-black uppercase text-white/30 tracking-widest mb-1">{card.label}</p>
@@ -8322,13 +8323,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
         {activeTab === 'contratos' && (() => {
           // So mostra a versao MAIS RECENTE de cada contrato na lista (versoes antigas ficam
-          // guardadas no historico, acessiveis a partir da versao atual)
-          const versaoMaisRecentePorNumero = new Map<string, Contrato>();
-          allContratos.forEach(c => {
-            const atual = versaoMaisRecentePorNumero.get(c.numero);
-            if (!atual || c.versao > atual.versao) versaoMaisRecentePorNumero.set(c.numero, c);
-          });
-          const contratos = Array.from(versaoMaisRecentePorNumero.values());
+          // guardadas no historico, acessiveis a partir da versao atual). Agrupa pelo VINCULO
+          // real entre versoes (contratoAnteriorId aponta pra versao de origem), nao pelo numero
+          // (texto) - assim nunca da errado mesmo se dois contratos diferentes tiverem, por
+          // coincidencia, o mesmo numero gerado.
+          const idsSuperados = new Set(allContratos.map(c => c.contratoAnteriorId).filter(Boolean));
+          const contratos = allContratos.filter(c => !idsSuperados.has(c.id));
           const term = contratoSearchTerm.trim().toLowerCase();
           const contratosFiltrados = contratos.filter(c => {
             if (contratoStatusFilter !== 'todos' && c.status !== contratoStatusFilter) return false;
@@ -8345,15 +8345,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           const valorTotalContratado = contratos.filter(c => c.status !== 'cancelado' && c.status !== 'encerrado').reduce((acc, c) => acc + c.total, 0);
           const valorContratosAceitos = contratos.filter(c => c.status === 'aceito' || c.status === 'em_execucao' || c.status === 'concluido').reduce((acc, c) => acc + c.total, 0);
           const dashCards = [
-            { label: 'Ativos', val: contratos.filter(c => c.status === 'aceito' || c.status === 'em_execucao').length, color: 'text-emerald-400' },
+            { label: 'Rascunhos', val: contratos.filter(c => c.status === 'rascunho').length, color: 'text-white/60' },
             { label: 'Aguardando Aceite', val: contratos.filter(c => c.status === 'aguardando_aceite').length, color: 'text-blue-400' },
+            { label: 'Aceitos', val: contratos.filter(c => c.status === 'aceito').length, color: 'text-emerald-400' },
             { label: 'Em Execução', val: contratos.filter(c => c.status === 'em_execucao').length, color: 'text-amber-400' },
             { label: 'Concluídos', val: contratos.filter(c => c.status === 'concluido').length, color: 'text-primary-400' },
-            { label: 'Cancelados', val: contratos.filter(c => c.status === 'cancelado' || c.status === 'encerrado').length, color: 'text-rose-400' },
+            { label: 'Cancelados', val: contratos.filter(c => c.status === 'cancelado').length, color: 'text-rose-400' },
+            { label: 'Encerrados', val: contratos.filter(c => c.status === 'encerrado').length, color: 'text-white/40' },
           ];
 
           return (
-            <div className="flex-1 p-4 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/40 space-y-6">
+            <div className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/40 space-y-6">
               <SectionHeader
                 title="Contratos"
                 subtitle={`${contratos.length} contrato(s)`}
@@ -8361,7 +8363,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               />
 
               {/* Dashboard */}
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-9 gap-3">
                 {dashCards.map(card => (
                   <div key={card.label} className="bg-white/5 border border-white/10 rounded-2xl p-4">
                      <p className="text-[8px] font-black uppercase text-white/30 tracking-widest mb-1">{card.label}</p>
@@ -8493,7 +8495,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         })()}
 
         {activeTab === 'excluidos' && (
-          <div className="flex-1 p-4 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/40 space-y-6">
+          <div className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/40 space-y-6">
             <SectionHeader
               title="Excluídos"
               subtitle={`Ficam aqui por 30 dias e depois somem automaticamente — ${deletedSales.length} nota(s)`}
@@ -10740,7 +10742,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
      {viewingContratoHistorico && (() => {
        // Monta a cadeia de versoes desse contrato (numero igual), da mais antiga pra mais nova
-       const todasVersoes = allContratos.filter(c => c.numero === viewingContratoHistorico.numero).sort((a, b) => a.versao - b.versao);
+       // Monta a cadeia caminhando pelo vinculo real (contratoAnteriorId), nao pelo numero —
+       // imune a coincidencia de numero repetido entre contratos diferentes
+       const cadeiaIds = new Set<string>([viewingContratoHistorico.id]);
+       let cursor: Contrato | undefined = viewingContratoHistorico;
+       while (cursor?.contratoAnteriorId) {
+         cadeiaIds.add(cursor.contratoAnteriorId);
+         cursor = allContratos.find(c => c.id === cursor!.contratoAnteriorId);
+       }
+       const todasVersoes = allContratos.filter(c => cadeiaIds.has(c.id)).sort((a, b) => a.versao - b.versao);
        return (
          <Modal isOpen={!!viewingContratoHistorico} onClose={() => setViewingContratoHistorico(null)} title={`Histórico — Contrato ${viewingContratoHistorico.numero}`} size="sm">
             <div className="space-y-2 p-1">
