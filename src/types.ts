@@ -55,6 +55,7 @@ export interface SaleOrder {
   orcamentoId?: string;
   contratoId?: string;
   createdAt: string;
+  updatedAt?: string;
   scheduledFor?: string;
   deletedAt?: string;
   observacoes?: string;

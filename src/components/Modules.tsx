@@ -375,6 +375,7 @@ const mapVendaRow = (row: any): SaleOrder => ({
   payments: Array.isArray(row.payments) ? row.payments : undefined,
   status: row.status,
   createdAt: row.created_at,
+  updatedAt: row.updated_at || undefined,
   scheduledFor: row.scheduled_for || undefined,
   deletedAt: row.deleted_at || undefined,
   observacoes: row.observacoes || undefined,
@@ -479,6 +480,19 @@ function formatNamePreview(fullName: string, maxTotalChars: number = 16): string
   const restanteDisponivel = maxTotalChars - primeiro.length - 1;
   if (restanteDisponivel <= 0) return `${primeiro}…`;
   return `${primeiro} ${resto.slice(0, restanteDisponivel)}…`;
+}
+
+// Quebra uma venda em "eventos de receita" com a data REAL de cada pagamento — se a venda foi
+// paga em partes (ex: R$100 dia 7, R$100 dia 14), o faturamento conta em cada dia separado, nao
+// tudo de uma vez na data de criacao da nota. Vendas antigas sem lista detalhada de pagamentos
+// (so tem o campo down_payment/total) caem no formato antigo: tudo na data de criacao.
+function getRevenueEventsForSale(o: SaleOrder): { date: string; value: number }[] {
+  if (o.payments && o.payments.length > 0) {
+    return o.payments.filter(p => p.value > 0).map(p => ({ date: p.date || o.createdAt, value: p.value }));
+  }
+  const valor = o.status === 'pending' ? (o.downPayment || 0) : (o.total || 0);
+  if (valor <= 0) return [];
+  return [{ date: o.createdAt, value: valor }];
 }
 
 const CONTRATO_STATUS_LABELS: Record<string, string> = {
@@ -843,7 +857,6 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       if (o.status === 'pending' && o.total > 0) c *= (o.downPayment || 0) / o.total;
       return c;
     };
-    const faturamentoDoPedido = (o: SaleOrder) => o.status === 'pending' ? (o.downPayment || 0) : (o.total || 0);
 
     const now = new Date();
     const startOfDay = new Date(now); startOfDay.setHours(0, 0, 0, 0);
@@ -858,10 +871,18 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     const diasParaGrafico = analisePeriodo === 'hoje' ? 7 : analisePeriodo === 'semana' ? 7 : analisePeriodo === 'mes' ? 30 : 365;
 
     const calcPeriodo = (desde: Date) => {
-      const vendas = realSales.filter(o => o.status !== 'canceled' && new Date(o.createdAt) >= desde);
-      const faturamento = vendas.reduce((acc, o) => acc + faturamentoDoPedido(o), 0);
-      const custo = vendas.reduce((acc, o) => acc + custoDoPedido(o), 0);
-      return { faturamento, lucro: Math.max(0, faturamento - custo), count: vendas.length };
+      const vendasNaoCanceladas = realSales.filter(o => o.status !== 'canceled');
+      // Faturamento conta pela data de CADA pagamento (nao a data de criacao da nota) — uma
+      // nota paga em partes em dias diferentes conta certo em cada dia
+      const faturamento = vendasNaoCanceladas
+        .flatMap(getRevenueEventsForSale)
+        .filter(ev => new Date(ev.date) >= desde)
+        .reduce((acc, ev) => acc + ev.value, 0);
+      // Custo continua ligado a data da nota (o produto foi consumido/produzido quando a venda
+      // foi feita, independente de quando cada parcela foi paga)
+      const custo = vendasNaoCanceladas.filter(o => new Date(o.createdAt) >= desde).reduce((acc, o) => acc + custoDoPedido(o), 0);
+      const count = vendasNaoCanceladas.filter(o => new Date(o.createdAt) >= desde).length;
+      return { faturamento, lucro: Math.max(0, faturamento - custo), count };
     };
 
     const periodo = calcPeriodo(inicioPeriodo);
@@ -880,6 +901,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
 
     // Linha do periodo (por dia, ou por mes se for "ano")
     const porBucket: Record<string, { faturamento: number; custo: number }> = {};
+    // Custo: continua ligado a data de criacao da nota (quando o material foi consumido)
     realSales.filter(o => o.status !== 'canceled').forEach(o => {
       const d = new Date(o.createdAt);
       if (isNaN(d.getTime())) return;
@@ -887,8 +909,18 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       if (diffDias < 0 || diffDias >= diasParaGrafico) return;
       const key = analisePeriodo === 'ano' ? format(d, 'MM/yyyy') : format(d, 'dd/MM');
       if (!porBucket[key]) porBucket[key] = { faturamento: 0, custo: 0 };
-      porBucket[key].faturamento += faturamentoDoPedido(o);
       porBucket[key].custo += custoDoPedido(o);
+    });
+    // Faturamento: por data de CADA pagamento — uma nota paga em partes em dias diferentes
+    // conta em cada dia certo, nao tudo de uma vez na data de criacao
+    realSales.filter(o => o.status !== 'canceled').flatMap(getRevenueEventsForSale).forEach(ev => {
+      const d = new Date(ev.date);
+      if (isNaN(d.getTime())) return;
+      const diffDias = Math.floor((startOfDay.getTime() - new Date(d).setHours(0, 0, 0, 0)) / 86400000);
+      if (diffDias < 0 || diffDias >= diasParaGrafico) return;
+      const key = analisePeriodo === 'ano' ? format(d, 'MM/yyyy') : format(d, 'dd/MM');
+      if (!porBucket[key]) porBucket[key] = { faturamento: 0, custo: 0 };
+      porBucket[key].faturamento += ev.value;
     });
     const linhaGrafico: { day: string; faturamento: number; lucro: number }[] = [];
     if (analisePeriodo === 'ano') {
@@ -4235,6 +4267,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [selectedCustomer, setSelectedCustomer] = useState<{ id: string, name: string, phone: string } | null>(null);
   const [editingFullOrder, setEditingFullOrder] = useState<SaleOrder | null>(null);
   const [editingCreatedAt, setEditingCreatedAt] = useState('');
+  const [editingPaymentsList, setEditingPaymentsList] = useState<PaymentEntry[]>([]);
   const [linkedOrcamentoId, setLinkedOrcamentoId] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<'dinheiro' | 'pix' | 'cartao_credito' | 'cartao_debito' | 'misto'>('pix');
   const [cashReceived, setCashReceived] = useState<number | ''>('');
@@ -5774,6 +5807,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setSaleDiscountValue(sale.discountValue || 0);
     setSaleDiscountInput('');
     setEditingCreatedAt(sale.createdAt ? sale.createdAt.slice(0, 16) : '');
+    setEditingPaymentsList(sale.payments ? sale.payments.map(p => ({ ...p })) : []);
     setActiveTab('venda');
   };
 
@@ -5862,7 +5896,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const loadSalesHistory = async () => {
     const { data } = await supabase.from('vendas').select('*').is('deleted_at', null);
     const allSales = (data || []).map(mapVendaRow);
-    allSales.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    // Ordena pela atividade mais recente — criacao OU ultima edicao, o que for mais novo. Assim
+    // uma nota antiga que acabou de ser editada (ex: pagamento lancado) sobe pro topo da lista.
+    const ultimaAtividade = (s: SaleOrder) => Math.max(new Date(s.createdAt).getTime(), s.updatedAt ? new Date(s.updatedAt).getTime() : 0);
+    allSales.sort((a, b) => ultimaAtividade(b) - ultimaAtividade(a));
     setAllSalesHistory(allSales);
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
@@ -6430,6 +6467,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setOrderObservacoes('');
     setDownPayment(0);
     setEditingCreatedAt('');
+    setEditingPaymentsList([]);
     resetPaymentEntries();
   };
 
@@ -6461,7 +6499,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   // Quitar Debito: abre a mesma tela de pagamento do Terminal, mas pra uma venda ja existente com saldo pendente
   const paymentModalTotal = settlingOrder ? settlingOrder.total : total;
   const paymentModalItems = settlingOrder ? settlingOrder.items : cart;
-  const alreadyPaidForSettle = settlingOrder ? (settlingOrder.downPayment || 0) : (editingFullOrder ? (editingFullOrder.downPayment || 0) : 0);
+  // Soma a lista EDITAVEL de pagamentos (nao o campo downPayment travado) — assim, se a pessoa
+  // excluir um pagamento da lista, o valor "ja pago" cai na hora, refletindo a edicao
+  const alreadyPaidForSettle = (settlingOrder || editingFullOrder) ? editingPaymentsList.reduce((sum, p) => sum + p.value, 0) : 0;
   const paymentModalRemaining = (settlingOrder || editingFullOrder)
     ? Math.max(0, paymentModalTotal - alreadyPaidForSettle - paymentEntriesTotal)
     : remainingValue;
@@ -6473,6 +6513,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setDownPayment(0);
     setScheduledFor(order.scheduledFor ? order.scheduledFor.slice(0, 16) : '');
     setPendingPaymentMethod('');
+    setEditingPaymentsList(order.payments ? order.payments.map(p => ({ ...p })) : []);
     setIsPaymentModalOpen(true);
   };
 
@@ -6558,12 +6599,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPaymentModalOpen, paymentModalRemaining, newPaymentMethod, newPaymentMode]);
 
-  const faturamentoHoje = salesToday.reduce((acc, o) => {
-    if (o.status === 'pending') {
-      return acc + (o.downPayment || 0);
-    }
-    return acc + (o.total || 0);
-  }, 0);
+  // Soma por data de CADA pagamento (nao pela data de criacao da nota) — uma nota paga em
+  // partes em dias diferentes conta o faturamento em cada dia certo, nao tudo de uma vez
+  const faturamentoHoje = useMemo(() => {
+    const inicioHoje = new Date(); inicioHoje.setHours(0, 0, 0, 0);
+    const fimHoje = new Date(); fimHoje.setHours(23, 59, 59, 999);
+    return allSalesHistory
+      .filter(o => o.status !== 'canceled')
+      .flatMap(getRevenueEventsForSale)
+      .filter(ev => { const d = new Date(ev.date); return d >= inicioHoje && d <= fimHoje; })
+      .reduce((acc, ev) => acc + ev.value, 0);
+  }, [allSalesHistory]);
 
   const handleFinalize = async (isPending: boolean = false, forceZeroPayment: boolean = false) => {
     // Play money sound
@@ -6596,6 +6642,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           }
         }));
 
+        const pagamentosFinaisEdicao = [...editingPaymentsList, ...paymentEntries];
         const { data, error } = await supabase.from('vendas').update({
           cliente_id: selectedCustomer?.id || null,
           customer_name: selectedCustomer?.name || editingFullOrder.customerName,
@@ -6605,11 +6652,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           discount_value: saleDiscountValue || null,
           down_payment: totalPago,
           received_value: totalPago,
-          payments: [...(editingFullOrder.payments || []), ...paymentEntries],
+          payments: pagamentosFinaisEdicao,
           status: novoSaldo <= 0 ? 'completed' : 'pending',
           observacoes: orderObservacoes || null,
           scheduled_for: scheduledFor || editingFullOrder.scheduledFor || null,
           created_at: editingCreatedAt ? new Date(editingCreatedAt).toISOString() : editingFullOrder.createdAt,
+          updated_at: new Date().toISOString(),
         }).eq('id', editingFullOrder.id).select();
         if (error) throw error;
         if (!data || data.length === 0) throw new Error('O pedido não foi encontrado pra atualizar — pode ter sido removido ou alterado por outra pessoa.');
@@ -6633,14 +6681,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           discountValue: saleDiscountValue || undefined,
           downPayment: totalPago,
           receivedValue: totalPago,
-          payments: [...(editingFullOrder.payments || []), ...paymentEntries],
+          payments: pagamentosFinaisEdicao,
           status: novoSaldo <= 0 ? 'completed' : 'pending',
           observacoes: orderObservacoes || undefined,
           scheduledFor: scheduledFor || editingFullOrder.scheduledFor || undefined,
           createdAt: editingCreatedAt ? new Date(editingCreatedAt).toISOString() : editingFullOrder.createdAt,
+          updatedAt: new Date().toISOString(),
         };
         setLastFinalizedOrder(updatedOrder);
-        setAllSalesHistory(prev => prev.map(s => s.id === editingFullOrder.id ? updatedOrder : s));
+        setAllSalesHistory(prev => prev.map(s => s.id === editingFullOrder.id ? updatedOrder : s).sort((a, b) => Math.max(new Date(a.updatedAt || a.createdAt).getTime(), new Date(a.createdAt).getTime()) < Math.max(new Date(b.updatedAt || b.createdAt).getTime(), new Date(b.createdAt).getTime()) ? 1 : -1));
         setSalesToday(prev => prev.map(s => s.id === editingFullOrder.id ? updatedOrder : s));
         setIsSuccessModalOpen(true);
         setIsPaymentModalOpen(false);
@@ -6665,23 +6714,25 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     if (settlingOrder) {
       const novoTotalPago = alreadyPaidForSettle + paymentEntriesTotal;
       const novoSaldo = Math.max(0, paymentModalTotal - novoTotalPago);
-      const pagamentosAnteriores = settlingOrder.payments || [];
+      // Usa a lista EDITADA (pode ter pagamento excluido ou data alterada), nao a original travada
+      const pagamentosFinais = [...editingPaymentsList, ...paymentEntries];
       try {
         const { data, error } = await supabase.from('vendas').update({
           down_payment: novoTotalPago,
           received_value: novoTotalPago,
-          payments: [...pagamentosAnteriores, ...paymentEntries],
+          payments: pagamentosFinais,
           status: novoSaldo <= 0 ? 'completed' : 'pending',
           pending_payment_method: novoSaldo > 0 ? (pendingPaymentMethod || null) : null,
           scheduled_for: scheduledFor || settlingOrder.scheduledFor || null,
+          updated_at: new Date().toISOString(),
         }).eq('id', settlingOrder.id).select();
         if (error) throw error;
         if (!data || data.length === 0) throw new Error('O pedido não foi encontrado pra atualizar — pode ter sido removido ou alterado por outra pessoa.');
 
-        const updatedOrder: SaleOrder = { ...settlingOrder, downPayment: novoTotalPago, receivedValue: novoTotalPago, status: novoSaldo <= 0 ? 'completed' : 'pending', payments: [...pagamentosAnteriores, ...paymentEntries], scheduledFor: scheduledFor || settlingOrder.scheduledFor || undefined };
+        const updatedOrder: SaleOrder = { ...settlingOrder, downPayment: novoTotalPago, receivedValue: novoTotalPago, status: novoSaldo <= 0 ? 'completed' : 'pending', payments: pagamentosFinais, scheduledFor: scheduledFor || settlingOrder.scheduledFor || undefined, updatedAt: new Date().toISOString() };
         setLastFinalizedOrder(updatedOrder);
         // Atualiza so essa venda localmente (nao recarrega a tabela inteira, que fica lenta com muitas vendas)
-        setAllSalesHistory(prev => prev.map(s => s.id === settlingOrder.id ? updatedOrder : s));
+        setAllSalesHistory(prev => prev.map(s => s.id === settlingOrder.id ? updatedOrder : s).sort((a, b) => Math.max(new Date(a.updatedAt || a.createdAt).getTime(), new Date(a.createdAt).getTime()) < Math.max(new Date(b.updatedAt || b.createdAt).getTime(), new Date(b.createdAt).getTime()) ? 1 : -1));
         setSalesToday(prev => prev.map(s => s.id === settlingOrder.id ? updatedOrder : s));
         setIsSuccessModalOpen(true);
         setIsPaymentModalOpen(false);
@@ -7846,7 +7897,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                   {isPartial ? `FALTA R$ ${balance.toFixed(2).replace('.', ',')}` : 'PAGO'}
                                 </Badge>
                               </div>
-                              <p className="text-[9px] text-white/30 font-mono mt-0.5">#{sale.id.slice(-8).toUpperCase()} • {safeFormat(sale.createdAt, 'dd/MM/yyyy HH:mm')}</p>
+                              <p className="text-[9px] text-white/30 font-mono mt-0.5">
+                                #{sale.id.slice(-8).toUpperCase()} • Criada {safeFormat(sale.createdAt, 'dd/MM/yyyy HH:mm')}
+                                {sale.updatedAt && Math.abs(new Date(sale.updatedAt).getTime() - new Date(sale.createdAt).getTime()) > 60000 && (
+                                  <span className="text-primary-400"> • Ajustada {safeFormat(sale.updatedAt, 'dd/MM/yyyy HH:mm')}</span>
+                                )}
+                              </p>
                             </div>
                           </div>
                           
@@ -8118,7 +8174,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   return (
                     <div key={sale.id} className="flex items-center gap-2 sm:gap-3 bg-slate-900/60 hover:bg-slate-900 border border-white/5 rounded-xl px-3 py-2.5 transition-all overflow-x-auto custom-scrollbar">
                       <div className="flex items-center gap-2 sm:gap-3 shrink-0 sm:min-w-0 sm:flex-1">
-                        <span className="text-[11px] font-black text-white whitespace-nowrap">{(sale.customerName || 'Cliente de Balcão').toUpperCase()}</span>
+                        <span title={sale.customerName || 'Cliente de Balcão'} className="text-[11px] font-black text-white whitespace-nowrap">{formatNamePreview((sale.customerName || 'Cliente de Balcão').toUpperCase(), 20)}</span>
                         {sale.items && sale.items.length > 0 && (
                           <span className="text-[9px] text-white/40 italic whitespace-nowrap" title={sale.items[sale.items.length - 1].name}>
                             {sale.items[sale.items.length - 1].name}{sale.items.length > 1 ? ` (+${sale.items.length - 1})` : ''}
@@ -8939,6 +8995,45 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               <div className="md:col-span-7 flex flex-col justify-between min-h-0 overflow-hidden gap-1.5 sm:gap-2">
                  <div className="flex-1 min-h-0 flex flex-col gap-1.5 overflow-hidden">
                     <p className="text-[8px] sm:text-[9px] font-black uppercase text-white/30 tracking-widest px-0.5 shrink-0">Pagamentos ({paymentEntries.length})</p>
+
+                    {/* Pagamentos JA EXISTENTES (lancados antes) — data editavel, pode excluir */}
+                    {(settlingOrder || editingFullOrder) && editingPaymentsList.length > 0 && (
+                      <div className="space-y-1 shrink-0 max-h-24 overflow-y-auto custom-scrollbar">
+                         <p className="text-[7px] font-black uppercase text-white/20 tracking-widest px-0.5">Já Lançados</p>
+                         {editingPaymentsList.map((p, idx) => {
+                            const opt = PAYMENT_METHOD_OPTIONS.find(o => o.id === p.method);
+                            return (
+                              <div key={idx} className="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-white/5 border border-white/5 rounded-lg">
+                                 <div className="flex items-center gap-2 min-w-0">
+                                    {opt?.icon && <opt.icon size={12} className="text-primary-300 shrink-0" />}
+                                    <span className="text-[9px] font-black text-white uppercase truncate shrink-0">{opt?.label || p.method}</span>
+                                    <input
+                                      type="datetime-local"
+                                      value={p.date ? p.date.slice(0, 16) : ''}
+                                      onChange={(e) => {
+                                         const novaData = e.target.value ? new Date(e.target.value).toISOString() : p.date;
+                                         setEditingPaymentsList(prev => prev.map((pp, i) => i === idx ? { ...pp, date: novaData } : pp));
+                                      }}
+                                      className="h-6 bg-transparent border border-white/10 rounded px-1 text-[8px] text-white/60 focus:outline-none focus:border-primary-500 w-[112px] shrink-0"
+                                    />
+                                 </div>
+                                 <div className="flex items-center gap-2 shrink-0">
+                                    <span className="text-[10px] font-black text-emerald-400">R$ {p.value.toFixed(2).replace('.', ',')}</span>
+                                    <button
+                                      onClick={async () => {
+                                         if (!(await showConfirm(`Excluir esse pagamento de R$ ${p.value.toFixed(2).replace('.', ',')} (${opt?.label || p.method})?`))) return;
+                                         setEditingPaymentsList(prev => prev.filter((_, i) => i !== idx));
+                                      }}
+                                      className="text-white/30 hover:text-rose-400 transition-colors"
+                                    >
+                                      <Trash2 size={12} />
+                                    </button>
+                                 </div>
+                              </div>
+                            );
+                         })}
+                      </div>
+                    )}
 
                     {/* Lista de pagamentos ja adicionados */}
                     {paymentEntries.length > 0 && (
