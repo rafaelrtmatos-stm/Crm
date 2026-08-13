@@ -6989,6 +6989,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   return (
     <div className="h-full min-h-[500px] flex flex-col bg-slate-900/50 rounded-xl shadow-2xl border border-white/10 overflow-hidden animate-in fade-in slide-in-from-right-5 duration-500">
+      {alertToast && (
+        <div
+          onClick={() => { if (alertToast.saleId) { openReceiptById(alertToast.saleId); setAlertToast(null); } }}
+          className={cn(
+            "fixed top-4 right-4 z-[200] bg-amber-500 text-slate-950 font-black text-sm px-5 py-3 rounded-2xl shadow-2xl animate-in slide-in-from-top-4 flex items-center gap-3 max-w-[calc(100vw-2rem)] sm:max-w-sm",
+            alertToast.saleId ? "cursor-pointer hover:bg-amber-400 active:scale-95 transition-all" : ""
+          )}
+        >
+           <span className="flex-1">{alertToast.message}</span>
+           {alertToast.saleId && <ChevronRight size={16} className="shrink-0" />}
+           <button onClick={(e) => { e.stopPropagation(); setAlertToast(null); }} className="text-slate-900/50 hover:text-slate-900 border-0 bg-transparent cursor-pointer shrink-0"><X size={16} /></button>
+        </div>
+      )}
       {/* Tab Navigation */}
       <div className="flex flex-wrap bg-white/5 p-1 sm:p-1.5 gap-1 sm:gap-1.5 border-b border-white/10 items-center justify-between shrink-0">
         <div className="flex sm:flex-wrap gap-1 flex-1 min-w-0 justify-between sm:justify-start">
@@ -7248,20 +7261,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   )}
                </div>
             </div>
-
-            {alertToast && (
-              <div
-                onClick={() => { if (alertToast.saleId) { openReceiptById(alertToast.saleId); setAlertToast(null); } }}
-                className={cn(
-                  "fixed top-4 right-4 z-[100] bg-amber-500 text-slate-950 font-black text-sm px-5 py-3 rounded-2xl shadow-2xl animate-in slide-in-from-top-4 flex items-center gap-3 max-w-[calc(100vw-2rem)] sm:max-w-sm",
-                  alertToast.saleId ? "cursor-pointer hover:bg-amber-400 active:scale-95 transition-all" : ""
-                )}
-              >
-                 <span className="flex-1">{alertToast.message}</span>
-                 {alertToast.saleId && <ChevronRight size={16} className="shrink-0" />}
-                 <button onClick={(e) => { e.stopPropagation(); setAlertToast(null); }} className="text-slate-900/50 hover:text-slate-900 border-0 bg-transparent cursor-pointer shrink-0"><X size={16} /></button>
-              </div>
-            )}
 
             {/* Embaixo no mobile / Direita no desktop: Lista de Produtos */}
             <div className="flex-1 min-h-0 md:w-[450px] md:flex-none bg-white flex flex-col min-h-0 border-t md:border-t-0 md:border-l border-slate-200 shadow-2xl relative">
@@ -13479,7 +13478,11 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
 
   const handleSaveMenuConfig = async () => {
     setSavingMenuConfig(true);
-    const { error } = await supabase.from('configuracoes').update({ menu_config: menuConfig }).eq('company_id', 'rafa-arts');
+    const { error } = await supabase.from('configuracoes').upsert({
+      company_id: 'rafa-arts',
+      menu_config: menuConfig,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'company_id' });
     setSavingMenuConfig(false);
     if (error) { showAlert(`Não foi possível salvar: ${error.message}`); return; }
     showAlert('Menu lateral atualizado! Recarregue a página pra ver a nova ordem.');
@@ -13514,7 +13517,11 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
 
   const handleSavePdvMenuConfig = async () => {
     setSavingPdvMenuConfig(true);
-    const { error } = await supabase.from('configuracoes').update({ pdv_menu_config: pdvMenuConfigForm }).eq('company_id', 'rafa-arts');
+    const { error } = await supabase.from('configuracoes').upsert({
+      company_id: 'rafa-arts',
+      pdv_menu_config: pdvMenuConfigForm,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'company_id' });
     setSavingPdvMenuConfig(false);
     if (error) { showAlert(`Não foi possível salvar: ${error.message}`); return; }
     showAlert('Abas do PDV atualizadas! Recarregue a página pra ver a nova ordem.');
