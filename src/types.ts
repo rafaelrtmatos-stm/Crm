@@ -61,7 +61,7 @@ export interface SaleOrder {
   observacoes?: string;
 }
 
-export type UserRole = 'admin' | 'gerente' | 'atendente' | 'caixa' | 'vendedor' | 'designer' | 'operador';
+export type UserRole = 'admin' | 'gerente' | 'atendente' | 'caixa' | 'vendedor' | 'designer' | 'operador' | 'comissao';
 
 export interface BaseEntity {
   id: string;
@@ -120,6 +120,7 @@ export interface AppUser extends BaseEntity {
   allowedPdvTabs?: string[];   // IDs das abas horizontais de dentro do PDV que esse usuario pode ver (Venda, Historico, Estoque, etc)
   allowedActions?: string[];   // Specific action permissions allowed
   modulePermissions?: ModulePermissions; // Permissoes granulares (ver/criar/editar/excluir) por modulo
+  colaboradorId?: string;      // Se role === 'comissao', vincula esse usuario a um registro em "colaboradores" (area de Comissoes)
 }
 
 export interface Lead extends BaseEntity {

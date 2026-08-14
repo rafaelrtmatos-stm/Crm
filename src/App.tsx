@@ -383,6 +383,7 @@ function mapUsuarioRow(row: any): AppUser {
     allowedPdvTabs: Array.isArray(row.allowed_pdv_tabs) ? row.allowed_pdv_tabs : undefined,
     allowedActions: Array.isArray(row.allowed_actions) ? row.allowed_actions : undefined,
     modulePermissions: row.module_permissions && typeof row.module_permissions === 'object' ? row.module_permissions : undefined,
+    colaboradorId: row.colaborador_id || undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   } as AppUser;
@@ -914,6 +915,28 @@ export default function App() {
       if (usuarioRow && userData.password && userData.password !== trimmedPassword) {
         setAuthError('Senha incorreta! Verifique sua senha e tente novamente.');
         setIsSubmitting(false);
+        return;
+      }
+
+      // Usuario "Comissao": nao entra no CRM. Ele so tem acesso a area de Comissoes, entao
+      // aqui a gente ja guarda a sessao do colaborador vinculado e manda o navegador direto
+      // pra /comissoes — a tela de ComissoesApp reconhece essa sessao salva e loga sozinha,
+      // sem pedir nome/senha de novo (ver COLABORADOR_SESSION_KEY em comissoes/ComissoesApp.tsx).
+      if (userData.role === 'comissao') {
+        if (!userData.colaboradorId) {
+          setAuthError('Este usuário de Comissões ainda não está vinculado a um colaborador. Peça ao administrador para reconfigurar o cadastro.');
+          setIsSubmitting(false);
+          return;
+        }
+        localStorage.setItem('rpro_comissoes_colaborador_id', userData.colaboradorId);
+        if (rememberMe) {
+          localStorage.setItem('rpro_remembered_user_id', userData.id);
+          localStorage.setItem('rpro_remembered_email', trimmedEmail);
+        } else {
+          localStorage.removeItem('rpro_remembered_user_id');
+          localStorage.removeItem('rpro_remembered_email');
+        }
+        window.location.href = '/comissoes';
         return;
       }
 

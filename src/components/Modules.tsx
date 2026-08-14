@@ -234,6 +234,7 @@ function mapUsuarioRow(row: any): AppUser {
     allowedPdvTabs: Array.isArray(row.allowed_pdv_tabs) ? row.allowed_pdv_tabs : undefined,
     allowedActions: Array.isArray(row.allowed_actions) ? row.allowed_actions : undefined,
     modulePermissions: row.module_permissions && typeof row.module_permissions === 'object' ? row.module_permissions : undefined,
+    colaboradorId: row.colaborador_id || undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   } as AppUser;
@@ -13970,7 +13971,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
   const [editedName, setEditedName] = useState('');
   const [editedEmail, setEditedEmail] = useState('');
   const [editedPassword, setEditedPassword] = useState('');
-  const [editedRole, setEditedRole] = useState<'admin' | 'gerente' | 'atendente' | 'caixa' | 'vendedor' | 'designer' | 'operador'>('atendente');
+  const [editedRole, setEditedRole] = useState<'admin' | 'gerente' | 'atendente' | 'caixa' | 'vendedor' | 'designer' | 'operador' | 'comissao'>('atendente');
   const [editedTabs, setEditedTabs] = useState<string[]>([]);
   const [editedPdvTabs, setEditedPdvTabs] = useState<string[]>([]);
   const [editedActions, setEditedActions] = useState<string[]>([]);
@@ -13981,7 +13982,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
   const [newUserName, setNewUserName] = useState('');
   const [newUserEmail, setNewUserEmail] = useState('');
   const [newUserPassword, setNewUserPassword] = useState('');
-  const [newUserRole, setNewUserRole] = useState<'admin' | 'gerente' | 'atendente' | 'caixa' | 'vendedor' | 'designer' | 'operador'>('atendente');
+  const [newUserRole, setNewUserRole] = useState<'admin' | 'gerente' | 'atendente' | 'caixa' | 'vendedor' | 'designer' | 'operador' | 'comissao'>('atendente');
 
   useEffect(() => {
     if (!currentCompany) return;
@@ -14072,6 +14073,31 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
         // tipo "user-1699999999"), o update por id nao acharia nada — nesse caso faz upsert por
         // e-mail, que migra ele pro Supabase na hora com os dados ja editados.
         const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(editingUser.id);
+
+        // Usuario com cargo "Comissao" precisa estar vinculado a um registro em "colaboradores"
+        // (e la que ficam os servicos/comissoes dele). Se ele ja tinha um colaborador vinculado,
+        // so mantem nome/senha sincronizados; se ainda nao tinha (acabou de virar "Comissao" agora,
+        // ou nunca teve), cria o colaborador na hora e guarda o id no proprio usuario.
+        let colaboradorId = editingUser.colaboradorId || null;
+        if (editedRole === 'comissao') {
+          if (colaboradorId) {
+            await supabase.from('colaboradores').update({
+              nome: editedName,
+              ...(editedPassword ? { senha: editedPassword } : {}),
+              ativo: true,
+              updated_at: new Date().toISOString(),
+            }).eq('id', colaboradorId);
+          } else {
+            const { data: colaboradorCriado, error: colaboradorErr } = await supabase
+              .from('colaboradores')
+              .insert({ nome: editedName, senha: editedPassword || '123456', ativo: true })
+              .select()
+              .single();
+            if (colaboradorErr) throw colaboradorErr;
+            colaboradorId = colaboradorCriado.id;
+          }
+        }
+
         const payload = {
           name: editedName,
           email: editedEmail,
@@ -14082,6 +14108,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
           allowed_pdv_tabs: editedPdvTabs,
           allowed_actions: editedActions,
           module_permissions: editedModulePermissions,
+          colaborador_id: editedRole === 'comissao' ? colaboradorId : null,
           updated_at: new Date().toISOString(),
         };
         if (isUuid) {
@@ -14106,8 +14133,11 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
       return;
     }
     try {
+      const isComissaoRole = newUserRole === 'comissao';
       const cargosComOpcoes = ['admin', 'gerente'];
-      const defaultTabs = cargosComOpcoes.includes(newUserRole)
+      const defaultTabs = isComissaoRole
+        ? ['comissoes'] // usuario de Comissao nao usa o CRM, so a area de Comissoes
+        : cargosComOpcoes.includes(newUserRole)
         ? ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'clientes_espera', 'production', 'settings']
         : ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'clientes_espera', 'production'];
       const defaultActions = [
@@ -14115,6 +14145,22 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
         'canStartPosSale', 'canMoveLead',
         'canViewCustomerData', 'canViewAttachments', 'canTranscribeAudio'
       ];
+
+      // Usuario "Comissao" precisa de um registro em "colaboradores" (e quem guarda os
+      // servicos/comissoes dele na area separada de Comissoes). Cria o colaborador primeiro
+      // pra poder linkar o id dele na conta de usuario logo abaixo (usuarios.colaborador_id) —
+      // e esse link que faz o login em pro.rafaartsgraphics.com reconhecer o usuario e mandar
+      // ele direto pra /comissoes.
+      let colaboradorId: string | null = null;
+      if (isComissaoRole) {
+        const { data: colaboradorCriado, error: colaboradorErr } = await supabase
+          .from('colaboradores')
+          .insert({ nome: newUserName, senha: newUserPassword || '123456', ativo: true })
+          .select()
+          .single();
+        if (colaboradorErr) throw colaboradorErr;
+        colaboradorId = colaboradorCriado.id;
+      }
 
       const { error } = await supabase.from('usuarios').insert({
         name: newUserName,
@@ -14127,10 +14173,15 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
         allowed_pdv_tabs: ['venda', 'historico', 'estoque', 'servicos', 'orcamentos', 'contratos', 'excluidos', 'clientes'],
         allowed_actions: defaultActions,
         module_permissions: getDefaultModulePermissions(newUserRole),
+        ...(colaboradorId ? { colaborador_id: colaboradorId } : {}),
       });
       if (error) throw error;
 
-      showAlert(`Novo usuário [${newUserName}] cadastrado com sucesso!\n\nE-mail: ${newUserEmail}\nSenha: ${newUserPassword || '123456'}\n\nEle já pode fazer login na tela inicial com essas credenciais.`);
+      showAlert(
+        isComissaoRole
+          ? `Novo usuário de Comissões [${newUserName}] cadastrado com sucesso!\n\nE-mail: ${newUserEmail}\nSenha: ${newUserPassword || '123456'}\n\nAo entrar em pro.rafaartsgraphics.com com esse e-mail e senha, ele será levado direto para a área de Comissões (/comissoes).`
+          : `Novo usuário [${newUserName}] cadastrado com sucesso!\n\nE-mail: ${newUserEmail}\nSenha: ${newUserPassword || '123456'}\n\nEle já pode fazer login na tela inicial com essas credenciais.`
+      );
       setIsCreateModalOpen(false);
       setNewUserName('');
       setNewUserEmail('');
@@ -14157,6 +14208,12 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
       if (isSupabaseUuid) {
         const { error } = await supabase.from('usuarios').delete().eq('id', u.id);
         if (error) throw error;
+        // Se era um usuario de "Comissao", so desativa o colaborador vinculado (nao apaga) —
+        // assim o historico de servicos/comissoes dele fica preservado no painel do admin,
+        // e ele so perde o acesso de login.
+        if (u.role === 'comissao' && u.colaboradorId) {
+          await supabase.from('colaboradores').update({ ativo: false }).eq('id', u.colaboradorId);
+        }
       } else {
         // Usuario legado que ainda so existe no Firebase (nunca logou depois da migracao pro Supabase)
         await deleteDoc(doc(db, 'users', u.id));
@@ -14815,7 +14872,14 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                         <option value="vendedor">Vendedor Externo</option>
                         <option value="designer">Designer Gráfico</option>
                         <option value="operador">Operador de Impressão</option>
+                        <option value="comissao">Comissão (acesso somente à área de Comissões)</option>
                       </select>
+                      {editedRole === 'comissao' && (
+                        <p className="text-[11px] text-amber-400/80">
+                          Esse usuário não entra no CRM. Ao logar em pro.rafaartsgraphics.com, ele é levado direto para /comissoes.
+                          {!editingUser?.colaboradorId && ' Ao salvar, um novo cadastro de colaborador será criado e vinculado automaticamente.'}
+                        </p>
+                      )}
                     </div>
 
                     <div className="space-y-6 pt-6 border-t border-white/5">
@@ -15194,7 +15258,14 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                         <option value="vendedor">Vendedor Externo</option>
                         <option value="designer">Designer Gráfico</option>
                         <option value="operador">Operador de Impressão</option>
+                        <option value="comissao">Comissão (acesso somente à área de Comissões)</option>
                       </select>
+                      {newUserRole === 'comissao' && (
+                        <p className="text-[11px] text-amber-400/80 -mt-1">
+                          Esse usuário não entra no CRM. Ao logar em pro.rafaartsgraphics.com com o e-mail e senha abaixo,
+                          ele é reconhecido automaticamente e levado direto para a tela de Comissões (/comissoes).
+                        </p>
+                      )}
                     </div>
 
                     <div className="flex gap-4 pt-4">
