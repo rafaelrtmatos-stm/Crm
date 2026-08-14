@@ -202,7 +202,7 @@ import {
 } from './SharedUI';
 import { collection, query, where, onSnapshot, orderBy, Timestamp, addDoc, doc, updateDoc, getDocs, setDoc, limit, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { supabase } from '../supabase';
+import { supabase, fetchAllRows } from '../supabase';
 import { showAlert, showConfirm, showPrompt } from '../lib/notify';
 import { buildPixPayload } from '../lib/pix';
 import { renderReceiptCanvas, downloadCanvasAsPng, downloadCanvasAsPdf, COMPANY_CONTACT, CompanyContactInfo } from '../lib/receipt';
@@ -726,8 +726,8 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     const unsubSvc = onSnapshot(qSvc, (snap) => setServices(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
     const loadSales = async () => {
-      const { data } = await supabase.from('vendas').select('*').is('deleted_at', null).order('created_at', { ascending: false });
-      setRealSales((data || []).map(mapVendaRow));
+      const data = await fetchAllRows<any>('vendas', '*', { filters: (q) => q.is('deleted_at', null), orderBy: 'created_at', ascending: false });
+      setRealSales(data.map(mapVendaRow));
     };
     loadSales();
     const salesChannel = supabase.channel('dashboard-vendas').on('postgres_changes', { event: '*', schema: 'public', table: 'vendas' }, loadSales).subscribe();
@@ -4072,17 +4072,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setIsLoadingCustomers(true);
     setCustomerLoadError('');
     try {
-      const { data, error, count } = await supabase.from('clientes').select('*', { count: 'exact' }).order('created_at', { ascending: false }).limit(2000);
-      if (error) {
-        console.error('Erro Supabase ao carregar clientes:', error);
-        setCustomerLoadError(`Erro: ${error.message} (código: ${error.code || 's/código'})`);
-        setAllCustomers([]);
-        return;
-      }
-      console.log('Clientes carregados:', data?.length, 'count total:', count);
-      setAllCustomers(data || []);
-      // Agrega estatisticas de vendas por cliente (busca leve, so campos necessarios)
-      const { data: vendasData } = await supabase.from('vendas').select('cliente_id, total, status, down_payment, created_at');
+      // Pagina em blocos de 1000 pra trazer TODOS os clientes (o Supabase corta a resposta
+      // em 1000 linhas por padrao, mesmo pedindo .limit(2000) — por isso so aparecia 1000).
+      const data = await fetchAllRows<any>('clientes', '*', { orderBy: 'created_at', ascending: false });
+      console.log('Clientes carregados:', data.length);
+      setAllCustomers(data);
+      // Agrega estatisticas de vendas por cliente (busca leve, so campos necessarios, tambem paginada)
+      const vendasData = await fetchAllRows<any>('vendas', 'cliente_id, total, status, down_payment, created_at', { orderBy: 'created_at', ascending: false });
       const stats: Record<string, { total: number; count: number; lastDate: string | null; hasPending: boolean; pendingBalance: number }> = {};
       (vendasData || []).forEach((v: any) => {
         if (!v.cliente_id) return;
@@ -4101,8 +4097,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         }
       });
       setCustomerSalesStats(stats);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro ao carregar clientes:', err);
+      setCustomerLoadError(`Erro: ${err?.message || 'erro desconhecido'} (código: ${err?.code || 's/código'})`);
+      setAllCustomers([]);
     } finally {
       setIsLoadingCustomers(false);
     }
@@ -5897,7 +5895,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   }, [activeTab]);
 
   const loadSalesHistory = async () => {
-    const { data } = await supabase.from('vendas').select('*').is('deleted_at', null);
+    // Paginado em blocos de 1000: com mais de 1000 pedidos, um select sem paginacao
+    // corta o restante — e pedidos fora da lista carregada nao recebem os updates locais
+    // (etapa/entregue, data de agendamento etc.), parecendo que "nao salva".
+    const data = await fetchAllRows<any>('vendas', '*', { filters: (q) => q.is('deleted_at', null), orderBy: 'created_at', ascending: false });
     const allSales = (data || []).map(mapVendaRow);
     // Ordena pela atividade mais recente — criacao OU ultima edicao, o que for mais novo. Assim
     // uma nota antiga que acabou de ser editada (ex: pagamento lancado) sobe pro topo da lista.
@@ -6929,8 +6930,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const handleManualSync = async () => {
     setIsSyncing(true);
     try {
-      const { data: vendasData } = await supabase.from('vendas').select('*').is('deleted_at', null);
-      const allSales = (vendasData || []).map(mapVendaRow);
+      const vendasData = await fetchAllRows<any>('vendas', '*', { filters: (q) => q.is('deleted_at', null), orderBy: 'created_at', ascending: false });
+      const allSales = vendasData.map(mapVendaRow);
       allSales.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setAllSalesHistory(allSales);
       const startOfDay = new Date();
@@ -10948,16 +10949,21 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                disabled={!scheduledFor}
                onClick={async () => {
                  setIsScheduleModalOpen(false);
-                 // Quitar Debito de um pedido ja existente: salva o agendamento na hora, direto no banco,
-                 // sem depender de tambem confirmar um pagamento junto (antes so salvava se pagasse algo)
-                 if (settlingOrder) {
-                   const { data, error } = await supabase.from('vendas').update({ scheduled_for: scheduledFor || null }).eq('id', settlingOrder.id).select();
+                 // Salva o agendamento na hora, direto no banco, sem depender de tambem confirmar
+                 // um pagamento junto (antes so salvava se pagasse algo). Cobre os dois contextos
+                 // em que esse modal pode abrir: Quitar Debito (settlingOrder) e Editar Nota
+                 // completa (editingFullOrder) — antes so tratava settlingOrder, entao editar a
+                 // data a partir da tela de Editar Nota nao salvava nada, sem nenhum erro visivel.
+                 const pedidoAtual = settlingOrder || editingFullOrder;
+                 if (pedidoAtual) {
+                   const { data, error } = await supabase.from('vendas').update({ scheduled_for: scheduledFor || null }).eq('id', pedidoAtual.id).select();
                    if (error) { showAlert(`Não foi possível salvar o agendamento: ${error.message}`); return; }
                    if (!data || data.length === 0) { showAlert('O agendamento não foi salvo — o pedido pode ter sido removido ou alterado por outra pessoa. Feche e abra a tela de novo.'); return; }
-                   const updated = { ...settlingOrder, scheduledFor: scheduledFor || undefined };
-                   setSettlingOrder(updated);
-                   setAllSalesHistory(prev => prev.map(s => s.id === settlingOrder.id ? updated : s));
-                   setSalesToday(prev => prev.map(s => s.id === settlingOrder.id ? updated : s));
+                   const updated = { ...pedidoAtual, scheduledFor: scheduledFor || undefined };
+                   if (settlingOrder) setSettlingOrder(updated);
+                   if (editingFullOrder) setEditingFullOrder(updated);
+                   setAllSalesHistory(prev => prev.map(s => s.id === pedidoAtual.id ? updated : s));
+                   setSalesToday(prev => prev.map(s => s.id === pedidoAtual.id ? updated : s));
                    showAlert('Agendamento atualizado!');
                  }
                }}
@@ -11394,7 +11400,7 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
         showAlert('Todas as vendas já estão vinculadas a um cliente cadastrado.');
         return;
       }
-      const { data: todosClientes } = await supabase.from('clientes').select('id, full_name, phone');
+      const todosClientes = await fetchAllRows<any>('clientes', 'id, full_name, phone');
       const porNome = new Map<string, string>();
       const porTelefone8 = new Map<string, string>();
       (todosClientes || []).forEach((c: any) => {
@@ -11495,7 +11501,7 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
       }
 
       // Busca os clientes ja cadastrados pra decidir Atualizar (mesmo CPF/CNPJ ou telefone) x Cadastrar novo
-      const { data: existentes } = await supabase.from('clientes').select('id, phone, cpf_cnpj');
+      const existentes = await fetchAllRows<any>('clientes', 'id, phone, cpf_cnpj');
       const porCpf = new Map<string, string>();
       const porTelefone = new Map<string, string>();
       (existentes || []).forEach((c: any) => {
@@ -11558,11 +11564,16 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
   useEffect(() => {
     let active = true;
     const load = async () => {
-      const { data, error } = await supabase.from('clientes').select('*').order('full_name', { ascending: true });
-      if (!active) return;
-      if (error) { console.error('Erro ao carregar clientes:', error); setLoading(false); return; }
-      setClientes(data || []);
-      setLoading(false);
+      try {
+        // Paginado em blocos de 1000 pra nao cortar a lista quando passa de 1000 clientes
+        const data = await fetchAllRows<any>('clientes', '*', { orderBy: 'full_name', ascending: true });
+        if (!active) return;
+        setClientes(data);
+      } catch (error) {
+        console.error('Erro ao carregar clientes:', error);
+      } finally {
+        if (active) setLoading(false);
+      }
     };
     load();
     const channel = supabase
@@ -13224,9 +13235,17 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
   );
 
   const loadPedidos = async () => {
-    const { data } = await supabase.from('vendas').select('*').is('deleted_at', null).neq('status', 'canceled').order('created_at', { ascending: true });
-    setPedidos((data || []).map(mapVendaRow));
-    setLoading(false);
+    // Paginado em blocos de 1000 pelo mesmo motivo do loadSalesHistory: acima de 1000
+    // pedidos, os mais antigos (fora da 1a pagina) somem do quadro de Ordem de Agendamento
+    // e qualquer alteracao de etapa/entregue/data neles nao aparece salva na tela.
+    try {
+      const data = await fetchAllRows<any>('vendas', '*', { filters: (q) => q.is('deleted_at', null).neq('status', 'canceled'), orderBy: 'created_at', ascending: true });
+      setPedidos(data.map(mapVendaRow));
+    } catch (err) {
+      console.error('Erro ao carregar pedidos:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
