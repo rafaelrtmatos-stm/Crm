@@ -386,6 +386,24 @@ const mapVendaRow = (row: any): SaleOrder => ({
   contratoId: row.contrato_id || undefined,
 } as SaleOrder);
 
+// Data "efetiva" de uma venda para fins de classificacao/ordenacao: compara a data de criacao
+// do pedido com a data de CADA pagamento registrado (cada parcela pode ter sua propria data,
+// inclusive retroativa) e retorna a mais recente das duas. Assim, se um pedido foi criado dia 7
+// mas a ultima parcela so foi paga/lancada dia 14, ele passa a ser tratado como "mais recente"
+// (dia 14) na lista de vendas/servicos, refletindo quando o pedido foi de fato concluido
+// financeiramente — em vez de usar updatedAt, que so registra "quando alguem mexeu no sistema"
+// e nao necessariamente a data real do ultimo pagamento.
+const getSaleEffectiveDate = (s: SaleOrder): number => {
+  let maisRecente = new Date(s.createdAt).getTime();
+  (s.payments || []).forEach((p) => {
+    if (p?.date) {
+      const dataPagamento = new Date(p.date).getTime();
+      if (!Number.isNaN(dataPagamento) && dataPagamento > maisRecente) maisRecente = dataPagamento;
+    }
+  });
+  return maisRecente;
+};
+
 const mapOrcamentoRow = (row: any): Orcamento => ({
   id: row.id,
   numero: row.numero,
@@ -5895,9 +5913,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const loadSalesHistory = async () => {
     const { data } = await supabase.from('vendas').select('*').is('deleted_at', null);
     const allSales = (data || []).map(mapVendaRow);
-    // Ordena pela atividade mais recente — criacao OU ultima edicao, o que for mais novo. Assim
-    // uma nota antiga que acabou de ser editada (ex: pagamento lancado) sobe pro topo da lista.
-    const ultimaAtividade = (s: SaleOrder) => Math.max(new Date(s.createdAt).getTime(), s.updatedAt ? new Date(s.updatedAt).getTime() : 0);
+    // Ordena pela data EFETIVA mais recente — criacao, ultima edicao OU data do ultimo pagamento
+    // registrado, o que for mais novo. Assim uma nota antiga que acabou de ser editada ou que
+    // recebeu um pagamento retroativo sobe pro topo da lista, refletindo a atividade real.
+    const ultimaAtividade = (s: SaleOrder) => Math.max(getSaleEffectiveDate(s), s.updatedAt ? new Date(s.updatedAt).getTime() : 0);
     allSales.sort((a, b) => ultimaAtividade(b) - ultimaAtividade(a));
     setAllSalesHistory(allSales);
     const startOfDay = new Date();
@@ -6598,6 +6617,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPaymentModalOpen, paymentModalRemaining, newPaymentMethod, newPaymentMode]);
 
+  // Ao abrir o pagamento para um PEDIDO NOVO (nao edicao, nao quitacao), preenche a data/hora
+  // automaticamente com o momento exato de agora. A pessoa ainda pode alterar manualmente ali
+  // mesmo (ex: lancar um pedido feito ontem por telefone) — esse valor e o que vai pro created_at.
+  useEffect(() => {
+    if (isPaymentModalOpen && !editingFullOrder && !settlingOrder) {
+      setEditingCreatedAt(format(new Date(), "yyyy-MM-dd'T'HH:mm"));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPaymentModalOpen]);
+
   // Soma por data de CADA pagamento (nao pela data de criacao da nota) — uma nota paga em
   // partes em dias diferentes conta o faturamento em cada dia certo, nao tudo de uma vez
   const faturamentoHoje = useMemo(() => {
@@ -6688,7 +6717,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           updatedAt: new Date().toISOString(),
         };
         setLastFinalizedOrder(updatedOrder);
-        setAllSalesHistory(prev => prev.map(s => s.id === editingFullOrder.id ? updatedOrder : s).sort((a, b) => Math.max(new Date(a.updatedAt || a.createdAt).getTime(), new Date(a.createdAt).getTime()) < Math.max(new Date(b.updatedAt || b.createdAt).getTime(), new Date(b.createdAt).getTime()) ? 1 : -1));
+        setAllSalesHistory(prev => prev.map(s => s.id === editingFullOrder.id ? updatedOrder : s).sort((a, b) => Math.max(getSaleEffectiveDate(a), a.updatedAt ? new Date(a.updatedAt).getTime() : 0) < Math.max(getSaleEffectiveDate(b), b.updatedAt ? new Date(b.updatedAt).getTime() : 0) ? 1 : -1));
         setSalesToday(prev => prev.map(s => s.id === editingFullOrder.id ? updatedOrder : s));
         setIsSuccessModalOpen(true);
         setIsPaymentModalOpen(false);
@@ -6731,7 +6760,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         const updatedOrder: SaleOrder = { ...settlingOrder, downPayment: novoTotalPago, receivedValue: novoTotalPago, status: novoSaldo <= 0 ? 'completed' : 'pending', payments: pagamentosFinais, scheduledFor: scheduledFor || settlingOrder.scheduledFor || undefined, updatedAt: new Date().toISOString() };
         setLastFinalizedOrder(updatedOrder);
         // Atualiza so essa venda localmente (nao recarrega a tabela inteira, que fica lenta com muitas vendas)
-        setAllSalesHistory(prev => prev.map(s => s.id === settlingOrder.id ? updatedOrder : s).sort((a, b) => Math.max(new Date(a.updatedAt || a.createdAt).getTime(), new Date(a.createdAt).getTime()) < Math.max(new Date(b.updatedAt || b.createdAt).getTime(), new Date(b.createdAt).getTime()) ? 1 : -1));
+        setAllSalesHistory(prev => prev.map(s => s.id === settlingOrder.id ? updatedOrder : s).sort((a, b) => Math.max(getSaleEffectiveDate(a), a.updatedAt ? new Date(a.updatedAt).getTime() : 0) < Math.max(getSaleEffectiveDate(b), b.updatedAt ? new Date(b.updatedAt).getTime() : 0) ? 1 : -1));
         setSalesToday(prev => prev.map(s => s.id === settlingOrder.id ? updatedOrder : s));
         setIsSuccessModalOpen(true);
         setIsPaymentModalOpen(false);
@@ -6779,7 +6808,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       payments: paymentsToSave,
       pendingPaymentMethod: currentRemaining > 0 ? (pendingPaymentMethod || undefined) : undefined,
       status: isPartialSale ? 'pending' : 'completed',
-      createdAt: new Date().toISOString(),
+      createdAt: editingCreatedAt ? new Date(editingCreatedAt).toISOString() : new Date().toISOString(),
       scheduledFor: deliveryDate || undefined,
       observacoes: orderObservacoes || undefined
     };
@@ -6802,6 +6831,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         observacoes: orderObservacoes || null,
         orcamento_id: linkedOrcamentoId || null,
         discount_value: saleDiscountValue || null,
+        created_at: order.createdAt,
       }).select().single();
       if (error) throw error;
       insertedVenda = insertedVendaResult;
@@ -6895,6 +6925,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setOrderObservacoes('');
     setScheduledFor('');
     setSaleDiscountValue(0); setSaleDiscountInput('');
+    setEditingCreatedAt('');
     resetPaymentEntries();
   };
 
