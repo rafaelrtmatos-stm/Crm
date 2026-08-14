@@ -14015,8 +14015,8 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     // Se o usuario nao tem allowedTabs definido ainda, o padrao NAO inclui Configuracoes —
     // só quem já é admin (ou for promovido nessa mesma tela) deveria ver essa aba.
     setEditedTabs(u.allowedTabs || (u.isAdmin || u.role === 'admin'
-      ? ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'clientes_espera', 'production', 'settings']
-      : ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'clientes_espera', 'production']));
+      ? ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'clientes_espera', 'production', 'comissoes', 'settings']
+      : ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'clientes_espera', 'production', 'comissoes']));
     setEditedPdvTabs(u.allowedPdvTabs || ['venda', 'historico', 'estoque', 'servicos', 'orcamentos', 'contratos', 'excluidos', 'clientes']);
     setEditedActions(u.allowedActions || [
       'canStartNote', 'canSendSavedMessage', 'canCreateCard', 'canAddTask',
