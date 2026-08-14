@@ -11,11 +11,11 @@
   --red-deep: #5C0000;
 
   /* Default Dark Theme Variables */
-  --bg-main: #0B0B0B;
-  --bg-card: #151515;
-  --bg-card-sec: #1C1C1C;
-  --bg-card-hover: #222222;
-  --border-color: #303030;
+  --bg-main: #000000;
+  --bg-card: #121212;
+  --bg-card-sec: #1A1A1A;
+  --bg-card-hover: #202020;
+  --border-color: #2A2A2A;
   --text-main: #FFFFFF;
   --text-muted: #AFAFAF;
   --accent-red: #FF0000;

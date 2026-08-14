@@ -1300,8 +1300,8 @@ export default function App() {
   return (
     <AppContext.Provider value={contextValue}>
       <div className="app flex flex-col h-screen overflow-hidden relative">
-        {/* Background Mesh */}
-        <div className="fixed inset-0 z-[-1] mesh-gradient" />
+        {/* Background Mesh — escondido na aba Comissões, que já tem fundo preto sólido próprio */}
+        <div className={cn("fixed inset-0 z-[-1] mesh-gradient", activeTab === 'comissoes' && "opacity-0")} />
 
         {simulatedUserId && (
           <div className="bg-amber-500 text-slate-950 font-black px-8 py-2 md:py-3 text-[10px] md:text-xs flex items-center justify-between shadow-xl relative z-50 animate-in slide-in-from-top duration-300">

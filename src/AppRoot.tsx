@@ -20,7 +20,7 @@ export default function AppRoot() {
 
   if (isComissoesRoute) {
     return (
-      <Suspense fallback={<div className="min-h-screen bg-[#0B0B0B]" />}>
+      <Suspense fallback={<div className="min-h-screen bg-black" />}>
         <ComissoesApp />
       </Suspense>
     );
