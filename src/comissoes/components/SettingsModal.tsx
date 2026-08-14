@@ -20,6 +20,10 @@ interface SettingsModalProps {
   userSettings: UserSettings;
   onSaveSettings: (settings: UserSettings) => void;
   onResetData: () => void;
+  // Quando o painel esta embutido dentro do CRM, o tema claro/escuro ja segue
+  // o tema geral do sistema (nao e mais escolhido por colaborador aqui), entao
+  // escondemos essa opcao pra nao confundir.
+  hideThemeOption?: boolean;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -28,6 +32,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   userSettings,
   onSaveSettings,
   onResetData,
+  hideThemeOption,
 }) => {
   const [userName, setUserName] = useState(userSettings.userName);
   const [userRole, setUserRole] = useState(userSettings.userRole);
@@ -124,13 +129,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               </div>
 
-              {/* Theme Selector (APARÊNCIA) - Free for all users */}
-              <div className="p-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card-sec)]/50">
-                <ThemeSelector
-                  currentTheme={themePreference}
-                  onThemeChange={(newTheme) => setThemePreference(newTheme)}
-                />
-              </div>
+              {/* Theme Selector (APARÊNCIA) - escondido quando embutido no CRM,
+                  que ja controla o tema claro/escuro globalmente */}
+              {!hideThemeOption && (
+                <div className="p-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card-sec)]/50">
+                  <ThemeSelector
+                    currentTheme={themePreference}
+                    onThemeChange={(newTheme) => setThemePreference(newTheme)}
+                  />
+                </div>
+              )}
             </div>
 
             {/* ADM Access Toggle Bar */}

@@ -13551,6 +13551,24 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
   useEffect(() => {
     if (activeTab === 'Comissões') loadColaboradores();
   }, [activeTab]);
+
+  // Tempo real: enquanto a aba "Comissões" estiver aberta, qualquer alteração
+  // de colaborador (feita aqui, no menu lateral, ou por outro admin em outra
+  // aba) aparece na lista e no painel aberto na hora, sem precisar de F5.
+  useEffect(() => {
+    if (activeTab !== 'Comissões') return;
+    const channel = supabase
+      .channel('settings-comissoes-colaboradores')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'colaboradores' }, async () => {
+        const { data } = await supabase.from('colaboradores').select('*').order('nome', { ascending: true });
+        if (!data) return;
+        setColaboradoresList(data);
+        setViewingColaborador((prev: any) => (prev ? data.find((c: any) => c.id === prev.id) ?? null : prev));
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [activeTab]);
+
   const [logoUrl, setLogoUrl] = useState(currentCompany?.logoUrl || '');
   const [logoLight, setLogoLight] = useState<string | null>(null);
   const [logoDark, setLogoDark] = useState<string | null>(null);
@@ -14570,7 +14588,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
            {/* Painel completo de Comissões do colaborador selecionado (visão do admin, sem precisar de senha) */}
            <Modal isOpen={!!viewingColaborador} onClose={() => setViewingColaborador(null)} title={`Painel de Comissões — ${viewingColaborador?.nome || ''}`} size="xl" contentClassName="!p-0 overflow-hidden">
              {viewingColaborador && (
-               <div className="h-[75vh] overflow-y-auto custom-scrollbar bg-slate-900/40">
+               <div className="h-[75vh] overflow-y-auto custom-scrollbar">
                  <Suspense fallback={<div className="flex justify-center py-16"><RefreshCw className="animate-spin text-primary-500" size={24} /></div>}>
                    <ComissoesEmbedded
                      presetColaborador={{

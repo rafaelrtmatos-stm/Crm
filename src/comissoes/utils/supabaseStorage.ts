@@ -12,7 +12,7 @@ export interface Colaborador {
   ativo: boolean;
 }
 
-const mapColaboradorRow = (row: any): Colaborador => ({
+export const mapColaboradorRow = (row: any): Colaborador => ({
   id: row.id,
   nome: row.nome,
   cargo: row.cargo || undefined,

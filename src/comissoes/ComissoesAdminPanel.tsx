@@ -13,6 +13,7 @@
 import React, { useEffect, useState } from 'react';
 import { ArrowLeft, Users, RefreshCw, Plus, Trash2, X } from 'lucide-react';
 import { Colaborador } from './utils/supabaseStorage';
+import { useSyncWithCrmTheme } from './utils/useSyncCrmTheme';
 import { supabase } from '../supabase';
 import { showAlert, showConfirm } from '../lib/notify';
 import ComissoesEmbedded from './ComissoesEmbedded';
@@ -43,6 +44,9 @@ function formatDateBR(iso: string): string {
 }
 
 export default function ComissoesAdminPanel() {
+  // Segue o tema claro/escuro do CRM principal (em vez de ficar sempre escuro)
+  useSyncWithCrmTheme();
+
   const [colaboradores, setColaboradores] = useState<ColaboradorRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<ColaboradorRow | null>(null);
@@ -52,14 +56,29 @@ export default function ComissoesAdminPanel() {
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
 
-  const loadColaboradores = async () => {
-    setLoading(true);
+  const loadColaboradores = async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
     const { data, error } = await supabase.from('colaboradores').select('*').order('nome', { ascending: true });
-    if (!error && data) setColaboradores(data as ColaboradorRow[]);
-    setLoading(false);
+    if (!error && data) {
+      const rows = data as ColaboradorRow[];
+      setColaboradores(rows);
+      // Mantem o painel aberto ("Ver Painel") sincronizado com a lista atualizada
+      setSelected((prev) => (prev ? rows.find((c) => c.id === prev.id) ?? null : prev));
+    }
+    if (!opts?.silent) setLoading(false);
   };
 
   useEffect(() => { loadColaboradores(); }, []);
+
+  // Tempo real: qualquer alteração de colaborador (feita aqui, em Configurações,
+  // ou por outro admin em outra aba) aparece na lista na hora, sem F5.
+  useEffect(() => {
+    const channel = supabase
+      .channel('comissoes-admin-colaboradores')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'colaboradores' }, () => loadColaboradores({ silent: true }))
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
 
   const openNewForm = () => {
     setEditingId(null);

@@ -19,9 +19,11 @@ import {
   saveColaboradorSettings,
   colaboradorToUserSettings,
   calculateSummaryStats,
-  applyComissoesTheme,
+  mapColaboradorRow,
 } from './utils/supabaseStorage';
+import { supabase } from '../supabase';
 import { ColaboradorLogin } from './ColaboradorLogin';
+import { useSyncWithCrmTheme } from './utils/useSyncCrmTheme';
 import { Header } from './components/Header';
 import { Dashboard } from './components/Dashboard';
 import { ServiceTable } from './components/ServiceTable';
@@ -76,16 +78,66 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
     });
   }, [presetColaborador]);
 
+  // Dentro do CRM, o modulo de Comissoes nao usa mais o tema salvo por
+  // colaborador — ele segue o tema claro/escuro do CRM principal (ver hook).
+  useSyncWithCrmTheme();
+
   useEffect(() => {
     if (!colaborador) return;
     setUserSettings(colaboradorToUserSettings(colaborador));
-    applyComissoesTheme(colaborador.tema, wrapperRef.current);
+  }, [colaborador]);
+
+  // Busca os serviços só quando o colaborador em si muda (não a cada
+  // atualização de campo dele), pra não ficar recarregando/piscando a tela
+  // toda vez que salário/meta/tema mudam em tempo real.
+  useEffect(() => {
+    if (!colaborador) return;
     setLoadingData(true);
     getServicesFromSupabase(colaborador.id).then((list) => {
       setServices(list);
       setLoadingData(false);
     });
-  }, [colaborador]);
+  }, [colaborador?.id]);
+
+  // Tempo real: reflete na hora qualquer alteração feita em outro lugar
+  // (o próprio colaborador lançando um serviço em /comissoes pelo celular,
+  // outro admin editando salário/meta/nome, etc.), sem precisar recarregar.
+  useEffect(() => {
+    if (!colaborador?.id) return;
+    const colaboradorId = colaborador.id;
+
+    const servicosChannel = supabase
+      .channel(`comissoes-servicos-${colaboradorId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'comissoes_servicos', filter: `colaborador_id=eq.${colaboradorId}` },
+        () => { getServicesFromSupabase(colaboradorId).then(setServices); }
+      )
+      .subscribe();
+
+    const colaboradorChannel = supabase
+      .channel(`comissoes-colaborador-${colaboradorId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'colaboradores', filter: `id=eq.${colaboradorId}` },
+        (payload: any) => {
+          if (payload.eventType === 'DELETE') {
+            showToast('Este colaborador foi removido.');
+            setColaborador(null);
+            setServices([]);
+            return;
+          }
+          if (!payload.new) return;
+          setColaborador(mapColaboradorRow(payload.new));
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(servicosChannel);
+      supabase.removeChannel(colaboradorChannel);
+    };
+  }, [colaborador?.id]);
 
   const handleLoginSuccess = (c: Colaborador) => {
     localStorage.setItem(COLABORADOR_SESSION_KEY, c.id);
@@ -107,7 +159,6 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
   const handleSaveSettings = async (newSettings: UserSettings) => {
     if (!colaborador) return;
     setUserSettings(newSettings);
-    applyComissoesTheme(newSettings.themePreference, wrapperRef.current);
     const ok = await saveColaboradorSettings(colaborador.id, newSettings);
     showToast(ok ? 'Configurações salvas com sucesso!' : 'Não foi possível salvar.');
   };
@@ -235,6 +286,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
         userSettings={userSettings}
         onSaveSettings={handleSaveSettings}
         onResetData={() => showToast('Reiniciar dados desativado — os dados agora ficam salvos no servidor.')}
+        hideThemeOption
       />
     </div>
   );
