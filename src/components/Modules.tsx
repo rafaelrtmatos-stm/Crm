@@ -1,7 +1,11 @@
 import { AppContext } from '../App';
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { ContractApprovalModule } from './ContractApprovalModule';
+
+// Painel de Comissões (mesmo app usado no menu lateral), reaproveitado aqui pra o admin
+// poder abrir o painel completo de um colaborador direto de Configurações > Comissões.
+const ComissoesEmbedded = React.lazy(() => import('../comissoes/ComissoesEmbedded'));
 import { 
   TrendingUp, 
   LayoutGrid,
@@ -13565,6 +13569,8 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     nome: '', senha: '', cargo: '', salarioBase: 0, comissaoPadraoPercentual: 10, metaSemanal: 0,
   });
   const [savingColaborador, setSavingColaborador] = useState(false);
+  // Colaborador selecionado pro admin ver o painel completo (Dashboard, Semanal, Tabela, Relatórios, Serviços)
+  const [viewingColaborador, setViewingColaborador] = useState<any | null>(null);
 
   const loadColaboradores = async () => {
     setIsLoadingColaboradores(true);
@@ -14548,6 +14554,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                              </div>
                              <p className="text-[10px] text-white/30">{c.cargo || 'Sem cargo definido'} · Salário R$ {Number(c.salario_base || 0).toFixed(2).replace('.', ',')} · Comissão {c.comissao_padrao_percentual || 0}%</p>
                           </div>
+                          <button onClick={() => setViewingColaborador(c)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 shrink-0">Ver Painel</button>
                           <button onClick={() => openEditColaborador(c)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20 shrink-0">Editar</button>
                           <button onClick={() => handleToggleColaboradorAtivo(c)} className={cn("text-[8px] font-black uppercase px-2 py-1.5 rounded-lg shrink-0", c.ativo ? "bg-amber-500/10 text-amber-400 hover:bg-amber-500/20" : "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20")}>
                              {c.ativo ? 'Desativar' : 'Ativar'}
@@ -14559,6 +14566,28 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                 )}
              </div>
            )}
+
+           {/* Painel completo de Comissões do colaborador selecionado (visão do admin, sem precisar de senha) */}
+           <Modal isOpen={!!viewingColaborador} onClose={() => setViewingColaborador(null)} title={`Painel de Comissões — ${viewingColaborador?.nome || ''}`} size="xl" contentClassName="!p-0 overflow-hidden">
+             {viewingColaborador && (
+               <div className="h-[75vh] overflow-y-auto custom-scrollbar bg-slate-900/40">
+                 <Suspense fallback={<div className="flex justify-center py-16"><RefreshCw className="animate-spin text-primary-500" size={24} /></div>}>
+                   <ComissoesEmbedded
+                     presetColaborador={{
+                       id: viewingColaborador.id,
+                       nome: viewingColaborador.nome,
+                       cargo: viewingColaborador.cargo || undefined,
+                       salarioBase: Number(viewingColaborador.salario_base) || 0,
+                       comissaoPadraoPercentual: Number(viewingColaborador.comissao_padrao_percentual) || 10,
+                       metaSemanal: Number(viewingColaborador.meta_semanal) || 0,
+                       tema: viewingColaborador.tema || 'dark',
+                       ativo: viewingColaborador.ativo !== false,
+                     }}
+                   />
+                 </Suspense>
+               </div>
+             )}
+           </Modal>
 
            {activeTab === 'Integrações' && (
              <div className="space-y-10">

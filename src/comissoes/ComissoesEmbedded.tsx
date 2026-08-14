@@ -36,9 +36,9 @@ import './comissoes-theme.css';
 // Sessão própria (não mexe na sessão do colaborador usada em /comissoes)
 const COLABORADOR_SESSION_KEY = 'rpro_comissoes_colaborador_id_menu';
 
-export default function ComissoesEmbedded() {
-  const [colaborador, setColaborador] = useState<Colaborador | null>(null);
-  const [checkingSession, setCheckingSession] = useState(true);
+export default function ComissoesEmbedded({ presetColaborador }: { presetColaborador?: Colaborador } = {}) {
+  const [colaborador, setColaborador] = useState<Colaborador | null>(presetColaborador ?? null);
+  const [checkingSession, setCheckingSession] = useState(!presetColaborador);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   const [services, setServices] = useState<ServiceItem[]>([]);
@@ -55,6 +55,10 @@ export default function ComissoesEmbedded() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   useEffect(() => {
+    // Modo "visão do admin": o colaborador já vem escolhido de fora (Configurações > Comissões),
+    // sem precisar de login/senha. Não mexe em nenhuma sessão salva no navegador.
+    if (presetColaborador) { setColaborador(presetColaborador); setCheckingSession(false); return; }
+
     const savedId = localStorage.getItem(COLABORADOR_SESSION_KEY);
     if (!savedId) { setCheckingSession(false); return; }
     import('../supabase').then(async ({ supabase }) => {
@@ -70,7 +74,7 @@ export default function ComissoesEmbedded() {
       }
       setCheckingSession(false);
     });
-  }, []);
+  }, [presetColaborador]);
 
   useEffect(() => {
     if (!colaborador) return;
@@ -89,6 +93,7 @@ export default function ComissoesEmbedded() {
   };
 
   const handleLogout = () => {
+    if (presetColaborador) return; // visão do admin não tem sessão própria pra deslogar
     localStorage.removeItem(COLABORADOR_SESSION_KEY);
     setColaborador(null);
     setServices([]);
@@ -169,7 +174,7 @@ export default function ComissoesEmbedded() {
         userSettings={userSettings}
         onOpenAddModal={() => { setEditingService(null); setModalInitialDate(undefined); setIsAddModalOpen(true); }}
         onOpenSettings={() => setIsSettingsOpen(true)}
-        onLogout={handleLogout}
+        onLogout={presetColaborador ? undefined : handleLogout}
       />
 
       <main className="flex-1 w-full mx-auto px-4 sm:px-6 py-6">
