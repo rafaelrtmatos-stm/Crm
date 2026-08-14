@@ -8,9 +8,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, createContext, useContext } from 'react';
+import React, { useState, useEffect, createContext, useContext, Suspense } from 'react';
 import { 
   LayoutDashboard, 
+  Percent, 
   MessageSquare, 
   Target, 
   ShoppingBag, 
@@ -42,6 +43,10 @@ import {
   Key
 } from 'lucide-react';
 import { ChevronRight } from 'lucide-react';
+
+// Painel de Comissões, aberto direto pelo menu lateral (mesmo app usado em /comissoes,
+// só que sem sair do sistema). Carregado sob demanda (lazy) pra não pesar o carregamento inicial.
+const ComissoesEmbedded = React.lazy(() => import('./comissoes/ComissoesEmbedded'));
 import { NotifyHost, showAlert } from './lib/notify';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -98,7 +103,7 @@ import {
 } from './types';
 import { RafaArtsLogo, BrandLogo } from './components/RafaArtsLogo';
 
-type MainTab = 'dashboard' | 'crm' | 'messages' | 'pos' | 'contacts' | 'services' | 'inventory' | 'production' | 'settings';
+type MainTab = 'dashboard' | 'crm' | 'messages' | 'pos' | 'contacts' | 'services' | 'inventory' | 'production' | 'settings' | 'comissoes';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -433,7 +438,7 @@ export default function App() {
   }, []);
   const [activeTab, setActiveTabState] = useState<MainTab>(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem('rpro_active_tab') : null;
-    const validTabs: MainTab[] = ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'services', 'inventory', 'production', 'settings'];
+    const validTabs: MainTab[] = ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'services', 'inventory', 'production', 'settings', 'comissoes'];
     return (saved && validTabs.includes(saved as MainTab)) ? (saved as MainTab) : 'dashboard';
   });
   const setActiveTab = (tab: MainTab) => {
@@ -1044,6 +1049,7 @@ export default function App() {
     { id: 'contacts', label: 'Contatos', icon: Users },
     { id: 'clientes_espera', label: 'Clientes em Espera', icon: Clock },
     { id: 'production', label: 'Ordem de Serviço', icon: Layers },
+    { id: 'comissoes', label: 'Comissões', icon: Percent },
     { id: 'settings', label: 'Opções', icon: Settings },
   ].filter(item => {
     // If user has specific allowedTabs, check it first (unless they are admin, who can always see Settings)
@@ -1422,6 +1428,13 @@ export default function App() {
                   {activeTab === 'inventory' && <InventoryModule currentCompany={currentCompany} user={user} />}
                   {activeTab === 'services' && <ServicesModule currentCompany={currentCompany} />}
                   {activeTab === 'production' && <ProductionModule currentCompany={currentCompany} />}
+                  {activeTab === 'comissoes' && (
+                    <ModuleErrorBoundary label="Comissões">
+                      <Suspense fallback={<div className="h-64 flex items-center justify-center text-white/40 text-sm">Carregando...</div>}>
+                        <ComissoesEmbedded />
+                      </Suspense>
+                    </ModuleErrorBoundary>
+                  )}
                   {activeTab === 'settings' && <SettingsModule currentCompany={currentCompany} user={user} />}
                 </motion.div>
               </AnimatePresence>

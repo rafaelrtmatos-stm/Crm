@@ -13637,6 +13637,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     { id: 'contacts', label: 'Contatos' },
     { id: 'clientes_espera', label: 'Clientes em Espera' },
     { id: 'production', label: 'Ordem de Serviço' },
+    { id: 'comissoes', label: 'Comissões' },
     { id: 'settings', label: 'Opções' },
   ];
   const [menuConfig, setMenuConfig] = useState<{ id: string; visible: boolean }[]>(MENU_ITEMS_DEFAULT.map(m => ({ id: m.id, visible: true })));
@@ -14151,6 +14152,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     { id: 'crm', label: 'Funil CRM' },
     { id: 'production', label: 'Ordem de Serviço' },
     { id: 'inventory', label: 'Estoque' },
+    { id: 'comissoes', label: 'Comissões' },
     { id: 'settings', label: 'Configurações' },
   ];
 
@@ -14162,6 +14164,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     { id: 'contacts', label: 'Contatos', desc: 'Gestão de clientes e histórico de compras' },
     { id: 'clientes_espera', label: 'Clientes em Espera', desc: 'Fila de atendimento com tempo de espera em tempo real' },
     { id: 'production', label: 'Ordem de Serviço', desc: 'Fila de producao com todos os pedidos e etapa atual de cada um' },
+    { id: 'comissoes', label: 'Comissões', desc: 'Painel de comissões do colaborador (login próprio, separado do CRM)' },
     { id: 'settings', label: 'Opções', desc: 'Parâmetro de configurações do Rafa Arts Graphics' },
   ];
 

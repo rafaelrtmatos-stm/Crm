@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { LogIn, User, Lock } from 'lucide-react';
 import { loginColaborador, Colaborador } from './utils/supabaseStorage';
 
-export const ColaboradorLogin = ({ onLoginSuccess }: { onLoginSuccess: (colaborador: Colaborador) => void }) => {
+export const ColaboradorLogin = ({ onLoginSuccess, embedded }: { onLoginSuccess: (colaborador: Colaborador) => void; embedded?: boolean }) => {
   const [nome, setNome] = useState('');
   const [senha, setSenha] = useState('');
   const [erro, setErro] = useState('');
@@ -20,7 +20,7 @@ export const ColaboradorLogin = ({ onLoginSuccess }: { onLoginSuccess: (colabora
   };
 
   return (
-    <div className="comissoes-app min-h-screen flex items-center justify-center p-4">
+    <div className={`comissoes-app ${embedded ? 'h-full min-h-[420px]' : 'min-h-screen'} flex items-center justify-center p-4`}>
       <form onSubmit={handleSubmit} className="w-full max-w-sm bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl p-8 shadow-red-lg-glow space-y-6">
         <div className="text-center space-y-1">
           <div className="w-14 h-14 mx-auto rounded-2xl bg-gradient-red flex items-center justify-center mb-3">
