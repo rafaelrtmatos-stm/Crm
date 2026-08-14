@@ -65,6 +65,25 @@ body {
   max-height: 100dvh;
   overflow: hidden;
 }
+
+/* Excecao: /comissoes e uma pagina normal (cresce com o conteudo) e depende do scroll
+   padrao do navegador, entao liberamos o "travamento" de app nativo so nessa rota
+   (classe aplicada em AppRoot.tsx via document.documentElement). */
+html.comissoes-route,
+html.comissoes-route body,
+html.comissoes-route #root {
+  position: static;
+  height: auto;
+  min-height: 100%;
+  max-height: none;
+  overflow: visible;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+html.comissoes-route body {
+  touch-action: pan-y;
+  overscroll-behavior: auto;
+}
 * {
   box-sizing: border-box;
 }
