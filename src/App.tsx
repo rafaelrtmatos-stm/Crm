@@ -44,9 +44,9 @@ import {
 } from 'lucide-react';
 import { ChevronRight } from 'lucide-react';
 
-// Painel de Comissões, aberto direto pelo menu lateral (mesmo app usado em /comissoes,
-// só que sem sair do sistema). Carregado sob demanda (lazy) pra não pesar o carregamento inicial.
-const ComissoesEmbedded = React.lazy(() => import('./comissoes/ComissoesEmbedded'));
+// Painel de Comissões, aberto direto pelo menu lateral: mostra a lista de colaboradores
+// e entra direto no painel de cada um, sem pedir login (o admin já está autenticado no CRM).
+const ComissoesEmbedded = React.lazy(() => import('./comissoes/ComissoesAdminPanel'));
 import { NotifyHost, showAlert } from './lib/notify';
 import { motion, AnimatePresence } from 'motion/react';
 import { 

@@ -53,6 +53,17 @@ export async function loginColaborador(nome: string, senha: string): Promise<Col
   return mapColaboradorRow(data);
 }
 
+// Lista todos os colaboradores (usado pela visão do admin, sem senha) — inclui inativos,
+// pra o admin poder ver quem já foi desativado também.
+export async function getAllColaboradores(): Promise<Colaborador[]> {
+  const { data, error } = await supabase
+    .from('colaboradores')
+    .select('*')
+    .order('nome', { ascending: true });
+  if (error || !data) return [];
+  return data.map(mapColaboradorRow);
+}
+
 // --- SERVICOS (escopados por colaborador) ---
 export async function getServicesFromSupabase(colaboradorId: string): Promise<ServiceItem[]> {
   const { data, error } = await supabase
