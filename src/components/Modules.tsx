@@ -13567,26 +13567,6 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
 // --- SETTINGS ---
 export const SettingsModule = ({ currentCompany, user }: { currentCompany: Company | null; user: AppUser | null }) => {
   const [activeTab, setActiveTab] = useState('Geral');
-  useEffect(() => {
-    if (activeTab === 'Comissões') loadColaboradores();
-  }, [activeTab]);
-
-  // Tempo real: enquanto a aba "Comissões" estiver aberta, qualquer alteração
-  // de colaborador (feita aqui, no menu lateral, ou por outro admin em outra
-  // aba) aparece na lista e no painel aberto na hora, sem precisar de F5.
-  useEffect(() => {
-    if (activeTab !== 'Comissões') return;
-    const channel = supabase
-      .channel('settings-comissoes-colaboradores')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'colaboradores' }, async () => {
-        const { data } = await supabase.from('colaboradores').select('*').order('nome', { ascending: true });
-        if (!data) return;
-        setColaboradoresList(data);
-        setViewingColaborador((prev: any) => (prev ? data.find((c: any) => c.id === prev.id) ?? null : prev));
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [activeTab]);
 
   const [logoUrl, setLogoUrl] = useState(currentCompany?.logoUrl || '');
   const [logoLight, setLogoLight] = useState<string | null>(null);
@@ -14001,6 +13981,12 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
   const [newUserEmail, setNewUserEmail] = useState('');
   const [newUserPassword, setNewUserPassword] = useState('');
   const [newUserRole, setNewUserRole] = useState<'admin' | 'gerente' | 'atendente' | 'caixa' | 'vendedor' | 'designer' | 'operador'>('atendente');
+  // Tipo do usuário sendo cadastrado: 'sistema' (login com e-mail, vai pra tabela 'usuarios', com
+  // permissões/abas do CRM) ou 'colaborador' (login só com nome+senha, vai pra tabela 'colaboradores',
+  // acessa apenas o link de Comissões — sem nenhuma outra aba do sistema).
+  const [newUserType, setNewUserType] = useState<'sistema' | 'colaborador'>('sistema');
+  const [newColaboradorSenha, setNewColaboradorSenha] = useState('');
+  const [isCreatingColaborador, setIsCreatingColaborador] = useState(false);
 
   useEffect(() => {
     if (!currentCompany) return;
@@ -14120,6 +14106,33 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
   };
 
   const handleCreateUser = async () => {
+    if (newUserType === 'colaborador') {
+      if (!newUserName.trim() || !newColaboradorSenha.trim()) {
+        showAlert('Preencha nome e senha do colaborador.');
+        return;
+      }
+      setIsCreatingColaborador(true);
+      try {
+        const { error } = await supabase.from('colaboradores').insert({
+          nome: newUserName.trim(),
+          senha: newColaboradorSenha,
+          comissao_padrao_percentual: 10,
+        });
+        if (error) throw error;
+        showAlert(`Colaborador [${newUserName}] cadastrado com sucesso!\n\nNome: ${newUserName}\nSenha: ${newColaboradorSenha}\n\nEle já pode entrar pelo link de Comissões com esse nome e senha (as demais informações — cargo, salário, comissão, meta — podem ser ajustadas depois direto na tela de Comissões).`);
+        setIsCreateModalOpen(false);
+        setNewUserName('');
+        setNewColaboradorSenha('');
+        setNewUserType('sistema');
+      } catch (err: any) {
+        console.error('Erro ao criar colaborador:', err);
+        showAlert(`Erro ao criar colaborador: ${err?.message || 'erro desconhecido'}`);
+      } finally {
+        setIsCreatingColaborador(false);
+      }
+      return;
+    }
+
     if (!newUserName || !newUserEmail) {
       showAlert('Por favor, preencha o nome e o e-mail.');
       return;
@@ -14236,7 +14249,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
       />
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-10">
         <GlassCard className="p-0 overflow-hidden h-fit border-white/5">
-           {['Geral', 'Identidade', 'Menu Lateral', 'CRM / Funis', 'Comissões', 'Integrações', 'Usuários e Permissões', 'Backup'].map((tab) => (
+           {['Geral', 'Identidade', 'Menu Lateral', 'CRM / Funis', 'Integrações', 'Usuários e Permissões', 'Backup'].map((tab) => (
              <button 
                key={tab} 
                onClick={() => setActiveTab(tab)}
@@ -14550,81 +14563,6 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                 </div>
              </div>
            )}
-
-           {activeTab === 'Comissões' && (
-             <div className="space-y-8">
-                <div>
-                   <h3 className="text-xl font-black text-white italic tracking-tighter uppercase">Colaboradores</h3>
-                   <p className="text-xs text-white/40 mt-1">Crie o acesso de cada colaborador (nome + senha) pro app de Comissões. Eles entram em <span className="text-primary-300 font-bold">/comissoes</span> e só veem os próprios serviços lançados.</p>
-                </div>
-
-                {/* Formulário de criar/editar */}
-                <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-4">
-                   <h4 className="text-sm font-black uppercase text-primary-300">{editingColaborador ? `Editando: ${editingColaborador.nome}` : 'Novo Colaborador'}</h4>
-                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <Input label="Nome" value={colaboradorForm.nome} onChange={(e: any) => setColaboradorForm({ ...colaboradorForm, nome: e.target.value })} />
-                      <Input label="Senha" value={colaboradorForm.senha} onChange={(e: any) => setColaboradorForm({ ...colaboradorForm, senha: e.target.value })} placeholder="Senha de acesso" />
-                      <Input label="Cargo (opcional)" value={colaboradorForm.cargo} onChange={(e: any) => setColaboradorForm({ ...colaboradorForm, cargo: e.target.value })} />
-                      <Input label="Salário Base (R$)" type="number" value={colaboradorForm.salarioBase} onChange={(e: any) => setColaboradorForm({ ...colaboradorForm, salarioBase: Number(e.target.value) || 0 })} />
-                      <Input label="Comissão Padrão (%)" type="number" value={colaboradorForm.comissaoPadraoPercentual} onChange={(e: any) => setColaboradorForm({ ...colaboradorForm, comissaoPadraoPercentual: Number(e.target.value) || 0 })} />
-                      <Input label="Meta Semanal (R$)" type="number" value={colaboradorForm.metaSemanal} onChange={(e: any) => setColaboradorForm({ ...colaboradorForm, metaSemanal: Number(e.target.value) || 0 })} />
-                   </div>
-                   <div className="flex justify-end gap-3">
-                      {editingColaborador && <Button variant="ghost" onClick={openNewColaborador}>Cancelar Edição</Button>}
-                      <Button disabled={savingColaborador} onClick={handleSaveColaborador}>{savingColaborador ? 'Salvando...' : (editingColaborador ? 'Salvar Alterações' : 'Criar Colaborador')}</Button>
-                   </div>
-                </div>
-
-                {/* Lista */}
-                {isLoadingColaboradores ? (
-                  <div className="flex justify-center py-10"><RefreshCw className="animate-spin text-primary-500" size={22} /></div>
-                ) : colaboradoresList.length === 0 ? (
-                  <div className="text-center py-10 text-white/30 text-sm">Nenhum colaborador cadastrado ainda.</div>
-                ) : (
-                  <div className="space-y-2">
-                     {colaboradoresList.map((c) => (
-                       <div key={c.id} className={cn("flex items-center gap-3 bg-white/5 border rounded-xl px-4 py-3", c.ativo ? "border-white/10" : "border-white/5 opacity-50")}>
-                          <div className="min-w-0 flex-1">
-                             <div className="flex items-center gap-2">
-                                <p className="font-bold text-white truncate">{c.nome}</p>
-                                {!c.ativo && <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-400">Inativo</span>}
-                             </div>
-                             <p className="text-[10px] text-white/30">{c.cargo || 'Sem cargo definido'} · Salário R$ {Number(c.salario_base || 0).toFixed(2).replace('.', ',')} · Comissão {c.comissao_padrao_percentual || 0}%</p>
-                          </div>
-                          <button onClick={() => setViewingColaborador(c)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 shrink-0">Ver Painel</button>
-                          <button onClick={() => openEditColaborador(c)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20 shrink-0">Editar</button>
-                          <button onClick={() => handleToggleColaboradorAtivo(c)} className={cn("text-[8px] font-black uppercase px-2 py-1.5 rounded-lg shrink-0", c.ativo ? "bg-amber-500/10 text-amber-400 hover:bg-amber-500/20" : "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20")}>
-                             {c.ativo ? 'Desativar' : 'Ativar'}
-                          </button>
-                          <button onClick={() => handleDeleteColaborador(c)} className="text-white/30 hover:text-rose-400 p-1.5 shrink-0"><Trash2 size={13} /></button>
-                       </div>
-                     ))}
-                  </div>
-                )}
-             </div>
-           )}
-
-           {/* Painel completo de Comissões do colaborador selecionado (visão do admin, sem precisar de senha) */}
-           <Modal isOpen={!!viewingColaborador} onClose={() => setViewingColaborador(null)} title={`Painel de Comissões — ${viewingColaborador?.nome || ''}`} size="xl" contentClassName="!p-0 overflow-hidden">
-             {viewingColaborador && (
-               <div className="h-[75vh] overflow-y-auto custom-scrollbar">
-                 <Suspense fallback={<div className="flex justify-center py-16"><RefreshCw className="animate-spin text-primary-500" size={24} /></div>}>
-                   <ComissoesEmbedded
-                     presetColaborador={{
-                       id: viewingColaborador.id,
-                       nome: viewingColaborador.nome,
-                       cargo: viewingColaborador.cargo || undefined,
-                       salarioBase: Number(viewingColaborador.salario_base) || 0,
-                       comissaoPadraoPercentual: Number(viewingColaborador.comissao_padrao_percentual) || 10,
-                       metaSemanal: Number(viewingColaborador.meta_semanal) || 0,
-                       tema: viewingColaborador.tema || 'dark',
-                       ativo: viewingColaborador.ativo !== false,
-                     }}
-                   />
-                 </Suspense>
-               </div>
-             )}
-           </Modal>
 
            {activeTab === 'Integrações' && (
              <div className="space-y-10">
@@ -15190,46 +15128,85 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
 
                 <Modal 
                   isOpen={isCreateModalOpen} 
-                  onClose={() => setIsCreateModalOpen(false)} 
+                  onClose={() => { setIsCreateModalOpen(false); setNewUserType('sistema'); setNewUserName(''); setNewUserEmail(''); setNewUserPassword(''); setNewColaboradorSenha(''); }} 
                   title="Cadastrar Novo Usuário no Repositório"
                 >
                   <div className="space-y-6">
-                    <p className="text-xs text-white/40 -mt-2">O usuário criado será salvo diretamente no banco de dados Firestore e poderá fazer login imediatamente com o e-mail e senha cadastrados.</p>
-                    <Input label="Nome Completo do Colaborador" placeholder="Ex: Maria Silva" value={newUserName} onChange={(e) => setNewUserName(e.target.value)} />
-                    <Input label="E-mail de Acesso" placeholder="maria@empresa.com" value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)} />
-                    <Input label="Senha de Acesso" type="password" placeholder="Defina a senha (ex: 123456)" value={newUserPassword} onChange={(e) => setNewUserPassword(e.target.value)} />
-                    
                     <div className="space-y-2">
-                      <label className="text-xs uppercase tracking-widest text-white/50 font-black">Cargo / Função do Usuário</label>
-                      <select 
-                        value={newUserRole}
-                        onChange={(e: any) => setNewUserRole(e.target.value)}
-                        className="w-full bg-slate-950 border border-white/10 rounded-2xl p-4 text-white hover:border-primary-500 font-bold focus:outline-none transition-all"
-                      >
-                        <option value="admin">Administrador (Total)</option>
-                        <option value="gerente">Gerente de Equipe</option>
-                        <option value="atendente">Atendente Comercial</option>
-                        <option value="caixa">Operador de Caixa (PDV)</option>
-                        <option value="vendedor">Vendedor Externo</option>
-                        <option value="designer">Designer Gráfico</option>
-                        <option value="operador">Operador de Impressão</option>
-                      </select>
+                      <label className="text-xs uppercase tracking-widest text-white/50 font-black">Tipo de Usuário</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setNewUserType('sistema')}
+                          className={cn(
+                            "p-4 rounded-2xl border text-left transition-all cursor-pointer",
+                            newUserType === 'sistema' ? "bg-primary-500/10 border-primary-500 text-white" : "bg-slate-950/40 border-white/10 text-white/40 hover:border-white/20"
+                          )}
+                        >
+                          <span className="block font-black text-xs uppercase tracking-wide">Usuário do Sistema</span>
+                          <span className="block text-[10px] text-white/40 mt-1 leading-tight">Login com e-mail e senha, acessa as abas do CRM conforme as permissões</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setNewUserType('colaborador')}
+                          className={cn(
+                            "p-4 rounded-2xl border text-left transition-all cursor-pointer",
+                            newUserType === 'colaborador' ? "bg-primary-500/10 border-primary-500 text-white" : "bg-slate-950/40 border-white/10 text-white/40 hover:border-white/20"
+                          )}
+                        >
+                          <span className="block font-black text-xs uppercase tracking-wide">Colaborador (Comissões)</span>
+                          <span className="block text-[10px] text-white/40 mt-1 leading-tight">Login só com nome e senha, acessa apenas o link de Comissões</span>
+                        </button>
+                      </div>
                     </div>
+
+                    {newUserType === 'sistema' ? (
+                      <>
+                        <p className="text-xs text-white/40 -mt-2">O usuário criado será salvo diretamente no banco de dados Firestore e poderá fazer login imediatamente com o e-mail e senha cadastrados.</p>
+                        <Input label="Nome Completo do Colaborador" placeholder="Ex: Maria Silva" value={newUserName} onChange={(e) => setNewUserName(e.target.value)} />
+                        <Input label="E-mail de Acesso" placeholder="maria@empresa.com" value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)} />
+                        <Input label="Senha de Acesso" type="password" placeholder="Defina a senha (ex: 123456)" value={newUserPassword} onChange={(e) => setNewUserPassword(e.target.value)} />
+
+                        <div className="space-y-2">
+                          <label className="text-xs uppercase tracking-widest text-white/50 font-black">Cargo / Função do Usuário</label>
+                          <select 
+                            value={newUserRole}
+                            onChange={(e: any) => setNewUserRole(e.target.value)}
+                            className="w-full bg-slate-950 border border-white/10 rounded-2xl p-4 text-white hover:border-primary-500 font-bold focus:outline-none transition-all"
+                          >
+                            <option value="admin">Administrador (Total)</option>
+                            <option value="gerente">Gerente de Equipe</option>
+                            <option value="atendente">Atendente Comercial</option>
+                            <option value="caixa">Operador de Caixa (PDV)</option>
+                            <option value="vendedor">Vendedor Externo</option>
+                            <option value="designer">Designer Gráfico</option>
+                            <option value="operador">Operador de Impressão</option>
+                          </select>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-xs text-white/40 -mt-2">O colaborador é salvo na base de Comissões e entra pelo link de Comissões com nome e senha — sem acesso a nenhuma outra aba do sistema. Cargo, salário, comissão e meta semanal podem ser ajustados depois direto na tela de Comissões.</p>
+                        <Input label="Nome do Colaborador" placeholder="Ex: João Souza" value={newUserName} onChange={(e) => setNewUserName(e.target.value)} />
+                        <Input label="Senha de Acesso" type="password" placeholder="Defina a senha de acesso" value={newColaboradorSenha} onChange={(e) => setNewColaboradorSenha(e.target.value)} />
+                      </>
+                    )}
 
                     <div className="flex gap-4 pt-4">
                       <button 
                         type="button"
-                        onClick={() => setIsCreateModalOpen(false)} 
+                        onClick={() => { setIsCreateModalOpen(false); setNewUserType('sistema'); setNewUserName(''); setNewUserEmail(''); setNewUserPassword(''); setNewColaboradorSenha(''); }} 
                         className="flex-1 py-3 bg-white/5 hover:bg-white/10 text-white font-bold text-xs uppercase rounded-xl transition-all border-0 cursor-pointer"
                       >
                         Cancelar
                       </button>
                       <button 
                         type="button"
+                        disabled={isCreatingColaborador}
                         onClick={handleCreateUser} 
-                        className="flex-1 py-3 bg-primary-500 hover:bg-primary-400 text-slate-950 font-black text-xs uppercase rounded-xl transition-all shadow-lg border-0 cursor-pointer"
+                        className="flex-1 py-3 bg-primary-500 hover:bg-primary-400 text-slate-950 font-black text-xs uppercase rounded-xl transition-all shadow-lg border-0 cursor-pointer disabled:opacity-50"
                       >
-                        Salvar no Repositório
+                        {isCreatingColaborador ? 'Salvando...' : 'Salvar no Repositório'}
                       </button>
                     </div>
                   </div>
