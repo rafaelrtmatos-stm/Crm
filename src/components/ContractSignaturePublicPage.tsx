@@ -274,8 +274,8 @@ export default function ContractSignaturePublicPage() {
           <p className="text-white/40 text-xs">Nº {contrato.numero} — {contrato.customerName}</p>
         </div>
 
-        <div className="rounded-2xl border border-white/10 bg-white/[0.03] max-h-72 overflow-y-auto p-4">
-          <pre className="whitespace-pre-wrap text-[11px] text-white/60 font-sans leading-relaxed">
+        <div className="rounded-2xl border border-white/10 bg-white max-h-72 overflow-y-auto p-4">
+          <pre className="whitespace-pre-wrap text-[12px] text-black font-sans leading-relaxed">
             {contrato.textoContrato || 'Texto do contrato indisponível.'}
           </pre>
         </div>
@@ -370,6 +370,9 @@ export default function ContractSignaturePublicPage() {
               {codeCopied ? <CheckCircle2 size={12} /> : <Copy size={12} />}
               {codeCopied ? 'Copiado!' : 'Copiar código'}
             </button>
+            <p className="text-[10px] text-rose-400/80 font-bold flex items-center justify-center gap-1">
+              <AlertCircle size={11} /> Não compartilhe esse código com ninguém.
+            </p>
           </div>
 
           <p className="text-[11px] text-white/50 text-center">
