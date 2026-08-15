@@ -66,12 +66,12 @@ body {
   overflow: hidden;
 }
 
-/* Excecao: /comissoes e uma pagina normal (cresce com o conteudo) e depende do scroll
-   padrao do navegador, entao liberamos o "travamento" de app nativo so nessa rota
-   (classe aplicada em AppRoot.tsx via document.documentElement). */
-html.comissoes-route,
-html.comissoes-route body,
-html.comissoes-route #root {
+/* Excecao: /comissoes e /assinar/:id sao paginas normais (crescem com o conteudo) e
+   dependem do scroll padrao do navegador, entao liberamos o "travamento" de app nativo
+   so nessas rotas (classe aplicada em AppRoot.tsx via document.documentElement). */
+html.scrollable-route,
+html.scrollable-route body,
+html.scrollable-route #root {
   position: static;
   height: auto;
   min-height: 100%;
@@ -80,7 +80,7 @@ html.comissoes-route #root {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
-html.comissoes-route body {
+html.scrollable-route body {
   touch-action: pan-y;
   overscroll-behavior: auto;
 }

@@ -14,13 +14,16 @@ export default function AppRoot() {
   const isAssinaturaRoute = /^\/assinar\/[a-zA-Z0-9-]+$/.test(path);
 
   // O CRM principal trava html/body/#root (overflow hidden + position fixed) pra se
-  // comportar como app nativo, sem arrastar a pagina. A tela de Comissoes, porem, e uma
-  // pagina normal que cresce com o conteudo e depende do scroll padrao da pagina. Por isso
-  // marcamos o <html> com essa classe so nessa rota, pra liberar a rolagem (ver index.css).
+  // comportar como app nativo, sem arrastar a pagina. A tela de Comissoes e a tela publica
+  // de assinatura, porem, sao paginas normais que crescem com o conteudo e dependem do
+  // scroll padrao da pagina. Por isso marcamos o <html> com essa classe nessas rotas, pra
+  // liberar a rolagem (ver index.css) -- sem isso, so a caixinha do texto do contrato
+  // (que tem overflow-y-auto proprio) rola, e o resto da tela (checkbox, verificacao de
+  // CPF/CNPJ, codigo, botao de assinar) fica inacessivel se nao couber na tela do celular.
   useEffect(() => {
-    document.documentElement.classList.toggle('comissoes-route', isComissoesRoute);
-    return () => document.documentElement.classList.remove('comissoes-route');
-  }, [isComissoesRoute]);
+    document.documentElement.classList.toggle('scrollable-route', isComissoesRoute || isAssinaturaRoute);
+    return () => document.documentElement.classList.remove('scrollable-route');
+  }, [isComissoesRoute, isAssinaturaRoute]);
 
   if (isAssinaturaRoute) {
     return (
