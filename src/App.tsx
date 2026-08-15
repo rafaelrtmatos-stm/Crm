@@ -1278,7 +1278,7 @@ export default function App() {
     <div className="h-screen w-full flex items-center justify-center bg-[#07070a]">
       <div className="flex flex-col items-center gap-6">
         {logosReady ? (
-          <BrandLogo imageUrl={theme === 'light' ? (logoDarkUrl || logoLightUrl) : logoLightUrl} size="xl" widthPx={105} layout="stacked" />
+          <BrandLogo imageUrl={logoLightUrl || logoDarkUrl} size="xl" widthPx={105} layout="stacked" />
         ) : (
           <div style={{ width: 105, height: 64 }} />
         )}
@@ -1329,7 +1329,7 @@ export default function App() {
         <div className="flex flex-col items-center text-center space-y-2">
           <div className="px-5 py-3 sm:px-6 sm:py-4 rounded-3xl bg-[#0c0c12]/90 border border-slate-800 shadow-2xl shadow-red-950/60 backdrop-blur-xl">
             {logosReady ? (
-              <BrandLogo imageUrl={theme === 'light' ? (logoDarkUrl || logoLightUrl) : logoLightUrl} size="xl" widthPx={210} layout="stacked" />
+              <BrandLogo imageUrl={logoLightUrl || logoDarkUrl} size="xl" widthPx={210} layout="stacked" />
             ) : (
               <div style={{ width: 210, height: 128 }} />
             )}
@@ -1434,7 +1434,7 @@ export default function App() {
     <div className="min-h-screen w-full flex items-center justify-center bg-[#050508] p-4">
       <div className="max-w-md w-full flex flex-col items-center gap-5 text-center bg-white/[0.03] border border-white/10 rounded-2xl p-8">
         {logosReady ? (
-          <BrandLogo imageUrl={theme === 'light' ? (logoDarkUrl || logoLightUrl) : logoLightUrl} size="lg" layout="stacked" />
+          <BrandLogo imageUrl={logoLightUrl || logoDarkUrl} size="lg" layout="stacked" />
         ) : (
           <div style={{ width: 320, height: 195 }} />
         )}

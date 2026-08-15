@@ -14305,6 +14305,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     { id: 'canManageSaleHistory', label: 'Gerenciar Histórico de Vendas', desc: 'Permite reabrir, editar ou excluir vendas já registradas no PDV' },
     { id: 'canCloseCashRegister', label: 'Fechar Caixa', desc: 'Permite fechar o caixa do PDV (abrir continua restrito ao admin)' },
     { id: 'canAddProduct', label: 'Cadastrar Produto', desc: 'Permite cadastrar um novo produto direto pelo Terminal de Venda' },
+    { id: 'canManageInventory', label: 'Gerenciar Estoque', desc: 'Permite editar, ajustar e excluir produtos na aba Estoque do PDV' },
   ];
 
   return (
