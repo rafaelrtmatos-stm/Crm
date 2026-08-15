@@ -15,6 +15,9 @@ interface ContratoPublico {
   customerName: string;
   textoContrato: string;
   status: string;
+  signedAt?: string;
+  signerIp?: string;
+  documentHash?: string;
 }
 
 // Extrai o id do contrato da URL /assinar/:id (mesmo padrao de deteccao de rota usado em AppRoot.tsx)
@@ -49,13 +52,21 @@ export default function ContractSignaturePublicPage() {
 
   const [signedResult, setSignedResult] = useState<{ hash: string; ip: string; signedAt: string } | null>(null);
 
+  // Dados de assinatura pra exibir/baixar: vem do que acabou de ser assinado nesta sessao
+  // (signedResult) OU, se o contrato ja estava assinado antes (link reaberto depois), vem
+  // do que foi salvo no banco (contrato.signedAt/signerIp/documentHash).
+  const downloadInfo = signedResult
+    ?? (contrato?.signedAt && contrato?.signerIp && contrato?.documentHash
+      ? { hash: contrato.documentHash, ip: contrato.signerIp, signedAt: contrato.signedAt }
+      : null);
+
   useEffect(() => {
     const id = getContratoIdFromUrl();
     if (!id) { setNotFound(true); setLoading(false); return; }
 
     supabase
       .from('contratos')
-      .select('id, numero, customer_name, texto_contrato, status')
+      .select('id, numero, customer_name, texto_contrato, status, signed_at, signer_ip, document_hash')
       .eq('id', id)
       .maybeSingle()
       .then(({ data, error: fetchError }) => {
@@ -66,6 +77,9 @@ export default function ContractSignaturePublicPage() {
           customerName: data.customer_name,
           textoContrato: data.texto_contrato || '',
           status: data.status,
+          signedAt: data.signed_at || undefined,
+          signerIp: data.signer_ip || undefined,
+          documentHash: data.document_hash || undefined,
         });
         setLoading(false);
       });
@@ -198,11 +212,11 @@ export default function ContractSignaturePublicPage() {
   };
 
   const handleDownloadPdf = () => {
-    if (!contrato || !signedResult) return;
+    if (!contrato || !downloadInfo) return;
     downloadContratoPdf(contrato.numero, contrato.customerName, contrato.textoContrato, {
-      signedAt: signedResult.signedAt,
-      signerIp: signedResult.ip,
-      documentHash: signedResult.hash,
+      signedAt: downloadInfo.signedAt,
+      signerIp: downloadInfo.ip,
+      documentHash: downloadInfo.hash,
     });
   };
 
@@ -226,10 +240,19 @@ export default function ContractSignaturePublicPage() {
 
   if (contrato.status === 'assinado' && !signedResult) {
     return (
-      <div className="min-h-screen bg-black flex flex-col items-center justify-center gap-3 px-6 text-center">
+      <div className="min-h-screen bg-black flex flex-col items-center justify-center gap-4 px-6 text-center">
         <CheckCircle2 className="text-emerald-400" size={32} />
         <p className="text-white font-bold">Este contrato já foi assinado</p>
         <p className="text-white/40 text-sm">Nº {contrato.numero}</p>
+
+        {downloadInfo && (
+          <button
+            onClick={handleDownloadPdf}
+            className="mt-2 flex items-center gap-2 rounded-xl bg-primary-500 hover:bg-primary-400 text-black text-xs font-black uppercase px-5 py-3 transition-colors"
+          >
+            <Download size={14} /> Baixar PDF Assinado
+          </button>
+        )}
       </div>
     );
   }
