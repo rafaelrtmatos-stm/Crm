@@ -65,6 +65,13 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
   const [modalInitialDate, setModalInitialDate] = useState<string | undefined>(undefined);
   const [modalHeaderOverride, setModalHeaderOverride] = useState<{ title: string; subtitle: string } | undefined>(undefined);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  // Id do serviço a destacar na Planilha ao chegar via clique num item da lista do
+  // Dashboard ("Serviços no Período") -- ver handleGoToServiceInTable abaixo.
+  const [highlightServiceId, setHighlightServiceId] = useState<string | null>(null);
+  const handleGoToServiceInTable = (serviceId: string) => {
+    setHighlightServiceId(serviceId);
+    setActiveTab('table');
+  };
 
   useEffect(() => {
     // Modo "visão do admin": o colaborador já vem escolhido de fora (Configurações > Comissões),
@@ -299,6 +306,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
                 onOpenAddModal={() => { setEditingService(null); setModalInitialDate(undefined); setModalHeaderOverride(undefined); setIsAddModalOpen(true); }}
                 onGoToTable={() => setActiveTab('table')}
                 onGoToDescontos={() => setActiveTab('descontos')}
+                onGoToServiceInTable={handleGoToServiceInTable}
                 onEditService={handleEditService}
                 weeklyGoal={userSettings.weeklyGoal}
                 descontos={descontos}
@@ -320,6 +328,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
                 onEditService={handleEditService}
                 onDeleteService={handleDeleteService}
                 onOpenAddModal={() => { setEditingService(null); setModalInitialDate(undefined); setModalHeaderOverride(undefined); setIsAddModalOpen(true); }}
+                highlightServiceId={highlightServiceId}
               />
             )}
             {activeTab === 'reports' && (

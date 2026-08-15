@@ -26,6 +26,9 @@ interface DashboardProps {
   onOpenAddModal: () => void;
   onGoToTable: () => void;
   onGoToDescontos?: () => void;
+  // Vai pra aba Planilha já com a linha desse serviço destacada -- usado quando o
+  // usuário clica num item da lista "Serviços no Período" (em vez de abrir editar direto).
+  onGoToServiceInTable?: (serviceId: string) => void;
   onEditService: (service: ServiceItem) => void;
   weeklyGoal: number;
   descontos?: Desconto[];
@@ -94,6 +97,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onOpenAddModal,
   onGoToTable,
   onGoToDescontos,
+  onGoToServiceInTable,
   onEditService,
   weeklyGoal,
   descontos = [],
@@ -449,7 +453,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </thead>
               <tbody className="divide-y divide-[var(--border-color)] text-xs font-medium">
                 {filteredServices.slice(0, 10).map((item) => (
-                  <tr key={item.id} className="hover:bg-[var(--bg-card-hover)] transition-colors">
+                  <tr
+                    key={item.id}
+                    onClick={() => onGoToServiceInTable?.(item.id)}
+                    className={`hover:bg-[var(--bg-card-hover)] transition-colors ${onGoToServiceInTable ? 'cursor-pointer' : ''}`}
+                  >
                     <td className="py-3 px-3 font-mono text-[var(--text-muted)]">
                       {formatDateBR(item.date)}
                     </td>
@@ -464,7 +472,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     </td>
                     <td className="py-3 px-3 text-center">
                       <button
-                        onClick={() => onEditService(item)}
+                        onClick={(e) => { e.stopPropagation(); onEditService(item); }}
                         className="px-2.5 py-1 rounded-lg border border-[var(--border-color)] bg-[var(--bg-card-sec)] text-[10px] font-bold text-[var(--text-muted)] hover:text-white cursor-pointer"
                       >
                         Editar

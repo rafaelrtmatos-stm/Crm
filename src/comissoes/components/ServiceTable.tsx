@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import {
   Search,
   Filter,
@@ -22,6 +22,10 @@ interface ServiceTableProps {
   onEditService: (service: ServiceItem) => void;
   onDeleteService: (id: string) => void;
   onOpenAddModal: () => void;
+  // Id de um serviço específico pra rolar até a linha dele e destacar -- usado quando
+  // se chega nessa aba a partir de um clique num item da lista "Serviços no Período"
+  // do Dashboard (ver Dashboard.tsx / onGoToServiceInTable).
+  highlightServiceId?: string | null;
 }
 
 export const ServiceTable: React.FC<ServiceTableProps> = ({
@@ -30,6 +34,7 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
   onEditService,
   onDeleteService,
   onOpenAddModal,
+  highlightServiceId,
 }) => {
   const [filters, setFilters] = useState<FilterOptions>({
     dateRange: 'all',
@@ -39,6 +44,22 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
 
   const [sortField, setSortField] = useState<'date' | 'productionValue'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+
+  // Linha destacada momentaneamente ao chegar via "ir pro serviço na planilha".
+  const [activeHighlightId, setActiveHighlightId] = useState<string | null>(null);
+  const rowRefs = useRef<Record<string, HTMLElement | null>>({});
+
+  useEffect(() => {
+    if (!highlightServiceId) return;
+    // Garante que a linha apareça mesmo se havia filtro/busca de uma visita anterior.
+    setFilters({ dateRange: 'all', statusFilter: 'TODOS', searchQuery: '' });
+    setActiveHighlightId(highlightServiceId);
+    const scrollTimer = setTimeout(() => {
+      rowRefs.current[highlightServiceId]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 50);
+    const clearTimer = setTimeout(() => setActiveHighlightId(null), 2500);
+    return () => { clearTimeout(scrollTimer); clearTimeout(clearTimer); };
+  }, [highlightServiceId]);
 
   // Helper date comparisons
   const filteredServices = useMemo(() => {
@@ -309,7 +330,10 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
                 filteredServices.map((item) => (
                   <tr
                     key={item.id}
-                    className="hover:bg-[var(--bg-card-hover)] transition-colors group"
+                    ref={(el) => { rowRefs.current[item.id] = el; }}
+                    className={`hover:bg-[var(--bg-card-hover)] transition-colors group ${
+                      activeHighlightId === item.id ? 'bg-[var(--accent-red)]/15 ring-2 ring-inset ring-[var(--accent-red)]' : ''
+                    }`}
                   >
                     <td className="py-3.5 px-4 font-mono text-xs text-[var(--text-muted)] whitespace-nowrap">
                       {formatDateBR(item.date)}
@@ -407,7 +431,10 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
           filteredServices.map((item) => (
             <div
               key={item.id}
-              className="p-4 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] space-y-3 shadow-sm"
+              ref={(el) => { rowRefs.current[item.id] = el; }}
+              className={`p-4 rounded-2xl bg-[var(--bg-card)] border space-y-3 shadow-sm transition-colors ${
+                activeHighlightId === item.id ? 'border-[var(--accent-red)] ring-2 ring-[var(--accent-red)]' : 'border-[var(--border-color)]'
+              }`}
             >
               <div className="flex items-center justify-between gap-2 border-b border-[var(--border-color)] pb-2.5">
                 <div>

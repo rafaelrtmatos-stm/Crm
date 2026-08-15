@@ -52,6 +52,13 @@ export default function ComissoesApp() {
   const [modalInitialDate, setModalInitialDate] = useState<string | undefined>(undefined);
   const [modalHeaderOverride, setModalHeaderOverride] = useState<{ title: string; subtitle: string } | undefined>(undefined);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  // Id do serviço a destacar na Planilha ao chegar via clique num item da lista do
+  // Dashboard ("Serviços no Período") -- ver handleGoToServiceInTable abaixo.
+  const [highlightServiceId, setHighlightServiceId] = useState<string | null>(null);
+  const handleGoToServiceInTable = (serviceId: string) => {
+    setHighlightServiceId(serviceId);
+    setActiveTab('table');
+  };
 
   // Login persistido localmente (so nesse navegador) — nao mexe em nada do login do CRM principal
   useEffect(() => {
@@ -228,6 +235,7 @@ export default function ComissoesApp() {
                 onOpenAddModal={() => { setEditingService(null); setModalInitialDate(undefined); setModalHeaderOverride(undefined); setIsAddModalOpen(true); }}
                 onGoToTable={() => setActiveTab('table')}
                 onGoToDescontos={() => setActiveTab('descontos')}
+                onGoToServiceInTable={handleGoToServiceInTable}
                 onEditService={handleEditService}
                 weeklyGoal={userSettings.weeklyGoal}
                 descontos={descontos}
@@ -249,6 +257,7 @@ export default function ComissoesApp() {
                 onEditService={handleEditService}
                 onDeleteService={handleDeleteService}
                 onOpenAddModal={() => { setEditingService(null); setModalInitialDate(undefined); setModalHeaderOverride(undefined); setIsAddModalOpen(true); }}
+                highlightServiceId={highlightServiceId}
               />
             )}
             {activeTab === 'reports' && (
