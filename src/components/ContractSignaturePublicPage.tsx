@@ -3,9 +3,9 @@
 // Renderizada pela rota /assinar/:contratoId (ver integração em AppRoot.tsx).
 
 import React, { useEffect, useState } from 'react';
-import { ShieldCheck, Loader2, AlertCircle, CheckCircle2, Download, Hash, Globe, Clock, IdCard } from 'lucide-react';
+import { ShieldCheck, Loader2, AlertCircle, CheckCircle2, Download, Hash, Globe, Clock, IdCard, Copy, Clipboard } from 'lucide-react';
 import { supabase } from '../supabase';
-import { validateVerificationCode, signContract, checkDocumentLastDigits } from '../lib/otpUtils';
+import { validateVerificationCode, signContract, checkDocumentLastDigits, createVerificationCode } from '../lib/otpUtils';
 import { getPublicIpAddress } from '../lib/contractUtils';
 import { downloadContratoPdf } from '../lib/contratoPdf';
 
@@ -39,6 +39,13 @@ export default function ContractSignaturePublicPage() {
   const [docVerified, setDocVerified] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
   const [isCheckingDoc, setIsCheckingDoc] = useState(false);
+
+  // Codigo gerado e exibido nesta mesma tela (sem envio por WhatsApp) -- ver contexto
+  // acordado com o cliente: a checagem de CPF/CNPJ acima faz o papel de segunda camada.
+  const [generatedCode, setGeneratedCode] = useState<string | null>(null);
+  const [isGeneratingCode, setIsGeneratingCode] = useState(false);
+  const [codeGenError, setCodeGenError] = useState<string | null>(null);
+  const [codeCopied, setCodeCopied] = useState(false);
 
   const [signedResult, setSignedResult] = useState<{ hash: string; ip: string; signedAt: string } | null>(null);
 
@@ -97,6 +104,51 @@ export default function ContractSignaturePublicPage() {
       setDocError('Ocorreu um erro ao verificar. Tente novamente em instantes.');
     } finally {
       setIsCheckingDoc(false);
+    }
+  };
+
+  const handleGenerateCode = async () => {
+    if (!contrato) return;
+    if (!agreed) {
+      setError('Você precisa marcar "Li e concordo com os termos" antes de assinar.');
+      return;
+    }
+    setIsGeneratingCode(true);
+    setCodeGenError(null);
+    try {
+      const result = await createVerificationCode(contrato.id);
+      setGeneratedCode(result.code);
+    } catch (err) {
+      console.error('Erro ao gerar codigo:', err);
+      setCodeGenError('Não foi possível gerar o código. Tente novamente.');
+    } finally {
+      setIsGeneratingCode(false);
+    }
+  };
+
+  const handleCopyCode = async () => {
+    if (!generatedCode) return;
+    try {
+      await navigator.clipboard.writeText(generatedCode);
+      setCodeCopied(true);
+      setTimeout(() => setCodeCopied(false), 2000);
+    } catch {
+      setError('Não foi possível copiar. Selecione o código manualmente.');
+    }
+  };
+
+  const handlePasteCode = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      const digits = text.replace(/\D/g, '').slice(0, 6).split('');
+      if (digits.length === 6) {
+        setCodeDigits(digits);
+        setError(null);
+      } else {
+        setError('Não encontrei um código de 6 dígitos na área de transferência. Copie o código acima e tente de novo.');
+      }
+    } catch {
+      setError('Não foi possível colar automaticamente. Copie o código acima e digite nos campos manualmente.');
     }
   };
 
@@ -283,11 +335,45 @@ export default function ContractSignaturePublicPage() {
           </div>
         )}
 
-        {/* Etapa 2: codigo OTP recebido por WhatsApp -- so aparece depois da etapa 1 acima */}
-        {docVerified && (
+        {/* Etapa 2: gera e mostra o codigo nesta mesma tela (so aparece depois da etapa 1) */}
+        {docVerified && !generatedCode && (
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 space-y-3">
+            {codeGenError && (
+              <p className="text-[11px] text-rose-400 flex items-center gap-1.5 justify-center">
+                <AlertCircle size={12} /> {codeGenError}
+              </p>
+            )}
+            <button
+              onClick={handleGenerateCode}
+              disabled={isGeneratingCode || !agreed}
+              className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary-500 hover:bg-primary-400 disabled:opacity-50 text-black text-xs font-black uppercase py-3 transition-colors"
+            >
+              {isGeneratingCode ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />}
+              Assinar
+            </button>
+            {!agreed && (
+              <p className="text-[10px] text-white/30 text-center">Marque "Li e concordo" acima primeiro.</p>
+            )}
+          </div>
+        )}
+
+        {/* Etapa 3: codigo gerado -- copiar, colar nos campos e confirmar */}
+        {docVerified && generatedCode && (
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 space-y-3">
-          <p className="text-[11px] text-white/50">
-            Digite o código de 6 dígitos que você recebeu por WhatsApp ou e-mail:
+          <div className="rounded-xl bg-black/40 border border-white/10 p-4 text-center space-y-2">
+            <p className="text-[10px] uppercase font-bold text-white/40">Seu código de assinatura</p>
+            <p className="text-3xl font-black tracking-[0.3em] text-primary-400 select-all">{generatedCode}</p>
+            <button
+              onClick={handleCopyCode}
+              className="mx-auto flex items-center gap-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white/70 text-[10px] font-bold px-3 py-1.5 transition-colors"
+            >
+              {codeCopied ? <CheckCircle2 size={12} /> : <Copy size={12} />}
+              {codeCopied ? 'Copiado!' : 'Copiar código'}
+            </button>
+          </div>
+
+          <p className="text-[11px] text-white/50 text-center">
+            Cole o código abaixo pra confirmar:
           </p>
           <div className="flex justify-center gap-2">
             {codeDigits.map((digit, i) => (
@@ -303,6 +389,13 @@ export default function ContractSignaturePublicPage() {
             ))}
           </div>
 
+          <button
+            onClick={handlePasteCode}
+            className="mx-auto flex items-center gap-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/50 text-[10px] font-bold px-3 py-1.5 transition-colors"
+          >
+            <Clipboard size={12} /> Colar
+          </button>
+
           {error && (
             <p className="text-[11px] text-rose-400 flex items-center gap-1.5 justify-center">
               <AlertCircle size={12} /> {error}
@@ -315,7 +408,7 @@ export default function ContractSignaturePublicPage() {
             className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary-500 hover:bg-primary-400 disabled:opacity-50 text-black text-xs font-black uppercase py-3 transition-colors"
           >
             {isValidating ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />}
-            Confirmar e Assinar
+            Assinar
           </button>
         </div>
         )}
