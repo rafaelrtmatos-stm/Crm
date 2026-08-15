@@ -17,9 +17,10 @@ interface ReportsViewProps {
   services: ServiceItem[];
   userSettings: UserSettings;
   stats: SummaryStats;
+  onGoToServiceInTable?: (serviceId: string) => void;
 }
 
-export const ReportsView: React.FC<ReportsViewProps> = ({ services, userSettings, stats }) => {
+export const ReportsView: React.FC<ReportsViewProps> = ({ services, userSettings, stats, onGoToServiceInTable }) => {
   const [simulatedProduction, setSimulatedProduction] = useState<number>(3000);
 
   const handlePrintReport = () => {
@@ -133,7 +134,11 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ services, userSettings
               <tbody className="divide-y divide-[var(--border-color)] font-medium">
                 {services
                   .map((item) => (
-                    <tr key={item.id} className="hover:bg-[var(--bg-card-hover)]">
+                    <tr
+                      key={item.id}
+                      onClick={() => onGoToServiceInTable?.(item.id)}
+                      className={`hover:bg-[var(--bg-card-hover)] transition-colors ${onGoToServiceInTable ? 'cursor-pointer' : ''}`}
+                    >
                       <td className="p-3 font-mono">{formatDateBR(item.date)}</td>
                       <td className="p-3 font-bold">{item.serviceType}</td>
                       <td className="p-3 text-right font-mono">{formatCurrency(item.productionValue)}</td>

@@ -6,20 +6,22 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   --font-display: "Playfair Display", Georgia, serif;
   
-  --color-primary-50: #fef2f2;
-  --color-primary-100: #fee2e2;
-  --color-primary-200: #fca5a5;
-  --color-primary-300: #f87171;
-  --color-primary-400: #ef4444;
-  --color-primary-500: #dc2626;
-  --color-primary-600: #b91c1c;
-  --color-primary-700: #991b1b;
-  --color-primary-800: #7f1d1d;
-  --color-primary-900: #450a0a;
-  --color-primary-950: #0a0a0c;
+  /* Paleta alinhada ao vermelho vibrante do modulo de Comissoes
+     (--red-vibrant #FF0000 / --red-intense #E60000 / --red-dark #8B0000 / --red-deep #5C0000) */
+  --color-primary-50: #fff0f0;
+  --color-primary-100: #ffd6d6;
+  --color-primary-200: #ffa8a8;
+  --color-primary-300: #ff7373;
+  --color-primary-400: #ff3d3d;
+  --color-primary-500: #ff0000;
+  --color-primary-600: #e60000;
+  --color-primary-700: #b30000;
+  --color-primary-800: #8b0000;
+  --color-primary-900: #5c0000;
+  --color-primary-950: #3d0000;
 
   --glass-bg: rgba(255, 255, 255, 0.04);
-  --glass-border: rgba(220, 38, 38, 0.2);
+  --glass-border: rgba(255, 0, 0, 0.2);
 }
 
 @layer base {

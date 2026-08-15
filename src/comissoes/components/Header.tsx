@@ -66,13 +66,14 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Desktop Navigation Tabs -- encolhe (fonte/cantos) em telas médias e, se ainda
-              assim não couber tudo, rola na horizontal em vez de esconder botões. */}
-          <nav className="hidden md:flex flex-1 min-w-0 items-center justify-center gap-0.5 lg:gap-1 bg-[var(--bg-card)] p-1 lg:p-1.5 rounded-lg lg:rounded-2xl border border-[var(--border-color)] overflow-x-auto">
+          {/* Desktop Navigation Tabs -- nunca rola: encolhe fonte e, se ainda assim não
+              couber tudo numa linha, quebra pra segunda linha (flex-wrap). Sem cantos
+              arredondados, conforme pedido. */}
+          <nav className="hidden md:flex flex-1 min-w-0 flex-wrap items-center justify-center gap-0.5 lg:gap-1 bg-[var(--bg-card)] p-1 lg:p-1.5 border border-[var(--border-color)]">
             <button
               id="nav-tab-dashboard"
               onClick={() => setActiveTab('dashboard')}
-              className={`flex items-center gap-1 lg:gap-2 px-2 lg:px-3.5 py-1.5 lg:py-2 rounded-md lg:rounded-xl text-[10px] lg:text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`flex items-center gap-1 lg:gap-2 px-2 lg:px-3.5 py-1.5 lg:py-2 text-[9px] lg:text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'dashboard'
                   ? 'bg-gradient-red text-white shadow-red-glow'
                   : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card-hover)]'
@@ -85,7 +86,7 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               id="nav-tab-weekly"
               onClick={() => setActiveTab('weekly')}
-              className={`flex items-center gap-1 lg:gap-2 px-2 lg:px-3.5 py-1.5 lg:py-2 rounded-md lg:rounded-xl text-[10px] lg:text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`flex items-center gap-1 lg:gap-2 px-2 lg:px-3.5 py-1.5 lg:py-2 text-[9px] lg:text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'weekly'
                   ? 'bg-gradient-red text-white shadow-red-glow'
                   : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card-hover)]'
@@ -99,7 +100,7 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               id="nav-tab-table"
               onClick={() => setActiveTab('table')}
-              className={`flex items-center gap-1 lg:gap-2 px-2 lg:px-3.5 py-1.5 lg:py-2 rounded-md lg:rounded-xl text-[10px] lg:text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`flex items-center gap-1 lg:gap-2 px-2 lg:px-3.5 py-1.5 lg:py-2 text-[9px] lg:text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'table'
                   ? 'bg-gradient-red text-white shadow-red-glow'
                   : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card-hover)]'
@@ -113,7 +114,7 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               id="nav-tab-reports"
               onClick={() => setActiveTab('reports')}
-              className={`flex items-center gap-1 lg:gap-2 px-2 lg:px-3.5 py-1.5 lg:py-2 rounded-md lg:rounded-xl text-[10px] lg:text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`flex items-center gap-1 lg:gap-2 px-2 lg:px-3.5 py-1.5 lg:py-2 text-[9px] lg:text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'reports'
                   ? 'bg-gradient-red text-white shadow-red-glow'
                   : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card-hover)]'
@@ -126,7 +127,7 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               id="nav-tab-servicos"
               onClick={() => setActiveTab('servicos')}
-              className={`flex items-center gap-1 lg:gap-2 px-2 lg:px-3.5 py-1.5 lg:py-2 rounded-md lg:rounded-xl text-[10px] lg:text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`flex items-center gap-1 lg:gap-2 px-2 lg:px-3.5 py-1.5 lg:py-2 text-[9px] lg:text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'servicos'
                   ? 'bg-gradient-red text-white shadow-red-glow'
                   : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card-hover)]'
@@ -139,7 +140,7 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               id="nav-tab-descontos"
               onClick={() => setActiveTab('descontos')}
-              className={`flex items-center gap-1 lg:gap-2 px-2 lg:px-3.5 py-1.5 lg:py-2 rounded-md lg:rounded-xl text-[10px] lg:text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`flex items-center gap-1 lg:gap-2 px-2 lg:px-3.5 py-1.5 lg:py-2 text-[9px] lg:text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'descontos'
                   ? 'bg-gradient-red text-white shadow-red-glow'
                   : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card-hover)]'

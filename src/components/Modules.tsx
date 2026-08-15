@@ -4084,13 +4084,39 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null);
   const customerNameInputRef = React.useRef<HTMLInputElement>(null);
 
-  const proceedAfterCustomerStep = () => {
+  // customer (opcional): quando vem de um cadastro feito na hora (handleCreateCustomerInline),
+  // precisamos repassar CPF/CNPJ, telefone e endereço pro formulario de orcamento/contrato --
+  // antes isso so acontecia ao SELECIONAR um cliente ja existente na busca, entao um cliente
+  // cadastrado ali na hora perdia o CPF (ficava salvo no cadastro, mas sumia do contrato).
+  const proceedAfterCustomerStep = (customer?: any) => {
     setIsCustomerModalOpen(false);
     if (customerModalIntent === 'finalize') {
       setIsPaymentModalOpen(true);
     } else if (customerModalIntent === 'orcamento') {
+      if (customer) {
+        const enderecoParts = [customer.logradouro, customer.numero, customer.distrito, customer.city].filter(Boolean);
+        setOrcamentoForm(prev => ({
+          ...prev,
+          clienteId: customer.id,
+          customerName: customer.full_name,
+          phone: customer.phone || '',
+          cpfCnpj: customer.cpf_cnpj || '',
+          address: enderecoParts.join(', '),
+        }));
+      }
       setOrcamentoModalOpen(true);
     } else if (customerModalIntent === 'contrato') {
+      if (customer) {
+        const enderecoParts = [customer.logradouro, customer.numero, customer.distrito, customer.city].filter(Boolean);
+        setContratoForm(prev => ({
+          ...prev,
+          clienteId: customer.id,
+          customerName: customer.full_name,
+          phone: customer.phone || '',
+          cpfCnpj: customer.cpf_cnpj || '',
+          address: enderecoParts.join(', '),
+        }));
+      }
       setContratoModalOpen(true);
     }
   };
@@ -4268,7 +4294,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       setEditingCustomerId(null);
       setCustomerModalMode('search');
       if (!editingCustomerId) {
-        proceedAfterCustomerStep();
+        proceedAfterCustomerStep(data);
       } else {
         loadAllCustomers();
       }

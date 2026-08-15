@@ -332,7 +332,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
               />
             )}
             {activeTab === 'reports' && (
-              <ReportsView services={services} userSettings={userSettings} stats={summaryStats} />
+              <ReportsView services={services} userSettings={userSettings} stats={summaryStats} onGoToServiceInTable={handleGoToServiceInTable} />
             )}
             {activeTab === 'servicos' && <ServicosAgendados onAddItemsToTable={handleAddItemsFromNota} />}
             {activeTab === 'descontos' && (
