@@ -6531,16 +6531,25 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   // As 3 acoes do card de Entrega (clicavel em Servicos/Notas em Aberto e tambem disponivel
   // dentro de Quitar Debito): editar a data, marcar como entregue, ou excluir o agendamento.
+  // Editar agendamento a partir do card (aba Servicos): antes isso tambem abria o modal
+  // grande de "Quitar Debito" por baixo do popup de data (via openSettlePayment), o que nao
+  // era necessario so pra mudar a data/hora e ainda arriscava um segundo save (o do modal
+  // grande) disputar/sobrescrever o valor logo depois. Agora seta so o minimo necessario
+  // (settlingOrder + scheduledFor) pra o popup de agendamento salvar sozinho, sem abrir
+  // o modal de pagamento.
   const handleEditScheduleFromCard = (sale: SaleOrder) => {
-    openSettlePayment(sale);
+    setSettlingOrder(sale);
+    setScheduledFor(sale.scheduledFor ? sale.scheduledFor.slice(0, 16) : '');
     setIsScheduleModalOpen(true);
   };
 
   const handleDeliverFromCard = async (sale: SaleOrder) => {
     if (!(await showConfirm(`Marcar o pedido de ${sale.customerName || 'cliente'} como entregue?`))) return;
-    const { error } = await supabase.from('vendas').update({ service_status: 'produto_entregue' }).eq('id', sale.id);
+    const nowIso = new Date().toISOString();
+    const { data, error } = await supabase.from('vendas').update({ service_status: 'produto_entregue', updated_at: nowIso }).eq('id', sale.id).select();
     if (error) { showAlert(`Não foi possível marcar como entregue: ${error.message}`); return; }
-    const atualizado = { ...sale, serviceStatus: 'produto_entregue' as any };
+    if (!data || data.length === 0) { showAlert('Não foi possível marcar como entregue — o pedido pode ter sido removido ou alterado por outra pessoa. Feche e abra a tela de novo.'); return; }
+    const atualizado = { ...sale, serviceStatus: 'produto_entregue' as any, updatedAt: nowIso };
     setAllSalesHistory(prev => prev.map(s => s.id === sale.id ? atualizado : s));
     setSalesToday(prev => prev.map(s => s.id === sale.id ? atualizado : s));
     showAlert('Pedido marcado como entregue!');
@@ -6548,9 +6557,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const handleDeleteScheduleFromCard = async (sale: SaleOrder) => {
     if (!(await showConfirm(`Excluir o agendamento de entrega do pedido de ${sale.customerName || 'cliente'}?`))) return;
-    const { error } = await supabase.from('vendas').update({ scheduled_for: null }).eq('id', sale.id);
+    const nowIso = new Date().toISOString();
+    const { data, error } = await supabase.from('vendas').update({ scheduled_for: null, updated_at: nowIso }).eq('id', sale.id).select();
     if (error) { showAlert(`Não foi possível excluir o agendamento: ${error.message}`); return; }
-    const atualizado = { ...sale, scheduledFor: undefined };
+    if (!data || data.length === 0) { showAlert('Não foi possível excluir o agendamento — o pedido pode ter sido removido ou alterado por outra pessoa. Feche e abra a tela de novo.'); return; }
+    const atualizado = { ...sale, scheduledFor: undefined, updatedAt: nowIso };
     setAllSalesHistory(prev => prev.map(s => s.id === sale.id ? atualizado : s));
     setSalesToday(prev => prev.map(s => s.id === sale.id ? atualizado : s));
     showAlert('Agendamento excluído!');
@@ -8225,8 +8236,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           >
                             <ChevronLeft size={13} />
                           </button>
-                          <span className="text-[8.5px] font-black uppercase text-white/70 px-1.5 whitespace-nowrap min-w-[92px] text-center">
-                            {STAGE_LABELS[currentStage] || currentStage}
+                          <span className={cn(
+                            "text-[8.5px] font-black uppercase px-1.5 whitespace-nowrap min-w-[92px] text-center",
+                            currentStage === 'produto_entregue' ? "text-emerald-400" : "text-white/70"
+                          )}>
+                            {currentStage === 'produto_entregue' ? '● Entregue' : (STAGE_LABELS[currentStage] || currentStage)}
                           </span>
                           <button
                             onClick={() => nextStageId && handleUpdateServiceStatus(sale.id, nextStageId)}
@@ -8247,15 +8261,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             {isPartial && (
                               <button onClick={async () => { if (!(await showConfirm('Abrir a tela de pagamento deste pedido?'))) return; openSettlePayment(sale); }} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar Débito"><CheckCircle2 size={13} /></button>
                             )}
-                            <button onClick={async () => { if (!(await showConfirm('Abrir o recibo deste pedido?'))) return; openReceiptDetail(sale); }} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={13} /></button>
                             <button onClick={() => handleDuplicateSale(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Duplicar Pedido"><Copy size={13} /></button>
                             {!sale.contratoId && <button onClick={async () => { if (!(await showConfirm('Gerar um contrato a partir desta nota?'))) return; handleCreateContratoFromNota(sale); }} className="p-1.5 rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20" title="Gerar Contrato a partir desta nota"><FileSignature size={13} /></button>}
-                            {canManageHistory && (
-                              <>
-                                {sale.status !== 'canceled' && <button onClick={() => handleCancelSale(sale)} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" title="Cancelar Pedido"><Ban size={13} /></button>}
-                                <button onClick={async () => { if (!(await showConfirm('Editar este pedido?'))) return; handleStartFullEdit(sale); }} className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20" title="Editar"><Pencil size={13} /></button>
-                                <button onClick={() => handleDeleteSale(sale)} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" title="Excluir"><Trash2 size={13} /></button>
-                              </>
+                            {canManageHistory && sale.status !== 'canceled' && (
+                              <button onClick={() => handleCancelSale(sale)} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" title="Cancelar Pedido"><Ban size={13} /></button>
                             )}
                           </div>
                         </div>
@@ -9336,9 +9345,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               if (!pedidoAtual) return;
                               if (!(await showConfirm(`Excluir o agendamento de entrega do pedido de ${pedidoAtual.customerName || 'cliente'}?`))) return;
                               setScheduledFor('');
-                              const { error } = await supabase.from('vendas').update({ scheduled_for: null }).eq('id', pedidoAtual.id);
+                              const nowIso = new Date().toISOString();
+                              const { error } = await supabase.from('vendas').update({ scheduled_for: null, updated_at: nowIso }).eq('id', pedidoAtual.id);
                               if (error) { showAlert(`Não foi possível excluir o agendamento: ${error.message}`); return; }
-                              const atualizado = { ...pedidoAtual, scheduledFor: undefined };
+                              const atualizado = { ...pedidoAtual, scheduledFor: undefined, updatedAt: nowIso };
                               if (settlingOrder) setSettlingOrder(atualizado);
                               if (editingFullOrder) setEditingFullOrder(atualizado);
                               setAllSalesHistory(prev => prev.map(s => s.id === pedidoAtual.id ? atualizado : s));
@@ -10989,16 +10999,30 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                disabled={!scheduledFor}
                onClick={async () => {
                  setIsScheduleModalOpen(false);
-                 // Quitar Debito de um pedido ja existente: salva o agendamento na hora, direto no banco,
-                 // sem depender de tambem confirmar um pagamento junto (antes so salvava se pagasse algo)
+                 // Quitar Debito de um pedido ja existente (ou edicao rapida de agendamento a partir
+                 // do card, sem abrir modal de pagamento nenhum): salva o agendamento na hora, direto
+                 // no banco, sem depender de tambem confirmar um pagamento junto. Tambem grava
+                 // updated_at, senao a lista de Servicos (que ordena por ultima atividade) nao reflete
+                 // que essa venda acabou de mudar.
                  if (settlingOrder) {
-                   const { data, error } = await supabase.from('vendas').update({ scheduled_for: scheduledFor || null }).eq('id', settlingOrder.id).select();
+                   const vindoDoModalPagamento = isPaymentModalOpen;
+                   const nowIso = new Date().toISOString();
+                   const { data, error } = await supabase.from('vendas').update({ scheduled_for: scheduledFor || null, updated_at: nowIso }).eq('id', settlingOrder.id).select();
                    if (error) { showAlert(`Não foi possível salvar o agendamento: ${error.message}`); return; }
                    if (!data || data.length === 0) { showAlert('O agendamento não foi salvo — o pedido pode ter sido removido ou alterado por outra pessoa. Feche e abra a tela de novo.'); return; }
-                   const updated = { ...settlingOrder, scheduledFor: scheduledFor || undefined };
-                   setSettlingOrder(updated);
+                   const updated = { ...settlingOrder, scheduledFor: scheduledFor || undefined, updatedAt: nowIso };
                    setAllSalesHistory(prev => prev.map(s => s.id === settlingOrder.id ? updated : s));
                    setSalesToday(prev => prev.map(s => s.id === settlingOrder.id ? updated : s));
+                   if (vindoDoModalPagamento) {
+                     // Modal grande continua aberto por baixo (fluxo normal de Quitar Debito) — mantem
+                     // o settlingOrder atualizado pra ele continuar coerente se a pessoa confirmar o pagamento depois
+                     setSettlingOrder(updated);
+                   } else {
+                     // Edicao rapida direto do card: nao ha modal de pagamento aberto, entao limpa tudo
+                     // pra nao deixar settlingOrder "pendurado" e interferir num proximo Quitar Debito
+                     setSettlingOrder(null);
+                     setScheduledFor('');
+                   }
                    showAlert('Agendamento atualizado!');
                    return;
                  }
