@@ -14,6 +14,37 @@ import type { Contrato } from '../types';
 // Ajuste para o dominio real onde o CRM esta publicado (Vercel)
 const PUBLIC_BASE_URL = 'https://pro.rafaartsgraphics.com.br';
 
+// Opcoes de validade que o operador pode escolher antes de gerar o codigo.
+// value sempre em minutos.
+const TTL_OPTIONS = [
+  { value: 15, label: '15 minutos' },
+  { value: 30, label: '30 minutos' },
+  { value: 60, label: '1 hora' },
+  { value: 180, label: '3 horas' },
+  { value: 720, label: '12 horas' },
+  { value: 1440, label: '24 horas' },
+  { value: 4320, label: '3 dias' },
+  { value: 10080, label: '7 dias' },
+];
+
+/** Converte minutos num texto amigavel em pt-BR (ex: 90 -> "1h30"). */
+const formatTtlLabel = (minutes: number): string => {
+  const preset = TTL_OPTIONS.find((opt) => opt.value === minutes);
+  if (preset) return preset.label;
+  if (minutes < 60) return `${minutes} minutos`;
+  if (minutes % 1440 === 0) {
+    const dias = minutes / 1440;
+    return dias === 1 ? '1 dia' : `${dias} dias`;
+  }
+  if (minutes % 60 === 0) {
+    const horas = minutes / 60;
+    return horas === 1 ? '1 hora' : `${horas} horas`;
+  }
+  const horas = Math.floor(minutes / 60);
+  const resto = minutes % 60;
+  return `${horas}h${resto.toString().padStart(2, '0')}`;
+};
+
 interface ContractSignatureOtpPanelProps {
   contrato: Contrato;
 }
@@ -22,14 +53,16 @@ export const ContractSignatureOtpPanel = ({ contrato }: ContractSignatureOtpPane
   const [code, setCode] = useState<string | null>(null);
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [ttlMinutes, setTtlMinutes] = useState(30); // tempo escolhido pelo operador antes de gerar
 
   const signatureLink = `${PUBLIC_BASE_URL}/assinar/${contrato.id}`;
+  const ttlLabel = formatTtlLabel(ttlMinutes);
 
   const handleGenerate = async () => {
     setIsGenerating(true);
     try {
       const operatorIp = await getPublicIpAddress();
-      const result = await createVerificationCode(contrato.id, operatorIp);
+      const result = await createVerificationCode(contrato.id, operatorIp, ttlMinutes);
       setCode(result.code);
       setExpiresAt(result.expiresAt);
     } catch (err: any) {
@@ -49,8 +82,13 @@ export const ContractSignatureOtpPanel = ({ contrato }: ContractSignatureOtpPane
     }
   };
 
+  // Texto copiado junto do link: informa a validade do codigo e chama pra clicar e assinar.
+  const linkCopyMessage = code
+    ? `Código para assinatura válido por ${ttlLabel}.\nClique no link para assinatura: ${signatureLink}`
+    : `Clique no link para assinatura: ${signatureLink}`;
+
   const whatsappMessage = code
-    ? `Olá, ${contrato.customerName}! Segue o link para assinatura digital do seu contrato ${contrato.numero}:\n${signatureLink}\n\nSeu código de confirmação é: ${code}\n\nO código expira em ${CODE_TTL_LABEL}.`
+    ? `Olá, ${contrato.customerName}! Segue o link para assinatura digital do seu contrato ${contrato.numero}:\n\nCódigo para assinatura válido por ${ttlLabel}.\nClique no link para assinatura: ${signatureLink}\n\nSeu código de confirmação é: ${code}`
     : '';
 
   const whatsappHref = contrato.phone
@@ -82,6 +120,24 @@ export const ContractSignatureOtpPanel = ({ contrato }: ContractSignatureOtpPane
             Gere um código de confirmação para este contrato. O código aparece aqui na tela —
             copie o link e o código e envie você mesmo por WhatsApp ou e-mail para o cliente.
           </p>
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] uppercase font-bold text-white/40 flex items-center gap-1">
+              <Clock size={10} /> Validade do código para este cliente
+            </label>
+            <select
+              value={ttlMinutes}
+              onChange={(e) => setTtlMinutes(Number(e.target.value))}
+              className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-xs text-white/80"
+            >
+              {TTL_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value} className="bg-zinc-900">
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <button
             onClick={handleGenerate}
             disabled={isGenerating}
@@ -98,7 +154,7 @@ export const ContractSignatureOtpPanel = ({ contrato }: ContractSignatureOtpPane
             <p className="text-3xl font-black tracking-[0.3em] text-primary-400 select-all">{code}</p>
             {expiresAt && (
               <p className="text-[10px] text-white/40 flex items-center justify-center gap-1 mt-1">
-                <Clock size={10} /> Válido até {new Date(expiresAt).toLocaleTimeString('pt-BR')}
+                <Clock size={10} /> Válido por {ttlLabel} (até {new Date(expiresAt).toLocaleTimeString('pt-BR')})
               </p>
             )}
           </div>
@@ -111,9 +167,9 @@ export const ContractSignatureOtpPanel = ({ contrato }: ContractSignatureOtpPane
                 className="flex-1 bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-[11px] text-white/70 truncate"
               />
               <button
-                onClick={() => copyToClipboard(signatureLink, 'Link')}
+                onClick={() => copyToClipboard(linkCopyMessage, 'Link')}
                 className="shrink-0 rounded-lg bg-white/10 hover:bg-white/20 p-2 transition-colors"
-                title="Copiar link"
+                title="Copiar link com aviso de validade"
               >
                 <Copy size={14} className="text-white/70" />
               </button>
@@ -155,5 +211,3 @@ export const ContractSignatureOtpPanel = ({ contrato }: ContractSignatureOtpPane
     </div>
   );
 };
-
-const CODE_TTL_LABEL = '30 minutos';

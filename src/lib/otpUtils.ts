@@ -4,7 +4,7 @@
 
 import { supabase } from '../supabase';
 
-const CODE_TTL_MINUTES = 30;
+const CODE_TTL_MINUTES = 30; // valor padrao, usado quando o operador nao escolhe um tempo customizado
 const MAX_ATTEMPTS = 5;
 
 /** Gera um codigo numerico de 6 digitos (ex: "482913"). */
@@ -32,8 +32,16 @@ export interface GeneratedOtp {
  * Gera um novo OTP para um contrato, salva o HASH dele no Supabase e retorna o codigo em texto
  * puro para o operador copiar e enviar manualmente (WhatsApp/E-mail). Invalida codigos anteriores
  * ainda ativos desse contrato, pra nunca ter 2 codigos validos ao mesmo tempo.
+ *
+ * @param ttlMinutes Quantos minutos o codigo fica valido. Opcional -- se nao for informado, usa o
+ *                    padrao de 30 minutos (CODE_TTL_MINUTES). O operador pode escolher esse valor
+ *                    por contrato/cliente na tela (ver ContractSignatureOtpPanel.tsx).
  */
-export async function createVerificationCode(contractId: string, operatorIp?: string): Promise<GeneratedOtp> {
+export async function createVerificationCode(
+  contractId: string,
+  operatorIp?: string,
+  ttlMinutes: number = CODE_TTL_MINUTES
+): Promise<GeneratedOtp> {
   // Invalida qualquer codigo anterior ainda nao usado desse contrato
   await supabase
     .from('verification_codes')
@@ -43,7 +51,8 @@ export async function createVerificationCode(contractId: string, operatorIp?: st
 
   const code = generateOtpCode();
   const codeHash = await sha256Hex(code);
-  const expiresAt = new Date(Date.now() + CODE_TTL_MINUTES * 60 * 1000).toISOString();
+  const safeTtl = ttlMinutes > 0 ? ttlMinutes : CODE_TTL_MINUTES;
+  const expiresAt = new Date(Date.now() + safeTtl * 60 * 1000).toISOString();
 
   const { error } = await supabase.from('verification_codes').insert({
     contract_id: contractId,
