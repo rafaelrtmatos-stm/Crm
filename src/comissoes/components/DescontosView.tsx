@@ -100,6 +100,11 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
   // --- Caixa da Semana ---
   const [caixa, setCaixa] = useState<WeeklyCaixa | null>(null);
   const [loadingCaixa, setLoadingCaixa] = useState(true);
+  // Se getOrCreateCaixaAberto falhar (ex: tabela ainda não criada no Supabase, RLS bloqueando,
+  // sem internet etc.) guardamos o motivo aqui -- antes disso a tela ficava presa em
+  // "Carregando..." pra sempre e sem nenhum aviso, escondendo até o botão de registrar
+  // pagamento (que só aparece quando `caixa` existe).
+  const [caixaError, setCaixaError] = useState(false);
   const [pagamentos, setPagamentos] = useState<Pagamento[]>([]);
   const [showPagamentoForm, setShowPagamentoForm] = useState(false);
   const [pagamentoForm, setPagamentoForm] = useState<PagamentoFormInput>({ ...emptyPagamentoForm });
@@ -108,18 +113,26 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
   const [showHistorico, setShowHistorico] = useState(false);
   const [historico, setHistorico] = useState<WeeklyCaixa[] | null>(null);
   const [loadingHistorico, setLoadingHistorico] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     setLoadingCaixa(true);
+    setCaixaError(false);
     getOrCreateCaixaAberto(colaboradorId).then((c) => {
       if (cancelled) return;
+      if (!c) {
+        setCaixa(null);
+        setCaixaError(true);
+        setLoadingCaixa(false);
+        return;
+      }
       setCaixa(c);
       setLoadingCaixa(false);
-      if (c) getPagamentosDoCaixa(c.id).then((list) => { if (!cancelled) setPagamentos(list); });
+      getPagamentosDoCaixa(c.id).then((list) => { if (!cancelled) setPagamentos(list); });
     });
     return () => { cancelled = true; };
-  }, [colaboradorId]);
+  }, [colaboradorId, reloadToken]);
 
   const resumoCaixa = useMemo(
     () => (caixa ? calcularResumoCaixa(caixa, baseSalary, services, descontos, pagamentos) : null),
@@ -233,7 +246,19 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
               <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
                 Caixa da Semana {caixa ? `· ${formatDateBR(caixa.semanaInicio)} a ${formatDateBR(caixa.semanaFim)}` : ''}
               </span>
-              {loadingCaixa || !resumoCaixa ? (
+              {loadingCaixa ? (
+                <div className="text-sm text-[var(--text-muted)] mt-1">Carregando...</div>
+              ) : caixaError ? (
+                <div className="mt-1 flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-bold text-rose-400">Não foi possível carregar o caixa da semana.</span>
+                  <button
+                    onClick={() => setReloadToken((t) => t + 1)}
+                    className="text-[10px] font-black uppercase text-primary-400 hover:text-primary-300 underline underline-offset-2"
+                  >
+                    Tentar novamente
+                  </button>
+                </div>
+              ) : !resumoCaixa ? (
                 <div className="text-sm text-[var(--text-muted)] mt-1">Carregando...</div>
               ) : (
                 <div className={`text-2xl font-black font-mono ${resumoCaixa.saldoFinal >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
