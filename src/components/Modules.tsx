@@ -8273,11 +8273,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             {isPartial && (
                               <button onClick={async () => { if (!(await showConfirm('Abrir a tela de pagamento deste pedido?'))) return; openSettlePayment(sale); }} className="w-7 h-7 flex items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar Débito"><CheckCircle2 size={13} /></button>
                             )}
-                            <button onClick={() => handleDuplicateSale(sale)} className="w-7 h-7 flex items-center justify-center rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Duplicar Pedido"><Copy size={13} /></button>
-                            {!sale.contratoId && <button onClick={async () => { if (!(await showConfirm('Gerar um contrato a partir desta nota?'))) return; handleCreateContratoFromNota(sale); }} className="w-7 h-7 flex items-center justify-center rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20" title="Gerar Contrato a partir desta nota"><FileSignature size={13} /></button>}
-                            {canManageHistory && sale.status !== 'canceled' && (
-                              <button onClick={() => handleCancelSale(sale)} className="w-7 h-7 flex items-center justify-center rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" title="Cancelar Pedido"><Ban size={13} /></button>
-                            )}
+                            <button
+                              onClick={() => { setHistorySearch(sale.id); setActiveTab('historico'); handleStartFullEdit(sale); }}
+                              className="w-7 h-7 flex items-center justify-center rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20"
+                              title="Editar (abre esta nota no Histórico)"
+                            >
+                              <Pencil size={13} />
+                            </button>
                           </div>
                         </div>
                       </div>
