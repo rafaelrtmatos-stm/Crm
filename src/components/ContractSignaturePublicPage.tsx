@@ -18,6 +18,7 @@ interface ContratoPublico {
   signedAt?: string;
   signerIp?: string;
   documentHash?: string;
+  pdfUrl?: string;
 }
 
 // Extrai o id do contrato da URL /assinar/:id (mesmo padrao de deteccao de rota usado em AppRoot.tsx)
@@ -50,14 +51,14 @@ export default function ContractSignaturePublicPage() {
   const [codeGenError, setCodeGenError] = useState<string | null>(null);
   const [codeCopied, setCodeCopied] = useState(false);
 
-  const [signedResult, setSignedResult] = useState<{ hash: string; ip: string; signedAt: string } | null>(null);
+  const [signedResult, setSignedResult] = useState<{ hash: string; ip: string; signedAt: string; pdfUrl: string | null } | null>(null);
 
   // Dados de assinatura pra exibir/baixar: vem do que acabou de ser assinado nesta sessao
   // (signedResult) OU, se o contrato ja estava assinado antes (link reaberto depois), vem
-  // do que foi salvo no banco (contrato.signedAt/signerIp/documentHash).
+  // do que foi salvo no banco (contrato.signedAt/signerIp/documentHash/pdfUrl).
   const downloadInfo = signedResult
     ?? (contrato?.signedAt && contrato?.signerIp && contrato?.documentHash
-      ? { hash: contrato.documentHash, ip: contrato.signerIp, signedAt: contrato.signedAt }
+      ? { hash: contrato.documentHash, ip: contrato.signerIp, signedAt: contrato.signedAt, pdfUrl: contrato.pdfUrl || null }
       : null);
 
   useEffect(() => {
@@ -66,7 +67,7 @@ export default function ContractSignaturePublicPage() {
 
     supabase
       .from('contratos')
-      .select('id, numero, customer_name, texto_contrato, status, signed_at, signer_ip, document_hash')
+      .select('id, numero, customer_name, texto_contrato, status, signed_at, signer_ip, document_hash, pdf_url')
       .eq('id', id)
       .maybeSingle()
       .then(({ data, error: fetchError }) => {
@@ -80,6 +81,7 @@ export default function ContractSignaturePublicPage() {
           signedAt: data.signed_at || undefined,
           signerIp: data.signer_ip || undefined,
           documentHash: data.document_hash || undefined,
+          pdfUrl: data.pdf_url || undefined,
         });
         setLoading(false);
       });
@@ -197,12 +199,14 @@ export default function ContractSignaturePublicPage() {
 
       const result = await signContract({
         contractId: contrato.id,
+        numero: contrato.numero,
+        customerName: contrato.customerName,
         documentText: contrato.textoContrato,
         clientIp,
         clientUserAgent,
       });
 
-      setSignedResult({ hash: result.documentHash, ip: clientIp, signedAt: result.signedAt });
+      setSignedResult({ hash: result.documentHash, ip: clientIp, signedAt: result.signedAt, pdfUrl: result.pdfUrl });
     } catch (err: any) {
       console.error('Erro ao validar/assinar:', err);
       setError('Ocorreu um erro ao processar a assinatura. Tente novamente em instantes.');
@@ -213,6 +217,15 @@ export default function ContractSignaturePublicPage() {
 
   const handleDownloadPdf = () => {
     if (!contrato || !downloadInfo) return;
+    // Arquivo imutavel gerado no momento exato da assinatura (ver signContract em otpUtils.ts):
+    // sempre preferimos abrir/baixar ele em vez de recriar o PDF na hora, pra garantir que o
+    // documento baixado seja sempre igual ao que foi efetivamente assinado.
+    if (downloadInfo.pdfUrl) {
+      window.open(downloadInfo.pdfUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    // Fallback: contrato assinado antes dessa migration (sem pdf_url salvo) ou upload que
+    // falhou no momento da assinatura -- gera na hora como antes.
     downloadContratoPdf(contrato.numero, contrato.customerName, contrato.textoContrato, {
       signedAt: downloadInfo.signedAt,
       signerIp: downloadInfo.ip,

@@ -487,6 +487,7 @@ const mapContratoRow = (row: any): Contrato => ({
   signerUserAgent: row.signer_user_agent || undefined,
   documentHash: row.document_hash || undefined,
   signatureMethod: row.signature_method || undefined,
+  pdfUrl: row.pdf_url || undefined,
   responsavel: row.responsavel || undefined,
   createdAt: row.created_at,
   updatedAt: row.updated_at || undefined,
@@ -4769,6 +4770,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const handleDownloadContratoPdf = async (c: Contrato) => {
+    // Contrato ja assinado com PDF salvo no Storage: baixa sempre o MESMO arquivo gerado no
+    // momento da assinatura, em vez de recriar na hora com o codigo/layout atuais (ver
+    // supabase/add_pdf_url_contratos.sql e signContract em otpUtils.ts).
+    if (c.pdfUrl) {
+      window.open(c.pdfUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    // Fallback: contrato ainda nao assinado (rascunho, so preview mesmo) ou assinado antes
+    // dessa migration (sem pdf_url salvo) -- gera na hora como antes.
     const auditStamp = c.signedAt && c.signerIp && c.documentHash
       ? { signedAt: c.signedAt, signerIp: c.signerIp, documentHash: c.documentHash }
       : undefined;

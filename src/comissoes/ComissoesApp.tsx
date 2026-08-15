@@ -265,7 +265,7 @@ export default function ComissoesApp() {
             )}
             {activeTab === 'servicos' && <ServicosAgendados onAddItemsToTable={handleAddItemsFromNota} />}
             {activeTab === 'descontos' && (
-              <DescontosView colaboradorId={colaborador.id} descontos={descontos} isAdmin={false} onChange={setDescontos} baseSalary={userSettings.baseSalary} />
+              <DescontosView colaboradorId={colaborador.id} descontos={descontos} isAdmin={false} onChange={setDescontos} baseSalary={userSettings.baseSalary} services={services} />
             )}
           </>
         )}

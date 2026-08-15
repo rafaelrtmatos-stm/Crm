@@ -3,6 +3,7 @@
 // WhatsApp/E-mail -> cliente digita na tela publica -> validamos contra o Supabase.
 
 import { supabase } from '../supabase';
+import { uploadContratoPdfAssinado } from './contratoPdfStorage';
 
 const CODE_TTL_MINUTES = 30; // valor padrao, usado quando o operador nao escolhe um tempo customizado
 const MAX_ATTEMPTS = 5;
@@ -114,6 +115,8 @@ export async function validateVerificationCode(contractId: string, inputCode: st
 
 export interface SignContractParams {
   contractId: string;
+  numero: string;         // usado no cabecalho/rodape do PDF gerado no momento da assinatura
+  customerName: string;   // idem, e no nome do arquivo
   documentText: string;   // texto_contrato exibido/aceito no momento da assinatura
   clientIp: string;
   clientUserAgent: string;
@@ -137,12 +140,19 @@ export async function checkDocumentLastDigits(contractId: string, last4Digits: s
 export interface SignContractResult {
   documentHash: string;
   signedAt: string;
+  pdfUrl: string | null;
 }
 
 /**
  * Registra a assinatura em si: calcula o hash SHA-256 do texto do contrato no momento da
  * assinatura, grava IP/user-agent/timestamp e muda o status para 'assinado'. So deve ser chamada
  * DEPOIS de validateVerificationCode({ ok: true }).
+ *
+ * Alem disso, gera o PDF final (com o carimbo de auditoria) UMA UNICA VEZ aqui e sobe pro
+ * Supabase Storage (ver contratoPdfStorage.ts), gravando o link em contratos.pdf_url. Esse
+ * arquivo passa a ser o documento oficial/imutavel do contrato -- os downloads seguintes (painel
+ * Admin e tela publica) devem usar esse link em vez de gerar o PDF de novo no navegador, senao
+ * uma mudanca futura no layout faria o PDF sair diferente do que foi realmente assinado.
  */
 export async function signContract(params: SignContractParams): Promise<SignContractResult> {
   const documentHash = await sha256Hex(params.documentText);
@@ -163,5 +173,20 @@ export async function signContract(params: SignContractParams): Promise<SignCont
 
   if (error) throw error;
 
-  return { documentHash, signedAt };
+  // Nao deve travar/reverter a assinatura ja confirmada acima caso a geracao/upload do PDF falhe
+  // (ex: sem internet no fim do processo) -- fica registrado como null e o app cai no fallback
+  // de gerar na hora (ver ContractSignaturePublicPage.tsx), até um novo upload ser tentado.
+  const pdfUrl = await uploadContratoPdfAssinado(
+    params.contractId,
+    params.numero,
+    params.customerName,
+    params.documentText,
+    { signedAt, signerIp: params.clientIp, documentHash }
+  );
+
+  if (pdfUrl) {
+    await supabase.from('contratos').update({ pdf_url: pdfUrl }).eq('id', params.contractId);
+  }
+
+  return { documentHash, signedAt, pdfUrl };
 }

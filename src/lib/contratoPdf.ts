@@ -1,5 +1,16 @@
 // Gera um PDF limpo com o texto do contrato (paginacao automatica), mais apropriado
-// pra um documento juridico do que o estilo colorido do recibo/orcamento
+// pra um documento juridico do que o estilo colorido do recibo/orcamento.
+//
+// IMPORTANTE: essa geracao so deve ser usada em dois momentos:
+//  1) preview de contrato ainda em rascunho/nao assinado (o PDF pode variar, ainda nao existe
+//     nada "definitivo" pra guardar);
+//  2) UMA UNICA VEZ, no exato instante em que o contrato e' assinado (ver signContract em
+//     otpUtils.ts), pra gerar o arquivo que sera enviado ao Supabase Storage e passa a ser
+//     A FONTE DA VERDADE pros downloads seguintes.
+// Depois de assinado, o download (painel Admin e tela publica /assinar/:id) deve sempre puxar
+// o arquivo ja salvo (contrato.pdfUrl) em vez de chamar essas funcoes de novo -- se chamasse de
+// novo toda vez, uma mudanca futura no layout/fonte faria o PDF de um contrato antigo sair
+// diferente do que o cliente efetivamente assinou, mesmo com o hash SHA-256 batendo.
 
 // Dados da assinatura eletrônica avançada (OTP validado), impressos no rodapé de TODAS as
 // páginas quando o contrato já foi assinado digitalmente. Opcional: PDFs de contratos ainda
@@ -10,7 +21,14 @@ export interface AuditStamp {
   documentHash: string;
 }
 
-export async function downloadContratoPdf(numero: string, customerName: string, textoContrato: string, auditStamp?: AuditStamp) {
+/** Monta o nome de arquivo padrao usado tanto no download direto quanto no path do Storage. */
+export function contratoPdfFileName(numero: string, customerName: string): string {
+  const nomeArquivo = customerName.replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '_') || 'cliente';
+  return `${numero}_${nomeArquivo}.pdf`;
+}
+
+/** Monta o documento jsPDF em si (sem salvar/baixar) -- reaproveitado pelo download direto e pela geracao do Blob pro Storage. */
+async function buildContratoPdfDoc(numero: string, textoContrato: string, auditStamp?: AuditStamp) {
   const { jsPDF } = await import('jspdf');
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
   const pageW = doc.internal.pageSize.getWidth();
@@ -85,6 +103,17 @@ export async function downloadContratoPdf(numero: string, customerName: string, 
     addFooter();
   }
 
-  const nomeArquivo = customerName.replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '_') || 'cliente';
-  doc.save(`${numero}_${nomeArquivo}.pdf`);
+  return doc;
+}
+
+/** Gera o PDF e dispara o download direto no navegador (usado pra preview de rascunho/nao assinado). */
+export async function downloadContratoPdf(numero: string, customerName: string, textoContrato: string, auditStamp?: AuditStamp) {
+  const doc = await buildContratoPdfDoc(numero, textoContrato, auditStamp);
+  doc.save(contratoPdfFileName(numero, customerName));
+}
+
+/** Gera o PDF como Blob, sem baixar -- usado pra subir pro Supabase Storage no momento da assinatura. */
+export async function generateContratoPdfBlob(numero: string, textoContrato: string, auditStamp?: AuditStamp): Promise<Blob> {
+  const doc = await buildContratoPdfDoc(numero, textoContrato, auditStamp);
+  return doc.output('blob');
 }

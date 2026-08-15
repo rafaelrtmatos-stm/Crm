@@ -591,6 +591,7 @@ export interface Contrato {
   signerUserAgent?: string;
   documentHash?: string;
   signatureMethod?: string;
+  pdfUrl?: string;
   createdAt: string;
   updatedAt?: string;
 }

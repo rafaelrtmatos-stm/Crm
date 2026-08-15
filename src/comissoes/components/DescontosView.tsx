@@ -1,5 +1,8 @@
-import React, { useMemo, useState } from 'react';
-import { MinusCircle, Plus, Pencil, Trash2, X, Ban, CheckCircle2 } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  MinusCircle, Plus, Pencil, Trash2, X, Ban, CheckCircle2,
+  Wallet, Lock, History, ChevronDown, ChevronUp, Banknote,
+} from 'lucide-react';
 import {
   Desconto,
   DescontoFormInput,
@@ -13,8 +16,21 @@ import {
   calculateDescontosNoPeriodo,
   formatCurrency,
 } from '../utils/supabaseStorage';
+import {
+  WeeklyCaixa,
+  Pagamento,
+  PagamentoFormInput,
+  getOrCreateCaixaAberto,
+  getPagamentosDoCaixa,
+  registrarPagamento,
+  deletePagamento,
+  calcularResumoCaixa,
+  fecharCaixa,
+  getHistoricoCaixasFechados,
+} from '../utils/caixaSemanalStorage';
 import { formatDateBR } from '../utils/storage';
 import { showAlert, showConfirm } from '../../lib/notify';
+import { ServiceItem } from '../types';
 
 interface DescontosViewProps {
   colaboradorId: string;
@@ -25,8 +41,11 @@ interface DescontosViewProps {
   isAdmin: boolean;
   onChange: (updated: Desconto[]) => void;
   // Salário semanal do colaborador (segunda a sábado, 6 dias) -- usado pra sugerir
-  // automaticamente o valor do desconto de falta: valor do dia = salário semanal / 6.
+  // automaticamente o valor do desconto de falta: valor do dia = salário semanal / 6, e
+  // como "salário base" do Caixa da Semana abaixo.
   baseSalary?: number;
+  // Serviços do colaborador -- usado só pra somar a comissão da semana do caixa aberto.
+  services?: ServiceItem[];
 }
 
 const DIAS_UTEIS_SEMANA = 6; // segunda a sábado
@@ -60,7 +79,13 @@ const emptyForm: DescontoFormInput = {
   ativo: true,
 };
 
-export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, descontos, isAdmin, onChange, baseSalary = 0 }) => {
+const emptyPagamentoForm: PagamentoFormInput = {
+  valor: 0,
+  data: getTodayISO(),
+  descricao: '',
+};
+
+export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, descontos, isAdmin, onChange, baseSalary = 0, services = [] }) => {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<DescontoFormInput>({ ...emptyForm });
@@ -71,6 +96,81 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
     () => calculateDescontosNoPeriodo(descontos, monthBounds.start, monthBounds.end),
     [descontos, monthBounds]
   );
+
+  // --- Caixa da Semana ---
+  const [caixa, setCaixa] = useState<WeeklyCaixa | null>(null);
+  const [loadingCaixa, setLoadingCaixa] = useState(true);
+  const [pagamentos, setPagamentos] = useState<Pagamento[]>([]);
+  const [showPagamentoForm, setShowPagamentoForm] = useState(false);
+  const [pagamentoForm, setPagamentoForm] = useState<PagamentoFormInput>({ ...emptyPagamentoForm });
+  const [savingPagamento, setSavingPagamento] = useState(false);
+  const [fechando, setFechando] = useState(false);
+  const [showHistorico, setShowHistorico] = useState(false);
+  const [historico, setHistorico] = useState<WeeklyCaixa[] | null>(null);
+  const [loadingHistorico, setLoadingHistorico] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingCaixa(true);
+    getOrCreateCaixaAberto(colaboradorId).then((c) => {
+      if (cancelled) return;
+      setCaixa(c);
+      setLoadingCaixa(false);
+      if (c) getPagamentosDoCaixa(c.id).then((list) => { if (!cancelled) setPagamentos(list); });
+    });
+    return () => { cancelled = true; };
+  }, [colaboradorId]);
+
+  const resumoCaixa = useMemo(
+    () => (caixa ? calcularResumoCaixa(caixa, baseSalary, services, descontos, pagamentos) : null),
+    [caixa, baseSalary, services, descontos, pagamentos]
+  );
+
+  const handleAddPagamento = async () => {
+    if (!caixa) return;
+    if (!pagamentoForm.valor || pagamentoForm.valor <= 0) { showAlert('Informe um valor de pagamento maior que zero.'); return; }
+    if (!pagamentoForm.data) { showAlert('Informe a data do pagamento.'); return; }
+    setSavingPagamento(true);
+    const saved = await registrarPagamento(colaboradorId, caixa.id, pagamentoForm);
+    setSavingPagamento(false);
+    if (!saved) { showAlert('Não foi possível registrar o pagamento.'); return; }
+    setPagamentos((prev) => [saved, ...prev]);
+    setShowPagamentoForm(false);
+    setPagamentoForm({ ...emptyPagamentoForm });
+  };
+
+  const handleDeletePagamento = async (p: Pagamento) => {
+    if (!(await showConfirm('Excluir este pagamento? Essa ação não pode ser desfeita.'))) return;
+    const ok = await deletePagamento(p.id);
+    if (!ok) { showAlert('Não foi possível excluir.'); return; }
+    setPagamentos((prev) => prev.filter((x) => x.id !== p.id));
+  };
+
+  const handleFecharCaixa = async () => {
+    if (!caixa || !resumoCaixa) return;
+    const confirmMsg = resumoCaixa.saldoFinal >= 0
+      ? `Fechar o caixa da semana ${formatDateBR(caixa.semanaInicio)} a ${formatDateBR(caixa.semanaFim)}? Saldo de ${formatCurrency(resumoCaixa.saldoFinal)} a favor do colaborador vai abrir a próxima semana já com esse valor.`
+      : `Fechar o caixa da semana ${formatDateBR(caixa.semanaInicio)} a ${formatDateBR(caixa.semanaFim)}? O colaborador fica devendo ${formatCurrency(Math.abs(resumoCaixa.saldoFinal))}, que vai entrar como dívida na próxima semana.`;
+    if (!(await showConfirm(confirmMsg))) return;
+    setFechando(true);
+    const proximo = await fecharCaixa(caixa, resumoCaixa);
+    setFechando(false);
+    if (!proximo) { showAlert('Não foi possível fechar o caixa. Tente novamente.'); return; }
+    setCaixa(proximo);
+    setPagamentos([]);
+    setHistorico(null); // força recarregar o histórico na próxima vez que for aberto
+  };
+
+  const handleToggleHistorico = async () => {
+    const next = !showHistorico;
+    setShowHistorico(next);
+    if (next && historico === null) {
+      setLoadingHistorico(true);
+      const list = await getHistoricoCaixasFechados(colaboradorId);
+      setHistorico(list);
+      setLoadingHistorico(false);
+    }
+  };
 
   const openNewForm = () => {
     setEditingId(null);
@@ -120,6 +220,185 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
 
   return (
     <div className="space-y-4">
+      {/* Caixa da Semana -- sempre tem uma semana aberta (segunda a sábado), acumulando
+          salário + comissão - descontos - pagamentos já feitos. Fechar aqui congela o saldo
+          dessa semana e já abre a seguinte trazendo esse saldo (a favor ou dívida). */}
+      <div className="p-6 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] shadow-sm space-y-4">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            <div className="p-3 rounded-xl bg-primary-500/10 text-primary-400">
+              <Wallet className="w-5 h-5" />
+            </div>
+            <div>
+              <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                Caixa da Semana {caixa ? `· ${formatDateBR(caixa.semanaInicio)} a ${formatDateBR(caixa.semanaFim)}` : ''}
+              </span>
+              {loadingCaixa || !resumoCaixa ? (
+                <div className="text-sm text-[var(--text-muted)] mt-1">Carregando...</div>
+              ) : (
+                <div className={`text-2xl font-black font-mono ${resumoCaixa.saldoFinal >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {formatCurrency(resumoCaixa.saldoFinal)}
+                  <span className="text-[10px] font-bold uppercase tracking-wider ml-2 align-middle text-[var(--text-muted)]">
+                    {resumoCaixa.saldoFinal >= 0 ? 'a favor do colaborador' : 'dívida do colaborador'}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+          {isAdmin && caixa && resumoCaixa && (
+            <button
+              onClick={handleFecharCaixa}
+              disabled={fechando}
+              className="flex items-center gap-1.5 h-9 px-3 rounded-xl bg-gradient-red text-white text-xs font-black uppercase tracking-wide shadow-red-glow hover:opacity-90 transition-opacity disabled:opacity-50"
+            >
+              <Lock className="w-4 h-4" />
+              {fechando ? 'Fechando...' : 'Fechar Caixa da Semana'}
+            </button>
+          )}
+        </div>
+
+        {resumoCaixa && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 text-center text-[11px]">
+            <div className="p-2.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
+              <span className="text-[var(--text-muted)] block mb-1">Saldo Anterior</span>
+              <span className={`font-bold font-mono ${caixa!.saldoAnterior >= 0 ? 'text-[var(--text-main)]' : 'text-rose-400'}`}>{formatCurrency(caixa!.saldoAnterior)}</span>
+            </div>
+            <div className="p-2.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
+              <span className="text-[var(--text-muted)] block mb-1">Salário Base</span>
+              <span className="font-bold font-mono text-[var(--text-main)]">{formatCurrency(resumoCaixa.salarioBase)}</span>
+            </div>
+            <div className="p-2.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
+              <span className="text-[var(--text-muted)] block mb-1">Comissão</span>
+              <span className="font-bold font-mono text-[var(--text-main)]">{formatCurrency(resumoCaixa.totalComissao)}</span>
+            </div>
+            <div className="p-2.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
+              <span className="text-[var(--text-muted)] block mb-1">Descontos</span>
+              <span className="font-bold font-mono text-rose-400">-{formatCurrency(resumoCaixa.totalDescontos)}</span>
+            </div>
+            <div className="p-2.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
+              <span className="text-[var(--text-muted)] block mb-1">Já Pago</span>
+              <span className="font-bold font-mono text-rose-400">-{formatCurrency(resumoCaixa.totalPago)}</span>
+            </div>
+            <div className="p-2.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
+              <span className="text-[var(--text-muted)] block mb-1">Saldo da Semana</span>
+              <span className="font-bold font-mono text-[var(--text-main)]">{formatCurrency(resumoCaixa.saldoSemana)}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Pagamentos parciais feitos dentro dessa semana (adiantamento, vale, PIX avulso...) */}
+        <div className="pt-2 border-t border-[var(--border-color)] space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5">
+              <Banknote size={13} /> Pagamentos feitos nessa semana
+            </span>
+            {isAdmin && !showPagamentoForm && caixa && (
+              <button
+                onClick={() => setShowPagamentoForm(true)}
+                className="flex items-center gap-1 text-[10px] font-black uppercase text-primary-400 hover:text-primary-300"
+              >
+                <Plus size={12} /> Registrar Pagamento
+              </button>
+            )}
+          </div>
+
+          {isAdmin && showPagamentoForm && (
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 items-end p-3 rounded-xl bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
+              <label className="space-y-1 block">
+                <span className="text-[9px] font-black uppercase text-[var(--text-muted)] tracking-wider">Valor (R$)</span>
+                <input
+                  type="number" step="0.01" value={pagamentoForm.valor}
+                  onChange={(e) => setPagamentoForm({ ...pagamentoForm, valor: Number(e.target.value) || 0 })}
+                  className="w-full h-9 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg px-2.5 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)]"
+                />
+              </label>
+              <label className="space-y-1 block">
+                <span className="text-[9px] font-black uppercase text-[var(--text-muted)] tracking-wider">Data</span>
+                <input
+                  type="date" value={pagamentoForm.data}
+                  onChange={(e) => setPagamentoForm({ ...pagamentoForm, data: e.target.value })}
+                  className="w-full h-9 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg px-2.5 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)]"
+                />
+              </label>
+              <label className="space-y-1 block sm:col-span-2">
+                <span className="text-[9px] font-black uppercase text-[var(--text-muted)] tracking-wider">Observação (opcional)</span>
+                <input
+                  value={pagamentoForm.descricao}
+                  onChange={(e) => setPagamentoForm({ ...pagamentoForm, descricao: e.target.value })}
+                  placeholder="Ex: adiantamento via PIX"
+                  className="w-full h-9 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg px-2.5 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)]"
+                />
+              </label>
+              <div className="sm:col-span-4 flex justify-end gap-2">
+                <button
+                  onClick={() => { setShowPagamentoForm(false); setPagamentoForm({ ...emptyPagamentoForm }); }}
+                  className="h-8 px-3 rounded-lg text-[10px] font-black uppercase text-[var(--text-muted)] hover:text-[var(--text-main)]"
+                >
+                  Cancelar
+                </button>
+                <button
+                  disabled={savingPagamento}
+                  onClick={handleAddPagamento}
+                  className="h-8 px-3 rounded-lg bg-gradient-red text-white text-[10px] font-black uppercase tracking-wide shadow-red-glow hover:opacity-90 disabled:opacity-50"
+                >
+                  {savingPagamento ? 'Salvando...' : 'Salvar'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {pagamentos.length === 0 ? (
+            <p className="text-[11px] text-[var(--text-muted)]">Nenhum pagamento registrado nessa semana ainda.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {pagamentos.map((p) => (
+                <div key={p.id} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
+                  <div className="min-w-0 flex-1">
+                    <span className="text-xs font-bold text-[var(--text-main)]">{formatDateBR(p.data)}</span>
+                    {p.descricao && <span className="text-[11px] text-[var(--text-muted)]"> · {p.descricao}</span>}
+                  </div>
+                  <span className="font-mono font-black text-rose-400 text-xs shrink-0">-{formatCurrency(p.valor)}</span>
+                  {isAdmin && (
+                    <button onClick={() => handleDeletePagamento(p)} className="p-1 rounded text-[var(--text-muted)] hover:text-rose-400 shrink-0" title="Excluir">
+                      <Trash2 size={12} />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Histórico de semanas já fechadas */}
+        <div className="pt-2 border-t border-[var(--border-color)]">
+          <button
+            onClick={handleToggleHistorico}
+            className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)] hover:text-[var(--text-main)]"
+          >
+            <History size={13} /> Histórico de fechamentos
+            {showHistorico ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+          </button>
+          {showHistorico && (
+            <div className="mt-2 space-y-1.5">
+              {loadingHistorico ? (
+                <p className="text-[11px] text-[var(--text-muted)]">Carregando...</p>
+              ) : !historico || historico.length === 0 ? (
+                <p className="text-[11px] text-[var(--text-muted)]">Nenhuma semana fechada ainda.</p>
+              ) : (
+                historico.map((h) => (
+                  <div key={h.id} className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)] text-[11px]">
+                    <span className="text-[var(--text-main)] font-bold">{formatDateBR(h.semanaInicio)} a {formatDateBR(h.semanaFim)}</span>
+                    <span className={`font-mono font-black ${((h.saldoFinal ?? 0) >= 0) ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {formatCurrency(h.saldoFinal ?? 0)}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
       <div className="p-6 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] shadow-sm">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3">
