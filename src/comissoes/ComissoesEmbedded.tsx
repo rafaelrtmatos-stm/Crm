@@ -32,7 +32,7 @@ import { ReportsView } from './components/ReportsView';
 import { ServiceModal } from './components/ServiceModal';
 import { SettingsModal } from './components/SettingsModal';
 import { ServicosAgendados } from './components/ServicosAgendados';
-import { NotaDetalhe, NotaDetalheItem } from './components/NotaDetalheModal';
+import { NotaDetalhe, NotaSelecionadoItem } from './components/NotaDetalheModal';
 import { CheckCircle2 } from 'lucide-react';
 import './comissoes-theme.css';
 
@@ -189,33 +189,38 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
     setIsAddModalOpen(true);
   };
 
-  // Copia um item de uma nota agendada (aba "Serviços") pro formulário de lançamento — o
-  // colaborador ainda revisa/edita o preço, a descrição ou o que quiser antes de salvar.
-  // Não é "editar" um lançamento existente, então usa um id novo e um cabeçalho próprio.
-  const handleCopyItemFromNota = (item: NotaDetalheItem, nota: NotaDetalhe) => {
-    const dataAgendada = nota.scheduled_for ? new Date(nota.scheduled_for).toISOString().split('T')[0] : undefined;
-    const quantity = item.quantity ?? 1;
-    const unitPrice = typeof item.price === 'number' ? item.price : 0;
-    const productionValue = Number((unitPrice * quantity).toFixed(2));
+  // Adiciona, de uma vez, os itens marcados pelo colaborador na nota agendada (aba
+  // "Serviços") direto na tabela dele — o valor de cada item já vem revisado/editado
+  // de lá. Quando é só 1 item, some direto sem precisar abrir mais nada.
+  const handleAddItemsFromNota = async (items: NotaSelecionadoItem[], nota: NotaDetalhe) => {
+    if (!colaborador || items.length === 0) return;
+    const dataAgendada = nota.scheduled_for ? new Date(nota.scheduled_for).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
     const commissionPercent = userSettings.defaultCommissionRate;
-    setEditingService({
-      id: `srv-${Date.now()}`,
-      date: dataAgendada || new Date().toISOString().split('T')[0],
-      clientName: nota.customer_name || '',
-      serviceType: item.name,
-      unit: 'unidade',
-      quantity,
-      unitPrice,
-      productionValue,
-      commissionPercent,
-      commissionValue: Number(((productionValue * commissionPercent) / 100).toFixed(2)),
-      status: 'CONCLUÍDO',
-      notes: `Copiado da nota #${nota.id.slice(-6).toUpperCase()}`,
-      createdAt: Date.now(),
-    });
-    setModalInitialDate(dataAgendada);
-    setModalHeaderOverride({ title: 'CONFIRMAR SERVIÇO DA NOTA', subtitle: 'Revise os dados — o que não é seu, apague ou ajuste antes de salvar' });
-    setIsAddModalOpen(true);
+
+    const resultados = await Promise.all(items.map((item) => {
+      const productionValue = Number((item.value || 0).toFixed(2));
+      const novoServico: ServiceItem = {
+        id: `srv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        date: dataAgendada,
+        clientName: nota.customer_name || '',
+        serviceType: item.name,
+        unit: 'unidade',
+        quantity: item.quantity,
+        unitPrice: item.quantity ? Number((productionValue / item.quantity).toFixed(2)) : productionValue,
+        productionValue,
+        commissionPercent,
+        commissionValue: Number(((productionValue * commissionPercent) / 100).toFixed(2)),
+        status: 'CONCLUÍDO',
+        notes: `Adicionado da nota #${nota.id.slice(-6).toUpperCase()}`,
+        createdAt: Date.now(),
+      };
+      return saveServiceToSupabase(colaborador.id, novoServico, true);
+    }));
+
+    const salvos = resultados.filter((r): r is ServiceItem => !!r);
+    if (salvos.length === 0) { showToast('Não foi possível adicionar o(s) serviço(s).'); return; }
+    setServices((prev) => [...salvos, ...prev]);
+    showToast(salvos.length > 1 ? `${salvos.length} serviços adicionados!` : 'Serviço adicionado!');
     setActiveTab('table');
   };
 
@@ -299,7 +304,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
             {activeTab === 'reports' && (
               <ReportsView services={services} userSettings={userSettings} stats={summaryStats} />
             )}
-            {activeTab === 'servicos' && <ServicosAgendados onCopyItemToTable={handleCopyItemFromNota} />}
+            {activeTab === 'servicos' && <ServicosAgendados onAddItemsToTable={handleAddItemsFromNota} />}
           </>
         )}
       </main>

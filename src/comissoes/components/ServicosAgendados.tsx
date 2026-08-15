@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { CalendarClock, Bell, ChevronRight } from 'lucide-react';
 import { supabase } from '../../supabase';
-import { NotaDetalheModal, NotaDetalhe, NotaDetalheItem } from './NotaDetalheModal';
+import { NotaDetalheModal, NotaDetalhe, NotaDetalheItem, NotaSelecionadoItem } from './NotaDetalheModal';
 
 interface NotaAgendada {
   id: string;
@@ -13,10 +13,10 @@ interface NotaAgendada {
 }
 
 interface ServicosAgendadosProps {
-  // Chamado quando o colaborador clica em "Copiar" num item da nota — quem usa esse
-  // componente decide o que fazer (normalmente: abrir o formulário de lançamento já
-  // preenchido, pronto pra revisar/editar o preço e salvar na tabela dele).
-  onCopyItemToTable?: (item: NotaDetalheItem, nota: NotaDetalhe) => void;
+  // Chamado quando o colaborador confirma "Adicionar" no modal da nota — vem com todos
+  // os itens marcados (1 ou mais), já com o valor revisado. Quem usa esse componente
+  // decide o que fazer (normalmente: salvar direto na tabela dele).
+  onAddItemsToTable?: (items: NotaSelecionadoItem[], nota: NotaDetalhe) => void;
 }
 
 // Mostra as notas do PDV que tem entrega agendada — os dois sistemas compartilham o mesmo
@@ -24,7 +24,7 @@ interface ServicosAgendadosProps {
 // precisar lancar nada. Notas ja marcadas como "Produto Entregue" somem da lista (entrega
 // concluida nao e mais uma pendencia). O telefone do cliente nao e mostrado nem buscado aqui —
 // essa aba e so pra dar visibilidade da entrega, nao pra contato direto com o cliente.
-export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({ onCopyItemToTable }) => {
+export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({ onAddItemsToTable }) => {
   const [notas, setNotas] = useState<NotaAgendada[]>([]);
   const [loading, setLoading] = useState(true);
   const [notaSelecionada, setNotaSelecionada] = useState<NotaAgendada | null>(null);
@@ -59,8 +59,8 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({ onCopyItem
 
   const agora = Date.now();
 
-  const handleCopyItem = (item: NotaDetalheItem, nota: NotaDetalhe) => {
-    onCopyItemToTable?.(item, nota);
+  const handleAddItems = (items: NotaSelecionadoItem[], nota: NotaDetalhe) => {
+    onAddItemsToTable?.(items, nota);
     setNotaSelecionada(null);
   };
 
@@ -113,7 +113,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({ onCopyItem
         </div>
       )}
 
-      <NotaDetalheModal nota={notaSelecionada} onClose={() => setNotaSelecionada(null)} onCopyItem={handleCopyItem} />
+      <NotaDetalheModal nota={notaSelecionada} onClose={() => setNotaSelecionada(null)} onAddItems={handleAddItems} />
     </div>
   );
 };

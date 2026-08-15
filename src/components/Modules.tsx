@@ -2,10 +2,6 @@ import { AppContext } from '../App';
 import React, { useState, useEffect, useMemo, useRef, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { ContractApprovalModule } from './ContractApprovalModule';
-
-// Painel de Comissões (mesmo app usado no menu lateral), reaproveitado aqui pra o admin
-// poder abrir o painel completo de um colaborador direto de Configurações > Comissões.
-const ComissoesEmbedded = React.lazy(() => import('../comissoes/ComissoesEmbedded'));
 import { 
   TrendingUp, 
   LayoutGrid,
@@ -8198,70 +8194,89 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 <p className="text-sm font-bold text-white/40 uppercase">Nenhuma nota em aberto ou entrega agendada</p>
               </div>
             ) : (
-              <div className="flex flex-col gap-1.5">
+              <div className="flex flex-col gap-2.5">
                 {pendingOrScheduledSales.map(sale => {
                   const down = sale.downPayment || 0;
                   const balance = sale.total - down;
                   const isPartial = balance > 0 || sale.status === 'pending';
                   const currentStage = sale.serviceStatus || 'pedido_recebido';
+                  const entregue = currentStage === 'produto_entregue';
                   return (
-                    <div key={sale.id} className="flex flex-col gap-2 bg-slate-900/60 hover:bg-slate-900 border border-white/5 rounded-xl px-3 py-2.5 transition-all">
-                      {/* Linha 1 (web e mobile): dados do pedido — quebra em mais linhas no celular pra nao esconder nada */}
-                      <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
-                        <span title={sale.customerName || 'Cliente de Balcão'} className="text-[11px] font-black text-white whitespace-nowrap">{formatNamePreview((sale.customerName || 'Cliente de Balcão').toUpperCase(), 20)}</span>
-                        {sale.items && sale.items.length > 0 && (
-                          <span className="text-[9px] text-white/40 italic whitespace-nowrap" title={sale.items[sale.items.length - 1].name}>
-                            {sale.items[sale.items.length - 1].name}{sale.items.length > 1 ? ` (+${sale.items.length - 1})` : ''}
-                          </span>
-                        )}
-                        {sale.observacoes && (
-                          <span className="text-[9px] text-amber-300/70 italic whitespace-nowrap" title={sale.observacoes}>
-                            "{sale.observacoes}"
-                          </span>
-                        )}
-                        <span className="text-[9px] text-white/30 font-mono whitespace-nowrap">#{sale.id.slice(-8).toUpperCase()}</span>
-                        <span className="text-[9px] text-white/30 whitespace-nowrap">{safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
+                    <div key={sale.id} className="bg-slate-900/60 hover:bg-slate-900 border border-white/5 hover:border-white/10 rounded-2xl px-4 py-3.5 transition-all space-y-3">
+
+                      {/* Cabeçalho: cliente em destaque + identificação da nota, entrega à direita */}
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p title={sale.customerName || 'Cliente de Balcão'} className="text-sm font-black text-white uppercase truncate">
+                            {formatNamePreview((sale.customerName || 'Cliente de Balcão').toUpperCase(), 26)}
+                          </p>
+                          <div className="flex items-center gap-2.5 mt-0.5 text-white/30 text-[9px] font-bold">
+                            <span className="flex items-center gap-1 font-mono"><FileText size={10} /> #{sale.id.slice(-8).toUpperCase()}</span>
+                            <span className="flex items-center gap-1"><Clock size={10} /> {safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
+                          </div>
+                        </div>
                         {sale.scheduledFor && (
-                          <EntregaCountdown
-                            scheduledFor={sale.scheduledFor}
-                            delivered={sale.serviceStatus === 'produto_entregue'}
-                            onEdit={() => handleEditScheduleFromCard(sale)}
-                            onDeliver={() => handleDeliverFromCard(sale)}
-                            onDeleteSchedule={() => handleDeleteScheduleFromCard(sale)}
-                          />
+                          <div className="shrink-0">
+                            <EntregaCountdown
+                              scheduledFor={sale.scheduledFor}
+                              delivered={entregue}
+                              onEdit={() => handleEditScheduleFromCard(sale)}
+                              onDeliver={() => handleDeliverFromCard(sale)}
+                              onDeleteSchedule={() => handleDeleteScheduleFromCard(sale)}
+                            />
+                          </div>
                         )}
                       </div>
 
-                      {/* Linha 2 (web): Evolução/Retirada + valor + ações — no celular quebra em linhas extras, nunca esconde */}
-                      <div className="flex items-center gap-2 flex-wrap justify-between">
-                        <div className="flex items-center gap-1 shrink-0 bg-white/5 border border-white/10 rounded-lg px-1 py-1" title="Clique para avançar a etapa — ao concluir, volta ao início">
-                          <button
-                            onClick={() => handleCycleServiceStatus(sale.id, currentStage)}
-                            className={cn(
-                              "flex items-center gap-1.5 px-2 py-1 rounded-md text-[8.5px] font-black uppercase whitespace-nowrap min-w-[110px] justify-center transition-all cursor-pointer border-0",
-                              currentStage === 'produto_entregue'
-                                ? "bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25"
-                                : "bg-transparent text-white/70 hover:bg-white/10 hover:text-white"
+                      {/* Itens do pedido + observação (quando houver) */}
+                      {((sale.items && sale.items.length > 0) || sale.observacoes) && (
+                        <div className="flex items-start gap-1.5 text-[10px] text-white/40">
+                          <Package size={11} className="shrink-0 mt-0.5 text-white/25" />
+                          <div className="min-w-0 space-y-0.5">
+                            {sale.items && sale.items.length > 0 && (
+                              <p className="truncate" title={sale.items[sale.items.length - 1].name}>
+                                {sale.items[sale.items.length - 1].name}
+                                {sale.items.length > 1 && <span className="text-white/25"> +{sale.items.length - 1} item(ns)</span>}
+                              </p>
                             )}
-                          >
-                            {currentStage === 'produto_entregue' ? '● Entregue' : (STAGE_LABELS[currentStage] || currentStage)}
-                            <RefreshCw size={10} className="opacity-50" />
-                          </button>
+                            {sale.observacoes && (
+                              <p className="italic text-amber-300/70 truncate" title={sale.observacoes}>"{sale.observacoes}"</p>
+                            )}
+                          </div>
                         </div>
+                      )}
 
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {isPartial && (
-                            <Badge className="text-[7.5px] font-black uppercase px-1.5 py-0.5 border-none shrink-0 bg-amber-500/20 text-amber-300">FALTA R$ {balance.toFixed(2).replace('.', ',')}</Badge>
+                      {/* Rodapé: etapa de produção + valor + ações, separado por uma linha */}
+                      <div className="flex items-center justify-between gap-2 flex-wrap pt-2.5 border-t border-white/5">
+                        <button
+                          onClick={() => handleCycleServiceStatus(sale.id, currentStage)}
+                          title="Clique para avançar a etapa — ao concluir, volta ao início"
+                          className={cn(
+                            "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase whitespace-nowrap transition-all cursor-pointer border-0",
+                            entregue
+                              ? "bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25"
+                              : "bg-white/5 text-white/60 hover:bg-white/10 hover:text-white"
                           )}
-                          <span className="text-[11px] font-black text-white shrink-0 w-20 text-right">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
-                          <div className="flex gap-1 shrink-0">
+                        >
+                          <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", entregue ? "bg-emerald-400" : "bg-white/30")} />
+                          {entregue ? 'Entregue' : (STAGE_LABELS[currentStage] || currentStage)}
+                          <RefreshCw size={10} className="opacity-40" />
+                        </button>
+
+                        <div className="flex items-center gap-2.5 ml-auto">
+                          {isPartial && (
+                            <Badge className="text-[8px] font-black uppercase px-1.5 py-0.5 border-none shrink-0 bg-amber-500/20 text-amber-300">Falta R$ {balance.toFixed(2).replace('.', ',')}</Badge>
+                          )}
+                          <span className="text-sm font-black text-white shrink-0 tabular-nums">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
+
+                          <div className="flex items-center gap-1 shrink-0 pl-2 border-l border-white/10">
                             {isPartial && (
-                              <button onClick={async () => { if (!(await showConfirm('Abrir a tela de pagamento deste pedido?'))) return; openSettlePayment(sale); }} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar Débito"><CheckCircle2 size={13} /></button>
+                              <button onClick={async () => { if (!(await showConfirm('Abrir a tela de pagamento deste pedido?'))) return; openSettlePayment(sale); }} className="w-7 h-7 flex items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar Débito"><CheckCircle2 size={13} /></button>
                             )}
-                            <button onClick={() => handleDuplicateSale(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Duplicar Pedido"><Copy size={13} /></button>
-                            {!sale.contratoId && <button onClick={async () => { if (!(await showConfirm('Gerar um contrato a partir desta nota?'))) return; handleCreateContratoFromNota(sale); }} className="p-1.5 rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20" title="Gerar Contrato a partir desta nota"><FileSignature size={13} /></button>}
+                            <button onClick={() => handleDuplicateSale(sale)} className="w-7 h-7 flex items-center justify-center rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Duplicar Pedido"><Copy size={13} /></button>
+                            {!sale.contratoId && <button onClick={async () => { if (!(await showConfirm('Gerar um contrato a partir desta nota?'))) return; handleCreateContratoFromNota(sale); }} className="w-7 h-7 flex items-center justify-center rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20" title="Gerar Contrato a partir desta nota"><FileSignature size={13} /></button>}
                             {canManageHistory && sale.status !== 'canceled' && (
-                              <button onClick={() => handleCancelSale(sale)} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" title="Cancelar Pedido"><Ban size={13} /></button>
+                              <button onClick={() => handleCancelSale(sale)} className="w-7 h-7 flex items-center justify-center rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" title="Cancelar Pedido"><Ban size={13} /></button>
                             )}
                           </div>
                         </div>
@@ -13627,26 +13642,6 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
 // --- SETTINGS ---
 export const SettingsModule = ({ currentCompany, user }: { currentCompany: Company | null; user: AppUser | null }) => {
   const [activeTab, setActiveTab] = useState('Geral');
-  useEffect(() => {
-    if (activeTab === 'Comissões') loadColaboradores();
-  }, [activeTab]);
-
-  // Tempo real: enquanto a aba "Comissões" estiver aberta, qualquer alteração
-  // de colaborador (feita aqui, no menu lateral, ou por outro admin em outra
-  // aba) aparece na lista e no painel aberto na hora, sem precisar de F5.
-  useEffect(() => {
-    if (activeTab !== 'Comissões') return;
-    const channel = supabase
-      .channel('settings-comissoes-colaboradores')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'colaboradores' }, async () => {
-        const { data } = await supabase.from('colaboradores').select('*').order('nome', { ascending: true });
-        if (!data) return;
-        setColaboradoresList(data);
-        setViewingColaborador((prev: any) => (prev ? data.find((c: any) => c.id === prev.id) ?? null : prev));
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [activeTab]);
 
   const [logoUrl, setLogoUrl] = useState(currentCompany?.logoUrl || '');
   const [logoLight, setLogoLight] = useState<string | null>(null);
@@ -13657,79 +13652,6 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
 
   // Sessoes ativas (IP + dispositivo) de todos os usuarios, pra o admin poder desconectar
   const [activeSessions, setActiveSessions] = useState<any[]>([]);
-
-  // --- Comissoes: gestao de colaboradores (nome/senha/cargo/salario/comissao/meta) ---
-  const [colaboradoresList, setColaboradoresList] = useState<any[]>([]);
-  const [isLoadingColaboradores, setIsLoadingColaboradores] = useState(false);
-  const [editingColaborador, setEditingColaborador] = useState<any | null>(null);
-  const [colaboradorForm, setColaboradorForm] = useState({
-    nome: '', senha: '', cargo: '', salarioBase: 0, comissaoPadraoPercentual: 10, metaSemanal: 0,
-  });
-  const [savingColaborador, setSavingColaborador] = useState(false);
-  // Colaborador selecionado pro admin ver o painel completo (Dashboard, Semanal, Tabela, Relatórios, Serviços)
-  const [viewingColaborador, setViewingColaborador] = useState<any | null>(null);
-
-  const loadColaboradores = async () => {
-    setIsLoadingColaboradores(true);
-    const { data } = await supabase.from('colaboradores').select('*').order('nome', { ascending: true });
-    setColaboradoresList(data || []);
-    setIsLoadingColaboradores(false);
-  };
-
-  const openNewColaborador = () => {
-    setEditingColaborador(null);
-    setColaboradorForm({ nome: '', senha: '', cargo: '', salarioBase: 0, comissaoPadraoPercentual: 10, metaSemanal: 0 });
-  };
-
-  const openEditColaborador = (c: any) => {
-    setEditingColaborador(c);
-    setColaboradorForm({
-      nome: c.nome || '', senha: c.senha || '', cargo: c.cargo || '',
-      salarioBase: Number(c.salario_base) || 0, comissaoPadraoPercentual: Number(c.comissao_padrao_percentual) || 10,
-      metaSemanal: Number(c.meta_semanal) || 0,
-    });
-  };
-
-  const handleSaveColaborador = async () => {
-    if (!colaboradorForm.nome.trim() || !colaboradorForm.senha.trim()) { showAlert('Preencha nome e senha do colaborador.'); return; }
-    setSavingColaborador(true);
-    const payload = {
-      nome: colaboradorForm.nome.trim(),
-      senha: colaboradorForm.senha,
-      cargo: colaboradorForm.cargo || null,
-      salario_base: colaboradorForm.salarioBase || 0,
-      comissao_padrao_percentual: colaboradorForm.comissaoPadraoPercentual || 0,
-      meta_semanal: colaboradorForm.metaSemanal || 0,
-      updated_at: new Date().toISOString(),
-    };
-    if (editingColaborador) {
-      const { error } = await supabase.from('colaboradores').update(payload).eq('id', editingColaborador.id);
-      setSavingColaborador(false);
-      if (error) { showAlert(`Não foi possível salvar: ${error.message}`); return; }
-    } else {
-      const { error } = await supabase.from('colaboradores').insert(payload);
-      setSavingColaborador(false);
-      if (error) { showAlert(`Não foi possível criar: ${error.message}`); return; }
-    }
-    setEditingColaborador(null);
-    openNewColaborador();
-    await loadColaboradores();
-    showAlert('Colaborador salvo!');
-  };
-
-  const handleToggleColaboradorAtivo = async (c: any) => {
-    const { error } = await supabase.from('colaboradores').update({ ativo: !c.ativo }).eq('id', c.id);
-    if (error) { showAlert(`Não foi possível atualizar: ${error.message}`); return; }
-    await loadColaboradores();
-  };
-
-  const handleDeleteColaborador = async (c: any) => {
-    if (!(await showConfirm(`Excluir o colaborador ${c.nome}? Isso também apaga todos os serviços/comissões lançados por ele. Essa ação não pode ser desfeita.`))) return;
-    const { error } = await supabase.from('colaboradores').delete().eq('id', c.id);
-    if (error) { showAlert(`Não foi possível excluir: ${error.message}`); return; }
-    await loadColaboradores();
-  };
-
 
   // Menu lateral principal (onde fica PDV, Contatos etc) — admin escolhe o que aparece e a ordem
   const MENU_ITEMS_DEFAULT = [
@@ -14367,7 +14289,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
       />
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-10">
         <GlassCard className="p-0 overflow-hidden h-fit border-white/5">
-           {['Geral', 'Identidade', 'Menu Lateral', 'CRM / Funis', 'Comissões', 'Integrações', 'Usuários e Permissões', 'Backup'].map((tab) => (
+           {['Geral', 'Identidade', 'Menu Lateral', 'CRM / Funis', 'Integrações', 'Usuários e Permissões', 'Backup'].map((tab) => (
              <button 
                key={tab} 
                onClick={() => setActiveTab(tab)}
@@ -14681,81 +14603,6 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                 </div>
              </div>
            )}
-
-           {activeTab === 'Comissões' && (
-             <div className="space-y-8">
-                <div>
-                   <h3 className="text-xl font-black text-white italic tracking-tighter uppercase">Colaboradores</h3>
-                   <p className="text-xs text-white/40 mt-1">Crie o acesso de cada colaborador (nome + senha) pro app de Comissões. Eles entram em <span className="text-primary-300 font-bold">/comissoes</span> e só veem os próprios serviços lançados.</p>
-                </div>
-
-                {/* Formulário de criar/editar */}
-                <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-4">
-                   <h4 className="text-sm font-black uppercase text-primary-300">{editingColaborador ? `Editando: ${editingColaborador.nome}` : 'Novo Colaborador'}</h4>
-                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <Input label="Nome" value={colaboradorForm.nome} onChange={(e: any) => setColaboradorForm({ ...colaboradorForm, nome: e.target.value })} />
-                      <Input label="Senha" value={colaboradorForm.senha} onChange={(e: any) => setColaboradorForm({ ...colaboradorForm, senha: e.target.value })} placeholder="Senha de acesso" />
-                      <Input label="Cargo (opcional)" value={colaboradorForm.cargo} onChange={(e: any) => setColaboradorForm({ ...colaboradorForm, cargo: e.target.value })} />
-                      <Input label="Salário Base (R$)" type="number" value={colaboradorForm.salarioBase} onChange={(e: any) => setColaboradorForm({ ...colaboradorForm, salarioBase: Number(e.target.value) || 0 })} />
-                      <Input label="Comissão Padrão (%)" type="number" value={colaboradorForm.comissaoPadraoPercentual} onChange={(e: any) => setColaboradorForm({ ...colaboradorForm, comissaoPadraoPercentual: Number(e.target.value) || 0 })} />
-                      <Input label="Meta Semanal (R$)" type="number" value={colaboradorForm.metaSemanal} onChange={(e: any) => setColaboradorForm({ ...colaboradorForm, metaSemanal: Number(e.target.value) || 0 })} />
-                   </div>
-                   <div className="flex justify-end gap-3">
-                      {editingColaborador && <Button variant="ghost" onClick={openNewColaborador}>Cancelar Edição</Button>}
-                      <Button disabled={savingColaborador} onClick={handleSaveColaborador}>{savingColaborador ? 'Salvando...' : (editingColaborador ? 'Salvar Alterações' : 'Criar Colaborador')}</Button>
-                   </div>
-                </div>
-
-                {/* Lista */}
-                {isLoadingColaboradores ? (
-                  <div className="flex justify-center py-10"><RefreshCw className="animate-spin text-primary-500" size={22} /></div>
-                ) : colaboradoresList.length === 0 ? (
-                  <div className="text-center py-10 text-white/30 text-sm">Nenhum colaborador cadastrado ainda.</div>
-                ) : (
-                  <div className="space-y-2">
-                     {colaboradoresList.map((c) => (
-                       <div key={c.id} className={cn("flex items-center gap-3 bg-white/5 border rounded-xl px-4 py-3", c.ativo ? "border-white/10" : "border-white/5 opacity-50")}>
-                          <div className="min-w-0 flex-1">
-                             <div className="flex items-center gap-2">
-                                <p className="font-bold text-white truncate">{c.nome}</p>
-                                {!c.ativo && <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-400">Inativo</span>}
-                             </div>
-                             <p className="text-[10px] text-white/30">{c.cargo || 'Sem cargo definido'} · Salário R$ {Number(c.salario_base || 0).toFixed(2).replace('.', ',')} · Comissão {c.comissao_padrao_percentual || 0}%</p>
-                          </div>
-                          <button onClick={() => setViewingColaborador(c)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 shrink-0">Ver Painel</button>
-                          <button onClick={() => openEditColaborador(c)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20 shrink-0">Editar</button>
-                          <button onClick={() => handleToggleColaboradorAtivo(c)} className={cn("text-[8px] font-black uppercase px-2 py-1.5 rounded-lg shrink-0", c.ativo ? "bg-amber-500/10 text-amber-400 hover:bg-amber-500/20" : "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20")}>
-                             {c.ativo ? 'Desativar' : 'Ativar'}
-                          </button>
-                          <button onClick={() => handleDeleteColaborador(c)} className="text-white/30 hover:text-rose-400 p-1.5 shrink-0"><Trash2 size={13} /></button>
-                       </div>
-                     ))}
-                  </div>
-                )}
-             </div>
-           )}
-
-           {/* Painel completo de Comissões do colaborador selecionado (visão do admin, sem precisar de senha) */}
-           <Modal isOpen={!!viewingColaborador} onClose={() => setViewingColaborador(null)} title={`Painel de Comissões — ${viewingColaborador?.nome || ''}`} size="xl" contentClassName="!p-0 overflow-hidden">
-             {viewingColaborador && (
-               <div className="h-[75vh] overflow-y-auto custom-scrollbar">
-                 <Suspense fallback={<div className="flex justify-center py-16"><RefreshCw className="animate-spin text-primary-500" size={24} /></div>}>
-                   <ComissoesEmbedded
-                     presetColaborador={{
-                       id: viewingColaborador.id,
-                       nome: viewingColaborador.nome,
-                       cargo: viewingColaborador.cargo || undefined,
-                       salarioBase: Number(viewingColaborador.salario_base) || 0,
-                       comissaoPadraoPercentual: Number(viewingColaborador.comissao_padrao_percentual) || 10,
-                       metaSemanal: Number(viewingColaborador.meta_semanal) || 0,
-                       tema: viewingColaborador.tema || 'dark',
-                       ativo: viewingColaborador.ativo !== false,
-                     }}
-                   />
-                 </Suspense>
-               </div>
-             )}
-           </Modal>
 
            {activeTab === 'Integrações' && (
              <div className="space-y-10">
