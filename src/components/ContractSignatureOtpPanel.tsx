@@ -12,7 +12,7 @@ import { getPublicIpAddress } from '../lib/contractUtils';
 import type { Contrato } from '../types';
 
 // Ajuste para o dominio real onde o CRM esta publicado (Vercel)
-const PUBLIC_BASE_URL = 'https://SEU-DOMINIO-AQUI.vercel.app';
+const PUBLIC_BASE_URL = 'https://pro.rafaartsgraphics.com.br';
 
 interface ContractSignatureOtpPanelProps {
   contrato: Contrato;
