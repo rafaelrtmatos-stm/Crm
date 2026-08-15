@@ -44,10 +44,10 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <header className="sticky top-0 z-30 border-b border-[var(--border-color)] bg-[var(--bg-main)]/90 backdrop-blur-md transition-colors">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-20 gap-4">
+        <div className="flex items-center justify-between h-20 gap-2 lg:gap-4">
           
           {/* Logo & Brand Identity */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 shrink-0">
             <div className="w-10 h-10 rounded-xl overflow-hidden shrink-0 shadow-red-glow">
               <img src="/icon-192.png" alt="Logo" className="w-full h-full object-contain" />
             </div>
@@ -56,7 +56,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <h1 className="text-lg font-black tracking-tight text-[var(--text-main)] uppercase">
                   PRODUÇÃO <span className="text-[var(--accent-red)]">&</span> COMISSÃO
                 </h1>
-                <span className="hidden sm:inline-block px-2 py-0.5 text-[10px] font-bold tracking-widest uppercase bg-red-500/10 text-[var(--accent-red)] border border-red-500/20 rounded-md">
+                <span className="hidden xl:inline-block px-2 py-0.5 text-[10px] font-bold tracking-widest uppercase bg-red-500/10 text-[var(--accent-red)] border border-red-500/20 rounded-md">
                   PRO
                 </span>
               </div>
@@ -66,109 +66,112 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Desktop Navigation Tabs */}
-          <nav className="hidden md:flex items-center gap-1 bg-[var(--bg-card)] p-1.5 rounded-2xl border border-[var(--border-color)]">
+          {/* Desktop Navigation Tabs -- encolhe (fonte/cantos) em telas médias e, se ainda
+              assim não couber tudo, rola na horizontal em vez de esconder botões. */}
+          <nav className="hidden md:flex flex-1 min-w-0 items-center justify-center gap-0.5 lg:gap-1 bg-[var(--bg-card)] p-1 lg:p-1.5 rounded-lg lg:rounded-2xl border border-[var(--border-color)] overflow-x-auto">
             <button
               id="nav-tab-dashboard"
               onClick={() => setActiveTab('dashboard')}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={`flex items-center gap-1 lg:gap-2 px-2 lg:px-3.5 py-1.5 lg:py-2 rounded-md lg:rounded-xl text-[10px] lg:text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'dashboard'
                   ? 'bg-gradient-red text-white shadow-red-glow'
                   : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card-hover)]'
               }`}
             >
-              <LayoutDashboard className="w-4 h-4" />
+              <LayoutDashboard className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" />
               <span>DASHBOARD</span>
             </button>
 
             <button
               id="nav-tab-weekly"
               onClick={() => setActiveTab('weekly')}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={`flex items-center gap-1 lg:gap-2 px-2 lg:px-3.5 py-1.5 lg:py-2 rounded-md lg:rounded-xl text-[10px] lg:text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'weekly'
                   ? 'bg-gradient-red text-white shadow-red-glow'
                   : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card-hover)]'
               }`}
             >
-              <Calendar className="w-4 h-4" />
-              <span>AGENDA SEMANAL</span>
+              <Calendar className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" />
+              <span className="lg:hidden">SEMANA</span>
+              <span className="hidden lg:inline">AGENDA SEMANAL</span>
             </button>
 
             <button
               id="nav-tab-table"
               onClick={() => setActiveTab('table')}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={`flex items-center gap-1 lg:gap-2 px-2 lg:px-3.5 py-1.5 lg:py-2 rounded-md lg:rounded-xl text-[10px] lg:text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'table'
                   ? 'bg-gradient-red text-white shadow-red-glow'
                   : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card-hover)]'
               }`}
             >
-              <Table className="w-4 h-4" />
-              <span>PLANILHA GERAL</span>
+              <Table className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" />
+              <span className="lg:hidden">PLANILHA</span>
+              <span className="hidden lg:inline">PLANILHA GERAL</span>
             </button>
 
             <button
               id="nav-tab-reports"
               onClick={() => setActiveTab('reports')}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={`flex items-center gap-1 lg:gap-2 px-2 lg:px-3.5 py-1.5 lg:py-2 rounded-md lg:rounded-xl text-[10px] lg:text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'reports'
                   ? 'bg-gradient-red text-white shadow-red-glow'
                   : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card-hover)]'
               }`}
             >
-              <BarChart3 className="w-4 h-4" />
+              <BarChart3 className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" />
               <span>RELATÓRIOS</span>
             </button>
 
             <button
               id="nav-tab-servicos"
               onClick={() => setActiveTab('servicos')}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={`flex items-center gap-1 lg:gap-2 px-2 lg:px-3.5 py-1.5 lg:py-2 rounded-md lg:rounded-xl text-[10px] lg:text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'servicos'
                   ? 'bg-gradient-red text-white shadow-red-glow'
                   : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card-hover)]'
               }`}
             >
-              <Bell className="w-4 h-4" />
+              <Bell className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" />
               <span>SERVIÇOS</span>
             </button>
 
             <button
               id="nav-tab-descontos"
               onClick={() => setActiveTab('descontos')}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={`flex items-center gap-1 lg:gap-2 px-2 lg:px-3.5 py-1.5 lg:py-2 rounded-md lg:rounded-xl text-[10px] lg:text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'descontos'
                   ? 'bg-gradient-red text-white shadow-red-glow'
                   : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card-hover)]'
               }`}
             >
-              <MinusCircle className="w-4 h-4" />
+              <MinusCircle className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" />
               <span>DESCONTOS</span>
             </button>
           </nav>
 
           {/* Actions: Add Service Button & Settings */}
-          <div className="flex items-center gap-2 sm:gap-3">
-            <div className="hidden sm:block">
+          <div className="flex items-center gap-1.5 lg:gap-3 shrink-0">
+            <div className="hidden lg:block">
               <AddServiceButton onClick={onOpenAddModal} />
             </div>
 
             <button
               id="btn-abrir-configuracoes"
               onClick={onOpenSettings}
-              className="p-2.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:border-[var(--accent-red)] transition-all cursor-pointer"
+              className="p-2 lg:p-2.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:border-[var(--accent-red)] transition-all cursor-pointer"
               title="Configurações e Aparência"
             >
-              <Settings className="w-5 h-5" />
+              <Settings className="w-4 h-4 lg:w-5 lg:h-5" />
             </button>
 
             {onLogout && (
               <button
                 onClick={onLogout}
-                className="p-2.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] text-[var(--text-muted)] hover:text-[var(--accent-red)] hover:border-[var(--accent-red)] transition-all cursor-pointer"
+                className="p-2 lg:p-2.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] text-[var(--text-muted)] hover:text-[var(--accent-red)] hover:border-[var(--accent-red)] transition-all cursor-pointer"
                 title="Sair"
               >
-                <LogOut className="w-5 h-5" />
+                <LogOut className="w-4 h-4 lg:w-5 lg:h-5" />
               </button>
             )}
           </div>
