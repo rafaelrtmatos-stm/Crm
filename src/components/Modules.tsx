@@ -58,6 +58,7 @@ import {
   Bell,
   BellOff,
   ChevronRight,
+  ChevronLeft,
   Mic,
   Image as ImageIcon,
   Video,
@@ -619,7 +620,7 @@ ${CONTRATADA_NOME} — CONTRATADA`;
 }
 
 export const DashboardModule = ({ user, currentCompany, companies = [], pendingOrders = [], setActiveTab }: { user: AppUser | null, currentCompany: Company | null, companies?: Company[], pendingOrders?: SaleOrder[], setActiveTab?: (tab: any) => void }) => {
-  const { setPendingReceivablesFilter, setPendingGoToHistorico } = React.useContext(AppContext)!;
+  const { setPendingReceivablesFilter, setPendingGoToHistorico, setPendingGoToServicos } = React.useContext(AppContext)!;
   const [isEditMode, setIsEditMode] = useState(false);
   const [valorEmEstoque, setValorEmEstoque] = useState(0);
 
@@ -1191,7 +1192,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                     </div>
                   )}
                   {services.slice(0, 8).map((s, i) => (
-                    <div key={i} onClick={() => setActiveTab?.('services')} className="p-4 bg-white/5 border border-white/5 rounded-2xl hover:bg-white/10 transition-all cursor-pointer group space-y-2 min-w-0 overflow-hidden">
+                    <div key={i} onClick={() => { setActiveTab?.('pos'); setPendingGoToServicos(true); }} className="p-4 bg-white/5 border border-white/5 rounded-2xl hover:bg-white/10 transition-all cursor-pointer group space-y-2 min-w-0 overflow-hidden">
                        <div className="flex justify-between items-start gap-2">
                           <div className="space-y-0.5 min-w-0 flex-1">
                              <p className="text-[10px] font-black text-white truncate uppercase">{s.client}</p>
@@ -3963,7 +3964,7 @@ const EntregaCountdown = ({ scheduledFor, onEdit, onDeliver, onDeleteSchedule }:
 };
 
 export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany: Company | null, addPendingOrder: (order: SaleOrder) => void }) => {
-  const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare, pendingReceiptOpenId, setPendingReceiptOpenId, pendingHistoryClientFilter, setPendingHistoryClientFilter, prefilledCustomer, setPrefilledCustomer, pendingReceivablesFilter, setPendingReceivablesFilter, pendingGoToHistorico, setPendingGoToHistorico, pendingOpenContratoId, setPendingOpenContratoId } = React.useContext(AppContext)!;
+  const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare, pendingReceiptOpenId, setPendingReceiptOpenId, pendingHistoryClientFilter, setPendingHistoryClientFilter, prefilledCustomer, setPrefilledCustomer, pendingReceivablesFilter, setPendingReceivablesFilter, pendingGoToHistorico, setPendingGoToHistorico, pendingGoToServicos, setPendingGoToServicos, pendingOpenContratoId, setPendingOpenContratoId } = React.useContext(AppContext)!;
   const [soundAlertsEnabled, setSoundAlertsEnabledState] = useState(() => localStorage.getItem('rpro_sound_alerts_enabled') !== 'false');
   const setSoundAlertsEnabled = (v: boolean) => {
     setSoundAlertsEnabledState(v);
@@ -5297,6 +5298,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setActiveTab('historico');
     setPendingGoToHistorico(false);
   }, [pendingGoToHistorico]);
+
+  // Se o card "Ordem de Servicos" do Dashboard pediu pra ir pra aba Servicos do PDV
+  useEffect(() => {
+    if (!pendingGoToServicos) return;
+    setActiveTab('servicos');
+    setPendingGoToServicos(false);
+  }, [pendingGoToServicos]);
 
   // Se a Ficha do Cliente (fora do Terminal) pediu pra abrir um contrato especifico
   useEffect(() => {
@@ -8175,9 +8183,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   const down = sale.downPayment || 0;
                   const balance = sale.total - down;
                   const isPartial = balance > 0 || sale.status === 'pending';
+                  const currentStage = sale.serviceStatus || 'pedido_recebido';
+                  const stageIdx = STAGE_ORDER.indexOf(currentStage);
+                  const prevStageId = stageIdx > 0 ? STAGE_ORDER[stageIdx - 1] : null;
+                  const nextStageId = stageIdx >= 0 && stageIdx < STAGE_ORDER.length - 1 ? STAGE_ORDER[stageIdx + 1] : null;
                   return (
-                    <div key={sale.id} className="flex items-center gap-2 sm:gap-3 bg-slate-900/60 hover:bg-slate-900 border border-white/5 rounded-xl px-3 py-2.5 transition-all overflow-x-auto custom-scrollbar">
-                      <div className="flex items-center gap-2 sm:gap-3 shrink-0 sm:min-w-0 sm:flex-1">
+                    <div key={sale.id} className="flex flex-col gap-2 bg-slate-900/60 hover:bg-slate-900 border border-white/5 rounded-xl px-3 py-2.5 transition-all">
+                      {/* Linha 1 (web e mobile): dados do pedido — quebra em mais linhas no celular pra nao esconder nada */}
+                      <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
                         <span title={sale.customerName || 'Cliente de Balcão'} className="text-[11px] font-black text-white whitespace-nowrap">{formatNamePreview((sale.customerName || 'Cliente de Balcão').toUpperCase(), 20)}</span>
                         {sale.items && sale.items.length > 0 && (
                           <span className="text-[9px] text-white/40 italic whitespace-nowrap" title={sale.items[sale.items.length - 1].name}>
@@ -8189,8 +8202,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             "{sale.observacoes}"
                           </span>
                         )}
-                        <span className="hidden sm:inline text-[9px] text-white/30 font-mono shrink-0">#{sale.id.slice(-8).toUpperCase()}</span>
-                        <span className="hidden sm:inline text-[9px] text-white/30 shrink-0">{safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
+                        <span className="text-[9px] text-white/30 font-mono whitespace-nowrap">#{sale.id.slice(-8).toUpperCase()}</span>
+                        <span className="text-[9px] text-white/30 whitespace-nowrap">{safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
                         {sale.scheduledFor && (
                           <EntregaCountdown
                             scheduledFor={sale.scheduledFor}
@@ -8200,25 +8213,52 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           />
                         )}
                       </div>
-                      <div className="flex-1 sm:hidden" />
-                      {isPartial && (
-                        <Badge className="text-[7.5px] font-black uppercase px-1.5 py-0.5 border-none shrink-0 bg-amber-500/20 text-amber-300">FALTA R$ {balance.toFixed(2).replace('.', ',')}</Badge>
-                      )}
-                      <span className="text-[11px] font-black text-white shrink-0 w-20 text-right">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
-                      <div className="flex gap-1 shrink-0">
-                        {isPartial && (
-                          <button onClick={async () => { if (!(await showConfirm('Abrir a tela de pagamento deste pedido?'))) return; openSettlePayment(sale); }} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar Débito"><CheckCircle2 size={13} /></button>
-                        )}
-                        <button onClick={async () => { if (!(await showConfirm('Abrir o recibo deste pedido?'))) return; openReceiptDetail(sale); }} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={13} /></button>
-                        <button onClick={() => handleDuplicateSale(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Duplicar Pedido"><Copy size={13} /></button>
-                        {!sale.contratoId && <button onClick={async () => { if (!(await showConfirm('Gerar um contrato a partir desta nota?'))) return; handleCreateContratoFromNota(sale); }} className="p-1.5 rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20" title="Gerar Contrato a partir desta nota"><FileSignature size={13} /></button>}
-                        {canManageHistory && (
-                          <>
-                            {sale.status !== 'canceled' && <button onClick={() => handleCancelSale(sale)} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" title="Cancelar Pedido"><Ban size={13} /></button>}
-                            <button onClick={async () => { if (!(await showConfirm('Editar este pedido?'))) return; handleStartFullEdit(sale); }} className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20" title="Editar"><Pencil size={13} /></button>
-                            <button onClick={() => handleDeleteSale(sale)} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" title="Excluir"><Trash2 size={13} /></button>
-                          </>
-                        )}
+
+                      {/* Linha 2 (web): Evolução/Retirada + valor + ações — no celular quebra em linhas extras, nunca esconde */}
+                      <div className="flex items-center gap-2 flex-wrap justify-between">
+                        <div className="flex items-center gap-1 shrink-0 bg-white/5 border border-white/10 rounded-lg px-1 py-1" title="Evolução / Retirada">
+                          <button
+                            onClick={() => prevStageId && handleUpdateServiceStatus(sale.id, prevStageId)}
+                            disabled={!prevStageId}
+                            title="Retroceder etapa"
+                            className="p-1 rounded-md text-white/50 hover:bg-white/10 hover:text-white disabled:opacity-20 disabled:cursor-not-allowed transition-all"
+                          >
+                            <ChevronLeft size={13} />
+                          </button>
+                          <span className="text-[8.5px] font-black uppercase text-white/70 px-1.5 whitespace-nowrap min-w-[92px] text-center">
+                            {STAGE_LABELS[currentStage] || currentStage}
+                          </span>
+                          <button
+                            onClick={() => nextStageId && handleUpdateServiceStatus(sale.id, nextStageId)}
+                            disabled={!nextStageId}
+                            title="Evoluir etapa"
+                            className="p-1 rounded-md text-white/50 hover:bg-white/10 hover:text-white disabled:opacity-20 disabled:cursor-not-allowed transition-all"
+                          >
+                            <ChevronRight size={13} />
+                          </button>
+                        </div>
+
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {isPartial && (
+                            <Badge className="text-[7.5px] font-black uppercase px-1.5 py-0.5 border-none shrink-0 bg-amber-500/20 text-amber-300">FALTA R$ {balance.toFixed(2).replace('.', ',')}</Badge>
+                          )}
+                          <span className="text-[11px] font-black text-white shrink-0 w-20 text-right">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
+                          <div className="flex gap-1 shrink-0">
+                            {isPartial && (
+                              <button onClick={async () => { if (!(await showConfirm('Abrir a tela de pagamento deste pedido?'))) return; openSettlePayment(sale); }} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar Débito"><CheckCircle2 size={13} /></button>
+                            )}
+                            <button onClick={async () => { if (!(await showConfirm('Abrir o recibo deste pedido?'))) return; openReceiptDetail(sale); }} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={13} /></button>
+                            <button onClick={() => handleDuplicateSale(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Duplicar Pedido"><Copy size={13} /></button>
+                            {!sale.contratoId && <button onClick={async () => { if (!(await showConfirm('Gerar um contrato a partir desta nota?'))) return; handleCreateContratoFromNota(sale); }} className="p-1.5 rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20" title="Gerar Contrato a partir desta nota"><FileSignature size={13} /></button>}
+                            {canManageHistory && (
+                              <>
+                                {sale.status !== 'canceled' && <button onClick={() => handleCancelSale(sale)} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" title="Cancelar Pedido"><Ban size={13} /></button>}
+                                <button onClick={async () => { if (!(await showConfirm('Editar este pedido?'))) return; handleStartFullEdit(sale); }} className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20" title="Editar"><Pencil size={13} /></button>
+                                <button onClick={() => handleDeleteSale(sale)} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" title="Excluir"><Trash2 size={13} /></button>
+                              </>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     </div>
                   );

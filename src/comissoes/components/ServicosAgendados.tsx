@@ -19,7 +19,6 @@ export const ServicosAgendados = () => {
   const [loading, setLoading] = useState(true);
 
   const carregar = async () => {
-    setLoading(true);
     const { data } = await supabase
       .from('vendas')
       .select('id, customer_name, customer_phone, total, scheduled_for, items')
@@ -33,9 +32,16 @@ export const ServicosAgendados = () => {
 
   useEffect(() => {
     carregar();
-    // Atualiza sozinho a cada 1 minuto, pra pegar notas novas/agendamentos mudados sem precisar recarregar a pagina
+    // Realtime: mesmo padrao usado no Dashboard/PDV/Producao — reage na hora quando a tabela
+    // "vendas" muda (precisa que "vendas" esteja na publication supabase_realtime).
+    const channel = supabase
+      .channel('comissoes-servicos-agendados')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'vendas' }, carregar)
+      .subscribe();
+    // Fallback de seguranca: se o realtime nao estiver habilitado no projeto (publication sem
+    // "vendas"), essa aba nao fica travada — continua atualizando, so que a cada 1 minuto.
     const interval = setInterval(carregar, 60000);
-    return () => clearInterval(interval);
+    return () => { supabase.removeChannel(channel); clearInterval(interval); };
   }, []);
 
   const agora = Date.now();
@@ -47,7 +53,7 @@ export const ServicosAgendados = () => {
         <h2 className="text-lg font-black uppercase tracking-tight">Serviços Agendados</h2>
         <span className="text-xs text-[var(--text-muted)] font-bold">({notas.length})</span>
       </div>
-      <p className="text-xs text-[var(--text-muted)] -mt-2">Entregas agendadas no sistema principal — atualiza sozinho.</p>
+      <p className="text-xs text-[var(--text-muted)] -mt-2">Entregas agendadas no sistema principal — atualiza em tempo real.</p>
 
       {loading ? (
         <div className="animate-skeleton h-24 rounded-2xl" />
