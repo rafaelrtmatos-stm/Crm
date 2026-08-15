@@ -236,7 +236,6 @@ export default function ComissoesApp() {
         onClose={() => setIsSettingsOpen(false)}
         userSettings={userSettings}
         onSaveSettings={handleSaveSettings}
-        onResetData={() => showToast('Reiniciar dados desativado — os dados agora ficam salvos no servidor.')}
       />
     </div>
   );

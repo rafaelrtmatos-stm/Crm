@@ -285,7 +285,6 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
         onClose={() => setIsSettingsOpen(false)}
         userSettings={userSettings}
         onSaveSettings={handleSaveSettings}
-        onResetData={() => showToast('Reiniciar dados desativado — os dados agora ficam salvos no servidor.')}
         hideThemeOption
       />
     </div>
