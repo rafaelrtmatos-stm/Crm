@@ -7,6 +7,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { ServiceItem, UserSettings } from './types';
 import {
   Colaborador,
+  Desconto,
   getServicesFromSupabase,
   saveServiceToSupabase,
   deleteServiceFromSupabase,
@@ -14,6 +15,7 @@ import {
   colaboradorToUserSettings,
   calculateSummaryStats,
   applyComissoesTheme,
+  getDescontosFromSupabase,
 } from './utils/supabaseStorage';
 import { Header } from './components/Header';
 import { Dashboard } from './components/Dashboard';
@@ -23,6 +25,7 @@ import { ReportsView } from './components/ReportsView';
 import { ServiceModal } from './components/ServiceModal';
 import { SettingsModal } from './components/SettingsModal';
 import { ServicosAgendados } from './components/ServicosAgendados';
+import { DescontosView } from './components/DescontosView';
 import { NotaDetalhe, NotaSelecionadoItem } from './components/NotaDetalheModal';
 import { CheckCircle2 } from 'lucide-react';
 import './comissoes-theme.css';
@@ -36,12 +39,13 @@ export default function ComissoesApp() {
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   const [services, setServices] = useState<ServiceItem[]>([]);
+  const [descontos, setDescontos] = useState<Desconto[]>([]);
   const [userSettings, setUserSettings] = useState<UserSettings>({
     userName: '', userRole: '', baseSalary: 0, defaultCommissionRate: 10, weeklyGoal: 0, themePreference: 'dark',
   });
   const [loadingData, setLoadingData] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'weekly' | 'table' | 'reports' | 'servicos'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'weekly' | 'table' | 'reports' | 'servicos' | 'descontos'>('dashboard');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [editingService, setEditingService] = useState<ServiceItem | null>(null);
@@ -85,6 +89,9 @@ export default function ComissoesApp() {
       setServices(list);
       setLoadingData(false);
     });
+    // So leitura -- essa tela e' sempre a visao do colaborador (login proprio), nunca
+    // tem os botoes de criar/editar/excluir desconto (ver isAdmin={false} na DescontosView abaixo)
+    getDescontosFromSupabase(colaborador.id).then(setDescontos);
   }, [colaborador]);
 
   const handleLogout = () => {
@@ -246,6 +253,9 @@ export default function ComissoesApp() {
               <ReportsView services={services} userSettings={userSettings} stats={summaryStats} />
             )}
             {activeTab === 'servicos' && <ServicosAgendados onAddItemsToTable={handleAddItemsFromNota} />}
+            {activeTab === 'descontos' && (
+              <DescontosView colaboradorId={colaborador.id} descontos={descontos} isAdmin={false} onChange={setDescontos} />
+            )}
           </>
         )}
       </main>

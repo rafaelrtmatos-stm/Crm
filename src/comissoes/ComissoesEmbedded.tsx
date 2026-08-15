@@ -13,6 +13,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { ServiceItem, UserSettings } from './types';
 import {
   Colaborador,
+  Desconto,
   getServicesFromSupabase,
   saveServiceToSupabase,
   deleteServiceFromSupabase,
@@ -20,6 +21,7 @@ import {
   colaboradorToUserSettings,
   calculateSummaryStats,
   mapColaboradorRow,
+  getDescontosFromSupabase,
 } from './utils/supabaseStorage';
 import { supabase } from '../supabase';
 import { ColaboradorLogin } from './ColaboradorLogin';
@@ -32,6 +34,7 @@ import { ReportsView } from './components/ReportsView';
 import { ServiceModal } from './components/ServiceModal';
 import { SettingsModal } from './components/SettingsModal';
 import { ServicosAgendados } from './components/ServicosAgendados';
+import { DescontosView } from './components/DescontosView';
 import { NotaDetalhe, NotaSelecionadoItem } from './components/NotaDetalheModal';
 import { CheckCircle2 } from 'lucide-react';
 import './comissoes-theme.css';
@@ -45,12 +48,17 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   const [services, setServices] = useState<ServiceItem[]>([]);
+  const [descontos, setDescontos] = useState<Desconto[]>([]);
   const [userSettings, setUserSettings] = useState<UserSettings>({
     userName: '', userRole: '', baseSalary: 0, defaultCommissionRate: 10, weeklyGoal: 0, themePreference: 'dark',
   });
   const [loadingData, setLoadingData] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'weekly' | 'table' | 'reports' | 'servicos'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'weekly' | 'table' | 'reports' | 'servicos' | 'descontos'>('dashboard');
+  // So o admin (veio de "Ver Painel" no painel de Comissoes do CRM, com presetColaborador
+  // preenchido) pode criar/editar/excluir desconto -- o colaborador (login proprio, seja
+  // aqui no menu embutido ou em /comissoes) so enxerga, nunca escreve.
+  const isAdmin = !!presetColaborador;
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [editingService, setEditingService] = useState<ServiceItem | null>(null);
@@ -99,6 +107,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
       setServices(list);
       setLoadingData(false);
     });
+    getDescontosFromSupabase(colaborador.id).then(setDescontos);
   }, [colaborador?.id]);
 
   // Tempo real: reflete na hora qualquer alteração feita em outro lugar
@@ -114,6 +123,15 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
         'postgres_changes',
         { event: '*', schema: 'public', table: 'comissoes_servicos', filter: `colaborador_id=eq.${colaboradorId}` },
         () => { getServicesFromSupabase(colaboradorId).then(setServices); }
+      )
+      .subscribe();
+
+    const descontosChannel = supabase
+      .channel(`comissoes-descontos-${colaboradorId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'comissoes_descontos', filter: `colaborador_id=eq.${colaboradorId}` },
+        () => { getDescontosFromSupabase(colaboradorId).then(setDescontos); }
       )
       .subscribe();
 
@@ -137,6 +155,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
 
     return () => {
       supabase.removeChannel(servicosChannel);
+      supabase.removeChannel(descontosChannel);
       supabase.removeChannel(colaboradorChannel);
     };
   }, [colaborador?.id]);
@@ -305,6 +324,9 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
               <ReportsView services={services} userSettings={userSettings} stats={summaryStats} />
             )}
             {activeTab === 'servicos' && <ServicosAgendados onAddItemsToTable={handleAddItemsFromNota} />}
+            {activeTab === 'descontos' && (
+              <DescontosView colaboradorId={colaborador.id} descontos={descontos} isAdmin={isAdmin} onChange={setDescontos} />
+            )}
           </>
         )}
       </main>

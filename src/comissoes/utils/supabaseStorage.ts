@@ -147,6 +147,148 @@ export const calculateSummaryStats = (services: ServiceItem[], baseSalary: numbe
   };
 };
 
+// --- DESCONTOS (faltas, etc.) escopados por colaborador ---
+// Quem cria/edita/exclui é sempre o admin (painel de Comissões do CRM) -- a tela do
+// colaborador (ComissoesApp / ComissoesEmbedded sem presetColaborador) só usa as
+// funções de leitura abaixo, nunca as de escrita (isso é controlado no componente,
+// via a prop isAdmin da DescontosView -- ver comissoes_descontos no create_comissoes_descontos.sql).
+export type DescontoTipo = 'falta_meio_periodo' | 'falta_periodo' | 'outro';
+export type DescontoRecorrencia = 'unica' | 'semanal' | 'mensal';
+
+export interface Desconto {
+  id: string;
+  colaboradorId: string;
+  tipo: DescontoTipo;
+  descricao?: string;
+  valor: number;
+  recorrencia: DescontoRecorrencia;
+  data: string; // YYYY-MM-DD -- data do desconto (unica) ou data de inicio (semanal/mensal)
+  ativo: boolean;
+  createdAt: number;
+}
+
+export const DESCONTO_TIPO_LABELS: Record<DescontoTipo, string> = {
+  falta_meio_periodo: 'Falta — meio período',
+  falta_periodo: 'Falta — período completo',
+  outro: 'Outro desconto',
+};
+
+export const DESCONTO_RECORRENCIA_LABELS: Record<DescontoRecorrencia, string> = {
+  unica: 'Uma vez',
+  semanal: 'Toda semana',
+  mensal: 'Todo mês',
+};
+
+const mapDescontoRow = (row: any): Desconto => ({
+  id: row.id,
+  colaboradorId: row.colaborador_id,
+  tipo: (row.tipo as DescontoTipo) || 'outro',
+  descricao: row.descricao || undefined,
+  valor: Number(row.valor) || 0,
+  recorrencia: (row.recorrencia as DescontoRecorrencia) || 'unica',
+  data: row.data,
+  ativo: row.ativo !== false,
+  createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
+});
+
+export async function getDescontosFromSupabase(colaboradorId: string): Promise<Desconto[]> {
+  const { data, error } = await supabase
+    .from('comissoes_descontos')
+    .select('*')
+    .eq('colaborador_id', colaboradorId)
+    .order('data', { ascending: false });
+  if (error || !data) return [];
+  return data.map(mapDescontoRow);
+}
+
+export interface DescontoFormInput {
+  id?: string;
+  tipo: DescontoTipo;
+  descricao?: string;
+  valor: number;
+  recorrencia: DescontoRecorrencia;
+  data: string;
+  ativo: boolean;
+}
+
+export async function saveDescontoToSupabase(colaboradorId: string, input: DescontoFormInput, isNew: boolean): Promise<Desconto | null> {
+  const payload = {
+    colaborador_id: colaboradorId,
+    tipo: input.tipo,
+    descricao: input.descricao || null,
+    valor: input.valor || 0,
+    recorrencia: input.recorrencia,
+    data: input.data,
+    ativo: input.ativo !== false,
+    updated_at: new Date().toISOString(),
+  };
+  if (isNew) {
+    const { data, error } = await supabase.from('comissoes_descontos').insert(payload).select().single();
+    if (error || !data) { console.error('Erro ao criar desconto:', error); return null; }
+    return mapDescontoRow(data);
+  }
+  const { data, error } = await supabase.from('comissoes_descontos').update(payload).eq('id', input.id).select().single();
+  if (error || !data) { console.error('Erro ao atualizar desconto:', error); return null; }
+  return mapDescontoRow(data);
+}
+
+export async function deleteDescontoFromSupabase(id: string): Promise<boolean> {
+  const { error } = await supabase.from('comissoes_descontos').delete().eq('id', id);
+  return !error;
+}
+
+export async function setDescontoAtivo(id: string, ativo: boolean): Promise<boolean> {
+  const { error } = await supabase.from('comissoes_descontos').update({ ativo, updated_at: new Date().toISOString() }).eq('id', id);
+  return !error;
+}
+
+// Quantas vezes um desconto "cai" dentro do periodo [start, end] (datas YYYY-MM-DD, ambas
+// inclusive). unica: 1 vez, se a data cair no periodo. semanal: 1 vez a cada 7 dias a partir
+// da data de inicio. mensal: 1 vez por mes, no mesmo dia (ou no ultimo dia do mes, se o mes
+// for mais curto que o dia de inicio -- ex: inicio dia 31 cai no dia 28/29 de fevereiro).
+function contarOcorrenciasNoPeriodo(desconto: Desconto, start: string, end: string): number {
+  if (!desconto.ativo || desconto.data > end) return 0;
+
+  if (desconto.recorrencia === 'unica') {
+    return desconto.data >= start ? 1 : 0;
+  }
+
+  const inicio = new Date(`${desconto.data}T00:00:00`);
+  const periodoInicioStr = desconto.data > start ? desconto.data : start;
+  const periodoInicio = new Date(`${periodoInicioStr}T00:00:00`);
+  const periodoFim = new Date(`${end}T00:00:00`);
+  if (periodoInicio > periodoFim) return 0;
+
+  let count = 0;
+
+  if (desconto.recorrencia === 'semanal') {
+    const cursor = new Date(inicio);
+    while (cursor < periodoInicio) cursor.setDate(cursor.getDate() + 7);
+    while (cursor <= periodoFim) {
+      count++;
+      cursor.setDate(cursor.getDate() + 7);
+    }
+    return count;
+  }
+
+  // mensal
+  const diaAlvo = inicio.getDate();
+  const cursor = new Date(inicio.getFullYear(), inicio.getMonth(), 1);
+  while (cursor <= periodoFim) {
+    const ultimoDiaDoMes = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate();
+    const dataOcorrencia = new Date(cursor.getFullYear(), cursor.getMonth(), Math.min(diaAlvo, ultimoDiaDoMes));
+    if (dataOcorrencia >= inicio && dataOcorrencia >= periodoInicio && dataOcorrencia <= periodoFim) count++;
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+  return count;
+}
+
+// Soma total de descontos ativos que caem dentro do periodo informado (start/end no
+// formato YYYY-MM-DD, inclusive) -- usado na aba "Descontos" pra mostrar o total do mês atual.
+export function calculateDescontosNoPeriodo(descontos: Desconto[], start: string, end: string): number {
+  return descontos.reduce((total, d) => total + contarOcorrenciasNoPeriodo(d, start, end) * d.valor, 0);
+}
+
 export const formatCurrency = (value: number): string =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
 
