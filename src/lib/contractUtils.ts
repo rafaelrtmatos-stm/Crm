@@ -229,3 +229,100 @@ export async function getPublicIpAddress(): Promise<string> {
   return '189.102.45.12';
 }
 
+// ---------------------------------------------------------------------------
+// Validacao de documentos do cliente (CPF, CNPJ, RG, telefone)
+// ---------------------------------------------------------------------------
+
+const onlyDigits = (value: string): string => (value || '').replace(/\D/g, '');
+
+/** Valida CPF (11 digitos) usando o algoritmo oficial dos digitos verificadores. */
+export function isValidCpf(value: string): boolean {
+  const cpf = onlyDigits(value);
+  if (cpf.length !== 11) return false;
+  if (/^(\d)\1{10}$/.test(cpf)) return false; // rejeita 000.000.000-00, 111.111.111-11, etc.
+
+  const calcDigit = (base: string, factorStart: number): number => {
+    let sum = 0;
+    for (let i = 0; i < base.length; i++) {
+      sum += parseInt(base[i], 10) * (factorStart - i);
+    }
+    const rest = (sum * 10) % 11;
+    return rest === 10 ? 0 : rest;
+  };
+
+  const digit1 = calcDigit(cpf.slice(0, 9), 10);
+  const digit2 = calcDigit(cpf.slice(0, 10), 11);
+  return digit1 === parseInt(cpf[9], 10) && digit2 === parseInt(cpf[10], 10);
+}
+
+/** Valida CNPJ (14 digitos) usando o algoritmo oficial dos digitos verificadores. */
+export function isValidCnpj(value: string): boolean {
+  const cnpj = onlyDigits(value);
+  if (cnpj.length !== 14) return false;
+  if (/^(\d)\1{13}$/.test(cnpj)) return false;
+
+  const calcDigit = (base: string, weights: number[]): number => {
+    let sum = 0;
+    for (let i = 0; i < base.length; i++) {
+      sum += parseInt(base[i], 10) * weights[i];
+    }
+    const rest = sum % 11;
+    return rest < 2 ? 0 : 11 - rest;
+  };
+
+  const weights1 = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
+  const weights2 = [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
+
+  const digit1 = calcDigit(cnpj.slice(0, 12), weights1);
+  const digit2 = calcDigit(cnpj.slice(0, 13), weights2);
+  return digit1 === parseInt(cnpj[12], 10) && digit2 === parseInt(cnpj[13], 10);
+}
+
+export type DocumentKind = 'cpf' | 'cnpj' | 'invalid';
+
+/** Identifica se o documento informado e' um CPF ou CNPJ valido pelo tamanho + digitos verificadores. */
+export function getDocumentKind(value: string): DocumentKind {
+  const digits = onlyDigits(value);
+  if (digits.length === 11) return isValidCpf(digits) ? 'cpf' : 'invalid';
+  if (digits.length === 14) return isValidCnpj(digits) ? 'cnpj' : 'invalid';
+  return 'invalid';
+}
+
+export function isValidCpfOrCnpj(value: string): boolean {
+  return getDocumentKind(value) !== 'invalid';
+}
+
+/**
+ * Valida RG do cliente. So se aplica a pessoa fisica (CPF) -- pessoa juridica (CNPJ) nao tem RG.
+ * Aceita tanto o RG estadual tradicional (formato varia por estado: letras, pontos, barra, digito
+ * verificador X) quanto o novo padrao da Carteira de Identidade Nacional (CIN), que usa o mesmo
+ * numero do CPF (11 digitos com digito verificador valido).
+ */
+export function isValidRg(value: string): boolean {
+  const trimmed = (value || '').trim();
+  if (!trimmed) return false;
+
+  const digits = onlyDigits(trimmed);
+
+  // Novo padrao (CIN): numero identico ao CPF, 11 digitos com DV valido.
+  if (digits.length === 11) {
+    return isValidCpf(digits);
+  }
+
+  // RG estadual tradicional: formato varia por estado (ex: 12.345.678-9, MG-12.345.678,
+  // 1234567 DG/GO). Aceita alfanumerico com pontuacao comum, entre 5 e 20 caracteres,
+  // com pelo menos 4 digitos.
+  const formatOk = /^[0-9A-Za-z.\-\/\s]{5,20}$/.test(trimmed);
+  return formatOk && digits.length >= 4;
+}
+
+/** Valida telefone brasileiro com DDD: 10 digitos (fixo) ou 11 digitos (celular com 9º digito). */
+export function isValidPhoneBR(value: string): boolean {
+  const digits = onlyDigits(value);
+  if (digits.length !== 10 && digits.length !== 11) return false;
+  const ddd = parseInt(digits.slice(0, 2), 10);
+  if (ddd < 11 || ddd > 99) return false;
+  if (digits.length === 11 && digits[2] !== '9') return false; // celular sempre comeca com 9
+  return true;
+}
+

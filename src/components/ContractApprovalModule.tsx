@@ -31,13 +31,16 @@ import {
   Palette,
   Box,
   Eye,
-  MessageSquare
+  MessageSquare,
+  MapPin,
+  Search
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { collection, addDoc, doc, updateDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Company, ServiceContract, ContractAcceptance, CompanyConfig, PdfCustomization, MerchandiseItem } from '../types';
-import { generateContractText, computeContractHash, getPublicIpAddress } from '../lib/contractUtils';
+import { generateContractText, computeContractHash, getPublicIpAddress, getDocumentKind, isValidRg, isValidPhoneBR } from '../lib/contractUtils';
+import { searchCepByStreet, formatFullAddress, UF_OPTIONS, type CepResult } from '../lib/cepUtils';
 import { CompanySettingsModal, DEFAULT_COMPANY_CONFIG } from './CompanySettingsModal';
 import { PdfTemplateEditor, DEFAULT_PDF_CONFIG } from './PdfTemplateEditor';
 import { MerchandiseModule } from './MerchandiseModule';
@@ -67,15 +70,24 @@ export const ContractApprovalModule = ({ currentCompany, onContractApproved }: C
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
 
   // Budget & Form state
-  const [clientName, setClientName] = useState('Carlos Alberto Oliveira');
-  const [clientCpfCnpj, setClientCpfCnpj] = useState('123.456.789-00');
-  const [clientRg, setClientRg] = useState('12.345.678-9 DG/GO');
+  const [clientName, setClientName] = useState('');
+  const [clientCpfCnpj, setClientCpfCnpj] = useState('');
+  const [clientRg, setClientRg] = useState('');
   const [clientNacionalidade, setClientNacionalidade] = useState('brasileiro(a)');
   const [clientEstadoCivil, setClientEstadoCivil] = useState('solteiro(a)');
   const [clientProfissao, setClientProfissao] = useState('comerciante');
-  const [clientPhone, setClientPhone] = useState('(62) 99876-5432');
-  const [clientEmail, setClientEmail] = useState('carlos.oliveira@email.com');
-  const [clientAddress, setClientAddress] = useState('Rua das Flores, Quadra 12, Lote 05 - Goiânia/GO');
+  const [clientPhone, setClientPhone] = useState('');
+  const [clientEmail, setClientEmail] = useState('');
+  const [clientAddress, setClientAddress] = useState('');
+
+  // Busca de CEP por rua (quando o cliente sabe a rua mas nao o CEP)
+  const [cepSearchUf, setCepSearchUf] = useState('');
+  const [cepSearchCidade, setCepSearchCidade] = useState('');
+  const [cepSearchRua, setCepSearchRua] = useState('');
+  const [cepSearchNumero, setCepSearchNumero] = useState('');
+  const [cepResults, setCepResults] = useState<CepResult[]>([]);
+  const [isCepSearching, setIsCepSearching] = useState(false);
+  const [cepSearchError, setCepSearchError] = useState<string | null>(null);
   const [serviceTitle, setServiceTitle] = useState('Fachada em ACM 3x1m com Letra Caixa LED');
   const [serviceDescription, setServiceDescription] = useState('Confecção e instalação de Fachada Comercial em Painel ACM Prata 3x1m, com letras caixa em acrílico iluminadas por fita de LED blindada 12v, estrutura metálica galvanizada e fonte bivolt.');
   const [totalAmount, setTotalAmount] = useState(3800);
@@ -153,10 +165,62 @@ export const ContractApprovalModule = ({ currentCompany, onContractApproved }: C
     return () => clearInterval(timer);
   }, [step, countdown]);
 
+  // Busca CEP a partir do UF + Cidade + Rua (o cliente sabe o endereco mas nao o CEP)
+  const handleSearchCepByStreet = async () => {
+    setCepSearchError(null);
+    setCepResults([]);
+    setIsCepSearching(true);
+    try {
+      const results = await searchCepByStreet(cepSearchUf, cepSearchCidade, cepSearchRua);
+      if (results.length === 0) {
+        setCepSearchError('Nenhum CEP encontrado para essa rua/cidade. Confira a grafia e tente novamente.');
+      }
+      setCepResults(results);
+    } catch (err: any) {
+      setCepSearchError(err?.message || 'Erro ao buscar o CEP. Tente novamente.');
+    } finally {
+      setIsCepSearching(false);
+    }
+  };
+
+  // Cliente escolheu um dos resultados: monta o endereco completo no campo do formulario
+  const handleSelectCepResult = (result: CepResult) => {
+    setClientAddress(formatFullAddress(result, cepSearchNumero));
+    setCepResults([]);
+  };
+
   // Handle generating contract text & hash
   const handleGenerateContract = async () => {
-    if (!clientName || totalAmount <= 0) {
-      showAlert('Por favor, preencha o nome do cliente e o valor total.');
+    const nameOk = clientName.trim().length > 0;
+    const docKind = getDocumentKind(clientCpfCnpj);
+    const isCompany = docKind === 'cnpj';
+    const rgOk = isCompany || isValidRg(clientRg); // CNPJ (pessoa jurídica) não tem RG
+    const phoneOk = isValidPhoneBR(clientPhone);
+    const addressOk = clientAddress.trim().length >= 5;
+    const amountOk = totalAmount > 0;
+
+    if (!nameOk) {
+      showAlert('Informe o nome completo (ou razão social) do cliente.');
+      return;
+    }
+    if (docKind === 'invalid') {
+      showAlert('CPF ou CNPJ inválido. Confira os números digitados.');
+      return;
+    }
+    if (!rgOk) {
+      showAlert('RG do cliente inválido. Aceita o RG estadual tradicional ou o novo padrão da Carteira de Identidade Nacional (CIN).');
+      return;
+    }
+    if (!phoneOk) {
+      showAlert('Telefone WhatsApp inválido. Informe com DDD, ex: (62) 99876-5432.');
+      return;
+    }
+    if (!addressOk) {
+      showAlert('Informe o endereço completo do cliente.');
+      return;
+    }
+    if (!amountOk) {
+      showAlert('Informe o valor total do serviço.');
       return;
     }
 
@@ -166,7 +230,7 @@ export const ContractApprovalModule = ({ currentCompany, onContractApproved }: C
       companyAddress: companyConfig.endereco,
       clientName,
       clientCpf: clientCpfCnpj,
-      clientRg,
+      clientRg: isCompany ? 'não aplicável (pessoa jurídica)' : clientRg,
       clientAddress,
       clientNacionalidade,
       clientEstadoCivil,
@@ -568,20 +632,21 @@ export const ContractApprovalModule = ({ currentCompany, onContractApproved }: C
                   value={clientCpfCnpj}
                   onChange={e => setClientCpfCnpj(e.target.value)}
                   className="w-full h-12 bg-slate-900/60 border border-white/10 rounded-xl px-4 text-xs font-semibold text-white focus:border-primary-500 outline-none font-mono"
-                  placeholder="000.000.000-00"
+                  placeholder="000.000.000-00 ou 00.000.000/0000-00"
                 />
               </div>
 
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-white/50 uppercase tracking-widest">
-                  RG do Cliente *
+                  RG do Cliente {getDocumentKind(clientCpfCnpj) === 'cnpj' ? '(não se aplica a CNPJ)' : '*'}
                 </label>
                 <input
                   type="text"
                   value={clientRg}
                   onChange={e => setClientRg(e.target.value)}
-                  className="w-full h-12 bg-slate-900/60 border border-white/10 rounded-xl px-4 text-xs font-semibold text-white focus:border-primary-500 outline-none font-mono"
-                  placeholder="00.000.000-0 DG/GO"
+                  disabled={getDocumentKind(clientCpfCnpj) === 'cnpj'}
+                  className="w-full h-12 bg-slate-900/60 border border-white/10 rounded-xl px-4 text-xs font-semibold text-white focus:border-primary-500 outline-none font-mono disabled:opacity-40 disabled:cursor-not-allowed"
+                  placeholder="12.345.678-9 DG/GO (ou nº da CIN)"
                 />
               </div>
 
@@ -676,9 +741,84 @@ export const ContractApprovalModule = ({ currentCompany, onContractApproved }: C
                 />
               </div>
 
+              <div className="md:col-span-2 space-y-3 rounded-2xl border border-primary-500/20 bg-primary-500/5 p-4">
+                <div className="flex items-center gap-2">
+                  <MapPin size={14} className="text-primary-400" />
+                  <span className="text-[10px] font-black text-primary-300 uppercase tracking-widest">
+                    Não sabe o CEP? Busque pelo nome da rua
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+                  <select
+                    value={cepSearchUf}
+                    onChange={e => setCepSearchUf(e.target.value)}
+                    className="h-11 bg-slate-900/60 border border-white/10 rounded-xl px-3 text-xs font-semibold text-white focus:border-primary-500 outline-none"
+                  >
+                    <option value="" className="bg-zinc-900">UF</option>
+                    {UF_OPTIONS.map(uf => (
+                      <option key={uf} value={uf} className="bg-zinc-900">{uf}</option>
+                    ))}
+                  </select>
+                  <input
+                    type="text"
+                    value={cepSearchCidade}
+                    onChange={e => setCepSearchCidade(e.target.value)}
+                    placeholder="Cidade"
+                    className="h-11 bg-slate-900/60 border border-white/10 rounded-xl px-3 text-xs font-semibold text-white focus:border-primary-500 outline-none"
+                  />
+                  <input
+                    type="text"
+                    value={cepSearchRua}
+                    onChange={e => setCepSearchRua(e.target.value)}
+                    placeholder="Nome da rua"
+                    className="h-11 bg-slate-900/60 border border-white/10 rounded-xl px-3 text-xs font-semibold text-white focus:border-primary-500 outline-none"
+                  />
+                  <input
+                    type="text"
+                    value={cepSearchNumero}
+                    onChange={e => setCepSearchNumero(e.target.value)}
+                    placeholder="Número (opcional)"
+                    className="h-11 bg-slate-900/60 border border-white/10 rounded-xl px-3 text-xs font-semibold text-white focus:border-primary-500 outline-none"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleSearchCepByStreet}
+                  disabled={isCepSearching || !cepSearchUf || !cepSearchCidade || cepSearchRua.trim().length < 3}
+                  className="w-full md:w-auto flex items-center justify-center gap-2 rounded-xl bg-primary-500 hover:bg-primary-400 disabled:opacity-40 disabled:cursor-not-allowed text-black text-[11px] font-black uppercase px-4 py-2.5 transition-colors"
+                >
+                  {isCepSearching ? <RefreshCw size={13} className="animate-spin" /> : <Search size={13} />}
+                  Buscar CEP
+                </button>
+
+                {cepSearchError && (
+                  <p className="text-[11px] text-red-400">{cepSearchError}</p>
+                )}
+
+                {cepResults.length > 0 && (
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar">
+                    {cepResults.map((r, idx) => (
+                      <button
+                        key={`${r.cep}-${idx}`}
+                        type="button"
+                        onClick={() => handleSelectCepResult(r)}
+                        className="w-full text-left p-3 rounded-xl bg-slate-900/60 hover:bg-white/10 border border-white/10 hover:border-primary-500/40 transition-all"
+                      >
+                        <p className="text-xs font-bold text-white">{r.logradouro}</p>
+                        <p className="text-[10px] text-white/50">
+                          {r.bairro} • {r.localidade}/{r.uf} • CEP: <span className="font-mono text-primary-300">{r.cep}</span>
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div className="md:col-span-2 space-y-1">
                 <label className="text-[10px] font-black text-white/50 uppercase tracking-widest">
-                  Endereço do Cliente / Entrega
+                  Endereço do Cliente / Entrega *
                 </label>
                 <input
                   type="text"
