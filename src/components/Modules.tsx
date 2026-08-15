@@ -13758,6 +13758,21 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     }
   };
 
+  // Pede pra sessao do usuario mandar a localizacao GPS atual (so funciona se ele tiver
+  // autorizado o compartilhamento de localização no login — geoPermission === 'granted').
+  // A resposta chega sozinha pelo onSnapshot da sessao (client em App.tsx escuta esse campo).
+  const [requestingLocationFor, setRequestingLocationFor] = useState<string | null>(null);
+  const handleRequestLocation = async (sessionId: string) => {
+    setRequestingLocationFor(sessionId);
+    try {
+      await updateDoc(doc(db, 'sessions', sessionId), { locationRequestedAt: new Date().toISOString(), locationDenied: false });
+    } catch (err: any) {
+      showAlert(`Não foi possível pedir a localização: ${err?.message || 'erro desconhecido'}`);
+    } finally {
+      setTimeout(() => setRequestingLocationFor(null), 15000);
+    }
+  };
+
   useEffect(() => {
     const load = async () => {
       const { data } = await supabase.from('configuracoes').select('logo_light_url, logo_dark_url').eq('company_id', 'rafa-arts').maybeSingle();
@@ -15117,14 +15132,45 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                                        {s.location && s.location !== 'desconhecida' && (
                                          <p className="text-[10px] text-white/40">📍 {s.location}</p>
                                        )}
+                                       {s.preciseLocation?.lat != null && (
+                                         <p className="text-[10px] text-primary-300">
+                                           🎯 <a
+                                             href={`https://www.google.com/maps?q=${s.preciseLocation.lat},${s.preciseLocation.lng}`}
+                                             target="_blank"
+                                             rel="noopener noreferrer"
+                                             className="underline hover:text-primary-200"
+                                           >
+                                             Ver no mapa
+                                           </a>
+                                           {' · atualizado '}{safeFormat(s.preciseLocation.updatedAt, 'dd/MM HH:mm')}
+                                         </p>
+                                       )}
+                                       {s.geoPermission !== 'granted' && (
+                                         <p className="text-[9px] text-amber-400/70">Localização GPS não autorizada por este usuário</p>
+                                       )}
+                                       {s.locationDenied && s.geoPermission === 'granted' && (
+                                         <p className="text-[9px] text-amber-400/70">Não foi possível obter a localização agora (GPS indisponível no aparelho)</p>
+                                       )}
                                        <p className="text-[9px] text-white/20">Visto por último: {safeFormat(s.lastSeenAt || s.loginAt, 'dd/MM/yyyy HH:mm')}</p>
                                     </div>
-                                    <button
-                                      onClick={() => handleDisconnectSession(s.id)}
-                                      className="text-[9px] font-black uppercase px-3 py-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 shrink-0"
-                                    >
-                                      Desconectar
-                                    </button>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                      {s.geoPermission === 'granted' && (
+                                        <button
+                                          onClick={() => handleRequestLocation(s.id)}
+                                          disabled={requestingLocationFor === s.id}
+                                          className="text-[9px] font-black uppercase px-3 py-1.5 rounded-lg bg-primary-500/10 text-primary-300 hover:bg-primary-500/20 disabled:opacity-50 flex items-center gap-1"
+                                        >
+                                          <MapPin size={11} />
+                                          {requestingLocationFor === s.id ? 'Pedindo...' : 'Ver Localização'}
+                                        </button>
+                                      )}
+                                      <button
+                                        onClick={() => handleDisconnectSession(s.id)}
+                                        className="text-[9px] font-black uppercase px-3 py-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20"
+                                      >
+                                        Desconectar
+                                      </button>
+                                    </div>
                                  </div>
                                ))}
                             </div>

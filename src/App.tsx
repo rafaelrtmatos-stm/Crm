@@ -40,7 +40,8 @@ import {
   EyeOff,
   AlertCircle,
   ShieldCheck,
-  Key
+  Key,
+  MapPin
 } from 'lucide-react';
 import { ChevronRight } from 'lucide-react';
 
@@ -691,6 +692,21 @@ export default function App() {
     return `${os} · ${browser}`;
   };
 
+  // Pede autorizacao de geolocalizacao (GPS/rede) do navegador e devolve as coordenadas se a
+  // pessoa aceitar, ou null se negar, o navegador nao suportar, ou der timeout. O navegador so
+  // mostra o popup nativo de permissao da primeira vez — nas proximas chamadas ele so lembra
+  // a decisao anterior (aceita ou negada), sem perguntar de novo.
+  const requestGeoPermission = (): Promise<{ lat: number; lng: number; accuracy: number } | null> => {
+    return new Promise((resolve) => {
+      if (!('geolocation' in navigator)) { resolve(null); return; }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
+        () => resolve(null),
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+      );
+    });
+  };
+
   // Guarda o "desligar" do escutador de desconexao remota e do heartbeat da sessao atual,
   // pra nunca deixar um escutador de uma sessao antiga (ja desconectada) ativo por engano
   const sessaoListenerRef = React.useRef<(() => void) | null>(null);
@@ -703,8 +719,14 @@ export default function App() {
   };
 
   // Registra a sessao (IP publico + dispositivo) no repositorio, e fica escutando
-  // se o admin desconectou essa sessao remotamente — se sim, desloga na hora.
-  const registerSession = async (uid: string, uname: string) => {
+  // se o admin desconectou essa sessao remotamente — se sim, desloga na hora. `geo` e o resultado
+  // (ja resolvido) do pedido de permissao de localizacao feito durante o login.
+  const registerSession = async (
+    uid: string,
+    uname: string,
+    geo?: { lat: number; lng: number; accuracy: number } | null,
+    geoPermission?: 'granted' | 'denied'
+  ) => {
     pararEscutaDeSessao(); // desliga qualquer escutador de uma sessao anterior antes de criar um novo
     try {
       const sessionId = 'sess-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
@@ -749,16 +771,47 @@ export default function App() {
         loginAt: new Date().toISOString(),
         lastSeenAt: new Date().toISOString(),
         isRevoked: false,
+        geoPermission: geoPermission || 'denied',
+        preciseLocation: geo ? { ...geo, updatedAt: new Date().toISOString() } : null,
+        locationRequestedAt: null,
+        locationDenied: false,
       });
 
-      // Escuta se essa sessao foi desconectada pelo admin
+      // Guarda o ultimo pedido de localizacao do admin ja atendido, pra nao responder duas
+      // vezes ao mesmo pedido (o onSnapshot dispara de novo quando a gente mesmo atualiza o doc)
+      let lastHandledLocationRequest: string | null = null;
+
+      // Escuta se essa sessao foi desconectada pelo admin, e tambem se o admin pediu pra ver
+      // a localizacao atual agora (so responde se essa sessao tiver autorizado o GPS no login)
       const unsubSnapshot = onSnapshot(doc(db, 'sessions', sessionId), (snap) => {
         // So desloga se essa sessao (sessionId) ainda for a sessao ativa no momento —
         // evita que um escutador antigo derrube uma sessao nova por engano
         if (sessionStorage.getItem('rpro_session_id') !== sessionId) return;
-        if (snap.exists() && snap.data()?.isRevoked) {
+        if (!snap.exists()) return;
+        const data = snap.data();
+        if (data?.isRevoked) {
           showAlert('Sua sessão foi desconectada pelo administrador.');
           handleLogout();
+          return;
+        }
+        const pedido = data?.locationRequestedAt;
+        if (pedido && pedido !== lastHandledLocationRequest) {
+          lastHandledLocationRequest = pedido;
+          if (localStorage.getItem('rpro_geo_permission') === 'granted') {
+            requestGeoPermission().then((novaGeo) => {
+              if (sessionStorage.getItem('rpro_session_id') !== sessionId) return;
+              if (novaGeo) {
+                updateDoc(doc(db, 'sessions', sessionId), {
+                  preciseLocation: { ...novaGeo, updatedAt: new Date().toISOString() },
+                  locationDenied: false,
+                }).catch(() => {});
+              } else {
+                updateDoc(doc(db, 'sessions', sessionId), { locationDenied: true }).catch(() => {});
+              }
+            });
+          } else {
+            updateDoc(doc(db, 'sessions', sessionId), { locationDenied: true }).catch(() => {});
+          }
         }
       });
 
@@ -842,8 +895,14 @@ export default function App() {
         setUser(adminData);
         cacheUserOffline(adminData);
         sessionStorage.setItem('rpro_logged_user_id', adminData.id);
-        registerSession(adminData.id, adminData.name);
-        if (rememberMe) {
+        // Pede autorizacao de localizacao (so mostra o popup nativo na primeira vez de fato —
+        // depois disso o navegador so lembra a decisao). Aceitar libera nao precisar logar de
+        // novo; recusar obriga a fazer login toda vez que abrir o sistema.
+        const geoAdmin = await requestGeoPermission();
+        const geoPermissionAdmin: 'granted' | 'denied' = geoAdmin ? 'granted' : 'denied';
+        localStorage.setItem('rpro_geo_permission', geoPermissionAdmin);
+        registerSession(adminData.id, adminData.name, geoAdmin, geoPermissionAdmin);
+        if (geoAdmin) {
           localStorage.setItem('rpro_remembered_user_id', adminData.id);
           localStorage.setItem('rpro_remembered_email', trimmedEmail);
         } else {
@@ -966,8 +1025,14 @@ export default function App() {
       setUser(userData);
       cacheUserOffline(userData);
       sessionStorage.setItem('rpro_logged_user_id', userData.id);
-      registerSession(userData.id, userData.name);
-      if (rememberMe) {
+      // Pede autorizacao de localizacao (so mostra o popup nativo na primeira vez de fato —
+      // depois disso o navegador so lembra a decisao). Aceitar libera nao precisar logar de
+      // novo; recusar obriga a fazer login toda vez que abrir o sistema.
+      const geoUser = await requestGeoPermission();
+      const geoPermissionUser: 'granted' | 'denied' = geoUser ? 'granted' : 'denied';
+      localStorage.setItem('rpro_geo_permission', geoPermissionUser);
+      registerSession(userData.id, userData.name, geoUser, geoPermissionUser);
+      if (geoUser) {
         localStorage.setItem('rpro_remembered_user_id', userData.id);
         localStorage.setItem('rpro_remembered_email', trimmedEmail);
       } else {
@@ -1038,6 +1103,12 @@ export default function App() {
                 cacheUserOffline(fresh);
               }
             });
+            // Auto-login (sessao lembrada porque a localizacao foi autorizada): registra a sessao
+            // de novo tambem, senao ela some da lista "Sessões Ativas" do admin e o pedido de
+            // localização sob demanda para de funcionar depois de recarregar a página.
+            requestGeoPermission().then((geoAuto) => {
+              registerSession(uData.id, uData.name, geoAuto, geoAuto ? 'granted' : 'denied');
+            });
           } else if (targetUserId === 'admin-rafael') {
             const adminData: AppUser = {
               id: 'admin-rafael',
@@ -1053,6 +1124,9 @@ export default function App() {
             await setDoc(userDocRef, adminData);
             setUser(adminData);
             cacheUserOffline(adminData);
+            requestGeoPermission().then((geoAuto) => {
+              registerSession(adminData.id, adminData.name, geoAuto, geoAuto ? 'granted' : 'denied');
+            });
           } else {
             // Nao achou no Firebase (nao e o admin master) — tenta no Supabase, onde vivem os usuarios comuns
             const { data: usuarioRow } = await supabase.from('usuarios').select('*').eq('id', targetUserId).maybeSingle();
@@ -1080,6 +1154,9 @@ export default function App() {
                 })
                 .subscribe();
               userUnsub = () => { supabase.removeChannel(channel); };
+              requestGeoPermission().then((geoAuto) => {
+                registerSession(uData.id, uData.name, geoAuto, geoAuto ? 'granted' : 'denied');
+              });
             } else {
               sessionStorage.removeItem('rpro_logged_user_id');
             }
@@ -1260,7 +1337,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* Lembrar minha senha */}
+            {/* Lembrar minha senha (so pre-preenche o e-mail; manter logado depende da localizacao abaixo) */}
             <label className="flex items-center gap-2.5 cursor-pointer select-none pt-0.5">
               <input
                 type="checkbox"
@@ -1270,6 +1347,10 @@ export default function App() {
               />
               <span className="text-xs font-semibold text-white/70">Lembrar minha senha</span>
             </label>
+            <p className="text-[10.5px] text-white/40 leading-snug flex items-start gap-1.5 pt-0.5">
+              <MapPin size={13} className="shrink-0 mt-0.5 text-white/30" />
+              <span>Ao entrar, o navegador vai pedir autorização de localização. Se você aceitar, não vai precisar logar de novo nos próximos acessos. Se recusar, o login será pedido toda vez.</span>
+            </p>
           </div>
 
           {authError && (
