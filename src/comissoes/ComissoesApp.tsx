@@ -86,6 +86,7 @@ export default function ComissoesApp() {
     localStorage.removeItem(COLABORADOR_SESSION_KEY);
     setColaborador(null);
     setServices([]);
+    window.location.href = 'https://pro.rafaartsgraphics.com.br';
   };
 
   const showToast = (msg: string) => {

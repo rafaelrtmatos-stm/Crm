@@ -929,14 +929,14 @@ export default function App() {
           return;
         }
         localStorage.setItem('rpro_comissoes_colaborador_id', userData.colaboradorId);
-        if (rememberMe) {
-          localStorage.setItem('rpro_remembered_user_id', userData.id);
-          localStorage.setItem('rpro_remembered_email', trimmedEmail);
-        } else {
-          localStorage.removeItem('rpro_remembered_user_id');
-          localStorage.removeItem('rpro_remembered_email');
-        }
-        window.location.href = '/comissoes';
+        // IMPORTANTE: nunca gravar rpro_remembered_user_id/rpro_logged_user_id aqui — sao as chaves
+        // que o CRM principal (initAuth, mais abaixo) usa pra autologar no dashboard. Se um usuario
+        // de Comissao ficasse salvo nelas, ao abrir pro.rafaartsgraphics.com.br de novo o initAuth
+        // logava ele direto no dashboard do CRM em vez de mandar pra /comissoes (bug do autologin).
+        sessionStorage.removeItem('rpro_logged_user_id');
+        localStorage.removeItem('rpro_remembered_user_id');
+        localStorage.removeItem('rpro_remembered_email');
+        window.location.href = 'https://pro.rafaartsgraphics.com.br/comissoes';
         return;
       }
 
@@ -984,7 +984,7 @@ export default function App() {
         // mesmo sem conexao, contanto que ja tenha logado com internet pelo menos uma vez antes.
         if (!navigator.onLine) {
           const cached = getCachedUser(targetUserId);
-          if (cached) {
+          if (cached && cached.role !== 'comissao') {
             setUser(cached);
             setLoading(false);
             return;
@@ -996,6 +996,16 @@ export default function App() {
           const snap = await getDoc(userDocRef);
           if (snap.exists()) {
             const uData = { id: snap.id, ...snap.data() } as AppUser;
+            // Blindagem: se por algum motivo (sessao antiga, cache, etc) um usuario "comissao"
+            // tiver ficado salvo nas chaves do CRM principal, nunca deixa ele cair no dashboard —
+            // limpa a sessao errada e manda pra /comissoes, onde ele realmente deve logar.
+            if (uData.role === 'comissao') {
+              sessionStorage.removeItem('rpro_logged_user_id');
+              localStorage.removeItem('rpro_remembered_user_id');
+              localStorage.removeItem('rpro_remembered_email');
+              window.location.href = 'https://pro.rafaartsgraphics.com.br/comissoes';
+              return;
+            }
             setUser(uData);
             cacheUserOffline(uData);
             userUnsub = onSnapshot(userDocRef, (s) => {
@@ -1025,6 +1035,15 @@ export default function App() {
             const { data: usuarioRow } = await supabase.from('usuarios').select('*').eq('id', targetUserId).maybeSingle();
             if (usuarioRow) {
               const uData = mapUsuarioRow(usuarioRow);
+              // Mesma blindagem do ramo do Firebase acima: usuario "comissao" nunca fica logado
+              // no CRM principal, mesmo que uma sessao antiga tenha ficado salva.
+              if (uData.role === 'comissao') {
+                sessionStorage.removeItem('rpro_logged_user_id');
+                localStorage.removeItem('rpro_remembered_user_id');
+                localStorage.removeItem('rpro_remembered_email');
+                window.location.href = 'https://pro.rafaartsgraphics.com.br/comissoes';
+                return;
+              }
               setUser(uData);
               cacheUserOffline(uData);
               const channel = supabase
@@ -1046,7 +1065,7 @@ export default function App() {
           // Falhou por causa da rede (sem internet, instavel, etc) — tenta os dados salvos localmente
           // da ultima vez que logou online, em vez de simplesmente deslogar a pessoa.
           const cached = getCachedUser(targetUserId);
-          if (cached) {
+          if (cached && cached.role !== 'comissao') {
             setUser(cached);
           } else {
             sessionStorage.removeItem('rpro_logged_user_id');
