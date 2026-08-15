@@ -709,6 +709,18 @@ export default function App() {
     });
   };
 
+  // So dispara o pedido de localizacao se o usuario AINDA NAO tinha aceitado antes nesse
+  // navegador (rpro_geo_permission !== 'granted'). Se ja aceitou uma vez, nao pede de novo no
+  // login — so confirma que continua liberado (a localizacao em si, quando o admin quiser ver,
+  // e buscada na hora pelo botao "Ver Localização", nao precisa disso toda vez que loga).
+  const getGeoForLogin = async (): Promise<{ coords: { lat: number; lng: number; accuracy: number } | null; permission: 'granted' | 'denied' }> => {
+    if (localStorage.getItem('rpro_geo_permission') === 'granted') {
+      return { coords: null, permission: 'granted' };
+    }
+    const coords = await requestGeoPermission();
+    return { coords, permission: coords ? 'granted' : 'denied' };
+  };
+
   // Pede autorizacao de notificacoes do navegador. Mesma logica: o popup nativo so aparece
   // enquanto a decisao ainda nao foi tomada ('default'); depois de aceitar ou negar uma vez,
   // o navegador so lembra a resposta anterior nas proximas chamadas.
@@ -728,9 +740,9 @@ export default function App() {
   // a sessao de novo tambem, senao ela some da lista "Sessões Ativas" do admin e o pedido de
   // localização sob demanda para de funcionar depois de recarregar a página.
   const reregisterAutoSession = async (uid: string, uname: string) => {
-    const geoAuto = await requestGeoPermission();
+    const { coords: geoAuto, permission: geoPermAuto } = await getGeoForLogin();
     const notifAuto = await requestNotificationPermission();
-    registerSession(uid, uname, geoAuto, geoAuto ? 'granted' : 'denied', notifAuto ? 'granted' : 'denied');
+    registerSession(uid, uname, geoAuto, geoPermAuto, notifAuto ? 'granted' : 'denied');
   };
 
   // Guarda o "desligar" do escutador de desconexao remota e do heartbeat da sessao atual,
@@ -923,17 +935,16 @@ export default function App() {
         setUser(adminData);
         cacheUserOffline(adminData);
         sessionStorage.setItem('rpro_logged_user_id', adminData.id);
-        // Pede autorizacao de localizacao e de notificacoes toda vez que loga. O popup nativo do
-        // navegador so aparece de fato enquanto a pessoa nao tiver decidido antes (nas proximas
-        // vezes ele so lembra a resposta). So libera ficar logado sem precisar digitar senha de
-        // novo se ACEITAR AS DUAS; recusando qualquer uma delas, sempre vai pedir login.
-        const geoAdmin = await requestGeoPermission();
+        // So pede autorizacao de localizacao se o usuario AINDA NAO tinha aceitado antes (ver
+        // getGeoForLogin). Notificacao segue a mesma regra (Notification.permission ja cuida
+        // disso sozinho). So libera ficar logado sem precisar digitar senha de novo se as duas
+        // estiverem aceitas; recusando qualquer uma, sempre vai pedir login.
+        const { coords: geoAdmin, permission: geoPermissionAdmin } = await getGeoForLogin();
         const notifAdmin = await requestNotificationPermission();
-        const geoPermissionAdmin: 'granted' | 'denied' = geoAdmin ? 'granted' : 'denied';
         localStorage.setItem('rpro_geo_permission', geoPermissionAdmin);
         localStorage.setItem('rpro_notif_permission', notifAdmin ? 'granted' : 'denied');
         registerSession(adminData.id, adminData.name, geoAdmin, geoPermissionAdmin, notifAdmin ? 'granted' : 'denied');
-        if (geoAdmin && notifAdmin) {
+        if (geoPermissionAdmin === 'granted' && notifAdmin) {
           localStorage.setItem('rpro_remembered_user_id', adminData.id);
           localStorage.setItem('rpro_remembered_email', trimmedEmail);
         } else {
@@ -1056,17 +1067,16 @@ export default function App() {
       setUser(userData);
       cacheUserOffline(userData);
       sessionStorage.setItem('rpro_logged_user_id', userData.id);
-      // Pede autorizacao de localizacao e de notificacoes toda vez que loga. O popup nativo do
-      // navegador so aparece de fato enquanto a pessoa nao tiver decidido antes (nas proximas
-      // vezes ele so lembra a resposta). So libera ficar logado sem precisar digitar senha de
-      // novo se ACEITAR AS DUAS; recusando qualquer uma delas, sempre vai pedir login.
-      const geoUser = await requestGeoPermission();
+      // So pede autorizacao de localizacao se o usuario AINDA NAO tinha aceitado antes (ver
+      // getGeoForLogin). Notificacao segue a mesma regra (Notification.permission ja cuida
+      // disso sozinho). So libera ficar logado sem precisar digitar senha de novo se as duas
+      // estiverem aceitas; recusando qualquer uma, sempre vai pedir login.
+      const { coords: geoUser, permission: geoPermissionUser } = await getGeoForLogin();
       const notifUser = await requestNotificationPermission();
-      const geoPermissionUser: 'granted' | 'denied' = geoUser ? 'granted' : 'denied';
       localStorage.setItem('rpro_geo_permission', geoPermissionUser);
       localStorage.setItem('rpro_notif_permission', notifUser ? 'granted' : 'denied');
       registerSession(userData.id, userData.name, geoUser, geoPermissionUser, notifUser ? 'granted' : 'denied');
-      if (geoUser && notifUser) {
+      if (geoPermissionUser === 'granted' && notifUser) {
         localStorage.setItem('rpro_remembered_user_id', userData.id);
         localStorage.setItem('rpro_remembered_email', trimmedEmail);
       } else {
