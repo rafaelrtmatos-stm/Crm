@@ -134,9 +134,9 @@ export default function ComissoesApp() {
   // Adiciona, de uma vez, os itens marcados pelo colaborador na nota agendada (aba
   // "Serviços") direto na tabela dele — o valor de cada item já vem revisado/editado
   // de lá. Quando é só 1 item, some direto sem precisar abrir mais nada.
-  const handleAddItemsFromNota = async (items: NotaSelecionadoItem[], nota: NotaDetalhe) => {
+  const handleAddItemsFromNota = async (items: NotaSelecionadoItem[], nota: NotaDetalhe, dataSelecionada: string) => {
     if (!colaborador || items.length === 0) return;
-    const dataAgendada = nota.scheduled_for ? new Date(nota.scheduled_for).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+    const dataAgendada = dataSelecionada || new Date().toISOString().split('T')[0];
     const commissionPercent = userSettings.defaultCommissionRate;
 
     const resultados = await Promise.all(items.map((item) => {

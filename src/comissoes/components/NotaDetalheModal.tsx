@@ -12,7 +12,7 @@ export interface NotaDetalhe {
   id: string;
   customer_name: string;
   total: number;
-  scheduled_for: string;
+  scheduled_for: string | null;
   items: NotaDetalheItem[];
   observacoes?: string | null;
 }
@@ -29,23 +29,33 @@ interface NotaDetalheModalProps {
   nota: NotaDetalhe | null;
   onClose: () => void;
   // Chamado uma única vez, com todos os itens marcados (1 ou mais), já com o
-  // valor revisado/editado pelo colaborador.
-  onAddItems: (items: NotaSelecionadoItem[], nota: NotaDetalhe) => void;
+  // valor revisado/editado pelo colaborador, e a data escolhida pra lançar o serviço.
+  onAddItems: (items: NotaSelecionadoItem[], nota: NotaDetalhe, data: string) => void;
 }
+
+// Formata uma data (ISO completo ou já YYYY-MM-DD) pro formato aceito pelo <input type="date">.
+const toDateInputValue = (raw: string | null | undefined): string => {
+  if (!raw) return new Date().toISOString().split('T')[0];
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return new Date().toISOString().split('T')[0];
+  return d.toISOString().split('T')[0];
+};
 
 // Mostra os dados da nota (itens, valores, observação) pra quem recebeu o serviço decidir
 // o que realmente fez. Quando a nota tem mais de um item, o colaborador vai marcando quais
 // são dele; o valor de cada item já sai editável antes de confirmar — não precisa ser
-// exatamente o preço da nota (ex: só uma parte do serviço foi feita por ele). Um único botão
-// "Adicionar" no rodapé finaliza tudo de uma vez.
+// exatamente o preço da nota (ex: só uma parte do serviço foi feita por ele). A data do
+// lançamento também é editável (vem pré-preenchida com a entrega, se houver, ou hoje).
+// Um único botão "Adicionar" no rodapé finaliza tudo de uma vez.
 export const NotaDetalheModal: React.FC<NotaDetalheModalProps> = ({ nota, onClose, onAddItems }) => {
   const items = nota?.items || [];
   const singleItem = items.length === 1;
 
   // Se só tem 1 item na nota, já vem marcado (não faz sentido pedir pra selecionar).
-  // Com mais de 1, o colaborador escolhe.
+  // Com mais de 1, o colaborador escolhe (pode marcar quantos quiser, inclusive todos).
   const [selected, setSelected] = useState<Record<number, boolean>>({});
   const [values, setValues] = useState<Record<number, string>>({});
+  const [dataServico, setDataServico] = useState<string>(() => new Date().toISOString().split('T')[0]);
 
   useEffect(() => {
     if (!nota) return;
@@ -58,6 +68,7 @@ export const NotaDetalheModal: React.FC<NotaDetalheModalProps> = ({ nota, onClos
     });
     setSelected(initialSelected);
     setValues(initialValues);
+    setDataServico(toDateInputValue(nota.scheduled_for));
   }, [nota?.id]);
 
   const selectedCount = useMemo(() => Object.values(selected).filter(Boolean).length, [selected]);
@@ -84,7 +95,7 @@ export const NotaDetalheModal: React.FC<NotaDetalheModalProps> = ({ nota, onClos
         value: parseValor(values[idx] ?? ''),
       }));
     if (escolhidos.length === 0) return;
-    onAddItems(escolhidos, nota);
+    onAddItems(escolhidos, nota, dataServico);
   };
 
   return (
@@ -100,7 +111,9 @@ export const NotaDetalheModal: React.FC<NotaDetalheModalProps> = ({ nota, onClos
             </h2>
             <p className="text-[11px] text-[var(--text-muted)] font-medium flex items-center gap-1.5 mt-0.5">
               <CalendarClock className="w-3.5 h-3.5" />
-              Entrega: {new Date(nota.scheduled_for).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+              {nota.scheduled_for
+                ? `Entrega: ${new Date(nota.scheduled_for).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
+                : 'Sem agendamento'}
             </p>
           </div>
           <button
@@ -174,6 +187,18 @@ export const NotaDetalheModal: React.FC<NotaDetalheModalProps> = ({ nota, onClos
               <p className="text-xs text-[var(--text-muted)]">{nota.observacoes}</p>
             </div>
           )}
+
+          <div>
+            <p className="text-xs font-black uppercase tracking-wider text-[var(--accent-red)] flex items-center gap-1.5 mb-2">
+              <CalendarClock className="w-3.5 h-3.5" /> Data do Serviço
+            </p>
+            <input
+              type="date"
+              value={dataServico}
+              onChange={(e) => setDataServico(e.target.value)}
+              className="w-full h-10 bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl px-3 text-sm font-bold text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)]"
+            />
+          </div>
 
           <div className="flex items-center justify-between pt-2 border-t border-[var(--border-color)]">
             <span className="text-xs font-bold uppercase text-[var(--text-muted)]">Total da Nota</span>
