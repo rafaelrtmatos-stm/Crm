@@ -40,8 +40,7 @@ import {
   EyeOff,
   AlertCircle,
   ShieldCheck,
-  Key,
-  MapPin
+  Key
 } from 'lucide-react';
 import { ChevronRight } from 'lucide-react';
 
@@ -1299,7 +1298,7 @@ export default function App() {
   };
 
   if (!user) return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-[#050508] p-4 sm:p-6 relative overflow-y-auto select-none">
+    <div className="h-[100dvh] min-h-screen w-full flex items-center justify-center bg-[#050508] p-3 sm:p-6 relative overflow-y-auto select-none">
       {/* Background Red Glow & Diagonal Accents */}
       <div className="absolute top-0 left-0 w-full h-full pointer-events-none overflow-hidden">
         {/* Top-left red glow */}
@@ -1316,10 +1315,10 @@ export default function App() {
         <div className="absolute bottom-8 left-8 w-32 h-32 opacity-10 bg-[radial-gradient(#ffffff_1.5px,transparent_1.5px)] [background-size:12px_12px]" />
       </div>
 
-      <div className="max-w-md w-full space-y-6 animate-in fade-in zoom-in-95 duration-500 relative z-10">
+      <div className="max-w-md w-full space-y-4 sm:space-y-5 my-auto animate-in fade-in zoom-in-95 duration-500 relative z-10">
         {/* Header Badge & Title with Separated Rafa Arts Graphics Logo */}
-        <div className="flex flex-col items-center text-center space-y-3">
-          <div className="px-6 py-4 rounded-3xl bg-[#0c0c12]/90 border border-slate-800 shadow-2xl shadow-red-950/60 backdrop-blur-xl">
+        <div className="flex flex-col items-center text-center space-y-2">
+          <div className="px-5 py-3 sm:px-6 sm:py-4 rounded-3xl bg-[#0c0c12]/90 border border-slate-800 shadow-2xl shadow-red-950/60 backdrop-blur-xl">
             {logosReady ? (
               <BrandLogo imageUrl={theme === 'light' ? (logoDarkUrl || logoLightUrl) : logoLightUrl} size="xl" widthPx={210} layout="stacked" />
             ) : (
@@ -1333,8 +1332,8 @@ export default function App() {
         </div>
 
         {/* Login Form Card - e-mail e senha, sem lista de usuarios */}
-        <form onSubmit={handlePasswordLogin} className="bg-[#0e0e13]/95 backdrop-blur-3xl p-6 sm:p-8 rounded-[28px] border border-white/10 shadow-2xl space-y-5">
-          <div className="space-y-4">
+        <form onSubmit={handlePasswordLogin} className="bg-[#0e0e13]/95 backdrop-blur-3xl p-5 sm:p-7 rounded-[28px] border border-white/10 shadow-2xl space-y-4">
+          <div className="space-y-3.5">
             {/* E-mail Field */}
             <div>
               <label className="text-[11px] font-bold uppercase text-white tracking-wider mb-2 flex items-center gap-2 block">
@@ -1348,7 +1347,7 @@ export default function App() {
                   value={loginEmail}
                   onChange={(e) => setLoginEmail(e.target.value)}
                   placeholder="Digite seu e-mail"
-                  className="w-full bg-[#07070a] border border-white/20 focus:border-red-500 focus:ring-1 focus:ring-red-500 rounded-xl pl-11 pr-4 py-3.5 text-white font-medium focus:outline-none transition-all text-sm placeholder:text-white/50"
+                  className="w-full bg-[#07070a] border border-white/20 focus:border-red-500 focus:ring-1 focus:ring-red-500 rounded-xl pl-11 pr-4 py-3 text-white font-medium focus:outline-none transition-all text-sm placeholder:text-white/50"
                 />
               </div>
             </div>
@@ -1366,7 +1365,7 @@ export default function App() {
                   value={loginPassword}
                   onChange={(e) => setLoginPassword(e.target.value)}
                   placeholder="Digite sua senha"
-                  className="w-full bg-[#07070a] border border-white/20 focus:border-red-500 focus:ring-1 focus:ring-red-500 rounded-xl pl-11 pr-12 py-3.5 text-white font-medium focus:outline-none transition-all text-sm placeholder:text-white/50"
+                  className="w-full bg-[#07070a] border border-white/20 focus:border-red-500 focus:ring-1 focus:ring-red-500 rounded-xl pl-11 pr-12 py-3 text-white font-medium focus:outline-none transition-all text-sm placeholder:text-white/50"
                 />
                 <button
                   type="button"
@@ -1388,10 +1387,6 @@ export default function App() {
               />
               <span className="text-xs font-semibold text-white/70">Lembrar minha senha</span>
             </label>
-            <p className="text-[10.5px] text-white/40 leading-snug flex items-start gap-1.5 pt-0.5">
-              <MapPin size={13} className="shrink-0 mt-0.5 text-white/30" />
-              <span>Ao entrar, o navegador vai pedir autorização de localização e de notificações. Se você aceitar as duas, não vai precisar logar de novo nos próximos acessos. Se recusar qualquer uma delas, o login será pedido toda vez.</span>
-            </p>
           </div>
 
           {authError && (
@@ -1405,7 +1400,7 @@ export default function App() {
           <button
             type="submit"
             disabled={isSubmitting}
-            className="w-full py-4 bg-red-600 hover:bg-red-500 active:bg-red-700 disabled:opacity-50 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-red-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer border-0 active:scale-[0.99] mt-2"
+            className="w-full py-3.5 bg-red-600 hover:bg-red-500 active:bg-red-700 disabled:opacity-50 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-red-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer border-0 active:scale-[0.99] mt-1"
           >
             <Lock size={18} />
             {isSubmitting ? 'Autenticando...' : 'ENTRAR NO SISTEMA'}
@@ -1413,7 +1408,7 @@ export default function App() {
         </form>
 
         {/* Footer */}
-        <div className="text-center space-y-1 pt-2">
+        <div className="text-center space-y-1">
           <p className="text-xs text-white font-bold flex items-center justify-center gap-1.5">
             <ShieldCheck size={14} className="text-red-500 shrink-0" />
             © 2026 RAFA ARTS GRAPHICS
