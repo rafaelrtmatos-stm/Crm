@@ -14,6 +14,13 @@ import { ServiceItem } from '../types';
 import { Desconto, calculateDescontosNoPeriodo } from './supabaseStorage';
 
 export type CaixaStatus = 'aberto' | 'fechado';
+export type FormaPagamento = 'pix' | 'dinheiro' | 'permuta';
+
+export const FORMA_PAGAMENTO_LABELS: Record<FormaPagamento, string> = {
+  pix: 'Pix',
+  dinheiro: 'Dinheiro',
+  permuta: 'Permuta',
+};
 
 export interface WeeklyCaixa {
   id: string;
@@ -38,6 +45,7 @@ export interface Pagamento {
   valor: number;
   data: string; // YYYY-MM-DD
   descricao?: string;
+  formaPagamento: FormaPagamento;
   createdAt: number;
 }
 
@@ -92,6 +100,7 @@ const mapPagamentoRow = (row: any): Pagamento => ({
   valor: Number(row.valor) || 0,
   data: row.data,
   descricao: row.descricao || undefined,
+  formaPagamento: (row.forma_pagamento as FormaPagamento) || 'pix',
   createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
 });
 
@@ -154,6 +163,7 @@ export interface PagamentoFormInput {
   valor: number;
   data: string;
   descricao?: string;
+  formaPagamento: FormaPagamento;
 }
 
 export async function registrarPagamento(colaboradorId: string, caixaId: string, input: PagamentoFormInput): Promise<Pagamento | null> {
@@ -165,6 +175,7 @@ export async function registrarPagamento(colaboradorId: string, caixaId: string,
       valor: input.valor,
       data: input.data,
       descricao: input.descricao || null,
+      forma_pagamento: input.formaPagamento,
     })
     .select()
     .single();
@@ -175,6 +186,27 @@ export async function registrarPagamento(colaboradorId: string, caixaId: string,
 export async function deletePagamento(id: string): Promise<boolean> {
   const { error } = await supabase.from('comissoes_pagamentos').delete().eq('id', id);
   return !error;
+}
+
+/**
+ * Edita um pagamento já lançado (valor/data/descrição). Só faz sentido enquanto o caixa em
+ * que ele está ainda está 'aberto' -- depois de fechado o resumo já foi congelado em
+ * saldo_final, então editar o pagamento não recalcularia mais nada (ver fecharCaixa acima).
+ */
+export async function editarPagamento(id: string, input: PagamentoFormInput): Promise<Pagamento | null> {
+  const { data, error } = await supabase
+    .from('comissoes_pagamentos')
+    .update({
+      valor: input.valor,
+      data: input.data,
+      descricao: input.descricao || null,
+      forma_pagamento: input.formaPagamento,
+    })
+    .eq('id', id)
+    .select()
+    .single();
+  if (error || !data) { console.error('Erro ao editar pagamento:', error); return null; }
+  return mapPagamentoRow(data);
 }
 
 // --- Cálculo do resumo (usado tanto pra exibir ao vivo quanto pro snapshot do fechamento) ---

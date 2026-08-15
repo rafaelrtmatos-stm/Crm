@@ -20,9 +20,12 @@ import {
   WeeklyCaixa,
   Pagamento,
   PagamentoFormInput,
+  FormaPagamento,
+  FORMA_PAGAMENTO_LABELS,
   getOrCreateCaixaAberto,
   getPagamentosDoCaixa,
   registrarPagamento,
+  editarPagamento,
   deletePagamento,
   calcularResumoCaixa,
   fecharCaixa,
@@ -83,6 +86,7 @@ const emptyPagamentoForm: PagamentoFormInput = {
   valor: 0,
   data: getTodayISO(),
   descricao: '',
+  formaPagamento: 'pix',
 };
 
 export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, descontos, isAdmin, onChange, baseSalary = 0, services = [] }) => {
@@ -107,6 +111,8 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
   const [caixaError, setCaixaError] = useState(false);
   const [pagamentos, setPagamentos] = useState<Pagamento[]>([]);
   const [showPagamentoForm, setShowPagamentoForm] = useState(false);
+  // null = form em modo "novo pagamento"; id = form em modo "editando esse pagamento"
+  const [editingPagamentoId, setEditingPagamentoId] = useState<string | null>(null);
   const [pagamentoForm, setPagamentoForm] = useState<PagamentoFormInput>({ ...emptyPagamentoForm });
   const [savingPagamento, setSavingPagamento] = useState(false);
   const [fechando, setFechando] = useState(false);
@@ -144,11 +150,33 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
     if (!pagamentoForm.valor || pagamentoForm.valor <= 0) { showAlert('Informe um valor de pagamento maior que zero.'); return; }
     if (!pagamentoForm.data) { showAlert('Informe a data do pagamento.'); return; }
     setSavingPagamento(true);
-    const saved = await registrarPagamento(colaboradorId, caixa.id, pagamentoForm);
-    setSavingPagamento(false);
-    if (!saved) { showAlert('Não foi possível registrar o pagamento.'); return; }
-    setPagamentos((prev) => [saved, ...prev]);
+
+    if (editingPagamentoId) {
+      const updated = await editarPagamento(editingPagamentoId, pagamentoForm);
+      setSavingPagamento(false);
+      if (!updated) { showAlert('Não foi possível salvar a edição do pagamento.'); return; }
+      setPagamentos((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+    } else {
+      const saved = await registrarPagamento(colaboradorId, caixa.id, pagamentoForm);
+      setSavingPagamento(false);
+      if (!saved) { showAlert('Não foi possível registrar o pagamento.'); return; }
+      setPagamentos((prev) => [saved, ...prev]);
+    }
+
     setShowPagamentoForm(false);
+    setEditingPagamentoId(null);
+    setPagamentoForm({ ...emptyPagamentoForm });
+  };
+
+  const handleStartEditPagamento = (p: Pagamento) => {
+    setEditingPagamentoId(p.id);
+    setPagamentoForm({ valor: p.valor, data: p.data, descricao: p.descricao || '', formaPagamento: p.formaPagamento });
+    setShowPagamentoForm(true);
+  };
+
+  const handleCancelPagamentoForm = () => {
+    setShowPagamentoForm(false);
+    setEditingPagamentoId(null);
     setPagamentoForm({ ...emptyPagamentoForm });
   };
 
@@ -157,6 +185,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
     const ok = await deletePagamento(p.id);
     if (!ok) { showAlert('Não foi possível excluir.'); return; }
     setPagamentos((prev) => prev.filter((x) => x.id !== p.id));
+    if (editingPagamentoId === p.id) handleCancelPagamentoForm();
   };
 
   const handleFecharCaixa = async () => {
@@ -328,7 +357,12 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
           </div>
 
           {isAdmin && showPagamentoForm && (
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 items-end p-3 rounded-xl bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
+            <div className="grid grid-cols-1 sm:grid-cols-5 gap-2 items-end p-3 rounded-xl bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
+              {editingPagamentoId && (
+                <span className="sm:col-span-5 text-[10px] font-black uppercase tracking-wider text-primary-400">
+                  Editando pagamento
+                </span>
+              )}
               <label className="space-y-1 block">
                 <span className="text-[9px] font-black uppercase text-[var(--text-muted)] tracking-wider">Valor (R$)</span>
                 <input
@@ -345,6 +379,18 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
                   className="w-full h-9 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg px-2.5 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)]"
                 />
               </label>
+              <label className="space-y-1 block">
+                <span className="text-[9px] font-black uppercase text-[var(--text-muted)] tracking-wider">Forma</span>
+                <select
+                  value={pagamentoForm.formaPagamento}
+                  onChange={(e) => setPagamentoForm({ ...pagamentoForm, formaPagamento: e.target.value as FormaPagamento })}
+                  className="w-full h-9 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg px-2.5 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)]"
+                >
+                  {(Object.keys(FORMA_PAGAMENTO_LABELS) as FormaPagamento[]).map((fp) => (
+                    <option key={fp} value={fp}>{FORMA_PAGAMENTO_LABELS[fp]}</option>
+                  ))}
+                </select>
+              </label>
               <label className="space-y-1 block sm:col-span-2">
                 <span className="text-[9px] font-black uppercase text-[var(--text-muted)] tracking-wider">Observação (opcional)</span>
                 <input
@@ -354,9 +400,9 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
                   className="w-full h-9 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg px-2.5 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)]"
                 />
               </label>
-              <div className="sm:col-span-4 flex justify-end gap-2">
+              <div className="sm:col-span-5 flex justify-end gap-2">
                 <button
-                  onClick={() => { setShowPagamentoForm(false); setPagamentoForm({ ...emptyPagamentoForm }); }}
+                  onClick={handleCancelPagamentoForm}
                   className="h-8 px-3 rounded-lg text-[10px] font-black uppercase text-[var(--text-muted)] hover:text-[var(--text-main)]"
                 >
                   Cancelar
@@ -366,7 +412,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
                   onClick={handleAddPagamento}
                   className="h-8 px-3 rounded-lg bg-gradient-red text-white text-[10px] font-black uppercase tracking-wide shadow-red-glow hover:opacity-90 disabled:opacity-50"
                 >
-                  {savingPagamento ? 'Salvando...' : 'Salvar'}
+                  {savingPagamento ? 'Salvando...' : editingPagamentoId ? 'Salvar Edição' : 'Salvar'}
                 </button>
               </div>
             </div>
@@ -380,13 +426,19 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
                 <div key={p.id} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
                   <div className="min-w-0 flex-1">
                     <span className="text-xs font-bold text-[var(--text-main)]">{formatDateBR(p.data)}</span>
+                    <span className="text-[11px] text-[var(--text-muted)]"> · {FORMA_PAGAMENTO_LABELS[p.formaPagamento]}</span>
                     {p.descricao && <span className="text-[11px] text-[var(--text-muted)]"> · {p.descricao}</span>}
                   </div>
                   <span className="font-mono font-black text-rose-400 text-xs shrink-0">-{formatCurrency(p.valor)}</span>
                   {isAdmin && (
-                    <button onClick={() => handleDeletePagamento(p)} className="p-1 rounded text-[var(--text-muted)] hover:text-rose-400 shrink-0" title="Excluir">
-                      <Trash2 size={12} />
-                    </button>
+                    <>
+                      <button onClick={() => handleStartEditPagamento(p)} className="p-1 rounded text-[var(--text-muted)] hover:text-primary-400 shrink-0" title="Editar">
+                        <Pencil size={12} />
+                      </button>
+                      <button onClick={() => handleDeletePagamento(p)} className="p-1 rounded text-[var(--text-muted)] hover:text-rose-400 shrink-0" title="Excluir">
+                        <Trash2 size={12} />
+                      </button>
+                    </>
                   )}
                 </div>
               ))}
