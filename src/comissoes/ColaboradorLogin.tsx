@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { LogIn, User, Lock } from 'lucide-react';
+import { User, Lock } from 'lucide-react';
 import { loginColaborador, Colaborador } from './utils/supabaseStorage';
 
 export const ColaboradorLogin = ({ onLoginSuccess, embedded }: { onLoginSuccess: (colaborador: Colaborador) => void; embedded?: boolean }) => {
@@ -23,8 +23,8 @@ export const ColaboradorLogin = ({ onLoginSuccess, embedded }: { onLoginSuccess:
     <div className={`comissoes-app ${embedded ? 'h-full min-h-[420px]' : 'min-h-screen'} flex items-center justify-center p-4`}>
       <form onSubmit={handleSubmit} className="w-full max-w-sm bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl p-8 shadow-red-lg-glow space-y-6">
         <div className="text-center space-y-1">
-          <div className="w-14 h-14 mx-auto rounded-2xl bg-gradient-red flex items-center justify-center mb-3">
-            <LogIn className="w-7 h-7 text-white" />
+          <div className="w-14 h-14 mx-auto rounded-2xl overflow-hidden mb-3">
+            <img src="/icon-192.png" alt="Logo" className="w-full h-full object-contain" />
           </div>
           <h1 className="text-lg font-black uppercase tracking-tight">Comissões</h1>
           <p className="text-xs text-[var(--text-muted)]">Entre com seu nome e senha</p>
