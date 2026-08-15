@@ -15,7 +15,6 @@ import {
   calculateSummaryStats,
   applyComissoesTheme,
 } from './utils/supabaseStorage';
-import { ColaboradorLogin } from './ColaboradorLogin';
 import { Header } from './components/Header';
 import { Dashboard } from './components/Dashboard';
 import { ServiceTable } from './components/ServiceTable';
@@ -28,6 +27,7 @@ import { CheckCircle2 } from 'lucide-react';
 import './comissoes-theme.css';
 
 const COLABORADOR_SESSION_KEY = 'rpro_comissoes_colaborador_id';
+const LOGIN_URL = 'https://pro.rafaartsgraphics.com.br';
 
 export default function ComissoesApp() {
   const [colaborador, setColaborador] = useState<Colaborador | null>(null);
@@ -50,7 +50,14 @@ export default function ComissoesApp() {
   // Login persistido localmente (so nesse navegador) — nao mexe em nada do login do CRM principal
   useEffect(() => {
     const savedId = localStorage.getItem(COLABORADOR_SESSION_KEY);
-    if (!savedId) { setCheckingSession(false); return; }
+    if (!savedId) {
+      // /comissoes nao tem (e nao deve ter) tela de login propria — o acesso so acontece
+      // via redirect automatico depois do login em pro.rafaartsgraphics.com.br. Se alguem
+      // cair aqui sem sessao valida (link direto, sessao expirada, etc), manda de volta
+      // pro login principal em vez de mostrar um formulario nessa rota.
+      window.location.href = LOGIN_URL;
+      return;
+    }
     import('../supabase').then(async ({ supabase }) => {
       const { data } = await supabase.from('colaboradores').select('*').eq('id', savedId).eq('ativo', true).maybeSingle();
       if (data) {
@@ -59,10 +66,11 @@ export default function ComissoesApp() {
           salarioBase: Number(data.salario_base) || 0, comissaoPadraoPercentual: Number(data.comissao_padrao_percentual) || 10,
           metaSemanal: Number(data.meta_semanal) || 0, tema: data.tema || 'dark', ativo: data.ativo !== false,
         });
+        setCheckingSession(false);
       } else {
         localStorage.removeItem(COLABORADOR_SESSION_KEY);
+        window.location.href = LOGIN_URL;
       }
-      setCheckingSession(false);
     });
   }, []);
 
@@ -77,16 +85,11 @@ export default function ComissoesApp() {
     });
   }, [colaborador]);
 
-  const handleLoginSuccess = (c: Colaborador) => {
-    localStorage.setItem(COLABORADOR_SESSION_KEY, c.id);
-    setColaborador(c);
-  };
-
   const handleLogout = () => {
     localStorage.removeItem(COLABORADOR_SESSION_KEY);
     setColaborador(null);
     setServices([]);
-    window.location.href = 'https://pro.rafaartsgraphics.com.br';
+    window.location.href = LOGIN_URL;
   };
 
   const showToast = (msg: string) => {
@@ -142,7 +145,10 @@ export default function ComissoesApp() {
   }
 
   if (!colaborador) {
-    return <ColaboradorLogin onLoginSuccess={handleLoginSuccess} />;
+    // Sem sessao valida e sem tela de login propria nessa rota — o redirect pro login
+    // principal ja foi disparado no useEffect acima; so mostra um estado de espera curto
+    // enquanto o navegador troca de pagina.
+    return <div className="comissoes-app min-h-screen flex items-center justify-center"><p className="text-[var(--text-muted)] text-sm">Redirecionando...</p></div>;
   }
 
   return (
