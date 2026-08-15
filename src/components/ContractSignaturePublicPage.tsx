@@ -33,7 +33,7 @@ export default function ContractSignaturePublicPage() {
   const [error, setError] = useState<string | null>(null);
   const [isValidating, setIsValidating] = useState(false);
 
-  // Checagem extra de identidade (3 ultimos digitos do CPF/CNPJ) -- precisa bater ANTES de
+  // Checagem extra de identidade (4 ultimos digitos do CPF/CNPJ) -- precisa bater ANTES de
   // liberar os campos do codigo OTP recebido por WhatsApp. Ver checkDocumentLastDigits em otpUtils.ts.
   const [documentDigits, setDocumentDigits] = useState('');
   const [docVerified, setDocVerified] = useState(false);
@@ -85,8 +85,8 @@ export default function ContractSignaturePublicPage() {
 
   const handleVerifyDocument = async () => {
     if (!contrato) return;
-    if (documentDigits.length !== 3) {
-      setDocError('Digite os 3 últimos números do seu CPF ou CNPJ.');
+    if (documentDigits.length !== 4) {
+      setDocError('Digite os 4 últimos números do seu CPF ou CNPJ.');
       return;
     }
     setIsCheckingDoc(true);
@@ -290,26 +290,26 @@ export default function ContractSignaturePublicPage() {
           Li e concordo com os termos do contrato de prestação de serviços acima.
         </label>
 
-        {/* Etapa 1: checagem de identidade (3 ultimos digitos do CPF/CNPJ). So depois de
+        {/* Etapa 1: checagem de identidade (4 ultimos digitos do CPF/CNPJ). So depois de
             confirmar aqui e' que o campo do codigo OTP (etapa 2) fica liberado. */}
         {!docVerified ? (
           <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 space-y-3">
             <p className="text-[11px] text-white/50 flex items-center gap-1.5">
               <IdCard size={13} className="shrink-0" />
-              Pra continuar, confirme os 3 últimos números do seu CPF ou CNPJ:
+              Pra continuar, confirme os 4 últimos números do seu CPF ou CNPJ:
             </p>
             <div className="flex justify-center">
               <input
                 value={documentDigits}
                 onChange={(e) => {
-                  const digits = e.target.value.replace(/\D/g, '').slice(0, 3);
+                  const digits = e.target.value.replace(/\D/g, '').slice(0, 4);
                   setDocumentDigits(digits);
                   setDocError(null);
                 }}
-                maxLength={3}
+                maxLength={4}
                 inputMode="numeric"
-                placeholder="000"
-                className="w-24 h-12 text-center text-lg font-black bg-black/40 border border-white/15 rounded-lg text-white focus:border-primary-400 outline-none tracking-widest"
+                placeholder="0000"
+                className="w-28 h-12 text-center text-lg font-black bg-black/40 border border-white/15 rounded-lg text-white focus:border-primary-400 outline-none tracking-widest"
               />
             </div>
 

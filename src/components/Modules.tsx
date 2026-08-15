@@ -207,6 +207,7 @@ import { renderOrcamentoCanvas } from '../lib/orcamentoDoc';
 import { exportClientesXlsx, parseClientesXlsx, exportProdutosXlsx, parseProdutosXlsx, exportVendasXlsx, parseVendasXlsx, exportFichaClienteXlsx } from '../lib/spreadsheet';
 import { downloadContratoPdf } from '../lib/contratoPdf';
 import { buildContratoClausulasTexto } from '../lib/contratoTemplate';
+import { validateCpfCnpj } from '../lib/validators';
 import { format } from 'date-fns';
 
 // Formata uma data com fallback seguro — evita "RangeError: Invalid time value"
@@ -4574,6 +4575,21 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const handleSaveContrato = async () => {
     if (!contratoForm.customerName.trim()) { showAlert('Informe o nome do cliente.'); return; }
     if (contratoForm.items.length === 0) { showAlert('Adicione ao menos um item.'); return; }
+    // So gera contrato se o cadastro tiver pelo menos telefone ou CPF/CNPJ -- sem isso nao da pra
+    // mandar o link de assinatura pro cliente nem fazer a checagem de identidade na tela publica
+    if (!contratoForm.phone.trim() && !contratoForm.cpfCnpj.trim()) {
+      showAlert('Informe ao menos o telefone ou o CPF/CNPJ do cliente para gerar o contrato.');
+      return;
+    }
+    // Se o CPF/CNPJ foi preenchido, valida o digito verificador aqui -- evita que um numero
+    // digitado errado va parar no contrato e so de erro depois, na hora do cliente assinar
+    if (contratoForm.cpfCnpj.trim()) {
+      const { valid, tipo } = validateCpfCnpj(contratoForm.cpfCnpj);
+      if (!valid) {
+        showAlert(`${tipo === 'cnpj' ? 'CNPJ' : 'CPF'} inválido. Confira os números e tente novamente.`);
+        return;
+      }
+    }
     setSavingContrato(true);
     try {
       const total = Math.max(0, contratoItemsTotal() - (contratoForm.desconto || 0));

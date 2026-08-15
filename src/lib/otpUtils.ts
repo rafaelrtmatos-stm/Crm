@@ -111,15 +111,15 @@ export interface SignContractParams {
 }
 
 /**
- * Checagem extra de identidade (antes de liberar o codigo OTP): compara os 3 ultimos digitos
+ * Checagem extra de identidade (antes de liberar o codigo OTP): compara os 4 ultimos digitos
  * do CPF/CNPJ digitados pelo cliente contra o que esta salvo no contrato. A comparacao acontece
  * dentro do banco (funcao check_contrato_document_last_digits) -- o documento completo nunca
  * chega no navegador do cliente, so o resultado true/false.
  */
-export async function checkDocumentLastDigits(contractId: string, last3Digits: string): Promise<boolean> {
+export async function checkDocumentLastDigits(contractId: string, last4Digits: string): Promise<boolean> {
   const { data, error } = await supabase.rpc('check_contrato_document_last_digits', {
     p_contract_id: contractId,
-    p_last_digits: last3Digits,
+    p_last_digits: last4Digits,
   });
   if (error) throw error;
   return data === true;
