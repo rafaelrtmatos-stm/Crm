@@ -15148,6 +15148,9 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                                        {s.geoPermission !== 'granted' && (
                                          <p className="text-[9px] text-amber-400/70">Localização GPS não autorizada por este usuário</p>
                                        )}
+                                       {s.notifPermission !== 'granted' && (
+                                         <p className="text-[9px] text-amber-400/70">Notificações não autorizadas por este usuário</p>
+                                       )}
                                        {s.locationDenied && s.geoPermission === 'granted' && (
                                          <p className="text-[9px] text-amber-400/70">Não foi possível obter a localização agora (GPS indisponível no aparelho)</p>
                                        )}

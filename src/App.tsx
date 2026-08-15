@@ -695,7 +695,9 @@ export default function App() {
   // Pede autorizacao de geolocalizacao (GPS/rede) do navegador e devolve as coordenadas se a
   // pessoa aceitar, ou null se negar, o navegador nao suportar, ou der timeout. O navegador so
   // mostra o popup nativo de permissao da primeira vez — nas proximas chamadas ele so lembra
-  // a decisao anterior (aceita ou negada), sem perguntar de novo.
+  // a decisao anterior (aceita ou negada), sem perguntar de novo (isso e um comportamento do
+  // proprio navegador, nao tem como forcar o popup nativo a reaparecer sem a pessoa resetar
+  // a permissao do site nas configuracoes do navegador dela).
   const requestGeoPermission = (): Promise<{ lat: number; lng: number; accuracy: number } | null> => {
     return new Promise((resolve) => {
       if (!('geolocation' in navigator)) { resolve(null); return; }
@@ -705,6 +707,30 @@ export default function App() {
         { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
       );
     });
+  };
+
+  // Pede autorizacao de notificacoes do navegador. Mesma logica: o popup nativo so aparece
+  // enquanto a decisao ainda nao foi tomada ('default'); depois de aceitar ou negar uma vez,
+  // o navegador so lembra a resposta anterior nas proximas chamadas.
+  const requestNotificationPermission = async (): Promise<boolean> => {
+    if (!('Notification' in window)) return false;
+    try {
+      if (Notification.permission === 'granted') return true;
+      if (Notification.permission === 'denied') return false;
+      const result = await Notification.requestPermission();
+      return result === 'granted';
+    } catch (e) {
+      return false;
+    }
+  };
+
+  // Auto-login (sessao lembrada porque localizacao + notificacoes foram autorizadas): registra
+  // a sessao de novo tambem, senao ela some da lista "Sessões Ativas" do admin e o pedido de
+  // localização sob demanda para de funcionar depois de recarregar a página.
+  const reregisterAutoSession = async (uid: string, uname: string) => {
+    const geoAuto = await requestGeoPermission();
+    const notifAuto = await requestNotificationPermission();
+    registerSession(uid, uname, geoAuto, geoAuto ? 'granted' : 'denied', notifAuto ? 'granted' : 'denied');
   };
 
   // Guarda o "desligar" do escutador de desconexao remota e do heartbeat da sessao atual,
@@ -725,7 +751,8 @@ export default function App() {
     uid: string,
     uname: string,
     geo?: { lat: number; lng: number; accuracy: number } | null,
-    geoPermission?: 'granted' | 'denied'
+    geoPermission?: 'granted' | 'denied',
+    notifPermission?: 'granted' | 'denied'
   ) => {
     pararEscutaDeSessao(); // desliga qualquer escutador de uma sessao anterior antes de criar um novo
     try {
@@ -772,6 +799,7 @@ export default function App() {
         lastSeenAt: new Date().toISOString(),
         isRevoked: false,
         geoPermission: geoPermission || 'denied',
+        notifPermission: notifPermission || 'denied',
         preciseLocation: geo ? { ...geo, updatedAt: new Date().toISOString() } : null,
         locationRequestedAt: null,
         locationDenied: false,
@@ -895,14 +923,17 @@ export default function App() {
         setUser(adminData);
         cacheUserOffline(adminData);
         sessionStorage.setItem('rpro_logged_user_id', adminData.id);
-        // Pede autorizacao de localizacao (so mostra o popup nativo na primeira vez de fato —
-        // depois disso o navegador so lembra a decisao). Aceitar libera nao precisar logar de
-        // novo; recusar obriga a fazer login toda vez que abrir o sistema.
+        // Pede autorizacao de localizacao e de notificacoes toda vez que loga. O popup nativo do
+        // navegador so aparece de fato enquanto a pessoa nao tiver decidido antes (nas proximas
+        // vezes ele so lembra a resposta). So libera ficar logado sem precisar digitar senha de
+        // novo se ACEITAR AS DUAS; recusando qualquer uma delas, sempre vai pedir login.
         const geoAdmin = await requestGeoPermission();
+        const notifAdmin = await requestNotificationPermission();
         const geoPermissionAdmin: 'granted' | 'denied' = geoAdmin ? 'granted' : 'denied';
         localStorage.setItem('rpro_geo_permission', geoPermissionAdmin);
-        registerSession(adminData.id, adminData.name, geoAdmin, geoPermissionAdmin);
-        if (geoAdmin) {
+        localStorage.setItem('rpro_notif_permission', notifAdmin ? 'granted' : 'denied');
+        registerSession(adminData.id, adminData.name, geoAdmin, geoPermissionAdmin, notifAdmin ? 'granted' : 'denied');
+        if (geoAdmin && notifAdmin) {
           localStorage.setItem('rpro_remembered_user_id', adminData.id);
           localStorage.setItem('rpro_remembered_email', trimmedEmail);
         } else {
@@ -1025,14 +1056,17 @@ export default function App() {
       setUser(userData);
       cacheUserOffline(userData);
       sessionStorage.setItem('rpro_logged_user_id', userData.id);
-      // Pede autorizacao de localizacao (so mostra o popup nativo na primeira vez de fato —
-      // depois disso o navegador so lembra a decisao). Aceitar libera nao precisar logar de
-      // novo; recusar obriga a fazer login toda vez que abrir o sistema.
+      // Pede autorizacao de localizacao e de notificacoes toda vez que loga. O popup nativo do
+      // navegador so aparece de fato enquanto a pessoa nao tiver decidido antes (nas proximas
+      // vezes ele so lembra a resposta). So libera ficar logado sem precisar digitar senha de
+      // novo se ACEITAR AS DUAS; recusando qualquer uma delas, sempre vai pedir login.
       const geoUser = await requestGeoPermission();
+      const notifUser = await requestNotificationPermission();
       const geoPermissionUser: 'granted' | 'denied' = geoUser ? 'granted' : 'denied';
       localStorage.setItem('rpro_geo_permission', geoPermissionUser);
-      registerSession(userData.id, userData.name, geoUser, geoPermissionUser);
-      if (geoUser) {
+      localStorage.setItem('rpro_notif_permission', notifUser ? 'granted' : 'denied');
+      registerSession(userData.id, userData.name, geoUser, geoPermissionUser, notifUser ? 'granted' : 'denied');
+      if (geoUser && notifUser) {
         localStorage.setItem('rpro_remembered_user_id', userData.id);
         localStorage.setItem('rpro_remembered_email', trimmedEmail);
       } else {
@@ -1106,9 +1140,7 @@ export default function App() {
             // Auto-login (sessao lembrada porque a localizacao foi autorizada): registra a sessao
             // de novo tambem, senao ela some da lista "Sessões Ativas" do admin e o pedido de
             // localização sob demanda para de funcionar depois de recarregar a página.
-            requestGeoPermission().then((geoAuto) => {
-              registerSession(uData.id, uData.name, geoAuto, geoAuto ? 'granted' : 'denied');
-            });
+            reregisterAutoSession(uData.id, uData.name);
           } else if (targetUserId === 'admin-rafael') {
             const adminData: AppUser = {
               id: 'admin-rafael',
@@ -1124,9 +1156,7 @@ export default function App() {
             await setDoc(userDocRef, adminData);
             setUser(adminData);
             cacheUserOffline(adminData);
-            requestGeoPermission().then((geoAuto) => {
-              registerSession(adminData.id, adminData.name, geoAuto, geoAuto ? 'granted' : 'denied');
-            });
+            reregisterAutoSession(adminData.id, adminData.name);
           } else {
             // Nao achou no Firebase (nao e o admin master) — tenta no Supabase, onde vivem os usuarios comuns
             const { data: usuarioRow } = await supabase.from('usuarios').select('*').eq('id', targetUserId).maybeSingle();
@@ -1154,9 +1184,7 @@ export default function App() {
                 })
                 .subscribe();
               userUnsub = () => { supabase.removeChannel(channel); };
-              requestGeoPermission().then((geoAuto) => {
-                registerSession(uData.id, uData.name, geoAuto, geoAuto ? 'granted' : 'denied');
-              });
+              reregisterAutoSession(uData.id, uData.name);
             } else {
               sessionStorage.removeItem('rpro_logged_user_id');
             }
@@ -1349,7 +1377,7 @@ export default function App() {
             </label>
             <p className="text-[10.5px] text-white/40 leading-snug flex items-start gap-1.5 pt-0.5">
               <MapPin size={13} className="shrink-0 mt-0.5 text-white/30" />
-              <span>Ao entrar, o navegador vai pedir autorização de localização. Se você aceitar, não vai precisar logar de novo nos próximos acessos. Se recusar, o login será pedido toda vez.</span>
+              <span>Ao entrar, o navegador vai pedir autorização de localização e de notificações. Se você aceitar as duas, não vai precisar logar de novo nos próximos acessos. Se recusar qualquer uma delas, o login será pedido toda vez.</span>
             </p>
           </div>
 
