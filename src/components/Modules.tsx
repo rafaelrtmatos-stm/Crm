@@ -10960,6 +10960,23 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    setAllSalesHistory(prev => prev.map(s => s.id === settlingOrder.id ? updated : s));
                    setSalesToday(prev => prev.map(s => s.id === settlingOrder.id ? updated : s));
                    showAlert('Agendamento atualizado!');
+                   return;
+                 }
+                 // Editar Pedido Completo: antes esse "OK" so atualizava o estado local (scheduledFor)
+                 // sem gravar no banco — a hora nova so era salva de fato se, depois, a pessoa clicasse
+                 // em "Salvar Alterações" do pedido inteiro. Se ela nao clicasse (ou achasse que aqui ja
+                 // tinha salvo), a aba Serviços continuava mostrando a hora antiga pra sempre, mesmo com
+                 // a tela de edição já exibindo a hora nova. Agora salva direto no banco aqui tambem,
+                 // igual ao fluxo de Quitar Débito, pra nunca ficar dessincronizado.
+                 if (editingFullOrder) {
+                   const { data, error } = await supabase.from('vendas').update({ scheduled_for: scheduledFor || null }).eq('id', editingFullOrder.id).select();
+                   if (error) { showAlert(`Não foi possível salvar o agendamento: ${error.message}`); return; }
+                   if (!data || data.length === 0) { showAlert('O agendamento não foi salvo — o pedido pode ter sido removido ou alterado por outra pessoa. Feche e abra a tela de novo.'); return; }
+                   const updated = { ...editingFullOrder, scheduledFor: scheduledFor || undefined };
+                   setEditingFullOrder(updated);
+                   setAllSalesHistory(prev => prev.map(s => s.id === editingFullOrder.id ? updated : s));
+                   setSalesToday(prev => prev.map(s => s.id === editingFullOrder.id ? updated : s));
+                   showAlert('Agendamento atualizado!');
                  }
                }}
              >
