@@ -121,10 +121,10 @@ export const ContractSignatureOtpPanel = ({ contrato }: ContractSignatureOtpPane
 
             <div className="flex gap-2">
               <button
-                onClick={() => copyToClipboard(code, 'Código')}
+                onClick={() => copyToClipboard(whatsappMessage, 'Mensagem')}
                 className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[11px] font-bold py-2 transition-colors"
               >
-                <Copy size={12} /> Copiar Código
+                <Copy size={12} /> Copiar Mensagem
               </button>
               <a
                 href={whatsappHref}
@@ -135,6 +135,12 @@ export const ContractSignatureOtpPanel = ({ contrato }: ContractSignatureOtpPane
                 <MessageCircle size={12} /> Abrir no WhatsApp
               </a>
             </div>
+            <button
+              onClick={() => copyToClipboard(code, 'Código')}
+              className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/50 text-[10px] font-bold py-1.5 transition-colors"
+            >
+              <Copy size={11} /> Copiar só o código
+            </button>
           </div>
 
           <button
