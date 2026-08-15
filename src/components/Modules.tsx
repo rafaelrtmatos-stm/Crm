@@ -215,6 +215,27 @@ function safeFormat(value: any, fmt: string, fallback: string = '—'): string {
   return isNaN(d.getTime()) ? fallback : format(d, fmt);
 }
 
+// Converte o valor de um <input type="datetime-local"> (hora LOCAL, sem fuso) pra um ISO
+// completo (com fuso) antes de gravar num campo timestamptz. Sem isso, o Postgres grava a
+// hora digitada como se já fosse UTC — em Manaus/Pará (UTC-3), um agendamento de "10:00"
+// virava "13:00" no banco e voltava exibido como "07:00" na tela (a hora antiga "grudando").
+function localDatetimeToIso(value: string | undefined | null): string | null {
+  if (!value) return null;
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+// Converte uma data guardada (ISO/timestamptz, em UTC) pro formato que o <input
+// type="datetime-local"> espera, já na hora LOCAL — evita mostrar a hora errada ao reabrir
+// pra editar um agendamento.
+function isoToLocalDatetimeInput(value: any): string {
+  if (!value) return '';
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return '';
+  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
 // Mapeia uma linha da tabela 'usuarios' (Supabase) pro formato AppUser.
 // Usuarios comuns vivem no Supabase; so o admin master continua no Firebase.
 function mapUsuarioRow(row: any): AppUser {
@@ -5632,7 +5653,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setIsSavingBulkEdit(true);
     const payload: Record<string, any> = {};
     if (bulkEditFields.paymentMethod.on) payload.payment_method = bulkEditFields.paymentMethod.value;
-    if (bulkEditFields.scheduledFor.on) payload.scheduled_for = bulkEditFields.scheduledFor.value || null;
+    if (bulkEditFields.scheduledFor.on) payload.scheduled_for = localDatetimeToIso(bulkEditFields.scheduledFor.value);
     if (bulkEditFields.serviceStatus.on) payload.service_status = bulkEditFields.serviceStatus.value;
     if (bulkEditFields.observacoes.on) payload.observacoes = bulkEditFields.observacoes.value || null;
     const ids = Array.from(selectedSaleIds);
@@ -5810,10 +5831,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         : (sale.customerName ? { id: '', name: sale.customerName, phone: sale.customerPhone || '' } : null)
     );
     setOrderObservacoes(sale.observacoes || '');
-    setScheduledFor(sale.scheduledFor ? sale.scheduledFor.slice(0, 16) : '');
+    setScheduledFor(sale.scheduledFor ? isoToLocalDatetimeInput(sale.scheduledFor) : '');
     setSaleDiscountValue(sale.discountValue || 0);
     setSaleDiscountInput('');
-    setEditingCreatedAt(sale.createdAt ? sale.createdAt.slice(0, 16) : '');
+    setEditingCreatedAt(sale.createdAt ? isoToLocalDatetimeInput(sale.createdAt) : '');
     setEditingPaymentsList(sale.payments ? sale.payments.map(p => ({ ...p })) : []);
     setActiveTab('venda');
   };
@@ -5826,7 +5847,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       downPayment: sale.downPayment || 0,
       paymentMethod: sale.paymentMethod || 'pix',
       observacoes: sale.observacoes || '',
-      scheduledFor: sale.scheduledFor ? sale.scheduledFor.slice(0, 16) : '',
+      scheduledFor: sale.scheduledFor ? isoToLocalDatetimeInput(sale.scheduledFor) : '',
     });
   };
 
@@ -5838,7 +5859,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       down_payment: editSaleForm.downPayment,
       payment_method: editSaleForm.paymentMethod,
       observacoes: editSaleForm.observacoes || null,
-      scheduled_for: editSaleForm.scheduledFor || null,
+      scheduled_for: localDatetimeToIso(editSaleForm.scheduledFor),
       status: editSaleForm.downPayment >= editSaleForm.total ? 'completed' : 'pending',
     }).eq('id', editingSale.id).select();
     if (error) { console.error(error); showAlert('Não foi possível salvar as alterações.'); return; }
@@ -6527,7 +6548,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setSelectedCustomer(order.customerId ? { id: order.customerId, name: order.customerName || 'Cliente', phone: order.customerPhone || '' } : null);
     setPaymentEntries([]);
     setDownPayment(0);
-    setScheduledFor(order.scheduledFor ? order.scheduledFor.slice(0, 16) : '');
+    setScheduledFor(order.scheduledFor ? isoToLocalDatetimeInput(order.scheduledFor) : '');
     setPendingPaymentMethod('');
     setEditingPaymentsList(order.payments ? order.payments.map(p => ({ ...p })) : []);
     setIsPaymentModalOpen(true);
@@ -6543,7 +6564,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   // o modal de pagamento.
   const handleEditScheduleFromCard = (sale: SaleOrder) => {
     setSettlingOrder(sale);
-    setScheduledFor(sale.scheduledFor ? sale.scheduledFor.slice(0, 16) : '');
+    setScheduledFor(sale.scheduledFor ? isoToLocalDatetimeInput(sale.scheduledFor) : '');
     setIsScheduleModalOpen(true);
   };
 
@@ -6682,7 +6703,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           payments: pagamentosFinaisEdicao,
           status: novoSaldo <= 0 ? 'completed' : 'pending',
           observacoes: orderObservacoes || null,
-          scheduled_for: scheduledFor || editingFullOrder.scheduledFor || null,
+          scheduled_for: localDatetimeToIso(scheduledFor) || editingFullOrder.scheduledFor || null,
           created_at: editingCreatedAt ? new Date(editingCreatedAt).toISOString() : editingFullOrder.createdAt,
           updated_at: new Date().toISOString(),
         }).eq('id', editingFullOrder.id).select();
@@ -6711,7 +6732,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           payments: pagamentosFinaisEdicao,
           status: novoSaldo <= 0 ? 'completed' : 'pending',
           observacoes: orderObservacoes || undefined,
-          scheduledFor: scheduledFor || editingFullOrder.scheduledFor || undefined,
+          scheduledFor: localDatetimeToIso(scheduledFor) || editingFullOrder.scheduledFor || undefined,
           createdAt: editingCreatedAt ? new Date(editingCreatedAt).toISOString() : editingFullOrder.createdAt,
           updatedAt: new Date().toISOString(),
         };
@@ -6750,13 +6771,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           payments: pagamentosFinais,
           status: novoSaldo <= 0 ? 'completed' : 'pending',
           pending_payment_method: novoSaldo > 0 ? (pendingPaymentMethod || null) : null,
-          scheduled_for: scheduledFor || settlingOrder.scheduledFor || null,
+          scheduled_for: localDatetimeToIso(scheduledFor) || settlingOrder.scheduledFor || null,
           updated_at: new Date().toISOString(),
         }).eq('id', settlingOrder.id).select();
         if (error) throw error;
         if (!data || data.length === 0) throw new Error('O pedido não foi encontrado pra atualizar — pode ter sido removido ou alterado por outra pessoa.');
 
-        const updatedOrder: SaleOrder = { ...settlingOrder, downPayment: novoTotalPago, receivedValue: novoTotalPago, status: novoSaldo <= 0 ? 'completed' : 'pending', payments: pagamentosFinais, scheduledFor: scheduledFor || settlingOrder.scheduledFor || undefined, updatedAt: new Date().toISOString() };
+        const updatedOrder: SaleOrder = { ...settlingOrder, downPayment: novoTotalPago, receivedValue: novoTotalPago, status: novoSaldo <= 0 ? 'completed' : 'pending', payments: pagamentosFinais, scheduledFor: localDatetimeToIso(scheduledFor) || settlingOrder.scheduledFor || undefined, updatedAt: new Date().toISOString() };
         setLastFinalizedOrder(updatedOrder);
         // Atualiza so essa venda localmente (nao recarrega a tabela inteira, que fica lenta com muitas vendas)
         setAllSalesHistory(prev => prev.map(s => s.id === settlingOrder.id ? updatedOrder : s).sort((a, b) => Math.max(new Date(a.updatedAt || a.createdAt).getTime(), new Date(a.createdAt).getTime()) < Math.max(new Date(b.updatedAt || b.createdAt).getTime(), new Date(b.createdAt).getTime()) ? 1 : -1));
@@ -6787,9 +6808,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       const defaultDelivery = new Date();
       defaultDelivery.setDate(defaultDelivery.getDate() + 2);
       defaultDelivery.setHours(17, 0, 0, 0);
-      deliveryDate = defaultDelivery.toISOString().slice(0, 16);
+      deliveryDate = isoToLocalDatetimeInput(defaultDelivery);
       setScheduledFor(deliveryDate);
     }
+    deliveryDate = localDatetimeToIso(deliveryDate) || undefined;
 
     const isPartialSale = currentRemaining > 0 || isPending;
 
@@ -11021,10 +11043,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  if (settlingOrder) {
                    const vindoDoModalPagamento = isPaymentModalOpen;
                    const nowIso = new Date().toISOString();
-                   const { data, error } = await supabase.from('vendas').update({ scheduled_for: scheduledFor || null, updated_at: nowIso }).eq('id', settlingOrder.id).select();
+                   const scheduledForIso = localDatetimeToIso(scheduledFor);
+                   const { data, error } = await supabase.from('vendas').update({ scheduled_for: scheduledForIso, updated_at: nowIso }).eq('id', settlingOrder.id).select();
                    if (error) { showAlert(`Não foi possível salvar o agendamento: ${error.message}`); return; }
                    if (!data || data.length === 0) { showAlert('O agendamento não foi salvo — o pedido pode ter sido removido ou alterado por outra pessoa. Feche e abra a tela de novo.'); return; }
-                   const updated = { ...settlingOrder, scheduledFor: scheduledFor || undefined, updatedAt: nowIso };
+                   const updated = { ...settlingOrder, scheduledFor: scheduledForIso || undefined, updatedAt: nowIso };
                    setAllSalesHistory(prev => prev.map(s => s.id === settlingOrder.id ? updated : s));
                    setSalesToday(prev => prev.map(s => s.id === settlingOrder.id ? updated : s));
                    if (vindoDoModalPagamento) {
@@ -11047,10 +11070,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  // a tela de edição já exibindo a hora nova. Agora salva direto no banco aqui tambem,
                  // igual ao fluxo de Quitar Débito, pra nunca ficar dessincronizado.
                  if (editingFullOrder) {
-                   const { data, error } = await supabase.from('vendas').update({ scheduled_for: scheduledFor || null }).eq('id', editingFullOrder.id).select();
+                   const scheduledForIso = localDatetimeToIso(scheduledFor);
+                   const { data, error } = await supabase.from('vendas').update({ scheduled_for: scheduledForIso }).eq('id', editingFullOrder.id).select();
                    if (error) { showAlert(`Não foi possível salvar o agendamento: ${error.message}`); return; }
                    if (!data || data.length === 0) { showAlert('O agendamento não foi salvo — o pedido pode ter sido removido ou alterado por outra pessoa. Feche e abra a tela de novo.'); return; }
-                   const updated = { ...editingFullOrder, scheduledFor: scheduledFor || undefined };
+                   const updated = { ...editingFullOrder, scheduledFor: scheduledForIso || undefined };
                    setEditingFullOrder(updated);
                    setAllSalesHistory(prev => prev.map(s => s.id === editingFullOrder.id ? updated : s));
                    setSalesToday(prev => prev.map(s => s.id === editingFullOrder.id ? updated : s));
@@ -13357,7 +13381,8 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
     setIsSavingBulkEdit(true);
     const payload: Record<string, any> = {};
     if (bulkFields.serviceStatus.on) payload.service_status = bulkFields.serviceStatus.value;
-    if (bulkFields.scheduledFor.on) payload.scheduled_for = bulkFields.scheduledFor.value || null;
+    const scheduledForIso = bulkFields.scheduledFor.on ? localDatetimeToIso(bulkFields.scheduledFor.value) : null;
+    if (bulkFields.scheduledFor.on) payload.scheduled_for = scheduledForIso;
     const ids = Array.from(selectedIds);
     const { data, error } = await supabase.from('vendas').update(payload).in('id', ids).select();
     setIsSavingBulkEdit(false);
@@ -13368,7 +13393,7 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
       return {
         ...p,
         serviceStatus: bulkFields.serviceStatus.on ? (bulkFields.serviceStatus.value as any) : p.serviceStatus,
-        scheduledFor: bulkFields.scheduledFor.on ? (bulkFields.scheduledFor.value || undefined) : p.scheduledFor,
+        scheduledFor: bulkFields.scheduledFor.on ? (scheduledForIso || undefined) : p.scheduledFor,
       };
     }));
     showAlert(`${data?.length || ids.length} pedido(s) atualizado(s) com sucesso!`);
