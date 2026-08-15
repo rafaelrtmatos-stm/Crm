@@ -145,6 +145,8 @@ interface AppContextType {
   setTheme: (theme: 'dark' | 'light') => void;
   toggleTheme: () => void;
   logout: () => void;
+  logoLightUrl: string | null;
+  logoDarkUrl: string | null;
 }
 
 export const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -193,10 +195,13 @@ const SidebarItem = ({
 );
 
 const Navbar = () => {
-  const { user, companies, currentCompany, setCurrentCompany, setIsSidebarOpen, theme, toggleTheme, logout } = useApp();
+  const { user, companies, currentCompany, setCurrentCompany, setIsSidebarOpen, theme, toggleTheme, logout, logoLightUrl, logoDarkUrl } = useApp();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isCompanySelectOpen, setIsCompanySelectOpen] = useState(false);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  // Logo da empresa pro balão do topo — mesma logo do login, na variante que combina
+  // com o fundo escuro da navbar (clara), com fallback pra escura se só essa existir.
+  const navbarLogoUrl = theme === 'light' ? (logoDarkUrl || logoLightUrl) : logoLightUrl;
 
   useEffect(() => {
     const goOnline = () => setIsOnline(true);
@@ -238,10 +243,14 @@ const Navbar = () => {
             className="flex items-center gap-3 pl-1 pr-4 py-1.5 rounded-full hover:bg-white/10 transition-all border border-transparent hover:border-white/10"
           >
             <div className={cn(
-              "w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs uppercase shadow-lg",
-              currentCompany?.name.toLowerCase().includes('imobiliária') ? "bg-primary-600" : "bg-primary-800"
+              "w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs uppercase shadow-lg overflow-hidden shrink-0",
+              !navbarLogoUrl && (currentCompany?.name.toLowerCase().includes('imobiliária') ? "bg-primary-600" : "bg-primary-800")
             )}>
-              {currentCompany?.shortName?.[0] || currentCompany?.name?.[0] || 'R'}
+              {navbarLogoUrl ? (
+                <img src={navbarLogoUrl} alt="Logo" className="w-full h-full object-contain" />
+              ) : (
+                currentCompany?.shortName?.[0] || currentCompany?.name?.[0] || 'R'
+              )}
             </div>
             <div className="text-left hidden sm:block">
               <p className="text-xs font-bold text-white tracking-wide leading-tight">
@@ -1478,7 +1487,9 @@ export default function App() {
     theme,
     setTheme,
     toggleTheme,
-    logout: handleLogout
+    logout: handleLogout,
+    logoLightUrl,
+    logoDarkUrl
   };
 
   return (
