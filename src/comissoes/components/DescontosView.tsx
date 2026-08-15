@@ -333,7 +333,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
         </div>
 
         {resumoCaixa && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 text-center text-[11px]">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2 text-center text-[11px]">
             <div className="p-2.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
               <span className="text-[var(--text-muted)] block mb-1">Saldo Anterior</span>
               <span className={`font-bold font-mono ${caixa!.saldoAnterior >= 0 ? 'text-[var(--text-main)]' : 'text-rose-400'}`}>{formatCurrency(caixa!.saldoAnterior)}</span>
@@ -349,6 +349,10 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
             <div className="p-2.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
               <span className="text-[var(--text-muted)] block mb-1">Descontos</span>
               <span className="font-bold font-mono text-rose-400">-{formatCurrency(resumoCaixa.totalDescontos)}</span>
+            </div>
+            <div className="p-2.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
+              <span className="text-[var(--text-muted)] block mb-1">Salário + Comissão</span>
+              <span className="font-bold font-mono text-[var(--text-main)]">{formatCurrency(resumoCaixa.salarioBase + resumoCaixa.totalComissao)}</span>
             </div>
             <div className="p-2.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
               <span className="text-[var(--text-muted)] block mb-1">Já Pago</span>
