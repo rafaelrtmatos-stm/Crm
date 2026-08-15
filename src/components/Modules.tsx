@@ -58,7 +58,6 @@ import {
   Bell,
   BellOff,
   ChevronRight,
-  ChevronLeft,
   Mic,
   Image as ImageIcon,
   Video,
@@ -3890,18 +3889,18 @@ export const MetaAdsModule = ({ currentCompany }: { currentCompany: Company | nu
 // --- PDV / POS ---
 // Cronometro de contagem regressiva ate a previsao de entrega. Se ja passou da hora,
 // para de contar e fica vermelho (nao fica contando "atraso" indefinidamente).
-const EntregaCountdown = ({ scheduledFor, onEdit, onDeliver, onDeleteSchedule }: { scheduledFor: string; onEdit?: () => void; onDeliver?: () => void; onDeleteSchedule?: () => void }) => {
+const EntregaCountdown = ({ scheduledFor, delivered, onEdit, onDeliver, onDeleteSchedule }: { scheduledFor: string; delivered?: boolean; onEdit?: () => void; onDeliver?: () => void; onDeleteSchedule?: () => void }) => {
   const target = new Date(scheduledFor).getTime();
   const [now, setNow] = useState(() => Date.now());
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   const btnRef = React.useRef<HTMLButtonElement>(null);
-  const overdue = now >= target;
+  const overdue = !delivered && now >= target;
 
   useEffect(() => {
-    if (overdue) return;
+    if (overdue || delivered) return;
     const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
-  }, [overdue]);
+  }, [overdue, delivered]);
 
   const diff = Math.max(0, target - now);
   const totalSeconds = Math.floor(diff / 1000);
@@ -3928,10 +3927,10 @@ const EntregaCountdown = ({ scheduledFor, onEdit, onDeliver, onDeleteSchedule }:
         className={cn(
           "text-[8.5px] font-black uppercase px-2 py-0.5 rounded-full border shrink-0 border-0",
           hasActions && "cursor-pointer",
-          overdue ? "bg-rose-500/15 text-rose-400 border-rose-500/30" : "bg-primary-500/10 text-primary-300 border-primary-500/20"
+          delivered ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" : overdue ? "bg-rose-500/15 text-rose-400 border-rose-500/30" : "bg-primary-500/10 text-primary-300 border-primary-500/20"
         )}
       >
-        Entrega: {safeFormat(scheduledFor, 'dd/MM HH:mm')} {overdue ? '· ATRASADO' : `· faltam ${countdownLabel}`}
+        {delivered ? `● Entregue · ${safeFormat(scheduledFor, 'dd/MM HH:mm')}` : `Entrega: ${safeFormat(scheduledFor, 'dd/MM HH:mm')} ${overdue ? '· ATRASADO' : `· faltam ${countdownLabel}`}`}
       </button>
       {menuPos && createPortal(
         <>
@@ -5859,6 +5858,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setLastFinalizedOrder(prev => prev && prev.id === saleId ? { ...prev, serviceStatus: newStatus as any } : prev);
     setAllSalesHistory(prev => prev.map(s => s.id === saleId ? { ...s, serviceStatus: newStatus as any } : s));
     setSalesToday(prev => prev.map(s => s.id === saleId ? { ...s, serviceStatus: newStatus as any } : s));
+  };
+
+  // Botao unico de status (aba Servicos): em vez de duas setas (avancar/retroceder), um clique
+  // avanca pra proxima etapa — e ao chegar na ultima ("Produto Entregue"), o proximo clique volta
+  // pro inicio ("Pedido Recebido"), igual um ciclo.
+  const handleCycleServiceStatus = (saleId: string, currentStage: string) => {
+    const idx = STAGE_ORDER.indexOf(currentStage);
+    const nextIdx = idx >= 0 && idx < STAGE_ORDER.length - 1 ? idx + 1 : 0;
+    handleUpdateServiceStatus(saleId, STAGE_ORDER[nextIdx]);
   };
 
   const handleDeleteSale = async (sale: SaleOrder) => {
@@ -7932,6 +7940,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           {sale.scheduledFor && (
                             <EntregaCountdown
                               scheduledFor={sale.scheduledFor}
+                              delivered={sale.serviceStatus === 'produto_entregue'}
                               onEdit={() => handleEditScheduleFromCard(sale)}
                               onDeliver={() => handleDeliverFromCard(sale)}
                               onDeleteSchedule={() => handleDeleteScheduleFromCard(sale)}
@@ -8195,9 +8204,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   const balance = sale.total - down;
                   const isPartial = balance > 0 || sale.status === 'pending';
                   const currentStage = sale.serviceStatus || 'pedido_recebido';
-                  const stageIdx = STAGE_ORDER.indexOf(currentStage);
-                  const prevStageId = stageIdx > 0 ? STAGE_ORDER[stageIdx - 1] : null;
-                  const nextStageId = stageIdx >= 0 && stageIdx < STAGE_ORDER.length - 1 ? STAGE_ORDER[stageIdx + 1] : null;
                   return (
                     <div key={sale.id} className="flex flex-col gap-2 bg-slate-900/60 hover:bg-slate-900 border border-white/5 rounded-xl px-3 py-2.5 transition-all">
                       {/* Linha 1 (web e mobile): dados do pedido — quebra em mais linhas no celular pra nao esconder nada */}
@@ -8218,6 +8224,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                         {sale.scheduledFor && (
                           <EntregaCountdown
                             scheduledFor={sale.scheduledFor}
+                            delivered={sale.serviceStatus === 'produto_entregue'}
                             onEdit={() => handleEditScheduleFromCard(sale)}
                             onDeliver={() => handleDeliverFromCard(sale)}
                             onDeleteSchedule={() => handleDeleteScheduleFromCard(sale)}
@@ -8227,28 +8234,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
                       {/* Linha 2 (web): Evolução/Retirada + valor + ações — no celular quebra em linhas extras, nunca esconde */}
                       <div className="flex items-center gap-2 flex-wrap justify-between">
-                        <div className="flex items-center gap-1 shrink-0 bg-white/5 border border-white/10 rounded-lg px-1 py-1" title="Evolução / Retirada">
+                        <div className="flex items-center gap-1 shrink-0 bg-white/5 border border-white/10 rounded-lg px-1 py-1" title="Clique para avançar a etapa — ao concluir, volta ao início">
                           <button
-                            onClick={() => prevStageId && handleUpdateServiceStatus(sale.id, prevStageId)}
-                            disabled={!prevStageId}
-                            title="Retroceder etapa"
-                            className="p-1 rounded-md text-white/50 hover:bg-white/10 hover:text-white disabled:opacity-20 disabled:cursor-not-allowed transition-all"
+                            onClick={() => handleCycleServiceStatus(sale.id, currentStage)}
+                            className={cn(
+                              "flex items-center gap-1.5 px-2 py-1 rounded-md text-[8.5px] font-black uppercase whitespace-nowrap min-w-[110px] justify-center transition-all cursor-pointer border-0",
+                              currentStage === 'produto_entregue'
+                                ? "bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25"
+                                : "bg-transparent text-white/70 hover:bg-white/10 hover:text-white"
+                            )}
                           >
-                            <ChevronLeft size={13} />
-                          </button>
-                          <span className={cn(
-                            "text-[8.5px] font-black uppercase px-1.5 whitespace-nowrap min-w-[92px] text-center",
-                            currentStage === 'produto_entregue' ? "text-emerald-400" : "text-white/70"
-                          )}>
                             {currentStage === 'produto_entregue' ? '● Entregue' : (STAGE_LABELS[currentStage] || currentStage)}
-                          </span>
-                          <button
-                            onClick={() => nextStageId && handleUpdateServiceStatus(sale.id, nextStageId)}
-                            disabled={!nextStageId}
-                            title="Evoluir etapa"
-                            className="p-1 rounded-md text-white/50 hover:bg-white/10 hover:text-white disabled:opacity-20 disabled:cursor-not-allowed transition-all"
-                          >
-                            <ChevronRight size={13} />
+                            <RefreshCw size={10} className="opacity-50" />
                           </button>
                         </div>
 
