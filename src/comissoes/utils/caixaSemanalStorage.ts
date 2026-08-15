@@ -227,10 +227,16 @@ export function calcularResumoCaixa(
   descontos: Desconto[],
   pagamentos: Pagamento[]
 ): ResumoCaixa {
+  // Enquanto o caixa está 'aberto' ele não fica preso à janela semanaInicio-semanaFim: continua
+  // somando tudo o que entrar (comissão, desconto) a partir de semanaInicio pra sempre em
+  // diante, sem precisar "Fechar Caixa" toda semana -- assim o card fica sempre correto e em
+  // dia sozinho. Só quando fecha de vez (status='fechado') que a janela volta a ser fixa,
+  // porque aí é o snapshot congelado daquele fechamento específico.
+  const fimEfetivo = caixa.status === 'aberto' ? '9999-12-31' : caixa.semanaFim;
   const totalComissao = services
-    .filter((s) => s.date >= caixa.semanaInicio && s.date <= caixa.semanaFim && s.status !== 'CANCELADO')
+    .filter((s) => s.date >= caixa.semanaInicio && s.date <= fimEfetivo && s.status !== 'CANCELADO')
     .reduce((acc, s) => acc + (s.commissionValue || 0), 0);
-  const totalDescontos = calculateDescontosNoPeriodo(descontos, caixa.semanaInicio, caixa.semanaFim);
+  const totalDescontos = calculateDescontosNoPeriodo(descontos, caixa.semanaInicio, fimEfetivo);
   const totalPago = pagamentos.reduce((acc, p) => acc + p.valor, 0);
   const saldoSemana = salarioBase + totalComissao - totalDescontos - totalPago;
   const saldoFinal = caixa.saldoAnterior + saldoSemana;

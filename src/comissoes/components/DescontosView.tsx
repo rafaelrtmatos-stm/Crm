@@ -193,8 +193,8 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
   const handleFecharCaixa = async () => {
     if (!caixa || !resumoCaixa) return;
     const confirmMsg = resumoCaixa.saldoFinal >= 0
-      ? `Fechar o caixa da semana ${formatDateBR(caixa.semanaInicio)} a ${formatDateBR(caixa.semanaFim)}? Saldo de ${formatCurrency(resumoCaixa.saldoFinal)} a favor do colaborador vai abrir a próxima semana já com esse valor.`
-      : `Fechar o caixa da semana ${formatDateBR(caixa.semanaInicio)} a ${formatDateBR(caixa.semanaFim)}? O colaborador fica devendo ${formatCurrency(Math.abs(resumoCaixa.saldoFinal))}, que vai entrar como dívida na próxima semana.`;
+      ? `Fechar o caixa aberto desde ${formatDateBR(caixa.semanaInicio)}? Saldo de ${formatCurrency(resumoCaixa.saldoFinal)} a favor do colaborador vai abrir o próximo caixa já com esse valor.`
+      : `Fechar o caixa aberto desde ${formatDateBR(caixa.semanaInicio)}? O colaborador fica devendo ${formatCurrency(Math.abs(resumoCaixa.saldoFinal))}, que vai entrar como dívida no próximo caixa.`;
     if (!(await showConfirm(confirmMsg))) return;
     setFechando(true);
     const proximo = await fecharCaixa(caixa, resumoCaixa);
@@ -282,9 +282,10 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
 
   return (
     <div className="space-y-4">
-      {/* Caixa da Semana -- sempre tem uma semana aberta (segunda a sábado), acumulando
-          salário + comissão - descontos - pagamentos já feitos. Fechar aqui congela o saldo
-          dessa semana e já abre a seguinte trazendo esse saldo (a favor ou dívida). */}
+      {/* Caixa -- nasce aberto e, enquanto não for fechado, acumula salário + comissão -
+          descontos - pagamentos já feitos sem nenhum limite de data (não precisa fechar toda
+          semana pra ficar em dia). Fechar aqui congela o saldo acumulado até agora e já abre
+          o próximo caixa trazendo esse saldo (a favor ou dívida). */}
       <div className="p-6 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] shadow-sm space-y-4">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3">
@@ -293,7 +294,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
             </div>
             <div>
               <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                Caixa da Semana {caixa ? `· ${formatDateBR(caixa.semanaInicio)} a ${formatDateBR(caixa.semanaFim)}` : ''}
+                Caixa {caixa ? `· desde ${formatDateBR(caixa.semanaInicio)}` : ''}
               </span>
               {loadingCaixa ? (
                 <div className="text-sm text-[var(--text-muted)] mt-1">Carregando...</div>
@@ -326,7 +327,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
               className="flex items-center gap-1.5 h-9 px-3 rounded-xl bg-gradient-red text-white text-xs font-black uppercase tracking-wide shadow-red-glow hover:opacity-90 transition-opacity disabled:opacity-50"
             >
               <Lock className="w-4 h-4" />
-              {fechando ? 'Fechando...' : 'Fechar Caixa da Semana'}
+              {fechando ? 'Fechando...' : 'Fechar Caixa'}
             </button>
           )}
         </div>
