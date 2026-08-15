@@ -4536,15 +4536,30 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   // Gera um Contrato a partir de uma Nota ja existente no Historico — vem com cliente/itens/valor
   // ja preenchidos, e ja fica vinculado aquela nota (venda_id). Se a nota tiver orcamento vinculado,
   // o contrato tambem fica vinculado ao mesmo orcamento.
-  const handleCreateContratoFromNota = (sale: SaleOrder) => {
+  const handleCreateContratoFromNota = async (sale: SaleOrder) => {
     setEditingContrato(null);
+    // Nota/venda em si nao tem campo de CPF/CNPJ -- o CPF so existe no cadastro do
+    // CLIENTE vinculado a venda (sale.customerId). Antes essa funcao nao buscava esse
+    // dado, entao o contrato saia sem CPF mesmo quando o cliente da nota tinha CPF cadastrado.
+    // Busca direto no banco (em vez de depender de allCustomers, que só é carregado
+    // quando o modal de busca de cliente é aberto e pode estar vazio nesse momento).
+    let clienteVinculado: any = null;
+    if (sale.customerId) {
+      const { data } = await supabase.from('clientes').select('*').eq('id', sale.customerId).maybeSingle();
+      clienteVinculado = data;
+    }
+    const enderecoParts = clienteVinculado
+      ? [clienteVinculado.logradouro, clienteVinculado.numero, clienteVinculado.distrito, clienteVinculado.city].filter(Boolean)
+      : [];
     setContratoForm({
       ...emptyContratoForm,
       vendaId: sale.id,
       orcamentoId: sale.orcamentoId,
       clienteId: sale.customerId,
-      customerName: sale.customerName || '',
-      phone: sale.customerPhone || '',
+      customerName: sale.customerName || clienteVinculado?.full_name || '',
+      cpfCnpj: clienteVinculado?.cpf_cnpj || '',
+      phone: sale.customerPhone || clienteVinculado?.phone || '',
+      address: enderecoParts.join(', '),
       items: sale.items ? [...sale.items] : [],
       desconto: sale.discountValue || 0,
     });
@@ -11513,6 +11528,7 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({ full_name: '', phone: '', email: '', cpf_cnpj: '', city: '', state: '' });
+  const [editingClienteId, setEditingClienteId] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -11762,20 +11778,37 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
     return () => { active = false; supabase.removeChannel(channel); };
   }, [currentCompany]);
 
+  const openEditCliente = (c: any) => {
+    setEditingClienteId(c.id);
+    setFormData({
+      full_name: c.full_name || '', phone: c.phone || '', email: c.email || '',
+      cpf_cnpj: c.cpf_cnpj || '', city: c.city || '', state: c.state || '',
+    });
+    setIsModalOpen(true);
+  };
+
   const handleSave = async () => {
     if (!formData.full_name.trim()) return;
     try {
-      const { error } = await supabase.from('clientes').insert({
+      const payload = {
         full_name: formData.full_name,
         phone: formData.phone,
         email: formData.email,
         cpf_cnpj: formData.cpf_cnpj,
         city: formData.city,
         state: formData.state,
-      });
+      };
+      const { error } = editingClienteId
+        ? await supabase.from('clientes').update(payload).eq('id', editingClienteId)
+        : await supabase.from('clientes').insert(payload);
       if (error) throw error;
       setIsModalOpen(false);
+      setEditingClienteId(null);
       setFormData({ full_name: '', phone: '', email: '', cpf_cnpj: '', city: '', state: '' });
+      // Mantem a Ficha do Cliente atualizada na hora se ela estiver aberta pro mesmo cliente
+      if (fichaCliente && editingClienteId === fichaCliente.id) {
+        setFichaCliente((prev: any) => prev ? { ...prev, ...payload } : prev);
+      }
     } catch (err) {
       console.error(err);
       showAlert('Não foi possível salvar o cliente.');
@@ -11856,7 +11889,7 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
             <Link2 size={14} className={cn(isLinkingVendas && "animate-pulse")} />
             <span className="hidden sm:inline">Vincular Vendas</span>
           </button>
-          <Button icon={Plus} onClick={() => setIsModalOpen(true)}>Novo Cliente</Button>
+          <Button icon={Plus} onClick={() => { setEditingClienteId(null); setFormData({ full_name: '', phone: '', email: '', cpf_cnpj: '', city: '', state: '' }); setIsModalOpen(true); }}>Novo Cliente</Button>
         </div>
       </div>
       <div className="flex items-center gap-2 flex-wrap">
@@ -11911,6 +11944,7 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
                          </button>
                        ) : <span className="text-white/20 text-[11px] shrink-0">—</span>}
                        <span className="text-white/40 text-[9px] shrink-0 hidden sm:block w-20 text-right">{s ? safeFormat(s.lastDate, 'dd/MM/yyyy') : '—'}</span>
+                       <button onClick={() => openEditCliente(c)} title="Editar" className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20 shrink-0"><Pencil size={12} /></button>
                        <button onClick={() => setFichaCliente(c)} className="text-[9px] font-black uppercase px-3 py-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20 shrink-0">Exibir</button>
                     </div>
                   );
@@ -11938,7 +11972,7 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
             ))}
          </div>
       </div>
-      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="NOVO CLIENTE">
+      <Modal isOpen={isModalOpen} onClose={() => { setIsModalOpen(false); setEditingClienteId(null); }} title={editingClienteId ? "EDITAR CLIENTE" : "NOVO CLIENTE"}>
         <div className="p-6 space-y-4">
           <Input label="NOME COMPLETO" value={formData.full_name} onChange={(e: any) => setFormData({ ...formData, full_name: e.target.value.toUpperCase() })} />
           <div className="grid grid-cols-2 gap-4">
@@ -11951,8 +11985,8 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
             <Input label="ESTADO" value={formData.state} onChange={(e: any) => setFormData({ ...formData, state: e.target.value })} />
           </div>
           <div className="flex gap-4 pt-4">
-            <Button variant="secondary" className="flex-1 h-14" onClick={() => setIsModalOpen(false)}>Cancelar</Button>
-            <Button className="flex-[2] h-14 bg-primary-500 text-slate-900 border-none shadow-xl shadow-primary-500/20" onClick={handleSave}>Salvar Cliente</Button>
+            <Button variant="secondary" className="flex-1 h-14" onClick={() => { setIsModalOpen(false); setEditingClienteId(null); }}>Cancelar</Button>
+            <Button className="flex-[2] h-14 bg-primary-500 text-slate-900 border-none shadow-xl shadow-primary-500/20" onClick={handleSave}>{editingClienteId ? "Salvar Alterações" : "Salvar Cliente"}</Button>
           </div>
         </div>
       </Modal>
@@ -11975,33 +12009,42 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
                        </button>
                      )}
                   </div>
-                  {s && (
-                    <div className="flex items-center gap-1.5 shrink-0">
-                       <button
-                         title="Exportar em PDF"
-                         onClick={async () => {
-                           const { exportFichaClientePdf } = await import('../lib/fichaClientePdf');
-                           await exportFichaClientePdf({
-                             cliente: fichaCliente,
-                             servicos: clienteVendas[fichaCliente.id] || [],
-                             stats: { total: s.total, pago: s.pago, pendente: s.pendente, count: s.count },
-                           });
-                         }}
-                         className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all"
-                       >
-                         <FileText size={14} />
-                       </button>
-                       <button
-                         title="Exportar em Planilha"
-                         onClick={() => {
-                           exportFichaClienteXlsx(fichaCliente, clienteVendas[fichaCliente.id] || [], { total: s.total, pago: s.pago, pendente: s.pendente, count: s.count });
-                         }}
-                         className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all"
-                       >
-                         <Download size={14} />
-                       </button>
-                    </div>
-                  )}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                     <button
+                       title="Editar Cliente"
+                       onClick={() => { openEditCliente(fichaCliente); setFichaCliente(null); }}
+                       className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all"
+                     >
+                       <Pencil size={14} />
+                     </button>
+                     {s && (
+                       <>
+                         <button
+                           title="Exportar em PDF"
+                           onClick={async () => {
+                             const { exportFichaClientePdf } = await import('../lib/fichaClientePdf');
+                             await exportFichaClientePdf({
+                               cliente: fichaCliente,
+                               servicos: clienteVendas[fichaCliente.id] || [],
+                               stats: { total: s.total, pago: s.pago, pendente: s.pendente, count: s.count },
+                             });
+                           }}
+                           className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all"
+                         >
+                           <FileText size={14} />
+                         </button>
+                         <button
+                           title="Exportar em Planilha"
+                           onClick={() => {
+                             exportFichaClienteXlsx(fichaCliente, clienteVendas[fichaCliente.id] || [], { total: s.total, pago: s.pago, pendente: s.pendente, count: s.count });
+                           }}
+                           className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all"
+                         >
+                           <Download size={14} />
+                         </button>
+                       </>
+                     )}
+                  </div>
                </div>
 
                <div className="grid grid-cols-2 gap-3 text-xs">
