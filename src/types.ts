@@ -560,7 +560,7 @@ export interface Orcamento {
   createdAt: string;
 }
 
-export type ContratoStatus = 'rascunho' | 'aguardando_aceite' | 'aceito' | 'em_execucao' | 'concluido' | 'cancelado' | 'encerrado';
+export type ContratoStatus = 'rascunho' | 'aguardando_aceite' | 'aceito' | 'assinado' | 'em_execucao' | 'concluido' | 'cancelado' | 'encerrado';
 
 export interface Contrato {
   id: string;
@@ -585,6 +585,12 @@ export interface Contrato {
   observacoes?: string;
   textoContrato?: string;
   status: ContratoStatus;
+  rg?: string;
+  signedAt?: string;
+  signerIp?: string;
+  signerUserAgent?: string;
+  documentHash?: string;
+  signatureMethod?: string;
   createdAt: string;
   updatedAt?: string;
 }

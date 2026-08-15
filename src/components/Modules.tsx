@@ -2,6 +2,7 @@ import { AppContext } from '../App';
 import React, { useState, useEffect, useMemo, useRef, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { ContractApprovalModule } from './ContractApprovalModule';
+import { ContractSignatureOtpPanel } from './ContractSignatureOtpPanel';
 import { 
   TrendingUp, 
   LayoutGrid,
@@ -479,6 +480,12 @@ const mapContratoRow = (row: any): Contrato => ({
   observacoes: row.observacoes || undefined,
   textoContrato: row.texto_contrato || undefined,
   status: row.status || 'rascunho',
+  rg: row.rg || undefined,
+  signedAt: row.signed_at || undefined,
+  signerIp: row.signer_ip || undefined,
+  signerUserAgent: row.signer_user_agent || undefined,
+  documentHash: row.document_hash || undefined,
+  signatureMethod: row.signature_method || undefined,
   responsavel: row.responsavel || undefined,
   createdAt: row.created_at,
   updatedAt: row.updated_at || undefined,
@@ -519,6 +526,7 @@ function getRevenueEventsForSale(o: SaleOrder): { date: string; value: number }[
 
 const CONTRATO_STATUS_LABELS: Record<string, string> = {
   rascunho: 'Rascunho', aguardando_aceite: 'Aguardando Aceite', aceito: 'Aceito',
+  assinado: 'Assinado Digitalmente',
   em_execucao: 'Em Execução', concluido: 'Concluído', cancelado: 'Cancelado', encerrado: 'Encerrado',
 };
 
@@ -526,6 +534,7 @@ const CONTRATO_STATUS_STYLES: Record<string, string> = {
   rascunho: 'bg-white/10 text-white/50',
   aguardando_aceite: 'bg-amber-500/15 text-amber-400',
   aceito: 'bg-emerald-500/15 text-emerald-400',
+  assinado: 'bg-primary-500/15 text-primary-400',
   em_execucao: 'bg-blue-500/15 text-blue-400',
   concluido: 'bg-primary-500/15 text-primary-400',
   cancelado: 'bg-rose-500/15 text-rose-400',
@@ -4703,7 +4712,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const handleDownloadContratoPdf = async (c: Contrato) => {
-    await downloadContratoPdf(`${c.numero}${c.versao > 1 ? ` (v${c.versao})` : ''}`, c.customerName, c.textoContrato || 'Contrato sem texto gerado.');
+    const auditStamp = c.signedAt && c.signerIp && c.documentHash
+      ? { signedAt: c.signedAt, signerIp: c.signerIp, documentHash: c.documentHash }
+      : undefined;
+    await downloadContratoPdf(`${c.numero}${c.versao > 1 ? ` (v${c.versao})` : ''}`, c.customerName, c.textoContrato || 'Contrato sem texto gerado.', auditStamp);
   };
 
   const handleDuplicateContrato = (c: Contrato) => {
@@ -11002,6 +11014,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             <div className="bg-slate-900/60 border border-white/10 rounded-2xl p-4 max-h-[55vh] overflow-y-auto custom-scrollbar">
                <pre className="text-[11px] text-white/80 whitespace-pre-wrap font-sans leading-relaxed">{viewingContrato.textoContrato || 'Esse contrato ainda não tem texto gerado.'}</pre>
             </div>
+            <ContractSignatureOtpPanel contrato={viewingContrato} />
             <div className="flex justify-end gap-3">
                <Button variant="ghost" onClick={() => setViewingContrato(null)}>Fechar</Button>
                <Button className="bg-purple-500 hover:bg-purple-400 text-white border-none" onClick={() => handleDownloadContratoPdf(viewingContrato)}>Baixar PDF</Button>
