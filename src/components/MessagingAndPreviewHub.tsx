@@ -30,7 +30,7 @@ export const DEFAULT_TEMPLATES: SocialChannelTemplate[] = [
     channel: 'whatsapp',
     type: 'orcamento',
     title: 'Modelo - Proposta de Orçamento',
-    messageText: 'Olá {{NOME}}! Aqui está a sua proposta de orçamento da {{EMPRESA}}:\n• Serviço: {{SERVICO}}\n• Valor Total: R$ {{VALOR}}\n• Entrada (50%): R$ {{ENTRADA}}\n\nAcesse o link para conferir os detalhes e aprovar: {{LINK_CONTRATO}}'
+    messageText: 'Olá {{NOME}}! Segue o contrato {{NUMERO}} no valor de R$ {{VALOR}}.\n\nAcesse o link para conferir os detalhes e assinar: {{LINK_CONTRATO}}'
   },
   {
     id: 'tmpl-2',
@@ -71,13 +71,19 @@ export const MessagingAndPreviewHub: React.FC<MessagingAndPreviewHubProps> = ({
   const [activeChannel, setActiveChannel] = useState<'whatsapp' | 'instagram' | 'facebook' | 'telegram'>('whatsapp');
   
   // Test message parameters
-  const [clientName, setClientName] = useState('Carlos Alberto');
+  const [clientName, setClientName] = useState('Daiane de Aguiar Neres');
+  const [contractNumber, setContractNumber] = useState('CTR-241359');
   const [serviceTitle, setServiceTitle] = useState('Fachada ACM 3x1m LED');
-  const [totalValue, setTotalValue] = useState(3800);
+  const [totalValue, setTotalValue] = useState(2140);
   const [verificationCode, setVerificationCode] = useState('849201');
-  const [selectedTemplateType, setSelectedTemplateType] = useState<'orcamento' | 'confirmacao_aceite' | 'pagamento_confirmado' | 'aviso_entrega'>('confirmacao_aceite');
+  const [selectedTemplateType, setSelectedTemplateType] = useState<'orcamento' | 'confirmacao_aceite' | 'pagamento_confirmado' | 'aviso_entrega'>('orcamento');
 
   const [copiedMessageAlert, setCopiedMessageAlert] = useState(false);
+
+  // Link real do contrato: mesma rota pública usada pelo cliente pra ler e assinar
+  // (ver ContractSignaturePublicPage / rota /assinar/:id em AppRoot.tsx, e
+  // PUBLIC_BASE_URL em ContractSignatureOtpPanel.tsx)
+  const CONTRATO_LINK = `https://pro.rafaartsgraphics.com.br/assinar/${contractNumber}`;
 
   // Formatted message preview text generator
   const getFormattedMessage = (channel: string, type: string) => {
@@ -85,15 +91,32 @@ export const MessagingAndPreviewHub: React.FC<MessagingAndPreviewHubProps> = ({
     let txt = tmpl.messageText;
     txt = txt.replace(/{{NOME}}/g, clientName);
     txt = txt.replace(/{{EMPRESA}}/g, companyConfig.razaoSocial || 'RAFA ARTS GRAPHICS');
+    txt = txt.replace(/{{NUMERO}}/g, contractNumber);
     txt = txt.replace(/{{SERVICO}}/g, serviceTitle);
     txt = txt.replace(/{{VALOR}}/g, totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 }));
     txt = txt.replace(/{{ENTRADA}}/g, (totalValue / 2).toLocaleString('pt-BR', { minimumFractionDigits: 2 }));
     txt = txt.replace(/{{CODIGO}}/g, verificationCode);
-    txt = txt.replace(/{{LINK_CONTRATO}}/g, 'https://rafaarts.com/contrato/CTR-849201');
+    txt = txt.replace(/{{LINK_CONTRATO}}/g, CONTRATO_LINK);
     txt = txt.replace(/{{PRAZO}}/g, '7');
     txt = txt.replace(/{{ENDERECO}}/g, companyConfig.endereco || 'Av. T-63, nº 1200 - Goiânia/GO');
     return txt;
   };
+
+  // A mensagem atual leva o link do contrato? (só o modelo de orçamento tem {{LINK_CONTRATO}})
+  const currentMessageHasContractLink = (channel: string, type: string) => {
+    const tmpl = DEFAULT_TEMPLATES.find(t => t.channel === channel && t.type === type) || DEFAULT_TEMPLATES[1];
+    return tmpl.messageText.includes('{{LINK_CONTRATO}}');
+  };
+
+  // Dados do card de preview do link (o que WhatsApp/Instagram/Telegram mostram
+  // ao colar um link: logo da empresa, nome do cliente e valor do contrato)
+  const getContractLinkPreview = () => ({
+    logoUrl: companyConfig.logoUrl,
+    empresa: companyConfig.razaoSocial || 'RAFA ARTS GRAPHICS',
+    titulo: clientName,
+    valorFormatado: `Contrato ${contractNumber} • R$ ${totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
+    url: CONTRATO_LINK.replace(/^https?:\/\//, ''),
+  });
 
   const handleCopyMessage = () => {
     const text = getFormattedMessage(activeChannel, selectedTemplateType);
@@ -296,6 +319,16 @@ export const MessagingAndPreviewHub: React.FC<MessagingAndPreviewHubProps> = ({
                 />
               </div>
 
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-zinc-400 uppercase">Número do Contrato</label>
+                <input
+                  type="text"
+                  value={contractNumber}
+                  onChange={e => setContractNumber(e.target.value)}
+                  className="w-full h-10 bg-zinc-900 border border-zinc-800 focus:border-red-500 rounded-xl px-3 text-xs text-white font-mono outline-none"
+                />
+              </div>
+
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-zinc-400 uppercase">Valor Total (R$)</label>
@@ -364,6 +397,40 @@ export const MessagingAndPreviewHub: React.FC<MessagingAndPreviewHubProps> = ({
                   <p className="whitespace-pre-line text-[11px] leading-relaxed text-zinc-200">
                     {getFormattedMessage(activeChannel, selectedTemplateType)}
                   </p>
+
+                  {/* Preview do link do contrato — reproduz o card que o WhatsApp/Instagram/
+                      Telegram geram automaticamente ao detectar um link na mensagem */}
+                  {currentMessageHasContractLink(activeChannel, selectedTemplateType) && (
+                    <div className="rounded-xl overflow-hidden border border-white/10 bg-black/30">
+                      <div className="h-24 w-full bg-zinc-800 flex items-center justify-center overflow-hidden">
+                        {getContractLinkPreview().logoUrl ? (
+                          <img
+                            src={getContractLinkPreview().logoUrl}
+                            alt={getContractLinkPreview().empresa}
+                            className="max-h-full max-w-full object-contain p-3"
+                          />
+                        ) : (
+                          <div className="flex flex-col items-center gap-1 text-zinc-500">
+                            <FileText size={22} />
+                            <span className="text-[8px] font-black uppercase tracking-wider">
+                              {getContractLinkPreview().empresa}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="p-2.5 space-y-0.5 bg-zinc-950/60">
+                        <p className="text-[10px] font-black text-white leading-tight truncate">
+                          {getContractLinkPreview().titulo}
+                        </p>
+                        <p className="text-[9px] text-zinc-300 leading-tight">
+                          {getContractLinkPreview().valorFormatado}
+                        </p>
+                        <p className="text-[8px] text-zinc-500 uppercase tracking-wide truncate">
+                          {getContractLinkPreview().url}
+                        </p>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="text-right text-[8px] text-zinc-400 font-mono">
                     09:41 ✓✓

@@ -1,5 +1,19 @@
 {
   "rewrites": [
+    {
+      "source": "/assinar/:id",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*(facebookexternalhit|WhatsApp|Twitterbot|TelegramBot|LinkedInBot|Slackbot|Discordbot|SkypeUriPreview|Pinterest|vkShare|W3C_Validator).*"
+        }
+      ],
+      "missing": [
+        { "type": "query", "key": "direct" }
+      ],
+      "destination": "/api/assinar/:id"
+    },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

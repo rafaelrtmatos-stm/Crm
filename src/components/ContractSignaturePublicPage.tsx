@@ -3,9 +3,9 @@
 // Renderizada pela rota /assinar/:contratoId (ver integração em AppRoot.tsx).
 
 import React, { useEffect, useState } from 'react';
-import { ShieldCheck, Loader2, AlertCircle, CheckCircle2, Download, Hash, Globe, Clock } from 'lucide-react';
+import { ShieldCheck, Loader2, AlertCircle, CheckCircle2, Download, Hash, Globe, Clock, IdCard } from 'lucide-react';
 import { supabase } from '../supabase';
-import { validateVerificationCode, signContract } from '../lib/otpUtils';
+import { validateVerificationCode, signContract, checkDocumentLastDigits } from '../lib/otpUtils';
 import { getPublicIpAddress } from '../lib/contractUtils';
 import { downloadContratoPdf } from '../lib/contratoPdf';
 
@@ -32,6 +32,13 @@ export default function ContractSignaturePublicPage() {
   const [codeDigits, setCodeDigits] = useState(['', '', '', '', '', '']);
   const [error, setError] = useState<string | null>(null);
   const [isValidating, setIsValidating] = useState(false);
+
+  // Checagem extra de identidade (3 ultimos digitos do CPF/CNPJ) -- precisa bater ANTES de
+  // liberar os campos do codigo OTP recebido por WhatsApp. Ver checkDocumentLastDigits em otpUtils.ts.
+  const [documentDigits, setDocumentDigits] = useState('');
+  const [docVerified, setDocVerified] = useState(false);
+  const [docError, setDocError] = useState<string | null>(null);
+  const [isCheckingDoc, setIsCheckingDoc] = useState(false);
 
   const [signedResult, setSignedResult] = useState<{ hash: string; ip: string; signedAt: string } | null>(null);
 
@@ -69,8 +76,36 @@ export default function ContractSignaturePublicPage() {
     }
   };
 
+  const handleVerifyDocument = async () => {
+    if (!contrato) return;
+    if (documentDigits.length !== 3) {
+      setDocError('Digite os 3 últimos números do seu CPF ou CNPJ.');
+      return;
+    }
+    setIsCheckingDoc(true);
+    setDocError(null);
+    try {
+      const match = await checkDocumentLastDigits(contrato.id, documentDigits);
+      if (!match) {
+        setDocError('Não confere com o documento cadastrado neste contrato. Confira e tente novamente.');
+        setIsCheckingDoc(false);
+        return;
+      }
+      setDocVerified(true);
+    } catch (err) {
+      console.error('Erro ao checar documento:', err);
+      setDocError('Ocorreu um erro ao verificar. Tente novamente em instantes.');
+    } finally {
+      setIsCheckingDoc(false);
+    }
+  };
+
   const handleSubmit = async () => {
     if (!contrato) return;
+    if (!docVerified) {
+      setError('Confirme os últimos dígitos do seu CPF/CNPJ antes de assinar.');
+      return;
+    }
     if (!agreed) {
       setError('Você precisa marcar "Li e concordo com os termos" antes de assinar.');
       return;
@@ -203,6 +238,53 @@ export default function ContractSignaturePublicPage() {
           Li e concordo com os termos do contrato de prestação de serviços acima.
         </label>
 
+        {/* Etapa 1: checagem de identidade (3 ultimos digitos do CPF/CNPJ). So depois de
+            confirmar aqui e' que o campo do codigo OTP (etapa 2) fica liberado. */}
+        {!docVerified ? (
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 space-y-3">
+            <p className="text-[11px] text-white/50 flex items-center gap-1.5">
+              <IdCard size={13} className="shrink-0" />
+              Pra continuar, confirme os 3 últimos números do seu CPF ou CNPJ:
+            </p>
+            <div className="flex justify-center">
+              <input
+                value={documentDigits}
+                onChange={(e) => {
+                  const digits = e.target.value.replace(/\D/g, '').slice(0, 3);
+                  setDocumentDigits(digits);
+                  setDocError(null);
+                }}
+                maxLength={3}
+                inputMode="numeric"
+                placeholder="000"
+                className="w-24 h-12 text-center text-lg font-black bg-black/40 border border-white/15 rounded-lg text-white focus:border-primary-400 outline-none tracking-widest"
+              />
+            </div>
+
+            {docError && (
+              <p className="text-[11px] text-rose-400 flex items-center gap-1.5 justify-center">
+                <AlertCircle size={12} /> {docError}
+              </p>
+            )}
+
+            <button
+              onClick={handleVerifyDocument}
+              disabled={isCheckingDoc}
+              className="w-full flex items-center justify-center gap-2 rounded-xl bg-white/10 hover:bg-white/15 disabled:opacity-50 text-white text-xs font-black uppercase py-3 transition-colors"
+            >
+              {isCheckingDoc ? <Loader2 size={14} className="animate-spin" /> : <IdCard size={14} />}
+              Confirmar
+            </button>
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.06] p-3 flex items-center gap-2 text-[11px] text-emerald-400">
+            <CheckCircle2 size={14} className="shrink-0" />
+            Identidade confirmada.
+          </div>
+        )}
+
+        {/* Etapa 2: codigo OTP recebido por WhatsApp -- so aparece depois da etapa 1 acima */}
+        {docVerified && (
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 space-y-3">
           <p className="text-[11px] text-white/50">
             Digite o código de 6 dígitos que você recebeu por WhatsApp ou e-mail:
@@ -236,6 +318,7 @@ export default function ContractSignaturePublicPage() {
             Confirmar e Assinar
           </button>
         </div>
+        )}
       </div>
     </div>
   );
