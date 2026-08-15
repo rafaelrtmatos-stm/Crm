@@ -32,7 +32,7 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
   onOpenAddModal,
 }) => {
   const [filters, setFilters] = useState<FilterOptions>({
-    dateRange: 'week',
+    dateRange: 'all',
     statusFilter: 'TODOS',
     searchQuery: '',
   });
