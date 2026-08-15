@@ -32,6 +32,7 @@ import { ReportsView } from './components/ReportsView';
 import { ServiceModal } from './components/ServiceModal';
 import { SettingsModal } from './components/SettingsModal';
 import { ServicosAgendados } from './components/ServicosAgendados';
+import { NotaDetalhe, NotaDetalheItem } from './components/NotaDetalheModal';
 import { CheckCircle2 } from 'lucide-react';
 import './comissoes-theme.css';
 
@@ -54,6 +55,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [editingService, setEditingService] = useState<ServiceItem | null>(null);
   const [modalInitialDate, setModalInitialDate] = useState<string | undefined>(undefined);
+  const [modalHeaderOverride, setModalHeaderOverride] = useState<{ title: string; subtitle: string } | undefined>(undefined);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -183,7 +185,38 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
 
   const handleEditService = (service: ServiceItem) => {
     setEditingService(service);
+    setModalHeaderOverride(undefined);
     setIsAddModalOpen(true);
+  };
+
+  // Copia um item de uma nota agendada (aba "Serviços") pro formulário de lançamento — o
+  // colaborador ainda revisa/edita o preço, a descrição ou o que quiser antes de salvar.
+  // Não é "editar" um lançamento existente, então usa um id novo e um cabeçalho próprio.
+  const handleCopyItemFromNota = (item: NotaDetalheItem, nota: NotaDetalhe) => {
+    const dataAgendada = nota.scheduled_for ? new Date(nota.scheduled_for).toISOString().split('T')[0] : undefined;
+    const quantity = item.quantity ?? 1;
+    const unitPrice = typeof item.price === 'number' ? item.price : 0;
+    const productionValue = Number((unitPrice * quantity).toFixed(2));
+    const commissionPercent = userSettings.defaultCommissionRate;
+    setEditingService({
+      id: `srv-${Date.now()}`,
+      date: dataAgendada || new Date().toISOString().split('T')[0],
+      clientName: nota.customer_name || '',
+      serviceType: item.name,
+      unit: 'unidade',
+      quantity,
+      unitPrice,
+      productionValue,
+      commissionPercent,
+      commissionValue: Number(((productionValue * commissionPercent) / 100).toFixed(2)),
+      status: 'CONCLUÍDO',
+      notes: `Copiado da nota #${nota.id.slice(-6).toUpperCase()}`,
+      createdAt: Date.now(),
+    });
+    setModalInitialDate(dataAgendada);
+    setModalHeaderOverride({ title: 'CONFIRMAR SERVIÇO DA NOTA', subtitle: 'Revise os dados — o que não é seu, apague ou ajuste antes de salvar' });
+    setIsAddModalOpen(true);
+    setActiveTab('table');
   };
 
   const summaryStats = useMemo(() => calculateSummaryStats(services, userSettings.baseSalary), [services, userSettings.baseSalary]);
@@ -223,7 +256,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
         activeTab={activeTab as any}
         setActiveTab={setActiveTab as any}
         userSettings={userSettings}
-        onOpenAddModal={() => { setEditingService(null); setModalInitialDate(undefined); setIsAddModalOpen(true); }}
+        onOpenAddModal={() => { setEditingService(null); setModalInitialDate(undefined); setModalHeaderOverride(undefined); setIsAddModalOpen(true); }}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onLogout={presetColaborador ? undefined : handleLogout}
       />
@@ -239,7 +272,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
                 stats={summaryStats}
                 todayStats={todayStats}
                 recentServices={services}
-                onOpenAddModal={() => { setEditingService(null); setModalInitialDate(undefined); setIsAddModalOpen(true); }}
+                onOpenAddModal={() => { setEditingService(null); setModalInitialDate(undefined); setModalHeaderOverride(undefined); setIsAddModalOpen(true); }}
                 onGoToTable={() => setActiveTab('table')}
                 onEditService={handleEditService}
                 weeklyGoal={userSettings.weeklyGoal}
@@ -250,7 +283,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
                 services={services}
                 onEditService={handleEditService}
                 onDeleteService={handleDeleteService}
-                onOpenAddModalWithDate={(dateISO) => { setEditingService(null); setModalInitialDate(dateISO); setIsAddModalOpen(true); }}
+                onOpenAddModalWithDate={(dateISO) => { setEditingService(null); setModalInitialDate(dateISO); setModalHeaderOverride(undefined); setIsAddModalOpen(true); }}
                 weeklyGoal={userSettings.weeklyGoal}
               />
             )}
@@ -260,24 +293,25 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
                 baseSalary={userSettings.baseSalary}
                 onEditService={handleEditService}
                 onDeleteService={handleDeleteService}
-                onOpenAddModal={() => { setEditingService(null); setModalInitialDate(undefined); setIsAddModalOpen(true); }}
+                onOpenAddModal={() => { setEditingService(null); setModalInitialDate(undefined); setModalHeaderOverride(undefined); setIsAddModalOpen(true); }}
               />
             )}
             {activeTab === 'reports' && (
               <ReportsView services={services} userSettings={userSettings} stats={summaryStats} />
             )}
-            {activeTab === 'servicos' && <ServicosAgendados />}
+            {activeTab === 'servicos' && <ServicosAgendados onCopyItemToTable={handleCopyItemFromNota} />}
           </>
         )}
       </main>
 
       <ServiceModal
         isOpen={isAddModalOpen}
-        onClose={() => { setIsAddModalOpen(false); setEditingService(null); setModalInitialDate(undefined); }}
+        onClose={() => { setIsAddModalOpen(false); setEditingService(null); setModalInitialDate(undefined); setModalHeaderOverride(undefined); }}
         onSave={handleSaveService}
         editingService={editingService}
         initialDate={modalInitialDate}
         defaultCommissionRate={userSettings.defaultCommissionRate}
+        headerOverride={modalHeaderOverride}
       />
 
       <SettingsModal

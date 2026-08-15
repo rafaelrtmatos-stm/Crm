@@ -11,6 +11,11 @@ interface ServiceModalProps {
   editingService?: ServiceItem | null;
   initialDate?: string;
   defaultCommissionRate: number;
+  // Usado quando o formulário é pré-preenchido a partir de uma nota do CRM (aba "Serviços
+  // Agendados"): tecnicamente é um lançamento novo (ainda não existe na tabela do colaborador),
+  // então o cabeçalho não deve dizer "EDITAR". Os campos continuam totalmente editáveis —
+  // o colaborador pode ajustar o preço ou qualquer outro dado antes de salvar.
+  headerOverride?: { title: string; subtitle: string };
 }
 
 export const ServiceModal: React.FC<ServiceModalProps> = ({
@@ -20,6 +25,7 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
   editingService,
   initialDate,
   defaultCommissionRate,
+  headerOverride,
 }) => {
   const getTodayISO = () => new Date().toISOString().split('T')[0];
 
@@ -166,10 +172,10 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
             </div>
             <div>
               <h2 className="text-sm sm:text-base font-black uppercase tracking-tight text-[var(--text-main)]">
-                {editingService ? 'EDITAR SERVIÇO' : 'LANÇAR NOVO SERVIÇO'}
+                {headerOverride ? headerOverride.title : editingService ? 'EDITAR SERVIÇO' : 'LANÇAR NOVO SERVIÇO'}
               </h2>
               <p className="text-[11px] text-[var(--text-muted)] font-medium">
-                Informe o serviço e o valor para salvar no histórico
+                {headerOverride ? headerOverride.subtitle : 'Informe o serviço e o valor para salvar no histórico'}
               </p>
             </div>
           </div>
