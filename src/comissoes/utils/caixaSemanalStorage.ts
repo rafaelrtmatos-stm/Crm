@@ -294,3 +294,72 @@ export async function fecharCaixa(caixa: WeeklyCaixa, resumo: ResumoCaixa): Prom
 
   return mapCaixaRow(proximo);
 }
+
+// --- Reabertura (correção de fechamento) ---
+
+export interface ReabrirCaixaResult {
+  caixa: WeeklyCaixa | null;
+  reason: string | null;
+}
+
+/**
+ * Reabre um caixa já fechado, pra corrigir pagamentos e fechar de novo com o valor certo.
+ * Só é seguro fazer isso se a semana SEGUINTE (criada automaticamente quando esse caixa foi
+ * fechado) ainda não tiver nenhuma atividade própria -- senão a gente perderia/bagunçaria o
+ * saldo_anterior dela. Por isso:
+ *  - se a semana seguinte já foi fechada, ou já tem pagamentos lançados nela: bloqueia e avisa
+ *    (caixa=null, reason preenchido).
+ *  - se ela existe mas está vazia (só foi criada, sem uso): apaga ela, porque vai nascer de
+ *    novo (com o saldo_anterior corrigido) quando esse caixa for fechado outra vez.
+ * O caixa reaberto volta pra status='aberto' com os 5 campos do snapshot zerados (null), pra
+ * a tela recalcular tudo ao vivo de novo (igual a um caixa aberto normal).
+ */
+export async function reabrirCaixa(caixa: WeeklyCaixa): Promise<ReabrirCaixaResult> {
+  if (caixa.status !== 'fechado') return { caixa: null, reason: 'Esse caixa já está aberto.' };
+
+  const proximaSemanaInicio = addDaysISO(caixa.semanaFim, 2);
+  const { data: proximo, error: fetchNextError } = await supabase
+    .from('comissoes_caixas_semanais')
+    .select('*')
+    .eq('colaborador_id', caixa.colaboradorId)
+    .eq('semana_inicio', proximaSemanaInicio)
+    .maybeSingle();
+
+  if (fetchNextError) return { caixa: null, reason: 'Erro ao verificar a semana seguinte.' };
+
+  if (proximo) {
+    if (proximo.status === 'fechado') {
+      return { caixa: null, reason: 'A semana seguinte já foi fechada também -- reabra ela primeiro, depois volte aqui.' };
+    }
+    const { count, error: countError } = await supabase
+      .from('comissoes_pagamentos')
+      .select('id', { count: 'exact', head: true })
+      .eq('caixa_id', proximo.id);
+    if (countError) return { caixa: null, reason: 'Erro ao verificar pagamentos da semana seguinte.' };
+    if ((count || 0) > 0) {
+      return { caixa: null, reason: 'Já existem pagamentos lançados na semana seguinte -- exclua-os antes de reabrir essa aqui, senão o saldo dela ficaria incorreto.' };
+    }
+    const { error: delError } = await supabase.from('comissoes_caixas_semanais').delete().eq('id', proximo.id);
+    if (delError) return { caixa: null, reason: 'Erro ao remover a semana seguinte (ainda vazia) antes de reabrir.' };
+  }
+
+  const nowISO = new Date().toISOString();
+  const { data: reaberto, error: reopenError } = await supabase
+    .from('comissoes_caixas_semanais')
+    .update({
+      status: 'aberto',
+      salario_base: null,
+      total_comissao: null,
+      total_descontos: null,
+      total_pago: null,
+      saldo_final: null,
+      fechado_em: null,
+      updated_at: nowISO,
+    })
+    .eq('id', caixa.id)
+    .select()
+    .single();
+
+  if (reopenError || !reaberto) return { caixa: null, reason: 'Erro ao reabrir o caixa.' };
+  return { caixa: mapCaixaRow(reaberto), reason: null };
+}

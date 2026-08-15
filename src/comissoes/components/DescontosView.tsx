@@ -30,6 +30,7 @@ import {
   calcularResumoCaixa,
   fecharCaixa,
   getHistoricoCaixasFechados,
+  reabrirCaixa,
 } from '../utils/caixaSemanalStorage';
 import { formatDateBR } from '../utils/storage';
 import { showAlert, showConfirm } from '../../lib/notify';
@@ -119,6 +120,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
   const [showHistorico, setShowHistorico] = useState(false);
   const [historico, setHistorico] = useState<WeeklyCaixa[] | null>(null);
   const [loadingHistorico, setLoadingHistorico] = useState(false);
+  const [reabrindoId, setReabrindoId] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
@@ -212,6 +214,24 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
       setHistorico(list);
       setLoadingHistorico(false);
     }
+  };
+
+  const handleReabrirCaixa = async (h: WeeklyCaixa) => {
+    if (!(await showConfirm(
+      `Reabrir o caixa da semana ${formatDateBR(h.semanaInicio)} a ${formatDateBR(h.semanaFim)}? ` +
+      `Só faz isso se a semana seguinte ainda estiver vazia. Depois de corrigir os pagamentos, ` +
+      `feche essa semana de novo.`
+    ))) return;
+    setReabrindoId(h.id);
+    const result = await reabrirCaixa(h);
+    setReabrindoId(null);
+    if (!result.caixa) { showAlert(result.reason || 'Não foi possível reabrir o caixa.'); return; }
+    // Essa semana reaberta passa a ser o caixa "aberto" corrente da tela.
+    setCaixa(result.caixa);
+    setHistorico((prev) => (prev ? prev.filter((x) => x.id !== h.id) : prev));
+    const list = await getPagamentosDoCaixa(result.caixa.id);
+    setPagamentos(list);
+    setShowHistorico(false);
   };
 
   const openNewForm = () => {
@@ -465,9 +485,21 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
                 historico.map((h) => (
                   <div key={h.id} className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)] text-[11px]">
                     <span className="text-[var(--text-main)] font-bold">{formatDateBR(h.semanaInicio)} a {formatDateBR(h.semanaFim)}</span>
-                    <span className={`font-mono font-black ${((h.saldoFinal ?? 0) >= 0) ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      {formatCurrency(h.saldoFinal ?? 0)}
-                    </span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className={`font-mono font-black ${((h.saldoFinal ?? 0) >= 0) ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {formatCurrency(h.saldoFinal ?? 0)}
+                      </span>
+                      {isAdmin && (
+                        <button
+                          disabled={reabrindoId === h.id}
+                          onClick={() => handleReabrirCaixa(h)}
+                          className="text-[9px] font-black uppercase tracking-wider text-primary-400 hover:text-primary-300 disabled:opacity-50"
+                          title="Reabrir esse caixa pra corrigir pagamentos"
+                        >
+                          {reabrindoId === h.id ? 'Reabrindo...' : 'Reabrir'}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))
               )}
