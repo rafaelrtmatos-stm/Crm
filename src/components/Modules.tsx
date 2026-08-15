@@ -15103,7 +15103,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                             <h3 className="text-lg font-bold text-white tracking-tight italic uppercase flex items-center gap-2">
                                <Wifi size={18} className="text-primary-400" /> Sessões Ativas ({activeSessions.length})
                             </h3>
-                            <p className="text-[11px] text-white/30 font-medium">Quem está acessando agora, de qual IP e aparelho — desconecte remotamente se precisar</p>
+                            <p className="text-[11px] text-white/30 font-medium">Quem está acessando agora, de qual IP, aparelho e localização aproximada — desconecte remotamente se precisar</p>
                          </div>
                          {activeSessions.length === 0 ? (
                             <p className="text-xs text-white/30 py-2">Nenhuma sessão ativa nos últimos 30 minutos.</p>
@@ -15114,6 +15114,9 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                                     <div className="min-w-0">
                                        <p className="text-xs font-bold text-white">{s.userName}</p>
                                        <p className="text-[10px] text-white/40">IP: {s.ip} · {s.device}</p>
+                                       {s.location && s.location !== 'desconhecida' && (
+                                         <p className="text-[10px] text-white/40">📍 {s.location}</p>
+                                       )}
                                        <p className="text-[9px] text-white/20">Visto por último: {safeFormat(s.lastSeenAt || s.loginAt, 'dd/MM/yyyy HH:mm')}</p>
                                     </div>
                                     <button

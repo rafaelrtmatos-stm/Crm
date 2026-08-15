@@ -711,16 +711,39 @@ export default function App() {
       sessionStorage.setItem('rpro_session_id', sessionId);
 
       let ip = 'desconhecido';
+      let location = 'desconhecida';
+      // Geolocalizacao por IP publico (cidade/regiao/pais) — nenhum dado de GPS e coletado,
+      // so a localizacao aproximada que da pra saber a partir do IP de acesso.
+      // Tenta ipapi.co primeiro (traz IP + localizacao numa unica chamada); se falhar
+      // (fora do ar, limite de requisicoes, etc), cai pro ipwho.is; e se nem esse
+      // funcionar, ao menos tenta pegar o IP puro via ipify pra nao perder essa info.
       try {
-        const res = await fetch('https://api.ipify.org?format=json');
+        const res = await fetch('https://ipapi.co/json/');
         const j = await res.json();
-        ip = j.ip || 'desconhecido';
-      } catch (e) { /* segue sem IP se a consulta falhar */ }
+        ip = j.ip || ip;
+        location = [j.city, j.region, j.country_name].filter(Boolean).join(', ') || location;
+      } catch (e) {
+        try {
+          const res2 = await fetch('https://ipwho.is/');
+          const j2 = await res2.json();
+          if (j2?.success !== false) {
+            ip = j2.ip || ip;
+            location = [j2.city, j2.region, j2.country].filter(Boolean).join(', ') || location;
+          }
+        } catch (e2) {
+          try {
+            const res3 = await fetch('https://api.ipify.org?format=json');
+            const j3 = await res3.json();
+            ip = j3.ip || ip;
+          } catch (e3) { /* segue sem IP/localizacao se todas as consultas falharem */ }
+        }
+      }
 
       await setDoc(doc(db, 'sessions', sessionId), {
         userId: uid,
         userName: uname,
         ip,
+        location,
         device: describeDevice(),
         userAgent: navigator.userAgent,
         loginAt: new Date().toISOString(),
