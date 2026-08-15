@@ -44,30 +44,114 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <header className="sticky top-0 z-30 border-b border-[var(--border-color)] bg-[var(--bg-main)]/90 backdrop-blur-md transition-colors">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Linha do topo: logo + ações. Sem altura fixa (h-20 travava o conteúdo e
-            cortava/soltava a navegação quando ela precisava de mais espaço) — agora
-            usa padding vertical, então cresce com o conteúdo em qualquer tela. */}
+        {/* Linha do topo: logo + abas (desktop) + ações, tudo numa linha só,
+            como era antes. Altura mínima (não fixa) pra nunca cortar nada. */}
         <div className="flex items-center justify-between gap-2 lg:gap-4 py-3 min-h-[4.5rem]">
 
           {/* Logo & Brand Identity */}
-          <div className="flex items-center gap-3 shrink-0 min-w-0">
+          <div className="flex items-center gap-3 shrink-0">
             <div className="w-10 h-10 rounded-xl overflow-hidden shrink-0 shadow-red-glow">
               <img src="/icon-192.png" alt="Logo" className="w-full h-full object-contain" />
             </div>
-            <div className="min-w-0">
+            <div className="hidden sm:block">
               <div className="flex items-center gap-2">
-                <h1 className="text-base sm:text-lg font-black tracking-tight text-[var(--text-main)] uppercase truncate">
+                <h1 className="text-lg font-black tracking-tight text-[var(--text-main)] uppercase whitespace-nowrap">
                   PRODUÇÃO <span className="text-[var(--accent-red)]">&</span> COMISSÃO
                 </h1>
                 <span className="hidden xl:inline-block px-2 py-0.5 text-[10px] font-bold tracking-widest uppercase bg-red-500/10 text-[var(--accent-red)] border border-red-500/20 rounded-md shrink-0">
                   PRO
                 </span>
               </div>
-              <p className="text-xs text-[var(--text-muted)] font-medium truncate">
+              <p className="text-xs text-[var(--text-muted)] font-medium whitespace-nowrap">
                 {userSettings.userName} • {capitalizedDate}
               </p>
             </div>
           </div>
+
+          {/* Desktop Navigation Tabs -- linha única, nunca quebra. Se não couber
+              tudo, a barra desliza horizontalmente (scroll) em vez de cortar ou
+              soltar abas pra fora do painel. */}
+          <nav className="hidden md:flex flex-1 min-w-0 items-center justify-center gap-0.5 lg:gap-1 bg-[var(--bg-card)] p-1 lg:p-1.5 border border-[var(--border-color)] overflow-x-auto no-scrollbar">
+          <button
+            id="nav-tab-dashboard"
+            onClick={() => setActiveTab('dashboard')}
+            className={`flex items-center gap-1.5 lg:gap-2 px-2.5 lg:px-3.5 py-1.5 lg:py-2 text-[10px] lg:text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              activeTab === 'dashboard'
+                ? 'bg-gradient-red text-white shadow-red-glow'
+                : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card-hover)]'
+            }`}
+          >
+            <LayoutDashboard className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" />
+            <span>DASHBOARD</span>
+          </button>
+
+          <button
+            id="nav-tab-weekly"
+            onClick={() => setActiveTab('weekly')}
+            className={`flex items-center gap-1.5 lg:gap-2 px-2.5 lg:px-3.5 py-1.5 lg:py-2 text-[10px] lg:text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              activeTab === 'weekly'
+                ? 'bg-gradient-red text-white shadow-red-glow'
+                : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card-hover)]'
+            }`}
+          >
+            <Calendar className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" />
+            <span className="lg:hidden">SEMANA</span>
+            <span className="hidden lg:inline">AGENDA SEMANAL</span>
+          </button>
+
+          <button
+            id="nav-tab-table"
+            onClick={() => setActiveTab('table')}
+            className={`flex items-center gap-1.5 lg:gap-2 px-2.5 lg:px-3.5 py-1.5 lg:py-2 text-[10px] lg:text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              activeTab === 'table'
+                ? 'bg-gradient-red text-white shadow-red-glow'
+                : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card-hover)]'
+            }`}
+          >
+            <Table className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" />
+            <span className="lg:hidden">PLANILHA</span>
+            <span className="hidden lg:inline">PLANILHA GERAL</span>
+          </button>
+
+          <button
+            id="nav-tab-reports"
+            onClick={() => setActiveTab('reports')}
+            className={`flex items-center gap-1.5 lg:gap-2 px-2.5 lg:px-3.5 py-1.5 lg:py-2 text-[10px] lg:text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              activeTab === 'reports'
+                ? 'bg-gradient-red text-white shadow-red-glow'
+                : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card-hover)]'
+            }`}
+          >
+            <BarChart3 className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" />
+            <span>RELATÓRIOS</span>
+          </button>
+
+          <button
+            id="nav-tab-servicos"
+            onClick={() => setActiveTab('servicos')}
+            className={`flex items-center gap-1.5 lg:gap-2 px-2.5 lg:px-3.5 py-1.5 lg:py-2 text-[10px] lg:text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              activeTab === 'servicos'
+                ? 'bg-gradient-red text-white shadow-red-glow'
+                : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card-hover)]'
+            }`}
+          >
+            <Bell className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" />
+            <span>SERVIÇOS</span>
+          </button>
+
+          <button
+            id="nav-tab-descontos"
+            onClick={() => setActiveTab('descontos')}
+            className={`flex items-center gap-1.5 lg:gap-2 px-2.5 lg:px-3.5 py-1.5 lg:py-2 text-[10px] lg:text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              activeTab === 'descontos'
+                ? 'bg-gradient-red text-white shadow-red-glow'
+                : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card-hover)]'
+            }`}
+          >
+            <MinusCircle className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" />
+            <span>DESCONTOS</span>
+          </button>
+          </nav>
 
           {/* Actions: Add Service Button & Settings */}
           <div className="flex items-center gap-1.5 lg:gap-3 shrink-0">
@@ -95,91 +179,6 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </div>
         </div>
-
-        {/* Desktop Navigation Tabs -- linha própria, dedicada, abaixo do topo.
-            Assim ela pode quebrar em mais de uma linha (flex-wrap) sem nunca
-            cortar nada nem "soltar" abas para fora do painel. */}
-        <nav className="hidden md:flex flex-wrap items-center justify-center gap-1 lg:gap-1.5 bg-[var(--bg-card)] p-1 lg:p-1.5 border border-[var(--border-color)] mb-3 w-full">
-          <button
-            id="nav-tab-dashboard"
-            onClick={() => setActiveTab('dashboard')}
-            className={`flex items-center gap-1.5 lg:gap-2 px-2.5 lg:px-3.5 py-1.5 lg:py-2 text-[10px] lg:text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'dashboard'
-                ? 'bg-gradient-red text-white shadow-red-glow'
-                : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card-hover)]'
-            }`}
-          >
-            <LayoutDashboard className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" />
-            <span>DASHBOARD</span>
-          </button>
-
-          <button
-            id="nav-tab-weekly"
-            onClick={() => setActiveTab('weekly')}
-            className={`flex items-center gap-1.5 lg:gap-2 px-2.5 lg:px-3.5 py-1.5 lg:py-2 text-[10px] lg:text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'weekly'
-                ? 'bg-gradient-red text-white shadow-red-glow'
-                : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card-hover)]'
-            }`}
-          >
-            <Calendar className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" />
-            <span className="lg:hidden">SEMANA</span>
-            <span className="hidden lg:inline">AGENDA SEMANAL</span>
-          </button>
-
-          <button
-            id="nav-tab-table"
-            onClick={() => setActiveTab('table')}
-            className={`flex items-center gap-1.5 lg:gap-2 px-2.5 lg:px-3.5 py-1.5 lg:py-2 text-[10px] lg:text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'table'
-                ? 'bg-gradient-red text-white shadow-red-glow'
-                : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card-hover)]'
-            }`}
-          >
-            <Table className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" />
-            <span className="lg:hidden">PLANILHA</span>
-            <span className="hidden lg:inline">PLANILHA GERAL</span>
-          </button>
-
-          <button
-            id="nav-tab-reports"
-            onClick={() => setActiveTab('reports')}
-            className={`flex items-center gap-1.5 lg:gap-2 px-2.5 lg:px-3.5 py-1.5 lg:py-2 text-[10px] lg:text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'reports'
-                ? 'bg-gradient-red text-white shadow-red-glow'
-                : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card-hover)]'
-            }`}
-          >
-            <BarChart3 className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" />
-            <span>RELATÓRIOS</span>
-          </button>
-
-          <button
-            id="nav-tab-servicos"
-            onClick={() => setActiveTab('servicos')}
-            className={`flex items-center gap-1.5 lg:gap-2 px-2.5 lg:px-3.5 py-1.5 lg:py-2 text-[10px] lg:text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'servicos'
-                ? 'bg-gradient-red text-white shadow-red-glow'
-                : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card-hover)]'
-            }`}
-          >
-            <Bell className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" />
-            <span>SERVIÇOS</span>
-          </button>
-
-          <button
-            id="nav-tab-descontos"
-            onClick={() => setActiveTab('descontos')}
-            className={`flex items-center gap-1.5 lg:gap-2 px-2.5 lg:px-3.5 py-1.5 lg:py-2 text-[10px] lg:text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'descontos'
-                ? 'bg-gradient-red text-white shadow-red-glow'
-                : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card-hover)]'
-            }`}
-          >
-            <MinusCircle className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" />
-            <span>DESCONTOS</span>
-          </button>
-        </nav>
 
         {/* Mobile Navigation Tabs - Fits 100% width on any smartphone screen.
             grid-cols-3 em telas bem estreitas evita que os rótulos sejam

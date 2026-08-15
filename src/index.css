@@ -284,6 +284,22 @@ svg {
   touch-action: pan-y;
 }
 
+/* Nav de abas do Comissao (overflow-x-auto): precisa de pan-x pra poder
+   arrastar com o dedo no mobile/tablet quando as abas nao cabem na largura. */
+[class*="overflow-x-auto"] {
+  touch-action: pan-x;
+}
+
+/* Esconde a barra de rolagem visual da nav de abas, mantendo o scroll
+   funcional (arrastar/roda do mouse) quando o conteudo nao cabe. */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
 }
