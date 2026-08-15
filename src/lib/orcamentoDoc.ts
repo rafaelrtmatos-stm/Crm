@@ -147,8 +147,9 @@ export async function renderOrcamentoCanvas({ orcamento: o, companyName, logoDar
   const totalCardH = 96;
   const paymentCardH = 78;
   const acceptH = o.status === 'aprovado' || o.status === 'em_producao' || o.status === 'concluido' ? 46 : 0;
+  const assinaturaH = o.documentType === 'contrato' ? 92 : 0;
   const footerH = 220;
-  const height = headerH + infoCardsH + 20 + tableH + 20 + totalCardH + 16 + paymentCardH + 20 + clausesH + acceptH + footerH + 60;
+  const height = headerH + infoCardsH + 20 + tableH + 20 + totalCardH + 16 + paymentCardH + 20 + clausesH + acceptH + assinaturaH + footerH + 60;
 
   const canvas = document.createElement('canvas');
   canvas.width = width * scale;
@@ -360,6 +361,43 @@ export async function renderOrcamentoCanvas({ orcamento: o, companyName, logoDar
     const aprovadoData = o.aprovadoEm ? new Date(o.aprovadoEm).toLocaleString('pt-BR') : '';
     ctx.fillText(`ORÇAMENTO APROVADO POR ${(o.aprovadoPor || o.customerName || 'CLIENTE').toUpperCase()}${aprovadoData ? ' EM ' + aprovadoData : ''}`, width / 2, y + 20);
     y += acceptH;
+  }
+
+  if (assinaturaH > 0) {
+    y += 14;
+    const dataAssinatura = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
+    ctx.textAlign = 'center';
+    ctx.fillStyle = TEXT_DIM;
+    ctx.font = `600 9px ${FONT}`;
+    ctx.fillText(`Documento gerado em ${dataAssinatura}.`, width / 2, y);
+    y += 34;
+
+    const sigGap = 30;
+    const sigW = (width - marginX * 2 - sigGap) / 2;
+    ctx.strokeStyle = BORDER;
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(marginX, y); ctx.lineTo(marginX + sigW, y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(marginX + sigW + sigGap, y); ctx.lineTo(width - marginX, y); ctx.stroke();
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = TEXT;
+    ctx.font = `800 9px ${FONT}`;
+    const contratanteLabel = (o.customerName || 'CONTRATANTE').toUpperCase();
+    ctx.fillText(contratanteLabel.length > 30 ? contratanteLabel.slice(0, 30) + '…' : contratanteLabel, marginX, y + 15);
+    ctx.font = `600 7.5px ${FONT}`;
+    ctx.fillStyle = TEXT_FAINT;
+    ctx.fillText('CONTRATANTE', marginX, y + 27);
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = TEXT;
+    ctx.font = `800 9px ${FONT}`;
+    const contratadaLabel = companyName.toUpperCase();
+    ctx.fillText(contratadaLabel.length > 30 ? contratadaLabel.slice(0, 30) + '…' : contratadaLabel, marginX + sigW + sigGap, y + 15);
+    ctx.font = `600 7.5px ${FONT}`;
+    ctx.fillStyle = TEXT_FAINT;
+    ctx.fillText('CONTRATADA', marginX + sigW + sigGap, y + 27);
+
+    y += 44;
   }
 
   const footerTop = y;

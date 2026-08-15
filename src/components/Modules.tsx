@@ -4761,7 +4761,22 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       phone: sale.customerPhone || '',
       items: sale.items ? [...sale.items] : [],
       desconto: sale.discountValue || 0,
-      clausulasContratoTexto: documentType === 'contrato' ? buildContratoClausulasTexto({ companyName: currentCompany?.name || 'RAFA ARTS GRAPHICS' }) : '',
+      clausulasContratoTexto: documentType === 'contrato' ? buildContratoClausulasTexto({
+        companyName: currentCompany?.name || 'RAFA ARTS GRAPHICS',
+        companyCnpj: currentCompany?.cnpj,
+        companyAddress: currentCompany?.address
+          ? [
+              currentCompany.address.line,
+              currentCompany.address.number,
+              currentCompany.address.neighborhood,
+              currentCompany.address.city && currentCompany.address.state
+                ? `${currentCompany.address.city} - ${currentCompany.address.state}`
+                : currentCompany.address.city || currentCompany.address.state,
+              currentCompany.address.zipCode ? `CEP ${currentCompany.address.zipCode}` : undefined,
+            ].filter(Boolean).join(', ')
+          : undefined,
+        customerName: sale.customerName,
+      }) : '',
     });
     setOrcamentoModalOpen(true);
   };

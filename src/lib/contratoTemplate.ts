@@ -9,12 +9,34 @@
 
 export interface ContratoTemplateParams {
   companyName: string;
+  companyCnpj?: string;
+  companyAddress?: string;
+  customerName?: string;
+  cpfCnpj?: string;
+  customerAddress?: string;
   prazoProducaoTexto?: string; // ja formatado, ex: "10 dias uteis a contar da aprovacao da arte"
 }
 
-export function buildContratoClausulasTexto({ companyName, prazoProducaoTexto }: ContratoTemplateParams): string {
+export function buildContratoClausulasTexto({
+  companyName,
+  companyCnpj,
+  companyAddress,
+  customerName,
+  cpfCnpj,
+  customerAddress,
+  prazoProducaoTexto,
+}: ContratoTemplateParams): string {
   const nomeEmpresa = companyName || 'a CONTRATADA';
-  return `CLÁUSULA 1ª — DO OBJETO
+  const dasPartes = `DAS PARTES
+
+${nomeEmpresa.toUpperCase()}${companyCnpj ? `, inscrita no CNPJ nº ${companyCnpj}` : ''}${companyAddress ? `, com sede em ${companyAddress}` : ''}, doravante denominada CONTRATADA;
+
+${(customerName || 'O(A) CONTRATANTE').toUpperCase()}${cpfCnpj ? `, portador(a) do CPF/CNPJ nº ${cpfCnpj}` : ''}${customerAddress ? `, residente e domiciliado(a) em ${customerAddress}` : ''}, doravante denominado(a) CONTRATANTE;
+
+Resolvem as partes celebrar o presente CONTRATO DE PRESTAÇÃO DE SERVIÇOS, que se regerá pelas cláusulas e condições a seguir estipuladas.
+
+`;
+  return `${dasPartes}CLÁUSULA 1ª — DO OBJETO
 O presente contrato tem por objeto a prestação, pela CONTRATADA ao CONTRATANTE, dos serviços de comunicação visual, impressão digital e/ou produtos gráficos descritos no orçamento vinculado a este contrato, incluindo especificações, quantidades e valores ali detalhados, o qual passa a integrar este instrumento para todos os efeitos.
 
 CLÁUSULA 2ª — DA APROVAÇÃO DE ARTE
