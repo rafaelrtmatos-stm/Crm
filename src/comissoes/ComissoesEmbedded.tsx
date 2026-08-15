@@ -298,8 +298,10 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
                 recentServices={services}
                 onOpenAddModal={() => { setEditingService(null); setModalInitialDate(undefined); setModalHeaderOverride(undefined); setIsAddModalOpen(true); }}
                 onGoToTable={() => setActiveTab('table')}
+                onGoToDescontos={() => setActiveTab('descontos')}
                 onEditService={handleEditService}
                 weeklyGoal={userSettings.weeklyGoal}
+                descontos={descontos}
               />
             )}
             {activeTab === 'weekly' && (
@@ -325,7 +327,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
             )}
             {activeTab === 'servicos' && <ServicosAgendados onAddItemsToTable={handleAddItemsFromNota} />}
             {activeTab === 'descontos' && (
-              <DescontosView colaboradorId={colaborador.id} descontos={descontos} isAdmin={isAdmin} onChange={setDescontos} />
+              <DescontosView colaboradorId={colaborador.id} descontos={descontos} isAdmin={isAdmin} onChange={setDescontos} baseSalary={userSettings.baseSalary} />
             )}
           </>
         )}

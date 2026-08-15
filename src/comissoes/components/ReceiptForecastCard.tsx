@@ -1,5 +1,5 @@
 import React from 'react';
-import { Wallet } from 'lucide-react';
+import { Wallet, MinusCircle, ChevronRight } from 'lucide-react';
 import { formatCurrency } from '../utils/storage';
 
 interface ReceiptForecastCardProps {
@@ -7,14 +7,18 @@ interface ReceiptForecastCardProps {
   totalCommission: number;
   weeklyGoal?: number;
   totalProduction: number;
+  totalDiscounts?: number;
   onOpenAddModal?: () => void;
+  onOpenDescontos?: () => void;
 }
 
 export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
   baseSalary,
   totalCommission,
+  totalDiscounts = 0,
+  onOpenDescontos,
 }) => {
-  const forecastTotal = baseSalary + totalCommission;
+  const forecastTotal = baseSalary + totalCommission - totalDiscounts;
 
   return (
     <div
@@ -58,6 +62,25 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
             <span className="font-bold text-white text-base">{formatCurrency(totalCommission)}</span>
           </div>
         </div>
+
+        {/* Prévia dos Descontos (faltas, etc.) do mês -- clica e vai pra área de Descontos */}
+        {totalDiscounts > 0 && (
+          <button
+            type="button"
+            onClick={onOpenDescontos}
+            disabled={!onOpenDescontos}
+            className="w-full flex items-center justify-between gap-2 bg-black/25 backdrop-blur-sm px-3.5 py-2.5 rounded-xl border border-white/10 text-left transition-colors hover:bg-black/35 disabled:cursor-default disabled:hover:bg-black/25"
+          >
+            <span className="flex items-center gap-1.5 text-white/80 font-medium text-xs">
+              <MinusCircle className="w-3.5 h-3.5" />
+              Descontos do mês:
+            </span>
+            <span className="flex items-center gap-1 font-bold text-rose-200 text-base">
+              -{formatCurrency(totalDiscounts)}
+              {onOpenDescontos && <ChevronRight className="w-4 h-4 text-white/60" />}
+            </span>
+          </button>
+        )}
       </div>
     </div>
   );

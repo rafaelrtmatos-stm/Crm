@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { ServiceItem, UserSettings, SummaryStats } from '../types';
 import { formatCurrency, formatDateBR, calculateSummaryStats } from '../utils/storage';
+import { Desconto, calculateDescontosNoPeriodo } from '../utils/supabaseStorage';
 import { ReceiptForecastCard } from './ReceiptForecastCard';
 import { AddServiceButton } from './AddServiceButton';
 import { ChartsSection } from './ChartsSection';
@@ -24,8 +25,10 @@ interface DashboardProps {
   recentServices: ServiceItem[];
   onOpenAddModal: () => void;
   onGoToTable: () => void;
+  onGoToDescontos?: () => void;
   onEditService: (service: ServiceItem) => void;
   weeklyGoal: number;
+  descontos?: Desconto[];
 }
 
 const getTodayISO = () => {
@@ -90,12 +93,21 @@ export const Dashboard: React.FC<DashboardProps> = ({
   recentServices,
   onOpenAddModal,
   onGoToTable,
+  onGoToDescontos,
   onEditService,
   weeklyGoal,
+  descontos = [],
 }) => {
   const [period, setPeriod] = useState<PeriodFilter>('mes');
   const [customStartDate, setCustomStartDate] = useState(getTodayISO());
   const [customEndDate, setCustomEndDate] = useState(getTodayISO());
+
+  // Total de descontos ativos (faltas, etc.) do mês atual -- mesma janela usada na
+  // aba "Descontos" -- pra abater da previsão de recebimento e mostrar a prévia no card.
+  const totalDescontosMes = useMemo(() => {
+    const { start, end } = getThisMonthBounds();
+    return calculateDescontosNoPeriodo(descontos, start, end);
+  }, [descontos]);
 
   const todayFormatted = new Date().toLocaleDateString('pt-BR', {
     weekday: 'long',
@@ -339,6 +351,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
             totalCommission={displayStats.totalCommission}
             weeklyGoal={userSettings.weeklyGoal}
             totalProduction={displayStats.totalProduction}
+            totalDiscounts={totalDescontosMes}
+            onOpenDescontos={onGoToDescontos}
           />
         </div>
 

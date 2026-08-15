@@ -227,8 +227,10 @@ export default function ComissoesApp() {
                 recentServices={services}
                 onOpenAddModal={() => { setEditingService(null); setModalInitialDate(undefined); setModalHeaderOverride(undefined); setIsAddModalOpen(true); }}
                 onGoToTable={() => setActiveTab('table')}
+                onGoToDescontos={() => setActiveTab('descontos')}
                 onEditService={handleEditService}
                 weeklyGoal={userSettings.weeklyGoal}
+                descontos={descontos}
               />
             )}
             {activeTab === 'weekly' && (
@@ -254,7 +256,7 @@ export default function ComissoesApp() {
             )}
             {activeTab === 'servicos' && <ServicosAgendados onAddItemsToTable={handleAddItemsFromNota} />}
             {activeTab === 'descontos' && (
-              <DescontosView colaboradorId={colaborador.id} descontos={descontos} isAdmin={false} onChange={setDescontos} />
+              <DescontosView colaboradorId={colaborador.id} descontos={descontos} isAdmin={false} onChange={setDescontos} baseSalary={userSettings.baseSalary} />
             )}
           </>
         )}

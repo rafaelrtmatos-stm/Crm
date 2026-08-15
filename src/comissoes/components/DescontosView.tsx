@@ -24,7 +24,22 @@ interface DescontosViewProps {
   // vem com isAdmin false, então só lista os descontos, sem nenhum botão de escrita.
   isAdmin: boolean;
   onChange: (updated: Desconto[]) => void;
+  // Salário semanal do colaborador (segunda a sábado, 6 dias) -- usado pra sugerir
+  // automaticamente o valor do desconto de falta: valor do dia = salário semanal / 6.
+  baseSalary?: number;
 }
+
+const DIAS_UTEIS_SEMANA = 6; // segunda a sábado
+
+// Sugestão automática de valor pra descontos de falta, com base no salário semanal
+// (segunda a sábado = 6 dias). Falta de período completo desconta o valor de 1 dia
+// (salário / 6); falta de meio período desconta metade disso (salário / 12).
+const sugerirValorFalta = (tipo: DescontoTipo, baseSalary: number): number => {
+  const valorDia = baseSalary / DIAS_UTEIS_SEMANA;
+  if (tipo === 'falta_periodo') return Math.round(valorDia * 100) / 100;
+  if (tipo === 'falta_meio_periodo') return Math.round((valorDia / 2) * 100) / 100;
+  return 0;
+};
 
 const getTodayISO = () => new Date().toISOString().split('T')[0];
 
@@ -45,7 +60,7 @@ const emptyForm: DescontoFormInput = {
   ativo: true,
 };
 
-export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, descontos, isAdmin, onChange }) => {
+export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, descontos, isAdmin, onChange, baseSalary = 0 }) => {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<DescontoFormInput>({ ...emptyForm });
@@ -59,7 +74,10 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
 
   const openNewForm = () => {
     setEditingId(null);
-    setForm({ ...emptyForm });
+    setForm({
+      ...emptyForm,
+      valor: baseSalary > 0 ? sugerirValorFalta(emptyForm.tipo, baseSalary) : 0,
+    });
     setShowForm(true);
   };
 
@@ -141,7 +159,14 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
               <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">Motivo</span>
               <select
                 value={form.tipo}
-                onChange={(e) => setForm({ ...form, tipo: e.target.value as DescontoTipo })}
+                onChange={(e) => {
+                  const novoTipo = e.target.value as DescontoTipo;
+                  // Ao escolher um tipo de falta (num desconto novo), sugere automaticamente
+                  // o valor com base no salário semanal (segunda a sábado / 6 dias).
+                  const sugestao =
+                    !editingId && baseSalary > 0 ? sugerirValorFalta(novoTipo, baseSalary) : undefined;
+                  setForm({ ...form, tipo: novoTipo, ...(sugestao ? { valor: sugestao } : {}) });
+                }}
                 className="w-full h-10 bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl px-3 text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)]"
               >
                 {(Object.keys(DESCONTO_TIPO_LABELS) as DescontoTipo[]).map((key) => (
@@ -156,6 +181,12 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
                 onChange={(e) => setForm({ ...form, valor: Number(e.target.value) || 0 })}
                 className="w-full h-10 bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl px-3 text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)]"
               />
+              {baseSalary > 0 && (form.tipo === 'falta_periodo' || form.tipo === 'falta_meio_periodo') && (
+                <span className="block text-[10px] text-[var(--text-muted)]">
+                  Sugestão: salário semanal ({formatCurrency(baseSalary)}) ÷ {DIAS_UTEIS_SEMANA} dias (seg–sáb)
+                  {form.tipo === 'falta_meio_periodo' ? ' ÷ 2' : ''} = {formatCurrency(sugerirValorFalta(form.tipo, baseSalary))}
+                </span>
+              )}
             </label>
             <label className="space-y-1 block">
               <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">Recorrência</span>
