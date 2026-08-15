@@ -6896,16 +6896,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const currentRemaining = Math.max(0, total - finalDownPayment);
     const paymentsToSave = forceZeroPayment ? [] : paymentEntries;
 
-    // Rule: If partial payment (entrada), ensure a scheduled delivery date is set
-    let deliveryDate = scheduledFor;
-    if (currentRemaining > 0 && !deliveryDate) {
-      const defaultDelivery = new Date();
-      defaultDelivery.setDate(defaultDelivery.getDate() + 2);
-      defaultDelivery.setHours(17, 0, 0, 0);
-      deliveryDate = isoToLocalDatetimeInput(defaultDelivery);
-      setScheduledFor(deliveryDate);
-    }
-    deliveryDate = localDatetimeToIso(deliveryDate) || undefined;
+    // So salva agendamento de entrega se o usuario escolheu uma data/hora manualmente
+    // (campo scheduledFor). Antes, toda venda com pagamento parcial ("entrada") sem data
+    // escolhida ganhava um agendamento automatico pra 2 dias depois as 17h, sem o usuario
+    // pedir nem saber -- removido.
+    const deliveryDate = localDatetimeToIso(scheduledFor) || undefined;
 
     const isPartialSale = currentRemaining > 0 || isPending;
 
