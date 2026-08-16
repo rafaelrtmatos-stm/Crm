@@ -8783,11 +8783,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                            setOpenContratoActionsId(null);
                                            return;
                                          }
-                                         // fixed + coordenadas reais do botao (em vez de absolute) pra nao
-                                         // ser cortado pelo overflow-y-auto do container da lista quando o
-                                         // menu abre pra baixo e nao tem altura sobrando (ex: 1 contrato so)
+                                         // Portal pro document.body + coordenadas reais do botao (em vez de
+                                         // absolute) pra escapar tanto do overflow-y-auto da lista quanto do
+                                         // motion.div (Framer Motion) que anima a troca de aba -- um motion.div
+                                         // com transform ativo vira "containing block" e quebra o position:fixed,
+                                         // fazendo ele ficar preso/cortado dentro da area animada em vez da tela toda.
                                          const rect = e.currentTarget.getBoundingClientRect();
-                                         setContratoActionsMenuPos({ top: rect.bottom + 6, left: Math.max(8, rect.right - 208) });
+                                         const MENU_H_ESTIMADA = 320; // ~8 itens de opcao, pra decidir abrir pra cima ou pra baixo
+                                         const abreParaCima = rect.bottom + MENU_H_ESTIMADA > window.innerHeight;
+                                         setContratoActionsMenuPos({
+                                           top: abreParaCima ? Math.max(8, rect.top - MENU_H_ESTIMADA) : rect.bottom + 6,
+                                           left: Math.max(8, Math.min(rect.right - 208, window.innerWidth - 216)),
+                                         });
                                          setOpenContratoActionsId(c.id);
                                        }}
                                        title="Mais ações"
@@ -8795,13 +8802,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                      >
                                        <MoreVertical size={14} />
                                      </button>
-                                     {isMenuOpen && contratoActionsMenuPos && (
+                                     {isMenuOpen && contratoActionsMenuPos && createPortal(
                                        <>
                                          {/* backdrop invisivel pra fechar o menu clicando fora, sem precisar de lib externa */}
-                                         <div className="fixed inset-0 z-10" onClick={() => setOpenContratoActionsId(null)} />
+                                         <div className="fixed inset-0 z-[200]" onClick={() => setOpenContratoActionsId(null)} />
                                          <div
                                            style={{ top: contratoActionsMenuPos.top, left: contratoActionsMenuPos.left }}
-                                           className="fixed z-20 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl py-1.5 flex flex-col">
+                                           className="fixed z-[201] w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl py-1.5 flex flex-col">
                                             <button onClick={() => { openEditContrato(c); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left"><Pencil size={13} /> {podeEditarDireto ? 'Editar' : 'Editar (Nova Versão)'}</button>
                                             <button onClick={() => { handleDuplicateContrato(c); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left"><Copy size={13} /> Duplicar</button>
                                             <button onClick={() => { handleDownloadContratoPdf(c); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left"><Download size={13} /> Gerar PDF</button>
@@ -8836,7 +8843,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                             )}
                                             <button onClick={() => { handleDeleteContrato(c); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-rose-400/70 hover:bg-white/5 text-left"><Trash2 size={13} /> Excluir</button>
                                          </div>
-                                       </>
+                                       </>,
+                                       document.body
                                      )}
                                    </div>
                                 </div>
