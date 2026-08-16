@@ -4457,7 +4457,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [savingOrcamento, setSavingOrcamento] = useState(false);
   const [orcamentoFromCart, setOrcamentoFromCart] = useState(false);
   const [contratoStatusFilter, setContratoStatusFilter] = useState('todos');
+  const [contratoSortBy, setContratoSortBy] = useState<'recentes' | 'antigos' | 'az' | 'za'>('recentes');
   const [openContratoActionsId, setOpenContratoActionsId] = useState<string | null>(null);
+  // Posicao calculada via JS (nao CSS absolute) pro menu "..." do card de contrato --
+  // absolute ficava sendo cortado pelo scroll da lista (overflow-y-auto do container pai),
+  // fixed + coordenadas do getBoundingClientRect escapa desse corte.
+  const [contratoActionsMenuPos, setContratoActionsMenuPos] = useState<{ top: number; left: number } | null>(null);
   const [contratoSearchTerm, setContratoSearchTerm] = useState('');
   const [orcamentoItemsEditMode, setOrcamentoItemsEditMode] = useState(false);
 
@@ -8582,36 +8587,61 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           const idsSuperados = new Set(allContratos.map(c => c.contratoAnteriorId).filter(Boolean));
           const contratos = allContratos.filter(c => !idsSuperados.has(c.id));
           const term = contratoSearchTerm.trim().toLowerCase();
-          const contratosFiltrados = contratos.filter(c => {
-            if (contratoStatusFilter !== 'todos' && c.status !== contratoStatusFilter) return false;
-            if (!term) return true;
-            const orcamentoVinc = c.orcamentoId ? allOrcamentos.find(o => o.id === c.orcamentoId) : undefined;
-            return (
-              c.numero.toLowerCase().includes(term) ||
-              (c.customerName || '').toLowerCase().includes(term) ||
-              (c.cpfCnpj || '').toLowerCase().includes(term) ||
-              (c.phone || '').replace(/\D/g, '').includes(term.replace(/\D/g, '')) ||
-              (orcamentoVinc?.numero || '').toLowerCase().includes(term)
-            );
-          });
-          // Resumo simplificado em 3 grupos (em vez dos 8 status técnicos): o que ainda não foi
-          // assinado digitalmente, o que já foi (incluindo o que segue depois da assinatura --
-          // em execução/concluído/encerrado), e cancelados.
-          const statusAguardandoAssinatura = ['rascunho', 'aguardando_aceite', 'aceito'];
-          const statusAssinados = ['assinado', 'em_execucao', 'concluido', 'encerrado'];
-          const contratosAguardandoAssinatura = contratos.filter(c => statusAguardandoAssinatura.includes(c.status));
-          const contratosAssinados = contratos.filter(c => statusAssinados.includes(c.status));
+          // Resumo simplificado em 4 grupos (em vez dos 8 status tecnicos do fluxo de assinatura):
+          // o que ainda nao foi assinado digitalmente, o que ja foi (assinado/em execucao/concluido/
+          // encerrado), o que ja foi pago (venda vinculada com valor recebido >= total), e cancelados.
+          // Os valores tecnicos de ContratoStatus continuam intactos por baixo -- isso e so a
+          // classificacao/filtro exibido pro usuario, pra nao mexer no fluxo de assinatura digital.
+          const statusNaoAssinado = ['rascunho', 'aguardando_aceite', 'aceito'];
+          const statusAssinado = ['assinado', 'em_execucao', 'concluido', 'encerrado'];
+          const contratoEstaPago = (c: Contrato) => {
+            const venda = c.vendaId ? allSalesHistory.find(s => s.id === c.vendaId) : undefined;
+            return !!venda && (venda.receivedValue || 0) >= venda.total;
+          };
+          const contratosNaoAssinados = contratos.filter(c => statusNaoAssinado.includes(c.status));
+          const contratosAssinados = contratos.filter(c => statusAssinado.includes(c.status));
+          const contratosPagos = contratos.filter(c => c.status !== 'cancelado' && contratoEstaPago(c));
           const contratosCancelados = contratos.filter(c => c.status === 'cancelado');
+
+          const contratosFiltrados = contratos
+            .filter(c => {
+              if (contratoStatusFilter === 'nao_assinado') return statusNaoAssinado.includes(c.status);
+              if (contratoStatusFilter === 'assinado') return statusAssinado.includes(c.status);
+              if (contratoStatusFilter === 'pago') return contratoEstaPago(c);
+              if (contratoStatusFilter === 'cancelado') return c.status === 'cancelado';
+              return true; // 'todos'
+            })
+            .filter(c => {
+              if (!term) return true;
+              const orcamentoVinc = c.orcamentoId ? allOrcamentos.find(o => o.id === c.orcamentoId) : undefined;
+              return (
+                c.numero.toLowerCase().includes(term) ||
+                (c.customerName || '').toLowerCase().includes(term) ||
+                (c.cpfCnpj || '').toLowerCase().includes(term) ||
+                (c.phone || '').replace(/\D/g, '').includes(term.replace(/\D/g, '')) ||
+                (orcamentoVinc?.numero || '').toLowerCase().includes(term)
+              );
+            })
+            .sort((a, b) => {
+              if (contratoSortBy === 'az') return (a.customerName || '').localeCompare(b.customerName || '');
+              if (contratoSortBy === 'za') return (b.customerName || '').localeCompare(a.customerName || '');
+              if (contratoSortBy === 'antigos') return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+              return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(); // 'recentes'
+            });
           const valorAssinado = contratosAssinados.reduce((acc, c) => acc + c.total, 0);
-          const valorNaoAssinado = contratosAguardandoAssinatura.reduce((acc, c) => acc + c.total, 0);
+          const valorNaoAssinado = contratosNaoAssinados.reduce((acc, c) => acc + c.total, 0);
           const dashCards = [
-            { label: 'Aguardando Assinatura', val: contratosAguardandoAssinatura.length, color: 'text-amber-400' },
+            { label: 'Não Assinados', val: contratosNaoAssinados.length, color: 'text-amber-400' },
             { label: 'Assinados', val: contratosAssinados.length, color: 'text-emerald-400' },
+            { label: 'Pagos', val: contratosPagos.length, color: 'text-sky-400' },
             { label: 'Cancelados', val: contratosCancelados.length, color: 'text-rose-400' },
           ];
 
           return (
-            <div className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/40 space-y-6">
+            <div
+              className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/40 space-y-6"
+              onScroll={() => { if (openContratoActionsId) setOpenContratoActionsId(null); }}
+            >
               <SectionHeader
                 title="Contratos"
                 subtitle={`${contratos.length} contrato(s)`}
@@ -8619,7 +8649,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               />
 
               {/* Dashboard */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
                 {dashCards.map(card => (
                   <div key={card.label} className="bg-white/5 border border-white/10 rounded-2xl p-4">
                      <p className="text-[8px] font-black uppercase text-white/30 tracking-widest mb-1">{card.label}</p>
@@ -8636,18 +8666,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 </div>
               </div>
 
-              {/* Filtros */}
+              {/* Filtros -- mesma barra de classificacao que ja existia (visual identico ao
+                  restante do CRM), so que com as categorias adaptadas ao fluxo comercial de
+                  contrato em vez dos 8 status tecnicos do motor de assinatura */}
               <div className="flex flex-col gap-3">
                  <div className="flex flex-wrap gap-1.5">
                     {[
                       { id: 'todos', label: 'Todos' },
-                      { id: 'rascunho', label: 'Rascunhos' },
-                      { id: 'aguardando_aceite', label: 'Aguardando Aceite' },
-                      { id: 'aceito', label: 'Aceitos' },
-                      { id: 'em_execucao', label: 'Em Execução' },
-                      { id: 'concluido', label: 'Concluídos' },
+                      { id: 'nao_assinado', label: 'Não Assinados' },
+                      { id: 'assinado', label: 'Assinados' },
+                      { id: 'pago', label: 'Pagos' },
                       { id: 'cancelado', label: 'Cancelados' },
-                      { id: 'encerrado', label: 'Encerrados' },
                     ].map(f => (
                       <button
                         key={f.id}
@@ -8661,14 +8690,26 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       </button>
                     ))}
                  </div>
-                 <div className="relative w-full">
-                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
-                    <input
-                      value={contratoSearchTerm}
-                      onChange={(e) => setContratoSearchTerm(e.target.value)}
-                      placeholder="Buscar por número, cliente, CPF/CNPJ, telefone ou nº do orçamento..."
-                      className="w-full h-9 bg-white/5 border border-white/10 rounded-lg pl-9 pr-3 text-[11px] text-white placeholder:text-white/30 focus:outline-none focus:border-primary-500"
-                    />
+                 <div className="flex gap-2">
+                    <div className="relative flex-1">
+                       <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
+                       <input
+                         value={contratoSearchTerm}
+                         onChange={(e) => setContratoSearchTerm(e.target.value)}
+                         placeholder="Buscar por número, cliente, CPF/CNPJ, telefone ou nº do orçamento..."
+                         className="w-full h-9 bg-white/5 border border-white/10 rounded-lg pl-9 pr-3 text-[11px] text-white placeholder:text-white/30 focus:outline-none focus:border-primary-500"
+                       />
+                    </div>
+                    <select
+                      value={contratoSortBy}
+                      onChange={(e) => setContratoSortBy(e.target.value as any)}
+                      className="h-9 bg-white/5 border border-white/10 rounded-lg px-2.5 text-[9px] font-black uppercase text-white/60 focus:outline-none focus:border-primary-500 cursor-pointer shrink-0"
+                    >
+                      <option value="recentes" className="bg-slate-900">Mais Recentes</option>
+                      <option value="antigos" className="bg-slate-900">Mais Antigos</option>
+                      <option value="az" className="bg-slate-900">A-Z</option>
+                      <option value="za" className="bg-slate-900">Z-A</option>
+                    </select>
                  </div>
               </div>
 
@@ -8737,17 +8778,30 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                    )}
                                    <div className="relative">
                                      <button
-                                       onClick={() => setOpenContratoActionsId(isMenuOpen ? null : c.id)}
+                                       onClick={(e) => {
+                                         if (isMenuOpen) {
+                                           setOpenContratoActionsId(null);
+                                           return;
+                                         }
+                                         // fixed + coordenadas reais do botao (em vez de absolute) pra nao
+                                         // ser cortado pelo overflow-y-auto do container da lista quando o
+                                         // menu abre pra baixo e nao tem altura sobrando (ex: 1 contrato so)
+                                         const rect = e.currentTarget.getBoundingClientRect();
+                                         setContratoActionsMenuPos({ top: rect.bottom + 6, left: Math.max(8, rect.right - 208) });
+                                         setOpenContratoActionsId(c.id);
+                                       }}
                                        title="Mais ações"
                                        className={cn("flex items-center justify-center w-8 h-8 rounded-lg transition-colors", isMenuOpen ? "bg-white/15 text-white" : "bg-white/5 text-white/60 hover:bg-white/10 hover:text-white")}
                                      >
                                        <MoreVertical size={14} />
                                      </button>
-                                     {isMenuOpen && (
+                                     {isMenuOpen && contratoActionsMenuPos && (
                                        <>
                                          {/* backdrop invisivel pra fechar o menu clicando fora, sem precisar de lib externa */}
                                          <div className="fixed inset-0 z-10" onClick={() => setOpenContratoActionsId(null)} />
-                                         <div className="absolute right-0 top-full mt-1.5 z-20 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl py-1.5 flex flex-col">
+                                         <div
+                                           style={{ top: contratoActionsMenuPos.top, left: contratoActionsMenuPos.left }}
+                                           className="fixed z-20 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl py-1.5 flex flex-col">
                                             <button onClick={() => { openEditContrato(c); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left"><Pencil size={13} /> {podeEditarDireto ? 'Editar' : 'Editar (Nova Versão)'}</button>
                                             <button onClick={() => { handleDuplicateContrato(c); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left"><Copy size={13} /> Duplicar</button>
                                             <button onClick={() => { handleDownloadContratoPdf(c); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left"><Download size={13} /> Gerar PDF</button>
@@ -11127,6 +11181,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                </span>
                <span className="text-lg font-black text-emerald-400 italic">R$ {viewingContrato.total.toFixed(2).replace('.', ',')}</span>
             </div>
+            {viewingContrato.signedAt && (
+               <p className="text-[10px] text-white/40 -mt-2">Assinado em {safeFormat(viewingContrato.signedAt, 'dd/MM/yyyy HH:mm')}</p>
+            )}
             <div className="bg-slate-900/60 border border-white/10 rounded-2xl p-4 max-h-[55vh] overflow-y-auto custom-scrollbar">
                <pre className="text-[11px] text-white/80 whitespace-pre-wrap font-sans leading-relaxed">{viewingContrato.textoContrato || 'Esse contrato ainda não tem texto gerado.'}</pre>
             </div>
