@@ -212,6 +212,7 @@ import { exportClientesXlsx, parseClientesXlsx, exportProdutosXlsx, parseProduto
 import { downloadContratoPdf } from '../lib/contratoPdf';
 import { buildContratoClausulasTexto } from '../lib/contratoTemplate';
 import { validateCpfCnpj } from '../lib/validators';
+import { buscarClienteDuplicado, montarPayloadMesclagem } from '../lib/clienteDedupe';
 import { format } from 'date-fns';
 
 // Formata uma data com fallback seguro — evita "RangeError: Invalid time value"
@@ -4295,9 +4296,28 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         patrimonios: newCustomerForm.patrimonios.filter(p => p.propriedade.trim()),
         notes: newCustomerForm.notes || null,
       };
+
+      // Evita cliente duplicado: CPF/CNPJ igual mescla automatico (documento nao se repete);
+      // nome completo igual so pergunta antes (pode ser coincidencia, e a mesma pessoa pode
+      // legitimamente ter 2 numeros de telefone).
+      let idParaMesclar: string | null = null;
+      if (!editingCustomerId) {
+        const duplicado = await buscarClienteDuplicado({ fullName: newCustomerForm.full_name, cpfCnpj: newCustomerForm.cpf_cnpj, excludeId: editingCustomerId || undefined });
+        if (duplicado?.motivo === 'cpf') {
+          idParaMesclar = duplicado.cliente.id;
+        } else if (duplicado?.motivo === 'nome') {
+          const mesclar = await showConfirm(`Já existe um cliente cadastrado como "${duplicado.cliente.full_name}"${duplicado.cliente.phone ? ` (tel. ${duplicado.cliente.phone})` : ''}. Deseja mesclar com esse cadastro em vez de criar um novo?`);
+          if (mesclar) idParaMesclar = duplicado.cliente.id;
+        }
+      }
+
       let data, error;
       if (editingCustomerId) {
         ({ data, error } = await supabase.from('clientes').update(payload).eq('id', editingCustomerId).select().single());
+      } else if (idParaMesclar) {
+        const duplicadoAtual = (await supabase.from('clientes').select('*').eq('id', idParaMesclar).single()).data;
+        const payloadMesclado = montarPayloadMesclagem(duplicadoAtual, payload);
+        ({ data, error } = await supabase.from('clientes').update(payloadMesclado).eq('id', idParaMesclar).select().single());
       } else {
         ({ data, error } = await supabase.from('clientes').insert(payload).select().single());
       }
@@ -11965,9 +11985,30 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
         city: formData.city,
         state: formData.state,
       };
-      const { error } = editingClienteId
-        ? await supabase.from('clientes').update(payload).eq('id', editingClienteId)
-        : await supabase.from('clientes').insert(payload);
+
+      // Mesma regra do cadastro pelo Terminal de Vendas: CPF/CNPJ igual mescla automatico,
+      // nome completo igual so pergunta antes (ver src/lib/clienteDedupe.ts).
+      let idParaMesclar: string | null = null;
+      if (!editingClienteId) {
+        const duplicado = await buscarClienteDuplicado({ fullName: formData.full_name, cpfCnpj: formData.cpf_cnpj });
+        if (duplicado?.motivo === 'cpf') {
+          idParaMesclar = duplicado.cliente.id;
+        } else if (duplicado?.motivo === 'nome') {
+          const mesclar = await showConfirm(`Já existe um cliente cadastrado como "${duplicado.cliente.full_name}"${duplicado.cliente.phone ? ` (tel. ${duplicado.cliente.phone})` : ''}. Deseja mesclar com esse cadastro em vez de criar um novo?`);
+          if (mesclar) idParaMesclar = duplicado.cliente.id;
+        }
+      }
+
+      let error;
+      if (editingClienteId) {
+        ({ error } = await supabase.from('clientes').update(payload).eq('id', editingClienteId));
+      } else if (idParaMesclar) {
+        const duplicadoAtual = (await supabase.from('clientes').select('*').eq('id', idParaMesclar).single()).data;
+        const payloadMesclado = montarPayloadMesclagem(duplicadoAtual, payload);
+        ({ error } = await supabase.from('clientes').update(payloadMesclado).eq('id', idParaMesclar));
+      } else {
+        ({ error } = await supabase.from('clientes').insert(payload));
+      }
       if (error) throw error;
       setIsModalOpen(false);
       setEditingClienteId(null);
@@ -12176,6 +12217,14 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
                          className="flex items-center gap-1.5 text-emerald-400 hover:text-emerald-300 font-bold text-sm mt-1"
                        >
                          <MessageSquare size={14} /> {fichaCliente.phone}
+                       </button>
+                     )}
+                     {fichaCliente.telefone_alternativo && (
+                       <button
+                         onClick={() => window.open(`https://wa.me/${fichaCliente.telefone_alternativo.replace(/\D/g, '')}`, '_blank')}
+                         className="flex items-center gap-1.5 text-emerald-400/70 hover:text-emerald-300 font-bold text-xs mt-1"
+                       >
+                         <MessageSquare size={12} /> {fichaCliente.telefone_alternativo} <span className="text-white/30 normal-case font-normal">(alternativo)</span>
                        </button>
                      )}
                   </div>
