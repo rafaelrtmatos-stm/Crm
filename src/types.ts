@@ -40,6 +40,7 @@ export interface SaleOrder {
   customerId?: string;
   customerName?: string;
   customerPhone?: string;
+  cpfCnpj?: string; // opcional -- "CPF na nota", informado na hora de finalizar sem precisar de cadastro completo
   items: SaleOrderItem[];
   total: number;
   discountValue?: number;

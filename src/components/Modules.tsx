@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo, useRef, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { ContractApprovalModule } from './ContractApprovalModule';
 import { ContractSignatureOtpPanel } from './ContractSignatureOtpPanel';
+import { ContractAcceptanceDetailsModal } from './ContractAcceptanceDetailsModal';
 import { 
   TrendingUp, 
   LayoutGrid,
@@ -120,7 +121,8 @@ import {
   Box,
   Save,
   LogOut,
-  PlusSquare
+  PlusSquare,
+  ShieldCheck
 } from 'lucide-react';
 import { 
   DndContext, 
@@ -392,6 +394,7 @@ const mapVendaRow = (row: any): SaleOrder => ({
   customerId: row.cliente_id,
   customerName: row.customer_name,
   customerPhone: row.customer_phone,
+  cpfCnpj: row.cpf_cnpj || undefined,
   items: row.items || [],
   total: Number(row.total) || 0,
   discountValue: row.discount_value ? Number(row.discount_value) : undefined,
@@ -4515,6 +4518,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [editingContrato, setEditingContrato] = useState<Contrato | null>(null);
   const [savingContrato, setSavingContrato] = useState(false);
   const [viewingContrato, setViewingContrato] = useState<Contrato | null>(null);
+  const [viewingAceiteDetalhes, setViewingAceiteDetalhes] = useState<Contrato | null>(null);
   const [viewingContratoHistorico, setViewingContratoHistorico] = useState<Contrato | null>(null);
   const [highlightContratoId, setHighlightContratoId] = useState<string | null>(null);
   const emptyContratoForm = {
@@ -8830,6 +8834,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                          <div
                                            style={{ top: contratoActionsMenuPos.top, bottom: contratoActionsMenuPos.bottom, left: contratoActionsMenuPos.left }}
                                            className="fixed z-[201] w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl py-1.5 flex flex-col">
+                                            {c.status === 'assinado' && (
+                                              <button onClick={() => { setViewingAceiteDetalhes(c); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-emerald-400 hover:bg-white/5 text-left"><ShieldCheck size={13} /> Ver Detalhes do Aceite</button>
+                                            )}
                                             <button onClick={() => { openEditContrato(c); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left"><Pencil size={13} /> {podeEditarDireto ? 'Editar' : 'Editar (Nova Versão)'}</button>
                                             <button onClick={() => { handleDuplicateContrato(c); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left"><Copy size={13} /> Duplicar</button>
                                             <button onClick={() => { handleDownloadContratoPdf(c); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left"><Download size={13} /> Gerar PDF</button>
@@ -11213,6 +11220,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             {viewingContrato.signedAt && (
                <p className="text-[10px] text-white/40 -mt-2">Assinado em {safeFormat(viewingContrato.signedAt, 'dd/MM/yyyy HH:mm')}</p>
             )}
+            {viewingContrato.status === 'assinado' && (
+               <button
+                 onClick={() => setViewingAceiteDetalhes(viewingContrato)}
+                 className="w-full flex items-center justify-center gap-1.5 rounded-xl border border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/10 text-emerald-400 text-[11px] font-black uppercase py-2.5 transition-colors"
+               >
+                 <ShieldCheck size={13} /> Ver Detalhes do Aceite
+               </button>
+            )}
             <div className="bg-slate-900/60 border border-white/10 rounded-2xl p-4 max-h-[55vh] overflow-y-auto custom-scrollbar">
                <pre className="text-[11px] text-white/80 whitespace-pre-wrap font-sans leading-relaxed">{viewingContrato.textoContrato || 'Esse contrato ainda não tem texto gerado.'}</pre>
             </div>
@@ -11223,6 +11238,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             </div>
          </div>
        </Modal>
+     )}
+
+     {viewingAceiteDetalhes && (
+       <ContractAcceptanceDetailsModal
+         contrato={viewingAceiteDetalhes}
+         onClose={() => setViewingAceiteDetalhes(null)}
+       />
      )}
 
      {isScheduleModalOpen && (
