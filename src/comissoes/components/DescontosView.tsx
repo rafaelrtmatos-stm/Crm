@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   MinusCircle, Plus, Pencil, Trash2, X, Ban, CheckCircle2,
-  Wallet, Lock, History, ChevronDown, ChevronUp, Banknote,
+  Wallet, History, ChevronDown, ChevronUp, Banknote,
 } from 'lucide-react';
 import {
   Desconto,
@@ -28,7 +28,6 @@ import {
   editarPagamento,
   deletePagamento,
   calcularResumoCaixa,
-  fecharCaixa,
   getHistoricoCaixasFechados,
   reabrirCaixa,
 } from '../utils/caixaSemanalStorage';
@@ -116,7 +115,6 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
   const [editingPagamentoId, setEditingPagamentoId] = useState<string | null>(null);
   const [pagamentoForm, setPagamentoForm] = useState<PagamentoFormInput>({ ...emptyPagamentoForm });
   const [savingPagamento, setSavingPagamento] = useState(false);
-  const [fechando, setFechando] = useState(false);
   const [showHistorico, setShowHistorico] = useState(false);
   const [historico, setHistorico] = useState<WeeklyCaixa[] | null>(null);
   const [loadingHistorico, setLoadingHistorico] = useState(false);
@@ -188,21 +186,6 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
     if (!ok) { showAlert('Não foi possível excluir.'); return; }
     setPagamentos((prev) => prev.filter((x) => x.id !== p.id));
     if (editingPagamentoId === p.id) handleCancelPagamentoForm();
-  };
-
-  const handleFecharCaixa = async () => {
-    if (!caixa || !resumoCaixa) return;
-    const confirmMsg = resumoCaixa.saldoFinal >= 0
-      ? `Fechar o caixa aberto desde ${formatDateBR(caixa.semanaInicio)}? Saldo de ${formatCurrency(resumoCaixa.saldoFinal)} a favor do colaborador vai abrir o próximo caixa já com esse valor.`
-      : `Fechar o caixa aberto desde ${formatDateBR(caixa.semanaInicio)}? O colaborador fica devendo ${formatCurrency(Math.abs(resumoCaixa.saldoFinal))}, que vai entrar como dívida no próximo caixa.`;
-    if (!(await showConfirm(confirmMsg))) return;
-    setFechando(true);
-    const proximo = await fecharCaixa(caixa, resumoCaixa);
-    setFechando(false);
-    if (!proximo) { showAlert('Não foi possível fechar o caixa. Tente novamente.'); return; }
-    setCaixa(proximo);
-    setPagamentos([]);
-    setHistorico(null); // força recarregar o histórico na próxima vez que for aberto
   };
 
   const handleToggleHistorico = async () => {
@@ -320,16 +303,6 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
               )}
             </div>
           </div>
-          {isAdmin && caixa && resumoCaixa && (
-            <button
-              onClick={handleFecharCaixa}
-              disabled={fechando}
-              className="flex items-center gap-1.5 h-9 px-3 rounded-xl bg-gradient-red text-white text-xs font-black uppercase tracking-wide shadow-red-glow hover:opacity-90 transition-opacity disabled:opacity-50"
-            >
-              <Lock className="w-4 h-4" />
-              {fechando ? 'Fechando...' : 'Fechar Caixa'}
-            </button>
-          )}
         </div>
 
         {resumoCaixa && (

@@ -3,7 +3,7 @@
 // Renderizada pela rota /assinar/:contratoId (ver integração em AppRoot.tsx).
 
 import React, { useEffect, useState } from 'react';
-import { ShieldCheck, Loader2, AlertCircle, CheckCircle2, Download, Hash, Globe, Clock, IdCard, Copy, Clipboard } from 'lucide-react';
+import { ShieldCheck, Loader2, AlertCircle, CheckCircle2, Download, Hash, Globe, Clock, IdCard, Copy, Clipboard, Lock } from 'lucide-react';
 import { supabase } from '../supabase';
 import { validateVerificationCode, signContract, checkDocumentLastDigits, createVerificationCode } from '../lib/otpUtils';
 import { getPublicIpAddress } from '../lib/contractUtils';
@@ -310,10 +310,26 @@ export default function ContractSignaturePublicPage() {
           <p className="text-white/40 text-xs">Nº {contrato.numero} — {contrato.customerName}</p>
         </div>
 
-        <div className="rounded-2xl border border-white/10 bg-white max-h-72 overflow-y-auto p-4">
-          <pre className="whitespace-pre-wrap text-[12px] text-black font-sans leading-relaxed">
+        {/* O texto do contrato fica borrado/ilegivel ate o cliente confirmar os ultimos
+            digitos do CPF/CNPJ (docVerified) -- deixa claro visualmente pra que serve aquele
+            campo: e' o que "desbloqueia" a leitura do contrato antes de assinar. */}
+        <div className="relative rounded-2xl border border-white/10 bg-white max-h-72 overflow-y-auto p-4">
+          <pre
+            className={`whitespace-pre-wrap text-[12px] text-black font-sans leading-relaxed transition-all duration-500 ${
+              docVerified ? 'blur-0 select-text' : 'blur-md select-none pointer-events-none'
+            }`}
+          >
             {contrato.textoContrato || 'Texto do contrato indisponível.'}
           </pre>
+
+          {!docVerified && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-white/40 rounded-2xl px-4 text-center">
+              <Lock size={20} className="text-black/60" />
+              <p className="text-[11px] font-black uppercase tracking-wide text-black/60">
+                Confirme seu CPF/CNPJ abaixo para desbloquear o contrato
+              </p>
+            </div>
+          )}
         </div>
 
         <label className="flex items-start gap-2 text-[12px] text-white/70 cursor-pointer">
