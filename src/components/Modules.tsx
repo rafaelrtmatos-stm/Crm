@@ -8693,13 +8693,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                        <div
                          key={c.id}
                          className={cn(
-                           "relative flex bg-white/5 border rounded-2xl overflow-hidden transition-all",
+                           "relative flex bg-white/5 border rounded-2xl transition-all",
                            highlightContratoId === c.id ? "border-purple-500 ring-2 ring-purple-500/40" : "border-white/10"
                          )}
                        >
                           {/* Barra lateral colorida -- indica de longe (sem precisar ler texto) se ta
-                              cancelado / assinado / aguardando, principalmente util no scroll rapido do celular */}
-                          <div className={cn("w-1 shrink-0", statusBarColor)} />
+                              cancelado / assinado / aguardando, principalmente util no scroll rapido do celular.
+                              O arredondado fica aqui (em vez de overflow-hidden no card) pra nao cortar o menu
+                              de opcoes quando ele abre pra baixo e o card nao tem altura sobrando (ex: lista
+                              com 1 contrato so). */}
+                          <div className={cn("w-1 shrink-0 rounded-l-2xl", statusBarColor)} />
 
                           <div className="flex-1 min-w-0 p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5">
                              <div className="min-w-0 flex-1">
