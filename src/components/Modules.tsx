@@ -1926,7 +1926,21 @@ export const ChatPanel = ({
     }
   };
 
-  const { setPrefilledCustomer, setActiveTab: setRootActiveTab, setPendingReceiptOpenId, setPendingOpenContratoId, setPendingOpenOrcamentoId } = React.useContext(AppContext)!;
+  const { setPrefilledCustomer, activeTab: rootActiveTab, setActiveTab: setRootActiveTab, setPendingReceiptOpenId, setPendingOpenContratoId, setPendingOpenOrcamentoId, setPendingOpenLeadId, setPendingWhatsAppShare } = React.useContext(AppContext)!;
+
+  // Atalho pra alternar entre Funil CRM e Mensagens mantendo o MESMO lead selecionado --
+  // as duas telas usam esse mesmo ChatPanel, entao so precisamos trocar de aba e avisar a
+  // outra tela (via pendingOpenLeadId ou pendingWhatsAppShare) qual lead deixar selecionado.
+  const handleJumpToOtherView = () => {
+    if (!conversation?.id) return;
+    if (rootActiveTab === 'crm') {
+      setPendingWhatsAppShare({ leadId: conversation.id, prefillMessage: '' });
+      setRootActiveTab('messages');
+    } else {
+      setPendingOpenLeadId(conversation.id);
+      setRootActiveTab('crm');
+    }
+  };
 
 
   // "Iniciar Venda": se ja existe cliente cadastrado com esse telefone (clienteVinculado), manda o
@@ -2124,6 +2138,15 @@ export const ChatPanel = ({
           {onClose && <Button variant="ghost" icon={X} onClick={onClose} className="p-1.5 min-w-0 h-8 w-8" />}
         </div>
       </div>
+
+      {/* Atalho pra ver esse mesmo lead na outra tela (Funil CRM <-> Mensagens) */}
+      <button
+        onClick={handleJumpToOtherView}
+        className="flex items-center justify-center gap-1.5 w-full py-1.5 border-b border-white/10 bg-white/[0.015] text-[9px] font-black uppercase tracking-widest text-primary-300 hover:bg-white/5 hover:text-primary-200 transition-colors"
+      >
+        <ExternalLink size={11} />
+        {rootActiveTab === 'crm' ? 'Ver Conversa em Mensagens' : 'Ver Card no Funil CRM'}
+      </button>
 
       {/* Tabs */}
       <div className="flex flex-wrap border-b border-white/5 bg-white/[0.01] px-2">
@@ -2589,6 +2612,7 @@ export const ChatPanel = ({
 
 // --- CRM / FUNNEL ---
 export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | null, user: AppUser | null }) => {
+  const { pendingOpenLeadId, setPendingOpenLeadId } = React.useContext(AppContext)!;
   const [leads, setLeads] = useState<Lead[]>([]);
   const [funnels, setFunnels] = useState<Funnel[]>([]);
   const [selectedFunnelId, setSelectedFunnelId] = useState<string>('');
@@ -2628,6 +2652,21 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     const qS = query(collection(db, 'funnelStages'), where('funnelId', '==', selectedFunnelId), orderBy('order', 'asc'));
     return onSnapshot(qS, (snapshot) => setStages(snapshot.docs.map(d => ({ id: d.id, ...d.data() }) as FunnelStage)));
   }, [selectedFunnelId]);
+
+  // Chegou aqui vindo da aba Mensagens (via botao "Ver no Funil CRM" do ChatPanel
+  // compartilhado) -- acha o lead, troca pro funil dele se for diferente do selecionado, e
+  // ja deixa selecionado (abre o painel lateral automaticamente).
+  useEffect(() => {
+    if (!pendingOpenLeadId || leads.length === 0) return;
+    const lead = leads.find(l => l.id === pendingOpenLeadId);
+    if (lead) {
+      if (lead.funnelId && lead.funnelId !== selectedFunnelId) {
+        setSelectedFunnelId(lead.funnelId);
+      }
+      setSelectedLead(lead);
+      setPendingOpenLeadId(null);
+    }
+  }, [pendingOpenLeadId, leads]);
 
   const onDragStart = (event: DragStartEvent) => {
     setActiveDragId(event.active.id as string);
@@ -4397,7 +4436,7 @@ const EntregaCountdown = ({ scheduledFor, delivered, onEdit, onDeliver, onDelete
 };
 
 export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany: Company | null, addPendingOrder: (order: SaleOrder) => void }) => {
-  const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare, pendingReceiptOpenId, setPendingReceiptOpenId, pendingHistoryClientFilter, setPendingHistoryClientFilter, prefilledCustomer, setPrefilledCustomer, pendingReceivablesFilter, setPendingReceivablesFilter, pendingGoToHistorico, setPendingGoToHistorico, pendingGoToServicos, setPendingGoToServicos, pendingOpenContratoId, setPendingOpenContratoId, pendingOpenOrcamentoId, setPendingOpenOrcamentoId } = React.useContext(AppContext)!;
+  const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare, openWhatsAppChat, pendingReceiptOpenId, setPendingReceiptOpenId, pendingHistoryClientFilter, setPendingHistoryClientFilter, prefilledCustomer, setPrefilledCustomer, pendingReceivablesFilter, setPendingReceivablesFilter, pendingGoToHistorico, setPendingGoToHistorico, pendingGoToServicos, setPendingGoToServicos, pendingOpenContratoId, setPendingOpenContratoId, pendingOpenOrcamentoId, setPendingOpenOrcamentoId } = React.useContext(AppContext)!;
   const [soundAlertsEnabled, setSoundAlertsEnabledState] = useState(() => localStorage.getItem('rpro_sound_alerts_enabled') !== 'false');
   const setSoundAlertsEnabled = (v: boolean) => {
     setSoundAlertsEnabledState(v);
@@ -4968,10 +5007,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     if (activeTab === 'contratos') loadContratos();
   }, [activeTab]);
 
+  // Novo Contrato sempre comeca pela busca de cliente (aba "Pesquisar Cliente" ativa por
+  // padrao) -- so depois de escolher (ou cadastrar) o cliente e' que o formulario do contrato
+  // abre com os dados ja preenchidos. proceedAfterCustomerStep() cuida de abrir o
+  // contratoModalOpen na sequencia, inclusive se o usuario preferir seguir sem selecionar
+  // cliente (Cliente Balcao).
   const openNewContrato = () => {
     setEditingContrato(null);
     setContratoForm({ ...emptyContratoForm });
-    setContratoModalOpen(true);
+    setCustomerModalIntent('contrato');
+    setCustomerModalMode('search');
+    setIsCustomerModalOpen(true);
   };
 
   // Gera um Contrato a partir de uma Nota ja existente no Historico — vem com cliente/itens/valor
@@ -5305,11 +5351,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setContratoModalOpen(true);
   };
 
+  // Mesmo padrao do Novo Contrato: comeca pela busca de cliente (aba "Pesquisar Cliente"
+  // ativa por padrao), e so abre o formulario do orcamento depois (via proceedAfterCustomerStep).
   const openNewOrcamento = () => {
     setEditingOrcamento(null);
     setOrcamentoFromCart(false);
     setOrcamentoForm({ ...emptyOrcamentoForm });
-    setOrcamentoModalOpen(true);
+    setCustomerModalIntent('orcamento');
+    setCustomerModalMode('search');
+    setIsCustomerModalOpen(true);
   };
 
   const handleCreateOrcamentoFromCart = (overrideItems?: SaleOrderItem[], overrideCustomer?: { id?: string; name?: string; phone?: string }) => {
@@ -6298,60 +6348,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   // Acha (ou cria) o lead correspondente ao telefone no Funil de Atendimento,
   // deixa a conversa selecionada com a mensagem pronta para enviar.
+  // Delega pra funcao central do AppContext (openWhatsAppChat) -- assim todo botao de
+  // WhatsApp do sistema (Contratos, Orcamentos, Contatos, Ficha do Cliente etc.) passa pelo
+  // mesmo ponto unico, pronto pra quando a integracao de envio real for plugada.
   const findOrCreateLeadAndOpenChat = async (phoneDigits: string, name: string, prefillMessage: string) => {
-    if (!currentCompany) return;
-    try {
-      const leadsQ = query(collection(db, 'leads'), where('companyId', '==', currentCompany.id));
-      const leadsSnap = await getDocs(leadsQ);
-      const existing = leadsSnap.docs.find(d => {
-        const p = (d.data().phone || '').replace(/\D/g, '');
-        return p && (p === phoneDigits || p.endsWith(phoneDigits) || phoneDigits.endsWith(p));
-      });
-
-      let leadId: string;
-      if (existing) {
-        leadId = existing.id;
-      } else {
-        // Acha o funil/etapa inicial padrão da empresa, igual ao Funil CRM faz
-        let funnelId: string | null = null;
-        let funnelStageId: string | null = null;
-        const funnelQ = query(collection(db, 'funnels'), where('companyId', '==', currentCompany.id), where('isDefault', '==', true), limit(1));
-        let funnelSnap = await getDocs(funnelQ);
-        if (funnelSnap.empty) {
-          funnelSnap = await getDocs(query(collection(db, 'funnels'), where('companyId', '==', currentCompany.id), limit(1)));
-        }
-        if (!funnelSnap.empty) {
-          funnelId = funnelSnap.docs[0].id;
-          const stageQ = query(collection(db, 'funnelStages'), where('funnelId', '==', funnelId), where('isInitial', '==', true), limit(1));
-          let stageSnap = await getDocs(stageQ);
-          if (stageSnap.empty) {
-            stageSnap = await getDocs(query(collection(db, 'funnelStages'), where('funnelId', '==', funnelId), orderBy('order', 'asc'), limit(1)));
-          }
-          if (!stageSnap.empty) funnelStageId = stageSnap.docs[0].id;
-        }
-
-        const nameParts = (name || 'Cliente').trim().split(' ');
-        const newLeadRef = await addDoc(collection(db, 'leads'), {
-          companyId: currentCompany.id,
-          funnelId,
-          funnelStageId,
-          fullName: name || 'Cliente',
-          firstName: nameParts[0] || 'Cliente',
-          lastName: nameParts.slice(1).join(' ') || '',
-          phone: phoneDigits,
-          sourceType: 'WhatsApp',
-          createdAt: new Date().toISOString(),
-        });
-        leadId = newLeadRef.id;
-      }
-
-      setPendingWhatsAppShare({ leadId, prefillMessage });
-      setRootActiveTab('messages');
-      setIsSuccessModalOpen(false);
-    } catch (err) {
-      console.error('Erro ao localizar/criar lead:', err);
-      showAlert('Não foi possível abrir a conversa no Funil de Atendimento.');
-    }
+    await openWhatsAppChat(phoneDigits, name, prefillMessage);
+    setIsSuccessModalOpen(false);
   };
 
   const handleShareViaWhatsApp = async (order: SaleOrder, customerName: string, phone: string) => {
@@ -9396,8 +9398,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                    )}
                                    {c.phone && (
                                      <button
-                                       onClick={() => window.open(`https://wa.me/${c.phone!.replace(/\D/g, '')}?text=${encodeURIComponent(`Olá ${c.customerName}! Segue o contrato ${c.numero} no valor de R$ ${c.total.toFixed(2).replace('.', ',')}.`)}`, '_blank')}
-                                       title="Enviar por WhatsApp"
+                                       onClick={() => openWhatsAppChat(c.phone!, c.customerName, `Olá ${c.customerName}! Segue o contrato ${c.numero} no valor de R$ ${c.total.toFixed(2).replace('.', ',')}.`)}
+                                       title="Abrir conversa no WhatsApp Interno"
                                        className="flex items-center justify-center w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors"
                                      >
                                        <Send size={13} />
@@ -9700,7 +9702,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                              <button onClick={(e) => { e.stopPropagation(); startEditCustomer(c); }} className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20" title="Editar"><Pencil size={12} /></button>
                              <button onClick={(e) => { e.stopPropagation(); handleViewCustomerHistory(c); }} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Ver Histórico"><FileText size={12} /></button>
                              {c.phone && (
-                               <button onClick={(e) => { e.stopPropagation(); window.open(`https://wa.me/${c.phone.replace(/\D/g, '')}`, '_blank'); }} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="WhatsApp"><MessageSquare size={12} /></button>
+                               <button onClick={(e) => { e.stopPropagation(); openWhatsAppChat(c.phone, c.full_name); }} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Abrir conversa no WhatsApp Interno"><MessageSquare size={12} /></button>
                              )}
                              <button onClick={(e) => { e.stopPropagation(); handleDeleteCustomer(c); }} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 ml-auto" title="Excluir"><Trash2 size={12} /></button>
                           </div>
@@ -12474,7 +12476,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
 // --- CONTACTS ---
 export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStartSaleForClient, onOpenReceiptById, onEditFullClient }: { currentCompany: Company | null; onViewHistoryForClient?: (clienteId: string, clienteName: string) => void; onStartSaleForClient?: (cliente: { id: string; name: string; phone: string }) => void; onOpenReceiptById?: (saleId: string) => void; onEditFullClient?: (cliente: any) => void }) => {
-  const { setActiveTab: setRootActiveTab, setPendingOpenContratoId, setPendingOpenOrcamentoId } = React.useContext(AppContext)!;
+  const { setActiveTab: setRootActiveTab, setPendingOpenContratoId, setPendingOpenOrcamentoId, openWhatsAppChat } = React.useContext(AppContext)!;
   const [clientes, setClientes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -12794,10 +12796,11 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
 
   const columns = [
     { key: 'full_name', label: 'Nome', render: (v: string) => <span className="font-bold text-white">{v}</span> },
-    { key: 'phone', label: 'WhatsApp', render: (v: string) => v ? (
+    { key: 'phone', label: 'WhatsApp', render: (v: string, row: any) => v ? (
         <button
-          onClick={(e: any) => { e.stopPropagation(); window.open(`https://wa.me/${v.replace(/\D/g, '')}`, '_blank'); }}
+          onClick={(e: any) => { e.stopPropagation(); openWhatsAppChat(v, row?.full_name); }}
           className="flex items-center gap-1.5 text-emerald-400 hover:text-emerald-300 font-bold"
+          title="Abrir conversa no WhatsApp Interno"
         >
           <MessageSquare size={13} /> {v}
         </button>
@@ -12917,7 +12920,8 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
                        </div>
                        {c.phone ? (
                          <button
-                           onClick={() => window.open(`https://wa.me/${c.phone.replace(/\D/g, '')}`, '_blank')}
+                           onClick={() => openWhatsAppChat(c.phone, c.full_name)}
+                           title="Abrir conversa no WhatsApp Interno"
                            className="flex items-center gap-1.5 text-emerald-400 hover:text-emerald-300 font-bold text-[11px] shrink-0"
                          >
                            <MessageSquare size={13} /> {c.phone}
@@ -12982,7 +12986,8 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
                      <h3 className="text-xl font-black text-white italic">{fichaCliente.full_name}</h3>
                      {fichaCliente.phone && (
                        <button
-                         onClick={() => window.open(`https://wa.me/${fichaCliente.phone.replace(/\D/g, '')}`, '_blank')}
+                         onClick={() => openWhatsAppChat(fichaCliente.phone, fichaCliente.full_name)}
+                         title="Abrir conversa no WhatsApp Interno"
                          className="flex items-center gap-1.5 text-emerald-400 hover:text-emerald-300 font-bold text-sm mt-1"
                        >
                          <MessageSquare size={14} /> {fichaCliente.phone}
@@ -12990,7 +12995,8 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
                      )}
                      {fichaCliente.telefone_alternativo && (
                        <button
-                         onClick={() => window.open(`https://wa.me/${fichaCliente.telefone_alternativo.replace(/\D/g, '')}`, '_blank')}
+                         onClick={() => openWhatsAppChat(fichaCliente.telefone_alternativo, fichaCliente.full_name)}
+                         title="Abrir conversa no WhatsApp Interno"
                          className="flex items-center gap-1.5 text-emerald-400/70 hover:text-emerald-300 font-bold text-xs mt-1"
                        >
                          <MessageSquare size={12} /> {fichaCliente.telefone_alternativo} <span className="text-white/30 normal-case font-normal">(alternativo)</span>
@@ -13223,7 +13229,8 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
                          </div>
                          {nivelAlerta !== 'ok' && fichaCliente.phone && (
                            <button
-                             onClick={() => window.open(`https://wa.me/${fichaCliente.phone!.replace(/\D/g, '')}`, '_blank')}
+                             onClick={() => openWhatsAppChat(fichaCliente.phone!, fichaCliente.full_name)}
+                             title="Abrir conversa no WhatsApp Interno"
                              className={cn(
                                "shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-wide border-0 cursor-pointer",
                                nivelAlerta === 'critico' ? "bg-rose-500 text-white hover:bg-rose-400" : "bg-amber-500 text-slate-900 hover:bg-amber-400"

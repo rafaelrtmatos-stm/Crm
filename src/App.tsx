@@ -127,6 +127,10 @@ interface AppContextType {
   setPrefilledCustomer: (customer: { id?: string, name: string, phone: string } | null) => void;
   pendingWhatsAppShare: { leadId: string; prefillMessage: string } | null;
   setPendingWhatsAppShare: (v: { leadId: string; prefillMessage: string } | null) => void;
+  // Abre (ou cria) a conversa de um cliente no WhatsApp Interno — usar em qualquer botão de
+  // "WhatsApp" do sistema em vez de window.open('https://wa.me/...'). Ver comentário na
+  // implementação (App.tsx) sobre o ponto de integração futura do envio real.
+  openWhatsAppChat: (phone: string, name: string, prefillMessage?: string) => Promise<void>;
   pendingReceiptOpenId: string | null;
   setPendingReceiptOpenId: (id: string | null) => void;
   pendingHistoryClientFilter: { clienteId: string; clienteName: string } | null;
@@ -141,6 +145,11 @@ interface AppContextType {
   setPendingOpenContratoId: (id: string | null) => void;
   pendingOpenOrcamentoId: string | null;
   setPendingOpenOrcamentoId: (id: string | null) => void;
+  // Leva o mesmo Lead selecionado de uma tela pra outra (Funil CRM <-> Mensagens) --
+  // usado pelo botao de atalho dentro do painel lateral (ChatPanel), que e' compartilhado
+  // pelas duas telas.
+  pendingOpenLeadId: string | null;
+  setPendingOpenLeadId: (id: string | null) => void;
   simulatedUserId: string | null;
   setSimulatedUserId: (id: string | null) => void;
   theme: 'dark' | 'light';
@@ -489,6 +498,72 @@ export default function App() {
   const [lastMessageId, setLastMessageId] = useState<string | null>(null);
   const [prefilledCustomer, setPrefilledCustomer] = useState<{ id?: string, name: string, phone: string } | null>(null);
   const [pendingWhatsAppShare, setPendingWhatsAppShare] = useState<{ leadId: string; prefillMessage: string } | null>(null);
+
+  // Ponto único pra abrir uma conversa no WhatsApp Interno (aba Mensagens/Funil de Atendimento)
+  // a partir de QUALQUER tela do CRM (Contratos, Orçamentos, Ficha do Cliente, Contatos, etc).
+  // Acha (ou cria) o Lead pelo telefone e leva pra conversa dele — nunca abre o WhatsApp externo
+  // (wa.me). Hoje o envio real ainda não está integrado (mensagem só fica registrada no chat
+  // interno); quando a integração de envio for plugada, basta implementar o disparo real aqui
+  // dentro, sem precisar mexer em cada botão espalhado pelo sistema.
+  const openWhatsAppChat = async (phoneRaw: string, name: string, prefillMessage: string = '') => {
+    const phoneDigits = (phoneRaw || '').replace(/\D/g, '');
+    if (!phoneDigits) {
+      showAlert('Esse cliente não tem telefone/WhatsApp cadastrado.');
+      return;
+    }
+    if (!currentCompany) return;
+    try {
+      const leadsQ = query(collection(db, 'leads'), where('companyId', '==', currentCompany.id));
+      const leadsSnap = await getDocs(leadsQ);
+      const existing = leadsSnap.docs.find(d => {
+        const p = (d.data().phone || '').replace(/\D/g, '');
+        return p && (p === phoneDigits || p.endsWith(phoneDigits) || phoneDigits.endsWith(p));
+      });
+
+      let leadId: string;
+      if (existing) {
+        leadId = existing.id;
+      } else {
+        // Acha o funil/etapa inicial padrão da empresa, igual ao Funil CRM faz
+        let funnelId: string | null = null;
+        let funnelStageId: string | null = null;
+        const funnelQ = query(collection(db, 'funnels'), where('companyId', '==', currentCompany.id), where('isDefault', '==', true), limit(1));
+        let funnelSnap = await getDocs(funnelQ);
+        if (funnelSnap.empty) {
+          funnelSnap = await getDocs(query(collection(db, 'funnels'), where('companyId', '==', currentCompany.id), limit(1)));
+        }
+        if (!funnelSnap.empty) {
+          funnelId = funnelSnap.docs[0].id;
+          const stageQ = query(collection(db, 'funnelStages'), where('funnelId', '==', funnelId), where('isInitial', '==', true), limit(1));
+          let stageSnap = await getDocs(stageQ);
+          if (stageSnap.empty) {
+            stageSnap = await getDocs(query(collection(db, 'funnelStages'), where('funnelId', '==', funnelId), orderBy('order', 'asc'), limit(1)));
+          }
+          if (!stageSnap.empty) funnelStageId = stageSnap.docs[0].id;
+        }
+
+        const nameParts = (name || 'Cliente').trim().split(' ');
+        const newLeadRef = await addDoc(collection(db, 'leads'), {
+          companyId: currentCompany.id,
+          funnelId,
+          funnelStageId,
+          fullName: name || 'Cliente',
+          firstName: nameParts[0] || 'Cliente',
+          lastName: nameParts.slice(1).join(' ') || '',
+          phone: phoneDigits,
+          sourceType: 'WhatsApp',
+          createdAt: new Date().toISOString(),
+        });
+        leadId = newLeadRef.id;
+      }
+
+      setPendingWhatsAppShare({ leadId, prefillMessage });
+      setActiveTab('messages');
+    } catch (err) {
+      console.error('Erro ao abrir WhatsApp interno:', err);
+      showAlert('Não foi possível abrir a conversa no Funil de Atendimento.');
+    }
+  };
   const [pendingReceiptOpenId, setPendingReceiptOpenId] = useState<string | null>(null);
   const [pendingHistoryClientFilter, setPendingHistoryClientFilter] = useState<{ clienteId: string; clienteName: string } | null>(null);
   const [pendingReceivablesFilter, setPendingReceivablesFilter] = useState(false);
@@ -496,6 +571,7 @@ export default function App() {
   const [pendingGoToServicos, setPendingGoToServicos] = useState(false);
   const [pendingOpenContratoId, setPendingOpenContratoId] = useState<string | null>(null);
   const [pendingOpenOrcamentoId, setPendingOpenOrcamentoId] = useState<string | null>(null);
+  const [pendingOpenLeadId, setPendingOpenLeadId] = useState<string | null>(null);
   const [simulatedUserId, setSimulatedUserIdState] = useState<string | null>(localStorage.getItem('rpro_simulated_user_id'));
   const [unrepliedLeadsCount, setUnrepliedLeadsCount] = useState(0);
 
@@ -1482,6 +1558,7 @@ export default function App() {
     setPrefilledCustomer,
     pendingWhatsAppShare,
     setPendingWhatsAppShare,
+    openWhatsAppChat,
     pendingReceiptOpenId,
     setPendingReceiptOpenId,
     pendingHistoryClientFilter,
@@ -1496,6 +1573,8 @@ export default function App() {
     setPendingOpenContratoId,
     pendingOpenOrcamentoId,
     setPendingOpenOrcamentoId,
+    pendingOpenLeadId,
+    setPendingOpenLeadId,
     simulatedUserId,
     setSimulatedUserId,
     theme,
