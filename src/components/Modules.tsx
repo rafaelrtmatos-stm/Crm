@@ -212,7 +212,7 @@ import { exportClientesXlsx, parseClientesXlsx, exportProdutosXlsx, parseProduto
 import { downloadContratoPdf } from '../lib/contratoPdf';
 import { buildContratoClausulasTexto } from '../lib/contratoTemplate';
 import { validateCpfCnpj } from '../lib/validators';
-import { buscarClienteDuplicado, montarPayloadMesclagem } from '../lib/clienteDedupe';
+import { buscarClienteDuplicado, montarPayloadMesclagem, agruparDuplicados, escolherPrincipalSugerido, mesclarClientes, type GrupoDuplicado } from '../lib/clienteDedupe';
 import { format } from 'date-fns';
 
 // Formata uma data com fallback seguro — evita "RangeError: Invalid time value"
@@ -11718,10 +11718,81 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
   const [clientes, setClientes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [formData, setFormData] = useState({ full_name: '', phone: '', email: '', cpf_cnpj: '', city: '', state: '' });
+  const emptyClienteForm = {
+    full_name: '', phone: '', email: '', cpf_cnpj: '', city: '', state: '',
+    cep: '', numero: '', logradouro: '', distrito: '', complemento: '',
+    nascimento: '', rg: '', limite_credito: '', notes: '',
+    patrimonios: [] as { propriedade: string; valor: string }[],
+  };
+  const [formData, setFormData] = useState({ ...emptyClienteForm });
   const [editingClienteId, setEditingClienteId] = useState<string | null>(null);
+  const [isMoreFieldsOpen, setIsMoreFieldsOpen] = useState(false);
+  const [isLookingUpCep, setIsLookingUpCep] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  // --- Mesclar duplicados ---
+  const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
+  const [isMerging, setIsMerging] = useState(false);
+  const [mergePrincipalPorGrupo, setMergePrincipalPorGrupo] = useState<Record<string, string>>({});
+  const [gruposIgnorados, setGruposIgnorados] = useState<Set<string>>(new Set());
+  const duplicados = useMemo(() => agruparDuplicados(clientes), [clientes]);
+  const porNomeParaRevisar = duplicados.porNome.filter(g => !gruposIgnorados.has(g.chave));
+
+  const handleCepLookupCliente = async (cep: string) => {
+    const digits = cep.replace(/\D/g, '');
+    if (digits.length !== 8) return;
+    setIsLookingUpCep(true);
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`);
+      const data = await res.json();
+      if (!data.erro) {
+        setFormData(prev => ({
+          ...prev,
+          logradouro: data.logradouro || prev.logradouro,
+          distrito: data.bairro || prev.distrito,
+          city: data.localidade || prev.city,
+          state: data.uf || prev.state,
+        }));
+      }
+    } catch (err) {
+      console.error('Erro ao buscar CEP:', err);
+    } finally {
+      setIsLookingUpCep(false);
+    }
+  };
+
+  const handleMesclarGrupo = async (grupo: GrupoDuplicado, principalId: string) => {
+    setIsMerging(true);
+    try {
+      const duplicataIds = grupo.clientes.filter(c => c.id !== principalId).map(c => c.id);
+      await mesclarClientes(principalId, duplicataIds);
+    } catch (err: any) {
+      console.error('Erro ao mesclar clientes:', err);
+      showAlert(`Não foi possível mesclar: ${err?.message || 'erro desconhecido'}`);
+    } finally {
+      setIsMerging(false);
+    }
+  };
+
+  const handleMesclarTodosPorCpf = async () => {
+    setIsMerging(true);
+    try {
+      let mesclados = 0;
+      for (const grupo of duplicados.porCpf) {
+        const principal = escolherPrincipalSugerido(grupo.clientes);
+        const duplicataIds = grupo.clientes.filter(c => c.id !== principal.id).map(c => c.id);
+        await mesclarClientes(principal.id, duplicataIds);
+        mesclados += duplicataIds.length;
+      }
+      showAlert(`${mesclados} cadastro(s) duplicado(s) mesclado(s) automaticamente (mesmo CPF/CNPJ).`);
+    } catch (err: any) {
+      console.error('Erro ao mesclar automaticamente:', err);
+      showAlert(`Não foi possível mesclar automaticamente: ${err?.message || 'erro desconhecido'}`);
+    } finally {
+      setIsMerging(false);
+    }
+  };
 
   // Estatisticas de vendas por cliente (ultimo pedido, faturamento, pago, pendente) e custo dos produtos (pro lucro)
   const [clienteStats, setClienteStats] = useState<Record<string, { lastDate: string; count: number; total: number; pago: number; pendente: number; custoTotal: number }>>({});
@@ -11974,7 +12045,12 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
     setFormData({
       full_name: c.full_name || '', phone: c.phone || '', email: c.email || '',
       cpf_cnpj: c.cpf_cnpj || '', city: c.city || '', state: c.state || '',
+      cep: c.cep || '', numero: c.numero || '', logradouro: c.logradouro || '', distrito: c.distrito || '',
+      complemento: c.complemento || '', nascimento: c.nascimento || '', rg: c.rg || '',
+      limite_credito: c.limite_credito ? String(c.limite_credito) : '', notes: c.notes || '',
+      patrimonios: Array.isArray(c.patrimonios) ? c.patrimonios : [],
     });
+    setIsMoreFieldsOpen(false);
     setIsModalOpen(true);
   };
 
@@ -11988,6 +12064,16 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
         cpf_cnpj: formData.cpf_cnpj,
         city: formData.city,
         state: formData.state,
+        cep: formData.cep || null,
+        numero: formData.numero || null,
+        logradouro: formData.logradouro || null,
+        distrito: formData.distrito || null,
+        complemento: formData.complemento || null,
+        nascimento: formData.nascimento || null,
+        rg: formData.rg || null,
+        limite_credito: formData.limite_credito ? Number(formData.limite_credito) : 0,
+        notes: formData.notes || null,
+        patrimonios: formData.patrimonios.filter(p => p.propriedade.trim()),
       };
 
       // Mesma regra do cadastro pelo Terminal de Vendas: CPF/CNPJ igual mescla automatico,
@@ -12016,7 +12102,7 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
       if (error) throw error;
       setIsModalOpen(false);
       setEditingClienteId(null);
-      setFormData({ full_name: '', phone: '', email: '', cpf_cnpj: '', city: '', state: '' });
+      setFormData({ ...emptyClienteForm });
       // Mantem a Ficha do Cliente atualizada na hora se ela estiver aberta pro mesmo cliente
       if (fichaCliente && editingClienteId === fichaCliente.id) {
         setFichaCliente((prev: any) => prev ? { ...prev, ...payload } : prev);
@@ -12101,9 +12187,18 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
             <Link2 size={14} className={cn(isLinkingVendas && "animate-pulse")} />
             <span className="hidden sm:inline">Vincular Vendas</span>
           </button>
-          <Button icon={Plus} onClick={() => { setEditingClienteId(null); setFormData({ full_name: '', phone: '', email: '', cpf_cnpj: '', city: '', state: '' }); setIsModalOpen(true); }}>Novo Cliente</Button>
+          <Button icon={Plus} onClick={() => { setEditingClienteId(null); setFormData({ ...emptyClienteForm }); setIsMoreFieldsOpen(false); setIsModalOpen(true); }}>Novo Cliente</Button>
         </div>
       </div>
+      {(duplicados.porCpf.length > 0 || porNomeParaRevisar.length > 0) && (
+        <button
+          onClick={() => setIsMergeModalOpen(true)}
+          className="flex items-center gap-2 px-3 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 hover:bg-amber-500/20 transition-all text-[10px] font-black uppercase tracking-wide w-fit"
+        >
+          <Link2 size={14} />
+          {duplicados.porCpf.length + porNomeParaRevisar.length} possível(is) duplicata(s) — Mesclar
+        </button>
+      )}
       <div className="flex items-center gap-2 flex-wrap">
          <div className="relative flex-1 min-w-[180px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" size={14} />
@@ -12199,10 +12294,124 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
             <Input label="CIDADE" value={formData.city} onChange={(e: any) => setFormData({ ...formData, city: e.target.value })} />
             <Input label="ESTADO" value={formData.state} onChange={(e: any) => setFormData({ ...formData, state: e.target.value })} />
           </div>
+
+          <AnimatePresence>
+            {isMoreFieldsOpen && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.25, ease: 'easeInOut' }}
+                className="overflow-hidden space-y-4"
+              >
+                <div className="h-px bg-white/10" />
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="relative">
+                    <Input
+                      label="CEP" placeholder="93000-000" value={formData.cep}
+                      onChange={(e: any) => setFormData({ ...formData, cep: e.target.value })}
+                      onBlur={(e: any) => handleCepLookupCliente(e.target.value)}
+                    />
+                    {isLookingUpCep && <RefreshCw size={14} className="animate-spin text-primary-400 absolute right-3 top-9" />}
+                  </div>
+                  <Input label="NÚMERO" value={formData.numero} onChange={(e: any) => setFormData({ ...formData, numero: e.target.value })} />
+                </div>
+                <Input label="LOGRADOURO" value={formData.logradouro} onChange={(e: any) => setFormData({ ...formData, logradouro: e.target.value })} />
+                <div className="grid grid-cols-2 gap-4">
+                  <Input label="BAIRRO" value={formData.distrito} onChange={(e: any) => setFormData({ ...formData, distrito: e.target.value })} />
+                  <Input label="COMPLEMENTO" value={formData.complemento} onChange={(e: any) => setFormData({ ...formData, complemento: e.target.value })} />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <Input label="DATA DE NASCIMENTO" type="date" value={formData.nascimento} onChange={(e: any) => setFormData({ ...formData, nascimento: e.target.value })} />
+                  <RgInput label="RG" value={formData.rg} onChange={(v: string) => setFormData({ ...formData, rg: v })} />
+                </div>
+                <Input label="LIMITE DE CRÉDITO (R$)" type="number" step="any" value={formData.limite_credito} onChange={(e: any) => setFormData({ ...formData, limite_credito: e.target.value })} />
+                <div className="space-y-2">
+                  <p className="text-[9px] font-black uppercase text-primary-300 tracking-[2px]">Observações</p>
+                  <textarea
+                    rows={3} placeholder="Anotações internas sobre o cliente..." value={formData.notes}
+                    onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white placeholder-white/30 focus:outline-none focus:border-primary-500 resize-none"
+                  />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           <div className="flex gap-4 pt-4">
             <Button variant="secondary" className="flex-1 h-14" onClick={() => { setIsModalOpen(false); setEditingClienteId(null); }}>Cancelar</Button>
+            <Button variant="secondary" className="flex-1 h-14" onClick={() => setIsMoreFieldsOpen(prev => !prev)}>{isMoreFieldsOpen ? 'Menos Opções' : 'Mais Opções'}</Button>
             <Button className="flex-[2] h-14 bg-primary-500 text-slate-900 border-none shadow-xl shadow-primary-500/20" onClick={handleSave}>{editingClienteId ? "Salvar Alterações" : "Salvar Cliente"}</Button>
           </div>
+        </div>
+      </Modal>
+
+      <Modal isOpen={isMergeModalOpen} onClose={() => setIsMergeModalOpen(false)} title="MESCLAR CLIENTES DUPLICADOS" size="md">
+        <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto custom-scrollbar">
+          {duplicados.porCpf.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-[10px] font-black uppercase text-emerald-300 tracking-[2px]">Mesmo CPF/CNPJ ({duplicados.porCpf.length})</p>
+                <Button size="sm" disabled={isMerging} onClick={handleMesclarTodosPorCpf}>
+                  {isMerging ? 'Mesclando...' : 'Mesclar Todos Automaticamente'}
+                </Button>
+              </div>
+              <p className="text-[10px] text-white/40">Documento é único por pessoa, então esses grupos podem ser mesclados de uma vez com segurança.</p>
+              <div className="space-y-2">
+                {duplicados.porCpf.map(grupo => (
+                  <div key={grupo.chave} className="bg-slate-900/60 border border-white/5 rounded-xl px-3 py-2">
+                    <p className="text-[9px] text-white/30 font-mono mb-1">CPF/CNPJ: {grupo.chave}</p>
+                    {grupo.clientes.map((c: any) => (
+                      <p key={c.id} className="text-[11px] text-white/70">{c.full_name} {c.phone ? `· ${c.phone}` : ''}</p>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {porNomeParaRevisar.length > 0 && (
+            <div className="space-y-3">
+              <p className="text-[10px] font-black uppercase text-amber-300 tracking-[2px]">Mesmo Nome — Revisar Um a Um ({porNomeParaRevisar.length})</p>
+              <p className="text-[10px] text-white/40">Nome igual pode ser coincidência. Escolha qual cadastro é o principal (os dados dos outros preenchem o que estiver em branco nele) e confirme, ou marque como "não é a mesma pessoa".</p>
+              <div className="space-y-4">
+                {porNomeParaRevisar.map(grupo => {
+                  const principalSelecionado = mergePrincipalPorGrupo[grupo.chave] || escolherPrincipalSugerido(grupo.clientes).id;
+                  return (
+                    <div key={grupo.chave} className="bg-slate-900/60 border border-white/5 rounded-xl p-3 space-y-2">
+                      <p className="text-[11px] font-black text-white uppercase">{grupo.chave}</p>
+                      {grupo.clientes.map((c: any) => (
+                        <label key={c.id} className="flex items-center gap-2 text-[10px] text-white/70 cursor-pointer">
+                          <input
+                            type="radio"
+                            name={`principal-${grupo.chave}`}
+                            checked={principalSelecionado === c.id}
+                            onChange={() => setMergePrincipalPorGrupo(prev => ({ ...prev, [grupo.chave]: c.id }))}
+                          />
+                          <span className="flex-1">
+                            {c.phone ? `Tel. ${c.phone}` : 'Sem telefone'}
+                            {c.cpf_cnpj ? ` · CPF/CNPJ ${c.cpf_cnpj}` : ''}
+                            {c.cep || c.logradouro ? ' · Tem endereço salvo' : ''}
+                            {c.created_at ? ` · cadastrado em ${safeFormat(c.created_at, 'dd/MM/yyyy')}` : ''}
+                          </span>
+                        </label>
+                      ))}
+                      <div className="flex gap-2 pt-1">
+                        <Button variant="ghost" size="sm" className="flex-1" onClick={() => setGruposIgnorados(prev => new Set(prev).add(grupo.chave))}>Não é a mesma pessoa</Button>
+                        <Button size="sm" className="flex-1" disabled={isMerging} onClick={() => handleMesclarGrupo(grupo, principalSelecionado)}>
+                          {isMerging ? 'Mesclando...' : 'Mesclar'}
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {duplicados.porCpf.length === 0 && porNomeParaRevisar.length === 0 && (
+            <p className="text-center text-xs text-white/30 py-6">Nenhuma duplicata encontrada.</p>
+          )}
         </div>
       </Modal>
 
