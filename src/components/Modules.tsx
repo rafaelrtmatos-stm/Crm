@@ -8591,16 +8591,20 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               (orcamentoVinc?.numero || '').toLowerCase().includes(term)
             );
           });
-          const valorTotalContratado = contratos.filter(c => c.status !== 'cancelado' && c.status !== 'encerrado').reduce((acc, c) => acc + c.total, 0);
-          const valorContratosAceitos = contratos.filter(c => c.status === 'aceito' || c.status === 'em_execucao' || c.status === 'concluido').reduce((acc, c) => acc + c.total, 0);
+          // Resumo simplificado em 3 grupos (em vez dos 8 status técnicos): o que ainda não foi
+          // assinado digitalmente, o que já foi (incluindo o que segue depois da assinatura --
+          // em execução/concluído/encerrado), e cancelados.
+          const statusAguardandoAssinatura = ['rascunho', 'aguardando_aceite', 'aceito'];
+          const statusAssinados = ['assinado', 'em_execucao', 'concluido', 'encerrado'];
+          const contratosAguardandoAssinatura = contratos.filter(c => statusAguardandoAssinatura.includes(c.status));
+          const contratosAssinados = contratos.filter(c => statusAssinados.includes(c.status));
+          const contratosCancelados = contratos.filter(c => c.status === 'cancelado');
+          const valorAssinado = contratosAssinados.reduce((acc, c) => acc + c.total, 0);
+          const valorNaoAssinado = contratosAguardandoAssinatura.reduce((acc, c) => acc + c.total, 0);
           const dashCards = [
-            { label: 'Rascunhos', val: contratos.filter(c => c.status === 'rascunho').length, color: 'text-white/60' },
-            { label: 'Aguardando Aceite', val: contratos.filter(c => c.status === 'aguardando_aceite').length, color: 'text-blue-400' },
-            { label: 'Aceitos', val: contratos.filter(c => c.status === 'aceito').length, color: 'text-emerald-400' },
-            { label: 'Em Execução', val: contratos.filter(c => c.status === 'em_execucao').length, color: 'text-amber-400' },
-            { label: 'Concluídos', val: contratos.filter(c => c.status === 'concluido').length, color: 'text-primary-400' },
-            { label: 'Cancelados', val: contratos.filter(c => c.status === 'cancelado').length, color: 'text-rose-400' },
-            { label: 'Encerrados', val: contratos.filter(c => c.status === 'encerrado').length, color: 'text-white/40' },
+            { label: 'Aguardando Assinatura', val: contratosAguardandoAssinatura.length, color: 'text-amber-400' },
+            { label: 'Assinados', val: contratosAssinados.length, color: 'text-emerald-400' },
+            { label: 'Cancelados', val: contratosCancelados.length, color: 'text-rose-400' },
           ];
 
           return (
@@ -8612,20 +8616,20 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               />
 
               {/* Dashboard */}
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-9 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
                 {dashCards.map(card => (
                   <div key={card.label} className="bg-white/5 border border-white/10 rounded-2xl p-4">
                      <p className="text-[8px] font-black uppercase text-white/30 tracking-widest mb-1">{card.label}</p>
                      <p className={cn("text-2xl font-black italic", card.color)}>{card.val}</p>
                   </div>
                 ))}
-                <div className="bg-blue-500/10 border border-blue-500/20 rounded-2xl p-4">
-                   <p className="text-[8px] font-black uppercase text-blue-400 tracking-widest mb-1">Valor de Contratos Aceitos</p>
-                   <p className="text-lg font-black italic text-blue-400">R$ {valorContratosAceitos.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-                </div>
                 <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-4">
-                   <p className="text-[8px] font-black uppercase text-emerald-400 tracking-widest mb-1">Valor Total Contratado</p>
-                   <p className="text-lg font-black italic text-emerald-400">R$ {valorTotalContratado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                   <p className="text-[8px] font-black uppercase text-emerald-400 tracking-widest mb-1">Valor Assinado</p>
+                   <p className="text-lg font-black italic text-emerald-400">R$ {valorAssinado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                </div>
+                <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4">
+                   <p className="text-[8px] font-black uppercase text-amber-400 tracking-widest mb-1">Valor Não Assinado</p>
+                   <p className="text-lg font-black italic text-amber-400">R$ {valorNaoAssinado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                 </div>
               </div>
 
