@@ -12236,26 +12236,28 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
                     <div
                       key={c.id}
                       ref={(el) => { clienteRowRefs.current[c.id] = el; }}
-                      className="flex items-center gap-3 bg-slate-900/60 hover:bg-slate-900 border border-white/5 rounded-xl px-3 py-2 transition-all"
+                      className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 bg-slate-900/60 hover:bg-slate-900 border border-white/5 rounded-xl px-3 py-2 transition-all"
                     >
                        <div className="min-w-0 flex-1">
-                          <p className="text-[11px] font-black text-white uppercase italic truncate">{c.full_name}</p>
+                          <p className="text-[11px] font-black text-white uppercase italic break-words sm:truncate">{c.full_name}</p>
                           <div className="flex items-center gap-1.5 flex-wrap">
                             {c.cpf_cnpj && <p className="text-[9px] text-white/30 font-mono">{c.cpf_cnpj}</p>}
                             {s && <p className="text-[9px] text-white/30">{c.cpf_cnpj ? '· ' : ''}{s.count} pedido(s) · R$ {s.total.toFixed(2).replace('.', ',')}</p>}
                           </div>
                        </div>
-                       {c.phone ? (
-                         <button
-                           onClick={() => window.open(`https://wa.me/${c.phone.replace(/\D/g, '')}`, '_blank')}
-                           className="flex items-center gap-1.5 text-emerald-400 hover:text-emerald-300 font-bold text-[11px] shrink-0"
-                         >
-                           <MessageSquare size={13} /> {c.phone}
-                         </button>
-                       ) : <span className="text-white/20 text-[11px] shrink-0">—</span>}
-                       <span className="text-white/40 text-[9px] shrink-0 hidden sm:block w-20 text-right">{s ? safeFormat(s.lastDate, 'dd/MM/yyyy') : '—'}</span>
-                       <button onClick={() => onEditFullClient ? onEditFullClient(c) : openEditCliente(c)} title="Editar" className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20 shrink-0"><Pencil size={12} /></button>
-                       <button onClick={() => setFichaCliente(c)} className="text-[9px] font-black uppercase px-3 py-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20 shrink-0">Exibir</button>
+                       <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap sm:shrink-0">
+                         {c.phone ? (
+                           <button
+                             onClick={() => window.open(`https://wa.me/${c.phone.replace(/\D/g, '')}`, '_blank')}
+                             className="flex items-center gap-1.5 text-emerald-400 hover:text-emerald-300 font-bold text-[11px] shrink-0"
+                           >
+                             <MessageSquare size={13} /> {c.phone}
+                           </button>
+                         ) : <span className="text-white/20 text-[11px] shrink-0">—</span>}
+                         <span className="text-white/40 text-[9px] shrink-0 hidden sm:block w-20 text-right">{s ? safeFormat(s.lastDate, 'dd/MM/yyyy') : '—'}</span>
+                         <button onClick={() => onEditFullClient ? onEditFullClient(c) : openEditCliente(c)} title="Editar" className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20 shrink-0"><Pencil size={12} /></button>
+                         <button onClick={() => setFichaCliente(c)} className="text-[9px] font-black uppercase px-3 py-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20 shrink-0">Exibir</button>
+                       </div>
                     </div>
                   );
                })}
