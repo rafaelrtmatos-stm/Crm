@@ -122,7 +122,9 @@ import {
   Save,
   LogOut,
   PlusSquare,
-  ShieldCheck
+  ShieldCheck,
+  Lock,
+  Loader2
 } from 'lucide-react';
 import { 
   DndContext, 
@@ -212,6 +214,7 @@ import { exportClientesXlsx, parseClientesXlsx, exportProdutosXlsx, parseProduto
 import { downloadContratoPdf, type AuditStamp } from '../lib/contratoPdf';
 import { buildContratoClausulasTexto } from '../lib/contratoTemplate';
 import { OFFICIAL_COMPANY, PUBLIC_SIGN_ORIGIN, getContractSignatureLink } from '../lib/companyIdentity';
+import { signContractByCompany } from '../lib/otpUtils';
 import { validateCpfCnpj } from '../lib/validators';
 import { buscarClienteDuplicado, montarPayloadMesclagem } from '../lib/clienteDedupe';
 import { format } from 'date-fns';
@@ -494,6 +497,8 @@ const mapContratoRow = (row: any): Contrato => ({
   signerUserAgent: row.signer_user_agent || undefined,
   documentHash: row.document_hash || undefined,
   signatureMethod: row.signature_method || undefined,
+  empresaSignedAt: row.empresa_signed_at || undefined,
+  empresaSignedBy: row.empresa_signed_by || undefined,
   pdfUrl: row.pdf_url || undefined,
   responsavel: row.responsavel || undefined,
   createdAt: row.created_at,
@@ -535,6 +540,7 @@ function getRevenueEventsForSale(o: SaleOrder): { date: string; value: number }[
 
 const CONTRATO_STATUS_LABELS: Record<string, string> = {
   rascunho: 'Rascunho', aguardando_aceite: 'Aguardando Aceite', aceito: 'Aceito',
+  aguardando_assinatura_empresa: 'Aguardando Sua Assinatura',
   assinado: 'Assinado Digitalmente',
   em_execucao: 'Em Execução', concluido: 'Concluído', cancelado: 'Cancelado', encerrado: 'Encerrado',
 };
@@ -548,6 +554,7 @@ const CONTRATO_STATUS_STYLES: Record<string, string> = {
   rascunho: 'bg-white/10 text-white/50',
   aguardando_aceite: 'bg-amber-500/15 text-amber-400',
   aceito: 'bg-emerald-500/15 text-emerald-400',
+  aguardando_assinatura_empresa: 'bg-amber-500/15 text-amber-400',
   assinado: 'bg-primary-500/15 text-primary-400',
   em_execucao: 'bg-blue-500/15 text-blue-400',
   concluido: 'bg-primary-500/15 text-primary-400',
@@ -4500,6 +4507,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [orcamentoFromCart, setOrcamentoFromCart] = useState(false);
   const [contratoStatusFilter, setContratoStatusFilter] = useState('todos');
   const [contratoSortBy, setContratoSortBy] = useState<'recentes' | 'antigos' | 'az' | 'za'>('recentes');
+  const [signingContrato, setSigningContrato] = useState<Contrato | null>(null);
+  const [signContratoPassword, setSignContratoPassword] = useState('');
+  const [signContratoError, setSignContratoError] = useState<string | null>(null);
+  const [isSigningContrato, setIsSigningContrato] = useState(false);
   const [openContratoActionsId, setOpenContratoActionsId] = useState<string | null>(null);
   // Posicao calculada via JS (nao CSS absolute) pro menu "..." do card de contrato --
   // absolute ficava sendo cortado pelo scroll da lista (overflow-y-auto do container pai),
@@ -4812,6 +4823,47 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const { error } = await supabase.from('contratos').update({ status, updated_at: new Date().toISOString() }).eq('id', c.id);
     if (error) { showAlert(`Não foi possível atualizar o status: ${error.message}`); return; }
     setAllContratos(prev => prev.map(ct => ct.id === c.id ? { ...ct, status } : ct));
+  };
+
+  // Segundo passo do fluxo de assinatura digital: o cliente ja assinou (contrato em
+  // 'aguardando_assinatura_empresa') e o operador logado confirma a PROPRIA senha de login pra
+  // validar a assinatura da empresa -- so depois disso o contrato fecha de vez ('assinado') e o
+  // PDF final (com os dois carimbos) e' gerado. Ver signContractByCompany em otpUtils.ts.
+  const handleConfirmCompanySignature = async () => {
+    if (!signingContrato || !user) return;
+    if (!signContratoPassword.trim()) {
+      setSignContratoError('Digite sua senha de login.');
+      return;
+    }
+    if (!user.password || signContratoPassword !== user.password) {
+      setSignContratoError('Senha incorreta.');
+      return;
+    }
+    setIsSigningContrato(true);
+    setSignContratoError(null);
+    try {
+      await signContractByCompany({
+        contractId: signingContrato.id,
+        numero: signingContrato.numero,
+        customerName: signingContrato.customerName,
+        documentText: signingContrato.textoContrato || '',
+        clientSignedAt: signingContrato.signedAt || new Date().toISOString(),
+        clientIp: signingContrato.signerIp || '',
+        documentHash: signingContrato.documentHash || '',
+        clientCpfCnpj: signingContrato.cpfCnpj,
+        clientPhone: signingContrato.phone,
+        companySignerName: user.name,
+      });
+      await loadContratos();
+      setSigningContrato(null);
+      setSignContratoPassword('');
+      showAlert(`Contrato ${signingContrato.numero} assinado com sucesso! Você já pode avisar o cliente pelo mesmo link — ele agora mostra o contrato assinado.`);
+    } catch (err: any) {
+      console.error('Erro ao confirmar assinatura da empresa:', err);
+      setSignContratoError(`Não foi possível confirmar a assinatura: ${err?.message || 'erro desconhecido'}`);
+    } finally {
+      setIsSigningContrato(false);
+    }
   };
 
   const handleDeleteContrato = async (c: Contrato) => {
@@ -8709,7 +8761,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           // encerrado), o que ja foi pago (venda vinculada com valor recebido >= total), e cancelados.
           // Os valores tecnicos de ContratoStatus continuam intactos por baixo -- isso e so a
           // classificacao/filtro exibido pro usuario, pra nao mexer no fluxo de assinatura digital.
-          const statusNaoAssinado = ['rascunho', 'aguardando_aceite', 'aceito'];
+          const statusNaoAssinado = ['rascunho', 'aguardando_aceite', 'aceito', 'aguardando_assinatura_empresa'];
           const statusAssinado = ['assinado', 'em_execucao', 'concluido', 'encerrado'];
           const contratoEstaPago = (c: Contrato) => {
             const venda = c.vendaId ? allSalesHistory.find(s => s.id === c.vendaId) : undefined;
@@ -8884,6 +8936,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                     evita a fileira de 8-9 botoes quebrando linha, principalmente no mobile */}
                                 <div className="flex items-center gap-1.5">
                                    <button onClick={() => setViewingContrato(c)} title="Visualizar" className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 text-white/60 hover:bg-white/10 hover:text-white transition-colors"><Eye size={14} /></button>
+                                   {c.status === 'aguardando_assinatura_empresa' && (
+                                     <button
+                                       onClick={() => { setSigningContrato(c); setSignContratoPassword(''); setSignContratoError(null); }}
+                                       title="Assinar pela empresa"
+                                       className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary-500/15 text-primary-400 hover:bg-primary-500/25 transition-colors"
+                                     >
+                                       <ShieldCheck size={14} />
+                                     </button>
+                                   )}
                                    {c.phone && (
                                      <button
                                        onClick={() => window.open(`https://wa.me/${c.phone!.replace(/\D/g, '')}?text=${encodeURIComponent(`Olá ${c.customerName}! Segue o contrato ${c.numero} no valor de R$ ${c.total.toFixed(2).replace('.', ',')}.`)}`, '_blank')}
@@ -8948,6 +9009,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                               <button onClick={() => { setActiveTab('orcamentos'); setHighlightOrcamentoId(orcamentoVinc.id); setTimeout(() => setHighlightOrcamentoId(null), 4000); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-primary-300 hover:bg-white/5 text-left"><ExternalLink size={13} /> Abrir Orçamento</button>
                                             )}
 
+                                            {c.status === 'aguardando_assinatura_empresa' && (
+                                              <button onClick={() => { setSigningContrato(c); setSignContratoPassword(''); setSignContratoError(null); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-primary-400 hover:bg-white/5 text-left"><ShieldCheck size={13} /> Assinar pela empresa</button>
+                                            )}
                                             {(c.status === 'rascunho' || c.status === 'aguardando_aceite' || c.status === 'aceito' || c.status === 'em_execucao') && (
                                               <div className="h-px bg-white/10 my-1.5" />
                                             )}
@@ -11431,7 +11495,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                <span className="text-lg font-black text-emerald-400 italic">R$ {viewingContrato.total.toFixed(2).replace('.', ',')}</span>
             </div>
             {viewingContrato.signedAt && (
-               <p className="text-[10px] text-white/40 -mt-2">Assinado em {safeFormat(viewingContrato.signedAt, 'dd/MM/yyyy HH:mm')}</p>
+               <p className="text-[10px] text-white/40 -mt-2">Cliente assinou em {safeFormat(viewingContrato.signedAt, 'dd/MM/yyyy HH:mm')}</p>
+            )}
+            {viewingContrato.empresaSignedAt && (
+               <p className="text-[10px] text-white/40 -mt-2">Empresa assinou em {safeFormat(viewingContrato.empresaSignedAt, 'dd/MM/yyyy HH:mm')}{viewingContrato.empresaSignedBy ? ` (${viewingContrato.empresaSignedBy})` : ''}</p>
             )}
             {viewingContrato.status === 'assinado' && (
                <button
@@ -11444,7 +11511,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             <div className="bg-slate-900/60 border border-white/10 rounded-2xl p-4 max-h-[55vh] overflow-y-auto custom-scrollbar">
                <pre className="text-[11px] text-white/80 whitespace-pre-wrap font-sans leading-relaxed">{viewingContrato.textoContrato || 'Esse contrato ainda não tem texto gerado.'}</pre>
             </div>
-            <ContractSignatureOtpPanel contrato={viewingContrato} />
+            <ContractSignatureOtpPanel
+              contrato={viewingContrato}
+              onRequestCompanySign={() => { setSigningContrato(viewingContrato); setSignContratoPassword(''); setSignContratoError(null); }}
+            />
             <div className="flex justify-end gap-3">
                <Button variant="ghost" onClick={() => setViewingContrato(null)}>Fechar</Button>
                <Button className="bg-purple-500 hover:bg-purple-400 text-white border-none" onClick={() => handleDownloadContratoPdf(viewingContrato)}>Baixar PDF</Button>
@@ -11458,6 +11528,56 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
          contrato={viewingAceiteDetalhes}
          onClose={() => setViewingAceiteDetalhes(null)}
        />
+     )}
+
+     {signingContrato && (
+       <Modal
+         isOpen={!!signingContrato}
+         onClose={() => { if (!isSigningContrato) { setSigningContrato(null); setSignContratoPassword(''); setSignContratoError(null); } }}
+         title="Confirmar Assinatura da Empresa"
+         size="sm"
+       >
+         <div className="space-y-4 p-1">
+            <div className="flex items-start gap-3 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4">
+               <Lock size={18} className="text-amber-400 shrink-0 mt-0.5" />
+               <div>
+                  <p className="text-xs font-bold text-white">Contrato {signingContrato.numero}</p>
+                  <p className="text-[11px] text-white/50 mt-0.5">
+                    O cliente {signingContrato.customerName} já assinou. Confirme sua senha de login pra
+                    validar a assinatura da empresa e fechar o contrato de vez.
+                  </p>
+               </div>
+            </div>
+
+            <div className="space-y-1.5">
+               <label className="text-[10px] uppercase font-bold text-white/40">Sua senha de login</label>
+               <input
+                 type="password"
+                 autoFocus
+                 value={signContratoPassword}
+                 onChange={(e) => { setSignContratoPassword(e.target.value); setSignContratoError(null); }}
+                 onKeyDown={(e) => { if (e.key === 'Enter') handleConfirmCompanySignature(); }}
+                 disabled={isSigningContrato}
+                 className="w-full h-11 bg-slate-900/80 border border-white/10 rounded-xl px-3 text-sm text-white focus:outline-none focus:border-primary-500 disabled:opacity-50"
+               />
+               {signContratoError && (
+                 <p className="text-[11px] text-rose-400">{signContratoError}</p>
+               )}
+            </div>
+
+            <div className="flex justify-end gap-3">
+               <Button variant="ghost" disabled={isSigningContrato} onClick={() => { setSigningContrato(null); setSignContratoPassword(''); setSignContratoError(null); }}>Cancelar</Button>
+               <Button
+                 className="bg-primary-500 hover:bg-primary-400 text-black border-none"
+                 disabled={isSigningContrato}
+                 onClick={handleConfirmCompanySignature}
+               >
+                 {isSigningContrato ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />}
+                 {isSigningContrato ? 'Assinando...' : 'Confirmar e Assinar'}
+               </Button>
+            </div>
+         </div>
+       </Modal>
      )}
 
      {isScheduleModalOpen && (

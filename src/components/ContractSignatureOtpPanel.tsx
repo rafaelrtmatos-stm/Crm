@@ -45,9 +45,10 @@ const formatTtlLabel = (minutes: number): string => {
 
 interface ContractSignatureOtpPanelProps {
   contrato: Contrato;
+  onRequestCompanySign?: () => void; // abre a confirmacao de assinatura da empresa (senha) -- ver Modules.tsx
 }
 
-export const ContractSignatureOtpPanel = ({ contrato }: ContractSignatureOtpPanelProps) => {
+export const ContractSignatureOtpPanel = ({ contrato, onRequestCompanySign }: ContractSignatureOtpPanelProps) => {
   const [code, setCode] = useState<string | null>(null);
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -101,6 +102,28 @@ export const ContractSignatureOtpPanel = ({ contrato }: ContractSignatureOtpPane
           <p className="text-sm font-bold text-emerald-400">Contrato já assinado digitalmente</p>
           <p className="text-[11px] text-white/50">Veja os dados de auditoria (IP, hash, data/hora) no PDF gerado.</p>
         </div>
+      </div>
+    );
+  }
+
+  if (contrato.status === 'aguardando_assinatura_empresa') {
+    return (
+      <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4 space-y-3">
+        <div className="flex items-center gap-3">
+          <ShieldCheck size={22} className="text-amber-400 shrink-0" />
+          <div>
+            <p className="text-sm font-bold text-amber-400">Cliente já assinou</p>
+            <p className="text-[11px] text-white/50">Revise o contrato e confirme sua assinatura pra fechar o documento.</p>
+          </div>
+        </div>
+        {onRequestCompanySign && (
+          <button
+            onClick={onRequestCompanySign}
+            className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary-500 hover:bg-primary-400 text-black text-xs font-black uppercase py-2.5 transition-colors"
+          >
+            <ShieldCheck size={14} /> Assinar pela empresa
+          </button>
+        )}
       </div>
     );
   }

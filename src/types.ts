@@ -562,7 +562,7 @@ export interface Orcamento {
   createdAt: string;
 }
 
-export type ContratoStatus = 'rascunho' | 'aguardando_aceite' | 'aceito' | 'assinado' | 'em_execucao' | 'concluido' | 'cancelado' | 'encerrado';
+export type ContratoStatus = 'rascunho' | 'aguardando_aceite' | 'aceito' | 'aguardando_assinatura_empresa' | 'assinado' | 'em_execucao' | 'concluido' | 'cancelado' | 'encerrado';
 
 export interface Contrato {
   id: string;
@@ -593,6 +593,8 @@ export interface Contrato {
   signerUserAgent?: string;
   documentHash?: string;
   signatureMethod?: string;
+  empresaSignedAt?: string;
+  empresaSignedBy?: string;
   pdfUrl?: string;
   createdAt: string;
   updatedAt?: string;

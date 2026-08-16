@@ -164,19 +164,17 @@ export async function checkDocumentLastDigits(contractId: string, last4Digits: s
 export interface SignContractResult {
   documentHash: string;
   signedAt: string;
-  pdfUrl: string | null;
 }
 
 /**
- * Registra a assinatura em si: calcula o hash SHA-256 do texto do contrato no momento da
- * assinatura, grava IP/user-agent/timestamp e muda o status para 'assinado'. So deve ser chamada
- * DEPOIS de validateVerificationCode({ ok: true }).
+ * Registra a assinatura do CLIENTE: calcula o hash SHA-256 do texto do contrato no momento da
+ * assinatura, grava IP/user-agent/timestamp e muda o status para 'aguardando_assinatura_empresa'.
+ * So deve ser chamada DEPOIS de validateVerificationCode({ ok: true }).
  *
- * Alem disso, gera o PDF final (com o carimbo de auditoria) UMA UNICA VEZ aqui e sobe pro
- * Supabase Storage (ver contratoPdfStorage.ts), gravando o link em contratos.pdf_url. Esse
- * arquivo passa a ser o documento oficial/imutavel do contrato -- os downloads seguintes (painel
- * Admin e tela publica) devem usar esse link em vez de gerar o PDF de novo no navegador, senao
- * uma mudanca futura no layout faria o PDF sair diferente do que foi realmente assinado.
+ * IMPORTANTE: isso NAO fecha o contrato sozinho. A assinatura da empresa (a sua) e' um passo
+ * separado e manual, feito pelo operador logado no painel Admin (ver signContractByCompany
+ * abaixo), depois de conferir o que o cliente assinou. So depois desse segundo passo o PDF
+ * final e' gerado e o contrato vira 'assinado' de verdade.
  */
 export async function signContract(params: SignContractParams): Promise<SignContractResult> {
   const documentHash = await sha256Hex(params.documentText);
@@ -185,7 +183,7 @@ export async function signContract(params: SignContractParams): Promise<SignCont
   const { error } = await supabase
     .from('contratos')
     .update({
-      status: 'assinado',
+      status: 'aguardando_assinatura_empresa',
       signed_at: signedAt,
       signer_ip: params.clientIp,
       signer_user_agent: params.clientUserAgent,
@@ -197,14 +195,59 @@ export async function signContract(params: SignContractParams): Promise<SignCont
 
   if (error) throw error;
 
-  // Carimbo completo de auditoria: lado do cliente (dados de quem assinou + link exclusivo
-  // deste contrato, montado automaticamente a partir do id) e lado da empresa (dados oficiais
-  // da CONTRATADA + validacao interna do ERP, que acontece neste exato instante, junto com a
-  // assinatura do cliente). O hash e' o mesmo dos dois lados -- prova que e' o mesmo documento.
+  return { documentHash, signedAt };
+}
+
+export interface SignContractByCompanyParams {
+  contractId: string;
+  numero: string;
+  customerName: string;
+  documentText: string;       // texto_contrato no momento da assinatura do cliente (mesmo hash)
+  clientSignedAt: string;     // contratos.signed_at (assinatura do cliente, ja gravada)
+  clientIp: string;           // contratos.signer_ip
+  documentHash: string;       // contratos.document_hash
+  clientCpfCnpj?: string;
+  clientPhone?: string;
+  companySignerName: string;  // nome de quem confirmou a assinatura da empresa (usuario logado)
+}
+
+export interface SignContractByCompanyResult {
+  empresaSignedAt: string;
+  pdfUrl: string | null;
+}
+
+/**
+ * Segundo e ultimo passo do fluxo de assinatura: o operador, ja logado, confirma a PROPRIA
+ * assinatura (empresa) depois de revisar o que o cliente assinou. So deve ser chamada depois da
+ * senha de login ser reconferida na tela (ver Modules.tsx). Gera o PDF final (com os dois
+ * carimbos: cliente + empresa) UMA UNICA VEZ aqui e sobe pro Supabase Storage (ver
+ * contratoPdfStorage.ts), gravando o link em contratos.pdf_url -- esse arquivo passa a ser o
+ * documento oficial/imutavel do contrato. O mesmo link publico (/assinar/:id) enviado antes pro
+ * cliente passa a mostrar o contrato como assinado -- pode ser reenviado pra avisar ele.
+ */
+export async function signContractByCompany(params: SignContractByCompanyParams): Promise<SignContractByCompanyResult> {
+  const empresaSignedAt = new Date().toISOString();
+
+  const { error } = await supabase
+    .from('contratos')
+    .update({
+      status: 'assinado',
+      empresa_signed_at: empresaSignedAt,
+      empresa_signed_by: params.companySignerName,
+      updated_at: empresaSignedAt,
+    })
+    .eq('id', params.contractId);
+
+  if (error) throw error;
+
+  // Carimbo completo de auditoria: lado do cliente (dados de quando ele assinou, ja gravados
+  // antes) e lado da empresa (dados oficiais da CONTRATADA + a confirmacao manual que acabou de
+  // acontecer). O hash e' o mesmo dos dois lados -- prova que e' o mesmo documento que o cliente
+  // efetivamente assinou, sem alteracao entre uma etapa e outra.
   const auditStamp: AuditStamp = {
-    signedAt,
+    signedAt: params.clientSignedAt,
     signerIp: params.clientIp,
-    documentHash,
+    documentHash: params.documentHash,
     signatureLink: getContractSignatureLink(params.contractId),
     signatureMethodLabel: 'Token OTP',
     clienteCpfCnpj: params.clientCpfCnpj,
@@ -212,13 +255,14 @@ export async function signContract(params: SignContractParams): Promise<SignCont
     empresaRazaoSocial: OFFICIAL_COMPANY.razaoSocial,
     empresaNomeFantasia: OFFICIAL_COMPANY.nomeFantasia,
     empresaCnpj: OFFICIAL_COMPANY.cnpj,
-    empresaValidatedAt: signedAt,
+    empresaValidatedAt: empresaSignedAt,
     empresaOrigin: PUBLIC_SIGN_ORIGIN,
+    empresaSignedByName: params.companySignerName,
   };
 
   // Nao deve travar/reverter a assinatura ja confirmada acima caso a geracao/upload do PDF falhe
-  // (ex: sem internet no fim do processo) -- fica registrado como null e o app cai no fallback
-  // de gerar na hora (ver ContractSignaturePublicPage.tsx), até um novo upload ser tentado.
+  // (ex: sem internet no fim do processo) -- fica registrado como null; o operador pode tentar
+  // "Gerar PDF" de novo depois pelo painel.
   const pdfUrl = await uploadContratoPdfAssinado(
     params.contractId,
     params.numero,
@@ -231,5 +275,5 @@ export async function signContract(params: SignContractParams): Promise<SignCont
     await supabase.from('contratos').update({ pdf_url: pdfUrl }).eq('id', params.contractId);
   }
 
-  return { documentHash, signedAt, pdfUrl };
+  return { empresaSignedAt, pdfUrl };
 }

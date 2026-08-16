@@ -7,8 +7,6 @@ import { ShieldCheck, Loader2, AlertCircle, CheckCircle2, Download, Hash, Globe,
 import { supabase } from '../supabase';
 import { validateVerificationCode, signContract, checkDocumentLastDigits, createVerificationCode } from '../lib/otpUtils';
 import { getPublicIpAddress } from '../lib/contractUtils';
-import { downloadContratoPdf } from '../lib/contratoPdf';
-import { OFFICIAL_COMPANY, PUBLIC_SIGN_ORIGIN, getContractSignatureLink } from '../lib/companyIdentity';
 
 interface ContratoPublico {
   id: string;
@@ -22,6 +20,7 @@ interface ContratoPublico {
   signerIp?: string;
   documentHash?: string;
   pdfUrl?: string;
+  empresaSignedAt?: string;
 }
 
 // Extrai o id do contrato da URL /assinar/:id (mesmo padrao de deteccao de rota usado em AppRoot.tsx)
@@ -57,15 +56,15 @@ export default function ContractSignaturePublicPage() {
   const [codeGenError, setCodeGenError] = useState<string | null>(null);
   const [codeCopied, setCodeCopied] = useState(false);
 
-  const [signedResult, setSignedResult] = useState<{ hash: string; ip: string; signedAt: string; pdfUrl: string | null } | null>(null);
+  const [signedResult, setSignedResult] = useState<{ hash: string; ip: string; signedAt: string } | null>(null);
 
-  // Dados de assinatura pra exibir/baixar: vem do que acabou de ser assinado nesta sessao
-  // (signedResult) OU, se o contrato ja estava assinado antes (link reaberto depois), vem
-  // do que foi salvo no banco (contrato.signedAt/signerIp/documentHash/pdfUrl).
-  const downloadInfo = signedResult
-    ?? (contrato?.signedAt && contrato?.signerIp && contrato?.documentHash
-      ? { hash: contrato.documentHash, ip: contrato.signerIp, signedAt: contrato.signedAt, pdfUrl: contrato.pdfUrl || null }
-      : null);
+  // Dados pra exibir/baixar o PDF: so existem quando o contrato ja foi assinado pelas DUAS
+  // partes (cliente + empresa) -- ate' la o cliente ve a tela de "aguardando" (ver abaixo), sem
+  // botao de download, ja que o PDF final so e' gerado depois que a empresa confirma a propria
+  // assinatura (ver signContractByCompany em otpUtils.ts).
+  const downloadInfo = (contrato?.signedAt && contrato?.signerIp && contrato?.documentHash && contrato?.pdfUrl)
+    ? { hash: contrato.documentHash, ip: contrato.signerIp, signedAt: contrato.signedAt, pdfUrl: contrato.pdfUrl }
+    : null;
 
   useEffect(() => {
     const id = getContratoIdFromUrl();
@@ -73,7 +72,7 @@ export default function ContractSignaturePublicPage() {
 
     supabase
       .from('contratos')
-      .select('id, numero, customer_name, cpf_cnpj, phone, texto_contrato, status, signed_at, signer_ip, document_hash, pdf_url')
+      .select('id, numero, customer_name, cpf_cnpj, phone, texto_contrato, status, signed_at, signer_ip, document_hash, pdf_url, empresa_signed_at')
       .eq('id', id)
       .maybeSingle()
       .then(({ data, error: fetchError }) => {
@@ -90,6 +89,7 @@ export default function ContractSignaturePublicPage() {
           signerIp: data.signer_ip || undefined,
           documentHash: data.document_hash || undefined,
           pdfUrl: data.pdf_url || undefined,
+          empresaSignedAt: data.empresa_signed_at || undefined,
         });
         setLoading(false);
       });
@@ -224,7 +224,7 @@ export default function ContractSignaturePublicPage() {
         clientPhone: contrato.phone,
       });
 
-      setSignedResult({ hash: result.documentHash, ip: clientIp, signedAt: result.signedAt, pdfUrl: result.pdfUrl });
+      setSignedResult({ hash: result.documentHash, ip: clientIp, signedAt: result.signedAt });
     } catch (err: any) {
       console.error('Erro ao validar/assinar:', err);
       setError('Ocorreu um erro ao processar a assinatura. Tente novamente em instantes.');
@@ -276,31 +276,12 @@ export default function ContractSignaturePublicPage() {
   };
 
   const handleDownloadPdf = () => {
-    if (!contrato || !downloadInfo) return;
-    // Arquivo imutavel gerado no momento exato da assinatura (ver signContract em otpUtils.ts):
-    // sempre preferimos abrir/baixar ele em vez de recriar o PDF na hora, pra garantir que o
-    // documento baixado seja sempre igual ao que foi efetivamente assinado.
-    if (downloadInfo.pdfUrl) {
-      window.open(downloadInfo.pdfUrl, '_blank', 'noopener,noreferrer');
-      return;
-    }
-    // Fallback: contrato assinado antes dessa migration (sem pdf_url salvo) ou upload que
-    // falhou no momento da assinatura -- gera na hora como antes, com o mesmo carimbo completo
-    // (cliente + empresa) que seria gravado no Storage.
-    downloadContratoPdf(contrato.numero, contrato.customerName, contrato.textoContrato, {
-      signedAt: downloadInfo.signedAt,
-      signerIp: downloadInfo.ip,
-      documentHash: downloadInfo.hash,
-      signatureLink: getContractSignatureLink(contrato.id),
-      signatureMethodLabel: 'Token OTP',
-      clienteCpfCnpj: contrato.cpfCnpj,
-      clientePhone: contrato.phone,
-      empresaRazaoSocial: OFFICIAL_COMPANY.razaoSocial,
-      empresaNomeFantasia: OFFICIAL_COMPANY.nomeFantasia,
-      empresaCnpj: OFFICIAL_COMPANY.cnpj,
-      empresaValidatedAt: downloadInfo.signedAt,
-      empresaOrigin: PUBLIC_SIGN_ORIGIN,
-    });
+    if (!downloadInfo) return;
+    // Arquivo imutavel gerado no momento exato em que a empresa confirmou a propria assinatura
+    // (ver signContractByCompany em otpUtils.ts) -- sempre abrimos/baixamos ele em vez de
+    // recriar o PDF na hora, pra garantir que o documento baixado seja sempre igual ao que foi
+    // efetivamente assinado pelas duas partes.
+    window.open(downloadInfo.pdfUrl, '_blank', 'noopener,noreferrer');
   };
 
   if (loading) {
@@ -381,33 +362,39 @@ export default function ContractSignaturePublicPage() {
     );
   }
 
-  if (signedResult) {
+  // Cliente ja assinou (nesta sessao ou numa visita anterior ao link) mas a empresa ainda nao
+  // confirmou a propria assinatura -- ver signContractByCompany em otpUtils.ts. Sem PDF pra
+  // baixar ainda: o documento final so existe depois da confirmacao da empresa.
+  if (signedResult || (contrato.status === 'aguardando_assinatura_empresa' && !downloadInfo)) {
+    const hash = signedResult?.hash ?? contrato.documentHash;
+    const ip = signedResult?.ip ?? contrato.signerIp;
+    const signedAt = signedResult?.signedAt ?? contrato.signedAt;
+
     return (
       <div className="min-h-screen bg-black flex flex-col items-center justify-center gap-4 px-6 py-12 text-center">
         <CheckCircle2 className="text-emerald-400" size={48} />
-        <h1 className="text-white text-xl font-black">Assinatura confirmada!</h1>
+        <h1 className="text-white text-xl font-black">Assinatura recebida!</h1>
         <p className="text-white/50 text-sm max-w-sm">
           Contrato {contrato.numero} assinado eletronicamente por {contrato.customerName}.
+          Falta só a confirmação final da empresa — assim que ela confirmar, este mesmo link
+          mostra o contrato assinado e libera o PDF pra download.
         </p>
 
-        <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-left space-y-2 mt-2">
-          <div className="flex items-center gap-2 text-[11px] text-white/50">
-            <Clock size={12} /> {new Date(signedResult.signedAt).toLocaleString('pt-BR')}
+        {hash && ip && signedAt && (
+          <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-left space-y-2 mt-2">
+            <div className="flex items-center gap-2 text-[11px] text-white/50">
+              <Clock size={12} /> {new Date(signedAt).toLocaleString('pt-BR')}
+            </div>
+            <div className="flex items-center gap-2 text-[11px] text-white/50">
+              <Globe size={12} /> IP {ip}
+            </div>
+            <div className="flex items-center gap-2 text-[11px] text-white/50 break-all">
+              <Hash size={12} className="shrink-0" /> {hash}
+            </div>
           </div>
-          <div className="flex items-center gap-2 text-[11px] text-white/50">
-            <Globe size={12} /> IP {signedResult.ip}
-          </div>
-          <div className="flex items-center gap-2 text-[11px] text-white/50 break-all">
-            <Hash size={12} className="shrink-0" /> {signedResult.hash}
-          </div>
-        </div>
+        )}
 
-        <button
-          onClick={handleDownloadPdf}
-          className="mt-2 flex items-center gap-2 rounded-xl bg-primary-500 hover:bg-primary-400 text-black text-xs font-black uppercase px-5 py-3 transition-colors"
-        >
-          <Download size={14} /> Baixar PDF Assinado
-        </button>
+        <p className="text-[11px] text-white/30">Aguardando confirmação da empresa</p>
       </div>
     );
   }

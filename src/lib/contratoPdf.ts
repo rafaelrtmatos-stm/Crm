@@ -28,8 +28,9 @@ export interface AuditStamp {
   empresaRazaoSocial: string;
   empresaNomeFantasia?: string;
   empresaCnpj: string;
-  empresaValidatedAt: string; // ISO string — instante da validação interna no ERP (= signedAt)
+  empresaValidatedAt: string; // ISO string — instante em que o operador confirmou a assinatura da empresa
   empresaOrigin: string;      // ex: "pro.rafaartsgraphics.com.br"
+  empresaSignedByName?: string; // nome de quem confirmou a assinatura da empresa (login + senha)
 }
 
 /** Monta o nome de arquivo padrao usado tanto no download direto quanto no path do Storage. */
@@ -87,7 +88,12 @@ function drawCarimboEmpresa(doc: any, yStart: number, marginX: number, stamp: Au
   doc.text(fantasiaLinha, marginX, y);
   y += 3.8;
 
-  doc.text('[Validado e Assinado Internamente pelo ERP]', marginX, y);
+  doc.text(
+    stamp.empresaSignedByName
+      ? `[Assinado internamente por ${stamp.empresaSignedByName}]`
+      : '[Validado e Assinado Internamente pelo ERP]',
+    marginX, y
+  );
   y += 3.8;
 
   const dataValidacao = new Date(stamp.empresaValidatedAt).toLocaleString('pt-BR');
