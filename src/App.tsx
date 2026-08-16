@@ -1237,7 +1237,6 @@ export default function App() {
     { id: 'crm', label: 'Funil CRM', icon: Target },
     { id: 'messages', label: 'Mensagens', icon: MessageSquare },
     { id: 'pos', label: 'PDV Gráfica', icon: ShoppingBag },
-    { id: 'contacts', label: 'Contatos', icon: Users },
     { id: 'clientes_espera', label: 'Clientes em Espera', icon: Clock },
     { id: 'production', label: 'Ordem de Serviço', icon: Layers },
     { id: 'comissoes', label: 'Comissões', icon: Percent },

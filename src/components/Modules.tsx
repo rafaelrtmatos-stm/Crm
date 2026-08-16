@@ -8613,6 +8613,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 setActiveTab('venda');
               }}
               onOpenReceiptById={openReceiptById}
+              onEditFullClient={(cliente) => {
+                startEditCustomer(cliente);
+                setIsCustomerModalOpen(true);
+              }}
             />
           </div>
         )}
@@ -11709,7 +11713,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 };
 
 // --- CONTACTS ---
-export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStartSaleForClient, onOpenReceiptById }: { currentCompany: Company | null; onViewHistoryForClient?: (clienteId: string, clienteName: string) => void; onStartSaleForClient?: (cliente: { id: string; name: string; phone: string }) => void; onOpenReceiptById?: (saleId: string) => void }) => {
+export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStartSaleForClient, onOpenReceiptById, onEditFullClient }: { currentCompany: Company | null; onViewHistoryForClient?: (clienteId: string, clienteName: string) => void; onStartSaleForClient?: (cliente: { id: string; name: string; phone: string }) => void; onOpenReceiptById?: (saleId: string) => void; onEditFullClient?: (cliente: any) => void }) => {
   const { setActiveTab: setRootActiveTab, setPendingOpenContratoId } = React.useContext(AppContext)!;
   const [clientes, setClientes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -12155,7 +12159,7 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
                          </button>
                        ) : <span className="text-white/20 text-[11px] shrink-0">—</span>}
                        <span className="text-white/40 text-[9px] shrink-0 hidden sm:block w-20 text-right">{s ? safeFormat(s.lastDate, 'dd/MM/yyyy') : '—'}</span>
-                       <button onClick={() => openEditCliente(c)} title="Editar" className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20 shrink-0"><Pencil size={12} /></button>
+                       <button onClick={() => onEditFullClient ? onEditFullClient(c) : openEditCliente(c)} title="Editar" className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20 shrink-0"><Pencil size={12} /></button>
                        <button onClick={() => setFichaCliente(c)} className="text-[9px] font-black uppercase px-3 py-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20 shrink-0">Exibir</button>
                     </div>
                   );
@@ -12231,7 +12235,7 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
                   <div className="flex items-center gap-1.5 shrink-0">
                      <button
                        title="Editar Cliente"
-                       onClick={() => { openEditCliente(fichaCliente); setFichaCliente(null); }}
+                       onClick={() => { (onEditFullClient ? onEditFullClient(fichaCliente) : openEditCliente(fichaCliente)); setFichaCliente(null); }}
                        className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all"
                      >
                        <Pencil size={14} />
