@@ -538,6 +538,11 @@ const CONTRATO_STATUS_LABELS: Record<string, string> = {
   em_execucao: 'Em Execução', concluido: 'Concluído', cancelado: 'Cancelado', encerrado: 'Encerrado',
 };
 
+const ORCAMENTO_STATUS_LABELS_FICHA: Record<string, string> = {
+  rascunho: 'Rascunho', enviado: 'Enviado', em_espera: 'Em Espera', aprovado: 'Aprovado', em_producao: 'Em Produção',
+  concluido: 'Concluído', recusado: 'Recusado', cancelado: 'Cancelado', expirado: 'Expirado',
+};
+
 const CONTRATO_STATUS_STYLES: Record<string, string> = {
   rascunho: 'bg-white/10 text-white/50',
   aguardando_aceite: 'bg-amber-500/15 text-amber-400',
@@ -4005,7 +4010,7 @@ const EntregaCountdown = ({ scheduledFor, delivered, onEdit, onDeliver, onDelete
 };
 
 export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany: Company | null, addPendingOrder: (order: SaleOrder) => void }) => {
-  const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare, pendingReceiptOpenId, setPendingReceiptOpenId, pendingHistoryClientFilter, setPendingHistoryClientFilter, prefilledCustomer, setPrefilledCustomer, pendingReceivablesFilter, setPendingReceivablesFilter, pendingGoToHistorico, setPendingGoToHistorico, pendingGoToServicos, setPendingGoToServicos, pendingOpenContratoId, setPendingOpenContratoId } = React.useContext(AppContext)!;
+  const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare, pendingReceiptOpenId, setPendingReceiptOpenId, pendingHistoryClientFilter, setPendingHistoryClientFilter, prefilledCustomer, setPrefilledCustomer, pendingReceivablesFilter, setPendingReceivablesFilter, pendingGoToHistorico, setPendingGoToHistorico, pendingGoToServicos, setPendingGoToServicos, pendingOpenContratoId, setPendingOpenContratoId, pendingOpenOrcamentoId, setPendingOpenOrcamentoId } = React.useContext(AppContext)!;
   const [soundAlertsEnabled, setSoundAlertsEnabledState] = useState(() => localStorage.getItem('rpro_sound_alerts_enabled') !== 'false');
   const setSoundAlertsEnabled = (v: boolean) => {
     setSoundAlertsEnabledState(v);
@@ -4085,6 +4090,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [isLoadingCustomers, setIsLoadingCustomers] = useState(false);
   const [customerSalesStats, setCustomerSalesStats] = useState<Record<string, { total: number; count: number; lastDate: string | null; hasPending: boolean; pendingBalance: number }>>({});
   const [customerSortBy, setCustomerSortBy] = useState<'recentes' | 'az' | 'ultima_compra' | 'maior_valor' | 'frequentes'>('recentes');
+  // Cliente selecionado na busca que tem nota pendente — bloqueia o fluxo ate o caixa confirmar
+  // com o cliente se ja foi paga, pra nao deixar pendencia esquecida no sistema.
+  const [pendingDebtCustomer, setPendingDebtCustomer] = useState<{ customer: any; pendingBalance: number } | null>(null);
 
   // --- Cadastro (rápido + mais opções) ---
   const emptyCustomerForm = {
@@ -5465,6 +5473,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setTimeout(() => setHighlightContratoId(null), 4000);
     setPendingOpenContratoId(null);
   }, [pendingOpenContratoId]);
+
+  // Se a Ficha do Cliente (fora do Terminal) pediu pra abrir um orcamento especifico
+  useEffect(() => {
+    if (!pendingOpenOrcamentoId) return;
+    setActiveTab('orcamentos');
+    setHighlightOrcamentoId(pendingOpenOrcamentoId);
+    setTimeout(() => setHighlightOrcamentoId(null), 4000);
+    setPendingOpenOrcamentoId(null);
+  }, [pendingOpenOrcamentoId]);
 
   // Se a aba Contatos pediu pra iniciar uma venda ja com o cliente selecionado
   useEffect(() => {
@@ -9066,45 +9083,53 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    )}
                    {!isLoadingCustomers && filteredSortedCustomers.map(c => {
                      const stats = c._stats;
-                     const isVip = !!c.is_vip;
-                     const hasDebt = (c.dividas_em_aberto || 0) > 0;
                      const pendingBalance = stats?.pendingBalance || 0;
                      const hasPending = pendingBalance > 0;
-                     const isActive = !!(stats?.lastDate && (Date.now() - new Date(stats.lastDate).getTime()) < 90 * 24 * 60 * 60 * 1000);
+                     const saldoCredito = Number(c.saldo_credito) || 0;
+                     const selectCustomer = () => {
+                       setSelectedCustomer({ id: c.id, name: c.full_name, phone: c.phone || '' });
+                       if (customerModalIntent === 'orcamento') {
+                         const enderecoParts = [c.logradouro, c.numero, c.distrito, c.city].filter(Boolean);
+                         setOrcamentoForm(prev => ({
+                           ...prev,
+                           clienteId: c.id,
+                           customerName: c.full_name,
+                           phone: c.phone || '',
+                           cpfCnpj: c.cpf_cnpj || '',
+                           address: enderecoParts.join(', '),
+                         }));
+                         setIsCustomerModalOpen(false);
+                         setOrcamentoModalOpen(true);
+                         return;
+                       }
+                       if (customerModalIntent === 'contrato') {
+                         const enderecoParts = [c.logradouro, c.numero, c.distrito, c.city].filter(Boolean);
+                         setContratoForm(prev => ({
+                           ...prev,
+                           clienteId: c.id,
+                           customerName: c.full_name,
+                           phone: c.phone || '',
+                           cpfCnpj: c.cpf_cnpj || '',
+                           address: enderecoParts.join(', '),
+                         }));
+                         setIsCustomerModalOpen(false);
+                         setContratoModalOpen(true);
+                         return;
+                       }
+                       proceedAfterCustomerStep();
+                     };
                      return (
                        <div key={c.id} className="w-full p-4 rounded-2xl border bg-white/5 border-white/5 hover:bg-white/10 transition-all group relative">
                           <button
                             onClick={() => {
-                              setSelectedCustomer({ id: c.id, name: c.full_name, phone: c.phone || '' });
-                              if (customerModalIntent === 'orcamento') {
-                                const enderecoParts = [c.logradouro, c.numero, c.distrito, c.city].filter(Boolean);
-                                setOrcamentoForm(prev => ({
-                                  ...prev,
-                                  clienteId: c.id,
-                                  customerName: c.full_name,
-                                  phone: c.phone || '',
-                                  cpfCnpj: c.cpf_cnpj || '',
-                                  address: enderecoParts.join(', '),
-                                }));
-                                setIsCustomerModalOpen(false);
-                                setOrcamentoModalOpen(true);
+                              // Cliente com nota pendente: obriga o caixa a confirmar com o
+                              // cliente se ja foi paga antes de seguir, em vez de so mostrar
+                              // um aviso passivo que pode passar despercebido.
+                              if (hasPending) {
+                                setPendingDebtCustomer({ customer: c, pendingBalance });
                                 return;
                               }
-                              if (customerModalIntent === 'contrato') {
-                                const enderecoParts = [c.logradouro, c.numero, c.distrito, c.city].filter(Boolean);
-                                setContratoForm(prev => ({
-                                  ...prev,
-                                  clienteId: c.id,
-                                  customerName: c.full_name,
-                                  phone: c.phone || '',
-                                  cpfCnpj: c.cpf_cnpj || '',
-                                  address: enderecoParts.join(', '),
-                                }));
-                                setIsCustomerModalOpen(false);
-                                setContratoModalOpen(true);
-                                return;
-                              }
-                              proceedAfterCustomerStep();
+                              selectCustomer();
                             }}
                             className="w-full text-left"
                           >
@@ -9112,9 +9137,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                <div className="min-w-0">
                                   <div className="flex items-center gap-1.5 flex-wrap">
                                      <span className="font-bold text-white truncate">{(c.full_name || '').toUpperCase()}</span>
-                                     {isActive && <span title="Cliente Ativo">🟢</span>}
-                                     {hasDebt && <span title="Possui Débitos">🔴</span>}
-                                     {isVip && <span title="Cliente VIP">⭐</span>}
                                   </div>
                                   <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-[10px] text-white/40">
                                      {c.phone && <span>{c.phone}</span>}
@@ -9125,6 +9147,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                     <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-[10px]">
                                        <span className="text-emerald-400 font-bold">Total: R$ {stats.total.toFixed(2).replace('.', ',')}</span>
                                        {stats.lastDate && <span className="text-white/30">Última compra: {format(new Date(stats.lastDate), 'dd/MM/yyyy')}</span>}
+                                    </div>
+                                  )}
+                                  {saldoCredito > 0 && (
+                                    <div className="mt-1.5 inline-flex items-center gap-1.5 px-2 py-1 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
+                                       <span className="text-[8px] font-black uppercase text-emerald-400 tracking-wider">Crédito Disponível:</span>
+                                       <span className="text-[11px] font-black text-emerald-300">R$ {saldoCredito.toFixed(2).replace('.', ',')}</span>
                                     </div>
                                   )}
                                   {hasPending && (
@@ -9268,6 +9296,82 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
            )}
         </div>
       </Modal>
+
+      {/* Aviso obrigatorio: cliente selecionado tem nota pendente. Forca o caixa a olhar
+          e decidir antes de continuar, em vez de so um badge que pode passar despercebido. */}
+      {pendingDebtCustomer && (
+        <Modal isOpen={!!pendingDebtCustomer} onClose={() => setPendingDebtCustomer(null)} title="⚠️ Cliente com Conta em Aberto" size="sm">
+          <div className="space-y-4 p-2">
+             <p className="text-sm text-white/70">
+                <span className="font-black text-white">{(pendingDebtCustomer.customer.full_name || '').toUpperCase()}</span> tem uma nota pendente de{' '}
+                <span className="font-black text-amber-400">R$ {pendingDebtCustomer.pendingBalance.toFixed(2).replace('.', ',')}</span>.
+             </p>
+             <p className="text-xs text-white/50">
+                Confirme com o cliente se essa nota já foi paga antes de continuar, para não deixar uma pendência duplicada ou esquecida no sistema.
+             </p>
+             <div className="space-y-2 pt-2">
+                <button
+                  onClick={() => {
+                    const c = pendingDebtCustomer.customer;
+                    setPendingDebtCustomer(null);
+                    setIsCustomerModalOpen(false);
+                    setHistoryClienteIdFilter(c.id);
+                    setHistorySearch(c.full_name);
+                    setActiveTab('historico');
+                  }}
+                  className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-900 font-black text-xs uppercase tracking-wide transition-all"
+                >
+                  Ver Nota Pendente
+                </button>
+                <button
+                  onClick={() => {
+                    const c = pendingDebtCustomer.customer;
+                    setPendingDebtCustomer(null);
+                    setSelectedCustomer({ id: c.id, name: c.full_name, phone: c.phone || '' });
+                    if (customerModalIntent === 'orcamento') {
+                      const enderecoParts = [c.logradouro, c.numero, c.distrito, c.city].filter(Boolean);
+                      setOrcamentoForm(prev => ({
+                        ...prev,
+                        clienteId: c.id,
+                        customerName: c.full_name,
+                        phone: c.phone || '',
+                        cpfCnpj: c.cpf_cnpj || '',
+                        address: enderecoParts.join(', '),
+                      }));
+                      setIsCustomerModalOpen(false);
+                      setOrcamentoModalOpen(true);
+                      return;
+                    }
+                    if (customerModalIntent === 'contrato') {
+                      const enderecoParts = [c.logradouro, c.numero, c.distrito, c.city].filter(Boolean);
+                      setContratoForm(prev => ({
+                        ...prev,
+                        clienteId: c.id,
+                        customerName: c.full_name,
+                        phone: c.phone || '',
+                        cpfCnpj: c.cpf_cnpj || '',
+                        address: enderecoParts.join(', '),
+                      }));
+                      setIsCustomerModalOpen(false);
+                      setContratoModalOpen(true);
+                      return;
+                    }
+                    proceedAfterCustomerStep();
+                  }}
+                  className="w-full py-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-black text-xs uppercase tracking-wide transition-all"
+                >
+                  Já Verifiquei — Continuar Mesmo Assim
+                </button>
+                <button
+                  onClick={() => setPendingDebtCustomer(null)}
+                  className="w-full py-2 text-white/40 hover:text-white/60 font-bold text-xs uppercase tracking-wide transition-all"
+                >
+                  Cancelar
+                </button>
+             </div>
+          </div>
+        </Modal>
+      )}
 
       {/* Payment Modal */}
       <Modal 
@@ -11781,7 +11885,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
 // --- CONTACTS ---
 export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStartSaleForClient, onOpenReceiptById, onEditFullClient }: { currentCompany: Company | null; onViewHistoryForClient?: (clienteId: string, clienteName: string) => void; onStartSaleForClient?: (cliente: { id: string; name: string; phone: string }) => void; onOpenReceiptById?: (saleId: string) => void; onEditFullClient?: (cliente: any) => void }) => {
-  const { setActiveTab: setRootActiveTab, setPendingOpenContratoId } = React.useContext(AppContext)!;
+  const { setActiveTab: setRootActiveTab, setPendingOpenContratoId, setPendingOpenOrcamentoId } = React.useContext(AppContext)!;
   const [clientes, setClientes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -11796,10 +11900,15 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
   const [produtosCostMap, setProdutosCostMap] = useState<Record<string, number>>({});
   const [fichaCliente, setFichaCliente] = useState<any | null>(null);
   const [fichaContratos, setFichaContratos] = useState<Contrato[]>([]);
+  const [fichaOrcamentos, setFichaOrcamentos] = useState<Orcamento[]>([]);
+  // Qual cartao (Orçamentos/Contratos/Notas) esta expandido na Ficha do Cliente. So um por vez.
+  const [fichaSecaoAberta, setFichaSecaoAberta] = useState<'orcamentos' | 'contratos' | 'notas' | null>(null);
   useEffect(() => {
-    if (!fichaCliente?.id) { setFichaContratos([]); return; }
+    if (!fichaCliente?.id) { setFichaContratos([]); setFichaOrcamentos([]); setFichaSecaoAberta(null); return; }
     supabase.from('contratos').select('*').eq('cliente_id', fichaCliente.id).is('deleted_at', null).order('created_at', { ascending: false })
       .then(({ data }) => setFichaContratos((data || []).map(mapContratoRow)));
+    supabase.from('orcamentos').select('*').eq('cliente_id', fichaCliente.id).eq('document_type', 'orcamento').order('created_at', { ascending: false })
+      .then(({ data }) => setFichaOrcamentos((data || []).map(mapOrcamentoRow)));
   }, [fichaCliente?.id]);
   const [isLinkingVendas, setIsLinkingVendas] = useState(false);
   const [clienteSearchTerm, setClienteSearchTerm] = useState('');
@@ -12379,6 +12488,126 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
                  </button>
                )}
 
+               {/* Orçamentos / Contratos / Notas — botão só fica clicável se o cliente tiver
+                   pelo menos 1 registro daquele tipo; clicando expande a lista completa.
+                   Fica visível mesmo sem vendas, caso o cliente já tenha orçamento/contrato
+                   mas ainda não tenha comprado nada. */}
+               {(() => {
+                 const cards: { key: 'orcamentos' | 'contratos' | 'notas'; label: string; count: number }[] = [
+                   { key: 'orcamentos', label: 'Orçamentos', count: fichaOrcamentos.length },
+                   { key: 'contratos', label: 'Contratos', count: fichaContratos.length },
+                   { key: 'notas', label: 'Notas', count: s?.count || 0 },
+                 ];
+                 return (
+                   <div className="grid grid-cols-3 gap-2">
+                      {cards.map(card => {
+                        const disabled = card.count === 0;
+                        const active = fichaSecaoAberta === card.key;
+                        return (
+                          <button
+                            key={card.key}
+                            disabled={disabled}
+                            onClick={() => setFichaSecaoAberta(active ? null : card.key)}
+                            className={cn(
+                              "rounded-xl py-2.5 px-2 border text-center transition-all",
+                              disabled
+                                ? "bg-white/5 border-white/5 text-white/20 cursor-not-allowed"
+                                : active
+                                  ? "bg-primary-500 border-primary-500 text-slate-900 cursor-pointer"
+                                  : "bg-white/5 border-white/10 text-white/70 hover:bg-white/10 cursor-pointer"
+                            )}
+                          >
+                            <p className="text-[9px] font-black uppercase tracking-wide">{card.label}</p>
+                            <p className="text-sm font-black">{card.count}</p>
+                          </button>
+                        );
+                      })}
+                   </div>
+                 );
+               })()}
+
+               {fichaSecaoAberta === 'notas' && s && (
+                 <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                       <p className="text-[9px] font-black uppercase text-white/40">Notas ({s.count})</p>
+                       <button
+                         onClick={() => { onViewHistoryForClient?.(fichaCliente.id, fichaCliente.full_name); setFichaCliente(null); }}
+                         className="text-[9px] font-black uppercase text-primary-400 hover:text-primary-300 flex items-center gap-1"
+                       >
+                         Ver no Histórico <ChevronRight size={12} />
+                       </button>
+                    </div>
+                    <div className="space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar">
+                       {(clienteVendas[fichaCliente.id] || []).slice(0, 10).map(v => (
+                         <button
+                           key={v.id}
+                           onClick={() => { onOpenReceiptById?.(v.id); setFichaCliente(null); }}
+                           disabled={!onOpenReceiptById}
+                           className="w-full flex items-center justify-between gap-2 bg-white/5 hover:bg-white/10 border border-white/5 hover:border-primary-500/30 rounded-lg px-3 py-2 transition-all text-left cursor-pointer disabled:cursor-default disabled:hover:bg-white/5"
+                         >
+                            <div className="min-w-0 flex-1">
+                               <p className="text-[9px] font-mono font-black text-primary-400">#{v.id.slice(-8).toUpperCase()}</p>
+                               <p className="text-[10px] font-bold text-white truncate">{v.itemsSummary}</p>
+                               <p className="text-[9px] text-white/30">{safeFormat(v.createdAt, 'dd/MM/yyyy HH:mm')}</p>
+                            </div>
+                            <div className="text-right shrink-0">
+                               <p className="text-[10px] font-black text-white">R$ {v.total.toFixed(2).replace('.', ',')}</p>
+                               <p className={cn("text-[8px] font-black uppercase", v.isFullyPaid ? "text-emerald-400" : "text-amber-400")}>{v.isFullyPaid ? 'Pago' : 'Pendente'}</p>
+                            </div>
+                         </button>
+                       ))}
+                    </div>
+                 </div>
+               )}
+
+               {fichaSecaoAberta === 'contratos' && (
+                 <div className="space-y-1.5">
+                    <p className="text-[9px] font-black uppercase text-white/40">Contratos ({fichaContratos.length})</p>
+                    <div className="space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar">
+                       {fichaContratos.map(c => (
+                         <button
+                           key={c.id}
+                           onClick={() => { setPendingOpenContratoId(c.id); setRootActiveTab('pos'); setFichaCliente(null); }}
+                           className="w-full flex items-center justify-between gap-2 bg-purple-500/5 hover:bg-purple-500/10 border border-purple-500/10 rounded-lg px-3 py-2 text-left cursor-pointer transition-all"
+                         >
+                            <div className="min-w-0 flex-1">
+                               <p className="text-[9px] font-mono font-black text-purple-300">{c.numero}{c.versao > 1 ? ` · v${c.versao}` : ''}</p>
+                               <p className="text-[9px] text-white/30">{safeFormat(c.createdAt, 'dd/MM/yyyy')}</p>
+                            </div>
+                            <div className="text-right shrink-0">
+                               <p className="text-[10px] font-black text-white">R$ {c.total.toFixed(2).replace('.', ',')}</p>
+                               <p className="text-[8px] font-black uppercase text-white/40">{CONTRATO_STATUS_LABELS[c.status] || c.status}</p>
+                            </div>
+                         </button>
+                       ))}
+                    </div>
+                 </div>
+               )}
+
+               {fichaSecaoAberta === 'orcamentos' && (
+                 <div className="space-y-1.5">
+                    <p className="text-[9px] font-black uppercase text-white/40">Orçamentos ({fichaOrcamentos.length})</p>
+                    <div className="space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar">
+                       {fichaOrcamentos.map(o => (
+                         <button
+                           key={o.id}
+                           onClick={() => { setPendingOpenOrcamentoId(o.id); setRootActiveTab('pos'); setFichaCliente(null); }}
+                           className="w-full flex items-center justify-between gap-2 bg-sky-500/5 hover:bg-sky-500/10 border border-sky-500/10 rounded-lg px-3 py-2 text-left cursor-pointer transition-all"
+                         >
+                            <div className="min-w-0 flex-1">
+                               <p className="text-[9px] font-mono font-black text-sky-300">{o.numero}</p>
+                               <p className="text-[9px] text-white/30">{safeFormat(o.createdAt, 'dd/MM/yyyy')}</p>
+                            </div>
+                            <div className="text-right shrink-0">
+                               <p className="text-[10px] font-black text-white">R$ {o.total.toFixed(2).replace('.', ',')}</p>
+                               <p className="text-[8px] font-black uppercase text-white/40">{ORCAMENTO_STATUS_LABELS_FICHA[o.status] || o.status}</p>
+                            </div>
+                         </button>
+                       ))}
+                    </div>
+                 </div>
+               )}
+
                {s ? (
                  <>
                    {(() => {
@@ -12418,60 +12647,6 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
                      );
                    })()}
 
-                   <div className="flex items-center justify-between">
-                      <p className="text-[9px] font-black uppercase text-white/40">Serviços Feitos ({s.count})</p>
-                      <button
-                        onClick={() => { onViewHistoryForClient?.(fichaCliente.id, fichaCliente.full_name); setFichaCliente(null); }}
-                        className="text-[9px] font-black uppercase text-primary-400 hover:text-primary-300 flex items-center gap-1"
-                      >
-                        Ver no Histórico <ChevronRight size={12} />
-                      </button>
-                   </div>
-                   <div className="space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar">
-                      {(clienteVendas[fichaCliente.id] || []).slice(0, 10).map(v => (
-                        <button
-                          key={v.id}
-                          onClick={() => { onOpenReceiptById?.(v.id); setFichaCliente(null); }}
-                          disabled={!onOpenReceiptById}
-                          className="w-full flex items-center justify-between gap-2 bg-white/5 hover:bg-white/10 border border-white/5 hover:border-primary-500/30 rounded-lg px-3 py-2 transition-all text-left cursor-pointer disabled:cursor-default disabled:hover:bg-white/5"
-                        >
-                           <div className="min-w-0 flex-1">
-                              <p className="text-[9px] font-mono font-black text-primary-400">#{v.id.slice(-8).toUpperCase()}</p>
-                              <p className="text-[10px] font-bold text-white truncate">{v.itemsSummary}</p>
-                              <p className="text-[9px] text-white/30">{safeFormat(v.createdAt, 'dd/MM/yyyy HH:mm')}</p>
-                           </div>
-                           <div className="text-right shrink-0">
-                              <p className="text-[10px] font-black text-white">R$ {v.total.toFixed(2).replace('.', ',')}</p>
-                              <p className={cn("text-[8px] font-black uppercase", v.isFullyPaid ? "text-emerald-400" : "text-amber-400")}>{v.isFullyPaid ? 'Pago' : 'Pendente'}</p>
-                           </div>
-                        </button>
-                      ))}
-                   </div>
-
-                   {fichaContratos.length > 0 && (
-                     <div className="space-y-1.5">
-                        <p className="text-[9px] font-black uppercase text-white/40">Contratos ({fichaContratos.length})</p>
-                        <div className="space-y-1.5 max-h-32 overflow-y-auto custom-scrollbar">
-                           {fichaContratos.map(c => (
-                             <button
-                               key={c.id}
-                               onClick={() => { setPendingOpenContratoId(c.id); setRootActiveTab('pos'); setFichaCliente(null); }}
-                               className="w-full flex items-center justify-between gap-2 bg-purple-500/5 hover:bg-purple-500/10 border border-purple-500/10 rounded-lg px-3 py-2 text-left cursor-pointer transition-all"
-                             >
-                                <div className="min-w-0 flex-1">
-                                   <p className="text-[9px] font-mono font-black text-purple-300">{c.numero}{c.versao > 1 ? ` · v${c.versao}` : ''}</p>
-                                   <p className="text-[9px] text-white/30">{safeFormat(c.createdAt, 'dd/MM/yyyy')}</p>
-                                </div>
-                                <div className="text-right shrink-0">
-                                   <p className="text-[10px] font-black text-white">R$ {c.total.toFixed(2).replace('.', ',')}</p>
-                                   <p className="text-[8px] font-black uppercase text-white/40">{CONTRATO_STATUS_LABELS[c.status] || c.status}</p>
-                                </div>
-                             </button>
-                           ))}
-                        </div>
-                     </div>
-                   )}
-
                    <div className="grid grid-cols-2 gap-3">
                       <div className="bg-white/5 rounded-xl p-3 border border-white/5">
                          <p className="text-[9px] font-black uppercase text-white/40">Faturamento Total</p>
@@ -12492,7 +12667,9 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
                    </div>
                  </>
                ) : (
-                 <p className="text-center text-xs text-white/30 py-6">Esse cliente ainda não tem pedidos/serviços registrados.</p>
+                 fichaContratos.length === 0 && fichaOrcamentos.length === 0 && (
+                   <p className="text-center text-xs text-white/30 py-6">Esse cliente ainda não tem pedidos/serviços registrados.</p>
+                 )
                )}
             </div>
           </Modal>
