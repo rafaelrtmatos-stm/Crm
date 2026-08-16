@@ -298,10 +298,11 @@ export async function renderOrcamentoCanvas({ orcamento: o, companyName, logoDar
   ctx.font = `700 10.5px ${FONT}`;
   ctx.fillText(`R$ ${itemsTotal.toFixed(2).replace('.', ',')}`, width - marginX - 18, y + 26);
   if (o.desconto > 0) {
+    const descontoPercentual = itemsTotal > 0 ? (o.desconto / itemsTotal) * 100 : 0;
     ctx.textAlign = 'left';
     ctx.fillStyle = TEXT_DIM;
     ctx.font = `600 9.5px ${FONT}`;
-    ctx.fillText('Desconto', marginX + 18, y + 46);
+    ctx.fillText(`Desconto (${descontoPercentual.toFixed(1).replace('.', ',')}%)`, marginX + 18, y + 46);
     ctx.textAlign = 'right';
     ctx.fillStyle = AMBER;
     ctx.font = `700 10.5px ${FONT}`;

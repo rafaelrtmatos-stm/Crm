@@ -577,9 +577,10 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
   ctx.font = `900 9px ${FONT}`;
   if (order.discountValue) {
     const subtotal = total + order.discountValue;
+    const discountPercent = subtotal > 0 ? (order.discountValue / subtotal) * 100 : 0;
     ctx.fillStyle = TEXT_FAINT;
     ctx.font = `700 8px ${FONT}`;
-    ctx.fillText(`Subtotal: R$ ${subtotal.toFixed(2).replace('.', ',')}   ·   Desconto: -R$ ${order.discountValue.toFixed(2).replace('.', ',')}`, marginX + 18, y + 40);
+    ctx.fillText(`Subtotal: R$ ${subtotal.toFixed(2).replace('.', ',')}   ·   Desconto (${discountPercent.toFixed(1).replace('.', ',')}%): -R$ ${order.discountValue.toFixed(2).replace('.', ',')}`, marginX + 18, y + 40);
     ctx.fillStyle = ACCENT;
     ctx.font = `900 9px ${FONT}`;
     ctx.fillText('TOTAL GERAL', marginX + 18, y + 58);
