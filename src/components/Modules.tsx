@@ -6629,7 +6629,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const clearCart = () => {
     setCart([]);
     setSelectedCustomer(null);
-    setSaleDiscountValue(0); setSaleDiscountInput('');
+    setSaleDiscountValue(0); setSaleDiscountInput(''); setSaleCreditApplied(0);
     // Limpa tambem qualquer estado de "editando pedido existente" ou "quitando debito" que
     // tenha ficado preso de uma acao anterior cancelada — senao a proxima nota nova herda
     // dados (valor ja pago, itens) de um pedido antigo sem querer.
@@ -6646,11 +6646,20 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [saleDiscountValue, setSaleDiscountValue] = useState<number>(0);
   const [saleDiscountMode, setSaleDiscountMode] = useState<'percentual' | 'valor' | 'final'>('valor');
   const [saleDiscountInput, setSaleDiscountInput] = useState<number | ''>('');
+  // Credito acumulado do cliente (ex: troco de dinheiro que ele nao levou), abatido automaticamente
+  // do total da venda quando aplicado aqui. Fonte da verdade e' clientes.saldo_credito.
+  const [saleCreditApplied, setSaleCreditApplied] = useState<number>(0);
+  const selectedCustomerCredit = selectedCustomer ? (allCustomers.find((c: any) => c.id === selectedCustomer.id)?.saldo_credito || 0) : 0;
   const cartRawTotal = cart.reduce((acc, item) => {
     const itemTotal = item.area ? item.price * item.area * item.quantity : item.price * item.quantity;
     return acc + itemTotal;
   }, 0);
-  const total = Math.max(0, cartRawTotal - saleDiscountValue);
+  const total = Math.max(0, cartRawTotal - saleDiscountValue - saleCreditApplied);
+  const applySaleCredit = () => {
+    const disponivel = Math.max(0, selectedCustomerCredit);
+    const maxAplicavel = Math.max(0, cartRawTotal - saleDiscountValue);
+    setSaleCreditApplied(Math.min(disponivel, maxAplicavel));
+  };
   const remainingValue = Math.max(0, total - (downPayment === '' || typeof downPayment === 'string' ? 0 : Number(downPayment)));
 
   // Aplica o desconto da venda a partir do modo escolhido (%, R$ de desconto, ou valor final desejado)
@@ -6752,6 +6761,27 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const removePaymentEntry = (idx: number) => {
     setPaymentEntries(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  // Cliente pagou em dinheiro e nao quis levar o troco: guarda a diferenca como credito no
+  // cadastro dele, pra abater automaticamente numa proxima compra
+  const [isSavingTrocoCredito, setIsSavingTrocoCredito] = useState(false);
+  const handleSalvarTrocoComoCredito = async (trocoValor: number) => {
+    if (!selectedCustomer?.id || trocoValor <= 0) return;
+    setIsSavingTrocoCredito(true);
+    try {
+      const saldoAtual = allCustomers.find((c: any) => c.id === selectedCustomer.id)?.saldo_credito || 0;
+      const { error } = await supabase.from('clientes').update({ saldo_credito: saldoAtual + trocoValor }).eq('id', selectedCustomer.id);
+      if (error) throw error;
+      await loadAllCustomers();
+      setCashReceived('');
+      showAlert(`R$ ${trocoValor.toFixed(2).replace('.', ',')} guardado como crédito para ${selectedCustomer.name}.`);
+    } catch (err) {
+      console.error('Erro ao guardar troco como crédito:', err);
+      showAlert('Não foi possível guardar o troco como crédito.');
+    } finally {
+      setIsSavingTrocoCredito(false);
+    }
   };
 
   useEffect(() => {
@@ -6885,6 +6915,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         setOrderObservacoes('');
         setSaleDiscountValue(0);
         setSaleDiscountInput('');
+        setSaleCreditApplied(0);
         setEditingCreatedAt('');
       } catch (err: any) {
         console.error('Erro ao salvar edição da nota:', err);
@@ -7018,6 +7049,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         await supabase.from('orcamentos').update({ status: 'concluido', venda_id: insertedVenda.id }).eq('id', linkedOrcamentoId);
         setLinkedOrcamentoId(null);
       }
+
+      // Se o cliente teve credito aplicado nessa venda (ex: troco de outra compra), abate do
+      // saldo dele agora que a venda foi confirmada
+      if (selectedCustomer?.id && saleCreditApplied > 0) {
+        const saldoAtual = allCustomers.find((c: any) => c.id === selectedCustomer.id)?.saldo_credito || 0;
+        await supabase.from('clientes').update({ saldo_credito: Math.max(0, saldoAtual - saleCreditApplied) }).eq('id', selectedCustomer.id);
+        loadAllCustomers();
+      }
       
       // RULE: Always create Service/OS if pending or has balance OR specific items
       const hasServiceItems = cart.some(item => 
@@ -7074,7 +7113,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setDownPayment(0);
     setOrderObservacoes('');
     setScheduledFor('');
-    setSaleDiscountValue(0); setSaleDiscountInput('');
+    setSaleDiscountValue(0); setSaleDiscountInput(''); setSaleCreditApplied(0);
     resetPaymentEntries();
   };
 
@@ -9264,6 +9303,20 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  </Button>
               </div>
 
+              {!settlingOrder && selectedCustomerCredit > 0 && (
+                <div className="flex items-center justify-between gap-2 px-3 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
+                   <p className="text-[9px] font-bold text-emerald-300">
+                      Cliente tem <span className="font-black">R$ {selectedCustomerCredit.toFixed(2).replace('.', ',')}</span> de crédito
+                      {saleCreditApplied > 0 ? ` · R$ ${saleCreditApplied.toFixed(2).replace('.', ',')} aplicado` : ''}
+                   </p>
+                   {saleCreditApplied > 0 ? (
+                     <button onClick={() => setSaleCreditApplied(0)} className="h-6 px-2 rounded-lg bg-rose-500/10 text-rose-400 text-[8px] font-black uppercase hover:bg-rose-500/20 shrink-0">Remover</button>
+                   ) : (
+                     <button onClick={applySaleCredit} className="h-6 px-2 rounded-lg bg-emerald-500/15 text-emerald-300 text-[8px] font-black uppercase hover:bg-emerald-500/25 shrink-0">Aplicar</button>
+                   )}
+                </div>
+              )}
+
               {!settlingOrder && (
                 <div className="space-y-1.5 px-1">
                    <div className="flex bg-white/5 p-0.5 rounded-lg border border-white/10 gap-0.5">
@@ -9292,7 +9345,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
               <div className="p-2 sm:p-2.5 bg-slate-900 rounded-xl border border-white/5 flex justify-between items-center px-3 sm:px-4">
                  <div>
-                    <p className="text-[7px] sm:text-[8px] font-black text-white/30 uppercase tracking-widest leading-none mb-0.5">Total a Pagar{saleDiscountValue > 0 ? ` (com desconto de R$ ${saleDiscountValue.toFixed(2).replace('.', ',')})` : ''}</p>
+                    <p className="text-[7px] sm:text-[8px] font-black text-white/30 uppercase tracking-widest leading-none mb-0.5">Total a Pagar{saleDiscountValue > 0 ? ` (com desconto de R$ ${saleDiscountValue.toFixed(2).replace('.', ',')})` : ''}{saleCreditApplied > 0 ? ` (crédito de R$ ${saleCreditApplied.toFixed(2).replace('.', ',')} aplicado)` : ''}</p>
                     <p className="text-sm sm:text-lg md:text-xl font-black text-white tracking-tighter italic leading-none">R$ {paymentModalTotal.toFixed(2).replace('.', ',')}</p>
                  </div>
                  <Badge variant="primary" className="bg-emerald-500/10 text-emerald-400 border-none font-black text-[8px] sm:text-[9px] tracking-widest uppercase py-0.5 px-2">Conferido</Badge>
@@ -9523,12 +9576,26 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                        onChange={(e: any) => setCashReceived(e.target.value === "" ? "" : Number(e.target.value))}
                                     />
                                  </div>
-                                 {cashReceived !== "" && newPaymentInput !== '' && (
-                                    <div className="p-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-lg flex justify-between items-center">
-                                       <span className="text-[7.5px] font-black text-emerald-400 uppercase tracking-wider">Troco</span>
-                                       <span className="text-xs font-black text-white">R$ {Math.max(0, Number(cashReceived) - (newPaymentMode === 'percentual' ? (total * Number(newPaymentInput)) / 100 : Number(newPaymentInput))).toFixed(2).replace('.', ',')}</span>
-                                    </div>
-                                 )}
+                                 {cashReceived !== "" && newPaymentInput !== '' && (() => {
+                                    const trocoValor = Math.max(0, Number(cashReceived) - (newPaymentMode === 'percentual' ? (total * Number(newPaymentInput)) / 100 : Number(newPaymentInput)));
+                                    return (
+                                      <div className="space-y-1">
+                                        <div className="p-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-lg flex justify-between items-center">
+                                           <span className="text-[7.5px] font-black text-emerald-400 uppercase tracking-wider">Troco</span>
+                                           <span className="text-xs font-black text-white">R$ {trocoValor.toFixed(2).replace('.', ',')}</span>
+                                        </div>
+                                        {trocoValor > 0 && selectedCustomer?.id && (
+                                          <button
+                                            disabled={isSavingTrocoCredito}
+                                            onClick={() => handleSalvarTrocoComoCredito(trocoValor)}
+                                            className="w-full text-[8px] font-black uppercase text-primary-300 hover:text-primary-200 disabled:opacity-50 bg-transparent border-0 cursor-pointer py-0.5"
+                                          >
+                                            Cliente não pegou o troco — guardar como crédito
+                                          </button>
+                                        )}
+                                      </div>
+                                    );
+                                 })()}
                               </div>
                             )}
                             {newPaymentMethod === 'cartao_debito' && debitCardFeePercent > 0 && (() => {
@@ -12231,6 +12298,9 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
                          <MessageSquare size={12} /> {fichaCliente.telefone_alternativo} <span className="text-white/30 normal-case font-normal">(alternativo)</span>
                        </button>
                      )}
+                    {!!fichaCliente.saldo_credito && fichaCliente.saldo_credito > 0 && (
+                       <p className="text-[9px] font-black uppercase text-emerald-400 mt-1">Crédito disponível: R$ {Number(fichaCliente.saldo_credito).toFixed(2).replace('.', ',')}</p>
+                    )}
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
                      <button
