@@ -125,7 +125,9 @@ export interface AppUser extends BaseEntity {
 }
 
 export interface Lead extends BaseEntity {
-  fullName: string;
+  fullName: string;         // Nome Real/Documental -- nunca sobrescrito sozinho por mensagem recebida
+  whatsappName?: string;    // Nome exatamente como veio do perfil/mensagem do WhatsApp (ou outro canal)
+  contactName?: string;     // Nome como o atendente salvou na conversa/agenda
   firstName?: string;
   lastName?: string;
   phone: string;

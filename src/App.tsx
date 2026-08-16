@@ -643,7 +643,13 @@ export default function App() {
             companyId: currentCompany.id,
             funnelId: funnelId || null,
             funnelStageId: stageId || null,
+            // Os 3 nomes comecam iguais (nome que veio do WhatsApp) -- cada um pode ser
+            // corrigido depois sem conflitar com os outros (ver Lead.whatsappName/contactName
+            // em types.ts). fullName e' o "Nome Real/Documental": so muda por edicao manual
+            // no painel, nunca automaticamente numa mensagem futura (ver bloco senao abaixo).
             fullName: msgData.senderName || 'Atendimento Automático',
+            whatsappName: msgData.senderName || '',
+            contactName: msgData.senderName || '',
             firstName: (msgData.senderName || 'Atendimento').split(' ')[0],
             lastName: (msgData.senderName || '').split(' ').slice(1).join(' ') || '',
             phone: msgData.phone || '',
@@ -657,13 +663,17 @@ export default function App() {
           });
           console.log(`CRM Automation: New Lead created from channel [${msgData.channel}] into ENTRADA stage.`);
         } else {
-          // Update existing lead and bring to ENTRADA stage if needed
+          // Atualiza o lead existente, mas so mexe no whatsappName (reflete o nome de perfil
+          // mais recente) -- NUNCA sobrescreve fullName/contactName aqui, pra nao apagar uma
+          // correcao manual que o atendente ja tenha feito (ex: nome do documento != nome do
+          // WhatsApp). Ver Lead.whatsappName/contactName/fullName em types.ts.
           const leadDoc = leadSnap.docs[0];
           await updateDoc(doc(db, 'leads', leadDoc.id), {
             lastMessageText: msgData.text || '',
             sourceType: msgData.channel || leadDoc.data().sourceType || 'WhatsApp',
             waitingSince: new Date().toISOString(),
             status: 'ENTRADA',
+            ...(msgData.senderName ? { whatsappName: msgData.senderName } : {}),
             ...(stageId ? { funnelStageId: stageId } : {}),
             updatedAt: new Date().toISOString()
           });

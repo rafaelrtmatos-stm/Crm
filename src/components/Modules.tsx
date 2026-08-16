@@ -215,6 +215,7 @@ import { downloadContratoPdf, type AuditStamp } from '../lib/contratoPdf';
 import { buildContratoClausulasTexto } from '../lib/contratoTemplate';
 import { OFFICIAL_COMPANY, PUBLIC_SIGN_ORIGIN, getContractSignatureLink } from '../lib/companyIdentity';
 import { signContractByCompany } from '../lib/otpUtils';
+import { transcribeAudioMessage } from '../lib/audioTranscription';
 import { validateCpfCnpj } from '../lib/validators';
 import { buscarClienteDuplicado, montarPayloadMesclagem } from '../lib/clienteDedupe';
 import { format } from 'date-fns';
@@ -1733,13 +1734,221 @@ export const ChatPanel = ({
   initialDraft?: string;
   onDraftConsumed?: () => void;
 }) => {
-  const [activeTab, setActiveTab] = useState<'chat' | 'data' | 'tasks' | 'notes' | 'history' | 'sales' | 'attachments'>('chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'data' | 'notes' | 'tasks' | 'sales'>('chat');
   const [newMessage, setNewMessage] = useState('');
   const [messages, setMessages] = useState<any[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [showQuickActions, setShowQuickActions] = useState(false);
   const [showQuickTemplates, setShowQuickTemplates] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // --- Identidade unificada (Nome do WhatsApp / Nome do Contato / Nome Real-Documental) ---
+  // Os 3 campos vivem no proprio lead (ver Lead.whatsappName/contactName/fullName em types.ts) e
+  // sao editados aqui, iguais nas duas telas que usam este mesmo painel (Funil CRM e Mensagens).
+  const [nameFieldsDraft, setNameFieldsDraft] = useState({ whatsappName: '', contactName: '', fullName: '' });
+  const [isSavingNames, setIsSavingNames] = useState(false);
+  useEffect(() => {
+    setNameFieldsDraft({
+      whatsappName: conversation?.whatsappName || '',
+      contactName: conversation?.contactName || '',
+      fullName: conversation?.fullName || conversation?.name || '',
+    });
+  }, [conversation?.id]);
+  const nomesMudaram = conversation && (
+    nameFieldsDraft.whatsappName !== (conversation.whatsappName || '') ||
+    nameFieldsDraft.contactName !== (conversation.contactName || '') ||
+    nameFieldsDraft.fullName !== (conversation.fullName || conversation.name || '')
+  );
+  const handleSaveNames = async () => {
+    if (!conversation?.id) return;
+    setIsSavingNames(true);
+    try {
+      await updateDoc(doc(db, 'leads', conversation.id), {
+        whatsappName: nameFieldsDraft.whatsappName.trim(),
+        contactName: nameFieldsDraft.contactName.trim(),
+        fullName: nameFieldsDraft.fullName.trim() || conversation.name,
+        updatedAt: Timestamp.now(),
+      });
+    } catch (err) {
+      console.error('Erro ao salvar nomes:', err);
+      showAlert('Não foi possível salvar os nomes.');
+    } finally {
+      setIsSavingNames(false);
+    }
+  };
+
+  // --- Cliente vinculado (cadastro unificado em Contatos/Clientes) -- casado pelo telefone,
+  // igual convencao ja usada no resto do sistema (ultimos 8 digitos). Usado tanto pro bloco de
+  // Endereco quanto pra decidir, no "Iniciar Venda", se atualiza um cadastro existente ou cria
+  // um novo (ver handleStartSale abaixo).
+  const [clienteVinculado, setClienteVinculado] = useState<any>(null);
+  const [isLoadingCliente, setIsLoadingCliente] = useState(false);
+  useEffect(() => {
+    let ativo = true;
+    const digitos = (conversation?.phone || '').replace(/\D/g, '');
+    if (!digitos || digitos.length < 6) { setClienteVinculado(null); return; }
+    setIsLoadingCliente(true);
+    const ultimos8 = digitos.slice(-8);
+    supabase.from('clientes').select('*')
+      .or(`phone.ilike.%${ultimos8}%,telefone_alternativo.ilike.%${ultimos8}%`)
+      .limit(1).maybeSingle()
+      .then(({ data }) => { if (ativo) { setClienteVinculado(data || null); setIsLoadingCliente(false); } });
+    return () => { ativo = false; };
+  }, [conversation?.phone]);
+
+  // --- Notas internas e Tarefas ---
+  // Notas reaproveitam a mesma collection/consulta de mensagens (ja carregada pro chat, ver
+  // useEffect abaixo) filtrando por isNote -- assim nao duplica listener nem dado.
+  const notes = messages.filter(m => m.isNote);
+  const chatMessages = messages.filter(m => !m.isNote);
+  const [newNoteText, setNewNoteText] = useState('');
+  const [isSavingNote, setIsSavingNote] = useState(false);
+  const noteInputRef = useRef<HTMLTextAreaElement>(null);
+  const handleAddNote = async () => {
+    if (!newNoteText.trim() || !conversation || !currentCompany) return;
+    setIsSavingNote(true);
+    try {
+      await addDoc(collection(db, 'messages'), {
+        companyId: currentCompany.id,
+        phone: conversation.phone,
+        text: newNoteText.trim(),
+        direction: 'note',
+        isNote: true,
+        senderName: user?.name || 'Sistema',
+        channel: conversation.sourceType || 'WhatsApp',
+        createdAt: Timestamp.now(),
+      });
+      setNewNoteText('');
+    } catch (err) {
+      console.error('Erro ao salvar nota:', err);
+      showAlert('Não foi possível salvar a nota.');
+    } finally {
+      setIsSavingNote(false);
+    }
+  };
+  const handleDeleteNote = async (note: any) => {
+    if (!(await showConfirm('Excluir esta nota?'))) return;
+    try { await deleteDoc(doc(db, 'messages', note.id)); } catch (err) { console.error('Erro ao excluir nota:', err); }
+  };
+
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [isSavingTask, setIsSavingTask] = useState(false);
+  const taskInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (activeTab === 'notes') setTimeout(() => noteInputRef.current?.focus(), 100);
+    if (activeTab === 'tasks') setTimeout(() => taskInputRef.current?.focus(), 100);
+  }, [activeTab]);
+  useEffect(() => {
+    if (!conversation?.id || !currentCompany) { setTasks([]); return; }
+    const q = query(collection(db, 'tasks'), where('companyId', '==', currentCompany.id), where('relatedId', '==', conversation.id));
+    return onSnapshot(q, (snap) => setTasks(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+  }, [conversation?.id, currentCompany]);
+  const handleAddTask = async () => {
+    if (!newTaskTitle.trim() || !conversation?.id || !currentCompany) return;
+    setIsSavingTask(true);
+    try {
+      await addDoc(collection(db, 'tasks'), {
+        companyId: currentCompany.id,
+        title: newTaskTitle.trim(),
+        relatedType: 'lead',
+        relatedId: conversation.id,
+        assignedUserId: user?.id || null,
+        createdAt: Timestamp.now(),
+      });
+      setNewTaskTitle('');
+    } catch (err) {
+      console.error('Erro ao criar tarefa:', err);
+      showAlert('Não foi possível criar a tarefa.');
+    } finally {
+      setIsSavingTask(false);
+    }
+  };
+  const handleToggleTask = async (task: any) => {
+    try { await updateDoc(doc(db, 'tasks', task.id), { completedAt: task.completedAt ? null : Timestamp.now() }); }
+    catch (err) { console.error('Erro ao atualizar tarefa:', err); }
+  };
+  const handleDeleteTask = async (task: any) => {
+    if (!(await showConfirm('Excluir esta tarefa?'))) return;
+    try { await deleteDoc(doc(db, 'tasks', task.id)); } catch (err) { console.error('Erro ao excluir tarefa:', err); }
+  };
+
+  // --- Vendas do cliente (mesmo telefone) -- fecha o ciclo conversa -> nota -> contrato/orçamento,
+  // reaproveitando a navegacao com destaque que a Ficha do Cliente ja usa (pendingOpenContratoId /
+  // pendingOpenOrcamentoId / pendingReceiptOpenId, ver AppContext).
+  const [clienteVendas, setClienteVendas] = useState<any[]>([]);
+  const [isLoadingVendas, setIsLoadingVendas] = useState(false);
+  useEffect(() => {
+    let ativo = true;
+    const digitos = (conversation?.phone || '').replace(/\D/g, '');
+    if (!digitos || digitos.length < 6) { setClienteVendas([]); return; }
+    setIsLoadingVendas(true);
+    const ultimos8 = digitos.slice(-8);
+    supabase.from('vendas')
+      .select('id, customer_name, customer_phone, total, status, down_payment, contrato_id, orcamento_id, created_at')
+      .is('deleted_at', null)
+      .ilike('customer_phone', `%${ultimos8}%`)
+      .order('created_at', { ascending: false })
+      .limit(15)
+      .then(({ data }) => { if (ativo) { setClienteVendas(data || []); setIsLoadingVendas(false); } });
+    return () => { ativo = false; };
+  }, [conversation?.phone]);
+
+  // --- Transcrição de áudio ---
+  // Toggle por conversa (salvo no proprio lead, ver Lead em types.ts) -- fica identico nas duas
+  // telas (Funil CRM e Mensagens) porque as duas leem/escrevem o mesmo documento. O gatilho em si
+  // e' manual (botao "Transcrever" em cada mensagem de audio) porque este projeto ainda nao tem
+  // nenhum provedor de voz-para-texto conectado -- ver lib/audioTranscription.ts.
+  const [transcribingId, setTranscribingId] = useState<string | null>(null);
+  const handleTranscribeAudio = async (message: any) => {
+    if (!message?.id || !message?.mediaUrl) {
+      showAlert('Esse áudio não tem um arquivo associado pra transcrever.');
+      return;
+    }
+    setTranscribingId(message.id);
+    try {
+      const texto = await transcribeAudioMessage(message.mediaUrl);
+      await updateDoc(doc(db, 'messages', message.id), {
+        transcription: { text: texto, isAutomatic: false, isVisible: true },
+      });
+    } catch (err: any) {
+      showAlert(err?.message || 'Não foi possível transcrever esse áudio.');
+    } finally {
+      setTranscribingId(null);
+    }
+  };
+  const handleToggleAutoTranscribe = async () => {
+    if (!conversation?.id) return;
+    try {
+      await updateDoc(doc(db, 'leads', conversation.id), { autoTranscribe: !conversation.autoTranscribe });
+    } catch (err) {
+      console.error('Erro ao atualizar transcrição automática:', err);
+    }
+  };
+
+  const { setPrefilledCustomer, setActiveTab: setRootActiveTab, setPendingReceiptOpenId, setPendingOpenContratoId, setPendingOpenOrcamentoId } = React.useContext(AppContext)!;
+
+
+  // "Iniciar Venda": se ja existe cliente cadastrado com esse telefone (clienteVinculado), manda o
+  // id junto -- o PDV abre com o cadastro ja vinculado em vez de criar um novo. Aproveita e
+  // completa, no cadastro existente, o nome do WhatsApp/contato se ainda estiverem vazios (sem
+  // sobrescrever nada que ja tinha).
+  const handleStartSale = () => {
+    if (!setPrefilledCustomer || !conversation) return;
+    const nomeReal = (conversation.fullName || conversation.name || '').trim();
+    if (clienteVinculado) {
+      setPrefilledCustomer({ id: clienteVinculado.id, name: clienteVinculado.full_name || nomeReal, phone: clienteVinculado.phone || conversation.phone || '' });
+      if (!clienteVinculado.whatsapp_name || !clienteVinculado.contact_name) {
+        supabase.from('clientes').update({
+          whatsapp_name: clienteVinculado.whatsapp_name || conversation.whatsappName || null,
+          contact_name: clienteVinculado.contact_name || conversation.contactName || null,
+        }).eq('id', clienteVinculado.id).then(() => {});
+      }
+    } else {
+      setPrefilledCustomer({ name: nomeReal, phone: conversation.phone || '' });
+    }
+    setRootActiveTab?.('pos');
+  };
 
   useEffect(() => {
     if (initialDraft && conversation?.id) {
@@ -1839,39 +2048,21 @@ export const ChatPanel = ({
     canTranscribeAudio: true,
   };
 
-  const { setPrefilledCustomer, setActiveTab: setRootActiveTab } = React.useContext(AppContext)!;
-
   const tabs = [
     { id: 'chat', label: 'Conversa', icon: MessageSquare },
     { id: 'data', label: 'Dados', icon: Users },
-    { id: 'tasks', label: 'Tarefas', icon: ListTodo },
     { id: 'notes', label: 'Notas', icon: StickyNote },
-    { id: 'history', label: 'Histórico', icon: History },
+    { id: 'tasks', label: 'Tarefas', icon: ListTodo },
     { id: 'sales', label: 'Vendas', icon: ShoppingBag },
-    { id: 'attachments', label: 'Anexos', icon: Paperclip },
   ];
 
   const quickActions = [
-    { id: 'note', icon: StickyNote, label: 'Nota Interna', color: 'text-amber-400', permission: permissions.canStartNote, onClick: () => showAlert('Nota interna simulada no sistema') },
+    { id: 'note', icon: StickyNote, label: 'Nota Interna', color: 'text-amber-400', permission: permissions.canStartNote, onClick: () => setActiveTab('notes') },
     { id: 'saved', icon: MessageSquare, label: 'Msg Salva', color: 'text-primary-300', permission: permissions.canSendSavedMessage, onClick: () => setShowQuickTemplates(!showQuickTemplates) },
-    { id: 'card', icon: LayoutDashboard, label: 'Criar Card', color: 'text-emerald-400', permission: permissions.canCreateCard },
-    { id: 'task', icon: ListTodo, label: 'Tarefa', color: 'text-purple-400', permission: permissions.canAddTask },
-    { 
-      id: 'pos', 
-      icon: ShoppingBag, 
-      label: 'Venda PDV', 
-      color: 'text-blue-400', 
-      permission: permissions.canStartPosSale,
-      onClick: () => {
-        if (setPrefilledCustomer) {
-          setPrefilledCustomer({ name: conversation.name, phone: conversation.phone || '' });
-          setRootActiveTab?.('pos');
-        }
-      }
-    },
-    { id: 'print', icon: Printer, label: 'Imprimir', color: 'text-slate-400', permission: true },
-    { id: 'share', icon: Share2, label: 'Compartilhar', color: 'text-emerald-500', permission: true },
+    { id: 'task', icon: ListTodo, label: 'Tarefa', color: 'text-purple-400', permission: permissions.canAddTask, onClick: () => setActiveTab('tasks') },
+    { id: 'pos', icon: ShoppingBag, label: 'Venda PDV', color: 'text-blue-400', permission: permissions.canStartPosSale, onClick: handleStartSale },
   ];
+
 
   if (!conversation) return (
     <div className="flex-1 flex flex-col items-center justify-center p-12 text-center space-y-4">
@@ -1968,7 +2159,7 @@ export const ChatPanel = ({
               className="h-full flex flex-col"
             >
               <div className="flex-1 p-4 overflow-y-auto space-y-4 custom-scrollbar">
-                 {messages.length === 0 && (
+                 {chatMessages.length === 0 && (
                    <div className="flex flex-col items-center justify-center h-full space-y-3 py-10">
                       <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-white/30">
                         <MessageSquare size={24} />
@@ -2021,9 +2212,10 @@ export const ChatPanel = ({
                    </div>
                  )}
                  
-                 {messages.map((m, idx) => {
+                 {chatMessages.map((m, idx) => {
                     const isOutgoing = m.direction === 'outgoing';
                     const timeStr = m.createdAt instanceof Timestamp ? format(m.createdAt.toDate(), 'HH:mm') : '';
+                    const isAudio = m.contentType === 'audio' || m.mediaType === 'audio';
                     
                     return (
                       <div key={m.id || idx} className={cn("flex", isOutgoing ? "justify-end" : "justify-start")}>
@@ -2034,7 +2226,24 @@ export const ChatPanel = ({
                                ? "rounded-br-none border-primary-200 text-left ml-auto" 
                                : "rounded-bl-none border-slate-200"
                            )}>
-                              {m.text}
+                              {isAudio ? (
+                                <div className="space-y-1.5 min-w-[180px]">
+                                   <div className="flex items-center gap-1.5 text-slate-500">
+                                     <FileAudio size={13} /> <span className="font-bold">Mensagem de áudio</span>
+                                   </div>
+                                   {m.transcription?.text ? (
+                                     <p className="italic text-slate-600 border-t border-slate-100 pt-1.5">"{m.transcription.text}"</p>
+                                   ) : (
+                                     <button
+                                       onClick={() => handleTranscribeAudio(m)}
+                                       disabled={transcribingId === m.id}
+                                       className="text-[9px] font-black uppercase text-primary-600 hover:text-primary-700 flex items-center gap-1 disabled:opacity-50"
+                                     >
+                                       {transcribingId === m.id ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />} Transcrever
+                                     </button>
+                                   )}
+                                </div>
+                              ) : m.text}
                            </div>
                            <p className={cn("text-[8px] font-bold uppercase", isOutgoing ? "text-primary-300/30 mr-1" : "text-white/20 ml-1")}>
                              {timeStr} • {isOutgoing ? 'Sistema' : m.senderName || 'Cliente'}
@@ -2120,7 +2329,7 @@ export const ChatPanel = ({
               key="data"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="p-8 space-y-8"
+              className="p-8 space-y-8 overflow-y-auto custom-scrollbar h-full"
             >
               <div className="grid grid-cols-2 gap-6">
                 <div className="space-y-2">
@@ -2140,14 +2349,42 @@ export const ChatPanel = ({
                 </div>
               </div>
 
+              {/* Identidade unificada -- 3 nomes separados pra nunca um sobrescrever o outro sem
+                  querer (ver Lead.whatsappName/contactName/fullName em types.ts). Igual nas duas
+                  telas (Funil CRM e Mensagens) porque leem/escrevem o mesmo lead. */}
               <div className="space-y-4">
-                <h5 className="text-[11px] font-black uppercase text-primary-300 tracking-[3px]">Informações Pessoais</h5>
+                <div className="flex items-center justify-between">
+                   <h5 className="text-[11px] font-black uppercase text-primary-300 tracking-[3px]">Identidade do Contato</h5>
+                   {nomesMudaram && (
+                     <Button size="sm" icon={Save} onClick={handleSaveNames} className="h-8 text-[9px]" disabled={isSavingNames}>
+                       {isSavingNames ? 'Salvando...' : 'Salvar Nomes'}
+                     </Button>
+                   )}
+                </div>
+                <div className="grid grid-cols-1 gap-3">
+                   <div className="space-y-1">
+                      <label className="text-[9px] font-black text-white/30 uppercase tracking-widest">Nome do WhatsApp (perfil)</label>
+                      <Input value={nameFieldsDraft.whatsappName} onChange={(e: any) => setNameFieldsDraft({ ...nameFieldsDraft, whatsappName: e.target.value })} placeholder="Como aparece no perfil do WhatsApp" />
+                   </div>
+                   <div className="space-y-1">
+                      <label className="text-[9px] font-black text-white/30 uppercase tracking-widest">Nome do Contato (agenda)</label>
+                      <Input value={nameFieldsDraft.contactName} onChange={(e: any) => setNameFieldsDraft({ ...nameFieldsDraft, contactName: e.target.value })} placeholder="Como o atendente salvou na conversa" />
+                   </div>
+                   <div className="space-y-1">
+                      <label className="text-[9px] font-black text-white/30 uppercase tracking-widest">Nome Real / Documental</label>
+                      <Input value={nameFieldsDraft.fullName} onChange={(e: any) => setNameFieldsDraft({ ...nameFieldsDraft, fullName: e.target.value })} placeholder="Nome completo pra contratos e cadastros" />
+                   </div>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <h5 className="text-[11px] font-black uppercase text-primary-300 tracking-[3px]">Informações</h5>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                    {[
-                     { label: 'E-mail', value: 'rafael@exemplo.com.br', icon: AtSign },
-                     { label: 'Telefone', value: '(62) 98888-7777', icon: Phone },
-                     { label: 'Origem', value: 'Instagram Ads', icon: Target },
-                     { label: 'Vendedor', value: 'Atendente Lucas', icon: Users },
+                     { label: 'Telefone', value: conversation.phone || '—', icon: Phone },
+                     { label: 'Origem', value: conversation.sourceType || conversation.channel || '—', icon: Target },
+                     { label: 'E-mail', value: conversation.email || clienteVinculado?.email || '—', icon: AtSign },
+                     { label: 'Cadastro Vinculado', value: isLoadingCliente ? 'Buscando...' : (clienteVinculado ? clienteVinculado.full_name : 'Sem cadastro em Clientes'), icon: Users },
                    ].map((item, i) => (
                      <div key={i} className="p-4 bg-white/5 rounded-2xl border border-white/5 hover:bg-white/10 transition-all flex items-center gap-4 group">
                         <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-white/20 group-hover:text-primary-300 transition-colors">
@@ -2162,48 +2399,185 @@ export const ChatPanel = ({
                 </div>
               </div>
 
+              {/* Endereço -- puxado do cadastro unificado (tabela clientes), casado pelo telefone. */}
+              <div className="space-y-4">
+                <h5 className="text-[11px] font-black uppercase text-primary-300 tracking-[3px]">Endereço do Cliente</h5>
+                {isLoadingCliente ? (
+                  <p className="text-xs text-white/30">Buscando cadastro...</p>
+                ) : clienteVinculado ? (
+                  <div className="p-4 bg-white/5 rounded-2xl border border-white/5 flex items-start gap-4">
+                     <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-white/20 shrink-0"><MapPin size={16} /></div>
+                     <p className="text-xs font-bold text-white/80 leading-relaxed">
+                       {[clienteVinculado.logradouro, clienteVinculado.numero, clienteVinculado.distrito, clienteVinculado.city, clienteVinculado.state, clienteVinculado.cep]
+                         .filter(Boolean).join(', ') || 'Cadastro encontrado, mas sem endereço preenchido.'}
+                     </p>
+                  </div>
+                ) : (
+                  <p className="text-xs text-white/30">Nenhum cadastro em Clientes com esse telefone ainda. Use "Venda PDV" pra criar um.</p>
+                )}
+              </div>
+
+              {/* Transcrição de áudio automática -- toggle salvo no lead, identico nas duas telas. */}
+              <div className="p-4 bg-white/5 rounded-2xl border border-white/5 flex items-center justify-between">
+                 <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-white/20"><FileAudio size={16} /></div>
+                    <div>
+                       <p className="text-xs font-bold text-white/80">Transcrição de Áudio Automática</p>
+                       <p className="text-[9px] text-white/30">Transcreve mensagens de voz recebidas nessa conversa</p>
+                    </div>
+                 </div>
+                 <button
+                   onClick={handleToggleAutoTranscribe}
+                   className={cn("w-11 h-6 rounded-full transition-colors relative shrink-0", conversation.autoTranscribe ? "bg-emerald-500" : "bg-white/10")}
+                 >
+                   <span className={cn("absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all", conversation.autoTranscribe ? "left-[22px]" : "left-0.5")} />
+                 </button>
+              </div>
+
               <div className="p-6 bg-primary-500/5 border border-primary-500/10 rounded-3xl space-y-4">
                  <div className="flex items-center justify-between">
                     <h5 className="text-[11px] font-black uppercase text-primary-300 tracking-[3px]">Etiquetas (Tags)</h5>
                     <Button variant="ghost" size="sm" icon={Plus} className="h-8 p-1" />
                  </div>
                  <div className="flex flex-wrap gap-2">
-                    {['Quente', 'Investidor', 'Lançamento', 'Aura'].map(tag => (
+                    {(conversation.tags || []).map((tag: string) => (
                       <Badge key={tag} variant="primary" className="px-3 py-1 text-[9px] uppercase font-black bg-white/5 border-white/10">{tag}</Badge>
                     ))}
+                    {(!conversation.tags || conversation.tags.length === 0) && (
+                      <p className="text-xs text-white/20">Nenhuma etiqueta ainda.</p>
+                    )}
                  </div>
               </div>
             </motion.div>
           )}
 
           {activeTab === 'notes' && (
-            <motion.div key="notes" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-8 space-y-6">
+            <motion.div key="notes" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-8 space-y-6 overflow-y-auto custom-scrollbar h-full flex flex-col">
                <div className="flex items-center justify-between">
                   <h3 className="text-xl font-bold text-white italic">Notas Internas</h3>
-                  <Button icon={Plus} size="sm">Nova Nota</Button>
+               </div>
+               <div className="flex gap-2">
+                  <textarea
+                    ref={noteInputRef}
+                    value={newNoteText}
+                    onChange={(e) => setNewNoteText(e.target.value)}
+                    placeholder="Escreva uma nota interna (não é visível pro cliente)..."
+                    rows={2}
+                    className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-white/30 focus:outline-none focus:border-primary-500 resize-none"
+                  />
+                  <Button icon={Plus} onClick={handleAddNote} disabled={isSavingNote || !newNoteText.trim()} className="h-auto">
+                    {isSavingNote ? 'Salvando...' : 'Salvar'}
+                  </Button>
                </div>
                <div className="space-y-4">
-                  {[
-                    { title: 'Preferência de Contato', text: 'O cliente prefere receber áudio em vez de texto.', date: 'Hoje, 10:30', author: 'Atendente Lucas', priority: 'alta' },
-                    { title: 'Orçamento Fachada', text: 'Pediu para orçar a fachada em ACM preto fosco.', date: 'Ontem', author: 'Você', priority: 'media' },
-                  ].map((note, i) => (
-                    <div key={i} className="p-6 bg-white/5 border border-white/10 rounded-3xl space-y-3 relative overflow-hidden group">
-                       <div className={cn("absolute top-0 left-0 w-1 h-full", note.priority === 'alta' ? 'bg-amber-500' : 'bg-primary-500')} />
-                       <div className="flex justify-between items-start">
-                          <h4 className="font-bold text-white text-sm">{note.title}</h4>
-                          <span className="text-[9px] font-black text-white/20 uppercase">{note.date}</span>
-                       </div>
-                       <p className="text-xs text-white/50 leading-relaxed">{note.text}</p>
-                       <div className="pt-3 border-t border-white/5 flex justify-between items-center opacity-0 group-hover:opacity-100 transition-opacity">
-                          <span className="text-[10px] text-white/30 font-bold italic">Por {note.author}</span>
-                          <div className="flex gap-2">
-                             <Button variant="ghost" size="sm" icon={Star} className="p-1 h-6 w-6" />
-                             <Button variant="ghost" size="sm" icon={Trash2} className="p-1 h-6 w-6 text-rose-400" />
-                          </div>
-                       </div>
-                    </div>
-                  ))}
+                  {notes.length === 0 && (
+                    <p className="text-xs text-white/20 text-center py-8">Nenhuma nota registrada nessa conversa ainda.</p>
+                  )}
+                  {[...notes].reverse().map((note) => {
+                    const dataStr = note.createdAt instanceof Timestamp ? format(note.createdAt.toDate(), 'dd/MM/yyyy HH:mm') : '';
+                    return (
+                      <div key={note.id} className="p-6 bg-white/5 border border-white/10 rounded-3xl space-y-3 relative overflow-hidden group">
+                         <div className="absolute top-0 left-0 w-1 h-full bg-amber-500" />
+                         <div className="flex justify-between items-start gap-2">
+                            <p className="text-xs text-white/70 leading-relaxed flex-1">{note.text}</p>
+                            <Button variant="ghost" size="sm" icon={Trash2} onClick={() => handleDeleteNote(note)} className="p-1 h-6 w-6 text-rose-400 shrink-0" />
+                         </div>
+                         <p className="text-[9px] text-white/30 font-bold italic">Por {note.senderName || 'Sistema'} • {dataStr}</p>
+                      </div>
+                    );
+                  })}
                </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'tasks' && (
+            <motion.div key="tasks" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-8 space-y-6 overflow-y-auto custom-scrollbar h-full flex flex-col">
+               <div className="flex items-center justify-between">
+                  <h3 className="text-xl font-bold text-white italic">Tarefas</h3>
+               </div>
+               <div className="flex gap-2">
+                  <input
+                    ref={taskInputRef}
+                    value={newTaskTitle}
+                    onChange={(e) => setNewTaskTitle(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleAddTask(); }}
+                    placeholder="Nova tarefa pra esse contato..."
+                    className="flex-1 h-11 bg-white/5 border border-white/10 rounded-xl px-3 text-xs text-white placeholder:text-white/30 focus:outline-none focus:border-primary-500"
+                  />
+                  <Button icon={Plus} onClick={handleAddTask} disabled={isSavingTask || !newTaskTitle.trim()}>
+                    {isSavingTask ? 'Salvando...' : 'Adicionar'}
+                  </Button>
+               </div>
+               <div className="space-y-2">
+                  {tasks.length === 0 && (
+                    <p className="text-xs text-white/20 text-center py-8">Nenhuma tarefa pra esse contato ainda.</p>
+                  )}
+                  {tasks.map((task) => {
+                    const concluida = !!task.completedAt;
+                    return (
+                      <div key={task.id} className={cn("flex items-center gap-3 p-3 rounded-xl border transition-all", concluida ? "bg-white/[0.02] border-white/5 opacity-50" : "bg-white/5 border-white/10")}>
+                         <button onClick={() => handleToggleTask(task)} className={cn("w-6 h-6 rounded-lg border flex items-center justify-center shrink-0", concluida ? "bg-emerald-500 border-emerald-500" : "border-white/20 hover:border-primary-500")}>
+                           {concluida && <Check size={12} className="text-slate-900" />}
+                         </button>
+                         <p className={cn("text-xs font-bold flex-1", concluida ? "text-white/40 line-through" : "text-white/80")}>{task.title}</p>
+                         <Button variant="ghost" size="sm" icon={Trash2} onClick={() => handleDeleteTask(task)} className="p-1 h-6 w-6 text-rose-400 shrink-0" />
+                      </div>
+                    );
+                  })}
+               </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'sales' && (
+            <motion.div key="sales" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-8 space-y-4 overflow-y-auto custom-scrollbar h-full">
+               <h3 className="text-xl font-bold text-white italic">Vendas do Cliente</h3>
+               <p className="text-[10px] text-white/30">Pedidos com o mesmo telefone dessa conversa — clique pra abrir a nota, o contrato ou o orçamento vinculado.</p>
+               {isLoadingVendas ? (
+                 <div className="flex justify-center py-10"><RefreshCw className="animate-spin text-primary-500" size={20} /></div>
+               ) : clienteVendas.length === 0 ? (
+                 <p className="text-xs text-white/20 text-center py-8">Nenhuma venda encontrada com esse telefone ainda.</p>
+               ) : (
+                 <div className="space-y-2">
+                   {clienteVendas.map((venda) => {
+                     const saldo = (venda.total || 0) - (venda.down_payment || 0);
+                     const pendente = saldo > 0 || venda.status === 'pending';
+                     return (
+                       <div key={venda.id} className="p-3 bg-white/5 border border-white/10 rounded-xl space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                             <button onClick={() => { setPendingReceiptOpenId?.(venda.id); setRootActiveTab?.('pos'); }} className="text-left min-w-0 flex-1">
+                                <p className="text-xs font-black text-white truncate">#{venda.id.slice(-8).toUpperCase()}</p>
+                                <p className="text-[9px] text-white/30">{venda.created_at ? safeFormat(venda.created_at, 'dd/MM/yyyy HH:mm') : ''}</p>
+                             </button>
+                             <Badge className={cn("text-[7.5px] font-black uppercase px-1.5 py-0.5 border-none shrink-0", pendente ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300")}>
+                               {pendente ? `FALTA R$ ${saldo.toFixed(2).replace('.', ',')}` : 'PAGO'}
+                             </Badge>
+                             <span className="text-xs font-black text-white shrink-0">R$ {(venda.total || 0).toFixed(2).replace('.', ',')}</span>
+                          </div>
+                          {(venda.contrato_id || venda.orcamento_id) && (
+                            <div className="flex flex-wrap gap-1">
+                               {venda.contrato_id && (
+                                 <button
+                                   onClick={() => { setPendingOpenContratoId?.(venda.contrato_id); setRootActiveTab?.('pos'); }}
+                                   className="text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors"
+                                 >
+                                   Contrato
+                                 </button>
+                               )}
+                               {venda.orcamento_id && (
+                                 <button
+                                   onClick={() => { setPendingOpenOrcamentoId?.(venda.orcamento_id); setRootActiveTab?.('pos'); }}
+                                   className="text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full bg-primary-500/20 text-primary-300 hover:bg-primary-500/30 transition-colors"
+                                 >
+                                   Orçamento
+                                 </button>
+                               )}
+                            </div>
+                          )}
+                       </div>
+                     );
+                   })}
+                 </div>
+               )}
             </motion.div>
           )}
         </AnimatePresence>
@@ -2211,6 +2585,7 @@ export const ChatPanel = ({
     </GlassCard>
   );
 };
+
 
 // --- CRM / FUNNEL ---
 export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | null, user: AppUser | null }) => {
