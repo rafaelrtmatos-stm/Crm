@@ -560,8 +560,9 @@ function buildTextoContrato(params: {
     formaPagamentoTexto, prazoTexto, observacoes, multaPercentual,
   } = params;
   // Dados fixos da CONTRATADA (empresa) — mesmo modelo/redacao usado no contrato padrao da empresa
-  const CONTRATADA_NOME = 'RAFAEL TAVARES MATOS 02580326260';
-  const CONTRATADA_CNPJ = '28.884.125/0001-40';
+  const CONTRATADA_NOME = 'RAFAEL TAVARES MATOS';
+  const CONTRATADA_NOME_FANTASIA = 'RAFA ARTS GRAPHICS';
+  const CONTRATADA_CPF = '025.803.262-60';
   const CONTRATADA_ENDERECO = 'DO 01, 1445, Santarém - PA, CEP 68035010';
 
   const itensDescricao = items.map(i => `- ${i.name.toUpperCase()}${i.dimensions ? ` (${i.dimensions})` : ''} — Qtd: ${i.quantity}`).join('\n') || 'A definir conforme orçamento vinculado.';
@@ -572,7 +573,7 @@ function buildTextoContrato(params: {
 
 DAS PARTES
 
-${CONTRATADA_NOME}, pessoa jurídica de direito privado, inscrita no CNPJ n° ${CONTRATADA_CNPJ}, com sede em ${CONTRATADA_ENDERECO}, sendo aqui denominada CONTRATADA.
+${CONTRATADA_NOME}, também atuando sob o nome fantasia ${CONTRATADA_NOME_FANTASIA}, portador(a) do CPF nº ${CONTRATADA_CPF}, com sede em ${CONTRATADA_ENDERECO}, sendo aqui denominada CONTRATADA.
 
 ${customerName.toUpperCase()}${cpfCnpj ? `, portador(a) do CPF/CNPJ nº ${cpfCnpj}` : ''}${address ? `, residente e domiciliado(a) em ${address}` : ''}, sendo aqui denominado(a) CONTRATANTE.
 
@@ -4462,7 +4463,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   // Posicao calculada via JS (nao CSS absolute) pro menu "..." do card de contrato --
   // absolute ficava sendo cortado pelo scroll da lista (overflow-y-auto do container pai),
   // fixed + coordenadas do getBoundingClientRect escapa desse corte.
-  const [contratoActionsMenuPos, setContratoActionsMenuPos] = useState<{ top: number; left: number } | null>(null);
+  const [contratoActionsMenuPos, setContratoActionsMenuPos] = useState<{ top?: number; bottom?: number; left: number } | null>(null);
   const [contratoSearchTerm, setContratoSearchTerm] = useState('');
   const [orcamentoItemsEditMode, setOrcamentoItemsEditMode] = useState(false);
 
@@ -8789,10 +8790,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                          // com transform ativo vira "containing block" e quebra o position:fixed,
                                          // fazendo ele ficar preso/cortado dentro da area animada em vez da tela toda.
                                          const rect = e.currentTarget.getBoundingClientRect();
-                                         const MENU_H_ESTIMADA = 320; // ~8 itens de opcao, pra decidir abrir pra cima ou pra baixo
+                                         const MENU_H_ESTIMADA = 320; // so serve pra decidir se abre pra cima ou pra baixo
                                          const abreParaCima = rect.bottom + MENU_H_ESTIMADA > window.innerHeight;
+                                         // Quando abre pra cima, ancora pelo "bottom" (colado no botao) em vez de
+                                         // calcular o "top" com a altura estimada -- o menu tem de 4 a 9 itens
+                                         // dependendo do contrato, entao a altura real quase nunca bate com a
+                                         // estimativa e o menu nascia flutuando longe do card, com um vao vazio
+                                         // entre ele e o botao.
                                          setContratoActionsMenuPos({
-                                           top: abreParaCima ? Math.max(8, rect.top - MENU_H_ESTIMADA) : rect.bottom + 6,
+                                           top: abreParaCima ? undefined : rect.bottom + 6,
+                                           bottom: abreParaCima ? window.innerHeight - rect.top + 6 : undefined,
                                            left: Math.max(8, Math.min(rect.right - 208, window.innerWidth - 216)),
                                          });
                                          setOpenContratoActionsId(c.id);
@@ -8807,7 +8814,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                          {/* backdrop invisivel pra fechar o menu clicando fora, sem precisar de lib externa */}
                                          <div className="fixed inset-0 z-[200]" onClick={() => setOpenContratoActionsId(null)} />
                                          <div
-                                           style={{ top: contratoActionsMenuPos.top, left: contratoActionsMenuPos.left }}
+                                           style={{ top: contratoActionsMenuPos.top, bottom: contratoActionsMenuPos.bottom, left: contratoActionsMenuPos.left }}
                                            className="fixed z-[201] w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl py-1.5 flex flex-col">
                                             <button onClick={() => { openEditContrato(c); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left"><Pencil size={13} /> {podeEditarDireto ? 'Editar' : 'Editar (Nova Versão)'}</button>
                                             <button onClick={() => { handleDuplicateContrato(c); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left"><Copy size={13} /> Duplicar</button>
