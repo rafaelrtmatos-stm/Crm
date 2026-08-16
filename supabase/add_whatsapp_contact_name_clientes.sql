@@ -6,21 +6,7 @@
 --   Atualiza sozinho a cada mensagem nova, sem mexer nos outros dois.
 -- - contact_name: nome como o atendente salvou na agenda/conversa -- editavel manualmente,
 --   tambem nao sobrescreve full_name.
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'clientes' AND column_name = 'whatsapp_name'
-  ) THEN
-    ALTER TABLE clientes ADD COLUMN whatsapp_name text;
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'clientes' AND column_name = 'contact_name'
-  ) THEN
-    ALTER TABLE clientes ADD COLUMN contact_name text;
-  END IF;
-END $$;
+ALTER TABLE clientes ADD COLUMN IF NOT EXISTS whatsapp_name text;
+ALTER TABLE clientes ADD COLUMN IF NOT EXISTS contact_name text;
 
 NOTIFY pgrst, 'reload schema';
