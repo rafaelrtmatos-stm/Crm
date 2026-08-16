@@ -64,6 +64,11 @@ export async function createVerificationCode(
 
   if (error) throw error;
 
+  // Gerar um novo codigo e' a acao natural do operador quando o cliente ficou travado (seja no
+  // codigo OTP em si, seja na checagem de CPF/CNPJ) -- entao aproveita pra destravar tambem o
+  // contador de tentativas do CPF, sem precisar de um botao de "resetar" separado.
+  await supabase.from('contratos').update({ document_check_attempts: 0 }).eq('id', contractId);
+
   return { code, expiresAt, contractId };
 }
 
@@ -126,15 +131,30 @@ export interface SignContractParams {
  * Checagem extra de identidade (antes de liberar o codigo OTP): compara os 4 ultimos digitos
  * do CPF/CNPJ digitados pelo cliente contra o que esta salvo no contrato. A comparacao acontece
  * dentro do banco (funcao check_contrato_document_last_digits) -- o documento completo nunca
- * chega no navegador do cliente, so o resultado true/false.
+ * chega no navegador do cliente, so o resultado.
+ *
+ * Limite de 5 tentativas erradas e' controlado no proprio banco (coluna
+ * contratos.document_check_attempts), nao so no navegador -- entao recarregar a pagina ou tentar
+ * de outro aparelho nao reseta o contador. Ele so zera quando o operador gera um novo codigo
+ * (ver createVerificationCode) ou quando o cliente acerta.
  */
-export async function checkDocumentLastDigits(contractId: string, last4Digits: string): Promise<boolean> {
+export interface DocumentCheckResult {
+  matched: boolean;
+  locked: boolean;
+  attemptsRemaining: number;
+}
+
+export async function checkDocumentLastDigits(contractId: string, last4Digits: string): Promise<DocumentCheckResult> {
   const { data, error } = await supabase.rpc('check_contrato_document_last_digits', {
     p_contract_id: contractId,
     p_last_digits: last4Digits,
   });
   if (error) throw error;
-  return data === true;
+  return {
+    matched: data?.matched === true,
+    locked: data?.locked === true,
+    attemptsRemaining: typeof data?.attempts_remaining === 'number' ? data.attempts_remaining : 0,
+  };
 }
 
 export interface SignContractResult {

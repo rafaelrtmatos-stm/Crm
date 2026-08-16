@@ -39,9 +39,12 @@ export default function ContractSignaturePublicPage() {
 
   // Checagem extra de identidade (4 ultimos digitos do CPF/CNPJ) -- precisa bater ANTES de
   // liberar os campos do codigo OTP recebido por WhatsApp. Ver checkDocumentLastDigits em otpUtils.ts.
+  // docLocked: true depois de 5 tentativas erradas -- contador vive no banco (nao reseta so
+  // recarregando a pagina), so destrava quando o operador gerar um novo codigo pro contrato.
   const [documentDigits, setDocumentDigits] = useState('');
   const [docVerified, setDocVerified] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
+  const [docLocked, setDocLocked] = useState(false);
   const [isCheckingDoc, setIsCheckingDoc] = useState(false);
 
   // Codigo gerado e exibido nesta mesma tela (sem envio por WhatsApp) -- ver contexto
@@ -108,9 +111,17 @@ export default function ContractSignaturePublicPage() {
     setIsCheckingDoc(true);
     setDocError(null);
     try {
-      const match = await checkDocumentLastDigits(contrato.id, documentDigits);
-      if (!match) {
-        setDocError('Não confere com o documento cadastrado neste contrato. Confira e tente novamente.');
+      const result = await checkDocumentLastDigits(contrato.id, documentDigits);
+      if (result.locked) {
+        setDocLocked(true);
+        setDocError('Muitas tentativas incorretas. Peça um novo link a quem está te atendendo.');
+        setIsCheckingDoc(false);
+        return;
+      }
+      if (!result.matched) {
+        setDocError(
+          `Não confere com o documento cadastrado neste contrato. ${result.attemptsRemaining} tentativa(s) restante(s).`
+        );
         setIsCheckingDoc(false);
         return;
       }
@@ -215,6 +226,48 @@ export default function ContractSignaturePublicPage() {
     }
   };
 
+  // Checagem de CPF pra liberar o download quando o link e' reaberto DEPOIS de o contrato ja
+  // ter sido assinado (fluxo diferente do docVerified acima, que so existe durante a sessao
+  // de assinatura em si). Sem isso, qualquer um com o link baixava o PDF assinado sem provar
+  // quem e'.
+  const [redownloadDigits, setRedownloadDigits] = useState('');
+  const [redownloadVerified, setRedownloadVerified] = useState(false);
+  const [redownloadError, setRedownloadError] = useState<string | null>(null);
+  const [redownloadLocked, setRedownloadLocked] = useState(false);
+  const [isCheckingRedownload, setIsCheckingRedownload] = useState(false);
+
+  const handleVerifyRedownload = async () => {
+    if (!contrato) return;
+    if (redownloadDigits.length !== 4) {
+      setRedownloadError('Digite os 4 últimos números do seu CPF ou CNPJ.');
+      return;
+    }
+    setIsCheckingRedownload(true);
+    setRedownloadError(null);
+    try {
+      const result = await checkDocumentLastDigits(contrato.id, redownloadDigits);
+      if (result.locked) {
+        setRedownloadLocked(true);
+        setRedownloadError('Muitas tentativas incorretas. Peça um novo link a quem está te atendendo.');
+        setIsCheckingRedownload(false);
+        return;
+      }
+      if (!result.matched) {
+        setRedownloadError(
+          `Não confere com o documento cadastrado neste contrato. ${result.attemptsRemaining} tentativa(s) restante(s).`
+        );
+        setIsCheckingRedownload(false);
+        return;
+      }
+      setRedownloadVerified(true);
+    } catch (err) {
+      console.error('Erro ao checar documento:', err);
+      setRedownloadError('Ocorreu um erro ao verificar. Tente novamente em instantes.');
+    } finally {
+      setIsCheckingRedownload(false);
+    }
+  };
+
   const handleDownloadPdf = () => {
     if (!contrato || !downloadInfo) return;
     // Arquivo imutavel gerado no momento exato da assinatura (ver signContract em otpUtils.ts):
@@ -259,12 +312,53 @@ export default function ContractSignaturePublicPage() {
         <p className="text-white/40 text-sm">Nº {contrato.numero}</p>
 
         {downloadInfo && (
-          <button
-            onClick={handleDownloadPdf}
-            className="mt-2 flex items-center gap-2 rounded-xl bg-primary-500 hover:bg-primary-400 text-black text-xs font-black uppercase px-5 py-3 transition-colors"
-          >
-            <Download size={14} /> Baixar PDF Assinado
-          </button>
+          redownloadVerified ? (
+            <button
+              onClick={handleDownloadPdf}
+              className="mt-2 flex items-center gap-2 rounded-xl bg-primary-500 hover:bg-primary-400 text-black text-xs font-black uppercase px-5 py-3 transition-colors"
+            >
+              <Download size={14} /> Baixar PDF Assinado
+            </button>
+          ) : (
+            <div className="w-full max-w-xs rounded-2xl border border-white/10 bg-white/[0.03] p-4 space-y-3 mt-2">
+              <p className="text-[11px] text-white/50 flex items-center gap-1.5 justify-center">
+                <IdCard size={13} className="shrink-0" />
+                Pra baixar o PDF, confirme os 4 últimos números do seu CPF ou CNPJ:
+              </p>
+              <div className="flex justify-center">
+                <input
+                  value={redownloadDigits}
+                  onChange={(e) => {
+                    const digits = e.target.value.replace(/\D/g, '').slice(0, 4);
+                    setRedownloadDigits(digits);
+                    setRedownloadError(null);
+                  }}
+                  maxLength={4}
+                  inputMode="numeric"
+                  placeholder="0000"
+                  disabled={redownloadLocked}
+                  className="w-28 h-12 text-center text-lg font-black bg-black/40 border border-white/15 rounded-lg text-white focus:border-primary-400 outline-none tracking-widest disabled:opacity-40"
+                />
+              </div>
+
+              {redownloadError && (
+                <p className="text-[11px] text-rose-400 flex items-center gap-1.5 justify-center">
+                  <AlertCircle size={12} /> {redownloadError}
+                </p>
+              )}
+
+              {!redownloadLocked && (
+                <button
+                  onClick={handleVerifyRedownload}
+                  disabled={isCheckingRedownload}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary-500 hover:bg-primary-400 disabled:opacity-50 text-black text-xs font-black uppercase py-3 transition-colors"
+                >
+                  {isCheckingRedownload ? <Loader2 size={14} className="animate-spin" /> : <IdCard size={14} />}
+                  Confirmar e baixar
+                </button>
+              )}
+            </div>
+          )
         )}
       </div>
     );
@@ -361,7 +455,8 @@ export default function ContractSignaturePublicPage() {
                 maxLength={4}
                 inputMode="numeric"
                 placeholder="0000"
-                className="w-28 h-12 text-center text-lg font-black bg-black/40 border border-white/15 rounded-lg text-white focus:border-primary-400 outline-none tracking-widest"
+                disabled={docLocked}
+                className="w-28 h-12 text-center text-lg font-black bg-black/40 border border-white/15 rounded-lg text-white focus:border-primary-400 outline-none tracking-widest disabled:opacity-40"
               />
             </div>
 
@@ -371,14 +466,16 @@ export default function ContractSignaturePublicPage() {
               </p>
             )}
 
-            <button
-              onClick={handleVerifyDocument}
-              disabled={isCheckingDoc}
-              className="w-full flex items-center justify-center gap-2 rounded-xl bg-white/10 hover:bg-white/15 disabled:opacity-50 text-white text-xs font-black uppercase py-3 transition-colors"
-            >
-              {isCheckingDoc ? <Loader2 size={14} className="animate-spin" /> : <IdCard size={14} />}
-              Confirmar
-            </button>
+            {!docLocked && (
+              <button
+                onClick={handleVerifyDocument}
+                disabled={isCheckingDoc}
+                className="w-full flex items-center justify-center gap-2 rounded-xl bg-white/10 hover:bg-white/15 disabled:opacity-50 text-white text-xs font-black uppercase py-3 transition-colors"
+              >
+                {isCheckingDoc ? <Loader2 size={14} className="animate-spin" /> : <IdCard size={14} />}
+                Confirmar
+              </button>
+            )}
           </div>
         ) : (
           <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.06] p-3 flex items-center gap-2 text-[11px] text-emerald-400">
