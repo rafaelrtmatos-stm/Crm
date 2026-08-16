@@ -8756,28 +8756,24 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           const idsSuperados = new Set(allContratos.map(c => c.contratoAnteriorId).filter(Boolean));
           const contratos = allContratos.filter(c => !idsSuperados.has(c.id));
           const term = contratoSearchTerm.trim().toLowerCase();
-          // Resumo simplificado em 4 grupos (em vez dos 8 status tecnicos do fluxo de assinatura):
-          // o que ainda nao foi assinado digitalmente, o que ja foi (assinado/em execucao/concluido/
-          // encerrado), o que ja foi pago (venda vinculada com valor recebido >= total), e cancelados.
-          // Os valores tecnicos de ContratoStatus continuam intactos por baixo -- isso e so a
-          // classificacao/filtro exibido pro usuario, pra nao mexer no fluxo de assinatura digital.
-          const statusNaoAssinado = ['rascunho', 'aguardando_aceite', 'aceito', 'aguardando_assinatura_empresa'];
-          const statusAssinado = ['assinado', 'em_execucao', 'concluido', 'encerrado'];
-          const contratoEstaPago = (c: Contrato) => {
-            const venda = c.vendaId ? allSalesHistory.find(s => s.id === c.vendaId) : undefined;
-            return !!venda && (venda.receivedValue || 0) >= venda.total;
-          };
-          const contratosNaoAssinados = contratos.filter(c => statusNaoAssinado.includes(c.status));
-          const contratosAssinados = contratos.filter(c => statusAssinado.includes(c.status));
-          const contratosPagos = contratos.filter(c => c.status !== 'cancelado' && contratoEstaPago(c));
+
+          // Classificacao simplificada em 5 grupos, baseada exclusivamente em quem ja assinou
+          // (contratante = cliente, contratada = empresa) -- nao depende do usuario logado nem
+          // dos 8 status tecnicos do fluxo de assinatura por baixo.
+          const contratanteAssinou = (c: Contrato) => !!c.signedAt;
+          const contratadaAssinou = (c: Contrato) => !!c.empresaSignedAt;
+
+          const contratosContratantePendente = contratos.filter(c => c.status !== 'cancelado' && !contratanteAssinou(c));
+          const contratosContratadaPendente = contratos.filter(c => c.status !== 'cancelado' && contratanteAssinou(c) && !contratadaAssinou(c));
+          const contratosAssinados = contratos.filter(c => c.status !== 'cancelado' && contratanteAssinou(c) && contratadaAssinou(c));
           const contratosCancelados = contratos.filter(c => c.status === 'cancelado');
 
           const contratosFiltrados = contratos
             .filter(c => {
-              if (contratoStatusFilter === 'nao_assinado') return statusNaoAssinado.includes(c.status);
-              if (contratoStatusFilter === 'assinado') return statusAssinado.includes(c.status);
-              if (contratoStatusFilter === 'pago') return contratoEstaPago(c);
-              if (contratoStatusFilter === 'cancelado') return c.status === 'cancelado';
+              if (contratoStatusFilter === 'contratante') return c.status !== 'cancelado' && !contratanteAssinou(c);
+              if (contratoStatusFilter === 'contratada') return c.status !== 'cancelado' && contratanteAssinou(c) && !contratadaAssinou(c);
+              if (contratoStatusFilter === 'assinados') return c.status !== 'cancelado' && contratanteAssinou(c) && contratadaAssinou(c);
+              if (contratoStatusFilter === 'cancelados') return c.status === 'cancelado';
               return true; // 'todos'
             })
             .filter(c => {
@@ -8798,12 +8794,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(); // 'recentes'
             });
           const valorAssinado = contratosAssinados.reduce((acc, c) => acc + c.total, 0);
-          const valorNaoAssinado = contratosNaoAssinados.reduce((acc, c) => acc + c.total, 0);
-          const dashCards = [
-            { label: 'Não Assinados', val: contratosNaoAssinados.length, color: 'text-amber-400' },
-            { label: 'Assinados', val: contratosAssinados.length, color: 'text-emerald-400' },
-            { label: 'Pagos', val: contratosPagos.length, color: 'text-sky-400' },
-            { label: 'Cancelados', val: contratosCancelados.length, color: 'text-rose-400' },
+
+          const filtrosContrato = [
+            { id: 'todos', label: 'Todos', count: contratos.length },
+            { id: 'contratante', label: 'Contratante', count: contratosContratantePendente.length },
+            { id: 'contratada', label: 'Contratada', count: contratosContratadaPendente.length },
+            { id: 'assinados', label: 'Assinados', count: contratosAssinados.length },
+            { id: 'cancelados', label: 'Cancelados', count: contratosCancelados.length },
           ];
 
           return (
@@ -8813,49 +8810,31 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             >
               <SectionHeader
                 title="Contratos"
-                subtitle={`${contratos.length} contrato(s)`}
+                subtitle={`${contratos.length} contrato(s) · R$ ${valorAssinado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} assinado`}
                 actions={<Button icon={FileSignature} onClick={openNewContrato}>Novo Contrato</Button>}
               />
 
-              {/* Dashboard */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
-                {dashCards.map(card => (
-                  <div key={card.label} className="bg-white/5 border border-white/10 rounded-2xl p-4">
-                     <p className="text-[8px] font-black uppercase text-white/30 tracking-widest mb-1">{card.label}</p>
-                     <p className={cn("text-2xl font-black italic", card.color)}>{card.val}</p>
-                  </div>
-                ))}
-                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-4">
-                   <p className="text-[8px] font-black uppercase text-emerald-400 tracking-widest mb-1">Valor Assinado</p>
-                   <p className="text-lg font-black italic text-emerald-400">R$ {valorAssinado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-                </div>
-                <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4">
-                   <p className="text-[8px] font-black uppercase text-amber-400 tracking-widest mb-1">Valor Não Assinado</p>
-                   <p className="text-lg font-black italic text-amber-400">R$ {valorNaoAssinado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-                </div>
-              </div>
-
-              {/* Filtros -- mesma barra de classificacao que ja existia (visual identico ao
-                  restante do CRM), so que com as categorias adaptadas ao fluxo comercial de
-                  contrato em vez dos 8 status tecnicos do motor de assinatura */}
+              {/* Filtros -- 5 grupos baseados em quem ja assinou (contratante = cliente, contratada
+                  = empresa), com a quantidade dentro do proprio botao. Rolagem horizontal no mobile
+                  (sem quebrar linha) quando nao cabe tudo na largura da tela. */}
               <div className="flex flex-col gap-3">
-                 <div className="flex flex-wrap gap-1.5">
-                    {[
-                      { id: 'todos', label: 'Todos' },
-                      { id: 'nao_assinado', label: 'Não Assinados' },
-                      { id: 'assinado', label: 'Assinados' },
-                      { id: 'pago', label: 'Pagos' },
-                      { id: 'cancelado', label: 'Cancelados' },
-                    ].map(f => (
+                 <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto no-scrollbar -mx-1 px-1 pb-0.5">
+                    {filtrosContrato.map(f => (
                       <button
                         key={f.id}
                         onClick={() => setContratoStatusFilter(f.id)}
                         className={cn(
-                          "px-3 h-9 rounded-lg text-[9px] font-black uppercase tracking-wide cursor-pointer border transition-all",
+                          "shrink-0 flex items-center gap-1.5 px-3 h-9 rounded-lg text-[9px] font-black uppercase tracking-wide cursor-pointer border transition-all whitespace-nowrap",
                           contratoStatusFilter === f.id ? "bg-purple-500 text-white border-purple-500" : "bg-white/5 text-white/50 border-white/10 hover:text-white"
                         )}
                       >
                         {f.label}
+                        <span className={cn(
+                          "flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[9px] font-black",
+                          contratoStatusFilter === f.id ? "bg-white/25 text-white" : "bg-white/10 text-white/60"
+                        )}>
+                          {f.count}
+                        </span>
                       </button>
                     ))}
                  </div>
@@ -8924,6 +8903,20 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                 <p className="font-black text-white truncate mt-1 text-[15px]">{(c.customerName || '').toUpperCase()}</p>
                                 <p className="text-[10px] text-white/40 truncate">{c.cpfCnpj || 'CPF/CNPJ não informado'} · {c.phone || 'sem telefone'}</p>
                                 <p className="text-[10px] text-white/30 truncate mt-0.5">{servico}</p>
+                                <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+                                   <span className={cn(
+                                     "inline-flex items-center gap-1 text-[8px] font-black uppercase px-2 py-0.5 rounded-full",
+                                     c.signedAt ? "bg-emerald-500/15 text-emerald-400" : "bg-white/5 text-white/40"
+                                   )}>
+                                     {c.signedAt && <Check size={9} />} Contratante {c.signedAt ? 'Assinado' : 'Pendente'}
+                                   </span>
+                                   <span className={cn(
+                                     "inline-flex items-center gap-1 text-[8px] font-black uppercase px-2 py-0.5 rounded-full",
+                                     c.empresaSignedAt ? "bg-emerald-500/15 text-emerald-400" : "bg-white/5 text-white/40"
+                                   )}>
+                                     {c.empresaSignedAt && <Check size={9} />} Contratada {c.empresaSignedAt ? 'Assinado' : 'Pendente'}
+                                   </span>
+                                </div>
                              </div>
 
                              <div className="flex items-center justify-between sm:flex-col sm:items-end gap-2 sm:gap-1 shrink-0">
