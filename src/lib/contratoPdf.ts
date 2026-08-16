@@ -12,19 +12,93 @@
 // novo toda vez, uma mudanca futura no layout/fonte faria o PDF de um contrato antigo sair
 // diferente do que o cliente efetivamente assinou, mesmo com o hash SHA-256 batendo.
 
-// Dados da assinatura eletrônica avançada (OTP validado), impressos no rodapé de TODAS as
-// páginas quando o contrato já foi assinado digitalmente. Opcional: PDFs de contratos ainda
-// não assinados continuam sendo gerados normalmente, sem esse bloco.
+// Dados da assinatura eletrônica avançada (OTP validado). O resumo (data + IP + hash) continua
+// impresso no rodapé de TODAS as páginas quando o contrato já foi assinado; além disso, o bloco
+// completo de auditoria (cliente + empresa) é inserido automaticamente logo abaixo do nome de
+// cada parte na página de assinaturas, ao final do contrato (ver injetarCarimbosDeAssinatura).
+// Opcional: PDFs de contratos ainda não assinados continuam sendo gerados normalmente, sem isso.
 export interface AuditStamp {
-  signedAt: string;     // ISO string
+  signedAt: string;     // ISO string — instante em que o cliente validou o token e assinou
   signerIp: string;
   documentHash: string;
+  signatureLink?: string;        // link exclusivo de assinatura deste contrato (/assinar/:id)
+  signatureMethodLabel?: string; // ex: "Token OTP"
+  clienteCpfCnpj?: string;
+  clientePhone?: string;
+  empresaRazaoSocial: string;
+  empresaNomeFantasia?: string;
+  empresaCnpj: string;
+  empresaValidatedAt: string; // ISO string — instante da validação interna no ERP (= signedAt)
+  empresaOrigin: string;      // ex: "pro.rafaartsgraphics.com.br"
 }
 
 /** Monta o nome de arquivo padrao usado tanto no download direto quanto no path do Storage. */
 export function contratoPdfFileName(numero: string, customerName: string): string {
   const nomeArquivo = customerName.replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '_') || 'cliente';
   return `${numero}_${nomeArquivo}.pdf`;
+}
+
+/**
+ * Imprime, logo abaixo da linha "___" + NOME — CONTRATANTE (linha final do texto do contrato,
+ * ver buildTextoContrato em Modules.tsx), o "carimbo digital" com nome/CPF, contato, o link
+ * exclusivo de assinatura, data/hora, IP e o hash SHA-256 -- o "lado do cliente" da caixa de provas.
+ */
+function drawCarimboCliente(doc: any, yStart: number, marginX: number, pageW: number, stamp: AuditStamp): number {
+  let y = yStart + 1.5;
+  const maxW = pageW - marginX * 2;
+  doc.setTextColor(80, 80, 92);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  const cpfLinha = `CPF/CNPJ: ${stamp.clienteCpfCnpj || 'não informado'}${stamp.clientePhone ? `   |   Contato: ${stamp.clientePhone}` : ''}`;
+  doc.text(cpfLinha, marginX, y);
+  y += 3.8;
+
+  if (stamp.signatureLink) {
+    const linkWrapped = doc.splitTextToSize(`Link exclusivo de assinatura: ${stamp.signatureLink}`, maxW);
+    linkWrapped.forEach((l: string) => { doc.text(l, marginX, y); y += 3.8; });
+  }
+
+  const dataAssinatura = new Date(stamp.signedAt).toLocaleString('pt-BR');
+  doc.text(`[Assinado via ${stamp.signatureMethodLabel || 'Token OTP'}]   IP: ${stamp.signerIp}   |   ${dataAssinatura}`, marginX, y);
+  y += 3.8;
+
+  doc.setFont('courier', 'normal');
+  doc.text(`Hash SHA-256: ${stamp.documentHash}`, marginX, y);
+  y += 6;
+
+  return y;
+}
+
+/**
+ * Idem, para o "lado da empresa": logo abaixo da linha "___" + CONTRATADA -- Razão Social,
+ * Nome Fantasia, CNPJ, a validação interna automática do ERP e o MESMO hash SHA-256 usado no
+ * lado do cliente (prova de que o documento é o mesmo).
+ */
+function drawCarimboEmpresa(doc: any, yStart: number, marginX: number, stamp: AuditStamp): number {
+  let y = yStart + 1.5;
+  doc.setTextColor(80, 80, 92);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  const fantasiaLinha = stamp.empresaNomeFantasia
+    ? `${stamp.empresaNomeFantasia}   |   CNPJ: ${stamp.empresaCnpj}`
+    : `CNPJ: ${stamp.empresaCnpj}`;
+  doc.text(fantasiaLinha, marginX, y);
+  y += 3.8;
+
+  doc.text('[Validado e Assinado Internamente pelo ERP]', marginX, y);
+  y += 3.8;
+
+  const dataValidacao = new Date(stamp.empresaValidatedAt).toLocaleString('pt-BR');
+  doc.text(`Origem: ${stamp.empresaOrigin}   |   ${dataValidacao}`, marginX, y);
+  y += 3.8;
+
+  doc.setFont('courier', 'normal');
+  doc.text(`Hash SHA-256: ${stamp.documentHash}`, marginX, y);
+  y += 6;
+
+  return y;
 }
 
 /** Monta o documento jsPDF em si (sem salvar/baixar) -- reaproveitado pelo download direto e pela geracao do Blob pro Storage. */
@@ -78,23 +152,37 @@ async function buildContratoPdfDoc(numero: string, textoContrato: string, auditS
   doc.text(numero, pageW / 2, y, { align: 'center' });
   y += 10;
 
+  // Detecta as linhas finais "___" + NOME — CONTRATANTE / — CONTRATADA (ver buildTextoContrato
+  // em Modules.tsx) pra injetar automaticamente, logo abaixo de cada uma, o carimbo digital com
+  // os dados de auditoria daquela parte -- sem precisar duplicar/editar o texto do contrato.
   const linhas = textoContrato.split('\n');
   for (const linha of linhas) {
     if (linha.trim() === '') { y += 3; continue; }
 
-    const isTitulo = /^\d+\.\s/.test(linha.trim());
-    doc.setFont('helvetica', isTitulo ? 'bold' : 'normal');
+    const trimmed = linha.trim();
+    const isTitulo = /^\d+\.\s/.test(trimmed);
+    const isAssinaturaContratante = !!auditStamp && /—\s*CONTRATANTE\s*$/i.test(trimmed);
+    const isAssinaturaContratada = !!auditStamp && /—\s*CONTRATADA\s*$/i.test(trimmed);
+
+    doc.setFont('helvetica', isTitulo || isAssinaturaContratante || isAssinaturaContratada ? 'bold' : 'normal');
     doc.setFontSize(isTitulo ? 10 : 9.5);
     doc.setTextColor(isTitulo ? 20 : 50, isTitulo ? 20 : 50, isTitulo ? 30 : 60);
 
     const wrapped = doc.splitTextToSize(linha, pageW - marginX * 2);
     const lineHeight = isTitulo ? 5.5 : 5;
-    checkPageBreak(wrapped.length * lineHeight + (isTitulo ? 3 : 0));
+    const alturaCarimbo = (isAssinaturaContratante || isAssinaturaContratada) ? 24 : 0;
+    checkPageBreak(wrapped.length * lineHeight + (isTitulo ? 3 : 0) + alturaCarimbo);
     if (isTitulo) y += 2;
     wrapped.forEach((l: string) => {
       doc.text(l, marginX, y);
       y += lineHeight;
     });
+
+    if (isAssinaturaContratante) {
+      y = drawCarimboCliente(doc, y, marginX, pageW, auditStamp!);
+    } else if (isAssinaturaContratada) {
+      y = drawCarimboEmpresa(doc, y, marginX, auditStamp!);
+    }
   }
 
   const totalPages = doc.getNumberOfPages();

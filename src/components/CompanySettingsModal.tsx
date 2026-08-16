@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Building2, Upload, Save, X, Check, Image as ImageIcon, FileText, Phone, Mail, MapPin } from 'lucide-react';
 import { CompanyConfig } from '../types';
+import { OFFICIAL_COMPANY } from '../lib/companyIdentity';
 
 interface CompanySettingsModalProps {
   isOpen: boolean;
@@ -10,8 +11,9 @@ interface CompanySettingsModalProps {
 }
 
 export const DEFAULT_COMPANY_CONFIG: CompanyConfig = {
-  razaoSocial: 'RAFA ARTS GRAPHICS',
-  cnpj: '28.884.125/0001-40',
+  razaoSocial: OFFICIAL_COMPANY.razaoSocial,
+  nomeFantasia: OFFICIAL_COMPANY.nomeFantasia,
+  cnpj: OFFICIAL_COMPANY.cnpj,
   endereco: 'Av. T-63, nº 1200 - Setor Bueno, Goiânia - GO',
   logoUrl: 'https://images.unsplash.com/photo-1626785774573-4b799315345d?w=300&auto=format&fit=crop&q=80',
   phone: '(62) 99876-5432',
@@ -109,7 +111,7 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
             <div className="space-y-1.5">
               <label className="text-[10px] font-black uppercase text-zinc-400 tracking-wider flex items-center gap-1.5">
                 <Building2 size={12} className="text-red-500" />
-                Razão Social / Nome Fantasia *
+                Razão Social *
               </label>
               <input
                 type="text"
@@ -117,7 +119,22 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
                 value={form.razaoSocial}
                 onChange={e => setForm({ ...form, razaoSocial: e.target.value })}
                 className="w-full h-11 bg-zinc-900 border border-zinc-800 focus:border-red-500 rounded-xl px-3.5 text-xs font-semibold text-white outline-none"
-                placeholder="Ex: RAFA ARTS GRAPHICS"
+                placeholder="Ex: Rafael Tavares Matos 02580326260"
+              />
+            </div>
+
+            {/* Nome Fantasia */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black uppercase text-zinc-400 tracking-wider flex items-center gap-1.5">
+                <Building2 size={12} className="text-red-500" />
+                Nome Fantasia
+              </label>
+              <input
+                type="text"
+                value={form.nomeFantasia || ''}
+                onChange={e => setForm({ ...form, nomeFantasia: e.target.value })}
+                className="w-full h-11 bg-zinc-900 border border-zinc-800 focus:border-red-500 rounded-xl px-3.5 text-xs font-semibold text-white outline-none"
+                placeholder="Ex: Rafa Arts Graphics"
               />
             </div>
 

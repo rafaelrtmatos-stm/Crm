@@ -9,6 +9,7 @@
 
 export interface ContratoTemplateParams {
   companyName: string;
+  companyNomeFantasia?: string;
   companyCnpj?: string;
   companyAddress?: string;
   customerName?: string;
@@ -19,6 +20,7 @@ export interface ContratoTemplateParams {
 
 export function buildContratoClausulasTexto({
   companyName,
+  companyNomeFantasia,
   companyCnpj,
   companyAddress,
   customerName,
@@ -33,7 +35,7 @@ export function buildContratoClausulasTexto({
     : `, portador(a) do CPF nº ${cpfCnpj}`;
   const dasPartes = `DAS PARTES
 
-${nomeEmpresa.toUpperCase()}${companyCnpj ? `, inscrita no CNPJ nº ${companyCnpj}` : ''}${companyAddress ? `, com sede em ${companyAddress}` : ''}, doravante denominada CONTRATADA;
+${nomeEmpresa.toUpperCase()}${companyNomeFantasia ? `, também atuando sob o nome fantasia ${companyNomeFantasia}` : ''}${companyCnpj ? `, inscrita no CNPJ nº ${companyCnpj}` : ''}${companyAddress ? `, com sede em ${companyAddress}` : ''}, doravante denominada CONTRATADA;
 
 ${(customerName || 'O(A) CONTRATANTE').toUpperCase()}${qualificacaoContratante}${customerAddress ? `, residente e domiciliado(a) em ${customerAddress}` : ''}, doravante denominado(a) CONTRATANTE;
 

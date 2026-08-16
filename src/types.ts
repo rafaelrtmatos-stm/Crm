@@ -291,6 +291,7 @@ export interface RolePermission extends BaseEntity {
 
 export interface CompanyConfig {
   razaoSocial: string;
+  nomeFantasia?: string;
   cnpj: string;
   endereco: string;
   logoUrl?: string;

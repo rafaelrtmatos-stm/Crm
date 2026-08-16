@@ -209,8 +209,9 @@ import { buildPixPayload } from '../lib/pix';
 import { renderReceiptCanvas, downloadCanvasAsPng, downloadCanvasAsPdf, COMPANY_CONTACT, CompanyContactInfo } from '../lib/receipt';
 import { renderOrcamentoCanvas } from '../lib/orcamentoDoc';
 import { exportClientesXlsx, parseClientesXlsx, exportProdutosXlsx, parseProdutosXlsx, exportVendasXlsx, parseVendasXlsx, exportFichaClienteXlsx } from '../lib/spreadsheet';
-import { downloadContratoPdf } from '../lib/contratoPdf';
+import { downloadContratoPdf, type AuditStamp } from '../lib/contratoPdf';
 import { buildContratoClausulasTexto } from '../lib/contratoTemplate';
+import { OFFICIAL_COMPANY, PUBLIC_SIGN_ORIGIN, getContractSignatureLink } from '../lib/companyIdentity';
 import { validateCpfCnpj } from '../lib/validators';
 import { buscarClienteDuplicado, montarPayloadMesclagem } from '../lib/clienteDedupe';
 import { format } from 'date-fns';
@@ -568,10 +569,12 @@ function buildTextoContrato(params: {
     customerName, cpfCnpj, address, items, total, desconto,
     formaPagamentoTexto, prazoTexto, observacoes, multaPercentual,
   } = params;
-  // Dados fixos da CONTRATADA (empresa) — mesmo modelo/redacao usado no contrato padrao da empresa
-  const CONTRATADA_NOME = 'RAFAEL TAVARES MATOS';
-  const CONTRATADA_NOME_FANTASIA = 'RAFA ARTS GRAPHICS';
-  const CONTRATADA_CNPJ = '28.884.125/0001-40';
+  // Dados fixos da CONTRATADA (empresa) — mesmo modelo/redacao usado no contrato padrao da
+  // empresa. Fonte unica de verdade em companyIdentity.ts, reaproveitada tambem no carimbo de
+  // auditoria do PDF (contratoPdf.ts) e no painel "Ver Detalhes do Aceite" (Admin).
+  const CONTRATADA_NOME = OFFICIAL_COMPANY.razaoSocial.toUpperCase();
+  const CONTRATADA_NOME_FANTASIA = OFFICIAL_COMPANY.nomeFantasia.toUpperCase();
+  const CONTRATADA_CNPJ = OFFICIAL_COMPANY.cnpj;
   const CONTRATADA_ENDERECO = 'DO 01, 1445, Santarém - PA, CEP 68035010';
 
   // Identifica o CONTRATANTE como CPF ou CNPJ conforme a quantidade de digitos do
@@ -4827,9 +4830,23 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       return;
     }
     // Fallback: contrato ainda nao assinado (rascunho, so preview mesmo) ou assinado antes
-    // dessa migration (sem pdf_url salvo) -- gera na hora como antes.
-    const auditStamp = c.signedAt && c.signerIp && c.documentHash
-      ? { signedAt: c.signedAt, signerIp: c.signerIp, documentHash: c.documentHash }
+    // dessa migration (sem pdf_url salvo) -- gera na hora como antes, com o carimbo completo
+    // (cliente + empresa) igual ao que teria sido salvo no Storage no momento da assinatura.
+    const auditStamp: AuditStamp | undefined = c.signedAt && c.signerIp && c.documentHash
+      ? {
+          signedAt: c.signedAt,
+          signerIp: c.signerIp,
+          documentHash: c.documentHash,
+          signatureLink: getContractSignatureLink(c.id),
+          signatureMethodLabel: 'Token OTP',
+          clienteCpfCnpj: c.cpfCnpj,
+          clientePhone: c.phone,
+          empresaRazaoSocial: OFFICIAL_COMPANY.razaoSocial,
+          empresaNomeFantasia: OFFICIAL_COMPANY.nomeFantasia,
+          empresaCnpj: OFFICIAL_COMPANY.cnpj,
+          empresaValidatedAt: c.signedAt,
+          empresaOrigin: PUBLIC_SIGN_ORIGIN,
+        }
       : undefined;
     await downloadContratoPdf(`${c.numero}${c.versao > 1 ? ` (v${c.versao})` : ''}`, c.customerName, c.textoContrato || 'Contrato sem texto gerado.', auditStamp);
   };
@@ -4890,8 +4907,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       items: sale.items ? [...sale.items] : [],
       desconto: sale.discountValue || 0,
       clausulasContratoTexto: documentType === 'contrato' ? buildContratoClausulasTexto({
-        companyName: currentCompany?.name || 'RAFA ARTS GRAPHICS',
-        companyCnpj: currentCompany?.cnpj,
+        companyName: currentCompany?.name || OFFICIAL_COMPANY.razaoSocial,
+        companyNomeFantasia: OFFICIAL_COMPANY.nomeFantasia,
+        companyCnpj: currentCompany?.cnpj || OFFICIAL_COMPANY.cnpj,
         companyAddress: currentCompany?.address
           ? [
               currentCompany.address.line,

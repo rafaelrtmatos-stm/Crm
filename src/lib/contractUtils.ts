@@ -326,3 +326,31 @@ export function isValidPhoneBR(value: string): boolean {
   return true;
 }
 
+/**
+ * Extrai um rotulo amigavel do modelo/tipo de dispositivo a partir do user agent do navegador
+ * (ex: "iPhone (iOS)", "SM-G998B (Android)", "Computador (Windows)"). Usado no painel de
+ * auditoria pra mostrar algo legivel pro operador, em vez da string tecnica crua do user agent
+ * (que continua disponivel, na integra, como fallback/copia literal).
+ */
+export function parseDeviceLabel(userAgent?: string | null): string | null {
+  if (!userAgent) return null;
+
+  if (/iPad/i.test(userAgent)) return 'iPad (iOS)';
+  if (/iPhone/i.test(userAgent)) return 'iPhone (iOS)';
+
+  // Android costuma trazer o modelo entre "Android <versao>; " e ")", ex:
+  // "Android 14; SM-G998B Build/..." -> captura "SM-G998B"
+  const androidModelMatch = userAgent.match(/Android[^;]*;\s*([^;)]+)\)/i);
+  if (androidModelMatch && androidModelMatch[1]) {
+    const modelo = androidModelMatch[1].replace(/Build\/.*/i, '').trim();
+    return modelo ? `${modelo} (Android)` : 'Android';
+  }
+  if (/Android/i.test(userAgent)) return 'Android';
+
+  if (/Windows/i.test(userAgent)) return 'Computador (Windows)';
+  if (/Macintosh|Mac OS X/i.test(userAgent)) return 'Computador (Mac)';
+  if (/Linux/i.test(userAgent)) return 'Computador (Linux)';
+
+  return null;
+}
+

@@ -4,6 +4,8 @@
 
 import { supabase } from '../supabase';
 import { uploadContratoPdfAssinado } from './contratoPdfStorage';
+import { OFFICIAL_COMPANY, PUBLIC_SIGN_ORIGIN, getContractSignatureLink } from './companyIdentity';
+import type { AuditStamp } from './contratoPdf';
 
 const CODE_TTL_MINUTES = 30; // valor padrao, usado quando o operador nao escolhe um tempo customizado
 const MAX_ATTEMPTS = 5;
@@ -125,6 +127,8 @@ export interface SignContractParams {
   documentText: string;   // texto_contrato exibido/aceito no momento da assinatura
   clientIp: string;
   clientUserAgent: string;
+  clientCpfCnpj?: string; // impresso no carimbo de auditoria (lado do cliente)
+  clientPhone?: string;   // idem
 }
 
 /**
@@ -193,6 +197,25 @@ export async function signContract(params: SignContractParams): Promise<SignCont
 
   if (error) throw error;
 
+  // Carimbo completo de auditoria: lado do cliente (dados de quem assinou + link exclusivo
+  // deste contrato, montado automaticamente a partir do id) e lado da empresa (dados oficiais
+  // da CONTRATADA + validacao interna do ERP, que acontece neste exato instante, junto com a
+  // assinatura do cliente). O hash e' o mesmo dos dois lados -- prova que e' o mesmo documento.
+  const auditStamp: AuditStamp = {
+    signedAt,
+    signerIp: params.clientIp,
+    documentHash,
+    signatureLink: getContractSignatureLink(params.contractId),
+    signatureMethodLabel: 'Token OTP',
+    clienteCpfCnpj: params.clientCpfCnpj,
+    clientePhone: params.clientPhone,
+    empresaRazaoSocial: OFFICIAL_COMPANY.razaoSocial,
+    empresaNomeFantasia: OFFICIAL_COMPANY.nomeFantasia,
+    empresaCnpj: OFFICIAL_COMPANY.cnpj,
+    empresaValidatedAt: signedAt,
+    empresaOrigin: PUBLIC_SIGN_ORIGIN,
+  };
+
   // Nao deve travar/reverter a assinatura ja confirmada acima caso a geracao/upload do PDF falhe
   // (ex: sem internet no fim do processo) -- fica registrado como null e o app cai no fallback
   // de gerar na hora (ver ContractSignaturePublicPage.tsx), até um novo upload ser tentado.
@@ -201,7 +224,7 @@ export async function signContract(params: SignContractParams): Promise<SignCont
     params.numero,
     params.customerName,
     params.documentText,
-    { signedAt, signerIp: params.clientIp, documentHash }
+    auditStamp
   );
 
   if (pdfUrl) {

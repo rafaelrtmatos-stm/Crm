@@ -9,10 +9,8 @@ import { Copy, RefreshCw, MessageCircle, ShieldCheck, Clock } from 'lucide-react
 import { showAlert } from '../lib/notify';
 import { createVerificationCode } from '../lib/otpUtils';
 import { getPublicIpAddress } from '../lib/contractUtils';
+import { getContractSignatureLink } from '../lib/companyIdentity';
 import type { Contrato } from '../types';
-
-// Ajuste para o dominio real onde o CRM esta publicado (Vercel)
-const PUBLIC_BASE_URL = 'https://pro.rafaartsgraphics.com.br';
 
 // Opcoes de validade que o operador pode escolher antes de gerar o codigo.
 // value sempre em minutos.
@@ -55,7 +53,7 @@ export const ContractSignatureOtpPanel = ({ contrato }: ContractSignatureOtpPane
   const [isGenerating, setIsGenerating] = useState(false);
   const [ttlMinutes, setTtlMinutes] = useState(30); // tempo escolhido pelo operador antes de gerar
 
-  const signatureLink = `${PUBLIC_BASE_URL}/assinar/${contrato.id}`;
+  const signatureLink = getContractSignatureLink(contrato.id);
   const ttlLabel = formatTtlLabel(ttlMinutes);
 
   const handleGenerate = async () => {

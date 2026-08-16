@@ -8,11 +8,14 @@ import { supabase } from '../supabase';
 import { validateVerificationCode, signContract, checkDocumentLastDigits, createVerificationCode } from '../lib/otpUtils';
 import { getPublicIpAddress } from '../lib/contractUtils';
 import { downloadContratoPdf } from '../lib/contratoPdf';
+import { OFFICIAL_COMPANY, PUBLIC_SIGN_ORIGIN, getContractSignatureLink } from '../lib/companyIdentity';
 
 interface ContratoPublico {
   id: string;
   numero: string;
   customerName: string;
+  cpfCnpj?: string;
+  phone?: string;
   textoContrato: string;
   status: string;
   signedAt?: string;
@@ -70,7 +73,7 @@ export default function ContractSignaturePublicPage() {
 
     supabase
       .from('contratos')
-      .select('id, numero, customer_name, texto_contrato, status, signed_at, signer_ip, document_hash, pdf_url')
+      .select('id, numero, customer_name, cpf_cnpj, phone, texto_contrato, status, signed_at, signer_ip, document_hash, pdf_url')
       .eq('id', id)
       .maybeSingle()
       .then(({ data, error: fetchError }) => {
@@ -79,6 +82,8 @@ export default function ContractSignaturePublicPage() {
           id: data.id,
           numero: data.numero,
           customerName: data.customer_name,
+          cpfCnpj: data.cpf_cnpj || undefined,
+          phone: data.phone || undefined,
           textoContrato: data.texto_contrato || '',
           status: data.status,
           signedAt: data.signed_at || undefined,
@@ -215,6 +220,8 @@ export default function ContractSignaturePublicPage() {
         documentText: contrato.textoContrato,
         clientIp,
         clientUserAgent,
+        clientCpfCnpj: contrato.cpfCnpj,
+        clientPhone: contrato.phone,
       });
 
       setSignedResult({ hash: result.documentHash, ip: clientIp, signedAt: result.signedAt, pdfUrl: result.pdfUrl });
@@ -278,11 +285,21 @@ export default function ContractSignaturePublicPage() {
       return;
     }
     // Fallback: contrato assinado antes dessa migration (sem pdf_url salvo) ou upload que
-    // falhou no momento da assinatura -- gera na hora como antes.
+    // falhou no momento da assinatura -- gera na hora como antes, com o mesmo carimbo completo
+    // (cliente + empresa) que seria gravado no Storage.
     downloadContratoPdf(contrato.numero, contrato.customerName, contrato.textoContrato, {
       signedAt: downloadInfo.signedAt,
       signerIp: downloadInfo.ip,
       documentHash: downloadInfo.hash,
+      signatureLink: getContractSignatureLink(contrato.id),
+      signatureMethodLabel: 'Token OTP',
+      clienteCpfCnpj: contrato.cpfCnpj,
+      clientePhone: contrato.phone,
+      empresaRazaoSocial: OFFICIAL_COMPANY.razaoSocial,
+      empresaNomeFantasia: OFFICIAL_COMPANY.nomeFantasia,
+      empresaCnpj: OFFICIAL_COMPANY.cnpj,
+      empresaValidatedAt: downloadInfo.signedAt,
+      empresaOrigin: PUBLIC_SIGN_ORIGIN,
     });
   };
 
