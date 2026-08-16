@@ -8106,6 +8106,27 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             )}
                             <span className="hidden sm:inline text-[9px] text-white/30 font-mono shrink-0">#{sale.id.slice(-8).toUpperCase()}</span>
                             <span className="hidden sm:inline text-[9px] text-white/30 shrink-0">{safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
+                            {/* Etiquetas de origem (Contrato/Orçamento) -- podem aparecer as duas juntas se a
+                                nota tiver os dois vinculos. Ficam dentro da area com scroll horizontal do
+                                proprio card, entao nunca quebram a lista nem escondem nada no celular. */}
+                            {sale.contratoId && (
+                              <button
+                                onClick={() => { setActiveTab('contratos'); setHighlightContratoId(sale.contratoId!); setTimeout(() => setHighlightContratoId(null), 4000); }}
+                                title="Ver contrato vinculado"
+                                className="shrink-0 text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors whitespace-nowrap"
+                              >
+                                Contrato
+                              </button>
+                            )}
+                            {sale.orcamentoId && (
+                              <button
+                                onClick={() => { setActiveTab('orcamentos'); setHighlightOrcamentoId(sale.orcamentoId!); setTimeout(() => setHighlightOrcamentoId(null), 4000); }}
+                                title="Ver orçamento vinculado"
+                                className="shrink-0 text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full bg-primary-500/20 text-primary-300 hover:bg-primary-500/30 transition-colors whitespace-nowrap"
+                              >
+                                Orçamento
+                              </button>
+                            )}
                           </div>
                           <Badge className={cn("text-[7.5px] font-black uppercase px-1.5 py-0.5 border-none shrink-0", isPartial ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300")}>
                             {isPartial ? `FALTA R$ ${balance.toFixed(2).replace('.', ',')}` : 'PAGO'}
@@ -8161,6 +8182,30 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             )}
                             <p className="text-[8px] text-white/30 font-mono">#{sale.id.slice(-8).toUpperCase()}</p>
                           </div>
+                          {/* Etiquetas de origem (Contrato/Orçamento) -- as duas podem aparecer juntas,
+                              com quebra de linha (flex-wrap) pra nunca cortar nem esconder nada no celular. */}
+                          {(sale.contratoId || sale.orcamentoId) && (
+                            <div className="flex flex-wrap gap-1">
+                              {sale.contratoId && (
+                                <button
+                                  onClick={() => { setActiveTab('contratos'); setHighlightContratoId(sale.contratoId!); setTimeout(() => setHighlightContratoId(null), 4000); }}
+                                  title="Ver contrato vinculado"
+                                  className="text-[7px] font-black uppercase px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors whitespace-nowrap"
+                                >
+                                  Contrato
+                                </button>
+                              )}
+                              {sale.orcamentoId && (
+                                <button
+                                  onClick={() => { setActiveTab('orcamentos'); setHighlightOrcamentoId(sale.orcamentoId!); setTimeout(() => setHighlightOrcamentoId(null), 4000); }}
+                                  title="Ver orçamento vinculado"
+                                  className="text-[7px] font-black uppercase px-1.5 py-0.5 rounded-full bg-primary-500/20 text-primary-300 hover:bg-primary-500/30 transition-colors whitespace-nowrap"
+                                >
+                                  Orçamento
+                                </button>
+                              )}
+                            </div>
+                          )}
                           <p className="text-sm font-black text-white">R$ {sale.total.toFixed(2).replace('.', ',')}</p>
                           <div className="flex flex-wrap gap-1 pt-1">
                             {isPartial && <button onClick={async () => { if (!(await showConfirm('Abrir a tela de pagamento deste pedido?'))) return; openSettlePayment(sale); }} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar Débito"><CheckCircle2 size={12} /></button>}
@@ -8216,6 +8261,30 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                   <span className="text-primary-400"> • Ajustada {safeFormat(sale.updatedAt, 'dd/MM/yyyy HH:mm')}</span>
                                 )}
                               </p>
+                              {/* Etiquetas de origem (Contrato/Orçamento) -- as duas podem aparecer juntas,
+                                  com quebra de linha (flex-wrap) pra nunca cortar nem esconder nada no celular. */}
+                              {(sale.contratoId || sale.orcamentoId) && (
+                                <div className="flex flex-wrap gap-1 mt-1.5">
+                                  {sale.contratoId && (
+                                    <button
+                                      onClick={() => { setActiveTab('contratos'); setHighlightContratoId(sale.contratoId!); setTimeout(() => setHighlightContratoId(null), 4000); }}
+                                      title="Ver contrato vinculado"
+                                      className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors whitespace-nowrap"
+                                    >
+                                      Contrato
+                                    </button>
+                                  )}
+                                  {sale.orcamentoId && (
+                                    <button
+                                      onClick={() => { setActiveTab('orcamentos'); setHighlightOrcamentoId(sale.orcamentoId!); setTimeout(() => setHighlightOrcamentoId(null), 4000); }}
+                                      title="Ver orçamento vinculado"
+                                      className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-primary-500/20 text-primary-300 hover:bg-primary-500/30 transition-colors whitespace-nowrap"
+                                    >
+                                      Orçamento
+                                    </button>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </div>
                           
