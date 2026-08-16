@@ -562,7 +562,7 @@ export interface Orcamento {
   createdAt: string;
 }
 
-export type ContratoStatus = 'rascunho' | 'aguardando_aceite' | 'aceito' | 'aguardando_assinatura_empresa' | 'assinado' | 'em_execucao' | 'concluido' | 'cancelado' | 'encerrado';
+export type ContratoStatus = 'rascunho' | 'aguardando_aceite' | 'aceito' | 'aguardando_assinatura_empresa' | 'aguardando_assinatura_cliente' | 'assinado' | 'em_execucao' | 'concluido' | 'cancelado' | 'encerrado';
 
 export interface Contrato {
   id: string;

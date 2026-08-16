@@ -129,6 +129,11 @@ export interface SignContractParams {
   clientUserAgent: string;
   clientCpfCnpj?: string; // impresso no carimbo de auditoria (lado do cliente)
   clientPhone?: string;   // idem
+  // Preenchidos so quando a CONTRATADA (empresa) ja tinha assinado ANTES do cliente -- assinatura
+  // fora de ordem, ver AGENTS/otpUtils. Nesse caso essa mesma chamada ja fecha o contrato de vez
+  // ('assinado') e gera o PDF final com os dois carimbos, sem precisar de nenhum passo depois.
+  companyAlreadySignedAt?: string;
+  companySignedByName?: string;
 }
 
 /**
@@ -164,26 +169,31 @@ export async function checkDocumentLastDigits(contractId: string, last4Digits: s
 export interface SignContractResult {
   documentHash: string;
   signedAt: string;
+  // So vem preenchido quando essa assinatura do cliente fechou o contrato na hora (empresa ja
+  // tinha assinado antes) -- o PDF final ja existe e pode ser baixado imediatamente.
+  pdfUrl?: string | null;
 }
 
 /**
  * Registra a assinatura do CLIENTE: calcula o hash SHA-256 do texto do contrato no momento da
- * assinatura, grava IP/user-agent/timestamp e muda o status para 'aguardando_assinatura_empresa'.
- * So deve ser chamada DEPOIS de validateVerificationCode({ ok: true }).
+ * assinatura e grava IP/user-agent/timestamp. So deve ser chamada DEPOIS de
+ * validateVerificationCode({ ok: true }).
  *
- * IMPORTANTE: isso NAO fecha o contrato sozinho. A assinatura da empresa (a sua) e' um passo
- * separado e manual, feito pelo operador logado no painel Admin (ver signContractByCompany
- * abaixo), depois de conferir o que o cliente assinou. So depois desse segundo passo o PDF
- * final e' gerado e o contrato vira 'assinado' de verdade.
+ * As duas partes podem assinar em qualquer ordem. Se a empresa AINDA NAO tinha assinado, o
+ * contrato fica 'aguardando_assinatura_empresa' (fluxo de sempre, fecha depois com
+ * signContractByCompany). Se a empresa JA tinha assinado antes (params.companyAlreadySignedAt
+ * preenchido), essa propria chamada ja fecha o contrato ('assinado') e gera o PDF final com os
+ * dois carimbos, sem precisar de nenhum passo manual depois.
  */
 export async function signContract(params: SignContractParams): Promise<SignContractResult> {
   const documentHash = await sha256Hex(params.documentText);
   const signedAt = new Date().toISOString();
+  const empresaJaAssinou = !!params.companyAlreadySignedAt;
 
   const { error } = await supabase
     .from('contratos')
     .update({
-      status: 'aguardando_assinatura_empresa',
+      status: empresaJaAssinou ? 'assinado' : 'aguardando_assinatura_empresa',
       signed_at: signedAt,
       signer_ip: params.clientIp,
       signer_user_agent: params.clientUserAgent,
@@ -195,7 +205,34 @@ export async function signContract(params: SignContractParams): Promise<SignCont
 
   if (error) throw error;
 
-  return { documentHash, signedAt };
+  if (!empresaJaAssinou) {
+    return { documentHash, signedAt };
+  }
+
+  // Empresa assinou primeiro: gera e sobe o PDF final agora, com os dois carimbos, do mesmo
+  // jeito que signContractByCompany faz quando e' ela quem fecha o contrato por ultimo.
+  const auditStamp: AuditStamp = {
+    signedAt,
+    signerIp: params.clientIp,
+    documentHash,
+    signatureLink: getContractSignatureLink(params.contractId),
+    signatureMethodLabel: 'Token OTP',
+    clienteCpfCnpj: params.clientCpfCnpj,
+    clientePhone: params.clientPhone,
+    empresaRazaoSocial: OFFICIAL_COMPANY.razaoSocial,
+    empresaNomeFantasia: OFFICIAL_COMPANY.nomeFantasia,
+    empresaCnpj: OFFICIAL_COMPANY.cnpj,
+    empresaValidatedAt: params.companyAlreadySignedAt!,
+    empresaOrigin: PUBLIC_SIGN_ORIGIN,
+    empresaSignedByName: params.companySignedByName,
+  };
+
+  const pdfUrl = await uploadContratoPdfAssinado(params.contractId, params.numero, params.customerName, params.documentText, auditStamp);
+  if (pdfUrl) {
+    await supabase.from('contratos').update({ pdf_url: pdfUrl }).eq('id', params.contractId);
+  }
+
+  return { documentHash, signedAt, pdfUrl };
 }
 
 export interface SignContractByCompanyParams {
@@ -203,9 +240,13 @@ export interface SignContractByCompanyParams {
   numero: string;
   customerName: string;
   documentText: string;       // texto_contrato no momento da assinatura do cliente (mesmo hash)
-  clientSignedAt: string;     // contratos.signed_at (assinatura do cliente, ja gravada)
-  clientIp: string;           // contratos.signer_ip
-  documentHash: string;       // contratos.document_hash
+  // Preenchidos so quando o CLIENTE ja tinha assinado ANTES (fluxo de sempre) -- nesse caso essa
+  // chamada fecha o contrato de vez com os dois carimbos. Se o cliente ainda nao assinou (empresa
+  // assinando primeiro), ficam undefined: so grava a assinatura da empresa e o contrato so fecha
+  // de vez depois, quando o cliente assinar (ver signContract acima).
+  clientSignedAt?: string;    // contratos.signed_at (assinatura do cliente, ja gravada)
+  clientIp?: string;          // contratos.signer_ip
+  documentHash?: string;      // contratos.document_hash
   clientCpfCnpj?: string;
   clientPhone?: string;
   companySignerName: string;  // nome de quem confirmou a assinatura da empresa (usuario logado)
@@ -214,24 +255,34 @@ export interface SignContractByCompanyParams {
 export interface SignContractByCompanyResult {
   empresaSignedAt: string;
   pdfUrl: string | null;
+  // true quando essa assinatura fechou o contrato de vez (cliente ja tinha assinado antes);
+  // false quando so a empresa assinou e ainda falta o cliente.
+  contratoFechado: boolean;
 }
 
 /**
- * Segundo e ultimo passo do fluxo de assinatura: o operador, ja logado, confirma a PROPRIA
- * assinatura (empresa) depois de revisar o que o cliente assinou. So deve ser chamada depois da
- * senha de login ser reconferida na tela (ver Modules.tsx). Gera o PDF final (com os dois
- * carimbos: cliente + empresa) UMA UNICA VEZ aqui e sobe pro Supabase Storage (ver
- * contratoPdfStorage.ts), gravando o link em contratos.pdf_url -- esse arquivo passa a ser o
+ * Confirma a assinatura da CONTRATADA (empresa): o operador, ja logado, confirma a PROPRIA
+ * assinatura depois de reconferir a senha de login na tela (ver Modules.tsx). Pode acontecer
+ * antes ou depois do cliente assinar -- as duas partes assinam em qualquer ordem.
+ *
+ * Se o cliente ja tinha assinado, essa chamada fecha o contrato ('assinado') e gera o PDF final
+ * (com os dois carimbos) UMA UNICA VEZ aqui, subindo pro Supabase Storage (ver
+ * contratoPdfStorage.ts) e gravando o link em contratos.pdf_url -- esse arquivo passa a ser o
  * documento oficial/imutavel do contrato. O mesmo link publico (/assinar/:id) enviado antes pro
  * cliente passa a mostrar o contrato como assinado -- pode ser reenviado pra avisar ele.
+ *
+ * Se o cliente ainda nao assinou, so grava a assinatura da empresa (status vira
+ * 'aguardando_assinatura_cliente') -- o fechamento e a geracao do PDF acontecem depois, dentro
+ * de signContract(), quando o cliente enfim assinar pelo link.
  */
 export async function signContractByCompany(params: SignContractByCompanyParams): Promise<SignContractByCompanyResult> {
   const empresaSignedAt = new Date().toISOString();
+  const clienteJaAssinou = !!params.clientSignedAt;
 
   const { error } = await supabase
     .from('contratos')
     .update({
-      status: 'assinado',
+      status: clienteJaAssinou ? 'assinado' : 'aguardando_assinatura_cliente',
       empresa_signed_at: empresaSignedAt,
       empresa_signed_by: params.companySignerName,
       updated_at: empresaSignedAt,
@@ -240,14 +291,18 @@ export async function signContractByCompany(params: SignContractByCompanyParams)
 
   if (error) throw error;
 
+  if (!clienteJaAssinou) {
+    return { empresaSignedAt, pdfUrl: null, contratoFechado: false };
+  }
+
   // Carimbo completo de auditoria: lado do cliente (dados de quando ele assinou, ja gravados
   // antes) e lado da empresa (dados oficiais da CONTRATADA + a confirmacao manual que acabou de
   // acontecer). O hash e' o mesmo dos dois lados -- prova que e' o mesmo documento que o cliente
   // efetivamente assinou, sem alteracao entre uma etapa e outra.
   const auditStamp: AuditStamp = {
-    signedAt: params.clientSignedAt,
-    signerIp: params.clientIp,
-    documentHash: params.documentHash,
+    signedAt: params.clientSignedAt!,
+    signerIp: params.clientIp || '',
+    documentHash: params.documentHash || '',
     signatureLink: getContractSignatureLink(params.contractId),
     signatureMethodLabel: 'Token OTP',
     clienteCpfCnpj: params.clientCpfCnpj,
@@ -275,5 +330,5 @@ export async function signContractByCompany(params: SignContractByCompanyParams)
     await supabase.from('contratos').update({ pdf_url: pdfUrl }).eq('id', params.contractId);
   }
 
-  return { empresaSignedAt, pdfUrl };
+  return { empresaSignedAt, pdfUrl, contratoFechado: true };
 }

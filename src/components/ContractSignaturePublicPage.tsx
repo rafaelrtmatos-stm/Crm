@@ -21,6 +21,7 @@ interface ContratoPublico {
   documentHash?: string;
   pdfUrl?: string;
   empresaSignedAt?: string;
+  empresaSignedBy?: string;
 }
 
 // Extrai o id do contrato da URL /assinar/:id (mesmo padrao de deteccao de rota usado em AppRoot.tsx)
@@ -72,7 +73,7 @@ export default function ContractSignaturePublicPage() {
 
     supabase
       .from('contratos')
-      .select('id, numero, customer_name, cpf_cnpj, phone, texto_contrato, status, signed_at, signer_ip, document_hash, pdf_url, empresa_signed_at')
+      .select('id, numero, customer_name, cpf_cnpj, phone, texto_contrato, status, signed_at, signer_ip, document_hash, pdf_url, empresa_signed_at, empresa_signed_by')
       .eq('id', id)
       .maybeSingle()
       .then(({ data, error: fetchError }) => {
@@ -90,6 +91,7 @@ export default function ContractSignaturePublicPage() {
           documentHash: data.document_hash || undefined,
           pdfUrl: data.pdf_url || undefined,
           empresaSignedAt: data.empresa_signed_at || undefined,
+          empresaSignedBy: data.empresa_signed_by || undefined,
         });
         setLoading(false);
       });
@@ -222,9 +224,27 @@ export default function ContractSignaturePublicPage() {
         clientUserAgent,
         clientCpfCnpj: contrato.cpfCnpj,
         clientPhone: contrato.phone,
+        // Se a empresa ja tinha assinado antes (assinatura fora de ordem), essa assinatura do
+        // cliente ja fecha o contrato de vez -- ver signContract em otpUtils.ts.
+        companyAlreadySignedAt: contrato.empresaSignedAt,
+        companySignedByName: contrato.empresaSignedBy,
       });
 
-      setSignedResult({ hash: result.documentHash, ip: clientIp, signedAt: result.signedAt });
+      if (result.pdfUrl) {
+        // Contrato fechado nessa mesma assinatura -- atualiza o estado local direto pra tela de
+        // "contrato ja assinado" (com o link de download) assumir sozinha, sem precisar recarregar
+        // a pagina nem duplicar a tela de sucesso.
+        setContrato(prev => prev ? {
+          ...prev,
+          status: 'assinado',
+          signedAt: result.signedAt,
+          signerIp: clientIp,
+          documentHash: result.documentHash,
+          pdfUrl: result.pdfUrl!,
+        } : prev);
+      } else {
+        setSignedResult({ hash: result.documentHash, ip: clientIp, signedAt: result.signedAt });
+      }
     } catch (err: any) {
       console.error('Erro ao validar/assinar:', err);
       setError('Ocorreu um erro ao processar a assinatura. Tente novamente em instantes.');
