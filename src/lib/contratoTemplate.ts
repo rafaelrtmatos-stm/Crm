@@ -27,11 +27,15 @@ export function buildContratoClausulasTexto({
   prazoProducaoTexto,
 }: ContratoTemplateParams): string {
   const nomeEmpresa = companyName || 'a CONTRATADA';
+  const digitosDoc = (cpfCnpj || '').replace(/\D/g, '');
+  const qualificacaoContratante = !cpfCnpj ? ''
+    : digitosDoc.length === 14 ? `, inscrito(a) no CNPJ nº ${cpfCnpj}`
+    : `, portador(a) do CPF nº ${cpfCnpj}`;
   const dasPartes = `DAS PARTES
 
 ${nomeEmpresa.toUpperCase()}${companyCnpj ? `, inscrita no CNPJ nº ${companyCnpj}` : ''}${companyAddress ? `, com sede em ${companyAddress}` : ''}, doravante denominada CONTRATADA;
 
-${(customerName || 'O(A) CONTRATANTE').toUpperCase()}${cpfCnpj ? `, portador(a) do CPF/CNPJ nº ${cpfCnpj}` : ''}${customerAddress ? `, residente e domiciliado(a) em ${customerAddress}` : ''}, doravante denominado(a) CONTRATANTE;
+${(customerName || 'O(A) CONTRATANTE').toUpperCase()}${qualificacaoContratante}${customerAddress ? `, residente e domiciliado(a) em ${customerAddress}` : ''}, doravante denominado(a) CONTRATANTE;
 
 Resolvem as partes celebrar o presente CONTRATO DE PRESTAÇÃO DE SERVIÇOS, que se regerá pelas cláusulas e condições a seguir estipuladas.
 

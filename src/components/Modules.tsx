@@ -562,8 +562,15 @@ function buildTextoContrato(params: {
   // Dados fixos da CONTRATADA (empresa) — mesmo modelo/redacao usado no contrato padrao da empresa
   const CONTRATADA_NOME = 'RAFAEL TAVARES MATOS';
   const CONTRATADA_NOME_FANTASIA = 'RAFA ARTS GRAPHICS';
-  const CONTRATADA_CPF = '025.803.262-60';
+  const CONTRATADA_CNPJ = '28.884.125/0001-40';
   const CONTRATADA_ENDERECO = 'DO 01, 1445, Santarém - PA, CEP 68035010';
+
+  // Identifica o CONTRATANTE como CPF ou CNPJ conforme a quantidade de digitos do
+  // documento informado, em vez do rotulo generico "CPF/CNPJ" pra ambos os casos.
+  const digitosDoc = (cpfCnpj || '').replace(/\D/g, '');
+  const qualificacaoContratante = !cpfCnpj ? ''
+    : digitosDoc.length === 14 ? `, inscrito(a) no CNPJ nº ${cpfCnpj}`
+    : `, portador(a) do CPF nº ${cpfCnpj}`;
 
   const itensDescricao = items.map(i => `- ${i.name.toUpperCase()}${i.dimensions ? ` (${i.dimensions})` : ''} — Qtd: ${i.quantity}`).join('\n') || 'A definir conforme orçamento vinculado.';
   const multaPct = multaPercentual ?? 2;
@@ -573,9 +580,9 @@ function buildTextoContrato(params: {
 
 DAS PARTES
 
-${CONTRATADA_NOME}, também atuando sob o nome fantasia ${CONTRATADA_NOME_FANTASIA}, portador(a) do CPF nº ${CONTRATADA_CPF}, com sede em ${CONTRATADA_ENDERECO}, sendo aqui denominada CONTRATADA.
+${CONTRATADA_NOME}, também atuando sob o nome fantasia ${CONTRATADA_NOME_FANTASIA}, pessoa jurídica de direito privado, inscrita no CNPJ nº ${CONTRATADA_CNPJ}, com sede em ${CONTRATADA_ENDERECO}, sendo aqui denominada CONTRATADA.
 
-${customerName.toUpperCase()}${cpfCnpj ? `, portador(a) do CPF/CNPJ nº ${cpfCnpj}` : ''}${address ? `, residente e domiciliado(a) em ${address}` : ''}, sendo aqui denominado(a) CONTRATANTE.
+${customerName.toUpperCase()}${qualificacaoContratante}${address ? `, residente e domiciliado(a) em ${address}` : ''}, sendo aqui denominado(a) CONTRATANTE.
 
 Assim sendo, ambas as partes decidem celebrar o presente CONTRATO DE PRESTAÇÃO DE SERVIÇOS, mediante as cláusulas e condições definidas a seguir.
 
@@ -4498,6 +4505,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   useEffect(() => {
     if (activeTab === 'orcamentos') loadOrcamentos();
+    if (activeTab === 'servicos') loadAllCustomers();
   }, [activeTab]);
 
   // ================= CONTRATOS (tabela propria, separada de orcamentos) =================
@@ -8330,6 +8338,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           <p title={sale.customerName || 'Cliente de Balcão'} className="text-sm font-black text-white uppercase truncate">
                             {formatNamePreview((sale.customerName || 'Cliente de Balcão').toUpperCase(), 26)}
                           </p>
+                          {(() => {
+                            const clienteVinc = sale.customerId ? allCustomers.find(cl => cl.id === sale.customerId) : undefined;
+                            return clienteVinc?.cpf_cnpj ? (
+                              <p className="text-[9px] text-white/25 font-mono truncate">{clienteVinc.cpf_cnpj}</p>
+                            ) : null;
+                          })()}
                           <div className="flex items-center gap-2.5 mt-0.5 text-white/30 text-[9px] font-bold">
                             <span className="flex items-center gap-1 font-mono"><FileText size={10} /> #{sale.id.slice(-8).toUpperCase()}</span>
                             <span className="flex items-center gap-1"><Clock size={10} /> {safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
@@ -12064,7 +12078,10 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
                     >
                        <div className="min-w-0 flex-1">
                           <p className="text-[11px] font-black text-white uppercase italic truncate">{c.full_name}</p>
-                          {s && <p className="text-[9px] text-white/30">{s.count} pedido(s) · R$ {s.total.toFixed(2).replace('.', ',')}</p>}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {c.cpf_cnpj && <p className="text-[9px] text-white/30 font-mono">{c.cpf_cnpj}</p>}
+                            {s && <p className="text-[9px] text-white/30">{c.cpf_cnpj ? '· ' : ''}{s.count} pedido(s) · R$ {s.total.toFixed(2).replace('.', ',')}</p>}
+                          </div>
                        </div>
                        {c.phone ? (
                          <button
