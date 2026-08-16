@@ -105,6 +105,8 @@ import {
   List,
   Table as TableIcon,
   Eye,
+  ExternalLink,
+  PlayCircle,
   EyeOff,
   Copy,
   Trash,
@@ -4455,6 +4457,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [savingOrcamento, setSavingOrcamento] = useState(false);
   const [orcamentoFromCart, setOrcamentoFromCart] = useState(false);
   const [contratoStatusFilter, setContratoStatusFilter] = useState('todos');
+  const [openContratoActionsId, setOpenContratoActionsId] = useState<string | null>(null);
   const [contratoSearchTerm, setContratoSearchTerm] = useState('');
   const [orcamentoItemsEditMode, setOrcamentoItemsEditMode] = useState(false);
 
@@ -8675,68 +8678,112 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               ) : contratosFiltrados.length === 0 ? (
                 <div className="text-center py-16 text-white/30 text-sm">Nenhum contrato encontrado.</div>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-2.5">
                    {contratosFiltrados.map(c => {
                      const vendaVinc = c.vendaId ? allSalesHistory.find(s => s.id === c.vendaId) : undefined;
                      const orcamentoVinc = c.orcamentoId ? allOrcamentos.find(o => o.id === c.orcamentoId) : undefined;
                      const servico = (c.items || []).map(i => i.name).join(', ') || 'Sem itens';
                      const podeEditarDireto = c.status === 'rascunho';
+                     const jaAssinado = c.status === 'assinado' || c.status === 'em_execucao' || c.status === 'concluido' || c.status === 'encerrado';
+                     const statusBarColor = c.status === 'cancelado' ? 'bg-rose-500'
+                       : jaAssinado ? 'bg-emerald-500'
+                       : 'bg-amber-500';
+                     const isMenuOpen = openContratoActionsId === c.id;
                      return (
-                       <div key={c.id} className={cn("bg-white/5 border rounded-2xl p-4 flex flex-col md:flex-row md:items-center gap-3 md:gap-6", highlightContratoId === c.id ? "border-purple-500 ring-2 ring-purple-500/40" : "border-white/10")}>
-                          <div className="min-w-0 flex-1">
-                             <div className="flex items-center gap-2 flex-wrap">
-                                <p className="font-mono text-[9px] text-purple-300">{c.numero}{c.versao > 1 ? ` · v${c.versao}` : ''}</p>
-                                <span className={cn("text-[8px] font-black uppercase px-2 py-0.5 rounded-full", CONTRATO_STATUS_STYLES[c.status])}>{CONTRATO_STATUS_LABELS[c.status] || c.status}</span>
-                                {orcamentoVinc && <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-primary-500/10 text-primary-300">Orç. {orcamentoVinc.numero}</span>}
+                       <div
+                         key={c.id}
+                         className={cn(
+                           "relative flex bg-white/5 border rounded-2xl overflow-hidden transition-all",
+                           highlightContratoId === c.id ? "border-purple-500 ring-2 ring-purple-500/40" : "border-white/10"
+                         )}
+                       >
+                          {/* Barra lateral colorida -- indica de longe (sem precisar ler texto) se ta
+                              cancelado / assinado / aguardando, principalmente util no scroll rapido do celular */}
+                          <div className={cn("w-1 shrink-0", statusBarColor)} />
+
+                          <div className="flex-1 min-w-0 p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5">
+                             <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                   <p className="font-mono text-[9px] text-purple-300">{c.numero}{c.versao > 1 ? ` · v${c.versao}` : ''}</p>
+                                   <span className={cn("text-[8px] font-black uppercase px-2 py-0.5 rounded-full", CONTRATO_STATUS_STYLES[c.status])}>{CONTRATO_STATUS_LABELS[c.status] || c.status}</span>
+                                   {orcamentoVinc && <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-primary-500/10 text-primary-300">Orç. {orcamentoVinc.numero}</span>}
+                                </div>
+                                <p className="font-black text-white truncate mt-1 text-[15px]">{(c.customerName || '').toUpperCase()}</p>
+                                <p className="text-[10px] text-white/40 truncate">{c.cpfCnpj || 'CPF/CNPJ não informado'} · {c.phone || 'sem telefone'}</p>
+                                <p className="text-[10px] text-white/30 truncate mt-0.5">{servico}</p>
                              </div>
-                             <p className="font-black text-white truncate mt-1">{(c.customerName || '').toUpperCase()}</p>
-                             <p className="text-[10px] text-white/40 truncate">{c.cpfCnpj || 'CPF/CNPJ não informado'} · {c.phone || 'sem telefone'}</p>
-                             <p className="text-[10px] text-white/30 truncate mt-0.5">Serviço: {servico}</p>
-                          </div>
-                          <div className="text-left md:text-right shrink-0">
-                             <p className="text-lg font-black text-emerald-400 italic">R$ {c.total.toFixed(2).replace('.', ',')}</p>
-                             <p className="text-[9px] text-white/30">Criado {safeFormat(c.createdAt, 'dd/MM/yyyy')}</p>
-                          </div>
-                          <div className="flex flex-wrap gap-1.5 md:flex-col shrink-0">
-                             <button onClick={() => setViewingContrato(c)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Visualizar</button>
-                             {c.versao > 1 && (
-                               <button onClick={() => setViewingContratoHistorico(c)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Ver Histórico</button>
-                             )}
-                             <button onClick={() => openEditContrato(c)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">{podeEditarDireto ? 'Editar' : 'Editar (Nova Versão)'}</button>
-                             {c.versao > 1 && (
-                               <button onClick={() => setViewingContratoHistorico(c)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Ver Histórico</button>
-                             )}
-                             <button onClick={() => handleDuplicateContrato(c)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Duplicar</button>
-                             <button onClick={() => handleDownloadContratoPdf(c)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Gerar PDF</button>
-                             {c.phone && (
-                               <button
-                                 onClick={() => window.open(`https://wa.me/${c.phone!.replace(/\D/g, '')}?text=${encodeURIComponent(`Olá ${c.customerName}! Segue o contrato ${c.numero} no valor de R$ ${c.total.toFixed(2).replace('.', ',')}.`)}`, '_blank')}
-                                 className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
-                               >
-                                 Enviar
-                               </button>
-                             )}
-                             {(c.status === 'rascunho' || c.status === 'aguardando_aceite') && (
-                               <button onClick={() => handleUpdateContratoStatus(c, 'aceito')} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20">Marcar Aceito</button>
-                             )}
-                             {c.status === 'aceito' && (
-                               <button onClick={() => handleUpdateContratoStatus(c, 'em_execucao')} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20">Iniciar Execução</button>
-                             )}
-                             {c.status === 'em_execucao' && (
-                               <button onClick={() => handleUpdateContratoStatus(c, 'concluido')} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20">Concluir</button>
-                             )}
-                             {vendaVinc && (
-                               <button onClick={() => openReceiptById(vendaVinc.id)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Ver Nota</button>
-                             )}
-                             {orcamentoVinc && (
-                               <button onClick={() => { setActiveTab('orcamentos'); setHighlightOrcamentoId(orcamentoVinc.id); setTimeout(() => setHighlightOrcamentoId(null), 4000); }} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-primary-500/10 text-primary-300 hover:bg-primary-500/20">Abrir Orçamento</button>
-                             )}
-                             {c.status !== 'cancelado' && c.status !== 'encerrado' && (
-                               <button onClick={() => handleUpdateContratoStatus(c, c.status === 'concluido' ? 'encerrado' : 'cancelado')} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20">
-                                 {c.status === 'concluido' ? 'Encerrar' : 'Cancelar'}
-                               </button>
-                             )}
-                             <button onClick={() => handleDeleteContrato(c)} className="text-white/30 hover:text-rose-400 p-1.5 self-end md:self-auto"><Trash2 size={12} /></button>
+
+                             <div className="flex items-center justify-between sm:flex-col sm:items-end gap-2 sm:gap-1 shrink-0">
+                                <div className="text-left sm:text-right">
+                                   <p className="text-lg font-black text-emerald-400 italic">R$ {c.total.toFixed(2).replace('.', ',')}</p>
+                                   <p className="text-[9px] text-white/30">Criado {safeFormat(c.createdAt, 'dd/MM/yyyy')}</p>
+                                </div>
+
+                                {/* Acoes principais sempre visiveis + resto atras do menu "..." --
+                                    evita a fileira de 8-9 botoes quebrando linha, principalmente no mobile */}
+                                <div className="flex items-center gap-1.5">
+                                   <button onClick={() => setViewingContrato(c)} title="Visualizar" className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 text-white/60 hover:bg-white/10 hover:text-white transition-colors"><Eye size={14} /></button>
+                                   {c.phone && (
+                                     <button
+                                       onClick={() => window.open(`https://wa.me/${c.phone!.replace(/\D/g, '')}?text=${encodeURIComponent(`Olá ${c.customerName}! Segue o contrato ${c.numero} no valor de R$ ${c.total.toFixed(2).replace('.', ',')}.`)}`, '_blank')}
+                                       title="Enviar por WhatsApp"
+                                       className="flex items-center justify-center w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors"
+                                     >
+                                       <Send size={13} />
+                                     </button>
+                                   )}
+                                   <div className="relative">
+                                     <button
+                                       onClick={() => setOpenContratoActionsId(isMenuOpen ? null : c.id)}
+                                       title="Mais ações"
+                                       className={cn("flex items-center justify-center w-8 h-8 rounded-lg transition-colors", isMenuOpen ? "bg-white/15 text-white" : "bg-white/5 text-white/60 hover:bg-white/10 hover:text-white")}
+                                     >
+                                       <MoreVertical size={14} />
+                                     </button>
+                                     {isMenuOpen && (
+                                       <>
+                                         {/* backdrop invisivel pra fechar o menu clicando fora, sem precisar de lib externa */}
+                                         <div className="fixed inset-0 z-10" onClick={() => setOpenContratoActionsId(null)} />
+                                         <div className="absolute right-0 top-full mt-1.5 z-20 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl py-1.5 flex flex-col">
+                                            <button onClick={() => { openEditContrato(c); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left"><Pencil size={13} /> {podeEditarDireto ? 'Editar' : 'Editar (Nova Versão)'}</button>
+                                            <button onClick={() => { handleDuplicateContrato(c); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left"><Copy size={13} /> Duplicar</button>
+                                            <button onClick={() => { handleDownloadContratoPdf(c); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left"><Download size={13} /> Gerar PDF</button>
+                                            {c.versao > 1 && (
+                                              <button onClick={() => { setViewingContratoHistorico(c); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left"><History size={13} /> Ver Histórico</button>
+                                            )}
+                                            {vendaVinc && (
+                                              <button onClick={() => { openReceiptById(vendaVinc.id); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left"><FileText size={13} /> Ver Nota</button>
+                                            )}
+                                            {orcamentoVinc && (
+                                              <button onClick={() => { setActiveTab('orcamentos'); setHighlightOrcamentoId(orcamentoVinc.id); setTimeout(() => setHighlightOrcamentoId(null), 4000); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-primary-300 hover:bg-white/5 text-left"><ExternalLink size={13} /> Abrir Orçamento</button>
+                                            )}
+
+                                            {(c.status === 'rascunho' || c.status === 'aguardando_aceite' || c.status === 'aceito' || c.status === 'em_execucao') && (
+                                              <div className="h-px bg-white/10 my-1.5" />
+                                            )}
+                                            {(c.status === 'rascunho' || c.status === 'aguardando_aceite') && (
+                                              <button onClick={() => { handleUpdateContratoStatus(c, 'aceito'); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-emerald-400 hover:bg-white/5 text-left"><CheckCircle2 size={13} /> Marcar Aceito</button>
+                                            )}
+                                            {c.status === 'aceito' && (
+                                              <button onClick={() => { handleUpdateContratoStatus(c, 'em_execucao'); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-amber-400 hover:bg-white/5 text-left"><PlayCircle size={13} /> Iniciar Execução</button>
+                                            )}
+                                            {c.status === 'em_execucao' && (
+                                              <button onClick={() => { handleUpdateContratoStatus(c, 'concluido'); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-primary-400 hover:bg-white/5 text-left"><CheckCircle2 size={13} /> Concluir</button>
+                                            )}
+
+                                            <div className="h-px bg-white/10 my-1.5" />
+                                            {c.status !== 'cancelado' && c.status !== 'encerrado' && (
+                                              <button onClick={() => { handleUpdateContratoStatus(c, c.status === 'concluido' ? 'encerrado' : 'cancelado'); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-rose-400 hover:bg-white/5 text-left">
+                                                <Ban size={13} /> {c.status === 'concluido' ? 'Encerrar' : 'Cancelar'}
+                                              </button>
+                                            )}
+                                            <button onClick={() => { handleDeleteContrato(c); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-rose-400/70 hover:bg-white/5 text-left"><Trash2 size={13} /> Excluir</button>
+                                         </div>
+                                       </>
+                                     )}
+                                   </div>
+                                </div>
+                             </div>
                           </div>
                        </div>
                      );
