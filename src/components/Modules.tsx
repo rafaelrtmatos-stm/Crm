@@ -8093,6 +8093,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                setIsPaymentModalOpen(true);
                             } else {
                                setCustomerModalIntent('finalize');
+                               setCustomerModalMode('search');
                                setIsCustomerModalOpen(true);
                             }
                          }}
@@ -9542,7 +9543,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       {/* Customer Modal / Selecionar Cliente */}
       <Modal 
         isOpen={isCustomerModalOpen} 
-        onClose={() => { setIsCustomerModalOpen(false); setIsMoreOptionsOpen(false); setEditingCustomerId(null); }} 
+        onClose={() => { setIsCustomerModalOpen(false); setIsMoreOptionsOpen(false); setEditingCustomerId(null); setCustomerModalMode('search'); }} 
         title={customerModalMode === 'create' ? (editingCustomerId ? 'Editar Cliente' : 'Cadastrar Cliente') : 'Selecionar Cliente'}
         size={customerModalMode === 'create' ? 'md' : 'lg'}
       >
@@ -9930,6 +9931,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    disabled={!!settlingOrder}
                    onClick={() => {
                       setIsPaymentModalOpen(false);
+                      setCustomerModalIntent('finalize');
+                      setCustomerModalMode('search');
                       setIsCustomerModalOpen(true);
                    }}
                  >
