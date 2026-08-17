@@ -3426,15 +3426,6 @@ export const MessagesModule = ({ currentCompany, user }: { currentCompany: Compa
               <div className="flex items-center gap-2">
                  <button 
                    type="button"
-                   onClick={() => setIsSimulateModalOpen(true)}
-                   className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-primary-500/20 border border-primary-500/40 text-primary-300 hover:bg-primary-500/30 text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all active:scale-95"
-                   title="Simular Mensagem Recebida (Qualquer Canal)"
-                 >
-                   <MessageSquare size={10} />
-                   <span>+ Simular</span>
-                 </button>
-                 <button 
-                   type="button"
                    onClick={handleSyncWhatsApp}
                    disabled={syncStatus === 'syncing'}
                    className={cn(
