@@ -1706,8 +1706,8 @@ export default function App() {
         {/* Main Content */}
         <main className="flex-1 flex flex-col min-w-0 bg-transparent overflow-hidden">
           <Navbar />
-          <div className={cn("flex-1 custom-scrollbar", activeTab === 'pos' ? "p-2 md:p-3 overflow-hidden" : "p-4 md:p-8 overflow-y-auto")}>
-            <div className={cn(activeTab === 'pos' ? "max-w-full h-full" : "max-w-7xl mx-auto")}>
+          <div className={cn("flex-1 custom-scrollbar", (activeTab === 'pos' || activeTab === 'crm') ? "p-2 md:p-3 overflow-hidden" : "p-4 md:p-8 overflow-y-auto")}>
+            <div className={cn((activeTab === 'pos' || activeTab === 'crm') ? "max-w-full h-full" : "max-w-7xl mx-auto")}>
               <AnimatePresence mode="wait">
                 <motion.div
                   key={activeTab}
@@ -1715,7 +1715,7 @@ export default function App() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -8 }}
                   transition={{ duration: 0.15, ease: "easeOut" }}
-                  className={activeTab === 'pos' ? "h-full" : undefined}
+                  className={(activeTab === 'pos' || activeTab === 'crm') ? "h-full" : undefined}
                 >
                   {activeTab === 'dashboard' && <DashboardModule user={user} currentCompany={currentCompany} pendingOrders={pendingOrders} setActiveTab={setActiveTab} />}
                   {activeTab === 'crm' && <CRMModule currentCompany={currentCompany} user={user} />}

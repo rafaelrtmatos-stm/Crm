@@ -3015,10 +3015,98 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     }
   };
 
+  // --- Handlers do modal "Gestão de Funis & Etapas" (Configurar) ---
+  // Antes esse modal era só decoração: input sem onChange, cores sem onClick,
+  // botões "Adicionar Etapa"/Automações/Editar/Excluir sem handler nenhum.
+  const [funnelNameDraft, setFunnelNameDraft] = useState('');
+  const [renamingStageId, setRenamingStageId] = useState<string | null>(null);
+  const [stageNameDraft, setStageNameDraft] = useState('');
+
+  useEffect(() => {
+    setFunnelNameDraft(currentFunnel?.name || '');
+  }, [currentFunnel?.id, currentFunnel?.name]);
+
+  const handleSaveFunnelName = async () => {
+    const name = funnelNameDraft.trim();
+    if (!selectedFunnelId || !name || name === currentFunnel?.name) return;
+    try {
+      await updateDoc(doc(db, 'funnels', selectedFunnelId), { name });
+    } catch (err) {
+      console.error('Erro ao renomear funil:', err);
+      showAlert('Não foi possível renomear o funil.');
+    }
+  };
+
+  const handleSetFunnelColor = async (color: string) => {
+    if (!selectedFunnelId) return;
+    try {
+      await updateDoc(doc(db, 'funnels', selectedFunnelId), { color });
+    } catch (err) {
+      console.error('Erro ao definir cor do funil:', err);
+      showAlert('Não foi possível salvar a cor do funil.');
+    }
+  };
+
+  const startRenameStage = (stage: FunnelStage) => {
+    setRenamingStageId(stage.id);
+    setStageNameDraft(stage.name);
+  };
+
+  const handleSaveStageName = async (stageId: string) => {
+    const name = stageNameDraft.trim();
+    setRenamingStageId(null);
+    const stage = stages.find(s => s.id === stageId);
+    if (!name || !stage || name === stage.name) return;
+    try {
+      await updateDoc(doc(db, 'funnelStages', stageId), { name, updatedAt: Timestamp.now() });
+    } catch (err) {
+      console.error('Erro ao renomear etapa:', err);
+      showAlert('Não foi possível renomear a etapa.');
+    }
+  };
+
+  const handleSetStageColor = async (stageId: string, color: string) => {
+    try {
+      await updateDoc(doc(db, 'funnelStages', stageId), { color, updatedAt: Timestamp.now() });
+    } catch (err) {
+      console.error('Erro ao definir cor da etapa:', err);
+      showAlert('Não foi possível salvar a cor da etapa.');
+    }
+  };
+
+  const handleToggleStageAutomation = async (stage: FunnelStage) => {
+    const isOn = !!stage.automations?.createTask;
+    if (!isOn) {
+      const taskTitle = await showPrompt('Título da tarefa a criar automaticamente ao entrar nessa etapa:', 'Fazer contato com o lead');
+      if (!taskTitle) return;
+      try {
+        await updateDoc(doc(db, 'funnelStages', stage.id), {
+          automations: { ...(stage.automations || {}), createTask: true, taskTitle },
+          updatedAt: Timestamp.now(),
+        });
+        showAlert(`Automação ativada na etapa "${stage.name}": cria a tarefa "${taskTitle}" automaticamente.`);
+      } catch (err) {
+        console.error('Erro ao ativar automação:', err);
+        showAlert('Não foi possível ativar a automação.');
+      }
+    } else {
+      if (!(await showConfirm(`Desativar a criação automática de tarefa na etapa "${stage.name}"?`))) return;
+      try {
+        await updateDoc(doc(db, 'funnelStages', stage.id), {
+          automations: { ...(stage.automations || {}), createTask: false },
+          updatedAt: Timestamp.now(),
+        });
+      } catch (err) {
+        console.error('Erro ao desativar automação:', err);
+        showAlert('Não foi possível desativar a automação.');
+      }
+    }
+  };
+
   return (
-    <div className="h-[calc(100vh-12rem)] flex gap-6 animate-in slide-in-from-right-10 duration-500">
+    <div className="h-full flex gap-6 animate-in slide-in-from-right-10 duration-500">
       <div className={cn(
-        "flex flex-col space-y-6 transition-all duration-500",
+        "flex flex-col space-y-6 transition-all duration-500 min-h-0",
         selectedLead ? "hidden md:flex md:w-[300px] md:shrink-0" : "w-full flex"
       )}>
         {!selectedLead && (
@@ -3123,7 +3211,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
           onDragStart={onDragStart}
           onDragEnd={onDragEnd}
         >
-          <div className="flex gap-4 overflow-x-auto pb-6 grow min-h-[500px] scroll-smooth custom-scrollbar">
+          <div className="flex gap-4 overflow-x-auto pb-6 grow min-h-0 scroll-smooth custom-scrollbar">
             {/* Cada coluna tem largura fixa e igual — se nao couber todas na tela, rola de lado
                 em vez de encolher (senao com muitas etapas cada coluna fica espremida demais).
                 Com uma conversa aberta, mostra so a coluna da etapa daquele lead (pra poder trocar
@@ -3204,12 +3292,28 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
            <div className="space-y-4">
               <p className="text-[10px] font-black uppercase text-primary-300 tracking-[3px]">Configuração do Funil</p>
               <div className="grid grid-cols-2 gap-4">
-                <Input label="Nome do Funil" value={funnels.find(f => f.id === selectedFunnelId)?.name || ''} />
+                <Input
+                  label="Nome do Funil"
+                  value={funnelNameDraft}
+                  onChange={(e: any) => setFunnelNameDraft(e.target.value)}
+                  onBlur={handleSaveFunnelName}
+                  onKeyDown={(e: any) => { if (e.key === 'Enter') { e.currentTarget.blur(); } }}
+                />
                 <div className="space-y-2">
                    <p className="text-[10px] font-bold text-white/40 uppercase">Cor do Funil</p>
                    <div className="flex gap-2">
                       {['#4cc9f0', '#4361ee', '#f72585', '#7209b7', '#3a0ca3'].map(c => (
-                        <div key={c} className="w-6 h-6 rounded-full cursor-pointer border border-white/10" style={{ backgroundColor: c }} />
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() => handleSetFunnelColor(c)}
+                          title={c}
+                          className={cn(
+                            "w-6 h-6 rounded-full cursor-pointer border transition-all",
+                            currentFunnel?.color === c ? "border-white scale-110 ring-2 ring-white/40" : "border-white/10 hover:scale-105"
+                          )}
+                          style={{ backgroundColor: c }}
+                        />
                       ))}
                    </div>
                 </div>
@@ -3219,21 +3323,77 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
            <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <p className="text-[10px] font-black uppercase text-primary-300 tracking-[3px]">Etapas do Processo</p>
-                <Button size="sm" variant="ghost" icon={Plus}>Adicionar Etapa</Button>
+                <Button size="sm" variant="ghost" icon={Plus} onClick={handleAddStage}>Adicionar Etapa</Button>
               </div>
               <div className="space-y-3">
                  {stages.map((stage, idx) => (
                    <div key={stage.id} className="p-5 bg-white/5 border border-white/5 rounded-3xl flex items-center gap-4 group">
                       <div className="cursor-grab text-white/20"><GripVertical size={16} /></div>
-                      <div className="w-4 h-4 rounded-full" style={{ backgroundColor: stage.color || '#4cc9f0' }} />
-                      <div className="flex-1">
-                         <p className="text-sm font-bold text-white">{stage.name}</p>
-                         <p className="text-[9px] text-white/20 font-black uppercase tracking-widest mt-1">Ordem: {idx + 1} • {stage.isInitial ? 'Inicial' : stage.isFinal ? 'Venda' : 'Negociação'}</p>
+                      <div className="relative group/color shrink-0">
+                        <div className="w-4 h-4 rounded-full cursor-pointer" style={{ backgroundColor: stage.color || '#4cc9f0' }} />
+                        <div className="hidden group-hover/color:flex absolute top-full left-1/2 -translate-x-1/2 mt-2 bg-slate-900 border border-white/10 rounded-xl shadow-2xl p-2 gap-1.5 z-10">
+                           {['#4cc9f0', '#4361ee', '#f72585', '#7209b7', '#3a0ca3', '#10b981'].map(c => (
+                             <button
+                               key={c}
+                               type="button"
+                               onClick={() => handleSetStageColor(stage.id, c)}
+                               className="w-4 h-4 rounded-full border border-white/10 hover:scale-125 transition-transform"
+                               style={{ backgroundColor: c }}
+                             />
+                           ))}
+                        </div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                         {renamingStageId === stage.id ? (
+                           <input
+                             autoFocus
+                             value={stageNameDraft}
+                             onChange={(e) => setStageNameDraft(e.target.value)}
+                             onBlur={() => handleSaveStageName(stage.id)}
+                             onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') setRenamingStageId(null); }}
+                             className="w-full bg-white/5 border border-primary-500/40 rounded-lg px-2 py-1 text-sm font-bold text-white focus:outline-none"
+                           />
+                         ) : (
+                           <p
+                             className="text-sm font-bold text-white cursor-text hover:text-primary-300 transition-colors truncate"
+                             onClick={() => startRenameStage(stage)}
+                             title="Clique para renomear"
+                           >
+                             {stage.name}
+                           </p>
+                         )}
+                         <p className="text-[9px] text-white/20 font-black uppercase tracking-widest mt-1">
+                           Ordem: {idx + 1} • {stage.isInitial ? 'Inicial' : stage.isFinal ? 'Venda' : 'Negociação'}
+                           {stage.automations?.createTask && <span className="text-amber-400"> • Automação ativa</span>}
+                         </p>
                       </div>
                       <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                         <Button variant="ghost" size="sm" icon={Zap} className="p-1 h-8 w-8 text-amber-400" title="Automações" />
-                         <Button variant="ghost" size="sm" icon={Settings2} className="p-1 h-8 w-8" />
-                         <Button variant="ghost" size="sm" icon={Trash} className="p-1 h-8 w-8 text-rose-400" />
+                         <Button
+                           variant="ghost"
+                           size="sm"
+                           icon={Zap}
+                           className={cn("p-1 h-8 w-8", stage.automations?.createTask ? "text-amber-400" : "text-white/30")}
+                           title={stage.automations?.createTask ? "Automação ativa — clique para desativar" : "Ativar automação (criar tarefa ao entrar na etapa)"}
+                           onClick={() => handleToggleStageAutomation(stage)}
+                         />
+                         <Button
+                           variant="ghost"
+                           size="sm"
+                           icon={Settings2}
+                           className="p-1 h-8 w-8"
+                           title="Renomear etapa"
+                           onClick={() => startRenameStage(stage)}
+                         />
+                         {user?.isAdmin && stages.length > 1 && (
+                           <Button
+                             variant="ghost"
+                             size="sm"
+                             icon={Trash}
+                             className="p-1 h-8 w-8 text-rose-400"
+                             title="Excluir etapa"
+                             onClick={() => handleDeleteStage(stage.id)}
+                           />
+                         )}
                       </div>
                    </div>
                  ))}
@@ -3249,10 +3409,13 @@ const KanbanColumn = ({ stage, leads, onLeadClick, selectedLeadId }: { key?: any
   const { setNodeRef } = useSortable({ id: stage.id, data: { type: 'column', stageId: stage.id } });
 
   return (
-    <div className="flex-1 min-w-0 flex flex-col gap-4">
+    <div className="flex-1 min-w-0 flex flex-col gap-4 min-h-0">
       <div className="flex items-center justify-between px-2">
         <div className="flex items-center gap-2">
-          <div className={cn("w-2 h-2 rounded-full", stage.color || 'bg-primary-500')} />
+          <div
+            className={cn("w-2 h-2 rounded-full", !stage.color && "bg-primary-500")}
+            style={stage.color ? { backgroundColor: stage.color } : undefined}
+          />
           <h3 className="text-[10px] font-black uppercase tracking-[3px] text-white/50">{stage.name}</h3>
           <Badge className="ml-2 bg-white/5 border-none opacity-50 px-2 py-0 h-5 flex items-center">
             {leads.length}
@@ -3261,7 +3424,7 @@ const KanbanColumn = ({ stage, leads, onLeadClick, selectedLeadId }: { key?: any
       </div>
       <div 
         ref={setNodeRef}
-        className="bg-white/[0.03] border border-white/5 rounded-[40px] p-4 flex flex-col gap-4 grow shadow-inner overflow-y-auto custom-scrollbar"
+        className="bg-white/[0.03] border border-white/5 rounded-[40px] p-4 flex flex-col gap-4 grow min-h-0 shadow-inner overflow-y-auto custom-scrollbar"
       >
         <SortableContext items={leads.map(l => l.id)} strategy={verticalListSortingStrategy}>
           {leads.map(lead => (
