@@ -9799,7 +9799,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     )}>
                       <div className="flex items-start justify-between gap-2">
                          <div className="min-w-0">
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex items-center gap-1.5 flex-wrap">
                                <span className={cn("text-[7px] font-black uppercase px-1.5 py-0.5 rounded", o.documentType === 'contrato' ? "bg-purple-500/20 text-purple-300" : "bg-primary-500/20 text-primary-300")}>
                                  {o.documentType === 'contrato' ? 'Contrato' : 'Orçamento'}
                                </span>
@@ -9808,6 +9808,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                    {estaPago ? '✓ Pago' : 'Pendente'}
                                  </span>
                                )}
+                               <span className="text-[7px] font-black uppercase px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-300">
+                                 {STAGE_LABELS[o.serviceStatus || 'pedido_recebido']}
+                               </span>
                             </div>
                             <p className="text-[9px] font-mono text-white/30 mt-1">{o.numero}</p>
                             <p className="font-black text-white truncate">{(o.customerName || '').toUpperCase()}</p>
@@ -10067,6 +10070,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                    <p className="font-mono text-[9px] text-purple-300">{c.numero}{c.versao > 1 ? ` · v${c.versao}` : ''}</p>
                                    <span className={cn("text-[8px] font-black uppercase px-2 py-0.5 rounded-full", CONTRATO_STATUS_STYLES[c.status])}>{CONTRATO_STATUS_LABELS[c.status] || c.status}</span>
                                    {orcamentoVinc && <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-primary-500/10 text-primary-300">Orç. {orcamentoVinc.numero}</span>}
+                                   <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-300">{STAGE_LABELS[c.serviceStatus || 'pedido_recebido']}</span>
                                 </div>
                                 <p className="font-black text-white truncate mt-1 text-[15px]">{(c.customerName || '').toUpperCase()}</p>
                                 <p className="text-[10px] text-white/40 truncate">{c.cpfCnpj || 'CPF/CNPJ não informado'} · {c.phone || 'sem telefone'}</p>
