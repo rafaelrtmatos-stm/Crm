@@ -2964,8 +2964,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
       <div className={cn(
         "flex flex-col space-y-6 transition-all duration-500 w-full",
         !selectedLead && "flex",
-        selectedLead && openedViaJump && "hidden",
-        selectedLead && !openedViaJump && "hidden md:flex md:w-[60%]"
+        selectedLead && "hidden"
       )}>
         <SectionHeader 
           title="Funil Rafa Arts" 
@@ -3119,7 +3118,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15, ease: 'easeOut' }}
-            className={cn("h-full w-full", !openedViaJump && "md:w-[40%]")}
+            className="h-full w-full"
           >
             <ChatPanel 
               conversation={{ ...selectedLead, name: selectedLead.fullName, channel: 'WhatsApp' }}
