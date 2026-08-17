@@ -2811,15 +2811,18 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
           onDragStart={onDragStart}
           onDragEnd={onDragEnd}
         >
-          <div className="flex gap-4 overflow-x-hidden pb-6 grow min-h-[500px]">
+          <div className="flex gap-4 overflow-x-auto pb-6 grow min-h-[500px] scroll-smooth md:overflow-x-visible">
+            {/* Mobile: Carousel (1 coluna por vez), Web: Scroll se precisar */}
             {stages.map(stage => (
-              <KanbanColumn 
-                key={stage.id} 
-                stage={stage} 
-                leads={leads.filter(l => l.funnelStageId === stage.id || (!l.funnelStageId && (stage.isInitial || stage.order === 0)))}
-                onLeadClick={setSelectedLead}
-                selectedLeadId={selectedLead?.id}
-              />
+              <div key={`wrapper-${stage.id}`} className="flex-shrink-0 w-full md:flex-shrink md:w-auto">
+                <KanbanColumn 
+                  key={stage.id} 
+                  stage={stage} 
+                  leads={leads.filter(l => l.funnelStageId === stage.id || (!l.funnelStageId && (stage.isInitial || stage.order === 0)))}
+                  onLeadClick={setSelectedLead}
+                  selectedLeadId={selectedLead?.id}
+                />
+              </div>
             ))}
             
             <button 
@@ -2835,7 +2838,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                   });
                 }
               }}
-              className="flex-1 min-w-0 shrink-0 basis-24 h-[calc(100vh-25rem)] border-2 border-dashed border-white/5 rounded-[40px] flex flex-col items-center justify-center opacity-20 hover:opacity-100 hover:bg-white/5 transition-all text-white/40"
+              className="flex-shrink-0 w-full md:flex-shrink md:w-auto basis-24 h-[calc(100vh-25rem)] border-2 border-dashed border-white/5 rounded-[40px] flex flex-col items-center justify-center opacity-20 hover:opacity-100 hover:bg-white/5 transition-all text-white/40"
             >
                <Plus size={32} />
                <span className="text-[10px] font-black uppercase tracking-[3px] mt-2">Nova Etapa</span>
