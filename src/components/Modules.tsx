@@ -2812,6 +2812,103 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
   };
 
   const currentFunnel = funnels.find(f => f.id === selectedFunnelId);
+  const [funnelMenuOpen, setFunnelMenuOpen] = useState(false);
+
+  const handleAddFunnel = async () => {
+    const name = await showPrompt('Nome do novo funil:');
+    if (!name || !currentCompany) return;
+    try {
+      const newFunnel = await addDoc(collection(db, 'funnels'), {
+        companyId: currentCompany.id,
+        name,
+        isActive: true,
+        createdAt: Timestamp.now(),
+      });
+      setSelectedFunnelId(newFunnel.id);
+      setFunnelMenuOpen(false);
+      showAlert(`Funil "${name}" criado com sucesso!`);
+    } catch (err) {
+      console.error('Erro ao criar funil:', err);
+      showAlert('Não foi possível criar o funil.');
+    }
+  };
+
+  const handleDeleteFunnel = async (funnelId: string) => {
+    const funnel = funnels.find(f => f.id === funnelId);
+    if (!funnel) return;
+    if (!permissions.isAdmin) {
+      showAlert('Apenas administradores podem excluir funis.');
+      return;
+    }
+    if (!(await showConfirm(`Excluir o funil "${funnel.name}" e TODOS os leads nele?\n\nEssa ação não pode ser desfeita.`))) return;
+    try {
+      // Excluir todos os leads do funil
+      const leadsInFunnel = leads.filter(l => l.funnelId === funnelId);
+      for (const lead of leadsInFunnel) {
+        await deleteDoc(doc(db, 'leads', lead.id));
+      }
+      // Excluir todas as etapas do funil
+      const stagesInFunnel = stages.filter(s => s.funnelId === funnelId);
+      for (const stage of stagesInFunnel) {
+        await deleteDoc(doc(db, 'funnelStages', stage.id));
+      }
+      // Excluir o funil
+      await deleteDoc(doc(db, 'funnels', funnelId));
+      // Trocar pra outro funil
+      if (selectedFunnelId === funnelId && funnels.length > 1) {
+        const nextFunnel = funnels.find(f => f.id !== funnelId);
+        if (nextFunnel) setSelectedFunnelId(nextFunnel.id);
+      }
+      setFunnelMenuOpen(false);
+      showAlert(`Funil "${funnel.name}" excluído.`);
+    } catch (err) {
+      console.error('Erro ao excluir funil:', err);
+      showAlert('Não foi possível excluir o funil.');
+    }
+  };
+
+  const handleAddStage = async () => {
+    if (!selectedFunnelId) return;
+    const name = await showPrompt('Nome da nova etapa:');
+    if (!name) return;
+    try {
+      await addDoc(collection(db, 'funnelStages'), {
+        funnelId: selectedFunnelId,
+        name,
+        order: stages.length,
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
+      });
+      setFunnelMenuOpen(false);
+      showAlert(`Etapa "${name}" criada!`);
+    } catch (err) {
+      console.error('Erro ao criar etapa:', err);
+      showAlert('Não foi possível criar a etapa.');
+    }
+  };
+
+  const handleDeleteStage = async (stageId: string) => {
+    const stage = stages.find(s => s.id === stageId);
+    if (!stage || !permissions.isAdmin) return;
+    if (!(await showConfirm(`Excluir a etapa "${stage.name}" e reclassificar todos os leads?\n\nEssa ação não pode ser desfeita.`))) return;
+    try {
+      // Reclassificar leads: mover pra primeira etapa
+      const leadsInStage = leads.filter(l => l.funnelStageId === stageId);
+      const firstStage = stages.find(s => s.order === 0);
+      for (const lead of leadsInStage) {
+        await updateDoc(doc(db, 'leads', lead.id), {
+          funnelStageId: firstStage?.id || null,
+        });
+      }
+      // Excluir a etapa
+      await deleteDoc(doc(db, 'funnelStages', stageId));
+      setFunnelMenuOpen(false);
+      showAlert(`Etapa "${stage.name}" excluída e leads reclassificados.`);
+    } catch (err) {
+      console.error('Erro ao excluir etapa:', err);
+      showAlert('Não foi possível excluir a etapa.');
+    }
+  };
 
   return (
     <div className="h-[calc(100vh-12rem)] flex gap-6 animate-in slide-in-from-right-10 duration-500">
@@ -2821,51 +2918,89 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
           subtitle={currentFunnel?.name || "Gestão Estratégica"} 
           actions={
             <div className="flex gap-3">
-               <div className="flex bg-white/5 p-1 rounded-2xl border border-white/5 overflow-x-auto no-scrollbar max-w-[400px]">
-                  {funnels.map(f => (
-                    <button
-                      key={f.id}
-                      onClick={() => setSelectedFunnelId(f.id)}
-                      className={cn(
-                        "px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap",
-                        selectedFunnelId === f.id ? "bg-primary-500 text-[#0f172a] shadow-lg" : "text-white/40 hover:text-white"
-                      )}
-                    >
-                      {f.name}
-                    </button>
-                  ))}
-                  {/* Quick Add Funnel */}
-                  <button 
-                    onClick={async () => {
-                      const name = await showPrompt('Nome do novo funil:');
-                      if(name && currentCompany) {
-                        const far = await addDoc(collection(db, 'funnels'), {
-                           companyId: currentCompany.id,
-                           name,
-                           isActive: true,
-                           isDefault: false,
-                           createdAt: Timestamp.now(),
-                           updatedAt: Timestamp.now()
-                        });
-                        // Add default stages too
-                        ['Entrada', 'Negociação', 'Fechamento'].forEach(async (st, i) => {
-                          await addDoc(collection(db, 'funnelStages'), {
-                             funnelId: far.id,
-                             name: st,
-                             order: i,
-                             isInitial: i === 0,
-                             isFinal: i === 2,
-                             createdAt: Timestamp.now(),
-                             updatedAt: Timestamp.now()
-                          });
-                        });
-                      }
-                    }}
-                    className="px-4 py-2 text-primary-400 hover:text-primary-300 transition-colors"
+               {/* ✅ Dropdown Gerenciador de Funis */}
+               <div className="relative">
+                  <button
+                    onClick={() => setFunnelMenuOpen(!funnelMenuOpen)}
+                    className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 transition-all text-[10px] font-black uppercase tracking-widest text-white"
                   >
-                    <Plus size={16} />
+                    {currentFunnel?.name || 'Selecionar Funil'}
+                    <ChevronDown size={14} className={cn('transition-transform', funnelMenuOpen && 'rotate-180')} />
                   </button>
+
+                  {funnelMenuOpen && (
+                    <div className="absolute top-full mt-2 left-0 w-64 bg-slate-900 border border-white/10 rounded-xl shadow-2xl z-50 p-2">
+                      {/* Trocar Funil */}
+                      <div className="mb-2">
+                        <p className="text-[9px] font-black uppercase text-white/40 tracking-widest px-3 py-1">Funis</p>
+                        {funnels.map(f => (
+                          <button
+                            key={f.id}
+                            onClick={() => { setSelectedFunnelId(f.id); setFunnelMenuOpen(false); }}
+                            className={cn(
+                              'w-full text-left px-3 py-2 rounded-lg text-[10px] font-bold transition-all',
+                              selectedFunnelId === f.id 
+                                ? 'bg-primary-500 text-slate-900' 
+                                : 'text-white hover:bg-white/10'
+                            )}
+                          >
+                            {f.name}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="h-px bg-white/10 my-1" />
+
+                      {/* Gerenciar Funis */}
+                      <div className="space-y-1 mb-2">
+                        <button
+                          onClick={handleAddFunnel}
+                          className="w-full text-left px-3 py-2 rounded-lg text-[10px] font-bold text-primary-300 hover:bg-primary-500/20 transition-all flex items-center gap-2"
+                        >
+                          <Plus size={12} /> Novo Funil
+                        </button>
+                        {currentFunnel && permissions.isAdmin && (
+                          <button
+                            onClick={() => handleDeleteFunnel(selectedFunnelId)}
+                            className="w-full text-left px-3 py-2 rounded-lg text-[10px] font-bold text-rose-400 hover:bg-rose-500/20 transition-all flex items-center gap-2"
+                          >
+                            <Trash2 size={12} /> Excluir Funil
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="h-px bg-white/10 my-1" />
+
+                      {/* Gerenciar Etapas */}
+                      {currentFunnel && (
+                        <div className="space-y-1">
+                          <p className="text-[9px] font-black uppercase text-white/40 tracking-widest px-3 py-1">Etapas</p>
+                          <button
+                            onClick={handleAddStage}
+                            className="w-full text-left px-3 py-2 rounded-lg text-[10px] font-bold text-primary-300 hover:bg-primary-500/20 transition-all flex items-center gap-2"
+                          >
+                            <Plus size={12} /> Nova Etapa
+                          </button>
+                          {permissions.isAdmin && stages.length > 1 && (
+                            <div className="space-y-1 mt-1 pt-1 border-t border-white/10">
+                              {stages.map(s => (
+                                <button
+                                  key={s.id}
+                                  onClick={() => handleDeleteStage(s.id)}
+                                  className="w-full text-left px-3 py-1.5 rounded-lg text-[9px] text-white/60 hover:bg-rose-500/20 hover:text-rose-400 transition-all"
+                                  title={`Excluir etapa "${s.name}"`}
+                                >
+                                  ✕ {s.name}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                </div>
+
                <Button variant="secondary" icon={Settings2} onClick={() => setIsConfiguringFunnel(true)}>Configurar</Button>
                <Button icon={Plus}>Novo Lead</Button>
             </div>
