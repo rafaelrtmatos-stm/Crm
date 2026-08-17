@@ -1862,7 +1862,7 @@ export const ChatPanel = ({
 
   const handleDeleteNote = async (note: any) => {
     // ✅ Só Admin pode excluir
-    if (!permissions.isAdmin) {
+    if (!user?.isAdmin) {
       showAlert('Apenas administradores podem excluir notas.');
       return;
     }
@@ -1881,7 +1881,7 @@ export const ChatPanel = ({
   const [noteVersionIndex, setNoteVersionIndex] = useState(0);
 
   const handleEditNote = async (note: any, newText: string) => {
-    if (!permissions.isAdmin && note.senderName !== user?.name) {
+    if (!user?.isAdmin && note.senderName !== user?.name) {
       showAlert('Você só pode editar suas próprias notas.');
       return;
     }
@@ -1916,7 +1916,7 @@ export const ChatPanel = ({
 
   // ✅ Admin pode navegar entre versões
   const handleViewNoteVersion = (note: any, versionIndex: number) => {
-    if (!permissions.isAdmin) return;
+    if (!user?.isAdmin) return;
     if (versionIndex < 0 || versionIndex >= (note.versions?.length || 1)) return;
     setNoteVersionIndex(versionIndex);
     const version = note.versions?.[versionIndex];
@@ -2878,7 +2878,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
   const handleDeleteFunnel = async (funnelId: string) => {
     const funnel = funnels.find(f => f.id === funnelId);
     if (!funnel) return;
-    if (!permissions.isAdmin) {
+    if (!user?.isAdmin) {
       showAlert('Apenas administradores podem excluir funis.');
       return;
     }
@@ -2931,7 +2931,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
 
   const handleDeleteStage = async (stageId: string) => {
     const stage = stages.find(s => s.id === stageId);
-    if (!stage || !permissions.isAdmin) return;
+    if (!stage || !user?.isAdmin) return;
     if (!(await showConfirm(`Excluir a etapa "${stage.name}" e reclassificar todos os leads?\n\nEssa ação não pode ser desfeita.`))) return;
     try {
       // Reclassificar leads: mover pra primeira etapa
@@ -3004,7 +3004,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                         >
                           <Plus size={12} /> Novo Funil
                         </button>
-                        {currentFunnel && permissions.isAdmin && (
+                        {currentFunnel && user?.isAdmin && (
                           <button
                             onClick={() => handleDeleteFunnel(selectedFunnelId)}
                             className="w-full text-left px-3 py-2 rounded-lg text-[10px] font-bold text-rose-400 hover:bg-rose-500/20 transition-all flex items-center gap-2"
@@ -3026,7 +3026,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                           >
                             <Plus size={12} /> Nova Etapa
                           </button>
-                          {permissions.isAdmin && stages.length > 1 && (
+                          {user?.isAdmin && stages.length > 1 && (
                             <div className="space-y-1 mt-1 pt-1 border-t border-white/10">
                               {stages.map(s => (
                                 <button
