@@ -2114,8 +2114,8 @@ export const ChatPanel = ({
 
   return (
     <GlassCard className="flex-1 flex flex-col p-0 overflow-hidden bg-white/3 border-white/10 relative h-full">
-      {/* Header */}
-      <div className="p-4 border-b border-white/10 flex items-center justify-between bg-white/[0.02]">
+      {/* Header - FIXO */}
+      <div className="p-4 border-b border-white/10 flex items-center justify-between bg-white/[0.02] flex-shrink-0">
         <div className="flex items-center gap-3">
           <div className="relative">
             <div className="w-10 h-10 rounded-xl bg-primary-500/20 flex items-center justify-center font-bold text-white text-base border border-primary-500/30">
@@ -2161,17 +2161,17 @@ export const ChatPanel = ({
         </div>
       </div>
 
-      {/* Atalho pra ver esse mesmo lead na outra tela (Funil CRM <-> Mensagens) */}
+      {/* Atalho pra ver no Funil - FIXO */}
       <button
         onClick={handleJumpToOtherView}
-        className="flex items-center justify-center gap-1.5 w-full py-1.5 border-b border-white/10 bg-white/[0.015] text-[9px] font-black uppercase tracking-widest text-primary-300 hover:bg-white/5 hover:text-primary-200 transition-colors"
+        className="flex items-center justify-center gap-1.5 w-full py-1.5 border-b border-white/10 bg-white/[0.015] text-[9px] font-black uppercase tracking-widest text-primary-300 hover:bg-white/5 hover:text-primary-200 transition-colors flex-shrink-0"
       >
         <ExternalLink size={11} />
         {rootActiveTab === 'crm' ? 'Ver Conversa em Mensagens' : 'Ver Card no Funil CRM'}
       </button>
 
-      {/* Tabs */}
-      <div className="flex flex-wrap border-b border-white/5 bg-white/[0.01] px-2">
+      {/* Tabs - FIXO */}
+      <div className="flex flex-wrap border-b border-white/5 bg-white/[0.01] px-2 flex-shrink-0">
         {tabs.map(tab => (
           <button
             key={tab.id}
@@ -2192,7 +2192,7 @@ export const ChatPanel = ({
         ))}
       </div>
 
-      {/* Content Area */}
+      {/* Content Area - SCROLL apenas aqui */}
       <div className="flex-1 overflow-hidden relative">
         <AnimatePresence mode="wait">
           {activeTab === 'chat' && (
@@ -2300,8 +2300,8 @@ export const ChatPanel = ({
                  <div ref={messagesEndRef} />
               </div>
 
-              {/* Chat Input */}
-              <div className="p-3 bg-slate-100/50 border-t border-white/10 space-y-2">
+              {/* Chat Input - FIXO */}
+              <div className="p-3 bg-slate-100/50 border-t border-white/10 space-y-2 flex-shrink-0">
                 {/* BARRA DE RESPOSTAS RÁPIDAS / MENSAGENS SALVAS & TESTE CLIENTE */}
                 <div className="flex flex-wrap items-center gap-1.5 pb-1">
                   <button
