@@ -2094,7 +2094,7 @@ export const ChatPanel = ({
 
   const quickActions = [
     { id: 'note', icon: StickyNote, label: 'Nota Interna', color: 'text-amber-400', permission: permissions.canStartNote, onClick: () => setActiveTab('notes') },
-    { id: 'saved', icon: MessageSquare, label: 'Msg Salva', color: 'text-primary-300', permission: permissions.canSendSavedMessage, onClick: () => setShowQuickTemplates(!showQuickTemplates) },
+    { id: 'saved', icon: MessageSquare, label: 'Msg Salva', color: 'text-primary-300', permission: permissions.canSendSavedMessage, onClick: () => setActiveTab('saved') },
     { id: 'task', icon: ListTodo, label: 'Tarefa', color: 'text-purple-400', permission: permissions.canAddTask, onClick: () => setActiveTab('tasks') },
     { id: 'pos', icon: ShoppingBag, label: 'Venda PDV', color: 'text-blue-400', permission: permissions.canStartPosSale, onClick: handleStartSale },
   ];
@@ -2569,6 +2569,31 @@ export const ChatPanel = ({
                       </div>
                     );
                   })}
+               </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'saved' && (
+            <motion.div key="saved" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-8 space-y-6 overflow-y-auto custom-scrollbar h-full flex flex-col">
+               <div className="flex items-center justify-between">
+                  <h3 className="text-xl font-bold text-white italic">Mensagens Salvas</h3>
+               </div>
+               <p className="text-xs text-white/40 italic">Clique em uma mensagem para preenchê-la no campo de envio.</p>
+               <div className="space-y-3">
+                  {quickTemplates.length === 0 ? (
+                    <p className="text-xs text-white/20 text-center py-8">Nenhuma mensagem salva ainda.</p>
+                  ) : (
+                    quickTemplates.map((tpl, i) => (
+                      <button
+                        key={i}
+                        onClick={() => { setNewMessage(tpl.text); setActiveTab('chat'); }}
+                        className="w-full text-left p-4 bg-white/5 hover:bg-primary-500/15 border border-white/10 hover:border-primary-500/30 rounded-2xl transition-all group"
+                      >
+                        <h4 className="text-sm font-bold text-primary-300 group-hover:text-primary-200 mb-1">{tpl.label}</h4>
+                        <p className="text-xs text-white/60 group-hover:text-white/80 leading-relaxed">{tpl.text}</p>
+                      </button>
+                    ))
+                  )}
                </div>
             </motion.div>
           )}
