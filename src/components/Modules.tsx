@@ -3568,10 +3568,8 @@ export const MessagesModule = ({ currentCompany, user }: { currentCompany: Compa
         }
       }
 
-      if (fetchedLeads.length > 0 && !selectedChat) {
-        setSelectedChat({ ...fetchedLeads[0], name: fetchedLeads[0].fullName });
-      }
-
+      // Não abre nenhuma conversa automaticamente ao entrar na aba -- só mostra a lista.
+      // A conversa só abre quando o usuário clica numa mensagem específica.
       // If database has no leads yet, auto-seed sample client conversations for all channels
       if (snap.empty) {
         const { funnelId, funnelStageId } = await getInitialStageInfo();
