@@ -3299,7 +3299,7 @@ const GenericListView = ({ title, subtitle, columns, data, icon, onAdd, noHeader
 );
 
 // --- MESSAGES ---
-export const MessagesModule = ({ currentCompany, user }: { currentCompany: Company | null, user: AppUser | null }) => {
+export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { currentCompany: Company | null, user: AppUser | null, preselectedLeadId?: string }) => {
   const { pendingWhatsAppShare, setPendingWhatsAppShare } = React.useContext(AppContext)!;
   const [selectedChat, setSelectedChat] = useState<any>(null);
   const lastSeenIncomingRef = React.useRef<number | null>(null);
@@ -3564,6 +3564,15 @@ export const MessagesModule = ({ currentCompany, user }: { currentCompany: Compa
           setSelectedChat({ ...target, name: target.fullName });
           setChatInitialDraft(pendingWhatsAppShare.prefillMessage);
           setPendingWhatsAppShare(null);
+          return;
+        }
+      }
+
+      // Pré-seleciona lead se vindo do popup de mensagens
+      if (preselectedLeadId) {
+        const target = fetchedLeads.find(l => l.id === preselectedLeadId);
+        if (target) {
+          setSelectedChat({ ...target, name: target.fullName });
           return;
         }
       }

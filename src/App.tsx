@@ -386,6 +386,7 @@ import {
   SettingsModule,
   ClientesEsperaModule
 } from './components/Modules';
+import { MessagesSidebarPopup } from './components/MessagesSidebarPopup';
 import { ModuleErrorBoundary } from './components/SharedUI';
 
 // --- MAIN APP ---
@@ -469,6 +470,8 @@ export default function App() {
     if (typeof window !== 'undefined') localStorage.setItem('rpro_active_tab', tab);
   };
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isMessagePopupOpen, setIsMessagePopupOpen] = useState(false);
+  const [preselectedLeadIdForMessages, setPreselectedLeadIdForMessages] = useState<string | undefined>();
   const [pendingOrders, setPendingOrders] = useState<SaleOrder[]>([]);
   const [isRegisterOpen, setIsRegisterOpenLocal] = useState(false);
   useEffect(() => {
@@ -483,6 +486,14 @@ export default function App() {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, []);
+
+  // Limpa o preselectedLeadId quando sair da aba de mensagens
+  useEffect(() => {
+    if (activeTab !== 'messages') {
+      setPreselectedLeadIdForMessages(undefined);
+    }
+  }, [activeTab]);
+
   const setIsRegisterOpen = async (open: boolean) => {
     setIsRegisterOpenLocal(open); // resposta imediata na UI
     try {
@@ -1646,8 +1657,14 @@ export default function App() {
                     active={activeTab === item.id}
                     badgeCount={item.id === 'messages' ? unrepliedLeadsCount : undefined}
                     onClick={() => {
-                      setActiveTab(item.id as MainTab);
-                      if (window.innerWidth < 1024) setIsSidebarOpen(false);
+                      if (item.id === 'messages' && window.innerWidth >= 1024) {
+                        // Desktop: abrir popup de mensagens
+                        setIsMessagePopupOpen(true);
+                      } else {
+                        // Mobile ou outros itens: navegação normal
+                        setActiveTab(item.id as MainTab);
+                        if (window.innerWidth < 1024) setIsSidebarOpen(false);
+                      }
                     }}
                   />
                 ))}
@@ -1693,7 +1710,7 @@ export default function App() {
                 >
                   {activeTab === 'dashboard' && <DashboardModule user={user} currentCompany={currentCompany} pendingOrders={pendingOrders} setActiveTab={setActiveTab} />}
                   {activeTab === 'crm' && <CRMModule currentCompany={currentCompany} user={user} />}
-                  {activeTab === 'messages' && <MessagesModule currentCompany={currentCompany} user={user} />}
+                  {activeTab === 'messages' && <MessagesModule currentCompany={currentCompany} user={user} preselectedLeadId={preselectedLeadIdForMessages} />}
                   {activeTab === 'pos' && <ModuleErrorBoundary label="o PDV"><POSModule currentCompany={currentCompany} addPendingOrder={addPendingOrder} /></ModuleErrorBoundary>}
                   {activeTab === 'contacts' && (
                     <ContactsModule
@@ -1731,6 +1748,22 @@ export default function App() {
         </main>
       </div>
     </div>
+    
+    {/* Popup de Mensagens no Menu Lateral (Desktop) */}
+    <MessagesSidebarPopup
+      isOpen={isMessagePopupOpen}
+      onClose={() => {
+        setIsMessagePopupOpen(false);
+        setPreselectedLeadIdForMessages(undefined);
+      }}
+      onSelectLead={(lead) => {
+        setPreselectedLeadIdForMessages(lead.id);
+        setActiveTab('messages');
+      }}
+      currentCompany={currentCompany}
+      user={user}
+    />
+    
     <NotifyHost />
     </AppContext.Provider>
   );
