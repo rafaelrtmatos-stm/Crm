@@ -18,6 +18,7 @@ import {
   getOrCreateCaixaAberto,
   getPagamentosDoCaixa,
   calcularResumoNoIntervalo,
+  calcularResumoCaixa,
 } from '../utils/caixaSemanalStorage';
 import { ReceiptForecastCard } from './ReceiptForecastCard';
 import { AddServiceButton } from './AddServiceButton';
@@ -200,6 +201,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
     if (!caixa) return null;
     return calcularResumoNoIntervalo(caixa, userSettings.baseSalary, recentServices, descontos, pagamentos, start, end);
   }, [caixa, userSettings.baseSalary, recentServices, descontos, pagamentos, start, end]);
+
+  // ✅ Saldo acumulado do caixa (dívida/crédito carregado de fora do período selecionado),
+  // igual ao que a aba Descontos mostra no card "Caixa". Sem isso, o "Total Estimado" do
+  // card de Previsão ficava inflado quando o colaborador já tinha dívida acumulada.
+  const saldoAnteriorAoPeriodo = useMemo(() => {
+    if (!caixa || !resumoPeriodoAtivo) return 0;
+    const resumoCompleto = calcularResumoCaixa(caixa, userSettings.baseSalary, recentServices, descontos, pagamentos);
+    return resumoCompleto.saldoFinal - resumoPeriodoAtivo.saldoSemana;
+  }, [caixa, userSettings.baseSalary, recentServices, descontos, pagamentos, resumoPeriodoAtivo]);
 
   // Calculate specific current week statistics for the bottom section
   const weeklyBounds = useMemo(() => getThisWeekBounds(), []);
@@ -387,6 +397,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             totalProduction={displayStats.totalProduction}
             totalDiscounts={resumoPeriodoAtivo?.totalDescontos ?? 0}
             totalPaid={resumoPeriodoAtivo?.totalPago ?? 0}
+            previousBalance={saldoAnteriorAoPeriodo}
             onOpenDescontos={onGoToDescontos}
           />
         </div>
