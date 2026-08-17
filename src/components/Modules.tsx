@@ -13820,7 +13820,7 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
   useEffect(() => {
     let active = true;
     const load = async () => {
-      const { data, error } = await supabase.from('clientes').select('*').is('deleted_at', null).order('full_name', { ascending: true });
+      const { data, error } = await supabase.from('clientes').select('*').order('full_name', { ascending: true });
       if (!active) return;
       if (error) { console.error('Erro ao carregar clientes:', error); setLoading(false); return; }
       setClientes(data || []);
