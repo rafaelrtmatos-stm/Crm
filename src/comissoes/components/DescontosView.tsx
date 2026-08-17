@@ -65,27 +65,58 @@ const sugerirValorFalta = (tipo: DescontoTipo, baseSalary: number): number => {
 
 const getTodayISO = () => new Date().toISOString().split('T')[0];
 
-// ✅ CORREÇÃO: Semana começa sempre no DOMINGO (não segunda) — mesma regra do Caixa
-const getThisWeekBounds = () => {
-  const now = new Date();
-  const day = now.getDay(); // 0 = domingo, 1 = segunda, ... 6 = sábado
+// Tipo de período pro card "Descontos" (Semana / Mês / Ano), com offset pra navegar
+// entre períodos anteriores/seguintes -- mesma ideia do seletor do Caixa da Semana.
+type DescontosPeriodo = 'semana' | 'mes' | 'ano';
 
-  const start = new Date(now);
-  start.setDate(now.getDate() - day); // volta até o domingo dessa semana
-  const end = new Date(start);
-  end.setDate(start.getDate() + 6); // sábado seguinte
-
-  const format = (d: Date) => d.toISOString().split('T')[0];
-  return { start: format(start), end: format(end) };
+const DESCONTOS_PERIODO_LABELS: Record<DescontosPeriodo, string> = {
+  semana: 'Semana',
+  mes: 'Mês',
+  ano: 'Ano',
 };
 
-// Mantém função original como fallback (não remover)
-const getThisMonthBounds = () => {
+const format = (d: Date) => d.toISOString().split('T')[0];
+
+// Calcula início/fim do período selecionado, aplicando o offset (0 = atual,
+// -1 = anterior, 1 = seguinte...). Semana sempre domingo a sábado.
+const getDescontosPeriodoBounds = (periodo: DescontosPeriodo, offset: number) => {
   const now = new Date();
-  const y = now.getFullYear();
-  const m = now.getMonth();
-  const format = (d: Date) => d.toISOString().split('T')[0];
-  return { start: format(new Date(y, m, 1)), end: format(new Date(y, m + 1, 0)) };
+
+  if (periodo === 'semana') {
+    const day = now.getDay(); // 0 = domingo ... 6 = sábado
+    const start = new Date(now);
+    start.setDate(now.getDate() - day + offset * 7);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6);
+    return { start: format(start), end: format(end) };
+  }
+
+  if (periodo === 'mes') {
+    const y = now.getFullYear();
+    const m = now.getMonth() + offset;
+    return { start: format(new Date(y, m, 1)), end: format(new Date(y, m + 1, 0)) };
+  }
+
+  // ano
+  const y = now.getFullYear() + offset;
+  return { start: format(new Date(y, 0, 1)), end: format(new Date(y, 11, 31)) };
+};
+
+// Texto exibido junto ao total (ex: "01/08 - 07/08", "Agosto/2026", "2026")
+const getDescontosPeriodoLabel = (periodo: DescontosPeriodo, offset: number, bounds: { start: string; end: string }): string => {
+  const now = new Date();
+
+  if (periodo === 'semana') {
+    return `${formatDateBR(bounds.start)} - ${formatDateBR(bounds.end)}`;
+  }
+
+  if (periodo === 'mes') {
+    const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+    const label = d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+    return label.charAt(0).toUpperCase() + label.slice(1);
+  }
+
+  return String(now.getFullYear() + offset);
 };
 
 const emptyForm: DescontoFormInput = {
@@ -110,11 +141,22 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
   const [form, setForm] = useState<DescontoFormInput>({ ...emptyForm });
   const [saving, setSaving] = useState(false);
 
-  // ✅ CORREÇÃO: Usar semana atual como padrão (não mês)
-  const weekBounds = useMemo(() => getThisWeekBounds(), []);
-  const totalMesAtual = useMemo(
-    () => calculateDescontosNoPeriodo(descontos, weekBounds.start, weekBounds.end),
-    [descontos, weekBounds]
+  // ✅ Card "Descontos": seletor Semana / Mês / Ano, com Semana selecionada por padrão,
+  // e navegação entre períodos anteriores/seguintes (mesmo padrão do Caixa da Semana).
+  const [descontosPeriodo, setDescontosPeriodo] = useState<DescontosPeriodo>('semana');
+  const [descontosPeriodoOffset, setDescontosPeriodoOffset] = useState(0);
+
+  const descontosPeriodoBounds = useMemo(
+    () => getDescontosPeriodoBounds(descontosPeriodo, descontosPeriodoOffset),
+    [descontosPeriodo, descontosPeriodoOffset]
+  );
+  const totalDescontosPeriodo = useMemo(
+    () => calculateDescontosNoPeriodo(descontos, descontosPeriodoBounds.start, descontosPeriodoBounds.end),
+    [descontos, descontosPeriodoBounds]
+  );
+  const descontosPeriodoLabel = useMemo(
+    () => getDescontosPeriodoLabel(descontosPeriodo, descontosPeriodoOffset, descontosPeriodoBounds),
+    [descontosPeriodo, descontosPeriodoOffset, descontosPeriodoBounds]
   );
 
   // --- Caixa da Semana ---
@@ -498,20 +540,66 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
               <MinusCircle className="w-5 h-5" />
             </div>
             <div>
-              <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">Descontos no Mês Atual</span>
-              <div className="text-2xl font-black text-rose-400 font-mono">{formatCurrency(totalMesAtual)}</div>
+              <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                Descontos na {DESCONTOS_PERIODO_LABELS[descontosPeriodo]}
+              </span>
+              <div className="text-2xl font-black text-rose-400 font-mono">{formatCurrency(totalDescontosPeriodo)}</div>
             </div>
           </div>
-          {isAdmin && !showForm && (
-            <button
-              onClick={openNewForm}
-              className="flex items-center gap-1.5 h-9 px-3 rounded-xl bg-gradient-red text-white text-xs font-black uppercase tracking-wide shadow-red-glow hover:opacity-90 transition-opacity"
-            >
-              <Plus className="w-4 h-4" />
-              Novo Desconto
-            </button>
-          )}
+
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* ✅ Seletor de visualização: Semana / Mês / Ano (Semana é o padrão) */}
+            <div className="flex items-center gap-1 p-1 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
+              {(['semana', 'mes', 'ano'] as const).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => { setDescontosPeriodo(p); setDescontosPeriodoOffset(0); }}
+                  className={`px-3 py-1.5 rounded-md text-[11px] font-black uppercase tracking-wider transition-all ${
+                    descontosPeriodo === p
+                      ? 'bg-primary-500 text-white'
+                      : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'
+                  }`}
+                >
+                  {DESCONTOS_PERIODO_LABELS[p]}
+                </button>
+              ))}
+            </div>
+
+            {isAdmin && !showForm && (
+              <button
+                onClick={openNewForm}
+                className="flex items-center gap-1.5 h-9 px-3 rounded-xl bg-gradient-red text-white text-xs font-black uppercase tracking-wide shadow-red-glow hover:opacity-90 transition-opacity"
+              >
+                <Plus className="w-4 h-4" />
+                Novo Desconto
+              </button>
+            )}
+          </div>
         </div>
+
+        {/* ✅ Navegação entre semanas/meses/anos anteriores e seguintes */}
+        <div className="flex items-center justify-center gap-3 py-1 mt-4">
+          <button
+            onClick={() => setDescontosPeriodoOffset((o) => o - 1)}
+            className="p-1.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5 transition-all"
+            title={`${DESCONTOS_PERIODO_LABELS[descontosPeriodo]} anterior`}
+          >
+            <ChevronLeft size={16} />
+          </button>
+          <span className="text-xs font-black uppercase tracking-wider text-[var(--text-main)] min-w-[140px] text-center">
+            {descontosPeriodoLabel}
+            {descontosPeriodoOffset === 0 && <span className="text-primary-400"> · atual</span>}
+          </span>
+          <button
+            onClick={() => setDescontosPeriodoOffset((o) => Math.min(0, o + 1))}
+            disabled={descontosPeriodoOffset >= 0}
+            className="p-1.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5 transition-all disabled:opacity-30 disabled:pointer-events-none"
+            title={`${DESCONTOS_PERIODO_LABELS[descontosPeriodo]} seguinte`}
+          >
+            <ChevronRight size={16} />
+          </button>
+        </div>
+
         {!isAdmin && (
           <p className="text-[11px] text-[var(--text-muted)] mt-3">
             Aqui você só consulta os descontos lançados. Qualquer dúvida, fale com o administrador.
