@@ -94,5 +94,13 @@ CLÁUSULA 15ª — DAS DISPOSIÇÕES GERAIS
 Este contrato representa a totalidade do acordado entre as partes quanto ao objeto aqui descrito, substituindo entendimentos verbais anteriores. Eventuais tolerâncias no cumprimento de obrigações não configuram novação ou renúncia de direitos.
 
 CLÁUSULA 16ª — DO FORO
-Fica eleito o foro da comarca de domicílio da CONTRATADA para dirimir eventuais controvérsias oriundas deste contrato, com renúncia a qualquer outro, por mais privilegiado que seja.`;
+Fica eleito o foro da comarca de domicílio da CONTRATADA para dirimir eventuais controvérsias oriundas deste contrato, com renúncia a qualquer outro, por mais privilegiado que seja.
+
+REFERÊNCIAS LEGAIS
+
+Este contrato observa o disposto no Código de Defesa do Consumidor (Lei nº 8.078/1990), em especial:
+
+Art. 31 — A oferta e apresentação de produtos ou serviços devem assegurar informações corretas, claras, precisas, ostensivas e em língua portuguesa sobre suas características, qualidades, quantidade, composição, preço, garantia, prazos de validade e origem, entre outros dados, bem como sobre os riscos que apresentam à saúde e segurança dos consumidores.
+
+Art. 35 — Se o fornecedor de serviços não cumprir oferta, deixar de executar a obrigação no prazo estipulado ou cumpri-la parcialmente ou de forma inadequada ou errônea, responderá pelas perdas e danos, além do ressarcimento de custas e honorários advocatícios, independentemente da execução específica da obrigação, quando devido.`;
 }
