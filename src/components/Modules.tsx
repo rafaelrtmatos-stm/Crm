@@ -5016,7 +5016,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     multaJurosTexto: 'Em caso de atraso no pagamento, incidirá multa de 2% sobre o valor em aberto, acrescida de juros de 1% ao mês (pro rata die), sem prejuízo de eventual correção monetária.',
     garantiaTexto: 'Garantia de 90 dias para defeitos de fabricação/impressão, não cobrindo desgaste natural, mau uso, exposição inadequada ou danos causados por terceiros.',
     politicaCancelamentoTexto: 'Cancelamento antes do início da produção: reembolso integral, descontadas eventuais despesas já realizadas. Após o início da produção ou para itens personalizados, não há reembolso dos valores já investidos em material e mão de obra.',
-    entradaPercentual: 50, entradaValor: 0, entradaModo: 'percentual' as 'percentual' | 'valor', validade: '',
+    entradaPercentual: 50, entradaValor: 0, entradaModo: 'percentual' as 'percentual' | 'valor',
     formasPagamento: [] as OrcamentoPagamento[],
     politicaPagamento: 'entrada_restante_entrega' as 'sem_entrada' | 'entrada_fixa' | 'entrada_percentual' | 'pagamento_integral' | 'entrada_restante_entrega' | 'entrada_parcelas',
     entradaObrigatoria: true,
@@ -5121,7 +5121,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       entradaPercentual: o.entradaPercentual ?? 50,
       entradaValor: o.entradaValor ?? 0,
       entradaModo: 'percentual' as 'percentual' | 'valor',
-      validade: o.validade || '',
       pagamentoPosteriorAutorizado: o.pagamentoPosteriorAutorizado ?? false,
       pagamentoPosteriorData: o.pagamentoPosteriorData || '',
       pagamentoPosteriorDias: o.pagamentoPosteriorDias ?? 0,
@@ -5164,7 +5163,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       entradaPercentual: c.entradaPercentual ?? 50,
       entradaValor: c.entradaValor ?? 0,
       entradaModo: 'percentual' as 'percentual' | 'valor',
-      validade: c.validade || '',
       pagamentoPosteriorAutorizado: c.pagamentoPosteriorAutorizado ?? false,
       pagamentoPosteriorData: c.pagamentoPosteriorData || '',
       pagamentoPosteriorDias: c.pagamentoPosteriorDias ?? 0,
@@ -5291,7 +5289,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         multa_juros_texto: contratoForm.multaJurosTexto || null,
         garantia_texto: contratoForm.garantiaTexto || null,
         politica_cancelamento_texto: contratoForm.politicaCancelamentoTexto || null,
-        validade: contratoForm.validade || null,
         observacoes: contratoForm.observacoes || null,
         texto_contrato: textoContrato,
         updated_at: new Date().toISOString(),
@@ -12108,7 +12105,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     {safeFormat(editingContrato?.createdAt || new Date().toISOString(), 'dd/MM/yyyy')}
                   </div>
                </div>
-               <Input label="Validade" type="date" value={contratoForm.validade} onChange={(e: any) => setContratoForm({ ...contratoForm, validade: e.target.value })} />
             </div>
 
             <div className="h-px bg-white/10" />
@@ -13667,15 +13663,16 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
             </div>
          </GlassCard>
 
-         {/* Barra lateral A-Z */}
-         <div className="hidden md:flex flex-col gap-0.5 shrink-0 bg-white/[0.02] border border-white/5 rounded-2xl p-1.5 h-fit sticky top-0">
+         {/* Barra lateral A-Z -- visivel tambem no mobile (fina, tipo agenda de contatos do
+             celular) pra pular direto pro nome sem precisar rolar a lista inteira. */}
+         <div className="flex flex-col gap-0.5 shrink-0 bg-white/[0.02] border border-white/5 rounded-2xl p-1 md:p-1.5 h-fit sticky top-0">
             {alfabeto.map(letra => (
               <button
                 key={letra}
                 disabled={!letrasDisponiveis.has(letra)}
                 onClick={() => scrollToLetra(letra)}
                 className={cn(
-                  "w-6 h-5 rounded text-[9px] font-black transition-all",
+                  "w-5 h-4 md:w-6 md:h-5 rounded text-[8px] md:text-[9px] font-black transition-all",
                   letrasDisponiveis.has(letra) ? "text-white/50 hover:bg-primary-500 hover:text-slate-900" : "text-white/10 cursor-not-allowed"
                 )}
               >
