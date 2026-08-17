@@ -1670,6 +1670,7 @@ export default function App() {
                         setIsMessagePopupOpen(true);
                       } else {
                         // Mobile ou outros itens: navegação normal
+                        setIsMessagePopupOpen(false);
                         setActiveTab(item.id as MainTab);
                         if (window.innerWidth < 1024) setIsSidebarOpen(false);
                       }
@@ -1757,19 +1758,17 @@ export default function App() {
       </div>
     </div>
     
-    {/* Popup de Mensagens no Menu Lateral (Desktop) */}
+    {/* Painel de Mensagens no Menu Lateral (Desktop) — cobre todo o conteúdo à
+        direita da sidebar, nunca a própria sidebar; ver regras em MessagesSidebarPopup.tsx */}
     <MessagesSidebarPopup
       isOpen={isMessagePopupOpen}
       onClose={() => {
         setIsMessagePopupOpen(false);
         setPreselectedLeadIdForMessages(undefined);
       }}
-      onSelectLead={(lead) => {
-        setPreselectedLeadIdForMessages(lead.id);
-        setActiveTab('messages');
-      }}
       currentCompany={currentCompany}
       user={user}
+      preselectedLeadId={preselectedLeadIdForMessages}
     />
     
     <NotifyHost />

@@ -2187,6 +2187,17 @@ export const ChatPanel = ({
       {/* Header - FIXO */}
       <div className="p-4 border-b border-white/10 flex items-center justify-between bg-white/[0.02] flex-shrink-0">
         <div className="flex items-center gap-3">
+          {/* Botão Voltar — só no mobile: sai do Modo Conversa em Foco e retorna à lista, sem recarregar a página */}
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="md:hidden flex items-center gap-1 -ml-1 mr-1 px-2 py-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/5 transition-all shrink-0"
+            >
+              <ArrowLeft size={18} />
+              <span className="text-[10px] font-black uppercase tracking-wider">Voltar</span>
+            </button>
+          )}
           <div className="relative">
             <div className="w-10 h-10 rounded-xl bg-primary-500/20 flex items-center justify-center font-bold text-white text-base border border-primary-500/30">
               {conversation.name?.[0] || 'C'}
@@ -2255,7 +2266,7 @@ export const ChatPanel = ({
               </div>
             )}
           </div>
-          {onClose && <Button variant="ghost" icon={X} onClick={onClose} className="p-1.5 min-w-0 h-8 w-8" />}
+          {onClose && <Button variant="ghost" icon={X} onClick={onClose} className="hidden md:flex p-1.5 min-w-0 h-8 w-8" />}
         </div>
       </div>
 
