@@ -2962,10 +2962,10 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
   return (
     <div className="h-[calc(100vh-12rem)] flex gap-6 animate-in slide-in-from-right-10 duration-500">
       <div className={cn(
-        "flex flex-col space-y-6 transition-all duration-500 w-full",
-        !selectedLead && "flex",
-        selectedLead && "hidden"
+        "flex flex-col space-y-6 transition-all duration-500",
+        selectedLead ? "hidden md:flex md:w-[300px] md:shrink-0" : "w-full flex"
       )}>
+        {!selectedLead && (
         <SectionHeader 
           title="Funil Rafa Arts" 
           subtitle={currentFunnel?.name || "Gestão Estratégica"} 
@@ -3059,6 +3059,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
             </div>
           } 
         />
+        )}
 
         <DndContext
           sensors={sensors}
@@ -3068,8 +3069,12 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
         >
           <div className="flex gap-4 overflow-x-auto pb-6 grow min-h-[500px] scroll-smooth custom-scrollbar">
             {/* Cada coluna tem largura fixa e igual — se nao couber todas na tela, rola de lado
-                em vez de encolher (senao com muitas etapas cada coluna fica espremida demais) */}
-            {stages.map(stage => (
+                em vez de encolher (senao com muitas etapas cada coluna fica espremida demais).
+                Com uma conversa aberta, mostra so a coluna da etapa daquele lead (pra poder trocar
+                de conversa dentro da mesma etapa sem sair da tela de mensagem). */}
+            {stages
+              .filter(stage => !selectedLead || stage.id === (selectedLead.funnelStageId || (stages.find(s => s.isInitial || s.order === 0)?.id)))
+              .map(stage => (
               <div key={`wrapper-${stage.id}`} className="w-full md:w-[300px] shrink-0">
                 <KanbanColumn 
                   key={stage.id} 
@@ -3081,6 +3086,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
               </div>
             ))}
             
+            {!selectedLead && (
             <button 
               onClick={async () => {
                 const name = await showPrompt('Nome da nova etapa:');
@@ -3099,6 +3105,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                <Plus size={32} />
                <span className="text-[10px] font-black uppercase tracking-[3px] mt-2">Nova Etapa</span>
             </button>
+            )}
           </div>
 
           <DragOverlay>
@@ -3119,7 +3126,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15, ease: 'easeOut' }}
-            className="h-full w-full"
+            className="h-full flex-1 min-w-0"
           >
             <ChatPanel 
               conversation={{ ...selectedLead, name: selectedLead.fullName, channel: 'WhatsApp' }}
