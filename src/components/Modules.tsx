@@ -13310,7 +13310,7 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
   useEffect(() => {
     let active = true;
     const load = async () => {
-      const { data, error } = await supabase.from('clientes').select('*').order('full_name', { ascending: true });
+      const { data, error } = await supabase.from('clientes').select('*').is('deleted_at', null).order('full_name', { ascending: true });
       if (!active) return;
       if (error) { console.error('Erro ao carregar clientes:', error); setLoading(false); return; }
       setClientes(data || []);
@@ -13323,6 +13323,86 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
       .subscribe();
     return () => { active = false; supabase.removeChannel(channel); };
   }, [currentCompany]);
+
+  // --- Exclusão de clientes (lixeira de 30 dias, igual Vendas/Contratos) ---
+  const [selectedClienteIds, setSelectedClienteIds] = useState<Set<string>>(new Set());
+  const [isTrashOpen, setIsTrashOpen] = useState(false);
+  const [deletedClientes, setDeletedClientes] = useState<any[]>([]);
+  const [isLoadingTrash, setIsLoadingTrash] = useState(false);
+  const [isDeletingClientes, setIsDeletingClientes] = useState(false);
+
+  const loadDeletedClientes = async () => {
+    setIsLoadingTrash(true);
+    try {
+      // Purga automatica: excluidos ha mais de 30 dias somem de vez
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 30);
+      await supabase.from('clientes').delete().not('deleted_at', 'is', null).lt('deleted_at', cutoff.toISOString());
+
+      const { data } = await supabase.from('clientes').select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending: false });
+      setDeletedClientes(data || []);
+    } catch (err) {
+      console.error('Erro ao carregar lixeira de clientes:', err);
+    } finally {
+      setIsLoadingTrash(false);
+    }
+  };
+  useEffect(() => { loadDeletedClientes(); }, [currentCompany]);
+  useEffect(() => { if (isTrashOpen) loadDeletedClientes(); }, [isTrashOpen]);
+
+  // Conta quantos pedidos/contratos/orçamentos estão vinculados aos clientes selecionados, pra
+  // avisar antes de confirmar a exclusão (excluir não apaga esse histórico, só solta o vínculo).
+  const contarPedidosVinculados = async (clienteIds: string[]) => {
+    const [vendasRes, contratosRes, orcamentosRes] = await Promise.all([
+      supabase.from('vendas').select('id', { count: 'exact', head: true }).in('cliente_id', clienteIds).is('deleted_at', null),
+      supabase.from('contratos').select('id', { count: 'exact', head: true }).in('cliente_id', clienteIds).is('deleted_at', null),
+      supabase.from('orcamentos').select('id', { count: 'exact', head: true }).in('cliente_id', clienteIds),
+    ]);
+    return (vendasRes.count || 0) + (contratosRes.count || 0) + (orcamentosRes.count || 0);
+  };
+
+  const handleDeleteClientes = async (ids: string[]) => {
+    if (ids.length === 0) return;
+    const totalPedidos = await contarPedidosVinculados(ids);
+    const quem = ids.length === 1 ? `"${clientes.find(c => c.id === ids[0])?.full_name || 'esse cliente'}"` : `${ids.length} clientes`;
+    const avisoPedidos = totalPedidos > 0
+      ? `\n\nAtenção: ${totalPedidos} pedido(s)/contrato(s)/orçamento(s) estão vinculados a ${ids.length === 1 ? 'ele' : 'eles'}. Continuam intactos, só perdem o vínculo com o cadastro enquanto estiver na lixeira.`
+      : '';
+    if (!(await showConfirm(`Excluir ${quem}? Fica${ids.length === 1 ? '' : 'm'} 30 dias na Lixeira antes de sumir de vez — dá pra restaurar dentro desse prazo.${avisoPedidos}`))) return;
+    setIsDeletingClientes(true);
+    try {
+      const { error } = await supabase.from('clientes').update({ deleted_at: new Date().toISOString() }).in('id', ids);
+      if (error) throw error;
+      setSelectedClienteIds(new Set());
+    } catch (err) {
+      console.error('Erro ao excluir cliente(s):', err);
+      showAlert('Não foi possível excluir.');
+    } finally {
+      setIsDeletingClientes(false);
+    }
+  };
+
+  const handleRestoreCliente = async (c: any) => {
+    if (!(await showConfirm(`Restaurar o cliente "${c.full_name}"?`))) return;
+    const { error } = await supabase.from('clientes').update({ deleted_at: null }).eq('id', c.id);
+    if (error) { showAlert('Não foi possível restaurar.'); return; }
+    loadDeletedClientes();
+  };
+
+  const handlePermanentDeleteCliente = async (c: any) => {
+    if (!(await showConfirm(`Excluir DEFINITIVAMENTE "${c.full_name}"? Essa ação não pode ser desfeita.`))) return;
+    const { error } = await supabase.from('clientes').delete().eq('id', c.id);
+    if (error) { showAlert('Não foi possível excluir.'); return; }
+    loadDeletedClientes();
+  };
+
+  const toggleClienteSelected = (id: string) => {
+    setSelectedClienteIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
 
   const openEditCliente = (c: any) => {
     setEditingClienteId(c.id);
@@ -13457,9 +13537,65 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
             <Link2 size={14} className={cn(isLinkingVendas && "animate-pulse")} />
             <span className="hidden sm:inline">Vincular Vendas</span>
           </button>
+          <button
+            title={isTrashOpen ? 'Voltar pra lista' : 'Lixeira'}
+            onClick={() => setIsTrashOpen(!isTrashOpen)}
+            className={cn(
+              "relative flex items-center justify-center w-9 h-9 rounded-lg border transition-all",
+              isTrashOpen ? "bg-rose-500/20 border-rose-500/40 text-rose-300" : "bg-white/5 border-white/10 text-white/50 hover:text-rose-400 hover:border-rose-500/20"
+            )}
+          >
+            <Trash2 size={14} />
+            {deletedClientes.length > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-[16px] px-1 rounded-full bg-rose-500 text-white text-[8px] font-black flex items-center justify-center">{deletedClientes.length}</span>
+            )}
+          </button>
           <Button icon={Plus} onClick={() => { setEditingClienteId(null); setFormData({ full_name: '', phone: '', email: '', cpf_cnpj: '', city: '', state: '' }); setIsModalOpen(true); }}>Novo Cliente</Button>
         </div>
       </div>
+
+      {isTrashOpen ? (
+        <GlassCard className="p-4 border-white/5 bg-white/[0.02]">
+           <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-black text-white uppercase italic">Lixeira de Clientes</h3>
+              <p className="text-[9px] text-white/30 font-bold uppercase">Ficam aqui por 30 dias e depois somem automaticamente — {deletedClientes.length} cliente(s)</p>
+           </div>
+           {isLoadingTrash ? (
+             <div className="h-40 flex items-center justify-center"><RefreshCw className="animate-spin text-primary-500" size={20} /></div>
+           ) : deletedClientes.length === 0 ? (
+             <p className="text-center text-xs text-white/30 py-10">Nenhum cliente na lixeira.</p>
+           ) : (
+             <div className="max-h-[65vh] overflow-y-auto custom-scrollbar space-y-1.5">
+                {deletedClientes.map(c => (
+                  <div key={c.id} className="flex items-center gap-3 bg-slate-900/60 border border-white/5 rounded-xl px-3 py-2">
+                     <div className="min-w-0 flex-1">
+                        <p className="text-[11px] font-black text-white/70 uppercase italic truncate">{c.full_name}</p>
+                        <p className="text-[9px] text-white/30">Excluído em {c.deleted_at ? safeFormat(c.deleted_at, 'dd/MM/yyyy HH:mm') : '—'}</p>
+                     </div>
+                     <button onClick={() => handleRestoreCliente(c)} className="text-[9px] font-black uppercase px-2.5 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 shrink-0">Restaurar</button>
+                     <button onClick={() => handlePermanentDeleteCliente(c)} title="Excluir definitivamente" className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 shrink-0"><Trash2 size={12} /></button>
+                  </div>
+                ))}
+             </div>
+           )}
+        </GlassCard>
+      ) : (
+      <>
+      {selectedClienteIds.size > 0 && (
+        <div className="flex items-center justify-between gap-3 bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-2.5">
+           <p className="text-[10px] font-black text-rose-300 uppercase">{selectedClienteIds.size} selecionado(s)</p>
+           <div className="flex items-center gap-2">
+              <button onClick={() => setSelectedClienteIds(new Set())} className="text-[9px] font-black uppercase text-white/40 hover:text-white/70">Limpar</button>
+              <button
+                disabled={isDeletingClientes}
+                onClick={() => handleDeleteClientes(Array.from(selectedClienteIds))}
+                className="flex items-center gap-1.5 text-[9px] font-black uppercase px-3 py-1.5 rounded-lg bg-rose-500 text-white hover:bg-rose-600 disabled:opacity-50"
+              >
+                <Trash2 size={12} /> {isDeletingClientes ? 'Excluindo...' : 'Excluir Selecionados'}
+              </button>
+           </div>
+        </div>
+      )}
       <div className="flex items-center gap-2 flex-wrap">
          <div className="relative flex-1 min-w-[180px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" size={14} />
@@ -13497,8 +13633,11 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
                     <div
                       key={c.id}
                       ref={(el) => { clienteRowRefs.current[c.id] = el; }}
-                      className="flex items-center gap-3 bg-slate-900/60 hover:bg-slate-900 border border-white/5 rounded-xl px-3 py-2 transition-all"
+                      className={cn("flex items-center gap-3 bg-slate-900/60 hover:bg-slate-900 border rounded-xl px-3 py-2 transition-all", selectedClienteIds.has(c.id) ? "border-rose-500/40" : "border-white/5")}
                     >
+                       <button onClick={() => toggleClienteSelected(c.id)} className={cn("w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-colors", selectedClienteIds.has(c.id) ? "bg-rose-500 border-rose-500" : "border-white/20 hover:border-rose-400")}>
+                         {selectedClienteIds.has(c.id) && <Check size={11} className="text-white" />}
+                       </button>
                        <div className="min-w-0 flex-1">
                           <p className="text-[11px] font-black text-white uppercase italic truncate">{c.full_name}</p>
                           <div className="flex items-center gap-1.5 flex-wrap">
@@ -13518,6 +13657,7 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
                        <span className="text-white/40 text-[9px] shrink-0 hidden sm:block w-20 text-right">{s ? safeFormat(s.lastDate, 'dd/MM/yyyy') : '—'}</span>
                        <button onClick={() => onEditFullClient ? onEditFullClient(c) : openEditCliente(c)} title="Editar" className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20 shrink-0"><Pencil size={12} /></button>
                        <button onClick={() => setFichaCliente(c)} className="text-[9px] font-black uppercase px-3 py-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20 shrink-0">Exibir</button>
+                       <button onClick={() => handleDeleteClientes([c.id])} title="Excluir" className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 shrink-0"><Trash2 size={12} /></button>
                     </div>
                   );
                })}
@@ -13544,6 +13684,8 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
             ))}
          </div>
       </div>
+      </>
+      )}
       <Modal isOpen={isModalOpen} onClose={() => { setIsModalOpen(false); setEditingClienteId(null); }} title={editingClienteId ? "EDITAR CLIENTE" : "NOVO CLIENTE"}>
         <div className="p-6 space-y-4">
           <Input label="NOME COMPLETO" value={formData.full_name} onChange={(e: any) => setFormData({ ...formData, full_name: e.target.value.toUpperCase() })} />
