@@ -9282,19 +9282,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
             {/* Filtros -- mesmo padrao visual dos botoes de Contratos */}
             <div className="flex flex-col gap-3">
-              <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto no-scrollbar -mx-1 px-1 pb-0.5">
+              <div className="flex flex-nowrap items-center gap-0.5 md:gap-1.5 overflow-x-auto no-scrollbar -mx-1 px-1 pb-0.5">
                 {filtrosOrcamento.map(f => (
                   <button
                     key={f.id}
                     onClick={() => setOrcamentoStatusFilter(f.id)}
                     className={cn(
-                      "shrink-0 flex items-center gap-1.5 px-3 h-9 rounded-lg text-[9px] font-black uppercase tracking-wide cursor-pointer border transition-all whitespace-nowrap",
+                      "shrink-0 flex items-center gap-0.5 md:gap-1.5 px-2 md:px-3 h-8 md:h-9 rounded-lg text-[8px] md:text-[9px] font-black uppercase tracking-wide cursor-pointer border transition-all whitespace-nowrap",
                       orcamentoStatusFilter === f.id ? "bg-primary-500 text-white border-primary-500" : "bg-white/5 text-white/50 border-white/10 hover:text-white"
                     )}
                   >
                     {f.label}
                     <span className={cn(
-                      "flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[9px] font-black",
+                      "flex items-center justify-center min-w-[16px] md:min-w-[18px] h-[16px] md:h-[18px] px-0.5 md:px-1 rounded-full text-[7px] md:text-[9px] font-black",
                       orcamentoStatusFilter === f.id ? "bg-white/25 text-white" : "bg-white/10 text-white/60"
                     )}>
                       {f.count}
@@ -9526,19 +9526,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   = empresa), com a quantidade dentro do proprio botao. Rolagem horizontal no mobile
                   (sem quebrar linha) quando nao cabe tudo na largura da tela. */}
               <div className="flex flex-col gap-3">
-                 <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto no-scrollbar -mx-1 px-1 pb-0.5">
+                 <div className="flex flex-nowrap items-center gap-0.5 md:gap-1.5 overflow-x-auto no-scrollbar -mx-1 px-1 pb-0.5">
                     {filtrosContrato.map(f => (
                       <button
                         key={f.id}
                         onClick={() => setContratoStatusFilter(f.id)}
                         className={cn(
-                          "shrink-0 flex items-center gap-1.5 px-3 h-9 rounded-lg text-[9px] font-black uppercase tracking-wide cursor-pointer border transition-all whitespace-nowrap",
+                          "shrink-0 flex items-center gap-0.5 md:gap-1.5 px-2 md:px-3 h-8 md:h-9 rounded-lg text-[8px] md:text-[9px] font-black uppercase tracking-wide cursor-pointer border transition-all whitespace-nowrap",
                           contratoStatusFilter === f.id ? "bg-purple-500 text-white border-purple-500" : "bg-white/5 text-white/50 border-white/10 hover:text-white"
                         )}
                       >
                         {f.label}
                         <span className={cn(
-                          "flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[9px] font-black",
+                          "flex items-center justify-center min-w-[16px] md:min-w-[18px] h-[16px] md:h-[18px] px-0.5 md:px-1 rounded-full text-[7px] md:text-[9px] font-black",
                           contratoStatusFilter === f.id ? "bg-white/25 text-white" : "bg-white/10 text-white/60"
                         )}>
                           {f.count}
