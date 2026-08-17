@@ -1839,6 +1839,14 @@ export const ChatPanel = ({
         senderName: user?.name || 'Sistema',
         channel: conversation.sourceType || 'WhatsApp',
         createdAt: Timestamp.now(),
+        // Histórico de versões: admin pode navegar
+        versions: [{
+          text: newNoteText.trim(),
+          editedAt: Timestamp.now(),
+          editedBy: user?.name || 'Sistema',
+          versionIndex: 0,
+        }],
+        currentVersionIndex: 0,
       });
       setNewNoteText('');
     } catch (err) {
@@ -1848,9 +1856,68 @@ export const ChatPanel = ({
       setIsSavingNote(false);
     }
   };
+
   const handleDeleteNote = async (note: any) => {
-    if (!(await showConfirm('Excluir esta nota?'))) return;
-    try { await deleteDoc(doc(db, 'messages', note.id)); } catch (err) { console.error('Erro ao excluir nota:', err); }
+    // ✅ Só Admin pode excluir
+    if (!permissions.isAdmin) {
+      showAlert('Apenas administradores podem excluir notas.');
+      return;
+    }
+    if (!(await showConfirm('Excluir esta nota permanentemente?'))) return;
+    try { 
+      await deleteDoc(doc(db, 'messages', note.id)); 
+    } catch (err) { 
+      console.error('Erro ao excluir nota:', err);
+      showAlert('Não foi possível excluir a nota.');
+    }
+  };
+
+  // ✅ Admin pode editar notas (navegar por histórico)
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editingNoteText, setEditingNoteText] = useState('');
+  const [noteVersionIndex, setNoteVersionIndex] = useState(0);
+
+  const handleEditNote = async (note: any, newText: string) => {
+    if (!permissions.isAdmin && note.senderName !== user?.name) {
+      showAlert('Você só pode editar suas próprias notas.');
+      return;
+    }
+    try {
+      const currentVersions = note.versions || [];
+      const newVersions = [
+        ...currentVersions,
+        {
+          text: newText,
+          editedAt: Timestamp.now(),
+          editedBy: user?.name || 'Sistema',
+          versionIndex: currentVersions.length,
+        },
+      ];
+      
+      await updateDoc(doc(db, 'messages', note.id), {
+        text: newText,
+        versions: newVersions,
+        currentVersionIndex: newVersions.length - 1,
+        lastEditedAt: Timestamp.now(),
+        lastEditedBy: user?.name || 'Sistema',
+      });
+      
+      setEditingNoteId(null);
+      setEditingNoteText('');
+      showAlert('Nota atualizada com sucesso.');
+    } catch (err) {
+      console.error('Erro ao editar nota:', err);
+      showAlert('Não foi possível editar a nota.');
+    }
+  };
+
+  // ✅ Admin pode navegar entre versões
+  const handleViewNoteVersion = (note: any, versionIndex: number) => {
+    if (!permissions.isAdmin) return;
+    if (versionIndex < 0 || versionIndex >= (note.versions?.length || 1)) return;
+    setNoteVersionIndex(versionIndex);
+    const version = note.versions?.[versionIndex];
+    setEditingNoteText(version?.text || note.text || '');
   };
 
   const [tasks, setTasks] = useState<any[]>([]);
