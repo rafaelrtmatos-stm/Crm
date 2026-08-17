@@ -9304,15 +9304,28 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             </div>
                           </div>
                           
-                          {sale.scheduledFor && (
-                            <EntregaCountdown
-                              scheduledFor={sale.scheduledFor}
-                              delivered={sale.serviceStatus === 'produto_entregue'}
-                              onEdit={() => handleEditScheduleFromCard(sale)}
-                              onDeliver={() => handleDeliverFromCard(sale)}
-                              onDeleteSchedule={() => handleDeleteScheduleFromCard(sale)}
-                            />
-                          )}
+                          <div className="flex flex-col items-end gap-1.5 shrink-0">
+                            <select
+                              value={sale.serviceStatus || 'pedido_recebido'}
+                              onChange={(e) => handleUpdateServiceStatus(sale.id, e.target.value)}
+                              onClick={(e) => e.stopPropagation()}
+                              title="Etapa Atual"
+                              className="h-6 bg-blue-500/15 border border-blue-500/20 rounded-full pl-2 pr-1 text-[8px] font-black uppercase text-blue-300 focus:outline-none focus:border-primary-500 cursor-pointer max-w-[140px]"
+                            >
+                              {STAGE_ORDER.map(id => (
+                                <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
+                              ))}
+                            </select>
+                            {sale.scheduledFor && (
+                              <EntregaCountdown
+                                scheduledFor={sale.scheduledFor}
+                                delivered={sale.serviceStatus === 'produto_entregue'}
+                                onEdit={() => handleEditScheduleFromCard(sale)}
+                                onDeliver={() => handleDeliverFromCard(sale)}
+                                onDeleteSchedule={() => handleDeleteScheduleFromCard(sale)}
+                              />
+                            )}
+                          </div>
                         </div>
 
                         {/* Items Summary */}
@@ -13473,26 +13486,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                      <p className="text-xs text-white/30">Sem telefone cadastrado</p>
                    )}
                    {viewingReceiptEmail && <p className="text-xs text-white/50">{viewingReceiptEmail}</p>}
-                 </div>
-
-                 {/* Etapa Atual — controla a linha de evolucao do pedido mostrada no recibo */}
-                 <div className="bg-slate-900/50 rounded-2xl p-4 border border-white/5 space-y-2">
-                   <h4 className="text-[9px] font-black uppercase text-primary-300 tracking-[2px] mb-1">Etapa Atual</h4>
-                   <select
-                     value={sale.serviceStatus || 'pedido_recebido'}
-                     onChange={(e) => handleUpdateServiceStatus(sale.id, e.target.value)}
-                     className="w-full h-11 bg-slate-950/80 border border-white/10 rounded-xl px-3 text-xs text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer"
-                   >
-                     <option value="pedido_recebido" className="bg-slate-900">1. Pedido Recebido</option>
-                     <option value="aguardando_arte" className="bg-slate-900">2. Aguardando Arte</option>
-                     <option value="arte_em_desenvolvimento" className="bg-slate-900">3. Arte em Desenvolvimento</option>
-                     <option value="aguardando_aprovacao" className="bg-slate-900">4. Aguardando Aprovação</option>
-                     <option value="producao" className="bg-slate-900">5. Produção</option>
-                     <option value="acabamento" className="bg-slate-900">6. Acabamento</option>
-                     <option value="aguardando_retirada" className="bg-slate-900">7. Aguardando Retirada</option>
-                     <option value="produto_entregue" className="bg-slate-900">8. Produto Entregue</option>
-                   </select>
-                   <p className="text-[9px] text-white/30">Controla a linha de evolução mostrada no recibo.</p>
                  </div>
                </div>
 
