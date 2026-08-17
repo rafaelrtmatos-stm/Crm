@@ -243,6 +243,54 @@ export function calcularResumoCaixa(
   return { salarioBase, totalComissao, totalDescontos, totalPago, saldoSemana, saldoFinal };
 }
 
+/**
+ * Mesmo cálculo de calcularResumoCaixa, mas isolando só o movimento da SEMANA CALENDÁRIO
+ * atual (domingo até sábado, sempre calculado a partir de hoje) -- não desde a data em que
+ * o caixa foi aberto. Usado quando o filtro "Semana" tá selecionado, pra não misturar
+ * semanas anteriores que ainda não foram fechadas.
+ *
+ * O saldoFinal continua vindo do resumo completo (caixa.saldoAnterior + saldoSemana total),
+ * porque a dívida/crédito acumulada tem que continuar aparecendo mesmo filtrando só a
+ * semana -- só o "Salário", "Comissão", "Descontos" e "Já Pago" ficam restritos à semana.
+ */
+export function calcularResumoSemanaCalendario(
+  caixa: WeeklyCaixa,
+  salarioBase: number,
+  services: ServiceItem[],
+  descontos: Desconto[],
+  pagamentos: Pagamento[],
+  resumoCompleto: ResumoCaixa
+): ResumoCaixa {
+  const hoje = new Date();
+  const diaSemana = hoje.getDay(); // 0 = domingo
+  const domingo = new Date(hoje);
+  domingo.setDate(hoje.getDate() - diaSemana);
+  const sabado = new Date(domingo);
+  sabado.setDate(domingo.getDate() + 6);
+  const format = (d: Date) => d.toISOString().split('T')[0];
+  const semanaInicio = format(domingo);
+  const semanaFim = format(sabado);
+
+  const totalComissao = services
+    .filter((s) => s.date >= semanaInicio && s.date <= semanaFim && s.status !== 'CANCELADO')
+    .reduce((acc, s) => acc + (s.commissionValue || 0), 0);
+  const totalDescontos = calculateDescontosNoPeriodo(descontos, semanaInicio, semanaFim);
+  const totalPago = pagamentos
+    .filter((p) => p.data >= semanaInicio && p.data <= semanaFim)
+    .reduce((acc, p) => acc + p.valor, 0);
+  const saldoSemana = salarioBase + totalComissao - totalDescontos - totalPago;
+
+  return {
+    salarioBase,
+    totalComissao,
+    totalDescontos,
+    totalPago,
+    saldoSemana,
+    // saldoFinal continua sendo o acumulado real (dívida/crédito que carrega entre semanas)
+    saldoFinal: resumoCompleto.saldoFinal,
+  };
+}
+
 // --- Fechamento ---
 
 /**
@@ -404,21 +452,26 @@ export function calcularResumoPorPeriodo(
   periodo: PeriodoVisualizacao,
   caixaAberto: WeeklyCaixa | null,
   resumoCaixaAberto: ResumoCaixa | null,
-  historicoFechados: WeeklyCaixa[]
+  historicoFechados: WeeklyCaixa[],
+  resumoSemanaCalendario: ResumoCaixa | null = null
 ): ResumoPorPeriodo {
   const hoje = new Date();
   const anoAtual = hoje.getFullYear();
   const mesAtual = hoje.getMonth();
 
   if (periodo === 'semana') {
+    // Usa o movimento isolado da semana calendário (domingo-sábado atual) quando disponível --
+    // evita misturar semanas anteriores que ainda estão dentro do mesmo caixa aberto (não
+    // fechado). O saldoFinal continua sendo o acumulado real (dívida/crédito que carrega).
+    const r = resumoSemanaCalendario ?? resumoCaixaAberto;
     return {
       periodo: 'semana',
       label: 'Esta Semana',
-      salarioBase: resumoCaixaAberto?.salarioBase ?? 0,
-      totalComissao: resumoCaixaAberto?.totalComissao ?? 0,
-      totalDescontos: resumoCaixaAberto?.totalDescontos ?? 0,
-      totalPago: resumoCaixaAberto?.totalPago ?? 0,
-      saldoPeriodo: resumoCaixaAberto?.saldoSemana ?? 0,
+      salarioBase: r?.salarioBase ?? 0,
+      totalComissao: r?.totalComissao ?? 0,
+      totalDescontos: r?.totalDescontos ?? 0,
+      totalPago: r?.totalPago ?? 0,
+      saldoPeriodo: r?.saldoSemana ?? 0,
       saldoFinal: resumoCaixaAberto?.saldoFinal ?? (caixaAberto?.saldoAnterior ?? 0),
       qtdSemanas: caixaAberto ? 1 : 0,
     };

@@ -28,6 +28,7 @@ import {
   editarPagamento,
   deletePagamento,
   calcularResumoCaixa,
+  calcularResumoSemanaCalendario,
   getHistoricoCaixasFechados,
   reabrirCaixa,
   calcularResumoPorPeriodo,
@@ -67,15 +68,16 @@ const sugerirValorFalta = (tipo: DescontoTipo, baseSalary: number): number => {
 
 const getTodayISO = () => new Date().toISOString().split('T')[0];
 
-// ✅ CORREÇÃO: Usar semana atual (não mês)
+// ✅ CORREÇÃO: Semana começa sempre no DOMINGO (não segunda) — mesma regra do Caixa
 const getThisWeekBounds = () => {
   const now = new Date();
-  const day = now.getDay();
-  const diff = now.getDate() - day + (day === 0 ? -6 : 1); // Ajusta para domingo=0, segunda=1
-  
-  const start = new Date(now.setDate(diff));
-  const end = new Date(now.setDate(diff + 6));
-  
+  const day = now.getDay(); // 0 = domingo, 1 = segunda, ... 6 = sábado
+
+  const start = new Date(now);
+  start.setDate(now.getDate() - day); // volta até o domingo dessa semana
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6); // sábado seguinte
+
   const format = (d: Date) => d.toISOString().split('T')[0];
   return { start: format(start), end: format(end) };
 };
@@ -174,15 +176,25 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
   // ✅ CORRETO: usa calcularResumoCaixa que já calcula
   // saldoSemana = salarioBase + totalComissao - totalDescontos - totalPago
   // saldoFinal = saldoAnterior + saldoSemana
+  // (esse resumo pode acumular mais de uma semana se o caixa ainda não foi fechado --
+  // é o que alimenta o saldoFinal/dívida acumulada, que continua aparecendo sempre)
   const resumoCaixa = useMemo(
     () => (caixa ? calcularResumoCaixa(caixa, baseSalary, services, descontos, pagamentos) : null),
     [caixa, baseSalary, services, descontos, pagamentos]
   );
 
+  // ✅ Movimento isolado só da semana calendário atual (domingo-sábado de hoje) --
+  // usado no filtro "Semana" pra não misturar semanas anteriores ainda dentro do
+  // mesmo caixa aberto. Dívida parcelada só entra aqui quando a parcela cai nesse intervalo.
+  const resumoSemanaCalendario = useMemo(
+    () => (caixa && resumoCaixa ? calcularResumoSemanaCalendario(caixa, baseSalary, services, descontos, pagamentos, resumoCaixa) : null),
+    [caixa, resumoCaixa, baseSalary, services, descontos, pagamentos]
+  );
+
   // ✅ Resumo agregado conforme o período escolhido (Semana / Mês / Ano)
   const resumoPorPeriodo = useMemo(
-    () => calcularResumoPorPeriodo(periodoVisualizacao, caixa, resumoCaixa, historico ?? []),
-    [periodoVisualizacao, caixa, resumoCaixa, historico]
+    () => calcularResumoPorPeriodo(periodoVisualizacao, caixa, resumoCaixa, historico ?? [], resumoSemanaCalendario),
+    [periodoVisualizacao, caixa, resumoCaixa, historico, resumoSemanaCalendario]
   );
 
   const handleAddPagamento = async () => {
