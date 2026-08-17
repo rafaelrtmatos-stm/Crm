@@ -562,6 +562,7 @@ export interface Orcamento {
   aprovadoEm?: string;
   aprovadoPor?: string;
   createdAt: string;
+  deletedAt?: string;
 }
 
 export type ContratoStatus = 'rascunho' | 'aguardando_aceite' | 'aceito' | 'aguardando_assinatura_empresa' | 'aguardando_assinatura_cliente' | 'assinado' | 'em_execucao' | 'concluido' | 'cancelado' | 'encerrado';
@@ -620,6 +621,8 @@ export interface Contrato {
   empresaSignedAt?: string;
   empresaSignedBy?: string;
   pdfUrl?: string;
+  serviceStatus?: string;
   createdAt: string;
   updatedAt?: string;
+  deletedAt?: string;
 }

@@ -468,6 +468,7 @@ const mapOrcamentoRow = (row: any): Orcamento => ({
   aprovadoEm: row.aprovado_em || undefined,
   aprovadoPor: row.aprovado_por || undefined,
   createdAt: row.created_at,
+  deletedAt: row.deleted_at || undefined,
 });
 
 const mapContratoRow = (row: any): Contrato => ({
@@ -524,8 +525,10 @@ const mapContratoRow = (row: any): Contrato => ({
   empresaSignedBy: row.empresa_signed_by || undefined,
   pdfUrl: row.pdf_url || undefined,
   responsavel: row.responsavel || undefined,
+  serviceStatus: row.service_status || undefined,
   createdAt: row.created_at,
   updatedAt: row.updated_at || undefined,
+  deletedAt: row.deleted_at || undefined,
 });
 
 const PAYMENT_METHOD_LABELS_PT: Record<string, string> = {
@@ -5230,7 +5233,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const loadOrcamentos = async () => {
     setIsLoadingOrcamentos(true);
     try {
-      const { data } = await supabase.from('orcamentos').select('*').order('created_at', { ascending: false });
+      const { data } = await supabase.from('orcamentos').select('*').is('deleted_at', null).order('created_at', { ascending: false });
       setAllOrcamentos((data || []).map(mapOrcamentoRow));
     } catch (err) {
       console.error('Erro ao carregar orçamentos:', err);
@@ -5275,6 +5278,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     multaPercentual: 2, jurosModo: 'mensal' as 'mensal' | 'diario', jurosPercentual: 1, diasTolerancia: 0,
     vendaId: undefined as string | undefined,
     orcamentoId: undefined as string | undefined,
+    serviceStatus: 'pedido_recebido' as typeof STAGE_ORDER[number],
   };
   const [contratoForm, setContratoForm] = useState({ ...emptyContratoForm });
 
@@ -5541,6 +5545,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         politica_cancelamento_texto: contratoForm.politicaCancelamentoTexto || null,
         observacoes: contratoForm.observacoes || null,
         texto_contrato: textoContrato,
+        service_status: contratoForm.serviceStatus || 'pedido_recebido',
         updated_at: new Date().toISOString(),
       };
 
@@ -5578,6 +5583,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       if (newId && contratoForm.orcamentoId) {
         await supabase.from('orcamentos').update({ contrato_id: newId }).eq('id', contratoForm.orcamentoId);
         setAllOrcamentos(prev => prev.map(o => o.id === contratoForm.orcamentoId ? { ...o, contratoId: newId! } : o));
+      }
+
+      // Propaga a Etapa escolhida aqui pro Pedido e Orçamento vinculados a este Contrato
+      if (newId) {
+        await syncServiceStatus('contrato', newId, contratoForm.serviceStatus || 'pedido_recebido');
       }
 
       setContratoModalOpen(false);
@@ -5650,7 +5660,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const handleDeleteContrato = async (c: Contrato) => {
-    if (!(await showConfirm(`Excluir o contrato ${c.numero}? Essa ação não pode ser desfeita.`))) return;
+    const vinculos: string[] = [];
+    if (c.vendaId) vinculos.push('um Recibo/Nota');
+    if (c.orcamentoId) vinculos.push('um Orçamento');
+    const avisoVinculo = vinculos.length
+      ? `\n\n⚠️ Este contrato está ligado a ${vinculos.join(' e ')}. Eles NÃO serão excluídos — continuam intactos.`
+      : '';
+    if (!(await showConfirm(`Excluir o contrato ${c.numero}?${avisoVinculo}\n\nEle fica 30 dias na aba Excluídos antes de sumir de vez — você pode restaurar dentro desse prazo.`))) return;
     const { error } = await supabase.from('contratos').update({ deleted_at: new Date().toISOString() }).eq('id', c.id);
     if (error) { showAlert(`Não foi possível excluir o contrato: ${error.message}`); return; }
     setAllContratos(prev => prev.filter(ct => ct.id !== c.id));
@@ -6099,6 +6115,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         juros_percentual: orcamentoForm.jurosPercentual,
         dias_tolerancia: orcamentoForm.diasTolerancia,
         validade: orcamentoForm.validade || null,
+        service_status: orcamentoForm.serviceStatus || 'pedido_recebido',
       };
       let newId: string | null = null;
       if (editingOrcamento) {
@@ -6218,10 +6235,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const handleDeleteOrcamento = async (o: Orcamento) => {
-    if (!(await showConfirm(`Excluir o orçamento ${o.numero}?`))) return;
-    const { error } = await supabase.from('orcamentos').delete().eq('id', o.id);
+    const vinculos: string[] = [];
+    if (o.vendaId) vinculos.push('um Recibo/Nota');
+    if (o.contratoId) vinculos.push('um Contrato');
+    const avisoVinculo = vinculos.length
+      ? `\n\n⚠️ Este orçamento está ligado a ${vinculos.join(' e ')}. Eles NÃO serão excluídos — continuam intactos.`
+      : '';
+    if (!(await showConfirm(`Excluir o orçamento ${o.numero}?${avisoVinculo}\n\nEle fica 30 dias na aba Excluídos antes de sumir de vez — você pode restaurar dentro desse prazo.`))) return;
+    const { error } = await supabase.from('orcamentos').update({ deleted_at: new Date().toISOString() }).eq('id', o.id);
     if (error) { showAlert('Não foi possível excluir.'); return; }
-    loadOrcamentos();
+    setAllOrcamentos(prev => prev.filter(or => or.id !== o.id));
   };
 
   const [waSendOrcamento, setWaSendOrcamento] = useState<Orcamento | null>(null);
@@ -7048,8 +7071,75 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     }
   };
 
+  // ===== Orçamentos e Contratos excluídos (mesmo padrão de restauração das Vendas) =====
+  const [deletedOrcamentos, setDeletedOrcamentos] = useState<Orcamento[]>([]);
+  const [isLoadingDeletedOrcamentos, setIsLoadingDeletedOrcamentos] = useState(false);
+
+  const loadDeletedOrcamentos = async () => {
+    setIsLoadingDeletedOrcamentos(true);
+    try {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 30);
+      await supabase.from('orcamentos').delete().not('deleted_at', 'is', null).lt('deleted_at', cutoff.toISOString());
+
+      const { data } = await supabase.from('orcamentos').select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending: false });
+      setDeletedOrcamentos((data || []).map(mapOrcamentoRow));
+    } catch (err) {
+      console.error('Erro ao carregar orçamentos excluídos:', err);
+    } finally {
+      setIsLoadingDeletedOrcamentos(false);
+    }
+  };
+
+  const handleRestoreOrcamento = async (o: Orcamento) => {
+    if (!(await showConfirm(`Restaurar o orçamento ${o.numero}?`))) return;
+    const { error } = await supabase.from('orcamentos').update({ deleted_at: null }).eq('id', o.id);
+    if (error) { showAlert('Não foi possível restaurar o orçamento.'); return; }
+    loadDeletedOrcamentos();
+  };
+
+  const handlePermanentDeleteOrcamento = async (o: Orcamento) => {
+    if (!(await showConfirm(`Excluir DEFINITIVAMENTE o orçamento ${o.numero}? Essa ação não pode ser desfeita.`))) return;
+    const { error } = await supabase.from('orcamentos').delete().eq('id', o.id);
+    if (error) { showAlert('Não foi possível excluir.'); return; }
+    loadDeletedOrcamentos();
+  };
+
+  const [deletedContratos, setDeletedContratos] = useState<Contrato[]>([]);
+  const [isLoadingDeletedContratos, setIsLoadingDeletedContratos] = useState(false);
+
+  const loadDeletedContratos = async () => {
+    setIsLoadingDeletedContratos(true);
+    try {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 30);
+      await supabase.from('contratos').delete().not('deleted_at', 'is', null).lt('deleted_at', cutoff.toISOString());
+
+      const { data } = await supabase.from('contratos').select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending: false });
+      setDeletedContratos((data || []).map(mapContratoRow));
+    } catch (err) {
+      console.error('Erro ao carregar contratos excluídos:', err);
+    } finally {
+      setIsLoadingDeletedContratos(false);
+    }
+  };
+
+  const handleRestoreContrato = async (c: Contrato) => {
+    if (!(await showConfirm(`Restaurar o contrato ${c.numero}?`))) return;
+    const { error } = await supabase.from('contratos').update({ deleted_at: null }).eq('id', c.id);
+    if (error) { showAlert('Não foi possível restaurar o contrato.'); return; }
+    loadDeletedContratos();
+  };
+
+  const handlePermanentDeleteContrato = async (c: Contrato) => {
+    if (!(await showConfirm(`Excluir DEFINITIVAMENTE o contrato ${c.numero}? Essa ação não pode ser desfeita.`))) return;
+    const { error } = await supabase.from('contratos').delete().eq('id', c.id);
+    if (error) { showAlert('Não foi possível excluir.'); return; }
+    loadDeletedContratos();
+  };
+
   useEffect(() => {
-    if (activeTab === 'excluidos') loadDeletedSales();
+    if (activeTab === 'excluidos') { loadDeletedSales(); loadDeletedOrcamentos(); loadDeletedContratos(); }
   }, [activeTab]);
 
   const loadSalesHistory = async () => {
@@ -10076,44 +10166,142 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         })()}
 
         {activeTab === 'excluidos' && (
-          <div className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/40 space-y-6">
-            <SectionHeader
-              title="Excluídos"
-              subtitle={`Ficam aqui por 30 dias e depois somem automaticamente — ${deletedSales.length} nota(s)`}
-            />
+          <div className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/40 space-y-8">
+            <div className="space-y-6">
+              <SectionHeader
+                title="Notas/Recibos Excluídos"
+                subtitle={`Ficam aqui por 30 dias e depois somem automaticamente — ${deletedSales.length} nota(s)`}
+              />
 
-            {isLoadingDeletedSales ? (
-              <div className="flex justify-center py-16"><RefreshCw className="animate-spin text-primary-500" size={24} /></div>
-            ) : deletedSales.length === 0 ? (
-              <div className="text-center py-16 text-white/30 text-sm">Nenhuma nota excluída no momento.</div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {deletedSales.map(sale => {
-                  const deletedDate = sale.deletedAt ? new Date(sale.deletedAt) : new Date();
-                  const diasRestantes = Math.max(0, 30 - Math.floor((Date.now() - deletedDate.getTime()) / (1000 * 60 * 60 * 24)));
-                  return (
-                    <div key={sale.id} className="bg-white/5 border border-rose-500/20 rounded-2xl p-4 space-y-3">
-                       <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                             <p className="text-[9px] font-mono text-white/30">#{sale.id.slice(-8).toUpperCase()}</p>
-                             <p className="font-black text-white truncate">{(sale.customerName || 'Cliente de Balcão').toUpperCase()}</p>
-                          </div>
-                          <span className="text-[8px] font-black uppercase px-2 py-1 rounded-full bg-rose-500/15 text-rose-400 shrink-0">{diasRestantes}d p/ apagar</span>
-                       </div>
-                       <div className="flex justify-between items-baseline">
-                          <span className="text-[10px] text-white/30 uppercase font-bold">{sale.items?.length || 0} item(ns)</span>
-                          <span className="text-lg font-black text-white/60 italic">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
-                       </div>
-                       <p className="text-[9px] text-white/30">Excluída em {safeFormat(sale.deletedAt, 'dd/MM/yyyy HH:mm')}</p>
-                       <div className="flex gap-1.5 pt-2 border-t border-white/5">
-                          <button onClick={() => handleRestoreSale(sale)} className="flex-1 text-[9px] font-black uppercase px-2 py-2 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20">Restaurar</button>
-                          <button onClick={() => handlePermanentDeleteSale(sale)} className="flex-1 text-[9px] font-black uppercase px-2 py-2 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20">Excluir Agora</button>
-                       </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+              {isLoadingDeletedSales ? (
+                <div className="flex justify-center py-16"><RefreshCw className="animate-spin text-primary-500" size={24} /></div>
+              ) : deletedSales.length === 0 ? (
+                <div className="text-center py-16 text-white/30 text-sm">Nenhuma nota excluída no momento.</div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {deletedSales.map(sale => {
+                    const deletedDate = sale.deletedAt ? new Date(sale.deletedAt) : new Date();
+                    const diasRestantes = Math.max(0, 30 - Math.floor((Date.now() - deletedDate.getTime()) / (1000 * 60 * 60 * 24)));
+                    return (
+                      <div key={sale.id} className="bg-white/5 border border-rose-500/20 rounded-2xl p-4 space-y-3">
+                         <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                               <p className="text-[9px] font-mono text-white/30">#{sale.id.slice(-8).toUpperCase()}</p>
+                               <p className="font-black text-white truncate">{(sale.customerName || 'Cliente de Balcão').toUpperCase()}</p>
+                            </div>
+                            <span className="text-[8px] font-black uppercase px-2 py-1 rounded-full bg-rose-500/15 text-rose-400 shrink-0">{diasRestantes}d p/ apagar</span>
+                         </div>
+                         <div className="flex justify-between items-baseline">
+                            <span className="text-[10px] text-white/30 uppercase font-bold">{sale.items?.length || 0} item(ns)</span>
+                            <span className="text-lg font-black text-white/60 italic">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
+                         </div>
+                         <p className="text-[9px] text-white/30">Excluída em {safeFormat(sale.deletedAt, 'dd/MM/yyyy HH:mm')}</p>
+                         <div className="flex gap-1.5 pt-2 border-t border-white/5">
+                            <button onClick={() => handleRestoreSale(sale)} className="flex-1 text-[9px] font-black uppercase px-2 py-2 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20">Restaurar</button>
+                            <button onClick={() => handlePermanentDeleteSale(sale)} className="flex-1 text-[9px] font-black uppercase px-2 py-2 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20">Excluir Agora</button>
+                         </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="h-px bg-white/10" />
+
+            <div className="space-y-6">
+              <SectionHeader
+                title="Orçamentos Excluídos"
+                subtitle={`Ficam aqui por 30 dias e depois somem automaticamente — ${deletedOrcamentos.length} orçamento(s)`}
+              />
+
+              {isLoadingDeletedOrcamentos ? (
+                <div className="flex justify-center py-16"><RefreshCw className="animate-spin text-primary-500" size={24} /></div>
+              ) : deletedOrcamentos.length === 0 ? (
+                <div className="text-center py-16 text-white/30 text-sm">Nenhum orçamento excluído no momento.</div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {deletedOrcamentos.map(o => {
+                    const deletedDate = o.deletedAt ? new Date(o.deletedAt) : new Date();
+                    const diasRestantes = Math.max(0, 30 - Math.floor((Date.now() - deletedDate.getTime()) / (1000 * 60 * 60 * 24)));
+                    const vinculos: string[] = [];
+                    if (o.vendaId) vinculos.push('Recibo');
+                    if (o.contratoId) vinculos.push('Contrato');
+                    return (
+                      <div key={o.id} className="bg-white/5 border border-rose-500/20 rounded-2xl p-4 space-y-3">
+                         <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                               <p className="text-[9px] font-mono text-white/30">{o.numero}</p>
+                               <p className="font-black text-white truncate">{(o.customerName || 'Sem cliente').toUpperCase()}</p>
+                            </div>
+                            <span className="text-[8px] font-black uppercase px-2 py-1 rounded-full bg-rose-500/15 text-rose-400 shrink-0">{diasRestantes}d p/ apagar</span>
+                         </div>
+                         <div className="flex justify-between items-baseline">
+                            <span className="text-[10px] text-white/30 uppercase font-bold">{o.items?.length || 0} item(ns)</span>
+                            <span className="text-lg font-black text-white/60 italic">R$ {o.total.toFixed(2).replace('.', ',')}</span>
+                         </div>
+                         {vinculos.length > 0 && (
+                           <p className="text-[9px] text-amber-400/80">⚠️ Ligado a: {vinculos.join(' e ')} (não afetado)</p>
+                         )}
+                         <p className="text-[9px] text-white/30">Excluído em {safeFormat(o.deletedAt, 'dd/MM/yyyy HH:mm')}</p>
+                         <div className="flex gap-1.5 pt-2 border-t border-white/5">
+                            <button onClick={() => handleRestoreOrcamento(o)} className="flex-1 text-[9px] font-black uppercase px-2 py-2 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20">Restaurar</button>
+                            <button onClick={() => handlePermanentDeleteOrcamento(o)} className="flex-1 text-[9px] font-black uppercase px-2 py-2 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20">Excluir Agora</button>
+                         </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="h-px bg-white/10" />
+
+            <div className="space-y-6">
+              <SectionHeader
+                title="Contratos Excluídos"
+                subtitle={`Ficam aqui por 30 dias e depois somem automaticamente — ${deletedContratos.length} contrato(s)`}
+              />
+
+              {isLoadingDeletedContratos ? (
+                <div className="flex justify-center py-16"><RefreshCw className="animate-spin text-primary-500" size={24} /></div>
+              ) : deletedContratos.length === 0 ? (
+                <div className="text-center py-16 text-white/30 text-sm">Nenhum contrato excluído no momento.</div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {deletedContratos.map(c => {
+                    const deletedDate = c.deletedAt ? new Date(c.deletedAt) : new Date();
+                    const diasRestantes = Math.max(0, 30 - Math.floor((Date.now() - deletedDate.getTime()) / (1000 * 60 * 60 * 24)));
+                    const vinculos: string[] = [];
+                    if (c.vendaId) vinculos.push('Recibo');
+                    if (c.orcamentoId) vinculos.push('Orçamento');
+                    return (
+                      <div key={c.id} className="bg-white/5 border border-rose-500/20 rounded-2xl p-4 space-y-3">
+                         <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                               <p className="text-[9px] font-mono text-white/30">{c.numero}</p>
+                               <p className="font-black text-white truncate">{(c.customerName || 'Sem cliente').toUpperCase()}</p>
+                            </div>
+                            <span className="text-[8px] font-black uppercase px-2 py-1 rounded-full bg-rose-500/15 text-rose-400 shrink-0">{diasRestantes}d p/ apagar</span>
+                         </div>
+                         <div className="flex justify-between items-baseline">
+                            <span className="text-[10px] text-white/30 uppercase font-bold">{c.items?.length || 0} item(ns)</span>
+                            <span className="text-lg font-black text-white/60 italic">R$ {c.total.toFixed(2).replace('.', ',')}</span>
+                         </div>
+                         {vinculos.length > 0 && (
+                           <p className="text-[9px] text-amber-400/80">⚠️ Ligado a: {vinculos.join(' e ')} (não afetado)</p>
+                         )}
+                         <p className="text-[9px] text-white/30">Excluído em {safeFormat(c.deletedAt, 'dd/MM/yyyy HH:mm')}</p>
+                         <div className="flex gap-1.5 pt-2 border-t border-white/5">
+                            <button onClick={() => handleRestoreContrato(c)} className="flex-1 text-[9px] font-black uppercase px-2 py-2 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20">Restaurar</button>
+                            <button onClick={() => handlePermanentDeleteContrato(c)} className="flex-1 text-[9px] font-black uppercase px-2 py-2 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20">Excluir Agora</button>
+                         </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -12402,6 +12590,21 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   <div className="h-11 flex items-center px-3 bg-white/5 border border-white/10 rounded-xl text-sm text-white/70">
                     {safeFormat(editingContrato?.createdAt || new Date().toISOString(), 'dd/MM/yyyy')}
                   </div>
+               </div>
+               <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Etapa</label>
+                  <select
+                    value={contratoForm.serviceStatus || 'pedido_recebido'}
+                    onChange={(e) => setContratoForm({ ...contratoForm, serviceStatus: e.target.value as any })}
+                    className="h-11 w-full bg-white/5 border border-white/10 rounded-xl px-3 text-[11px] font-bold text-white focus:outline-none focus:border-primary-500 cursor-pointer"
+                  >
+                    {STAGE_ORDER.map(stage => (
+                      <option key={stage} value={stage} className="bg-slate-900">
+                        {STAGE_LABELS[stage]}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[9px] text-white/30">Sincroniza automaticamente com o Pedido e o Orçamento vinculados ao salvar.</p>
                </div>
             </div>
 
