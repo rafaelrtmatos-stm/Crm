@@ -62,17 +62,17 @@ export const getWorkWeekBounds = (offsetWeeks = 0): { start: string; end: string
   return { start: formatISO(sun), end: addDaysISO(formatISO(sun), 6) };
 };
 
-/** Primeiro e último dia do mês atual. */
-export const getMonthBounds = (): { start: string; end: string } => {
+/** Primeiro e último dia do mês (offsetMonths desloca por meses inteiros). */
+export const getMonthBounds = (offsetMonths = 0): { start: string; end: string } => {
   const now = new Date();
   const y = now.getFullYear();
-  const m = now.getMonth();
+  const m = now.getMonth() + offsetMonths;
   return { start: formatISO(new Date(y, m, 1)), end: formatISO(new Date(y, m + 1, 0)) };
 };
 
-/** Primeiro e último dia do ano atual. */
-export const getYearBounds = (): { start: string; end: string } => {
-  const y = new Date().getFullYear();
+/** Primeiro e último dia do ano (offsetYears desloca por anos inteiros). */
+export const getYearBounds = (offsetYears = 0): { start: string; end: string } => {
+  const y = new Date().getFullYear() + offsetYears;
   return { start: `${y}-01-01`, end: `${y}-12-31` };
 };
 
@@ -250,6 +250,8 @@ export type PeriodoVisualizacao = 'semana' | 'mes' | 'ano';
 export interface ResumoPorPeriodo {
   periodo: PeriodoVisualizacao;
   label: string;         // "Esta Semana", "Agosto/2026", "2026"
+  inicio: string;        // YYYY-MM-DD do início do período mostrado
+  fim: string;           // YYYY-MM-DD do fim do período mostrado
   salarioBase: number;
   totalComissao: number;
   totalDescontos: number;
@@ -269,9 +271,12 @@ function nomeMesPt(mes: number): string {
  * descontos, pagamentos) filtrados pela data de cada lançamento -- não depende de nenhum
  * histórico de "caixas fechados".
  *
+ * offset permite navegar pra período anterior/seguinte (ex: offset=-1 = semana passada,
+ * offset=1 = semana que vem), sem sair do período selecionado (semana/mês/ano).
+ *
  * O saldoFinal (dívida/crédito acumulada) é sempre o resumo COMPLETO (calcularResumoCaixa),
- * independente do período escolhido -- a dívida antiga continua aparecendo até ser quitada,
- * mesmo filtrando só a semana ou o mês atual.
+ * independente do período/offset navegado -- a dívida antiga continua aparecendo até ser
+ * quitada, mesmo olhando uma semana específica no passado.
  */
 export function calcularResumoPorPeriodo(
   periodo: PeriodoVisualizacao,
@@ -280,37 +285,38 @@ export function calcularResumoPorPeriodo(
   salarioBase: number,
   services: ServiceItem[],
   descontos: Desconto[],
-  pagamentos: Pagamento[]
+  pagamentos: Pagamento[],
+  offset: number = 0
 ): ResumoPorPeriodo {
-  const hoje = new Date();
-  const anoAtual = hoje.getFullYear();
-  const mesAtual = hoje.getMonth();
-
   if (!caixa) {
-    return { periodo, label: '', salarioBase: 0, totalComissao: 0, totalDescontos: 0, totalPago: 0, saldoPeriodo: 0, saldoFinal: 0, qtdSemanas: 0 };
+    return { periodo, label: '', inicio: '', fim: '', salarioBase: 0, totalComissao: 0, totalDescontos: 0, totalPago: 0, saldoPeriodo: 0, saldoFinal: 0, qtdSemanas: 0 };
   }
 
   const { start, end } =
-    periodo === 'semana' ? getWorkWeekBounds() :
-    periodo === 'mes' ? getMonthBounds() :
-    getYearBounds();
+    periodo === 'semana' ? getWorkWeekBounds(offset) :
+    periodo === 'mes' ? getMonthBounds(offset) :
+    getYearBounds(offset);
 
   const r = calcularResumoNoIntervalo(caixa, salarioBase, services, descontos, pagamentos, start, end);
 
+  const dInicio = new Date(`${start}T00:00:00`);
+  const dFim = new Date(`${end}T00:00:00`);
   const label =
-    periodo === 'semana' ? 'Esta Semana' :
-    periodo === 'mes' ? `${nomeMesPt(mesAtual)}/${anoAtual}` :
-    `${anoAtual}`;
+    periodo === 'semana' ? `${formatISO(dInicio).split('-').reverse().join('/')} a ${formatISO(dFim).split('-').reverse().join('/')}` :
+    periodo === 'mes' ? `${nomeMesPt(dInicio.getMonth())}/${dInicio.getFullYear()}` :
+    `${dInicio.getFullYear()}`;
 
   return {
     periodo,
     label,
+    inicio: start,
+    fim: end,
     salarioBase: r.salarioBase,
     totalComissao: r.totalComissao,
     totalDescontos: r.totalDescontos,
     totalPago: r.totalPago,
     saldoPeriodo: r.saldoSemana,
-    // saldo acumulado real continua sempre o completo, independente do período visualizado
+    // saldo acumulado real continua sempre o completo, independente do período/offset navegado
     saldoFinal: resumoCompleto?.saldoFinal ?? caixa.saldoAnterior,
     qtdSemanas: periodo === 'semana' ? 1 : 0,
   };

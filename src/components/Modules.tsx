@@ -2171,7 +2171,7 @@ export const ChatPanel = ({
 
 
   if (!conversation) return (
-    <div className="flex-1 flex flex-col items-center justify-center p-12 text-center space-y-4">
+    <div className="hidden md:flex flex-1 flex-col items-center justify-center p-12 text-center space-y-4">
       <div className="w-24 h-24 bg-white/5 rounded-[40px] flex items-center justify-center text-white/10">
         <MessageSquare size={48} />
       </div>
@@ -2183,7 +2183,7 @@ export const ChatPanel = ({
   );
 
   return (
-    <GlassCard className="flex-1 flex flex-col p-0 overflow-hidden bg-white/3 border-white/10 relative h-full">
+    <GlassCard className="flex-1 flex flex-col p-0 overflow-hidden bg-white/3 border-white/10 relative h-full fixed md:static inset-0 z-50 md:z-auto rounded-none md:rounded-[inherit]">
       {/* Header - FIXO */}
       <div className="p-4 border-b border-white/10 flex items-center justify-between bg-white/[0.02] flex-shrink-0">
         <div className="flex items-center gap-3">
@@ -2943,7 +2943,10 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
 
   return (
     <div className="h-[calc(100vh-12rem)] flex gap-6 animate-in slide-in-from-right-10 duration-500">
-      <div className={cn("flex flex-col space-y-6 transition-all duration-500", selectedLead ? "w-[60%]" : "w-full")}>
+      <div className={cn(
+        "flex flex-col space-y-6 transition-all duration-500 w-full",
+        selectedLead ? "hidden md:flex md:w-[60%]" : "flex"
+      )}>
         <SectionHeader 
           title="Funil Rafa Arts" 
           subtitle={currentFunnel?.name || "Gestão Estratégica"} 
@@ -3092,11 +3095,11 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
       <AnimatePresence>
         {selectedLead && (
           <motion.div 
-            initial={{ opacity: 0, x: 100, width: 0 }}
-            animate={{ opacity: 1, x: 0, width: '40%' }}
-            exit={{ opacity: 0, x: 100, width: 0 }}
+            initial={{ opacity: 0, x: 100 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 100 }}
             transition={{ type: 'spring', damping: 25, stiffness: 120 }}
-            className="h-full"
+            className="h-full w-full md:w-[40%]"
           >
             <ChatPanel 
               conversation={{ ...selectedLead, name: selectedLead.fullName, channel: 'WhatsApp' }}
@@ -3677,7 +3680,10 @@ export const MessagesModule = ({ currentCompany, user }: { currentCompany: Compa
 
   return (
     <div className="h-[calc(100vh-12rem)] flex gap-8 animate-in fade-in slide-in-from-right-5 duration-500">
-      <GlassCard className="w-96 p-0 overflow-hidden flex flex-col bg-white/5 border-white/10 shrink-0">
+      <GlassCard className={cn(
+        "w-full md:w-96 p-0 overflow-hidden flex-col bg-white/5 border-white/10 shrink-0",
+        selectedChat ? "hidden md:flex" : "flex"
+      )}>
         <div className="p-6 border-b border-white/10 space-y-4">
            <div className="flex justify-between items-center">
               <h3 className="text-xl font-bold text-white flex items-center gap-1.5">

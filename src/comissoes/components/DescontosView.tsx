@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   MinusCircle, Plus, Pencil, Trash2, X, Ban, CheckCircle2,
-  Wallet, Banknote,
+  Wallet, Banknote, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import {
   Desconto,
@@ -134,6 +134,8 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
   const [reloadToken, setReloadToken] = useState(0);
   // ✅ Seletor de visualização do Caixa: Semana / Mês / Ano
   const [periodoVisualizacao, setPeriodoVisualizacao] = useState<PeriodoVisualizacao>('semana');
+  // ✅ Navegação entre semanas/meses/anos: 0 = atual, -1 = anterior, 1 = seguinte...
+  const [periodoOffset, setPeriodoOffset] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -164,8 +166,8 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
   // ✅ Resumo agregado conforme o período escolhido (Semana / Mês / Ano) -- sempre calculado
   // ao vivo a partir dos mesmos dados (sem depender de "caixas fechados").
   const resumoPorPeriodo = useMemo(
-    () => calcularResumoPorPeriodo(periodoVisualizacao, caixa, resumoCaixa, baseSalary, services, descontos, pagamentos),
-    [periodoVisualizacao, caixa, resumoCaixa, baseSalary, services, descontos, pagamentos]
+    () => calcularResumoPorPeriodo(periodoVisualizacao, caixa, resumoCaixa, baseSalary, services, descontos, pagamentos, periodoOffset),
+    [periodoVisualizacao, caixa, resumoCaixa, baseSalary, services, descontos, pagamentos, periodoOffset]
   );
 
   const handleAddPagamento = async () => {
@@ -303,7 +305,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
             {(['semana', 'mes', 'ano'] as const).map((p) => (
               <button
                 key={p}
-                onClick={() => setPeriodoVisualizacao(p)}
+                onClick={() => { setPeriodoVisualizacao(p); setPeriodoOffset(0); }}
                 className={`px-3 py-1.5 rounded-md text-[11px] font-black uppercase tracking-wider transition-all ${
                   periodoVisualizacao === p
                     ? 'bg-primary-500 text-white'
@@ -315,6 +317,31 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
             ))}
           </div>
         </div>
+
+        {/* ✅ Navegação entre semanas/meses/anos anteriores e seguintes */}
+        {resumoCaixa && (
+          <div className="flex items-center justify-center gap-3 py-1">
+            <button
+              onClick={() => setPeriodoOffset((o) => o - 1)}
+              className="p-1.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5 transition-all"
+              title={`${periodoVisualizacao === 'semana' ? 'Semana' : periodoVisualizacao === 'mes' ? 'Mês' : 'Ano'} anterior`}
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <span className="text-xs font-black uppercase tracking-wider text-[var(--text-main)] min-w-[140px] text-center">
+              {resumoPorPeriodo.label}
+              {periodoOffset === 0 && <span className="text-primary-400"> · atual</span>}
+            </span>
+            <button
+              onClick={() => setPeriodoOffset((o) => Math.min(0, o + 1))}
+              disabled={periodoOffset >= 0}
+              className="p-1.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5 transition-all disabled:opacity-30 disabled:pointer-events-none"
+              title={`${periodoVisualizacao === 'semana' ? 'Semana' : periodoVisualizacao === 'mes' ? 'Mês' : 'Ano'} seguinte`}
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        )}
 
         {resumoCaixa && (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2 text-center text-[11px]">
