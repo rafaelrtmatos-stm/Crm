@@ -1771,6 +1771,30 @@ export const ChatPanel = ({
   // Os 3 campos vivem no proprio lead (ver Lead.whatsappName/contactName/fullName em types.ts) e
   // sao editados aqui, iguais nas duas telas que usam este mesmo painel (Funil CRM e Mensagens).
   const [nameFieldsDraft, setNameFieldsDraft] = useState({ whatsappName: '', contactName: '', fullName: '' });
+
+  // Etapas do funil (pra dropdown de mudar etapa direto da conversa) — busca sozinho, sem
+  // depender de prop, ja que o ChatPanel e usado tanto no Funil CRM quanto em Mensagens
+  const [funnelStages, setFunnelStages] = useState<FunnelStage[]>([]);
+  const [isChangingStage, setIsChangingStage] = useState(false);
+  useEffect(() => {
+    if (!conversation?.funnelId) { setFunnelStages([]); return; }
+    const q = query(collection(db, 'funnelStages'), where('funnelId', '==', conversation.funnelId), orderBy('order', 'asc'));
+    const unsub = onSnapshot(q, (snap) => setFunnelStages(snap.docs.map(d => ({ id: d.id, ...d.data() })) as FunnelStage[]));
+    return () => unsub();
+  }, [conversation?.funnelId]);
+
+  const handleChangeStageFromChat = async (novaStageId: string) => {
+    if (!conversation?.id || novaStageId === conversation.funnelStageId) return;
+    setIsChangingStage(true);
+    try {
+      await updateDoc(doc(db, 'leads', conversation.id), { funnelStageId: novaStageId, updatedAt: Timestamp.now() });
+    } catch (err) {
+      console.error('Erro ao mudar etapa:', err);
+      showAlert('Não foi possível mudar a etapa.');
+    } finally {
+      setIsChangingStage(false);
+    }
+  };
   const [isSavingNames, setIsSavingNames] = useState(false);
   useEffect(() => {
     setNameFieldsDraft({
@@ -2270,14 +2294,37 @@ export const ChatPanel = ({
         </div>
       </div>
 
-      {/* Atalho pra ver no Funil - FIXO */}
-      <button
-        onClick={handleJumpToOtherView}
-        className="flex items-center justify-center gap-1.5 w-full py-1.5 border-b border-white/10 bg-white/[0.015] text-[9px] font-black uppercase tracking-widest text-primary-300 hover:bg-white/5 hover:text-primary-200 transition-colors flex-shrink-0"
-      >
-        <ExternalLink size={11} />
-        {rootActiveTab === 'crm' ? 'Ver Conversa em Mensagens' : 'Ver Card no Funil CRM'}
-      </button>
+      {/* Dropdown de Etapa do Funil — muda a etapa da conversa direto daqui, sem precisar
+          arrastar no Kanban. So aparece se essa conversa tiver um lead/funil vinculado. */}
+      {conversation?.funnelId && funnelStages.length > 0 ? (
+        <div className="flex items-center gap-2 w-full py-1.5 px-3 border-b border-white/10 bg-white/[0.015] flex-shrink-0">
+          <select
+            value={conversation.funnelStageId || ''}
+            onChange={(e) => handleChangeStageFromChat(e.target.value)}
+            disabled={isChangingStage}
+            className="flex-1 h-7 bg-transparent border-none text-[10px] font-black uppercase tracking-widest text-primary-300 focus:outline-none cursor-pointer disabled:opacity-50"
+          >
+            {funnelStages.map(stage => (
+              <option key={stage.id} value={stage.id} className="bg-slate-900 text-white normal-case">{stage.name}</option>
+            ))}
+          </select>
+          <button
+            onClick={handleJumpToOtherView}
+            title={rootActiveTab === 'crm' ? 'Ver Conversa em Mensagens' : 'Ver Card no Funil CRM'}
+            className="text-primary-300 hover:text-primary-200 transition-colors shrink-0"
+          >
+            <ExternalLink size={13} />
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={handleJumpToOtherView}
+          className="flex items-center justify-center gap-1.5 w-full py-1.5 border-b border-white/10 bg-white/[0.015] text-[9px] font-black uppercase tracking-widest text-primary-300 hover:bg-white/5 hover:text-primary-200 transition-colors flex-shrink-0"
+        >
+          <ExternalLink size={11} />
+          {rootActiveTab === 'crm' ? 'Ver Conversa em Mensagens' : 'Ver Card no Funil CRM'}
+        </button>
+      )}
 
       {/* Tabs - FIXO */}
       <div className="flex flex-wrap border-b border-white/5 bg-white/[0.01] px-2 flex-shrink-0">
