@@ -5912,10 +5912,79 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     }
   };
 
-  const updateOrcamentoStatus = async (o: Orcamento, status: Orcamento['status']) => {
-    const { error } = await supabase.from('orcamentos').update({ status }).eq('id', o.id);
-    if (error) { console.error('Erro ao atualizar status do orçamento:', error); showAlert(`Não foi possível atualizar o status: ${error.message}`); return; }
-    loadOrcamentos();
+  // SINCRONIZAÇÃO DE ETAPAS: Pedido ↔ Orçamento ↔ Contrato
+  // Quando qualquer um muda de etapa, atualiza os outros 2 (se vinculados)
+  const syncServiceStatus = async (sourceType: 'venda' | 'orcamento' | 'contrato', docId: string, newStatus: string) => {
+    try {
+      // 1. Atualizar o documento que foi alterado
+      const updates: Record<string, any> = { service_status: newStatus };
+      const { error: updateError } = await supabase
+        .from(sourceType === 'venda' ? 'vendas' : sourceType === 'orcamento' ? 'orcamentos' : 'contratos')
+        .update(updates)
+        .eq('id', docId);
+      if (updateError) throw updateError;
+
+      // 2. Buscar o documento alterado pra pegar dados de vinculação
+      let vendaId: string | null = null;
+      let orcamentoId: string | null = null;
+      let contratoId: string | null = null;
+
+      if (sourceType === 'venda') {
+        vendaId = docId;
+        // Buscar Orçamento e Contrato vinculados
+        const { data: venda } = await supabase.from('vendas').select('orcamento_id, contrato_id').eq('id', vendaId).single();
+        if (venda) {
+          orcamentoId = venda.orcamento_id;
+          contratoId = venda.contrato_id;
+        }
+      } else if (sourceType === 'orcamento') {
+        orcamentoId = docId;
+        // Buscar Pedido vinculado
+        const { data: orcamento } = await supabase.from('orcamentos').select('venda_id').eq('id', orcamentoId).single();
+        if (orcamento?.venda_id) {
+          vendaId = orcamento.venda_id;
+          // Buscar Contrato também vinculado ao mesmo Pedido
+          const { data: venda } = await supabase.from('vendas').select('contrato_id').eq('id', vendaId).single();
+          if (venda?.contrato_id) contratoId = venda.contrato_id;
+        }
+      } else if (sourceType === 'contrato') {
+        contratoId = docId;
+        // Buscar Pedido vinculado
+        const { data: contrato } = await supabase.from('contratos').select('venda_id').eq('id', contratoId).single();
+        if (contrato?.venda_id) {
+          vendaId = contrato.venda_id;
+          // Buscar Orçamento também vinculado ao mesmo Pedido
+          const { data: venda } = await supabase.from('vendas').select('orcamento_id').eq('id', vendaId).single();
+          if (venda?.orcamento_id) orcamentoId = venda.orcamento_id;
+        }
+      }
+
+      // 3. Sincronizar os outros documentos (se vinculados ao mesmo Pedido)
+      const updates_others: Record<string, any> = { service_status: newStatus };
+      
+      if (vendaId && sourceType !== 'venda') {
+        await supabase.from('vendas').update(updates_others).eq('id', vendaId);
+        // Recarregar dados do Pedido
+        setAllSalesHistory(prev => prev.map(s => s.id === vendaId ? { ...s, serviceStatus: newStatus as any } : s));
+      }
+      if (orcamentoId && sourceType !== 'orcamento') {
+        await supabase.from('orcamentos').update(updates_others).eq('id', orcamentoId);
+        // Recarregar dados do Orçamento
+        loadOrcamentos();
+      }
+      if (contratoId && sourceType !== 'contrato') {
+        await supabase.from('contratos').update(updates_others).eq('id', contratoId);
+        // Recarregar dados do Contrato
+        loadContratos();
+      }
+    } catch (err) {
+      console.error('Erro ao sincronizar etapas:', err);
+      showAlert('Não foi possível sincronizar as etapas entre os documentos.');
+    }
+  };
+
+  const updateOrcamentoStatus = async (o: Orcamento, newStatus: string) => {
+    await syncServiceStatus('orcamento', o.id, newStatus);
   };
 
   const handleDeleteOrcamento = async (o: Orcamento) => {
@@ -6692,8 +6761,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const handleUpdateServiceStatus = async (saleId: string, newStatus: string) => {
-    const { error } = await supabase.from('vendas').update({ service_status: newStatus }).eq('id', saleId);
-    if (error) { showAlert(`Não foi possível atualizar a etapa: ${error.message}`); return; }
+    await syncServiceStatus('venda', saleId, newStatus);
+    // Atualizar estado local após sincronização
     setViewingReceiptSale(prev => prev && prev.id === saleId ? { ...prev, serviceStatus: newStatus as any } : prev);
     setLastFinalizedOrder(prev => prev && prev.id === saleId ? { ...prev, serviceStatus: newStatus as any } : prev);
     setAllSalesHistory(prev => prev.map(s => s.id === saleId ? { ...s, serviceStatus: newStatus as any } : s));
