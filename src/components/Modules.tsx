@@ -3100,7 +3100,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                   });
                 }
               }}
-              className="flex-shrink-0 w-full md:flex-shrink md:w-auto basis-24 h-[calc(100vh-25rem)] border-2 border-dashed border-white/5 rounded-[40px] flex flex-col items-center justify-center opacity-20 hover:opacity-100 hover:bg-white/5 transition-all text-white/40"
+              className="flex-shrink-0 w-full md:flex-shrink md:w-auto basis-24 h-full border-2 border-dashed border-white/5 rounded-[40px] flex flex-col items-center justify-center opacity-20 hover:opacity-100 hover:bg-white/5 transition-all text-white/40"
             >
                <Plus size={32} />
                <span className="text-[10px] font-black uppercase tracking-[3px] mt-2">Nova Etapa</span>
@@ -3204,7 +3204,7 @@ const KanbanColumn = ({ stage, leads, onLeadClick, selectedLeadId }: { key?: any
       </div>
       <div 
         ref={setNodeRef}
-        className="bg-white/[0.03] border border-white/5 rounded-[40px] p-4 flex flex-col gap-4 grow shadow-inner overflow-y-auto max-h-[calc(100vh-25rem)] custom-scrollbar"
+        className="bg-white/[0.03] border border-white/5 rounded-[40px] p-4 flex flex-col gap-4 grow shadow-inner overflow-y-auto custom-scrollbar"
       >
         <SortableContext items={leads.map(l => l.id)} strategy={verticalListSortingStrategy}>
           {leads.map(lead => (
