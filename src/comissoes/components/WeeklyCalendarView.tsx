@@ -88,11 +88,16 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
       };
     });
 
-    // Reorder so that TODAY's weekday (e.g. Terça) comes FIRST,
-    // followed by the remaining days in standard Mon-Sun order.
-    const todayIndex = currentDay === 0 ? 6 : currentDay - 1;
+    // Reorder so that TODAY's weekday (e.g. Terça) comes FIRST, followed by the remaining
+    // days in standard Segunda->Domingo order (removing today from wherever it'd fall).
+    // Ex: hoje=Terça -> [Terça, Segunda, Quarta, Quinta, Sexta, Sábado, Domingo]
+    //     hoje=Quinta -> [Quinta, Segunda, Terça, Quarta, Sexta, Sábado, Domingo]
+    const todayIndex = currentDay; // 0=Dom, 1=Seg, ..., 6=Sáb (índice em standardDays, que começa em Domingo)
     const firstDay = standardDays[todayIndex];
-    const remainingDays = standardDays.filter((_, idx) => idx !== todayIndex);
+    // Ordem base pros restantes: Segunda, Terça, Quarta, Quinta, Sexta, Sábado, Domingo
+    // (standardDays[1..6] seguido de standardDays[0]), removendo o dia de hoje dessa lista.
+    const baseSegundaADomingoOrder = [...standardDays.slice(1), standardDays[0]];
+    const remainingDays = baseSegundaADomingoOrder.filter((d) => d.key !== firstDay.key);
 
     return [firstDay, ...remainingDays];
   }, [weekOffset, todayISO]);
