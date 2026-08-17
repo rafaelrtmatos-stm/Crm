@@ -1,19 +1,15 @@
-// "Caixa da semana" de cada colaborador -- ver contexto completo em
-// supabase/create_comissoes_caixa_semanal.sql.
+// "Caixa" do colaborador -- ver contexto completo em supabase/create_comissoes_caixa_semanal.sql.
 //
-// Regra central: sempre existe (no máximo) UM caixa com status='aberto' por colaborador.
-// Ele é criado sob demanda (getOrCreateCaixaAberto) na primeira vez que alguém abre a aba
-// Descontos. Quando o admin clica em "Fechar Caixa da Semana", congelamos os totais daquela
-// semana nessa linha (status='fechado') e já criamos a linha da semana seguinte, com
-// status='aberto' e saldo_anterior = o saldo que sobrou (positivo = empresa ainda deve ao
-// colaborador; negativo = colaborador ficou devendo) -- é assim que o saldo/dívida "anda"
-// automaticamente pra próxima semana.
+// Regra central: existe UMA única linha de caixa por colaborador (sem conceito de "fechar" ou
+// "reabrir" -- não há abertura/fechamento semanal). O saldo/dívida acumulada é sempre calculado
+// ao vivo, somando tudo (salário, comissão, descontos, pagamentos) desde que o colaborador
+// começou a trabalhar até hoje. Pra mostrar por Semana/Mês/Ano, filtramos esses mesmos dados
+// pela data de cada lançamento -- não existe mais um "snapshot congelado" de semana fechada.
 
 import { supabase } from '../../supabase';
 import { ServiceItem } from '../types';
 import { Desconto, calculateDescontosNoPeriodo } from './supabaseStorage';
 
-export type CaixaStatus = 'aberto' | 'fechado';
 export type FormaPagamento = 'pix' | 'dinheiro' | 'permuta';
 
 export const FORMA_PAGAMENTO_LABELS: Record<FormaPagamento, string> = {
@@ -25,16 +21,8 @@ export const FORMA_PAGAMENTO_LABELS: Record<FormaPagamento, string> = {
 export interface WeeklyCaixa {
   id: string;
   colaboradorId: string;
-  semanaInicio: string; // YYYY-MM-DD, sempre um domingo
-  semanaFim: string;    // YYYY-MM-DD, sempre o sábado seguinte
-  status: CaixaStatus;
-  saldoAnterior: number;
-  salarioBase?: number;
-  totalComissao?: number;
-  totalDescontos?: number;
-  totalPago?: number;
-  saldoFinal?: number;
-  fechadoEm?: string;
+  semanaInicio: string; // YYYY-MM-DD -- data em que o caixa do colaborador começou a contar
+  saldoAnterior: number; // sempre 0 agora (não há mais "semana anterior" congelada)
   createdAt: string;
 }
 
@@ -68,11 +56,24 @@ export const addDaysISO = (dateStr: string, days: number): string => {
 export const getWorkWeekBounds = (offsetWeeks = 0): { start: string; end: string } => {
   const now = new Date();
   const dayOfWeek = now.getDay(); // 0 = domingo ... 6 = sábado
-  // Sempre volta para o domingo da semana corrente (domingo = dia 0)
   const distanceToSun = -dayOfWeek;
   const sun = new Date(now);
   sun.setDate(now.getDate() + distanceToSun + offsetWeeks * 7);
   return { start: formatISO(sun), end: addDaysISO(formatISO(sun), 6) };
+};
+
+/** Primeiro e último dia do mês atual. */
+export const getMonthBounds = (): { start: string; end: string } => {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  return { start: formatISO(new Date(y, m, 1)), end: formatISO(new Date(y, m + 1, 0)) };
+};
+
+/** Primeiro e último dia do ano atual. */
+export const getYearBounds = (): { start: string; end: string } => {
+  const y = new Date().getFullYear();
+  return { start: `${y}-01-01`, end: `${y}-12-31` };
 };
 
 // --- Mapeamento ---
@@ -81,15 +82,7 @@ const mapCaixaRow = (row: any): WeeklyCaixa => ({
   id: row.id,
   colaboradorId: row.colaborador_id,
   semanaInicio: row.semana_inicio,
-  semanaFim: row.semana_fim,
-  status: (row.status as CaixaStatus) || 'aberto',
   saldoAnterior: Number(row.saldo_anterior) || 0,
-  salarioBase: row.salario_base !== null ? Number(row.salario_base) : undefined,
-  totalComissao: row.total_comissao !== null ? Number(row.total_comissao) : undefined,
-  totalDescontos: row.total_descontos !== null ? Number(row.total_descontos) : undefined,
-  totalPago: row.total_pago !== null ? Number(row.total_pago) : undefined,
-  saldoFinal: row.saldo_final !== null ? Number(row.saldo_final) : undefined,
-  fechadoEm: row.fechado_em || undefined,
   createdAt: row.created_at,
 });
 
@@ -104,50 +97,37 @@ const mapPagamentoRow = (row: any): Pagamento => ({
   createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
 });
 
-// --- Caixa aberto ---
+// --- Caixa único do colaborador ---
 
 /**
- * Busca o caixa 'aberto' mais recente do colaborador. Se ele nunca teve nenhum caixa ainda
- * (primeiro uso), cria o primeiro já aberto, pra semana de trabalho atual, com saldo_anterior=0.
+ * Busca a linha de caixa do colaborador. Se ele nunca teve nenhuma ainda (primeiro uso),
+ * cria a única linha dele, com a data de início = hoje. Essa linha nunca é fechada nem trocada
+ * -- é o "caixa" único e contínuo do colaborador, do início ao fim.
  */
 export async function getOrCreateCaixaAberto(colaboradorId: string): Promise<WeeklyCaixa | null> {
-  const { data: aberto, error: fetchError } = await supabase
+  const { data: existente, error: fetchError } = await supabase
     .from('comissoes_caixas_semanais')
     .select('*')
     .eq('colaborador_id', colaboradorId)
-    .eq('status', 'aberto')
-    .order('semana_inicio', { ascending: false })
+    .order('semana_inicio', { ascending: true })
     .limit(1)
     .maybeSingle();
 
-  if (fetchError) { console.error('Erro ao buscar caixa aberto:', fetchError); return null; }
-  if (aberto) return mapCaixaRow(aberto);
+  if (fetchError) { console.error('Erro ao buscar caixa do colaborador:', fetchError); return null; }
+  if (existente) return mapCaixaRow(existente);
 
-  const { start, end } = getWorkWeekBounds();
+  const { start } = getWorkWeekBounds();
   const { data: created, error: insertError } = await supabase
     .from('comissoes_caixas_semanais')
-    .insert({ colaborador_id: colaboradorId, semana_inicio: start, semana_fim: end, status: 'aberto', saldo_anterior: 0 })
+    .insert({ colaborador_id: colaboradorId, semana_inicio: start, status: 'aberto', saldo_anterior: 0 })
     .select()
     .single();
 
-  if (insertError || !created) { console.error('Erro ao abrir o primeiro caixa do colaborador:', insertError); return null; }
+  if (insertError || !created) { console.error('Erro ao criar o caixa do colaborador:', insertError); return null; }
   return mapCaixaRow(created);
 }
 
-/** Histórico de caixas já fechados do colaborador, mais recente primeiro. */
-export async function getHistoricoCaixasFechados(colaboradorId: string, limit = 12): Promise<WeeklyCaixa[]> {
-  const { data, error } = await supabase
-    .from('comissoes_caixas_semanais')
-    .select('*')
-    .eq('colaborador_id', colaboradorId)
-    .eq('status', 'fechado')
-    .order('semana_inicio', { ascending: false })
-    .limit(limit);
-  if (error || !data) return [];
-  return data.map(mapCaixaRow);
-}
-
-// --- Pagamentos parciais (dentro da semana em aberto) ---
+// --- Pagamentos ---
 
 export async function getPagamentosDoCaixa(caixaId: string): Promise<Pagamento[]> {
   const { data, error } = await supabase
@@ -188,11 +168,6 @@ export async function deletePagamento(id: string): Promise<boolean> {
   return !error;
 }
 
-/**
- * Edita um pagamento já lançado (valor/data/descrição). Só faz sentido enquanto o caixa em
- * que ele está ainda está 'aberto' -- depois de fechado o resumo já foi congelado em
- * saldo_final, então editar o pagamento não recalcularia mais nada (ver fecharCaixa acima).
- */
 export async function editarPagamento(id: string, input: PagamentoFormInput): Promise<Pagamento | null> {
   const { data, error } = await supabase
     .from('comissoes_pagamentos')
@@ -209,17 +184,22 @@ export async function editarPagamento(id: string, input: PagamentoFormInput): Pr
   return mapPagamentoRow(data);
 }
 
-// --- Cálculo do resumo (usado tanto pra exibir ao vivo quanto pro snapshot do fechamento) ---
+// --- Cálculo do resumo ---
 
 export interface ResumoCaixa {
   salarioBase: number;
   totalComissao: number;
   totalDescontos: number;
   totalPago: number;
-  saldoSemana: number; // salarioBase + totalComissao - totalDescontos - totalPago (sem contar o saldo anterior)
+  saldoSemana: number; // salarioBase + totalComissao - totalDescontos - totalPago (do intervalo calculado)
   saldoFinal: number;  // saldoAnterior + saldoSemana
 }
 
+/**
+ * Resumo completo do colaborador desde o início do caixa (createdAt/semanaInicio) até hoje.
+ * É o que alimenta o saldoFinal/dívida acumulada -- não depende de "fechar" nada, soma tudo
+ * o que já aconteceu.
+ */
 export function calcularResumoCaixa(
   caixa: WeeklyCaixa,
   salarioBase: number,
@@ -227,12 +207,7 @@ export function calcularResumoCaixa(
   descontos: Desconto[],
   pagamentos: Pagamento[]
 ): ResumoCaixa {
-  // Enquanto o caixa está 'aberto' ele não fica preso à janela semanaInicio-semanaFim: continua
-  // somando tudo o que entrar (comissão, desconto) a partir de semanaInicio pra sempre em
-  // diante, sem precisar "Fechar Caixa" toda semana -- assim o card fica sempre correto e em
-  // dia sozinho. Só quando fecha de vez (status='fechado') que a janela volta a ser fixa,
-  // porque aí é o snapshot congelado daquele fechamento específico.
-  const fimEfetivo = caixa.status === 'aberto' ? '9999-12-31' : caixa.semanaFim;
+  const fimEfetivo = '9999-12-31';
   const totalComissao = services
     .filter((s) => s.date >= caixa.semanaInicio && s.date <= fimEfetivo && s.status !== 'CANCELADO')
     .reduce((acc, s) => acc + (s.commissionValue || 0), 0);
@@ -244,178 +219,28 @@ export function calcularResumoCaixa(
 }
 
 /**
- * Mesmo cálculo de calcularResumoCaixa, mas isolando só o movimento da SEMANA CALENDÁRIO
- * atual (domingo até sábado, sempre calculado a partir de hoje) -- não desde a data em que
- * o caixa foi aberto. Usado quando o filtro "Semana" tá selecionado, pra não misturar
- * semanas anteriores que ainda não foram fechadas.
- *
- * O saldoFinal continua vindo do resumo completo (caixa.saldoAnterior + saldoSemana total),
- * porque a dívida/crédito acumulada tem que continuar aparecendo mesmo filtrando só a
- * semana -- só o "Salário", "Comissão", "Descontos" e "Já Pago" ficam restritos à semana.
+ * Mesmo cálculo, mas isolado num intervalo de datas específico (semana calendário, mês ou
+ * ano) -- usado pelos filtros de visualização. O saldoFinal aqui NÃO é o acumulado; quem
+ * precisa do acumulado real usa calcularResumoCaixa() acima.
  */
-export function calcularResumoSemanaCalendario(
+export function calcularResumoNoIntervalo(
   caixa: WeeklyCaixa,
   salarioBase: number,
   services: ServiceItem[],
   descontos: Desconto[],
   pagamentos: Pagamento[],
-  resumoCompleto: ResumoCaixa
+  inicio: string,
+  fim: string
 ): ResumoCaixa {
-  const hoje = new Date();
-  const diaSemana = hoje.getDay(); // 0 = domingo
-  const domingo = new Date(hoje);
-  domingo.setDate(hoje.getDate() - diaSemana);
-  const sabado = new Date(domingo);
-  sabado.setDate(domingo.getDate() + 6);
-  const format = (d: Date) => d.toISOString().split('T')[0];
-  const semanaInicio = format(domingo);
-  const semanaFim = format(sabado);
-
   const totalComissao = services
-    .filter((s) => s.date >= semanaInicio && s.date <= semanaFim && s.status !== 'CANCELADO')
+    .filter((s) => s.date >= inicio && s.date <= fim && s.status !== 'CANCELADO')
     .reduce((acc, s) => acc + (s.commissionValue || 0), 0);
-  const totalDescontos = calculateDescontosNoPeriodo(descontos, semanaInicio, semanaFim);
+  const totalDescontos = calculateDescontosNoPeriodo(descontos, inicio, fim);
   const totalPago = pagamentos
-    .filter((p) => p.data >= semanaInicio && p.data <= semanaFim)
+    .filter((p) => p.data >= inicio && p.data <= fim)
     .reduce((acc, p) => acc + p.valor, 0);
   const saldoSemana = salarioBase + totalComissao - totalDescontos - totalPago;
-
-  return {
-    salarioBase,
-    totalComissao,
-    totalDescontos,
-    totalPago,
-    saldoSemana,
-    // saldoFinal continua sendo o acumulado real (dívida/crédito que carrega entre semanas)
-    saldoFinal: resumoCompleto.saldoFinal,
-  };
-}
-
-// --- Fechamento ---
-
-/**
- * Fecha o caixa em aberto (congela o resumo calculado nele) e já cria/abre o caixa da semana
- * seguinte, com saldo_anterior = saldo_final que acabou de ser calculado. Retorna o novo caixa
- * já aberto, pra tela trocar de estado sem precisar recarregar tudo.
- */
-export async function fecharCaixa(caixa: WeeklyCaixa, resumo: ResumoCaixa): Promise<WeeklyCaixa | null> {
-  const fechadoEm = new Date().toISOString();
-
-  const { error: closeError } = await supabase
-    .from('comissoes_caixas_semanais')
-    .update({
-      status: 'fechado',
-      salario_base: resumo.salarioBase,
-      total_comissao: resumo.totalComissao,
-      total_descontos: resumo.totalDescontos,
-      total_pago: resumo.totalPago,
-      saldo_final: resumo.saldoFinal,
-      fechado_em: fechadoEm,
-      updated_at: fechadoEm,
-    })
-    .eq('id', caixa.id);
-
-  if (closeError) { console.error('Erro ao fechar caixa:', closeError); return null; }
-
-  const proximaSemanaInicio = addDaysISO(caixa.semanaFim, 1); // sábado + 1 dia = próximo domingo
-  const proximaSemanaFim = addDaysISO(proximaSemanaInicio, 6);
-
-  const { data: proximo, error: openError } = await supabase
-    .from('comissoes_caixas_semanais')
-    .insert({
-      colaborador_id: caixa.colaboradorId,
-      semana_inicio: proximaSemanaInicio,
-      semana_fim: proximaSemanaFim,
-      status: 'aberto',
-      saldo_anterior: resumo.saldoFinal,
-    })
-    .select()
-    .single();
-
-  if (openError || !proximo) {
-    // Semana seguinte já existia (ex: reabrir a tela e clicar em fechar de novo por engano) --
-    // busca ela em vez de falhar, pra tela sempre ter um caixa aberto pra mostrar.
-    const { data: existente } = await supabase
-      .from('comissoes_caixas_semanais')
-      .select('*')
-      .eq('colaborador_id', caixa.colaboradorId)
-      .eq('semana_inicio', proximaSemanaInicio)
-      .maybeSingle();
-    if (existente) return mapCaixaRow(existente);
-    console.error('Erro ao abrir a próxima semana:', openError);
-    return null;
-  }
-
-  return mapCaixaRow(proximo);
-}
-
-// --- Reabertura (correção de fechamento) ---
-
-export interface ReabrirCaixaResult {
-  caixa: WeeklyCaixa | null;
-  reason: string | null;
-}
-
-/**
- * Reabre um caixa já fechado, pra corrigir pagamentos e fechar de novo com o valor certo.
- * Só é seguro fazer isso se a semana SEGUINTE (criada automaticamente quando esse caixa foi
- * fechado) ainda não tiver nenhuma atividade própria -- senão a gente perderia/bagunçaria o
- * saldo_anterior dela. Por isso:
- *  - se a semana seguinte já foi fechada, ou já tem pagamentos lançados nela: bloqueia e avisa
- *    (caixa=null, reason preenchido).
- *  - se ela existe mas está vazia (só foi criada, sem uso): apaga ela, porque vai nascer de
- *    novo (com o saldo_anterior corrigido) quando esse caixa for fechado outra vez.
- * O caixa reaberto volta pra status='aberto' com os 5 campos do snapshot zerados (null), pra
- * a tela recalcular tudo ao vivo de novo (igual a um caixa aberto normal).
- */
-export async function reabrirCaixa(caixa: WeeklyCaixa): Promise<ReabrirCaixaResult> {
-  if (caixa.status !== 'fechado') return { caixa: null, reason: 'Esse caixa já está aberto.' };
-
-  const proximaSemanaInicio = addDaysISO(caixa.semanaFim, 1); // sábado + 1 dia = próximo domingo
-  const { data: proximo, error: fetchNextError } = await supabase
-    .from('comissoes_caixas_semanais')
-    .select('*')
-    .eq('colaborador_id', caixa.colaboradorId)
-    .eq('semana_inicio', proximaSemanaInicio)
-    .maybeSingle();
-
-  if (fetchNextError) return { caixa: null, reason: 'Erro ao verificar a semana seguinte.' };
-
-  if (proximo) {
-    if (proximo.status === 'fechado') {
-      return { caixa: null, reason: 'A semana seguinte já foi fechada também -- reabra ela primeiro, depois volte aqui.' };
-    }
-    const { count, error: countError } = await supabase
-      .from('comissoes_pagamentos')
-      .select('id', { count: 'exact', head: true })
-      .eq('caixa_id', proximo.id);
-    if (countError) return { caixa: null, reason: 'Erro ao verificar pagamentos da semana seguinte.' };
-    if ((count || 0) > 0) {
-      return { caixa: null, reason: 'Já existem pagamentos lançados na semana seguinte -- exclua-os antes de reabrir essa aqui, senão o saldo dela ficaria incorreto.' };
-    }
-    const { error: delError } = await supabase.from('comissoes_caixas_semanais').delete().eq('id', proximo.id);
-    if (delError) return { caixa: null, reason: 'Erro ao remover a semana seguinte (ainda vazia) antes de reabrir.' };
-  }
-
-  const nowISO = new Date().toISOString();
-  const { data: reaberto, error: reopenError } = await supabase
-    .from('comissoes_caixas_semanais')
-    .update({
-      status: 'aberto',
-      salario_base: null,
-      total_comissao: null,
-      total_descontos: null,
-      total_pago: null,
-      saldo_final: null,
-      fechado_em: null,
-      updated_at: nowISO,
-    })
-    .eq('id', caixa.id)
-    .select()
-    .single();
-
-  if (reopenError || !reaberto) return { caixa: null, reason: 'Erro ao reabrir o caixa.' };
-  return { caixa: mapCaixaRow(reaberto), reason: null };
+  return { salarioBase, totalComissao, totalDescontos, totalPago, saldoSemana, saldoFinal: saldoSemana };
 }
 
 // --- Agregação por Período (Semana / Mês / Ano) ---
@@ -429,8 +254,8 @@ export interface ResumoPorPeriodo {
   totalComissao: number;
   totalDescontos: number;
   totalPago: number;
-  saldoPeriodo: number;  // soma de salarioBase+comissao-descontos-pago de todas as semanas do período
-  saldoFinal: number;    // saldo acumulado até o fim do período (equivale ao saldoFinal do último caixa)
+  saldoPeriodo: number;  // salarioBase + comissao - descontos - pago, isolado no período
+  saldoFinal: number;    // saldo acumulado real (dívida/crédito que carrega) -- não filtrado por período
   qtdSemanas: number;
 }
 
@@ -440,97 +265,53 @@ function nomeMesPt(mes: number): string {
 }
 
 /**
- * Calcula o resumo agregado do colaborador pra um período (semana/mês/ano), combinando:
- * - O caixa aberto atual (via calcularResumoCaixa, sempre em dia)
- * - O histórico de caixas já fechados (snapshot congelado de cada semana)
+ * Resumo agregado pra Semana / Mês / Ano, sempre a partir dos mesmos dados vivos (services,
+ * descontos, pagamentos) filtrados pela data de cada lançamento -- não depende de nenhum
+ * histórico de "caixas fechados".
  *
- * 'semana' considera só o caixa aberto (a semana corrente).
- * 'mes' e 'ano' somam o caixa aberto + os caixas fechados que caem dentro da janela,
- * usando os valores já congelados de cada um (salarioBase, totalComissao, totalDescontos, totalPago).
+ * O saldoFinal (dívida/crédito acumulada) é sempre o resumo COMPLETO (calcularResumoCaixa),
+ * independente do período escolhido -- a dívida antiga continua aparecendo até ser quitada,
+ * mesmo filtrando só a semana ou o mês atual.
  */
 export function calcularResumoPorPeriodo(
   periodo: PeriodoVisualizacao,
-  caixaAberto: WeeklyCaixa | null,
-  resumoCaixaAberto: ResumoCaixa | null,
-  historicoFechados: WeeklyCaixa[],
-  resumoSemanaCalendario: ResumoCaixa | null = null
+  caixa: WeeklyCaixa | null,
+  resumoCompleto: ResumoCaixa | null,
+  salarioBase: number,
+  services: ServiceItem[],
+  descontos: Desconto[],
+  pagamentos: Pagamento[]
 ): ResumoPorPeriodo {
   const hoje = new Date();
   const anoAtual = hoje.getFullYear();
   const mesAtual = hoje.getMonth();
 
-  if (periodo === 'semana') {
-    // Usa o movimento isolado da semana calendário (domingo-sábado atual) quando disponível --
-    // evita misturar semanas anteriores que ainda estão dentro do mesmo caixa aberto (não
-    // fechado). O saldoFinal continua sendo o acumulado real (dívida/crédito que carrega).
-    const r = resumoSemanaCalendario ?? resumoCaixaAberto;
-    return {
-      periodo: 'semana',
-      label: 'Esta Semana',
-      salarioBase: r?.salarioBase ?? 0,
-      totalComissao: r?.totalComissao ?? 0,
-      totalDescontos: r?.totalDescontos ?? 0,
-      totalPago: r?.totalPago ?? 0,
-      saldoPeriodo: r?.saldoSemana ?? 0,
-      saldoFinal: resumoCaixaAberto?.saldoFinal ?? (caixaAberto?.saldoAnterior ?? 0),
-      qtdSemanas: caixaAberto ? 1 : 0,
-    };
+  if (!caixa) {
+    return { periodo, label: '', salarioBase: 0, totalComissao: 0, totalDescontos: 0, totalPago: 0, saldoPeriodo: 0, saldoFinal: 0, qtdSemanas: 0 };
   }
 
-  // Filtra os caixas fechados que caem no período (mês ou ano corrente)
-  const fechadosNoPeriodo = historicoFechados.filter((c) => {
-    const d = new Date(c.semanaInicio);
-    if (periodo === 'ano') return d.getFullYear() === anoAtual;
-    return d.getFullYear() === anoAtual && d.getMonth() === mesAtual;
-  });
+  const { start, end } =
+    periodo === 'semana' ? getWorkWeekBounds() :
+    periodo === 'mes' ? getMonthBounds() :
+    getYearBounds();
 
-  // Inclui o caixa aberto se a semana dele também cair no período
-  const semanaAbertaNoPeriodo = caixaAberto && resumoCaixaAberto
-    ? (() => {
-        const d = new Date(caixaAberto.semanaInicio);
-        return periodo === 'ano'
-          ? d.getFullYear() === anoAtual
-          : d.getFullYear() === anoAtual && d.getMonth() === mesAtual;
-      })()
-    : false;
+  const r = calcularResumoNoIntervalo(caixa, salarioBase, services, descontos, pagamentos, start, end);
 
-  let salarioBase = 0, totalComissao = 0, totalDescontos = 0, totalPago = 0, saldoPeriodo = 0;
-
-  fechadosNoPeriodo.forEach((c) => {
-    salarioBase += c.salarioBase ?? 0;
-    totalComissao += c.totalComissao ?? 0;
-    totalDescontos += c.totalDescontos ?? 0;
-    totalPago += c.totalPago ?? 0;
-    // saldoFinal do caixa fechado já é acumulado (saldoAnterior + saldoSemana) --
-    // pra somar corretamente ao longo do período usamos a diferença (saldoSemana isolado):
-    const saldoSemanaIsolado = (c.salarioBase ?? 0) + (c.totalComissao ?? 0) - (c.totalDescontos ?? 0) - (c.totalPago ?? 0);
-    saldoPeriodo += saldoSemanaIsolado;
-  });
-
-  if (semanaAbertaNoPeriodo && resumoCaixaAberto) {
-    salarioBase += resumoCaixaAberto.salarioBase;
-    totalComissao += resumoCaixaAberto.totalComissao;
-    totalDescontos += resumoCaixaAberto.totalDescontos;
-    totalPago += resumoCaixaAberto.totalPago;
-    saldoPeriodo += resumoCaixaAberto.saldoSemana;
-  }
-
-  const qtdSemanas = fechadosNoPeriodo.length + (semanaAbertaNoPeriodo ? 1 : 0);
-
-  // saldoFinal do período = saldo final mais recente disponível (o "estado atual" da dívida/crédito)
-  const saldoFinal = resumoCaixaAberto?.saldoFinal
-    ?? (fechadosNoPeriodo[0]?.saldoFinal)
-    ?? (caixaAberto?.saldoAnterior ?? 0);
+  const label =
+    periodo === 'semana' ? 'Esta Semana' :
+    periodo === 'mes' ? `${nomeMesPt(mesAtual)}/${anoAtual}` :
+    `${anoAtual}`;
 
   return {
     periodo,
-    label: periodo === 'ano' ? `${anoAtual}` : `${nomeMesPt(mesAtual)}/${anoAtual}`,
-    salarioBase,
-    totalComissao,
-    totalDescontos,
-    totalPago,
-    saldoPeriodo,
-    saldoFinal,
-    qtdSemanas,
+    label,
+    salarioBase: r.salarioBase,
+    totalComissao: r.totalComissao,
+    totalDescontos: r.totalDescontos,
+    totalPago: r.totalPago,
+    saldoPeriodo: r.saldoSemana,
+    // saldo acumulado real continua sempre o completo, independente do período visualizado
+    saldoFinal: resumoCompleto?.saldoFinal ?? caixa.saldoAnterior,
+    qtdSemanas: periodo === 'semana' ? 1 : 0,
   };
 }

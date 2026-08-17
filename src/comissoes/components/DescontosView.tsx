@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   MinusCircle, Plus, Pencil, Trash2, X, Ban, CheckCircle2,
-  Wallet, History, ChevronDown, ChevronUp, Banknote,
+  Wallet, Banknote,
 } from 'lucide-react';
 import {
   Desconto,
@@ -28,9 +28,6 @@ import {
   editarPagamento,
   deletePagamento,
   calcularResumoCaixa,
-  calcularResumoSemanaCalendario,
-  getHistoricoCaixasFechados,
-  reabrirCaixa,
   calcularResumoPorPeriodo,
   PeriodoVisualizacao,
 } from '../utils/caixaSemanalStorage';
@@ -134,10 +131,6 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
   const [editingPagamentoId, setEditingPagamentoId] = useState<string | null>(null);
   const [pagamentoForm, setPagamentoForm] = useState<PagamentoFormInput>({ ...emptyPagamentoForm });
   const [savingPagamento, setSavingPagamento] = useState(false);
-  const [showHistorico, setShowHistorico] = useState(false);
-  const [historico, setHistorico] = useState<WeeklyCaixa[] | null>(null);
-  const [loadingHistorico, setLoadingHistorico] = useState(false);
-  const [reabrindoId, setReabrindoId] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
   // ✅ Seletor de visualização do Caixa: Semana / Mês / Ano
   const [periodoVisualizacao, setPeriodoVisualizacao] = useState<PeriodoVisualizacao>('semana');
@@ -161,40 +154,18 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
     return () => { cancelled = true; };
   }, [colaboradorId, reloadToken]);
 
-  // ✅ Carrega o histórico de caixas fechados sempre que o período não for "semana",
-  // pra alimentar o cálculo agregado de Mês/Ano (não depende mais de abrir a seção Histórico).
-  useEffect(() => {
-    if (periodoVisualizacao === 'semana') return;
-    let cancelled = false;
-    setLoadingHistorico(true);
-    getHistoricoCaixasFechados(colaboradorId, 60).then((list) => {
-      if (!cancelled) { setHistorico(list); setLoadingHistorico(false); }
-    });
-    return () => { cancelled = true; };
-  }, [colaboradorId, periodoVisualizacao, reloadToken]);
-
-  // ✅ CORRETO: usa calcularResumoCaixa que já calcula
-  // saldoSemana = salarioBase + totalComissao - totalDescontos - totalPago
-  // saldoFinal = saldoAnterior + saldoSemana
-  // (esse resumo pode acumular mais de uma semana se o caixa ainda não foi fechado --
-  // é o que alimenta o saldoFinal/dívida acumulada, que continua aparecendo sempre)
+  // ✅ Resumo completo (desde que o colaborador começou) -- alimenta o saldo acumulado
+  // (dívida/crédito), que continua aparecendo sempre, independente do período visualizado.
   const resumoCaixa = useMemo(
     () => (caixa ? calcularResumoCaixa(caixa, baseSalary, services, descontos, pagamentos) : null),
     [caixa, baseSalary, services, descontos, pagamentos]
   );
 
-  // ✅ Movimento isolado só da semana calendário atual (domingo-sábado de hoje) --
-  // usado no filtro "Semana" pra não misturar semanas anteriores ainda dentro do
-  // mesmo caixa aberto. Dívida parcelada só entra aqui quando a parcela cai nesse intervalo.
-  const resumoSemanaCalendario = useMemo(
-    () => (caixa && resumoCaixa ? calcularResumoSemanaCalendario(caixa, baseSalary, services, descontos, pagamentos, resumoCaixa) : null),
-    [caixa, resumoCaixa, baseSalary, services, descontos, pagamentos]
-  );
-
-  // ✅ Resumo agregado conforme o período escolhido (Semana / Mês / Ano)
+  // ✅ Resumo agregado conforme o período escolhido (Semana / Mês / Ano) -- sempre calculado
+  // ao vivo a partir dos mesmos dados (sem depender de "caixas fechados").
   const resumoPorPeriodo = useMemo(
-    () => calcularResumoPorPeriodo(periodoVisualizacao, caixa, resumoCaixa, historico ?? [], resumoSemanaCalendario),
-    [periodoVisualizacao, caixa, resumoCaixa, historico, resumoSemanaCalendario]
+    () => calcularResumoPorPeriodo(periodoVisualizacao, caixa, resumoCaixa, baseSalary, services, descontos, pagamentos),
+    [periodoVisualizacao, caixa, resumoCaixa, baseSalary, services, descontos, pagamentos]
   );
 
   const handleAddPagamento = async () => {
@@ -238,35 +209,6 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
     if (!ok) { showAlert('Não foi possível excluir.'); return; }
     setPagamentos((prev) => prev.filter((x) => x.id !== p.id));
     if (editingPagamentoId === p.id) handleCancelPagamentoForm();
-  };
-
-  const handleToggleHistorico = async () => {
-    const next = !showHistorico;
-    setShowHistorico(next);
-    if (next && historico === null) {
-      setLoadingHistorico(true);
-      const list = await getHistoricoCaixasFechados(colaboradorId);
-      setHistorico(list);
-      setLoadingHistorico(false);
-    }
-  };
-
-  const handleReabrirCaixa = async (h: WeeklyCaixa) => {
-    if (!(await showConfirm(
-      `Reabrir o caixa da semana ${formatDateBR(h.semanaInicio)} a ${formatDateBR(h.semanaFim)}? ` +
-      `Só faz isso se a semana seguinte ainda estiver vazia. Depois de corrigir os pagamentos, ` +
-      `feche essa semana de novo.`
-    ))) return;
-    setReabrindoId(h.id);
-    const result = await reabrirCaixa(h);
-    setReabrindoId(null);
-    if (!result.caixa) { showAlert(result.reason || 'Não foi possível reabrir o caixa.'); return; }
-    // Essa semana reaberta passa a ser o caixa "aberto" corrente da tela.
-    setCaixa(result.caixa);
-    setHistorico((prev) => (prev ? prev.filter((x) => x.id !== h.id) : prev));
-    const list = await getPagamentosDoCaixa(result.caixa.id);
-    setPagamentos(list);
-    setShowHistorico(false);
   };
 
   const openNewForm = () => {
@@ -343,7 +285,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
                     Tentar novamente
                   </button>
                 </div>
-              ) : !resumoCaixa || (periodoVisualizacao !== 'semana' && loadingHistorico) ? (
+              ) : !resumoCaixa ? (
                 <div className="text-sm text-[var(--text-muted)] mt-1">Carregando...</div>
               ) : (
                 <div className={`text-2xl font-black font-mono ${resumoPorPeriodo.saldoFinal >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
@@ -374,7 +316,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
           </div>
         </div>
 
-        {resumoCaixa && !(periodoVisualizacao !== 'semana' && loadingHistorico) && (
+        {resumoCaixa && (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2 text-center text-[11px]">
             <div className="p-2.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
               <span className="text-[var(--text-muted)] block mb-1">
@@ -517,47 +459,6 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
                   )}
                 </div>
               ))}
-            </div>
-          )}
-        </div>
-
-        {/* Histórico de semanas já fechadas */}
-        <div className="pt-2 border-t border-[var(--border-color)]">
-          <button
-            onClick={handleToggleHistorico}
-            className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)] hover:text-[var(--text-main)]"
-          >
-            <History size={13} /> Histórico de fechamentos
-            {showHistorico ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-          </button>
-          {showHistorico && (
-            <div className="mt-2 space-y-1.5">
-              {loadingHistorico ? (
-                <p className="text-[11px] text-[var(--text-muted)]">Carregando...</p>
-              ) : !historico || historico.length === 0 ? (
-                <p className="text-[11px] text-[var(--text-muted)]">Nenhuma semana fechada ainda.</p>
-              ) : (
-                historico.map((h) => (
-                  <div key={h.id} className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)] text-[11px]">
-                    <span className="text-[var(--text-main)] font-bold">{formatDateBR(h.semanaInicio)} a {formatDateBR(h.semanaFim)}</span>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className={`font-mono font-black ${((h.saldoFinal ?? 0) >= 0) ? 'text-emerald-400' : 'text-rose-400'}`}>
-                        {formatCurrency(h.saldoFinal ?? 0)}
-                      </span>
-                      {isAdmin && (
-                        <button
-                          disabled={reabrindoId === h.id}
-                          onClick={() => handleReabrirCaixa(h)}
-                          className="text-[9px] font-black uppercase tracking-wider text-primary-400 hover:text-primary-300 disabled:opacity-50"
-                          title="Reabrir esse caixa pra corrigir pagamentos"
-                        >
-                          {reabrindoId === h.id ? 'Reabrindo...' : 'Reabrir'}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))
-              )}
             </div>
           )}
         </div>
