@@ -2216,13 +2216,41 @@ export const ChatPanel = ({
                 onClick={action.onClick}
               />
             ))}
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              className="p-1.5 min-w-0 h-8 w-8 border-none text-white/40" 
-              icon={MoreHorizontal}
-              onClick={() => setShowQuickActions(!showQuickActions)}
-            />
+            {/* ✅ Botão para ver mais ações (se tiver mais de 6) */}
+            {quickActions.filter(a => a.permission).length > 6 && (
+              <div className="relative">
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="p-1.5 min-w-0 h-8 w-8 border-none text-white/40 hover:text-primary-300" 
+                  icon={MoreHorizontal}
+                  onClick={() => setShowQuickActions(!showQuickActions)}
+                  title="Mais ações"
+                />
+                {showQuickActions && (
+                  <div className="absolute top-full mt-1 right-0 bg-slate-900 border border-white/10 rounded-xl shadow-2xl z-50 p-2 min-w-[200px]">
+                    {quickActions.filter(a => a.permission).slice(6).map(action => (
+                      <button
+                        key={action.id}
+                        onClick={() => {
+                          action.onClick();
+                          setShowQuickActions(false);
+                        }}
+                        className={cn(
+                          "w-full text-left px-3 py-2 rounded-lg text-[10px] font-bold flex items-center gap-2 transition-all",
+                          action.color,
+                          "hover:bg-white/10"
+                        )}
+                        title={action.label}
+                      >
+                        <action.icon size={12} />
+                        {action.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           {onClose && <Button variant="ghost" icon={X} onClick={onClose} className="p-1.5 min-w-0 h-8 w-8" />}
         </div>
