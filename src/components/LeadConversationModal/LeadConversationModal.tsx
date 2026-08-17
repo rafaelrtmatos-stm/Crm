@@ -11,7 +11,7 @@
  */
 
 import React, { useState } from 'react';
-import { X, MessageSquare, Sticky, CheckCircle2, Share2, Zap } from 'lucide-react';
+import { X, MessageSquare, StickyNote, CheckCircle2, Share2, Zap } from 'lucide-react';
 import { StageDropdown } from '@/components/StatusDropdown';
 import type { StageName } from '@/components/StatusDropdown';
 
@@ -54,7 +54,7 @@ export default function LeadConversationModal({
 
   const tabs = [
     { id: 'chat' as const, icon: MessageSquare, label: 'Chat' },
-    { id: 'notes' as const, icon: Sticky, label: 'Notas' },
+    { id: 'notes' as const, icon: StickyNote, label: 'Notas' },
     { id: 'tasks' as const, icon: CheckCircle2, label: 'Tarefas' },
     { id: 'saved' as const, icon: Share2, label: 'Salvas' },
     { id: 'sales' as const, icon: Zap, label: 'Vendas' },

@@ -14,7 +14,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { STAGES_BY_GROUP, getStageConfig, StageGroup, StageName } from './StageConfig';
-import { cn } from '../../lib/utils';
+import { cn } from '../SharedUI';
 
 interface StageDropdownProps {
   /** Grupo de etapas (pedidos | orcamentos | contratos) */
