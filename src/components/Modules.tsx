@@ -4933,6 +4933,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   // fixed + coordenadas do getBoundingClientRect escapa desse corte.
   const [contratoActionsMenuPos, setContratoActionsMenuPos] = useState<{ top?: number; bottom?: number; left: number } | null>(null);
   const [contratoSearchTerm, setContratoSearchTerm] = useState('');
+  const [orcamentoStatusFilter, setOrcamentoStatusFilter] = useState('todos');
+  const [orcamentoSearchTerm, setOrcamentoSearchTerm] = useState('');
+  const [orcamentoSortBy, setOrcamentoSortBy] = useState<'recentes' | 'antigos' | 'az' | 'za'>('recentes');
   const [orcamentoItemsEditMode, setOrcamentoItemsEditMode] = useState(false);
 
   const handleReturnItemsToOrcamento = () => {
@@ -9039,13 +9042,46 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           const statusNaoAprovados = ['rascunho', 'enviado', 'em_espera'];
           const valorAprovado = orcamentosDeVerdade.filter(o => statusAprovados.includes(o.status)).reduce((acc, o) => acc + o.total, 0);
           const valorNaoAprovado = orcamentosDeVerdade.filter(o => statusNaoAprovados.includes(o.status)).reduce((acc, o) => acc + o.total, 0);
-          const orcamentosDashCards = [
-            { label: 'Rascunhos', val: orcamentosDeVerdade.filter(o => o.status === 'rascunho').length, color: 'text-white/60' },
-            { label: 'Em Espera', val: orcamentosDeVerdade.filter(o => o.status === 'em_espera').length, color: 'text-amber-400' },
-            { label: 'Enviados', val: orcamentosDeVerdade.filter(o => o.status === 'enviado').length, color: 'text-blue-400' },
-            { label: 'Aprovados', val: orcamentosDeVerdade.filter(o => o.status === 'aprovado').length, color: 'text-emerald-400' },
-            { label: 'Recusados/Cancelados', val: orcamentosDeVerdade.filter(o => o.status === 'recusado' || o.status === 'cancelado' || o.status === 'expirado').length, color: 'text-rose-400' },
+
+          const orcRascunhos = orcamentosDeVerdade.filter(o => o.status === 'rascunho');
+          const orcEmEspera = orcamentosDeVerdade.filter(o => o.status === 'em_espera');
+          const orcEnviados = orcamentosDeVerdade.filter(o => o.status === 'enviado');
+          const orcAprovados = orcamentosDeVerdade.filter(o => statusAprovados.includes(o.status));
+          const orcRecusados = orcamentosDeVerdade.filter(o => o.status === 'recusado' || o.status === 'cancelado' || o.status === 'expirado');
+
+          const filtrosOrcamento = [
+            { id: 'todos', label: 'Todos', count: orcamentosDeVerdade.length },
+            { id: 'rascunho', label: 'Rascunhos', count: orcRascunhos.length },
+            { id: 'em_espera', label: 'Em Espera', count: orcEmEspera.length },
+            { id: 'enviado', label: 'Enviados', count: orcEnviados.length },
+            { id: 'aprovado', label: 'Aprovados', count: orcAprovados.length },
+            { id: 'recusado', label: 'Recusados/Cancelados', count: orcRecusados.length },
           ];
+
+          const orcTerm = orcamentoSearchTerm.trim().toLowerCase();
+          const orcamentosFiltrados = orcamentosDeVerdade
+            .filter(o => {
+              if (orcamentoStatusFilter === 'rascunho') return o.status === 'rascunho';
+              if (orcamentoStatusFilter === 'em_espera') return o.status === 'em_espera';
+              if (orcamentoStatusFilter === 'enviado') return o.status === 'enviado';
+              if (orcamentoStatusFilter === 'aprovado') return statusAprovados.includes(o.status);
+              if (orcamentoStatusFilter === 'recusado') return o.status === 'recusado' || o.status === 'cancelado' || o.status === 'expirado';
+              return true; // 'todos'
+            })
+            .filter(o => {
+              if (!orcTerm) return true;
+              return (
+                (o.numero || '').toLowerCase().includes(orcTerm) ||
+                (o.customerName || '').toLowerCase().includes(orcTerm)
+              );
+            })
+            .sort((a, b) => {
+              if (orcamentoSortBy === 'az') return (a.customerName || '').localeCompare(b.customerName || '');
+              if (orcamentoSortBy === 'za') return (b.customerName || '').localeCompare(a.customerName || '');
+              if (orcamentoSortBy === 'antigos') return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+              return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(); // 'recentes'
+            });
+
           return (
           <div className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/40 space-y-6">
             <SectionHeader
@@ -9054,31 +9090,70 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               actions={<Button icon={Plus} onClick={openNewOrcamento}>Novo Orçamento</Button>}
             />
 
-            {/* Dashboard */}
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-3">
-              {orcamentosDashCards.map(card => (
-                <div key={card.label} className="bg-white/5 border border-white/10 rounded-2xl p-4">
-                   <p className="text-[8px] font-black uppercase text-white/30 tracking-widest mb-1">{card.label}</p>
-                   <p className={cn("text-2xl font-black italic", card.color)}>{card.val}</p>
-                </div>
-              ))}
-              <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4">
-                 <p className="text-[8px] font-black uppercase text-amber-400 tracking-widest mb-1">Valor Não Aprovado</p>
-                 <p className="text-lg font-black italic text-amber-400">R$ {valorNaoAprovado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+            {/* Filtros -- mesmo padrao visual dos botoes de Contratos */}
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto no-scrollbar -mx-1 px-1 pb-0.5">
+                {filtrosOrcamento.map(f => (
+                  <button
+                    key={f.id}
+                    onClick={() => setOrcamentoStatusFilter(f.id)}
+                    className={cn(
+                      "shrink-0 flex items-center gap-1.5 px-3 h-9 rounded-lg text-[9px] font-black uppercase tracking-wide cursor-pointer border transition-all whitespace-nowrap",
+                      orcamentoStatusFilter === f.id ? "bg-primary-500 text-white border-primary-500" : "bg-white/5 text-white/50 border-white/10 hover:text-white"
+                    )}
+                  >
+                    {f.label}
+                    <span className={cn(
+                      "flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[9px] font-black",
+                      orcamentoStatusFilter === f.id ? "bg-white/25 text-white" : "bg-white/10 text-white/60"
+                    )}>
+                      {f.count}
+                    </span>
+                  </button>
+                ))}
               </div>
-              <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-4">
-                 <p className="text-[8px] font-black uppercase text-emerald-400 tracking-widest mb-1">Valor Aprovado</p>
-                 <p className="text-lg font-black italic text-emerald-400">R$ {valorAprovado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
+                  <input
+                    value={orcamentoSearchTerm}
+                    onChange={(e) => setOrcamentoSearchTerm(e.target.value)}
+                    placeholder="Buscar por número ou cliente..."
+                    className="w-full h-9 bg-white/5 border border-white/10 rounded-lg pl-9 pr-3 text-[11px] text-white placeholder:text-white/30 focus:outline-none focus:border-primary-500"
+                  />
+                </div>
+                <select
+                  value={orcamentoSortBy}
+                  onChange={(e) => setOrcamentoSortBy(e.target.value as any)}
+                  className="h-9 bg-white/5 border border-white/10 rounded-lg px-2.5 text-[9px] font-black uppercase text-white/60 focus:outline-none focus:border-primary-500 cursor-pointer shrink-0"
+                >
+                  <option value="recentes" className="bg-slate-900">Mais Recentes</option>
+                  <option value="antigos" className="bg-slate-900">Mais Antigos</option>
+                  <option value="az" className="bg-slate-900">A-Z</option>
+                  <option value="za" className="bg-slate-900">Z-A</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Indicadores financeiros -- mesma linguagem visual dos cards de Contratos */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-3">
+                <p className="text-[8px] font-black uppercase text-emerald-400 tracking-widest mb-1">Valor Aprovado</p>
+                <p className="text-base font-black italic text-emerald-400">R$ {valorAprovado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+              </div>
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-3">
+                <p className="text-[8px] font-black uppercase text-amber-400 tracking-widest mb-1">Valor Não Aprovado</p>
+                <p className="text-base font-black italic text-amber-400">R$ {valorNaoAprovado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
               </div>
             </div>
 
             {isLoadingOrcamentos ? (
               <div className="flex justify-center py-16"><RefreshCw className="animate-spin text-primary-500" size={24} /></div>
-            ) : orcamentosDeVerdade.length === 0 ? (
-              <div className="text-center py-16 text-white/30 text-sm">Nenhum orçamento cadastrado ainda.</div>
+            ) : orcamentosFiltrados.length === 0 ? (
+              <div className="text-center py-16 text-white/30 text-sm">Nenhum orçamento encontrado.</div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {orcamentosDeVerdade.map(o => {
+                {orcamentosFiltrados.map(o => {
                   const statusStyles: Record<string, string> = {
                     rascunho: 'bg-white/10 text-white/50',
                     enviado: 'bg-blue-500/15 text-blue-400',
@@ -9265,7 +9340,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             >
               <SectionHeader
                 title="Contratos"
-                subtitle={`${contratos.length} contrato(s) · R$ ${valorAssinado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} assinado`}
+                subtitle={`${contratos.length} contrato(s)`}
                 actions={<Button icon={FileSignature} onClick={openNewContrato}>Novo Contrato</Button>}
               />
 
@@ -9315,6 +9390,26 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     </select>
                  </div>
               </div>
+
+              {/* Indicadores financeiros -- calculados sobre TODOS os contratos (ignorando filtro de classificacao),
+                  pois representam o panorama geral, igual ao subtitulo do header */}
+              {(() => {
+                const valorNaoAssinado = contratos
+                  .filter(c => c.status !== 'cancelado' && !(contratanteAssinou(c) && contratadaAssinou(c)))
+                  .reduce((acc, c) => acc + c.total, 0);
+                return (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-3">
+                      <p className="text-[8px] font-black uppercase text-emerald-400 tracking-widest mb-1">Contratos Assinados</p>
+                      <p className="text-base font-black italic text-emerald-400">R$ {valorAssinado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                    </div>
+                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-3">
+                      <p className="text-[8px] font-black uppercase text-amber-400 tracking-widest mb-1">Contratos Não Assinados</p>
+                      <p className="text-base font-black italic text-amber-400">R$ {valorNaoAssinado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Lista */}
               {isLoadingContratos ? (
