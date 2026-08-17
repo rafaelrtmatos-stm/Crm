@@ -9135,17 +9135,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               </div>
             </div>
 
-            {/* Indicadores financeiros -- mesma linguagem visual dos cards de Contratos */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-3">
-                <p className="text-[8px] font-black uppercase text-emerald-400 tracking-widest mb-1">Valor Aprovado</p>
-                <p className="text-base font-black italic text-emerald-400">R$ {valorAprovado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+            {/* Indicadores financeiros -- visíveis apenas para admin */}
+            {user?.isAdmin && (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-3">
+                  <p className="text-[8px] font-black uppercase text-emerald-400 tracking-widest mb-1">Valor Aprovado</p>
+                  <p className="text-base font-black italic text-emerald-400">R$ {valorAprovado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                </div>
+                <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-3">
+                  <p className="text-[8px] font-black uppercase text-amber-400 tracking-widest mb-1">Valor Não Aprovado</p>
+                  <p className="text-base font-black italic text-amber-400">R$ {valorNaoAprovado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                </div>
               </div>
-              <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-3">
-                <p className="text-[8px] font-black uppercase text-amber-400 tracking-widest mb-1">Valor Não Aprovado</p>
-                <p className="text-base font-black italic text-amber-400">R$ {valorNaoAprovado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-              </div>
-            </div>
+            )}
 
             {isLoadingOrcamentos ? (
               <div className="flex justify-center py-16"><RefreshCw className="animate-spin text-primary-500" size={24} /></div>
@@ -9391,9 +9393,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  </div>
               </div>
 
-              {/* Indicadores financeiros -- calculados sobre TODOS os contratos (ignorando filtro de classificacao),
-                  pois representam o panorama geral, igual ao subtitulo do header */}
-              {(() => {
+              {/* Indicadores financeiros -- visíveis apenas para admin */}
+              {user?.isAdmin && (() => {
                 const valorNaoAssinado = contratos
                   .filter(c => c.status !== 'cancelado' && !(contratanteAssinou(c) && contratadaAssinou(c)))
                   .reduce((acc, c) => acc + c.total, 0);

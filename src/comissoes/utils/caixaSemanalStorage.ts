@@ -25,7 +25,7 @@ export const FORMA_PAGAMENTO_LABELS: Record<FormaPagamento, string> = {
 export interface WeeklyCaixa {
   id: string;
   colaboradorId: string;
-  semanaInicio: string; // YYYY-MM-DD, sempre uma segunda-feira
+  semanaInicio: string; // YYYY-MM-DD, sempre um domingo
   semanaFim: string;    // YYYY-MM-DD, sempre o sábado seguinte
   status: CaixaStatus;
   saldoAnterior: number;
@@ -49,8 +49,7 @@ export interface Pagamento {
   createdAt: number;
 }
 
-// --- Datas (segunda a sábado -- mesmo padrão de "semana de trabalho" já usado em
-// DescontosView.DIAS_UTEIS_SEMANA pro cálculo do valor/dia de falta) ---
+// --- Datas (domingo a sábado -- semana começa no domingo) ---
 
 const formatISO = (d: Date): string => {
   const y = d.getFullYear();
@@ -65,14 +64,15 @@ export const addDaysISO = (dateStr: string, days: number): string => {
   return formatISO(d);
 };
 
-/** Segunda a sábado da semana atual (offsetWeeks negativo/positivo desloca por semanas inteiras). */
+/** Domingo a sábado da semana atual (offsetWeeks negativo/positivo desloca por semanas inteiras). */
 export const getWorkWeekBounds = (offsetWeeks = 0): { start: string; end: string } => {
   const now = new Date();
   const dayOfWeek = now.getDay(); // 0 = domingo ... 6 = sábado
-  const distanceToMon = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-  const mon = new Date(now);
-  mon.setDate(now.getDate() + distanceToMon + offsetWeeks * 7);
-  return { start: formatISO(mon), end: addDaysISO(formatISO(mon), 5) };
+  // Sempre volta para o domingo da semana corrente (domingo = dia 0)
+  const distanceToSun = -dayOfWeek;
+  const sun = new Date(now);
+  sun.setDate(now.getDate() + distanceToSun + offsetWeeks * 7);
+  return { start: formatISO(sun), end: addDaysISO(formatISO(sun), 6) };
 };
 
 // --- Mapeamento ---
@@ -269,8 +269,8 @@ export async function fecharCaixa(caixa: WeeklyCaixa, resumo: ResumoCaixa): Prom
 
   if (closeError) { console.error('Erro ao fechar caixa:', closeError); return null; }
 
-  const proximaSemanaInicio = addDaysISO(caixa.semanaFim, 2); // sábado + 2 dias = próxima segunda
-  const proximaSemanaFim = addDaysISO(proximaSemanaInicio, 5);
+  const proximaSemanaInicio = addDaysISO(caixa.semanaFim, 1); // sábado + 1 dia = próximo domingo
+  const proximaSemanaFim = addDaysISO(proximaSemanaInicio, 6);
 
   const { data: proximo, error: openError } = await supabase
     .from('comissoes_caixas_semanais')
@@ -323,7 +323,7 @@ export interface ReabrirCaixaResult {
 export async function reabrirCaixa(caixa: WeeklyCaixa): Promise<ReabrirCaixaResult> {
   if (caixa.status !== 'fechado') return { caixa: null, reason: 'Esse caixa já está aberto.' };
 
-  const proximaSemanaInicio = addDaysISO(caixa.semanaFim, 2);
+  const proximaSemanaInicio = addDaysISO(caixa.semanaFim, 1); // sábado + 1 dia = próximo domingo
   const { data: proximo, error: fetchNextError } = await supabase
     .from('comissoes_caixas_semanais')
     .select('*')

@@ -31,13 +31,13 @@ interface WeeklyCalendarViewProps {
 }
 
 const WEEKDAYS = [
+  { full: 'Domingo', short: 'DOM', key: 'sun' },
   { full: 'Segunda-feira', short: 'SEG', key: 'mon' },
   { full: 'Terça-feira', short: 'TER', key: 'tue' },
   { full: 'Quarta-feira', short: 'QUA', key: 'wed' },
   { full: 'Quinta-feira', short: 'QUI', key: 'thu' },
   { full: 'Sexta-feira', short: 'SEX', key: 'fri' },
   { full: 'Sábado', short: 'SÁB', key: 'sat' },
-  { full: 'Domingo', short: 'DOM', key: 'sun' },
 ];
 
 export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
@@ -60,16 +60,16 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
     // Set to current local midnight
     const baseDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     
-    // Find current Monday (0 = Sun, 1 = Mon, ..., 6 = Sat)
+    // Find current Sunday (semana começa no domingo: 0 = Dom, 1 = Seg, ..., 6 = Sáb)
     const currentDay = baseDate.getDay();
-    const distanceToMonday = currentDay === 0 ? -6 : 1 - currentDay;
-    
-    const monday = new Date(baseDate);
-    monday.setDate(baseDate.getDate() + distanceToMonday + weekOffset * 7);
+    const distanceToSunday = -currentDay;
+
+    const sunday = new Date(baseDate);
+    sunday.setDate(baseDate.getDate() + distanceToSunday + weekOffset * 7);
 
     const standardDays = WEEKDAYS.map((dayInfo, index) => {
-      const dayDate = new Date(monday);
-      dayDate.setDate(monday.getDate() + index);
+      const dayDate = new Date(sunday);
+      dayDate.setDate(sunday.getDate() + index);
 
       const year = dayDate.getFullYear();
       const month = String(dayDate.getMonth() + 1).padStart(2, '0');

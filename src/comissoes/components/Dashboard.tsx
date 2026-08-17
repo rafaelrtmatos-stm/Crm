@@ -53,14 +53,14 @@ const getYesterdayISO = () => {
 
 const getThisWeekBounds = () => {
   const now = new Date();
-  const dayOfWeek = now.getDay(); // 0 is Sun, 1 is Mon
-  const distanceToMon = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  const dayOfWeek = now.getDay(); // 0 = Dom, 1 = Seg, ..., 6 = Sáb
 
-  const mon = new Date(now);
-  mon.setDate(now.getDate() + distanceToMon);
+  // Semana começa no domingo
+  const sun = new Date(now);
+  sun.setDate(now.getDate() - dayOfWeek);
 
-  const sun = new Date(mon);
-  sun.setDate(mon.getDate() + 6);
+  const sat = new Date(sun);
+  sat.setDate(sun.getDate() + 6);
 
   const format = (d: Date) => {
     const y = d.getFullYear();
@@ -69,7 +69,7 @@ const getThisWeekBounds = () => {
     return `${y}-${m}-${day}`;
   };
 
-  return { start: format(mon), end: format(sun) };
+  return { start: format(sun), end: format(sat) };
 };
 
 const getThisMonthBounds = () => {
