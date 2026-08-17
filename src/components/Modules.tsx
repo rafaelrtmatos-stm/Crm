@@ -3066,10 +3066,11 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
           onDragStart={onDragStart}
           onDragEnd={onDragEnd}
         >
-          <div className="flex gap-4 overflow-x-auto pb-6 grow min-h-[500px] scroll-smooth md:overflow-x-visible">
-            {/* Mobile: Carousel (1 coluna por vez), Web: Scroll se precisar */}
+          <div className="flex gap-4 overflow-x-auto pb-6 grow min-h-[500px] scroll-smooth custom-scrollbar">
+            {/* Cada coluna tem largura fixa e igual — se nao couber todas na tela, rola de lado
+                em vez de encolher (senao com muitas etapas cada coluna fica espremida demais) */}
             {stages.map(stage => (
-              <div key={`wrapper-${stage.id}`} className="flex-shrink-0 w-full md:flex-shrink md:w-auto">
+              <div key={`wrapper-${stage.id}`} className="w-full md:w-[300px] shrink-0">
                 <KanbanColumn 
                   key={stage.id} 
                   stage={stage} 
@@ -6072,6 +6073,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const handleSaveOrcamento = async () => {
     if (!orcamentoForm.customerName.trim()) { showAlert('Informe o nome do cliente.'); return; }
     if (orcamentoForm.items.length === 0) { showAlert('Adicione ao menos um item.'); return; }
+    // Orcamento (nao contrato, que tem sua propria validacao) nunca pode ser gerado sem esses
+    // dados basicos do cliente completos — evita orcamento incompleto que depois da trabalho
+    // pra completar na hora de virar venda/contrato
+    if (orcamentoForm.documentType !== 'contrato') {
+      if (!orcamentoForm.cpfCnpj.trim()) { showAlert('Informe o CPF/CNPJ do cliente para gerar o orçamento.'); return; }
+      if (!orcamentoForm.phone.trim()) { showAlert('Informe o telefone do cliente para gerar o orçamento.'); return; }
+      if (!orcamentoForm.address.trim()) { showAlert('Informe o endereço do cliente para gerar o orçamento.'); return; }
+      const { valid, tipo } = validateCpfCnpj(orcamentoForm.cpfCnpj);
+      if (!valid) { showAlert(`${tipo === 'cnpj' ? 'CNPJ' : 'CPF'} inválido. Confira os números e tente novamente.`); return; }
+    }
     setSavingOrcamento(true);
     try {
       const total = Math.max(0, orcamentoItemsTotal() - (orcamentoForm.desconto || 0));
