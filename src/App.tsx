@@ -267,9 +267,6 @@ const Navbar = () => {
               <p className="text-xs font-bold text-white tracking-wide leading-tight">
                 {currentCompany?.name || 'Selecione uma Empresa'}
               </p>
-              <p className="text-[10px] text-white/50 capitalize font-medium">
-                Gestão Ativa
-              </p>
             </div>
             <ChevronDown size={14} className="text-white/30" />
           </button>
@@ -338,12 +335,21 @@ const Navbar = () => {
             onClick={() => setIsProfileOpen(!isProfileOpen)}
             className="w-11 h-11 rounded-full bg-white/10 border-2 border-white/20 shadow-xl overflow-hidden active:scale-95 transition-transform"
           >
-            {user?.photoUrl ? (
-              <img src={user.photoUrl} alt={user.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+            {user?.photoUrl || user?.avatarUrl ? (
+              <img src={user.photoUrl || user.avatarUrl} alt={user.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
             ) : (
-              <div className="w-full h-full flex items-center justify-center bg-primary-500/30 text-white font-bold text-lg">
-                {user?.name?.[0]}
-              </div>
+              <img 
+                src="https://pro.rafaartsgraphics.com.br/icon-192.png" 
+                alt={user?.name} 
+                className="w-full h-full object-cover" 
+                onError={(e) => {
+                  // Fallback para inicial do nome se a imagem padrão não carregar
+                  const div = document.createElement('div');
+                  div.className = "w-full h-full flex items-center justify-center bg-primary-500/30 text-white font-bold text-lg";
+                  div.textContent = user?.name?.[0] || 'U';
+                  e.currentTarget.parentElement?.replaceChild(div, e.currentTarget);
+                }}
+              />
             )}
           </button>
           
@@ -1022,6 +1028,7 @@ export default function App() {
           role: 'admin',
           isAdmin: true,
           isActive: true,
+          avatarUrl: 'https://pro.rafaartsgraphics.com.br/icon-192.png',
           allowedTabs: ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'production', 'settings'],
           allowedActions: [
             'canStartNote', 'canSendSavedMessage', 'canCreateCard', 'canAddTask',
@@ -1271,6 +1278,7 @@ export default function App() {
               role: 'admin',
               isAdmin: true,
               isActive: true,
+              avatarUrl: 'https://pro.rafaartsgraphics.com.br/icon-192.png',
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
             };
