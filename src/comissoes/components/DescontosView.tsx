@@ -212,6 +212,14 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
     [periodoVisualizacao, caixa, resumoCaixa, baseSalary, services, descontos, pagamentos, periodoOffset]
   );
 
+  // ✅ Lista de pagamentos exibida abaixo também acompanha a navegação Semana/Mês/Ano
+  // e o offset selecionados ali em cima (antes ficava sempre fixa em "todos os pagamentos
+  // do caixa aberto", sem filtrar pelo período navegado).
+  const pagamentosDoPeriodo = useMemo(
+    () => pagamentos.filter((p) => p.data >= resumoPorPeriodo.inicio && p.data <= resumoPorPeriodo.fim),
+    [pagamentos, resumoPorPeriodo.inicio, resumoPorPeriodo.fim]
+  );
+
   const handleAddPagamento = async () => {
     if (!caixa) return;
     if (!pagamentoForm.valor || pagamentoForm.valor <= 0) { showAlert('Informe um valor de pagamento maior que zero.'); return; }
@@ -426,11 +434,11 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
           </div>
         )}
 
-        {/* Pagamentos parciais feitos dentro dessa semana (adiantamento, vale, PIX avulso...) */}
+        {/* Pagamentos parciais feitos dentro do período navegado acima (adiantamento, vale, PIX avulso...) */}
         <div className="pt-2 border-t border-[var(--border-color)] space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5">
-              <Banknote size={13} /> Pagamentos feitos nessa semana
+              <Banknote size={13} /> Pagamentos feitos n{periodoVisualizacao === 'semana' ? 'essa semana' : periodoVisualizacao === 'mes' ? 'esse mês' : 'esse ano'}
             </span>
             {isAdmin && !showPagamentoForm && caixa && (
               <button
@@ -504,11 +512,13 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
             </div>
           )}
 
-          {pagamentos.length === 0 ? (
-            <p className="text-[11px] text-[var(--text-muted)]">Nenhum pagamento registrado nessa semana ainda.</p>
+          {pagamentosDoPeriodo.length === 0 ? (
+            <p className="text-[11px] text-[var(--text-muted)]">
+              Nenhum pagamento registrado n{periodoVisualizacao === 'semana' ? 'essa semana' : periodoVisualizacao === 'mes' ? 'esse mês' : 'esse ano'} ainda.
+            </p>
           ) : (
             <div className="space-y-1.5">
-              {pagamentos.map((p) => (
+              {pagamentosDoPeriodo.map((p) => (
                 <div key={p.id} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
                   <div className="min-w-0 flex-1">
                     <span className="text-xs font-bold text-[var(--text-main)]">{formatDateBR(p.data)}</span>
