@@ -155,26 +155,12 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
     return () => { cancelled = true; };
   }, [colaboradorId, reloadToken]);
 
-  // ✅ CORREÇÃO: Comissão = Salário Base + Saldo do Caixa
-  // NÃO incluir descontos no cálculo da comissão estimada
+  // ✅ CORRETO: usa calcularResumoCaixa que já calcula
+  // saldoSemana = salarioBase + totalComissao - totalDescontos - totalPago
+  // saldoFinal = saldoAnterior + saldoSemana
   const resumoCaixa = useMemo(
-    () => {
-      if (!caixa) return null;
-      
-      // Calcular apenas: Salário + Saldo do Caixa
-      const saldoCaixa = caixa.saldo || 0;
-      const totalEstimado = baseSalary + saldoCaixa;
-      
-      return {
-        salarioBase: baseSalary,
-        saldoCaixa: saldoCaixa,
-        totalEstimado: totalEstimado,
-        detalhes: saldoCaixa < 0 
-          ? `Salário R$ ${baseSalary.toFixed(2)} + Débito R$ ${Math.abs(saldoCaixa).toFixed(2)} = R$ ${totalEstimado.toFixed(2)}`
-          : `Salário R$ ${baseSalary.toFixed(2)} + Saldo R$ ${saldoCaixa.toFixed(2)} = R$ ${totalEstimado.toFixed(2)}`
-      };
-    },
-    [caixa, baseSalary]
+    () => (caixa ? calcularResumoCaixa(caixa, baseSalary, services, descontos, pagamentos) : null),
+    [caixa, baseSalary, services, descontos, pagamentos]
   );
 
   const handleAddPagamento = async () => {
