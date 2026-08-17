@@ -65,6 +65,20 @@ const sugerirValorFalta = (tipo: DescontoTipo, baseSalary: number): number => {
 
 const getTodayISO = () => new Date().toISOString().split('T')[0];
 
+// ✅ CORREÇÃO: Usar semana atual (não mês)
+const getThisWeekBounds = () => {
+  const now = new Date();
+  const day = now.getDay();
+  const diff = now.getDate() - day + (day === 0 ? -6 : 1); // Ajusta para domingo=0, segunda=1
+  
+  const start = new Date(now.setDate(diff));
+  const end = new Date(now.setDate(diff + 6));
+  
+  const format = (d: Date) => d.toISOString().split('T')[0];
+  return { start: format(start), end: format(end) };
+};
+
+// Mantém função original como fallback (não remover)
 const getThisMonthBounds = () => {
   const now = new Date();
   const y = now.getFullYear();
@@ -95,10 +109,11 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
   const [form, setForm] = useState<DescontoFormInput>({ ...emptyForm });
   const [saving, setSaving] = useState(false);
 
-  const monthBounds = useMemo(() => getThisMonthBounds(), []);
+  // ✅ CORREÇÃO: Usar semana atual como padrão (não mês)
+  const weekBounds = useMemo(() => getThisWeekBounds(), []);
   const totalMesAtual = useMemo(
-    () => calculateDescontosNoPeriodo(descontos, monthBounds.start, monthBounds.end),
-    [descontos, monthBounds]
+    () => calculateDescontosNoPeriodo(descontos, weekBounds.start, weekBounds.end),
+    [descontos, weekBounds]
   );
 
   // --- Caixa da Semana ---
