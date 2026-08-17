@@ -155,9 +155,26 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
     return () => { cancelled = true; };
   }, [colaboradorId, reloadToken]);
 
+  // ✅ CORREÇÃO: Comissão = Salário Base + Saldo do Caixa
+  // NÃO incluir descontos no cálculo da comissão estimada
   const resumoCaixa = useMemo(
-    () => (caixa ? calcularResumoCaixa(caixa, baseSalary, services, descontos, pagamentos) : null),
-    [caixa, baseSalary, services, descontos, pagamentos]
+    () => {
+      if (!caixa) return null;
+      
+      // Calcular apenas: Salário + Saldo do Caixa
+      const saldoCaixa = caixa.saldo || 0;
+      const totalEstimado = baseSalary + saldoCaixa;
+      
+      return {
+        salarioBase: baseSalary,
+        saldoCaixa: saldoCaixa,
+        totalEstimado: totalEstimado,
+        detalhes: saldoCaixa < 0 
+          ? `Salário R$ ${baseSalary.toFixed(2)} + Débito R$ ${Math.abs(saldoCaixa).toFixed(2)} = R$ ${totalEstimado.toFixed(2)}`
+          : `Salário R$ ${baseSalary.toFixed(2)} + Saldo R$ ${saldoCaixa.toFixed(2)} = R$ ${totalEstimado.toFixed(2)}`
+      };
+    },
+    [caixa, baseSalary]
   );
 
   const handleAddPagamento = async () => {
