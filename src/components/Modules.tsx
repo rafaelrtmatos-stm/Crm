@@ -5518,6 +5518,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         }).select().single();
         if (vendaError) throw vendaError;
         vendaId = novaVenda.id;
+        // Guarda o vendaId no formulario JA -- se algo mais adiante nessa mesma funcao der erro
+        // (ex: salvar o contrato em si), uma nova tentativa reaproveita essa nota em vez de criar
+        // outra igual (que duplicava cliente/nota toda vez que dava erro e a pessoa tentava de novo)
+        setContratoForm(prev => ({ ...prev, vendaId: novaVenda.id }));
         setAllSalesHistory(prev => [mapVendaRow(novaVenda), ...prev]);
       } else {
         const { error: syncError } = await supabase.from('vendas').update({
@@ -6117,6 +6121,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         }).select().single();
         if (vendaError) throw vendaError;
         vendaId = novaVenda.id;
+        setOrcamentoForm(prev => ({ ...prev, vendaId: novaVenda.id }));
         setAllSalesHistory(prev => [mapVendaRow(novaVenda), ...prev]);
       } else {
         // Ja tem nota vinculada: mantem os itens/valor em sincronia com o que foi editado aqui
