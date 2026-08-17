@@ -1751,6 +1751,7 @@ export const ChatPanel = ({
   user,
   initialDraft,
   onDraftConsumed,
+  fallbackFunnelId,
 }: { 
   conversation: any; 
   onClose?: () => void;
@@ -1758,6 +1759,7 @@ export const ChatPanel = ({
   user: AppUser | null;
   initialDraft?: string;
   onDraftConsumed?: () => void;
+  fallbackFunnelId?: string;
 }) => {
   const [activeTab, setActiveTab] = useState<'chat' | 'data' | 'notes' | 'tasks' | 'sales'>('chat');
   const [newMessage, setNewMessage] = useState('');
@@ -1776,12 +1778,19 @@ export const ChatPanel = ({
   // depender de prop, ja que o ChatPanel e usado tanto no Funil CRM quanto em Mensagens
   const [funnelStages, setFunnelStages] = useState<FunnelStage[]>([]);
   const [isChangingStage, setIsChangingStage] = useState(false);
+  // Se o lead nao tem funnelId salvo (cadastro antigo/incompleto), usa o funil que ja esta
+  // selecionado na tela (passado pelo Funil CRM) como respaldo, e aproveita pra corrigir o
+  // cadastro do lead na hora, gravando o funnelId que estava faltando
+  const effectiveFunnelId = conversation?.funnelId || fallbackFunnelId;
   useEffect(() => {
-    if (!conversation?.funnelId) { setFunnelStages([]); return; }
-    const q = query(collection(db, 'funnelStages'), where('funnelId', '==', conversation.funnelId), orderBy('order', 'asc'));
+    if (!effectiveFunnelId) { setFunnelStages([]); return; }
+    if (conversation?.id && !conversation?.funnelId && fallbackFunnelId) {
+      updateDoc(doc(db, 'leads', conversation.id), { funnelId: fallbackFunnelId }).catch(() => {});
+    }
+    const q = query(collection(db, 'funnelStages'), where('funnelId', '==', effectiveFunnelId), orderBy('order', 'asc'));
     const unsub = onSnapshot(q, (snap) => setFunnelStages(snap.docs.map(d => ({ id: d.id, ...d.data() })) as FunnelStage[]));
     return () => unsub();
-  }, [conversation?.funnelId]);
+  }, [effectiveFunnelId, conversation?.id]);
 
   const handleChangeStageFromChat = async (novaStageId: string) => {
     if (!conversation?.id || novaStageId === conversation.funnelStageId) return;
@@ -2296,7 +2305,7 @@ export const ChatPanel = ({
 
       {/* Dropdown de Etapa do Funil — muda a etapa da conversa direto daqui, sem precisar
           arrastar no Kanban. So aparece se essa conversa tiver um lead/funil vinculado. */}
-      {conversation?.funnelId && funnelStages.length > 0 ? (
+      {effectiveFunnelId && funnelStages.length > 0 ? (
         <div className="flex items-center gap-2 w-full py-1.5 px-3 border-b border-white/10 bg-white/[0.015] flex-shrink-0">
           <select
             value={conversation.funnelStageId || ''}
@@ -3180,6 +3189,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
               onClose={() => { setSelectedLead(null); setOpenedViaJump(false); }}
               currentCompany={currentCompany}
               user={user}
+              fallbackFunnelId={selectedFunnelId}
             />
           </motion.div>
         )}
