@@ -8,6 +8,10 @@ interface ReceiptForecastCardProps {
   weeklyGoal?: number;
   totalProduction: number;
   totalDiscounts?: number;
+  // Quanto o colaborador já recebeu no período selecionado (dinheiro/pix/etc).
+  // Se ele recebeu A MAIS do que era esperado, isso vira déficit e precisa abater
+  // do total estimado -- senão o card mostra um valor inflado, ignorando a dívida.
+  totalPaid?: number;
   onOpenAddModal?: () => void;
   onOpenDescontos?: () => void;
 }
@@ -16,9 +20,10 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
   baseSalary,
   totalCommission,
   totalDiscounts = 0,
+  totalPaid = 0,
   onOpenDescontos,
 }) => {
-  const forecastTotal = baseSalary + totalCommission - totalDiscounts;
+  const forecastTotal = baseSalary + totalCommission - totalDiscounts - totalPaid;
 
   return (
     <div
@@ -63,7 +68,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
           </div>
         </div>
 
-        {/* Prévia dos Descontos (faltas, etc.) do mês -- clica e vai pra área de Descontos */}
+        {/* Prévia dos Descontos (faltas, etc.) do período -- clica e vai pra área de Descontos */}
         {totalDiscounts > 0 && (
           <button
             type="button"
@@ -73,10 +78,30 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
           >
             <span className="flex items-center gap-1.5 text-white/80 font-medium text-xs">
               <MinusCircle className="w-3.5 h-3.5" />
-              Descontos do mês:
+              Descontos do período:
             </span>
             <span className="flex items-center gap-1 font-bold text-rose-200 text-base">
               -{formatCurrency(totalDiscounts)}
+              {onOpenDescontos && <ChevronRight className="w-4 h-4 text-white/60" />}
+            </span>
+          </button>
+        )}
+
+        {/* Já recebido no período (dinheiro/pix/etc) -- se recebeu a mais, isso vira déficit
+            e é o que faz o Total Estimado ficar negativo (dívida do colaborador). */}
+        {totalPaid !== 0 && (
+          <button
+            type="button"
+            onClick={onOpenDescontos}
+            disabled={!onOpenDescontos}
+            className="w-full flex items-center justify-between gap-2 bg-black/25 backdrop-blur-sm px-3.5 py-2.5 rounded-xl border border-white/10 text-left transition-colors hover:bg-black/35 disabled:cursor-default disabled:hover:bg-black/25"
+          >
+            <span className="flex items-center gap-1.5 text-white/80 font-medium text-xs">
+              <MinusCircle className="w-3.5 h-3.5" />
+              Já recebido no período:
+            </span>
+            <span className="flex items-center gap-1 font-bold text-rose-200 text-base">
+              -{formatCurrency(totalPaid)}
               {onOpenDescontos && <ChevronRight className="w-4 h-4 text-white/60" />}
             </span>
           </button>

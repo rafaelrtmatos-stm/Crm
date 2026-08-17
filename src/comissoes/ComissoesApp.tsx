@@ -239,6 +239,7 @@ export default function ComissoesApp() {
                 onEditService={handleEditService}
                 weeklyGoal={userSettings.weeklyGoal}
                 descontos={descontos}
+                colaboradorId={colaborador?.id}
               />
             )}
             {activeTab === 'weekly' && (

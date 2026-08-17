@@ -310,6 +310,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
                 onEditService={handleEditService}
                 weeklyGoal={userSettings.weeklyGoal}
                 descontos={descontos}
+                colaboradorId={colaborador?.id}
               />
             )}
             {activeTab === 'weekly' && (

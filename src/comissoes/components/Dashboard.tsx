@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   DollarSign,
   TrendingUp,
@@ -11,7 +11,14 @@ import {
 } from 'lucide-react';
 import { ServiceItem, UserSettings, SummaryStats } from '../types';
 import { formatCurrency, formatDateBR, calculateSummaryStats } from '../utils/storage';
-import { Desconto, calculateDescontosNoPeriodo } from '../utils/supabaseStorage';
+import { Desconto } from '../utils/supabaseStorage';
+import {
+  WeeklyCaixa,
+  Pagamento,
+  getOrCreateCaixaAberto,
+  getPagamentosDoCaixa,
+  calcularResumoNoIntervalo,
+} from '../utils/caixaSemanalStorage';
 import { ReceiptForecastCard } from './ReceiptForecastCard';
 import { AddServiceButton } from './AddServiceButton';
 import { ChartsSection } from './ChartsSection';
@@ -32,6 +39,9 @@ interface DashboardProps {
   onEditService: (service: ServiceItem) => void;
   weeklyGoal: number;
   descontos?: Desconto[];
+  // ID do colaborador -- usado pra buscar o caixa/pagamentos e calcular o total estimado
+  // já descontando o que ele recebeu a mais (mesmo cálculo usado na aba Descontos).
+  colaboradorId?: string;
 }
 
 const getTodayISO = () => {
@@ -101,17 +111,28 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onEditService,
   weeklyGoal,
   descontos = [],
+  colaboradorId,
 }) => {
-  const [period, setPeriod] = useState<PeriodFilter>('mes');
+  const [period, setPeriod] = useState<PeriodFilter>('semana');
   const [customStartDate, setCustomStartDate] = useState(getTodayISO());
   const [customEndDate, setCustomEndDate] = useState(getTodayISO());
 
-  // Total de descontos ativos (faltas, etc.) do mês atual -- mesma janela usada na
-  // aba "Descontos" -- pra abater da previsão de recebimento e mostrar a prévia no card.
-  const totalDescontosMes = useMemo(() => {
-    const { start, end } = getThisMonthBounds();
-    return calculateDescontosNoPeriodo(descontos, start, end);
-  }, [descontos]);
+  // ✅ Caixa e pagamentos do colaborador -- pra abater da previsão de recebimento o que ele
+  // já recebeu (inclusive a mais, que é o que gera o déficit/dívida). Mesmos dados usados
+  // e já corrigidos na aba Descontos (caixaSemanalStorage).
+  const [caixa, setCaixa] = useState<WeeklyCaixa | null>(null);
+  const [pagamentos, setPagamentos] = useState<Pagamento[]>([]);
+  useEffect(() => {
+    if (!colaboradorId) return;
+    let cancelled = false;
+    getOrCreateCaixaAberto(colaboradorId).then((c) => {
+      if (cancelled || !c) return;
+      setCaixa(c);
+      getPagamentosDoCaixa(c.id).then((list) => { if (!cancelled) setPagamentos(list); });
+    });
+    return () => { cancelled = true; };
+  }, [colaboradorId]);
+
 
   const todayFormatted = new Date().toLocaleDateString('pt-BR', {
     weekday: 'long',
@@ -170,6 +191,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const displayStats = useMemo(() => {
     return calculateSummaryStats(filteredServices, userSettings.baseSalary);
   }, [filteredServices, userSettings.baseSalary]);
+
+  // ✅ Resumo real do período selecionado (Salário + Comissão - Descontos - Já Pago),
+  // usando exatamente a mesma função já corrigida na aba Descontos. Isso é o que garante
+  // que o "Total Estimado" do card de Previsão já desconta o que o colaborador recebeu --
+  // inclusive se recebeu A MAIS (o que vira déficit/dívida e tem que abater daqui).
+  const resumoPeriodoAtivo = useMemo(() => {
+    if (!caixa) return null;
+    return calcularResumoNoIntervalo(caixa, userSettings.baseSalary, recentServices, descontos, pagamentos, start, end);
+  }, [caixa, userSettings.baseSalary, recentServices, descontos, pagamentos, start, end]);
 
   // Calculate specific current week statistics for the bottom section
   const weeklyBounds = useMemo(() => getThisWeekBounds(), []);
@@ -355,7 +385,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
             totalCommission={displayStats.totalCommission}
             weeklyGoal={userSettings.weeklyGoal}
             totalProduction={displayStats.totalProduction}
-            totalDiscounts={totalDescontosMes}
+            totalDiscounts={resumoPeriodoAtivo?.totalDescontos ?? 0}
+            totalPaid={resumoPeriodoAtivo?.totalPago ?? 0}
             onOpenDescontos={onGoToDescontos}
           />
         </div>
