@@ -43,19 +43,19 @@ interface DescontosViewProps {
   // vem com isAdmin false, então só lista os descontos, sem nenhum botão de escrita.
   isAdmin: boolean;
   onChange: (updated: Desconto[]) => void;
-  // Salário semanal do colaborador (domingo a sábado, 7 dias) -- usado pra sugerir
-  // automaticamente o valor do desconto de falta: valor do dia = salário semanal / 7, e
+  // Salário semanal do colaborador -- usado pra sugerir
+  // automaticamente o valor do desconto de falta: valor do dia = salário semanal / 6, e
   // como "salário base" do Caixa da Semana abaixo.
   baseSalary?: number;
   // Serviços do colaborador -- usado só pra somar a comissão da semana do caixa aberto.
   services?: ServiceItem[];
 }
 
-const DIAS_UTEIS_SEMANA = 7; // domingo a sábado
+const DIAS_UTEIS_SEMANA = 6; // dias úteis da semana
 
 // Sugestão automática de valor pra descontos de falta, com base no salário semanal
-// (domingo a sábado = 7 dias). Falta de período completo desconta o valor de 1 dia
-// (salário / 7); falta de meio período desconta metade disso (salário / 14).
+// (6 dias úteis). Falta de período completo desconta o valor de 1 dia
+// (salário / 6); falta de meio período desconta metade disso (salário / 12).
 const sugerirValorFalta = (tipo: DescontoTipo, baseSalary: number): number => {
   const valorDia = baseSalary / DIAS_UTEIS_SEMANA;
   if (tipo === 'falta_periodo') return Math.round(valorDia * 100) / 100;
@@ -652,7 +652,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
               />
               {baseSalary > 0 && (form.tipo === 'falta_periodo' || form.tipo === 'falta_meio_periodo') && (
                 <span className="block text-[10px] text-[var(--text-muted)]">
-                  Sugestão: salário semanal ({formatCurrency(baseSalary)}) ÷ {DIAS_UTEIS_SEMANA} dias (dom–sáb)
+                  Sugestão: salário semanal ({formatCurrency(baseSalary)}) ÷ {DIAS_UTEIS_SEMANA} dias
                   {form.tipo === 'falta_meio_periodo' ? ' ÷ 2' : ''} = {formatCurrency(sugerirValorFalta(form.tipo, baseSalary))}
                 </span>
               )}
