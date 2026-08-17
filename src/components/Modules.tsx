@@ -487,8 +487,30 @@ const mapContratoRow = (row: any): Contrato => ({
   total: Number(row.total) || 0,
   formaPagamentoTexto: row.forma_pagamento_texto || undefined,
   prazoTexto: row.prazo_texto || undefined,
+  prazoDias: row.prazo_dias !== null && row.prazo_dias !== undefined ? Number(row.prazo_dias) : undefined,
+  prazoTipo: row.prazo_tipo || 'uteis',
+  prazoGatilho: row.prazo_gatilho || 'pagamento_entrada',
+  prazoDataPrevista: row.prazo_data_prevista || undefined,
+  formasPagamento: Array.isArray(row.formas_pagamento) ? row.formas_pagamento : [],
+  politicaPagamento: row.politica_pagamento || 'entrada_restante_entrega',
+  entradaObrigatoria: !!row.entrada_obrigatoria,
+  entradaPercentual: row.entrada_percentual !== null && row.entrada_percentual !== undefined ? Number(row.entrada_percentual) : undefined,
+  entradaValor: row.entrada_valor !== null && row.entrada_valor !== undefined ? Number(row.entrada_valor) : undefined,
+  pagamentoPosteriorAutorizado: !!row.pagamento_posterior_autorizado,
+  pagamentoPosteriorData: row.pagamento_posterior_data || undefined,
+  pagamentoPosteriorDias: row.pagamento_posterior_dias !== null && row.pagamento_posterior_dias !== undefined ? Number(row.pagamento_posterior_dias) : undefined,
+  pagamentoPosteriorCondicao: row.pagamento_posterior_condicao || undefined,
+  pagamentoPosteriorResponsavel: row.pagamento_posterior_responsavel || undefined,
   multaPercentual: row.multa_percentual !== null && row.multa_percentual !== undefined ? Number(row.multa_percentual) : undefined,
+  jurosModo: row.juros_modo || 'mensal',
   jurosPercentual: row.juros_percentual !== null && row.juros_percentual !== undefined ? Number(row.juros_percentual) : undefined,
+  diasTolerancia: row.dias_tolerancia !== null && row.dias_tolerancia !== undefined ? Number(row.dias_tolerancia) : 0,
+  prazoPagamentoTexto: row.prazo_pagamento_texto || undefined,
+  condicaoEntregaTexto: row.condicao_entrega_texto || undefined,
+  multaJurosTexto: row.multa_juros_texto || undefined,
+  garantiaTexto: row.garantia_texto || undefined,
+  politicaCancelamentoTexto: row.politica_cancelamento_texto || undefined,
+  validade: row.validade || undefined,
   observacoes: row.observacoes || undefined,
   textoContrato: row.texto_contrato || undefined,
   status: row.status || 'rascunho',
@@ -4986,9 +5008,21 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     clienteId: undefined as string | undefined,
     customerName: '', cpfCnpj: '', phone: '', address: '', responsavel: '',
     items: [] as SaleOrderItem[], desconto: 0, observacoes: '',
+    prazoTexto: 'Prazo de produção de até 5 dias úteis após confirmação do pagamento da entrada e aprovação da arte. O prazo de produção não é prazo de pagamento.',
+    prazoDias: 5, prazoTipo: 'uteis' as 'uteis' | 'corridos', prazoGatilho: 'pagamento_entrada' as 'aprovacao' | 'pagamento_entrada' | 'aprovacao_arte' | 'entrega_material' | 'personalizado', prazoDataPrevista: '',
+    prazoPagamentoTexto: 'O saldo deverá ser quitado no momento da conclusão do serviço e antes da entrega ou retirada do material. Eventual prazo posterior de pagamento somente será válido quando previamente autorizado e registrado neste contrato.',
+    condicaoEntregaTexto: 'Entrega/retirada liberada somente após a quitação integral do valor, salvo autorização expressa em contrário.',
     formaPagamentoTexto: 'Entrada de 50% para iniciar a produção e saldo de 50% na conclusão do serviço, antes da entrega ou retirada.',
-    prazoTexto: 'Prazo de produção de até 5 dias úteis após confirmação do pagamento da entrada e aprovação da arte.',
-    multaPercentual: 2, jurosPercentual: 1,
+    multaJurosTexto: 'Em caso de atraso no pagamento, incidirá multa de 2% sobre o valor em aberto, acrescida de juros de 1% ao mês (pro rata die), sem prejuízo de eventual correção monetária.',
+    garantiaTexto: 'Garantia de 90 dias para defeitos de fabricação/impressão, não cobrindo desgaste natural, mau uso, exposição inadequada ou danos causados por terceiros.',
+    politicaCancelamentoTexto: 'Cancelamento antes do início da produção: reembolso integral, descontadas eventuais despesas já realizadas. Após o início da produção ou para itens personalizados, não há reembolso dos valores já investidos em material e mão de obra.',
+    entradaPercentual: 50, entradaValor: 0, entradaModo: 'percentual' as 'percentual' | 'valor', validade: '',
+    formasPagamento: [] as OrcamentoPagamento[],
+    politicaPagamento: 'entrada_restante_entrega' as 'sem_entrada' | 'entrada_fixa' | 'entrada_percentual' | 'pagamento_integral' | 'entrada_restante_entrega' | 'entrada_parcelas',
+    entradaObrigatoria: true,
+    pagamentoPosteriorAutorizado: false, pagamentoPosteriorData: '', pagamentoPosteriorDias: 0,
+    pagamentoPosteriorCondicao: '', pagamentoPosteriorResponsavel: '',
+    multaPercentual: 2, jurosModo: 'mensal' as 'mensal' | 'diario', jurosPercentual: 1, diasTolerancia: 0,
     vendaId: undefined as string | undefined,
     orcamentoId: undefined as string | undefined,
   };
@@ -5069,12 +5103,37 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       cpfCnpj: o.cpfCnpj || '',
       phone: o.phone || '',
       address: o.address || '',
+      responsavel: o.responsavel || '',
       items: [...o.items],
       desconto: o.desconto || 0,
+      observacoes: o.observacoes || '',
       formaPagamentoTexto: o.formaPagamentoTexto || emptyContratoForm.formaPagamentoTexto,
       prazoTexto: o.prazoProducao || emptyContratoForm.prazoTexto,
+      prazoDias: o.prazoDias ?? emptyContratoForm.prazoDias,
+      prazoTipo: o.prazoTipo ?? emptyContratoForm.prazoTipo,
+      prazoGatilho: o.prazoGatilho ?? emptyContratoForm.prazoGatilho,
+      prazoDataPrevista: o.prazoDataPrevista || '',
+      prazoPagamentoTexto: o.prazoPagamentoTexto || emptyContratoForm.prazoPagamentoTexto,
+      condicaoEntregaTexto: o.condicaoEntregaTexto || emptyContratoForm.condicaoEntregaTexto,
+      formasPagamento: o.formasPagamento ? [...o.formasPagamento] : [],
+      politicaPagamento: o.politicaPagamento ?? emptyContratoForm.politicaPagamento,
+      entradaObrigatoria: o.entradaObrigatoria ?? true,
+      entradaPercentual: o.entradaPercentual ?? 50,
+      entradaValor: o.entradaValor ?? 0,
+      entradaModo: 'percentual' as 'percentual' | 'valor',
+      validade: o.validade || '',
+      pagamentoPosteriorAutorizado: o.pagamentoPosteriorAutorizado ?? false,
+      pagamentoPosteriorData: o.pagamentoPosteriorData || '',
+      pagamentoPosteriorDias: o.pagamentoPosteriorDias ?? 0,
+      pagamentoPosteriorCondicao: o.pagamentoPosteriorCondicao || '',
+      pagamentoPosteriorResponsavel: o.pagamentoPosteriorResponsavel || '',
       multaPercentual: o.multaPercentual ?? 2,
+      jurosModo: o.jurosModo ?? 'mensal',
       jurosPercentual: o.jurosPercentual ?? 1,
+      diasTolerancia: o.diasTolerancia ?? 0,
+      multaJurosTexto: o.multaJurosTexto || emptyContratoForm.multaJurosTexto,
+      garantiaTexto: o.garantiaTexto || emptyContratoForm.garantiaTexto,
+      politicaCancelamentoTexto: o.politicaCancelamentoTexto || emptyContratoForm.politicaCancelamentoTexto,
     });
     setContratoModalOpen(true);
   };
@@ -5091,10 +5150,33 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       items: [...c.items],
       desconto: c.desconto || 0,
       observacoes: c.observacoes || '',
-      formaPagamentoTexto: c.formaPagamentoTexto || '',
-      prazoTexto: c.prazoTexto || '',
-      multaPercentual: 2,
-      jurosPercentual: 1,
+      formaPagamentoTexto: c.formaPagamentoTexto || emptyContratoForm.formaPagamentoTexto,
+      prazoTexto: c.prazoTexto || emptyContratoForm.prazoTexto,
+      prazoDias: c.prazoDias ?? emptyContratoForm.prazoDias,
+      prazoTipo: c.prazoTipo ?? emptyContratoForm.prazoTipo,
+      prazoGatilho: c.prazoGatilho ?? emptyContratoForm.prazoGatilho,
+      prazoDataPrevista: c.prazoDataPrevista || '',
+      prazoPagamentoTexto: c.prazoPagamentoTexto || emptyContratoForm.prazoPagamentoTexto,
+      condicaoEntregaTexto: c.condicaoEntregaTexto || emptyContratoForm.condicaoEntregaTexto,
+      formasPagamento: c.formasPagamento ? [...c.formasPagamento] : [],
+      politicaPagamento: c.politicaPagamento ?? emptyContratoForm.politicaPagamento,
+      entradaObrigatoria: c.entradaObrigatoria ?? true,
+      entradaPercentual: c.entradaPercentual ?? 50,
+      entradaValor: c.entradaValor ?? 0,
+      entradaModo: 'percentual' as 'percentual' | 'valor',
+      validade: c.validade || '',
+      pagamentoPosteriorAutorizado: c.pagamentoPosteriorAutorizado ?? false,
+      pagamentoPosteriorData: c.pagamentoPosteriorData || '',
+      pagamentoPosteriorDias: c.pagamentoPosteriorDias ?? 0,
+      pagamentoPosteriorCondicao: c.pagamentoPosteriorCondicao || '',
+      pagamentoPosteriorResponsavel: c.pagamentoPosteriorResponsavel || '',
+      multaPercentual: c.multaPercentual ?? 2,
+      jurosModo: c.jurosModo ?? 'mensal',
+      jurosPercentual: c.jurosPercentual ?? 1,
+      diasTolerancia: c.diasTolerancia ?? 0,
+      multaJurosTexto: c.multaJurosTexto || emptyContratoForm.multaJurosTexto,
+      garantiaTexto: c.garantiaTexto || emptyContratoForm.garantiaTexto,
+      politicaCancelamentoTexto: c.politicaCancelamentoTexto || emptyContratoForm.politicaCancelamentoTexto,
       vendaId: c.vendaId,
       orcamentoId: c.orcamentoId,
     });
@@ -5186,8 +5268,30 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         total,
         forma_pagamento_texto: contratoForm.formaPagamentoTexto || null,
         prazo_texto: contratoForm.prazoTexto || null,
+        prazo_dias: contratoForm.prazoDias || null,
+        prazo_tipo: contratoForm.prazoTipo || null,
+        prazo_gatilho: contratoForm.prazoGatilho || null,
+        prazo_data_prevista: contratoForm.prazoDataPrevista || null,
+        prazo_pagamento_texto: contratoForm.prazoPagamentoTexto || null,
+        condicao_entrega_texto: contratoForm.condicaoEntregaTexto || null,
+        formas_pagamento: contratoForm.formasPagamento?.length ? contratoForm.formasPagamento : null,
+        politica_pagamento: contratoForm.politicaPagamento || null,
+        entrada_obrigatoria: contratoForm.entradaObrigatoria ?? true,
+        entrada_percentual: contratoForm.entradaPercentual ?? null,
+        entrada_valor: contratoForm.entradaValor ?? null,
+        pagamento_posterior_autorizado: contratoForm.pagamentoPosteriorAutorizado ?? false,
+        pagamento_posterior_data: contratoForm.pagamentoPosteriorData || null,
+        pagamento_posterior_dias: contratoForm.pagamentoPosteriorDias || null,
+        pagamento_posterior_condicao: contratoForm.pagamentoPosteriorCondicao || null,
+        pagamento_posterior_responsavel: contratoForm.pagamentoPosteriorResponsavel || null,
         multa_percentual: contratoForm.multaPercentual === '' || contratoForm.multaPercentual == null ? 2 : contratoForm.multaPercentual,
+        juros_modo: contratoForm.jurosModo || 'mensal',
         juros_percentual: contratoForm.jurosPercentual === '' || contratoForm.jurosPercentual == null ? 1 : contratoForm.jurosPercentual,
+        dias_tolerancia: contratoForm.diasTolerancia ?? 0,
+        multa_juros_texto: contratoForm.multaJurosTexto || null,
+        garantia_texto: contratoForm.garantiaTexto || null,
+        politica_cancelamento_texto: contratoForm.politicaCancelamentoTexto || null,
+        validade: contratoForm.validade || null,
         observacoes: contratoForm.observacoes || null,
         texto_contrato: textoContrato,
         updated_at: new Date().toISOString(),
@@ -5575,6 +5679,100 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const [simuladorDias, setSimuladorDias] = useState(10);
+
+  // ---- Helpers de CONTRATO (paralelos aos de Orçamento) ----
+  const contratoEntradaValorCalc = () => {
+    const totalItens = Math.max(0, contratoItemsTotal() - (contratoForm.desconto || 0));
+    return contratoForm.entradaModo === 'percentual'
+      ? (totalItens * (contratoForm.entradaPercentual || 0)) / 100
+      : (contratoForm.entradaValor || 0);
+  };
+
+  const contratoFormasPagamentoTotal = () => (contratoForm.formasPagamento || []).reduce((sum, f) => sum + (f.valor || 0), 0);
+
+  const contratoSaldoRestante = () => {
+    const totalItens = Math.max(0, contratoItemsTotal() - (contratoForm.desconto || 0));
+    return Math.max(0, totalItens - contratoEntradaValorCalc() - contratoFormasPagamentoTotal());
+  };
+
+  const addContratoFormaPagamento = () => {
+    setContratoForm(prev => ({
+      ...prev,
+      formasPagamento: [...(prev.formasPagamento || []), { metodo: 'pix', valor: 0 } as OrcamentoPagamento],
+    }));
+  };
+
+  const updateContratoFormaPagamento = (idx: number, patch: Partial<OrcamentoPagamento>) => {
+    setContratoForm(prev => ({
+      ...prev,
+      formasPagamento: (prev.formasPagamento || []).map((f, i) => i === idx ? { ...f, ...patch } : f),
+    }));
+  };
+
+  const removeContratoFormaPagamento = (idx: number) => {
+    setContratoForm(prev => ({ ...prev, formasPagamento: (prev.formasPagamento || []).filter((_, i) => i !== idx) }));
+  };
+
+  const buildContratoPoliticaPagamentoTexto = (politica: string, entradaTexto: string, obrigatoria: boolean) => {
+    const obrigaTxt = obrigatoria ? ' O pagamento da entrada é condição obrigatória para o início da produção — a produção só começa após a confirmação desse pagamento.' : '';
+    const quandoEntrada = ` A entrada deve ser paga no ato da assinatura deste contrato.`;
+    switch (politica) {
+      case 'sem_entrada':
+        return `Não é exigida entrada. A produção tem início após a assinatura deste contrato. O valor total deverá ser pago conforme condição definida no Prazo de Pagamento.`;
+      case 'pagamento_integral':
+        return `Pagamento integral antecipado, no valor de R$ ${(Math.max(0, contratoItemsTotal() - (contratoForm.desconto || 0))).toFixed(2).replace('.', ',')}, devido no ato da assinatura deste contrato e antes do início da produção.`;
+      case 'entrada_fixa':
+      case 'entrada_percentual':
+        return `Entrada de ${entradaTexto} para iniciar a produção.${quandoEntrada}${obrigaTxt}`;
+      case 'entrada_restante_entrega':
+        return `Entrada de ${entradaTexto} para iniciar a produção.${quandoEntrada}${obrigaTxt} O saldo restante (R$ ${contratoSaldoRestante().toFixed(2).replace('.', ',')}) deverá ser quitado no momento da conclusão do serviço e antes da entrega ou retirada do material.`;
+      case 'entrada_parcelas':
+        return `Entrada de ${entradaTexto} para iniciar a produção.${quandoEntrada}${obrigaTxt} O saldo restante (R$ ${contratoSaldoRestante().toFixed(2).replace('.', ',')}) será pago em parcelas, conforme detalhado nas formas de pagamento abaixo, e o material só será liberado após a quitação integral, salvo autorização em contrário.`;
+      default:
+        return '';
+    }
+  };
+
+  const updateContratoPoliticaPagamento = (patch: { politicaPagamento?: any; entradaObrigatoria?: boolean; entradaModo?: 'percentual' | 'valor'; entradaPercentual?: number | ''; entradaValor?: number | '' }) => {
+    setContratoForm(prev => {
+      const next = { ...prev, ...patch };
+      const entradaTexto = next.entradaModo === 'percentual' ? `${next.entradaPercentual || 0}%` : `R$ ${(next.entradaValor || 0).toFixed(2).replace('.', ',')}`;
+      next.formaPagamentoTexto = buildContratoPoliticaPagamentoTexto(next.politicaPagamento, entradaTexto, next.entradaObrigatoria);
+      return next;
+    });
+  };
+
+  const updateContratoMultaJuros = (patch: { multaPercentual?: number | ''; jurosModo?: 'mensal' | 'diario'; jurosPercentual?: number | ''; diasTolerancia?: number | '' }) => {
+    setContratoForm(prev => {
+      const next = { ...prev, ...patch };
+      next.multaJurosTexto = buildMultaJurosTexto(Number(next.multaPercentual) || 0, next.jurosModo, Number(next.jurosPercentual) || 0, Number(next.diasTolerancia) || 0);
+      return next;
+    });
+  };
+
+  const updateContratoPrazoStructured = (patch: Partial<typeof contratoForm>) => {
+    setContratoForm(prev => {
+      const next = { ...prev, ...patch };
+      if (next.prazoGatilho !== 'personalizado') {
+        next.prazoTexto = buildPrazoTexto(next.prazoDias, next.prazoTipo, next.prazoGatilho);
+      }
+      return next;
+    });
+  };
+
+  const calcularAtrasoContrato = (saldo: number, diasAtraso: number) => {
+    const dias = contratoForm.diasTolerancia || 0;
+    const diasEfetivos = Math.max(0, diasAtraso - dias);
+    if (diasEfetivos <= 0) return { multa: 0, juros: 0, total: saldo, diasEfetivos: 0 };
+    const multa = saldo * ((contratoForm.multaPercentual || 0) / 100);
+    const taxaDiaria = contratoForm.jurosModo === 'diario'
+      ? (contratoForm.jurosPercentual || 0) / 100
+      : (contratoForm.jurosPercentual || 0) / 100 / 30;
+    const juros = saldo * taxaDiaria * diasEfetivos;
+    return { multa, juros, total: saldo + multa + juros, diasEfetivos };
+  };
+
+  const [simuladorDiasContrato, setSimuladorDiasContrato] = useState(10);
 
   const handleSaveOrcamento = async () => {
     if (!orcamentoForm.customerName.trim()) { showAlert('Informe o nome do cliente.'); return; }
@@ -11892,21 +12090,31 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  }}
                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-300 hover:bg-purple-500/20 text-[9px] font-black uppercase tracking-wider transition-all"
                >
-                 <Users size={13} /> Buscar Cliente
+                 <Search size={11} /> Buscar Cliente Cadastrado
                </button>
             </div>
+            {contratoForm.clienteId && (
+              <p className="text-[9px] text-emerald-400 font-bold -mt-3">✓ Vinculado ao cadastro de clientes</p>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-               <Input label="Nome do Cliente" value={contratoForm.customerName} onChange={(e: any) => setContratoForm({ ...contratoForm, customerName: e.target.value.toUpperCase() })} />
+               <Input label="Cliente *" value={contratoForm.customerName} onChange={(e: any) => setContratoForm({ ...contratoForm, customerName: e.target.value.toUpperCase(), clienteId: undefined })} />
                <CpfCnpjInput label="CPF/CNPJ" value={contratoForm.cpfCnpj} onChange={(v: string) => setContratoForm({ ...contratoForm, cpfCnpj: v })} />
                <PhoneInputBR label="Telefone/WhatsApp" value={contratoForm.phone} onChange={(v: string) => setContratoForm({ ...contratoForm, phone: v })} />
-               <Input label="Endereço" value={contratoForm.address} onChange={(e: any) => setContratoForm({ ...contratoForm, address: e.target.value })} />
-               <Input label="Responsável (opcional)" value={contratoForm.responsavel} onChange={(e: any) => setContratoForm({ ...contratoForm, responsavel: e.target.value })} />
+               <Input label="Responsável pelo Atendimento" value={contratoForm.responsavel} onChange={(e: any) => setContratoForm({ ...contratoForm, responsavel: e.target.value })} />
+               <Input label="Endereço" className="sm:col-span-2" value={contratoForm.address} onChange={(e: any) => setContratoForm({ ...contratoForm, address: e.target.value })} />
+               <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Data de Emissão</label>
+                  <div className="h-11 flex items-center px-3 bg-white/5 border border-white/10 rounded-xl text-sm text-white/70">
+                    {safeFormat(editingContrato?.createdAt || new Date().toISOString(), 'dd/MM/yyyy')}
+                  </div>
+               </div>
+               <Input label="Validade" type="date" value={contratoForm.validade} onChange={(e: any) => setContratoForm({ ...contratoForm, validade: e.target.value })} />
             </div>
 
             <div className="h-px bg-white/10" />
 
             <div className="space-y-2">
-               <p className="text-[10px] font-black uppercase text-purple-300 tracking-[2px]">Itens / Serviços</p>
+               <p className="text-[10px] font-black uppercase text-purple-300 tracking-[2px]">Itens do Contrato</p>
                <button
                  onClick={() => {
                     setCart([...contratoForm.items]);
@@ -11923,7 +12131,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     <div key={idx} className="flex items-center justify-between gap-2 px-3 py-2 bg-white/5 border border-white/5 rounded-lg flex-wrap">
                        <div className="flex items-center gap-2 min-w-0 flex-1">
                           <input
-          onFocus={(e: any) => e.target.select()}
+                            onFocus={(e: any) => e.target.select()}
                             type="number"
                             min={1}
                             value={item.quantity}
@@ -11932,10 +12140,37 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                setContratoForm(prev => ({ ...prev, items: prev.items.map((it, i) => i === idx ? { ...it, quantity: qty } : it) }));
                             }}
                             className="w-12 h-7 bg-slate-900/60 border border-white/10 rounded px-1.5 text-xs text-white text-center"
+                            title="Quantidade"
                           />
-                          <p className="text-xs font-bold text-white truncate flex-1">{item.name}</p>
+                          <div className="min-w-0 flex-1">
+                             <p className="text-xs font-bold text-white truncate">{item.name}</p>
+                             <button
+                               onClick={() => setContratoForm(prev => ({ ...prev, items: prev.items.map((it: any, i) => i === idx ? { ...it, category: it.category === 'servico' ? 'produto' : 'servico' } : it) }))}
+                               className={cn(
+                                 "text-[7px] font-black uppercase px-1.5 py-0.5 rounded mt-0.5 inline-block",
+                                 (item as any).category === 'servico' ? "bg-blue-500/20 text-blue-300" : "bg-white/10 text-white/40"
+                               )}
+                               title="Clique para alternar Produto/Serviço"
+                             >
+                               {(item as any).category === 'servico' ? 'Serviço' : 'Produto'}
+                             </button>
+                          </div>
                        </div>
                        <div className="flex items-center gap-2 shrink-0">
+                          <div className="flex flex-col items-end">
+                             <span className="text-[7px] font-black text-white/30 uppercase tracking-wider">Valor Unit.</span>
+                             <input
+                               onFocus={(e: any) => e.target.select()}
+                               type="number"
+                               step="any"
+                               value={item.price}
+                               onChange={(e) => {
+                                  const price = e.target.value === '' ? 0 : Math.max(0, Number(e.target.value));
+                                  setContratoForm(prev => ({ ...prev, items: prev.items.map((it, i) => i === idx ? { ...it, price } : it) }));
+                               }}
+                               className="w-20 h-6 bg-slate-900/60 border border-white/10 rounded px-1.5 text-[10px] text-white text-right"
+                             />
+                          </div>
                           <span className="text-xs font-black text-emerald-400 min-w-[70px] text-right">R$ {(item.price * item.quantity).toFixed(2).replace('.', ',')}</span>
                           <button onClick={() => setContratoForm(prev => ({ ...prev, items: prev.items.filter((_, i) => i !== idx) }))} className="text-white/30 hover:text-rose-400"><X size={13} /></button>
                        </div>
@@ -11945,50 +12180,307 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
                <Input label="Desconto (R$)" type="number" step="any" value={contratoForm.desconto} onChange={(e: any) => setContratoForm({ ...contratoForm, desconto: (e.target.value === '' ? '' : Number(e.target.value)) })} />
-               <div className="flex items-center justify-between bg-white/5 border border-white/10 rounded-xl px-4 h-11">
-                  <span className="text-[10px] font-black uppercase text-white/40 tracking-widest">Total do Contrato</span>
-                  <span className="text-lg font-black text-emerald-400 italic">R$ {Math.max(0, contratoItemsTotal() - (contratoForm.desconto || 0)).toFixed(2).replace('.', ',')}</span>
+               <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Entrada</label>
+                  <div className="flex gap-1.5">
+                     <input
+                       onFocus={(e: any) => e.target.select()}
+                       type="number"
+                       step="any"
+                       value={contratoForm.entradaModo === 'percentual' ? contratoForm.entradaPercentual : contratoForm.entradaValor}
+                       onChange={(e: any) => contratoForm.entradaModo === 'percentual'
+                         ? updateContratoPoliticaPagamento({ entradaPercentual: (e.target.value === '' ? '' : Number(e.target.value)) })
+                         : updateContratoPoliticaPagamento({ entradaValor: (e.target.value === '' ? '' : Number(e.target.value)) })}
+                       className="flex-1 h-11 bg-white/5 border border-white/10 rounded-xl px-3 text-sm text-white focus:outline-none focus:border-purple-500"
+                     />
+                     <div className="flex bg-white/5 p-0.5 rounded-xl border border-white/10 shrink-0">
+                        <button onClick={() => updateContratoPoliticaPagamento({ entradaModo: 'percentual' })} className={cn("px-2.5 h-full rounded-lg text-[10px] font-black", contratoForm.entradaModo === 'percentual' ? "bg-purple-500 text-white" : "text-white/40")}>%</button>
+                        <button onClick={() => updateContratoPoliticaPagamento({ entradaModo: 'valor' })} className={cn("px-2.5 h-full rounded-lg text-[10px] font-black", contratoForm.entradaModo === 'valor' ? "bg-purple-500 text-white" : "text-white/40")}>R$</button>
+                     </div>
+                  </div>
                </div>
+               <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Valor da Entrada (R$)</label>
+                  <input
+                    onFocus={(e: any) => e.target.select()}
+                    type="number"
+                    step="any"
+                    placeholder="Personalizado"
+                    value={contratoForm.entradaModo === 'valor' ? contratoForm.entradaValor : contratoEntradaValorCalc() || ''}
+                    onChange={(e: any) => updateContratoPoliticaPagamento({ entradaModo: 'valor', entradaValor: (e.target.value === '' ? '' : Number(e.target.value)) })}
+                    className="w-full h-11 bg-white/5 border border-white/10 rounded-xl px-3 text-sm text-emerald-400 font-bold focus:outline-none focus:border-purple-500"
+                  />
+               </div>
+            </div>
+
+            <div className="bg-slate-900/50 rounded-2xl p-4 border border-white/5 flex justify-between items-center">
+               <span className="text-[10px] font-black uppercase text-white/40 tracking-widest">Total do Contrato</span>
+               <span className="text-xl font-black text-emerald-400 italic">R$ {Math.max(0, contratoItemsTotal() - (contratoForm.desconto || 0)).toFixed(2).replace('.', ',')}</span>
             </div>
 
             <div className="h-px bg-white/10" />
 
             <div className="space-y-3">
-               <p className="text-[10px] font-black uppercase text-purple-300 tracking-[2px]">Forma de Pagamento e Prazo</p>
-               <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Forma de Pagamento</label>
-                  <textarea
-                    value={contratoForm.formaPagamentoTexto}
-                    onChange={(e) => setContratoForm({ ...contratoForm, formaPagamentoTexto: e.target.value })}
-                    rows={2}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-primary-500 resize-none"
-                  />
-               </div>
-               <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Prazo de Produção/Entrega</label>
-                  <textarea
-                    value={contratoForm.prazoTexto}
-                    onChange={(e) => setContratoForm({ ...contratoForm, prazoTexto: e.target.value })}
-                    rows={2}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-primary-500 resize-none"
-                  />
-               </div>
-               <div className="grid grid-cols-2 gap-3">
-                  <Input label="Multa por Atraso (%)" type="number" step="any" value={contratoForm.multaPercentual} onChange={(e: any) => setContratoForm({ ...contratoForm, multaPercentual: (e.target.value === '' ? '' : Number(e.target.value)) })} />
-                  <Input label="Juros ao Mês (%)" type="number" step="any" value={contratoForm.jurosPercentual} onChange={(e: any) => setContratoForm({ ...contratoForm, jurosPercentual: (e.target.value === '' ? '' : Number(e.target.value)) })} />
-               </div>
-            </div>
+               <p className="text-[10px] font-black uppercase text-purple-300 tracking-[2px]">Prazo de Produção/Entrega</p>
 
-            <div className="space-y-1">
-               <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Observações</label>
-               <textarea
-                 value={contratoForm.observacoes}
-                 onChange={(e) => setContratoForm({ ...contratoForm, observacoes: e.target.value })}
-                 rows={2}
-                 className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-primary-500 resize-none"
-               />
+               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="space-y-1">
+                     <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Dias</label>
+                     <input
+                       onFocus={(e: any) => e.target.select()}
+                       type="number"
+                       min={1}
+                       value={contratoForm.prazoDias}
+                       onChange={(e) => updateContratoPrazoStructured({ prazoDias: Math.max(1, Number(e.target.value) || 1) })}
+                       className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-purple-500"
+                     />
+                  </div>
+                  <div className="space-y-1">
+                     <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Tipo</label>
+                     <select
+                       value={contratoForm.prazoTipo}
+                       onChange={(e) => updateContratoPrazoStructured({ prazoTipo: e.target.value as 'uteis' | 'corridos' })}
+                       className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-purple-500 cursor-pointer"
+                     >
+                       <option value="uteis" className="bg-slate-900">Dias Úteis</option>
+                       <option value="corridos" className="bg-slate-900">Dias Corridos</option>
+                     </select>
+                  </div>
+                  <div className="space-y-1 col-span-2">
+                     <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Contado a partir de</label>
+                     <select
+                       value={contratoForm.prazoGatilho}
+                       onChange={(e) => updateContratoPrazoStructured({ prazoGatilho: e.target.value as any })}
+                       className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-purple-500 cursor-pointer"
+                     >
+                       <option value="aprovacao" className="bg-slate-900">Assinatura do contrato</option>
+                       <option value="pagamento_entrada" className="bg-slate-900">Pagamento da entrada</option>
+                       <option value="aprovacao_arte" className="bg-slate-900">Aprovação da arte</option>
+                       <option value="entrega_material" className="bg-slate-900">Entrega de material pelo cliente</option>
+                       <option value="personalizado" className="bg-slate-900">Condição personalizada (texto livre)</option>
+                     </select>
+                  </div>
+               </div>
+
+               <textarea rows={2} value={contratoForm.prazoTexto} onChange={(e) => setContratoForm({ ...contratoForm, prazoTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-purple-500" />
+
+               <p className="text-[10px] font-black uppercase text-purple-300 tracking-[2px]">Política de Pagamento</p>
+
+               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {(['sem_entrada', 'entrada_percentual', 'entrada_fixa', 'pagamento_integral', 'entrada_restante_entrega', 'entrada_parcelas'] as const).map(pol => (
+                    <button
+                      key={pol}
+                      onClick={() => updateContratoPoliticaPagamento({ politicaPagamento: pol })}
+                      className={cn(
+                        "h-9 rounded-lg text-[9px] font-black uppercase tracking-wider border transition-all text-center px-2",
+                        contratoForm.politicaPagamento === pol
+                          ? "bg-purple-500/20 border-purple-500/40 text-purple-300"
+                          : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10"
+                      )}
+                    >
+                      {POLITICA_PAGAMENTO_LABELS[pol]}
+                    </button>
+                  ))}
+               </div>
+
+               {contratoForm.politicaPagamento !== 'sem_entrada' && contratoForm.politicaPagamento !== 'pagamento_integral' && (
+                 <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => updateContratoPoliticaPagamento({ entradaObrigatoria: !contratoForm.entradaObrigatoria })}
+                      className="flex items-center gap-2 text-[10px] font-black uppercase text-white tracking-wider"
+                    >
+                       <div className={cn("w-4 h-4 rounded border flex items-center justify-center", contratoForm.entradaObrigatoria ? "bg-purple-500 border-purple-500" : "border-white/20")}>
+                          {contratoForm.entradaObrigatoria && <Check size={11} className="text-white" />}
+                       </div>
+                       Entrada Obrigatória para Iniciar Produção
+                    </button>
+                 </div>
+               )}
+
+               <div className="space-y-2">
+                  {(contratoForm.formasPagamento || []).map((f, idx) => (
+                    <div key={idx} className="bg-white/5 border border-white/10 rounded-xl p-3 space-y-2">
+                       <div className="flex gap-2 flex-wrap">
+                          <div className="space-y-0.5 flex-1 min-w-[120px]">
+                             <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Método</label>
+                             <select value={f.metodo} onChange={(e) => updateContratoFormaPagamento(idx, { metodo: e.target.value as any })} className="w-full h-9 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white cursor-pointer">
+                                {Object.entries(ORCAMENTO_PAGAMENTO_LABELS).map(([v, l]) => <option key={v} value={v} className="bg-slate-900">{l}</option>)}
+                             </select>
+                          </div>
+                          {f.metodo === 'outra' && (
+                            <div className="space-y-0.5 flex-1 min-w-[110px]">
+                               <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Qual?</label>
+                               <input value={f.metodoOutraLabel || ''} onChange={(e) => updateContratoFormaPagamento(idx, { metodoOutraLabel: e.target.value })} className="w-full h-9 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
+                            </div>
+                          )}
+                          <div className="space-y-0.5 w-24">
+                             <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Valor (R$)</label>
+                             <input
+                               onFocus={(e: any) => e.target.select()} type="number" step="any" value={f.valor} onChange={(e) => updateContratoFormaPagamento(idx, { valor: (e.target.value === '' ? '' : Number(e.target.value)) })} className="w-full h-9 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
+                          </div>
+                          <button onClick={() => removeContratoFormaPagamento(idx)} className="h-9 w-9 flex items-center justify-center rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 shrink-0"><Trash2 size={13} /></button>
+                       </div>
+
+                       {f.metodo === 'cartao_parcelado' && (
+                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-white/5">
+                            <div className="space-y-0.5">
+                               <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Parcelas</label>
+                               <input
+                                 onFocus={(e: any) => e.target.select()} type="number" min={1} value={f.parcelas || 1} onChange={(e) => {
+                                    const parcelas = Math.max(1, Number(e.target.value) || 1);
+                                    updateContratoFormaPagamento(idx, { parcelas, valorParcela: Number(((f.valor || 0) / parcelas).toFixed(2)) });
+                                 }} className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
+                            </div>
+                            <div className="space-y-0.5">
+                               <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Valor/Parcela</label>
+                               <div className="h-8 flex items-center px-2 bg-slate-900/30 border border-white/5 rounded-lg text-xs text-emerald-400 font-bold">
+                                 R$ {(f.valorParcela || 0).toFixed(2).replace('.', ',')}
+                               </div>
+                            </div>
+                            <div className="space-y-0.5">
+                               <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">1º Vencimento</label>
+                               <input type="date" value={f.primeiroVencimento || ''} onChange={(e) => updateContratoFormaPagamento(idx, { primeiroVencimento: e.target.value })} className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-[10px] text-white" />
+                            </div>
+                            <div className="space-y-0.5">
+                               <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Intervalo (dias)</label>
+                               <input
+                                 onFocus={(e: any) => e.target.select()} type="number" min={1} value={f.intervaloDias || 30} onChange={(e) => updateContratoFormaPagamento(idx, { intervaloDias: Number(e.target.value) || 30 })} className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
+                            </div>
+                         </div>
+                       )}
+                       {f.metodo !== 'cartao_parcelado' && (
+                         <div className="pt-1 border-t border-white/5">
+                            <div className="space-y-0.5 w-40">
+                               <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Data de Vencimento</label>
+                               <input type="date" value={f.dataVencimento || ''} onChange={(e) => updateContratoFormaPagamento(idx, { dataVencimento: e.target.value })} className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-[10px] text-white" />
+                            </div>
+                         </div>
+                       )}
+                    </div>
+                  ))}
+                  <button onClick={addContratoFormaPagamento} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-300 hover:bg-purple-500/20 text-[10px] font-black uppercase tracking-wider transition-all">
+                     <Plus size={12} /> Adicionar Forma de Pagamento
+                  </button>
+               </div>
+
+               <div className="bg-slate-900/50 rounded-xl p-3 border border-white/5 flex justify-between items-center">
+                  <span className="text-[9px] font-black uppercase text-white/40 tracking-widest">Saldo Restante (não coberto acima)</span>
+                  <span className={cn("text-sm font-black", contratoSaldoRestante() > 0 ? "text-amber-400" : "text-emerald-400")}>R$ {contratoSaldoRestante().toFixed(2).replace('.', ',')}</span>
+               </div>
+
+               <p className="text-[10px] font-black uppercase text-purple-300 tracking-[2px] pt-1">Resumo (texto final exibido no contrato)</p>
+               <textarea rows={2} value={contratoForm.formaPagamentoTexto} onChange={(e) => setContratoForm({ ...contratoForm, formaPagamentoTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-purple-500" />
+
+               <p className="text-[10px] font-black uppercase text-amber-300 tracking-[2px]">Prazo de Pagamento (não é o mesmo que prazo de produção)</p>
+               <textarea rows={2} value={contratoForm.prazoPagamentoTexto} onChange={(e) => setContratoForm({ ...contratoForm, prazoPagamentoTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-purple-500" />
+
+               <div className="bg-white/5 border border-white/10 rounded-xl p-3 space-y-2">
+                  <button
+                    onClick={() => setContratoForm(prev => ({ ...prev, pagamentoPosteriorAutorizado: !prev.pagamentoPosteriorAutorizado }))}
+                    className="flex items-center gap-2 text-[10px] font-black uppercase text-white tracking-wider"
+                  >
+                     <div className={cn("w-4 h-4 rounded border flex items-center justify-center", contratoForm.pagamentoPosteriorAutorizado ? "bg-purple-500 border-purple-500" : "border-white/20")}>
+                        {contratoForm.pagamentoPosteriorAutorizado && <Check size={11} className="text-white" />}
+                     </div>
+                     Pagamento Posterior Autorizado (exceção ao prazo padrão)
+                  </button>
+                  <p className="text-[9px] text-white/40">Só marque se você está concedendo, de forma expressa, um prazo diferente do padrão para este cliente pagar.</p>
+
+                  {contratoForm.pagamentoPosteriorAutorizado && (
+                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/5">
+                       <div className="space-y-0.5">
+                          <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Data de Vencimento</label>
+                          <input type="date" value={contratoForm.pagamentoPosteriorData} onChange={(e) => setContratoForm({ ...contratoForm, pagamentoPosteriorData: e.target.value })} className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-[10px] text-white" />
+                       </div>
+                       <div className="space-y-0.5">
+                          <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Prazo Concedido (dias)</label>
+                          <input
+                            onFocus={(e: any) => e.target.select()} type="number" min={0} value={contratoForm.pagamentoPosteriorDias} onChange={(e) => setContratoForm({ ...contratoForm, pagamentoPosteriorDias: (e.target.value === '' ? '' : Number(e.target.value)) })} className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
+                       </div>
+                       <div className="space-y-0.5 col-span-2">
+                          <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Condição Especial</label>
+                          <input value={contratoForm.pagamentoPosteriorCondicao} onChange={(e) => setContratoForm({ ...contratoForm, pagamentoPosteriorCondicao: e.target.value })} placeholder="Ex: aguardar recebimento de outro pagamento" className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
+                       </div>
+                       <div className="space-y-0.5 col-span-2">
+                          <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Responsável pela Autorização</label>
+                          <input value={contratoForm.pagamentoPosteriorResponsavel} onChange={(e) => setContratoForm({ ...contratoForm, pagamentoPosteriorResponsavel: e.target.value })} placeholder="Nome de quem autorizou" className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
+                       </div>
+                    </div>
+                  )}
+               </div>
+
+               <p className="text-[10px] font-black uppercase text-purple-300 tracking-[2px]">Condição de Entrega/Retirada</p>
+               <textarea rows={2} value={contratoForm.condicaoEntregaTexto} onChange={(e) => setContratoForm({ ...contratoForm, condicaoEntregaTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-purple-500" />
+
+               <p className="text-[10px] font-black uppercase text-purple-300 tracking-[2px]">Multa e Juros por Atraso</p>
+               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="space-y-0.5">
+                     <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Multa (%)</label>
+                     <input
+                       onFocus={(e: any) => e.target.select()} type="number" step="any" min={0} value={contratoForm.multaPercentual} onChange={(e) => updateContratoMultaJuros({ multaPercentual: (e.target.value === '' ? '' : Number(e.target.value)) })} className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-purple-500" />
+                  </div>
+                  <div className="space-y-0.5">
+                     <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Juros (%)</label>
+                     <input
+                       onFocus={(e: any) => e.target.select()} type="number" step="any" min={0} value={contratoForm.jurosPercentual} onChange={(e) => updateContratoMultaJuros({ jurosPercentual: (e.target.value === '' ? '' : Number(e.target.value)) })} className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-purple-500" />
+                  </div>
+                  <div className="space-y-0.5">
+                     <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Forma de Cálculo</label>
+                     <select value={contratoForm.jurosModo} onChange={(e) => updateContratoMultaJuros({ jurosModo: e.target.value as any })} className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-purple-500 cursor-pointer">
+                        <option value="mensal" className="bg-slate-900">Juros ao mês</option>
+                        <option value="diario" className="bg-slate-900">Juros ao dia</option>
+                     </select>
+                  </div>
+                  <div className="space-y-0.5">
+                     <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Tolerância (dias)</label>
+                     <input
+                       onFocus={(e: any) => e.target.select()} type="number" min={0} value={contratoForm.diasTolerancia} onChange={(e) => updateContratoMultaJuros({ diasTolerancia: (e.target.value === '' ? '' : Number(e.target.value)) })} className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-purple-500" />
+                  </div>
+               </div>
+
+               <textarea rows={2} value={contratoForm.multaJurosTexto} onChange={(e) => setContratoForm({ ...contratoForm, multaJurosTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-purple-500" />
+
+               {/* Simulador de atraso */}
+               <div className="bg-black/20 rounded-xl p-3 space-y-2 border border-white/5">
+                  <div className="flex items-center justify-between gap-2">
+                     <span className="text-[9px] font-black uppercase text-white/40 tracking-wider">Simular atraso de</span>
+                     <div className="flex items-center gap-1.5">
+                        <input
+                          onFocus={(e: any) => e.target.select()} type="number" min={0} value={simuladorDiasContrato} onChange={(e) => setSimuladorDiasContrato((e.target.value === '' ? '' : Number(e.target.value)) as number)} className="w-14 h-7 bg-slate-900/60 border border-white/10 rounded px-1.5 text-xs text-white text-center" />
+                        <span className="text-[9px] text-white/40 font-bold">dias, sobre R$ {contratoSaldoRestante().toFixed(2).replace('.', ',')} em aberto</span>
+                     </div>
+                  </div>
+                  {(() => {
+                     const calc = calcularAtrasoContrato(contratoSaldoRestante(), simuladorDiasContrato);
+                     return (
+                       <div className="grid grid-cols-3 gap-2 pt-1 border-t border-white/5">
+                          <div>
+                             <p className="text-[7px] font-black uppercase text-white/30 tracking-wider">Multa</p>
+                             <p className="text-xs font-black text-amber-400">R$ {calc.multa.toFixed(2).replace('.', ',')}</p>
+                          </div>
+                          <div>
+                             <p className="text-[7px] font-black uppercase text-white/30 tracking-wider">Juros ({calc.diasEfetivos}d)</p>
+                             <p className="text-xs font-black text-amber-400">R$ {calc.juros.toFixed(2).replace('.', ',')}</p>
+                          </div>
+                          <div>
+                             <p className="text-[7px] font-black uppercase text-white/30 tracking-wider">Valor Atualizado</p>
+                             <p className="text-xs font-black text-rose-400">R$ {calc.total.toFixed(2).replace('.', ',')}</p>
+                          </div>
+                       </div>
+                     );
+                  })()}
+               </div>
+
+               <p className="text-[10px] font-black uppercase text-purple-300 tracking-[2px]">Garantia do Serviço</p>
+               <textarea rows={2} value={contratoForm.garantiaTexto} onChange={(e) => setContratoForm({ ...contratoForm, garantiaTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-purple-500" />
+
+               <p className="text-[10px] font-black uppercase text-purple-300 tracking-[2px]">Política de Cancelamento</p>
+               <textarea rows={2} value={contratoForm.politicaCancelamentoTexto} onChange={(e) => setContratoForm({ ...contratoForm, politicaCancelamentoTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-purple-500" />
+
+               <p className="text-[10px] font-black uppercase text-purple-300 tracking-[2px]">Observações</p>
+               <textarea rows={2} value={contratoForm.observacoes} onChange={(e) => setContratoForm({ ...contratoForm, observacoes: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-purple-500" />
             </div>
 
             <div className="flex justify-end gap-3 pt-1">
