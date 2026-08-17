@@ -4939,6 +4939,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     pagamentoPosteriorAutorizado: false, pagamentoPosteriorData: '', pagamentoPosteriorDias: 0,
     pagamentoPosteriorCondicao: '', pagamentoPosteriorResponsavel: '',
     multaPercentual: 2, jurosModo: 'mensal' as 'mensal' | 'diario', jurosPercentual: 1, diasTolerancia: 0,
+    status: 'em_espera' as 'em_espera' | 'aprovada' | 'em_producao' | 'recusada' | 'concluido',
   };
   const [orcamentoForm, setOrcamentoForm] = useState({ ...emptyOrcamentoForm });
   const [savingOrcamento, setSavingOrcamento] = useState(false);
@@ -5025,6 +5026,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     multaPercentual: 2, jurosModo: 'mensal' as 'mensal' | 'diario', jurosPercentual: 1, diasTolerancia: 0,
     vendaId: undefined as string | undefined,
     orcamentoId: undefined as string | undefined,
+    status: 'em_espera' as 'em_espera' | 'aprovada' | 'em_producao' | 'recusada' | 'concluido',
   };
   const [contratoForm, setContratoForm] = useState({ ...emptyContratoForm });
 
@@ -5315,7 +5317,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         // A venda/orcamento passam a apontar pra versao nova (mais recente)
       } else {
         const numero = `CTR-${Date.now().toString(36).toUpperCase()}`;
-        const { data: inserted, error } = await supabase.from('contratos').insert({ ...payload, numero, status: 'rascunho' }).select().single();
+        const { data: inserted, error } = await supabase.from('contratos').insert({ ...payload, numero, status: contratoForm.status || 'em_espera' }).select().single();
         if (error) throw error;
         newId = inserted?.id || null;
       }
@@ -5858,7 +5860,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       } else {
         const prefixo = isContrato ? 'CTR' : 'ORC';
         const numero = `${prefixo}-${Date.now().toString(36).toUpperCase()}`;
-        const { data: inserted, error } = await supabase.from('orcamentos').insert({ ...payload, numero, status: 'rascunho' }).select().single();
+        const { data: inserted, error } = await supabase.from('orcamentos').insert({ ...payload, numero, status: orcamentoForm.status || 'em_espera' }).select().single();
         if (error) throw error;
         newId = inserted?.id || null;
       }
@@ -9232,29 +9234,29 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           // migrados pra tabela contratos de verdade, nao devem aparecer aqui
           const orcamentosDeVerdade = allOrcamentos.filter(o => o.documentType !== 'contrato');
           
-          const orcRascunhos = orcamentosDeVerdade.filter(o => o.status === 'rascunho');
           const orcEmEspera = orcamentosDeVerdade.filter(o => o.status === 'em_espera');
+          const orcAprovada = orcamentosDeVerdade.filter(o => o.status === 'aprovada');
           const orcEmProducao = orcamentosDeVerdade.filter(o => o.status === 'em_producao');
-          const orcConcluidos = orcamentosDeVerdade.filter(o => o.status === 'concluido');
-          const orcRecusados = orcamentosDeVerdade.filter(o => o.status === 'recusado' || o.status === 'cancelado' || o.status === 'expirado' || o.status === 'enviado' || o.status === 'aprovado');
+          const orcRecusada = orcamentosDeVerdade.filter(o => o.status === 'recusada');
+          const orcConcluido = orcamentosDeVerdade.filter(o => o.status === 'concluido');
 
           const filtrosOrcamento = [
             { id: 'todos', label: 'Todos', count: orcamentosDeVerdade.length },
-            { id: 'rascunho', label: 'Rascunhos', count: orcRascunhos.length },
             { id: 'em_espera', label: 'Em Espera', count: orcEmEspera.length },
+            { id: 'aprovada', label: 'Aprovada', count: orcAprovada.length },
             { id: 'em_producao', label: 'Em Produção', count: orcEmProducao.length },
-            { id: 'concluido', label: 'Concluído', count: orcConcluidos.length },
-            { id: 'recusado', label: 'Recusados/Cancelados', count: orcRecusados.length },
+            { id: 'recusada', label: 'Recusada', count: orcRecusada.length },
+            { id: 'concluido', label: 'Concluído', count: orcConcluido.length },
           ];
 
           const orcTerm = orcamentoSearchTerm.trim().toLowerCase();
           const orcamentosFiltrados = orcamentosDeVerdade
             .filter(o => {
-              if (orcamentoStatusFilter === 'rascunho') return o.status === 'rascunho';
               if (orcamentoStatusFilter === 'em_espera') return o.status === 'em_espera';
+              if (orcamentoStatusFilter === 'aprovada') return o.status === 'aprovada';
               if (orcamentoStatusFilter === 'em_producao') return o.status === 'em_producao';
+              if (orcamentoStatusFilter === 'recusada') return o.status === 'recusada';
               if (orcamentoStatusFilter === 'concluido') return o.status === 'concluido';
-              if (orcamentoStatusFilter === 'recusado') return o.status === 'recusado' || o.status === 'cancelado' || o.status === 'expirado' || o.status === 'enviado' || o.status === 'aprovado';
               return true; // 'todos'
             })
             .filter(o => {
@@ -11648,6 +11650,20 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     {safeFormat(editingOrcamento?.createdAt || new Date().toISOString(), 'dd/MM/yyyy')}
                   </div>
                </div>
+               <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Etapa</label>
+                  <select
+                    value={orcamentoForm.status || 'em_espera'}
+                    onChange={(e) => setOrcamentoForm({ ...orcamentoForm, status: e.target.value as any })}
+                    className="h-11 w-full bg-white/5 border border-white/10 rounded-xl px-3 text-[11px] font-bold text-white focus:outline-none focus:border-primary-500 cursor-pointer"
+                  >
+                    {ORCAMENTO_CONTRATO_STAGES.map(stage => (
+                      <option key={stage} value={stage} className="bg-slate-900">
+                        {ORCAMENTO_CONTRATO_LABELS[stage]}
+                      </option>
+                    ))}
+                  </select>
+               </div>
                <Input label="Validade" type="date" value={orcamentoForm.validade} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, validade: e.target.value })} />
             </div>
 
@@ -12084,6 +12100,20 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   <div className="h-11 flex items-center px-3 bg-white/5 border border-white/10 rounded-xl text-sm text-white/70">
                     {safeFormat(editingContrato?.createdAt || new Date().toISOString(), 'dd/MM/yyyy')}
                   </div>
+               </div>
+               <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Etapa</label>
+                  <select
+                    value={contratoForm.status || 'em_espera'}
+                    onChange={(e) => setContratoForm({ ...contratoForm, status: e.target.value as any })}
+                    className="h-11 w-full bg-white/5 border border-white/10 rounded-xl px-3 text-[11px] font-bold text-white focus:outline-none focus:border-primary-500 cursor-pointer"
+                  >
+                    {ORCAMENTO_CONTRATO_STAGES.map(stage => (
+                      <option key={stage} value={stage} className="bg-slate-900">
+                        {ORCAMENTO_CONTRATO_LABELS[stage]}
+                      </option>
+                    ))}
+                  </select>
                </div>
             </div>
 
@@ -15020,13 +15050,24 @@ export const ClientesEsperaModule = ({ currentCompany, user }: { currentCompany:
   );
 };
 
-// As 8 etapas do pipeline, na ordem — cada uma vira uma coluna de verdade agora
+// As 8 etapas do pipeline de Serviços, na ordem — cada uma vira uma coluna de verdade agora
 const STAGE_ORDER = ['pedido_recebido', 'aguardando_arte', 'arte_em_desenvolvimento', 'aguardando_aprovacao', 'producao', 'acabamento', 'aguardando_retirada', 'produto_entregue'];
 
 const STAGE_LABELS: Record<string, string> = {
   pedido_recebido: 'Pedido Recebido', aguardando_arte: 'Aguardando Arte', arte_em_desenvolvimento: 'Arte em Desenvolvimento',
   aguardando_aprovacao: 'Aguardando Aprovação', producao: 'Produção', acabamento: 'Acabamento',
   aguardando_retirada: 'Aguardando Retirada', produto_entregue: 'Produto Entregue',
+};
+
+// Etapas unificadas de Orçamentos e Contratos (mesma classificação)
+const ORCAMENTO_CONTRATO_STAGES = ['em_espera', 'aprovada', 'em_producao', 'recusada', 'concluido'];
+
+const ORCAMENTO_CONTRATO_LABELS: Record<string, string> = {
+  em_espera: 'Em Espera',
+  aprovada: 'Aprovada',
+  em_producao: 'Em Produção',
+  recusada: 'Recusada',
+  concluido: 'Concluído',
 };
 
 const OrdemServicoCard = ({ pedido, onDropdownChange, selectMode, selected, onToggleSelect }: { key?: any; pedido: SaleOrder; onDropdownChange: (pedido: SaleOrder, novaEtapa: string) => void; selectMode?: boolean; selected?: boolean; onToggleSelect?: (id: string) => void }) => {
