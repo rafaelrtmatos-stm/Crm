@@ -9738,22 +9738,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                             {(c.status === 'rascunho' || c.status === 'aguardando_aceite' || c.status === 'aceito' || c.status === 'assinado' || c.status === 'em_execucao') && (
                                               <div className="h-px bg-white/10 my-1.5" />
                                             )}
-                                            {/* Iniciar Execucao fica disponivel assim que as duas partes ja
-                                                assinaram (status 'assinado') -- nao depende mais de um passo
-                                                manual de "aceite" separado. */}
-                                            {c.status === 'assinado' && (
-                                              <button onClick={() => { handleUpdateContratoStatus(c, 'em_execucao'); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-amber-400 hover:bg-white/5 text-left"><PlayCircle size={13} /> Iniciar Execução</button>
-                                            )}
-                                            {c.status === 'em_execucao' && (
-                                              <button onClick={() => { handleUpdateContratoStatus(c, 'concluido'); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-primary-400 hover:bg-white/5 text-left"><CheckCircle2 size={13} /> Concluir</button>
-                                            )}
-
-                                            <div className="h-px bg-white/10 my-1.5" />
-                                            {c.status !== 'cancelado' && c.status !== 'encerrado' && (
-                                              <button onClick={() => { handleUpdateContratoStatus(c, c.status === 'concluido' ? 'encerrado' : 'cancelado'); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-rose-400 hover:bg-white/5 text-left">
-                                                <Ban size={13} /> {c.status === 'concluido' ? 'Encerrar' : 'Cancelar'}
-                                              </button>
-                                            )}
+                                            {/* Contratos agora espelham as etapas do Pedido vinculado -- nao tem controle proprio aqui. */}
                                             <button onClick={() => { handleDeleteContrato(c); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-rose-400/70 hover:bg-white/5 text-left"><Trash2 size={13} /> Excluir</button>
                                          </div>
                                        </>,
