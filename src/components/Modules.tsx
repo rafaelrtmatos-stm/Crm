@@ -5026,7 +5026,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     multaPercentual: 2, jurosModo: 'mensal' as 'mensal' | 'diario', jurosPercentual: 1, diasTolerancia: 0,
     vendaId: undefined as string | undefined,
     orcamentoId: undefined as string | undefined,
-    status: 'em_espera' as 'em_espera' | 'aprovada' | 'em_producao' | 'recusada' | 'concluido',
   };
   const [contratoForm, setContratoForm] = useState({ ...emptyContratoForm });
 
@@ -5317,7 +5316,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         // A venda/orcamento passam a apontar pra versao nova (mais recente)
       } else {
         const numero = `CTR-${Date.now().toString(36).toUpperCase()}`;
-        const { data: inserted, error } = await supabase.from('contratos').insert({ ...payload, numero, status: contratoForm.status || 'em_espera' }).select().single();
+        const { data: inserted, error } = await supabase.from('contratos').insert({ ...payload, numero, status: 'aguardando_assinatura_cliente' }).select().single();
         if (error) throw error;
         newId = inserted?.id || null;
       }
@@ -12100,20 +12099,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   <div className="h-11 flex items-center px-3 bg-white/5 border border-white/10 rounded-xl text-sm text-white/70">
                     {safeFormat(editingContrato?.createdAt || new Date().toISOString(), 'dd/MM/yyyy')}
                   </div>
-               </div>
-               <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Etapa</label>
-                  <select
-                    value={contratoForm.status || 'em_espera'}
-                    onChange={(e) => setContratoForm({ ...contratoForm, status: e.target.value as any })}
-                    className="h-11 w-full bg-white/5 border border-white/10 rounded-xl px-3 text-[11px] font-bold text-white focus:outline-none focus:border-primary-500 cursor-pointer"
-                  >
-                    {ORCAMENTO_CONTRATO_STAGES.map(stage => (
-                      <option key={stage} value={stage} className="bg-slate-900">
-                        {ORCAMENTO_CONTRATO_LABELS[stage]}
-                      </option>
-                    ))}
-                  </select>
                </div>
             </div>
 
