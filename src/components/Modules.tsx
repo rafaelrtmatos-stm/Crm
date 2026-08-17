@@ -2774,6 +2774,11 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
   const [selectedFunnelId, setSelectedFunnelId] = useState<string>('');
   const [stages, setStages] = useState<FunnelStage[]>([]);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  // true quando o lead foi aberto via "pulo" de outra tela (ex.: popup de
+  // Mensagens do menu lateral) — nesse caso o ChatPanel preenche a tela
+  // toda (kanban escondido). Clique direto num card do kanban mantém o
+  // comportamento normal (60% kanban / 40% painel), sem mexer nisso.
+  const [openedViaJump, setOpenedViaJump] = useState(false);
   const [isConfiguringFunnel, setIsConfiguringFunnel] = useState(false);
   const [editingFunnel, setEditingFunnel] = useState<Funnel | null>(null);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
@@ -2809,9 +2814,10 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     return onSnapshot(qS, (snapshot) => setStages(snapshot.docs.map(d => ({ id: d.id, ...d.data() }) as FunnelStage)));
   }, [selectedFunnelId]);
 
-  // Chegou aqui vindo da aba Mensagens (via botao "Ver no Funil CRM" do ChatPanel
-  // compartilhado) -- acha o lead, troca pro funil dele se for diferente do selecionado, e
-  // ja deixa selecionado (abre o painel lateral automaticamente).
+  // Chegou aqui vindo do popup de Mensagens do menu lateral ou do botao "Ver no
+  // Funil CRM" do ChatPanel compartilhado -- acha o lead, troca pro funil dele
+  // se for diferente do selecionado, ja deixa selecionado (abre o painel) e
+  // marca openedViaJump pra o painel preencher a tela toda (sem kanban).
   useEffect(() => {
     if (!pendingOpenLeadId || leads.length === 0) return;
     const lead = leads.find(l => l.id === pendingOpenLeadId);
@@ -2820,6 +2826,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
         setSelectedFunnelId(lead.funnelId);
       }
       setSelectedLead(lead);
+      setOpenedViaJump(true);
       setPendingOpenLeadId(null);
     }
   }, [pendingOpenLeadId, leads]);
@@ -2956,7 +2963,9 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     <div className="h-[calc(100vh-12rem)] flex gap-6 animate-in slide-in-from-right-10 duration-500">
       <div className={cn(
         "flex flex-col space-y-6 transition-all duration-500 w-full",
-        selectedLead ? "hidden md:flex md:w-[60%]" : "flex"
+        !selectedLead && "flex",
+        selectedLead && openedViaJump && "hidden",
+        selectedLead && !openedViaJump && "hidden md:flex md:w-[60%]"
       )}>
         <SectionHeader 
           title="Funil Rafa Arts" 
@@ -3066,7 +3075,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                   key={stage.id} 
                   stage={stage} 
                   leads={leads.filter(l => l.funnelStageId === stage.id || (!l.funnelStageId && (stage.isInitial || stage.order === 0)))}
-                  onLeadClick={setSelectedLead}
+                  onLeadClick={(l) => { setOpenedViaJump(false); setSelectedLead(l); }}
                   selectedLeadId={selectedLead?.id}
                 />
               </div>
@@ -3110,11 +3119,11 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15, ease: 'easeOut' }}
-            className="h-full w-full md:w-[40%]"
+            className={cn("h-full w-full", !openedViaJump && "md:w-[40%]")}
           >
             <ChatPanel 
               conversation={{ ...selectedLead, name: selectedLead.fullName, channel: 'WhatsApp' }}
-              onClose={() => setSelectedLead(null)}
+              onClose={() => { setSelectedLead(null); setOpenedViaJump(false); }}
               currentCompany={currentCompany}
               user={user}
             />

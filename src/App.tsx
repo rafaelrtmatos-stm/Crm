@@ -1759,16 +1759,13 @@ export default function App() {
     </div>
     
     {/* Painel de Mensagens no Menu Lateral (Desktop) — cobre todo o conteúdo à
-        direita da sidebar, nunca a própria sidebar; ver regras em MessagesSidebarPopup.tsx */}
+        direita da sidebar, nunca a própria sidebar. É só a lista: ao escolher
+        uma conversa, fecha e pula direto pro Funil CRM (ver MessagesSidebarPopup.tsx) */}
     <MessagesSidebarPopup
       isOpen={isMessagePopupOpen}
-      onClose={() => {
-        setIsMessagePopupOpen(false);
-        setPreselectedLeadIdForMessages(undefined);
-      }}
+      onClose={() => setIsMessagePopupOpen(false)}
       currentCompany={currentCompany}
       user={user}
-      preselectedLeadId={preselectedLeadIdForMessages}
     />
     
     <NotifyHost />
