@@ -369,3 +369,115 @@ export async function reabrirCaixa(caixa: WeeklyCaixa): Promise<ReabrirCaixaResu
   if (reopenError || !reaberto) return { caixa: null, reason: 'Erro ao reabrir o caixa.' };
   return { caixa: mapCaixaRow(reaberto), reason: null };
 }
+
+// --- Agregação por Período (Semana / Mês / Ano) ---
+
+export type PeriodoVisualizacao = 'semana' | 'mes' | 'ano';
+
+export interface ResumoPorPeriodo {
+  periodo: PeriodoVisualizacao;
+  label: string;         // "Esta Semana", "Agosto/2026", "2026"
+  salarioBase: number;
+  totalComissao: number;
+  totalDescontos: number;
+  totalPago: number;
+  saldoPeriodo: number;  // soma de salarioBase+comissao-descontos-pago de todas as semanas do período
+  saldoFinal: number;    // saldo acumulado até o fim do período (equivale ao saldoFinal do último caixa)
+  qtdSemanas: number;
+}
+
+function nomeMesPt(mes: number): string {
+  const nomes = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+  return nomes[mes] || '';
+}
+
+/**
+ * Calcula o resumo agregado do colaborador pra um período (semana/mês/ano), combinando:
+ * - O caixa aberto atual (via calcularResumoCaixa, sempre em dia)
+ * - O histórico de caixas já fechados (snapshot congelado de cada semana)
+ *
+ * 'semana' considera só o caixa aberto (a semana corrente).
+ * 'mes' e 'ano' somam o caixa aberto + os caixas fechados que caem dentro da janela,
+ * usando os valores já congelados de cada um (salarioBase, totalComissao, totalDescontos, totalPago).
+ */
+export function calcularResumoPorPeriodo(
+  periodo: PeriodoVisualizacao,
+  caixaAberto: WeeklyCaixa | null,
+  resumoCaixaAberto: ResumoCaixa | null,
+  historicoFechados: WeeklyCaixa[]
+): ResumoPorPeriodo {
+  const hoje = new Date();
+  const anoAtual = hoje.getFullYear();
+  const mesAtual = hoje.getMonth();
+
+  if (periodo === 'semana') {
+    return {
+      periodo: 'semana',
+      label: 'Esta Semana',
+      salarioBase: resumoCaixaAberto?.salarioBase ?? 0,
+      totalComissao: resumoCaixaAberto?.totalComissao ?? 0,
+      totalDescontos: resumoCaixaAberto?.totalDescontos ?? 0,
+      totalPago: resumoCaixaAberto?.totalPago ?? 0,
+      saldoPeriodo: resumoCaixaAberto?.saldoSemana ?? 0,
+      saldoFinal: resumoCaixaAberto?.saldoFinal ?? (caixaAberto?.saldoAnterior ?? 0),
+      qtdSemanas: caixaAberto ? 1 : 0,
+    };
+  }
+
+  // Filtra os caixas fechados que caem no período (mês ou ano corrente)
+  const fechadosNoPeriodo = historicoFechados.filter((c) => {
+    const d = new Date(c.semanaInicio);
+    if (periodo === 'ano') return d.getFullYear() === anoAtual;
+    return d.getFullYear() === anoAtual && d.getMonth() === mesAtual;
+  });
+
+  // Inclui o caixa aberto se a semana dele também cair no período
+  const semanaAbertaNoPeriodo = caixaAberto && resumoCaixaAberto
+    ? (() => {
+        const d = new Date(caixaAberto.semanaInicio);
+        return periodo === 'ano'
+          ? d.getFullYear() === anoAtual
+          : d.getFullYear() === anoAtual && d.getMonth() === mesAtual;
+      })()
+    : false;
+
+  let salarioBase = 0, totalComissao = 0, totalDescontos = 0, totalPago = 0, saldoPeriodo = 0;
+
+  fechadosNoPeriodo.forEach((c) => {
+    salarioBase += c.salarioBase ?? 0;
+    totalComissao += c.totalComissao ?? 0;
+    totalDescontos += c.totalDescontos ?? 0;
+    totalPago += c.totalPago ?? 0;
+    // saldoFinal do caixa fechado já é acumulado (saldoAnterior + saldoSemana) --
+    // pra somar corretamente ao longo do período usamos a diferença (saldoSemana isolado):
+    const saldoSemanaIsolado = (c.salarioBase ?? 0) + (c.totalComissao ?? 0) - (c.totalDescontos ?? 0) - (c.totalPago ?? 0);
+    saldoPeriodo += saldoSemanaIsolado;
+  });
+
+  if (semanaAbertaNoPeriodo && resumoCaixaAberto) {
+    salarioBase += resumoCaixaAberto.salarioBase;
+    totalComissao += resumoCaixaAberto.totalComissao;
+    totalDescontos += resumoCaixaAberto.totalDescontos;
+    totalPago += resumoCaixaAberto.totalPago;
+    saldoPeriodo += resumoCaixaAberto.saldoSemana;
+  }
+
+  const qtdSemanas = fechadosNoPeriodo.length + (semanaAbertaNoPeriodo ? 1 : 0);
+
+  // saldoFinal do período = saldo final mais recente disponível (o "estado atual" da dívida/crédito)
+  const saldoFinal = resumoCaixaAberto?.saldoFinal
+    ?? (fechadosNoPeriodo[0]?.saldoFinal)
+    ?? (caixaAberto?.saldoAnterior ?? 0);
+
+  return {
+    periodo,
+    label: periodo === 'ano' ? `${anoAtual}` : `${nomeMesPt(mesAtual)}/${anoAtual}`,
+    salarioBase,
+    totalComissao,
+    totalDescontos,
+    totalPago,
+    saldoPeriodo,
+    saldoFinal,
+    qtdSemanas,
+  };
+}

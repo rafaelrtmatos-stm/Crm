@@ -30,6 +30,8 @@ import {
   calcularResumoCaixa,
   getHistoricoCaixasFechados,
   reabrirCaixa,
+  calcularResumoPorPeriodo,
+  PeriodoVisualizacao,
 } from '../utils/caixaSemanalStorage';
 import { formatDateBR } from '../utils/storage';
 import { showAlert, showConfirm } from '../../lib/notify';
@@ -135,6 +137,8 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
   const [loadingHistorico, setLoadingHistorico] = useState(false);
   const [reabrindoId, setReabrindoId] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
+  // ✅ Seletor de visualização do Caixa: Semana / Mês / Ano
+  const [periodoVisualizacao, setPeriodoVisualizacao] = useState<PeriodoVisualizacao>('semana');
 
   useEffect(() => {
     let cancelled = false;
@@ -155,12 +159,30 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
     return () => { cancelled = true; };
   }, [colaboradorId, reloadToken]);
 
+  // ✅ Carrega o histórico de caixas fechados sempre que o período não for "semana",
+  // pra alimentar o cálculo agregado de Mês/Ano (não depende mais de abrir a seção Histórico).
+  useEffect(() => {
+    if (periodoVisualizacao === 'semana') return;
+    let cancelled = false;
+    setLoadingHistorico(true);
+    getHistoricoCaixasFechados(colaboradorId, 60).then((list) => {
+      if (!cancelled) { setHistorico(list); setLoadingHistorico(false); }
+    });
+    return () => { cancelled = true; };
+  }, [colaboradorId, periodoVisualizacao, reloadToken]);
+
   // ✅ CORRETO: usa calcularResumoCaixa que já calcula
   // saldoSemana = salarioBase + totalComissao - totalDescontos - totalPago
   // saldoFinal = saldoAnterior + saldoSemana
   const resumoCaixa = useMemo(
     () => (caixa ? calcularResumoCaixa(caixa, baseSalary, services, descontos, pagamentos) : null),
     [caixa, baseSalary, services, descontos, pagamentos]
+  );
+
+  // ✅ Resumo agregado conforme o período escolhido (Semana / Mês / Ano)
+  const resumoPorPeriodo = useMemo(
+    () => calcularResumoPorPeriodo(periodoVisualizacao, caixa, resumoCaixa, historico ?? []),
+    [periodoVisualizacao, caixa, resumoCaixa, historico]
   );
 
   const handleAddPagamento = async () => {
@@ -309,49 +331,74 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
                     Tentar novamente
                   </button>
                 </div>
-              ) : !resumoCaixa ? (
+              ) : !resumoCaixa || (periodoVisualizacao !== 'semana' && loadingHistorico) ? (
                 <div className="text-sm text-[var(--text-muted)] mt-1">Carregando...</div>
               ) : (
-                <div className={`text-2xl font-black font-mono ${resumoCaixa.saldoFinal >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  {formatCurrency(resumoCaixa.saldoFinal)}
+                <div className={`text-2xl font-black font-mono ${resumoPorPeriodo.saldoFinal >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {formatCurrency(resumoPorPeriodo.saldoFinal)}
                   <span className="text-[10px] font-bold uppercase tracking-wider ml-2 align-middle text-[var(--text-muted)]">
-                    {resumoCaixa.saldoFinal >= 0 ? 'a favor do colaborador' : 'dívida do colaborador'}
+                    {resumoPorPeriodo.saldoFinal >= 0 ? 'a favor do colaborador' : 'dívida do colaborador'}
                   </span>
                 </div>
               )}
             </div>
           </div>
+
+          {/* ✅ Seletor de visualização: Semana / Mês / Ano */}
+          <div className="flex items-center gap-1 p-1 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
+            {(['semana', 'mes', 'ano'] as const).map((p) => (
+              <button
+                key={p}
+                onClick={() => setPeriodoVisualizacao(p)}
+                className={`px-3 py-1.5 rounded-md text-[11px] font-black uppercase tracking-wider transition-all ${
+                  periodoVisualizacao === p
+                    ? 'bg-primary-500 text-white'
+                    : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'
+                }`}
+              >
+                {p === 'semana' ? 'Semana' : p === 'mes' ? 'Mês' : 'Ano'}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {resumoCaixa && (
+        {resumoCaixa && !(periodoVisualizacao !== 'semana' && loadingHistorico) && (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2 text-center text-[11px]">
             <div className="p-2.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
-              <span className="text-[var(--text-muted)] block mb-1">Saldo Anterior</span>
-              <span className={`font-bold font-mono ${caixa!.saldoAnterior >= 0 ? 'text-[var(--text-main)]' : 'text-rose-400'}`}>{formatCurrency(caixa!.saldoAnterior)}</span>
+              <span className="text-[var(--text-muted)] block mb-1">
+                {periodoVisualizacao === 'semana' ? 'Saldo Anterior' : 'Saldo Anterior ao Período'}
+              </span>
+              <span className={`font-bold font-mono ${caixa!.saldoAnterior >= 0 ? 'text-[var(--text-main)]' : 'text-rose-400'}`}>
+                {periodoVisualizacao === 'semana'
+                  ? formatCurrency(caixa!.saldoAnterior)
+                  : formatCurrency(resumoPorPeriodo.saldoFinal - resumoPorPeriodo.saldoPeriodo)}
+              </span>
             </div>
             <div className="p-2.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
               <span className="text-[var(--text-muted)] block mb-1">Salário Base</span>
-              <span className="font-bold font-mono text-[var(--text-main)]">{formatCurrency(resumoCaixa.salarioBase)}</span>
+              <span className="font-bold font-mono text-[var(--text-main)]">{formatCurrency(resumoPorPeriodo.salarioBase)}</span>
             </div>
             <div className="p-2.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
               <span className="text-[var(--text-muted)] block mb-1">Comissão</span>
-              <span className="font-bold font-mono text-[var(--text-main)]">{formatCurrency(resumoCaixa.totalComissao)}</span>
+              <span className="font-bold font-mono text-[var(--text-main)]">{formatCurrency(resumoPorPeriodo.totalComissao)}</span>
             </div>
             <div className="p-2.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
               <span className="text-[var(--text-muted)] block mb-1">Descontos</span>
-              <span className="font-bold font-mono text-rose-400">-{formatCurrency(resumoCaixa.totalDescontos)}</span>
+              <span className="font-bold font-mono text-rose-400">-{formatCurrency(resumoPorPeriodo.totalDescontos)}</span>
             </div>
             <div className="p-2.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
               <span className="text-[var(--text-muted)] block mb-1">Salário + Comissão</span>
-              <span className="font-bold font-mono text-[var(--text-main)]">{formatCurrency(resumoCaixa.salarioBase + resumoCaixa.totalComissao)}</span>
+              <span className="font-bold font-mono text-[var(--text-main)]">{formatCurrency(resumoPorPeriodo.salarioBase + resumoPorPeriodo.totalComissao)}</span>
             </div>
             <div className="p-2.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
               <span className="text-[var(--text-muted)] block mb-1">Já Pago</span>
-              <span className="font-bold font-mono text-rose-400">-{formatCurrency(resumoCaixa.totalPago)}</span>
+              <span className="font-bold font-mono text-rose-400">-{formatCurrency(resumoPorPeriodo.totalPago)}</span>
             </div>
             <div className="p-2.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
-              <span className="text-[var(--text-muted)] block mb-1">Saldo da Semana</span>
-              <span className="font-bold font-mono text-[var(--text-main)]">{formatCurrency(resumoCaixa.saldoSemana)}</span>
+              <span className="text-[var(--text-muted)] block mb-1">
+                {periodoVisualizacao === 'semana' ? 'Saldo da Semana' : `Saldo do Período (${resumoPorPeriodo.qtdSemanas} sem.)`}
+              </span>
+              <span className="font-bold font-mono text-[var(--text-main)]">{formatCurrency(resumoPorPeriodo.saldoPeriodo)}</span>
             </div>
           </div>
         )}
