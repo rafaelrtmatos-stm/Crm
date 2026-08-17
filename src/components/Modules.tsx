@@ -4958,7 +4958,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     pagamentoPosteriorAutorizado: false, pagamentoPosteriorData: '', pagamentoPosteriorDias: 0,
     pagamentoPosteriorCondicao: '', pagamentoPosteriorResponsavel: '',
     multaPercentual: 2, jurosModo: 'mensal' as 'mensal' | 'diario', jurosPercentual: 1, diasTolerancia: 0,
-    status: 'em_espera' as 'em_espera' | 'aprovada' | 'em_producao' | 'recusada' | 'concluido',
+    serviceStatus: 'pedido_recebido' as typeof STAGE_ORDER[number],
   };
   const [orcamentoForm, setOrcamentoForm] = useState({ ...emptyOrcamentoForm });
   const [savingOrcamento, setSavingOrcamento] = useState(false);
@@ -5878,7 +5878,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       } else {
         const prefixo = isContrato ? 'CTR' : 'ORC';
         const numero = `${prefixo}-${Date.now().toString(36).toUpperCase()}`;
-        const { data: inserted, error } = await supabase.from('orcamentos').insert({ ...payload, numero, status: orcamentoForm.status || 'em_espera' }).select().single();
+        const { data: inserted, error } = await supabase.from('orcamentos').insert({ ...payload, numero, service_status: orcamentoForm.serviceStatus || 'pedido_recebido' }).select().single();
         if (error) throw error;
         newId = inserted?.id || null;
       }
@@ -11656,13 +11656,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                <div className="space-y-1">
                   <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Etapa</label>
                   <select
-                    value={orcamentoForm.status || 'em_espera'}
-                    onChange={(e) => setOrcamentoForm({ ...orcamentoForm, status: e.target.value as any })}
+                    value={orcamentoForm.serviceStatus || 'pedido_recebido'}
+                    onChange={(e) => setOrcamentoForm({ ...orcamentoForm, serviceStatus: e.target.value as any })}
                     className="h-11 w-full bg-white/5 border border-white/10 rounded-xl px-3 text-[11px] font-bold text-white focus:outline-none focus:border-primary-500 cursor-pointer"
                   >
-                    {ORCAMENTO_CONTRATO_STAGES.map(stage => (
+                    {STAGE_ORDER.map(stage => (
                       <option key={stage} value={stage} className="bg-slate-900">
-                        {ORCAMENTO_CONTRATO_LABELS[stage]}
+                        {STAGE_LABELS[stage]}
                       </option>
                     ))}
                   </select>
@@ -15048,16 +15048,8 @@ const STAGE_LABELS: Record<string, string> = {
   aguardando_retirada: 'Aguardando Retirada', produto_entregue: 'Produto Entregue',
 };
 
-// Etapas unificadas de Orçamentos e Contratos (mesma classificação)
-const ORCAMENTO_CONTRATO_STAGES = ['em_espera', 'aprovada', 'em_producao', 'recusada', 'concluido'];
-
-const ORCAMENTO_CONTRATO_LABELS: Record<string, string> = {
-  em_espera: 'Em Espera',
-  aprovada: 'Aprovada',
-  em_producao: 'Em Produção',
-  recusada: 'Recusada',
-  concluido: 'Concluído',
-};
+// Etapas unificadas: Pedido, Orçamento e Contrato usam as MESMAS 8 etapas (STAGE_ORDER)
+// Antigas constantes removidas: ORCAMENTO_CONTRATO_STAGES, ORCAMENTO_CONTRATO_LABELS
 
 const OrdemServicoCard = ({ pedido, onDropdownChange, selectMode, selected, onToggleSelect }: { key?: any; pedido: SaleOrder; onDropdownChange: (pedido: SaleOrder, novaEtapa: string) => void; selectMode?: boolean; selected?: boolean; onToggleSelect?: (id: string) => void }) => {
   const { setActiveTab: setRootActiveTab, setPendingReceiptOpenId } = React.useContext(AppContext)!;
