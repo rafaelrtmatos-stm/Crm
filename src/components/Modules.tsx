@@ -5783,6 +5783,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       customerName: overrideCustomer?.name ?? selectedCustomer?.name ?? '',
       phone: overrideCustomer?.phone ?? selectedCustomer?.phone ?? '',
       items: [...items],
+      desconto: saleDiscountValue || 0,
     });
     setOrcamentoModalOpen(true);
   };
@@ -6080,15 +6081,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const handleSaveOrcamento = async () => {
     if (!orcamentoForm.customerName.trim()) { showAlert('Informe o nome do cliente.'); return; }
     if (orcamentoForm.items.length === 0) { showAlert('Adicione ao menos um item.'); return; }
-    // Orcamento (nao contrato, que tem sua propria validacao) nunca pode ser gerado sem esses
-    // dados basicos do cliente completos — evita orcamento incompleto que depois da trabalho
-    // pra completar na hora de virar venda/contrato
+    // Orcamento nunca pode ser gerado sem telefone/endereco do cliente completos — evita
+    // orcamento incompleto que depois da trabalho pra completar na hora de virar venda/contrato.
+    // CPF/CNPJ NAO e obrigatorio aqui (so e obrigatorio pra Contrato, que tem sua propria validacao)
     if (orcamentoForm.documentType !== 'contrato') {
-      if (!orcamentoForm.cpfCnpj.trim()) { showAlert('Informe o CPF/CNPJ do cliente para gerar o orçamento.'); return; }
       if (!orcamentoForm.phone.trim()) { showAlert('Informe o telefone do cliente para gerar o orçamento.'); return; }
       if (!orcamentoForm.address.trim()) { showAlert('Informe o endereço do cliente para gerar o orçamento.'); return; }
-      const { valid, tipo } = validateCpfCnpj(orcamentoForm.cpfCnpj);
-      if (!valid) { showAlert(`${tipo === 'cnpj' ? 'CNPJ' : 'CPF'} inválido. Confira os números e tente novamente.`); return; }
+      // Se o CPF/CNPJ foi preenchido (mesmo nao sendo obrigatorio), valida o digito verificador
+      if (orcamentoForm.cpfCnpj.trim()) {
+        const { valid, tipo } = validateCpfCnpj(orcamentoForm.cpfCnpj);
+        if (!valid) { showAlert(`${tipo === 'cnpj' ? 'CNPJ' : 'CPF'} inválido. Confira os números e tente novamente.`); return; }
+      }
     }
     setSavingOrcamento(true);
     try {
