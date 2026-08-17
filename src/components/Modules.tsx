@@ -5893,9 +5893,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const updateOrcamentoStatus = async (o: Orcamento, status: Orcamento['status']) => {
-    const extra: any = {};
-    if (status === 'aprovado') { extra.aprovado_em = new Date().toISOString(); extra.aprovado_por = o.customerName; }
-    const { error } = await supabase.from('orcamentos').update({ status, ...extra }).eq('id', o.id);
+    const { error } = await supabase.from('orcamentos').update({ status }).eq('id', o.id);
     if (error) { console.error('Erro ao atualizar status do orçamento:', error); showAlert(`Não foi possível atualizar o status: ${error.message}`); return; }
     loadOrcamentos();
   };
@@ -9233,23 +9231,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           // abordagem anterior (antes dos Contratos terem tabela propria) - esses ja foram
           // migrados pra tabela contratos de verdade, nao devem aparecer aqui
           const orcamentosDeVerdade = allOrcamentos.filter(o => o.documentType !== 'contrato');
-          const statusAprovados = ['aprovado', 'em_producao', 'concluido'];
-          const statusNaoAprovados = ['rascunho', 'enviado', 'em_espera'];
-          const valorAprovado = orcamentosDeVerdade.filter(o => statusAprovados.includes(o.status)).reduce((acc, o) => acc + o.total, 0);
-          const valorNaoAprovado = orcamentosDeVerdade.filter(o => statusNaoAprovados.includes(o.status)).reduce((acc, o) => acc + o.total, 0);
-
+          
           const orcRascunhos = orcamentosDeVerdade.filter(o => o.status === 'rascunho');
           const orcEmEspera = orcamentosDeVerdade.filter(o => o.status === 'em_espera');
-          const orcEnviados = orcamentosDeVerdade.filter(o => o.status === 'enviado');
-          const orcAprovados = orcamentosDeVerdade.filter(o => statusAprovados.includes(o.status));
-          const orcRecusados = orcamentosDeVerdade.filter(o => o.status === 'recusado' || o.status === 'cancelado' || o.status === 'expirado');
+          const orcEmProducao = orcamentosDeVerdade.filter(o => o.status === 'em_producao');
+          const orcConcluidos = orcamentosDeVerdade.filter(o => o.status === 'concluido');
+          const orcRecusados = orcamentosDeVerdade.filter(o => o.status === 'recusado' || o.status === 'cancelado' || o.status === 'expirado' || o.status === 'enviado' || o.status === 'aprovado');
 
           const filtrosOrcamento = [
             { id: 'todos', label: 'Todos', count: orcamentosDeVerdade.length },
             { id: 'rascunho', label: 'Rascunhos', count: orcRascunhos.length },
             { id: 'em_espera', label: 'Em Espera', count: orcEmEspera.length },
-            { id: 'enviado', label: 'Enviados', count: orcEnviados.length },
-            { id: 'aprovado', label: 'Aprovados', count: orcAprovados.length },
+            { id: 'em_producao', label: 'Em Produção', count: orcEmProducao.length },
+            { id: 'concluido', label: 'Concluído', count: orcConcluidos.length },
             { id: 'recusado', label: 'Recusados/Cancelados', count: orcRecusados.length },
           ];
 
@@ -9258,9 +9252,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             .filter(o => {
               if (orcamentoStatusFilter === 'rascunho') return o.status === 'rascunho';
               if (orcamentoStatusFilter === 'em_espera') return o.status === 'em_espera';
-              if (orcamentoStatusFilter === 'enviado') return o.status === 'enviado';
-              if (orcamentoStatusFilter === 'aprovado') return statusAprovados.includes(o.status);
-              if (orcamentoStatusFilter === 'recusado') return o.status === 'recusado' || o.status === 'cancelado' || o.status === 'expirado';
+              if (orcamentoStatusFilter === 'em_producao') return o.status === 'em_producao';
+              if (orcamentoStatusFilter === 'concluido') return o.status === 'concluido';
+              if (orcamentoStatusFilter === 'recusado') return o.status === 'recusado' || o.status === 'cancelado' || o.status === 'expirado' || o.status === 'enviado' || o.status === 'aprovado';
               return true; // 'todos'
             })
             .filter(o => {
@@ -9329,20 +9323,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 </select>
               </div>
             </div>
-
-            {/* Indicadores financeiros -- visíveis apenas para admin */}
-            {user?.isAdmin && (
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-3">
-                  <p className="text-[8px] font-black uppercase text-emerald-400 tracking-widest mb-1">Valor Aprovado</p>
-                  <p className="text-base font-black italic text-emerald-400">R$ {valorAprovado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-                </div>
-                <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-3">
-                  <p className="text-[8px] font-black uppercase text-amber-400 tracking-widest mb-1">Valor Não Aprovado</p>
-                  <p className="text-base font-black italic text-amber-400">R$ {valorNaoAprovado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-                </div>
-              </div>
-            )}
 
             {isLoadingOrcamentos ? (
               <div className="flex justify-center py-16"><RefreshCw className="animate-spin text-primary-500" size={24} /></div>
