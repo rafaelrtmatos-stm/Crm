@@ -1,0 +1,194 @@
+╔═══════════════════════════════════════════════════════════════════════╗
+║   🚀 MIGRATIONS SUPABASE - SISTEMA UNIFICADO DE ETAPAS               ║
+║   Pedido ↔ Orçamento ↔ Contrato (sincronizados em tempo real)       ║
+╚═══════════════════════════════════════════════════════════════════════╝
+
+📊 ESTRUTURA FINAL DO BANCO:
+
+┌─ vendas (Pedido)
+│  ├─ id (PK)
+│  ├─ service_status ← FONTE DE VERDADE
+│  ├─ orcamento_id (FK)
+│  └─ contrato_id (FK)
+│
+├─ orcamentos
+│  ├─ id (PK)
+│  ├─ venda_id (FK)
+│  ├─ service_status ← ESPELHO DO PEDIDO (sincroniza automaticamente)
+│  ├─ [REMOVER DEPOIS] status (antigo)
+│  └─ ...outros campos
+│
+└─ contratos
+   ├─ id (PK)
+   ├─ venda_id (FK)
+   ├─ service_status ← ESPELHO DO PEDIDO (sincroniza automaticamente)
+   ├─ [REMOVER DEPOIS] status (antigo)
+   └─ ...outros campos
+
+
+═══════════════════════════════════════════════════════════════════════
+
+🔄 ORDEM DE EXECUÇÃO (3 MIGRATIONS):
+
+PASSO 1: Adicionar Colunas (add_service_status_orcamentos_contratos.sql)
+─────────────────────────────────────────────────────────────────────
+❌ NÃO remove nada
+✅ Seguro executar agora
+✅ Pode re-rodar sem problemas
+
+O que faz:
+  • ALTER TABLE orcamentos ADD COLUMN service_status
+  • ALTER TABLE contratos ADD COLUMN service_status
+  • Cria índices (idx_orcamentos_service_status, idx_contratos_service_status)
+  • Adiciona constraints (8 etapas válidas)
+  • NOTIFY para reload do schema
+
+Resultado:
+  ✅ orcamentos.service_status = 'pedido_recebido' (default)
+  ✅ contratos.service_status = 'pedido_recebido' (default)
+
+
+PASSO 2: Sincronizar Dados Antigos (sync_old_status_to_service_status.sql)
+──────────────────────────────────────────────────────────────────────────
+❌ NÃO remove nada
+✅ Seguro executar (depois de passo 1)
+✅ Pode re-rodar sem problemas
+
+Mapeamento ORCAMENTOS:
+  'em_espera'     → 'pedido_recebido'
+  'aprovada'      → 'aguardando_aprovacao'
+  'em_producao'   → 'producao'
+  'recusada'      → 'pedido_recebido'
+  'concluido'     → 'produto_entregue'
+
+Mapeamento CONTRATOS:
+  'aguardando_assinatura_cliente' → 'aguardando_aprovacao'
+  'assinado'                      → 'producao'
+  'em_execucao'                   → 'producao'
+  'cancelado'                     → 'pedido_recebido'
+
+Resultado:
+  ✅ Relatório de quantos registros foram migrados
+  ✅ Dados históricos preservados em service_status
+  ✅ status antigo ainda intacto (pra comparação)
+
+
+PASSO 3: Remover Colunas Antigas (remove_old_status_columns.sql)
+────────────────────────────────────────────────────────────────
+⚠️  DESTRUTIVO - Execute depois de 1+ dias de testes
+✅ Cria backups antes de remover:
+   • orcamentos_old_status_backup
+   • contratos_old_status_backup
+
+O que faz:
+  • Cria tabelas de backup (com IF NOT EXISTS)
+  • Remove constraints do status antigo
+  • ⚠️ NÃO remove coluna ainda (removê manualmente depois)
+
+Resultado:
+  ✅ Backups criados (pra rollback se precisar)
+  ✅ Constraints removidas (evita conflitos)
+  ⚠️ Coluna status AINDA EXISTS (remover manualmente com:
+     ALTER TABLE orcamentos DROP COLUMN status;
+     ALTER TABLE contratos DROP COLUMN status;)
+
+
+═══════════════════════════════════════════════════════════════════════
+
+📋 CHECKLIST DE EXECUÇÃO:
+
+ANTES DE MIGRAÇÃO 1:
+  ☐ Backup do banco (recomendado)
+  ☐ Horário de baixo uso
+  ☐ Comunicou ao time
+
+ANTES DE MIGRAÇÃO 2:
+  ☐ Migração 1 completada ✅
+  ☐ Viu que service_status foi adicionado
+  ☐ Nenhum erro no Supabase
+
+ANTES DE MIGRAÇÃO 3:
+  ☐ Migrações 1 e 2 completadas ✅
+  ☐ Código deployd (usa service_status)
+  ☐ 1+ dias de testes em produção
+  ☐ Nenhum erro encontrado
+  ☐ Backup das tabelas completo
+  ☐ Comunicou ao time
+
+
+═══════════════════════════════════════════════════════════════════════
+
+8️⃣ ETAPAS SINCRONIZADAS (STAGE_ORDER):
+
+1️⃣  pedido_recebido             → Cliente faz pedido
+2️⃣  aguardando_arte             → Aguardando material de arte
+3️⃣  arte_em_desenvolvimento     → Desenhista trabalhando
+4️⃣  aguardando_aprovacao        → Cliente aprova arte
+5️⃣  producao                     → Começou impressão/produção
+6️⃣  acabamento                   → Últimos retoques
+7️⃣  aguardando_retirada         → Pronto, cliente busca
+8️⃣  produto_entregue            → ✅ FECHADO
+
+Toda mudança de etapa sincroniza automaticamente:
+  Pedido → Orçamento → Contrato (tudo junto!)
+
+
+═══════════════════════════════════════════════════════════════════════
+
+🎯 BENEFÍCIOS:
+
+ANTES:
+  ❌ Orçamento tinha status diferente (em_espera, aprovada, etc)
+  ❌ Contrato tinha status diferente (aguardando_assinatura, etc)
+  ❌ Pedido não sincronizava com nada
+  ❌ Impossível saber em que etapa realmente estava
+
+DEPOIS:
+  ✅ Pedido, Orçamento e Contrato têm MESMA etapa
+  ✅ Mudar um atualiza todos automaticamente
+  ✅ 8 etapas claras e consistentes
+  ✅ Histórico preservado (dados antigos = backups)
+  ✅ Zero duplicação de lógica
+  ✅ UI unificada (funis, mensagens, contratos)
+
+
+═══════════════════════════════════════════════════════════════════════
+
+📂 ARQUIVOS:
+
+✅ supabase/add_service_status_orcamentos_contratos.sql
+✅ supabase/sync_old_status_to_service_status.sql
+✅ supabase/remove_old_status_columns.sql
+✅ MIGRACAO_EXECUTAR.md (guia passo a passo)
+✅ RESUMO_MIGRATIONS.txt (este arquivo)
+
+
+═══════════════════════════════════════════════════════════════════════
+
+❓ DÚVIDAS FREQUENTES:
+
+P: Preciso rodar as 3 migrations agora?
+R: NÃO. Roda 1 e 2 agora. Roda 3 só depois de 1+ dias testando.
+
+P: E se der erro na migration 1?
+R: Re-roda. É idempotente (usa IF NOT EXISTS). Não causa problemas.
+
+P: Posso voltar (rollback)?
+R: Sim! As tabelas de backup são criadas. Restaure dos backups.
+
+P: Qual o impacto em produção?
+R: Migração 1 e 2 = zero impacto (só adiciona, não remove).
+   Migração 3 = zero impacto (só remove, dados já estão em backup).
+
+P: Precisa fazer deploy de código antes?
+R: O código já está pronto (commit anterior). Faça deploy junto
+   com migração 1, ou antes dela.
+
+
+═══════════════════════════════════════════════════════════════════════
+
+🚀 READY TO GO!
+
+Arquivo de instruções: MIGRACAO_EXECUTAR.md
+Próxima ação: Execute migration 1 no Supabase!
+
