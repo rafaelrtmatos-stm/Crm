@@ -152,7 +152,7 @@ export const calculateSummaryStats = (services: ServiceItem[], baseSalary: numbe
 // colaborador (ComissoesApp / ComissoesEmbedded sem presetColaborador) só usa as
 // funções de leitura abaixo, nunca as de escrita (isso é controlado no componente,
 // via a prop isAdmin da DescontosView -- ver comissoes_descontos no create_comissoes_descontos.sql).
-export type DescontoTipo = 'falta_meio_periodo' | 'falta_periodo' | 'outro';
+export type DescontoTipo = 'falta_meio_periodo' | 'falta_periodo' | 'outro' | 'debito_saldo_anterior' | 'divida';
 export type DescontoRecorrencia = 'unica' | 'semanal' | 'mensal';
 
 export interface Desconto {
@@ -165,12 +165,23 @@ export interface Desconto {
   data: string; // YYYY-MM-DD -- data do desconto (unica) ou data de inicio (semanal/mensal)
   ativo: boolean;
   createdAt: number;
+  
+  // ✅ NOVO: Controle de permissões
+  criador_id?: string; // Quem criou (admin ID ou colaborador ID)
+  pode_deletar_colaborador?: boolean; // Se colaborador pode deletar (false = só admin deleta)
+  
+  // ✅ NOVO: Info de dívida parcelada
+  parcelas_total?: number; // Total de parcelas (ex: 4 semanas)
+  parcela_atual?: number; // Qual parcela estamos (1, 2, 3...)
+  valor_total_divida?: number; // Valor total original da dívida
 }
 
 export const DESCONTO_TIPO_LABELS: Record<DescontoTipo, string> = {
   falta_meio_periodo: 'Falta — meio período',
   falta_periodo: 'Falta — período completo',
   outro: 'Outro desconto',
+  debito_saldo_anterior: 'Débito do saldo anterior',
+  divida: 'Dívida (parcelada)',
 };
 
 export const DESCONTO_RECORRENCIA_LABELS: Record<DescontoRecorrencia, string> = {
@@ -189,6 +200,11 @@ const mapDescontoRow = (row: any): Desconto => ({
   data: row.data,
   ativo: row.ativo !== false,
   createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
+  criador_id: row.criador_id || undefined,
+  pode_deletar_colaborador: row.pode_deletar_colaborador !== false,
+  parcelas_total: row.parcelas_total || undefined,
+  parcela_atual: row.parcela_atual || undefined,
+  valor_total_divida: row.valor_total_divida || undefined,
 });
 
 export async function getDescontosFromSupabase(colaboradorId: string): Promise<Desconto[]> {
