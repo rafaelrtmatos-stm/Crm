@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { collection, query, where, orderBy, onSnapshot, Timestamp } from 'firebase/firestore';
+import { collection, query, where, orderBy, onSnapshot, getDocs, Timestamp } from 'firebase/firestore';
 import { db } from '../firebase';
 import { AppContext } from '../App';
 import { Lead, Company, AppUser } from '../types';
@@ -25,10 +25,11 @@ interface MessagesSidebarPopupProps {
 //    e o balão fica em z-40, abaixo do z-50 da sidebar — dupla garantia.
 // 3) Sem backdrop escurecido: existe apenas uma camada invisível (sem blur
 //    nem cor) atrás do balão só para fechar ao clicar fora.
-// 4) É só a LISTA de conversas — ao clicar numa conversa, o popup fecha e
-//    pula direto pro Funil CRM com aquele card já aberto (via
-//    pendingOpenLeadId), onde o ChatPanel passa a preencher a tela toda
-//    (ver flag openedViaJump no CRMModule).
+// 4) É a LISTA de conversas com busca, filtro (Todos/Sem Resposta), alerta de
+//    vácuo e atualização manual (getDocs, além do listener em tempo real) —
+//    ao clicar numa conversa, o popup fecha e pula direto pro Funil CRM com
+//    aquele card já aberto (via pendingOpenLeadId), onde o ChatPanel passa a
+//    preencher a tela toda (ver flag openedViaJump no CRMModule).
 export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
   isOpen,
   onClose,
@@ -39,18 +40,33 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
   const [leads, setLeads] = useState<Lead[]>([]);
   const [filter, setFilter] = useState('');
   const [viewFilter, setViewFilter] = useState<'all' | 'unreplied'>('all');
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const leadsQuery = () => query(
+    collection(db, 'leads'),
+    where('companyId', '==', currentCompany!.id),
+    orderBy('updatedAt', 'desc')
+  );
 
   useEffect(() => {
     if (!currentCompany || !isOpen) return;
-    const q = query(
-      collection(db, 'leads'),
-      where('companyId', '==', currentCompany.id),
-      orderBy('updatedAt', 'desc')
-    );
-    return onSnapshot(q, (snap) => {
+    return onSnapshot(leadsQuery(), (snap) => {
       setLeads(snap.docs.map(d => ({ id: d.id, ...d.data() } as Lead)));
     });
   }, [currentCompany, isOpen]);
+
+  // Botão "Atualizar": força uma nova busca manual além do listener em tempo
+  // real (útil se a conexão realtime cair ou demorar a refletir uma mudança).
+  const handleRefresh = async () => {
+    if (!currentCompany || isRefreshing) return;
+    setIsRefreshing(true);
+    try {
+      const snap = await getDocs(leadsQuery());
+      setLeads(snap.docs.map(d => ({ id: d.id, ...d.data() } as Lead)));
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 500);
+    }
+  };
 
   const unrepliedCount = leads.filter(l => l.waitingSince).length;
 
@@ -78,23 +94,35 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
       <div className="fixed inset-0 z-40" onClick={onClose} />
 
       {/* Balão flutuante — sobreposto ao conteúdo, nunca sobre a sidebar
-          (left-80 = largura da sidebar) e sem cobrir a tela toda */}
-      <div className="fixed top-6 left-[336px] z-40 w-[380px] max-h-[calc(100vh-3rem)] bg-[#0b1220] border border-white/10 rounded-3xl flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+          (left-80 = largura da sidebar) e sem cobrir a tela toda.
+          Estilo "glass-panel" do sistema: fundo escuro translúcido +
+          borda/glow vermelho da marca (mesma paleta de .glass-panel). */}
+      <div className="fixed top-6 left-[336px] z-40 w-[380px] max-h-[calc(100vh-3rem)] bg-zinc-950/95 backdrop-blur-2xl border border-red-500/20 rounded-[24px] flex flex-col shadow-2xl shadow-red-950/40 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
       {/* Header */}
-      <div className="p-6 border-b border-white/10 space-y-4 flex-shrink-0 bg-[#0b1220]">
+      <div className="p-6 border-b border-white/10 space-y-4 flex-shrink-0">
         <div className="flex justify-between items-center">
-          <h3 className="text-xl font-bold text-white flex items-center gap-1.5">
+          <h3 className="text-xl font-black text-white italic uppercase tracking-tight flex items-center gap-1.5">
             Conversas
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
           </h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-white/40 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-white/5"
-            title="Fechar"
-          >
-            <X size={20} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={handleRefresh}
+              className="text-white/40 hover:text-red-400 transition-colors p-1.5 rounded-lg hover:bg-white/5"
+              title="Atualizar conversas"
+            >
+              <RefreshCw size={18} className={cn(isRefreshing && "animate-spin")} />
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-white/40 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-white/5"
+              title="Fechar"
+            >
+              <X size={20} />
+            </button>
+          </div>
         </div>
 
         <Input
