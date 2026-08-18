@@ -25,14 +25,32 @@ interface ChatMessage {
 
 export const AssistantChatWidget = ({ currentCompany, user }: { currentCompany: Company | null; user: AppUser | null }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    { id: 'welcome', role: 'bot', text: 'Oi! Eu sou o Robozinho Rafa 🤖 Pode perguntar sobre preço, estoque, último serviço de um cliente, ou qualquer outra coisa — eu consulto direto no sistema.' },
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [showWelcomeTyping, setShowWelcomeTyping] = useState(false);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [sales, setSales] = useState<SaleOrder[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const hasWelcomedRef = useRef(false);
+
+  // Abre o balão: em vez de já mostrar a mensagem de apresentação pronta,
+  // exibe "digitando..." por 1,5s (estilo WhatsApp) e só então a mensagem
+  // chega, junto com o som de notificação.
+  const handleOpen = () => {
+    setIsOpen(true);
+    if (hasWelcomedRef.current) return;
+    hasWelcomedRef.current = true;
+    setShowWelcomeTyping(true);
+    setTimeout(() => {
+      setShowWelcomeTyping(false);
+      setMessages(prev => [...prev, { id: 'welcome', role: 'bot', text: 'Oi! Eu sou o Robozinho Rafa 🤖 Pode perguntar sobre preço, estoque, último serviço de um cliente, ou qualquer outra coisa — eu consulto direto no sistema.' }]);
+      try {
+        const audio = new Audio('/sounds/robozinho-apresentacao.mp3');
+        audio.play().catch(() => {});
+      } catch (e) { /* ignora se o navegador bloquear */ }
+    }, 1500);
+  };
 
   // Carrega leads do Firestore e vendas do Supabase uma única vez ao montar
   useEffect(() => {
@@ -62,7 +80,7 @@ export const AssistantChatWidget = ({ currentCompany, user }: { currentCompany: 
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, isOpen]);
+  }, [messages, isOpen, showWelcomeTyping]);
 
   const handleSend = async () => {
     const text = draft.trim();
@@ -123,7 +141,7 @@ export const AssistantChatWidget = ({ currentCompany, user }: { currentCompany: 
       {/* Botão flutuante */}
       {!isOpen && (
         <button
-          onClick={() => setIsOpen(true)}
+          onClick={handleOpen}
           aria-label="Conversar com o Robozinho Rafa"
           className="fixed bottom-5 right-5 sm:bottom-6 sm:right-6 z-[9999] w-14 h-14 rounded-full bg-gradient-to-br from-primary-500 to-red-700 shadow-2xl shadow-red-950/60 flex items-center justify-center border border-white/10 hover:scale-105 active:scale-95 transition-transform"
         >
@@ -174,7 +192,7 @@ export const AssistantChatWidget = ({ currentCompany, user }: { currentCompany: 
                 </div>
               </div>
             ))}
-            {sending && (
+            {(sending || showWelcomeTyping) && (
               <div className="flex justify-start">
                 <div className="px-3.5 py-2.5 rounded-2xl rounded-bl-sm bg-white/[0.06] border border-white/10 text-white/40 text-[13px]">
                   digitando…

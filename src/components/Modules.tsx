@@ -3982,7 +3982,7 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
       if (ts > lastSeenIncomingRef.current) {
         lastSeenIncomingRef.current = ts;
         try {
-          const audio = new Audio('/sounds/notification.mp3');
+          const audio = new Audio('/sounds/mensagem-cliente.mp3');
           audio.play().catch(() => {});
         } catch (e) { /* ignora se o navegador bloquear */ }
       }
