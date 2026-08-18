@@ -206,7 +206,7 @@ const SidebarItem = ({
 );
 
 const Navbar = () => {
-  const { user, companies, currentCompany, setCurrentCompany, setIsSidebarOpen, theme, toggleTheme, logout, logoLightUrl, logoDarkUrl } = useApp();
+  const { user, companies, currentCompany, setCurrentCompany, setIsSidebarOpen, theme, toggleTheme, logout, logoLightUrl, logoDarkUrl, activeTab } = useApp();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isCompanySelectOpen, setIsCompanySelectOpen] = useState(false);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -226,7 +226,10 @@ const Navbar = () => {
   }, []);
 
   return (
-    <nav className="sticky top-0 z-40 bg-white/5 backdrop-blur-xl border-b border-white/10 h-20 flex items-center justify-between px-8 mb-6 rounded-b-[32px] mx-4 sm:mx-8">
+    <nav className={cn(
+      "sticky top-0 z-40 bg-white/5 backdrop-blur-xl border-b border-white/10 h-20 flex items-center justify-between px-8 rounded-b-[32px] mx-4 sm:mx-8",
+      (activeTab === 'crm' || activeTab === 'pos') ? "mb-2 md:mb-3" : "mb-6"
+    )}>
       <div className="flex items-center gap-4">
         <button 
           onClick={() => setIsSidebarOpen(true)}

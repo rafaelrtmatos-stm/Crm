@@ -3239,7 +3239,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
           onDragStart={onDragStart}
           onDragEnd={onDragEnd}
         >
-          <div className="flex gap-4 overflow-x-auto pb-6 grow min-h-0 scroll-smooth custom-scrollbar">
+          <div className="flex gap-4 overflow-x-auto pb-2 grow min-h-0 scroll-smooth custom-scrollbar">
             {/* Cada coluna tem largura fixa e igual — se nao couber todas na tela, rola de lado
                 em vez de encolher (senao com muitas etapas cada coluna fica espremida demais).
                 Com uma conversa aberta, mostra so a coluna da etapa daquele lead (pra poder trocar
