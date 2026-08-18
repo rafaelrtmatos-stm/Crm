@@ -97,17 +97,51 @@ const PAYMENT_LABELS: Record<string, string> = {
   crediario: 'Crediário',
 };
 
-// Procura produtos cujo nome bate com o que o cliente mencionou. Só entra
-// aqui informação que realmente existe na base — se não achar nada, a
-// sugestão não cita preço/estoque nenhum (ver regra 5: nunca inventar).
+// Procura produtos cujo nome bate com o que o cliente mencionou. Tenta match
+// por palavras principais (4+ chars) e depois por padrões de quantidade/medida
+// (milheiro, pacote, resma, cento, etc). Só entra informação real da base —
+// se não achar nada, a sugestão não cita preço/estoque nenhum (regra 5: nunca inventar).
 function findMatchingProducts(clientMessage: string, produtos: KnowledgeProduct[]): KnowledgeProduct[] {
   const msg = normalize(clientMessage);
   const words = msg.split(/\s+/).filter(w => w.length >= 4);
-  if (words.length === 0) return [];
-  return produtos.filter(p => {
+  
+  // Match direto por nome
+  let matches = produtos.filter(p => {
     const nome = normalize(p.name);
     return words.some(w => nome.includes(w));
-  }).slice(0, 3);
+  });
+
+  // Se encontrou matches diretos, retorna (até 3)
+  if (matches.length > 0) return matches.slice(0, 3);
+
+  // Match por quantidade/medida
+  const temMilheiro = /milheiro|mil unidades/i.test(clientMessage);
+  const temPacote = /pacote|cx\\.|caixa/i.test(clientMessage);
+  const temResma = /resma|500/i.test(clientMessage);
+  const temCento = /cento|100/i.test(clientMessage);
+
+  if (temMilheiro || temPacote || temResma || temCento) {
+    const itemTypeWords = words.filter(w => 
+      /cartao|panfleto|folder|flyer|convite|tag|etiqueta|adesivo|brinde|envelope/i.test(w)
+    );
+
+    matches = produtos.filter(p => {
+      const nome = normalize(p.name);
+      const tipo = normalize(p.tipoItem || "");
+      const temTipo = itemTypeWords.length === 0 || itemTypeWords.some(w => 
+        nome.includes(w) || tipo.includes(w)
+      );
+      const temQuantidade = 
+        (temMilheiro && (nome.includes("1000") || nome.includes("milheiro"))) ||
+        (temPacote && (nome.includes("pacote") || nome.includes("cx"))) ||
+        (temResma && (nome.includes("500") || nome.includes("resma"))) ||
+        (temCento && (nome.includes("100") || nome.includes("cento")));
+      if (itemTypeWords.length > 0) return temTipo && temQuantidade;
+      return temQuantidade;
+    });
+  }
+
+  return matches.slice(0, 3);
 }
 
 /**
