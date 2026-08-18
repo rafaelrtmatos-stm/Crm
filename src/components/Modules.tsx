@@ -3266,11 +3266,16 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
           onDragStart={onDragStart}
           onDragEnd={onDragEnd}
         >
-          <div className="flex gap-4 overflow-x-auto pb-2 grow min-h-0 scroll-smooth custom-scrollbar">
+          <div className={cn(
+            "flex gap-4 pb-2 grow min-h-0 scroll-smooth custom-scrollbar",
+            selectedLead ? "overflow-x-hidden" : "overflow-x-auto"
+          )}>
             {/* Cada coluna tem largura fixa e igual — se nao couber todas na tela, rola de lado
                 em vez de encolher (senao com muitas etapas cada coluna fica espremida demais).
                 Com uma conversa aberta, mostra so a coluna da etapa daquele lead (pra poder trocar
-                de conversa dentro da mesma etapa sem sair da tela de mensagem). */}
+                de conversa dentro da mesma etapa sem sair da tela de mensagem — nesse caso a coluna
+                unica ocupa toda a largura disponivel, sem precisar de rolagem horizontal, e a coluna
+                se estende ate o rodape da pagina, no mesmo nivel do campo de mensagens do ChatPanel). */}
             {stages
               .filter(stage => !selectedLead || stage.id === (selectedLead.funnelStageId || (stages.find(s => s.isInitial || s.order === 0)?.id)))
               .map(stage => (
@@ -7064,8 +7069,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       }
       return true;
     });
+    // Ordena pela ULTIMA alteracao (updatedAt), nao pela data de criacao — uma nota criada
+    // dia 01 (entrada) que recebe o restante dia 02 deve aparecer primeiro na lista, como a
+    // alteracao mais recente. Notas sem updatedAt caem no createdAt mesmo (compatibilidade).
+    const lastChange = (s: SaleOrder) => Math.max(new Date(s.updatedAt || s.createdAt).getTime(), new Date(s.createdAt).getTime());
     return filtered.sort((a, b) => {
-      const diff = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      const diff = lastChange(b) - lastChange(a);
       return historySortOrder === 'desc' ? diff : -diff;
     });
   }, [allSalesHistory, selectedOrderStatusFilters, selectedPaymentFilters, historySearch, historyClienteIdFilter, historySortOrder, historyDateFrom, historyDateTo]);
