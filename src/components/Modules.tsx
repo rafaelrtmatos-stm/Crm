@@ -16450,7 +16450,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     { id: 'contacts', label: 'Contatos' },
     { id: 'clientes_espera', label: 'Clientes em Espera' },
     { id: 'production', label: 'Ordem de Serviço' },
-    { id: 'robozinho_rafa', label: 'Robozinho Rafa' },
+    { id: 'robozinho_rafa', label: 'Integrações' },
     { id: 'comissoes', label: 'Comissões' },
     { id: 'settings', label: 'Opções' },
   ];

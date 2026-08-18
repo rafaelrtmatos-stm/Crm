@@ -398,6 +398,8 @@ import {
 } from './components/Modules';
 import { MessagesSidebarPopup } from './components/MessagesSidebarPopup';
 import { RobozinhoRafaModule } from './components/RobozinhoRafaModule';
+import { IntegracoesModule } from './components/IntegracoesModule';
+import { AssistantChatWidget } from './components/AssistantChatWidget';
 import { ModuleErrorBoundary } from './components/SharedUI';
 
 // --- MAIN APP ---
@@ -1352,7 +1354,7 @@ export default function App() {
     { id: 'pos', label: 'PDV Gráfica', icon: ShoppingBag },
     { id: 'clientes_espera', label: 'Clientes em Espera', icon: Clock },
     { id: 'production', label: 'Ordem de Serviço', icon: Layers },
-    { id: 'robozinho_rafa', label: 'Robozinho Rafa', icon: Bot },
+    { id: 'robozinho_rafa', label: 'Integrações', icon: Bot },
     { id: 'comissoes', label: 'Financeiro', icon: Percent },
     { id: 'settings', label: 'Opções', icon: Settings },
   ].filter(item => {
@@ -1735,7 +1737,7 @@ export default function App() {
                   {activeTab === 'inventory' && <InventoryModule currentCompany={currentCompany} user={user} />}
                   {activeTab === 'services' && <ServicesModule currentCompany={currentCompany} />}
                   {activeTab === 'production' && <ProductionModule currentCompany={currentCompany} />}
-                  {activeTab === 'robozinho_rafa' && <ModuleErrorBoundary label="o Robozinho Rafa"><RobozinhoRafaModule currentCompany={currentCompany} user={user} /></ModuleErrorBoundary>}
+                  {activeTab === 'robozinho_rafa' && <ModuleErrorBoundary label="Integrações"><IntegracoesModule currentCompany={currentCompany} user={user} /></ModuleErrorBoundary>}
                   {activeTab === 'comissoes' && (
                     <ModuleErrorBoundary label="Comissões">
                       <Suspense fallback={<div className="h-64 flex items-center justify-center text-white/40 text-sm">Carregando...</div>}>
@@ -1761,7 +1763,9 @@ export default function App() {
       currentCompany={currentCompany}
       user={user}
     />
-    
+
+    <AssistantChatWidget currentCompany={currentCompany} user={user} />
+
     <NotifyHost />
     </AppContext.Provider>
   );

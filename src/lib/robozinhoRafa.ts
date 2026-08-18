@@ -167,3 +167,49 @@ export function generateSuggestion(params: {
 
   return `${saud}obrigado pelo contato! Já vi sua mensagem e vou te responder com todos os detalhes em instantes.`;
 }
+
+// --- Chat de teste do Robozinho Rafa (bolha flutuante) ---
+//
+// Diferente de generateSuggestion (que prepara resposta pra ENVIAR a um
+// cliente), esta função responde direto pra quem está logado no ERP
+// (dono/atendente), testando o que o robô sabe. Só responde com dado real
+// de produto/estoque (ver findMatchingProducts) — pra qualquer pergunta fora
+// da base de materiais/produtos, avisa com transparência que ainda não tem
+// acesso à internet, em vez de inventar uma resposta.
+export function answerAssistantQuestion(params: {
+  question: string;
+  produtos: KnowledgeProduct[];
+  userName?: string | null;
+}): string {
+  const { question, produtos, userName } = params;
+  const msg = normalize(question);
+  const primeiroNome = userName?.trim() ? userName.trim().split(' ')[0] : '';
+
+  const asksPrice = /(preco|preço|valor|quanto custa|quanto fica|quanto e|quanto é)/.test(msg);
+  const asksStock = /(estoque|tem disponivel|disponivel|tem pronto|em estoque|quantidade)/.test(msg);
+  const isGreeting = /^(oi|ola|olá|bom dia|boa tarde|boa noite|opa|eae|e ai)\b/.test(msg);
+
+  const matches = findMatchingProducts(question, produtos.filter(p => p.isActive));
+
+  if (asksPrice || asksStock || matches.length > 0) {
+    if (matches.length > 0) {
+      const linhas = matches.map(p => {
+        const partes = [`*${p.name}*: ${formatBRL(p.price)}`];
+        if (p.controlaEstoque) {
+          partes.push(p.stock > 0 ? `${p.stock} em estoque` : 'sem estoque no momento');
+        } else {
+          partes.push('sob encomenda');
+        }
+        return partes.join(' — ');
+      });
+      return `Consultei aqui no sistema:\n${linhas.join('\n')}`;
+    }
+    return 'Não achei esse item cadastrado no Estoque/Produtos. Confere o nome certinho? Posso procurar de novo.';
+  }
+
+  if (isGreeting) {
+    return `${primeiroNome ? `Oi, ${primeiroNome}! ` : 'Oi! '}Pode perguntar sobre preço, estoque ou prazo de qualquer material/produto que eu consulto aqui no sistema.`;
+  }
+
+  return 'Por enquanto eu só consulto o que já está cadastrado aqui no sistema (produtos, materiais, estoque e preços) — ainda não tenho acesso à internet. Pergunta sobre algum material ou produto?';
+}
