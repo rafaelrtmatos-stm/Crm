@@ -95,9 +95,11 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
 
       {/* Balão flutuante — sobreposto ao conteúdo, nunca sobre a sidebar
           (left-80 = largura da sidebar) e sem cobrir a tela toda.
-          Estilo "glass-panel" do sistema: fundo escuro translúcido +
-          borda/glow vermelho da marca (mesma paleta de .glass-panel). */}
-      <div className="fixed top-6 left-[336px] z-40 w-[380px] max-h-[calc(100vh-3rem)] bg-zinc-950/95 backdrop-blur-2xl border border-red-500/20 rounded-[24px] flex flex-col shadow-2xl shadow-red-950/40 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+          Usa a classe utilitária .glass-panel (index.css), que já tem
+          override próprio pro tema claro (fundo branco + texto escuro) —
+          por isso NÃO hardcodar bg-zinc-950 aqui, ou o tema claro fica
+          ilegível (fundo escuro fixo + texto claro trocado pra escuro). */}
+      <div className="fixed top-6 left-[336px] z-40 w-[380px] max-h-[calc(100vh-3rem)] glass-panel flex flex-col shadow-2xl shadow-red-950/40 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
       {/* Header */}
       <div className="p-6 border-b border-white/10 space-y-4 flex-shrink-0">
         <div className="flex justify-between items-center">
