@@ -834,6 +834,40 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     return () => { unsubSvc(); supabase.removeChannel(salesChannel); supabase.removeChannel(invChannel); };
   }, [currentCompany]);
 
+  // Intervalo de datas do periodo selecionado — usado tanto pra filtrar notas por CRIACAO
+  // (getFilteredOrders, usado no custo e nas listas) quanto pra filtrar PAGAMENTOS por data
+  // (usado no faturamento, que conta por quando cada parcela foi paga, nao quando a nota nasceu)
+  const getPeriodRange = (): { start: Date; end: Date } => {
+    const now = new Date();
+    if (period === 'Hoje') {
+      const start = new Date(now); start.setHours(0, 0, 0, 0);
+      const end = new Date(now); end.setHours(23, 59, 59, 999);
+      return { start, end };
+    }
+    if (period === 'Ontem') {
+      const start = new Date(now); start.setDate(now.getDate() - 1); start.setHours(0, 0, 0, 0);
+      const end = new Date(start); end.setHours(23, 59, 59, 999);
+      return { start, end };
+    }
+    if (period === 'Semana') {
+      const dayOfWeek = now.getDay(); // 0=domingo, 1=segunda, ..., 6=sabado
+      const start = new Date(now); start.setDate(now.getDate() - dayOfWeek); start.setHours(0, 0, 0, 0);
+      const end = new Date(start); end.setDate(start.getDate() + 6); end.setHours(23, 59, 59, 999);
+      return { start, end };
+    }
+    if (period === '30 dias') {
+      const start = new Date(now); start.setDate(now.getDate() - 30); start.setHours(0, 0, 0, 0);
+      const end = new Date(now); end.setHours(23, 59, 59, 999);
+      return { start, end };
+    }
+    if (period === 'Personalizado' && customRange.start && customRange.end) {
+      const start = new Date(customRange.start); start.setHours(0, 0, 0, 0);
+      const end = new Date(customRange.end); end.setHours(23, 59, 59, 999);
+      return { start, end };
+    }
+    return { start: new Date(0), end: new Date(8640000000000000) };
+  };
+
   const getFilteredOrders = () => {
     const now = new Date();
     return realSales.filter(order => {
@@ -845,14 +879,13 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         return orderDate.toDateString() === yesterday.toDateString();
       }
       if (period === 'Semana') {
-        // Semana comercial: segunda a sabado (domingo fica de fora, loja fechada)
+        // Semana comeca no domingo
         const dayOfWeek = now.getDay(); // 0=domingo, 1=segunda, ..., 6=sabado
-        const diffParaSegunda = dayOfWeek === 0 ? -6 : 1 - dayOfWeek; // domingo conta como fim da semana anterior
         const startOfWeek = new Date(now);
-        startOfWeek.setDate(now.getDate() + diffParaSegunda);
+        startOfWeek.setDate(now.getDate() - dayOfWeek);
         startOfWeek.setHours(0, 0, 0, 0);
         const endOfWeek = new Date(startOfWeek);
-        endOfWeek.setDate(startOfWeek.getDate() + 5); // segunda + 5 dias = sabado
+        endOfWeek.setDate(startOfWeek.getDate() + 6); // domingo + 6 dias = sabado
         endOfWeek.setHours(23, 59, 59, 999);
         return orderDate >= startOfWeek && orderDate <= endOfWeek;
       }
@@ -870,12 +903,15 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   };
 
   const filteredOrders = getFilteredOrders();
-  const totalRevenue = filteredOrders.reduce((acc, o) => {
-    if (o.status === 'pending') {
-      return acc + (o.downPayment || 0);
-    }
-    return acc + (o.total || 0);
-  }, 0);
+  // Faturamento por data de CADA PAGAMENTO (nao pela data de criacao da nota) — uma nota criada
+  // fora do periodo mas paga DENTRO do periodo conta aqui; olha em TODAS as vendas, nao so
+  // filteredOrders (que filtra por criacao)
+  const { start: periodoStart, end: periodoEnd } = getPeriodRange();
+  const totalRevenue = realSales
+    .filter(o => o.status !== 'canceled')
+    .flatMap(getRevenueEventsForSale)
+    .filter(ev => { const d = new Date(ev.date); return d >= periodoStart && d <= periodoEnd; })
+    .reduce((acc, ev) => acc + ev.value, 0);
 
   const totalCost = filteredOrders.reduce((acc, o) => {
     let orderCost = 0;
