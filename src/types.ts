@@ -157,6 +157,11 @@ export interface Lead extends BaseEntity {
   capturedAt?: Timestamp | string;
   waitingSince?: Timestamp | string;
   lastInteractionAt?: Timestamp | string;
+  // Usados pelo menu de opções do balão de Mensagens (ver MessagesSidebarPopup.tsx):
+  // marcar como lida/não lida, silenciar notificações e arquivar em lote.
+  unread?: boolean;
+  muted?: boolean;
+  archived?: boolean;
 }
 
 export interface Funnel extends BaseEntity {

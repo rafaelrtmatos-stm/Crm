@@ -1,11 +1,23 @@
-import React, { useState, useEffect, useContext } from 'react';
-import { collection, query, where, orderBy, onSnapshot, getDocs, Timestamp } from 'firebase/firestore';
+import React, { useState, useEffect, useContext, useRef } from 'react';
+import { collection, query, where, orderBy, onSnapshot, getDocs, doc, writeBatch, addDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../firebase';
 import { AppContext } from '../App';
 import { Lead, Company, AppUser } from '../types';
-import { cn } from './SharedUI';
-import { Search, RefreshCw, Clock, CheckCircle2, X, Instagram, Facebook, Send, Mail, MessageCircle, Globe } from 'lucide-react';
+import { cn, Button } from './SharedUI';
+import {
+  Search, RefreshCw, Clock, CheckCircle2, X, Instagram, Facebook, Send, Mail, MessageCircle, Globe,
+  MoreVertical, CirclePlus, VolumeX, CheckSquare, Check, Archive, Trash2, Flag, MailOpen,
+} from 'lucide-react';
 import { format } from 'date-fns';
+
+type SortMode = 'recent' | 'unread' | 'highlight';
+type SelectionMode = null | 'bulk' | 'mute' | 'group';
+
+const SORT_OPTIONS: { id: SortMode; label: string }[] = [
+  { id: 'recent', label: 'Mais recentes' },
+  { id: 'unread', label: 'Não lidos primeiro' },
+  { id: 'highlight', label: 'Destaque' },
+];
 
 // Ícone + cor por canal de origem — MESMA paleta usada no simulador de canais
 // (ver Modules.tsx ~linha 4290, bolinhas coloridas do seletor de canal), só
@@ -56,6 +68,17 @@ interface MessagesSidebarPopupProps {
 // 6) Cada conversa mostra o ícone colorido do canal de origem (WhatsApp,
 //    Instagram, Facebook, WebChat, E-mail, Telegram — ver CHANNEL_STYLE
 //    acima) pra identificar de onde a mensagem veio sem precisar ler o texto.
+// 7) Menu de opções (⋮ no header) — dropdown compacto no padrão do restante
+//    do ERP (mesmo estilo do dropdown de etapa do ChatPanel, ver Modules.tsx
+//    ~linha 2320): "Criar um grupo", "Silenciar" e "Ações múltiplas" entram
+//    no MESMO modo de seleção por checkbox (SelectionMode), cada um com sua
+//    barra de ação específica — evita duplicar a lógica de seleção 3x. Um
+//    separador e o submenu "Ordenar" (Mais recentes / Não lidos primeiro /
+//    Destaque) ficam embaixo, com o item ativo marcado (✓ + cor primária).
+//    Ordenação é client-side e independente do status: "Mais recentes" usa
+//    a própria ordem da query (updatedAt desc, já realtime — uma conversa
+//    antiga que recebe mensagem nova sobe sozinha); "Não lidos primeiro"
+//    prioriza unread/waitingSince; "Destaque" prioriza priority === 'alta'.
 export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
   isOpen,
   onClose,
@@ -67,6 +90,15 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
   const [filter, setFilter] = useState('');
   const [viewFilter, setViewFilter] = useState<'all' | 'unreplied'>('all');
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Menu de opções (⋮) e suas funções
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [sortMode, setSortMode] = useState<SortMode>('recent');
+  const [selectionMode, setSelectionMode] = useState<SelectionMode>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [groupName, setGroupName] = useState('');
+  const [isSavingAction, setIsSavingAction] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const leadsQuery = () => query(
     collection(db, 'leads'),
@@ -96,19 +128,92 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
 
   const unrepliedCount = leads.filter(l => l.waitingSince).length;
 
-  const filteredLeads = leads
-    .filter(l =>
-      l.fullName.toLowerCase().includes(filter.toLowerCase()) ||
-      l.phone.includes(filter)
-    )
-    .filter(l => (viewFilter === 'unreplied' ? !!l.waitingSince : true));
+  // Ordenação client-side sobre a lista já vinda ordenada por updatedAt desc
+  // (Firestore). "Mais recentes" não precisa reordenar; os outros dois modos
+  // fazem um sort estável (mantém a ordem relativa por recência dentro de
+  // cada grupo) só pra trazer o grupo relevante pro topo.
+  const sortLeads = (list: Lead[]) => {
+    if (sortMode === 'unread') {
+      return [...list].sort((a, b) => Number(!!(b.unread ?? b.waitingSince)) - Number(!!(a.unread ?? a.waitingSince)));
+    }
+    if (sortMode === 'highlight') {
+      return [...list].sort((a, b) => Number(b.priority === 'alta') - Number(a.priority === 'alta'));
+    }
+    return list;
+  };
+
+  const filteredLeads = sortLeads(
+    leads
+      .filter(l => !l.archived)
+      .filter(l =>
+        l.fullName.toLowerCase().includes(filter.toLowerCase()) ||
+        l.phone.includes(filter)
+      )
+      .filter(l => (viewFilter === 'unreplied' ? !!l.waitingSince : true))
+  );
 
   // Ao escolher uma conversa: fecha o popup e abre ela direto no Funil CRM,
-  // preenchendo a tela toda (não fica só na lista/preview do popup).
+  // preenchendo a tela toda (não fica só na lista/preview do popup). Em modo
+  // de seleção, o clique alterna o checkbox em vez de abrir a conversa.
   const handleSelectLead = (lead: Lead) => {
+    if (selectionMode) {
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        next.has(lead.id) ? next.delete(lead.id) : next.add(lead.id);
+        return next;
+      });
+      return;
+    }
     setPendingOpenLeadId(lead.id);
     setActiveTab('crm');
     onClose();
+  };
+
+  const startSelection = (mode: Exclude<SelectionMode, null>) => {
+    setSelectionMode(mode);
+    setSelectedIds(new Set());
+    setGroupName('');
+    setIsMenuOpen(false);
+  };
+
+  const cancelSelection = () => {
+    setSelectionMode(null);
+    setSelectedIds(new Set());
+    setGroupName('');
+  };
+
+  // Aplica um patch de campos a todos os leads selecionados de uma vez
+  // (writeBatch, mesmo padrão de escrita em lote usado em outras telas).
+  const applyBulkPatch = async (patch: Record<string, any>) => {
+    if (!selectedIds.size || isSavingAction) return;
+    setIsSavingAction(true);
+    try {
+      const batch = writeBatch(db);
+      selectedIds.forEach(id => batch.update(doc(db, 'leads', id), { ...patch, updatedAt: new Date().toISOString() }));
+      await batch.commit();
+      cancelSelection();
+    } finally {
+      setIsSavingAction(false);
+    }
+  };
+
+  const handleConfirmMute = () => applyBulkPatch({ muted: true });
+
+  const handleCreateGroup = async () => {
+    if (!currentCompany || !groupName.trim() || !selectedIds.size || isSavingAction) return;
+    setIsSavingAction(true);
+    try {
+      await addDoc(collection(db, 'leadGroups'), {
+        companyId: currentCompany.id,
+        name: groupName.trim(),
+        leadIds: Array.from(selectedIds),
+        createdBy: user?.id || null,
+        createdAt: new Date().toISOString(),
+      });
+      cancelSelection();
+    } finally {
+      setIsSavingAction(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -147,6 +252,72 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                 >
                   <RefreshCw size={18} className={cn(isRefreshing && "animate-spin")} />
                 </button>
+
+                {/* Menu de opções — grupo, silenciar, ações múltiplas e ordenação (ver regra 7 acima) */}
+                <div className="relative" ref={menuRef}>
+                  <button
+                    type="button"
+                    onClick={() => setIsMenuOpen(o => !o)}
+                    className={cn(
+                      "text-slate-400 hover:text-primary-600 transition-colors p-1.5 rounded-lg hover:bg-slate-100",
+                      isMenuOpen && "bg-slate-100 text-primary-600"
+                    )}
+                    title="Mais opções"
+                  >
+                    <MoreVertical size={18} />
+                  </button>
+
+                  {isMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setIsMenuOpen(false)} />
+                      <div className="absolute top-full right-0 mt-1.5 w-[230px] bg-white border border-slate-200 rounded-xl shadow-2xl z-50 py-1.5 text-sm">
+                        <button
+                          type="button"
+                          onClick={() => startSelection('group')}
+                          className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 hover:bg-slate-50 transition-colors text-left"
+                        >
+                          <CirclePlus size={16} className="text-slate-400 shrink-0" />
+                          Criar um grupo
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => startSelection('mute')}
+                          className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 hover:bg-slate-50 transition-colors text-left"
+                        >
+                          <VolumeX size={16} className="text-slate-400 shrink-0" />
+                          Silenciar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => startSelection('bulk')}
+                          className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 hover:bg-slate-50 transition-colors text-left"
+                        >
+                          <CheckSquare size={16} className="text-slate-400 shrink-0" />
+                          Ações múltiplas
+                        </button>
+
+                        <div className="border-t border-slate-100 my-1.5" />
+
+                        <p className="px-3.5 pt-1 pb-1.5 text-[11px] font-black uppercase tracking-wider text-slate-400">Ordenar</p>
+                        {SORT_OPTIONS.map(opt => (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => { setSortMode(opt.id); setIsMenuOpen(false); }}
+                            className={cn(
+                              "w-full flex items-center justify-between gap-2.5 pl-6 pr-3.5 py-2 transition-colors text-left",
+                              sortMode === opt.id ? "text-primary-600 font-bold" : "text-slate-600 hover:bg-slate-50"
+                            )}
+                          >
+                            {opt.label}
+                            {sortMode === opt.id && <Check size={14} className="text-primary-600 shrink-0" />}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+
                 <button
                   type="button"
                   onClick={onClose}
@@ -207,6 +378,77 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
               </button>
             </div>
           </div>
+
+          {/* Barra contextual de seleção — aparece para os 3 modos disparados
+              pelo menu (grupo/silenciar/ações múltiplas). Reaproveita o mesmo
+              mecanismo de checkbox na lista pros 3 casos. */}
+          {selectionMode && (
+            <div className="px-4 py-3 border-b border-slate-200 bg-primary-50/60 flex-shrink-0 space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-black uppercase tracking-wider text-primary-700">
+                  {selectedIds.size} {selectedIds.size === 1 ? 'selecionada' : 'selecionadas'}
+                </span>
+                <button type="button" onClick={cancelSelection} className="text-slate-400 hover:text-slate-700 p-1 rounded-lg hover:bg-white transition-colors">
+                  <X size={16} />
+                </button>
+              </div>
+
+              {selectionMode === 'group' && (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={groupName}
+                    onChange={(e) => setGroupName(e.target.value)}
+                    placeholder="Nome do grupo..."
+                    className="flex-1 bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs text-slate-800 placeholder:text-slate-400 outline-none focus:border-primary-400 transition-all"
+                  />
+                  <Button
+                    variant="primary"
+                    className="h-9 px-3 text-[10px]"
+                    disabled={!groupName.trim() || !selectedIds.size || isSavingAction}
+                    onClick={handleCreateGroup}
+                  >
+                    Criar
+                  </Button>
+                </div>
+              )}
+
+              {selectionMode === 'mute' && (
+                <Button
+                  variant="primary"
+                  className="w-full h-9 text-[10px]"
+                  icon={VolumeX}
+                  disabled={!selectedIds.size || isSavingAction}
+                  onClick={handleConfirmMute}
+                >
+                  Silenciar {selectedIds.size || ''} conversa{selectedIds.size === 1 ? '' : 's'}
+                </Button>
+              )}
+
+              {selectionMode === 'bulk' && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button type="button" disabled={!selectedIds.size || isSavingAction} onClick={() => applyBulkPatch({ unread: false })} title="Marcar como lida" className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-primary-600 hover:border-primary-300 transition-colors disabled:opacity-40">
+                    <MailOpen size={14} />
+                  </button>
+                  <button type="button" disabled={!selectedIds.size || isSavingAction} onClick={() => applyBulkPatch({ unread: true })} title="Marcar como não lida" className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-primary-600 hover:border-primary-300 transition-colors disabled:opacity-40">
+                    <Mail size={14} />
+                  </button>
+                  <button type="button" disabled={!selectedIds.size || isSavingAction} onClick={() => applyBulkPatch({ priority: 'alta' })} title="Marcar prioridade alta" className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-amber-600 hover:border-amber-300 transition-colors disabled:opacity-40">
+                    <Flag size={14} />
+                  </button>
+                  <button type="button" disabled={!selectedIds.size || isSavingAction} onClick={() => applyBulkPatch({ muted: true })} title="Silenciar" className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-primary-600 hover:border-primary-300 transition-colors disabled:opacity-40">
+                    <VolumeX size={14} />
+                  </button>
+                  <button type="button" disabled={!selectedIds.size || isSavingAction} onClick={() => applyBulkPatch({ archived: true })} title="Arquivar" className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-primary-600 hover:border-primary-300 transition-colors disabled:opacity-40">
+                    <Archive size={14} />
+                  </button>
+                  <button type="button" disabled={!selectedIds.size || isSavingAction} onClick={() => applyBulkPatch({ status: 'ENCERRADO', archived: true })} title="Excluir / encerrar" className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-rose-600 hover:border-rose-300 transition-colors disabled:opacity-40">
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Alerta de vácuo — clicável: leva direto pro filtro "Sem Resposta" */}
           {unrepliedCount > 0 && viewFilter !== 'unreplied' && (
@@ -272,6 +514,14 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                 >
                   <div className="flex justify-between items-start mb-1 gap-2">
                     <div className="flex items-center gap-2 truncate">
+                      {selectionMode && (
+                        <div className={cn(
+                          "w-4.5 h-4.5 rounded-md border flex items-center justify-center shrink-0 transition-colors",
+                          selectedIds.has(l.id) ? "bg-primary-600 border-primary-600" : "border-slate-300 bg-white"
+                        )}>
+                          {selectedIds.has(l.id) && <Check size={11} className="text-white" strokeWidth={3} />}
+                        </div>
+                      )}
                       {(() => {
                         const { icon: ChannelIcon, color, bg } = getChannelStyle(l.sourceType);
                         return (
