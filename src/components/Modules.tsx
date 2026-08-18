@@ -2320,24 +2320,45 @@ export const ChatPanel = ({
 
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !conversation || !currentCompany) return;
+    const textoEnviado = newMessage;
     try {
       await supabase.from('crm_messages').insert({
         company_id: currentCompany.id,
         lead_id: conversation.id || null,
         phone: conversation.phone,
-        text: newMessage,
+        text: textoEnviado,
         direction: 'outgoing',
         sender_name: user?.name || 'Sistema',
         channel: conversation.sourceType || 'WhatsApp',
       });
       // Also update lead's last message
       await supabase.from('leads').update({
-        last_message_text: newMessage,
+        last_message_text: textoEnviado,
         last_message_direction: 'outgoing',
         waiting_since: null,
         updated_at: new Date().toISOString(),
       }).eq('id', conversation.id);
       setNewMessage('');
+
+      // Dispara a mensagem de verdade pro WhatsApp (so pra conversas desse canal —
+      // outros canais como Instagram/Facebook ainda nao tem envio real conectado)
+      const canal = (conversation.sourceType || conversation.channel || 'WhatsApp');
+      if (canal === 'WhatsApp' && conversation.phone) {
+        try {
+          const resp = await fetch('/api/whatsapp-send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phone: conversation.phone, text: textoEnviado }),
+          });
+          if (!resp.ok) {
+            const errData = await resp.json().catch(() => ({}));
+            showAlert(`A mensagem ficou salva aqui no sistema, mas não foi possível enviar pro WhatsApp de verdade: ${errData.error || 'erro desconhecido'}`);
+          }
+        } catch (sendErr) {
+          console.error('Falha ao disparar mensagem pro WhatsApp:', sendErr);
+          showAlert('A mensagem ficou salva aqui no sistema, mas não foi possível enviar pro WhatsApp de verdade (falha de conexão).');
+        }
+      }
     } catch (err) {
       console.error('Falha ao enviar mensagem:', err);
     }
