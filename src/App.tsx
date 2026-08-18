@@ -1350,7 +1350,7 @@ export default function App() {
     { id: 'pos', label: 'PDV Gráfica', icon: ShoppingBag },
     { id: 'clientes_espera', label: 'Clientes em Espera', icon: Clock },
     { id: 'production', label: 'Ordem de Serviço', icon: Layers },
-    { id: 'comissoes', label: 'Comissões', icon: Percent },
+    { id: 'comissoes', label: 'Financeiro', icon: Percent },
     { id: 'settings', label: 'Opções', icon: Settings },
   ].filter(item => {
     // If user has specific allowedTabs, check it first (unless they are admin, who can always see Settings)
