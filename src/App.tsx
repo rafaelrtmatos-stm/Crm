@@ -1681,19 +1681,6 @@ export default function App() {
                   />
                 ))}
               </div>
-
-              <div className="mt-8 pt-8 border-t border-white/5 px-2 space-y-4">
-                <div className="glass-card p-5 relative overflow-hidden group">
-                  <div className="absolute -right-4 -top-4 w-24 h-24 bg-primary-500 rounded-full opacity-20 blur-3xl group-hover:scale-150 transition-transform duration-1000" />
-                  <p className="text-[10px] font-black text-white/30 uppercase tracking-[2px] mb-2">SLA Hub Status</p>
-                  <p className="text-sm font-bold text-white tracking-wide">Enterprise Pro 9.4</p>
-                  <div className="mt-5 flex items-center justify-between">
-                    <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden border border-white/5">
-                      <div className="w-3/4 h-full bg-primary-400 shadow-[0_0_10px_#4cc9f0] rounded-full" />
-                    </div>
-                  </div>
-                </div>
-              </div>
             </motion.aside>
           )}
         </AnimatePresence>
