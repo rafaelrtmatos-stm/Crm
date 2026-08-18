@@ -14,15 +14,17 @@ interface MessagesSidebarPopupProps {
   user: AppUser | null;
 }
 
-// Painel de Mensagens acionado pelo menu lateral (desktop).
+// Balão flutuante de Mensagens acionado pelo menu lateral (desktop).
 //
 // Regras de posicionamento e comportamento (não mexer sem revalidar):
-// 1) Cobre TODO o conteúdo à direita do menu lateral (left-80 = mesma
-//    largura fixa da sidebar em desktop, w-80) — nunca a própria sidebar.
-// 2) z-40, abaixo do z-50 da sidebar — dupla garantia de que ela nunca fica
-//    por baixo do menu.
-// 3) Sem backdrop: sem blur, escurecimento ou transparência sobre o
-//    conteúdo abaixo — fundo próprio e opaco.
+// 1) É um BALÃO flutuante sobreposto ao conteúdo (não cobre a tela toda) —
+//    ancorado logo à direita do menu lateral (left-80 = mesma largura fixa
+//    da sidebar em desktop, w-80), com tamanho e altura máxima limitados.
+//    O conteúdo por trás continua visível e a página não trava.
+// 2) Nunca cobre a própria sidebar: left sempre >= largura da sidebar (w-80)
+//    e o balão fica em z-40, abaixo do z-50 da sidebar — dupla garantia.
+// 3) Sem backdrop escurecido: existe apenas uma camada invisível (sem blur
+//    nem cor) atrás do balão só para fechar ao clicar fora.
 // 4) É só a LISTA de conversas — ao clicar numa conversa, o popup fecha e
 //    pula direto pro Funil CRM com aquele card já aberto (via
 //    pendingOpenLeadId), onde o ChatPanel passa a preencher a tela toda
@@ -70,7 +72,14 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed top-0 bottom-0 left-80 right-0 z-40 bg-[#0b1220] flex flex-col shadow-2xl animate-in fade-in duration-150">
+    <>
+      {/* Camada invisível só pra fechar ao clicar fora — sem escurecer nem
+          bloquear a leitura do conteúdo atrás do balão */}
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+
+      {/* Balão flutuante — sobreposto ao conteúdo, nunca sobre a sidebar
+          (left-80 = largura da sidebar) e sem cobrir a tela toda */}
+      <div className="fixed top-6 left-[336px] z-40 w-[380px] max-h-[calc(100vh-3rem)] bg-[#0b1220] border border-white/10 rounded-3xl flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
       {/* Header */}
       <div className="p-6 border-b border-white/10 space-y-4 flex-shrink-0 bg-[#0b1220]">
         <div className="flex justify-between items-center">
@@ -227,6 +236,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
           );
         })}
       </div>
-    </div>
+      </div>
+    </>
   );
 };
