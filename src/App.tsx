@@ -1356,14 +1356,14 @@ export default function App() {
     { id: 'comissoes', label: 'Financeiro', icon: Percent },
     { id: 'settings', label: 'Opções', icon: Settings },
   ].filter(item => {
-    // If user has specific allowedTabs, check it first (unless they are admin, who can always see Settings)
+    // Admin sempre ve tudo, mesmo que tenha uma lista antiga de allowedTabs salva
+    // sem essa aba (ex: aba nova adicionada depois que o allowedTabs foi configurado)
+    if (user?.isAdmin) return true;
+
+    // If user has specific allowedTabs, check it first
     if (user && user.allowedTabs && Array.isArray(user.allowedTabs)) {
-      if (item.id === 'settings' && user.isAdmin) return true;
       return user.allowedTabs.includes(item.id);
     }
-
-    // If admin, show everything
-    if (user?.isAdmin) return true;
     
     // Se nao tem admin nem allowedTabs definido, mostra so o Dashboard por padrao —
     // Configuracoes NUNCA deve aparecer de graca pra quem nao e admin
