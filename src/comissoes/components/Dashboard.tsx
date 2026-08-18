@@ -8,7 +8,6 @@ import {
   Sparkles,
   CheckCircle2,
   Filter,
-  Quote,
 } from 'lucide-react';
 import { ServiceItem, UserSettings, SummaryStats } from '../types';
 import { formatCurrency, formatDateBR, calculateSummaryStats } from '../utils/storage';
@@ -63,10 +62,8 @@ const getYesterdayISO = () => {
   return `${year}-${month}-${day}`;
 };
 
-// Frase motivacional do dia — troca automaticamente a cada dia (mesma frase
-// o dia inteiro, pra não ficar mudando a cada refresh da tela). A escolha é
-// determinística pelo dia do ano (não é aleatória), então dois colaboradores
-// olhando o painel no mesmo dia veem a mesma frase.
+// Frase motivacional — troca aleatoriamente toda vez que o Dashboard carrega
+// (ver TypedQuote acima, que digita a frase com efeito de "escrevendo").
 const MOTIVATIONAL_QUOTES = [
   'Foco no processo — o resultado é consequência.',
   'Cada serviço bem feito hoje constrói a sua reputação de amanhã.',
@@ -98,13 +95,35 @@ const MOTIVATIONAL_QUOTES = [
   'Um passo de cada vez também é andar rápido.',
 ];
 
-const getDayOfYear = (d: Date) => {
-  const start = new Date(d.getFullYear(), 0, 0);
-  const diff = d.getTime() - start.getTime();
-  return Math.floor(diff / (1000 * 60 * 60 * 24));
-};
+const getRandomQuote = () => MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)];
 
-const getTodaysQuote = () => MOTIVATIONAL_QUOTES[getDayOfYear(new Date()) % MOTIVATIONAL_QUOTES.length];
+// Efeito de "máquina de escrever" — digita a frase escolhida em ~1 segundo,
+// caractere por caractere, toda vez que o componente monta (ou seja, toda
+// vez que a tela do Dashboard é carregada/recarregada).
+const TypedQuote = ({ text }: { text: string }) => {
+  const [typed, setTyped] = useState('');
+
+  useEffect(() => {
+    setTyped('');
+    if (!text) return;
+    const totalMs = 1000;
+    const stepMs = Math.max(totalMs / text.length, 12);
+    let i = 0;
+    const interval = setInterval(() => {
+      i += 1;
+      setTyped(text.slice(0, i));
+      if (i >= text.length) clearInterval(interval);
+    }, stepMs);
+    return () => clearInterval(interval);
+  }, [text]);
+
+  return (
+    <p className="text-lg sm:text-xl text-white leading-snug" style={{ fontFamily: 'var(--font-cursive)' }}>
+      "{typed}"
+      <span className="inline-block w-[2px] h-5 sm:h-6 bg-white/70 ml-0.5 align-middle animate-pulse" />
+    </p>
+  );
+};
 
 const getThisWeekBounds = () => {
   const now = new Date();
@@ -161,6 +180,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [period, setPeriod] = useState<PeriodFilter>('semana');
   const [customStartDate, setCustomStartDate] = useState(getTodayISO());
   const [customEndDate, setCustomEndDate] = useState(getTodayISO());
+
+  // Frase motivacional sorteada uma vez a cada carregamento da tela (ver
+  // TypedQuote, que digita ela com efeito de "sendo escrita").
+  const [motivationalQuote] = useState(getRandomQuote);
 
   // ✅ Caixa e pagamentos do colaborador -- pra abater da previsão de recebimento o que ele
   // já recebeu (inclusive a mais, que é o que gera o déficit/dívida). Mesmos dados usados
@@ -336,15 +359,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </div>
 
-      {/* Frase motivacional do dia — mesma para todo mundo, troca automaticamente
-          à meia-noite (ver MOTIVATIONAL_QUOTES acima) */}
-      <div className="flex items-start gap-3 p-4 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] shadow-sm">
-        <div className="p-2 rounded-xl bg-red-500/10 text-[var(--accent-red)] shrink-0">
-          <Quote className="w-4 h-4" />
-        </div>
-        <p className="text-sm text-[var(--text-main)] font-semibold italic leading-snug pt-1.5">
-          {getTodaysQuote()}
-        </p>
+      {/* Frase motivacional — sem card/fundo, só o texto branco em cima do
+          fundo, em fonte cursiva com efeito de "sendo escrita" (ver
+          TypedQuote acima). Sorteada de novo a cada carregamento da tela. */}
+      <div className="px-1 py-2">
+        <TypedQuote text={motivationalQuote} />
       </div>
 
       {/* Period Filter Bar */}

@@ -10008,30 +10008,34 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           // migrados pra tabela contratos de verdade, nao devem aparecer aqui
           const orcamentosDeVerdade = allOrcamentos.filter(o => o.documentType !== 'contrato');
           
+          const orcRascunho = orcamentosDeVerdade.filter(o => o.status === 'rascunho');
+          const orcEnviado = orcamentosDeVerdade.filter(o => o.status === 'enviado');
           const orcEmEspera = orcamentosDeVerdade.filter(o => o.status === 'em_espera');
-          const orcAprovada = orcamentosDeVerdade.filter(o => o.status === 'aprovada');
+          const orcAprovado = orcamentosDeVerdade.filter(o => o.status === 'aprovado');
           const orcEmProducao = orcamentosDeVerdade.filter(o => o.status === 'em_producao');
-          const orcRecusada = orcamentosDeVerdade.filter(o => o.status === 'recusada');
           const orcConcluido = orcamentosDeVerdade.filter(o => o.status === 'concluido');
+          const orcRecusado = orcamentosDeVerdade.filter(o => o.status === 'recusado');
+          const orcCancelado = orcamentosDeVerdade.filter(o => o.status === 'cancelado');
+          const orcExpirado = orcamentosDeVerdade.filter(o => o.status === 'expirado');
 
           const filtrosOrcamento = [
             { id: 'todos', label: 'Todos', count: orcamentosDeVerdade.length },
+            { id: 'rascunho', label: 'Rascunho', count: orcRascunho.length },
+            { id: 'enviado', label: 'Enviado', count: orcEnviado.length },
             { id: 'em_espera', label: 'Em Espera', count: orcEmEspera.length },
-            { id: 'aprovada', label: 'Aprovada', count: orcAprovada.length },
+            { id: 'aprovado', label: 'Aprovado', count: orcAprovado.length },
             { id: 'em_producao', label: 'Em Produção', count: orcEmProducao.length },
-            { id: 'recusada', label: 'Recusada', count: orcRecusada.length },
             { id: 'concluido', label: 'Concluído', count: orcConcluido.length },
+            { id: 'recusado', label: 'Recusado', count: orcRecusado.length },
+            { id: 'cancelado', label: 'Cancelado', count: orcCancelado.length },
+            { id: 'expirado', label: 'Expirado', count: orcExpirado.length },
           ];
 
           const orcTerm = orcamentoSearchTerm.trim().toLowerCase();
           const orcamentosFiltrados = orcamentosDeVerdade
             .filter(o => {
-              if (orcamentoStatusFilter === 'em_espera') return o.status === 'em_espera';
-              if (orcamentoStatusFilter === 'aprovada') return o.status === 'aprovada';
-              if (orcamentoStatusFilter === 'em_producao') return o.status === 'em_producao';
-              if (orcamentoStatusFilter === 'recusada') return o.status === 'recusada';
-              if (orcamentoStatusFilter === 'concluido') return o.status === 'concluido';
-              return true; // 'todos'
+              if (orcamentoStatusFilter === 'todos') return true;
+              return o.status === orcamentoStatusFilter;
             })
             .filter(o => {
               if (!orcTerm) return true;
