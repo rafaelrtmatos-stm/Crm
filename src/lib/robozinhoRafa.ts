@@ -46,6 +46,9 @@ export interface RobozinhoConfig {
   tone: 'formal' | 'amigavel' | 'direto';
   autoGenerateSuggestions: boolean;
   useKnowledgeBase: boolean;
+  // Mostra ou esconde a bolinha de chat flutuante (assistente interno pra quem esta logado
+  // testar o robo) — independente do isActive, que controla as sugestoes automaticas pros clientes
+  showFloatingWidget: boolean;
   // Estrutura preparada para a futura integração de WhatsApp via QR Code —
   // desligada nesta versão, sem nenhuma lógica de envio implementada ainda.
   whatsappQrIntegration: {
@@ -61,6 +64,7 @@ export const DEFAULT_ROBOZINHO_CONFIG: Omit<RobozinhoConfig, 'companyId'> = {
   tone: 'amigavel',
   autoGenerateSuggestions: true,
   useKnowledgeBase: true,
+  showFloatingWidget: true,
   whatsappQrIntegration: { enabled: false, status: 'not_configured' },
 };
 

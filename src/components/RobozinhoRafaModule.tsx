@@ -566,6 +566,19 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
                   </button>
                 </div>
 
+                <div className="flex items-center justify-between gap-4 pt-4 border-t border-white/5">
+                  <div>
+                    <p className="text-sm font-bold text-white">Bolinha de chat flutuante</p>
+                    <p className="text-[10px] text-white/40">Mostra ou esconde a bolinha do Robozinho no canto da tela (assistente interno pra testar/consultar o sistema).</p>
+                  </div>
+                  <button
+                    onClick={() => handleSaveConfig({ showFloatingWidget: !config.showFloatingWidget })}
+                    className={cn("w-12 h-7 rounded-full transition-all relative shrink-0", config.showFloatingWidget ? "bg-primary-500" : "bg-white/10")}
+                  >
+                    <span className={cn("absolute top-1 w-5 h-5 rounded-full bg-white transition-all", config.showFloatingWidget ? "left-6" : "left-1")} />
+                  </button>
+                </div>
+
                 <div className="flex items-center justify-between gap-4 pt-4 border-t border-white/10">
                   <div>
                     <p className="text-sm font-bold text-white">Consultar dados do ERP</p>

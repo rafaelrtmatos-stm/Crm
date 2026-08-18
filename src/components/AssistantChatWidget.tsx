@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Bot, X, Send, Sparkles } from 'lucide-react';
 import { supabase } from '../supabase';
 import { db } from '../firebase';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, onSnapshot } from 'firebase/firestore';
 import { cn } from './SharedUI';
 import { answerAdvancedQuestion } from '../lib/robozinhoRafa';
 import { Company, AppUser, Lead, SaleOrder } from '../types';
@@ -43,6 +43,21 @@ export const AssistantChatWidget = ({ currentCompany, user }: { currentCompany: 
   // protege contra duplicação em caso de re-render/stream.
   const playedSoundIdsRef = useRef<Set<string>>(new Set());
   const msgCounterRef = useRef(0);
+
+  // Mostra/esconde a bolinha conforme configurado em Integrações > Robozinho Rafa >
+  // Configurações. Enquanto a config nao carrega ainda, mostra normal (nao pisca escondido
+  // sem querer) — so esconde depois de confirmar que esta desligada de fato.
+  const [showWidget, setShowWidget] = useState(true);
+  useEffect(() => {
+    const ref = doc(db, 'robozinhoConfig', 'rafa-arts');
+    const unsub = onSnapshot(ref, (snap) => {
+      const data = snap.data();
+      const visivel = data?.showFloatingWidget !== false;
+      setShowWidget(visivel);
+      if (!visivel) setIsOpen(false);
+    });
+    return () => unsub();
+  }, []);
 
   const nextId = (prefix: string) => {
     msgCounterRef.current += 1;
@@ -202,6 +217,8 @@ export const AssistantChatWidget = ({ currentCompany, user }: { currentCompany: 
   };
 
   if (!currentCompany) return null;
+
+  if (!showWidget) return null;
 
   return (
     <>
