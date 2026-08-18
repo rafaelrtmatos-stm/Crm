@@ -210,7 +210,7 @@ export const AssistantChatWidget = ({ currentCompany, user }: { currentCompany: 
         <button
           onClick={handleOpen}
           aria-label="Conversar com o Robozinho Rafa"
-          className="fixed bottom-5 right-5 sm:bottom-6 sm:right-6 z-[9999] w-14 h-14 rounded-full bg-gradient-to-br from-primary-500 to-red-700 shadow-2xl shadow-red-950/60 flex items-center justify-center border border-white/10 hover:scale-105 active:scale-95 transition-transform"
+          className="fixed bottom-[40px] right-5 sm:bottom-[44px] sm:right-6 z-[9999] w-14 h-14 rounded-full bg-gradient-to-br from-primary-500 to-red-700 shadow-2xl shadow-red-950/60 flex items-center justify-center border border-white/10 hover:scale-105 active:scale-95 transition-transform"
         >
           <span className="absolute inset-0 rounded-full bg-primary-500/50 animate-ping" />
           <Bot size={26} className="text-white relative z-10 animate-[bounce_2.5s_ease-in-out_infinite]" />
@@ -222,7 +222,7 @@ export const AssistantChatWidget = ({ currentCompany, user }: { currentCompany: 
         <div
           className={cn(
             "fixed z-[9999] bg-[#0c0c12] border border-white/10 shadow-2xl shadow-black/60 flex flex-col overflow-hidden",
-            "inset-0 sm:inset-auto sm:bottom-6 sm:right-6 sm:w-[380px] sm:h-[560px] sm:rounded-3xl sm:max-h-[80vh]"
+            "inset-0 sm:inset-auto sm:bottom-[44px] sm:right-6 sm:w-[380px] sm:h-[560px] sm:rounded-3xl sm:max-h-[80vh]"
           )}
         >
           {/* Header */}
