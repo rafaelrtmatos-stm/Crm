@@ -1766,6 +1766,7 @@ export const ChatPanel = ({
   const [newMessage, setNewMessage] = useState('');
   const [messages, setMessages] = useState<any[]>([]);
   const [isRecording, setIsRecording] = useState(false);
+  const [showQuickReplies, setShowQuickReplies] = useState(false);
   const [showQuickActions, setShowQuickActions] = useState(false);
   const [showQuickTemplates, setShowQuickTemplates] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -2435,31 +2436,6 @@ export const ChatPanel = ({
                             </button>
                           ))}
                         </div>
-
-                        <p className="text-[9px] font-black uppercase tracking-wider text-sky-400 pt-2">Simular Mensagem do Cliente (Teste):</p>
-                        <div className="flex flex-wrap gap-2 justify-center">
-                          <button
-                            type="button"
-                            onClick={() => handleSimulateClientMessage('Olá! Gostaria de fazer um orçamento de impressão e faixas.')}
-                            className="text-[10px] font-medium bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 px-3 py-1.5 rounded-xl border border-sky-500/30 transition-all cursor-pointer"
-                          >
-                            💬 Quero Orçamento
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleSimulateClientMessage('Boa tarde, qual o prazo de entrega do meu pedido?')}
-                            className="text-[10px] font-medium bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 px-3 py-1.5 rounded-xl border border-sky-500/30 transition-all cursor-pointer"
-                          >
-                            📦 Prazo de Entrega
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleSimulateClientMessage('Qual a chave PIX para envio da entrada?')}
-                            className="text-[10px] font-medium bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 px-3 py-1.5 rounded-xl border border-sky-500/30 transition-all cursor-pointer"
-                          >
-                            💰 Pedir PIX
-                          </button>
-                        </div>
                       </div>
                    </div>
                  )}
@@ -2509,25 +2485,23 @@ export const ChatPanel = ({
 
               {/* Chat Input - FIXO */}
               <div className="p-3 bg-slate-100/50 border-t border-white/10 space-y-2 flex-shrink-0">
-                {/* BARRA DE RESPOSTAS RÁPIDAS / MENSAGENS SALVAS & TESTE CLIENTE */}
+                {/* BARRA DE RESPOSTAS RÁPIDAS / MENSAGENS SALVAS — escondida por padrão, só abre se clicar */}
                 <div className="flex flex-wrap items-center gap-1.5 pb-1">
                   <button
                     type="button"
-                    onClick={() => handleSimulateClientMessage()}
-                    className="text-[9.5px] font-black uppercase tracking-wider bg-sky-500 text-white hover:bg-sky-400 px-2.5 py-1 rounded-full shadow-sm whitespace-nowrap transition-all shrink-0 cursor-pointer flex items-center gap-1"
-                    title="Simula o envio de uma mensagem pelo cliente para testar o recebimento no CRM"
+                    onClick={() => setShowQuickReplies(v => !v)}
+                    className={cn(
+                      "text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border shadow-sm whitespace-nowrap transition-all shrink-0 cursor-pointer flex items-center gap-1",
+                      showQuickReplies ? "bg-primary-500 text-white border-primary-500" : "bg-white text-slate-500 border-slate-200 hover:text-primary-600 hover:border-primary-300"
+                    )}
                   >
-                    <MessageSquare size={10} /> + Simular Msg Cliente
+                    <Sparkles size={10} className={showQuickReplies ? "text-white" : "text-amber-500"} /> Rápidas
                   </button>
-                  <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 shrink-0 mx-0.5">|</span>
-                  <span className="text-[9px] font-black uppercase tracking-wider text-slate-500 shrink-0 flex items-center gap-1">
-                    <Sparkles size={10} className="text-amber-500" /> Rápidas:
-                  </span>
-                  {quickTemplates.map((tpl, i) => (
+                  {showQuickReplies && quickTemplates.map((tpl, i) => (
                     <button
                       key={i}
                       type="button"
-                      onClick={() => setNewMessage(tpl.text)}
+                      onClick={() => { setNewMessage(tpl.text); setShowQuickReplies(false); }}
                       className="text-[9.5px] font-bold bg-white text-slate-700 hover:bg-primary-50 hover:text-primary-700 hover:border-primary-300 px-2.5 py-1 rounded-full border border-slate-200 shadow-sm whitespace-nowrap transition-all shrink-0 cursor-pointer"
                     >
                       {tpl.label}
