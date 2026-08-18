@@ -4,8 +4,22 @@ import { db } from '../firebase';
 import { AppContext } from '../App';
 import { Lead, Company, AppUser } from '../types';
 import { cn } from './SharedUI';
-import { Search, RefreshCw, Clock, CheckCircle2, X } from 'lucide-react';
+import { Search, RefreshCw, Clock, CheckCircle2, X, Instagram, Facebook, Send, Mail, MessageCircle, Globe } from 'lucide-react';
 import { format } from 'date-fns';
+
+// Ícone + cor por canal de origem — MESMA paleta usada no simulador de canais
+// (ver Modules.tsx ~linha 4290, bolinhas coloridas do seletor de canal), só
+// que aqui com o ícone da marca em vez da bolinha, pra identificar de onde a
+// mensagem veio de relance na lista.
+const CHANNEL_STYLE: Record<string, { icon: React.ElementType; color: string; bg: string }> = {
+  WhatsApp: { icon: MessageCircle, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+  Instagram: { icon: Instagram, color: 'text-pink-600', bg: 'bg-pink-50' },
+  Facebook: { icon: Facebook, color: 'text-blue-600', bg: 'bg-blue-50' },
+  WebChat: { icon: Globe, color: 'text-sky-600', bg: 'bg-sky-50' },
+  'E-mail': { icon: Mail, color: 'text-amber-600', bg: 'bg-amber-50' },
+  Telegram: { icon: Send, color: 'text-indigo-600', bg: 'bg-indigo-50' },
+};
+const getChannelStyle = (channel?: string) => CHANNEL_STYLE[channel || 'WhatsApp'] || CHANNEL_STYLE.WhatsApp;
 
 interface MessagesSidebarPopupProps {
   isOpen: boolean;
@@ -39,6 +53,9 @@ interface MessagesSidebarPopupProps {
 //    conversa, o popup fecha e pula direto pro Funil CRM com aquele card já
 //    aberto (via pendingOpenLeadId), onde o ChatPanel passa a preencher a
 //    tela toda (ver flag openedViaJump no CRMModule).
+// 6) Cada conversa mostra o ícone colorido do canal de origem (WhatsApp,
+//    Instagram, Facebook, WebChat, E-mail, Telegram — ver CHANNEL_STYLE
+//    acima) pra identificar de onde a mensagem veio sem precisar ler o texto.
 export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
   isOpen,
   onClose,
@@ -107,13 +124,15 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
       <div className="fixed top-6 left-[336px] z-40 w-[380px] max-h-[calc(100vh-3rem)] animate-in fade-in zoom-in-95 duration-150">
         {/* Caldinha do balão — triangulo apontando pra esquerda, pro item
             "Conversas" do menu lateral de onde o balão foi aberto */}
-        <div className="absolute top-8 -left-2 w-4 h-4 bg-white border-l border-b border-slate-200 rotate-45 shadow-sm" />
+        <div className="absolute top-8 -left-2 w-4 h-4 bg-slate-50 border-l border-b border-slate-200 rotate-45 shadow-sm" />
 
-        {/* Corpo do balão — mesma cor das bolhas de mensagem reais do
-            sistema (bg-white + texto slate-800), fixo em qualquer tema */}
-        <div className="relative bg-white border border-slate-200 rounded-[28px] flex flex-col shadow-2xl overflow-hidden max-h-[calc(100vh-3rem)]">
+        {/* Corpo do balão — mesma base das bolhas de mensagem reais do
+            sistema, só que um tom levemente mais escuro (slate-50 em vez de
+            branco puro) pra dar mais "corpo" profissional, fixo em qualquer
+            tema */}
+        <div className="relative bg-slate-50 border border-slate-200 rounded-[28px] flex flex-col shadow-2xl overflow-hidden max-h-[calc(100vh-3rem)]">
           {/* Header */}
-          <div className="p-6 border-b border-slate-100 space-y-4 flex-shrink-0">
+          <div className="p-6 border-b border-slate-200 bg-white space-y-4 flex-shrink-0">
             <div className="flex justify-between items-center">
               <h3 className="text-xl font-black text-slate-800 italic uppercase tracking-tight flex items-center gap-1.5">
                 Conversas
@@ -249,10 +268,18 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                 <div
                   key={l.id}
                   onClick={() => handleSelectLead(l)}
-                  className="p-3 border-b border-slate-100 cursor-pointer transition-all group relative hover:bg-slate-50"
+                  className="p-3 border-b border-slate-200 cursor-pointer transition-all group relative bg-white hover:bg-slate-50"
                 >
                   <div className="flex justify-between items-start mb-1 gap-2">
                     <div className="flex items-center gap-2 truncate">
+                      {(() => {
+                        const { icon: ChannelIcon, color, bg } = getChannelStyle(l.sourceType);
+                        return (
+                          <div className={cn("w-6 h-6 rounded-lg flex items-center justify-center shrink-0", bg)} title={l.sourceType || 'WhatsApp'}>
+                            <ChannelIcon size={13} className={color} />
+                          </div>
+                        );
+                      })()}
                       <p className="font-bold transition-colors truncate text-sm text-slate-800 group-hover:text-primary-600">{l.fullName}</p>
                       {waitingSinceDate && (
                         <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping shrink-0" title="Cliente aguardando resposta!" />
@@ -279,7 +306,6 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                       {l.status}
                     </span>
                     <div className="ml-auto flex items-center gap-1.5 opacity-50 group-hover:opacity-100 transition-opacity">
-                      <span className="text-[9px] text-slate-400 font-bold">{l.sourceType || 'WhatsApp'}</span>
                       <div className="w-3 h-3 rounded-full bg-slate-100 flex items-center justify-center">
                         <CheckCircle2 size={10} className="text-emerald-500" />
                       </div>
