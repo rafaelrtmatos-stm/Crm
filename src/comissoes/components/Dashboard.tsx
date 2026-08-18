@@ -106,7 +106,7 @@ const TypedQuote = ({ text }: { text: string }) => {
   useEffect(() => {
     setTyped('');
     if (!text) return;
-    const totalMs = 1500;
+    const totalMs = 5000;
     const stepMs = Math.max(totalMs / text.length, 12);
     let i = 0;
     const interval = setInterval(() => {
