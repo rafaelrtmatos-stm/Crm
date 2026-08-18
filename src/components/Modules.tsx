@@ -216,6 +216,7 @@ import { buildContratoClausulasTexto } from '../lib/contratoTemplate';
 import { OFFICIAL_COMPANY, PUBLIC_SIGN_ORIGIN, getContractSignatureLink } from '../lib/companyIdentity';
 import { signContractByCompany } from '../lib/otpUtils';
 import { transcribeAudioMessage } from '../lib/audioTranscription';
+import { generateSuggestion, type KnowledgeProduct } from '../lib/robozinhoRafa';
 import { validateCpfCnpj } from '../lib/validators';
 import { buscarClienteDuplicado, montarPayloadMesclagem } from '../lib/clienteDedupe';
 import { format } from 'date-fns';
@@ -1807,6 +1808,38 @@ export const ChatPanel = ({
       setIsChangingStage(false);
     }
   };
+
+  // Botao "Sugestao do Robozinho" — le a ultima mensagem do cliente, consulta estoque/produtos
+  // reais e monta uma sugestao de resposta. O atendente sempre revisa/edita antes de enviar
+  // (o Robozinho nunca envia mensagem sozinho).
+  const [isGeneratingSuggestion, setIsGeneratingSuggestion] = useState(false);
+  const handleGenerateRobozinhoSuggestion = async () => {
+    const lastIncoming = [...messages].reverse().find(m => m.direction === 'incoming' && m.text);
+    if (!lastIncoming) { showAlert('Ainda não tem mensagem do cliente nessa conversa pra sugerir uma resposta.'); return; }
+    setIsGeneratingSuggestion(true);
+    try {
+      const [{ data: produtosRows }, { data: configRow }] = await Promise.all([
+        supabase.from('produtos').select('name, sale_price, current_stock, tipo_item, controla_estoque, is_active'),
+        supabase.from('configuracoes').select('enabled_payment_methods').eq('company_id', 'rafa-arts').maybeSingle(),
+      ]);
+      const produtos: KnowledgeProduct[] = (produtosRows || []).map((p: any) => ({
+        name: p.name, price: Number(p.sale_price) || 0, stock: Number(p.current_stock) || 0,
+        tipoItem: p.tipo_item, controlaEstoque: !!p.controla_estoque, isActive: p.is_active !== false,
+      }));
+      const suggestion = generateSuggestion({
+        clientMessage: lastIncoming.text,
+        clientName: conversation?.name,
+        produtos,
+        enabledPaymentMethods: configRow?.enabled_payment_methods || [],
+      });
+      setNewMessage(suggestion);
+    } catch (err) {
+      console.error('Erro ao gerar sugestão do Robozinho:', err);
+      showAlert('Não foi possível gerar a sugestão agora.');
+    } finally {
+      setIsGeneratingSuggestion(false);
+    }
+  };
   const [isSavingNames, setIsSavingNames] = useState(false);
   useEffect(() => {
     setNameFieldsDraft({
@@ -2487,6 +2520,16 @@ export const ChatPanel = ({
               <div className="p-3 bg-slate-100/50 border-t border-white/10 space-y-2 flex-shrink-0">
                 {/* BARRA DE RESPOSTAS RÁPIDAS / MENSAGENS SALVAS — escondida por padrão, só abre se clicar */}
                 <div className="flex flex-wrap items-center gap-1.5 pb-1">
+                  <button
+                    type="button"
+                    onClick={handleGenerateRobozinhoSuggestion}
+                    disabled={isGeneratingSuggestion}
+                    className="text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border border-primary-300 bg-primary-500/10 text-primary-700 hover:bg-primary-500/20 shadow-sm whitespace-nowrap transition-all shrink-0 cursor-pointer flex items-center gap-1 disabled:opacity-50"
+                    title="O Robozinho lê a última mensagem do cliente, consulta o estoque/produtos e sugere uma resposta pra você revisar"
+                  >
+                    {isGeneratingSuggestion ? <Loader2 size={10} className="animate-spin" /> : <Bot size={10} />}
+                    {isGeneratingSuggestion ? 'Pensando...' : 'Sugestão do Robozinho'}
+                  </button>
                   <button
                     type="button"
                     onClick={() => setShowQuickReplies(v => !v)}
