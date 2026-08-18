@@ -6,7 +6,7 @@ import { collection, query, where, getDocs } from 'firebase/firestore';
 import { cn } from './SharedUI';
 import { answerAdvancedQuestion } from '../lib/robozinhoRafa';
 import { Company, AppUser, Lead, SaleOrder } from '../types';
-import type { KnowledgeProduct } from '../lib/robozinhoRafa';
+import type { KnowledgeProduct, RobozinhoConversationContext } from '../lib/robozinhoRafa';
 
 // Robozinho Rafa — bolha de chat flutuante (estilo "suporte do site").
 //
@@ -35,6 +35,38 @@ export const AssistantChatWidget = ({ currentCompany, user }: { currentCompany: 
   const [sales, setSales] = useState<SaleOrder[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const hasWelcomedRef = useRef(false);
+  // Contexto da conversa (produto/cliente em discussão, opções pendentes) —
+  // mantido fora do state porque não precisa re-renderizar por si só, só
+  // influencia a próxima chamada ao motor de respostas.
+  const contextRef = useRef<RobozinhoConversationContext>({});
+  // Garante que o som de nova mensagem toque no máximo uma vez por id —
+  // protege contra duplicação em caso de re-render/stream.
+  const playedSoundIdsRef = useRef<Set<string>>(new Set());
+  const msgCounterRef = useRef(0);
+
+  const nextId = (prefix: string) => {
+    msgCounterRef.current += 1;
+    return `${prefix}-${Date.now()}-${msgCounterRef.current}`;
+  };
+
+  // Toca o som de nova mensagem UMA VEZ por mensagem — nunca ao abrir,
+  // digitar ou re-renderizar, só quando a mensagem realmente entra na conversa.
+  const playMessageSound = (id: string) => {
+    if (playedSoundIdsRef.current.has(id)) return;
+    playedSoundIdsRef.current.add(id);
+    try {
+      const audio = new Audio('/sounds/robozinho-apresentacao.mp3');
+      audio.play().catch(() => {}); // navegador pode bloquear autoplay — ignora sem quebrar a conversa
+    } catch (e) { /* ignora se o navegador bloquear */ }
+  };
+
+  // Adiciona uma mensagem do bot à conversa e dispara o som — ponto único
+  // pra isso acontecer, evitando duplicação de mensagem/som.
+  const pushBotMessage = (text: string) => {
+    const id = nextId('b');
+    setMessages(prev => [...prev, { id, role: 'bot', text }]);
+    playMessageSound(id);
+  };
 
   // Divide uma resposta longa em blocos menores (até 3), pra simular uma
   // pessoa mandando mensagens em sequência, em vez de um bloco único.
@@ -62,7 +94,8 @@ export const AssistantChatWidget = ({ currentCompany, user }: { currentCompany: 
   };
 
   // Abre o balão: a área de mensagens começa vazia. Aparece "digitando..." no
-  // cabeçalho por ~3s e só então chega a mensagem de apresentação, com som.
+  // cabeçalho por ~3s e só então chega a mensagem de apresentação (uma única
+  // vez por sessão — não repete se o usuário fechar e abrir de novo).
   const handleOpen = () => {
     setIsOpen(true);
     if (hasWelcomedRef.current) return;
@@ -70,11 +103,7 @@ export const AssistantChatWidget = ({ currentCompany, user }: { currentCompany: 
     setAssistantTyping(true);
     setTimeout(() => {
       setAssistantTyping(false);
-      setMessages(prev => [...prev, { id: 'welcome', role: 'bot', text: 'Oi! Eu sou o Robozinho Rafa 🤖 Pode perguntar sobre preço, estoque, último serviço de um cliente, ou qualquer outra coisa — eu consulto direto no sistema.' }]);
-      try {
-        const audio = new Audio('/sounds/robozinho-apresentacao.mp3');
-        audio.play().catch(() => {});
-      } catch (e) { /* ignora se o navegador bloquear */ }
+      pushBotMessage('Oi! Eu sou o Robozinho Rafa 🤖 Pode perguntar sobre preço, estoque, último serviço de um cliente, ou qualquer outra coisa — eu consulto direto no sistema.');
     }, 3000);
   };
 
@@ -111,7 +140,7 @@ export const AssistantChatWidget = ({ currentCompany, user }: { currentCompany: 
   const handleSend = async () => {
     const text = draft.trim();
     if (!text || sending) return;
-    const userMsg: ChatMessage = { id: `u-${Date.now()}`, role: 'user', text };
+    const userMsg: ChatMessage = { id: nextId('u'), role: 'user', text };
     setMessages(prev => [...prev, userMsg]);
     setDraft('');
     setSending(true);
@@ -131,24 +160,33 @@ export const AssistantChatWidget = ({ currentCompany, user }: { currentCompany: 
         isActive: row.is_active !== false,
       }));
 
+      // Últimas falas do próprio bot nesta conversa — só pra variar a resposta
+      // e não repetir apresentação/fallback (não interfere na lógica de dados)
+      const recentBotHistory = messages.filter(m => m.role === 'bot').slice(-6).map(m => m.text);
+
       // Gera resposta (função async) — a consulta ao sistema já acontece
-      // "por trás" do status digitando..., sem mexer na lógica de estoque/CRM
-      const { text: reply } = await answerAdvancedQuestion({
+      // "por trás" do status digitando..., sem mexer na lógica de estoque/CRM.
+      // Passa e recebe o contexto da conversa, pra próxima mensagem continuar
+      // do ponto onde parou (produto/cliente em discussão, opções pendentes).
+      const { text: reply, context: newContext } = await answerAdvancedQuestion({
         question: text,
         produtos,
         userName: user?.name,
         firebaseLeads: leads,
         supabaseSales: sales,
+        recentBotHistory,
+        context: contextRef.current,
       });
+      contextRef.current = newContext;
 
       // Mostra a resposta em blocos, como uma pessoa digitando mensagens em
-      // sequência, em vez de tudo de uma vez
+      // sequência, em vez de tudo de uma vez — cada bloco com seu próprio som
       const segments = splitReplyIntoSegments(reply);
       for (let i = 0; i < segments.length; i++) {
         setAssistantTyping(true);
         await new Promise(resolve => setTimeout(resolve, typingDelayFor(segments[i])));
         setAssistantTyping(false);
-        setMessages(prev => [...prev, { id: `b-${Date.now()}-${i}`, role: 'bot', text: segments[i] }]);
+        pushBotMessage(segments[i]);
         if (i < segments.length - 1) {
           await new Promise(resolve => setTimeout(resolve, 500));
         }
@@ -156,7 +194,7 @@ export const AssistantChatWidget = ({ currentCompany, user }: { currentCompany: 
     } catch (err) {
       console.error('Erro no chat do Robozinho Rafa:', err);
       setAssistantTyping(false);
-      setMessages(prev => [...prev, { id: `b-${Date.now()}`, role: 'bot', text: 'Deu um errinho pra consultar o sistema agora. Tenta de novo em instantes?' }]);
+      pushBotMessage('Não consegui consultar o sistema agora. Tenta novamente em alguns instantes.');
     } finally {
       setSending(false);
       setAssistantTyping(false);

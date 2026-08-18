@@ -80,6 +80,10 @@ function normalize(text: string): string {
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
+    // remove pontuação (?, !, ., vírgula...) pra "aba?" bater com "aba" —
+    // sem isso, qualquer pergunta com "?" no fim falhava na busca por palavra
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
     .trim();
 }
 
@@ -103,16 +107,20 @@ const PAYMENT_LABELS: Record<string, string> = {
 // se não achar nada, a sugestão não cita preço/estoque nenhum (regra 5: nunca inventar).
 function findMatchingProducts(clientMessage: string, produtos: KnowledgeProduct[]): KnowledgeProduct[] {
   const msg = normalize(clientMessage);
-  const words = msg.split(/\s+/).filter(w => w.length >= 4);
-  
-  // Match direto por nome
+  // Palavras de 3+ letras (fora da stoplist) — busca parcial/tolerante, não
+  // exige que o cliente digite o nome exatamente como está cadastrado.
+  const words = msg.split(/\s+/).filter(w => w.length >= 3 && !STOPWORDS.has(w));
+
+  // Match direto por nome (parcial, nos dois sentidos: palavra dentro do nome
+  // do produto, ou o nome do produto contido na palavra digitada)
   let matches = produtos.filter(p => {
     const nome = normalize(p.name);
-    return words.some(w => nome.includes(w));
+    return words.some(w => nome.includes(w) || w.includes(nome));
   });
 
-  // Se encontrou matches diretos, retorna (até 3)
-  if (matches.length > 0) return matches.slice(0, 3);
+  // Se encontrou matches diretos, retorna (até 4 — o suficiente pra oferecer
+  // as variações sem virar uma lista enorme)
+  if (matches.length > 0) return matches.slice(0, 4);
 
   // Match por quantidade/medida
   const temMilheiro = /milheiro|mil unidades/i.test(clientMessage);
@@ -250,85 +258,287 @@ export function answerAssistantQuestion(params: {
 
 // --- Chat avançado do Robozinho Rafa (widget com acesso a clientes e serviços) ---
 //
-// Versão assíncrona que consulta Firestore (leads) e Supabase (vendas/serviços)
-// para responder perguntas sobre clientes específicos, último serviço, etc.
-// Simula "digitação" com delay de 3 segundos antes de entregar a resposta completa.
+// Versão com MEMÓRIA DE CONTEXTO: entende a conversa como um todo (não trata
+// cada mensagem isoladamente), faz busca inteligente/parcial no estoque
+// (incluindo variações do mesmo produto — ex: "Aba do Tanque" / "Aba Lateral"),
+// identifica clientes mesmo sem frase-gatilho, evita repetir apresentação/
+// fallback, e varia as respostas pra soar menos robótico.
+
+// Palavrinhas curtas demais pra servirem de critério de busca sozinhas —
+// evita que "das", "com", "que" etc. deem match em qualquer produto.
+const STOPWORDS = new Set([
+  'que', 'com', 'para', 'uma', 'um', 'do', 'da', 'de', 'os', 'as', 'no', 'na',
+  'tem', 'ter', 'sim', 'nao', 'não', 'sao', 'são', 'foi', 'ela', 'ele', 'isso',
+  'essa', 'esse', 'esta', 'este', 'aqui', 'meu', 'sua', 'seu', 'vou', 'voce',
+  'você', 'quer', 'quero', 'como', 'qual', 'quando', 'onde', 'quem', 'mais',
+  'menos', 'ainda', 'agora', 'entao', 'então', 'pois', 'mas', 'ou', 'e',
+]);
+
+/** Escolhe uma frase entre as opções, evitando repetir a última usada no histórico. */
+function pickVariant(options: string[], recentBotHistory: string[] = []): string {
+  const recentNormalized = recentBotHistory.slice(-4).map(h => normalize(h));
+  const naoUsadas = options.filter(o => !recentNormalized.includes(normalize(o)));
+  const pool = naoUsadas.length > 0 ? naoUsadas : options;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+/** Palavras "significativas" (3+ letras, fora da stoplist) de um texto. */
+function meaningfulWords(text: string): string[] {
+  return normalize(text)
+    .split(/\s+/)
+    .filter(w => w.length >= 3 && !STOPWORDS.has(w));
+}
+
+/** Maior prefixo de palavras em comum entre todos os nomes de produto informados. */
+function commonWordPrefix(produtos: KnowledgeProduct[]): string[] {
+  if (produtos.length === 0) return [];
+  const listas = produtos.map(p => normalize(p.name).split(/\s+/));
+  const primeira = listas[0];
+  const prefixo: string[] = [];
+  for (let i = 0; i < primeira.length; i++) {
+    const palavra = primeira[i];
+    if (listas.every(l => l[i] === palavra)) {
+      prefixo.push(palavra);
+    } else {
+      break;
+    }
+  }
+  return prefixo;
+}
+
+function formatProductAnswer(p: KnowledgeProduct): string {
+  const partes = [`*${p.name}*: ${formatBRL(p.price)}`];
+  if (p.controlaEstoque) {
+    partes.push(p.stock > 0 ? `${p.stock} em estoque` : 'sem estoque no momento');
+  } else {
+    partes.push('sob encomenda');
+  }
+  return partes.join(' — ');
+}
+
+/**
+ * Monta a pergunta de esclarecimento quando há mais de um produto batendo
+ * com a busca — tenta agrupar como "variações do mesmo item" quando os
+ * nomes compartilham um prefixo comum (ex: "Aba do Tanque" / "Aba Lateral"),
+ * senão lista os nomes completos.
+ */
+function buildDisambiguationQuestion(matches: KnowledgeProduct[], recentBotHistory: string[]): string {
+  const prefixo = commonWordPrefix(matches);
+  const opener = pickVariant([
+    'Temos algumas opções de',
+    'Encontrei mais de uma opção de',
+    'Achei algumas variações de',
+  ], recentBotHistory);
+
+  if (prefixo.length > 0 && prefixo.join(' ').length >= 3) {
+    const baseTermo = prefixo.join(' ');
+    const sufixos = matches.map(p => {
+      const palavras = normalize(p.name).split(/\s+/);
+      const resto = palavras.slice(prefixo.length).join(' ');
+      return resto || p.name;
+    });
+    const listaSufixos = sufixos.length > 1
+      ? `${sufixos.slice(0, -1).join(', ')} ou ${sufixos[sufixos.length - 1]}`
+      : sufixos[0];
+    return `${opener} ${baseTermo}: ${listaSufixos}. Qual você procura?`;
+  }
+
+  const nomes = matches.slice(0, 4).map(p => p.name);
+  const listaNomes = nomes.length > 1
+    ? `${nomes.slice(0, -1).join(', ')} ou ${nomes[nomes.length - 1]}`
+    : nomes[0];
+  return `Encontrei algumas opções: ${listaNomes}. Qual delas você procura?`;
+}
+
+// Contexto que o widget guarda entre uma mensagem e outra, pra conversa fazer
+// sentido como um todo (item "memória e contexto da conversa").
+export interface RobozinhoConversationContext {
+  pendingProductCandidates?: KnowledgeProduct[] | null; // aguardando o cliente escolher a variação
+  lastProduct?: KnowledgeProduct | null; // último produto efetivamente respondido (pra "quanto?", "e a lateral?" etc.)
+  pendingClientCandidates?: any[] | null; // aguardando desambiguação de nome de cliente
+  lastClient?: any | null;
+}
+
+const EMPTY_CONTEXT: RobozinhoConversationContext = {};
+
+/**
+ * Versão assíncrona que consulta Firestore (leads) e Supabase (vendas/serviços)
+ * pra responder perguntas sobre clientes específicos, além de estoque/preço
+ * com busca parcial e memória do que já foi perguntado na conversa.
+ */
 export async function answerAdvancedQuestion(params: {
   question: string;
   produtos: KnowledgeProduct[];
   userName?: string | null;
   firebaseLeads?: any[]; // Array de Lead do Firestore
   supabaseSales?: any[]; // Array de SaleOrder do Supabase
-}): Promise<{ isTyping: boolean; text: string }> {
-  const { question, produtos, userName, firebaseLeads = [], supabaseSales = [] } = params;
+  /** Textos das últimas mensagens do próprio bot nesta conversa — usado só pra variar a resposta e não repetir. */
+  recentBotHistory?: string[];
+  /** Contexto acumulado da conversa (produto/cliente em discussão, opções pendentes). */
+  context?: RobozinhoConversationContext;
+}): Promise<{ text: string; context: RobozinhoConversationContext }> {
+  const {
+    question,
+    produtos,
+    firebaseLeads = [],
+    supabaseSales = [],
+    recentBotHistory = [],
+    context = EMPTY_CONTEXT,
+  } = params;
   const msg = normalize(question);
+  const produtosAtivos = produtos.filter(p => p.isActive);
 
-  // Padrões de perguntas sobre cliente/serviço
-  const asksClientService = /(ultimo servico|última serviço|ultimo pedido|última pedido|quando foi|que dia|quando fez|quando fizemos|coimbra|cliente.*serviço|serviço.*cliente)/i.test(msg);
-  const asksPrice = /(preco|preço|valor|quanto custa|quanto fica|quanto e|quanto é)/.test(msg);
-  const asksStock = /(estoque|tem disponivel|disponivel|tem pronto|em estoque|quantidade)/.test(msg);
+  const asksPrice = /(preco|preço|valor|quanto custa|quanto fica|quanto e|quanto é|quanto\??$)/.test(msg);
+  const asksStock = /(estoque|tem disponivel|disponivel|tem pronto|em estoque|quantidade|tem\??$)/.test(msg);
+  const asksClientService = /(ultimo servico|ultima servico|ultimo pedido|ultima pedido|quando foi|que dia|quando fez|quando fizemos|cliente.*servico|servico.*cliente|comprou|conhece)/i.test(msg);
+  const isGreeting = /^(oi|ola|bom dia|boa tarde|boa noite|opa|eae|e ai)\b/.test(msg);
+  const isReferentialOther = /(a outra|o outro|outra opcao|outro modelo)/.test(msg);
+  const isReferentialSame = /^(essa|esse|essa mesma|esse mesmo|esse aqui|essa aqui|esse ai|essa ai)\??$/.test(msg);
 
-  // Tenta extrair nome do cliente da pergunta (ex: "coimbra" → busca por cliente com "coimbra" no nome)
-  const clienteMatch = question.match(/\b([\w\s]{3,})\b\s*(serviço|serviço|pedido|última|ultimo|quando)/i);
-  const clienteNome = clienteMatch ? clienteMatch[1].trim() : null;
+  // --- 1) Se há opções de produto pendentes de escolha, tenta resolver com a resposta curta ---
+  if (context.pendingProductCandidates && context.pendingProductCandidates.length > 0) {
+    const candidatos = context.pendingProductCandidates;
 
-  // Se pergunta sobre cliente/serviço e temos dados, busca
-  if (asksClientService && (firebaseLeads.length > 0 || supabaseSales.length > 0)) {
-    // Normaliza e busca cliente por nome (case-insensitive, acentuação)
-    const leads = firebaseLeads.filter(l => {
-      const nome = normalize(l.fullName || l.contactName || l.whatsappName || '');
-      if (!clienteNome) return false;
-      return nome.includes(normalize(clienteNome));
-    });
+    if (isReferentialOther && candidatos.length === 2) {
+      const escolhido = candidatos.find(c => c !== context.lastProduct) || candidatos[0];
+      return {
+        text: formatProductAnswer(escolhido),
+        context: { ...context, pendingProductCandidates: null, lastProduct: escolhido },
+      };
+    }
 
-    if (leads.length > 0) {
-      const lead = leads[0];
-      // Busca vendas/serviços deste cliente
+    const palavrasResposta = meaningfulWords(question);
+    const restritos = palavrasResposta.length > 0
+      ? candidatos.filter(c => {
+          const nome = normalize(c.name);
+          return palavrasResposta.some(w => nome.includes(w));
+        })
+      : [];
+
+    if (restritos.length === 1) {
+      return {
+        text: formatProductAnswer(restritos[0]),
+        context: { ...context, pendingProductCandidates: null, lastProduct: restritos[0] },
+      };
+    }
+    if (restritos.length > 1) {
+      return {
+        text: buildDisambiguationQuestion(restritos, recentBotHistory),
+        context: { ...context, pendingProductCandidates: restritos },
+      };
+    }
+    // Não bateu com nenhuma opção pendente — segue o fluxo normal (pode ser um assunto novo)
+  }
+
+  // --- 2) "quanto?" / "esse mesmo" sem produto novo mencionado → reusa o produto em discussão ---
+  if ((asksPrice || asksStock || isReferentialSame) && context.lastProduct) {
+    const semProdutoNovo = meaningfulWords(question).every(w => !normalize(context.lastProduct!.name).includes(w))
+      || meaningfulWords(question).length === 0;
+    if (semProdutoNovo) {
+      return {
+        text: formatProductAnswer(context.lastProduct),
+        context: { ...context, pendingProductCandidates: null },
+      };
+    }
+  }
+
+  // --- 3) Pergunta sobre cliente/pessoa — reconhece nome mesmo sem frase-gatilho ---
+  const palavrasMsg = meaningfulWords(question);
+  const clientesPorNome = firebaseLeads.filter(l => {
+    const nome = normalize(l.fullName || l.contactName || l.whatsappName || '');
+    const nomeWords = nome.split(/\s+/);
+    return palavrasMsg.some(w => nomeWords.some(nw => nw === w || nw.startsWith(w) || w.startsWith(nw)));
+  });
+
+  if ((asksClientService || clientesPorNome.length > 0) && firebaseLeads.length > 0) {
+    if (clientesPorNome.length > 1) {
+      return {
+        text: 'Encontrei mais de uma pessoa com esse nome. Você sabe o sobrenome ou algum outro detalhe pra eu identificar a pessoa certa?',
+        context: { ...context, pendingClientCandidates: clientesPorNome },
+      };
+    }
+    if (clientesPorNome.length === 1) {
+      const lead = clientesPorNome[0];
       const salesDoCliente = supabaseSales.filter(s => s.customerId === lead.id || normalize(s.customerName || '').includes(normalize(lead.fullName || '')));
 
       if (salesDoCliente.length > 0) {
-        // Ordena por data (mais recente primeiro)
-        const sorted = salesDoCliente.sort((a: any, b: any) => {
+        const sorted = [...salesDoCliente].sort((a: any, b: any) => {
           const dateA = new Date(a.createdAt || 0).getTime();
           const dateB = new Date(b.createdAt || 0).getTime();
           return dateB - dateA;
         });
-
         const ultimo = sorted[0];
         const dataServico = ultimo.createdAt ? new Date(ultimo.createdAt).toLocaleDateString('pt-BR') : 'data desconhecida';
-        const texto = `O último serviço de ${lead.fullName} foi em ${dataServico}. Status: ${ultimo.serviceStatus || ultimo.status || 'desconhecido'}.`;
-        
-        return { isTyping: true, text: texto };
+        return {
+          text: `O último serviço de ${lead.fullName} foi em ${dataServico}. Status: ${ultimo.serviceStatus || ultimo.status || 'desconhecido'}.`,
+          context: { ...context, lastClient: lead, pendingClientCandidates: null },
+        };
       }
-
-      return { isTyping: false, text: `Encontrei o cliente ${lead.fullName}, mas não há serviços/pedidos registrados.` };
+      return {
+        text: `Encontrei ${lead.fullName} aqui no sistema, mas não tem nenhum serviço ou pedido registrado ainda.`,
+        context: { ...context, lastClient: lead, pendingClientCandidates: null },
+      };
     }
-
-    // Cliente não encontrado
-    if (clienteNome) {
-      return { isTyping: false, text: `Não encontrei um cliente com nome "${clienteNome}" no sistema.` };
+    if (asksClientService) {
+      return {
+        text: 'Não encontrei ninguém com esse nome no sistema. Confere se digitou certinho?',
+        context,
+      };
     }
   }
 
-  // Pergunta sobre produtos (usa lógica síncrona anterior)
-  if (asksPrice || asksStock) {
-    const matches = findMatchingProducts(question, produtos.filter(p => p.isActive));
-    if (matches.length > 0) {
-      const linhas = matches.map(p => {
-        const partes = [`*${p.name}*: ${formatBRL(p.price)}`];
-        if (p.controlaEstoque) {
-          partes.push(p.stock > 0 ? `${p.stock} em estoque` : 'sem estoque no momento');
-        } else {
-          partes.push('sob encomenda');
-        }
-        return partes.join(' — ');
-      });
-      const texto = `Consultei aqui no sistema:\n${linhas.join('\n')}`;
-      return { isTyping: false, text: texto };
+  // --- 4) Pergunta sobre produto/estoque — busca inteligente com variações ---
+  if (asksPrice || asksStock || palavrasMsg.length > 0) {
+    const matches = findMatchingProducts(question, produtosAtivos);
+
+    if (matches.length === 1) {
+      return {
+        text: formatProductAnswer(matches[0]),
+        context: { ...context, pendingProductCandidates: null, lastProduct: matches[0] },
+      };
     }
-    return { isTyping: false, text: 'Não achei esse item cadastrado no Estoque/Produtos. Confere o nome certinho?' };
+    if (matches.length > 1) {
+      return {
+        text: buildDisambiguationQuestion(matches, recentBotHistory),
+        context: { ...context, pendingProductCandidates: matches },
+      };
+    }
+    if (asksPrice || asksStock) {
+      return {
+        text: pickVariant([
+          'Não consegui localizar esse produto no estoque. Se você me explicar um pouco melhor qual modelo está procurando, eu tento encontrar para você.',
+          'Não encontrei nada parecido cadastrado. Consegue me dar mais detalhes do item?',
+        ], recentBotHistory),
+        context,
+      };
+    }
   }
 
-  // Fallback
-  return { isTyping: false, text: 'Pode perguntar sobre preço, estoque, último serviço de um cliente ou qualquer outra coisa que eu consulto aqui no sistema.' };
+  // --- 5) Saudação — variação, sem repetir a apresentação inicial ---
+  if (isGreeting) {
+    return {
+      text: pickVariant([
+        'Oi! Como posso te ajudar?',
+        'Opa! Me conta o que você precisa.',
+        'Oi! Pronto pra ajudar — o que você precisa?',
+      ], recentBotHistory),
+      context,
+    };
+  }
+
+  // --- 6) Fallback inteligente — usa o contexto antes de dizer que não entendeu ---
+  if (context.lastProduct) {
+    return {
+      text: `Você está perguntando sobre *${context.lastProduct.name}* ou sobre outra coisa?`,
+      context,
+    };
+  }
+
+  return {
+    text: pickVariant([
+      'Não consegui entender exatamente o que você quis dizer. Pode me explicar um pouco melhor?',
+      'Não peguei bem essa. Pode reformular pra eu te ajudar certinho?',
+    ], recentBotHistory),
+    context,
+  };
 }
