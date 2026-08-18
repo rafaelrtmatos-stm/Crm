@@ -396,6 +396,89 @@ const DEFAULT_WIDGETS: DashboardWidget[] = [
 ];
 
 // Converte uma linha da tabela "vendas" (Supabase) para o formato SaleOrder usado no app
+// --- Mapeamento Funil/Etapas/Leads (migrados do Firestore pro Supabase) ---
+const mapFunnelRow = (row: any): Funnel => ({
+  id: row.id,
+  companyId: row.company_id,
+  name: row.name,
+  description: row.description || undefined,
+  color: row.color || undefined,
+  isDefault: !!row.is_default,
+  isActive: row.is_active !== false,
+  order: row.order ?? undefined,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+const mapFunnelStageRow = (row: any): FunnelStage => ({
+  id: row.id,
+  funnelId: row.funnel_id,
+  name: row.name,
+  order: row.order ?? 0,
+  color: row.color || undefined,
+  isInitial: !!row.is_initial,
+  isFinal: !!row.is_final,
+  isLost: !!row.is_lost,
+  slaMinutes: row.sla_minutes ?? undefined,
+  automations: row.automations || undefined,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+const mapLeadRow = (row: any): Lead => ({
+  id: row.id,
+  companyId: row.company_id,
+  fullName: row.full_name,
+  whatsappName: row.whatsapp_name || undefined,
+  contactName: row.contact_name || undefined,
+  firstName: row.first_name || undefined,
+  lastName: row.last_name || undefined,
+  phone: row.phone,
+  email: row.email || undefined,
+  cpfCnpj: row.cpf_cnpj || undefined,
+  city: row.city || undefined,
+  state: row.state || undefined,
+  priority: row.priority || undefined,
+  responsibleUserId: row.responsible_user_id || undefined,
+  funnelId: row.funnel_id || undefined,
+  funnelStageId: row.funnel_stage_id || undefined,
+  sourceType: row.source_type || undefined,
+  lastMessageText: row.last_message_text || undefined,
+  lastMessageDirection: row.last_message_direction || undefined,
+  waitingSince: row.waiting_since || undefined,
+  estimatedValue: row.estimated_value !== null ? Number(row.estimated_value) : undefined,
+  tags: row.tags || undefined,
+  tracking: row.tracking || undefined,
+  status: row.status || undefined,
+  autoTranscribe: row.auto_transcribe !== false,
+  muted: !!row.muted,
+  unread: !!row.unread,
+  archived: !!row.archived,
+  createdBy: row.created_by || undefined,
+  updatedBy: row.updated_by || undefined,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+} as Lead);
+
+const mapCrmMessageRow = (row: any): any => ({
+  id: row.id,
+  companyId: row.company_id,
+  leadId: row.lead_id || undefined,
+  phone: row.phone,
+  text: row.text || undefined,
+  direction: row.direction,
+  isNote: !!row.is_note,
+  senderName: row.sender_name || undefined,
+  channel: row.channel || 'WhatsApp',
+  mediaUrl: row.media_url || undefined,
+  transcription: row.transcription || undefined,
+  versions: row.versions || undefined,
+  currentVersionIndex: row.current_version_index ?? undefined,
+  lastEditedAt: row.last_edited_at || undefined,
+  lastEditedBy: row.last_edited_by || undefined,
+  createdAt: row.created_at,
+});
+
 const mapVendaRow = (row: any): SaleOrder => ({
   id: row.id,
   companyId: row.company_id,
@@ -732,12 +815,13 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   useEffect(() => {
     const canSeeMsg = user?.isAdmin || user?.modulePermissions?.messages?.view;
     if (!canSeeMsg || !currentCompany) return;
-    const q = query(collection(db, 'leads'), where('companyId', '==', currentCompany.id));
-    const unsub = onSnapshot(q, (snap) => {
-      const comMensagem = snap.docs.filter(d => !!(d.data() as any).lastMessageText).length;
-      setConversasAtivas(comMensagem);
-    });
-    return () => unsub();
+    const loadCount = async () => {
+      const { data } = await supabase.from('leads').select('last_message_text').eq('company_id', currentCompany.id);
+      setConversasAtivas((data || []).filter((r: any) => !!r.last_message_text).length);
+    };
+    loadCount();
+    const channel = supabase.channel('dash-conversas-ativas').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.${currentCompany.id}` }, loadCount).subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, [user?.isAdmin, user?.modulePermissions, currentCompany]);
 
   useEffect(() => {
@@ -1858,18 +1942,23 @@ export const ChatPanel = ({
   useEffect(() => {
     if (!effectiveFunnelId) { setFunnelStages([]); return; }
     if (conversation?.id && !conversation?.funnelId && fallbackFunnelId) {
-      updateDoc(doc(db, 'leads', conversation.id), { funnelId: fallbackFunnelId }).catch(() => {});
+      supabase.from('leads').update({ funnel_id: fallbackFunnelId }).eq('id', conversation.id).then(() => {});
     }
-    const q = query(collection(db, 'funnelStages'), where('funnelId', '==', effectiveFunnelId), orderBy('order', 'asc'));
-    const unsub = onSnapshot(q, (snap) => setFunnelStages(snap.docs.map(d => ({ id: d.id, ...d.data() })) as FunnelStage[]));
-    return () => unsub();
+    const loadStages = async () => {
+      const { data } = await supabase.from('funnel_stages').select('*').eq('funnel_id', effectiveFunnelId).order('order', { ascending: true });
+      setFunnelStages((data || []).map(mapFunnelStageRow));
+    };
+    loadStages();
+    const channel = supabase.channel(`chatpanel-stages-${effectiveFunnelId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'funnel_stages', filter: `funnel_id=eq.${effectiveFunnelId}` }, loadStages).subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, [effectiveFunnelId, conversation?.id]);
 
   const handleChangeStageFromChat = async (novaStageId: string) => {
     if (!conversation?.id || novaStageId === conversation.funnelStageId) return;
     setIsChangingStage(true);
     try {
-      await updateDoc(doc(db, 'leads', conversation.id), { funnelStageId: novaStageId, updatedAt: Timestamp.now() });
+      const { error } = await supabase.from('leads').update({ funnel_stage_id: novaStageId, updated_at: new Date().toISOString() }).eq('id', conversation.id);
+      if (error) throw error;
     } catch (err) {
       console.error('Erro ao mudar etapa:', err);
       showAlert('Não foi possível mudar a etapa.');
@@ -1927,12 +2016,12 @@ export const ChatPanel = ({
     if (!conversation?.id) return;
     setIsSavingNames(true);
     try {
-      await updateDoc(doc(db, 'leads', conversation.id), {
-        whatsappName: nameFieldsDraft.whatsappName.trim(),
-        contactName: nameFieldsDraft.contactName.trim(),
-        fullName: nameFieldsDraft.fullName.trim() || conversation.name,
-        updatedAt: Timestamp.now(),
-      });
+      await supabase.from('leads').update({
+        whatsapp_name: nameFieldsDraft.whatsappName.trim(),
+        contact_name: nameFieldsDraft.contactName.trim(),
+        full_name: nameFieldsDraft.fullName.trim() || conversation.name,
+        updated_at: new Date().toISOString(),
+      }).eq('id', conversation.id);
     } catch (err) {
       console.error('Erro ao salvar nomes:', err);
       showAlert('Não foi possível salvar os nomes.');
@@ -1972,23 +2061,23 @@ export const ChatPanel = ({
     if (!newNoteText.trim() || !conversation || !currentCompany) return;
     setIsSavingNote(true);
     try {
-      await addDoc(collection(db, 'messages'), {
-        companyId: currentCompany.id,
+      await supabase.from('crm_messages').insert({
+        company_id: currentCompany.id,
+        lead_id: conversation.id || null,
         phone: conversation.phone,
         text: newNoteText.trim(),
         direction: 'note',
-        isNote: true,
-        senderName: user?.name || 'Sistema',
+        is_note: true,
+        sender_name: user?.name || 'Sistema',
         channel: conversation.sourceType || 'WhatsApp',
-        createdAt: Timestamp.now(),
         // Histórico de versões: admin pode navegar
         versions: [{
           text: newNoteText.trim(),
-          editedAt: Timestamp.now(),
+          editedAt: new Date().toISOString(),
           editedBy: user?.name || 'Sistema',
           versionIndex: 0,
         }],
-        currentVersionIndex: 0,
+        current_version_index: 0,
       });
       setNewNoteText('');
     } catch (err) {
@@ -2007,7 +2096,7 @@ export const ChatPanel = ({
     }
     if (!(await showConfirm('Excluir esta nota permanentemente?'))) return;
     try { 
-      await deleteDoc(doc(db, 'messages', note.id)); 
+      await supabase.from('crm_messages').delete().eq('id', note.id); 
     } catch (err) { 
       console.error('Erro ao excluir nota:', err);
       showAlert('Não foi possível excluir a nota.');
@@ -2030,19 +2119,19 @@ export const ChatPanel = ({
         ...currentVersions,
         {
           text: newText,
-          editedAt: Timestamp.now(),
+          editedAt: new Date().toISOString(),
           editedBy: user?.name || 'Sistema',
           versionIndex: currentVersions.length,
         },
       ];
       
-      await updateDoc(doc(db, 'messages', note.id), {
+      await supabase.from('crm_messages').update({
         text: newText,
         versions: newVersions,
-        currentVersionIndex: newVersions.length - 1,
-        lastEditedAt: Timestamp.now(),
-        lastEditedBy: user?.name || 'Sistema',
-      });
+        current_version_index: newVersions.length - 1,
+        last_edited_at: new Date().toISOString(),
+        last_edited_by: user?.name || 'Sistema',
+      }).eq('id', note.id);
       
       setEditingNoteId(null);
       setEditingNoteText('');
@@ -2139,9 +2228,9 @@ export const ChatPanel = ({
     setTranscribingId(message.id);
     try {
       const texto = await transcribeAudioMessage(message.mediaUrl);
-      await updateDoc(doc(db, 'messages', message.id), {
+      await supabase.from('crm_messages').update({
         transcription: { text: texto, isAutomatic: false, isVisible: true },
-      });
+      }).eq('id', message.id);
     } catch (err: any) {
       showAlert(err?.message || 'Não foi possível transcrever esse áudio.');
     } finally {
@@ -2151,7 +2240,7 @@ export const ChatPanel = ({
   const handleToggleAutoTranscribe = async () => {
     if (!conversation?.id) return;
     try {
-      await updateDoc(doc(db, 'leads', conversation.id), { autoTranscribe: !conversation.autoTranscribe });
+      await supabase.from('leads').update({ auto_transcribe: !conversation.autoTranscribe }).eq('id', conversation.id);
     } catch (err) {
       console.error('Erro ao atualizar transcrição automática:', err);
     }
@@ -2213,15 +2302,16 @@ export const ChatPanel = ({
 
   useEffect(() => {
     if (!conversation || !currentCompany) return;
-    const q = query(
-      collection(db, 'messages'),
-      where('companyId', '==', currentCompany.id),
-      where('phone', '==', conversation.phone),
-      orderBy('createdAt', 'asc')
-    );
-    return onSnapshot(q, (snap) => {
-      setMessages(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
+    const loadMessages = async () => {
+      const { data } = await supabase.from('crm_messages').select('*')
+        .eq('company_id', currentCompany.id)
+        .eq('phone', conversation.phone)
+        .order('created_at', { ascending: true });
+      setMessages((data || []).map(mapCrmMessageRow));
+    };
+    loadMessages();
+    const channel = supabase.channel(`chat-messages-${conversation.phone}`).on('postgres_changes', { event: '*', schema: 'public', table: 'crm_messages', filter: `phone=eq.${conversation.phone}` }, loadMessages).subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, [conversation, currentCompany]);
 
   useEffect(() => {
@@ -2231,22 +2321,22 @@ export const ChatPanel = ({
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !conversation || !currentCompany) return;
     try {
-      await addDoc(collection(db, 'messages'), {
-        companyId: currentCompany.id,
+      await supabase.from('crm_messages').insert({
+        company_id: currentCompany.id,
+        lead_id: conversation.id || null,
         phone: conversation.phone,
         text: newMessage,
         direction: 'outgoing',
-        senderName: user?.name || 'Sistema',
+        sender_name: user?.name || 'Sistema',
         channel: conversation.sourceType || 'WhatsApp',
-        createdAt: Timestamp.now()
       });
       // Also update lead's last message
-      await updateDoc(doc(db, 'leads', conversation.id), {
-        lastMessageText: newMessage,
-        lastMessageDirection: 'outgoing',
-        waitingSince: null,
-        updatedAt: Timestamp.now()
-      });
+      await supabase.from('leads').update({
+        last_message_text: newMessage,
+        last_message_direction: 'outgoing',
+        waiting_since: null,
+        updated_at: new Date().toISOString(),
+      }).eq('id', conversation.id);
       setNewMessage('');
     } catch (err) {
       console.error('Falha ao enviar mensagem:', err);
@@ -2259,22 +2349,22 @@ export const ChatPanel = ({
     if (!clientText.trim()) return;
 
     try {
-      await addDoc(collection(db, 'messages'), {
-        companyId: currentCompany.id,
+      await supabase.from('crm_messages').insert({
+        company_id: currentCompany.id,
+        lead_id: conversation.id || null,
         phone: conversation.phone || '(62) 99999-9999',
         text: clientText,
         direction: 'incoming',
-        senderName: conversation.name || 'Cliente de Teste',
+        sender_name: conversation.name || 'Cliente de Teste',
         channel: conversation.channel || conversation.sourceType || 'WhatsApp',
-        createdAt: Timestamp.now()
       });
 
-      await updateDoc(doc(db, 'leads', conversation.id), {
-        lastMessageText: clientText,
-        lastMessageDirection: 'incoming',
-        waitingSince: Timestamp.now(),
-        updatedAt: Timestamp.now()
-      });
+      await supabase.from('leads').update({
+        last_message_text: clientText,
+        last_message_direction: 'incoming',
+        waiting_since: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }).eq('id', conversation.id);
     } catch (err) {
       console.error('Falha ao simular mensagem do cliente:', err);
     }
@@ -2974,28 +3064,37 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
 
   useEffect(() => {
     if (!currentCompany) return;
-    const qF = query(collection(db, 'funnels'), where('companyId', '==', currentCompany.id));
-    const unsubscribeFunnels = onSnapshot(qF, (snapshot) => {
-      const funnelData = snapshot.docs.map(d => ({ id: d.id, ...d.data() }) as Funnel);
+    const loadFunnels = async () => {
+      const { data } = await supabase.from('funnels').select('*').eq('company_id', currentCompany.id);
+      const funnelData = (data || []).map(mapFunnelRow);
       setFunnels(funnelData);
-      if (funnelData.length > 0 && !selectedFunnelId) {
-        setSelectedFunnelId(funnelData[0].id);
-      }
-    });
+      setSelectedFunnelId(prev => prev || (funnelData.length > 0 ? funnelData[0].id : prev));
+    };
+    const loadLeads = async () => {
+      const { data } = await supabase.from('leads').select('*').eq('company_id', currentCompany.id).order('updated_at', { ascending: false });
+      setLeads((data || []).map(mapLeadRow));
+    };
+    loadFunnels();
+    loadLeads();
 
-    const qL = query(collection(db, 'leads'), where('companyId', '==', currentCompany.id), orderBy('updatedAt', 'desc'));
-    const unsubscribeLeads = onSnapshot(qL, (snapshot) => setLeads(snapshot.docs.map(d => ({ id: d.id, ...d.data() }) as Lead)));
+    const funnelsChannel = supabase.channel('crm-funnels').on('postgres_changes', { event: '*', schema: 'public', table: 'funnels', filter: `company_id=eq.${currentCompany.id}` }, loadFunnels).subscribe();
+    const leadsChannel = supabase.channel('crm-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.${currentCompany.id}` }, loadLeads).subscribe();
 
     return () => {
-      unsubscribeFunnels();
-      unsubscribeLeads();
+      supabase.removeChannel(funnelsChannel);
+      supabase.removeChannel(leadsChannel);
     };
   }, [currentCompany]);
 
   useEffect(() => {
     if (!selectedFunnelId) return;
-    const qS = query(collection(db, 'funnelStages'), where('funnelId', '==', selectedFunnelId), orderBy('order', 'asc'));
-    return onSnapshot(qS, (snapshot) => setStages(snapshot.docs.map(d => ({ id: d.id, ...d.data() }) as FunnelStage)));
+    const loadStages = async () => {
+      const { data } = await supabase.from('funnel_stages').select('*').eq('funnel_id', selectedFunnelId).order('order', { ascending: true });
+      setStages((data || []).map(mapFunnelStageRow));
+    };
+    loadStages();
+    const stagesChannel = supabase.channel(`crm-stages-${selectedFunnelId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'funnel_stages', filter: `funnel_id=eq.${selectedFunnelId}` }, loadStages).subscribe();
+    return () => { supabase.removeChannel(stagesChannel); };
   }, [selectedFunnelId]);
 
   // Chegou aqui vindo do popup de Mensagens do menu lateral ou do botao "Ver no
@@ -3034,10 +3133,10 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
 
     if (lead && overStageId && lead.funnelStageId !== overStageId) {
       try {
-        await updateDoc(doc(db, 'leads', leadId), { 
-          funnelStageId: overStageId,
-          updatedAt: Timestamp.now()
-        });
+        await supabase.from('leads').update({ 
+          funnel_stage_id: overStageId,
+          updated_at: new Date().toISOString(),
+        }).eq('id', leadId);
       } catch (err) {
         console.error('Kanban: Fallback move failed', err);
       }
@@ -3065,12 +3164,12 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     const name = await showPrompt('Nome do novo funil:');
     if (!name || !currentCompany) return;
     try {
-      const newFunnel = await addDoc(collection(db, 'funnels'), {
-        companyId: currentCompany.id,
+      const { data: newFunnel, error } = await supabase.from('funnels').insert({
+        company_id: currentCompany.id,
         name,
-        isActive: true,
-        createdAt: Timestamp.now(),
-      });
+        is_active: true,
+      }).select().single();
+      if (error) throw error;
       setSelectedFunnelId(newFunnel.id);
       setFunnelMenuOpen(false);
       showAlert(`Funil "${name}" criado com sucesso!`);
@@ -3090,17 +3189,11 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     if (!(await showConfirm(`Excluir o funil "${funnel.name}" e TODOS os leads nele?\n\nEssa ação não pode ser desfeita.`))) return;
     try {
       // Excluir todos os leads do funil
-      const leadsInFunnel = leads.filter(l => l.funnelId === funnelId);
-      for (const lead of leadsInFunnel) {
-        await deleteDoc(doc(db, 'leads', lead.id));
-      }
+      await supabase.from('leads').delete().eq('funnel_id', funnelId);
       // Excluir todas as etapas do funil
-      const stagesInFunnel = stages.filter(s => s.funnelId === funnelId);
-      for (const stage of stagesInFunnel) {
-        await deleteDoc(doc(db, 'funnelStages', stage.id));
-      }
+      await supabase.from('funnel_stages').delete().eq('funnel_id', funnelId);
       // Excluir o funil
-      await deleteDoc(doc(db, 'funnels', funnelId));
+      await supabase.from('funnels').delete().eq('id', funnelId);
       // Trocar pra outro funil
       if (selectedFunnelId === funnelId && funnels.length > 1) {
         const nextFunnel = funnels.find(f => f.id !== funnelId);
@@ -3119,12 +3212,10 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     const name = await showPrompt('Nome da nova etapa:');
     if (!name) return;
     try {
-      await addDoc(collection(db, 'funnelStages'), {
-        funnelId: selectedFunnelId,
+      await supabase.from('funnel_stages').insert({
+        funnel_id: selectedFunnelId,
         name,
         order: stages.length,
-        createdAt: Timestamp.now(),
-        updatedAt: Timestamp.now(),
       });
       setFunnelMenuOpen(false);
       showAlert(`Etapa "${name}" criada!`);
@@ -3140,15 +3231,10 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     if (!(await showConfirm(`Excluir a etapa "${stage.name}" e reclassificar todos os leads?\n\nEssa ação não pode ser desfeita.`))) return;
     try {
       // Reclassificar leads: mover pra primeira etapa
-      const leadsInStage = leads.filter(l => l.funnelStageId === stageId);
       const firstStage = stages.find(s => s.order === 0);
-      for (const lead of leadsInStage) {
-        await updateDoc(doc(db, 'leads', lead.id), {
-          funnelStageId: firstStage?.id || null,
-        });
-      }
+      await supabase.from('leads').update({ funnel_stage_id: firstStage?.id || null }).eq('funnel_stage_id', stageId);
       // Excluir a etapa
-      await deleteDoc(doc(db, 'funnelStages', stageId));
+      await supabase.from('funnel_stages').delete().eq('id', stageId);
       setFunnelMenuOpen(false);
       showAlert(`Etapa "${stage.name}" excluída e leads reclassificados.`);
     } catch (err) {
@@ -3172,7 +3258,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     const name = funnelNameDraft.trim();
     if (!selectedFunnelId || !name || name === currentFunnel?.name) return;
     try {
-      await updateDoc(doc(db, 'funnels', selectedFunnelId), { name });
+      await supabase.from('funnels').update({ name }).eq('id', selectedFunnelId);
     } catch (err) {
       console.error('Erro ao renomear funil:', err);
       showAlert('Não foi possível renomear o funil.');
@@ -3182,7 +3268,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
   const handleSetFunnelColor = async (color: string) => {
     if (!selectedFunnelId) return;
     try {
-      await updateDoc(doc(db, 'funnels', selectedFunnelId), { color });
+      await supabase.from('funnels').update({ color }).eq('id', selectedFunnelId);
     } catch (err) {
       console.error('Erro ao definir cor do funil:', err);
       showAlert('Não foi possível salvar a cor do funil.');
@@ -3200,7 +3286,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     const stage = stages.find(s => s.id === stageId);
     if (!name || !stage || name === stage.name) return;
     try {
-      await updateDoc(doc(db, 'funnelStages', stageId), { name, updatedAt: Timestamp.now() });
+      await supabase.from('funnel_stages').update({ name, updated_at: new Date().toISOString() }).eq('id', stageId);
     } catch (err) {
       console.error('Erro ao renomear etapa:', err);
       showAlert('Não foi possível renomear a etapa.');
@@ -3209,7 +3295,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
 
   const handleSetStageColor = async (stageId: string, color: string) => {
     try {
-      await updateDoc(doc(db, 'funnelStages', stageId), { color, updatedAt: Timestamp.now() });
+      await supabase.from('funnel_stages').update({ color, updated_at: new Date().toISOString() }).eq('id', stageId);
     } catch (err) {
       console.error('Erro ao definir cor da etapa:', err);
       showAlert('Não foi possível salvar a cor da etapa.');
@@ -3222,10 +3308,10 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
       const taskTitle = await showPrompt('Título da tarefa a criar automaticamente ao entrar nessa etapa:', 'Fazer contato com o lead');
       if (!taskTitle) return;
       try {
-        await updateDoc(doc(db, 'funnelStages', stage.id), {
+        await supabase.from('funnel_stages').update({
           automations: { ...(stage.automations || {}), createTask: true, taskTitle },
-          updatedAt: Timestamp.now(),
-        });
+          updated_at: new Date().toISOString(),
+        }).eq('id', stage.id);
         showAlert(`Automação ativada na etapa "${stage.name}": cria a tarefa "${taskTitle}" automaticamente.`);
       } catch (err) {
         console.error('Erro ao ativar automação:', err);
@@ -3234,10 +3320,10 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     } else {
       if (!(await showConfirm(`Desativar a criação automática de tarefa na etapa "${stage.name}"?`))) return;
       try {
-        await updateDoc(doc(db, 'funnelStages', stage.id), {
+        await supabase.from('funnel_stages').update({
           automations: { ...(stage.automations || {}), createTask: false },
-          updatedAt: Timestamp.now(),
-        });
+          updated_at: new Date().toISOString(),
+        }).eq('id', stage.id);
       } catch (err) {
         console.error('Erro ao desativar automação:', err);
         showAlert('Não foi possível desativar a automação.');
@@ -3382,12 +3468,10 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
               onClick={async () => {
                 const name = await showPrompt('Nome da nova etapa:');
                 if(name && selectedFunnelId) {
-                  await addDoc(collection(db, 'funnelStages'), {
-                    funnelId: selectedFunnelId,
+                  await supabase.from('funnel_stages').insert({
+                    funnel_id: selectedFunnelId,
                     name,
                     order: stages.length,
-                    createdAt: Timestamp.now(),
-                    updatedAt: Timestamp.now()
                   });
                 }
               }}
@@ -3726,33 +3810,21 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
   const getInitialStageInfo = async () => {
     if (!currentCompany) return { funnelId: null, funnelStageId: null };
     try {
-      const funnelQ = query(
-        collection(db, 'funnels'),
-        where('companyId', '==', currentCompany.id),
-        where('isDefault', '==', true),
-        limit(1)
-      );
-      let funnelSnap = await getDocs(funnelQ);
-      if (funnelSnap.empty) {
-        const anyFunnelQ = query(collection(db, 'funnels'), where('companyId', '==', currentCompany.id), limit(1));
-        funnelSnap = await getDocs(anyFunnelQ);
+      let { data: funnelRows } = await supabase.from('funnels').select('id').eq('company_id', currentCompany.id).eq('is_default', true).limit(1);
+      if (!funnelRows || funnelRows.length === 0) {
+        const { data } = await supabase.from('funnels').select('id').eq('company_id', currentCompany.id).limit(1);
+        funnelRows = data;
       }
-      
-      if (!funnelSnap.empty) {
-        const funnelId = funnelSnap.docs[0].id;
-        const stageQ = query(
-          collection(db, 'funnelStages'),
-          where('funnelId', '==', funnelId),
-          where('isInitial', '==', true),
-          limit(1)
-        );
-        let stageSnap = await getDocs(stageQ);
-        if (stageSnap.empty) {
-          const anyStageQ = query(collection(db, 'funnelStages'), where('funnelId', '==', funnelId), orderBy('order', 'asc'), limit(1));
-          stageSnap = await getDocs(anyStageQ);
+
+      if (funnelRows && funnelRows.length > 0) {
+        const funnelId = funnelRows[0].id;
+        let { data: stageRows } = await supabase.from('funnel_stages').select('id').eq('funnel_id', funnelId).eq('is_initial', true).limit(1);
+        if (!stageRows || stageRows.length === 0) {
+          const { data } = await supabase.from('funnel_stages').select('id').eq('funnel_id', funnelId).order('order', { ascending: true }).limit(1);
+          stageRows = data;
         }
-        if (!stageSnap.empty) {
-          return { funnelId, funnelStageId: stageSnap.docs[0].id };
+        if (stageRows && stageRows.length > 0) {
+          return { funnelId, funnelStageId: stageRows[0].id };
         }
         return { funnelId, funnelStageId: null };
       }
@@ -3866,13 +3938,14 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
       for (const sl of sampleLeadsData) {
         const exists = leads.some(l => l.phone === sl.phone);
         if (!exists) {
-          await addDoc(collection(db, 'leads'), {
-            companyId: currentCompany.id,
-            funnelId,
-            funnelStageId,
-            ...sl,
-            createdAt: new Date().toISOString()
-          });
+          const { data: novoLead } = await supabase.from('leads').insert({
+            company_id: currentCompany.id,
+            funnel_id: funnelId,
+            funnel_stage_id: funnelStageId,
+            full_name: sl.fullName,
+            phone: sl.phone,
+            source_type: sl.sourceType,
+          }).select().single();
 
           let msgs: any[] = [];
           if (sl.fullName === 'Carlos Oliveira') {
@@ -3907,14 +3980,15 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
 
           for (let index = 0; index < msgs.length; index++) {
             const m = msgs[index];
-            await addDoc(collection(db, 'messages'), {
-              companyId: currentCompany.id,
+            await supabase.from('crm_messages').insert({
+              company_id: currentCompany.id,
+              lead_id: novoLead?.id || null,
               phone: sl.phone,
               text: m.text,
               direction: m.direction,
-              senderName: m.direction === 'outgoing' ? (user?.name || 'Rafa Arts Sistema') : sl.fullName,
+              sender_name: m.direction === 'outgoing' ? (user?.name || 'Rafa Arts Sistema') : sl.fullName,
               channel: sl.sourceType || 'WhatsApp',
-              createdAt: Timestamp.fromDate(new Date(Date.now() - (msgs.length - index) * 600000))
+              created_at: new Date(Date.now() - (msgs.length - index) * 600000).toISOString(),
             });
           }
         }
@@ -3934,14 +4008,13 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
     if (!currentCompany || !simName.trim() || !simMessage.trim()) return;
 
     try {
-      await addDoc(collection(db, 'messages'), {
-        companyId: currentCompany.id,
+      await supabase.from('crm_messages').insert({
+        company_id: currentCompany.id,
         phone: simPhone,
         text: simMessage,
         direction: 'incoming',
-        senderName: simName,
+        sender_name: simName,
         channel: simChannel,
-        createdAt: Timestamp.now()
       });
 
       setIsSimulateModalOpen(false);
@@ -3954,13 +4027,9 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
 
   useEffect(() => {
     if (!currentCompany) return;
-    const q = query(
-      collection(db, 'leads'),
-      where('companyId', '==', currentCompany.id),
-      orderBy('updatedAt', 'desc')
-    );
-    return onSnapshot(q, async (snap) => {
-      const fetchedLeads = snap.docs.map(d => ({ id: d.id, ...d.data() } as Lead));
+    const loadLeads = async () => {
+      const { data } = await supabase.from('leads').select('*').eq('company_id', currentCompany.id).order('updated_at', { ascending: false });
+      const fetchedLeads = (data || []).map(mapLeadRow);
       setLeads(fetchedLeads);
 
       if (pendingWhatsAppShare) {
@@ -3981,99 +4050,34 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
           return;
         }
       }
-
       // Não abre nenhuma conversa automaticamente ao entrar na aba -- só mostra a lista.
       // A conversa só abre quando o usuário clica numa mensagem específica.
-      // If database has no leads yet, auto-seed sample client conversations for all channels
-      if (snap.empty) {
-        const { funnelId, funnelStageId } = await getInitialStageInfo();
-
-        for (const sl of sampleLeadsData) {
-          await addDoc(collection(db, 'leads'), {
-            companyId: currentCompany.id,
-            funnelId,
-            funnelStageId,
-            ...sl,
-            createdAt: new Date().toISOString()
-          });
-
-          let msgs: any[] = [];
-          if (sl.fullName === 'Carlos Oliveira') {
-            msgs = [
-              { text: 'Olá, gostaria de saber os valores para impressão de panfletos 14x20cm e cartões de visita.', direction: 'incoming' },
-              { text: 'Olá Carlos! Tudo bem? Fica R$ 450,00 o pacote com 1.000 panfletos e 500 cartões verniz localizado. Entrada de 50% no PIX.', direction: 'outgoing' },
-              { text: 'Quero fechar o pedido de 1000 panfletos e 500 cartões. Como faço para pagar a entrada no PIX?', direction: 'incoming' }
-            ];
-          } else if (sl.fullName === 'Mariana Santos') {
-            msgs = [
-              { text: 'Oi! Vi a fachada em ACM com LED no Instagram da Rafa Arts e gostei muito da qualidade.', direction: 'incoming' },
-              { text: 'Olá Mariana! Que ótimo! Produzimos e instalamos fachadas personalizadas em ACM com backlight LED. Qual a medida da loja?', direction: 'outgoing' },
-              { text: 'Vocês fazem a installation da fachada em ACM com LED no local em Goiânia? Qual o prazo?', direction: 'incoming' }
-            ];
-          } else if (sl.fullName === 'Gabriel Mendes') {
-            msgs = [
-              { text: 'Olá! Vi no site os serviços de impressão offset. Qual o valor para 5.000 panfletos da gráfica?', direction: 'incoming' }
-            ];
-          } else if (sl.fullName === 'Amanda Prado') {
-            msgs = [
-              { text: 'Boa tarde! Gostaria de um orçamento para 10 placas de sinalização comercial em acrílico.', direction: 'incoming' }
-            ];
-          } else if (sl.fullName === 'Ricardo Fonseca') {
-            msgs = [
-              { text: 'Prezados, solicitamos proposta técnica para envelopamento da frota comercial (5 utilitários).', direction: 'incoming' }
-            ];
-          } else {
-            msgs = [
-              { text: 'Olá equipe Rafa Arts, preciso de 50 camisetas personalizadas com estampa em silk-screen para evento.', direction: 'incoming' }
-            ];
-          }
-
-          for (let index = 0; index < msgs.length; index++) {
-            const m = msgs[index];
-            await addDoc(collection(db, 'messages'), {
-              companyId: currentCompany.id,
-              phone: sl.phone,
-              text: m.text,
-              direction: m.direction,
-              senderName: m.direction === 'outgoing' ? (user?.name || 'Rafa Arts Sistema') : sl.fullName,
-              channel: sl.sourceType || 'WhatsApp',
-              createdAt: Timestamp.fromDate(new Date(Date.now() - (msgs.length - index) * 600000))
-            });
-          }
-        }
-      }
-    });
+      // (a criacao automatica de conversas de exemplo foi removida — a lista fica vazia
+      // de verdade ate a integracao real do WhatsApp comecar a trazer conversas)
+    };
+    loadLeads();
+    const channel = supabase.channel('messages-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.${currentCompany.id}` }, loadLeads).subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, [currentCompany]);
 
   // Toca o som de notificacao quando chega uma mensagem NOVA do cliente (incoming),
   // em qualquer conversa — nao precisa estar com o chat especifico aberto pra ouvir
   useEffect(() => {
     if (!currentCompany) return;
-    const q = query(
-      collection(db, 'messages'),
-      where('companyId', '==', currentCompany.id),
-      where('direction', '==', 'incoming'),
-      orderBy('createdAt', 'desc'),
-      limit(1)
-    );
-    const unsub = onSnapshot(q, (snap) => {
-      if (snap.empty) return;
-      const ultima = snap.docs[0].data() as any;
-      const ts = ultima.createdAt?.toMillis ? ultima.createdAt.toMillis() : new Date(ultima.createdAt).getTime();
-      if (lastSeenIncomingRef.current === null) {
-        // Primeira carga da tela — so guarda a referencia, nao notifica mensagens que ja estavam la
-        lastSeenIncomingRef.current = ts;
-        return;
-      }
-      if (ts > lastSeenIncomingRef.current) {
-        lastSeenIncomingRef.current = ts;
+    // Marca a referencia inicial pra nao notificar mensagens que ja existiam antes de abrir a tela
+    if (lastSeenIncomingRef.current === null) lastSeenIncomingRef.current = Date.now();
+    const channel = supabase.channel('incoming-message-sound').on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'crm_messages', filter: `company_id=eq.${currentCompany.id}` },
+      (payload: any) => {
+        if (payload.new?.direction !== 'incoming') return;
         try {
           const audio = new Audio('/sounds/mensagem-cliente.mp3');
           audio.play().catch(() => {});
         } catch (e) { /* ignora se o navegador bloquear */ }
       }
-    });
-    return () => unsub();
+    ).subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, [currentCompany]);
 
   const unrepliedCount = leads.filter(l => l.waitingSince).length;
@@ -16890,9 +16894,8 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
 
   useEffect(() => {
     if (!currentCompany) return;
-    const q = query(collection(db, 'funnels'), where('companyId', '==', currentCompany.id));
-    getDocs(q).then(snap => {
-      setFunnels(snap.docs.map(d => ({ id: d.id, ...d.data() } as Funnel)));
+    supabase.from('funnels').select('*').eq('company_id', currentCompany.id).then(({ data }) => {
+      setFunnels((data || []).map(mapFunnelRow));
     });
   }, [currentCompany]);
 

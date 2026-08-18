@@ -76,27 +76,39 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
   // MessagesSidebarPopup) ---
   useEffect(() => {
     if (!currentCompany) return;
-    const q = query(collection(db, 'leads'), where('companyId', '==', currentCompany.id));
-    return onSnapshot(q, (snap) => {
-      const all = snap.docs.map(d => ({ id: d.id, ...d.data() } as Lead));
+    const loadLeads = async () => {
+      const { data } = await supabase.from('leads').select('*').eq('company_id', currentCompany.id);
+      const all = (data || []).map((r: any) => ({
+        id: r.id, fullName: r.full_name, contactName: r.contact_name, whatsappName: r.whatsapp_name,
+        phone: r.phone, sourceType: r.source_type, lastMessageText: r.last_message_text,
+        waitingSince: r.waiting_since,
+      } as any as Lead));
       setLeads(all.filter(l => !!l.waitingSince));
-    });
+    };
+    loadLeads();
+    const channel = supabase.channel('robozinho-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.${currentCompany.id}` }, loadLeads).subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, [currentCompany]);
 
   // --- Interações do Robozinho Rafa (sugestões + histórico + aprendizado,
   // tudo na mesma collection para não duplicar dado) ---
   useEffect(() => {
     if (!currentCompany) return;
-    const q = query(
-      collection(db, 'robozinhoInteractions'),
-      where('companyId', '==', currentCompany.id),
-      orderBy('createdAt', 'desc')
-    );
-    const unsub = onSnapshot(q, (snap) => {
-      setInteractions(snap.docs.map(d => ({ id: d.id, ...d.data() } as RobozinhoInteraction)));
+    const loadInteractions = async () => {
+      const { data } = await supabase.from('robozinho_interactions').select('*').eq('company_id', currentCompany.id).order('created_at', { ascending: false });
+      setInteractions((data || []).map((r: any) => ({
+        id: r.id, companyId: r.company_id, leadId: r.lead_id, phone: r.phone,
+        clientName: r.client_name, channel: r.channel, clientMessageText: r.client_message_text,
+        clientMessageAt: r.client_message_at, suggestedText: r.suggested_text, suggestedAt: r.suggested_at,
+        status: r.status, finalText: r.final_text, finalSentAt: r.final_sent_at,
+        actionByName: r.action_by_name, presentedOptions: r.presented_options,
+        createdAt: r.created_at, updatedAt: r.updated_at,
+      } as RobozinhoInteraction)));
       setLoading(false);
-    });
-    return () => unsub();
+    };
+    loadInteractions();
+    const channel = supabase.channel('robozinho-interactions').on('postgres_changes', { event: '*', schema: 'public', table: 'robozinho_interactions', filter: `company_id=eq.${currentCompany.id}` }, loadInteractions).subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, [currentCompany]);
 
   // --- Conhecimento: produtos/serviços/preços/estoque/materiais/acabamentos,
@@ -134,13 +146,20 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
 
   // --- Configurações do agente (Firestore, doc único por empresa) ---
   useEffect(() => {
-    const ref = doc(db, 'robozinhoConfig', COMPANY_ID);
-    const unsub = onSnapshot(ref, (snap) => {
-      if (snap.exists()) {
-        setConfig({ companyId: COMPANY_ID, ...DEFAULT_ROBOZINHO_CONFIG, ...snap.data() } as RobozinhoConfig);
+    const loadConfig = async () => {
+      const { data } = await supabase.from('robozinho_config').select('*').eq('company_id', COMPANY_ID).maybeSingle();
+      if (data) {
+        setConfig({
+          companyId: COMPANY_ID, ...DEFAULT_ROBOZINHO_CONFIG,
+          isActive: data.is_active, agentName: data.agent_name, tone: data.tone,
+          autoGenerateSuggestions: data.auto_generate_suggestions, useKnowledgeBase: data.use_knowledge_base,
+          showFloatingWidget: data.show_floating_widget, whatsappQrIntegration: data.whatsapp_qr_integration,
+        } as RobozinhoConfig);
       }
-    });
-    return () => unsub();
+    };
+    loadConfig();
+    const channel = supabase.channel('robozinho-config').on('postgres_changes', { event: '*', schema: 'public', table: 'robozinho_config', filter: `company_id=eq.${COMPANY_ID}` }, loadConfig).subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, []);
 
   // --- Regra 1 e 2: se a última mensagem for do cliente (waitingSince
@@ -162,19 +181,17 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
         produtos,
         enabledPaymentMethods: paymentMethods,
       });
-      addDoc(collection(db, 'robozinhoInteractions'), {
-        companyId: currentCompany.id,
-        leadId: lead.id,
+      supabase.from('robozinho_interactions').insert({
+        company_id: currentCompany.id,
+        lead_id: lead.id,
         phone: lead.phone,
-        clientName: lead.fullName || lead.contactName || lead.whatsappName || 'Cliente',
+        client_name: lead.fullName || lead.contactName || lead.whatsappName || 'Cliente',
         channel: lead.sourceType || 'WhatsApp',
-        clientMessageText: lead.lastMessageText || '',
-        clientMessageAt: lead.waitingSince,
-        suggestedText,
-        suggestedAt: Timestamp.now(),
+        client_message_text: lead.lastMessageText || '',
+        client_message_at: lead.waitingSince,
+        suggested_text: suggestedText,
         status: 'pending',
-        createdAt: Timestamp.now(),
-      }).catch(err => console.error('Robozinho Rafa: erro ao gerar sugestão:', err));
+      }).then(({ error }) => { if (error) console.error('Robozinho Rafa: erro ao gerar sugestão:', error); });
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leads, interactions, produtos, paymentMethods, currentCompany, config.isActive, config.autoGenerateSuggestions]);
@@ -185,28 +202,28 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
     if (!currentCompany || !finalText.trim()) return;
     setBusyId(interaction.id);
     try {
-      await addDoc(collection(db, 'messages'), {
-        companyId: currentCompany.id,
+      await supabase.from('crm_messages').insert({
+        company_id: currentCompany.id,
+        lead_id: interaction.leadId || null,
         phone: interaction.phone,
         text: finalText.trim(),
         direction: 'outgoing',
-        senderName: user?.name || 'Sistema',
+        sender_name: user?.name || 'Sistema',
         channel: interaction.channel || 'WhatsApp',
-        createdAt: Timestamp.now(),
       });
-      await updateDoc(doc(db, 'leads', interaction.leadId), {
-        lastMessageText: finalText.trim(),
-        lastMessageDirection: 'outgoing',
-        waitingSince: null,
-        updatedAt: Timestamp.now(),
-      });
-      await updateDoc(doc(db, 'robozinhoInteractions', interaction.id), {
+      await supabase.from('leads').update({
+        last_message_text: finalText.trim(),
+        last_message_direction: 'outgoing',
+        waiting_since: null,
+        updated_at: new Date().toISOString(),
+      }).eq('id', interaction.leadId);
+      await supabase.from('robozinho_interactions').update({
         status,
-        finalText: finalText.trim(),
-        finalSentAt: Timestamp.now(),
-        actionByName: user?.name || 'Sistema',
-        updatedAt: Timestamp.now(),
-      });
+        final_text: finalText.trim(),
+        final_sent_at: new Date().toISOString(),
+        action_by_name: user?.name || 'Sistema',
+        updated_at: new Date().toISOString(),
+      }).eq('id', interaction.id);
       setEditingId(null);
       setEditText('');
     } catch (err) {
@@ -224,11 +241,11 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
     if (!(await showConfirm('Ignorar esta sugestão? O cliente continuará aparecendo como aguardando resposta.'))) return;
     setBusyId(interaction.id);
     try {
-      await updateDoc(doc(db, 'robozinhoInteractions', interaction.id), {
+      await supabase.from('robozinho_interactions').update({
         status: 'ignored',
-        actionByName: user?.name || 'Sistema',
-        updatedAt: Timestamp.now(),
-      });
+        action_by_name: user?.name || 'Sistema',
+        updated_at: new Date().toISOString(),
+      }).eq('id', interaction.id);
     } finally {
       setBusyId(null);
     }
@@ -238,7 +255,17 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
     const next = { ...config, ...partial };
     setConfig(next);
     try {
-      await setDoc(doc(db, 'robozinhoConfig', COMPANY_ID), { ...next, updatedAt: Timestamp.now() }, { merge: true });
+      await supabase.from('robozinho_config').upsert({
+        company_id: COMPANY_ID,
+        is_active: next.isActive,
+        agent_name: next.agentName,
+        tone: next.tone,
+        auto_generate_suggestions: next.autoGenerateSuggestions,
+        use_knowledge_base: next.useKnowledgeBase,
+        show_floating_widget: next.showFloatingWidget,
+        whatsapp_qr_integration: next.whatsappQrIntegration,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'company_id' });
     } catch (err) {
       console.error('Robozinho Rafa: erro ao salvar configuração:', err);
     }

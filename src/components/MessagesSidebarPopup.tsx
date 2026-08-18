@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import { collection, query, where, orderBy, onSnapshot, getDocs, doc, writeBatch, addDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../firebase';
+import { supabase } from '../supabase';
 import { AppContext } from '../App';
 import { Lead, Company, AppUser } from '../types';
 import { cn, Button } from './SharedUI';
@@ -100,17 +101,20 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
   const [isSavingAction, setIsSavingAction] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  const leadsQuery = () => query(
-    collection(db, 'leads'),
-    where('companyId', '==', currentCompany!.id),
-    orderBy('updatedAt', 'desc')
-  );
-
   useEffect(() => {
     if (!currentCompany || !isOpen) return;
-    return onSnapshot(leadsQuery(), (snap) => {
-      setLeads(snap.docs.map(d => ({ id: d.id, ...d.data() } as Lead)));
-    });
+    const loadLeads = async () => {
+      const { data } = await supabase.from('leads').select('*').eq('company_id', currentCompany.id).order('updated_at', { ascending: false });
+      setLeads((data || []).map((r: any) => ({
+        id: r.id, companyId: r.company_id, fullName: r.full_name, contactName: r.contact_name, whatsappName: r.whatsapp_name,
+        phone: r.phone, sourceType: r.source_type, lastMessageText: r.last_message_text, lastMessageDirection: r.last_message_direction,
+        waitingSince: r.waiting_since, funnelId: r.funnel_id, funnelStageId: r.funnel_stage_id,
+        createdAt: r.created_at, updatedAt: r.updated_at,
+      } as any as Lead)));
+    };
+    loadLeads();
+    const channel = supabase.channel('sidebar-popup-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.${currentCompany.id}` }, loadLeads).subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, [currentCompany, isOpen]);
 
   // Botão "Atualizar": força uma nova busca manual além do listener em tempo
@@ -119,8 +123,13 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
     if (!currentCompany || isRefreshing) return;
     setIsRefreshing(true);
     try {
-      const snap = await getDocs(leadsQuery());
-      setLeads(snap.docs.map(d => ({ id: d.id, ...d.data() } as Lead)));
+      const { data } = await supabase.from('leads').select('*').eq('company_id', currentCompany.id).order('updated_at', { ascending: false });
+      setLeads((data || []).map((r: any) => ({
+        id: r.id, companyId: r.company_id, fullName: r.full_name, contactName: r.contact_name, whatsappName: r.whatsapp_name,
+        phone: r.phone, sourceType: r.source_type, lastMessageText: r.last_message_text, lastMessageDirection: r.last_message_direction,
+        waitingSince: r.waiting_since, funnelId: r.funnel_id, funnelStageId: r.funnel_stage_id,
+        createdAt: r.created_at, updatedAt: r.updated_at,
+      } as any as Lead)));
     } finally {
       setTimeout(() => setIsRefreshing(false), 500);
     }
@@ -183,14 +192,17 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
   };
 
   // Aplica um patch de campos a todos os leads selecionados de uma vez
-  // (writeBatch, mesmo padrão de escrita em lote usado em outras telas).
   const applyBulkPatch = async (patch: Record<string, any>) => {
     if (!selectedIds.size || isSavingAction) return;
     setIsSavingAction(true);
     try {
-      const batch = writeBatch(db);
-      selectedIds.forEach(id => batch.update(doc(db, 'leads', id), { ...patch, updatedAt: new Date().toISOString() }));
-      await batch.commit();
+      // Converte as chaves camelCase usadas no resto do app pra snake_case das colunas
+      const patchSnake: Record<string, any> = {};
+      Object.entries(patch).forEach(([k, v]) => {
+        const snakeKey = k.replace(/[A-Z]/g, m => `_${m.toLowerCase()}`);
+        patchSnake[snakeKey] = v;
+      });
+      await supabase.from('leads').update({ ...patchSnake, updated_at: new Date().toISOString() }).in('id', Array.from(selectedIds));
       cancelSelection();
     } finally {
       setIsSavingAction(false);
@@ -203,12 +215,11 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
     if (!currentCompany || !groupName.trim() || !selectedIds.size || isSavingAction) return;
     setIsSavingAction(true);
     try {
-      await addDoc(collection(db, 'leadGroups'), {
-        companyId: currentCompany.id,
+      await supabase.from('lead_groups').insert({
+        company_id: currentCompany.id,
         name: groupName.trim(),
-        leadIds: Array.from(selectedIds),
-        createdBy: user?.id || null,
-        createdAt: new Date().toISOString(),
+        lead_ids: Array.from(selectedIds),
+        created_by: user?.id || null,
       });
       cancelSelection();
     } finally {

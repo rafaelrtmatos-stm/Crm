@@ -49,14 +49,15 @@ export const AssistantChatWidget = ({ currentCompany, user }: { currentCompany: 
   // sem querer) — so esconde depois de confirmar que esta desligada de fato.
   const [showWidget, setShowWidget] = useState(true);
   useEffect(() => {
-    const ref = doc(db, 'robozinhoConfig', 'rafa-arts');
-    const unsub = onSnapshot(ref, (snap) => {
-      const data = snap.data();
-      const visivel = data?.showFloatingWidget !== false;
+    const loadConfig = async () => {
+      const { data } = await supabase.from('robozinho_config').select('show_floating_widget').eq('company_id', 'rafa-arts').maybeSingle();
+      const visivel = data?.show_floating_widget !== false;
       setShowWidget(visivel);
       if (!visivel) setIsOpen(false);
-    });
-    return () => unsub();
+    };
+    loadConfig();
+    const channel = supabase.channel('widget-robozinho-config').on('postgres_changes', { event: '*', schema: 'public', table: 'robozinho_config', filter: `company_id=eq.rafa-arts` }, loadConfig).subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, []);
 
   const nextId = (prefix: string) => {
@@ -122,15 +123,16 @@ export const AssistantChatWidget = ({ currentCompany, user }: { currentCompany: 
     }, 3000);
   };
 
-  // Carrega leads do Firestore e vendas do Supabase uma única vez ao montar
+  // Carrega leads e vendas, ambos do Supabase agora, uma única vez ao montar
   useEffect(() => {
     if (!currentCompany) return;
     const loadData = async () => {
       try {
-        // Firestore: leads
-        const q = query(collection(db, 'leads'), where('companyId', '==', currentCompany.id));
-        const snap = await getDocs(q);
-        setLeads(snap.docs.map(d => ({ id: d.id, ...d.data() } as Lead)));
+        const { data: leadRows } = await supabase.from('leads').select('*').eq('company_id', currentCompany.id);
+        setLeads((leadRows || []).map((r: any) => ({
+          id: r.id, fullName: r.full_name, contactName: r.contact_name, whatsappName: r.whatsapp_name,
+          phone: r.phone, sourceType: r.source_type, lastMessageText: r.last_message_text,
+        } as any as Lead)));
 
         // Supabase: vendas
         const { data } = await supabase

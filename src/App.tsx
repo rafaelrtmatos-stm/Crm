@@ -539,10 +539,9 @@ export default function App() {
     }
     if (!currentCompany) return;
     try {
-      const leadsQ = query(collection(db, 'leads'), where('companyId', '==', currentCompany.id));
-      const leadsSnap = await getDocs(leadsQ);
-      const existing = leadsSnap.docs.find(d => {
-        const p = (d.data().phone || '').replace(/\D/g, '');
+      const { data: leadsRows } = await supabase.from('leads').select('id, phone').eq('company_id', currentCompany.id);
+      const existing = (leadsRows || []).find((r: any) => {
+        const p = (r.phone || '').replace(/\D/g, '');
         return p && (p === phoneDigits || p.endsWith(phoneDigits) || phoneDigits.endsWith(p));
       });
 
@@ -553,34 +552,34 @@ export default function App() {
         // Acha o funil/etapa inicial padrão da empresa, igual ao Funil CRM faz
         let funnelId: string | null = null;
         let funnelStageId: string | null = null;
-        const funnelQ = query(collection(db, 'funnels'), where('companyId', '==', currentCompany.id), where('isDefault', '==', true), limit(1));
-        let funnelSnap = await getDocs(funnelQ);
-        if (funnelSnap.empty) {
-          funnelSnap = await getDocs(query(collection(db, 'funnels'), where('companyId', '==', currentCompany.id), limit(1)));
+        let { data: funnelRows } = await supabase.from('funnels').select('id').eq('company_id', currentCompany.id).eq('is_default', true).limit(1);
+        if (!funnelRows || funnelRows.length === 0) {
+          const { data } = await supabase.from('funnels').select('id').eq('company_id', currentCompany.id).limit(1);
+          funnelRows = data;
         }
-        if (!funnelSnap.empty) {
-          funnelId = funnelSnap.docs[0].id;
-          const stageQ = query(collection(db, 'funnelStages'), where('funnelId', '==', funnelId), where('isInitial', '==', true), limit(1));
-          let stageSnap = await getDocs(stageQ);
-          if (stageSnap.empty) {
-            stageSnap = await getDocs(query(collection(db, 'funnelStages'), where('funnelId', '==', funnelId), orderBy('order', 'asc'), limit(1)));
+        if (funnelRows && funnelRows.length > 0) {
+          funnelId = funnelRows[0].id;
+          let { data: stageRows } = await supabase.from('funnel_stages').select('id').eq('funnel_id', funnelId).eq('is_initial', true).limit(1);
+          if (!stageRows || stageRows.length === 0) {
+            const { data } = await supabase.from('funnel_stages').select('id').eq('funnel_id', funnelId).order('order', { ascending: true }).limit(1);
+            stageRows = data;
           }
-          if (!stageSnap.empty) funnelStageId = stageSnap.docs[0].id;
+          if (stageRows && stageRows.length > 0) funnelStageId = stageRows[0].id;
         }
 
         const nameParts = (name || 'Cliente').trim().split(' ');
-        const newLeadRef = await addDoc(collection(db, 'leads'), {
-          companyId: currentCompany.id,
-          funnelId,
-          funnelStageId,
-          fullName: name || 'Cliente',
-          firstName: nameParts[0] || 'Cliente',
-          lastName: nameParts.slice(1).join(' ') || '',
+        const { data: newLead, error } = await supabase.from('leads').insert({
+          company_id: currentCompany.id,
+          funnel_id: funnelId,
+          funnel_stage_id: funnelStageId,
+          full_name: name || 'Cliente',
+          first_name: nameParts[0] || 'Cliente',
+          last_name: nameParts.slice(1).join(' ') || '',
           phone: phoneDigits,
-          sourceType: 'WhatsApp',
-          createdAt: new Date().toISOString(),
-        });
-        leadId = newLeadRef.id;
+          source_type: 'WhatsApp',
+        }).select().single();
+        if (error) throw error;
+        leadId = newLead.id;
       }
 
       setPendingWhatsAppShare({ leadId, prefillMessage });
@@ -643,149 +642,120 @@ export default function App() {
       setUnrepliedLeadsCount(0);
       return;
     }
-    const q = query(
-      collection(db, 'leads'),
-      where('companyId', '==', currentCompany.id)
-    );
-    return onSnapshot(q, (snap) => {
-      const count = snap.docs.filter(d => {
-        const data = d.data();
-        return data.waitingSince !== null && data.waitingSince !== undefined;
-      }).length;
-      setUnrepliedLeadsCount(count);
-    });
+    const loadCount = async () => {
+      const { data } = await supabase.from('leads').select('waiting_since').eq('company_id', currentCompany.id);
+      setUnrepliedLeadsCount((data || []).filter((r: any) => r.waiting_since !== null && r.waiting_since !== undefined).length);
+    };
+    loadCount();
+    const channel = supabase.channel('app-unreplied-count').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.${currentCompany.id}` }, loadCount).subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, [currentCompany]);
 
   useEffect(() => {
     if (!currentCompany || !user) return;
 
     // RULE: All incoming messages must create a lead in "ENTRADA" (initial stage)
-    const q = query(
-      collection(db, 'messages'),
-      where('companyId', '==', currentCompany.id),
-      orderBy('createdAt', 'desc'),
-      limit(1)
-    );
+    const processIncomingMessage = async (msgData: any) => {
+      // Check if lead already exists for this phone/contact
+      const { data: leadRows } = await supabase.from('leads').select('*').eq('company_id', currentCompany.id).eq('phone', msgData.phone || '');
 
-    const unsubscribe = onSnapshot(q, async (snapshot) => {
-      if (snapshot.empty) return;
-      const latestMsgDoc = snapshot.docs[0];
-      const msgData = latestMsgDoc.data();
-
-      // Only process truly new incoming messages to avoid duplicates
-      if (msgData.direction === 'incoming' && latestMsgDoc.id !== lastMessageId) {
-        setLastMessageId(latestMsgDoc.id);
-
-        // Check if lead already exists for this phone/contact
-        const leadQ = query(
-          collection(db, 'leads'),
-          where('companyId', '==', currentCompany.id),
-          where('phone', '==', msgData.phone || '')
-        );
-        const leadSnap = await getDocs(leadQ);
-
-        // Find or create default funnel and initial stage ("ENTRADA")
-        const funnelQ = query(
-          collection(db, 'funnels'), 
-          where('companyId', '==', currentCompany.id), 
-          where('isDefault', '==', true),
-          limit(1)
-        );
-        let funnelSnap = await getDocs(funnelQ);
-        
-        if (funnelSnap.empty) {
-          const anyFunnelQ = query(collection(db, 'funnels'), where('companyId', '==', currentCompany.id), limit(1));
-          funnelSnap = await getDocs(anyFunnelQ);
-        }
-        
-        let funnelId = '';
-        let stageId = '';
-
-        if (funnelSnap.empty) {
-          // Create default funnel and initial stage if missing
-          const fRef = await addDoc(collection(db, 'funnels'), {
-            companyId: currentCompany.id,
-            name: 'Funil Rafa Arts',
-            isDefault: true,
-            isActive: true,
-            createdAt: Timestamp.now(),
-            updatedAt: Timestamp.now()
-          });
-          funnelId = fRef.id;
-
-          const stRef = await addDoc(collection(db, 'funnelStages'), {
-            funnelId,
-            name: 'ENTRADA',
-            order: 0,
-            isInitial: true,
-            createdAt: Timestamp.now(),
-            updatedAt: Timestamp.now()
-          });
-          stageId = stRef.id;
-        } else {
-          funnelId = funnelSnap.docs[0].id;
-          const stageQ = query(
-            collection(db, 'funnelStages'), 
-            where('funnelId', '==', funnelId), 
-            where('isInitial', '==', true),
-            limit(1)
-          );
-          let stageSnap = await getDocs(stageQ);
-          if (stageSnap.empty) {
-            const anyStageQ = query(collection(db, 'funnelStages'), where('funnelId', '==', funnelId), orderBy('order', 'asc'), limit(1));
-            stageSnap = await getDocs(anyStageQ);
-          }
-          if (!stageSnap.empty) {
-            stageId = stageSnap.docs[0].id;
-          }
-        }
-
-        // If no lead exists, create it in the ENTRADA stage
-        if (leadSnap.empty) {
-          await addDoc(collection(db, 'leads'), {
-            companyId: currentCompany.id,
-            funnelId: funnelId || null,
-            funnelStageId: stageId || null,
-            // Os 3 nomes comecam iguais (nome que veio do WhatsApp) -- cada um pode ser
-            // corrigido depois sem conflitar com os outros (ver Lead.whatsappName/contactName
-            // em types.ts). fullName e' o "Nome Real/Documental": so muda por edicao manual
-            // no painel, nunca automaticamente numa mensagem futura (ver bloco senao abaixo).
-            fullName: msgData.senderName || 'Atendimento Automático',
-            whatsappName: msgData.senderName || '',
-            contactName: msgData.senderName || '',
-            firstName: (msgData.senderName || 'Atendimento').split(' ')[0],
-            lastName: (msgData.senderName || '').split(' ').slice(1).join(' ') || '',
-            phone: msgData.phone || '',
-            sourceType: msgData.channel || 'WhatsApp',
-            lastMessageText: msgData.text || '',
-            estimatedValue: 0,
-            status: 'ENTRADA',
-            waitingSince: new Date().toISOString(),
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          });
-          console.log(`CRM Automation: New Lead created from channel [${msgData.channel}] into ENTRADA stage.`);
-        } else {
-          // Atualiza o lead existente, mas so mexe no whatsappName (reflete o nome de perfil
-          // mais recente) -- NUNCA sobrescreve fullName/contactName aqui, pra nao apagar uma
-          // correcao manual que o atendente ja tenha feito (ex: nome do documento != nome do
-          // WhatsApp). Ver Lead.whatsappName/contactName/fullName em types.ts.
-          const leadDoc = leadSnap.docs[0];
-          await updateDoc(doc(db, 'leads', leadDoc.id), {
-            lastMessageText: msgData.text || '',
-            sourceType: msgData.channel || leadDoc.data().sourceType || 'WhatsApp',
-            waitingSince: new Date().toISOString(),
-            status: 'ENTRADA',
-            ...(msgData.senderName ? { whatsappName: msgData.senderName } : {}),
-            ...(stageId ? { funnelStageId: stageId } : {}),
-            updatedAt: new Date().toISOString()
-          });
-          console.log(`CRM Automation: Existing Lead updated from channel [${msgData.channel}] in ENTRADA stage.`);
-        }
+      // Find or create default funnel and initial stage ("ENTRADA")
+      let { data: funnelRows } = await supabase.from('funnels').select('*').eq('company_id', currentCompany.id).eq('is_default', true).limit(1);
+      if (!funnelRows || funnelRows.length === 0) {
+        const { data } = await supabase.from('funnels').select('*').eq('company_id', currentCompany.id).limit(1);
+        funnelRows = data;
       }
-    });
 
-    return () => unsubscribe();
+      let funnelId = '';
+      let stageId = '';
+
+      if (!funnelRows || funnelRows.length === 0) {
+        // Create default funnel and initial stage if missing
+        const { data: fRow } = await supabase.from('funnels').insert({
+          company_id: currentCompany.id,
+          name: 'Funil Rafa Arts',
+          is_default: true,
+          is_active: true,
+        }).select().single();
+        funnelId = fRow.id;
+
+        const { data: stRow } = await supabase.from('funnel_stages').insert({
+          funnel_id: funnelId,
+          name: 'ENTRADA',
+          order: 0,
+          is_initial: true,
+        }).select().single();
+        stageId = stRow.id;
+      } else {
+        funnelId = funnelRows[0].id;
+        let { data: stageRows } = await supabase.from('funnel_stages').select('id').eq('funnel_id', funnelId).eq('is_initial', true).limit(1);
+        if (!stageRows || stageRows.length === 0) {
+          const { data } = await supabase.from('funnel_stages').select('id').eq('funnel_id', funnelId).order('order', { ascending: true }).limit(1);
+          stageRows = data;
+        }
+        if (stageRows && stageRows.length > 0) stageId = stageRows[0].id;
+      }
+
+      // If no lead exists, create it in the ENTRADA stage
+      if (!leadRows || leadRows.length === 0) {
+        await supabase.from('leads').insert({
+          company_id: currentCompany.id,
+          funnel_id: funnelId || null,
+          funnel_stage_id: stageId || null,
+          // Os 3 nomes comecam iguais (nome que veio do WhatsApp) -- cada um pode ser
+          // corrigido depois sem conflitar com os outros (ver Lead.whatsappName/contactName
+          // em types.ts). fullName e' o "Nome Real/Documental": so muda por edicao manual
+          // no painel, nunca automaticamente numa mensagem futura (ver bloco senao abaixo).
+          full_name: msgData.senderName || 'Atendimento Automático',
+          whatsapp_name: msgData.senderName || '',
+          contact_name: msgData.senderName || '',
+          first_name: (msgData.senderName || 'Atendimento').split(' ')[0],
+          last_name: (msgData.senderName || '').split(' ').slice(1).join(' ') || '',
+          phone: msgData.phone || '',
+          source_type: msgData.channel || 'WhatsApp',
+          last_message_text: msgData.text || '',
+          estimated_value: 0,
+          status: 'ENTRADA',
+          waiting_since: new Date().toISOString(),
+        });
+        console.log(`CRM Automation: New Lead created from channel [${msgData.channel}] into ENTRADA stage.`);
+      } else {
+        // Atualiza o lead existente, mas so mexe no whatsappName (reflete o nome de perfil
+        // mais recente) -- NUNCA sobrescreve fullName/contactName aqui, pra nao apagar uma
+        // correcao manual que o atendente ja tenha feito (ex: nome do documento != nome do
+        // WhatsApp). Ver Lead.whatsappName/contactName/fullName em types.ts.
+        const leadRow = leadRows[0];
+        await supabase.from('leads').update({
+          last_message_text: msgData.text || '',
+          source_type: msgData.channel || leadRow.source_type || 'WhatsApp',
+          waiting_since: new Date().toISOString(),
+          status: 'ENTRADA',
+          ...(msgData.senderName ? { whatsapp_name: msgData.senderName } : {}),
+          ...(stageId ? { funnel_stage_id: stageId } : {}),
+          updated_at: new Date().toISOString(),
+        }).eq('id', leadRow.id);
+        console.log(`CRM Automation: Existing Lead updated from channel [${msgData.channel}] in ENTRADA stage.`);
+      }
+    };
+
+    const channel = supabase.channel('app-incoming-lead-automation').on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'crm_messages', filter: `company_id=eq.${currentCompany.id}` },
+      (payload: any) => {
+        const row = payload.new;
+        if (row.direction !== 'incoming' || row.id === lastMessageId) return;
+        setLastMessageId(row.id);
+        processIncomingMessage({
+          phone: row.phone,
+          text: row.text,
+          direction: row.direction,
+          senderName: row.sender_name,
+          channel: row.channel,
+        });
+      }
+    ).subscribe();
+
+    return () => { supabase.removeChannel(channel); };
   }, [currentCompany, user, lastMessageId]);
 
   // Login & Authentication State (Empty by default for manual typing)
