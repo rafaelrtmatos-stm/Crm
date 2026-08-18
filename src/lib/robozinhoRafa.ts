@@ -213,3 +213,88 @@ export function answerAssistantQuestion(params: {
 
   return 'Por enquanto eu só consulto o que já está cadastrado aqui no sistema (produtos, materiais, estoque e preços) — ainda não tenho acesso à internet. Pergunta sobre algum material ou produto?';
 }
+
+// --- Chat avançado do Robozinho Rafa (widget com acesso a clientes e serviços) ---
+//
+// Versão assíncrona que consulta Firestore (leads) e Supabase (vendas/serviços)
+// para responder perguntas sobre clientes específicos, último serviço, etc.
+// Simula "digitação" com delay de 3 segundos antes de entregar a resposta completa.
+export async function answerAdvancedQuestion(params: {
+  question: string;
+  produtos: KnowledgeProduct[];
+  userName?: string | null;
+  firebaseLeads?: any[]; // Array de Lead do Firestore
+  supabaseSales?: any[]; // Array de SaleOrder do Supabase
+}): Promise<{ isTyping: boolean; text: string }> {
+  const { question, produtos, userName, firebaseLeads = [], supabaseSales = [] } = params;
+  const msg = normalize(question);
+
+  // Padrões de perguntas sobre cliente/serviço
+  const asksClientService = /(ultimo servico|última serviço|ultimo pedido|última pedido|quando foi|que dia|quando fez|quando fizemos|coimbra|cliente.*serviço|serviço.*cliente)/i.test(msg);
+  const asksPrice = /(preco|preço|valor|quanto custa|quanto fica|quanto e|quanto é)/.test(msg);
+  const asksStock = /(estoque|tem disponivel|disponivel|tem pronto|em estoque|quantidade)/.test(msg);
+
+  // Tenta extrair nome do cliente da pergunta (ex: "coimbra" → busca por cliente com "coimbra" no nome)
+  const clienteMatch = question.match(/\b([\w\s]{3,})\b\s*(serviço|serviço|pedido|última|ultimo|quando)/i);
+  const clienteNome = clienteMatch ? clienteMatch[1].trim() : null;
+
+  // Se pergunta sobre cliente/serviço e temos dados, busca
+  if (asksClientService && (firebaseLeads.length > 0 || supabaseSales.length > 0)) {
+    // Normaliza e busca cliente por nome (case-insensitive, acentuação)
+    const leads = firebaseLeads.filter(l => {
+      const nome = normalize(l.fullName || l.contactName || l.whatsappName || '');
+      if (!clienteNome) return false;
+      return nome.includes(normalize(clienteNome));
+    });
+
+    if (leads.length > 0) {
+      const lead = leads[0];
+      // Busca vendas/serviços deste cliente
+      const salesDoCliente = supabaseSales.filter(s => s.customerId === lead.id || normalize(s.customerName || '').includes(normalize(lead.fullName || '')));
+
+      if (salesDoCliente.length > 0) {
+        // Ordena por data (mais recente primeiro)
+        const sorted = salesDoCliente.sort((a: any, b: any) => {
+          const dateA = new Date(a.createdAt || 0).getTime();
+          const dateB = new Date(b.createdAt || 0).getTime();
+          return dateB - dateA;
+        });
+
+        const ultimo = sorted[0];
+        const dataServico = ultimo.createdAt ? new Date(ultimo.createdAt).toLocaleDateString('pt-BR') : 'data desconhecida';
+        const texto = `O último serviço de ${lead.fullName} foi em ${dataServico}. Status: ${ultimo.serviceStatus || ultimo.status || 'desconhecido'}.`;
+        
+        return { isTyping: true, text: texto };
+      }
+
+      return { isTyping: false, text: `Encontrei o cliente ${lead.fullName}, mas não há serviços/pedidos registrados.` };
+    }
+
+    // Cliente não encontrado
+    if (clienteNome) {
+      return { isTyping: false, text: `Não encontrei um cliente com nome "${clienteNome}" no sistema.` };
+    }
+  }
+
+  // Pergunta sobre produtos (usa lógica síncrona anterior)
+  if (asksPrice || asksStock) {
+    const matches = findMatchingProducts(question, produtos.filter(p => p.isActive));
+    if (matches.length > 0) {
+      const linhas = matches.map(p => {
+        const partes = [`*${p.name}*: ${formatBRL(p.price)}`];
+        if (p.controlaEstoque) {
+          partes.push(p.stock > 0 ? `${p.stock} em estoque` : 'sem estoque no momento');
+        } else {
+          partes.push('sob encomenda');
+        }
+        return partes.join(' — ');
+      });
+      const texto = `Consultei aqui no sistema:\n${linhas.join('\n')}`;
+      return { isTyping: false, text: texto };
+    }
+    return { isTyping: false, text: 'Não achei esse item cadastrado no Estoque/Produtos. Confere o nome certinho?' };
+  }
+
+  // Fallback
+  return { isTyping: false, text: 'Pode perguntar sobre preço, estoque, último serviço de um cliente ou qualquer outra coisa que eu consulto aqui no sistema.' };
+}

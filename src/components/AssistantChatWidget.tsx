@@ -1,9 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Bot, X, Send, Sparkles } from 'lucide-react';
 import { supabase } from '../supabase';
+import { db } from '../firebase';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import { cn } from './SharedUI';
-import { answerAssistantQuestion } from '../lib/robozinhoRafa';
-import { Company, AppUser } from '../types';
+import { answerAdvancedQuestion } from '../lib/robozinhoRafa';
+import { Company, AppUser, Lead, SaleOrder } from '../types';
 import type { KnowledgeProduct } from '../lib/robozinhoRafa';
 
 // Robozinho Rafa — bolha de chat flutuante (estilo "suporte do site").
@@ -24,11 +26,37 @@ interface ChatMessage {
 export const AssistantChatWidget = ({ currentCompany, user }: { currentCompany: Company | null; user: AppUser | null }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([
-    { id: 'welcome', role: 'bot', text: 'Oi! Eu sou o Robozinho Rafa 🤖 Pode perguntar sobre preço, estoque, prazo ou formas de pagamento de qualquer material/produto — eu consulto direto no sistema.' },
+    { id: 'welcome', role: 'bot', text: 'Oi! Eu sou o Robozinho Rafa 🤖 Pode perguntar sobre preço, estoque, último serviço de um cliente, ou qualquer outra coisa — eu consulto direto no sistema.' },
   ]);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [sales, setSales] = useState<SaleOrder[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Carrega leads do Firestore e vendas do Supabase uma única vez ao montar
+  useEffect(() => {
+    if (!currentCompany) return;
+    const loadData = async () => {
+      try {
+        // Firestore: leads
+        const q = query(collection(db, 'leads'), where('companyId', '==', currentCompany.id));
+        const snap = await getDocs(q);
+        setLeads(snap.docs.map(d => ({ id: d.id, ...d.data() } as Lead)));
+
+        // Supabase: vendas
+        const { data } = await supabase
+          .from('vendas')
+          .select('*')
+          .is('deleted_at', null)
+          .order('created_at', { ascending: false });
+        setSales((data || []) as SaleOrder[]);
+      } catch (err) {
+        console.error('Erro ao carregar dados para o Robozinho Rafa:', err);
+      }
+    };
+    loadData();
+  }, [currentCompany]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -43,7 +71,9 @@ export const AssistantChatWidget = ({ currentCompany, user }: { currentCompany: 
     setMessages(prev => [...prev, userMsg]);
     setDraft('');
     setSending(true);
+
     try {
+      // Carrega produtos
       const { data } = await supabase
         .from('produtos')
         .select('name, sale_price, current_stock, tipo_item, controla_estoque, is_active');
@@ -55,10 +85,31 @@ export const AssistantChatWidget = ({ currentCompany, user }: { currentCompany: 
         controlaEstoque: row.controla_estoque !== false,
         isActive: row.is_active !== false,
       }));
-      const reply = answerAssistantQuestion({ question: text, produtos, userName: user?.name });
-      setMessages(prev => [...prev, { id: `b-${Date.now()}`, role: 'bot', text: reply }]);
+
+      // Adiciona mensagem "digitando..." enquanto aguarda 3 segundos
+      const typingId = `b-typing-${Date.now()}`;
+      setMessages(prev => [...prev, { id: typingId, role: 'bot', text: '...' }]);
+
+      // Aguarda 3 segundos antes de gerar resposta
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
+      // Gera resposta (função async)
+      const { isTyping, text: reply } = await answerAdvancedQuestion({
+        question: text,
+        produtos,
+        userName: user?.name,
+        firebaseLeads: leads,
+        supabaseSales: sales,
+      });
+
+      // Remove mensagem "digitando..." e adiciona resposta real
+      setMessages(prev => {
+        const filtered = prev.filter(m => m.id !== typingId);
+        return [...filtered, { id: `b-${Date.now()}`, role: 'bot', text: reply }];
+      });
     } catch (err) {
       console.error('Erro no chat do Robozinho Rafa:', err);
+      setMessages(prev => prev.filter(m => m.id !== `b-typing-${Date.now()}`));
       setMessages(prev => [...prev, { id: `b-${Date.now()}`, role: 'bot', text: 'Deu um errinho pra consultar o sistema agora. Tenta de novo em instantes?' }]);
     } finally {
       setSending(false);
