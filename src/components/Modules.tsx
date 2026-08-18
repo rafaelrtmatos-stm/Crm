@@ -2304,28 +2304,42 @@ export const ChatPanel = ({
       </div>
 
       {/* Dropdown de Etapa do Funil — muda a etapa da conversa direto daqui, sem precisar
-          arrastar no Kanban. So aparece se essa conversa tiver um lead/funil vinculado. */}
-      {effectiveFunnelId && funnelStages.length > 0 ? (
-        <div className="flex items-center gap-2 w-full py-1.5 px-3 border-b border-white/10 bg-white/[0.015] flex-shrink-0">
-          <select
-            value={conversation.funnelStageId || ''}
-            onChange={(e) => handleChangeStageFromChat(e.target.value)}
-            disabled={isChangingStage}
-            className="flex-1 h-7 bg-transparent border-none text-[10px] font-black uppercase tracking-widest text-primary-300 focus:outline-none cursor-pointer disabled:opacity-50"
-          >
-            {funnelStages.map(stage => (
-              <option key={stage.id} value={stage.id} className="bg-slate-900 text-white normal-case">{stage.name}</option>
-            ))}
-          </select>
-          <button
-            onClick={handleJumpToOtherView}
-            title={rootActiveTab === 'crm' ? 'Ver Conversa em Mensagens' : 'Ver Card no Funil CRM'}
-            className="text-primary-300 hover:text-primary-200 transition-colors shrink-0"
-          >
-            <ExternalLink size={13} />
-          </button>
-        </div>
-      ) : (
+          arrastar no Kanban. So aparece se essa conversa tiver um lead/funil vinculado.
+          O pill usa a cor cadastrada na propria etapa (Configurar > Etapas do Processo)
+          pra ficar bem destacado e mudar de cor junto com a etapa selecionada. */}
+      {effectiveFunnelId && funnelStages.length > 0 ? (() => {
+        const currentStage = funnelStages.find(s => s.id === conversation.funnelStageId);
+        const stageColor = currentStage?.color || '#4cc9f0';
+        return (
+          <div className="flex items-center gap-2 w-full py-2 px-3 border-b border-white/10 bg-white/[0.015] flex-shrink-0">
+            <div
+              className="flex-1 flex items-center gap-2 rounded-full pl-3 pr-2 py-1.5 border transition-colors"
+              style={{ backgroundColor: `${stageColor}22`, borderColor: `${stageColor}66` }}
+            >
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: stageColor }} />
+              <select
+                value={conversation.funnelStageId || ''}
+                onChange={(e) => handleChangeStageFromChat(e.target.value)}
+                disabled={isChangingStage}
+                className="flex-1 h-6 bg-transparent border-none text-[10px] font-black uppercase tracking-widest focus:outline-none cursor-pointer disabled:opacity-50 appearance-none"
+                style={{ color: stageColor }}
+              >
+                {funnelStages.map(stage => (
+                  <option key={stage.id} value={stage.id} className="bg-slate-900 text-white normal-case">{stage.name}</option>
+                ))}
+              </select>
+              <ChevronDown size={12} className="shrink-0" style={{ color: stageColor }} />
+            </div>
+            <button
+              onClick={handleJumpToOtherView}
+              title={rootActiveTab === 'crm' ? 'Ver Conversa em Mensagens' : 'Ver Card no Funil CRM'}
+              className="text-primary-300 hover:text-primary-200 transition-colors shrink-0"
+            >
+              <ExternalLink size={13} />
+            </button>
+          </div>
+        );
+      })() : (
         <button
           onClick={handleJumpToOtherView}
           className="flex items-center justify-center gap-1.5 w-full py-1.5 border-b border-white/10 bg-white/[0.015] text-[9px] font-black uppercase tracking-widest text-primary-300 hover:bg-white/5 hover:text-primary-200 transition-colors flex-shrink-0"
@@ -2918,6 +2932,20 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
 
   const currentFunnel = funnels.find(f => f.id === selectedFunnelId);
   const [funnelMenuOpen, setFunnelMenuOpen] = useState(false);
+
+  // Mantem o lead selecionado sincronizado com a lista ao vivo (onSnapshot) --
+  // sem isso, depois de mudar a etapa (ou qualquer outro campo) pelo proprio
+  // ChatPanel, o objeto `selectedLead` ficava "congelado" no estado de quando
+  // foi clicado, entao o dropdown de etapa dentro da conversa parecia nao
+  // funcionar (voltava/nao refletia a mudanca) mesmo o Firestore ja tendo sido
+  // atualizado corretamente.
+  useEffect(() => {
+    if (!selectedLead) return;
+    const updated = leads.find(l => l.id === selectedLead.id);
+    if (updated && updated !== selectedLead) {
+      setSelectedLead(updated);
+    }
+  }, [leads, selectedLead]);
 
   const handleAddFunnel = async () => {
     const name = await showPrompt('Nome do novo funil:');
@@ -3564,6 +3592,17 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
   const [simName, setSimName] = useState('Juliana Costa');
   const [simPhone, setSimPhone] = useState('(62) 99777-3322');
   const [simMessage, setSimMessage] = useState('Olá! Vi o anúncio da gráfica e quero fazer um orçamento de 1.000 cartões de visita e 2 banners para minha loja.');
+
+  // Mesma sincronização do Funil CRM: mantém o chat selecionado alinhado com a
+  // lista ao vivo, senão mudar a etapa (ou qualquer campo) dentro da própria
+  // conversa não refletia no ChatPanel (ficava com o valor antigo "congelado").
+  useEffect(() => {
+    if (!selectedChat?.id) return;
+    const updated = leads.find(l => l.id === selectedChat.id);
+    if (updated && updated !== selectedChat) {
+      setSelectedChat(updated);
+    }
+  }, [leads, selectedChat]);
 
   const getInitialStageInfo = async () => {
     if (!currentCompany) return { funnelId: null, funnelStageId: null };
