@@ -3,7 +3,7 @@ import { collection, query, where, orderBy, onSnapshot, getDocs, Timestamp } fro
 import { db } from '../firebase';
 import { AppContext } from '../App';
 import { Lead, Company, AppUser } from '../types';
-import { cn, Input, Badge } from './SharedUI';
+import { cn } from './SharedUI';
 import { Search, RefreshCw, Clock, CheckCircle2, X } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -25,13 +25,14 @@ interface MessagesSidebarPopupProps {
 //    e o balão fica em z-40, abaixo do z-50 da sidebar — dupla garantia.
 // 3) Sem backdrop escurecido: existe apenas uma camada invisível (sem blur
 //    nem cor) atrás do balão só para fechar ao clicar fora.
-// 4) Cor SEMPRE adaptada ao tema (classe .glass-panel + tokens text-white/
-//    bg-white opacidade, iguais ao resto do sistema): escuro translúcido com
-//    glow vermelho no tema escuro, branco legível no tema claro. NÃO
-//    hardcodar bg-white fixo aqui de novo — ficou claro demais no tema
-//    escuro; e NÃO hardcodar bg-zinc-950 fixo — fica ilegível no tema claro.
-//    Tem uma "caldinha" triangular na borda esquerda (mesma cor do balão,
-//    via .glass-panel) apontando pro item "Conversas" do menu lateral.
+// 4) Visual de "balão de conversa" de propósito — MESMA paleta das bolhas de
+//    mensagem reais do ChatPanel (bg-white fixo + texto slate-800, ver
+//    Modules.tsx ~linha 2475): branco sempre, em qualquer tema, porque é
+//    assim que as mensagens já aparecem no resto do sistema. NÃO trocar pra
+//    glass-panel/dark (bg-zinc-950) de novo — no tema escuro isso fica quase
+//    preto e sem contraste com o rounded-[28px], lendo como "um quadrado
+//    preto" em vez de balão. Tem uma "caldinha" triangular na borda esquerda
+//    apontando pro item "Conversas" do menu lateral.
 // 5) É a LISTA de conversas com busca, filtro (Todos/Sem Resposta), alerta de
 //    vácuo CLICÁVEL (leva direto pro filtro "Sem Resposta") e atualização
 //    manual (getDocs, além do listener em tempo real) — ao clicar numa
@@ -105,16 +106,16 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
           fora do card sem ser cortada pelo overflow-hidden do card */}
       <div className="fixed top-6 left-[336px] z-40 w-[380px] max-h-[calc(100vh-3rem)] animate-in fade-in zoom-in-95 duration-150">
         {/* Caldinha do balão — triangulo apontando pra esquerda, pro item
-            "Conversas" do menu lateral de onde o balão foi aberto. Mesma
-            classe .glass-panel do corpo, então acompanha o tema sozinha. */}
-        <div className="absolute top-8 -left-2 w-4 h-4 glass-panel rotate-45" />
+            "Conversas" do menu lateral de onde o balão foi aberto */}
+        <div className="absolute top-8 -left-2 w-4 h-4 bg-white border-l border-b border-slate-200 rotate-45 shadow-sm" />
 
-        {/* Corpo do balão — .glass-panel já resolve escuro/claro sozinho */}
-        <div className="relative glass-panel rounded-[28px] flex flex-col shadow-2xl shadow-red-950/40 overflow-hidden max-h-[calc(100vh-3rem)]">
+        {/* Corpo do balão — mesma cor das bolhas de mensagem reais do
+            sistema (bg-white + texto slate-800), fixo em qualquer tema */}
+        <div className="relative bg-white border border-slate-200 rounded-[28px] flex flex-col shadow-2xl overflow-hidden max-h-[calc(100vh-3rem)]">
           {/* Header */}
-          <div className="p-6 border-b border-white/10 space-y-4 flex-shrink-0">
+          <div className="p-6 border-b border-slate-100 space-y-4 flex-shrink-0">
             <div className="flex justify-between items-center">
-              <h3 className="text-xl font-black text-white italic uppercase tracking-tight flex items-center gap-1.5">
+              <h3 className="text-xl font-black text-slate-800 italic uppercase tracking-tight flex items-center gap-1.5">
                 Conversas
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
               </h3>
@@ -122,7 +123,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                 <button
                   type="button"
                   onClick={handleRefresh}
-                  className="text-white/40 hover:text-red-400 transition-colors p-1.5 rounded-lg hover:bg-white/5"
+                  className="text-slate-400 hover:text-primary-600 transition-colors p-1.5 rounded-lg hover:bg-slate-100"
                   title="Atualizar conversas"
                 >
                   <RefreshCw size={18} className={cn(isRefreshing && "animate-spin")} />
@@ -130,7 +131,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                 <button
                   type="button"
                   onClick={onClose}
-                  className="text-white/40 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-white/5"
+                  className="text-slate-400 hover:text-slate-700 transition-colors p-1.5 rounded-lg hover:bg-slate-100"
                   title="Fechar"
                 >
                   <X size={20} />
@@ -138,12 +139,18 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
               </div>
             </div>
 
-            <Input
-              icon={Search}
-              placeholder="Filtrar chats..."
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-            />
+            {/* Busca — estilo claro próprio (não usa o Input compartilhado,
+                que é escuro por padrão e destoaria do balão branco) */}
+            <div className="relative group">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary-500 transition-colors" size={16} />
+              <input
+                type="text"
+                placeholder="Filtrar chats..."
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-2.5 pl-11 pr-4 text-sm text-slate-800 placeholder:text-slate-400 outline-none focus:bg-white focus:border-primary-400 transition-all"
+              />
+            </div>
 
             {/* Sub-tabs */}
             <div className="flex gap-2">
@@ -152,20 +159,20 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                 className={cn(
                   "flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all flex items-center justify-center gap-1.5",
                   viewFilter === 'all'
-                    ? "bg-white/10 border-white/20 text-white"
-                    : "bg-transparent border-transparent text-white/40 hover:text-white/60"
+                    ? "bg-primary-50 border-primary-200 text-primary-700"
+                    : "bg-transparent border-transparent text-slate-400 hover:text-slate-600"
                 )}
               >
                 Todos
-                <span className="bg-white/10 text-white px-1.5 py-0.5 rounded text-[8px]">{leads.length}</span>
+                <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-[8px]">{leads.length}</span>
               </button>
               <button
                 onClick={() => setViewFilter('unreplied')}
                 className={cn(
                   "flex-1 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all flex items-center justify-center gap-1.5 relative overflow-hidden",
                   viewFilter === 'unreplied'
-                    ? "bg-rose-500/10 border-rose-500/20 text-rose-400"
-                    : "bg-transparent border-transparent text-white/40 hover:text-white/60",
+                    ? "bg-rose-50 border-rose-200 text-rose-600"
+                    : "bg-transparent border-transparent text-slate-400 hover:text-slate-600",
                   unrepliedCount > 0 && "animate-pulse"
                 )}
               >
@@ -173,7 +180,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                   <span>Sem Resposta</span>
                   <span className={cn(
                     "px-1.5 py-0.5 rounded text-[8px] font-black",
-                    unrepliedCount > 0 ? "bg-rose-500 text-white" : "bg-white/10 text-white/40"
+                    unrepliedCount > 0 ? "bg-rose-500 text-white" : "bg-slate-100 text-slate-400"
                   )}>
                     {unrepliedCount}
                   </span>
@@ -187,15 +194,15 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
             <button
               type="button"
               onClick={() => setViewFilter('unreplied')}
-              className="mx-6 mt-4 p-3 bg-rose-500/10 border border-rose-500/20 rounded-2xl flex items-center gap-2 animate-pulse flex-shrink-0 text-left hover:bg-rose-500/20 hover:border-rose-500/40 transition-colors cursor-pointer"
+              className="mx-6 mt-4 p-3 bg-rose-50 border border-rose-200 rounded-2xl flex items-center gap-2 animate-pulse flex-shrink-0 text-left hover:bg-rose-100 hover:border-rose-300 transition-colors cursor-pointer"
               title="Ver conversas sem resposta"
             >
-              <div className="w-5 h-5 rounded-lg bg-rose-500/25 flex items-center justify-center text-rose-400 shrink-0">
+              <div className="w-5 h-5 rounded-lg bg-rose-100 flex items-center justify-center text-rose-500 shrink-0">
                 <Clock size={12} className="animate-spin" style={{ animationDuration: '4s' }} />
               </div>
               <div>
-                <p className="text-[9px] font-black uppercase text-rose-400 leading-none mb-0.5">Alerta de Vácuo</p>
-                <p className="text-[8px] text-white/50">{unrepliedCount} {unrepliedCount === 1 ? 'cliente aguardando' : 'clientes aguardando'} resposta!</p>
+                <p className="text-[9px] font-black uppercase text-rose-600 leading-none mb-0.5">Alerta de Vácuo</p>
+                <p className="text-[8px] text-slate-500">{unrepliedCount} {unrepliedCount === 1 ? 'cliente aguardando' : 'clientes aguardando'} resposta!</p>
               </div>
             </button>
           )}
@@ -210,29 +217,29 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                 ? (l.waitingSince instanceof Timestamp ? l.waitingSince.toDate() : new Date(l.waitingSince))
                 : null;
 
-              let slaColor = "text-white/30";
+              let slaColor = "text-slate-400 bg-slate-100 border-slate-200";
               let slaLabel = "";
               let pulseBadge = false;
 
               if (waitingSinceDate) {
                 const diffMinutes = Math.round((new Date().getTime() - waitingSinceDate.getTime()) / 60000);
                 if (diffMinutes < 5) {
-                  slaColor = "text-sky-400 bg-sky-400/10 border-sky-400/20";
+                  slaColor = "text-sky-600 bg-sky-50 border-sky-200";
                   slaLabel = `há ${diffMinutes} min`;
                 } else if (diffMinutes < 15) {
-                  slaColor = "text-emerald-400 bg-emerald-400/10 border-emerald-400/20";
+                  slaColor = "text-emerald-600 bg-emerald-50 border-emerald-200";
                   slaLabel = `há ${diffMinutes} min`;
                 } else if (diffMinutes < 30) {
-                  slaColor = "text-amber-500 bg-amber-500/10 border-amber-500/20";
+                  slaColor = "text-amber-600 bg-amber-50 border-amber-200";
                   slaLabel = `ATENÇÃO: ${diffMinutes} min`;
                   pulseBadge = true;
                 } else if (diffMinutes < 60) {
-                  slaColor = "text-orange-500 bg-orange-500/10 border-orange-500/20";
+                  slaColor = "text-orange-600 bg-orange-50 border-orange-200";
                   slaLabel = `ALERTA: ${diffMinutes} min`;
                   pulseBadge = true;
                 } else {
                   const hours = Math.floor(diffMinutes / 60);
-                  slaColor = "text-rose-500 bg-rose-500/15 border-rose-500/20";
+                  slaColor = "text-rose-600 bg-rose-50 border-rose-200";
                   slaLabel = `CRÍTICO: ${hours}h+ s/ resp`;
                   pulseBadge = true;
                 }
@@ -242,20 +249,20 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                 <div
                   key={l.id}
                   onClick={() => handleSelectLead(l)}
-                  className="p-3 border-b border-white/5 cursor-pointer transition-all group relative hover:bg-white/5"
+                  className="p-3 border-b border-slate-100 cursor-pointer transition-all group relative hover:bg-slate-50"
                 >
                   <div className="flex justify-between items-start mb-1 gap-2">
                     <div className="flex items-center gap-2 truncate">
-                      <p className="font-bold transition-colors truncate text-sm text-white group-hover:text-primary-300">{l.fullName}</p>
+                      <p className="font-bold transition-colors truncate text-sm text-slate-800 group-hover:text-primary-600">{l.fullName}</p>
                       {waitingSinceDate && (
                         <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping shrink-0" title="Cliente aguardando resposta!" />
                       )}
                     </div>
-                    <span className="text-[10px] font-black text-white/30 uppercase shrink-0">{timeStr}</span>
+                    <span className="text-[10px] font-black text-slate-400 uppercase shrink-0">{timeStr}</span>
                   </div>
 
                   <div className="flex items-center justify-between gap-2 mb-1">
-                    <p className="text-xs text-white/40 truncate flex-1">{l.lastMessageText || 'Sem mensagens'}</p>
+                    <p className="text-xs text-slate-500 truncate flex-1">{l.lastMessageText || 'Sem mensagens'}</p>
                     {waitingSinceDate && (
                       <div className={cn(
                         "px-2 py-0.5 rounded-full text-[8.5px] font-black border uppercase tracking-wider leading-none shrink-0",
@@ -268,13 +275,13 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                   </div>
 
                   <div className="mt-1.5 flex items-center gap-2">
-                    <Badge variant="primary" className="px-2 py-0 h-5 text-[9px] uppercase font-black">
+                    <span className="px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wide border bg-primary-50 text-primary-700 border-primary-200">
                       {l.status}
-                    </Badge>
-                    <div className="ml-auto flex items-center gap-1.5 opacity-40 group-hover:opacity-100 transition-opacity">
-                      <span className="text-[9px] text-white/40 font-bold">{l.sourceType || 'WhatsApp'}</span>
-                      <div className="w-3 h-3 rounded-full bg-white/5 flex items-center justify-center">
-                        <CheckCircle2 size={10} className="text-emerald-400" />
+                    </span>
+                    <div className="ml-auto flex items-center gap-1.5 opacity-50 group-hover:opacity-100 transition-opacity">
+                      <span className="text-[9px] text-slate-400 font-bold">{l.sourceType || 'WhatsApp'}</span>
+                      <div className="w-3 h-3 rounded-full bg-slate-100 flex items-center justify-center">
+                        <CheckCircle2 size={10} className="text-emerald-500" />
                       </div>
                     </div>
                   </div>
