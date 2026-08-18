@@ -944,28 +944,49 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   const pendingEntries = realSales.filter(o => o.status === 'pending');
   const pendingValue = pendingEntries.reduce((acc, o) => acc + ((o.total || 0) - (o.downPayment || 0)), 0);
 
+  // Detecta tema claro/escuro (a classe fica no <body>, aplicada pelo App) — o grafico usa
+  // cores fixas via SVG (fill inline), que NAO respeitam a troca automatica de classes CSS
+  // (.light-theme .text-white{...}) que o resto da tela usa, entao precisa ler isso na mao
+  const [isLightTheme, setIsLightTheme] = useState(() => document.body.classList.contains('light-theme'));
+  useEffect(() => {
+    const observer = new MutationObserver(() => setIsLightTheme(document.body.classList.contains('light-theme')));
+    observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, []);
+  const chartTextColor = isLightTheme ? 'rgba(15,23,42,0.5)' : 'rgba(255,255,255,0.3)';
+  const chartGridColor = isLightTheme ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.05)';
+
   const chartData = useMemo(() => {
     const groups: Record<string, any> = {};
     const isValidDate = (d: Date) => d instanceof Date && !isNaN(d.getTime());
+    const { start: rangeStart, end: rangeEnd } = getPeriodRange();
+    // Faturamento por data de CADA pagamento (nao criacao da nota), dentro do intervalo real
+    // do periodo selecionado — mesma logica ja usada nos cards do topo
+    realSales.filter(o => o.status !== 'canceled').flatMap(getRevenueEventsForSale).forEach(ev => {
+      const dateObj = new Date(ev.date);
+      if (!isValidDate(dateObj) || dateObj < rangeStart || dateObj > rangeEnd) return;
+      const day = format(dateObj, 'dd/MM');
+      if (!groups[day]) groups[day] = { day, total: 0, sales: 0, svcs: 0, entries: 0 };
+      groups[day].total += ev.value;
+    });
+    // Contagem de vendas/entradas continua pela data de CRIACAO (quantos pedidos nasceram no periodo)
     filteredOrders.forEach(o => {
       const dateObj = new Date(o.createdAt);
       if (!isValidDate(dateObj)) return;
       const day = format(dateObj, 'dd/MM');
       if (!groups[day]) groups[day] = { day, total: 0, sales: 0, svcs: 0, entries: 0 };
-      const val = o.status === 'pending' ? (o.downPayment || 0) : (o.total || 0);
-      groups[day].total += val;
       groups[day].sales += 1;
       if (o.status === 'pending') groups[day].entries += 1;
     });
     services.forEach(s => {
       const date = s.createdAt instanceof Timestamp ? s.createdAt.toDate() : new Date(s.createdAt);
-      if (!isValidDate(date)) return;
+      if (!isValidDate(date) || date < rangeStart || date > rangeEnd) return;
       const day = format(date, 'dd/MM');
       if (groups[day]) groups[day].svcs += 1;
       else groups[day] = { day, total: 0, sales: 0, svcs: 1, entries: 0 };
     });
     return Object.values(groups).sort((a, b) => a.day.localeCompare(b.day));
-  }, [filteredOrders, services]);
+  }, [filteredOrders, services, realSales, period, customRange]);
   const IconMap: Record<string, any> = {
     TrendingUp, Target, Clock, MessageSquare, ShoppingBag, Users, FileText, BarChart2, PieChartIcon, Trophy, Activity, Timer, CalendarDays, Wrench, Home
   };
@@ -1286,8 +1307,8 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                             <stop offset="95%" stopColor="#4cc9f0" stopOpacity={0}/>
                          </linearGradient>
                       </defs>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
-                      <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.3)', fontWeight: 800 }} />
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGridColor} />
+                      <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: chartTextColor, fontWeight: 800 }} />
                       <YAxis hide />
                       <Tooltip 
                          cursor={{ stroke: '#4cc9f0', strokeWidth: 1, strokeDasharray: '5 5' }}
@@ -1564,8 +1585,8 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                      <ChartErrorBoundary>
                      <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={analiseDetalhada.linhaGrafico}>
-                           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
-                           <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 8, fill: 'rgba(255,255,255,0.3)', fontWeight: 800 }} interval="preserveStartEnd" />
+                           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGridColor} />
+                           <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 8, fill: chartTextColor, fontWeight: 800 }} interval="preserveStartEnd" />
                            <YAxis hide />
                            <Tooltip
                               cursor={{ stroke: 'rgba(255,255,255,0.2)', strokeWidth: 1 }}
