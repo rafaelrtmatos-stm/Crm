@@ -26,7 +26,9 @@ interface ChatMessage {
 export const AssistantChatWidget = ({ currentCompany, user }: { currentCompany: Company | null; user: AppUser | null }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [showWelcomeTyping, setShowWelcomeTyping] = useState(false);
+  // Status "digitando..." fica no cabeçalho (abaixo do nome), estilo WhatsApp —
+  // nunca é renderizado como balão dentro da área de conversa.
+  const [assistantTyping, setAssistantTyping] = useState(false);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -34,22 +36,46 @@ export const AssistantChatWidget = ({ currentCompany, user }: { currentCompany: 
   const scrollRef = useRef<HTMLDivElement>(null);
   const hasWelcomedRef = useRef(false);
 
-  // Abre o balão: em vez de já mostrar a mensagem de apresentação pronta,
-  // exibe "digitando..." por 1,5s (estilo WhatsApp) e só então a mensagem
-  // chega, junto com o som de notificação.
+  // Divide uma resposta longa em blocos menores (até 3), pra simular uma
+  // pessoa mandando mensagens em sequência, em vez de um bloco único.
+  const splitReplyIntoSegments = (reply: string): string[] => {
+    const parts = reply
+      .split(/\n{2,}|(?<=[.!?])\s+(?=[A-ZÀ-Ú0-9])/)
+      .map(p => p.trim())
+      .filter(Boolean);
+    if (parts.length <= 1) return [reply];
+    // Agrupa em no máximo 3 blocos, juntando o excedente no último
+    const max = 3;
+    if (parts.length <= max) return parts;
+    const head = parts.slice(0, max - 1);
+    const tail = parts.slice(max - 1).join(' ');
+    return [...head, tail];
+  };
+
+  // Tempo de "digitando..." proporcional ao tamanho do texto — curto e natural,
+  // nunca instantâneo nem demorado demais.
+  const typingDelayFor = (text: string) => {
+    const len = text.length;
+    if (len <= 40) return 1200;
+    if (len <= 120) return 2400;
+    return 3600;
+  };
+
+  // Abre o balão: a área de mensagens começa vazia. Aparece "digitando..." no
+  // cabeçalho por ~3s e só então chega a mensagem de apresentação, com som.
   const handleOpen = () => {
     setIsOpen(true);
     if (hasWelcomedRef.current) return;
     hasWelcomedRef.current = true;
-    setShowWelcomeTyping(true);
+    setAssistantTyping(true);
     setTimeout(() => {
-      setShowWelcomeTyping(false);
+      setAssistantTyping(false);
       setMessages(prev => [...prev, { id: 'welcome', role: 'bot', text: 'Oi! Eu sou o Robozinho Rafa 🤖 Pode perguntar sobre preço, estoque, último serviço de um cliente, ou qualquer outra coisa — eu consulto direto no sistema.' }]);
       try {
         const audio = new Audio('/sounds/robozinho-apresentacao.mp3');
         audio.play().catch(() => {});
       } catch (e) { /* ignora se o navegador bloquear */ }
-    }, 1500);
+    }, 3000);
   };
 
   // Carrega leads do Firestore e vendas do Supabase uma única vez ao montar
@@ -80,7 +106,7 @@ export const AssistantChatWidget = ({ currentCompany, user }: { currentCompany: 
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, isOpen, showWelcomeTyping]);
+  }, [messages, isOpen, assistantTyping]);
 
   const handleSend = async () => {
     const text = draft.trim();
@@ -89,6 +115,7 @@ export const AssistantChatWidget = ({ currentCompany, user }: { currentCompany: 
     setMessages(prev => [...prev, userMsg]);
     setDraft('');
     setSending(true);
+    setAssistantTyping(true);
 
     try {
       // Carrega produtos
@@ -104,15 +131,9 @@ export const AssistantChatWidget = ({ currentCompany, user }: { currentCompany: 
         isActive: row.is_active !== false,
       }));
 
-      // Adiciona mensagem "digitando..." enquanto aguarda 3 segundos
-      const typingId = `b-typing-${Date.now()}`;
-      setMessages(prev => [...prev, { id: typingId, role: 'bot', text: '...' }]);
-
-      // Aguarda 3 segundos antes de gerar resposta
-      await new Promise(resolve => setTimeout(resolve, 3000));
-
-      // Gera resposta (função async)
-      const { isTyping, text: reply } = await answerAdvancedQuestion({
+      // Gera resposta (função async) — a consulta ao sistema já acontece
+      // "por trás" do status digitando..., sem mexer na lógica de estoque/CRM
+      const { text: reply } = await answerAdvancedQuestion({
         question: text,
         produtos,
         userName: user?.name,
@@ -120,17 +141,25 @@ export const AssistantChatWidget = ({ currentCompany, user }: { currentCompany: 
         supabaseSales: sales,
       });
 
-      // Remove mensagem "digitando..." e adiciona resposta real
-      setMessages(prev => {
-        const filtered = prev.filter(m => m.id !== typingId);
-        return [...filtered, { id: `b-${Date.now()}`, role: 'bot', text: reply }];
-      });
+      // Mostra a resposta em blocos, como uma pessoa digitando mensagens em
+      // sequência, em vez de tudo de uma vez
+      const segments = splitReplyIntoSegments(reply);
+      for (let i = 0; i < segments.length; i++) {
+        setAssistantTyping(true);
+        await new Promise(resolve => setTimeout(resolve, typingDelayFor(segments[i])));
+        setAssistantTyping(false);
+        setMessages(prev => [...prev, { id: `b-${Date.now()}-${i}`, role: 'bot', text: segments[i] }]);
+        if (i < segments.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
     } catch (err) {
       console.error('Erro no chat do Robozinho Rafa:', err);
-      setMessages(prev => prev.filter(m => m.id !== `b-typing-${Date.now()}`));
+      setAssistantTyping(false);
       setMessages(prev => [...prev, { id: `b-${Date.now()}`, role: 'bot', text: 'Deu um errinho pra consultar o sistema agora. Tenta de novo em instantes?' }]);
     } finally {
       setSending(false);
+      setAssistantTyping(false);
     }
   };
 
@@ -165,7 +194,11 @@ export const AssistantChatWidget = ({ currentCompany, user }: { currentCompany: 
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-black text-white truncate">Robozinho Rafa</p>
-              <p className="text-[10px] text-white/70 flex items-center gap-1"><Sparkles size={10} /> Assistente do sistema</p>
+              {assistantTyping ? (
+                <p className="text-[10px] text-white/90 italic animate-pulse">digitando…</p>
+              ) : (
+                <p className="text-[10px] text-white/70 flex items-center gap-1"><Sparkles size={10} /> Assistente do sistema</p>
+              )}
             </div>
             <button
               onClick={() => setIsOpen(false)}
@@ -179,7 +212,7 @@ export const AssistantChatWidget = ({ currentCompany, user }: { currentCompany: 
           {/* Mensagens */}
           <div ref={scrollRef} className="flex-1 overflow-y-auto custom-scrollbar px-4 py-4 space-y-3 bg-[#08080c]">
             {messages.map(m => (
-              <div key={m.id} className={cn("flex", m.role === 'user' ? "justify-end" : "justify-start")}>
+              <div key={m.id} className={cn("flex animate-in fade-in slide-in-from-bottom-1 duration-300", m.role === 'user' ? "justify-end" : "justify-start")}>
                 <div
                   className={cn(
                     "max-w-[85%] px-3.5 py-2.5 rounded-2xl text-[13px] leading-relaxed whitespace-pre-wrap",
@@ -192,13 +225,6 @@ export const AssistantChatWidget = ({ currentCompany, user }: { currentCompany: 
                 </div>
               </div>
             ))}
-            {(sending || showWelcomeTyping) && (
-              <div className="flex justify-start">
-                <div className="px-3.5 py-2.5 rounded-2xl rounded-bl-sm bg-white/[0.06] border border-white/10 text-white/40 text-[13px]">
-                  digitando…
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Input */}
