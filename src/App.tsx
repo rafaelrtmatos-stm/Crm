@@ -136,6 +136,8 @@ interface AppContextType {
   setPendingReceiptOpenId: (id: string | null) => void;
   pendingHistoryClientFilter: { clienteId: string; clienteName: string } | null;
   setPendingHistoryClientFilter: (v: { clienteId: string; clienteName: string } | null) => void;
+  pendingHistoryProductSearch: string | null;
+  setPendingHistoryProductSearch: (v: string | null) => void;
   pendingReceivablesFilter: boolean;
   setPendingReceivablesFilter: (v: boolean) => void;
   pendingGoToHistorico: boolean;
@@ -590,6 +592,7 @@ export default function App() {
   };
   const [pendingReceiptOpenId, setPendingReceiptOpenId] = useState<string | null>(null);
   const [pendingHistoryClientFilter, setPendingHistoryClientFilter] = useState<{ clienteId: string; clienteName: string } | null>(null);
+  const [pendingHistoryProductSearch, setPendingHistoryProductSearch] = useState<string | null>(null);
   const [pendingReceivablesFilter, setPendingReceivablesFilter] = useState(false);
   const [pendingGoToHistorico, setPendingGoToHistorico] = useState(false);
   const [pendingGoToServicos, setPendingGoToServicos] = useState(false);
@@ -1590,6 +1593,8 @@ export default function App() {
     setPendingReceiptOpenId,
     pendingHistoryClientFilter,
     setPendingHistoryClientFilter,
+    pendingHistoryProductSearch,
+    setPendingHistoryProductSearch,
     pendingReceivablesFilter,
     setPendingReceivablesFilter,
     pendingGoToHistorico,

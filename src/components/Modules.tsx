@@ -706,7 +706,7 @@ ${CONTRATADA_NOME} — CONTRATADA`;
 }
 
 export const DashboardModule = ({ user, currentCompany, companies = [], pendingOrders = [], setActiveTab }: { user: AppUser | null, currentCompany: Company | null, companies?: Company[], pendingOrders?: SaleOrder[], setActiveTab?: (tab: any) => void }) => {
-  const { setPendingReceivablesFilter, setPendingGoToHistorico, setPendingGoToServicos } = React.useContext(AppContext)!;
+  const { setPendingReceivablesFilter, setPendingGoToHistorico, setPendingGoToServicos, setPendingHistoryProductSearch } = React.useContext(AppContext)!;
   const [isEditMode, setIsEditMode] = useState(false);
   const [valorEmEstoque, setValorEmEstoque] = useState(0);
 
@@ -953,14 +953,12 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     const now = new Date();
     const startOfDay = new Date(now); startOfDay.setHours(0, 0, 0, 0);
     const diaSemanaAtual = now.getDay(); // 0=domingo, 1=segunda, ..., 6=sabado
-    const diffParaSegunda = diaSemanaAtual === 0 ? -6 : 1 - diaSemanaAtual; // domingo conta como fim da semana anterior
-    const startOfWeek = new Date(now); startOfWeek.setDate(now.getDate() + diffParaSegunda); startOfWeek.setHours(0, 0, 0, 0);
+    const startOfWeek = new Date(now); startOfWeek.setDate(now.getDate() - diaSemanaAtual); startOfWeek.setHours(0, 0, 0, 0); // semana comeca no domingo
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const startOfYear = new Date(now.getFullYear(), 0, 1);
 
     const inicioPeriodo = analisePeriodo === 'hoje' ? startOfDay : analisePeriodo === 'semana' ? startOfWeek : analisePeriodo === 'mes' ? startOfMonth : startOfYear;
     const diasNoPeriodo = Math.max(1, Math.ceil((now.getTime() - inicioPeriodo.getTime()) / 86400000) + 1);
-    const diasParaGrafico = analisePeriodo === 'hoje' ? 7 : analisePeriodo === 'semana' ? 7 : analisePeriodo === 'mes' ? 30 : 365;
 
     const calcPeriodo = (desde: Date) => {
       const vendasNaoCanceladas = realSales.filter(o => o.status !== 'canceled');
@@ -991,14 +989,16 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     });
     const produtosMaisVendidos = Object.values(produtosMap).sort((a, b) => b.qty - a.qty).slice(0, 6);
 
-    // Linha do periodo (por dia, ou por mes se for "ano")
+    // Linha do periodo (por dia, ou por mes se for "ano") — usa o INICIO REAL do periodo
+    // selecionado (inicioPeriodo), nao um numero fixo de dias, senao o grafico de "Hoje" e
+    // "Semana" ficavam mostrando sempre a mesma janela de 7 dias corridos
     const porBucket: Record<string, { faturamento: number; custo: number }> = {};
     // Custo: continua ligado a data de criacao da nota (quando o material foi consumido)
     realSales.filter(o => o.status !== 'canceled').forEach(o => {
       const d = new Date(o.createdAt);
       if (isNaN(d.getTime())) return;
-      const diffDias = Math.floor((startOfDay.getTime() - new Date(d).setHours(0, 0, 0, 0)) / 86400000);
-      if (diffDias < 0 || diffDias >= diasParaGrafico) return;
+      const diaSemHora = new Date(d); diaSemHora.setHours(0, 0, 0, 0);
+      if (diaSemHora < inicioPeriodo || diaSemHora > startOfDay) return;
       const key = analisePeriodo === 'ano' ? format(d, 'MM/yyyy') : format(d, 'dd/MM');
       if (!porBucket[key]) porBucket[key] = { faturamento: 0, custo: 0 };
       porBucket[key].custo += custoDoPedido(o);
@@ -1008,8 +1008,8 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     realSales.filter(o => o.status !== 'canceled').flatMap(getRevenueEventsForSale).forEach(ev => {
       const d = new Date(ev.date);
       if (isNaN(d.getTime())) return;
-      const diffDias = Math.floor((startOfDay.getTime() - new Date(d).setHours(0, 0, 0, 0)) / 86400000);
-      if (diffDias < 0 || diffDias >= diasParaGrafico) return;
+      const diaSemHora = new Date(d); diaSemHora.setHours(0, 0, 0, 0);
+      if (diaSemHora < inicioPeriodo || diaSemHora > startOfDay) return;
       const key = analisePeriodo === 'ano' ? format(d, 'MM/yyyy') : format(d, 'dd/MM');
       if (!porBucket[key]) porBucket[key] = { faturamento: 0, custo: 0 };
       porBucket[key].faturamento += ev.value;
@@ -1023,7 +1023,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         linhaGrafico.push({ day: format(d, 'MM/yy'), faturamento: v.faturamento, lucro: Math.max(0, v.faturamento - v.custo) });
       }
     } else {
-      for (let i = diasParaGrafico - 1; i >= 0; i--) {
+      for (let i = diasNoPeriodo - 1; i >= 0; i--) {
         const d = new Date(now); d.setDate(now.getDate() - i);
         const key = format(d, 'dd/MM');
         const v = porBucket[key] || { faturamento: 0, custo: 0 };
@@ -1545,7 +1545,11 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                        <p className="text-[10px] text-white/30 text-center py-6">Sem vendas nesse período.</p>
                      )}
                      {analiseDetalhada.produtosMaisVendidos.map((p, i) => (
-                       <div key={p.name} className="flex items-center justify-between gap-2 bg-white/5 border border-white/5 rounded-lg px-2.5 py-1.5">
+                       <div
+                         key={p.name}
+                         onClick={() => { setPendingHistoryProductSearch(p.name); setActiveTab?.('pos'); }}
+                         className="flex items-center justify-between gap-2 bg-white/5 hover:bg-white/10 border border-white/5 hover:border-primary-500/30 rounded-lg px-2.5 py-1.5 cursor-pointer transition-colors"
+                       >
                           <div className="flex items-center gap-1.5 min-w-0">
                              <span className="text-[9px] font-black text-primary-400 shrink-0">#{i + 1}</span>
                              <span className="text-[10px] font-bold text-white truncate">{p.name}</span>
@@ -5059,7 +5063,7 @@ const EntregaCountdown = ({ scheduledFor, delivered, onEdit, onDeliver, onDelete
 };
 
 export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany: Company | null, addPendingOrder: (order: SaleOrder) => void }) => {
-  const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare, openWhatsAppChat, pendingReceiptOpenId, setPendingReceiptOpenId, pendingHistoryClientFilter, setPendingHistoryClientFilter, prefilledCustomer, setPrefilledCustomer, pendingReceivablesFilter, setPendingReceivablesFilter, pendingGoToHistorico, setPendingGoToHistorico, pendingGoToServicos, setPendingGoToServicos, pendingOpenContratoId, setPendingOpenContratoId, pendingOpenOrcamentoId, setPendingOpenOrcamentoId } = React.useContext(AppContext)!;
+  const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare, openWhatsAppChat, pendingReceiptOpenId, setPendingReceiptOpenId, pendingHistoryClientFilter, setPendingHistoryClientFilter, pendingHistoryProductSearch, setPendingHistoryProductSearch, prefilledCustomer, setPrefilledCustomer, pendingReceivablesFilter, setPendingReceivablesFilter, pendingGoToHistorico, setPendingGoToHistorico, pendingGoToServicos, setPendingGoToServicos, pendingOpenContratoId, setPendingOpenContratoId, pendingOpenOrcamentoId, setPendingOpenOrcamentoId } = React.useContext(AppContext)!;
   const [soundAlertsEnabled, setSoundAlertsEnabledState] = useState(() => localStorage.getItem('rpro_sound_alerts_enabled') !== 'false');
   const setSoundAlertsEnabled = (v: boolean) => {
     setSoundAlertsEnabledState(v);
@@ -6848,6 +6852,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setActiveTab('historico');
     setPendingHistoryClientFilter(null);
   }, [pendingHistoryClientFilter]);
+
+  // Se a Analise Detalhada do Dashboard pediu pra ver o historico de vendas de um produto
+  // especifico (clicou em "Mais Vendidos") — a busca do Historico ja compara com o nome dos itens
+  useEffect(() => {
+    if (!pendingHistoryProductSearch) return;
+    setHistoryClienteIdFilter(null);
+    setHistorySearch(pendingHistoryProductSearch);
+    setActiveTab('historico');
+    setPendingHistoryProductSearch(null);
+  }, [pendingHistoryProductSearch]);
 
   // Se o card "A Receber" do Dashboard pediu pra ver as notas com saldo em aberto
   useEffect(() => {
