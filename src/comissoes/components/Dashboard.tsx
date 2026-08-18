@@ -8,6 +8,7 @@ import {
   Sparkles,
   CheckCircle2,
   Filter,
+  Quote,
 } from 'lucide-react';
 import { ServiceItem, UserSettings, SummaryStats } from '../types';
 import { formatCurrency, formatDateBR, calculateSummaryStats } from '../utils/storage';
@@ -61,6 +62,49 @@ const getYesterdayISO = () => {
   const day = String(d.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 };
+
+// Frase motivacional do dia — troca automaticamente a cada dia (mesma frase
+// o dia inteiro, pra não ficar mudando a cada refresh da tela). A escolha é
+// determinística pelo dia do ano (não é aleatória), então dois colaboradores
+// olhando o painel no mesmo dia veem a mesma frase.
+const MOTIVATIONAL_QUOTES = [
+  'Foco no processo — o resultado é consequência.',
+  'Cada serviço bem feito hoje constrói a sua reputação de amanhã.',
+  'Produtividade não é fazer mais, é fazer o que importa.',
+  'Disciplina é escolher entre o que você quer agora e o que você quer mais.',
+  'Pequenos avanços diários viram grandes resultados no fim do mês.',
+  'Quem cuida dos detalhes, entrega qualidade sem esforço extra.',
+  'Sua comissão de hoje é reflexo do seu compromisso de hoje.',
+  'Comece pelo mais difícil — o resto fica mais leve depois.',
+  'Consistência vence intensidade: apareça todos os dias.',
+  'Cliente satisfeito é a melhor propaganda que existe.',
+  'Organização economiza tempo — e tempo é produção.',
+  'Você não precisa ser perfeito, precisa ser constante.',
+  'Trabalho bem feito não pede desconto.',
+  'O que você entrega hoje define o que confiam a você amanhã.',
+  'Menos desculpa, mais solução.',
+  'Toda meta grande começa com uma tarefa pequena, feita agora.',
+  'Sua atenção ao detalhe é o que separa o bom do excelente.',
+  'Não é sobre ter tempo, é sobre fazer o tempo valer.',
+  'Ritmo constante entrega mais do que corrida de última hora.',
+  'Cada "sim" pro cliente começa com organização sua.',
+  'Progresso, não perfeição.',
+  'A qualidade do seu trabalho fala antes de você.',
+  'Hoje é um bom dia pra bater sua própria meta.',
+  'Resolva um problema de cada vez — e resolva bem.',
+  'Seu esforço de hoje é o seu resultado de amanhã.',
+  'Faça o simples direito — o complicado se resolve sozinho.',
+  'Compromisso com o cliente é compromisso com você mesmo.',
+  'Um passo de cada vez também é andar rápido.',
+];
+
+const getDayOfYear = (d: Date) => {
+  const start = new Date(d.getFullYear(), 0, 0);
+  const diff = d.getTime() - start.getTime();
+  return Math.floor(diff / (1000 * 60 * 60 * 24));
+};
+
+const getTodaysQuote = () => MOTIVATIONAL_QUOTES[getDayOfYear(new Date()) % MOTIVATIONAL_QUOTES.length];
 
 const getThisWeekBounds = () => {
   const now = new Date();
@@ -290,6 +334,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
         <div className="relative z-10 flex items-center gap-3">
           <AddServiceButton onClick={onOpenAddModal} size="large" />
         </div>
+      </div>
+
+      {/* Frase motivacional do dia — mesma para todo mundo, troca automaticamente
+          à meia-noite (ver MOTIVATIONAL_QUOTES acima) */}
+      <div className="flex items-start gap-3 p-4 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] shadow-sm">
+        <div className="p-2 rounded-xl bg-red-500/10 text-[var(--accent-red)] shrink-0">
+          <Quote className="w-4 h-4" />
+        </div>
+        <p className="text-sm text-[var(--text-main)] font-semibold italic leading-snug pt-1.5">
+          {getTodaysQuote()}
+        </p>
       </div>
 
       {/* Period Filter Bar */}
