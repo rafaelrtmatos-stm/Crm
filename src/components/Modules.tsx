@@ -1778,6 +1778,7 @@ export const ChatPanel = ({
   // depender de prop, ja que o ChatPanel e usado tanto no Funil CRM quanto em Mensagens
   const [funnelStages, setFunnelStages] = useState<FunnelStage[]>([]);
   const [isChangingStage, setIsChangingStage] = useState(false);
+  const [isStageMenuOpen, setIsStageMenuOpen] = useState(false);
   // Se o lead nao tem funnelId salvo (cadastro antigo/incompleto), usa o funil que ja esta
   // selecionado na tela (passado pelo Funil CRM) como respaldo, e aproveita pra corrigir o
   // cadastro do lead na hora, gravando o funnelId que estava faltando
@@ -1811,6 +1812,7 @@ export const ChatPanel = ({
       contactName: conversation?.contactName || '',
       fullName: conversation?.fullName || conversation?.name || '',
     });
+    setIsStageMenuOpen(false);
   }, [conversation?.id]);
   const nomesMudaram = conversation && (
     nameFieldsDraft.whatsappName !== (conversation.whatsappName || '') ||
@@ -2305,30 +2307,55 @@ export const ChatPanel = ({
 
       {/* Dropdown de Etapa do Funil — muda a etapa da conversa direto daqui, sem precisar
           arrastar no Kanban. So aparece se essa conversa tiver um lead/funil vinculado.
-          O pill usa a cor cadastrada na propria etapa (Configurar > Etapas do Processo)
-          pra ficar bem destacado e mudar de cor junto com a etapa selecionada. */}
+          Dropdown customizado (em vez de <select> nativo) pra a listinha que abre tambem
+          ficar no mesmo visual do resto do app — o <select> do navegador nao da pra estilizar
+          direito. Cada etapa usa a cor cadastrada em Configurar > Etapas do Processo. */}
       {effectiveFunnelId && funnelStages.length > 0 ? (() => {
         const currentStage = funnelStages.find(s => s.id === conversation.funnelStageId);
         const stageColor = currentStage?.color || '#4cc9f0';
         return (
           <div className="flex items-center gap-2 w-full py-2 px-3 border-b border-white/10 bg-white/[0.015] flex-shrink-0">
-            <div
-              className="flex-1 flex items-center gap-2 rounded-full pl-3 pr-2 py-1.5 border transition-colors"
-              style={{ backgroundColor: `${stageColor}22`, borderColor: `${stageColor}66` }}
-            >
-              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: stageColor }} />
-              <select
-                value={conversation.funnelStageId || ''}
-                onChange={(e) => handleChangeStageFromChat(e.target.value)}
+            <div className="relative flex-1">
+              <button
+                type="button"
+                onClick={() => setIsStageMenuOpen(o => !o)}
                 disabled={isChangingStage}
-                className="flex-1 h-6 bg-transparent border-none text-[10px] font-black uppercase tracking-widest focus:outline-none cursor-pointer disabled:opacity-50 appearance-none"
-                style={{ color: stageColor }}
+                className="w-full flex items-center gap-2 rounded-full pl-3 pr-2.5 py-1.5 border transition-colors disabled:opacity-50"
+                style={{ backgroundColor: `${stageColor}22`, borderColor: `${stageColor}66` }}
               >
-                {funnelStages.map(stage => (
-                  <option key={stage.id} value={stage.id} className="bg-slate-900 text-white normal-case">{stage.name}</option>
-                ))}
-              </select>
-              <ChevronDown size={12} className="shrink-0" style={{ color: stageColor }} />
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: stageColor }} />
+                <span className="flex-1 text-left text-[10px] font-black uppercase tracking-widest truncate" style={{ color: stageColor }}>
+                  {currentStage?.name || 'Selecionar etapa'}
+                </span>
+                <ChevronDown size={12} className={cn("shrink-0 transition-transform duration-200", isStageMenuOpen && "rotate-180")} style={{ color: stageColor }} />
+              </button>
+
+              {isStageMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setIsStageMenuOpen(false)} />
+                  <div className="absolute top-full mt-2 left-0 right-0 min-w-[200px] bg-slate-900 border border-white/10 rounded-2xl shadow-2xl z-50 p-1.5 max-h-64 overflow-y-auto custom-scrollbar">
+                    {funnelStages.map(stage => {
+                      const isActive = stage.id === conversation.funnelStageId;
+                      const c = stage.color || '#4cc9f0';
+                      return (
+                        <button
+                          key={stage.id}
+                          type="button"
+                          onClick={() => { handleChangeStageFromChat(stage.id); setIsStageMenuOpen(false); }}
+                          className={cn(
+                            "w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all text-left",
+                            isActive ? "bg-white/[0.08]" : "hover:bg-white/5"
+                          )}
+                        >
+                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: c }} />
+                          <span className="flex-1 truncate normal-case" style={{ color: isActive ? c : 'rgba(255,255,255,0.75)' }}>{stage.name}</span>
+                          {isActive && <Check size={13} style={{ color: c }} className="shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
             </div>
             <button
               onClick={handleJumpToOtherView}
