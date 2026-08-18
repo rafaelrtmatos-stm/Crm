@@ -2314,13 +2314,13 @@ export const ChatPanel = ({
         const currentStage = funnelStages.find(s => s.id === conversation.funnelStageId);
         const stageColor = currentStage?.color || '#4cc9f0';
         return (
-          <div className="flex items-center gap-2 w-full py-2 px-3 border-b border-white/10 bg-white/[0.015] flex-shrink-0">
+          <div className="flex items-center gap-2 w-full py-3 px-3 border-b border-white/10 bg-white/[0.015] flex-shrink-0">
             <div className="relative flex-1">
               <button
                 type="button"
                 onClick={() => setIsStageMenuOpen(o => !o)}
                 disabled={isChangingStage}
-                className="w-full flex items-center gap-2 rounded-full pl-3 pr-2.5 py-1.5 border transition-colors disabled:opacity-50"
+                className="w-full flex items-center gap-2 rounded-full pl-3 pr-2.5 py-2.5 border transition-colors disabled:opacity-50"
                 style={{ backgroundColor: `${stageColor}22`, borderColor: `${stageColor}66` }}
               >
                 <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: stageColor }} />
