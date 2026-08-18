@@ -272,7 +272,7 @@ function mapUsuarioRow(row: any): AppUser {
 
 // Permissoes granulares padrao (visualizar/criar/editar/excluir) por perfil.
 // O admin sempre tem acesso total independente disso (checado a parte via isAdmin).
-const ALL_MODULE_IDS = ['dashboard', 'pos', 'messages', 'clientes_espera', 'contacts', 'crm', 'production', 'inventory', 'settings', 'robozinho_rafa'];
+const ALL_MODULE_IDS = ['dashboard', 'pos', 'messages', 'clientes_espera', 'contacts', 'crm', 'production', 'inventory', 'settings', 'robozinho_rafa', 'comissoes'];
 function fullAccess(): ModuleCrudPermission { return { view: true, create: true, edit: true, delete: true }; }
 function noAccess(): ModuleCrudPermission { return { view: false, create: false, edit: false, delete: false }; }
 function viewOnly(): ModuleCrudPermission { return { view: true, create: false, edit: false, delete: false }; }
@@ -17059,6 +17059,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     { id: 'production', label: 'Ordem de Serviço' },
     { id: 'inventory', label: 'Estoque' },
     { id: 'comissoes', label: 'Comissões' },
+    { id: 'robozinho_rafa', label: 'Integrações (Robozinho)' },
     { id: 'settings', label: 'Configurações' },
   ];
 
@@ -17071,6 +17072,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     { id: 'clientes_espera', label: 'Clientes em Espera', desc: 'Fila de atendimento com tempo de espera em tempo real' },
     { id: 'production', label: 'Ordem de Serviço', desc: 'Fila de producao com todos os pedidos e etapa atual de cada um' },
     { id: 'comissoes', label: 'Comissões', desc: 'Painel de comissões do colaborador (login próprio, separado do CRM)' },
+    { id: 'robozinho_rafa', label: 'Integrações', desc: 'Robozinho Rafa (assistente de IA) e conexões de WhatsApp/Facebook/Instagram' },
     { id: 'settings', label: 'Opções', desc: 'Parâmetro de configurações do Rafa Arts Graphics' },
   ];
 
