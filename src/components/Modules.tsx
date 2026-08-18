@@ -706,7 +706,7 @@ ${CONTRATADA_NOME} — CONTRATADA`;
 }
 
 export const DashboardModule = ({ user, currentCompany, companies = [], pendingOrders = [], setActiveTab }: { user: AppUser | null, currentCompany: Company | null, companies?: Company[], pendingOrders?: SaleOrder[], setActiveTab?: (tab: any) => void }) => {
-  const { setPendingReceivablesFilter, setPendingGoToHistorico, setPendingGoToServicos, setPendingHistoryProductSearch } = React.useContext(AppContext)!;
+  const { setPendingReceivablesFilter, setPendingGoToHistorico, setPendingGoToServicos, setPendingHistoryProductSearch, setPendingReceiptOpenId } = React.useContext(AppContext)!;
   const [isEditMode, setIsEditMode] = useState(false);
   const [valorEmEstoque, setValorEmEstoque] = useState(0);
 
@@ -989,6 +989,12 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     });
     const produtosMaisVendidos = Object.values(produtosMap).sort((a, b) => b.qty - a.qty).slice(0, 6);
 
+    // Vendas mais recentes do periodo selecionado (pra lista "Historico de Vendas" no modal)
+    const vendasDoPeriodo = realSales
+      .filter(o => o.status !== 'canceled' && new Date(o.createdAt) >= inicioPeriodo)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 8);
+
     // Linha do periodo (por dia, ou por mes se for "ano") — usa o INICIO REAL do periodo
     // selecionado (inicioPeriodo), nao um numero fixo de dias, senao o grafico de "Hoje" e
     // "Semana" ficavam mostrando sempre a mesma janela de 7 dias corridos
@@ -1031,7 +1037,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       }
     }
 
-    return { periodo, mediaDiariaPeriodo, produtosMaisVendidos, linhaGrafico };
+    return { periodo, mediaDiariaPeriodo, produtosMaisVendidos, vendasDoPeriodo, linhaGrafico };
   }, [realSales, inventory, analisePeriodo]);
 
   const addWidget = (type: WidgetType) => {
@@ -1539,23 +1545,23 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                </div>
 
                <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-3 flex flex-col">
-                  <h4 className="text-[9px] font-black uppercase text-white/40 tracking-widest mb-2">Mais Vendidos</h4>
+                  <h4 className="text-[9px] font-black uppercase text-white/40 tracking-widest mb-2">Histórico de Vendas</h4>
                   <div className="space-y-1.5 flex-1 overflow-y-auto custom-scrollbar max-h-[190px]">
-                     {analiseDetalhada.produtosMaisVendidos.length === 0 && (
+                     {analiseDetalhada.vendasDoPeriodo.length === 0 && (
                        <p className="text-[10px] text-white/30 text-center py-6">Sem vendas nesse período.</p>
                      )}
-                     {analiseDetalhada.produtosMaisVendidos.map((p, i) => (
+                     {analiseDetalhada.vendasDoPeriodo.map((venda) => (
                        <div
-                         key={p.name}
-                         onClick={() => { setPendingHistoryProductSearch(p.name); setActiveTab?.('pos'); }}
+                         key={venda.id}
+                         onClick={() => { setPendingReceiptOpenId(venda.id); setActiveTab?.('pos'); }}
                          className="flex items-center justify-between gap-2 bg-white/5 hover:bg-white/10 border border-white/5 hover:border-primary-500/30 rounded-lg px-2.5 py-1.5 cursor-pointer transition-colors"
                        >
                           <div className="flex items-center gap-1.5 min-w-0">
-                             <span className="text-[9px] font-black text-primary-400 shrink-0">#{i + 1}</span>
-                             <span className="text-[10px] font-bold text-white truncate">{p.name}</span>
+                             <span className="text-[10px] font-bold text-white truncate">{(venda.customerName || 'Cliente de Balcão').toUpperCase()}</span>
                           </div>
-                          <div className="text-right shrink-0">
-                             <p className="text-[10px] font-black text-white">{p.qty}un</p>
+                          <div className="text-right shrink-0 flex items-center gap-1.5">
+                             <span className="text-[8px] text-white/30 font-bold">{safeFormat(venda.createdAt, 'dd/MM')}</span>
+                             <p className="text-[10px] font-black text-emerald-400">R$ {venda.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                           </div>
                        </div>
                      ))}
