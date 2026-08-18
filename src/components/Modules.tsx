@@ -1015,7 +1015,9 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     const startOfYear = new Date(now.getFullYear(), 0, 1);
 
     const inicioPeriodo = analisePeriodo === 'hoje' ? startOfDay : analisePeriodo === 'semana' ? startOfWeek : analisePeriodo === 'mes' ? startOfMonth : startOfYear;
-    const diasNoPeriodo = Math.max(1, Math.ceil((now.getTime() - inicioPeriodo.getTime()) / 86400000) + 1);
+    // Usa startOfDay (nao "now" com hora corrente) pra contar dias inteiros sem fracao,
+    // evitando arredondamento que fazia a janela do grafico comecar antes do inicio real do periodo
+    const diasNoPeriodo = Math.max(1, Math.round((startOfDay.getTime() - inicioPeriodo.getTime()) / 86400000) + 1);
 
     const calcPeriodo = (desde: Date) => {
       const vendasNaoCanceladas = realSales.filter(o => o.status !== 'canceled');
@@ -1086,8 +1088,8 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         linhaGrafico.push({ day: format(d, 'MM/yy'), faturamento: v.faturamento, lucro: Math.max(0, v.faturamento - v.custo) });
       }
     } else {
-      for (let i = diasNoPeriodo - 1; i >= 0; i--) {
-        const d = new Date(now); d.setDate(now.getDate() - i);
+      for (let i = 0; i < diasNoPeriodo; i++) {
+        const d = new Date(inicioPeriodo); d.setDate(inicioPeriodo.getDate() + i);
         const key = format(d, 'dd/MM');
         const v = porBucket[key] || { faturamento: 0, custo: 0 };
         linhaGrafico.push({ day: key, faturamento: v.faturamento, lucro: Math.max(0, v.faturamento - v.custo) });
