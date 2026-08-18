@@ -271,7 +271,7 @@ function mapUsuarioRow(row: any): AppUser {
 
 // Permissoes granulares padrao (visualizar/criar/editar/excluir) por perfil.
 // O admin sempre tem acesso total independente disso (checado a parte via isAdmin).
-const ALL_MODULE_IDS = ['dashboard', 'pos', 'messages', 'clientes_espera', 'contacts', 'crm', 'production', 'inventory', 'settings'];
+const ALL_MODULE_IDS = ['dashboard', 'pos', 'messages', 'clientes_espera', 'contacts', 'crm', 'production', 'inventory', 'settings', 'robozinho_rafa'];
 function fullAccess(): ModuleCrudPermission { return { view: true, create: true, edit: true, delete: true }; }
 function noAccess(): ModuleCrudPermission { return { view: false, create: false, edit: false, delete: false }; }
 function viewOnly(): ModuleCrudPermission { return { view: true, create: false, edit: false, delete: false }; }
@@ -296,6 +296,7 @@ function getDefaultModulePermissions(role: string): ModulePermissions {
       empty.messages = viewCreateEdit();
       empty.clientes_espera = viewEdit();
       empty.contacts = viewCreateEdit();
+      empty.robozinho_rafa = viewCreateEdit();
       return empty;
     case 'operador': // Producao
       empty.dashboard = viewOnly();

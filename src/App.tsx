@@ -40,7 +40,8 @@ import {
   EyeOff,
   AlertCircle,
   ShieldCheck,
-  Key
+  Key,
+  Bot
 } from 'lucide-react';
 import { ChevronRight } from 'lucide-react';
 
@@ -103,7 +104,7 @@ import {
 } from './types';
 import { RafaArtsLogo, BrandLogo } from './components/RafaArtsLogo';
 
-type MainTab = 'dashboard' | 'crm' | 'messages' | 'pos' | 'contacts' | 'services' | 'inventory' | 'production' | 'settings' | 'comissoes';
+type MainTab = 'dashboard' | 'crm' | 'messages' | 'pos' | 'contacts' | 'services' | 'inventory' | 'production' | 'settings' | 'comissoes' | 'robozinho_rafa';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -396,6 +397,7 @@ import {
   ClientesEsperaModule
 } from './components/Modules';
 import { MessagesSidebarPopup } from './components/MessagesSidebarPopup';
+import { RobozinhoRafaModule } from './components/RobozinhoRafaModule';
 import { ModuleErrorBoundary } from './components/SharedUI';
 
 // --- MAIN APP ---
@@ -471,7 +473,7 @@ export default function App() {
   }, []);
   const [activeTab, setActiveTabState] = useState<MainTab>(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem('rpro_active_tab') : null;
-    const validTabs: MainTab[] = ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'services', 'inventory', 'production', 'settings', 'comissoes'];
+    const validTabs: MainTab[] = ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'services', 'inventory', 'production', 'settings', 'comissoes', 'robozinho_rafa'];
     return (saved && validTabs.includes(saved as MainTab)) ? (saved as MainTab) : 'dashboard';
   });
   const setActiveTab = (tab: MainTab) => {
@@ -1350,6 +1352,7 @@ export default function App() {
     { id: 'pos', label: 'PDV Gráfica', icon: ShoppingBag },
     { id: 'clientes_espera', label: 'Clientes em Espera', icon: Clock },
     { id: 'production', label: 'Ordem de Serviço', icon: Layers },
+    { id: 'robozinho_rafa', label: 'Robozinho Rafa', icon: Bot },
     { id: 'comissoes', label: 'Financeiro', icon: Percent },
     { id: 'settings', label: 'Opções', icon: Settings },
   ].filter(item => {
@@ -1732,6 +1735,7 @@ export default function App() {
                   {activeTab === 'inventory' && <InventoryModule currentCompany={currentCompany} user={user} />}
                   {activeTab === 'services' && <ServicesModule currentCompany={currentCompany} />}
                   {activeTab === 'production' && <ProductionModule currentCompany={currentCompany} />}
+                  {activeTab === 'robozinho_rafa' && <ModuleErrorBoundary label="o Robozinho Rafa"><RobozinhoRafaModule currentCompany={currentCompany} user={user} /></ModuleErrorBoundary>}
                   {activeTab === 'comissoes' && (
                     <ModuleErrorBoundary label="Comissões">
                       <Suspense fallback={<div className="h-64 flex items-center justify-center text-white/40 text-sm">Carregando...</div>}>
