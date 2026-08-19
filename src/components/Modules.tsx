@@ -16,6 +16,7 @@ import {
   Filter, 
   LayoutDashboard, 
   ShoppingBag, 
+  ShoppingCart,
   Home, 
   Users, 
   FileText, 
@@ -278,7 +279,7 @@ function mapUsuarioRow(row: any): AppUser {
 
 // Permissoes granulares padrao (visualizar/criar/editar/excluir) por perfil.
 // O admin sempre tem acesso total independente disso (checado a parte via isAdmin).
-const ALL_MODULE_IDS = ['dashboard', 'pos', 'messages', 'clientes_espera', 'contacts', 'crm', 'production', 'inventory', 'settings', 'robozinho_rafa', 'comissoes'];
+const ALL_MODULE_IDS = ['dashboard', 'pos', 'messages', 'clientes_espera', 'contacts', 'crm', 'production', 'inventory', 'purchase_list', 'settings', 'robozinho_rafa', 'comissoes'];
 function fullAccess(): ModuleCrudPermission { return { view: true, create: true, edit: true, delete: true }; }
 function noAccess(): ModuleCrudPermission { return { view: false, create: false, edit: false, delete: false }; }
 function viewOnly(): ModuleCrudPermission { return { view: true, create: false, edit: false, delete: false }; }
@@ -16543,6 +16544,130 @@ const ElapsedTimer = ({ startedAt }: { startedAt: string }) => {
   return <span className="font-mono font-black">{String(minutes).padStart(2, '0')}min {String(seconds).padStart(2, '0')}s</span>;
 };
 
+export const PurchaseListModule = ({ currentCompany, user }: { currentCompany: Company | null; user: AppUser | null }) => {
+  const canManageInventory = !!(user?.isAdmin || user?.allowedActions?.includes('canManageInventory'));
+  const [items, setItems] = useState<InventoryItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [comprandoId, setComprandoId] = useState<string | null>(null);
+  const [qtdCompra, setQtdCompra] = useState('');
+
+  const loadItems = async () => {
+    const { data, error } = await supabase.from('produtos').select('*').order('provider', { ascending: true, nullsFirst: false });
+    if (error) { console.error('Erro ao carregar produtos:', error); setLoading(false); return; }
+    setItems((data || []).map((row: any) => ({
+      id: row.id, name: row.name, category: row.category, unit: row.unit,
+      currentStock: row.current_stock, minStock: row.min_stock, provider: row.provider,
+      isActive: row.is_active, controlaEstoque: row.controla_estoque !== false,
+      tipoItem: row.tipo_item || 'produto',
+    } as InventoryItem)));
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    loadItems();
+    const channel = supabase.channel('purchase-list-produtos').on('postgres_changes', { event: '*', schema: 'public', table: 'produtos' }, loadItems).subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [currentCompany]);
+
+  // So itens ativos, que controlam estoque, e que estao no ou abaixo do minimo — essa e
+  // a lista "precisa comprar agora", sem precisar procurar o resto pela lista inteira
+  const itensParaComprar = items.filter(i => i.isActive !== false && i.controlaEstoque !== false && i.currentStock <= (i.minStock || 0));
+
+  // Agrupa por fornecedor, pra facilitar comprar tudo de um fornecedor de uma vez so
+  const porFornecedor: Record<string, InventoryItem[]> = {};
+  itensParaComprar.forEach(item => {
+    const key = item.provider?.trim() || 'Sem fornecedor definido';
+    if (!porFornecedor[key]) porFornecedor[key] = [];
+    porFornecedor[key].push(item);
+  });
+  const fornecedoresOrdenados = Object.keys(porFornecedor).sort((a, b) => a === 'Sem fornecedor definido' ? 1 : b === 'Sem fornecedor definido' ? -1 : a.localeCompare(b));
+
+  const handleRegistrarCompra = async (item: InventoryItem) => {
+    const qtd = Number(qtdCompra);
+    if (!qtd || qtd <= 0) { showAlert('Informe uma quantidade válida.'); return; }
+    try {
+      const { error } = await supabase.from('produtos').update({ current_stock: (item.currentStock || 0) + qtd }).eq('id', item.id);
+      if (error) throw error;
+      setComprandoId(null);
+      setQtdCompra('');
+      showAlert(`Estoque de "${item.name}" atualizado! +${qtd} ${item.unit}`);
+    } catch (err) {
+      console.error('Erro ao registrar compra:', err);
+      showAlert('Não foi possível registrar a compra.');
+    }
+  };
+
+  return (
+    <div className="space-y-8 animate-in fade-in zoom-in-95 duration-500">
+      <SectionHeader
+        title="Lista de Compras"
+        subtitle={`${itensParaComprar.length} ite${itensParaComprar.length === 1 ? 'm' : 'ns'} precisando reposição`}
+      />
+
+      {loading ? (
+        <div className="flex justify-center py-16"><RefreshCw className="animate-spin text-primary-500" size={24} /></div>
+      ) : itensParaComprar.length === 0 ? (
+        <GlassCard className="p-10 text-center border-white/5">
+          <CheckCircle2 size={32} className="text-emerald-400 mx-auto mb-3" />
+          <p className="text-sm font-bold text-white">Tudo em dia!</p>
+          <p className="text-xs text-white/40 mt-1">Nenhum item está no ou abaixo do estoque mínimo agora.</p>
+        </GlassCard>
+      ) : (
+        <div className="space-y-6">
+          {fornecedoresOrdenados.map(fornecedor => (
+            <div key={fornecedor} className="space-y-3">
+              <div className="flex items-center gap-2">
+                <ShoppingCart size={14} className="text-primary-400" />
+                <h3 className="text-xs font-black uppercase text-white/50 tracking-widest">{fornecedor}</h3>
+                <span className="text-[9px] font-black text-white/20">({porFornecedor[fornecedor].length})</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {porFornecedor[fornecedor].map(item => (
+                  <GlassCard key={item.id} className="p-4 border-amber-500/20 bg-amber-500/[0.03] space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-white truncate">{item.name}</p>
+                        <p className="text-[10px] text-white/40 mt-0.5">
+                          Tem <span className="text-amber-400 font-black">{item.currentStock} {item.unit}</span> · Mínimo: {item.minStock} {item.unit}
+                        </p>
+                      </div>
+                      <AlertCircle size={16} className="text-amber-500 shrink-0 animate-pulse" />
+                    </div>
+                    {canManageInventory && (
+                      comprandoId === item.id ? (
+                        <div className="flex items-center gap-2">
+                          <input
+                            autoFocus
+                            type="number"
+                            value={qtdCompra}
+                            onChange={(e) => setQtdCompra(e.target.value)}
+                            placeholder={`Qtd (${item.unit})`}
+                            className="flex-1 h-9 bg-white/5 border border-white/10 rounded-lg px-3 text-xs text-white focus:outline-none focus:border-primary-500"
+                          />
+                          <button onClick={() => handleRegistrarCompra(item)} className="h-9 px-3 rounded-lg bg-emerald-500 text-slate-950 text-[10px] font-black uppercase">OK</button>
+                          <button onClick={() => { setComprandoId(null); setQtdCompra(''); }} className="h-9 px-3 rounded-lg bg-white/5 text-white/40 text-[10px] font-black uppercase">X</button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => { setComprandoId(item.id); setQtdCompra(''); }}
+                          className="w-full h-9 rounded-lg bg-white/5 hover:bg-emerald-500 hover:text-slate-950 text-white/70 text-[10px] font-black uppercase tracking-widest transition-all"
+                        >
+                          Registrar Compra
+                        </button>
+                      )
+                    )}
+                  </GlassCard>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+
 export const ClientesEsperaModule = ({ currentCompany, user }: { currentCompany: Company | null; user: AppUser | null }) => {
   const [fila, setFila] = useState<any[]>([]);
   const [finalizados, setFinalizados] = useState<any[]>([]);
@@ -17870,6 +17995,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     { id: 'crm', label: 'Funil CRM' },
     { id: 'production', label: 'Ordem de Serviço' },
     { id: 'inventory', label: 'Estoque' },
+    { id: 'purchase_list', label: 'Lista de Compras' },
     { id: 'comissoes', label: 'Comissões' },
     { id: 'robozinho_rafa', label: 'Integrações (Robozinho)' },
     { id: 'settings', label: 'Configurações' },
@@ -17883,6 +18009,8 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     { id: 'contacts', label: 'Contatos', desc: 'Gestão de clientes e histórico de compras' },
     { id: 'clientes_espera', label: 'Clientes em Espera', desc: 'Fila de atendimento com tempo de espera em tempo real' },
     { id: 'production', label: 'Ordem de Serviço', desc: 'Fila de producao com todos os pedidos e etapa atual de cada um' },
+    { id: 'inventory', label: 'Estoque / Matéria-Prima', desc: 'Controle de produtos e matéria-prima, com estoque atual e mínimo' },
+    { id: 'purchase_list', label: 'Lista de Compras', desc: 'Itens que estão no ou abaixo do estoque mínimo, agrupados por fornecedor' },
     { id: 'comissoes', label: 'Comissões', desc: 'Painel de comissões do colaborador (login próprio, separado do CRM)' },
     { id: 'robozinho_rafa', label: 'Integrações', desc: 'Robozinho Rafa (assistente de IA) e conexões de WhatsApp/Facebook/Instagram' },
     { id: 'settings', label: 'Opções', desc: 'Parâmetro de configurações do Rafa Arts Graphics' },
