@@ -16080,6 +16080,37 @@ export const InventoryModule = ({ currentCompany, user }: { currentCompany: Comp
     setIsModalOpen(true);
   };
 
+  // --- "Quem consome esse material" — visão a partir da MATERIA-PRIMA, mostrando quais
+  // produtos/variações já foram configurados pra consumir ela (ProdutoFormModal continua
+  // sendo onde de fato se cadastra o consumo, essa tela so mostra e da atalho pra editar) ---
+  const [materialConsumoView, setMaterialConsumoView] = useState<InventoryItem | null>(null);
+  const [consumidoresDoMaterial, setConsumidoresDoMaterial] = useState<{ produtoId: string; produtoNome: string; variacaoNome: string; quantidade: number; unidade: string }[]>([]);
+  const [loadingConsumidores, setLoadingConsumidores] = useState(false);
+
+  const openMaterialConsumoView = async (material: InventoryItem) => {
+    setMaterialConsumoView(material);
+    setLoadingConsumidores(true);
+    try {
+      const { data, error } = await supabase
+        .from('variacao_consumos')
+        .select('quantidade, unidade, produto_variacoes!variacao_id(name, produto_id, produtos(name))')
+        .eq('material_produto_id', material.id);
+      if (error) throw error;
+      setConsumidoresDoMaterial((data || []).map((row: any) => ({
+        produtoId: row.produto_variacoes?.produto_id,
+        produtoNome: row.produto_variacoes?.produtos?.name || 'Produto removido',
+        variacaoNome: row.produto_variacoes?.name || '',
+        quantidade: Number(row.quantidade) || 0,
+        unidade: row.unidade || material.unit,
+      })));
+    } catch (err) {
+      console.error('Erro ao buscar quem consome esse material:', err);
+      setConsumidoresDoMaterial([]);
+    } finally {
+      setLoadingConsumidores(false);
+    }
+  };
+
   const handleDeleteItem = async (item: InventoryItem) => {
     if (!(await showConfirm(`Excluir "${item.name}"? Essa ação não pode ser desfeita. Prefira inativar se quiser manter o histórico.`))) return;
     const { error } = await supabase.from('produtos').delete().eq('id', item.id);
@@ -16104,6 +16135,9 @@ export const InventoryModule = ({ currentCompany, user }: { currentCompany: Comp
     { key: 'isActive', label: 'Status', render: (v: boolean) => <Badge variant={v ? 'success' : 'outline'} className="text-[9px]">{v ? 'ATIVO' : 'INATIVO'}</Badge> },
     { key: 'actions', label: 'Ações', render: (_: any, row: InventoryItem) => (
       <div className="flex items-center gap-1.5">
+        {row.tipoItem === 'material' && (
+          <button onClick={() => openMaterialConsumoView(row)} title="Ver quem consome esse material" className="p-1.5 rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-500/20"><Link2 size={13} /></button>
+        )}
         <button onClick={() => openEditItem(row)} title="Editar" className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20"><Pencil size={13} /></button>
         <button onClick={() => handleDeleteItem(row)} title="Excluir" className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20"><Trash2 size={13} /></button>
       </div>
@@ -16411,6 +16445,9 @@ export const InventoryModule = ({ currentCompany, user }: { currentCompany: Comp
                           <div className="flex gap-1.5 pt-1">
                             <button onClick={() => { setAjustandoItem(item); setAjusteTipo('entrada'); setAjusteQtd(''); }} className="flex-1 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 text-[10px] font-black uppercase flex items-center justify-center gap-1"><Plus size={12} /> Entrada</button>
                             <button onClick={() => { setAjustandoItem(item); setAjusteTipo('saida'); setAjusteQtd(''); }} className="flex-1 h-8 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 text-[10px] font-black uppercase flex items-center justify-center gap-1"><Minus size={12} /> Saída</button>
+                            {item.tipoItem === 'material' && (
+                              <button onClick={() => openMaterialConsumoView(item)} title="Ver quem consome esse material" className="h-8 w-8 shrink-0 rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 flex items-center justify-center"><Link2 size={12} /></button>
+                            )}
                             <button onClick={() => openEditItem(item)} title="Editar" className="h-8 w-8 shrink-0 rounded-lg bg-white/5 text-white/50 hover:text-primary-400 flex items-center justify-center"><Pencil size={12} /></button>
                           </div>
                         )}
@@ -16544,6 +16581,44 @@ export const InventoryModule = ({ currentCompany, user }: { currentCompany: Comp
           </Modal>
         );
       })()}
+
+      <Modal isOpen={!!materialConsumoView} onClose={() => setMaterialConsumoView(null)} title={materialConsumoView ? `Quem consome: ${materialConsumoView.name}` : ''} size="md">
+        <div className="p-4 space-y-4">
+          {loadingConsumidores ? (
+            <div className="flex justify-center py-10"><RefreshCw className="animate-spin text-primary-500" size={22} /></div>
+          ) : consumidoresDoMaterial.length === 0 ? (
+            <div className="text-center py-10 space-y-2">
+              <p className="text-sm text-white/40">Nenhum produto configurado pra consumir esse material ainda.</p>
+              <p className="text-[10px] text-white/25">Pra cadastrar, edite o produto que usa esse material e configure na aba "Variações e Consumo".</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {consumidoresDoMaterial.map((c, i) => (
+                <div key={i} className="flex items-center justify-between gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-white truncate">{c.produtoNome}</p>
+                    {c.variacaoNome && <p className="text-[10px] text-white/40">Variação: {c.variacaoNome}</p>}
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <span className="text-xs font-black text-blue-400">{c.quantidade} {c.unidade}</span>
+                    {c.produtoId && (
+                      <button
+                        onClick={() => { setMaterialConsumoView(null); openEditItem(items.find(i => i.id === c.produtoId) || { id: c.produtoId } as InventoryItem); }}
+                        className="text-[9px] font-black uppercase text-primary-400 hover:text-primary-300"
+                      >
+                        Editar
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="text-[10px] text-white/25 text-center pt-2 border-t border-white/5">
+            Pra cadastrar um novo produto consumindo esse material, edite (ou crie) o produto e configure na aba "Variações e Consumo".
+          </p>
+        </div>
+      </Modal>
 
       <ProdutoFormModal
         isOpen={isModalOpen}
