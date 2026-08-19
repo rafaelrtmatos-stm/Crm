@@ -15495,11 +15495,12 @@ const emptyVariacao = (): ProductVariation => ({
   consumos: [],
 });
 
-export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved }: {
+export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved, defaultTipoItem }: {
   isOpen: boolean;
   onClose: () => void;
   editingItem: InventoryItem | null;
   onSaved: (savedRow: any) => void;
+  defaultTipoItem?: InventoryItem['tipoItem'];
 }) => {
   const emptyForm: Partial<InventoryItem> = {
     name: '', code: '', category: 'substrato', unit: 'un', currentStock: 0, minStock: 0,
@@ -15518,7 +15519,7 @@ export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved }: {
 
   useEffect(() => {
     if (!isOpen) return;
-    setFormData(editingItem ? { ...editingItem } : { ...emptyForm });
+    setFormData(editingItem ? { ...editingItem } : { ...emptyForm, ...(defaultTipoItem ? { tipoItem: defaultTipoItem } : {}) });
     setFormTab('info');
     setVariacoes([]);
     // Lista de matérias-primas = produtos/materiais já cadastrados no Estoque (não cria estoque paralelo)
@@ -15952,6 +15953,7 @@ export const InventoryModule = ({ currentCompany, user }: { currentCompany: Comp
   const totalUnidadesEstoque = items.reduce((acc, i) => acc + (Number(i.currentStock) || 0), 0);
 
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [novoItemTipo, setNovoItemTipo] = useState<InventoryItem['tipoItem']>('produto');
   const [estoqueSortBy, setEstoqueSortByState] = useState<'nome' | 'data' | 'estoque' | 'preco'>(() => {
     const saved = localStorage.getItem('rpro_estoque_sort');
     return (saved === 'nome' || saved === 'data' || saved === 'estoque' || saved === 'preco') ? saved : 'nome';
@@ -15961,9 +15963,15 @@ export const InventoryModule = ({ currentCompany, user }: { currentCompany: Comp
     localStorage.setItem('rpro_estoque_sort', v);
   };
   const [estoqueSearchTerm, setEstoqueSearchTerm] = useState('');
+  const [estoqueTipoFiltro, setEstoqueTipoFiltro] = useState<'todos' | 'produto' | 'material'>('todos');
 
   const sortedFilteredItems = useMemo(() => {
     let list = items;
+    if (estoqueTipoFiltro === 'material') {
+      list = list.filter(i => i.tipoItem === 'material');
+    } else if (estoqueTipoFiltro === 'produto') {
+      list = list.filter(i => i.tipoItem !== 'material');
+    }
     const term = estoqueSearchTerm.trim().toLowerCase();
     if (term) {
       list = list.filter(i => (i.name || '').toLowerCase().includes(term) || (i.code || '').toLowerCase().includes(term) || (i.category || '').toLowerCase().includes(term));
@@ -15979,7 +15987,7 @@ export const InventoryModule = ({ currentCompany, user }: { currentCompany: Comp
       default:
         return sorted.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     }
-  }, [items, estoqueSearchTerm, estoqueSortBy]);
+  }, [items, estoqueSearchTerm, estoqueSortBy, estoqueTipoFiltro]);
 
 
   const openEditItem = (item: InventoryItem) => {
@@ -16198,7 +16206,10 @@ export const InventoryModule = ({ currentCompany, user }: { currentCompany: Comp
             <Download size={14} />
           </button>
           {canManageInventory && (
-            <Button icon={Plus} onClick={() => { setEditingItemId(null); setFormData({ name: '', category: 'substrato', unit: 'un', currentStock: 0, minStock: 0, salePrice: 0, costPrice: 0, isActive: true, isService: false, tipoItem: 'produto', controlaEstoque: true }); setIsModalOpen(true); }}>Novo Item</Button>
+            <>
+              <Button variant="secondary" icon={Plus} onClick={() => { setEditingItemId(null); setNovoItemTipo('material'); setIsModalOpen(true); }}>Nova Matéria-Prima</Button>
+              <Button icon={Plus} onClick={() => { setEditingItemId(null); setNovoItemTipo('produto'); setIsModalOpen(true); }}>Novo Produto</Button>
+            </>
           )}
         </div>
       </div>
@@ -16235,6 +16246,24 @@ export const InventoryModule = ({ currentCompany, user }: { currentCompany: Comp
       </div>
 
       <GlassCard className="p-4 border-white/5 bg-white/[0.02]">
+        <div className="flex gap-1 bg-white/5 p-1 rounded-xl border border-white/10 mb-4 mx-4">
+          {[
+            { id: 'todos', label: `Todos (${items.length})` },
+            { id: 'produto', label: `Produtos Vendáveis (${items.filter(i => i.tipoItem !== 'material').length})` },
+            { id: 'material', label: `Matéria-Prima (${items.filter(i => i.tipoItem === 'material').length})` },
+          ].map(t => (
+            <button
+              key={t.id}
+              onClick={() => setEstoqueTipoFiltro(t.id as any)}
+              className={cn(
+                "flex-1 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all",
+                estoqueTipoFiltro === t.id ? "bg-primary-500 text-slate-900" : "text-white/40 hover:text-white/70"
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
         <div className="flex items-center gap-2 mb-6 px-4 flex-wrap">
           <div className="flex-1 min-w-[180px]">
             <Input icon={Search} placeholder="Filtrar por nome, código ou categoria..." value={estoqueSearchTerm} onChange={(e: any) => setEstoqueSearchTerm(e.target.value.toUpperCase())} className="uppercase" />
@@ -16262,6 +16291,7 @@ export const InventoryModule = ({ currentCompany, user }: { currentCompany: Comp
                    <span className="text-[11px] font-black text-white uppercase italic break-words">{item.name}</span>
                    <span className="text-[9px] text-white/30 font-mono shrink-0">{item.code || 'S/C'}</span>
                    <Badge variant="outline" className="uppercase text-[9px] opacity-60 shrink-0">{item.category || 'Geral'}</Badge>
+                   {item.tipoItem === 'material' && <Badge className="uppercase text-[9px] shrink-0 bg-amber-500/15 text-amber-400 border-amber-500/20">Matéria-Prima</Badge>}
                 </div>
                 <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-3 shrink-0">
                    <div className="flex items-center gap-1.5 shrink-0">
@@ -16350,6 +16380,7 @@ export const InventoryModule = ({ currentCompany, user }: { currentCompany: Comp
         onClose={() => { setIsModalOpen(false); setEditingItemId(null); }}
         editingItem={editingItemId ? items.find(i => i.id === editingItemId) || null : null}
         onSaved={() => { loadInventoryItems(); setEditingItemId(null); }}
+        defaultTipoItem={novoItemTipo}
       />
     </div>
   );
