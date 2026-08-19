@@ -15634,6 +15634,7 @@ export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved, defaul
         localizacao: formData.localizacao || null,
         descricao: formData.descricao || null,
         largura_rolo: formData.larguraRolo || null,
+        comprimento_rolo: formData.comprimentoRolo || null,
         valor_minimo: formData.valorMinimo || null,
       };
       let saved: any;
@@ -15869,8 +15870,32 @@ export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved, defaul
           )}
 
           {(formData.unit === 'm2' || formData.unit === 'etiqueta' || formData.unit === 'm') && (
-            <div className="md:col-span-2">
+            <div className="md:col-span-2 space-y-2">
               <Input label="LARGURA DO ROLO/MATERIAL (m) — usado no cálculo automático e no PDV" type="number" step="any" placeholder="Ex: 1.02" value={formData.larguraRolo} onChange={(e: any) => setFormData({ ...formData, larguraRolo: e.target.value === '' ? '' : Number(e.target.value) })} />
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[9px] font-black uppercase text-white/30 tracking-widest">Larguras comuns:</span>
+                {[1.06, 1.10, 1.37].map(w => (
+                  <button
+                    key={w}
+                    type="button"
+                    onClick={() => setFormData({ ...formData, larguraRolo: w })}
+                    className={cn(
+                      "px-2.5 py-1 rounded-lg text-[10px] font-black transition-all",
+                      formData.larguraRolo === w ? "bg-primary-500 text-slate-900" : "bg-white/5 text-white/50 hover:text-white hover:bg-white/10"
+                    )}
+                  >
+                    {w.toFixed(2).replace('.', ',')}m
+                  </button>
+                ))}
+              </div>
+              <Input
+                label="COMPRIMENTO PADRÃO DA BOBINA (m) — quantos metros vem em cada rolo comprado, ex: 50"
+                type="number"
+                step="any"
+                placeholder="Ex: 50"
+                value={formData.comprimentoRolo}
+                onChange={(e: any) => setFormData({ ...formData, comprimentoRolo: e.target.value === '' ? '' : Number(e.target.value) })}
+              />
             </div>
           )}
         </div>
@@ -15924,6 +15949,7 @@ export const InventoryModule = ({ currentCompany, user }: { currentCompany: Comp
       tipoItem: row.tipo_item || 'produto',
       controlaEstoque: row.controla_estoque !== false,
       larguraRolo: row.largura_rolo ? Number(row.largura_rolo) : undefined,
+      comprimentoRolo: row.comprimento_rolo ? Number(row.comprimento_rolo) : undefined,
       estoqueMaximo: row.estoque_maximo ? Number(row.estoque_maximo) : undefined,
       localizacao: row.localizacao,
       descricao: row.descricao,
@@ -16582,15 +16608,21 @@ export const PurchaseListModule = ({ currentCompany, user }: { currentCompany: C
   });
   const fornecedoresOrdenados = Object.keys(porFornecedor).sort((a, b) => a === 'Sem fornecedor definido' ? 1 : b === 'Sem fornecedor definido' ? -1 : a.localeCompare(b));
 
+  const [modoBobina, setModoBobina] = useState(false);
+
   const handleRegistrarCompra = async (item: InventoryItem) => {
-    const qtd = Number(qtdCompra);
-    if (!qtd || qtd <= 0) { showAlert('Informe uma quantidade válida.'); return; }
+    const qtdInformada = Number(qtdCompra);
+    if (!qtdInformada || qtdInformada <= 0) { showAlert('Informe uma quantidade válida.'); return; }
+    // No modo bobina, a pessoa informa QUANTAS BOBINAS comprou, e o sistema calcula os
+    // metros sozinho (bobinas x comprimento padrao cadastrado no produto)
+    const qtd = (modoBobina && item.comprimentoRolo) ? qtdInformada * item.comprimentoRolo : qtdInformada;
     try {
       const { error } = await supabase.from('produtos').update({ current_stock: (item.currentStock || 0) + qtd }).eq('id', item.id);
       if (error) throw error;
       setComprandoId(null);
       setQtdCompra('');
-      showAlert(`Estoque de "${item.name}" atualizado! +${qtd} ${item.unit}`);
+      setModoBobina(false);
+      showAlert(`Estoque de "${item.name}" atualizado! +${qtd} ${item.unit}${modoBobina && item.comprimentoRolo ? ` (${qtdInformada} bobina${qtdInformada > 1 ? 's' : ''} de ${item.comprimentoRolo}m)` : ''}`);
     } catch (err) {
       console.error('Erro ao registrar compra:', err);
       showAlert('Não foi possível registrar a compra.');
@@ -16629,27 +16661,51 @@ export const PurchaseListModule = ({ currentCompany, user }: { currentCompany: C
                         <p className="text-sm font-bold text-white truncate">{item.name}</p>
                         <p className="text-[10px] text-white/40 mt-0.5">
                           Tem <span className="text-amber-400 font-black">{item.currentStock} {item.unit}</span> · Mínimo: {item.minStock} {item.unit}
+                          {item.larguraRolo ? ` · Largura: ${item.larguraRolo}m` : ''}
                         </p>
                       </div>
                       <AlertCircle size={16} className="text-amber-500 shrink-0 animate-pulse" />
                     </div>
                     {canManageInventory && (
                       comprandoId === item.id ? (
-                        <div className="flex items-center gap-2">
-                          <input
-                            autoFocus
-                            type="number"
-                            value={qtdCompra}
-                            onChange={(e) => setQtdCompra(e.target.value)}
-                            placeholder={`Qtd (${item.unit})`}
-                            className="flex-1 h-9 bg-white/5 border border-white/10 rounded-lg px-3 text-xs text-white focus:outline-none focus:border-primary-500"
-                          />
-                          <button onClick={() => handleRegistrarCompra(item)} className="h-9 px-3 rounded-lg bg-emerald-500 text-slate-950 text-[10px] font-black uppercase">OK</button>
-                          <button onClick={() => { setComprandoId(null); setQtdCompra(''); }} className="h-9 px-3 rounded-lg bg-white/5 text-white/40 text-[10px] font-black uppercase">X</button>
+                        <div className="space-y-2">
+                          {item.comprimentoRolo && (
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setModoBobina(false)}
+                                className={cn("flex-1 h-7 rounded-lg text-[9px] font-black uppercase transition-all", !modoBobina ? "bg-primary-500 text-slate-900" : "bg-white/5 text-white/40")}
+                              >
+                                Por {item.unit}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setModoBobina(true)}
+                                className={cn("flex-1 h-7 rounded-lg text-[9px] font-black uppercase transition-all", modoBobina ? "bg-primary-500 text-slate-900" : "bg-white/5 text-white/40")}
+                              >
+                                Por bobina ({item.comprimentoRolo}m cada)
+                              </button>
+                            </div>
+                          )}
+                          <div className="flex items-center gap-2">
+                            <input
+                              autoFocus
+                              type="number"
+                              value={qtdCompra}
+                              onChange={(e) => setQtdCompra(e.target.value)}
+                              placeholder={modoBobina && item.comprimentoRolo ? 'Quantas bobinas?' : `Qtd (${item.unit})`}
+                              className="flex-1 h-9 bg-white/5 border border-white/10 rounded-lg px-3 text-xs text-white focus:outline-none focus:border-primary-500"
+                            />
+                            <button onClick={() => handleRegistrarCompra(item)} className="h-9 px-3 rounded-lg bg-emerald-500 text-slate-950 text-[10px] font-black uppercase">OK</button>
+                            <button onClick={() => { setComprandoId(null); setQtdCompra(''); setModoBobina(false); }} className="h-9 px-3 rounded-lg bg-white/5 text-white/40 text-[10px] font-black uppercase">X</button>
+                          </div>
+                          {modoBobina && item.comprimentoRolo && Number(qtdCompra) > 0 && (
+                            <p className="text-[9px] text-white/30 text-center">= {Number(qtdCompra) * item.comprimentoRolo} {item.unit} no total</p>
+                          )}
                         </div>
                       ) : (
                         <button
-                          onClick={() => { setComprandoId(item.id); setQtdCompra(''); }}
+                          onClick={() => { setComprandoId(item.id); setQtdCompra(''); setModoBobina(!!item.comprimentoRolo); }}
                           className="w-full h-9 rounded-lg bg-white/5 hover:bg-emerald-500 hover:text-slate-950 text-white/70 text-[10px] font-black uppercase tracking-widest transition-all"
                         >
                           Registrar Compra

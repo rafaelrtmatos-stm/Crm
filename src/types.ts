@@ -393,6 +393,7 @@ export interface InventoryItem extends BaseEntity {
   tipoItem?: 'produto' | 'material' | 'servico' | 'acabamento' | 'composto';
   controlaEstoque?: boolean;
   larguraRolo?: number;
+  comprimentoRolo?: number;
   estoqueMaximo?: number;
   localizacao?: string;
   descricao?: string;
