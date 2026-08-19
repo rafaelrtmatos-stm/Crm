@@ -104,6 +104,8 @@ import {
   BarChart as BarChartIcon,
   LineChart as LineChartIcon,
   List,
+  Gauge,
+  Minus,
   Table as TableIcon,
   Eye,
   ExternalLink,
@@ -15503,7 +15505,7 @@ export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved, defaul
   defaultTipoItem?: InventoryItem['tipoItem'];
 }) => {
   const emptyForm: Partial<InventoryItem> = {
-    name: '', code: '', category: 'substrato', unit: 'un', currentStock: 0, minStock: 0,
+    name: '', code: '', category: '', unit: 'un', currentStock: 0, minStock: 0,
     salePrice: 0, costPrice: 0, isActive: true, isService: false,
     tipoItem: 'produto', controlaEstoque: true, estoqueMaximo: 0, localizacao: '', descricao: '', larguraRolo: 0,
     valorMinimo: 0,
@@ -15515,6 +15517,7 @@ export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved, defaul
   // --- Variações e Consumo de Matéria-Prima ---
   const [variacoes, setVariacoes] = useState<ProductVariation[]>([]);
   const [materiaisDisponiveis, setMateriaisDisponiveis] = useState<{ id: string; name: string; unit: string }[]>([]);
+  const [categoriasExistentes, setCategoriasExistentes] = useState<string[]>([]);
   const [loadingVariacoes, setLoadingVariacoes] = useState(false);
 
   useEffect(() => {
@@ -15523,8 +15526,10 @@ export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved, defaul
     setFormTab('info');
     setVariacoes([]);
     // Lista de matérias-primas = produtos/materiais já cadastrados no Estoque (não cria estoque paralelo)
-    supabase.from('produtos').select('id, name, unit').order('name', { ascending: true }).then(({ data }) => {
+    supabase.from('produtos').select('id, name, unit, category').order('name', { ascending: true }).then(({ data }) => {
       setMateriaisDisponiveis((data || []).map((p: any) => ({ id: p.id, name: p.name, unit: p.unit || 'un' })));
+      const cats = Array.from(new Set((data || []).map((p: any) => (p.category || '').trim()).filter(Boolean)));
+      setCategoriasExistentes(cats.sort());
     });
     if (editingItem) {
       setLoadingVariacoes(true);
@@ -15688,13 +15693,17 @@ export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved, defaul
           </div>
           <Input label="CÓDIGO INTERNO (SKU)" placeholder="Deixe em branco pra gerar automático" value={formData.code} onChange={(e: any) => setFormData({ ...formData, code: e.target.value })} />
           <div className="space-y-2">
-            <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">CATEGORIA</p>
-            <select className="w-full h-12 bg-[#1a2333] border border-white/10 rounded-xl px-4 text-xs text-white outline-none" value={formData.category} onChange={(e) => setFormData({ ...formData, category: e.target.value as any })}>
-              <option value="substrato">Substrato (Lona/Vinil/Papel)</option>
-              <option value="tinta">Tintas / Toners</option>
-              <option value="acabamento">Acabamento (Ilhós/Verniz)</option>
-              <option value="diversos">Diversos</option>
-            </select>
+            <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">CATEGORIA / FAMÍLIA <span className="normal-case font-normal text-white/25">(ex: Adesivo, Lona, Ilhós...)</span></p>
+            <input
+              list="categorias-existentes"
+              className="w-full h-12 bg-[#1a2333] border border-white/10 rounded-xl px-4 text-xs text-white outline-none"
+              placeholder="Digite ou escolha uma categoria"
+              value={formData.category || ''}
+              onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+            />
+            <datalist id="categorias-existentes">
+              {categoriasExistentes.map(c => <option key={c} value={c} />)}
+            </datalist>
           </div>
           <div className="space-y-2">
             <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">TIPO DE ITEM</p>
@@ -15964,7 +15973,45 @@ export const InventoryModule = ({ currentCompany, user }: { currentCompany: Comp
   };
   const [estoqueSearchTerm, setEstoqueSearchTerm] = useState('');
   const [estoqueTipoFiltro, setEstoqueTipoFiltro] = useState<'todos' | 'produto' | 'material'>('todos');
+  const [estoqueViewMode, setEstoqueViewMode] = useState<'lista' | 'controle'>('controle');
+  const [ajustandoItem, setAjustandoItem] = useState<InventoryItem | null>(null);
+  const [ajusteQtd, setAjusteQtd] = useState<number | ''>('');
+  const [ajusteTipo, setAjusteTipo] = useState<'entrada' | 'saida'>('entrada');
+  const [salvandoAjuste, setSalvandoAjuste] = useState(false);
 
+  // Ajuste manual e rápido de estoque (sem passar pelo formulário completo), usado na
+  // aba "Controle Rápido" — soma ou subtrai do estoque atual e registra a movimentação.
+  const confirmarAjusteEstoque = async () => {
+    if (!ajustandoItem || ajusteQtd === '' || Number(ajusteQtd) <= 0) { showAlert('Informe uma quantidade válida.'); return; }
+    setSalvandoAjuste(true);
+    try {
+      const qtd = Number(ajusteQtd);
+      const estoqueAnterior = Number(ajustandoItem.currentStock) || 0;
+      const novoEstoque = ajusteTipo === 'entrada' ? estoqueAnterior + qtd : Math.max(0, estoqueAnterior - qtd);
+      const { error } = await supabase.from('produtos').update({ current_stock: novoEstoque }).eq('id', ajustandoItem.id);
+      if (error) throw error;
+      await supabase.from('movimentacoes_estoque').insert({
+        produto_id: ajustandoItem.id,
+        produto_nome: ajustandoItem.name,
+        tipo: ajusteTipo === 'entrada' ? 'entrada' : 'saida',
+        quantidade: qtd,
+        unidade: ajustandoItem.unit || 'un',
+        motivo: 'ajuste manual',
+        referencia: 'Controle Rápido de Estoque',
+        quantidade_anterior: estoqueAnterior,
+        quantidade_posterior: novoEstoque,
+      });
+      setAjustandoItem(null);
+      setAjusteQtd('');
+    } catch (err: any) {
+      console.error('Erro ao ajustar estoque:', err);
+      showAlert(`Não foi possível ajustar o estoque: ${err?.message || 'erro desconhecido'}`);
+    } finally {
+      setSalvandoAjuste(false);
+    }
+  };
+
+  // Agrupa os itens exibidos por categoria/família (ex: Adesivo, Lona) pro Controle Rápido
   const sortedFilteredItems = useMemo(() => {
     let list = items;
     if (estoqueTipoFiltro === 'material') {
@@ -15988,6 +16035,16 @@ export const InventoryModule = ({ currentCompany, user }: { currentCompany: Comp
         return sorted.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     }
   }, [items, estoqueSearchTerm, estoqueSortBy, estoqueTipoFiltro]);
+
+  const materiaisAgrupados = useMemo(() => {
+    const grupos: Record<string, InventoryItem[]> = {};
+    sortedFilteredItems.forEach(item => {
+      const chave = (item.category || 'Sem categoria').trim() || 'Sem categoria';
+      if (!grupos[chave]) grupos[chave] = [];
+      grupos[chave].push(item);
+    });
+    return Object.entries(grupos).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [sortedFilteredItems]);
 
 
   const openEditItem = (item: InventoryItem) => {
@@ -16278,7 +16335,67 @@ export const InventoryModule = ({ currentCompany, user }: { currentCompany: Comp
             <option value="estoque" className="bg-slate-900">Quantidade em Estoque</option>
             <option value="preco" className="bg-slate-900">Preço de Venda</option>
           </select>
+          <div className="flex gap-1 bg-white/5 p-1 rounded-xl border border-white/10 shrink-0">
+             <button onClick={() => setEstoqueViewMode('controle')} title="Controle Rápido" className={cn("h-8 px-3 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1.5", estoqueViewMode === 'controle' ? "bg-primary-500 text-slate-900" : "text-white/40 hover:text-white/70")}><Gauge size={13} /> Controle Rápido</button>
+             <button onClick={() => setEstoqueViewMode('lista')} title="Lista Completa" className={cn("h-8 px-3 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1.5", estoqueViewMode === 'lista' ? "bg-primary-500 text-slate-900" : "text-white/40 hover:text-white/70")}><List size={13} /> Lista</button>
+          </div>
         </div>
+
+        {estoqueViewMode === 'controle' ? (
+          materiaisAgrupados.length === 0 ? (
+            <div className="py-16 text-center bg-white/5 rounded-3xl border border-dashed border-white/10 space-y-2">
+               <Package size={36} className="mx-auto text-white/20" />
+               <p className="text-sm font-bold text-white/40 uppercase">Nenhum item encontrado</p>
+            </div>
+          ) : (
+          <div className="space-y-6 px-1">
+            {materiaisAgrupados.map(([categoria, itensGrupo]) => (
+              <div key={categoria}>
+                <p className="text-[10px] font-black uppercase text-primary-400 tracking-widest mb-2 px-3 flex items-center gap-2">
+                  {categoria} <span className="text-white/20 font-normal normal-case">({itensGrupo.length})</span>
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {itensGrupo.map(item => {
+                    const min = item.minStock || 0;
+                    const max = item.estoqueMaximo || Math.max(min * 3, item.currentStock, 1);
+                    const pct = Math.max(0, Math.min(100, (item.currentStock / max) * 100));
+                    const critico = item.currentStock <= min;
+                    const alerta = !critico && item.currentStock <= min * 1.5;
+                    const corBarra = critico ? 'bg-rose-500' : alerta ? 'bg-amber-500' : 'bg-emerald-500';
+                    return (
+                      <div key={item.id} className="bg-slate-900/60 border border-white/5 rounded-2xl p-4 space-y-3">
+                        <div className="flex items-start justify-between gap-2">
+                           <div className="min-w-0">
+                              <p className="text-xs font-black text-white uppercase truncate">{item.name}</p>
+                              <p className="text-[9px] text-white/30 uppercase">{item.tipoItem === 'material' ? 'Matéria-Prima' : 'Produto'} · {item.unit}</p>
+                           </div>
+                           {critico && <Badge className="uppercase text-[9px] shrink-0 bg-rose-500/15 text-rose-400 border-rose-500/20">Baixo</Badge>}
+                        </div>
+                        <div>
+                           <div className="flex justify-between items-baseline mb-1">
+                              <span className={cn("text-lg font-black", critico ? "text-rose-400" : alerta ? "text-amber-400" : "text-white")}>{item.currentStock}</span>
+                              <span className="text-[9px] text-white/30">{item.unit} {min > 0 && `· mín. ${min}`}</span>
+                           </div>
+                           <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+                              <div className={cn("h-full rounded-full transition-all", corBarra)} style={{ width: `${pct}%` }} />
+                           </div>
+                        </div>
+                        {canManageInventory && (
+                          <div className="flex gap-1.5 pt-1">
+                            <button onClick={() => { setAjustandoItem(item); setAjusteTipo('entrada'); setAjusteQtd(''); }} className="flex-1 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 text-[10px] font-black uppercase flex items-center justify-center gap-1"><Plus size={12} /> Entrada</button>
+                            <button onClick={() => { setAjustandoItem(item); setAjusteTipo('saida'); setAjusteQtd(''); }} className="flex-1 h-8 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 text-[10px] font-black uppercase flex items-center justify-center gap-1"><Minus size={12} /> Saída</button>
+                            <button onClick={() => openEditItem(item)} title="Editar" className="h-8 w-8 shrink-0 rounded-lg bg-white/5 text-white/50 hover:text-primary-400 flex items-center justify-center"><Pencil size={12} /></button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+          )
+        ) : (
         <div className="flex flex-col gap-1.5">
            {sortedFilteredItems.length === 0 ? (
              <div className="py-16 text-center bg-white/5 rounded-3xl border border-dashed border-white/10 space-y-2">
@@ -16310,7 +16427,33 @@ export const InventoryModule = ({ currentCompany, user }: { currentCompany: Comp
              </div>
            ))}
         </div>
+        )}
       </GlassCard>
+
+      {ajustandoItem && (
+        <Modal isOpen={!!ajustandoItem} onClose={() => setAjustandoItem(null)} title={`${ajusteTipo === 'entrada' ? 'Entrada' : 'Saída'} de Estoque`} size="sm">
+          <div className="space-y-4 p-2">
+             <div>
+               <p className="text-xs font-black text-white uppercase">{ajustandoItem.name}</p>
+               <p className="text-[10px] text-white/40">Estoque atual: <span className="text-white font-bold">{ajustandoItem.currentStock} {ajustandoItem.unit}</span></p>
+             </div>
+             <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 h-11">
+                <button onClick={() => setAjusteTipo('entrada')} className={cn("flex-1 rounded-lg text-xs font-black uppercase transition-all", ajusteTipo === 'entrada' ? "bg-emerald-500 text-slate-900" : "text-white/40")}>Entrada (+)</button>
+                <button onClick={() => setAjusteTipo('saida')} className={cn("flex-1 rounded-lg text-xs font-black uppercase transition-all", ajusteTipo === 'saida' ? "bg-rose-500 text-white" : "text-white/40")}>Saída (-)</button>
+             </div>
+             <Input label={`QUANTIDADE (${ajustandoItem.unit})`} type="number" step="any" autoFocus placeholder="Ex: 5" value={ajusteQtd} onChange={(e: any) => setAjusteQtd(e.target.value === '' ? '' : Number(e.target.value))} />
+             {ajusteQtd !== '' && Number(ajusteQtd) > 0 && (
+               <p className="text-[10px] text-white/40">Novo estoque: <span className="text-white font-bold">{ajusteTipo === 'entrada' ? (ajustandoItem.currentStock + Number(ajusteQtd)) : Math.max(0, ajustandoItem.currentStock - Number(ajusteQtd))} {ajustandoItem.unit}</span></p>
+             )}
+             <div className="flex justify-end gap-3 pt-1">
+                <Button variant="ghost" onClick={() => setAjustandoItem(null)}>Cancelar</Button>
+                <Button disabled={salvandoAjuste} className={cn("border-none", ajusteTipo === 'entrada' ? "bg-emerald-500 text-slate-900" : "bg-rose-500 text-white")} onClick={confirmarAjusteEstoque}>
+                  {salvandoAjuste ? 'Salvando...' : 'Confirmar'}
+                </Button>
+             </div>
+          </div>
+        </Modal>
+      )}
 
       {isImportPreviewOpen && (() => {
         const semCodigo = importPreviewRows.filter(r => !r.code).length;
