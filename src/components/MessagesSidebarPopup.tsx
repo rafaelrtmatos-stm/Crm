@@ -211,6 +211,33 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
 
   const handleConfirmMute = () => applyBulkPatch({ muted: true });
 
+  // Apaga de vez as conversas selecionadas (mensagens + o próprio lead) — diferente do
+  // resto das ações em lote, que só faz um PATCH; aqui remove as linhas mesmo, então pede
+  // confirmação antes e nunca é chamado sem o usuário confirmar.
+  const handleBulkDelete = async () => {
+    if (!selectedIds.size || isSavingAction) return;
+    const qtd = selectedIds.size;
+    const ok = window.confirm(
+      `Apagar ${qtd} conversa${qtd === 1 ? '' : 's'} selecionada${qtd === 1 ? '' : 's'}? Isso remove o histórico de mensagens e o contato da lista. Essa ação não pode ser desfeita.`
+    );
+    if (!ok) return;
+
+    setIsSavingAction(true);
+    try {
+      const ids = Array.from(selectedIds);
+      const phones = leads.filter(l => ids.includes(l.id)).map(l => l.phone).filter(Boolean);
+
+      if (phones.length) {
+        await supabase.from('crm_messages').delete().eq('company_id', 'rafa-arts').in('phone', phones);
+      }
+      await supabase.from('leads').delete().in('id', ids);
+
+      cancelSelection();
+    } finally {
+      setIsSavingAction(false);
+    }
+  };
+
   const handleCreateGroup = async () => {
     if (!currentCompany || !groupName.trim() || !selectedIds.size || isSavingAction) return;
     setIsSavingAction(true);
@@ -453,7 +480,10 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                   <button type="button" disabled={!selectedIds.size || isSavingAction} onClick={() => applyBulkPatch({ archived: true })} title="Arquivar" className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-primary-600 hover:border-primary-300 transition-colors disabled:opacity-40">
                     <Archive size={14} />
                   </button>
-                  <button type="button" disabled={!selectedIds.size || isSavingAction} onClick={() => applyBulkPatch({ status: 'ENCERRADO', archived: true })} title="Excluir / encerrar" className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-rose-600 hover:border-rose-300 transition-colors disabled:opacity-40">
+                  <button type="button" disabled={!selectedIds.size || isSavingAction} onClick={() => applyBulkPatch({ status: 'ENCERRADO', archived: true })} title="Encerrar (mantém o histórico, só arquiva)" className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-amber-600 hover:border-amber-300 transition-colors disabled:opacity-40">
+                    <Archive size={14} />
+                  </button>
+                  <button type="button" disabled={!selectedIds.size || isSavingAction} onClick={handleBulkDelete} title="Apagar de vez (remove mensagens e contato)" className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-rose-600 hover:border-rose-300 transition-colors disabled:opacity-40">
                     <Trash2 size={14} />
                   </button>
                 </div>
