@@ -466,6 +466,18 @@ const mapLeadRow = (row: any): Lead => ({
   updatedAt: row.updated_at,
 } as Lead);
 
+// Data/hora de uma mensagem podem vir de duas fontes diferentes: Timestamp do
+// Firestore (dados antigos/outras telas) OU string ISO do Supabase (crm_messages,
+// fonte atual do chat) -- o chat so tratava o caso Timestamp e ficava com o
+// horario/data em branco pra toda mensagem vinda do Supabase. Aceita os dois.
+const parseMsgDate = (value: any): Date | null => {
+  if (!value) return null;
+  if (value instanceof Timestamp) return value.toDate();
+  if (value instanceof Date) return value;
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? null : d;
+};
+
 const mapCrmMessageRow = (row: any): any => ({
   id: row.id,
   companyId: row.company_id,
@@ -2692,7 +2704,14 @@ export const ChatPanel = ({
                  
                  {chatMessages.map((m, idx) => {
                     const isOutgoing = m.direction === 'outgoing';
-                    const timeStr = m.createdAt instanceof Timestamp ? format(m.createdAt.toDate(), 'HH:mm') : '';
+                    const msgDate = parseMsgDate(m.createdAt);
+                    // Mostra so a hora quando a mensagem e' de hoje; senao mostra
+                    // data + hora, pra sempre dar pra saber QUANDO foi mandada.
+                    const timeStr = msgDate
+                      ? (msgDate.toDateString() === new Date().toDateString()
+                          ? format(msgDate, 'HH:mm')
+                          : format(msgDate, 'dd/MM HH:mm'))
+                      : '';
                     const isAudio = m.contentType === 'audio' || m.mediaType === 'audio';
                     
                     return (
