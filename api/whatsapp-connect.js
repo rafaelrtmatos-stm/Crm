@@ -40,6 +40,7 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         instanceName: INSTANCE_NAME,
         qrcode: true,
+        integration: 'WHATSAPP-BAILEYS',
         webhook: {
           url: `${siteUrl}/api/whatsapp-webhook`,
           headers: { 'x-webhook-secret': EVOLUTION_WEBHOOK_SECRET || '' },
