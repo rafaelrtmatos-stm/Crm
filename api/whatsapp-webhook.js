@@ -23,6 +23,104 @@ const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY;
 // direto pra essa URL sem saber o segredo.
 const WEBHOOK_SECRET = process.env.EVOLUTION_WEBHOOK_SECRET;
 
+// Percorre o objeto `message` da Evolution/Baileys e devolve o "node" de midia bruto
+// (imageMessage/videoMessage/documentMessage/audioMessage/stickerMessage), sem desembrulhar
+// texto -- usado pra extrairInfoMidia conseguir o mimetype/fileName/caption reais.
+// Mesma logica de desembrulho de efemera/"ver uma vez" que extrairTextoMensagem usa.
+function encontrarNodeMidia(message, profundidade = 0) {
+  if (!message || profundidade > 4) return null;
+  if (message.imageMessage) return { tipo: 'image', node: message.imageMessage };
+  if (message.videoMessage) return { tipo: 'video', node: message.videoMessage };
+  if (message.documentMessage) return { tipo: 'document', node: message.documentMessage };
+  if (message.documentWithCaptionMessage?.message?.documentMessage) {
+    return { tipo: 'document', node: message.documentWithCaptionMessage.message.documentMessage };
+  }
+  if (message.audioMessage) return { tipo: 'audio', node: message.audioMessage };
+  if (message.stickerMessage) return { tipo: 'sticker', node: message.stickerMessage };
+
+  const embrulho =
+    message.ephemeralMessage?.message ||
+    message.viewOnceMessage?.message ||
+    message.viewOnceMessageV2?.message ||
+    message.viewOnceMessageV2Extension?.message;
+  if (embrulho) return encontrarNodeMidia(embrulho, profundidade + 1);
+
+  return null;
+}
+
+// Extensao a partir do mimetype -- usada quando a midia nao tem fileName proprio
+// (imagem/video/audio/figurinha, que so o documentMessage costuma trazer).
+function extensaoPorMimetype(mimetype) {
+  if (!mimetype) return '';
+  const base = mimetype.split(';')[0].trim();
+  const mapa = {
+    'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
+    'video/mp4': 'mp4', 'video/3gpp': '3gp', 'video/quicktime': 'mov',
+    'audio/ogg': 'ogg', 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/aac': 'aac', 'audio/wav': 'wav',
+    'application/pdf': 'pdf',
+  };
+  return mapa[base] || (base.includes('/') ? base.split('/')[1] : '');
+}
+
+// Baixa a midia (base64) direto da Evolution API a partir da propria mensagem recebida,
+// sobe pro bucket publico "whatsapp-media" no Supabase Storage e devolve a URL publica +
+// nome do arquivo + content_type -- os 3 dados que a tela de chat (Modules.tsx) precisa
+// pra mostrar miniatura/botao de download em vez do rotulo de texto antigo ("📷 Imagem").
+// Nunca lanca erro pra fora: se a midia falhar em baixar/subir, a mensagem ainda e gravada
+// (so sem media_url), pra nao perder a mensagem inteira por causa de um anexo.
+async function baixarEGuardarMidia(msg, evoHeaders) {
+  const midia = encontrarNodeMidia(msg?.message);
+  if (!midia || midia.tipo === 'sticker') return null; // figurinha continua so como rotulo por enquanto
+
+  if (!EVOLUTION_API_URL || !EVOLUTION_API_KEY || !evoHeaders) return null;
+
+  try {
+    // Endpoint padrao da Evolution API que decripta a midia do Baileys e devolve em base64
+    // (a mensagem crua que chega no webhook so tem a midia CRIPTOGRAFADA, sem esse passo
+    // o arquivo nunca fica acessivel).
+    const r = await fetch(`${EVOLUTION_API_URL}/chat/getBase64FromMediaMessage/${INSTANCE_NAME}`, {
+      method: 'POST',
+      headers: evoHeaders,
+      body: JSON.stringify({ message: { key: msg.key, message: msg.message }, convertToMp4: false }),
+    });
+    if (!r.ok) {
+      console.error('Falha ao baixar midia da Evolution API:', r.status, await r.text().catch(() => ''));
+      return null;
+    }
+    const data = await r.json();
+    const base64 = data?.base64 || data?.data;
+    if (!base64) return null;
+
+    const mimetype = data?.mimetype || midia.node?.mimetype || 'application/octet-stream';
+    const extensao = extensaoPorMimetype(mimetype) || 'bin';
+    const nomeOriginal = midia.node?.fileName || null;
+    const fileName = nomeOriginal || `${midia.tipo}-${Date.now()}.${extensao}`;
+    const path = `${COMPANY_ID}/${msg?.key?.id || Date.now()}-${fileName}`;
+
+    const bytes = Buffer.from(base64, 'base64');
+    const upload = await fetch(`${SUPABASE_URL}/storage/v1/object/whatsapp-media/${encodeURIComponent(path)}`, {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        'Content-Type': mimetype,
+        'x-upsert': 'true',
+      },
+      body: bytes,
+    });
+    if (!upload.ok) {
+      console.error('Falha ao subir midia pro Storage:', upload.status, await upload.text().catch(() => ''));
+      return null;
+    }
+
+    const mediaUrl = `${SUPABASE_URL}/storage/v1/object/public/whatsapp-media/${encodeURIComponent(path)}`;
+    return { mediaUrl, fileName, contentType: midia.tipo };
+  } catch (err) {
+    console.error('Falha ao baixar/guardar midia (nao impede o resto):', err);
+    return null;
+  }
+}
+
 // Percorre o objeto `message` da Evolution/Baileys e devolve um texto exibivel pro chat.
 // Mensagens efemeras ("apagar apos ler") e "ver uma vez" vem embrulhadas em mais um nivel
 // (ephemeralMessage.message / viewOnceMessage(V2).message) — sem desembrulhar isso, o
@@ -61,7 +159,7 @@ function extrairTextoMensagem(message, profundidade = 0) {
   return '';
 }
 
-async function inserirMensagem({ phone, text, senderName, direction = 'incoming', channel = 'WhatsApp', whatsappMessageId, createdAt }) {
+async function inserirMensagem({ phone, text, senderName, direction = 'incoming', channel = 'WhatsApp', whatsappMessageId, createdAt, mediaUrl, fileName, contentType }) {
   if (!phone || !text) return;
   const resp = await fetch(`${SUPABASE_URL}/rest/v1/crm_messages`, {
     method: 'POST',
@@ -82,6 +180,9 @@ async function inserirMensagem({ phone, text, senderName, direction = 'incoming'
       sender_name: senderName || null,
       channel,
       whatsapp_message_id: whatsappMessageId || null,
+      media_url: mediaUrl || null,
+      file_name: fileName || null,
+      content_type: contentType || null,
       ...(createdAt ? { created_at: createdAt } : {}),
     }),
   });
@@ -329,7 +430,11 @@ export default async function handler(req, res) {
         }
 
         if (phone && text) {
-          await inserirMensagem({ phone, text, senderName, direction: 'incoming', whatsappMessageId, createdAt });
+          const midiaSalva = await baixarEGuardarMidia(msg, evoHeaders);
+          await inserirMensagem({
+            phone, text, senderName, direction: 'incoming', whatsappMessageId, createdAt,
+            mediaUrl: midiaSalva?.mediaUrl, fileName: midiaSalva?.fileName, contentType: midiaSalva?.contentType,
+          });
           if (evoHeaders) {
             garantirFotoLead(phone, evoHeaders); // nao usa await de proposito — nao atrasa a resposta do webhook
           }

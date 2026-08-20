@@ -489,6 +489,8 @@ const mapCrmMessageRow = (row: any): any => ({
   senderName: row.sender_name || undefined,
   channel: row.channel || 'WhatsApp',
   mediaUrl: row.media_url || undefined,
+  fileName: row.file_name || undefined,
+  mediaContentType: row.content_type || undefined,
   transcription: row.transcription || undefined,
   versions: row.versions || undefined,
   currentVersionIndex: row.current_version_index ?? undefined,
@@ -2778,22 +2780,66 @@ export const ChatPanel = ({
                           ? format(msgDate, 'HH:mm')
                           : format(msgDate, 'dd/MM HH:mm'))
                       : '';
-                    const isAudio = m.contentType === 'audio' || m.mediaType === 'audio';
+                    // mediaContentType vem do webhook (crm_messages.content_type, ver
+                    // mapCrmMessageRow) -- so existe quando a mensagem realmente tem um
+                    // arquivo de midia baixado e salvo no Storage (m.mediaUrl preenchido).
+                    const isAudio = m.mediaContentType === 'audio' || m.contentType === 'audio' || m.mediaType === 'audio';
+                    const isImage = m.mediaContentType === 'image' && !!m.mediaUrl;
+                    const isVideo = m.mediaContentType === 'video' && !!m.mediaUrl;
+                    const isDocument = m.mediaContentType === 'document' && !!m.mediaUrl;
                     
                     return (
                       <div key={m.id || idx} className={cn("flex", isOutgoing ? "justify-end" : "justify-start")}>
                         <div className={cn("group space-y-1", isOutgoing ? "text-right" : "")}>
                            <div className={cn(
-                             "max-w-[85%] p-2.5 rounded-2xl border text-xs text-slate-800 leading-relaxed shadow-sm bg-white",
+                             "max-w-[85%] rounded-2xl border text-xs text-slate-800 leading-relaxed shadow-sm bg-white",
+                             (isImage || isVideo) ? "p-1.5" : "p-2.5",
                              isOutgoing 
                                ? "rounded-br-none border-primary-200 text-left ml-auto" 
                                : "rounded-bl-none border-slate-200"
                            )}>
-                              {isAudio ? (
+                              {isImage ? (
+                                <div className="space-y-1.5 min-w-[160px]">
+                                   <a href={m.mediaUrl} target="_blank" rel="noopener noreferrer" className="block overflow-hidden rounded-xl">
+                                     <img src={m.mediaUrl} alt={m.fileName || 'Imagem recebida'} className="max-w-full max-h-64 object-cover rounded-xl hover:opacity-90 transition-opacity" loading="lazy" />
+                                   </a>
+                                   {m.text && m.text !== '📷 Imagem' && (
+                                     <p className="px-1.5 pb-1">{m.text}</p>
+                                   )}
+                                </div>
+                              ) : isVideo ? (
+                                <div className="space-y-1.5 min-w-[200px]">
+                                   <video src={m.mediaUrl} controls preload="metadata" className="max-w-full max-h-64 rounded-xl bg-black" />
+                                   {m.text && m.text !== '🎥 Vídeo' && (
+                                     <p className="px-1.5 pb-1">{m.text}</p>
+                                   )}
+                                </div>
+                              ) : isDocument ? (
+                                <a
+                                  href={m.mediaUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  download={m.fileName || undefined}
+                                  className="flex items-center gap-2.5 min-w-[200px] max-w-[260px] group/doc"
+                                >
+                                   <div className="w-9 h-9 rounded-lg bg-primary-50 border border-primary-100 flex items-center justify-center text-primary-600 shrink-0">
+                                     <FileText size={16} />
+                                   </div>
+                                   <div className="flex-1 min-w-0">
+                                     <p className="font-bold text-slate-700 truncate">{m.fileName || 'Documento'}</p>
+                                     <p className="text-[9px] font-black uppercase tracking-widest text-primary-500 flex items-center gap-1">
+                                       <Download size={10} /> Baixar arquivo
+                                     </p>
+                                   </div>
+                                </a>
+                              ) : isAudio ? (
                                 <div className="space-y-1.5 min-w-[180px]">
                                    <div className="flex items-center gap-1.5 text-slate-500">
                                      <FileAudio size={13} /> <span className="font-bold">Mensagem de áudio</span>
                                    </div>
+                                   {m.mediaUrl && (
+                                     <audio src={m.mediaUrl} controls preload="none" className="w-full h-8" />
+                                   )}
                                    {m.transcription?.text ? (
                                      <p className="italic text-slate-600 border-t border-slate-100 pt-1.5">"{m.transcription.text}"</p>
                                    ) : (
@@ -3198,6 +3244,19 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
   const [openedViaJump, setOpenedViaJump] = useState(false);
   const [isConfiguringFunnel, setIsConfiguringFunnel] = useState(false);
   const [editingFunnel, setEditingFunnel] = useState<Funnel | null>(null);
+  // Modo de seleção múltipla no Kanban -- liga/desliga os checkboxes nos cards pra
+  // permitir excluir vários leads de uma vez (em vez de um por um). Limpa a seleção
+  // sempre que sai do modo ou troca de funil, pra nunca excluir um lead "fantasma"
+  // que já saiu da tela.
+  const [leadSelectionMode, setLeadSelectionMode] = useState(false);
+  const [selectedLeadIds, setSelectedLeadIds] = useState<Set<string>>(new Set());
+  const toggleLeadSelected = (leadId: string) => {
+    setSelectedLeadIds(prev => {
+      const next = new Set(prev);
+      if (next.has(leadId)) next.delete(leadId); else next.add(leadId);
+      return next;
+    });
+  };
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
 
   const sensors = useSensors(
@@ -3399,6 +3458,60 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     }
   };
 
+  // Sai do modo de seleção sempre que o funil muda -- os leads marcados eram de outra
+  // tela e não devem continuar "presos" numa seleção que o usuário nem está vendo mais.
+  useEffect(() => {
+    setLeadSelectionMode(false);
+    setSelectedLeadIds(new Set());
+  }, [selectedFunnelId]);
+
+  // Exclui um lead + a conversa dele em cascata (mensagens do chat ficam órfãs sem isso,
+  // ocupando espaço e podendo reaparecer se o telefone mandar mensagem de novo e o
+  // realtime remontar a linha). Usada tanto pro "excluir 1" quanto, em loop, pro "excluir
+  // vários" abaixo -- mantém uma única fonte de verdade pra não duplicar a lógica de cascata.
+  const excluirLeadComCascata = async (lead: Lead) => {
+    if (lead.phone) {
+      await supabase.from('crm_messages').delete().eq('company_id', 'rafa-arts').eq('phone', lead.phone);
+    }
+    await supabase.from('leads').delete().eq('id', lead.id);
+  };
+
+  const handleDeleteLead = async (lead: Lead) => {
+    if (!(await showConfirm(`Excluir o lead "${lead.fullName}" e toda a conversa dele?\n\nEssa ação não pode ser desfeita.`))) return;
+    try {
+      await excluirLeadComCascata(lead);
+      if (selectedLead?.id === lead.id) setSelectedLead(null);
+      setLeads(prev => prev.filter(l => l.id !== lead.id));
+    } catch (err) {
+      console.error('Erro ao excluir lead:', err);
+      showAlert('Não foi possível excluir o lead.');
+    }
+  };
+
+  // Excluir vários leads selecionados no Kanban de uma vez (checkbox por card, ver
+  // KanbanCard/KanbanColumn). Cada lead leva sua conversa junto (mesma cascata do excluir
+  // individual) -- em série mesmo, pra não estourar limite de conexões do Supabase com
+  // muitos leads marcados de uma vez.
+  const handleDeleteSelectedLeads = async () => {
+    const ids = Array.from(selectedLeadIds);
+    if (ids.length === 0) return;
+    if (!(await showConfirm(`Excluir ${ids.length} lead(s) selecionado(s) e todas as conversas deles?\n\nEssa ação não pode ser desfeita.`))) return;
+    try {
+      const leadsParaExcluir = leads.filter(l => ids.includes(l.id));
+      for (const lead of leadsParaExcluir) {
+        await excluirLeadComCascata(lead);
+      }
+      if (selectedLead && ids.includes(selectedLead.id)) setSelectedLead(null);
+      setLeads(prev => prev.filter(l => !ids.includes(l.id)));
+      setSelectedLeadIds(new Set());
+      setLeadSelectionMode(false);
+      showAlert(`${leadsParaExcluir.length} lead(s) excluído(s).`);
+    } catch (err) {
+      console.error('Erro ao excluir leads selecionados:', err);
+      showAlert('Não foi possível excluir os leads selecionados.');
+    }
+  };
+
   // --- Handlers do modal "Gestão de Funis & Etapas" (Configurar) ---
   // Antes esse modal era só decoração: input sem onChange, cores sem onClick,
   // botões "Adicionar Etapa"/Automações/Editar/Excluir sem handler nenhum.
@@ -3582,11 +3695,35 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                   )}
                </div>
 
+               <Button
+                 variant={leadSelectionMode ? 'primary' : 'secondary'}
+                 icon={CheckSquare}
+                 onClick={() => { setLeadSelectionMode(v => !v); setSelectedLeadIds(new Set()); }}
+               >
+                 {leadSelectionMode ? 'Cancelar Seleção' : 'Selecionar Vários'}
+               </Button>
                <Button variant="secondary" icon={Settings2} onClick={() => setIsConfiguringFunnel(true)}>Configurar</Button>
                <Button icon={Plus}>Novo Lead</Button>
             </div>
           } 
         />
+        )}
+
+        {leadSelectionMode && selectedLeadIds.size > 0 && (
+          <div className="flex items-center justify-between gap-3 bg-rose-500/10 border border-rose-500/30 rounded-2xl px-4 py-2.5 mb-1">
+            <p className="text-[10px] font-black uppercase tracking-widest text-rose-300">
+              {selectedLeadIds.size} lead(s) selecionado(s)
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setSelectedLeadIds(new Set())}
+                className="text-[9px] font-black uppercase tracking-widest text-white/40 hover:text-white/70 px-3 py-1.5"
+              >
+                Limpar
+              </button>
+              <Button variant="danger" icon={Trash2} onClick={handleDeleteSelectedLeads}>Excluir Selecionados</Button>
+            </div>
+          </div>
         )}
 
         <DndContext
@@ -3615,6 +3752,10 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                   leads={leads.filter(l => l.funnelStageId === stage.id || (!l.funnelStageId && (stage.isInitial || stage.order === 0)))}
                   onLeadClick={(l) => { setOpenedViaJump(false); setSelectedLead(l); }}
                   selectedLeadId={selectedLead?.id}
+                  selectionMode={leadSelectionMode}
+                  selectedLeadIds={selectedLeadIds}
+                  onToggleLeadSelected={toggleLeadSelected}
+                  onDeleteLead={handleDeleteLead}
                 />
               </div>
             ))}
@@ -3796,7 +3937,10 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
   );
 };
 
-const KanbanColumn = ({ stage, leads, onLeadClick, selectedLeadId }: { key?: any, stage: FunnelStage, leads: Lead[], onLeadClick: (l: Lead) => void, selectedLeadId?: string }) => {
+const KanbanColumn = ({ stage, leads, onLeadClick, selectedLeadId, selectionMode, selectedLeadIds, onToggleLeadSelected, onDeleteLead }: {
+  key?: any, stage: FunnelStage, leads: Lead[], onLeadClick: (l: Lead) => void, selectedLeadId?: string,
+  selectionMode?: boolean, selectedLeadIds?: Set<string>, onToggleLeadSelected?: (leadId: string) => void, onDeleteLead?: (lead: Lead) => void,
+}) => {
   const { setNodeRef } = useSortable({ id: stage.id, data: { type: 'column', stageId: stage.id } });
 
   return (
@@ -3824,6 +3968,10 @@ const KanbanColumn = ({ stage, leads, onLeadClick, selectedLeadId }: { key?: any
               lead={lead} 
               onClick={() => onLeadClick(lead)}
               isSelected={selectedLeadId === lead.id}
+              selectionMode={selectionMode}
+              isChecked={!!selectedLeadIds?.has(lead.id)}
+              onToggleSelected={() => onToggleLeadSelected?.(lead.id)}
+              onDelete={() => onDeleteLead?.(lead)}
             />
           ))}
         </SortableContext>
@@ -3839,11 +3987,17 @@ const KanbanColumn = ({ stage, leads, onLeadClick, selectedLeadId }: { key?: any
   );
 };
 
-const KanbanCard = ({ lead, onClick, isSelected, isDragging }: { key?: any, lead: Lead, onClick?: () => void, isSelected?: boolean, isDragging?: boolean }) => {
+const KanbanCard = ({ lead, onClick, isSelected, isDragging, selectionMode, isChecked, onToggleSelected, onDelete }: {
+  key?: any, lead: Lead, onClick?: () => void, isSelected?: boolean, isDragging?: boolean,
+  selectionMode?: boolean, isChecked?: boolean, onToggleSelected?: () => void, onDelete?: () => void,
+}) => {
   const { setPrefilledCustomer, setActiveTab } = React.useContext(AppContext)!;
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
     id: lead.id,
-    data: { type: 'card', lead }
+    data: { type: 'card', lead },
+    // Com o modo de seleção ligado, o card não deve mais "arrastar" ao clicar --
+    // clicar precisa marcar/desmarcar o checkbox, não iniciar um drag do Kanban.
+    disabled: selectionMode,
   });
 
   const style = {
@@ -3855,19 +4009,35 @@ const KanbanCard = ({ lead, onClick, isSelected, isDragging }: { key?: any, lead
     <div 
       ref={setNodeRef} 
       style={style} 
-      {...attributes} 
-      {...listeners}
+      {...(selectionMode ? {} : attributes)} 
+      {...(selectionMode ? {} : listeners)}
       className={cn(isDragging ? "z-50" : "relative")}
     >
       <GlassCard 
-        onClick={onClick}
+        onClick={selectionMode ? onToggleSelected : onClick}
         className={cn(
-          "p-5 border-white/5 cursor-grab active:cursor-grabbing transition-all hover:border-primary-400 group relative overflow-hidden",
+          "p-5 border-white/5 transition-all hover:border-primary-400 group relative overflow-hidden",
+          selectionMode ? "cursor-pointer" : "cursor-grab active:cursor-grabbing",
           isSelected ? "bg-primary-500/10 border-primary-500/40 ring-1 ring-primary-500/20" : "",
+          isChecked ? "bg-rose-500/10 border-rose-500/40 ring-1 ring-rose-500/30" : "",
           isDragging ? "shadow-2xl ring-2 ring-primary-500 scale-105" : ""
         )}
       >
-         <div className="flex justify-between mb-2">
+         {selectionMode && (
+           <div className="absolute top-3 left-3 z-10" onClick={(e) => { e.stopPropagation(); onToggleSelected?.(); }}>
+             <input type="checkbox" checked={isChecked} onChange={() => onToggleSelected?.()} className="w-4 h-4 accent-rose-500 cursor-pointer" />
+           </div>
+         )}
+         {!selectionMode && (
+           <button
+             onClick={(e) => { e.stopPropagation(); onDelete?.(); }}
+             title="Excluir lead"
+             className="absolute top-3 right-3 z-10 w-6 h-6 rounded-md bg-rose-500/0 text-rose-400/0 group-hover:bg-rose-500/10 group-hover:text-rose-400 flex items-center justify-center transition-all"
+           >
+             <Trash2 size={12} />
+           </button>
+         )}
+         <div className={cn("flex justify-between mb-2", selectionMode && "pl-6")}>
             <p className="font-black text-white text-[11px] tracking-tight truncate flex-1 pr-2 uppercase italic">{lead.fullName}</p>
             <span className="text-[7px] font-black text-white/20 uppercase tracking-widest leading-none">
                {(lead.createdAt as any)?.toDate?.() ? format((lead.createdAt as any).toDate(), 'HH:mm') : 'Agora'}
