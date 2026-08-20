@@ -70,15 +70,23 @@ async function garantirGrupoExiste(groupJid, nomeGrupo) {
 async function atualizarStatusConexao(status) {
   // Guarda o status da conexao (connecting | open | close) pro IntegracoesModule.tsx
   // conseguir ler e mostrar "Conectado"/"Desconectado" sem precisar perguntar direto
-  // pra Evolution API toda hora
-  await fetch(`${SUPABASE_URL}/rest/v1/robozinho_config?company_id=eq.rafa-arts`, {
-    method: 'PATCH',
+  // pra Evolution API toda hora.
+  // Usa UPSERT (nao PATCH) porque a linha de robozinho_config pra essa empresa pode ainda
+  // nao existir (so e criada quando alguem salva uma config manualmente na tela do
+  // Robozinho) — um PATCH nela falharia em silencio, sem criar nada e sem erro visivel.
+  await fetch(`${SUPABASE_URL}/rest/v1/robozinho_config?on_conflict=company_id`, {
+    method: 'POST',
     headers: {
       apikey: SUPABASE_ANON_KEY,
       Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
       'Content-Type': 'application/json',
+      Prefer: 'resolution=merge-duplicates',
     },
-    body: JSON.stringify({ whatsapp_connection_status: status, updated_at: new Date().toISOString() }),
+    body: JSON.stringify({
+      company_id: 'rafa-arts',
+      whatsapp_connection_status: status,
+      updated_at: new Date().toISOString(),
+    }),
   });
 }
 

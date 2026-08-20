@@ -72,6 +72,20 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
   const [qrError, setQrError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const [verificandoStatus, setVerificandoStatus] = useState(false);
+  const handleVerificarStatusAgora = async () => {
+    setVerificandoStatus(true);
+    try {
+      const resp = await fetch('/api/whatsapp-connect?status=1');
+      const data = await resp.json();
+      setWhatsappStatus(data.status || 'close');
+    } catch (err) {
+      console.error('Falha ao verificar status:', err);
+    } finally {
+      setVerificandoStatus(false);
+    }
+  };
+
   const buscarQrCode = async () => {
     setLoadingQr(true);
     setQrError(null);
@@ -217,6 +231,9 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
                 </p>
                 <button onClick={buscarQrCode} disabled={loadingQr} className="text-[11px] font-black uppercase tracking-widest text-primary-400 hover:text-primary-300 flex items-center gap-1.5 mx-auto disabled:opacity-40">
                   <RefreshCw size={12} className={loadingQr ? 'animate-spin' : ''} /> Deu "QR inválido"? Gerar novo
+                </button>
+                <button onClick={handleVerificarStatusAgora} disabled={verificandoStatus} className="text-[11px] font-black uppercase tracking-widest text-emerald-400 hover:text-emerald-300 flex items-center gap-1.5 mx-auto disabled:opacity-40 pt-1">
+                  <CheckCircle2 size={12} className={verificandoStatus ? 'animate-pulse' : ''} /> Já escaneei — verificar agora
                 </button>
               </>
             )}
