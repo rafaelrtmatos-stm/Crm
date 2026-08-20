@@ -5,31 +5,14 @@ import { supabase } from '../supabase';
 import { AppContext } from '../App';
 import { Lead, Company, AppUser } from '../types';
 import { cn, Button } from './SharedUI';
-import { GroupChatModal } from './GroupChatModal';
 import {
   Search, RefreshCw, Clock, CheckCircle2, X, Instagram, Facebook, Send, Mail, MessageCircle, Globe,
-  MoreVertical, CirclePlus, VolumeX, CheckSquare, Check, Archive, Trash2, Flag, MailOpen, Users, Star, Circle,
+  MoreVertical, CirclePlus, VolumeX, CheckSquare, Check, Archive, Trash2, Flag, MailOpen,
 } from 'lucide-react';
 import { format } from 'date-fns';
 
 type SortMode = 'recent' | 'unread' | 'highlight';
 type SelectionMode = null | 'bulk' | 'mute' | 'group';
-// Filtros da aba lateral — "Tudo", "Não lidas", "Favoritas" (leads) e "Grupos"
-// (troca a lista inteira pra mostrar os grupos do WhatsApp em vez de leads)
-type ViewFilter = 'all' | 'unreplied' | 'favorite' | 'groups';
-
-interface WhatsAppGroupRow {
-  id: string;
-  group_jid: string;
-  nome: string | null;
-  visivel: boolean;
-  created_at: string;
-}
-
-interface UsuarioSimples {
-  id: string;
-  name: string;
-}
 
 const SORT_OPTIONS: { id: SortMode; label: string }[] = [
   { id: 'recent', label: 'Mais recentes' },
@@ -106,100 +89,8 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
   const { setPendingOpenLeadId, setActiveTab } = useContext(AppContext)!;
   const [leads, setLeads] = useState<Lead[]>([]);
   const [filter, setFilter] = useState('');
-  const [viewFilter, setViewFilter] = useState<ViewFilter>('all');
+  const [viewFilter, setViewFilter] = useState<'all' | 'unreplied'>('all');
   const [isRefreshing, setIsRefreshing] = useState(false);
-
-  // --- Grupos do WhatsApp (aba "Grupos") ---
-  // Usuário comum só vê os grupos já liberados pelo admin (visivel=true) e que
-  // ele tem acesso liberado (user_whatsapp_groups). Admin vê TUDO, inclusive os
-  // pendentes de liberação, e consegue liberar/bloquear e escolher quem vê cada
-  // grupo direto por aqui — isso substitui a antiga aba "Grupos WhatsApp" que
-  // ficava em Integrações (regra de negócio inalterada: grupo novo entra
-  // represado e ninguém vê mensagem dele até o admin liberar).
-  const [grupos, setGrupos] = useState<WhatsAppGroupRow[]>([]);
-  const [grupoPreview, setGrupoPreview] = useState<Record<string, { texto: string; data: string }>>({});
-  const [grupoAberto, setGrupoAberto] = useState<WhatsAppGroupRow | null>(null);
-  const [usuarios, setUsuarios] = useState<UsuarioSimples[]>([]);
-  const [acessosPorGrupo, setAcessosPorGrupo] = useState<Record<string, string[]>>({});
-  const [grupoExpandido, setGrupoExpandido] = useState<string | null>(null);
-  const [salvandoGrupo, setSalvandoGrupo] = useState<string | null>(null);
-
-  const carregarGrupos = async () => {
-    if (!currentCompany) return;
-    let gruposQuery = supabase.from('whatsapp_groups').select('*').eq('company_id', 'rafa-arts');
-    if (!user?.isAdmin) gruposQuery = gruposQuery.eq('visivel', true); // usuário comum nunca ve pendente
-    const { data: gruposData } = await gruposQuery.order('created_at', { ascending: false });
-    let listaFinal = gruposData || [];
-
-    if (user?.isAdmin) {
-      const [{ data: usuariosData }, { data: acessosData }] = await Promise.all([
-        supabase.from('usuarios').select('id, name').order('name', { ascending: true }),
-        supabase.from('user_whatsapp_groups').select('user_id, group_id'),
-      ]);
-      setUsuarios(usuariosData || []);
-      const mapa: Record<string, string[]> = {};
-      (acessosData || []).forEach((a: any) => {
-        if (!mapa[a.group_id]) mapa[a.group_id] = [];
-        mapa[a.group_id].push(a.user_id);
-      });
-      setAcessosPorGrupo(mapa);
-    } else if (user) {
-      const { data: acessos } = await supabase.from('user_whatsapp_groups').select('group_id').eq('user_id', user.id);
-      const idsPermitidos = new Set((acessos || []).map((a: any) => a.group_id));
-      listaFinal = listaFinal.filter(g => idsPermitidos.has(g.id));
-    }
-    setGrupos(listaFinal);
-
-    // Última mensagem de cada grupo já liberado, pra preview na lista
-    const gruposLiberados = listaFinal.filter(g => g.visivel);
-    if (gruposLiberados.length > 0) {
-      const telefonesDosGrupos = gruposLiberados.map(g => g.group_jid.replace('@g.us', '').replace(/\D/g, ''));
-      const { data: mensagens } = await supabase
-        .from('crm_messages')
-        .select('phone, text, created_at')
-        .eq('company_id', 'rafa-arts')
-        .in('phone', telefonesDosGrupos)
-        .order('created_at', { ascending: false });
-      const previewMap: Record<string, { texto: string; data: string }> = {};
-      (mensagens || []).forEach((m: any) => {
-        if (!previewMap[m.phone]) previewMap[m.phone] = { texto: m.text, data: m.created_at };
-      });
-      setGrupoPreview(previewMap);
-    }
-  };
-
-  useEffect(() => {
-    if (!currentCompany || !isOpen) return;
-    carregarGrupos();
-    const channel = supabase.channel('sidebar-popup-grupos').on('postgres_changes', { event: '*', schema: 'public', table: 'whatsapp_groups' }, carregarGrupos).subscribe();
-    return () => { supabase.removeChannel(channel); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentCompany, isOpen, user]);
-
-  const liberarGrupo = async (grupoId: string) => {
-    setSalvandoGrupo(grupoId);
-    await supabase.from('whatsapp_groups').update({ visivel: true, updated_at: new Date().toISOString() }).eq('id', grupoId);
-    await carregarGrupos();
-    setSalvandoGrupo(null);
-    setGrupoExpandido(grupoId); // abre a lista de usuários direto pra escolher quem ve
-  };
-
-  const bloquearGrupo = async (grupoId: string) => {
-    setSalvandoGrupo(grupoId);
-    await supabase.from('whatsapp_groups').update({ visivel: false, updated_at: new Date().toISOString() }).eq('id', grupoId);
-    await carregarGrupos();
-    setSalvandoGrupo(null);
-  };
-
-  const alternarAcessoUsuario = async (grupoId: string, userId: string) => {
-    const temAcesso = (acessosPorGrupo[grupoId] || []).includes(userId);
-    if (temAcesso) {
-      await supabase.from('user_whatsapp_groups').delete().eq('group_id', grupoId).eq('user_id', userId);
-    } else {
-      await supabase.from('user_whatsapp_groups').insert({ group_id: grupoId, user_id: userId });
-    }
-    await carregarGrupos();
-  };
 
   // Menu de opções (⋮) e suas funções
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -222,9 +113,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
       } as any as Lead)));
     };
     loadLeads();
-    // company_id no Supabase e' sempre 'rafa-arts' (fixo) -- currentCompany.id (Firestore)
-    // nunca bate com esse valor. Ver ALL_HARDCODED_COMPANY_ID_FIXES.md.
-    const channel = supabase.channel('sidebar-popup-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.rafa-arts` }, loadLeads).subscribe();
+    const channel = supabase.channel('sidebar-popup-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.${currentCompany.id}` }, loadLeads).subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [currentCompany, isOpen]);
 
@@ -270,12 +159,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
         l.phone.includes(filter)
       )
       .filter(l => (viewFilter === 'unreplied' ? !!l.waitingSince : true))
-      .filter(l => (viewFilter === 'favorite' ? l.priority === 'alta' : true))
   );
-
-  const filteredGrupos = grupos.filter(g => (g.nome || g.group_jid).toLowerCase().includes(filter.toLowerCase()));
-  const gruposPendentes = filteredGrupos.filter(g => !g.visivel);
-  const gruposLiberados = filteredGrupos.filter(g => g.visivel);
 
   // Ao escolher uma conversa: fecha o popup e abre ela direto no Funil CRM,
   // preenchendo a tela toda (não fica só na lista/preview do popup). Em modo
@@ -469,62 +353,39 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
               />
             </div>
 
-            {/* Sub-tabs: Tudo / Não lidas / Favoritas / Grupos */}
-            <div className="flex gap-1.5">
+            {/* Sub-tabs */}
+            <div className="flex gap-2">
               <button
                 onClick={() => setViewFilter('all')}
                 className={cn(
-                  "flex-1 py-2 rounded-xl text-[9.5px] font-black uppercase tracking-wider border transition-all flex items-center justify-center gap-1",
+                  "flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all flex items-center justify-center gap-1.5",
                   viewFilter === 'all'
                     ? "bg-primary-50 border-primary-200 text-primary-700"
                     : "bg-transparent border-transparent text-slate-400 hover:text-slate-600"
                 )}
               >
-                Tudo
+                Todos
                 <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-[8px]">{leads.length}</span>
               </button>
               <button
                 onClick={() => setViewFilter('unreplied')}
                 className={cn(
-                  "flex-1 py-2 rounded-xl text-[9.5px] font-black uppercase tracking-wider border transition-all flex items-center justify-center gap-1 relative overflow-hidden",
+                  "flex-1 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all flex items-center justify-center gap-1.5 relative overflow-hidden",
                   viewFilter === 'unreplied'
                     ? "bg-rose-50 border-rose-200 text-rose-600"
                     : "bg-transparent border-transparent text-slate-400 hover:text-slate-600",
-                  unrepliedCount > 0 && viewFilter !== 'unreplied' && "animate-pulse"
+                  unrepliedCount > 0 && "animate-pulse"
                 )}
               >
-                Não lidas
-                <span className={cn(
-                  "px-1.5 py-0.5 rounded text-[8px] font-black",
-                  unrepliedCount > 0 ? "bg-rose-500 text-white" : "bg-slate-100 text-slate-400"
-                )}>
-                  {unrepliedCount}
-                </span>
-              </button>
-              <button
-                onClick={() => setViewFilter('favorite')}
-                className={cn(
-                  "flex-1 py-2 rounded-xl text-[9.5px] font-black uppercase tracking-wider border transition-all flex items-center justify-center gap-1",
-                  viewFilter === 'favorite'
-                    ? "bg-amber-50 border-amber-200 text-amber-600"
-                    : "bg-transparent border-transparent text-slate-400 hover:text-slate-600"
-                )}
-              >
-                <Star size={11} className={viewFilter === 'favorite' ? "fill-amber-500 text-amber-500" : ""} />
-                Favoritas
-              </button>
-              <button
-                onClick={() => setViewFilter('groups')}
-                className={cn(
-                  "flex-1 py-2 rounded-xl text-[9.5px] font-black uppercase tracking-wider border transition-all flex items-center justify-center gap-1",
-                  viewFilter === 'groups'
-                    ? "bg-emerald-50 border-emerald-200 text-emerald-700"
-                    : "bg-transparent border-transparent text-slate-400 hover:text-slate-600"
-                )}
-              >
-                <Users size={11} />
-                Grupos
-                {grupos.length > 0 && <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-[8px]">{grupos.length}</span>}
+                <div className="flex items-center gap-1.5">
+                  <span>Sem Resposta</span>
+                  <span className={cn(
+                    "px-1.5 py-0.5 rounded text-[8px] font-black",
+                    unrepliedCount > 0 ? "bg-rose-500 text-white" : "bg-slate-100 text-slate-400"
+                  )}>
+                    {unrepliedCount}
+                  </span>
+                </div>
               </button>
             </div>
           </div>
@@ -600,8 +461,8 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
             </div>
           )}
 
-          {/* Alerta de vácuo — clicável: leva direto pro filtro "Não lidas" */}
-          {unrepliedCount > 0 && viewFilter !== 'unreplied' && viewFilter !== 'groups' && (
+          {/* Alerta de vácuo — clicável: leva direto pro filtro "Sem Resposta" */}
+          {unrepliedCount > 0 && viewFilter !== 'unreplied' && (
             <button
               type="button"
               onClick={() => setViewFilter('unreplied')}
@@ -618,114 +479,9 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
             </button>
           )}
 
-          {/* Lista de conversas (leads) ou de grupos, dependendo da aba ativa */}
+          {/* Lista de conversas */}
           <div className="flex-1 overflow-y-auto custom-scrollbar">
-            {viewFilter === 'groups' ? (
-              <div className="p-3 space-y-3">
-                {filteredGrupos.length === 0 && (
-                  <div className="p-6 text-center">
-                    <Users size={22} className="text-slate-300 mx-auto mb-2" />
-                    <p className="text-xs text-slate-400">
-                      {grupos.length === 0
-                        ? 'Nenhum grupo detectado ainda. Assim que uma mensagem de grupo chegar no WhatsApp conectado, ele aparece aqui.'
-                        : 'Nenhum grupo encontrado com esse filtro.'}
-                    </p>
-                  </div>
-                )}
-
-                {/* Pendentes de liberação — só o admin vê e consegue liberar */}
-                {gruposPendentes.length > 0 && (
-                  <div className="space-y-1.5">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-amber-600 px-1">Pendentes de liberação ({gruposPendentes.length})</p>
-                    {gruposPendentes.map(g => (
-                      <div key={g.id} className="p-3 rounded-2xl border border-amber-200 bg-amber-50 flex items-center justify-between gap-3">
-                        <p className="text-xs font-bold text-slate-700 truncate">{g.nome || g.group_jid}</p>
-                        <button
-                          type="button"
-                          onClick={() => liberarGrupo(g.id)}
-                          disabled={salvandoGrupo === g.id}
-                          className="shrink-0 py-1.5 px-3 rounded-lg bg-primary-500 text-slate-950 text-[10px] font-black uppercase tracking-widest hover:bg-primary-400 disabled:opacity-40"
-                        >
-                          Liberar
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Liberados — clique abre o histórico; admin também pode bloquear/escolher usuários */}
-                {gruposLiberados.map(g => {
-                  const groupPhone = g.group_jid.replace('@g.us', '').replace(/\D/g, '');
-                  const preview = grupoPreview[groupPhone];
-                  const timeStr = preview ? format(new Date(preview.data), 'HH:mm') : '';
-                  const expandido = grupoExpandido === g.id;
-                  const acessosDoGrupo = acessosPorGrupo[g.id] || [];
-                  return (
-                    <div key={g.id} className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
-                      <div
-                        onClick={() => setGrupoAberto(g)}
-                        className="p-3 cursor-pointer transition-all group relative hover:bg-slate-50 flex items-center gap-3"
-                      >
-                        <div className="w-9 h-9 rounded-xl bg-emerald-50 flex items-center justify-center shrink-0">
-                          <Users size={16} className="text-emerald-600" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="font-bold text-sm text-slate-800 truncate group-hover:text-primary-600">{g.nome || g.group_jid}</p>
-                            {timeStr && <span className="text-[10px] font-black text-slate-400 uppercase shrink-0">{timeStr}</span>}
-                          </div>
-                          <p className="text-xs text-slate-500 truncate">{preview?.texto || 'Sem mensagens registradas'}</p>
-                        </div>
-                      </div>
-
-                      {user?.isAdmin && (
-                        <div className="px-3 pb-2.5 flex items-center gap-2 border-t border-slate-100 pt-2">
-                          <button
-                            type="button"
-                            onClick={() => setGrupoExpandido(expandido ? null : g.id)}
-                            className="text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-primary-600 transition-colors"
-                          >
-                            {expandido ? 'Fechar acesso' : `Acesso (${acessosDoGrupo.length})`}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => bloquearGrupo(g.id)}
-                            disabled={salvandoGrupo === g.id}
-                            className="ml-auto text-[10px] font-black uppercase tracking-widest text-rose-500 hover:text-rose-600 disabled:opacity-40"
-                          >
-                            Bloquear
-                          </button>
-                        </div>
-                      )}
-
-                      {user?.isAdmin && expandido && (
-                        <div className="px-3 pb-3 pt-1 space-y-1 border-t border-slate-100">
-                          {usuarios.length === 0 && <p className="text-[11px] text-slate-400">Nenhum usuário cadastrado.</p>}
-                          {usuarios.map(u => {
-                            const temAcesso = acessosDoGrupo.includes(u.id);
-                            return (
-                              <button
-                                key={u.id}
-                                type="button"
-                                onClick={() => alternarAcessoUsuario(g.id, u.id)}
-                                className={cn(
-                                  "w-full flex items-center gap-2 py-1.5 px-2 rounded-lg text-left text-[11px] transition-all",
-                                  temAcesso ? "bg-primary-50 text-primary-700" : "text-slate-500 hover:bg-slate-50"
-                                )}
-                              >
-                                {temAcesso ? <CheckCircle2 size={13} className="text-primary-500 shrink-0" /> : <Circle size={13} className="text-slate-300 shrink-0" />}
-                                {u.name}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              filteredLeads.map(l => {
+            {filteredLeads.map(l => {
               const lastUpdate = l.updatedAt instanceof Timestamp ? l.updatedAt.toDate() : new Date((l as any).updatedAt || Date.now());
               const timeStr = format(lastUpdate, 'HH:mm');
 
@@ -818,21 +574,10 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                   </div>
                 </div>
               );
-            })
-            )}
+            })}
           </div>
         </div>
       </div>
-
-      {grupoAberto && (
-        <GroupChatModal
-          group={grupoAberto}
-          currentCompany={currentCompany}
-          user={user}
-          onClose={() => setGrupoAberto(null)}
-          onCloseParent={onClose}
-        />
-      )}
     </>
   );
 };
