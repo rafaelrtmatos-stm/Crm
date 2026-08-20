@@ -790,7 +790,7 @@ ___________________________________________
 ${CONTRATADA_NOME} — CONTRATADA`;
 }
 
-export const DashboardModule = ({ user, currentCompany, companies = [], pendingOrders = [], setActiveTab }: { user: AppUser | null, currentCompany: Company | null, companies?: Company[], pendingOrders?: SaleOrder[], setActiveTab?: (tab: any) => void }) => {
+export const DashboardModule = ({ user, currentCompany, companies = [], pendingOrders = [], setActiveTab, setIsMessagePopupOpen }: { user: AppUser | null, currentCompany: Company | null, companies?: Company[], pendingOrders?: SaleOrder[], setActiveTab?: (tab: any) => void, setIsMessagePopupOpen?: (open: boolean) => void }) => {
   const { setPendingReceivablesFilter, setPendingGoToHistorico, setPendingGoToServicos, setPendingHistoryProductSearch, setPendingReceiptOpenId } = React.useContext(AppContext)!;
   const [isEditMode, setIsEditMode] = useState(false);
   const [valorEmEstoque, setValorEmEstoque] = useState(0);
@@ -1313,7 +1313,20 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         return (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
             {canMsg && (
-              <GlassCard onClick={() => setActiveTab?.('messages')} className="p-5 border-white/5 cursor-pointer hover:border-primary-500/30 transition-all space-y-2">
+              <GlassCard
+                onClick={() => {
+                  // Mesmo comportamento do item "Conversas" no menu lateral (ver App.tsx):
+                  // em desktop abre o balão flutuante MessagesSidebarPopup — o MESMO
+                  // componente de chat usado ali —, em vez de navegar pra uma tela separada.
+                  // Em mobile (sem espaço pro balão flutuante) cai na navegação normal.
+                  if (window.innerWidth >= 1024 && setIsMessagePopupOpen) {
+                    setIsMessagePopupOpen(true);
+                  } else {
+                    setActiveTab?.('messages');
+                  }
+                }}
+                className="p-5 border-white/5 cursor-pointer hover:border-primary-500/30 transition-all space-y-2"
+              >
                 <p className="text-[9px] font-black uppercase text-white/30 tracking-widest">Mensagens Recebidas</p>
                 <h4 className="text-2xl font-black text-white">{conversasAtivas} <span className="text-xs text-white/40 font-bold">conversas ativas</span></h4>
                 <p className="text-[10px] text-primary-400 font-bold uppercase">Ver mensagens →</p>
