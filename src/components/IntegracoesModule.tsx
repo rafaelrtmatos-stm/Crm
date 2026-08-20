@@ -4,7 +4,7 @@ import { GlassCard, Badge, Modal, cn } from './SharedUI';
 import { RobozinhoRafaModule } from './RobozinhoRafaModule';
 import { Company, AppUser } from '../types';
 import { supabase } from '../supabase';
-import { showConfirm } from '../lib/notify';
+import { showConfirm, showAlert } from '../lib/notify';
 
 // Página "Integrações" — reúne num só lugar as conexões com canais externos
 // (WhatsApp já conectado de verdade via Evolution API — Facebook/Instagram ainda não,
@@ -49,6 +49,34 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [loadingQr, setLoadingQr] = useState(false);
   const [desconectando, setDesconectando] = useState(false);
+  const [importando, setImportando] = useState(false);
+  const [progressoImport, setProgressoImport] = useState<{ atual: number; total: number; ultimoChat?: string } | null>(null);
+  const cancelarImportRef = useRef(false);
+
+  const handleImportarHistorico = async () => {
+    if (!(await showConfirm('Isso vai importar TODAS as conversas e mensagens já existentes no WhatsApp conectado (pode ser bastante coisa e demorar vários minutos). Quer continuar?'))) return;
+    setImportando(true);
+    cancelarImportRef.current = false;
+    let cursor = 0;
+    try {
+      while (!cancelarImportRef.current) {
+        const resp = await fetch('/api/whatsapp-import-history', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cursor }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || 'Falha na importação.');
+        setProgressoImport({ atual: data.proximoCursor, total: data.total, ultimoChat: data.processado?.chat });
+        if (data.concluido) break;
+        cursor = data.proximoCursor;
+      }
+    } catch (err: any) {
+      showAlert(`A importação parou no meio do caminho: ${err.message || 'erro desconhecido'}. Pode tentar de novo — o que já foi importado não duplica.`);
+    } finally {
+      setImportando(false);
+    }
+  };
 
   const handleDesconectar = async () => {
     if (!(await showConfirm('Desconectar esse número do WhatsApp? Você vai precisar escanear o QR Code de novo pra reconectar (com o mesmo número ou outro).'))) return;
@@ -109,12 +137,32 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
     // Renova o QR a cada 15s — o QR do Baileys costuma expirar perto dos 20s, então
     // com 20s o usuário frequentemente escaneava uma imagem já vencida ("QR code inválido")
     pollRef.current = setInterval(buscarQrCode, 15000);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+    // Respaldo: alem de esperar o webhook avisar via Realtime, tambem CONSULTA o status
+    // direto na Evolution API a cada 5s. Cobre o caso do webhook nao avisar por algum
+    // motivo (evento com nome diferente do esperado, falha ao gravar, etc) - sem isso, o
+    // WhatsApp podia ficar conectado de verdade e a tela continuar presa mostrando QR Code
+    const statusPollRef = setInterval(handleVerificarStatusAgora, 5000);
+    return () => { if (pollRef.current) clearInterval(pollRef.current); clearInterval(statusPollRef); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canalSelecionado, whatsappConectado]);
 
+  const estadoAoAbrirRef = useRef<boolean | null>(null);
   useEffect(() => {
-    if (whatsappConectado && canalSelecionado?.id === 'whatsapp') {
+    // Modal acabou de abrir pro WhatsApp — guarda o estado de conexao "de largada"
+    if (canalSelecionado?.id === 'whatsapp' && estadoAoAbrirRef.current === null) {
+      estadoAoAbrirRef.current = whatsappConectado;
+    }
+    if (!canalSelecionado) estadoAoAbrirRef.current = null; // modal fechou, reseta pra proxima vez que abrir
+  }, [canalSelecionado, whatsappConectado]);
+
+  useEffect(() => {
+    if (canalSelecionado?.id !== 'whatsapp') return;
+    // So fecha sozinho se estava DESCONECTADO no momento em que o modal abriu, e agora
+    // ficou conectado (ou seja, conectou de verdade AGORA, tipicamente por escanear o QR).
+    // Se o modal ja abriu conectado (reaberto depois, ou pagina atualizada ja conectado),
+    // NAO fecha sozinho — senao os botoes de "Importar conversas antigas" e "Desconectar
+    // numero" ficariam quase inacessiveis
+    if (whatsappConectado && estadoAoAbrirRef.current === false) {
       if (pollRef.current) clearInterval(pollRef.current);
       setTimeout(() => setCanalSelecionado(null), 1200); // deixa ver o "Conectado!" antes de fechar
     }
@@ -193,6 +241,29 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
                 </div>
                 <p className="text-sm font-bold text-white">WhatsApp conectado!</p>
                 <p className="text-xs text-white/40">As mensagens já estão chegando direto no Funil de Atendimento.</p>
+
+                {importando && progressoImport ? (
+                  <div className="space-y-2 pt-2">
+                    <div className="w-full h-2 bg-white/5 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-primary-500 transition-all"
+                        style={{ width: `${progressoImport.total ? Math.round((progressoImport.atual / progressoImport.total) * 100) : 0}%` }}
+                      />
+                    </div>
+                    <p className="text-[10px] text-white/40">
+                      Importando conversa {progressoImport.atual} de {progressoImport.total}
+                      {progressoImport.ultimoChat ? ` — ${progressoImport.ultimoChat}` : ''}
+                    </p>
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleImportarHistorico}
+                    className="text-[11px] font-black uppercase tracking-widest text-primary-400 hover:text-primary-300 mx-auto block pt-2"
+                  >
+                    Importar conversas antigas
+                  </button>
+                )}
+
                 <button
                   onClick={handleDesconectar}
                   disabled={desconectando}
