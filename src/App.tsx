@@ -763,6 +763,13 @@ export default function App() {
           senderName: row.sender_name,
           channel: row.channel,
         });
+        // Som + notificação nativa (estilo WhatsApp Web) pra QUALQUER mensagem nova de
+        // cliente, em qualquer lugar do app — antes isso só existia dentro do useEffect
+        // de MessagesModule (Modules.tsx), então só tocava/avisava com a aba "Mensagens"
+        // aberta. Ficando aqui no shell raiz (sempre montado, ver AppContext.Provider),
+        // o listener do Supabase Realtime continua vivo mesmo com o usuário em outra
+        // aba do CRM ou com a aba do navegador em segundo plano/minimizada.
+        notifyIncomingMessage(row);
       }
     ).subscribe();
 
@@ -842,6 +849,41 @@ export default function App() {
     } catch (e) {
       return false;
     }
+  };
+
+  // Toca o alerta sonoro e dispara a notificação nativa do navegador pra uma mensagem
+  // INCOMING nova, do jeito que o WhatsApp Web faz: som sempre que chega (mesmo com o
+  // app em foco), notificação nativa só quando a aba NÃO está em foco (document.hidden
+  // ou a janela sem foco) — pra não empilhar notificação nativa em cima do que já está
+  // sendo visto na tela. Fica no shell raiz (não dentro de um módulo específico) pra
+  // continuar funcionando com a aba em segundo plano ou noutra tela do CRM.
+  const notifyIncomingMessage = (row: any) => {
+    try {
+      const audio = new Audio('/sounds/mensagem-cliente.mp3');
+      audio.play().catch(() => {});
+    } catch (e) { /* navegador bloqueou o audio, ignora */ }
+
+    try {
+      const emSegundoPlano = document.hidden || !document.hasFocus();
+      if (emSegundoPlano && 'Notification' in window && Notification.permission === 'granted') {
+        const remetente = (row.sender_name || '').trim() || 'Novo contato';
+        const corpo = (row.text || '').trim() || 'Nova mensagem recebida';
+        const notif = new Notification(remetente, {
+          body: corpo.length > 120 ? `${corpo.slice(0, 117)}...` : corpo,
+          icon: '/icon-192.png',
+          tag: `msg-${row.phone || row.id}`,
+        });
+        notif.onclick = () => {
+          window.focus();
+          if (row.phone) {
+            supabase.from('leads').select('id').eq('company_id', 'rafa-arts').eq('phone', row.phone).limit(1)
+              .then(({ data }: any) => { if (data?.[0]?.id) setPendingOpenLeadId(data[0].id); });
+          }
+          setActiveTab('messages');
+          notif.close();
+        };
+      }
+    } catch (e) { /* navegador sem suporte a Notification, ou permissao negada — ignora */ }
   };
 
   // Auto-login (sessao lembrada porque localizacao + notificacoes foram autorizadas): registra

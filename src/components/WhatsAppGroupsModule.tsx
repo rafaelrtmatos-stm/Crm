@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, CheckCircle2, Circle, RefreshCw } from 'lucide-react';
+import { Users, CheckCircle2, Circle, RefreshCw, RotateCw } from 'lucide-react';
 import { GlassCard, Badge, cn } from './SharedUI';
 import { supabase } from '../supabase';
 
@@ -29,6 +29,7 @@ export const WhatsAppGroupsModule = () => {
   const [loading, setLoading] = useState(true);
   const [grupoExpandido, setGrupoExpandido] = useState<string | null>(null);
   const [salvando, setSalvando] = useState<string | null>(null); // group_id sendo salvo, pra desabilitar botoes
+  const [atualizando, setAtualizando] = useState(false); // spinner do botão "Atualizar" manual (ver handleAtualizarManual)
 
   const carregarTudo = async () => {
     setLoading(true);
@@ -54,8 +55,28 @@ export const WhatsAppGroupsModule = () => {
       .channel('whatsapp-groups-admin')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'whatsapp_groups' }, carregarTudo)
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    // Fallback por polling: whatsapp_groups só emite evento em tempo real depois de
+    // rodar supabase/fix_realtime_whatsapp_groups.sql no projeto Supabase (a tabela
+    // não fazia parte da publication supabase_realtime). Enquanto isso, ou se o
+    // realtime cair, esse polling garante que um grupo novo chegando pelo webhook
+    // apareça aqui sem precisar recarregar a página manualmente.
+    const pollId = setInterval(carregarTudo, 15000);
+    return () => { supabase.removeChannel(channel); clearInterval(pollId); };
   }, []);
+
+  // Botão "Atualizar" manual — mesma ideia do botão da MessagesSidebarPopup.tsx:
+  // reforça o polling/realtime pra garantir que um grupo represado recém-chegado
+  // apareça mesmo se o realtime da tabela whatsapp_groups ainda não tiver sido
+  // habilitado no Supabase (ver supabase/fix_realtime_whatsapp_groups.sql).
+  const handleAtualizarManual = async () => {
+    if (atualizando) return;
+    setAtualizando(true);
+    try {
+      await carregarTudo();
+    } finally {
+      setTimeout(() => setAtualizando(false), 400);
+    }
+  };
 
   const liberarGrupo = async (grupoId: string) => {
     setSalvando(grupoId);
@@ -96,13 +117,22 @@ export const WhatsAppGroupsModule = () => {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-sm font-black text-white flex items-center gap-2">
-          <Users size={16} className="text-primary-500" /> Grupos do WhatsApp
-        </h2>
-        <p className="text-xs text-white/40 mt-1">
-          Grupo novo chega aqui represado — ninguém vê as mensagens dele até você liberar e escolher quem tem acesso.
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-black text-white flex items-center gap-2">
+            <Users size={16} className="text-primary-500" /> Grupos do WhatsApp
+          </h2>
+          <p className="text-xs text-white/40 mt-1">
+            Grupo novo chega aqui represado — ninguém vê as mensagens dele até você liberar e escolher quem tem acesso.
+          </p>
+        </div>
+        <button
+          onClick={handleAtualizarManual}
+          disabled={atualizando}
+          className="shrink-0 py-2 px-3 rounded-xl bg-white/5 hover:bg-white/10 text-white/70 text-[11px] font-black uppercase tracking-widest flex items-center gap-1.5 disabled:opacity-40"
+        >
+          <RotateCw size={12} className={cn(atualizando && 'animate-spin')} /> Atualizar
+        </button>
       </div>
 
       {grupos.length === 0 && (

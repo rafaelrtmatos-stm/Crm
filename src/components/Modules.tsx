@@ -3944,7 +3944,6 @@ const GenericListView = ({ title, subtitle, columns, data, icon, onAdd, noHeader
 export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { currentCompany: Company | null, user: AppUser | null, preselectedLeadId?: string }) => {
   const { pendingWhatsAppShare, setPendingWhatsAppShare } = React.useContext(AppContext)!;
   const [selectedChat, setSelectedChat] = useState<any>(null);
-  const lastSeenIncomingRef = React.useRef<number | null>(null);
   const [chatInitialDraft, setChatInitialDraft] = useState('');
   const [leads, setLeads] = useState<Lead[]>([]);
   const [filter, setFilter] = useState('');
@@ -4224,25 +4223,13 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
     return () => { supabase.removeChannel(channel); };
   }, [currentCompany]);
 
-  // Toca o som de notificacao quando chega uma mensagem NOVA do cliente (incoming),
-  // em qualquer conversa — nao precisa estar com o chat especifico aberto pra ouvir
-  useEffect(() => {
-    if (!currentCompany) return;
-    // Marca a referencia inicial pra nao notificar mensagens que ja existiam antes de abrir a tela
-    if (lastSeenIncomingRef.current === null) lastSeenIncomingRef.current = Date.now();
-    const channel = supabase.channel('incoming-message-sound').on(
-      'postgres_changes',
-      { event: 'INSERT', schema: 'public', table: 'crm_messages', filter: `company_id=eq.${currentCompany.id}` },
-      (payload: any) => {
-        if (payload.new?.direction !== 'incoming') return;
-        try {
-          const audio = new Audio('/sounds/mensagem-cliente.mp3');
-          audio.play().catch(() => {});
-        } catch (e) { /* ignora se o navegador bloquear */ }
-      }
-    ).subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [currentCompany]);
+  // O som de notificação de mensagem nova (incoming) e a notificação nativa do
+  // navegador foram movidos pro shell raiz do app (ver notifyIncomingMessage em
+  // App.tsx, useEffect 'app-incoming-lead-automation'). Antes esse listener só
+  // existia aqui dentro de MessagesModule, então só tocava/avisava com essa aba
+  // especificamente aberta — no shell raiz (sempre montado) ele continua
+  // funcionando com o usuário em qualquer outra aba do CRM ou com o navegador
+  // em segundo plano/minimizado, do jeito que o WhatsApp Web faz.
 
   const unrepliedCount = leads.filter(l => l.waitingSince).length;
 

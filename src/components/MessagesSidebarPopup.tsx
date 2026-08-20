@@ -137,16 +137,28 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
     };
     loadGroupPhones();
     const channel = supabase.channel('sidebar-popup-groups').on('postgres_changes', { event: '*', schema: 'public', table: 'whatsapp_groups', filter: `company_id=eq.${currentCompany.id}` }, loadGroupPhones).subscribe();
-    return () => { supabase.removeChannel(channel); };
+    // Fallback por polling: whatsapp_groups só recebe eventos em tempo real depois
+    // que supabase/fix_realtime_whatsapp_groups.sql for rodado no projeto Supabase.
+    // Enquanto isso não acontecer (ou se a conexão realtime cair), esse polling a
+    // cada 15s garante que um grupo liberado/novo apareça na aba Grupos mesmo assim.
+    const pollId = setInterval(loadGroupPhones, 15000);
+    return () => { supabase.removeChannel(channel); clearInterval(pollId); };
   }, [currentCompany, isOpen]);
 
   // Botão "Atualizar": força uma nova busca manual além do listener em tempo
   // real (útil se a conexão realtime cair ou demorar a refletir uma mudança).
+  // Também recarrega whatsapp_groups — essa tabela não faz parte da
+  // publication supabase_realtime (ver supabase/fix_realtime_whatsapp_groups.sql),
+  // então sem esse refresh manual os chats de grupo (@g.us) liberados ou
+  // recém-chegados só apareciam na aba Grupos depois de um F5 na página.
   const handleRefresh = async () => {
     if (!currentCompany || isRefreshing) return;
     setIsRefreshing(true);
     try {
-      const { data } = await supabase.from('leads').select('*').eq('company_id', 'rafa-arts').order('updated_at', { ascending: false });
+      const [{ data }, { data: groupsData }] = await Promise.all([
+        supabase.from('leads').select('*').eq('company_id', 'rafa-arts').order('updated_at', { ascending: false }),
+        supabase.from('whatsapp_groups').select('group_jid').eq('company_id', 'rafa-arts').eq('visivel', true),
+      ]);
       setLeads((data || []).map((r: any) => ({
         id: r.id, companyId: r.company_id, fullName: r.full_name, contactName: r.contact_name, whatsappName: r.whatsapp_name,
         phone: r.phone, sourceType: r.source_type, lastMessageText: r.last_message_text, lastMessageDirection: r.last_message_direction,
@@ -154,6 +166,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
         waitingSince: r.waiting_since, funnelId: r.funnel_id, funnelStageId: r.funnel_stage_id, priority: r.priority,
         createdAt: r.created_at, updatedAt: r.updated_at, photoUrl: r.photo_url || undefined,
       } as any as Lead)));
+      setGroupPhones(new Set((groupsData || []).map((g: any) => (g.group_jid || '').replace('@g.us', '').replace(/\D/g, '')).filter(Boolean)));
     } finally {
       setTimeout(() => setIsRefreshing(false), 500);
     }
