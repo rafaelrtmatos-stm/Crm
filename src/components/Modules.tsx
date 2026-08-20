@@ -7338,26 +7338,25 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     return down - custoTotal;
   };
 
-  // Composicao dos pagamentos de uma venda, formatada curta pra caber na coluna de valor
-  // (ex.: "100 Pix | 100 Din"). Usa sale.payments quando existe (pagamento misto/detalhado);
-  // cai pro paymentMethod unico como fallback pra notas antigas sem o array payments.
+  // Composicao dos pagamentos de uma venda, ja formatada pro botao de Pagamento do modo lista
+  // (ex.: "Pix: R$ 100,00" + "Din: R$ 100,00"). Usa sale.payments quando existe (pagamento
+  // misto/detalhado); cai pro paymentMethod unico como fallback pra notas antigas sem o array
+  // payments.
   const PAYMENT_METHOD_SHORT: Record<string, string> = {
     pix: 'Pix', dinheiro: 'Din', cartao_debito: 'Débito', cartao_credito: 'Crédito',
     transferencia: 'Transf', boleto: 'Boleto', crediario: 'Crediário',
   };
-  const formatarComposicaoPagamento = (sale: SaleOrder): string | null => {
+  const composicaoPagamentoDaVenda = (sale: SaleOrder): { label: string; value: number }[] => {
     if (sale.payments && sale.payments.length > 0) {
       const porMetodo: Record<string, number> = {};
       sale.payments.forEach(p => { porMetodo[p.method] = (porMetodo[p.method] || 0) + (p.value || 0); });
-      return Object.entries(porMetodo)
-        .map(([method, value]) => `${value.toFixed(0)} ${PAYMENT_METHOD_SHORT[method] || method}`)
-        .join(' | ');
+      return Object.entries(porMetodo).map(([method, value]) => ({ label: PAYMENT_METHOD_SHORT[method] || method, value }));
     }
     if (sale.paymentMethod && sale.paymentMethod !== 'misto') {
       const valor = sale.status === 'completed' ? sale.total : (sale.downPayment || 0);
-      if (valor > 0) return `${valor.toFixed(0)} ${PAYMENT_METHOD_SHORT[sale.paymentMethod] || sale.paymentMethod}`;
+      if (valor > 0) return [{ label: PAYMENT_METHOD_SHORT[sale.paymentMethod] || sale.paymentMethod, value: valor }];
     }
-    return null;
+    return [];
   };
 
   // Dropdown "Status do Pedido"
@@ -10084,7 +10083,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       <div className="relative min-w-0" style={colFlex('itens')}>Itens / Descrição<ResizeHandle colKey="itens" /></div>
                       <div className="relative min-w-0 hidden sm:block" style={colFlex('codigo')}>Código<ResizeHandle colKey="codigo" /></div>
                       <div className="relative min-w-0 hidden sm:block" style={colFlex('data')}>Data<ResizeHandle colKey="data" /></div>
-                      <div className="relative min-w-0 text-center" style={colFlex('status')}>Status<ResizeHandle colKey="status" /></div>
+                      <div className="relative min-w-0 text-center" style={colFlex('status')}>Pagamento<ResizeHandle colKey="status" /></div>
                       <div className="relative min-w-0 text-right" style={colFlex('valor')}>Valor / Pagamento</div>
                       <div className="shrink-0 w-8 text-center">Ações</div>
                     </div>
@@ -10093,7 +10092,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       const down = sale.downPayment || 0;
                       const balance = sale.total - down;
                       const isPartial = balance > 0 || sale.status === 'pending';
-                      const composicaoPagamento = formatarComposicaoPagamento(sale);
+                      const composicaoPagamento = composicaoPagamentoDaVenda(sale);
                       const lucro = user?.isAdmin ? calcularLucroDaVenda(sale) : null;
                       const isRowMenuOpen = openSaleRowActionsId === sale.id;
                       return (
@@ -10147,21 +10146,43 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             <span className="text-[9px] text-white/30 truncate block">{safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
                           </div>
 
-                          {/* Status */}
+                          {/* Botao de Pagamento -- quadrado de cantos arredondados, verde quando
+                              pago. Na propria legenda do botao mostra a composicao de como foi
+                              pago (ex.: Pix: R$100,00 / Din: R$100,00) e, se ainda faltar algo,
+                              destaca "Falta R$ X" embaixo. Sem pagamento nenhum, vira um botao
+                              "Pagar" que abre direto a tela de quitacao. */}
                           <div className="min-w-0 flex justify-center" style={colFlex('status')}>
-                            <Badge className={cn("text-[7.5px] font-black uppercase px-1.5 py-0.5 border-none shrink-0 truncate", isPartial ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300")}>
-                              {isPartial ? `FALTA R$ ${balance.toFixed(2).replace('.', ',')}` : 'PAGO'}
-                            </Badge>
+                            <button
+                              onClick={() => { if (isPartial) openSettlePayment(sale); else openReceiptDetail(sale); }}
+                              title={isPartial ? 'Registrar pagamento' : 'Pago — ver recibo'}
+                              className={cn(
+                                "w-full max-w-[130px] rounded-xl border px-2 py-1.5 flex flex-col items-center justify-center gap-0.5 text-center transition-colors",
+                                isPartial
+                                  ? "bg-amber-500/15 border-amber-500/30 text-amber-300 hover:bg-amber-500/25"
+                                  : "bg-emerald-500/15 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25"
+                              )}
+                            >
+                              <span className="text-[9px] font-black uppercase leading-none">
+                                {isPartial ? (down > 0 ? 'Pagar' : 'Pagar') : 'Pago'}
+                              </span>
+                              {composicaoPagamento.map(p => (
+                                <span key={p.label} className="text-[7.5px] font-bold leading-none opacity-90 truncate max-w-full">
+                                  {p.label}: R$ {p.value.toFixed(2).replace('.', ',')}
+                                </span>
+                              ))}
+                              {isPartial && (
+                                <span className="text-[7.5px] font-black leading-none text-rose-300">
+                                  Falta R$ {balance.toFixed(2).replace('.', ',')}
+                                </span>
+                              )}
+                            </button>
                           </div>
 
-                          {/* Valor / Pagamento -- total em destaque + composicao do pagamento
-                              (ex: "100 Pix | 100 Din") logo abaixo, e o lucro liquido do pedido
-                              (Admin) abaixo do status/pagamento */}
+                          {/* Valor / Pagamento -- total em destaque; a composicao do pagamento
+                              agora mora no botao de Pagamento ao lado, e o lucro liquido do
+                              pedido (Admin) continua aqui embaixo do total. */}
                           <div className="min-w-0 text-right overflow-hidden" style={colFlex('valor')}>
                             <span className="text-[11px] font-black text-white block truncate">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
-                            {composicaoPagamento && (
-                              <span className="text-[8px] text-white/40 block truncate" title={composicaoPagamento}>{composicaoPagamento}</span>
-                            )}
                             {lucro !== null && (
                               <span className={cn("text-[8px] font-bold block truncate", lucro >= 0 ? "text-emerald-400/80" : "text-rose-400/80")}>
                                 Lucro: R$ {lucro.toFixed(2).replace('.', ',')}
