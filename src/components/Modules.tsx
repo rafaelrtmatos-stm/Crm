@@ -5964,6 +5964,61 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [signContratoError, setSignContratoError] = useState<string | null>(null);
   const [isSigningContrato, setIsSigningContrato] = useState(false);
   const [openContratoActionsId, setOpenContratoActionsId] = useState<string | null>(null);
+  // Menu oculto de acoes por linha do Historico de Vendas (modo lista) -- mesmo padrao de
+  // portal + posicionamento via getBoundingClientRect ja usado no menu de Contratos acima,
+  // pra escapar do overflow-y-auto da lista e do motion.div que anima a troca de aba.
+  const [openSaleRowActionsId, setOpenSaleRowActionsId] = useState<string | null>(null);
+  const [saleRowActionsMenuPos, setSaleRowActionsMenuPos] = useState<{ top?: number; bottom?: number; left: number } | null>(null);
+  // Largura das colunas do modo lista do Historico de Vendas -- ajustavel arrastando a borda
+  // de cada cabecalho, com o resultado persistido no localStorage pra sobreviver a reload.
+  const SALE_LIST_COLS_DEFAULT: { key: string; label: string; width: number }[] = [
+    { key: 'nome', label: 'Nome', width: 220 },
+    { key: 'itens', label: 'Itens / Descrição', width: 260 },
+    { key: 'codigo', label: 'Código', width: 130 },
+    { key: 'data', label: 'Data', width: 130 },
+    { key: 'status', label: 'Status', width: 130 },
+    { key: 'valor', label: 'Valor / Pagamento', width: 190 },
+    { key: 'acoes', label: 'Ações', width: 60 },
+  ];
+  const [saleListColWidths, setSaleListColWidthsState] = useState<Record<string, number>>(() => {
+    try {
+      const saved = localStorage.getItem('rpro_historico_lista_col_widths');
+      if (saved) return { ...Object.fromEntries(SALE_LIST_COLS_DEFAULT.map(c => [c.key, c.width])), ...JSON.parse(saved) };
+    } catch { /* ignora e usa o padrao */ }
+    return Object.fromEntries(SALE_LIST_COLS_DEFAULT.map(c => [c.key, c.width]));
+  });
+  const setSaleListColWidths = (updater: (prev: Record<string, number>) => Record<string, number>) => {
+    setSaleListColWidthsState(prev => {
+      const next = updater(prev);
+      localStorage.setItem('rpro_historico_lista_col_widths', JSON.stringify(next));
+      return next;
+    });
+  };
+  const resizingColRef = React.useRef<{ key: string; startX: number; startWidth: number } | null>(null);
+  const handleColResizeStart = (key: string, e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    resizingColRef.current = { key, startX: clientX, startWidth: saleListColWidths[key] || 120 };
+    const onMove = (ev: MouseEvent | TouchEvent) => {
+      if (!resizingColRef.current) return;
+      const x = 'touches' in ev ? ev.touches[0].clientX : (ev as MouseEvent).clientX;
+      const delta = x - resizingColRef.current.startX;
+      const newWidth = Math.max(60, resizingColRef.current.startWidth + delta);
+      setSaleListColWidths(prev => ({ ...prev, [resizingColRef.current!.key]: newWidth }));
+    };
+    const onUp = () => {
+      resizingColRef.current = null;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('touchend', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('touchmove', onMove, { passive: false });
+    window.addEventListener('touchend', onUp);
+  };
   // Posicao calculada via JS (nao CSS absolute) pro menu "..." do card de contrato --
   // absolute ficava sendo cortado pelo scroll da lista (overflow-y-auto do container pai),
   // fixed + coordenadas do getBoundingClientRect escapa desse corte.
@@ -7160,6 +7215,46 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     };
     loadCosts();
   }, []);
+
+  // Lucro liquido de uma venda (valor recebido - custo dos produtos), so pro Admin ver na
+  // coluna de valor do modo lista -- mesma logica ja usada no resumo de Ordem de Servicos
+  // (servicosResumo acima), aplicada por nota individual em vez do total do periodo.
+  const calcularLucroDaVenda = (sale: SaleOrder) => {
+    const down = sale.status === 'completed' ? sale.total : (sale.downPayment || 0);
+    let custoTotal = 0;
+    (sale.items || []).forEach(item => {
+      const custoUnit = produtosCostMap[item.productId] || 0;
+      const qtd = item.area ? item.area * item.quantity : item.quantity;
+      custoTotal += custoUnit * qtd;
+    });
+    // Nota parcialmente paga: proporcionaliza o custo pelo tanto que ja entrou, igual ao
+    // resumo do periodo (custoDoPedido em DashboardModule), pra nao contar custo de material
+    // que ainda nao foi de fato "pago" pelo cliente.
+    if (sale.status === 'pending' && sale.total > 0) custoTotal *= down / sale.total;
+    return down - custoTotal;
+  };
+
+  // Composicao dos pagamentos de uma venda, formatada curta pra caber na coluna de valor
+  // (ex.: "100 Pix | 100 Din"). Usa sale.payments quando existe (pagamento misto/detalhado);
+  // cai pro paymentMethod unico como fallback pra notas antigas sem o array payments.
+  const PAYMENT_METHOD_SHORT: Record<string, string> = {
+    pix: 'Pix', dinheiro: 'Din', cartao_debito: 'Débito', cartao_credito: 'Crédito',
+    transferencia: 'Transf', boleto: 'Boleto', crediario: 'Crediário',
+  };
+  const formatarComposicaoPagamento = (sale: SaleOrder): string | null => {
+    if (sale.payments && sale.payments.length > 0) {
+      const porMetodo: Record<string, number> = {};
+      sale.payments.forEach(p => { porMetodo[p.method] = (porMetodo[p.method] || 0) + (p.value || 0); });
+      return Object.entries(porMetodo)
+        .map(([method, value]) => `${value.toFixed(0)} ${PAYMENT_METHOD_SHORT[method] || method}`)
+        .join(' | ');
+    }
+    if (sale.paymentMethod && sale.paymentMethod !== 'misto') {
+      const valor = sale.status === 'completed' ? sale.total : (sale.downPayment || 0);
+      if (valor > 0) return `${valor.toFixed(0)} ${PAYMENT_METHOD_SHORT[sale.paymentMethod] || sale.paymentMethod}`;
+    }
+    return null;
+  };
 
   // Dropdown "Status do Pedido"
   const [isOrderStatusOpen, setIsOrderStatusOpen] = useState(false);
@@ -9857,34 +9952,60 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
               // --- MODO LISTA ---
               if (historyViewMode === 'lista') {
+                const colW = (key: string) => saleListColWidths[key] || SALE_LIST_COLS_DEFAULT.find(c => c.key === key)?.width || 120;
+                const ResizeHandle = ({ colKey }: { colKey: string }) => (
+                  <div
+                    onMouseDown={(e) => handleColResizeStart(colKey, e)}
+                    onTouchStart={(e) => handleColResizeStart(colKey, e)}
+                    className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize group/resize -mr-0.5 z-10"
+                    title="Arraste para ajustar a largura da coluna"
+                  >
+                    <div className="w-px h-full mx-auto bg-white/10 group-hover/resize:bg-primary-400 group-hover/resize:w-0.5 transition-all" />
+                  </div>
+                );
                 return (
                   <div className="flex flex-col gap-1.5">
+                    {/* Cabecalho com largura ajustavel por coluna (arrasta a borda direita de
+                        cada titulo). A largura fica salva no localStorage por navegador/usuario. */}
+                    <div className="flex items-center gap-3 px-3 py-1.5 text-[8px] font-black uppercase tracking-wider text-white/30 overflow-x-auto custom-scrollbar">
+                      {canManageHistory && <span className="w-3.5 shrink-0" />}
+                      <div className="relative shrink-0" style={{ width: colW('nome') }}>Nome<ResizeHandle colKey="nome" /></div>
+                      <div className="relative shrink-0" style={{ width: colW('itens') }}>Itens / Descrição<ResizeHandle colKey="itens" /></div>
+                      <div className="relative shrink-0" style={{ width: colW('codigo') }}>Código<ResizeHandle colKey="codigo" /></div>
+                      <div className="relative shrink-0" style={{ width: colW('data') }}>Data<ResizeHandle colKey="data" /></div>
+                      <div className="relative shrink-0 text-center" style={{ width: colW('status') }}>Status<ResizeHandle colKey="status" /></div>
+                      <div className="relative shrink-0 text-right" style={{ width: colW('valor') }}>Valor / Pagamento<ResizeHandle colKey="valor" /></div>
+                      <div className="shrink-0 text-center" style={{ width: colW('acoes') }}>Ações</div>
+                    </div>
+
                     {filteredSales.map(sale => {
                       const down = sale.downPayment || 0;
                       const balance = sale.total - down;
                       const isPartial = balance > 0 || sale.status === 'pending';
+                      const composicaoPagamento = formatarComposicaoPagamento(sale);
+                      const lucro = user?.isAdmin ? calcularLucroDaVenda(sale) : null;
+                      const isRowMenuOpen = openSaleRowActionsId === sale.id;
                       return (
-                        <div key={sale.id} className="flex items-center gap-3 bg-slate-900/60 hover:bg-slate-900 border border-white/5 rounded-xl px-3 py-2 transition-all">
+                        <div key={sale.id} className="flex items-center gap-3 bg-slate-900/60 hover:bg-slate-900 border border-white/5 rounded-xl px-3 py-2 transition-all overflow-x-auto custom-scrollbar">
                           {canManageHistory && (
                             <input type="checkbox" checked={selectedSaleIds.has(sale.id)} onChange={() => toggleSaleSelection(sale.id)} className="w-3.5 h-3.5 shrink-0 accent-primary-500" />
                           )}
-                          <div className="flex-1 min-w-0 flex items-center gap-3 overflow-x-auto custom-scrollbar">
-                            <span className="text-[11px] font-black text-white whitespace-nowrap">{(sale.customerName || 'Cliente de Balcão').toUpperCase()}</span>
+
+                          {/* Nome */}
+                          <div className="shrink-0 overflow-hidden" style={{ width: colW('nome') }}>
+                            <span className="text-[11px] font-black text-white whitespace-nowrap block truncate">{(sale.customerName || 'Cliente de Balcão').toUpperCase()}</span>
+                            {sale.observacoes && (
+                              <span className="text-[9px] text-amber-300/70 italic whitespace-nowrap block truncate" title={sale.observacoes}>"{sale.observacoes}"</span>
+                            )}
+                          </div>
+
+                          {/* Itens / Descrição + etiquetas de origem (Contrato/Orçamento) */}
+                          <div className="shrink-0 flex items-center gap-1.5 overflow-hidden" style={{ width: colW('itens') }}>
                             {sale.items && sale.items.length > 0 && (
-                              <span className="text-[9px] text-white/40 italic whitespace-nowrap" title={sale.items[sale.items.length - 1].name}>
+                              <span className="text-[9px] text-white/40 italic whitespace-nowrap truncate" title={sale.items[sale.items.length - 1].name}>
                                 {sale.items[sale.items.length - 1].name}{sale.items.length > 1 ? ` (+${sale.items.length - 1})` : ''}
                               </span>
                             )}
-                            {sale.observacoes && (
-                              <span className="text-[9px] text-amber-300/70 italic whitespace-nowrap" title={sale.observacoes}>
-                                "{sale.observacoes}"
-                              </span>
-                            )}
-                            <span className="hidden sm:inline text-[9px] text-white/30 font-mono shrink-0">#{sale.id.slice(-8).toUpperCase()}</span>
-                            <span className="hidden sm:inline text-[9px] text-white/30 shrink-0">{safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
-                            {/* Etiquetas de origem (Contrato/Orçamento) -- podem aparecer as duas juntas se a
-                                nota tiver os dois vinculos. Ficam dentro da area com scroll horizontal do
-                                proprio card, entao nunca quebram a lista nem escondem nada no celular. */}
                             {sale.contratoId && (
                               <button
                                 onClick={() => { setActiveTab('contratos'); setHighlightContratoId(sale.contratoId!); setTimeout(() => setHighlightContratoId(null), 4000); }}
@@ -9904,24 +10025,91 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               </button>
                             )}
                           </div>
-                          <Badge className={cn("text-[7.5px] font-black uppercase px-1.5 py-0.5 border-none shrink-0", isPartial ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300")}>
-                            {isPartial ? `FALTA R$ ${balance.toFixed(2).replace('.', ',')}` : 'PAGO'}
-                          </Badge>
-                          <span className="text-[11px] font-black text-white shrink-0 w-20 text-right">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
-                          <div className="flex gap-1 shrink-0">
-                            {isPartial && (
-                              <button onClick={async () => { if (!(await showConfirm('Abrir a tela de pagamento deste pedido?'))) return; openSettlePayment(sale); }} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar Débito"><CheckCircle2 size={13} /></button>
+
+                          {/* Código */}
+                          <div className="shrink-0 overflow-hidden" style={{ width: colW('codigo') }}>
+                            <span className="text-[9px] text-white/30 font-mono whitespace-nowrap">#{sale.id.slice(-8).toUpperCase()}</span>
+                          </div>
+
+                          {/* Data */}
+                          <div className="shrink-0 overflow-hidden" style={{ width: colW('data') }}>
+                            <span className="text-[9px] text-white/30 whitespace-nowrap">{safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
+                          </div>
+
+                          {/* Status */}
+                          <div className="shrink-0 flex justify-center" style={{ width: colW('status') }}>
+                            <Badge className={cn("text-[7.5px] font-black uppercase px-1.5 py-0.5 border-none shrink-0 whitespace-nowrap", isPartial ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300")}>
+                              {isPartial ? `FALTA R$ ${balance.toFixed(2).replace('.', ',')}` : 'PAGO'}
+                            </Badge>
+                          </div>
+
+                          {/* Valor / Pagamento -- total em destaque + composicao do pagamento
+                              (ex: "100 Pix | 100 Din") logo abaixo, e o lucro liquido do pedido
+                              (Admin) abaixo do status/pagamento */}
+                          <div className="shrink-0 text-right" style={{ width: colW('valor') }}>
+                            <span className="text-[11px] font-black text-white block whitespace-nowrap">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
+                            {composicaoPagamento && (
+                              <span className="text-[8px] text-white/40 block whitespace-nowrap truncate" title={composicaoPagamento}>{composicaoPagamento}</span>
                             )}
-                            <button onClick={async () => { if (!(await showConfirm('Abrir o recibo deste pedido?'))) return; openReceiptDetail(sale); }} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={13} /></button>
-                            <button onClick={() => handleDuplicateSale(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Duplicar Pedido"><Copy size={13} /></button>
-                            {!sale.contratoId && <button onClick={async () => { if (!(await showConfirm('Gerar um contrato a partir desta nota?'))) return; handleCreateContratoFromNota(sale); }} className="p-1.5 rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20" title="Gerar Contrato a partir desta nota"><FileSignature size={13} /></button>}
-                            {canManageHistory && (
+                            {lucro !== null && (
+                              <span className={cn("text-[8px] font-bold block whitespace-nowrap", lucro >= 0 ? "text-emerald-400/80" : "text-rose-400/80")}>
+                                Lucro: R$ {lucro.toFixed(2).replace('.', ',')}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Menu oculto de ações -- um unico botao "..." abre um dropdown com
+                              todas as opcoes (Contrato, Clonar, Reabrir, Cancelar, Editar, Apagar
+                              etc), no lugar da fileira de botoes direto na linha. Mesmo padrao de
+                              portal + posicionamento usado no menu de acoes de Contratos. */}
+                          <div className="shrink-0 flex justify-center" style={{ width: colW('acoes') }}>
+                            <button
+                              onClick={(e) => {
+                                if (isRowMenuOpen) { setOpenSaleRowActionsId(null); return; }
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                const MENU_H_ESTIMADA = 300;
+                                const abreParaCima = rect.bottom + MENU_H_ESTIMADA > window.innerHeight;
+                                setSaleRowActionsMenuPos({
+                                  top: abreParaCima ? undefined : rect.bottom + 6,
+                                  bottom: abreParaCima ? window.innerHeight - rect.top + 6 : undefined,
+                                  left: Math.max(8, Math.min(rect.right - 200, window.innerWidth - 208)),
+                                });
+                                setOpenSaleRowActionsId(sale.id);
+                              }}
+                              title="Mais ações"
+                              className={cn("flex items-center justify-center w-8 h-8 rounded-lg transition-colors shrink-0", isRowMenuOpen ? "bg-white/15 text-white" : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white")}
+                            >
+                              <MoreVertical size={14} />
+                            </button>
+                            {isRowMenuOpen && saleRowActionsMenuPos && createPortal(
                               <>
-                                {!isPartial && <button onClick={() => handleReopenSale(sale)} className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20" title="Reabrir"><History size={13} /></button>}
-                                {sale.status !== 'canceled' && <button onClick={() => handleCancelSale(sale)} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" title="Cancelar Pedido"><Ban size={13} /></button>}
-                                <button onClick={async () => { if (!(await showConfirm('Editar este pedido?'))) return; handleStartFullEdit(sale); }} className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20" title="Editar"><Pencil size={13} /></button>
-                                <button onClick={() => handleDeleteSale(sale)} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" title="Excluir"><Trash2 size={13} /></button>
-                              </>
+                                <div className="fixed inset-0 z-[200]" onClick={() => setOpenSaleRowActionsId(null)} />
+                                <div
+                                  style={{ top: saleRowActionsMenuPos.top, bottom: saleRowActionsMenuPos.bottom, left: saleRowActionsMenuPos.left }}
+                                  className="fixed z-[201] w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl py-1.5 flex flex-col"
+                                >
+                                  {isPartial && (
+                                    <button onClick={async () => { setOpenSaleRowActionsId(null); if (!(await showConfirm('Abrir a tela de pagamento deste pedido?'))) return; openSettlePayment(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-emerald-400 hover:bg-white/5 text-left"><CheckCircle2 size={13} /> Quitar Débito</button>
+                                  )}
+                                  <button onClick={async () => { setOpenSaleRowActionsId(null); if (!(await showConfirm('Abrir o recibo deste pedido?'))) return; openReceiptDetail(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left"><FileText size={13} /> Recibo</button>
+                                  {sale.contratoId ? (
+                                    <button onClick={() => { setOpenSaleRowActionsId(null); setActiveTab('contratos'); setHighlightContratoId(sale.contratoId!); setTimeout(() => setHighlightContratoId(null), 4000); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-purple-300 hover:bg-white/5 text-left"><FileSignature size={13} /> Ver Contrato</button>
+                                  ) : (
+                                    <button onClick={async () => { setOpenSaleRowActionsId(null); if (!(await showConfirm('Gerar um contrato a partir desta nota?'))) return; handleCreateContratoFromNota(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-purple-300 hover:bg-white/5 text-left"><FileSignature size={13} /> Gerar Contrato</button>
+                                  )}
+                                  <button onClick={() => { setOpenSaleRowActionsId(null); handleDuplicateSale(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left"><Copy size={13} /> Clonar</button>
+                                  {canManageHistory && (
+                                    <>
+                                      <div className="h-px bg-white/10 my-1.5" />
+                                      {!isPartial && <button onClick={() => { setOpenSaleRowActionsId(null); handleReopenSale(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-amber-400 hover:bg-white/5 text-left"><History size={13} /> Reabrir</button>}
+                                      {sale.status !== 'canceled' && <button onClick={() => { setOpenSaleRowActionsId(null); handleCancelSale(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-rose-400/80 hover:bg-white/5 text-left"><Ban size={13} /> Cancelar</button>}
+                                      <button onClick={async () => { setOpenSaleRowActionsId(null); if (!(await showConfirm('Editar este pedido?'))) return; handleStartFullEdit(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-primary-400 hover:bg-white/5 text-left"><Pencil size={13} /> Editar</button>
+                                      <button onClick={() => { setOpenSaleRowActionsId(null); handleDeleteSale(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-rose-400 hover:bg-white/5 text-left"><Trash2 size={13} /> Apagar</button>
+                                    </>
+                                  )}
+                                </div>
+                              </>,
+                              document.body
                             )}
                           </div>
                         </div>
