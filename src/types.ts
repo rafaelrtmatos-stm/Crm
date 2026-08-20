@@ -141,6 +141,11 @@ export interface Lead extends BaseEntity {
   funnelStageId?: string;
   sourceType?: string;
   lastMessageText?: string;
+  lastMessageDirection?: 'incoming' | 'outgoing';
+  // Previa da lista de chats: SEMPRE a ultima mensagem do CLIENTE, nunca a ultima
+  // que o atendente mandou (ver add_last_client_message.sql / App.tsx processIncomingMessage)
+  lastClientMessageText?: string;
+  lastClientMessageAt?: Timestamp | string;
   photoUrl?: string;
   estimatedValue?: number;
   tags?: string[];

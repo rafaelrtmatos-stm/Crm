@@ -447,6 +447,10 @@ const mapLeadRow = (row: any): Lead => ({
   lastMessageText: row.last_message_text || undefined,
   photoUrl: row.photo_url || undefined,
   lastMessageDirection: row.last_message_direction || undefined,
+  // Previa da lista de chats: SEMPRE a ultima mensagem do cliente (nunca a que o
+  // atendente mandou) -- ver add_last_client_message.sql / App.tsx processIncomingMessage
+  lastClientMessageText: row.last_client_message_text || undefined,
+  lastClientMessageAt: row.last_client_message_at || undefined,
   waitingSince: row.waiting_since || undefined,
   estimatedValue: row.estimated_value !== null ? Number(row.estimated_value) : undefined,
   tags: row.tags || undefined,
@@ -3756,9 +3760,9 @@ const KanbanCard = ({ lead, onClick, isSelected, isDragging }: { key?: any, lead
             <Badge className="text-[8px] px-1.5 py-0.5 border-white/10 opacity-30 italic">R$ {(lead.estimatedValue ?? 0).toLocaleString('pt-BR')}</Badge>
          </div>
 
-         {lead.lastMessageText && (
+         {(lead.lastClientMessageText || lead.lastMessageText) && (
            <p className="text-[10px] text-white/40 line-clamp-2 leading-relaxed bg-white/5 p-3 rounded-2xl italic border border-white/5">
-              "{lead.lastMessageText}"
+              "{lead.lastClientMessageText || lead.lastMessageText}"
            </p>
          )}
 
@@ -4341,7 +4345,10 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
                  </div>
                  
                  <div className="flex items-center justify-between gap-2 mb-1">
-                    <p className="text-xs text-white/40 truncate flex-1">{l.lastMessageText || 'Sem mensagens'}</p>
+                    {/* Previa SEMPRE da ultima mensagem do CLIENTE (nunca a que voce mandou) --
+                        ver Lead.lastClientMessageText em types.ts. Fallback pro campo antigo
+                        so serve pra leads criados antes dessa coluna existir. */}
+                    <p className="text-xs text-white/40 truncate flex-1">{l.lastClientMessageText || l.lastMessageText || 'Sem mensagens'}</p>
                     {waitingSinceDate && (
                        <div className={cn(
                          "px-2 py-0.5 rounded-full text-[8.5px] font-black border uppercase tracking-wider leading-none shrink-0",

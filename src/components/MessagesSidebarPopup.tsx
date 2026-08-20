@@ -89,7 +89,14 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
   const { setPendingOpenLeadId, setActiveTab } = useContext(AppContext)!;
   const [leads, setLeads] = useState<Lead[]>([]);
   const [filter, setFilter] = useState('');
-  const [viewFilter, setViewFilter] = useState<'all' | 'unreplied'>('all');
+  // Abas estilo WhatsApp: Tudo / Não lidas / Favoritas / Grupos (ver bloco das
+  // sub-tabs mais abaixo). "unread" reaproveita o mesmo criterio de waitingSince
+  // (cliente mandou mensagem e ainda nao foi respondido) que ja alimentava o
+  // Alerta de Vácuo; "favorite" reaproveita priority==='alta', ja usado no modo
+  // de ordenação "Destaque" e na ação em lote de bandeira (Flag); "group" cruza
+  // o telefone do lead com os grupos do WhatsApp liberados (whatsapp_groups).
+  const [viewFilter, setViewFilter] = useState<'all' | 'unread' | 'favorite' | 'group'>('all');
+  const [groupPhones, setGroupPhones] = useState<Set<string>>(new Set());
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Menu de opções (⋮) e suas funções
@@ -108,12 +115,28 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
       setLeads((data || []).map((r: any) => ({
         id: r.id, companyId: r.company_id, fullName: r.full_name, contactName: r.contact_name, whatsappName: r.whatsapp_name,
         phone: r.phone, sourceType: r.source_type, lastMessageText: r.last_message_text, lastMessageDirection: r.last_message_direction,
-        waitingSince: r.waiting_since, funnelId: r.funnel_id, funnelStageId: r.funnel_stage_id,
+        lastClientMessageText: r.last_client_message_text, lastClientMessageAt: r.last_client_message_at,
+        waitingSince: r.waiting_since, funnelId: r.funnel_id, funnelStageId: r.funnel_stage_id, priority: r.priority,
         createdAt: r.created_at, updatedAt: r.updated_at, photoUrl: r.photo_url || undefined,
       } as any as Lead)));
     };
     loadLeads();
     const channel = supabase.channel('sidebar-popup-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.${currentCompany.id}` }, loadLeads).subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [currentCompany, isOpen]);
+
+  // Grupos do WhatsApp liberados (visivel=true) -- monta um Set com o telefone
+  // "equivalente" de cada grupo (mesmos digitos que o webhook usa como `phone`
+  // no lead, ver api/whatsapp-webhook.js) pra dar pra filtrar a aba "Grupos".
+  useEffect(() => {
+    if (!currentCompany || !isOpen) return;
+    const loadGroupPhones = async () => {
+      const { data } = await supabase.from('whatsapp_groups').select('group_jid').eq('company_id', 'rafa-arts').eq('visivel', true);
+      const phones = new Set((data || []).map((g: any) => (g.group_jid || '').replace('@g.us', '').replace(/\D/g, '')).filter(Boolean));
+      setGroupPhones(phones);
+    };
+    loadGroupPhones();
+    const channel = supabase.channel('sidebar-popup-groups').on('postgres_changes', { event: '*', schema: 'public', table: 'whatsapp_groups', filter: `company_id=eq.${currentCompany.id}` }, loadGroupPhones).subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [currentCompany, isOpen]);
 
@@ -127,7 +150,8 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
       setLeads((data || []).map((r: any) => ({
         id: r.id, companyId: r.company_id, fullName: r.full_name, contactName: r.contact_name, whatsappName: r.whatsapp_name,
         phone: r.phone, sourceType: r.source_type, lastMessageText: r.last_message_text, lastMessageDirection: r.last_message_direction,
-        waitingSince: r.waiting_since, funnelId: r.funnel_id, funnelStageId: r.funnel_stage_id,
+        lastClientMessageText: r.last_client_message_text, lastClientMessageAt: r.last_client_message_at,
+        waitingSince: r.waiting_since, funnelId: r.funnel_id, funnelStageId: r.funnel_stage_id, priority: r.priority,
         createdAt: r.created_at, updatedAt: r.updated_at, photoUrl: r.photo_url || undefined,
       } as any as Lead)));
     } finally {
@@ -151,6 +175,9 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
     return list;
   };
 
+  const favoriteCount = leads.filter(l => l.priority === 'alta').length;
+  const groupCount = leads.filter(l => groupPhones.has((l.phone || '').replace(/\D/g, ''))).length;
+
   const filteredLeads = sortLeads(
     leads
       .filter(l => !l.archived)
@@ -158,7 +185,12 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
         l.fullName.toLowerCase().includes(filter.toLowerCase()) ||
         l.phone.includes(filter)
       )
-      .filter(l => (viewFilter === 'unreplied' ? !!l.waitingSince : true))
+      .filter(l => {
+        if (viewFilter === 'unread') return !!l.waitingSince;
+        if (viewFilter === 'favorite') return l.priority === 'alta';
+        if (viewFilter === 'group') return groupPhones.has((l.phone || '').replace(/\D/g, ''));
+        return true;
+      })
   );
 
   // Ao escolher uma conversa: fecha o popup e abre ela direto no Funil CRM,
@@ -380,39 +412,70 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
               />
             </div>
 
-            {/* Sub-tabs */}
-            <div className="flex gap-2">
+            {/* Abas estilo WhatsApp -- Tudo / Não lidas / Favoritas / Grupos, coladas
+                direto no topo da lista de conversas (logo abaixo da busca) pra troca
+                de filtro em 1 clique. "Não lidas" reaproveita waitingSince (mesmo
+                criterio do Alerta de Vácuo); "Favoritas" reaproveita priority==='alta'
+                (mesmo campo usado pela bandeira/Destaque no menu de ações em lote);
+                "Grupos" cruza com whatsapp_groups liberados (ver useEffect acima). */}
+            <div className="flex gap-1.5 overflow-x-auto no-scrollbar -mx-1 px-1">
               <button
+                type="button"
                 onClick={() => setViewFilter('all')}
                 className={cn(
-                  "flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all flex items-center justify-center gap-1.5",
+                  "shrink-0 px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all flex items-center gap-1.5",
                   viewFilter === 'all'
                     ? "bg-primary-50 border-primary-200 text-primary-700"
-                    : "bg-transparent border-transparent text-slate-400 hover:text-slate-600"
+                    : "bg-transparent border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-100"
                 )}
               >
-                Todos
+                Tudo
                 <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-[8px]">{leads.length}</span>
               </button>
               <button
-                onClick={() => setViewFilter('unreplied')}
+                type="button"
+                onClick={() => setViewFilter('unread')}
                 className={cn(
-                  "flex-1 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all flex items-center justify-center gap-1.5 relative overflow-hidden",
-                  viewFilter === 'unreplied'
+                  "shrink-0 px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all flex items-center gap-1.5",
+                  viewFilter === 'unread'
                     ? "bg-rose-50 border-rose-200 text-rose-600"
-                    : "bg-transparent border-transparent text-slate-400 hover:text-slate-600",
-                  unrepliedCount > 0 && "animate-pulse"
+                    : "bg-transparent border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-100",
+                  unrepliedCount > 0 && viewFilter !== 'unread' && "animate-pulse"
                 )}
               >
-                <div className="flex items-center gap-1.5">
-                  <span>Sem Resposta</span>
-                  <span className={cn(
-                    "px-1.5 py-0.5 rounded text-[8px] font-black",
-                    unrepliedCount > 0 ? "bg-rose-500 text-white" : "bg-slate-100 text-slate-400"
-                  )}>
-                    {unrepliedCount}
-                  </span>
-                </div>
+                Não lidas
+                <span className={cn(
+                  "px-1.5 py-0.5 rounded text-[8px] font-black",
+                  unrepliedCount > 0 ? "bg-rose-500 text-white" : "bg-slate-100 text-slate-400"
+                )}>
+                  {unrepliedCount}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewFilter('favorite')}
+                className={cn(
+                  "shrink-0 px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all flex items-center gap-1.5",
+                  viewFilter === 'favorite'
+                    ? "bg-amber-50 border-amber-200 text-amber-600"
+                    : "bg-transparent border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                )}
+              >
+                Favoritas
+                <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-[8px]">{favoriteCount}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewFilter('group')}
+                className={cn(
+                  "shrink-0 px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all flex items-center gap-1.5",
+                  viewFilter === 'group'
+                    ? "bg-emerald-50 border-emerald-200 text-emerald-600"
+                    : "bg-transparent border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                )}
+              >
+                Grupos
+                <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-[8px]">{groupCount}</span>
               </button>
             </div>
           </div>
@@ -492,10 +555,10 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
           )}
 
           {/* Alerta de vácuo — clicável: leva direto pro filtro "Sem Resposta" */}
-          {unrepliedCount > 0 && viewFilter !== 'unreplied' && (
+          {unrepliedCount > 0 && viewFilter !== 'unread' && (
             <button
               type="button"
-              onClick={() => setViewFilter('unreplied')}
+              onClick={() => setViewFilter('unread')}
               className="mx-6 mt-4 p-3 bg-rose-50 border border-rose-200 rounded-2xl flex items-center gap-2 animate-pulse flex-shrink-0 text-left hover:bg-rose-100 hover:border-rose-300 transition-colors cursor-pointer"
               title="Ver conversas sem resposta"
             >
@@ -602,7 +665,11 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                   </div>
 
                   <div className="flex items-center justify-between gap-2 mb-1 pl-10">
-                    <p className="text-xs text-slate-500 truncate flex-1">{l.lastMessageText || 'Sem mensagens'}</p>
+                    {/* Previa SEMPRE da ultima mensagem do CLIENTE, nunca a que voce
+                        acabou de mandar (ver Lead.lastClientMessageText em types.ts).
+                        Fallback pro campo antigo so serve pra leads antigos, criados
+                        antes dessa coluna existir. */}
+                    <p className="text-xs text-slate-500 truncate flex-1">{l.lastClientMessageText || l.lastMessageText || 'Sem mensagens'}</p>
                     {waitingSinceDate && (
                       <div className={cn(
                         "px-2 py-0.5 rounded-full text-[8.5px] font-black border uppercase tracking-wider leading-none shrink-0",

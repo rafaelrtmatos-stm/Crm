@@ -718,6 +718,11 @@ export default function App() {
           phone: msgData.phone || '',
           source_type: msgData.channel || 'WhatsApp',
           last_message_text: msgData.text || '',
+          // Previa da lista de chats (MessagesSidebarPopup.tsx/Modules.tsx): so e' tocada
+          // aqui, num evento 'incoming' -- NUNCA no envio do atendente (ver Modules.tsx
+          // handleSendMessage) -- entao sempre reflete a ultima mensagem real do CLIENTE.
+          last_client_message_text: msgData.text || '',
+          last_client_message_at: new Date().toISOString(),
           estimated_value: 0,
           status: 'ENTRADA',
           waiting_since: new Date().toISOString(),
@@ -731,6 +736,8 @@ export default function App() {
         const leadRow = leadRows[0];
         await supabase.from('leads').update({
           last_message_text: msgData.text || '',
+          last_client_message_text: msgData.text || '',
+          last_client_message_at: new Date().toISOString(),
           source_type: msgData.channel || leadRow.source_type || 'WhatsApp',
           waiting_since: new Date().toISOString(),
           status: 'ENTRADA',
