@@ -19,7 +19,7 @@ const SUPABASE_ANON_KEY = 'sb_publishable_YbzFXDHWQy-k0F9uNtVJ2g_urcsgmVt';
 // direto pra essa URL sem saber o segredo.
 const WEBHOOK_SECRET = process.env.EVOLUTION_WEBHOOK_SECRET;
 
-async function inserirMensagem({ phone, text, senderName, direction = 'incoming', channel = 'WhatsApp' }) {
+async function inserirMensagem({ phone, text, senderName, direction = 'incoming', channel = 'WhatsApp', senderPhone = null }) {
   if (!phone || !text) return;
   await fetch(`${SUPABASE_URL}/rest/v1/crm_messages`, {
     method: 'POST',
@@ -34,6 +34,7 @@ async function inserirMensagem({ phone, text, senderName, direction = 'incoming'
       text,
       direction,
       sender_name: senderName || null,
+      sender_phone: senderPhone || null,
       channel,
     }),
   });
@@ -139,8 +140,16 @@ export default async function handler(req, res) {
           '';
         const senderName = msg?.pushName || '';
 
+        // Em mensagem de GRUPO, msg.key.participant traz o JID de quem realmente mandou
+        // (msg.key.remoteJid é o grupo, não a pessoa) — guarda o telefone dela separado,
+        // pra dar pra abrir a conversa individual desse participante depois (ver
+        // WhatsAppGroupsModule/GroupChatModal, "conversar direto com ele")
+        const senderPhone = phoneRaw.endsWith('@g.us') && msg?.key?.participant
+          ? msg.key.participant.replace('@s.whatsapp.net', '').replace(/\D/g, '')
+          : null;
+
         if (phone && text) {
-          await inserirMensagem({ phone, text, senderName, direction: 'incoming' });
+          await inserirMensagem({ phone, text, senderName, direction: 'incoming', senderPhone });
         }
       }
     }
