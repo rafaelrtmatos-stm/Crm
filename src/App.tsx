@@ -744,6 +744,10 @@ export default function App() {
       { event: 'INSERT', schema: 'public', table: 'crm_messages', filter: `company_id=eq.${currentCompany.id}` },
       (payload: any) => {
         const row = payload.new;
+        // Mensagem importada em massa do histórico (ver api/whatsapp-import-messages.js) não
+        // deve criar/mover lead pra ENTRADA — senão 45 mil mensagens antigas resetariam a
+        // etapa de todos os leads do funil de uma vez só.
+        if (row.is_historical_import) return;
         if (row.direction !== 'incoming' || row.id === lastMessageId) return;
         setLastMessageId(row.id);
         processIncomingMessage({

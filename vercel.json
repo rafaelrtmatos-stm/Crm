@@ -15,5 +15,11 @@
       "destination": "/api/assinar/:id"
     },
     { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "crons": [
+    {
+      "path": "/api/whatsapp-import-messages?action=continue",
+      "schedule": "*/5 * * * *"
+    }
   ]
 }

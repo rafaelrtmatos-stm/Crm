@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plug, Bot, MessageCircle, Facebook, Instagram, QrCode, RefreshCw, CheckCircle2, Users } from 'lucide-react';
+import { Plug, Bot, MessageCircle, Facebook, Instagram, QrCode, RefreshCw, CheckCircle2, Users, History } from 'lucide-react';
 import { GlassCard, Badge, Modal, cn } from './SharedUI';
 import { RobozinhoRafaModule } from './RobozinhoRafaModule';
 import { WhatsAppGroupsModule } from './WhatsAppGroupsModule';
@@ -68,6 +68,58 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
       setDesconectando(false);
     }
   };
+
+  // --- Importação de histórico (mensagens antigas, de antes de conectar o webhook) ---
+  // Rodar supabase/add_historico_mensagens_whatsapp.sql no Supabase antes de usar isso.
+  type ImportStatus = {
+    totalConversas: number;
+    conversasConcluidas: number;
+    conversasEmAndamento: number;
+    conversasPendentes: number;
+    conversasComErro: number;
+    mensagensImportadas: number;
+    concluido: boolean;
+  };
+  const [importando, setImportando] = useState(false);
+  const [importStatus, setImportStatus] = useState<ImportStatus | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const importLoopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const pararLoopImportacao = () => {
+    if (importLoopRef.current) clearTimeout(importLoopRef.current);
+    importLoopRef.current = null;
+  };
+
+  const loopContinuarImportacao = async () => {
+    try {
+      const resp = await fetch('/api/whatsapp-import-messages?action=continue');
+      const data = await resp.json();
+      if (!resp.ok) { setImportError(data.error || 'Falha ao continuar a importação.'); setImportando(false); return; }
+      setImportStatus(data);
+      if (data.concluido) { setImportando(false); return; }
+      // Continua puxando mais um pedaço a cada poucos segundos, enquanto essa tela ficar aberta
+      importLoopRef.current = setTimeout(loopContinuarImportacao, 2500);
+    } catch (err) {
+      setImportError('Falha de conexão durante a importação.');
+      setImportando(false);
+    }
+  };
+
+  const handleImportarHistorico = async () => {
+    setImportError(null);
+    setImportando(true);
+    try {
+      const resp = await fetch('/api/whatsapp-import-messages?action=start');
+      const data = await resp.json();
+      if (!resp.ok) { setImportError(data.error || 'Não foi possível iniciar a importação.'); setImportando(false); return; }
+      loopContinuarImportacao();
+    } catch (err) {
+      setImportError('Falha de conexão ao iniciar a importação.');
+      setImportando(false);
+    }
+  };
+
+  useEffect(() => () => pararLoopImportacao(), []);
 
   const [qrError, setQrError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -206,6 +258,45 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
                 </div>
                 <p className="text-sm font-bold text-white">WhatsApp conectado!</p>
                 <p className="text-xs text-white/40">As mensagens já estão chegando direto no Funil de Atendimento.</p>
+
+                {/* Importar histórico — mensagens de antes de conectar o webhook */}
+                <div className="pt-2 border-t border-white/10 text-left space-y-2">
+                  {!importando && !importStatus && (
+                    <button
+                      onClick={handleImportarHistorico}
+                      className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-white/5 hover:bg-primary-500 hover:text-slate-950 text-white/70 text-[11px] font-black uppercase tracking-widest transition-all"
+                    >
+                      <History size={13} /> Importar histórico de mensagens
+                    </button>
+                  )}
+                  {importError && (
+                    <p className="text-[11px] text-rose-400 text-center">{importError}</p>
+                  )}
+                  {importStatus && (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between text-[10px] text-white/50">
+                        <span>{importStatus.concluido ? 'Importação concluída' : 'Importando conversas antigas...'}</span>
+                        <span>{importStatus.conversasConcluidas}/{importStatus.totalConversas} conversas</span>
+                      </div>
+                      <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
+                        <div
+                          className="h-full bg-primary-500 transition-all"
+                          style={{ width: `${importStatus.totalConversas ? Math.round((importStatus.conversasConcluidas / importStatus.totalConversas) * 100) : 0}%` }}
+                        />
+                      </div>
+                      <p className="text-[10px] text-white/40 text-center">{importStatus.mensagensImportadas} mensagens importadas até agora</p>
+                      {!importStatus.concluido && !importando && (
+                        <button
+                          onClick={handleImportarHistorico}
+                          className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-white/5 hover:bg-primary-500 hover:text-slate-950 text-white/70 text-[10px] font-black uppercase tracking-widest transition-all"
+                        >
+                          <RefreshCw size={11} /> Continuar importação
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 <button
                   onClick={handleDesconectar}
                   disabled={desconectando}
