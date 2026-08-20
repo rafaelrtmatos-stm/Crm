@@ -1972,7 +1972,7 @@ export const ChatPanel = ({
     if (!conversation?.id || novaStageId === conversation.funnelStageId) return;
     setIsChangingStage(true);
     try {
-      const { error } = await supabase.from('leads').update({ funnel_stage_id: novaStageId, updated_at: new Date().toISOString() }).eq('id', conversation.id);
+      const { error } = await supabase.from('leads').update({ funnel_stage_id: novaStageId, company_id: 'rafa-arts', updated_at: new Date().toISOString() }).eq('id', conversation.id).eq('company_id', 'rafa-arts');
       if (error) throw error;
     } catch (err) {
       console.error('Erro ao mudar etapa:', err);
@@ -3171,8 +3171,9 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
       try {
         await supabase.from('leads').update({ 
           funnel_stage_id: overStageId,
+          company_id: 'rafa-arts',
           updated_at: new Date().toISOString(),
-        }).eq('id', leadId);
+        }).eq('id', leadId).eq('company_id', 'rafa-arts');
       } catch (err) {
         console.error('Kanban: Fallback move failed', err);
       }

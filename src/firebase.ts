@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { getFirestore } from 'firebase/firestore';
 
 import firebaseConfig from '../firebase-applet-config.json';
 
@@ -8,17 +8,13 @@ const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 
-// Simple connection test
-async function testConnection() {
-  try {
-    await getDocFromServer(doc(db, '_internal_', 'connection_test'));
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error("Firebase connection failed: the client is offline. Check your configuration.");
-    }
-  }
-}
-testConnection();
+// Ping de conexão removido: ele disparava uma requisição getDocFromServer
+// a cada load do app só para "testar" a conexão, e essa requisição extra
+// era uma das causas dos ERR_QUIC_PROTOCOL_ERROR no console. O restante do
+// ecossistema (leads/funil/etapas, produtos, config, vendas etc.) já roda
+// 100% no Supabase; o Firestore aqui segue em uso só onde o app ainda
+// depende dele de fato (auth bootstrap do admin master, sessions, services,
+// tasks, contratos, mensagens e Robozinho).
 
 export enum OperationType {
   CREATE = 'create',
