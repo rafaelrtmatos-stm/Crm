@@ -2081,6 +2081,52 @@ export const ChatPanel = ({
     }
   };
 
+  // --- Telefone (editavel + copiar) ---
+  // O telefone e' a CHAVE de correlacao com o chat (crm_messages.phone, ver loadMessages
+  // acima) -- editar so o lead.phone e deixar as mensagens antigas com o telefone velho
+  // "quebraria" o historico (a conversa sumiria da tela, so reaparecendo se o cliente
+  // mandar mensagem de novo). Por isso handleSavePhone atualiza os dois em conjunto.
+  const [phoneDraft, setPhoneDraft] = useState('');
+  const [isSavingPhone, setIsSavingPhone] = useState(false);
+  useEffect(() => {
+    setPhoneDraft(conversation?.phone || '');
+  }, [conversation?.id]);
+  const phoneMudou = conversation && phoneDraft.replace(/\D/g, '') !== (conversation.phone || '').replace(/\D/g, '');
+  const handleSavePhone = async () => {
+    if (!conversation?.id) return;
+    const novoPhone = phoneDraft.replace(/\D/g, '');
+    if (!novoPhone) { showAlert('Informe um telefone válido.'); return; }
+    const phoneAntigo = conversation.phone || '';
+    setIsSavingPhone(true);
+    try {
+      const { error } = await supabase.from('leads').update({ phone: novoPhone, updated_at: new Date().toISOString() }).eq('id', conversation.id);
+      if (error) throw error;
+      // Reata o historico de mensagens ao novo telefone -- sem isso o chat some da tela
+      // (loadMessages filtra por phone=eq.<novo>, mas as linhas antigas ainda tem o telefone velho).
+      if (phoneAntigo && phoneAntigo !== novoPhone) {
+        await supabase.from('crm_messages').update({ phone: novoPhone }).eq('company_id', 'rafa-arts').eq('phone', phoneAntigo);
+      }
+      onLeadPatched?.(conversation.id, { phone: novoPhone });
+      showAlert('Telefone atualizado!');
+    } catch (err) {
+      console.error('Erro ao salvar telefone:', err);
+      showAlert('Não foi possível salvar o telefone.');
+    } finally {
+      setIsSavingPhone(false);
+    }
+  };
+  const handleCopyPhone = async () => {
+    const valor = conversation?.phone || '';
+    if (!valor) return;
+    try {
+      await navigator.clipboard.writeText(valor);
+      showAlert('Telefone copiado!');
+    } catch (err) {
+      console.error('Erro ao copiar telefone:', err);
+      showAlert('Não foi possível copiar o telefone.');
+    }
+  };
+
   // --- Cliente vinculado (cadastro unificado em Contatos/Clientes) -- casado pelo telefone,
   // igual convencao ja usada no resto do sistema (ultimos 8 digitos). Usado tanto pro bloco de
   // Endereco quanto pra decidir, no "Iniciar Venda", se atualiza um cadastro existente ou cria
@@ -2579,7 +2625,15 @@ export const ChatPanel = ({
                 <span className="text-[9px] text-emerald-400 font-black uppercase tracking-widest">Ativo</span>
               )}
               <span className="text-[9px] text-white/20">•</span>
-              <span className="text-[9px] text-white/40 font-bold">{conversation.phone || '(62) 99999-9999'}</span>
+              <button
+                onClick={handleCopyPhone}
+                disabled={!conversation.phone}
+                title="Copiar telefone"
+                className="flex items-center gap-1 text-[9px] text-white/40 font-bold hover:text-primary-300 transition-colors disabled:opacity-40 disabled:hover:text-white/40"
+              >
+                {conversation.phone || '(62) 99999-9999'}
+                <Copy size={9} />
+              </button>
             </div>
           </div>
         </div>
@@ -2997,8 +3051,43 @@ export const ChatPanel = ({
               <div className="space-y-4">
                 <h5 className="text-[11px] font-black uppercase text-primary-300 tracking-[3px]">Informações</h5>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                   {/* Telefone -- editavel (com Salvar quando muda) + botao de copiar, diferente
+                       dos outros campos abaixo que ainda sao só leitura. */}
+                   <div className="p-4 bg-white/5 rounded-2xl border border-white/5 flex items-center gap-3 group">
+                      <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-white/20 group-hover:text-primary-300 transition-colors shrink-0">
+                         <Phone size={16} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                         <p className="text-[9px] font-black text-white/20 uppercase tracking-widest">Telefone</p>
+                         <input
+                           value={phoneDraft}
+                           onChange={(e) => setPhoneDraft(e.target.value)}
+                           placeholder="—"
+                           className="w-full bg-transparent text-xs font-bold text-white/80 outline-none border-b border-transparent focus:border-primary-500/40 py-0.5"
+                         />
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                         <button
+                           onClick={handleCopyPhone}
+                           disabled={!conversation.phone}
+                           title="Copiar telefone"
+                           className="w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 text-white/40 hover:text-white flex items-center justify-center transition-all disabled:opacity-30"
+                         >
+                           <Copy size={12} />
+                         </button>
+                         {phoneMudou && (
+                           <button
+                             onClick={handleSavePhone}
+                             disabled={isSavingPhone}
+                             title="Salvar telefone"
+                             className="w-7 h-7 rounded-lg bg-primary-500 hover:bg-primary-400 text-white flex items-center justify-center transition-all disabled:opacity-50"
+                           >
+                             {isSavingPhone ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+                           </button>
+                         )}
+                      </div>
+                   </div>
                    {[
-                     { label: 'Telefone', value: conversation.phone || '—', icon: Phone },
                      { label: 'Origem', value: conversation.sourceType || conversation.channel || '—', icon: Target },
                      { label: 'E-mail', value: conversation.email || clienteVinculado?.email || '—', icon: AtSign },
                      { label: 'Cadastro Vinculado', value: isLoadingCliente ? 'Buscando...' : (clienteVinculado ? clienteVinculado.full_name : 'Sem cadastro em Clientes'), icon: Users },
