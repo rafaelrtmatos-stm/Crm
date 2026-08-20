@@ -128,7 +128,7 @@ export const AssistantChatWidget = ({ currentCompany, user }: { currentCompany: 
     if (!currentCompany) return;
     const loadData = async () => {
       try {
-        const { data: leadRows } = await supabase.from('leads').select('*').eq('company_id', currentCompany.id);
+        const { data: leadRows } = await supabase.from('leads').select('*').eq('company_id', 'rafa-arts');
         setLeads((leadRows || []).map((r: any) => ({
           id: r.id, fullName: r.full_name, contactName: r.contact_name, whatsappName: r.whatsapp_name,
           phone: r.phone, sourceType: r.source_type, lastMessageText: r.last_message_text,

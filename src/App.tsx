@@ -541,7 +541,7 @@ export default function App() {
     }
     if (!currentCompany) return;
     try {
-      const { data: leadsRows } = await supabase.from('leads').select('id, phone').eq('company_id', currentCompany.id);
+      const { data: leadsRows } = await supabase.from('leads').select('id, phone').eq('company_id', 'rafa-arts');
       const existing = (leadsRows || []).find((r: any) => {
         const p = (r.phone || '').replace(/\D/g, '');
         return p && (p === phoneDigits || p.endsWith(phoneDigits) || phoneDigits.endsWith(p));
@@ -554,9 +554,9 @@ export default function App() {
         // Acha o funil/etapa inicial padrão da empresa, igual ao Funil CRM faz
         let funnelId: string | null = null;
         let funnelStageId: string | null = null;
-        let { data: funnelRows } = await supabase.from('funnels').select('id').eq('company_id', currentCompany.id).eq('is_default', true).limit(1);
+        let { data: funnelRows } = await supabase.from('funnels').select('id').eq('company_id', 'rafa-arts').eq('is_default', true).limit(1);
         if (!funnelRows || funnelRows.length === 0) {
-          const { data } = await supabase.from('funnels').select('id').eq('company_id', currentCompany.id).limit(1);
+          const { data } = await supabase.from('funnels').select('id').eq('company_id', 'rafa-arts').limit(1);
           funnelRows = data;
         }
         if (funnelRows && funnelRows.length > 0) {
@@ -571,7 +571,7 @@ export default function App() {
 
         const nameParts = (name || 'Cliente').trim().split(' ');
         const { data: newLead, error } = await supabase.from('leads').insert({
-          company_id: currentCompany.id,
+          company_id: 'rafa-arts',
           funnel_id: funnelId,
           funnel_stage_id: funnelStageId,
           full_name: name || 'Cliente',
@@ -645,7 +645,7 @@ export default function App() {
       return;
     }
     const loadCount = async () => {
-      const { data } = await supabase.from('leads').select('waiting_since').eq('company_id', currentCompany.id);
+      const { data } = await supabase.from('leads').select('waiting_since').eq('company_id', 'rafa-arts');
       setUnrepliedLeadsCount((data || []).filter((r: any) => r.waiting_since !== null && r.waiting_since !== undefined).length);
     };
     loadCount();
@@ -659,12 +659,12 @@ export default function App() {
     // RULE: All incoming messages must create a lead in "ENTRADA" (initial stage)
     const processIncomingMessage = async (msgData: any) => {
       // Check if lead already exists for this phone/contact
-      const { data: leadRows } = await supabase.from('leads').select('*').eq('company_id', currentCompany.id).eq('phone', msgData.phone || '');
+      const { data: leadRows } = await supabase.from('leads').select('*').eq('company_id', 'rafa-arts').eq('phone', msgData.phone || '');
 
       // Find or create default funnel and initial stage ("ENTRADA")
-      let { data: funnelRows } = await supabase.from('funnels').select('*').eq('company_id', currentCompany.id).eq('is_default', true).limit(1);
+      let { data: funnelRows } = await supabase.from('funnels').select('*').eq('company_id', 'rafa-arts').eq('is_default', true).limit(1);
       if (!funnelRows || funnelRows.length === 0) {
-        const { data } = await supabase.from('funnels').select('*').eq('company_id', currentCompany.id).limit(1);
+        const { data } = await supabase.from('funnels').select('*').eq('company_id', 'rafa-arts').limit(1);
         funnelRows = data;
       }
 
@@ -674,7 +674,7 @@ export default function App() {
       if (!funnelRows || funnelRows.length === 0) {
         // Create default funnel and initial stage if missing
         const { data: fRow } = await supabase.from('funnels').insert({
-          company_id: currentCompany.id,
+          company_id: 'rafa-arts',
           name: 'Funil Rafa Arts',
           is_default: true,
           is_active: true,
@@ -701,7 +701,7 @@ export default function App() {
       // If no lead exists, create it in the ENTRADA stage
       if (!leadRows || leadRows.length === 0) {
         await supabase.from('leads').insert({
-          company_id: currentCompany.id,
+          company_id: 'rafa-arts',
           funnel_id: funnelId || null,
           funnel_stage_id: stageId || null,
           // Os 3 nomes comecam iguais (nome que veio do WhatsApp) -- cada um pode ser

@@ -823,7 +823,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     const canSeeMsg = user?.isAdmin || user?.modulePermissions?.messages?.view;
     if (!canSeeMsg || !currentCompany) return;
     const loadCount = async () => {
-      const { data } = await supabase.from('leads').select('last_message_text').eq('company_id', currentCompany.id);
+      const { data } = await supabase.from('leads').select('last_message_text').eq('company_id', 'rafa-arts');
       setConversasAtivas((data || []).filter((r: any) => !!r.last_message_text).length);
     };
     loadCount();
@@ -2069,7 +2069,7 @@ export const ChatPanel = ({
     setIsSavingNote(true);
     try {
       await supabase.from('crm_messages').insert({
-        company_id: currentCompany.id,
+        company_id: 'rafa-arts',
         lead_id: conversation.id || null,
         phone: conversation.phone,
         text: newNoteText.trim(),
@@ -2311,7 +2311,7 @@ export const ChatPanel = ({
     if (!conversation || !currentCompany) return;
     const loadMessages = async () => {
       const { data } = await supabase.from('crm_messages').select('*')
-        .eq('company_id', currentCompany.id)
+        .eq('company_id', 'rafa-arts')
         .eq('phone', conversation.phone)
         .order('created_at', { ascending: true });
       setMessages((data || []).map(mapCrmMessageRow));
@@ -2330,7 +2330,7 @@ export const ChatPanel = ({
     const textoEnviado = newMessage;
     try {
       await supabase.from('crm_messages').insert({
-        company_id: currentCompany.id,
+        company_id: 'rafa-arts',
         lead_id: conversation.id || null,
         phone: conversation.phone,
         text: textoEnviado,
@@ -2378,7 +2378,7 @@ export const ChatPanel = ({
 
     try {
       await supabase.from('crm_messages').insert({
-        company_id: currentCompany.id,
+        company_id: 'rafa-arts',
         lead_id: conversation.id || null,
         phone: conversation.phone || '(62) 99999-9999',
         text: clientText,
@@ -3093,13 +3093,13 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
   useEffect(() => {
     if (!currentCompany) return;
     const loadFunnels = async () => {
-      const { data } = await supabase.from('funnels').select('*').eq('company_id', currentCompany.id);
+      const { data } = await supabase.from('funnels').select('*').eq('company_id', 'rafa-arts');
       const funnelData = (data || []).map(mapFunnelRow);
       setFunnels(funnelData);
       setSelectedFunnelId(prev => prev || (funnelData.length > 0 ? funnelData[0].id : prev));
     };
     const loadLeads = async () => {
-      const { data } = await supabase.from('leads').select('*').eq('company_id', currentCompany.id).order('updated_at', { ascending: false });
+      const { data } = await supabase.from('leads').select('*').eq('company_id', 'rafa-arts').order('updated_at', { ascending: false });
       setLeads((data || []).map(mapLeadRow));
     };
     loadFunnels();
@@ -3193,7 +3193,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     if (!name || !currentCompany) return;
     try {
       const { data: newFunnel, error } = await supabase.from('funnels').insert({
-        company_id: currentCompany.id,
+        company_id: 'rafa-arts',
         name,
         is_active: true,
       }).select().single();
@@ -3838,9 +3838,9 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
   const getInitialStageInfo = async () => {
     if (!currentCompany) return { funnelId: null, funnelStageId: null };
     try {
-      let { data: funnelRows } = await supabase.from('funnels').select('id').eq('company_id', currentCompany.id).eq('is_default', true).limit(1);
+      let { data: funnelRows } = await supabase.from('funnels').select('id').eq('company_id', 'rafa-arts').eq('is_default', true).limit(1);
       if (!funnelRows || funnelRows.length === 0) {
-        const { data } = await supabase.from('funnels').select('id').eq('company_id', currentCompany.id).limit(1);
+        const { data } = await supabase.from('funnels').select('id').eq('company_id', 'rafa-arts').limit(1);
         funnelRows = data;
       }
 
@@ -3967,7 +3967,7 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
         const exists = leads.some(l => l.phone === sl.phone);
         if (!exists) {
           const { data: novoLead } = await supabase.from('leads').insert({
-            company_id: currentCompany.id,
+            company_id: 'rafa-arts',
             funnel_id: funnelId,
             funnel_stage_id: funnelStageId,
             full_name: sl.fullName,
@@ -4009,7 +4009,7 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
           for (let index = 0; index < msgs.length; index++) {
             const m = msgs[index];
             await supabase.from('crm_messages').insert({
-              company_id: currentCompany.id,
+              company_id: 'rafa-arts',
               lead_id: novoLead?.id || null,
               phone: sl.phone,
               text: m.text,
@@ -4037,7 +4037,7 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
 
     try {
       await supabase.from('crm_messages').insert({
-        company_id: currentCompany.id,
+        company_id: 'rafa-arts',
         phone: simPhone,
         text: simMessage,
         direction: 'incoming',
@@ -4056,7 +4056,7 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
   useEffect(() => {
     if (!currentCompany) return;
     const loadLeads = async () => {
-      const { data } = await supabase.from('leads').select('*').eq('company_id', currentCompany.id).order('updated_at', { ascending: false });
+      const { data } = await supabase.from('leads').select('*').eq('company_id', 'rafa-arts').order('updated_at', { ascending: false });
       const fetchedLeads = (data || []).map(mapLeadRow);
       setLeads(fetchedLeads);
 
@@ -17880,7 +17880,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
 
   useEffect(() => {
     if (!currentCompany) return;
-    supabase.from('funnels').select('*').eq('company_id', currentCompany.id).then(({ data }) => {
+    supabase.from('funnels').select('*').eq('company_id', 'rafa-arts').then(({ data }) => {
       setFunnels((data || []).map(mapFunnelRow));
     });
   }, [currentCompany]);

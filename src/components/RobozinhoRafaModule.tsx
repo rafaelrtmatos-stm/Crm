@@ -77,7 +77,7 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
   useEffect(() => {
     if (!currentCompany) return;
     const loadLeads = async () => {
-      const { data } = await supabase.from('leads').select('*').eq('company_id', currentCompany.id);
+      const { data } = await supabase.from('leads').select('*').eq('company_id', 'rafa-arts');
       const all = (data || []).map((r: any) => ({
         id: r.id, fullName: r.full_name, contactName: r.contact_name, whatsappName: r.whatsapp_name,
         phone: r.phone, sourceType: r.source_type, lastMessageText: r.last_message_text,
@@ -95,7 +95,7 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
   useEffect(() => {
     if (!currentCompany) return;
     const loadInteractions = async () => {
-      const { data } = await supabase.from('robozinho_interactions').select('*').eq('company_id', currentCompany.id).order('created_at', { ascending: false });
+      const { data } = await supabase.from('robozinho_interactions').select('*').eq('company_id', 'rafa-arts').order('created_at', { ascending: false });
       setInteractions((data || []).map((r: any) => ({
         id: r.id, companyId: r.company_id, leadId: r.lead_id, phone: r.phone,
         clientName: r.client_name, channel: r.channel, clientMessageText: r.client_message_text,
@@ -182,7 +182,7 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
         enabledPaymentMethods: paymentMethods,
       });
       supabase.from('robozinho_interactions').insert({
-        company_id: currentCompany.id,
+        company_id: 'rafa-arts',
         lead_id: lead.id,
         phone: lead.phone,
         client_name: lead.fullName || lead.contactName || lead.whatsappName || 'Cliente',
@@ -203,7 +203,7 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
     setBusyId(interaction.id);
     try {
       await supabase.from('crm_messages').insert({
-        company_id: currentCompany.id,
+        company_id: 'rafa-arts',
         lead_id: interaction.leadId || null,
         phone: interaction.phone,
         text: finalText.trim(),

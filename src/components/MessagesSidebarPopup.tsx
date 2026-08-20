@@ -104,7 +104,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
   useEffect(() => {
     if (!currentCompany || !isOpen) return;
     const loadLeads = async () => {
-      const { data } = await supabase.from('leads').select('*').eq('company_id', currentCompany.id).order('updated_at', { ascending: false });
+      const { data } = await supabase.from('leads').select('*').eq('company_id', 'rafa-arts').order('updated_at', { ascending: false });
       setLeads((data || []).map((r: any) => ({
         id: r.id, companyId: r.company_id, fullName: r.full_name, contactName: r.contact_name, whatsappName: r.whatsapp_name,
         phone: r.phone, sourceType: r.source_type, lastMessageText: r.last_message_text, lastMessageDirection: r.last_message_direction,
@@ -123,7 +123,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
     if (!currentCompany || isRefreshing) return;
     setIsRefreshing(true);
     try {
-      const { data } = await supabase.from('leads').select('*').eq('company_id', currentCompany.id).order('updated_at', { ascending: false });
+      const { data } = await supabase.from('leads').select('*').eq('company_id', 'rafa-arts').order('updated_at', { ascending: false });
       setLeads((data || []).map((r: any) => ({
         id: r.id, companyId: r.company_id, fullName: r.full_name, contactName: r.contact_name, whatsappName: r.whatsapp_name,
         phone: r.phone, sourceType: r.source_type, lastMessageText: r.last_message_text, lastMessageDirection: r.last_message_direction,
@@ -216,7 +216,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
     setIsSavingAction(true);
     try {
       await supabase.from('lead_groups').insert({
-        company_id: currentCompany.id,
+        company_id: 'rafa-arts',
         name: groupName.trim(),
         lead_ids: Array.from(selectedIds),
         created_by: user?.id || null,
