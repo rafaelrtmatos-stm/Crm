@@ -208,6 +208,31 @@ async function garantirFotoLead(phone, evoHeaders) {
   }
 }
 
+// Grava o status de presenca (online/digitando/gravando/offline) de um contato —
+// alimenta os indicadores no header do ChatPanel (ver src/components/Modules.tsx).
+// So funciona pra chats que foram assinados antes via
+// api/whatsapp-presence-subscribe.js (a Evolution/Baileys so manda PRESENCE_UPDATE
+// pra quem foi assinado).
+async function atualizarPresenca(phone, status, lastSeenAt) {
+  if (!phone) return;
+  await fetch(`${SUPABASE_URL}/rest/v1/whatsapp_presence?on_conflict=company_id,phone`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=merge-duplicates',
+    },
+    body: JSON.stringify({
+      company_id: COMPANY_ID,
+      phone,
+      status,
+      ...(lastSeenAt ? { last_seen_at: lastSeenAt } : {}),
+      updated_at: new Date().toISOString(),
+    }),
+  }).catch((err) => console.error('Falha ao gravar presença (nao impede o resto):', err));
+}
+
 async function atualizarStatusConexao(status) {
   // Guarda o status da conexao (connecting | open | close) pro IntegracoesModule.tsx
   // conseguir ler e mostrar "Conectado"/"Desconectado" sem precisar perguntar direto
@@ -315,6 +340,28 @@ export default async function handler(req, res) {
     if (event === 'connection.update' || event === 'CONNECTION_UPDATE') {
       const status = body?.data?.state || body?.data?.status;
       if (status) await atualizarStatusConexao(status);
+    }
+
+    // Presenca (online / digitando / gravando audio / offline com "visto por ultimo").
+    // Formato Baileys/Evolution: body.data = { id: remoteJid, presences: { [jid]: { lastKnownPresence, lastSeen } } }
+    // — mas algumas versoes mandam { id, presence: { lastKnownPresence } } direto, sem o
+    // objeto "presences" por participante. Trata os dois formatos.
+    if (event === 'presence.update' || event === 'PRESENCE_UPDATE') {
+      const dados = body?.data;
+      const remoteJid = dados?.id || dados?.remoteJid || '';
+      if (remoteJid && !remoteJid.endsWith('@g.us')) {
+        const phone = remoteJid.replace('@s.whatsapp.net', '').replace('@lid', '').replace(/\D/g, '');
+        const presencas = dados?.presences
+          ? Object.values(dados.presences)
+          : (dados?.presence ? [dados.presence] : []);
+        const ultima = presencas[presencas.length - 1];
+        // available/composing/recording ficam "ao vivo"; qualquer outra coisa
+        // (unavailable, paused, ou vazio) vira offline com o "visto por ultimo".
+        const statusBruto = (ultima?.lastKnownPresence || '').toLowerCase();
+        const status = ['available', 'composing', 'recording'].includes(statusBruto) ? statusBruto : 'unavailable';
+        const lastSeenAt = ultima?.lastSeen ? new Date(Number(ultima.lastSeen) * 1000).toISOString() : (status === 'unavailable' ? new Date().toISOString() : undefined);
+        if (phone) await atualizarPresenca(phone, status, lastSeenAt);
+      }
     }
 
     res.status(200).json({ ok: true });

@@ -2363,6 +2363,53 @@ export const ChatPanel = ({
     return () => { supabase.removeChannel(channel); };
   }, [conversation, currentCompany]);
 
+  // Presenca do contato (online / digitando / gravando audio / visto por ultimo) —
+  // mostrado no header do chat (ver bloco do header mais abaixo). Assina a presenca
+  // desse chat na Evolution API toda vez que a conversa abre (sem isso a Evolution/
+  // Baileys nem manda o evento PRESENCE_UPDATE pra esse numero), depois escuta a
+  // tabela whatsapp_presence em tempo real.
+  const [presence, setPresence] = useState<{ status: string; lastSeenAt?: string } | null>(null);
+  useEffect(() => {
+    if (!conversation?.phone || conversation?.channel !== 'WhatsApp' && conversation?.sourceType !== 'WhatsApp') {
+      setPresence(null);
+      return;
+    }
+    const phoneDigits = (conversation.phone || '').replace(/\D/g, '');
+    if (!phoneDigits) { setPresence(null); return; }
+
+    fetch('/api/whatsapp-presence-subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: phoneDigits }),
+    }).catch((err) => console.error('Falha ao assinar presença (não impede o resto):', err));
+
+    const loadPresence = async () => {
+      const { data } = await supabase.from('whatsapp_presence').select('status,last_seen_at')
+        .eq('company_id', 'rafa-arts').eq('phone', phoneDigits).maybeSingle();
+      setPresence(data ? { status: data.status, lastSeenAt: data.last_seen_at || undefined } : null);
+    };
+    loadPresence();
+    const presenceChannel = supabase.channel(`chat-presence-${phoneDigits}`).on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'whatsapp_presence', filter: `phone=eq.${phoneDigits}` },
+      loadPresence
+    ).subscribe();
+    return () => { supabase.removeChannel(presenceChannel); };
+  }, [conversation?.phone, conversation?.channel, conversation?.sourceType]);
+
+  const presenceLabel = (() => {
+    if (!presence) return null;
+    if (presence.status === 'composing') return 'digitando...';
+    if (presence.status === 'recording') return 'gravando áudio...';
+    if (presence.status === 'available') return 'online';
+    if (presence.lastSeenAt) {
+      const d = new Date(presence.lastSeenAt);
+      const hoje = d.toDateString() === new Date().toDateString();
+      return `visto por último ${hoje ? 'hoje às' : format(d, "dd/MM 'às'")} ${format(d, 'HH:mm')}`;
+    }
+    return null;
+  })();
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -2501,7 +2548,11 @@ export const ChatPanel = ({
             <div className="w-10 h-10 rounded-xl bg-primary-500/20 flex items-center justify-center font-bold text-white text-base border border-primary-500/30">
               {conversation.name?.[0] || 'C'}
             </div>
-            <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-[#0f172a]" />
+            {/* Bolinha verde SO quando o contato esta realmente online agora
+                (presence.status === 'available') -- antes era fixa/decorativa. */}
+            {presence?.status === 'available' && (
+              <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-[#0f172a]" />
+            )}
           </div>
           <div>
             <div className="flex items-center gap-2">
@@ -2509,7 +2560,22 @@ export const ChatPanel = ({
               <Badge variant="outline" className="text-[7px] py-0 px-1 leading-none h-3.5">{conversation.channel}</Badge>
             </div>
             <div className="flex items-center gap-2 mt-0">
-              <span className="text-[9px] text-emerald-400 font-black uppercase tracking-widest">Ativo</span>
+              {/* Status de presenca real (online/digitando/gravando/visto por ultimo) —
+                  ver useEffect de presence acima. Sem dado nenhum ainda (chat que
+                  nunca foi assinado, ou Evolution API sem suporte), cai no rotulo
+                  neutro "Ativo" de antes, pra nao ficar em branco. */}
+              {presenceLabel ? (
+                <span className={cn(
+                  "text-[9px] font-black uppercase tracking-widest",
+                  (presence?.status === 'composing' || presence?.status === 'recording') ? "text-primary-400 animate-pulse"
+                    : presence?.status === 'available' ? "text-emerald-400"
+                    : "text-white/40"
+                )}>
+                  {presenceLabel}
+                </span>
+              ) : (
+                <span className="text-[9px] text-emerald-400 font-black uppercase tracking-widest">Ativo</span>
+              )}
               <span className="text-[9px] text-white/20">•</span>
               <span className="text-[9px] text-white/40 font-bold">{conversation.phone || '(62) 99999-9999'}</span>
             </div>
