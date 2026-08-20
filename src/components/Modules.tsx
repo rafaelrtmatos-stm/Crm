@@ -6059,42 +6059,57 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [openSaleRowActionsId, setOpenSaleRowActionsId] = useState<string | null>(null);
   const [saleRowActionsMenuPos, setSaleRowActionsMenuPos] = useState<{ top?: number; bottom?: number; left: number } | null>(null);
   // Largura das colunas do modo lista do Historico de Vendas -- ajustavel arrastando a borda
-  // de cada cabecalho, com o resultado persistido no localStorage pra sobreviver a reload.
-  const SALE_LIST_COLS_DEFAULT: { key: string; label: string; width: number }[] = [
-    { key: 'nome', label: 'Nome', width: 220 },
-    { key: 'itens', label: 'Itens / Descrição', width: 260 },
-    { key: 'codigo', label: 'Código', width: 130 },
-    { key: 'data', label: 'Data', width: 130 },
-    { key: 'status', label: 'Status', width: 130 },
-    { key: 'valor', label: 'Valor / Pagamento', width: 190 },
-    { key: 'acoes', label: 'Ações', width: 60 },
-  ];
-  const [saleListColWidths, setSaleListColWidthsState] = useState<Record<string, number>>(() => {
+  // de cada cabecalho. Em vez de largura fixa em pixel (que obrigava rolar a tela pro lado pra
+  // ver as colunas depois de um certo ponto), cada coluna guarda um "peso" relativo (como as
+  // unidades fr do CSS Grid): a soma dos pesos sempre preenche exatamente 100% da largura
+  // disponivel, entao a lista nunca estoura nem no celular nem no PC -- arrastar so redistribui
+  // o espaco entre a coluna e a vizinha, nunca aumenta a largura total da linha.
+  const SALE_LIST_RESIZABLE_ORDER = ['nome', 'itens', 'codigo', 'data', 'status', 'valor'] as const;
+  const SALE_LIST_COL_WEIGHTS_DEFAULT: Record<string, number> = {
+    nome: 3, itens: 4, codigo: 1.6, data: 1.8, status: 1.6, valor: 2.6,
+  };
+  const [saleListColWeights, setSaleListColWeightsState] = useState<Record<string, number>>(() => {
     try {
-      const saved = localStorage.getItem('rpro_historico_lista_col_widths');
-      if (saved) return { ...Object.fromEntries(SALE_LIST_COLS_DEFAULT.map(c => [c.key, c.width])), ...JSON.parse(saved) };
+      const saved = localStorage.getItem('rpro_historico_lista_col_pesos');
+      if (saved) return { ...SALE_LIST_COL_WEIGHTS_DEFAULT, ...JSON.parse(saved) };
     } catch { /* ignora e usa o padrao */ }
-    return Object.fromEntries(SALE_LIST_COLS_DEFAULT.map(c => [c.key, c.width]));
+    return { ...SALE_LIST_COL_WEIGHTS_DEFAULT };
   });
-  const setSaleListColWidths = (updater: (prev: Record<string, number>) => Record<string, number>) => {
-    setSaleListColWidthsState(prev => {
+  const setSaleListColWeights = (updater: (prev: Record<string, number>) => Record<string, number>) => {
+    setSaleListColWeightsState(prev => {
       const next = updater(prev);
-      localStorage.setItem('rpro_historico_lista_col_widths', JSON.stringify(next));
+      localStorage.setItem('rpro_historico_lista_col_pesos', JSON.stringify(next));
       return next;
     });
   };
-  const resizingColRef = React.useRef<{ key: string; startX: number; startWidth: number } | null>(null);
+  const saleListHeaderRef = React.useRef<HTMLDivElement>(null);
+  const resizingColRef = React.useRef<{ key: string; neighborKey: string; startX: number; startWeight: number; startNeighborWeight: number; pxPerWeight: number } | null>(null);
   const handleColResizeStart = (key: string, e: React.MouseEvent | React.TouchEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    const idx = SALE_LIST_RESIZABLE_ORDER.indexOf(key as any);
+    const neighborKey = SALE_LIST_RESIZABLE_ORDER[idx + 1];
+    if (!neighborKey) return; // ultima coluna redimensionavel nao tem vizinha a direita
+    const containerWidth = saleListHeaderRef.current?.getBoundingClientRect().width || 800;
+    const totalWeight = SALE_LIST_RESIZABLE_ORDER.reduce((acc, k) => acc + (saleListColWeights[k] || SALE_LIST_COL_WEIGHTS_DEFAULT[k]), 0);
     const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-    resizingColRef.current = { key, startX: clientX, startWidth: saleListColWidths[key] || 120 };
+    resizingColRef.current = {
+      key, neighborKey, startX: clientX,
+      startWeight: saleListColWeights[key] || SALE_LIST_COL_WEIGHTS_DEFAULT[key],
+      startNeighborWeight: saleListColWeights[neighborKey] || SALE_LIST_COL_WEIGHTS_DEFAULT[neighborKey],
+      pxPerWeight: containerWidth / totalWeight,
+    };
     const onMove = (ev: MouseEvent | TouchEvent) => {
-      if (!resizingColRef.current) return;
+      const r = resizingColRef.current;
+      if (!r) return;
       const x = 'touches' in ev ? ev.touches[0].clientX : (ev as MouseEvent).clientX;
-      const delta = x - resizingColRef.current.startX;
-      const newWidth = Math.max(60, resizingColRef.current.startWidth + delta);
-      setSaleListColWidths(prev => ({ ...prev, [resizingColRef.current!.key]: newWidth }));
+      const deltaWeight = (x - r.startX) / r.pxPerWeight;
+      const MIN_WEIGHT = 0.7;
+      // Arrastar so troca espaco entre a coluna e a vizinha imediata -- a soma dos dois pesos
+      // fica sempre igual, entao a largura total da linha nunca muda.
+      const novoPeso = Math.max(MIN_WEIGHT, Math.min(r.startWeight + r.startNeighborWeight - MIN_WEIGHT, r.startWeight + deltaWeight));
+      const novoPesoVizinho = r.startWeight + r.startNeighborWeight - novoPeso;
+      setSaleListColWeights(prev => ({ ...prev, [r.key]: novoPeso, [r.neighborKey]: novoPesoVizinho }));
     };
     const onUp = () => {
       resizingColRef.current = null;
@@ -10041,30 +10056,37 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
               // --- MODO LISTA ---
               if (historyViewMode === 'lista') {
-                const colW = (key: string) => saleListColWidths[key] || SALE_LIST_COLS_DEFAULT.find(c => c.key === key)?.width || 120;
+                const colFlex = (key: string) => {
+                  const w = saleListColWeights[key] ?? SALE_LIST_COL_WEIGHTS_DEFAULT[key] ?? 1;
+                  return { flex: `${w} ${w} 0%` };
+                };
                 const ResizeHandle = ({ colKey }: { colKey: string }) => (
-                  <div
-                    onMouseDown={(e) => handleColResizeStart(colKey, e)}
-                    onTouchStart={(e) => handleColResizeStart(colKey, e)}
-                    className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize group/resize -mr-0.5 z-10"
-                    title="Arraste para ajustar a largura da coluna"
-                  >
-                    <div className="w-px h-full mx-auto bg-white/10 group-hover/resize:bg-primary-400 group-hover/resize:w-0.5 transition-all" />
-                  </div>
+                  SALE_LIST_RESIZABLE_ORDER.indexOf(colKey as any) < SALE_LIST_RESIZABLE_ORDER.length - 1 ? (
+                    <div
+                      onMouseDown={(e) => handleColResizeStart(colKey, e)}
+                      onTouchStart={(e) => handleColResizeStart(colKey, e)}
+                      className="absolute top-0 -right-1.5 h-full w-3 cursor-col-resize group/resize z-10 flex justify-center"
+                      title="Arraste para ajustar a largura da coluna"
+                    >
+                      <div className="w-px h-full bg-white/10 group-hover/resize:bg-primary-400 group-hover/resize:w-0.5 transition-all" />
+                    </div>
+                  ) : null
                 );
                 return (
                   <div className="flex flex-col gap-1.5">
-                    {/* Cabecalho com largura ajustavel por coluna (arrasta a borda direita de
-                        cada titulo). A largura fica salva no localStorage por navegador/usuario. */}
-                    <div className="flex items-center gap-3 px-3 py-1.5 text-[8px] font-black uppercase tracking-wider text-white/30 overflow-x-auto custom-scrollbar">
+                    {/* Cabecalho com largura proporcional e ajustavel (arrasta a borda direita
+                        de cada titulo) -- as colunas sempre preenchem 100% da largura da tela,
+                        sem precisar rolar pro lado nem no celular nem no PC. Codigo/Data somem
+                        no celular pra sobrar espaco pro que importa (Nome, Itens e Valor). */}
+                    <div ref={saleListHeaderRef} className="flex items-center gap-2 px-3 py-1.5 text-[8px] font-black uppercase tracking-wider text-white/30">
                       {canManageHistory && <span className="w-3.5 shrink-0" />}
-                      <div className="relative shrink-0" style={{ width: colW('nome') }}>Nome<ResizeHandle colKey="nome" /></div>
-                      <div className="relative shrink-0" style={{ width: colW('itens') }}>Itens / Descrição<ResizeHandle colKey="itens" /></div>
-                      <div className="relative shrink-0" style={{ width: colW('codigo') }}>Código<ResizeHandle colKey="codigo" /></div>
-                      <div className="relative shrink-0" style={{ width: colW('data') }}>Data<ResizeHandle colKey="data" /></div>
-                      <div className="relative shrink-0 text-center" style={{ width: colW('status') }}>Status<ResizeHandle colKey="status" /></div>
-                      <div className="relative shrink-0 text-right" style={{ width: colW('valor') }}>Valor / Pagamento<ResizeHandle colKey="valor" /></div>
-                      <div className="shrink-0 text-center" style={{ width: colW('acoes') }}>Ações</div>
+                      <div className="relative min-w-0" style={colFlex('nome')}>Nome<ResizeHandle colKey="nome" /></div>
+                      <div className="relative min-w-0" style={colFlex('itens')}>Itens / Descrição<ResizeHandle colKey="itens" /></div>
+                      <div className="relative min-w-0 hidden sm:block" style={colFlex('codigo')}>Código<ResizeHandle colKey="codigo" /></div>
+                      <div className="relative min-w-0 hidden sm:block" style={colFlex('data')}>Data<ResizeHandle colKey="data" /></div>
+                      <div className="relative min-w-0 text-center" style={colFlex('status')}>Status<ResizeHandle colKey="status" /></div>
+                      <div className="relative min-w-0 text-right" style={colFlex('valor')}>Valor / Pagamento</div>
+                      <div className="shrink-0 w-8 text-center">Ações</div>
                     </div>
 
                     {filteredSales.map(sale => {
@@ -10075,23 +10097,23 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       const lucro = user?.isAdmin ? calcularLucroDaVenda(sale) : null;
                       const isRowMenuOpen = openSaleRowActionsId === sale.id;
                       return (
-                        <div key={sale.id} className="flex items-center gap-3 bg-slate-900/60 hover:bg-slate-900 border border-white/5 rounded-xl px-3 py-2 transition-all overflow-x-auto custom-scrollbar">
+                        <div key={sale.id} className="flex items-center gap-2 bg-slate-900/60 hover:bg-slate-900 border border-white/5 rounded-xl px-3 py-2 transition-all">
                           {canManageHistory && (
                             <input type="checkbox" checked={selectedSaleIds.has(sale.id)} onChange={() => toggleSaleSelection(sale.id)} className="w-3.5 h-3.5 shrink-0 accent-primary-500" />
                           )}
 
                           {/* Nome */}
-                          <div className="shrink-0 overflow-hidden" style={{ width: colW('nome') }}>
-                            <span className="text-[11px] font-black text-white whitespace-nowrap block truncate">{(sale.customerName || 'Cliente de Balcão').toUpperCase()}</span>
+                          <div className="min-w-0 overflow-hidden" style={colFlex('nome')}>
+                            <span className="text-[11px] font-black text-white block truncate">{(sale.customerName || 'Cliente de Balcão').toUpperCase()}</span>
                             {sale.observacoes && (
-                              <span className="text-[9px] text-amber-300/70 italic whitespace-nowrap block truncate" title={sale.observacoes}>"{sale.observacoes}"</span>
+                              <span className="text-[9px] text-amber-300/70 italic block truncate" title={sale.observacoes}>"{sale.observacoes}"</span>
                             )}
                           </div>
 
                           {/* Itens / Descrição + etiquetas de origem (Contrato/Orçamento) */}
-                          <div className="shrink-0 flex items-center gap-1.5 overflow-hidden" style={{ width: colW('itens') }}>
+                          <div className="min-w-0 flex items-center gap-1.5 overflow-hidden" style={colFlex('itens')}>
                             {sale.items && sale.items.length > 0 && (
-                              <span className="text-[9px] text-white/40 italic whitespace-nowrap truncate" title={sale.items[sale.items.length - 1].name}>
+                              <span className="text-[9px] text-white/40 italic truncate" title={sale.items[sale.items.length - 1].name}>
                                 {sale.items[sale.items.length - 1].name}{sale.items.length > 1 ? ` (+${sale.items.length - 1})` : ''}
                               </span>
                             )}
@@ -10099,7 +10121,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               <button
                                 onClick={() => { setActiveTab('contratos'); setHighlightContratoId(sale.contratoId!); setTimeout(() => setHighlightContratoId(null), 4000); }}
                                 title="Ver contrato vinculado"
-                                className="shrink-0 text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors whitespace-nowrap"
+                                className="shrink-0 text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors"
                               >
                                 Contrato
                               </button>
@@ -10108,7 +10130,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               <button
                                 onClick={() => { setActiveTab('orcamentos'); setHighlightOrcamentoId(sale.orcamentoId!); setTimeout(() => setHighlightOrcamentoId(null), 4000); }}
                                 title="Ver orçamento vinculado"
-                                className="shrink-0 text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full bg-primary-500/20 text-primary-300 hover:bg-primary-500/30 transition-colors whitespace-nowrap"
+                                className="shrink-0 text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full bg-primary-500/20 text-primary-300 hover:bg-primary-500/30 transition-colors"
                               >
                                 Orçamento
                               </button>
@@ -10116,18 +10138,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           </div>
 
                           {/* Código */}
-                          <div className="shrink-0 overflow-hidden" style={{ width: colW('codigo') }}>
-                            <span className="text-[9px] text-white/30 font-mono whitespace-nowrap">#{sale.id.slice(-8).toUpperCase()}</span>
+                          <div className="min-w-0 overflow-hidden hidden sm:block" style={colFlex('codigo')}>
+                            <span className="text-[9px] text-white/30 font-mono truncate block">#{sale.id.slice(-8).toUpperCase()}</span>
                           </div>
 
                           {/* Data */}
-                          <div className="shrink-0 overflow-hidden" style={{ width: colW('data') }}>
-                            <span className="text-[9px] text-white/30 whitespace-nowrap">{safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
+                          <div className="min-w-0 overflow-hidden hidden sm:block" style={colFlex('data')}>
+                            <span className="text-[9px] text-white/30 truncate block">{safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
                           </div>
 
                           {/* Status */}
-                          <div className="shrink-0 flex justify-center" style={{ width: colW('status') }}>
-                            <Badge className={cn("text-[7.5px] font-black uppercase px-1.5 py-0.5 border-none shrink-0 whitespace-nowrap", isPartial ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300")}>
+                          <div className="min-w-0 flex justify-center" style={colFlex('status')}>
+                            <Badge className={cn("text-[7.5px] font-black uppercase px-1.5 py-0.5 border-none shrink-0 truncate", isPartial ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300")}>
                               {isPartial ? `FALTA R$ ${balance.toFixed(2).replace('.', ',')}` : 'PAGO'}
                             </Badge>
                           </div>
@@ -10135,13 +10157,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           {/* Valor / Pagamento -- total em destaque + composicao do pagamento
                               (ex: "100 Pix | 100 Din") logo abaixo, e o lucro liquido do pedido
                               (Admin) abaixo do status/pagamento */}
-                          <div className="shrink-0 text-right" style={{ width: colW('valor') }}>
-                            <span className="text-[11px] font-black text-white block whitespace-nowrap">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
+                          <div className="min-w-0 text-right overflow-hidden" style={colFlex('valor')}>
+                            <span className="text-[11px] font-black text-white block truncate">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
                             {composicaoPagamento && (
-                              <span className="text-[8px] text-white/40 block whitespace-nowrap truncate" title={composicaoPagamento}>{composicaoPagamento}</span>
+                              <span className="text-[8px] text-white/40 block truncate" title={composicaoPagamento}>{composicaoPagamento}</span>
                             )}
                             {lucro !== null && (
-                              <span className={cn("text-[8px] font-bold block whitespace-nowrap", lucro >= 0 ? "text-emerald-400/80" : "text-rose-400/80")}>
+                              <span className={cn("text-[8px] font-bold block truncate", lucro >= 0 ? "text-emerald-400/80" : "text-rose-400/80")}>
                                 Lucro: R$ {lucro.toFixed(2).replace('.', ',')}
                               </span>
                             )}
@@ -10151,7 +10173,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               todas as opcoes (Contrato, Clonar, Reabrir, Cancelar, Editar, Apagar
                               etc), no lugar da fileira de botoes direto na linha. Mesmo padrao de
                               portal + posicionamento usado no menu de acoes de Contratos. */}
-                          <div className="shrink-0 flex justify-center" style={{ width: colW('acoes') }}>
+                          <div className="shrink-0 w-8 flex justify-center">
                             <button
                               onClick={(e) => {
                                 if (isRowMenuOpen) { setOpenSaleRowActionsId(null); return; }
