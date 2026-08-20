@@ -445,6 +445,7 @@ const mapLeadRow = (row: any): Lead => ({
   funnelStageId: row.funnel_stage_id || undefined,
   sourceType: row.source_type || undefined,
   lastMessageText: row.last_message_text || undefined,
+  photoUrl: row.photo_url || undefined,
   lastMessageDirection: row.last_message_direction || undefined,
   waitingSince: row.waiting_since || undefined,
   estimatedValue: row.estimated_value !== null ? Number(row.estimated_value) : undefined,
@@ -3750,7 +3751,11 @@ const KanbanCard = ({ lead, onClick, isSelected, isDragging }: { key?: any, lead
          <div className="mt-4 pt-4 border-t border-white/5 flex items-center justify-between">
             <div className="flex items-center gap-2">
                <div className="w-6 h-6 rounded-full bg-slate-800 border border-white/10 flex items-center justify-center overflow-hidden">
-                  <img src={`https://i.pravatar.cc/100?u=${lead.id}`} className="w-full h-full object-cover grayscale opacity-50" referrerPolicy="no-referrer" />
+                  {lead.photoUrl ? (
+                    <img src={lead.photoUrl} alt={lead.fullName} className="w-full h-full object-cover" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                  ) : (
+                    <span className="text-[9px] font-black text-white/30">{(lead.fullName || '?').trim().charAt(0).toUpperCase()}</span>
+                  )}
                </div>
                <p className="text-[9px] font-bold text-white/30 uppercase tracking-[2px] truncate max-w-[80px]">{lead.phone}</p>
             </div>
@@ -4302,6 +4307,15 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
                 )}
               >
                  {isSelected && <div className="absolute left-0 top-0 w-1 h-full bg-primary-500" />}
+                 <div className="flex items-start gap-2.5">
+                    <div className="w-9 h-9 rounded-full bg-slate-800 border border-white/10 flex items-center justify-center overflow-hidden shrink-0 mt-0.5">
+                       {l.photoUrl ? (
+                         <img src={l.photoUrl} alt={l.fullName} className="w-full h-full object-cover" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                       ) : (
+                         <span className="text-[11px] font-black text-white/40">{(l.fullName || '?').trim().charAt(0).toUpperCase()}</span>
+                       )}
+                    </div>
+                    <div className="flex-1 min-w-0">
                  <div className="flex justify-between items-start mb-1 gap-2">
                     <div className="flex items-center gap-2 truncate">
                        <p className={cn("font-bold transition-colors truncate text-sm", isSelected ? "text-primary-300" : "text-white group-hover:text-primary-300")}>{l.fullName}</p>
@@ -4334,6 +4348,8 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
                        <div className="w-3 h-3 rounded-full bg-white/5 flex items-center justify-center">
                           <CheckCircle2 size={10} className="text-emerald-400" />
                        </div>
+                    </div>
+                 </div>
                     </div>
                  </div>
               </div>

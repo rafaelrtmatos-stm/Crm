@@ -41,12 +41,28 @@ async function buscarMensagensDoChat(headers, remoteJid) {
   return data?.messages?.records || (Array.isArray(data) ? data : []);
 }
 
-async function garantirLead(phone, nome) {
+async function garantirLead(phone, nome, evoHeaders) {
   // So cria o lead se ainda nao existir — nunca sobrescreve nome/etapa de um lead que ja
   // existe (podia ter sido corrigido manualmente ou ja estar em outra etapa do funil)
   const buscaR = await fetch(`${SUPABASE_URL}/rest/v1/leads?company_id=eq.${COMPANY_ID}&phone=eq.${phone}&select=id`, { headers: supaHeaders });
   const existentes = await buscaR.json();
   if (Array.isArray(existentes) && existentes.length > 0) return;
+
+  // Busca a foto de perfil do contato — ja aproveita e traz junto com a criacao do lead
+  let fotoUrl = null;
+  try {
+    const picRes = await fetch(`${EVOLUTION_API_URL}/chat/fetchProfilePictureUrl/${INSTANCE_NAME}`, {
+      method: 'POST',
+      headers: evoHeaders,
+      body: JSON.stringify({ number: phone }),
+    });
+    if (picRes.ok) {
+      const picData = await picRes.json();
+      fotoUrl = picData?.profilePictureUrl || picData?.url || null;
+    }
+  } catch (err) {
+    console.error('Falha ao buscar foto do contato durante importação (nao impede o resto):', err);
+  }
 
   // Acha o funil padrao e a etapa inicial, igual a automacao de mensagem nova ja faz
   let funnelId = null, stageId = null;
@@ -77,6 +93,7 @@ async function garantirLead(phone, nome) {
       full_name: nome || 'Cliente (importado)',
       whatsapp_name: nome || '',
       phone,
+      photo_url: fotoUrl,
       source_type: 'WhatsApp',
       status: 'ENTRADA',
     }),
@@ -118,7 +135,7 @@ export default async function handler(req, res) {
     if (remoteJid && remoteJid.endsWith('@s.whatsapp.net')) {
       const phone = remoteJid.replace('@s.whatsapp.net', '').replace(/\D/g, '');
       if (phone) {
-        await garantirLead(phone, nomeContato);
+        await garantirLead(phone, nomeContato, evoHeaders);
 
         const mensagens = await buscarMensagensDoChat(evoHeaders, remoteJid);
         for (const msg of mensagens) {

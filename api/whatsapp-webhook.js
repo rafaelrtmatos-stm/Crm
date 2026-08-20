@@ -12,6 +12,10 @@
 
 const SUPABASE_URL = 'https://areqouezrbdubfutjzki.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_YbzFXDHWQy-k0F9uNtVJ2g_urcsgmVt';
+const COMPANY_ID = 'rafa-arts';
+const INSTANCE_NAME = 'rafa-arts';
+const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL;
+const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY;
 
 // Segredo compartilhado com a Evolution API — configura o MESMO valor nos dois lados
 // (aqui via variavel de ambiente da Vercel, e na Evolution API como header customizado
@@ -65,6 +69,36 @@ async function garantirGrupoExiste(groupJid, nomeGrupo) {
   });
   const criado = await createRes.json();
   return Array.isArray(criado) ? criado[0] : { visivel: false };
+}
+
+async function garantirFotoLead(phone, evoHeaders) {
+  try {
+    // So busca a foto se o lead ainda NAO tem uma salva — evita ficar chamando a
+    // Evolution API toda mensagem, so na primeira vez (ou se a foto ainda estiver vazia)
+    const buscaR = await fetch(`${SUPABASE_URL}/rest/v1/leads?company_id=eq.${COMPANY_ID}&phone=eq.${phone}&select=id,photo_url`, {
+      headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+    });
+    const leads = await buscaR.json();
+    if (!Array.isArray(leads) || leads.length === 0 || leads[0].photo_url) return;
+
+    const picRes = await fetch(`${EVOLUTION_API_URL}/chat/fetchProfilePictureUrl/${INSTANCE_NAME}`, {
+      method: 'POST',
+      headers: evoHeaders,
+      body: JSON.stringify({ number: phone }),
+    });
+    if (!picRes.ok) return;
+    const picData = await picRes.json();
+    const fotoUrl = picData?.profilePictureUrl || picData?.url || null;
+    if (!fotoUrl) return;
+
+    await fetch(`${SUPABASE_URL}/rest/v1/leads?id=eq.${leads[0].id}`, {
+      method: 'PATCH',
+      headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ photo_url: fotoUrl }),
+    });
+  } catch (err) {
+    console.error('Falha ao buscar foto do contato (nao impede o resto):', err);
+  }
 }
 
 async function atualizarStatusConexao(status) {
@@ -141,6 +175,10 @@ export default async function handler(req, res) {
 
         if (phone && text) {
           await inserirMensagem({ phone, text, senderName, direction: 'incoming' });
+          if (EVOLUTION_API_URL && EVOLUTION_API_KEY) {
+            const evoHeaders = { apikey: EVOLUTION_API_KEY, 'Content-Type': 'application/json' };
+            garantirFotoLead(phone, evoHeaders); // nao usa await de proposito — nao atrasa a resposta do webhook
+          }
         }
       }
     }

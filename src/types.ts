@@ -141,6 +141,7 @@ export interface Lead extends BaseEntity {
   funnelStageId?: string;
   sourceType?: string;
   lastMessageText?: string;
+  photoUrl?: string;
   estimatedValue?: number;
   tags?: string[];
   tracking?: {
