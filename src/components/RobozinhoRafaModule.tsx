@@ -86,7 +86,9 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
       setLeads(all.filter(l => !!l.waitingSince));
     };
     loadLeads();
-    const channel = supabase.channel('robozinho-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.${currentCompany.id}` }, loadLeads).subscribe();
+    // company_id no Supabase e' sempre 'rafa-arts' (fixo) -- currentCompany.id (Firestore)
+    // nunca bate com esse valor. Ver ALL_HARDCODED_COMPANY_ID_FIXES.md.
+    const channel = supabase.channel('robozinho-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.rafa-arts` }, loadLeads).subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [currentCompany]);
 
@@ -107,7 +109,9 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
       setLoading(false);
     };
     loadInteractions();
-    const channel = supabase.channel('robozinho-interactions').on('postgres_changes', { event: '*', schema: 'public', table: 'robozinho_interactions', filter: `company_id=eq.${currentCompany.id}` }, loadInteractions).subscribe();
+    // company_id no Supabase e' sempre 'rafa-arts' (fixo) -- currentCompany.id (Firestore)
+    // nunca bate com esse valor. Ver ALL_HARDCODED_COMPANY_ID_FIXES.md.
+    const channel = supabase.channel('robozinho-interactions').on('postgres_changes', { event: '*', schema: 'public', table: 'robozinho_interactions', filter: `company_id=eq.rafa-arts` }, loadInteractions).subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [currentCompany]);
 
