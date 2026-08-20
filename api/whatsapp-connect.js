@@ -1,8 +1,9 @@
 // Ponte entre o front-end (IntegracoesModule.tsx) e a Evolution API — o front nunca fala
 // direto com a Evolution API (evita expor a API Key dela no navegador). Esse endpoint:
 //
-//  GET  /api/whatsapp-connect          -> cria a instancia (se nao existir) e devolve o QR Code
-//  GET  /api/whatsapp-connect?status=1 -> so consulta o status atual da conexao (usado no poll)
+//  GET    /api/whatsapp-connect          -> cria a instancia (se nao existir) e devolve o QR Code
+//  GET    /api/whatsapp-connect?status=1 -> so consulta o status atual da conexao (usado no poll)
+//  DELETE /api/whatsapp-connect          -> desconecta o numero (logout), mantendo a instancia pra reconectar depois
 //
 // Variaveis de ambiente necessarias (configurar em Vercel > Settings > Environment Variables):
 //   EVOLUTION_API_URL  -> ex: https://sua-instancia.up.railway.app
@@ -23,6 +24,21 @@ export default async function handler(req, res) {
   const headers = { apikey: EVOLUTION_API_KEY, 'Content-Type': 'application/json' };
 
   try {
+    // --- Desconectar o numero (logout) — a instancia continua existindo na Evolution API,
+    // so "desloga" o WhatsApp dela, entao da pra conectar outro numero depois escaneando
+    // um QR Code novo, sem precisar recriar nada ---
+    if (req.method === 'DELETE') {
+      const r = await fetch(`${EVOLUTION_API_URL}/instance/logout/${INSTANCE_NAME}`, { method: 'DELETE', headers });
+      if (!r.ok) {
+        const errBody = await r.text().catch(() => '');
+        console.error('Evolution API recusou o logout:', errBody);
+        res.status(502).json({ error: 'A Evolution API recusou desconectar o número.' });
+        return;
+      }
+      res.status(200).json({ ok: true });
+      return;
+    }
+
     // --- Só consultar status (usado pelo poll do modal, depois de já ter mostrado o QR) ---
     if (req.query.status) {
       const r = await fetch(`${EVOLUTION_API_URL}/instance/connectionState/${INSTANCE_NAME}`, { headers });

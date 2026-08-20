@@ -5,6 +5,7 @@ import { RobozinhoRafaModule } from './RobozinhoRafaModule';
 import { WhatsAppGroupsModule } from './WhatsAppGroupsModule';
 import { Company, AppUser } from '../types';
 import { supabase } from '../supabase';
+import { showConfirm } from '../lib/notify';
 
 // Página "Integrações" — reúne num só lugar as conexões com canais externos
 // (WhatsApp já conectado de verdade via Evolution API — Facebook/Instagram ainda não,
@@ -48,6 +49,26 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
   // --- QR Code (busca ao abrir o modal, e fica consultando o status a cada 4s até conectar) ---
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [loadingQr, setLoadingQr] = useState(false);
+  const [desconectando, setDesconectando] = useState(false);
+
+  const handleDesconectar = async () => {
+    if (!(await showConfirm('Desconectar esse número do WhatsApp? Você vai precisar escanear o QR Code de novo pra reconectar (com o mesmo número ou outro).'))) return;
+    setDesconectando(true);
+    try {
+      const resp = await fetch('/api/whatsapp-connect', { method: 'DELETE' });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        setQrError(data.error || 'Não foi possível desconectar.');
+        return;
+      }
+      setQrCode(null);
+    } catch (err) {
+      setQrError('Falha de conexão ao tentar desconectar.');
+    } finally {
+      setDesconectando(false);
+    }
+  };
+
   const [qrError, setQrError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -166,6 +187,13 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
                 </div>
                 <p className="text-sm font-bold text-white">WhatsApp conectado!</p>
                 <p className="text-xs text-white/40">As mensagens já estão chegando direto no Funil de Atendimento.</p>
+                <button
+                  onClick={handleDesconectar}
+                  disabled={desconectando}
+                  className="text-[11px] font-black uppercase tracking-widest text-rose-400 hover:text-rose-300 disabled:opacity-50 mx-auto block pt-2"
+                >
+                  {desconectando ? 'Desconectando...' : 'Desconectar número'}
+                </button>
               </>
             ) : qrError ? (
               <>
