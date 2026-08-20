@@ -171,11 +171,7 @@ import {
   DashboardLayout,
   WidgetType,
   ModuleCrudPermission,
-  ModulePermissions,
-  ProductVariation,
-  MaterialConsumptionRule,
-  MaterialConsumptionSnapshot,
-  TipoConsumoMaterial
+  ModulePermissions
 } from '../types';
 import { 
   AreaChart, 
@@ -7435,47 +7431,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const handleCancelSale = async (sale: SaleOrder) => {
-    if (!(await showConfirm(`Cancelar o pedido de ${sale.customerName || 'cliente'} (R$ ${sale.total.toFixed(2).replace('.', ',')})? Ele deixa de contar como venda ativa, mas continua no histórico marcado como cancelado. A matéria-prima consumida é devolvida ao estoque.`))) return;
+    if (!(await showConfirm(`Cancelar o pedido de ${sale.customerName || 'cliente'} (R$ ${sale.total.toFixed(2).replace('.', ',')})? Ele deixa de contar como venda ativa, mas continua no histórico marcado como cancelado.`))) return;
     const { error } = await supabase.from('vendas').update({ status: 'canceled' }).eq('id', sale.id);
     if (error) { showAlert(`Não foi possível cancelar o pedido: ${error.message}`); return; }
-
-    // Estorna (devolve ao estoque) exatamente a matéria-prima que essa venda consumiu, sem
-    // apagar o histórico original de baixa. Idempotente: se já foi estornada antes, não estorna de novo.
-    try {
-      const gruposConsumo = agruparConsumoPorMaterial(sale.items || []);
-      const referenciaVenda = `Pedido #${sale.id.slice(-8).toUpperCase()}`;
-      for (const materialId of Object.keys(gruposConsumo)) {
-        const qtd = gruposConsumo[materialId];
-        if (!qtd || qtd <= 0) continue;
-        const { data: jaEstornado } = await supabase.from('movimentacoes_estoque').select('id').eq('venda_id', sale.id).eq('produto_id', materialId).eq('tipo', 'estorno').maybeSingle();
-        if (jaEstornado) continue;
-        const { data: prodAtual } = await supabase.from('produtos').select('current_stock, controla_estoque, unit, name').eq('id', materialId).maybeSingle();
-        if (!prodAtual || prodAtual.controla_estoque === false) continue;
-        const estoqueAnterior = Number(prodAtual.current_stock) || 0;
-        const novoEstoque = estoqueAnterior + qtd;
-        await supabase.from('produtos').update({ current_stock: novoEstoque }).eq('id', materialId);
-        const { error: errMov } = await supabase.from('movimentacoes_estoque').insert({
-          produto_id: materialId,
-          produto_nome: prodAtual.name,
-          tipo: 'estorno',
-          quantidade: qtd,
-          unidade: prodAtual.unit || 'un',
-          motivo: 'estorno de venda cancelada',
-          referencia: referenciaVenda,
-          quantidade_anterior: estoqueAnterior,
-          quantidade_posterior: novoEstoque,
-          venda_id: sale.id,
-        });
-        if (errMov && (errMov as any).code !== '23505') console.error('Erro ao registrar estorno de estoque:', errMov);
-      }
-    } catch (err) {
-      console.error('Erro ao estornar matéria-prima da venda cancelada:', err);
-    }
-
     const atualizado = { ...sale, status: 'canceled' as const };
     setAllSalesHistory(prev => prev.map(s => s.id === sale.id ? atualizado : s));
     setSalesToday(prev => prev.map(s => s.id === sale.id ? atualizado : s));
-    showAlert('Pedido cancelado e matéria-prima estornada ao estoque!');
+    showAlert('Pedido cancelado!');
   };
 
   // Abre a nota inteira no Terminal de Vendas pra editar os itens do carrinho, com o cliente ja
@@ -7778,54 +7740,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       valorMinimo: p.valor_minimo ? Number(p.valor_minimo) : undefined,
     })));
   };
-
-  // Variações e Consumo de Matéria-Prima: mapa productId -> variações ativas, carregado junto
-  // com os produtos. O Caixa so USA essa configuracao (cadastrada no Produto), nunca a edita aqui.
-  const [variacoesPorProduto, setVariacoesPorProduto] = useState<Record<string, ProductVariation[]>>({});
-  const loadVariacoes = async () => {
-    const { data, error } = await supabase
-      .from('produto_variacoes')
-      .select('*, variacao_consumos(*)')
-      .eq('is_active', true)
-      .order('ordem', { ascending: true });
-    if (error) { console.error('Erro ao carregar variações de produto:', error); return; }
-    const map: Record<string, ProductVariation[]> = {};
-    (data || []).forEach((v: any) => {
-      const parsed: ProductVariation = {
-        id: v.id,
-        produtoId: v.produto_id,
-        name: v.name,
-        salePrice: Number(v.sale_price) || 0,
-        costPrice: v.cost_price != null ? Number(v.cost_price) : undefined,
-        isActive: v.is_active !== false,
-        ordem: v.ordem || 0,
-        consumos: (v.variacao_consumos || []).map((c: any): MaterialConsumptionRule => ({
-          id: c.id,
-          materialProdutoId: c.material_produto_id,
-          tipoConsumo: c.tipo_consumo,
-          quantidade: Number(c.quantidade) || 0,
-          unidade: c.unidade || undefined,
-        })),
-      };
-      if (!map[v.produto_id]) map[v.produto_id] = [];
-      map[v.produto_id].push(parsed);
-    });
-    setVariacoesPorProduto(map);
-  };
-
   useEffect(() => {
     loadProducts();
-    loadVariacoes();
     const channel = supabase
       .channel('pos-produtos')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'produtos' }, loadProducts)
       .subscribe();
-    const channelVariacoes = supabase
-      .channel('pos-produto-variacoes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'produto_variacoes' }, loadVariacoes)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'variacao_consumos' }, loadVariacoes)
-      .subscribe();
-    return () => { supabase.removeChannel(channel); supabase.removeChannel(channelVariacoes); };
+    return () => { supabase.removeChannel(channel); };
   }, []);
 
   // Cadastro rapido de produto direto pelo Terminal de Venda (mesma tabela do Estoque)
@@ -7885,83 +7806,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
 
-  // --- Seletor de Variação (Produto -> Variações -> Consumo de Matéria-Prima) ---
-  // Quando o produto clicado tem variações cadastradas, abre esse seletor em vez de
-  // adicionar direto ao carrinho. O restante do Caixa (carrinho, pagamento, finalização)
-  // continua exatamente igual pra produtos sem variação.
-  const [variationPickerProduct, setVariationPickerProduct] = useState<Product | null>(null);
-  const [variationMedidaSelecionada, setVariationMedidaSelecionada] = useState<ProductVariation | null>(null);
-  const [variationDimWidth, setVariationDimWidth] = useState<number | ''>('');
-  const [variationDimHeight, setVariationDimHeight] = useState<number | ''>('');
-
-  const buildMaterialConsumptionSnapshot = (variacao: ProductVariation, areaM2?: number): MaterialConsumptionSnapshot[] => {
-    return variacao.consumos.filter(c => c.materialProdutoId && c.quantidade > 0).map((c) => {
-      const materialProd = products.find(p => p.id === c.materialProdutoId);
-      return {
-        materialProdutoId: c.materialProdutoId,
-        materialNome: materialProd?.name,
-        tipoConsumo: c.tipoConsumo,
-        // 'fixo' e 'quantidade': consumo por unidade (multiplicado pela quantity na baixa, igual consumoEstoque).
-        // 'medida': ja resolvido pra area desta linha (quantity do item fica sempre 1, igual aos demais produtos por m2 do sistema).
-        quantidade: c.tipoConsumo === 'medida' ? c.quantidade * (areaM2 || 0) : c.quantidade,
-        unidade: c.unidade,
-      };
-    });
-  };
-
-  const confirmAddVariationItem = (variacao: ProductVariation, qty: number = selectedQty) => {
-    if (!variationPickerProduct) return;
-    const precisaMedida = variacao.consumos.some(c => c.tipoConsumo === 'medida');
-    if (precisaMedida) {
-      const largura = variationDimWidth === '' ? 0 : Number(variationDimWidth);
-      const altura = variationDimHeight === '' ? 0 : Number(variationDimHeight);
-      if (largura <= 0 || altura <= 0) { showAlert('Informe largura e altura pra calcular o consumo por medida.'); return; }
-      const area = largura * altura;
-      setCart(prev => [...prev, {
-        productId: variationPickerProduct.id,
-        name: variationPickerProduct.name,
-        price: variacao.salePrice,
-        quantity: 1,
-        dimensions: `${largura}x${altura}m`,
-        area,
-        variationId: variacao.id,
-        variationName: variacao.name,
-        materialConsumption: buildMaterialConsumptionSnapshot(variacao, area),
-      }]);
-    } else {
-      setCart(prev => {
-        // Mesmo produto + mesma variação já no carrinho (sem dimensão) -> soma a quantidade
-        const existing = prev.find(item => item.productId === variationPickerProduct.id && item.variationId === variacao.id && !item.dimensions);
-        if (existing) {
-          return prev.map(item => (item === existing) ? { ...item, quantity: item.quantity + qty } : item);
-        }
-        return [...prev, {
-          productId: variationPickerProduct.id,
-          name: variationPickerProduct.name,
-          price: variacao.salePrice,
-          quantity: qty,
-          variationId: variacao.id,
-          variationName: variacao.name,
-          materialConsumption: buildMaterialConsumptionSnapshot(variacao),
-        }];
-      });
-    }
-    setVariationPickerProduct(null);
-    setVariationMedidaSelecionada(null);
-    setVariationDimWidth('');
-    setVariationDimHeight('');
-    setSelectedQty(1);
-  };
-
   const addToCart = (product: Product) => {
-    const variacoesDoProduto = variacoesPorProduto[product.id];
-    if (variacoesDoProduto && variacoesDoProduto.length > 0) {
-      setVariationPickerProduct(product);
-      setVariationMedidaSelecionada(null);
-      setVariationDimWidth('');
-      setVariationDimHeight('');
-      return;
-    }
     if (product.unitType === 'm2' && product.name.toUpperCase().includes('INSULFILM')) {
       setInsulfilmModalProduct(product);
       setInsulfilmLarguraMaterial(product.larguraRolo || 1.5);
@@ -8160,34 +8005,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       await supabase.from('produtos').update({ largura_rolo: insulfilmLarguraMaterial }).eq('id', insulfilmModalProduct.id);
     }
     setInsulfilmModalProduct(null);
-  };
-
-  // Consumo de matéria-prima de um item do carrinho, generalizado pra suportar tanto o
-  // sistema novo de Variações (varios materiais por item, ja resolvidos no momento da adicao)
-  // quanto o modelo antigo (produto == a propria materia-prima, com consumoEstoque/area).
-  // Retorna a quantidade TOTAL a baixar por material (ja considerando item.quantity).
-  const getConsumoMateriais = (item: any): { materialId: string; quantidade: number }[] => {
-    if (item.materialConsumption && item.materialConsumption.length > 0) {
-      return item.materialConsumption
-        .filter((mc: any) => mc.materialProdutoId)
-        .map((mc: any) => ({ materialId: mc.materialProdutoId, quantidade: (Number(mc.quantidade) || 0) * item.quantity }));
-    }
-    if (!item.productId || item.productId === 'manual') return [];
-    const qtd = item.consumoEstoque !== undefined ? item.consumoEstoque * item.quantity : (item.area ? item.area * item.quantity : item.quantity);
-    return [{ materialId: item.productId, quantidade: qtd }];
-  };
-
-  // Agrupa o consumo de vários itens do carrinho por material (soma quando o mesmo material
-  // aparece em mais de um item, evitando ler/escrever o estoque duas vezes em paralelo — o que
-  // causaria "lost update" se dois itens consomem a mesma matéria-prima).
-  const agruparConsumoPorMaterial = (itens: any[]): Record<string, number> => {
-    const totais: Record<string, number> = {};
-    itens.forEach((item) => {
-      getConsumoMateriais(item).forEach(({ materialId, quantidade }) => {
-        totais[materialId] = (totais[materialId] || 0) + quantidade;
-      });
-    });
-    return totais;
   };
 
   // Consumo linear real do rolo: testa as duas orientacoes da peca e usa a dimensao
@@ -8574,33 +8391,22 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       const totalPago = (editingFullOrder.downPayment || 0) + paymentEntriesTotal;
       const novoSaldo = Math.max(0, total - totalPago);
       try {
-        // Ajusta estoque so pela diferenca de consumo entre os itens antigos e os novos (suporta
-        // tanto o modelo antigo quanto o novo sistema de Variações com múltiplos materiais por item)
-        const consumoAntigo = agruparConsumoPorMaterial(editingFullOrder.items || []);
-        const consumoNovo = agruparConsumoPorMaterial(cart);
+        // Ajusta estoque so pela diferenca de consumo entre os itens antigos e os novos
+        const consumoItem = (i: any) => i.consumoEstoque !== undefined ? i.consumoEstoque * i.quantity : (i.area ? i.area * i.quantity : i.quantity);
+        const consumoAntigo: Record<string, number> = {};
+        (editingFullOrder.items || []).forEach((i: any) => { if (i.productId && i.productId !== 'manual') consumoAntigo[i.productId] = (consumoAntigo[i.productId] || 0) + consumoItem(i); });
+        const consumoNovo: Record<string, number> = {};
+        cart.forEach((i: any) => { if (i.productId && i.productId !== 'manual') consumoNovo[i.productId] = (consumoNovo[i.productId] || 0) + consumoItem(i); });
         const todosIds = new Set([...Object.keys(consumoAntigo), ...Object.keys(consumoNovo)]);
-        for (const pid of Array.from(todosIds)) {
+        await Promise.all(Array.from(todosIds).map(async (pid) => {
           const delta = (consumoNovo[pid] || 0) - (consumoAntigo[pid] || 0);
-          if (delta === 0) continue;
-          const { data: prodAtual } = await supabase.from('produtos').select('current_stock, controla_estoque, unit, name').eq('id', pid).maybeSingle();
+          if (delta === 0) return;
+          const { data: prodAtual } = await supabase.from('produtos').select('current_stock, controla_estoque').eq('id', pid).maybeSingle();
           if (prodAtual && prodAtual.controla_estoque !== false) {
-            const estoqueAnterior = Number(prodAtual.current_stock) || 0;
-            const novoEstoque = Math.max(0, estoqueAnterior - delta);
+            const novoEstoque = Math.max(0, (Number(prodAtual.current_stock) || 0) - delta);
             await supabase.from('produtos').update({ current_stock: novoEstoque }).eq('id', pid);
-            await supabase.from('movimentacoes_estoque').insert({
-              produto_id: pid,
-              produto_nome: prodAtual.name,
-              tipo: 'ajuste',
-              quantidade: Math.abs(delta),
-              unidade: prodAtual.unit || 'un',
-              motivo: delta > 0 ? 'ajuste de venda editada (consumo maior)' : 'ajuste de venda editada (consumo menor)',
-              referencia: `Pedido #${editingFullOrder.id.slice(-8).toUpperCase()}`,
-              quantidade_anterior: estoqueAnterior,
-              quantidade_posterior: novoEstoque,
-              venda_id: editingFullOrder.id,
-            });
           }
-        }
+        }));
 
         const pagamentosFinaisEdicao = [...editingPaymentsList, ...paymentEntries];
         const { data, error } = await supabase.from('vendas').update({
@@ -8723,19 +8529,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
     const isPartialSale = currentRemaining > 0 || isPending;
 
-    // Checagem de estoque insuficiente de matéria-prima ANTES de gravar a venda — não esconde
-    // o problema, mostra o que falta e deixa o operador decidir se continua mesmo assim.
-    const consumoPrevisto = agruparConsumoPorMaterial(cart);
-    const idsMateriais = Object.keys(consumoPrevisto);
-    if (idsMateriais.length > 0) {
-      const { data: materiaisAtuais } = await supabase.from('produtos').select('id, name, current_stock, controla_estoque, unit').in('id', idsMateriais);
-      const faltando = (materiaisAtuais || []).filter((m: any) => m.controla_estoque !== false && (Number(m.current_stock) || 0) < consumoPrevisto[m.id]);
-      if (faltando.length > 0) {
-        const detalhes = faltando.map((m: any) => `${m.name}: disponível ${(Number(m.current_stock) || 0).toFixed(2).replace('.', ',')} ${m.unit || ''}, necessário ${consumoPrevisto[m.id].toFixed(2).replace('.', ',')} ${m.unit || ''}`).join('\n');
-        if (!(await showConfirm(`Estoque insuficiente de matéria-prima:\n${detalhes}\n\nDeseja continuar mesmo assim?`))) return;
-      }
-    }
-
     const order: SaleOrder = {
       id: `ord_${Date.now()}`,
       companyId: currentCompany?.id || 'default',
@@ -8777,38 +8570,32 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       if (error) throw error;
       insertedVenda = insertedVendaResult;
 
-      // Baixa automatica de estoque de matéria-prima, agrupada por material (evita baixar duas vezes
-      // o mesmo material quando ele aparece em mais de um item) e feita sequencialmente (nao em paralelo)
-      // pra nao correr risco de "lost update" quando dois itens consomem o mesmo material.
-      // Idempotente: antes de cada baixa, verifica se aquela venda+material já foi baixada (item 15 do pedido).
-      const referenciaVenda = `Pedido #${insertedVenda.id.slice(-8).toUpperCase()}`;
-      const gruposConsumo = agruparConsumoPorMaterial(cart);
-      for (const materialId of Object.keys(gruposConsumo)) {
-        const qtdBaixa = gruposConsumo[materialId];
-        if (!qtdBaixa || qtdBaixa <= 0) continue;
-        const { data: jaBaixado } = await supabase.from('movimentacoes_estoque').select('id').eq('venda_id', insertedVenda.id).eq('produto_id', materialId).eq('tipo', 'saida').maybeSingle();
-        if (jaBaixado) continue; // ja baixado antes (reprocessamento) -- nao baixa de novo
-        const { data: prodAtual } = await supabase.from('produtos').select('current_stock, controla_estoque, unit, name').eq('id', materialId).maybeSingle();
-        if (!prodAtual || prodAtual.controla_estoque === false) continue;
-        const estoqueAnterior = Number(prodAtual.current_stock) || 0;
-        const novoEstoque = Math.max(0, estoqueAnterior - qtdBaixa);
-        const itensQueConsomem = cart.filter(i => getConsumoMateriais(i).some(c => c.materialId === materialId));
-        const nomesItens = itensQueConsomem.map(i => i.variationName ? `${i.name} / ${i.variationName}` : i.name).join(', ');
-        await supabase.from('produtos').update({ current_stock: novoEstoque }).eq('id', materialId);
-        const { error: errMov } = await supabase.from('movimentacoes_estoque').insert({
-          produto_id: materialId,
-          produto_nome: prodAtual.name,
-          tipo: 'saida',
-          quantidade: qtdBaixa,
-          unidade: prodAtual.unit || 'un',
-          motivo: 'venda',
-          referencia: `${referenciaVenda} — ${nomesItens}`,
-          quantidade_anterior: estoqueAnterior,
-          quantidade_posterior: novoEstoque,
-          venda_id: insertedVenda.id,
-        });
-        if (errMov && (errMov as any).code !== '23505') console.error('Erro ao registrar movimentação de estoque:', errMov);
-      }
+      // Baixa automatica de estoque para cada item vendido (produtos do catalogo real, ignora itens livres/manuais)
+      // Roda em paralelo (Promise.all) em vez de um item de cada vez, pra nao deixar o fechamento lento
+      await Promise.all(cart.filter(item => item.productId && item.productId !== 'manual').map(async (item) => {
+        const qtdBaixa = item.consumoEstoque !== undefined
+          ? item.consumoEstoque * item.quantity
+          : (item.area ? item.area * item.quantity : item.quantity);
+        const { data: prodAtual } = await supabase.from('produtos').select('current_stock, controla_estoque, unit').eq('id', item.productId).maybeSingle();
+        if (prodAtual && prodAtual.controla_estoque !== false) {
+          const estoqueAnterior = Number(prodAtual.current_stock) || 0;
+          const novoEstoque = Math.max(0, estoqueAnterior - qtdBaixa);
+          await Promise.all([
+            supabase.from('produtos').update({ current_stock: novoEstoque }).eq('id', item.productId),
+            supabase.from('movimentacoes_estoque').insert({
+              produto_id: item.productId,
+              produto_nome: item.name,
+              tipo: 'saida',
+              quantidade: qtdBaixa,
+              unidade: prodAtual.unit || (item.consumoEstoque !== undefined ? 'metro linear' : (item.area ? 'm²' : 'un')),
+              motivo: 'venda',
+              referencia: `Pedido #${order.id.slice(-8).toUpperCase()}`,
+              quantidade_anterior: estoqueAnterior,
+              quantidade_posterior: novoEstoque,
+            }),
+          ]);
+        }
+      }));
 
       // Se essa venda veio de um orçamento, marca o orçamento como Concluído — Venda Gerada
       if (linkedOrcamentoId && insertedVenda) {
@@ -9145,7 +8932,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                     </span>
                                     <div className="min-w-0 flex-1">
                                        <p className="text-[9px] sm:text-[10px] font-bold text-slate-900 uppercase truncate leading-tight tracking-tight">
-                                          {item.name}{item.variationName ? ` / ${item.variationName}` : ''}
+                                          {item.name}
                                        </p>
                                        {item.dimensions && (
                                           <p className="text-[7px] sm:text-[8px] font-bold text-slate-500 tracking-wider">
@@ -9338,10 +9125,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           className="flex items-center px-3 sm:px-4 py-1.5 sm:py-1.5 hover:bg-primary-50 transition-colors group cursor-pointer border-b border-slate-50 last:border-0"
                         >
                            <div className="flex-1 min-w-0">
-                              <p className="text-[9px] font-black text-slate-800 truncate leading-none uppercase tracking-tight flex items-center gap-1">
-                                 {product.name}
-                                 {variacoesPorProduto[product.id]?.length > 0 && <ChevronDown size={10} className="text-primary-500 shrink-0" />}
-                              </p>
+                              <p className="text-[9px] font-black text-slate-800 truncate leading-none uppercase tracking-tight">{product.name}</p>
                               <div className="flex items-center gap-2 mt-1">
                                  <span className="text-[7px] font-bold text-slate-300 tracking-[1px] uppercase bg-slate-100 px-1 rounded-sm">{product.code}</span>
                                  <span className="text-[7px] font-bold text-slate-400 uppercase">Est: {product.stock}</span>
@@ -12719,90 +12503,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
        </Modal>
      )}
 
-     {variationPickerProduct && (
-       <Modal
-         isOpen={!!variationPickerProduct}
-         onClose={() => { setVariationPickerProduct(null); setVariationMedidaSelecionada(null); }}
-         title={variationPickerProduct.name}
-         size="sm"
-       >
-         <div className="space-y-4 p-2">
-           {!variationMedidaSelecionada ? (
-             <>
-               <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Escolha a variação</p>
-               <div className="space-y-2">
-                 {(variacoesPorProduto[variationPickerProduct.id] || []).map(v => {
-                   const precisaMedida = v.consumos.some(c => c.tipoConsumo === 'medida');
-                   return (
-                     <button
-                       key={v.id}
-                       onClick={() => precisaMedida ? setVariationMedidaSelecionada(v) : confirmAddVariationItem(v)}
-                       className="w-full flex items-center justify-between gap-3 p-3.5 rounded-xl bg-white/5 border border-white/10 hover:bg-primary-500/10 hover:border-primary-500/40 transition-all text-left"
-                     >
-                       <div>
-                         <p className="text-xs font-black text-white uppercase">{v.name}</p>
-                         {v.consumos.length > 0 ? (
-                           <p className="text-[9px] text-white/40 mt-0.5">
-                             Consome: {v.consumos.map(c => c.materialNome || products.find(p => p.id === c.materialProdutoId)?.name).filter(Boolean).join(', ')}
-                           </p>
-                         ) : (
-                           <p className="text-[9px] text-white/25 mt-0.5">Não consome matéria-prima</p>
-                         )}
-                       </div>
-                       <span className="text-xs font-black text-emerald-400 shrink-0">R$ {v.salePrice.toFixed(2).replace('.', ',')}</span>
-                     </button>
-                   );
-                 })}
-               </div>
-               <div className="flex gap-1 bg-white/5 p-1 rounded-xl border border-white/10">
-                 {[1, 2, 3, 4, 5].map(q => (
-                   <button key={q} onClick={() => setSelectedQty(q)} className={cn("flex-1 rounded-lg py-2 text-xs font-black transition-all", selectedQty === q ? "bg-primary-500 text-slate-900" : "text-white/40 hover:text-white/70")}>{q}x</button>
-                 ))}
-               </div>
-             </>
-           ) : (
-             <>
-               <button onClick={() => setVariationMedidaSelecionada(null)} className="flex items-center gap-1.5 text-[10px] font-bold text-white/40 hover:text-white/70 uppercase">
-                 <ArrowLeft size={12} /> Voltar
-               </button>
-               <p className="text-xs font-black text-white uppercase">{variationMedidaSelecionada.name}</p>
-               <p className="text-[10px] text-white/40">Essa variação é vendida por medida — informe largura e altura pra calcular o consumo de matéria-prima automaticamente.</p>
-               <div className="grid grid-cols-2 gap-3">
-                 <div className="space-y-1">
-                   <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Largura (m)</label>
-                   <Input type="number" step="any" autoFocus placeholder="Ex: 1,00" value={variationDimWidth} onChange={(e: any) => setVariationDimWidth(e.target.value === '' ? '' : Number(e.target.value))} />
-                 </div>
-                 <div className="space-y-1">
-                   <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Altura (m)</label>
-                   <Input type="number" step="any" placeholder="Ex: 1,00" value={variationDimHeight} onChange={(e: any) => setVariationDimHeight(e.target.value === '' ? '' : Number(e.target.value))} />
-                 </div>
-               </div>
-               {variationDimWidth !== '' && variationDimHeight !== '' && Number(variationDimWidth) > 0 && Number(variationDimHeight) > 0 && (
-                 <div className="bg-slate-900/60 rounded-2xl border border-white/10 p-4 space-y-1">
-                   <div className="flex justify-between text-xs text-white/50">
-                     <span>Área</span>
-                     <span className="font-mono font-bold text-white">{(Number(variationDimWidth) * Number(variationDimHeight)).toFixed(2).replace('.', ',')} m²</span>
-                   </div>
-                   <div className="flex justify-between text-sm pt-1 border-t border-white/5">
-                     <span className="text-emerald-400 font-bold">Subtotal</span>
-                     <span className="font-mono font-black text-emerald-400">R$ {(Number(variationDimWidth) * Number(variationDimHeight) * variationMedidaSelecionada.salePrice).toFixed(2).replace('.', ',')}</span>
-                   </div>
-                 </div>
-               )}
-               <div className="flex justify-end gap-3 pt-1">
-                 <Button variant="ghost" onClick={() => setVariationMedidaSelecionada(null)}>Cancelar</Button>
-                 <Button className="bg-primary-500 hover:bg-primary-400 text-slate-900 font-black gap-2" onClick={() => confirmAddVariationItem(variationMedidaSelecionada)}>
-                   <Plus size={16} />
-                   <span>Adicionar ao Carrinho</span>
-                 </Button>
-               </div>
-             </>
-           )}
-         </div>
-       </Modal>
-     )}
-
-
      {waSendOrcamento && (
        <Modal isOpen={!!waSendOrcamento} onClose={() => setWaSendOrcamento(null)} title="Enviar Orçamento pelo WhatsApp" size="sm">
          <div className="space-y-4 p-2">
@@ -15478,24 +15178,6 @@ export const ServicesModule = ({ currentCompany }: { currentCompany: Company | n
 // --- INVENTORY ---
 // Modal de cadastro/edicao de produto — COMPONENTE UNICO usado tanto no Estoque quanto no Terminal de Venda,
 // pra garantir que "Adicionar Produto" no PDV seja literalmente o mesmo formulario/logica do Estoque.
-// Linha vazia de consumo de materia-prima (id local temporario ate salvar no banco)
-const emptyConsumo = (): MaterialConsumptionRule => ({
-  id: `tmp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-  materialProdutoId: '',
-  tipoConsumo: 'fixo',
-  quantidade: 0,
-});
-
-const emptyVariacao = (): ProductVariation => ({
-  id: `tmp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-  produtoId: '',
-  name: '',
-  salePrice: 0,
-  costPrice: undefined,
-  isActive: true,
-  consumos: [],
-});
-
 export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved }: {
   isOpen: boolean;
   onClose: () => void;
@@ -15510,99 +15192,15 @@ export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved }: {
   };
   const [formData, setFormData] = useState<Partial<InventoryItem>>(emptyForm);
   const [saving, setSaving] = useState(false);
-  const [formTab, setFormTab] = useState<'info' | 'precos' | 'variacoes' | 'estoque'>('info');
-
-  // --- Variações e Consumo de Matéria-Prima ---
-  const [variacoes, setVariacoes] = useState<ProductVariation[]>([]);
-  const [materiaisDisponiveis, setMateriaisDisponiveis] = useState<{ id: string; name: string; unit: string }[]>([]);
-  const [loadingVariacoes, setLoadingVariacoes] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
     setFormData(editingItem ? { ...editingItem } : { ...emptyForm });
-    setFormTab('info');
-    setVariacoes([]);
-    // Lista de matérias-primas = produtos/materiais já cadastrados no Estoque (não cria estoque paralelo)
-    supabase.from('produtos').select('id, name, unit').order('name', { ascending: true }).then(({ data }) => {
-      setMateriaisDisponiveis((data || []).map((p: any) => ({ id: p.id, name: p.name, unit: p.unit || 'un' })));
-    });
-    if (editingItem) {
-      setLoadingVariacoes(true);
-      supabase.from('produto_variacoes').select('*, variacao_consumos(*)').eq('produto_id', editingItem.id).order('ordem', { ascending: true })
-        .then(({ data, error }) => {
-          if (error) { console.error('Erro ao carregar variações:', error); setLoadingVariacoes(false); return; }
-          setVariacoes((data || []).map((v: any): ProductVariation => ({
-            id: v.id,
-            produtoId: v.produto_id,
-            name: v.name,
-            salePrice: Number(v.sale_price) || 0,
-            costPrice: v.cost_price != null ? Number(v.cost_price) : undefined,
-            isActive: v.is_active !== false,
-            ordem: v.ordem || 0,
-            consumos: (v.variacao_consumos || []).map((c: any): MaterialConsumptionRule => ({
-              id: c.id,
-              materialProdutoId: c.material_produto_id,
-              tipoConsumo: c.tipo_consumo,
-              quantidade: Number(c.quantidade) || 0,
-              unidade: c.unidade || undefined,
-            })),
-          })));
-          setLoadingVariacoes(false);
-        });
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, editingItem]);
 
-  const addVariacao = () => setVariacoes(prev => [...prev, emptyVariacao()]);
-  const removeVariacao = (id: string) => setVariacoes(prev => prev.filter(v => v.id !== id));
-  const updateVariacao = (id: string, patch: Partial<ProductVariation>) => setVariacoes(prev => prev.map(v => v.id === id ? { ...v, ...patch } : v));
-  const addConsumo = (variacaoId: string) => setVariacoes(prev => prev.map(v => v.id === variacaoId ? { ...v, consumos: [...v.consumos, emptyConsumo()] } : v));
-  const removeConsumo = (variacaoId: string, consumoId: string) => setVariacoes(prev => prev.map(v => v.id === variacaoId ? { ...v, consumos: v.consumos.filter(c => c.id !== consumoId) } : v));
-  const updateConsumo = (variacaoId: string, consumoId: string, patch: Partial<MaterialConsumptionRule>) => setVariacoes(prev => prev.map(v => v.id === variacaoId ? { ...v, consumos: v.consumos.map(c => c.id === consumoId ? { ...c, ...patch } : c) } : v));
-
-  // Salva as variações e seus consumos pro produto ja gravado (produtoId real, ja existente no banco).
-  // Estratégia simples e segura: apaga tudo que existia pra esse produto e recria do zero a partir
-  // do estado atual do formulário (o volume por produto é pequeno, então isso é seguro e evita diffs complexos).
-  const saveVariacoesParaProduto = async (produtoId: string) => {
-    const validas = variacoes.filter(v => v.name.trim());
-    await supabase.from('produto_variacoes').delete().eq('produto_id', produtoId);
-    for (let i = 0; i < validas.length; i++) {
-      const v = validas[i];
-      const { data: savedVar, error } = await supabase.from('produto_variacoes').insert({
-        produto_id: produtoId,
-        name: v.name.trim(),
-        sale_price: v.salePrice || 0,
-        cost_price: v.costPrice || null,
-        is_active: v.isActive !== false,
-        ordem: i,
-      }).select().single();
-      if (error) throw error;
-      const consumosValidos = v.consumos.filter(c => c.materialProdutoId && c.quantidade > 0);
-      if (consumosValidos.length > 0) {
-        const { error: errConsumo } = await supabase.from('variacao_consumos').insert(consumosValidos.map((c, ci) => ({
-          variacao_id: savedVar.id,
-          material_produto_id: c.materialProdutoId,
-          tipo_consumo: c.tipoConsumo,
-          quantidade: c.quantidade,
-          unidade: c.unidade || materiaisDisponiveis.find(m => m.id === c.materialProdutoId)?.unit || null,
-          ordem: ci,
-        })));
-        if (errConsumo) throw errConsumo;
-      }
-    }
-  };
-
   const handleSave = async () => {
     if (!formData.name?.trim()) { showAlert('Digite o nome do item.'); return; }
-    for (const v of variacoes) {
-      if (!v.name.trim()) continue;
-      for (const c of v.consumos) {
-        if (c.materialProdutoId && (!c.quantidade || c.quantidade <= 0)) {
-          showAlert(`Informe a quantidade consumida na variação "${v.name}".`);
-          return;
-        }
-      }
-    }
     setSaving(true);
     try {
       // Gera codigo automatico se o usuario nao digitou nenhum (so pra item novo, edicao mantem o que ja tem)
@@ -15641,7 +15239,6 @@ export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved }: {
         if (error) throw error;
         saved = data;
       }
-      await saveVariacoesParaProduto(saved.id);
       onSaved(saved);
       onClose();
     } catch (err: any) {
@@ -15652,37 +15249,9 @@ export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved }: {
     }
   };
 
-  const TABS: { id: 'info' | 'precos' | 'variacoes' | 'estoque'; label: string }[] = [
-    { id: 'info', label: 'Informações' },
-    { id: 'precos', label: 'Preços' },
-    { id: 'variacoes', label: 'Variações e Consumo' },
-    { id: 'estoque', label: 'Estoque' },
-  ];
-
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={editingItem ? 'EDITAR ITEM' : 'CADASTRO DE INSUMO / PRODUTO'} size="lg">
-      <div className="px-6 pt-4">
-        <div className="flex gap-1 bg-[#1a2333] p-1 rounded-xl border border-white/10 overflow-x-auto no-scrollbar">
-          {TABS.map(tab => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setFormTab(tab.id)}
-              className={cn(
-                "flex-1 whitespace-nowrap px-3 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all",
-                formTab === tab.id ? "bg-primary-500 text-slate-900" : "text-white/40 hover:text-white/70"
-              )}
-            >
-              {tab.label}
-              {tab.id === 'variacoes' && variacoes.filter(v => v.name.trim()).length > 0 && (
-                <span className="ml-1.5 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-white/20 text-[9px]">{variacoes.filter(v => v.name.trim()).length}</span>
-              )}
-            </button>
-          ))}
-        </div>
-      </div>
+    <Modal isOpen={isOpen} onClose={onClose} title={editingItem ? 'EDITAR ITEM' : 'CADASTRO DE INSUMO / PRODUTO'}>
       <div className="p-6 space-y-6">
-        {formTab === 'info' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="md:col-span-2">
             <Input label="NOME DO ITEM" value={formData.name} onChange={(e: any) => setFormData({ ...formData, name: e.target.value.toUpperCase() })} className="uppercase" />
@@ -15698,139 +15267,6 @@ export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved }: {
             </select>
           </div>
           <div className="space-y-2">
-            <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">TIPO DE ITEM</p>
-            <select className="w-full h-12 bg-[#1a2333] border border-white/10 rounded-xl px-4 text-xs text-white outline-none" value={formData.tipoItem} onChange={(e) => setFormData({ ...formData, tipoItem: e.target.value as any })}>
-              <option value="produto">Produto</option>
-              <option value="material">Material</option>
-              <option value="servico">Serviço</option>
-              <option value="acabamento">Acabamento</option>
-              <option value="composto">Produto Composto</option>
-            </select>
-          </div>
-          <div className="space-y-2">
-            <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">STATUS DO PRODUTO</p>
-            <div className="flex bg-[#1a2333] p-1 rounded-xl border border-white/10 h-12">
-               <button type="button" onClick={() => setFormData({ ...formData, isActive: true })} className={cn("flex-1 rounded-lg text-xs font-black uppercase transition-all", formData.isActive !== false ? "bg-emerald-500 text-slate-900" : "text-white/40")}>Ativo</button>
-               <button type="button" onClick={() => setFormData({ ...formData, isActive: false })} className={cn("flex-1 rounded-lg text-xs font-black uppercase transition-all", formData.isActive === false ? "bg-rose-500 text-white" : "text-white/40")}>Inativo</button>
-            </div>
-          </div>
-          <div className="md:col-span-2">
-             <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2">DESCRIÇÃO</p>
-             <textarea rows={2} className="w-full bg-[#1a2333] border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none resize-none" value={formData.descricao || ''} onChange={(e) => setFormData({ ...formData, descricao: e.target.value })} />
-          </div>
-        </div>
-        )}
-
-        {formTab === 'precos' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Input label="PREÇO DE COMPRA (CUSTO)" type="number" prefix="R$" value={formData.costPrice} onChange={(e: any) => setFormData({ ...formData, costPrice: e.target.value === '' ? '' : Number(e.target.value) })} />
-          <Input label="PREÇO DE VENDA" type="number" prefix="R$" value={formData.salePrice} onChange={(e: any) => setFormData({ ...formData, salePrice: e.target.value === '' ? '' : Number(e.target.value) })} />
-          {(formData.unit === 'm2' || formData.unit === 'etiqueta' || formData.unit === 'm') && (
-            <div className="md:col-span-2">
-              <Input label="VALOR MÍNIMO (R$) — cobrança mínima, mesmo se o cálculo der menos" type="number" step="any" placeholder="Ex: 20.00" value={formData.valorMinimo} onChange={(e: any) => setFormData({ ...formData, valorMinimo: e.target.value === '' ? '' : Number(e.target.value) })} />
-            </div>
-          )}
-          {variacoes.filter(v => v.name.trim()).length > 0 && (
-            <div className="md:col-span-2 p-3 rounded-xl bg-primary-500/10 border border-primary-500/20 text-[10px] text-primary-300 leading-relaxed">
-              Esse produto tem variações cadastradas — cada variação usa seu <b>próprio preço</b> (aba "Variações e Consumo"). O preço de venda acima só vale se o item for vendido sem escolher variação.
-            </div>
-          )}
-        </div>
-        )}
-
-        {formTab === 'variacoes' && (
-        <div className="space-y-4">
-          <div className="flex items-start justify-between gap-3">
-            <p className="text-[10px] text-white/40 leading-relaxed max-w-md">
-              Cadastre as variações/subcategorias desse produto (ex: "Adesivo impresso", "Adesivo automotivo").
-              Cada variação tem preço próprio e pode consumir uma ou mais matérias-primas já cadastradas no Estoque.
-              Produto sem nenhuma variação continua funcionando normal no Caixa.
-            </p>
-            <Button type="button" variant="secondary" onClick={addVariacao} className="shrink-0 whitespace-nowrap" icon={Plus}>Nova Variação</Button>
-          </div>
-
-          {loadingVariacoes && <p className="text-xs text-white/40">Carregando variações...</p>}
-
-          {!loadingVariacoes && variacoes.length === 0 && (
-            <div className="p-6 rounded-xl border border-dashed border-white/10 text-center">
-              <Layers className="mx-auto mb-2 text-white/20" size={24} />
-              <p className="text-xs text-white/40">Nenhuma variação cadastrada. Sem variações, o produto aparece no Caixa do jeito normal.</p>
-            </div>
-          )}
-
-          <div className="space-y-3">
-            {variacoes.map((v) => (
-              <div key={v.id} className="rounded-xl border border-white/10 bg-[#1a2333] p-4 space-y-3">
-                <div className="flex items-center gap-2">
-                  <input
-                    value={v.name}
-                    onChange={(e) => updateVariacao(v.id, { name: e.target.value })}
-                    placeholder="NOME DA VARIAÇÃO (ex: ADESIVO IMPRESSO)"
-                    className="flex-1 h-10 bg-[#0f1622] border border-white/10 rounded-lg px-3 text-xs font-bold text-white outline-none uppercase placeholder:text-white/20"
-                  />
-                  <button type="button" onClick={() => updateVariacao(v.id, { isActive: !v.isActive })} className={cn("h-10 px-3 rounded-lg text-[10px] font-black uppercase shrink-0", v.isActive ? "bg-emerald-500/20 text-emerald-400" : "bg-white/5 text-white/30")}>
-                    {v.isActive ? 'Ativo' : 'Inativo'}
-                  </button>
-                  <button type="button" onClick={() => removeVariacao(v.id)} className="h-10 w-10 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 flex items-center justify-center shrink-0"><Trash2 size={14} /></button>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-1">
-                    <p className="text-[9px] font-bold text-white/30 uppercase tracking-widest">Preço de venda</p>
-                    <input type="number" value={v.salePrice} onChange={(e) => updateVariacao(v.id, { salePrice: e.target.value === '' ? 0 : Number(e.target.value) })} className="w-full h-9 bg-[#0f1622] border border-white/10 rounded-lg px-2 text-xs text-white outline-none" />
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-[9px] font-bold text-white/30 uppercase tracking-widest">Custo</p>
-                    <input type="number" value={v.costPrice ?? ''} onChange={(e) => updateVariacao(v.id, { costPrice: e.target.value === '' ? undefined : Number(e.target.value) })} className="w-full h-9 bg-[#0f1622] border border-white/10 rounded-lg px-2 text-xs text-white outline-none" />
-                  </div>
-                </div>
-
-                <div className="pt-2 border-t border-white/5 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <p className="text-[9px] font-bold text-white/40 uppercase tracking-widest">Consumo de Matéria-Prima {v.consumos.length === 0 && <span className="text-white/25 normal-case font-normal">(nenhuma — essa variação não baixa estoque)</span>}</p>
-                    <button type="button" onClick={() => addConsumo(v.id)} className="text-[9px] font-black text-primary-400 uppercase flex items-center gap-1 hover:text-primary-300"><Plus size={11} /> Adicionar matéria-prima</button>
-                  </div>
-                  {v.consumos.map((c) => {
-                    const material = materiaisDisponiveis.find(m => m.id === c.materialProdutoId);
-                    return (
-                      <div key={c.id} className="grid grid-cols-12 gap-1.5 items-center bg-[#0f1622] rounded-lg p-2">
-                        <select
-                          value={c.materialProdutoId}
-                          onChange={(e) => updateConsumo(v.id, c.id, { materialProdutoId: e.target.value, unidade: materiaisDisponiveis.find(m => m.id === e.target.value)?.unit })}
-                          className="col-span-5 h-8 bg-[#1a2333] border border-white/10 rounded-md px-1.5 text-[10px] text-white outline-none"
-                        >
-                          <option value="">Selecione a matéria-prima...</option>
-                          {materiaisDisponiveis.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-                        </select>
-                        <select
-                          value={c.tipoConsumo}
-                          onChange={(e) => updateConsumo(v.id, c.id, { tipoConsumo: e.target.value as TipoConsumoMaterial })}
-                          className="col-span-3 h-8 bg-[#1a2333] border border-white/10 rounded-md px-1.5 text-[10px] text-white outline-none"
-                        >
-                          <option value="fixo">Fixo</option>
-                          <option value="quantidade">Por quantidade</option>
-                          <option value="medida">Por medida (m²)</option>
-                        </select>
-                        <input
-                          type="number" step="any" placeholder="Qtd"
-                          value={c.quantidade || ''}
-                          onChange={(e) => updateConsumo(v.id, c.id, { quantidade: e.target.value === '' ? 0 : Number(e.target.value) })}
-                          className="col-span-2 h-8 bg-[#1a2333] border border-white/10 rounded-md px-1.5 text-[10px] text-white outline-none"
-                        />
-                        <span className="col-span-1 text-[9px] text-white/30 text-center">{material?.unit || c.unidade || '-'}</span>
-                        <button type="button" onClick={() => removeConsumo(v.id, c.id)} className="col-span-1 h-8 rounded-md bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 flex items-center justify-center"><Trash2 size={12} /></button>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-        )}
-
-        {formTab === 'estoque' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-2">
             <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">UNIDADE</p>
             <select className="w-full h-12 bg-[#1a2333] border border-white/10 rounded-xl px-4 text-xs text-white outline-none" value={formData.unit} onChange={(e) => setFormData({ ...formData, unit: e.target.value as any })}>
               <option value="un">Unidade (un)</option>
@@ -15842,11 +15278,31 @@ export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved }: {
               <option value="etiqueta">Etiqueta Adesiva (cálculo especial)</option>
             </select>
           </div>
+          <Input label="PREÇO DE COMPRA (CUSTO)" type="number" prefix="R$" value={formData.costPrice} onChange={(e: any) => setFormData({ ...formData, costPrice: e.target.value === '' ? '' : Number(e.target.value) })} />
+          <Input label="PREÇO DE VENDA" type="number" prefix="R$" value={formData.salePrice} onChange={(e: any) => setFormData({ ...formData, salePrice: e.target.value === '' ? '' : Number(e.target.value) })} />
+
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">TIPO DE ITEM</p>
+            <select className="w-full h-12 bg-[#1a2333] border border-white/10 rounded-xl px-4 text-xs text-white outline-none" value={formData.tipoItem} onChange={(e) => setFormData({ ...formData, tipoItem: e.target.value as any })}>
+              <option value="produto">Produto</option>
+              <option value="material">Material</option>
+              <option value="servico">Serviço</option>
+              <option value="acabamento">Acabamento</option>
+              <option value="composto">Produto Composto</option>
+            </select>
+          </div>
           <div className="space-y-2">
             <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">CONTROLAR ESTOQUE?</p>
             <div className="flex bg-[#1a2333] p-1 rounded-xl border border-white/10 h-12">
                <button type="button" onClick={() => setFormData({ ...formData, controlaEstoque: true })} className={cn("flex-1 rounded-lg text-xs font-black uppercase transition-all", formData.controlaEstoque !== false ? "bg-primary-500 text-slate-900" : "text-white/40")}>Sim</button>
                <button type="button" onClick={() => setFormData({ ...formData, controlaEstoque: false })} className={cn("flex-1 rounded-lg text-xs font-black uppercase transition-all", formData.controlaEstoque === false ? "bg-primary-500 text-slate-900" : "text-white/40")}>Não</button>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">STATUS DO PRODUTO</p>
+            <div className="flex bg-[#1a2333] p-1 rounded-xl border border-white/10 h-12">
+               <button type="button" onClick={() => setFormData({ ...formData, isActive: true })} className={cn("flex-1 rounded-lg text-xs font-black uppercase transition-all", formData.isActive !== false ? "bg-emerald-500 text-slate-900" : "text-white/40")}>Ativo</button>
+               <button type="button" onClick={() => setFormData({ ...formData, isActive: false })} className={cn("flex-1 rounded-lg text-xs font-black uppercase transition-all", formData.isActive === false ? "bg-rose-500 text-white" : "text-white/40")}>Inativo</button>
             </div>
           </div>
 
@@ -15888,9 +15344,18 @@ export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved }: {
               />
             </div>
           )}
-        </div>
-        )}
 
+          {(formData.unit === 'm2' || formData.unit === 'etiqueta' || formData.unit === 'm') && (
+            <div className="md:col-span-2">
+              <Input label="VALOR MÍNIMO (R$) — cobrança mínima, mesmo se o cálculo der menos" type="number" step="any" placeholder="Ex: 20.00" value={formData.valorMinimo} onChange={(e: any) => setFormData({ ...formData, valorMinimo: e.target.value === '' ? '' : Number(e.target.value) })} />
+            </div>
+          )}
+
+          <div className="md:col-span-2">
+             <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2">DESCRIÇÃO</p>
+             <textarea rows={2} className="w-full bg-[#1a2333] border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none resize-none" value={formData.descricao || ''} onChange={(e) => setFormData({ ...formData, descricao: e.target.value })} />
+          </div>
+        </div>
         <div className="flex gap-4 pt-4">
            <Button variant="secondary" className="flex-1 h-14" onClick={onClose}>Cancelar</Button>
            <Button disabled={saving} className="flex-[2] h-14 bg-primary-500 text-slate-900 border-none shadow-xl shadow-primary-500/20" onClick={handleSave}>{saving ? 'Salvando...' : (editingItem ? 'Salvar Alterações' : 'Salvar Item')}</Button>

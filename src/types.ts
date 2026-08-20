@@ -13,41 +13,6 @@ export interface Product {
   valorMinimo?: number;
 }
 
-// Consumo de matéria-prima: uma variação de produto (ver ProductVariation) pode consumir
-// 0, 1 ou várias matérias-primas já cadastradas no Estoque (produtos.id).
-export type TipoConsumoMaterial = 'fixo' | 'quantidade' | 'medida';
-
-export interface MaterialConsumptionRule {
-  id: string; // id da linha em variacao_consumos (ou id temporário local antes de salvar)
-  materialProdutoId: string; // aponta pra um produto/insumo já cadastrado no Estoque
-  materialNome?: string; // so pra exibicao, nao persistido isolado (denormalizado na leitura)
-  tipoConsumo: TipoConsumoMaterial;
-  quantidade: number; // fixo/quantidade: consumo por unidade vendida. medida: consumo por m2 (fator, normalmente 1)
-  unidade?: string; // denormalizado da unidade do material, so pra exibicao
-}
-
-export interface ProductVariation {
-  id: string;
-  produtoId: string;
-  name: string;
-  salePrice: number;
-  costPrice?: number;
-  isActive: boolean;
-  ordem?: number;
-  consumos: MaterialConsumptionRule[]; // "Consome matéria-prima: Não" == consumos vazio
-}
-
-// Snapshot do consumo de matéria-prima GRAVADO no item da venda (carrinho), já resolvido
-// (para 'medida', a quantidade ja veio multiplicada pela area calculada no momento da adição).
-// Guardado junto do item pra permitir baixa e estorno exatos, mesmo se a variação for editada depois.
-export interface MaterialConsumptionSnapshot {
-  materialProdutoId: string;
-  materialNome?: string;
-  tipoConsumo: TipoConsumoMaterial;
-  quantidade: number; // consumo por unidade do item (multiplicado por quantity na baixa, igual consumoEstoque)
-  unidade?: string;
-}
-
 export interface SaleOrderItem {
   productId: string;
   name: string;
@@ -59,9 +24,6 @@ export interface SaleOrderItem {
   descontoValor?: number; // desconto em R$ aplicado a esse item especifico (nao altera o preco cadastrado do produto)
   precoOriginal?: number; // preco antes do desconto, guardado para auditoria/exibicao
   observacao?: string; // observacao livre por item do carrinho
-  variationId?: string; // id da variação escolhida (produto_variacoes), quando o produto tem variações
-  variationName?: string; // nome da variação, pra exibir "Produto / Variação" no carrinho e no historico
-  materialConsumption?: MaterialConsumptionSnapshot[]; // consumo de matéria-prima da variação escolhida (pode ser [] = nenhuma)
 }
 
 export interface PaymentEntry {
