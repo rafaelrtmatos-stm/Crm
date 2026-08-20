@@ -1162,26 +1162,27 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     // selecionado (inicioPeriodo), nao um numero fixo de dias, senao o grafico de "Hoje" e
     // "Semana" ficavam mostrando sempre a mesma janela de 7 dias corridos
     const porBucket: Record<string, { faturamento: number; custo: number }> = {};
-    // Custo: continua ligado a data de criacao da nota (quando o material foi consumido)
+    // Faturamento E custo: por data de CADA pagamento — uma nota paga em partes em dias
+    // diferentes conta em cada dia certo, nao tudo de uma vez na data de criacao. O custo
+    // total do pedido e amortizado proporcionalmente a fatia de cada pagamento (mesma regra
+    // usada em calcularLucroDaVenda pra nota individual), entao o lucro do dia reflete o que
+    // realmente entrou de caixa naquele dia, ja descontada a parte correspondente do custo.
     realSales.filter(o => o.status !== 'canceled').forEach(o => {
-      const d = new Date(o.createdAt);
-      if (isNaN(d.getTime())) return;
-      const diaSemHora = new Date(d); diaSemHora.setHours(0, 0, 0, 0);
-      if (diaSemHora < inicioPeriodo || diaSemHora > startOfDay) return;
-      const key = analisePeriodo === 'ano' ? format(d, 'MM/yyyy') : format(d, 'dd/MM');
-      if (!porBucket[key]) porBucket[key] = { faturamento: 0, custo: 0 };
-      porBucket[key].custo += custoDoPedido(o);
-    });
-    // Faturamento: por data de CADA pagamento — uma nota paga em partes em dias diferentes
-    // conta em cada dia certo, nao tudo de uma vez na data de criacao
-    realSales.filter(o => o.status !== 'canceled').flatMap(getRevenueEventsForSale).forEach(ev => {
-      const d = new Date(ev.date);
-      if (isNaN(d.getTime())) return;
-      const diaSemHora = new Date(d); diaSemHora.setHours(0, 0, 0, 0);
-      if (diaSemHora < inicioPeriodo || diaSemHora > startOfDay) return;
-      const key = analisePeriodo === 'ano' ? format(d, 'MM/yyyy') : format(d, 'dd/MM');
-      if (!porBucket[key]) porBucket[key] = { faturamento: 0, custo: 0 };
-      porBucket[key].faturamento += ev.value;
+      const eventos = getRevenueEventsForSale(o);
+      const custoPedido = custoDoPedido(o);
+      const totalRecebidoPedido = eventos.reduce((acc, ev) => acc + ev.value, 0);
+      eventos.forEach(ev => {
+        const d = new Date(ev.date);
+        if (isNaN(d.getTime())) return;
+        const diaSemHora = new Date(d); diaSemHora.setHours(0, 0, 0, 0);
+        if (diaSemHora < inicioPeriodo || diaSemHora > startOfDay) return;
+        const key = analisePeriodo === 'ano' ? format(d, 'MM/yyyy') : format(d, 'dd/MM');
+        if (!porBucket[key]) porBucket[key] = { faturamento: 0, custo: 0 };
+        porBucket[key].faturamento += ev.value;
+        // Fatia do custo proporcional a esse pagamento especifico (nao ao pedido inteiro)
+        const fatiaCusto = totalRecebidoPedido > 0 ? custoPedido * (ev.value / totalRecebidoPedido) : 0;
+        porBucket[key].custo += fatiaCusto;
+      });
     });
     const linhaGrafico: { day: string; faturamento: number; lucro: number }[] = [];
     if (analisePeriodo === 'ano') {
@@ -7707,12 +7708,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       }
       return true;
     });
-    // Ordena pela ULTIMA alteracao (updatedAt), nao pela data de criacao — uma nota criada
-    // dia 01 (entrada) que recebe o restante dia 02 deve aparecer primeiro na lista, como a
-    // alteracao mais recente. Notas sem updatedAt caem no createdAt mesmo (compatibilidade).
-    const lastChange = (s: SaleOrder) => Math.max(new Date(s.updatedAt || s.createdAt).getTime(), new Date(s.createdAt).getTime());
+    // Ordena pela data/hora REAL da transacao (createdAt, com precisao de hora) — uma venda
+    // feita ontem as 10h fica na posicao cronologica de ontem, mesmo que seja editada ou
+    // receba um pagamento hoje. Edicao/pagamento parcial NAO move o registro no tempo.
+    const chronoKey = (s: SaleOrder) => new Date(s.createdAt).getTime();
     return filtered.sort((a, b) => {
-      const diff = lastChange(b) - lastChange(a);
+      const diff = chronoKey(b) - chronoKey(a);
       return historySortOrder === 'desc' ? diff : -diff;
     });
   }, [allSalesHistory, selectedOrderStatusFilters, selectedPaymentFilters, historySearch, historyClienteIdFilter, historySortOrder, historyDateFrom, historyDateTo]);
@@ -7740,11 +7741,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       const isFullyPaid = sale.status === 'completed' || down >= total;
       faturamento += total;
       liquido += down;
+      let custoPedido = 0;
       (sale.items || []).forEach(item => {
         const custoUnit = produtosCostMap[item.productId] || 0;
         const qtd = item.area ? item.area * item.quantity : item.quantity;
-        custoTotal += custoUnit * qtd;
+        custoPedido += custoUnit * qtd;
       });
+      // Amortiza o custo pela proporcao efetivamente recebida (down/total) — mesma regra de
+      // calcularLucroDaVenda, pra nao abater custo de material que ainda nao foi pago
+      if (!isFullyPaid && total > 0) custoPedido *= down / total;
+      custoTotal += custoPedido;
       if (down > 0 && !isFullyPaid) {
         comEntrada.count += 1;
         comEntrada.total += total;
@@ -8970,7 +8976,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           updatedAt: new Date().toISOString(),
         };
         setLastFinalizedOrder(updatedOrder);
-        setAllSalesHistory(prev => prev.map(s => s.id === editingFullOrder.id ? updatedOrder : s).sort((a, b) => Math.max(new Date(a.updatedAt || a.createdAt).getTime(), new Date(a.createdAt).getTime()) < Math.max(new Date(b.updatedAt || b.createdAt).getTime(), new Date(b.createdAt).getTime()) ? 1 : -1));
+        // Reordena pela data/hora real da transacao (createdAt) — editar uma nota nao deve
+        // mudar sua posicao cronologica no historico.
+        setAllSalesHistory(prev => prev.map(s => s.id === editingFullOrder.id ? updatedOrder : s).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
         setSalesToday(prev => prev.map(s => s.id === editingFullOrder.id ? updatedOrder : s));
         setIsSuccessModalOpen(true);
         setIsPaymentModalOpen(false);
@@ -9014,7 +9022,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         const updatedOrder: SaleOrder = { ...settlingOrder, downPayment: novoTotalPago, receivedValue: novoTotalPago, status: novoSaldo <= 0 ? 'completed' : 'pending', payments: pagamentosFinais, scheduledFor: localDatetimeToIso(scheduledFor) || settlingOrder.scheduledFor || undefined, updatedAt: new Date().toISOString() };
         setLastFinalizedOrder(updatedOrder);
         // Atualiza so essa venda localmente (nao recarrega a tabela inteira, que fica lenta com muitas vendas)
-        setAllSalesHistory(prev => prev.map(s => s.id === settlingOrder.id ? updatedOrder : s).sort((a, b) => Math.max(new Date(a.updatedAt || a.createdAt).getTime(), new Date(a.createdAt).getTime()) < Math.max(new Date(b.updatedAt || b.createdAt).getTime(), new Date(b.createdAt).getTime()) ? 1 : -1));
+        // Reordena pela data/hora real da transacao (createdAt) — quitar debito nao deve
+        // mudar a posicao cronologica da nota no historico.
+        setAllSalesHistory(prev => prev.map(s => s.id === settlingOrder.id ? updatedOrder : s).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
         setSalesToday(prev => prev.map(s => s.id === settlingOrder.id ? updatedOrder : s));
         setIsSuccessModalOpen(true);
         setIsPaymentModalOpen(false);
