@@ -166,13 +166,28 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
     }
   };
 
+  // Busca o QR Code atravessando o fluxo unificado da API (verificação de estado -> conexão
+  // automática -> QR pronto). A própria resposta já traz o status mais atual da instância,
+  // então essa chamada também serve pra manter o `whatsappStatus` em dia — não precisamos
+  // mais de um segundo polling separado só pra status (ver comentário no useEffect abaixo).
   const buscarQrCode = async () => {
     setLoadingQr(true);
     setQrError(null);
     try {
       const resp = await fetch('/api/whatsapp-connect');
-      const data = await resp.json();
+      const data = await resp.json().catch(() => ({}));
       if (!resp.ok) { setQrError(data.error || 'Não foi possível gerar o QR Code.'); return; }
+
+      if (data.status) setWhatsappStatus(data.status);
+
+      // A API já verifica o estado antes de gerar QR: se já estava 'open', ela nem manda
+      // QR Code nenhum — só o status. Nesse caso não tem o que desenhar, o modal fecha
+      // sozinho pelo efeito que observa `whatsappConectado`.
+      if (data.connected || data.status === 'open') {
+        setQrCode(null);
+        return;
+      }
+
       const qrFinal = await renderizarQrPretoEBranco(data.qrCodeText || null, data.qrCode || null);
       setQrCode(qrFinal || null);
       if (!qrFinal) setQrError('A Evolution API não devolveu um QR Code válido.');
@@ -183,27 +198,23 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
     }
   };
 
-  // Intervalo de renovação automática do QR Code. Pedido: a cada 20s. Na prática o QR do
-  // Baileys costuma expirar perto dos 20s, então renovar exatamente em 20s às vezes pega o
-  // usuário com uma imagem já vencida na tela ("QR code inválido") bem no momento de
-  // escanear — por isso usamos uma margem de segurança (15s) por padrão. Ajuste aqui se
-  // quiser forçar exatamente 20.000ms.
+  // Intervalo de renovação automática do QR Code + status. Pedido: a cada 15-20s. Na prática
+  // o QR do Baileys costuma expirar perto dos 20s, então renovar exatamente em 20s às vezes
+  // pega o usuário com uma imagem já vencida na tela ("QR code inválido") bem no momento de
+  // escanear — por isso usamos uma margem de segurança (15s) por padrão.
   const QR_AUTO_REFRESH_MS = 15000;
 
   useEffect(() => {
     if (canalSelecionado?.id !== 'whatsapp') return;
     if (whatsappConectado) return; // ja conectado, nao precisa de QR
     buscarQrCode();
-    // Auto-refresh do QR Code: renova a imagem sozinho, sem precisar de F5
+    // Auto-refresh unificado: a cada 15s busca QR Code + status novos, sem o usuário
+    // precisar dar F5. Cada chamada já atualiza `whatsappStatus`, então assim que o celular
+    // escanear (Evolution API muda o estado pra 'open'), o próprio poll detecta e o modal
+    // fecha sozinho — sem depender só do Supabase Realtime (que continua ativo como reforço,
+    // ver o useEffect que carrega `whatsappStatus` lá em cima).
     pollRef.current = setInterval(buscarQrCode, QR_AUTO_REFRESH_MS);
-    // Auto-refresh do STATUS: alem de esperar o webhook avisar via Realtime (assim que o
-    // celular escanear, whatsappStatus vira 'open' sozinho e fecha o modal), tambem
-    // CONSULTA o status direto na Evolution API a cada 5s como respaldo. Cobre o caso do
-    // webhook nao avisar por algum motivo (evento com nome diferente do esperado, falha ao
-    // gravar, etc) - sem isso, o WhatsApp podia ficar conectado de verdade e a tela
-    // continuar presa mostrando QR Code
-    const statusPollRef = setInterval(handleVerificarStatusAgora, 5000);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); clearInterval(statusPollRef); };
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canalSelecionado, whatsappConectado]);
 
