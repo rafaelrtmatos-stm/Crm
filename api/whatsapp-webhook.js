@@ -92,20 +92,56 @@ async function inserirMensagem({ phone, text, senderName, direction = 'incoming'
   }
 }
 
-async function garantirGrupoExiste(groupJid, nomeGrupo) {
+// Busca o nome/assunto real do grupo direto na Evolution API (metadata do grupo).
+// Sem isso o grupo ficava cadastrado com nome=null e a tela de Grupos (WhatsAppGroupsModule.tsx)
+// caia sempre no fallback `g.nome || g.group_jid`, mostrando o JID cru pro admin.
+async function buscarNomeGrupo(groupJid, evoHeaders) {
+  if (!EVOLUTION_API_URL || !EVOLUTION_API_KEY || !evoHeaders) return null;
+  try {
+    const r = await fetch(
+      `${EVOLUTION_API_URL}/group/findGroupInfos/${INSTANCE_NAME}?groupJid=${encodeURIComponent(groupJid)}`,
+      { method: 'GET', headers: evoHeaders }
+    );
+    if (!r.ok) return null;
+    const data = await r.json();
+    const nome = (data?.subject || data?.name || data?.groupName || '').trim();
+    return nome || null;
+  } catch (err) {
+    console.error('Falha ao buscar nome do grupo (nao impede o resto):', err);
+    return null;
+  }
+}
+
+async function garantirGrupoExiste(groupJid, nomeGrupo, evoHeaders) {
   // Verifica se o grupo ja esta cadastrado. Se nao estiver, cria com visivel=false
   // (fica represado ate o admin liberar na tela de gestao de grupos)
   const r = await fetch(
-    `${SUPABASE_URL}/rest/v1/whatsapp_groups?company_id=eq.rafa-arts&group_jid=eq.${encodeURIComponent(groupJid)}&select=id,visivel`,
+    `${SUPABASE_URL}/rest/v1/whatsapp_groups?company_id=eq.rafa-arts&group_jid=eq.${encodeURIComponent(groupJid)}&select=id,visivel,nome`,
     { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
   );
   const existentes = await r.json();
 
   if (Array.isArray(existentes) && existentes.length > 0) {
-    return existentes[0]; // { id, visivel }
+    const grupo = existentes[0]; // { id, visivel, nome }
+    // Grupo ja cadastrado mas ainda sem nome (cadastrado antes dessa correcao, ou o
+    // metadata nao veio na primeira tentativa) — tenta buscar e preencher agora.
+    if (!grupo.nome) {
+      const nomeAtual = nomeGrupo || (await buscarNomeGrupo(groupJid, evoHeaders));
+      if (nomeAtual) {
+        await fetch(`${SUPABASE_URL}/rest/v1/whatsapp_groups?id=eq.${grupo.id}`, {
+          method: 'PATCH',
+          headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nome: nomeAtual }),
+        });
+        grupo.nome = nomeAtual;
+      }
+    }
+    return grupo;
   }
 
-  // Grupo novo — cria represado (visivel=false), nao mostra pra ninguem ate o admin liberar
+  // Grupo novo — busca o nome real antes de criar, cria represado (visivel=false),
+  // nao mostra pra ninguem ate o admin liberar
+  const nomeResolvido = nomeGrupo || (await buscarNomeGrupo(groupJid, evoHeaders));
   const createRes = await fetch(`${SUPABASE_URL}/rest/v1/whatsapp_groups`, {
     method: 'POST',
     headers: {
@@ -114,10 +150,32 @@ async function garantirGrupoExiste(groupJid, nomeGrupo) {
       'Content-Type': 'application/json',
       Prefer: 'return=representation',
     },
-    body: JSON.stringify({ company_id: 'rafa-arts', group_jid: groupJid, nome: nomeGrupo || null, visivel: false }),
+    body: JSON.stringify({ company_id: 'rafa-arts', group_jid: groupJid, nome: nomeResolvido || null, visivel: false }),
   });
   const criado = await createRes.json();
-  return Array.isArray(criado) ? criado[0] : { visivel: false };
+  return Array.isArray(criado) ? criado[0] : { visivel: false, nome: nomeResolvido || null };
+}
+
+// Nome real do contato/agenda como fallback quando a Evolution nao manda pushName no
+// evento (acontece em alguns eventos de sistema/retry). Busca na lista de contatos —
+// mesma fonte confiavel que a importacao de historico ja usa (findContacts).
+async function buscarNomeContato(phone, evoHeaders) {
+  if (!EVOLUTION_API_URL || !EVOLUTION_API_KEY || !evoHeaders || !phone) return '';
+  try {
+    const r = await fetch(`${EVOLUTION_API_URL}/chat/findContacts/${INSTANCE_NAME}`, {
+      method: 'POST',
+      headers: evoHeaders,
+      body: JSON.stringify({ where: { id: `${phone}@s.whatsapp.net` } }),
+    });
+    if (!r.ok) return '';
+    const data = await r.json();
+    const lista = Array.isArray(data) ? data : (data?.contacts || []);
+    const contato = lista.find((c) => (c?.remoteJid || c?.id || '').startsWith(phone)) || lista[0];
+    return (contato?.pushName || contato?.name || contato?.notify || '').trim();
+  } catch (err) {
+    console.error('Falha ao buscar nome do contato na agenda (nao impede o resto):', err);
+    return '';
+  }
 }
 
 async function garantirFotoLead(phone, evoHeaders) {
@@ -216,12 +274,16 @@ export default async function handler(req, res) {
         if (msg?.message?.reactionMessage) continue;
 
         const phoneRaw = msg?.key?.remoteJid || '';
+        const evoHeaders = (EVOLUTION_API_URL && EVOLUTION_API_KEY)
+          ? { apikey: EVOLUTION_API_KEY, 'Content-Type': 'application/json' }
+          : null;
 
         // Mensagem de grupo (remoteJid termina em @g.us): verifica se o grupo esta
         // liberado pelo admin antes de gravar. Grupo novo entra represado (visivel=false)
-        // e a mensagem eh descartada ate alguem liberar.
+        // e a mensagem eh descartada ate alguem liberar. Busca o nome real do grupo
+        // (subject) na Evolution API pra nunca ficar exibindo o JID cru na tela de Grupos.
         if (phoneRaw.endsWith('@g.us')) {
-          const grupo = await garantirGrupoExiste(phoneRaw, null);
+          const grupo = await garantirGrupoExiste(phoneRaw, null, evoHeaders);
           if (!grupo?.visivel) continue; // grupo ainda nao liberado pelo admin, ignora a mensagem
         }
 
@@ -230,14 +292,20 @@ export default async function handler(req, res) {
         // sobrar so os digitos do telefone.
         const phone = phoneRaw.replace('@s.whatsapp.net', '').replace('@g.us', '').replace('@lid', '').replace(/\D/g, '');
         const text = extrairTextoMensagem(msg?.message);
-        const senderName = msg?.pushName || '';
         const whatsappMessageId = msg?.key?.id || null;
         const createdAt = msg?.messageTimestamp ? new Date(Number(msg.messageTimestamp) * 1000).toISOString() : undefined;
 
+        // Nome real do contato e OBRIGATORIO: pushName do proprio evento primeiro
+        // (mais rapido e cobre 99% dos casos); se vier vazio, busca na agenda/contatos
+        // da Evolution API antes de gravar a mensagem — nunca grava com nome generico.
+        let senderName = (msg?.pushName || '').trim();
+        if (!senderName && phone && evoHeaders && !phoneRaw.endsWith('@g.us')) {
+          senderName = await buscarNomeContato(phone, evoHeaders);
+        }
+
         if (phone && text) {
           await inserirMensagem({ phone, text, senderName, direction: 'incoming', whatsappMessageId, createdAt });
-          if (EVOLUTION_API_URL && EVOLUTION_API_KEY) {
-            const evoHeaders = { apikey: EVOLUTION_API_KEY, 'Content-Type': 'application/json' };
+          if (evoHeaders) {
             garantirFotoLead(phone, evoHeaders); // nao usa await de proposito — nao atrasa a resposta do webhook
           }
         }

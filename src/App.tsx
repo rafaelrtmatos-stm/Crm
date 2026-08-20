@@ -707,10 +707,13 @@ export default function App() {
           // corrigido depois sem conflitar com os outros (ver Lead.whatsappName/contactName
           // em types.ts). fullName e' o "Nome Real/Documental": so muda por edicao manual
           // no painel, nunca automaticamente numa mensagem futura (ver bloco senao abaixo).
-          full_name: msgData.senderName || 'Atendimento Automático',
+          // So cai no fallback de telefone se REALMENTE nao veio nome nenhum do WhatsApp
+          // (webhook ja tenta pushName + agenda antes disso) -- nunca usa texto generico
+          // igual pra todo mundo, assim da pra identificar o contato na lista de leads.
+          full_name: msgData.senderName || (msgData.phone ? `+${msgData.phone}` : 'Contato sem nome'),
           whatsapp_name: msgData.senderName || '',
           contact_name: msgData.senderName || '',
-          first_name: (msgData.senderName || 'Atendimento').split(' ')[0],
+          first_name: (msgData.senderName || (msgData.phone ? `+${msgData.phone}` : 'Contato')).split(' ')[0],
           last_name: (msgData.senderName || '').split(' ').slice(1).join(' ') || '',
           phone: msgData.phone || '',
           source_type: msgData.channel || 'WhatsApp',
