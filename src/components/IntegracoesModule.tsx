@@ -71,7 +71,9 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
     buscarQrCode();
     // Fica consultando o status a cada 4s — assim que o celular escanear, whatsappStatus
     // vira 'open' sozinho (via Realtime, atualizado pelo webhook) e fecha o modal
-    pollRef.current = setInterval(buscarQrCode, 20000); // renova o QR a cada 20s (ele expira)
+    // Renova o QR a cada 15s — o QR do Baileys costuma expirar perto dos 20s, então
+    // com 20s o usuário frequentemente escaneava uma imagem já vencida ("QR code inválido")
+    pollRef.current = setInterval(buscarQrCode, 15000);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canalSelecionado, whatsappConectado]);
@@ -177,6 +179,9 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
                 <p className="text-xs text-white/40 leading-relaxed max-w-xs mx-auto">
                   Abra o WhatsApp no celular → Configurações → Aparelhos Conectados → Conectar um Aparelho, e escaneie esse código.
                 </p>
+                <button onClick={buscarQrCode} disabled={loadingQr} className="text-[11px] font-black uppercase tracking-widest text-primary-400 hover:text-primary-300 flex items-center gap-1.5 mx-auto disabled:opacity-40">
+                  <RefreshCw size={12} className={loadingQr ? 'animate-spin' : ''} /> Deu "QR inválido"? Gerar novo
+                </button>
               </>
             )}
           </div>
