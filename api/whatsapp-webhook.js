@@ -39,6 +39,34 @@ async function inserirMensagem({ phone, text, senderName, direction = 'incoming'
   });
 }
 
+async function garantirGrupoExiste(groupJid, nomeGrupo) {
+  // Verifica se o grupo ja esta cadastrado. Se nao estiver, cria com visivel=false
+  // (fica represado ate o admin liberar na tela de gestao de grupos)
+  const r = await fetch(
+    `${SUPABASE_URL}/rest/v1/whatsapp_groups?company_id=eq.rafa-arts&group_jid=eq.${encodeURIComponent(groupJid)}&select=id,visivel`,
+    { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
+  );
+  const existentes = await r.json();
+
+  if (Array.isArray(existentes) && existentes.length > 0) {
+    return existentes[0]; // { id, visivel }
+  }
+
+  // Grupo novo — cria represado (visivel=false), nao mostra pra ninguem ate o admin liberar
+  const createRes = await fetch(`${SUPABASE_URL}/rest/v1/whatsapp_groups`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify({ company_id: 'rafa-arts', group_jid: groupJid, nome: nomeGrupo || null, visivel: false }),
+  });
+  const criado = await createRes.json();
+  return Array.isArray(criado) ? criado[0] : { visivel: false };
+}
+
 async function atualizarStatusConexao(status) {
   // Guarda o status da conexao (connecting | open | close) pro IntegracoesModule.tsx
   // conseguir ler e mostrar "Conectado"/"Desconectado" sem precisar perguntar direto
@@ -86,7 +114,16 @@ export default async function handler(req, res) {
         if (msg?.key?.fromMe) continue;
 
         const phoneRaw = msg?.key?.remoteJid || '';
-        const phone = phoneRaw.replace('@s.whatsapp.net', '').replace(/\D/g, '');
+
+        // Mensagem de grupo (remoteJid termina em @g.us): verifica se o grupo esta
+        // liberado pelo admin antes de gravar. Grupo novo entra represado (visivel=false)
+        // e a mensagem eh descartada ate alguem liberar.
+        if (phoneRaw.endsWith('@g.us')) {
+          const grupo = await garantirGrupoExiste(phoneRaw, null);
+          if (!grupo?.visivel) continue; // grupo ainda nao liberado pelo admin, ignora a mensagem
+        }
+
+        const phone = phoneRaw.replace('@s.whatsapp.net', '').replace('@g.us', '').replace(/\D/g, '');
         const text =
           msg?.message?.conversation ||
           msg?.message?.extendedTextMessage?.text ||
