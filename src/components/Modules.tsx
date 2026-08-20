@@ -821,9 +821,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       setConversasAtivas((data || []).filter((r: any) => !!r.last_message_text).length);
     };
     loadCount();
-    // company_id no Supabase e' sempre 'rafa-arts' (fixo) -- currentCompany.id (Firestore)
-    // nunca bate com esse valor. Ver ALL_HARDCODED_COMPANY_ID_FIXES.md.
-    const channel = supabase.channel('dash-conversas-ativas').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.rafa-arts` }, loadCount).subscribe();
+    const channel = supabase.channel('dash-conversas-ativas').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.${currentCompany.id}` }, loadCount).subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [user?.isAdmin, user?.modulePermissions, currentCompany]);
 
@@ -3101,10 +3099,8 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     loadFunnels();
     loadLeads();
 
-    // company_id no Supabase e' sempre 'rafa-arts' (fixo) -- currentCompany.id (Firestore)
-    // nunca bate com esse valor. Ver ALL_HARDCODED_COMPANY_ID_FIXES.md.
-    const funnelsChannel = supabase.channel('crm-funnels').on('postgres_changes', { event: '*', schema: 'public', table: 'funnels', filter: `company_id=eq.rafa-arts` }, loadFunnels).subscribe();
-    const leadsChannel = supabase.channel('crm-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.rafa-arts` }, loadLeads).subscribe();
+    const funnelsChannel = supabase.channel('crm-funnels').on('postgres_changes', { event: '*', schema: 'public', table: 'funnels', filter: `company_id=eq.${currentCompany.id}` }, loadFunnels).subscribe();
+    const leadsChannel = supabase.channel('crm-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.${currentCompany.id}` }, loadLeads).subscribe();
 
     return () => {
       supabase.removeChannel(funnelsChannel);
@@ -4082,9 +4078,7 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
       // de verdade ate a integracao real do WhatsApp comecar a trazer conversas)
     };
     loadLeads();
-    // company_id no Supabase e' sempre 'rafa-arts' (fixo) -- currentCompany.id (Firestore)
-    // nunca bate com esse valor. Ver ALL_HARDCODED_COMPANY_ID_FIXES.md.
-    const channel = supabase.channel('messages-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.rafa-arts` }, loadLeads).subscribe();
+    const channel = supabase.channel('messages-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.${currentCompany.id}` }, loadLeads).subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [currentCompany]);
 
@@ -4096,8 +4090,7 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
     if (lastSeenIncomingRef.current === null) lastSeenIncomingRef.current = Date.now();
     const channel = supabase.channel('incoming-message-sound').on(
       'postgres_changes',
-      // company_id gravado pelo webhook e' sempre 'rafa-arts' (fixo).
-      { event: 'INSERT', schema: 'public', table: 'crm_messages', filter: `company_id=eq.rafa-arts` },
+      { event: 'INSERT', schema: 'public', table: 'crm_messages', filter: `company_id=eq.${currentCompany.id}` },
       (payload: any) => {
         if (payload.new?.direction !== 'incoming') return;
         try {

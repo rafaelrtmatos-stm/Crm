@@ -206,7 +206,7 @@ export default function ContractSignaturePublicPage() {
     setError(null);
     try {
       const validation = await validateVerificationCode(contrato.id, fullCode);
-      if (validation.ok === false) {
+      if (!validation.ok) {
         setError(OTP_ERROR_MESSAGES[validation.reason]);
         setIsValidating(false);
         return;
