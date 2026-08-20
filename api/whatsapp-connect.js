@@ -104,11 +104,18 @@ export default async function handler(req, res) {
     const qrData = await qrRes.json();
 
     // A Evolution API costuma devolver o QR em base64 (as vezes ja com o prefixo data:image, as
-    // vezes so o base64 puro, dependendo da versao) — normaliza os dois formatos aqui
+    // vezes so o base64 puro, dependendo da versao) — normaliza os dois formatos aqui.
+    // Isso fica so como FALLBACK: o front prefere renderizar o QR ele mesmo (a partir do
+    // "qrCodeText" abaixo), pra garantir sempre fundo branco puro + modulos pretos puros,
+    // sem depender de como a Evolution API decidiu colorir a imagem dela.
     const qrRaw = qrData?.base64 || qrData?.qrcode?.base64 || null;
     const qrBase64 = qrRaw && !qrRaw.startsWith('data:') ? `data:image/png;base64,${qrRaw}` : qrRaw;
 
-    res.status(200).json({ qrCode: qrBase64, status: qrData?.instance?.state || 'connecting' });
+    // Texto bruto do QR (o "code" que o Baileys gera antes de virar imagem) — com isso o
+    // front consegue desenhar o QR do zero, com as cores que quiser
+    const qrCodeText = qrData?.code || qrData?.qrcode?.code || null;
+
+    res.status(200).json({ qrCode: qrBase64, qrCodeText, status: qrData?.instance?.state || 'connecting' });
   } catch (err) {
     console.error('Erro ao conectar com a Evolution API:', err);
     res.status(500).json({ error: 'Não foi possível conectar com a Evolution API. Confira se ela está no ar.' });

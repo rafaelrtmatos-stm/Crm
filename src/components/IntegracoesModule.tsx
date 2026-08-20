@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import QRCode from 'qrcode';
 import { Plug, Bot, MessageCircle, Facebook, Instagram, QrCode, RefreshCw, CheckCircle2, Users, History } from 'lucide-react';
 import { GlassCard, Badge, Modal, cn } from './SharedUI';
 import { RobozinhoRafaModule } from './RobozinhoRafaModule';
@@ -47,9 +48,34 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
   const whatsappConectado = whatsappStatus === 'open';
 
   // --- QR Code (busca ao abrir o modal, e fica consultando o status a cada 4s até conectar) ---
+  // qrCode = imagem final (data:image/png;base64,...) já desenhada com fundo branco puro
+  // (#FFFFFF) e módulos pretos puros (#000000), pra garantir contraste máximo na leitura
+  // pela câmera do celular — não usamos a imagem que a Evolution API devolve pronta, porque
+  // a cor dela pode variar de versão pra versão.
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [loadingQr, setLoadingQr] = useState(false);
   const [desconectando, setDesconectando] = useState(false);
+
+  // Desenha o QR Code localmente a partir do texto bruto (qrCodeText), forçando as cores.
+  // Se por algum motivo a Evolution API não mandar o texto bruto (versão antiga da API,
+  // por exemplo), cai pro base64 pronto que ela devolveu, só pra não deixar o usuário sem
+  // QR nenhum — mas o caminho normal é sempre desenhar com as cores certas aqui.
+  const renderizarQrPretoEBranco = async (qrCodeText: string | null, qrCodeBase64Fallback: string | null) => {
+    if (qrCodeText) {
+      try {
+        const dataUrl = await QRCode.toDataURL(qrCodeText, {
+          color: { dark: '#000000', light: '#FFFFFF' },
+          errorCorrectionLevel: 'M',
+          margin: 2,
+          width: 512,
+        });
+        return dataUrl;
+      } catch (err) {
+        console.error('Falha ao desenhar o QR Code localmente, usando o da Evolution API:', err);
+      }
+    }
+    return qrCodeBase64Fallback;
+  };
 
   const handleDesconectar = async () => {
     if (!(await showConfirm('Desconectar esse número do WhatsApp? Você vai precisar escanear o QR Code de novo pra reconectar (com o mesmo número ou outro).'))) return;
@@ -145,7 +171,9 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
       const resp = await fetch('/api/whatsapp-connect');
       const data = await resp.json();
       if (!resp.ok) { setQrError(data.error || 'Não foi possível gerar o QR Code.'); return; }
-      setQrCode(data.qrCode || null);
+      const qrFinal = await renderizarQrPretoEBranco(data.qrCodeText || null, data.qrCode || null);
+      setQrCode(qrFinal || null);
+      if (!qrFinal) setQrError('A Evolution API não devolveu um QR Code válido.');
     } catch (err) {
       setQrError('Falha de conexão ao buscar o QR Code.');
     } finally {
@@ -153,19 +181,25 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
     }
   };
 
+  // Intervalo de renovação automática do QR Code. Pedido: a cada 20s. Na prática o QR do
+  // Baileys costuma expirar perto dos 20s, então renovar exatamente em 20s às vezes pega o
+  // usuário com uma imagem já vencida na tela ("QR code inválido") bem no momento de
+  // escanear — por isso usamos uma margem de segurança (15s) por padrão. Ajuste aqui se
+  // quiser forçar exatamente 20.000ms.
+  const QR_AUTO_REFRESH_MS = 15000;
+
   useEffect(() => {
     if (canalSelecionado?.id !== 'whatsapp') return;
     if (whatsappConectado) return; // ja conectado, nao precisa de QR
     buscarQrCode();
-    // Fica consultando o status a cada 4s — assim que o celular escanear, whatsappStatus
-    // vira 'open' sozinho (via Realtime, atualizado pelo webhook) e fecha o modal
-    // Renova o QR a cada 15s — o QR do Baileys costuma expirar perto dos 20s, então
-    // com 20s o usuário frequentemente escaneava uma imagem já vencida ("QR code inválido")
-    pollRef.current = setInterval(buscarQrCode, 15000);
-    // Respaldo: alem de esperar o webhook avisar via Realtime, tambem CONSULTA o status
-    // direto na Evolution API a cada 5s. Cobre o caso do webhook nao avisar por algum
-    // motivo (evento com nome diferente do esperado, falha ao gravar, etc) - sem isso, o
-    // WhatsApp podia ficar conectado de verdade e a tela continuar presa mostrando QR Code
+    // Auto-refresh do QR Code: renova a imagem sozinho, sem precisar de F5
+    pollRef.current = setInterval(buscarQrCode, QR_AUTO_REFRESH_MS);
+    // Auto-refresh do STATUS: alem de esperar o webhook avisar via Realtime (assim que o
+    // celular escanear, whatsappStatus vira 'open' sozinho e fecha o modal), tambem
+    // CONSULTA o status direto na Evolution API a cada 5s como respaldo. Cobre o caso do
+    // webhook nao avisar por algum motivo (evento com nome diferente do esperado, falha ao
+    // gravar, etc) - sem isso, o WhatsApp podia ficar conectado de verdade e a tela
+    // continuar presa mostrando QR Code
     const statusPollRef = setInterval(handleVerificarStatusAgora, 5000);
     return () => { if (pollRef.current) clearInterval(pollRef.current); clearInterval(statusPollRef); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -320,7 +354,7 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
               </div>
             ) : (
               <>
-                {qrCode && <img src={qrCode} alt="QR Code do WhatsApp" className="w-56 h-56 mx-auto rounded-xl border border-white/10" />}
+                {qrCode && <img src={qrCode} alt="QR Code do WhatsApp" className="w-56 h-56 mx-auto rounded-xl border border-white/10 bg-white p-2" />}
                 <p className="text-sm font-bold text-white">Escaneie com o WhatsApp</p>
                 <p className="text-xs text-white/40 leading-relaxed max-w-xs mx-auto">
                   Abra o WhatsApp no celular → Configurações → Aparelhos Conectados → Conectar um Aparelho, e escaneie esse código.
