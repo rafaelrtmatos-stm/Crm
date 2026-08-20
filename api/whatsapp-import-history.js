@@ -28,6 +28,29 @@ async function buscarListaDeChats(headers) {
   return Array.isArray(data) ? data : [];
 }
 
+// `chat/findChats` quase nunca vem com o nome do perfil preenchido (o campo pushName/name
+// do chat em si costuma vir vazio) — o nome real do contato no WhatsApp so e confiavel
+// vindo de `chat/findContacts`. Por isso a importacao caia sempre no nome generico: ela
+// olhava so pro campo do chat, que normalmente esta vazio.
+async function buscarMapaDeContatos(headers) {
+  try {
+    const r = await fetch(`${EVOLUTION_API_URL}/chat/findContacts/${INSTANCE_NAME}`, { method: 'POST', headers, body: JSON.stringify({}) });
+    if (!r.ok) return {};
+    const data = await r.json();
+    const lista = Array.isArray(data) ? data : (data?.contacts || []);
+    const mapa = {};
+    for (const c of lista) {
+      const jid = c?.remoteJid || c?.id;
+      const nome = (c?.pushName || c?.name || c?.notify || '').trim();
+      if (jid && nome) mapa[jid] = nome;
+    }
+    return mapa;
+  } catch (err) {
+    console.error('Falha ao buscar lista de contatos da Evolution API (segue so com o nome do chat):', err);
+    return {};
+  }
+}
+
 async function buscarMensagensDoChat(headers, remoteJid) {
   const r = await fetch(`${EVOLUTION_API_URL}/chat/findMessages/${INSTANCE_NAME}`, {
     method: 'POST',
@@ -90,7 +113,10 @@ async function garantirLead(phone, nome, evoHeaders) {
       company_id: COMPANY_ID,
       funnel_id: funnelId,
       funnel_stage_id: stageId,
-      full_name: nome || 'Cliente (importado)',
+      // So cai no nome generico se REALMENTE nao achou nada (nem no findContacts, nem
+      // no findChats) — usa o telefone formatado em vez de um texto igual pra todo mundo,
+      // assim da pra pelo menos identificar qual contato eh qual na lista de leads.
+      full_name: nome || `+${phone}`,
       whatsapp_name: nome || '',
       phone,
       photo_url: fotoUrl,
@@ -114,9 +140,12 @@ export default async function handler(req, res) {
   const cursor = Number(req.body?.cursor) || 0;
 
   try {
-    // A lista de chats e buscada sempre (rapido, e um so retorno) — so as MENSAGENS de
-    // cada chat que sao processadas aos poucos, um chat por chamada
-    const chats = await buscarListaDeChats(evoHeaders);
+    // A lista de chats e o mapa de contatos sao buscados sempre (rapido, um retorno cada) —
+    // so as MENSAGENS de cada chat que sao processadas aos poucos, um chat por chamada
+    const [chats, mapaContatos] = await Promise.all([
+      buscarListaDeChats(evoHeaders),
+      buscarMapaDeContatos(evoHeaders),
+    ]);
     const total = chats.length;
 
     if (cursor >= total) {
@@ -126,7 +155,9 @@ export default async function handler(req, res) {
 
     const chat = chats[cursor];
     const remoteJid = chat?.remoteJid || chat?.id || '';
-    const nomeContato = chat?.pushName || chat?.name || '';
+    // Prioridade: nome real vindo de findContacts (mais confiavel) > pushName/name/notify
+    // que o proprio chat trouxer > vazio (so ai vira fallback de telefone la no garantirLead)
+    const nomeContato = mapaContatos[remoteJid] || chat?.pushName || chat?.name || chat?.notify || '';
 
     let mensagensImportadas = 0;
 

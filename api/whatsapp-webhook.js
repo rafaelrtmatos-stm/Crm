@@ -23,24 +23,73 @@ const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY;
 // direto pra essa URL sem saber o segredo.
 const WEBHOOK_SECRET = process.env.EVOLUTION_WEBHOOK_SECRET;
 
-async function inserirMensagem({ phone, text, senderName, direction = 'incoming', channel = 'WhatsApp' }) {
+// Percorre o objeto `message` da Evolution/Baileys e devolve um texto exibivel pro chat.
+// Mensagens efemeras ("apagar apos ler") e "ver uma vez" vem embrulhadas em mais um nivel
+// (ephemeralMessage.message / viewOnceMessage(V2).message) — sem desembrulhar isso, o
+// texto real nunca e encontrado e a mensagem eh descartada em silencio.
+function extrairTextoMensagem(message, profundidade = 0) {
+  if (!message || profundidade > 4) return '';
+
+  if (typeof message.conversation === 'string') return message.conversation;
+  if (message.extendedTextMessage?.text) return message.extendedTextMessage.text;
+
+  // Midia com legenda — se nao tiver legenda, mostra um rotulo pra mensagem nao sumir do chat
+  if (message.imageMessage) return message.imageMessage.caption || '📷 Imagem';
+  if (message.videoMessage) return message.videoMessage.caption || '🎥 Vídeo';
+  if (message.documentMessage || message.documentWithCaptionMessage) {
+    const doc = message.documentMessage || message.documentWithCaptionMessage?.message?.documentMessage;
+    return doc?.caption || (doc?.fileName ? `📄 ${doc.fileName}` : '📄 Documento');
+  }
+  if (message.audioMessage) return message.audioMessage.ptt ? '🎤 Áudio' : '🎵 Áudio';
+  if (message.stickerMessage) return '🌟 Figurinha';
+  if (message.locationMessage || message.liveLocationMessage) return '📍 Localização';
+  if (message.contactMessage) return `📇 Contato: ${message.contactMessage.displayName || ''}`.trim();
+  if (message.contactsArrayMessage) return '📇 Contatos';
+  if (message.buttonsResponseMessage) return message.buttonsResponseMessage.selectedDisplayText || '';
+  if (message.listResponseMessage) return message.listResponseMessage.title || message.listResponseMessage.singleSelectReply?.selectedRowId || '';
+  if (message.templateButtonReplyMessage) return message.templateButtonReplyMessage.selectedDisplayText || '';
+
+  // Mensagem efemera / "ver uma vez" — o conteudo real esta um nivel mais fundo
+  const embrulho =
+    message.ephemeralMessage?.message ||
+    message.viewOnceMessage?.message ||
+    message.viewOnceMessageV2?.message ||
+    message.viewOnceMessageV2Extension?.message ||
+    message.documentWithCaptionMessage?.message;
+  if (embrulho) return extrairTextoMensagem(embrulho, profundidade + 1);
+
+  return '';
+}
+
+async function inserirMensagem({ phone, text, senderName, direction = 'incoming', channel = 'WhatsApp', whatsappMessageId, createdAt }) {
   if (!phone || !text) return;
-  await fetch(`${SUPABASE_URL}/rest/v1/crm_messages`, {
+  const resp = await fetch(`${SUPABASE_URL}/rest/v1/crm_messages`, {
     method: 'POST',
     headers: {
       apikey: SUPABASE_ANON_KEY,
       Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
       'Content-Type': 'application/json',
+      // A Evolution API pode reenviar o mesmo webhook (retry por timeout/instabilidade).
+      // Com o indice unico em (company_id, whatsapp_message_id), isso evita duplicar a
+      // mensagem no chat em tempo real quando o mesmo evento chega mais de uma vez.
+      Prefer: 'resolution=ignore-duplicates,return=minimal',
     },
     body: JSON.stringify({
-      company_id: 'rafa-arts',
+      company_id: COMPANY_ID,
       phone,
       text,
       direction,
       sender_name: senderName || null,
       channel,
+      whatsapp_message_id: whatsappMessageId || null,
+      ...(createdAt ? { created_at: createdAt } : {}),
     }),
   });
+
+  if (!resp.ok) {
+    const corpo = await resp.text().catch(() => '');
+    console.error('Falha ao inserir mensagem no Supabase:', resp.status, corpo);
+  }
 }
 
 async function garantirGrupoExiste(groupJid, nomeGrupo) {
@@ -144,6 +193,13 @@ export default async function handler(req, res) {
     const body = req.body || {};
     const event = body.event;
 
+    // Se a Evolution mandar o nome da instancia no payload, confere que e a nossa —
+    // protege contra o dia em que essa mesma URL for reaproveitada por outra instancia.
+    if (body.instance && body.instance !== INSTANCE_NAME) {
+      res.status(200).json({ ok: true, ignorado: 'instancia diferente' });
+      return;
+    }
+
     if (event === 'messages.upsert' || event === 'MESSAGES_UPSERT') {
       // Formato padrao da Evolution API: body.data pode ser um objeto unico ou uma lista,
       // dependendo da versao — trata os dois casos
@@ -155,6 +211,10 @@ export default async function handler(req, res) {
         // em ChatPanel), gravar de novo aqui duplicaria
         if (msg?.key?.fromMe) continue;
 
+        // Reacoes (👍, ❤️ etc.) chegam como um MESSAGES_UPSERT proprio, sem conteudo de
+        // texto real — nao sao mensagem nova, entao nao devem virar linha no chat.
+        if (msg?.message?.reactionMessage) continue;
+
         const phoneRaw = msg?.key?.remoteJid || '';
 
         // Mensagem de grupo (remoteJid termina em @g.us): verifica se o grupo esta
@@ -165,16 +225,17 @@ export default async function handler(req, res) {
           if (!grupo?.visivel) continue; // grupo ainda nao liberado pelo admin, ignora a mensagem
         }
 
-        const phone = phoneRaw.replace('@s.whatsapp.net', '').replace('@g.us', '').replace(/\D/g, '');
-        const text =
-          msg?.message?.conversation ||
-          msg?.message?.extendedTextMessage?.text ||
-          msg?.message?.imageMessage?.caption ||
-          '';
+        // @lid e o formato "linked id" que o WhatsApp/Baileys mais recente usa em alguns
+        // casos no lugar do numero puro — remove os dois sufixos possiveis pra sempre
+        // sobrar so os digitos do telefone.
+        const phone = phoneRaw.replace('@s.whatsapp.net', '').replace('@g.us', '').replace('@lid', '').replace(/\D/g, '');
+        const text = extrairTextoMensagem(msg?.message);
         const senderName = msg?.pushName || '';
+        const whatsappMessageId = msg?.key?.id || null;
+        const createdAt = msg?.messageTimestamp ? new Date(Number(msg.messageTimestamp) * 1000).toISOString() : undefined;
 
         if (phone && text) {
-          await inserirMensagem({ phone, text, senderName, direction: 'incoming' });
+          await inserirMensagem({ phone, text, senderName, direction: 'incoming', whatsappMessageId, createdAt });
           if (EVOLUTION_API_URL && EVOLUTION_API_KEY) {
             const evoHeaders = { apikey: EVOLUTION_API_KEY, 'Content-Type': 'application/json' };
             garantirFotoLead(phone, evoHeaders); // nao usa await de proposito — nao atrasa a resposta do webhook
