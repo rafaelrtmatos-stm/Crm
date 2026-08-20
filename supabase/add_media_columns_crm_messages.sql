@@ -15,11 +15,15 @@ on conflict (id) do nothing;
 
 -- Libera leitura publica e escrita via chave anon (mesmo padrão "liberado" já usado
 -- no resto do projeto — ver RLS das outras tabelas em schema.sql/migrate_firestore_*.sql)
-create policy if not exists "whatsapp-media public read"
+-- CREATE POLICY não aceita IF NOT EXISTS no Postgres, entao apaga antes se ja existir
+-- (idempotente pra poder rodar esse script de novo sem erro).
+drop policy if exists "whatsapp-media public read" on storage.objects;
+create policy "whatsapp-media public read"
   on storage.objects for select
   using (bucket_id = 'whatsapp-media');
 
-create policy if not exists "whatsapp-media anon insert"
+drop policy if exists "whatsapp-media anon insert" on storage.objects;
+create policy "whatsapp-media anon insert"
   on storage.objects for insert
   with check (bucket_id = 'whatsapp-media');
 
