@@ -648,7 +648,10 @@ export default function App() {
       setUnrepliedLeadsCount((data || []).filter((r: any) => r.waiting_since !== null && r.waiting_since !== undefined).length);
     };
     loadCount();
-    const channel = supabase.channel('app-unreplied-count').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.${currentCompany.id}` }, loadCount).subscribe();
+    // company_id no Supabase e' sempre 'rafa-arts' (fixo) -- currentCompany.id vem do
+    // Firestore (doc ID gerado automaticamente) e NUNCA bate com esse valor, o que fazia
+    // essa subscription nunca disparar. Ver ALL_HARDCODED_COMPANY_ID_FIXES.md.
+    const channel = supabase.channel('app-unreplied-count').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.rafa-arts` }, loadCount).subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [currentCompany]);
 
@@ -741,9 +744,14 @@ export default function App() {
 
     const channel = supabase.channel('app-incoming-lead-automation').on(
       'postgres_changes',
-      { event: 'INSERT', schema: 'public', table: 'crm_messages', filter: `company_id=eq.${currentCompany.id}` },
+      // Mesmo motivo do filtro acima: company_id gravado pelo webhook e' sempre 'rafa-arts'.
+      { event: 'INSERT', schema: 'public', table: 'crm_messages', filter: `company_id=eq.rafa-arts` },
       (payload: any) => {
         const row = payload.new;
+        // Mensagem importada em massa do histórico (ver api/whatsapp-import-messages.js) não
+        // deve criar/mover lead pra ENTRADA — senão 45 mil mensagens antigas resetariam a
+        // etapa de todos os leads do funil de uma vez só.
+        if (row.is_historical_import) return;
         if (row.direction !== 'incoming' || row.id === lastMessageId) return;
         setLastMessageId(row.id);
         processIncomingMessage({

@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plug, Bot, MessageCircle, Facebook, Instagram, QrCode, RefreshCw, CheckCircle2, Users } from 'lucide-react';
+import QRCode from 'qrcode';
+import { Plug, Bot, MessageCircle, Facebook, Instagram, QrCode, RefreshCw, CheckCircle2, Users, History } from 'lucide-react';
 import { GlassCard, Badge, Modal, cn } from './SharedUI';
 import { RobozinhoRafaModule } from './RobozinhoRafaModule';
-import { WhatsAppGroupsModule } from './WhatsAppGroupsModule';
 import { Company, AppUser } from '../types';
 import { supabase } from '../supabase';
 import { showConfirm } from '../lib/notify';
@@ -11,8 +11,11 @@ import { showConfirm } from '../lib/notify';
 // (WhatsApp já conectado de verdade via Evolution API — Facebook/Instagram ainda não,
 // ver card "Em breve" abaixo) e o Robozinho Rafa (aba 2, componente já existente,
 // reaproveitado sem nenhuma alteração na lógica dele).
+// Obs: a gestão de Grupos do WhatsApp (liberar grupo novo, escolher quem vê) NÃO
+// fica mais aqui — foi pra dentro do balão de Mensagens, aba "Grupos" (ver
+// MessagesSidebarPopup.tsx), pra ficar tudo no mesmo lugar de quem realmente usa.
 
-type IntegracoesTab = 'conexoes' | 'robozinho_rafa' | 'grupos_whatsapp';
+type IntegracoesTab = 'conexoes' | 'robozinho_rafa';
 
 interface CanalConexao {
   id: string;
@@ -33,7 +36,13 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
   const [tab, setTab] = useState<IntegracoesTab>('conexoes');
   const [canalSelecionado, setCanalSelecionado] = useState<CanalConexao | null>(null);
 
-  // --- Status da conexao do WhatsApp (lido do Supabase, atualizado pelo webhook) ---
+  // --- Status da conexao do WhatsApp ---
+  // Fonte principal: Supabase Realtime (dispara assim que o webhook grava uma mudanca em
+  // robozinho_config). Mas como isso depende do webhook estar funcionando, mantemos TAMBEM
+  // um polling de segurança consultando a Evolution API direto a cada 30s (mesmo com o modal
+  // fechado) — assim o card de conexão nunca fica desatualizado esperando F5, seja lá qual
+  // for o motivo do Realtime não ter avisado (webhook fora do ar, numero desconectado pelo
+  // próprio celular sem passar pelo nosso botão, etc).
   const [whatsappStatus, setWhatsappStatus] = useState<string>('close');
   useEffect(() => {
     const loadStatus = async () => {
@@ -42,14 +51,52 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
     };
     loadStatus();
     const channel = supabase.channel('integracoes-whatsapp-status').on('postgres_changes', { event: '*', schema: 'public', table: 'robozinho_config', filter: `company_id=eq.rafa-arts` }, loadStatus).subscribe();
-    return () => { supabase.removeChannel(channel); };
+
+    const verificarNaEvolutionApi = async () => {
+      try {
+        const resp = await fetch('/api/whatsapp-connect?status=1');
+        const data = await resp.json().catch(() => ({}));
+        if (resp.ok && data.status && data.status !== 'unknown') setWhatsappStatus(data.status);
+      } catch {
+        // Falha de rede pontual no polling de segurança — sem problema, tenta de novo no
+        // próximo ciclo (e o Realtime continua ativo em paralelo).
+      }
+    };
+    const backupPollRef = setInterval(verificarNaEvolutionApi, 30000);
+
+    return () => { supabase.removeChannel(channel); clearInterval(backupPollRef); };
   }, []);
   const whatsappConectado = whatsappStatus === 'open';
 
   // --- QR Code (busca ao abrir o modal, e fica consultando o status a cada 4s até conectar) ---
+  // qrCode = imagem final (data:image/png;base64,...) já desenhada com fundo branco puro
+  // (#FFFFFF) e módulos pretos puros (#000000), pra garantir contraste máximo na leitura
+  // pela câmera do celular — não usamos a imagem que a Evolution API devolve pronta, porque
+  // a cor dela pode variar de versão pra versão.
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [loadingQr, setLoadingQr] = useState(false);
   const [desconectando, setDesconectando] = useState(false);
+
+  // Desenha o QR Code localmente a partir do texto bruto (qrCodeText), forçando as cores.
+  // Se por algum motivo a Evolution API não mandar o texto bruto (versão antiga da API,
+  // por exemplo), cai pro base64 pronto que ela devolveu, só pra não deixar o usuário sem
+  // QR nenhum — mas o caminho normal é sempre desenhar com as cores certas aqui.
+  const renderizarQrPretoEBranco = async (qrCodeText: string | null, qrCodeBase64Fallback: string | null) => {
+    if (qrCodeText) {
+      try {
+        const dataUrl = await QRCode.toDataURL(qrCodeText, {
+          color: { dark: '#000000', light: '#FFFFFF' },
+          errorCorrectionLevel: 'M',
+          margin: 2,
+          width: 512,
+        });
+        return dataUrl;
+      } catch (err) {
+        console.error('Falha ao desenhar o QR Code localmente, usando o da Evolution API:', err);
+      }
+    }
+    return qrCodeBase64Fallback;
+  };
 
   const handleDesconectar = async () => {
     if (!(await showConfirm('Desconectar esse número do WhatsApp? Você vai precisar escanear o QR Code de novo pra reconectar (com o mesmo número ou outro).'))) return;
@@ -61,6 +108,11 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
         setQrError(data.error || 'Não foi possível desconectar.');
         return;
       }
+      // Atualiza o status na hora, sem esperar o Supabase Realtime — o Realtime so avisa
+      // quando o webhook grava a mudanca no banco, e se o webhook atrasar ou falhar por
+      // qualquer motivo, o card ficava preso mostrando "Conectado" ate a pessoa dar F5.
+      // Como a API ja confirmou o logout (resp.ok), sabemos que desconectou de verdade.
+      setWhatsappStatus('close');
       setQrCode(null);
     } catch (err) {
       setQrError('Falha de conexão ao tentar desconectar.');
@@ -68,6 +120,58 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
       setDesconectando(false);
     }
   };
+
+  // --- Importação de histórico (mensagens antigas, de antes de conectar o webhook) ---
+  // Rodar supabase/add_historico_mensagens_whatsapp.sql no Supabase antes de usar isso.
+  type ImportStatus = {
+    totalConversas: number;
+    conversasConcluidas: number;
+    conversasEmAndamento: number;
+    conversasPendentes: number;
+    conversasComErro: number;
+    mensagensImportadas: number;
+    concluido: boolean;
+  };
+  const [importando, setImportando] = useState(false);
+  const [importStatus, setImportStatus] = useState<ImportStatus | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const importLoopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const pararLoopImportacao = () => {
+    if (importLoopRef.current) clearTimeout(importLoopRef.current);
+    importLoopRef.current = null;
+  };
+
+  const loopContinuarImportacao = async () => {
+    try {
+      const resp = await fetch('/api/whatsapp-import-messages?action=continue');
+      const data = await resp.json();
+      if (!resp.ok) { setImportError(data.error || 'Falha ao continuar a importação.'); setImportando(false); return; }
+      setImportStatus(data);
+      if (data.concluido) { setImportando(false); return; }
+      // Continua puxando mais um pedaço a cada poucos segundos, enquanto essa tela ficar aberta
+      importLoopRef.current = setTimeout(loopContinuarImportacao, 2500);
+    } catch (err) {
+      setImportError('Falha de conexão durante a importação.');
+      setImportando(false);
+    }
+  };
+
+  const handleImportarHistorico = async () => {
+    setImportError(null);
+    setImportando(true);
+    try {
+      const resp = await fetch('/api/whatsapp-import-messages?action=start');
+      const data = await resp.json();
+      if (!resp.ok) { setImportError(data.error || 'Não foi possível iniciar a importação.'); setImportando(false); return; }
+      loopContinuarImportacao();
+    } catch (err) {
+      setImportError('Falha de conexão ao iniciar a importação.');
+      setImportando(false);
+    }
+  };
+
+  useEffect(() => () => pararLoopImportacao(), []);
 
   const [qrError, setQrError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -86,14 +190,31 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
     }
   };
 
+  // Busca o QR Code atravessando o fluxo unificado da API (verificação de estado -> conexão
+  // automática -> QR pronto). A própria resposta já traz o status mais atual da instância,
+  // então essa chamada também serve pra manter o `whatsappStatus` em dia — não precisamos
+  // mais de um segundo polling separado só pra status (ver comentário no useEffect abaixo).
   const buscarQrCode = async () => {
     setLoadingQr(true);
     setQrError(null);
     try {
       const resp = await fetch('/api/whatsapp-connect');
-      const data = await resp.json();
+      const data = await resp.json().catch(() => ({}));
       if (!resp.ok) { setQrError(data.error || 'Não foi possível gerar o QR Code.'); return; }
-      setQrCode(data.qrCode || null);
+
+      if (data.status) setWhatsappStatus(data.status);
+
+      // A API já verifica o estado antes de gerar QR: se já estava 'open', ela nem manda
+      // QR Code nenhum — só o status. Nesse caso não tem o que desenhar, o modal fecha
+      // sozinho pelo efeito que observa `whatsappConectado`.
+      if (data.connected || data.status === 'open') {
+        setQrCode(null);
+        return;
+      }
+
+      const qrFinal = await renderizarQrPretoEBranco(data.qrCodeText || null, data.qrCode || null);
+      setQrCode(qrFinal || null);
+      if (!qrFinal) setQrError('A Evolution API não devolveu um QR Code válido.');
     } catch (err) {
       setQrError('Falha de conexão ao buscar o QR Code.');
     } finally {
@@ -101,15 +222,22 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
     }
   };
 
+  // Intervalo de renovação automática do QR Code + status. Pedido: a cada 15-20s. Na prática
+  // o QR do Baileys costuma expirar perto dos 20s, então renovar exatamente em 20s às vezes
+  // pega o usuário com uma imagem já vencida na tela ("QR code inválido") bem no momento de
+  // escanear — por isso usamos uma margem de segurança (15s) por padrão.
+  const QR_AUTO_REFRESH_MS = 15000;
+
   useEffect(() => {
     if (canalSelecionado?.id !== 'whatsapp') return;
     if (whatsappConectado) return; // ja conectado, nao precisa de QR
     buscarQrCode();
-    // Fica consultando o status a cada 4s — assim que o celular escanear, whatsappStatus
-    // vira 'open' sozinho (via Realtime, atualizado pelo webhook) e fecha o modal
-    // Renova o QR a cada 15s — o QR do Baileys costuma expirar perto dos 20s, então
-    // com 20s o usuário frequentemente escaneava uma imagem já vencida ("QR code inválido")
-    pollRef.current = setInterval(buscarQrCode, 15000);
+    // Auto-refresh unificado: a cada 15s busca QR Code + status novos, sem o usuário
+    // precisar dar F5. Cada chamada já atualiza `whatsappStatus`, então assim que o celular
+    // escanear (Evolution API muda o estado pra 'open'), o próprio poll detecta e o modal
+    // fecha sozinho — sem depender só do Supabase Realtime (que continua ativo como reforço,
+    // ver o useEffect que carrega `whatsappStatus` lá em cima).
+    pollRef.current = setInterval(buscarQrCode, QR_AUTO_REFRESH_MS);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canalSelecionado, whatsappConectado]);
@@ -124,9 +252,6 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
   const TABS: { id: IntegracoesTab; label: string; icon: any }[] = [
     { id: 'conexoes', label: 'Conexões', icon: Plug },
     { id: 'robozinho_rafa', label: 'Robozinho Rafa', icon: Bot },
-    // So o admin libera grupo e escolhe quem ve (regra de negocio: grupo novo entra
-    // represado e ninguem, nem admin fora dessa tela, ve mensagem de grupo nao liberado)
-    ...(user?.isAdmin ? [{ id: 'grupos_whatsapp' as IntegracoesTab, label: 'Grupos WhatsApp', icon: Users }] : []),
   ];
 
   return (
@@ -187,10 +312,6 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
         <RobozinhoRafaModule currentCompany={currentCompany} user={user} />
       )}
 
-      {tab === 'grupos_whatsapp' && user?.isAdmin && (
-        <WhatsAppGroupsModule />
-      )}
-
       <Modal isOpen={!!canalSelecionado} onClose={() => setCanalSelecionado(null)} title={canalSelecionado ? `Conectar ${canalSelecionado.nome}` : ''} size="sm">
         {canalSelecionado && canalSelecionado.implementado && (
           <div className="space-y-4 text-center py-2">
@@ -201,6 +322,45 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
                 </div>
                 <p className="text-sm font-bold text-white">WhatsApp conectado!</p>
                 <p className="text-xs text-white/40">As mensagens já estão chegando direto no Funil de Atendimento.</p>
+
+                {/* Importar histórico — mensagens de antes de conectar o webhook */}
+                <div className="pt-2 border-t border-white/10 text-left space-y-2">
+                  {!importando && !importStatus && (
+                    <button
+                      onClick={handleImportarHistorico}
+                      className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-white/5 hover:bg-primary-500 hover:text-slate-950 text-white/70 text-[11px] font-black uppercase tracking-widest transition-all"
+                    >
+                      <History size={13} /> Importar histórico de mensagens
+                    </button>
+                  )}
+                  {importError && (
+                    <p className="text-[11px] text-rose-400 text-center">{importError}</p>
+                  )}
+                  {importStatus && (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between text-[10px] text-white/50">
+                        <span>{importStatus.concluido ? 'Importação concluída' : 'Importando conversas antigas...'}</span>
+                        <span>{importStatus.conversasConcluidas}/{importStatus.totalConversas} conversas</span>
+                      </div>
+                      <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
+                        <div
+                          className="h-full bg-primary-500 transition-all"
+                          style={{ width: `${importStatus.totalConversas ? Math.round((importStatus.conversasConcluidas / importStatus.totalConversas) * 100) : 0}%` }}
+                        />
+                      </div>
+                      <p className="text-[10px] text-white/40 text-center">{importStatus.mensagensImportadas} mensagens importadas até agora</p>
+                      {!importStatus.concluido && !importando && (
+                        <button
+                          onClick={handleImportarHistorico}
+                          className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-white/5 hover:bg-primary-500 hover:text-slate-950 text-white/70 text-[10px] font-black uppercase tracking-widest transition-all"
+                        >
+                          <RefreshCw size={11} /> Continuar importação
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 <button
                   onClick={handleDesconectar}
                   disabled={desconectando}
@@ -224,7 +384,7 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
               </div>
             ) : (
               <>
-                {qrCode && <img src={qrCode} alt="QR Code do WhatsApp" className="w-56 h-56 mx-auto rounded-xl border border-white/10" />}
+                {qrCode && <img src={qrCode} alt="QR Code do WhatsApp" className="w-56 h-56 mx-auto rounded-xl border border-white/10 bg-white p-2" />}
                 <p className="text-sm font-bold text-white">Escaneie com o WhatsApp</p>
                 <p className="text-xs text-white/40 leading-relaxed max-w-xs mx-auto">
                   Abra o WhatsApp no celular → Configurações → Aparelhos Conectados → Conectar um Aparelho, e escaneie esse código.

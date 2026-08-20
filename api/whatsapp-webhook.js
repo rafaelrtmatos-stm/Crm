@@ -13,13 +13,16 @@
 const SUPABASE_URL = 'https://areqouezrbdubfutjzki.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_YbzFXDHWQy-k0F9uNtVJ2g_urcsgmVt';
 
-// Segredo compartilhado com a Evolution API — configura o MESMO valor nos dois lados
-// (aqui via variavel de ambiente da Vercel, e na Evolution API como header customizado
-// no webhook). Protege pra ninguem conseguir inserir mensagem falsa mandando um POST
-// direto pra essa URL sem saber o segredo.
+// Segredo compartilhado com a Evolution API — configura o MESMO valor nos dois lados.
+// IMPORTANTE: nem toda versao/fork da Evolution API repassa "headers" customizados
+// configurados no webhook (o campo existe em algumas builds, mas nao e garantido em
+// todas). Por isso api/whatsapp-connect.js agora manda o segredo tambem via querystring
+// na propria URL do webhook (?secret=...), que funciona em QUALQUER versao. Aqui a gente
+// aceita os dois formatos: header (se a versao da Evolution API suportar) OU querystring
+// (sempre funciona) — validando qualquer um dos dois que vier.
 const WEBHOOK_SECRET = process.env.EVOLUTION_WEBHOOK_SECRET;
 
-async function inserirMensagem({ phone, text, senderName, direction = 'incoming', channel = 'WhatsApp' }) {
+async function inserirMensagem({ phone, text, senderName, direction = 'incoming', channel = 'WhatsApp', senderPhone = null }) {
   if (!phone || !text) return;
   await fetch(`${SUPABASE_URL}/rest/v1/crm_messages`, {
     method: 'POST',
@@ -34,6 +37,7 @@ async function inserirMensagem({ phone, text, senderName, direction = 'incoming'
       text,
       direction,
       sender_name: senderName || null,
+      sender_phone: senderPhone || null,
       channel,
     }),
   });
@@ -96,19 +100,35 @@ export default async function handler(req, res) {
     return;
   }
 
-  // Validacao do segredo — a Evolution API precisa mandar esse mesmo valor no header
-  // (configuravel na propria Evolution API na hora de criar o webhook)
+  // Validacao do segredo — aceita tanto o header customizado (x-webhook-secret) quanto o
+  // querystring (?secret=...) da propria URL do webhook. A Evolution API sempre respeita a
+  // URL exata que foi configurada (isso nao depende de nenhuma feature opcional dela),
+  // entao o querystring e o metodo garantido; o header fica como bonus se a versao suportar.
   if (WEBHOOK_SECRET) {
-    const recebido = req.headers['x-webhook-secret'];
-    if (recebido !== WEBHOOK_SECRET) {
+    const recebidoHeader = req.headers['x-webhook-secret'];
+    const recebidoQuery = req.query?.secret;
+    if (recebidoHeader !== WEBHOOK_SECRET && recebidoQuery !== WEBHOOK_SECRET) {
+      console.warn('Webhook rejeitado: segredo ausente ou invalido (nem header nem querystring bateram).');
       res.status(401).json({ error: 'Assinatura invalida' });
       return;
     }
   }
 
   try {
-    const body = req.body || {};
+    // Analisa o corpo com seguranca — normalmente a Vercel ja parseia JSON sozinha, mas se
+    // a Evolution API mandar sem "Content-Type: application/json" (varia por versao), o
+    // corpo chega como string ou Buffer cru em vez de objeto ja parseado.
+    let body = req.body;
+    if (Buffer.isBuffer(body)) body = body.toString('utf-8');
+    if (typeof body === 'string') {
+      try { body = JSON.parse(body); } catch { body = {}; }
+    }
+    body = body || {};
+
     const event = body.event;
+    // Log leve de toda chamada recebida — essencial pra depurar direto nos logs da Vercel
+    // se o webhook esta sendo chamado (e com qual evento) ou nem esta chegando.
+    console.log('[whatsapp-webhook] evento recebido:', event, '| instance:', body.instance || '?');
 
     if (event === 'messages.upsert' || event === 'MESSAGES_UPSERT') {
       // Formato padrao da Evolution API: body.data pode ser um objeto unico ou uma lista,
@@ -132,15 +152,38 @@ export default async function handler(req, res) {
         }
 
         const phone = phoneRaw.replace('@s.whatsapp.net', '').replace('@g.us', '').replace(/\D/g, '');
+        // Texto da mensagem — cobre os tipos mais comuns de conteudo. Mensagens de midia
+        // SEM legenda (audio, figurinha, imagem/video/documento sem texto junto) antes
+        // caiam fora silenciosamente aqui (texto vazio => "if (phone && text)" mais embaixo
+        // descartava a mensagem inteira) — agora usa um rotulo generico pra pelo menos
+        // avisar que chegou algo, em vez de sumir sem deixar rastro no CRM.
         const text =
           msg?.message?.conversation ||
           msg?.message?.extendedTextMessage?.text ||
           msg?.message?.imageMessage?.caption ||
+          msg?.message?.videoMessage?.caption ||
+          msg?.message?.documentMessage?.caption ||
+          msg?.message?.documentWithCaptionMessage?.message?.documentMessage?.caption ||
+          (msg?.message?.audioMessage ? '[áudio]' : '') ||
+          (msg?.message?.stickerMessage ? '[figurinha]' : '') ||
+          (msg?.message?.imageMessage ? '[imagem]' : '') ||
+          (msg?.message?.videoMessage ? '[vídeo]' : '') ||
+          (msg?.message?.documentMessage ? '[documento]' : '') ||
+          (msg?.message?.locationMessage ? '[localização]' : '') ||
+          (msg?.message?.contactMessage ? '[contato]' : '') ||
           '';
         const senderName = msg?.pushName || '';
 
+        // Em mensagem de GRUPO, msg.key.participant traz o JID de quem realmente mandou
+        // (msg.key.remoteJid é o grupo, não a pessoa) — guarda o telefone dela separado,
+        // pra dar pra abrir a conversa individual desse participante depois (ver
+        // WhatsAppGroupsModule/GroupChatModal, "conversar direto com ele")
+        const senderPhone = phoneRaw.endsWith('@g.us') && msg?.key?.participant
+          ? msg.key.participant.replace('@s.whatsapp.net', '').replace(/\D/g, '')
+          : null;
+
         if (phone && text) {
-          await inserirMensagem({ phone, text, senderName, direction: 'incoming' });
+          await inserirMensagem({ phone, text, senderName, direction: 'incoming', senderPhone });
         }
       }
     }
@@ -148,6 +191,13 @@ export default async function handler(req, res) {
     if (event === 'connection.update' || event === 'CONNECTION_UPDATE') {
       const status = body?.data?.state || body?.data?.status;
       if (status) await atualizarStatusConexao(status);
+    }
+
+    if (!event) {
+      // Corpo chegou sem campo "event" — normalmente sinal de que o payload nao e da
+      // Evolution API (ex: alguem testando a URL na mao) ou de uma mudanca de formato numa
+      // atualizacao de versao dela. Loga o corpo bruto pra facilitar o diagnostico.
+      console.warn('[whatsapp-webhook] corpo sem campo "event":', JSON.stringify(body).slice(0, 500));
     }
 
     res.status(200).json({ ok: true });
