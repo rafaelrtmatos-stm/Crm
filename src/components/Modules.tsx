@@ -1926,6 +1926,7 @@ export const ChatPanel = ({
   initialDraft,
   onDraftConsumed,
   fallbackFunnelId,
+  onLeadPatched,
 }: { 
   conversation: any; 
   onClose?: () => void;
@@ -1934,6 +1935,13 @@ export const ChatPanel = ({
   initialDraft?: string;
   onDraftConsumed?: () => void;
   fallbackFunnelId?: string;
+  // Callback opcional: chamado com (leadId, patch) sempre que o ChatPanel salva um
+  // campo do lead direto (ex: handleSaveNames). Deixa o componente pai (dono do
+  // estado `leads`/`selectedLead`/`selectedChat`) atualizar a lista NA HORA, sem
+  // esperar o listener em tempo real do Supabase -- sem isso o nome editado só
+  // aparecia certo depois de um refresh manual (o header ficava com o valor
+  // antigo ate o realtime devolver a mudanca).
+  onLeadPatched?: (leadId: string, patch: Record<string, any>) => void;
 }) => {
   const [activeTab, setActiveTab] = useState<'chat' | 'data' | 'notes' | 'tasks' | 'sales'>('chat');
   const [newMessage, setNewMessage] = useState('');
@@ -2035,12 +2043,22 @@ export const ChatPanel = ({
     if (!conversation?.id) return;
     setIsSavingNames(true);
     try {
-      await supabase.from('leads').update({
+      const fullNameFinal = nameFieldsDraft.fullName.trim() || conversation.name;
+      const patch = {
         whatsapp_name: nameFieldsDraft.whatsappName.trim(),
         contact_name: nameFieldsDraft.contactName.trim(),
-        full_name: nameFieldsDraft.fullName.trim() || conversation.name,
+        full_name: fullNameFinal,
         updated_at: new Date().toISOString(),
-      }).eq('id', conversation.id);
+      };
+      const { error } = await supabase.from('leads').update(patch).eq('id', conversation.id);
+      if (error) throw error;
+      // Atualiza a lista do componente pai (leads/selectedLead/selectedChat) na hora --
+      // ver comentario do prop onLeadPatched acima.
+      onLeadPatched?.(conversation.id, {
+        whatsappName: patch.whatsapp_name,
+        contactName: patch.contact_name,
+        fullName: patch.full_name,
+      });
     } catch (err) {
       console.error('Erro ao salvar nomes:', err);
       showAlert('Não foi possível salvar os nomes.');
@@ -3562,6 +3580,10 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
               currentCompany={currentCompany}
               user={user}
               fallbackFunnelId={selectedFunnelId}
+              onLeadPatched={(leadId, patch) => {
+                setLeads(prev => prev.map(l => l.id === leadId ? { ...l, ...patch } : l));
+                setSelectedLead(prev => (prev && prev.id === leadId) ? { ...prev, ...patch } : prev);
+              }}
             />
           </motion.div>
         )}
@@ -4398,6 +4420,10 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
         onClose={() => setSelectedChat(null)}
         initialDraft={chatInitialDraft}
         onDraftConsumed={() => setChatInitialDraft('')}
+        onLeadPatched={(leadId, patch) => {
+          setLeads(prev => prev.map(l => l.id === leadId ? { ...l, ...patch } : l));
+          setSelectedChat((prev: any) => (prev && prev.id === leadId) ? { ...prev, ...patch } : prev);
+        }}
       />
 
       {/* MODAL SIMULADOR DE MENSAGENS RECEBIDAS (TESTE MULTICANAL DE CRM) */}
