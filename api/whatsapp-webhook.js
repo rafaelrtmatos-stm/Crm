@@ -72,33 +72,63 @@ async function baixarEGuardarMidia(msg, evoHeaders) {
   const midia = encontrarNodeMidia(msg?.message);
   if (!midia || midia.tipo === 'sticker') return null; // figurinha continua so como rotulo por enquanto
 
-  if (!EVOLUTION_API_URL || !EVOLUTION_API_KEY || !evoHeaders) return null;
+  const messageId = msg?.key?.id;
+  if (!EVOLUTION_API_URL || !EVOLUTION_API_KEY || !evoHeaders || !messageId) {
+    // Log explicito pra dar pra diagnosticar pelos logs da Vercel -- sem isso, midia
+    // "nao baixa" silenciosamente e nao da pra saber se e' falta de env var ou outra coisa.
+    if (!EVOLUTION_API_URL || !EVOLUTION_API_KEY) {
+      console.error('Midia recebida mas EVOLUTION_API_URL/EVOLUTION_API_KEY nao configuradas -- configure essas env vars na Vercel pra baixar midia de verdade.');
+    }
+    return null;
+  }
 
-  try {
-    // Endpoint padrao da Evolution API que decripta a midia do Baileys e devolve em base64
-    // (a mensagem crua que chega no webhook so tem a midia CRIPTOGRAFADA, sem esse passo
-    // o arquivo nunca fica acessivel).
+  // A Evolution API busca a mensagem pelo ID no PROPRIO banco dela (nao pelo conteudo que
+  // a gente manda) -- o payload documentado e' so { message: { key: { id } }, convertToMp4 }.
+  // Mandar o objeto `message` (conteudo) ou `key` completo (com remoteJid/fromMe) faz a busca
+  // falhar com 400 "Message not found" em algumas versoes da Evolution.
+  const buscarBase64 = async () => {
     const r = await fetch(`${EVOLUTION_API_URL}/chat/getBase64FromMediaMessage/${INSTANCE_NAME}`, {
       method: 'POST',
       headers: evoHeaders,
-      body: JSON.stringify({ message: { key: msg.key, message: msg.message }, convertToMp4: false }),
+      body: JSON.stringify({ message: { key: { id: messageId } }, convertToMp4: false }),
     });
+    return r;
+  };
+
+  try {
+    let r = await buscarBase64();
     if (!r.ok) {
-      console.error('Falha ao baixar midia da Evolution API:', r.status, await r.text().catch(() => ''));
+      const corpoErro = await r.text().catch(() => '');
+      // A mensagem pode ainda nao estar salva no banco interno da Evolution no exato
+      // instante em que o webhook dispara (race condition) -- espera 1.5s e tenta mais
+      // uma vez antes de desistir.
+      console.error('Falha ao baixar midia da Evolution API (tentando de novo em 1.5s):', r.status, corpoErro);
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      r = await buscarBase64();
+    }
+    if (!r.ok) {
+      console.error('Falha ao baixar midia da Evolution API (2ª tentativa):', r.status, await r.text().catch(() => ''));
       return null;
     }
     const data = await r.json();
     const base64 = data?.base64 || data?.data;
-    if (!base64) return null;
+    if (!base64) {
+      console.error('Evolution API respondeu sem base64 pra midia:', messageId, JSON.stringify(data).slice(0, 300));
+      return null;
+    }
 
     const mimetype = data?.mimetype || midia.node?.mimetype || 'application/octet-stream';
     const extensao = extensaoPorMimetype(mimetype) || 'bin';
     const nomeOriginal = midia.node?.fileName || null;
     const fileName = nomeOriginal || `${midia.tipo}-${Date.now()}.${extensao}`;
-    const path = `${COMPANY_ID}/${msg?.key?.id || Date.now()}-${fileName}`;
+    // So o nome do arquivo e' escapado -- se codificasse o path inteiro, a barra "/" vira
+    // "%2F" e o Storage deixa de tratar isso como pasta (COMPANY_ID vira parte do nome
+    // do arquivo em vez de uma pasta de verdade dentro do bucket).
+    const path = `${COMPANY_ID}/${messageId}-${encodeURIComponent(fileName)}`;
 
     const bytes = Buffer.from(base64, 'base64');
-    const upload = await fetch(`${SUPABASE_URL}/storage/v1/object/whatsapp-media/${encodeURIComponent(path)}`, {
+
+    const upload = await fetch(`${SUPABASE_URL}/storage/v1/object/whatsapp-media/${path}`, {
       method: 'POST',
       headers: {
         apikey: SUPABASE_ANON_KEY,
@@ -113,7 +143,7 @@ async function baixarEGuardarMidia(msg, evoHeaders) {
       return null;
     }
 
-    const mediaUrl = `${SUPABASE_URL}/storage/v1/object/public/whatsapp-media/${encodeURIComponent(path)}`;
+    const mediaUrl = `${SUPABASE_URL}/storage/v1/object/public/whatsapp-media/${path}`;
     return { mediaUrl, fileName, contentType: midia.tipo };
   } catch (err) {
     console.error('Falha ao baixar/guardar midia (nao impede o resto):', err);
