@@ -47,9 +47,23 @@ export default async function handler(req, res) {
       return;
     }
 
+    // --- Diagnostico: mostra a configuracao ATUAL do webhook salva na Evolution API, pra
+    // conferir se esta apontando pro lugar certo (usar em /api/whatsapp-connect?webhookInfo=1) ---
+    if (req.query.webhookInfo) {
+      const r = await fetch(`${EVOLUTION_API_URL}/webhook/find/${INSTANCE_NAME}`, { headers });
+      const data = await r.json();
+      res.status(200).json({ webhookConfig: data });
+      return;
+    }
+
     // --- Fluxo normal: garante que a instancia existe, com o webhook configurado, e devolve o QR ---
     // 1) Tenta criar a instancia (se ja existir, a Evolution API devolve erro — ignora e segue)
     const siteUrl = `https://${req.headers.host}`;
+    const webhookConfig = {
+      url: `${siteUrl}/api/whatsapp-webhook`,
+      headers: { 'x-webhook-secret': EVOLUTION_WEBHOOK_SECRET || '' },
+      events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'],
+    };
     await fetch(`${EVOLUTION_API_URL}/instance/create`, {
       method: 'POST',
       headers,
@@ -57,13 +71,20 @@ export default async function handler(req, res) {
         instanceName: INSTANCE_NAME,
         qrcode: true,
         integration: 'WHATSAPP-BAILEYS',
-        webhook: {
-          url: `${siteUrl}/api/whatsapp-webhook`,
-          headers: { 'x-webhook-secret': EVOLUTION_WEBHOOK_SECRET || '' },
-          events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'],
-        },
+        webhook: webhookConfig,
       }),
-    }).catch(() => {}); // se ja existir, tudo bem, so segue pro passo 2
+    }).catch(() => {}); // se ja existir, tudo bem, so segue pro passo 1.5
+
+    // 1.5) Garante o webhook configurado MESMO se a instancia ja existia de antes (o passo 1
+    // acima so configura o webhook na CRIACAO — se a instancia foi criada antes dessa
+    // configuracao existir, ou criada manualmente sem webhook, ela ficava "muda" pro CRM,
+    // recebendo mensagem normal mas nunca avisando a gente). Roda sempre, sem depender do
+    // resultado do passo 1.
+    await fetch(`${EVOLUTION_API_URL}/webhook/set/${INSTANCE_NAME}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ webhook: { ...webhookConfig, enabled: true } }),
+    }).catch((err) => console.error('Falha ao configurar webhook (instancia pode ja ter, ou API antiga):', err));
 
     // 2) Busca o QR Code atual da instancia
     const qrRes = await fetch(`${EVOLUTION_API_URL}/instance/connect/${INSTANCE_NAME}`, { headers });
