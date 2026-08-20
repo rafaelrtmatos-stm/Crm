@@ -105,8 +105,6 @@ import {
   BarChart as BarChartIcon,
   LineChart as LineChartIcon,
   List,
-  Gauge,
-  Minus,
   Table as TableIcon,
   Eye,
   ExternalLink,
@@ -279,7 +277,7 @@ function mapUsuarioRow(row: any): AppUser {
 
 // Permissoes granulares padrao (visualizar/criar/editar/excluir) por perfil.
 // O admin sempre tem acesso total independente disso (checado a parte via isAdmin).
-const ALL_MODULE_IDS = ['dashboard', 'pos', 'messages', 'clientes_espera', 'contacts', 'crm', 'production', 'inventory', 'purchase_list', 'settings', 'robozinho_rafa', 'comissoes'];
+const ALL_MODULE_IDS = ['dashboard', 'pos', 'messages', 'clientes_espera', 'contacts', 'crm', 'production', 'inventory', 'settings', 'robozinho_rafa', 'comissoes'];
 function fullAccess(): ModuleCrudPermission { return { view: true, create: true, edit: true, delete: true }; }
 function noAccess(): ModuleCrudPermission { return { view: false, create: false, edit: false, delete: false }; }
 function viewOnly(): ModuleCrudPermission { return { view: true, create: false, edit: false, delete: false }; }
@@ -15498,15 +15496,14 @@ const emptyVariacao = (): ProductVariation => ({
   consumos: [],
 });
 
-export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved, defaultTipoItem }: {
+export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved }: {
   isOpen: boolean;
   onClose: () => void;
   editingItem: InventoryItem | null;
   onSaved: (savedRow: any) => void;
-  defaultTipoItem?: InventoryItem['tipoItem'];
 }) => {
   const emptyForm: Partial<InventoryItem> = {
-    name: '', code: '', category: '', unit: 'un', currentStock: 0, minStock: 0,
+    name: '', code: '', category: 'substrato', unit: 'un', currentStock: 0, minStock: 0,
     salePrice: 0, costPrice: 0, isActive: true, isService: false,
     tipoItem: 'produto', controlaEstoque: true, estoqueMaximo: 0, localizacao: '', descricao: '', larguraRolo: 0,
     valorMinimo: 0,
@@ -15518,19 +15515,16 @@ export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved, defaul
   // --- Variações e Consumo de Matéria-Prima ---
   const [variacoes, setVariacoes] = useState<ProductVariation[]>([]);
   const [materiaisDisponiveis, setMateriaisDisponiveis] = useState<{ id: string; name: string; unit: string }[]>([]);
-  const [categoriasExistentes, setCategoriasExistentes] = useState<string[]>([]);
   const [loadingVariacoes, setLoadingVariacoes] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
-    setFormData(editingItem ? { ...editingItem } : { ...emptyForm, ...(defaultTipoItem ? { tipoItem: defaultTipoItem } : {}) });
+    setFormData(editingItem ? { ...editingItem } : { ...emptyForm });
     setFormTab('info');
     setVariacoes([]);
     // Lista de matérias-primas = produtos/materiais já cadastrados no Estoque (não cria estoque paralelo)
-    supabase.from('produtos').select('id, name, unit, category').order('name', { ascending: true }).then(({ data }) => {
+    supabase.from('produtos').select('id, name, unit').order('name', { ascending: true }).then(({ data }) => {
       setMateriaisDisponiveis((data || []).map((p: any) => ({ id: p.id, name: p.name, unit: p.unit || 'un' })));
-      const cats = Array.from(new Set((data || []).map((p: any) => (p.category || '').trim()).filter(Boolean)));
-      setCategoriasExistentes(cats.sort());
     });
     if (editingItem) {
       setLoadingVariacoes(true);
@@ -15695,17 +15689,13 @@ export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved, defaul
           </div>
           <Input label="CÓDIGO INTERNO (SKU)" placeholder="Deixe em branco pra gerar automático" value={formData.code} onChange={(e: any) => setFormData({ ...formData, code: e.target.value })} />
           <div className="space-y-2">
-            <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">CATEGORIA / FAMÍLIA <span className="normal-case font-normal text-white/25">(ex: Adesivo, Lona, Ilhós...)</span></p>
-            <input
-              list="categorias-existentes"
-              className="w-full h-12 bg-[#1a2333] border border-white/10 rounded-xl px-4 text-xs text-white outline-none"
-              placeholder="Digite ou escolha uma categoria"
-              value={formData.category || ''}
-              onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-            />
-            <datalist id="categorias-existentes">
-              {categoriasExistentes.map(c => <option key={c} value={c} />)}
-            </datalist>
+            <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">CATEGORIA</p>
+            <select className="w-full h-12 bg-[#1a2333] border border-white/10 rounded-xl px-4 text-xs text-white outline-none" value={formData.category} onChange={(e) => setFormData({ ...formData, category: e.target.value as any })}>
+              <option value="substrato">Substrato (Lona/Vinil/Papel)</option>
+              <option value="tinta">Tintas / Toners</option>
+              <option value="acabamento">Acabamento (Ilhós/Verniz)</option>
+              <option value="diversos">Diversos</option>
+            </select>
           </div>
           <div className="space-y-2">
             <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">TIPO DE ITEM</p>
@@ -15989,7 +15979,6 @@ export const InventoryModule = ({ currentCompany, user }: { currentCompany: Comp
   const totalUnidadesEstoque = items.reduce((acc, i) => acc + (Number(i.currentStock) || 0), 0);
 
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
-  const [novoItemTipo, setNovoItemTipo] = useState<InventoryItem['tipoItem']>('produto');
   const [estoqueSortBy, setEstoqueSortByState] = useState<'nome' | 'data' | 'estoque' | 'preco'>(() => {
     const saved = localStorage.getItem('rpro_estoque_sort');
     return (saved === 'nome' || saved === 'data' || saved === 'estoque' || saved === 'preco') ? saved : 'nome';
@@ -15999,53 +15988,9 @@ export const InventoryModule = ({ currentCompany, user }: { currentCompany: Comp
     localStorage.setItem('rpro_estoque_sort', v);
   };
   const [estoqueSearchTerm, setEstoqueSearchTerm] = useState('');
-  const [estoqueTipoFiltro, setEstoqueTipoFiltro] = useState<'todos' | 'produto' | 'material'>('todos');
-  const [estoqueViewMode, setEstoqueViewMode] = useState<'lista' | 'controle'>('controle');
-  const [ajustandoItem, setAjustandoItem] = useState<InventoryItem | null>(null);
-  const [ajusteQtd, setAjusteQtd] = useState<number | ''>('');
-  const [ajusteTipo, setAjusteTipo] = useState<'entrada' | 'saida'>('entrada');
-  const [salvandoAjuste, setSalvandoAjuste] = useState(false);
 
-  // Ajuste manual e rápido de estoque (sem passar pelo formulário completo), usado na
-  // aba "Controle Rápido" — soma ou subtrai do estoque atual e registra a movimentação.
-  const confirmarAjusteEstoque = async () => {
-    if (!ajustandoItem || ajusteQtd === '' || Number(ajusteQtd) <= 0) { showAlert('Informe uma quantidade válida.'); return; }
-    setSalvandoAjuste(true);
-    try {
-      const qtd = Number(ajusteQtd);
-      const estoqueAnterior = Number(ajustandoItem.currentStock) || 0;
-      const novoEstoque = ajusteTipo === 'entrada' ? estoqueAnterior + qtd : Math.max(0, estoqueAnterior - qtd);
-      const { error } = await supabase.from('produtos').update({ current_stock: novoEstoque }).eq('id', ajustandoItem.id);
-      if (error) throw error;
-      await supabase.from('movimentacoes_estoque').insert({
-        produto_id: ajustandoItem.id,
-        produto_nome: ajustandoItem.name,
-        tipo: ajusteTipo === 'entrada' ? 'entrada' : 'saida',
-        quantidade: qtd,
-        unidade: ajustandoItem.unit || 'un',
-        motivo: 'ajuste manual',
-        referencia: 'Controle Rápido de Estoque',
-        quantidade_anterior: estoqueAnterior,
-        quantidade_posterior: novoEstoque,
-      });
-      setAjustandoItem(null);
-      setAjusteQtd('');
-    } catch (err: any) {
-      console.error('Erro ao ajustar estoque:', err);
-      showAlert(`Não foi possível ajustar o estoque: ${err?.message || 'erro desconhecido'}`);
-    } finally {
-      setSalvandoAjuste(false);
-    }
-  };
-
-  // Agrupa os itens exibidos por categoria/família (ex: Adesivo, Lona) pro Controle Rápido
   const sortedFilteredItems = useMemo(() => {
     let list = items;
-    if (estoqueTipoFiltro === 'material') {
-      list = list.filter(i => i.tipoItem === 'material');
-    } else if (estoqueTipoFiltro === 'produto') {
-      list = list.filter(i => i.tipoItem !== 'material');
-    }
     const term = estoqueSearchTerm.trim().toLowerCase();
     if (term) {
       list = list.filter(i => (i.name || '').toLowerCase().includes(term) || (i.code || '').toLowerCase().includes(term) || (i.category || '').toLowerCase().includes(term));
@@ -16061,54 +16006,13 @@ export const InventoryModule = ({ currentCompany, user }: { currentCompany: Comp
       default:
         return sorted.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     }
-  }, [items, estoqueSearchTerm, estoqueSortBy, estoqueTipoFiltro]);
-
-  const materiaisAgrupados = useMemo(() => {
-    const grupos: Record<string, InventoryItem[]> = {};
-    sortedFilteredItems.forEach(item => {
-      const chave = (item.category || 'Sem categoria').trim() || 'Sem categoria';
-      if (!grupos[chave]) grupos[chave] = [];
-      grupos[chave].push(item);
-    });
-    return Object.entries(grupos).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [sortedFilteredItems]);
+  }, [items, estoqueSearchTerm, estoqueSortBy]);
 
 
   const openEditItem = (item: InventoryItem) => {
     setEditingItemId(item.id);
     setFormData({ ...item });
     setIsModalOpen(true);
-  };
-
-  // --- "Quem consome esse material" — visão a partir da MATERIA-PRIMA, mostrando quais
-  // produtos/variações já foram configurados pra consumir ela (ProdutoFormModal continua
-  // sendo onde de fato se cadastra o consumo, essa tela so mostra e da atalho pra editar) ---
-  const [materialConsumoView, setMaterialConsumoView] = useState<InventoryItem | null>(null);
-  const [consumidoresDoMaterial, setConsumidoresDoMaterial] = useState<{ produtoId: string; produtoNome: string; variacaoNome: string; quantidade: number; unidade: string }[]>([]);
-  const [loadingConsumidores, setLoadingConsumidores] = useState(false);
-
-  const openMaterialConsumoView = async (material: InventoryItem) => {
-    setMaterialConsumoView(material);
-    setLoadingConsumidores(true);
-    try {
-      const { data, error } = await supabase
-        .from('variacao_consumos')
-        .select('quantidade, unidade, produto_variacoes!variacao_id(name, produto_id, produtos(name))')
-        .eq('material_produto_id', material.id);
-      if (error) throw error;
-      setConsumidoresDoMaterial((data || []).map((row: any) => ({
-        produtoId: row.produto_variacoes?.produto_id,
-        produtoNome: row.produto_variacoes?.produtos?.name || 'Produto removido',
-        variacaoNome: row.produto_variacoes?.name || '',
-        quantidade: Number(row.quantidade) || 0,
-        unidade: row.unidade || material.unit,
-      })));
-    } catch (err) {
-      console.error('Erro ao buscar quem consome esse material:', err);
-      setConsumidoresDoMaterial([]);
-    } finally {
-      setLoadingConsumidores(false);
-    }
   };
 
   const handleDeleteItem = async (item: InventoryItem) => {
@@ -16135,9 +16039,6 @@ export const InventoryModule = ({ currentCompany, user }: { currentCompany: Comp
     { key: 'isActive', label: 'Status', render: (v: boolean) => <Badge variant={v ? 'success' : 'outline'} className="text-[9px]">{v ? 'ATIVO' : 'INATIVO'}</Badge> },
     { key: 'actions', label: 'Ações', render: (_: any, row: InventoryItem) => (
       <div className="flex items-center gap-1.5">
-        {row.tipoItem === 'material' && (
-          <button onClick={() => openMaterialConsumoView(row)} title="Ver quem consome esse material" className="p-1.5 rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-500/20"><Link2 size={13} /></button>
-        )}
         <button onClick={() => openEditItem(row)} title="Editar" className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20"><Pencil size={13} /></button>
         <button onClick={() => handleDeleteItem(row)} title="Excluir" className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20"><Trash2 size={13} /></button>
       </div>
@@ -16324,10 +16225,7 @@ export const InventoryModule = ({ currentCompany, user }: { currentCompany: Comp
             <Download size={14} />
           </button>
           {canManageInventory && (
-            <>
-              <Button variant="secondary" icon={Plus} onClick={() => { setEditingItemId(null); setNovoItemTipo('material'); setIsModalOpen(true); }}>Nova Matéria-Prima</Button>
-              <Button icon={Plus} onClick={() => { setEditingItemId(null); setNovoItemTipo('produto'); setIsModalOpen(true); }}>Novo Produto</Button>
-            </>
+            <Button icon={Plus} onClick={() => { setEditingItemId(null); setFormData({ name: '', category: 'substrato', unit: 'un', currentStock: 0, minStock: 0, salePrice: 0, costPrice: 0, isActive: true, isService: false, tipoItem: 'produto', controlaEstoque: true }); setIsModalOpen(true); }}>Novo Item</Button>
           )}
         </div>
       </div>
@@ -16364,24 +16262,6 @@ export const InventoryModule = ({ currentCompany, user }: { currentCompany: Comp
       </div>
 
       <GlassCard className="p-4 border-white/5 bg-white/[0.02]">
-        <div className="flex gap-1 bg-white/5 p-1 rounded-xl border border-white/10 mb-4 mx-4">
-          {[
-            { id: 'todos', label: `Todos (${items.length})` },
-            { id: 'produto', label: `Produtos Vendáveis (${items.filter(i => i.tipoItem !== 'material').length})` },
-            { id: 'material', label: `Matéria-Prima (${items.filter(i => i.tipoItem === 'material').length})` },
-          ].map(t => (
-            <button
-              key={t.id}
-              onClick={() => setEstoqueTipoFiltro(t.id as any)}
-              className={cn(
-                "flex-1 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all",
-                estoqueTipoFiltro === t.id ? "bg-primary-500 text-slate-900" : "text-white/40 hover:text-white/70"
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
         <div className="flex items-center gap-2 mb-6 px-4 flex-wrap">
           <div className="flex-1 min-w-[180px]">
             <Input icon={Search} placeholder="Filtrar por nome, código ou categoria..." value={estoqueSearchTerm} onChange={(e: any) => setEstoqueSearchTerm(e.target.value.toUpperCase())} className="uppercase" />
@@ -16396,70 +16276,7 @@ export const InventoryModule = ({ currentCompany, user }: { currentCompany: Comp
             <option value="estoque" className="bg-slate-900">Quantidade em Estoque</option>
             <option value="preco" className="bg-slate-900">Preço de Venda</option>
           </select>
-          <div className="flex gap-1 bg-white/5 p-1 rounded-xl border border-white/10 shrink-0">
-             <button onClick={() => setEstoqueViewMode('controle')} title="Controle Rápido" className={cn("h-8 px-3 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1.5", estoqueViewMode === 'controle' ? "bg-primary-500 text-slate-900" : "text-white/40 hover:text-white/70")}><Gauge size={13} /> Controle Rápido</button>
-             <button onClick={() => setEstoqueViewMode('lista')} title="Lista Completa" className={cn("h-8 px-3 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1.5", estoqueViewMode === 'lista' ? "bg-primary-500 text-slate-900" : "text-white/40 hover:text-white/70")}><List size={13} /> Lista</button>
-          </div>
         </div>
-
-        {estoqueViewMode === 'controle' ? (
-          materiaisAgrupados.length === 0 ? (
-            <div className="py-16 text-center bg-white/5 rounded-3xl border border-dashed border-white/10 space-y-2">
-               <Package size={36} className="mx-auto text-white/20" />
-               <p className="text-sm font-bold text-white/40 uppercase">Nenhum item encontrado</p>
-            </div>
-          ) : (
-          <div className="space-y-6 px-1">
-            {materiaisAgrupados.map(([categoria, itensGrupo]) => (
-              <div key={categoria}>
-                <p className="text-[10px] font-black uppercase text-primary-400 tracking-widest mb-2 px-3 flex items-center gap-2">
-                  {categoria} <span className="text-white/20 font-normal normal-case">({itensGrupo.length})</span>
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {itensGrupo.map(item => {
-                    const min = item.minStock || 0;
-                    const max = item.estoqueMaximo || Math.max(min * 3, item.currentStock, 1);
-                    const pct = Math.max(0, Math.min(100, (item.currentStock / max) * 100));
-                    const critico = item.currentStock <= min;
-                    const alerta = !critico && item.currentStock <= min * 1.5;
-                    const corBarra = critico ? 'bg-rose-500' : alerta ? 'bg-amber-500' : 'bg-emerald-500';
-                    return (
-                      <div key={item.id} className="bg-slate-900/60 border border-white/5 rounded-2xl p-4 space-y-3">
-                        <div className="flex items-start justify-between gap-2">
-                           <div className="min-w-0">
-                              <p className="text-xs font-black text-white uppercase truncate">{item.name}</p>
-                              <p className="text-[9px] text-white/30 uppercase">{item.tipoItem === 'material' ? 'Matéria-Prima' : 'Produto'} · {item.unit}</p>
-                           </div>
-                           {critico && <Badge className="uppercase text-[9px] shrink-0 bg-rose-500/15 text-rose-400 border-rose-500/20">Baixo</Badge>}
-                        </div>
-                        <div>
-                           <div className="flex justify-between items-baseline mb-1">
-                              <span className={cn("text-lg font-black", critico ? "text-rose-400" : alerta ? "text-amber-400" : "text-white")}>{item.currentStock}</span>
-                              <span className="text-[9px] text-white/30">{item.unit} {min > 0 && `· mín. ${min}`}</span>
-                           </div>
-                           <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
-                              <div className={cn("h-full rounded-full transition-all", corBarra)} style={{ width: `${pct}%` }} />
-                           </div>
-                        </div>
-                        {canManageInventory && (
-                          <div className="flex gap-1.5 pt-1">
-                            <button onClick={() => { setAjustandoItem(item); setAjusteTipo('entrada'); setAjusteQtd(''); }} className="flex-1 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 text-[10px] font-black uppercase flex items-center justify-center gap-1"><Plus size={12} /> Entrada</button>
-                            <button onClick={() => { setAjustandoItem(item); setAjusteTipo('saida'); setAjusteQtd(''); }} className="flex-1 h-8 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 text-[10px] font-black uppercase flex items-center justify-center gap-1"><Minus size={12} /> Saída</button>
-                            {item.tipoItem === 'material' && (
-                              <button onClick={() => openMaterialConsumoView(item)} title="Ver quem consome esse material" className="h-8 w-8 shrink-0 rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 flex items-center justify-center"><Link2 size={12} /></button>
-                            )}
-                            <button onClick={() => openEditItem(item)} title="Editar" className="h-8 w-8 shrink-0 rounded-lg bg-white/5 text-white/50 hover:text-primary-400 flex items-center justify-center"><Pencil size={12} /></button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-          )
-        ) : (
         <div className="flex flex-col gap-1.5">
            {sortedFilteredItems.length === 0 ? (
              <div className="py-16 text-center bg-white/5 rounded-3xl border border-dashed border-white/10 space-y-2">
@@ -16472,7 +16289,6 @@ export const InventoryModule = ({ currentCompany, user }: { currentCompany: Comp
                    <span className="text-[11px] font-black text-white uppercase italic break-words">{item.name}</span>
                    <span className="text-[9px] text-white/30 font-mono shrink-0">{item.code || 'S/C'}</span>
                    <Badge variant="outline" className="uppercase text-[9px] opacity-60 shrink-0">{item.category || 'Geral'}</Badge>
-                   {item.tipoItem === 'material' && <Badge className="uppercase text-[9px] shrink-0 bg-amber-500/15 text-amber-400 border-amber-500/20">Matéria-Prima</Badge>}
                 </div>
                 <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-3 shrink-0">
                    <div className="flex items-center gap-1.5 shrink-0">
@@ -16491,33 +16307,7 @@ export const InventoryModule = ({ currentCompany, user }: { currentCompany: Comp
              </div>
            ))}
         </div>
-        )}
       </GlassCard>
-
-      {ajustandoItem && (
-        <Modal isOpen={!!ajustandoItem} onClose={() => setAjustandoItem(null)} title={`${ajusteTipo === 'entrada' ? 'Entrada' : 'Saída'} de Estoque`} size="sm">
-          <div className="space-y-4 p-2">
-             <div>
-               <p className="text-xs font-black text-white uppercase">{ajustandoItem.name}</p>
-               <p className="text-[10px] text-white/40">Estoque atual: <span className="text-white font-bold">{ajustandoItem.currentStock} {ajustandoItem.unit}</span></p>
-             </div>
-             <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 h-11">
-                <button onClick={() => setAjusteTipo('entrada')} className={cn("flex-1 rounded-lg text-xs font-black uppercase transition-all", ajusteTipo === 'entrada' ? "bg-emerald-500 text-slate-900" : "text-white/40")}>Entrada (+)</button>
-                <button onClick={() => setAjusteTipo('saida')} className={cn("flex-1 rounded-lg text-xs font-black uppercase transition-all", ajusteTipo === 'saida' ? "bg-rose-500 text-white" : "text-white/40")}>Saída (-)</button>
-             </div>
-             <Input label={`QUANTIDADE (${ajustandoItem.unit})`} type="number" step="any" autoFocus placeholder="Ex: 5" value={ajusteQtd} onChange={(e: any) => setAjusteQtd(e.target.value === '' ? '' : Number(e.target.value))} />
-             {ajusteQtd !== '' && Number(ajusteQtd) > 0 && (
-               <p className="text-[10px] text-white/40">Novo estoque: <span className="text-white font-bold">{ajusteTipo === 'entrada' ? (ajustandoItem.currentStock + Number(ajusteQtd)) : Math.max(0, ajustandoItem.currentStock - Number(ajusteQtd))} {ajustandoItem.unit}</span></p>
-             )}
-             <div className="flex justify-end gap-3 pt-1">
-                <Button variant="ghost" onClick={() => setAjustandoItem(null)}>Cancelar</Button>
-                <Button disabled={salvandoAjuste} className={cn("border-none", ajusteTipo === 'entrada' ? "bg-emerald-500 text-slate-900" : "bg-rose-500 text-white")} onClick={confirmarAjusteEstoque}>
-                  {salvandoAjuste ? 'Salvando...' : 'Confirmar'}
-                </Button>
-             </div>
-          </div>
-        </Modal>
-      )}
 
       {isImportPreviewOpen && (() => {
         const semCodigo = importPreviewRows.filter(r => !r.code).length;
@@ -16582,50 +16372,11 @@ export const InventoryModule = ({ currentCompany, user }: { currentCompany: Comp
         );
       })()}
 
-      <Modal isOpen={!!materialConsumoView} onClose={() => setMaterialConsumoView(null)} title={materialConsumoView ? `Quem consome: ${materialConsumoView.name}` : ''} size="md">
-        <div className="p-4 space-y-4">
-          {loadingConsumidores ? (
-            <div className="flex justify-center py-10"><RefreshCw className="animate-spin text-primary-500" size={22} /></div>
-          ) : consumidoresDoMaterial.length === 0 ? (
-            <div className="text-center py-10 space-y-2">
-              <p className="text-sm text-white/40">Nenhum produto configurado pra consumir esse material ainda.</p>
-              <p className="text-[10px] text-white/25">Pra cadastrar, edite o produto que usa esse material e configure na aba "Variações e Consumo".</p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {consumidoresDoMaterial.map((c, i) => (
-                <div key={i} className="flex items-center justify-between gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-bold text-white truncate">{c.produtoNome}</p>
-                    {c.variacaoNome && <p className="text-[10px] text-white/40">Variação: {c.variacaoNome}</p>}
-                  </div>
-                  <div className="flex items-center gap-3 shrink-0">
-                    <span className="text-xs font-black text-blue-400">{c.quantidade} {c.unidade}</span>
-                    {c.produtoId && (
-                      <button
-                        onClick={() => { setMaterialConsumoView(null); openEditItem(items.find(i => i.id === c.produtoId) || { id: c.produtoId } as InventoryItem); }}
-                        className="text-[9px] font-black uppercase text-primary-400 hover:text-primary-300"
-                      >
-                        Editar
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-          <p className="text-[10px] text-white/25 text-center pt-2 border-t border-white/5">
-            Pra cadastrar um novo produto consumindo esse material, edite (ou crie) o produto e configure na aba "Variações e Consumo".
-          </p>
-        </div>
-      </Modal>
-
       <ProdutoFormModal
         isOpen={isModalOpen}
         onClose={() => { setIsModalOpen(false); setEditingItemId(null); }}
         editingItem={editingItemId ? items.find(i => i.id === editingItemId) || null : null}
         onSaved={() => { loadInventoryItems(); setEditingItemId(null); }}
-        defaultTipoItem={novoItemTipo}
       />
     </div>
   );
@@ -16643,159 +16394,6 @@ const ElapsedTimer = ({ startedAt }: { startedAt: string }) => {
   const minutes = Math.floor(diffSeconds / 60);
   const seconds = diffSeconds % 60;
   return <span className="font-mono font-black">{String(minutes).padStart(2, '0')}min {String(seconds).padStart(2, '0')}s</span>;
-};
-
-export const PurchaseListModule = ({ currentCompany, user }: { currentCompany: Company | null; user: AppUser | null }) => {
-  const canManageInventory = !!(user?.isAdmin || user?.allowedActions?.includes('canManageInventory'));
-  const [items, setItems] = useState<InventoryItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [comprandoId, setComprandoId] = useState<string | null>(null);
-  const [qtdCompra, setQtdCompra] = useState('');
-
-  const loadItems = async () => {
-    const { data, error } = await supabase.from('produtos').select('*').order('provider', { ascending: true, nullsFirst: false });
-    if (error) { console.error('Erro ao carregar produtos:', error); setLoading(false); return; }
-    setItems((data || []).map((row: any) => ({
-      id: row.id, name: row.name, category: row.category, unit: row.unit,
-      currentStock: row.current_stock, minStock: row.min_stock, provider: row.provider,
-      isActive: row.is_active, controlaEstoque: row.controla_estoque !== false,
-      tipoItem: row.tipo_item || 'produto',
-    } as InventoryItem)));
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    loadItems();
-    const channel = supabase.channel('purchase-list-produtos').on('postgres_changes', { event: '*', schema: 'public', table: 'produtos' }, loadItems).subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [currentCompany]);
-
-  // So itens ativos, que controlam estoque, e que estao no ou abaixo do minimo — essa e
-  // a lista "precisa comprar agora", sem precisar procurar o resto pela lista inteira
-  const itensParaComprar = items.filter(i => i.isActive !== false && i.controlaEstoque !== false && i.currentStock <= (i.minStock || 0));
-
-  // Agrupa por fornecedor, pra facilitar comprar tudo de um fornecedor de uma vez so
-  const porFornecedor: Record<string, InventoryItem[]> = {};
-  itensParaComprar.forEach(item => {
-    const key = item.provider?.trim() || 'Sem fornecedor definido';
-    if (!porFornecedor[key]) porFornecedor[key] = [];
-    porFornecedor[key].push(item);
-  });
-  const fornecedoresOrdenados = Object.keys(porFornecedor).sort((a, b) => a === 'Sem fornecedor definido' ? 1 : b === 'Sem fornecedor definido' ? -1 : a.localeCompare(b));
-
-  const [modoBobina, setModoBobina] = useState(false);
-
-  const handleRegistrarCompra = async (item: InventoryItem) => {
-    const qtdInformada = Number(qtdCompra);
-    if (!qtdInformada || qtdInformada <= 0) { showAlert('Informe uma quantidade válida.'); return; }
-    // No modo bobina, a pessoa informa QUANTAS BOBINAS comprou, e o sistema calcula os
-    // metros sozinho (bobinas x comprimento padrao cadastrado no produto)
-    const qtd = (modoBobina && item.comprimentoRolo) ? qtdInformada * item.comprimentoRolo : qtdInformada;
-    try {
-      const { error } = await supabase.from('produtos').update({ current_stock: (item.currentStock || 0) + qtd }).eq('id', item.id);
-      if (error) throw error;
-      setComprandoId(null);
-      setQtdCompra('');
-      setModoBobina(false);
-      showAlert(`Estoque de "${item.name}" atualizado! +${qtd} ${item.unit}${modoBobina && item.comprimentoRolo ? ` (${qtdInformada} bobina${qtdInformada > 1 ? 's' : ''} de ${item.comprimentoRolo}m)` : ''}`);
-    } catch (err) {
-      console.error('Erro ao registrar compra:', err);
-      showAlert('Não foi possível registrar a compra.');
-    }
-  };
-
-  return (
-    <div className="space-y-8 animate-in fade-in zoom-in-95 duration-500">
-      <SectionHeader
-        title="Lista de Compras"
-        subtitle={`${itensParaComprar.length} ite${itensParaComprar.length === 1 ? 'm' : 'ns'} precisando reposição`}
-      />
-
-      {loading ? (
-        <div className="flex justify-center py-16"><RefreshCw className="animate-spin text-primary-500" size={24} /></div>
-      ) : itensParaComprar.length === 0 ? (
-        <GlassCard className="p-10 text-center border-white/5">
-          <CheckCircle2 size={32} className="text-emerald-400 mx-auto mb-3" />
-          <p className="text-sm font-bold text-white">Tudo em dia!</p>
-          <p className="text-xs text-white/40 mt-1">Nenhum item está no ou abaixo do estoque mínimo agora.</p>
-        </GlassCard>
-      ) : (
-        <div className="space-y-6">
-          {fornecedoresOrdenados.map(fornecedor => (
-            <div key={fornecedor} className="space-y-3">
-              <div className="flex items-center gap-2">
-                <ShoppingCart size={14} className="text-primary-400" />
-                <h3 className="text-xs font-black uppercase text-white/50 tracking-widest">{fornecedor}</h3>
-                <span className="text-[9px] font-black text-white/20">({porFornecedor[fornecedor].length})</span>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {porFornecedor[fornecedor].map(item => (
-                  <GlassCard key={item.id} className="p-4 border-amber-500/20 bg-amber-500/[0.03] space-y-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-sm font-bold text-white truncate">{item.name}</p>
-                        <p className="text-[10px] text-white/40 mt-0.5">
-                          Tem <span className="text-amber-400 font-black">{item.currentStock} {item.unit}</span> · Mínimo: {item.minStock} {item.unit}
-                          {item.larguraRolo ? ` · Largura: ${item.larguraRolo}m` : ''}
-                        </p>
-                      </div>
-                      <AlertCircle size={16} className="text-amber-500 shrink-0 animate-pulse" />
-                    </div>
-                    {canManageInventory && (
-                      comprandoId === item.id ? (
-                        <div className="space-y-2">
-                          {item.comprimentoRolo && (
-                            <div className="flex items-center gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() => setModoBobina(false)}
-                                className={cn("flex-1 h-7 rounded-lg text-[9px] font-black uppercase transition-all", !modoBobina ? "bg-primary-500 text-slate-900" : "bg-white/5 text-white/40")}
-                              >
-                                Por {item.unit}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setModoBobina(true)}
-                                className={cn("flex-1 h-7 rounded-lg text-[9px] font-black uppercase transition-all", modoBobina ? "bg-primary-500 text-slate-900" : "bg-white/5 text-white/40")}
-                              >
-                                Por bobina ({item.comprimentoRolo}m cada)
-                              </button>
-                            </div>
-                          )}
-                          <div className="flex items-center gap-2">
-                            <input
-                              autoFocus
-                              type="number"
-                              value={qtdCompra}
-                              onChange={(e) => setQtdCompra(e.target.value)}
-                              placeholder={modoBobina && item.comprimentoRolo ? 'Quantas bobinas?' : `Qtd (${item.unit})`}
-                              className="flex-1 h-9 bg-white/5 border border-white/10 rounded-lg px-3 text-xs text-white focus:outline-none focus:border-primary-500"
-                            />
-                            <button onClick={() => handleRegistrarCompra(item)} className="h-9 px-3 rounded-lg bg-emerald-500 text-slate-950 text-[10px] font-black uppercase">OK</button>
-                            <button onClick={() => { setComprandoId(null); setQtdCompra(''); setModoBobina(false); }} className="h-9 px-3 rounded-lg bg-white/5 text-white/40 text-[10px] font-black uppercase">X</button>
-                          </div>
-                          {modoBobina && item.comprimentoRolo && Number(qtdCompra) > 0 && (
-                            <p className="text-[9px] text-white/30 text-center">= {Number(qtdCompra) * item.comprimentoRolo} {item.unit} no total</p>
-                          )}
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => { setComprandoId(item.id); setQtdCompra(''); setModoBobina(!!item.comprimentoRolo); }}
-                          className="w-full h-9 rounded-lg bg-white/5 hover:bg-emerald-500 hover:text-slate-950 text-white/70 text-[10px] font-black uppercase tracking-widest transition-all"
-                        >
-                          Registrar Compra
-                        </button>
-                      )
-                    )}
-                  </GlassCard>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
 };
 
 
@@ -18126,7 +17724,6 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     { id: 'crm', label: 'Funil CRM' },
     { id: 'production', label: 'Ordem de Serviço' },
     { id: 'inventory', label: 'Estoque' },
-    { id: 'purchase_list', label: 'Lista de Compras' },
     { id: 'comissoes', label: 'Comissões' },
     { id: 'robozinho_rafa', label: 'Integrações (Robozinho)' },
     { id: 'settings', label: 'Configurações' },
@@ -18140,8 +17737,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     { id: 'contacts', label: 'Contatos', desc: 'Gestão de clientes e histórico de compras' },
     { id: 'clientes_espera', label: 'Clientes em Espera', desc: 'Fila de atendimento com tempo de espera em tempo real' },
     { id: 'production', label: 'Ordem de Serviço', desc: 'Fila de producao com todos os pedidos e etapa atual de cada um' },
-    { id: 'inventory', label: 'Estoque / Matéria-Prima', desc: 'Controle de produtos e matéria-prima, com estoque atual e mínimo' },
-    { id: 'purchase_list', label: 'Lista de Compras', desc: 'Itens que estão no ou abaixo do estoque mínimo, agrupados por fornecedor' },
+    { id: 'inventory', label: 'Estoque', desc: 'Controle de produtos, com estoque atual e mínimo' },
     { id: 'comissoes', label: 'Comissões', desc: 'Painel de comissões do colaborador (login próprio, separado do CRM)' },
     { id: 'robozinho_rafa', label: 'Integrações', desc: 'Robozinho Rafa (assistente de IA) e conexões de WhatsApp/Facebook/Instagram' },
     { id: 'settings', label: 'Opções', desc: 'Parâmetro de configurações do Rafa Arts Graphics' },

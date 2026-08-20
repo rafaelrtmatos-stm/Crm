@@ -105,7 +105,7 @@ import {
 } from './types';
 import { RafaArtsLogo, BrandLogo } from './components/RafaArtsLogo';
 
-type MainTab = 'dashboard' | 'crm' | 'messages' | 'pos' | 'contacts' | 'services' | 'inventory' | 'purchase_list' | 'production' | 'settings' | 'comissoes' | 'robozinho_rafa';
+type MainTab = 'dashboard' | 'crm' | 'messages' | 'pos' | 'contacts' | 'services' | 'production' | 'settings' | 'comissoes' | 'robozinho_rafa';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -395,7 +395,6 @@ import {
   ContactsModule,
   ServicesModule,
   InventoryModule,
-  PurchaseListModule,
   ProductionModule,
   SettingsModule,
   ClientesEsperaModule
@@ -479,7 +478,7 @@ export default function App() {
   }, []);
   const [activeTab, setActiveTabState] = useState<MainTab>(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem('rpro_active_tab') : null;
-    const validTabs: MainTab[] = ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'services', 'inventory', 'purchase_list', 'production', 'settings', 'comissoes', 'robozinho_rafa'];
+    const validTabs: MainTab[] = ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'services', 'production', 'settings', 'comissoes', 'robozinho_rafa'];
     return (saved && validTabs.includes(saved as MainTab)) ? (saved as MainTab) : 'dashboard';
   });
   const setActiveTab = (tab: MainTab) => {
@@ -1327,8 +1326,6 @@ export default function App() {
     { id: 'crm', label: 'Funil CRM', icon: Target },
     { id: 'messages', label: 'Mensagens', icon: MessageSquare },
     { id: 'pos', label: 'PDV Gráfica', icon: ShoppingBag },
-    { id: 'inventory', label: 'Estoque / Matéria-Prima', icon: Package },
-    { id: 'purchase_list', label: 'Lista de Compras', icon: ShoppingCart },
     { id: 'clientes_espera', label: 'Clientes em Espera', icon: Clock },
     { id: 'production', label: 'Ordem de Serviço', icon: Layers },
     { id: 'robozinho_rafa', label: 'Integrações', icon: Bot },
@@ -1713,8 +1710,6 @@ export default function App() {
                     />
                   )}
                   {activeTab === 'clientes_espera' && <ModuleErrorBoundary label="Clientes em Espera"><ClientesEsperaModule currentCompany={currentCompany} user={user} /></ModuleErrorBoundary>}
-                  {activeTab === 'inventory' && <InventoryModule currentCompany={currentCompany} user={user} />}
-                  {activeTab === 'purchase_list' && <ModuleErrorBoundary label="Lista de Compras"><PurchaseListModule currentCompany={currentCompany} user={user} /></ModuleErrorBoundary>}
                   {activeTab === 'services' && <ServicesModule currentCompany={currentCompany} />}
                   {activeTab === 'production' && <ProductionModule currentCompany={currentCompany} />}
                   {activeTab === 'robozinho_rafa' && <ModuleErrorBoundary label="Integrações"><IntegracoesModule currentCompany={currentCompany} user={user} /></ModuleErrorBoundary>}

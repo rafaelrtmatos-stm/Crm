@@ -381,7 +381,7 @@ export interface SocialChannelTemplate {
 export interface InventoryItem extends BaseEntity {
   name: string;
   code?: string;
-  category?: string;
+  category?: 'substrato' | 'tinta' | 'acabamento' | 'diversos';
   unit: 'un' | 'kg' | 'm' | 'm2' | 'rolo' | 'litro' | 'etiqueta';
   salePrice: number;
   costPrice?: number;
