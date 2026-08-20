@@ -110,7 +110,12 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
     // Renova o QR a cada 15s — o QR do Baileys costuma expirar perto dos 20s, então
     // com 20s o usuário frequentemente escaneava uma imagem já vencida ("QR code inválido")
     pollRef.current = setInterval(buscarQrCode, 15000);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+    // Respaldo: alem de esperar o webhook avisar via Realtime, tambem CONSULTA o status
+    // direto na Evolution API a cada 5s. Cobre o caso do webhook nao avisar por algum
+    // motivo (evento com nome diferente do esperado, falha ao gravar, etc) - sem isso, o
+    // WhatsApp podia ficar conectado de verdade e a tela continuar presa mostrando QR Code
+    const statusPollRef = setInterval(handleVerificarStatusAgora, 5000);
+    return () => { if (pollRef.current) clearInterval(pollRef.current); clearInterval(statusPollRef); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canalSelecionado, whatsappConectado]);
 
