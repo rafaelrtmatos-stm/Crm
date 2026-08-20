@@ -26,6 +26,7 @@ export function calcularDebitoAutomatico(
     valor: debitoValor,
     recorrencia: 'unica',
     data: new Date().toISOString().split('T')[0], // Hoje
+    ativo: true,
   };
 }
 
@@ -68,6 +69,7 @@ export function gerarParcelasDivida(
       valor: valorParcela,
       recorrencia: tipo === 'semanal' ? 'semanal' : 'mensal',
       data: dateStr,
+      ativo: true,
     });
   }
 
