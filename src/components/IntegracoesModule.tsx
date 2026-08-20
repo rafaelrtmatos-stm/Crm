@@ -3,7 +3,6 @@ import QRCode from 'qrcode';
 import { Plug, Bot, MessageCircle, Facebook, Instagram, QrCode, RefreshCw, CheckCircle2, Users, History } from 'lucide-react';
 import { GlassCard, Badge, Modal, cn } from './SharedUI';
 import { RobozinhoRafaModule } from './RobozinhoRafaModule';
-import { WhatsAppGroupsModule } from './WhatsAppGroupsModule';
 import { Company, AppUser } from '../types';
 import { supabase } from '../supabase';
 import { showConfirm } from '../lib/notify';
@@ -12,8 +11,11 @@ import { showConfirm } from '../lib/notify';
 // (WhatsApp já conectado de verdade via Evolution API — Facebook/Instagram ainda não,
 // ver card "Em breve" abaixo) e o Robozinho Rafa (aba 2, componente já existente,
 // reaproveitado sem nenhuma alteração na lógica dele).
+// Obs: a gestão de Grupos do WhatsApp (liberar grupo novo, escolher quem vê) NÃO
+// fica mais aqui — foi pra dentro do balão de Mensagens, aba "Grupos" (ver
+// MessagesSidebarPopup.tsx), pra ficar tudo no mesmo lugar de quem realmente usa.
 
-type IntegracoesTab = 'conexoes' | 'robozinho_rafa' | 'grupos_whatsapp';
+type IntegracoesTab = 'conexoes' | 'robozinho_rafa';
 
 interface CanalConexao {
   id: string;
@@ -215,9 +217,6 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
   const TABS: { id: IntegracoesTab; label: string; icon: any }[] = [
     { id: 'conexoes', label: 'Conexões', icon: Plug },
     { id: 'robozinho_rafa', label: 'Robozinho Rafa', icon: Bot },
-    // So o admin libera grupo e escolhe quem ve (regra de negocio: grupo novo entra
-    // represado e ninguem, nem admin fora dessa tela, ve mensagem de grupo nao liberado)
-    ...(user?.isAdmin ? [{ id: 'grupos_whatsapp' as IntegracoesTab, label: 'Grupos WhatsApp', icon: Users }] : []),
   ];
 
   return (
@@ -276,10 +275,6 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
 
       {tab === 'robozinho_rafa' && (
         <RobozinhoRafaModule currentCompany={currentCompany} user={user} />
-      )}
-
-      {tab === 'grupos_whatsapp' && user?.isAdmin && (
-        <WhatsAppGroupsModule />
       )}
 
       <Modal isOpen={!!canalSelecionado} onClose={() => setCanalSelecionado(null)} title={canalSelecionado ? `Conectar ${canalSelecionado.nome}` : ''} size="sm">
