@@ -102,11 +102,27 @@ async function criarInstancia(headers, webhookConfig) {
 // bloqueia o fluxo de conexao se falhar: o usuario ainda consegue escanear o QR normalmente.
 async function configurarWebhook(headers, webhookConfig) {
   try {
-    await fetchComTimeout(`${EVOLUTION_API_URL}/webhook/set/${INSTANCE_NAME}`, {
+    const r = await fetchComTimeout(`${EVOLUTION_API_URL}/webhook/set/${INSTANCE_NAME}`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ webhook: { ...webhookConfig, enabled: true } }),
+      body: JSON.stringify({
+        webhook: {
+          ...webhookConfig,
+          enabled: true,
+          // CRITICO: forca desligado. Se essa opcao estiver ligada (por padrao em algumas
+          // instalacoes da Evolution API), ela passa a chamar
+          // "{url}/{nome-do-evento}" (ex: /api/whatsapp-webhook/messages-upsert) em vez da
+          // URL exata configurada -- e como so existe uma Vercel Function na URL base, esse
+          // subcaminho cai no rewrite catch-all do vercel.json e nunca chega no handler.
+          webhookByEvents: false,
+          webhookBase64: false,
+        },
+      }),
     });
+    const body = await parseRespostaSegura(r);
+    if (!r.ok) {
+      console.error('Evolution API recusou configurar o webhook:', body);
+    }
   } catch (err) {
     console.error('Falha ao configurar webhook (nao bloqueia a conexao):', err);
   }
@@ -129,8 +145,15 @@ export default async function handler(req, res) {
 
   const headers = { apikey: EVOLUTION_API_KEY, 'Content-Type': 'application/json' };
   const siteUrl = `https://${req.headers.host}`;
+  // O segredo vai NA PROPRIA URL do webhook (?secret=...), nao so num header customizado --
+  // isso funciona em QUALQUER versao da Evolution API, porque ela sempre respeita a URL
+  // exata configurada. Um header customizado (usado como reforco em api/whatsapp-webhook.js)
+  // depende de uma feature que nem toda versao/fork da Evolution API suporta.
+  const webhookUrl = EVOLUTION_WEBHOOK_SECRET
+    ? `${siteUrl}/api/whatsapp-webhook?secret=${encodeURIComponent(EVOLUTION_WEBHOOK_SECRET)}`
+    : `${siteUrl}/api/whatsapp-webhook`;
   const webhookConfig = {
-    url: `${siteUrl}/api/whatsapp-webhook`,
+    url: webhookUrl,
     headers: { 'x-webhook-secret': EVOLUTION_WEBHOOK_SECRET || '' },
     events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'],
   };
@@ -177,6 +200,12 @@ export default async function handler(req, res) {
     // perder tempo (nem gerar QR a toa) pedindo QR Code de uma instancia ja conectada.
     const estadoInicial = await consultarEstadoConexao(headers);
     if (estadoInicial.state === 'open') {
+      // Auto-cura: mesmo ja conectada, reconfigura o webhook aqui tambem. Sem isso, se o
+      // webhook fosse desconfigurado na Evolution API depois de uma conexao ja estabelecida
+      // (reset da instancia, atualizacao de versao, etc.), esse branch retornava direto e a
+      // instancia ficava "muda" pro CRM pra sempre, sem nenhum caminho de codigo que
+      // tentasse consertar isso de novo.
+      await configurarWebhook(headers, webhookConfig);
       await sincronizarStatusSupabase('open');
       res.status(200).json({ status: 'open', connected: true, qrCode: null, qrCodeText: null, message: 'WhatsApp já está conectado.' });
       return;
