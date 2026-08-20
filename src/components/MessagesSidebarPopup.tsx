@@ -109,7 +109,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
         id: r.id, companyId: r.company_id, fullName: r.full_name, contactName: r.contact_name, whatsappName: r.whatsapp_name,
         phone: r.phone, sourceType: r.source_type, lastMessageText: r.last_message_text, lastMessageDirection: r.last_message_direction,
         waitingSince: r.waiting_since, funnelId: r.funnel_id, funnelStageId: r.funnel_stage_id,
-        createdAt: r.created_at, updatedAt: r.updated_at,
+        createdAt: r.created_at, updatedAt: r.updated_at, photoUrl: r.photo_url || undefined,
       } as any as Lead)));
     };
     loadLeads();
@@ -128,7 +128,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
         id: r.id, companyId: r.company_id, fullName: r.full_name, contactName: r.contact_name, whatsappName: r.whatsapp_name,
         phone: r.phone, sourceType: r.source_type, lastMessageText: r.last_message_text, lastMessageDirection: r.last_message_direction,
         waitingSince: r.waiting_since, funnelId: r.funnel_id, funnelStageId: r.funnel_stage_id,
-        createdAt: r.created_at, updatedAt: r.updated_at,
+        createdAt: r.created_at, updatedAt: r.updated_at, photoUrl: r.photo_url || undefined,
       } as any as Lead)));
     } finally {
       setTimeout(() => setIsRefreshing(false), 500);
@@ -533,11 +533,33 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                           {selectedIds.has(l.id) && <Check size={11} className="text-white" strokeWidth={3} />}
                         </div>
                       )}
+                      {/* Avatar com foto de perfil (mesmo padrão do ChatPanel/Dashboard, ver
+                          Modules.tsx ~linha 4311) + badge do canal de origem sobreposto no
+                          canto — funde o layout profissional do Dashboard com o ícone de canal
+                          que já existia aqui, sem remover nenhuma das duas informações. */}
                       {(() => {
                         const { icon: ChannelIcon, color, bg } = getChannelStyle(l.sourceType);
                         return (
-                          <div className={cn("w-6 h-6 rounded-lg flex items-center justify-center shrink-0", bg)} title={l.sourceType || 'WhatsApp'}>
-                            <ChannelIcon size={13} className={color} />
+                          <div className="relative w-8 h-8 shrink-0">
+                            <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center overflow-hidden">
+                              {l.photoUrl ? (
+                                <img
+                                  src={l.photoUrl}
+                                  alt={l.fullName}
+                                  className="w-full h-full object-cover"
+                                  referrerPolicy="no-referrer"
+                                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                                />
+                              ) : (
+                                <span className="text-[11px] font-black text-slate-400">{(l.fullName || '?').trim().charAt(0).toUpperCase()}</span>
+                              )}
+                            </div>
+                            <div
+                              className={cn("absolute -bottom-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center border-2 border-white shrink-0", bg)}
+                              title={l.sourceType || 'WhatsApp'}
+                            >
+                              <ChannelIcon size={9} className={color} />
+                            </div>
                           </div>
                         );
                       })()}
@@ -549,7 +571,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                     <span className="text-[10px] font-black text-slate-400 uppercase shrink-0">{timeStr}</span>
                   </div>
 
-                  <div className="flex items-center justify-between gap-2 mb-1">
+                  <div className="flex items-center justify-between gap-2 mb-1 pl-10">
                     <p className="text-xs text-slate-500 truncate flex-1">{l.lastMessageText || 'Sem mensagens'}</p>
                     {waitingSinceDate && (
                       <div className={cn(
@@ -562,7 +584,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                     )}
                   </div>
 
-                  <div className="mt-1.5 flex items-center gap-2">
+                  <div className="mt-1.5 flex items-center gap-2 pl-10">
                     <span className="px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wide border bg-primary-50 text-primary-700 border-primary-200">
                       {l.status}
                     </span>
