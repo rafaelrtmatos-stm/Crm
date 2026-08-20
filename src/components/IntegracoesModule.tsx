@@ -36,7 +36,13 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
   const [tab, setTab] = useState<IntegracoesTab>('conexoes');
   const [canalSelecionado, setCanalSelecionado] = useState<CanalConexao | null>(null);
 
-  // --- Status da conexao do WhatsApp (lido do Supabase, atualizado pelo webhook) ---
+  // --- Status da conexao do WhatsApp ---
+  // Fonte principal: Supabase Realtime (dispara assim que o webhook grava uma mudanca em
+  // robozinho_config). Mas como isso depende do webhook estar funcionando, mantemos TAMBEM
+  // um polling de segurança consultando a Evolution API direto a cada 30s (mesmo com o modal
+  // fechado) — assim o card de conexão nunca fica desatualizado esperando F5, seja lá qual
+  // for o motivo do Realtime não ter avisado (webhook fora do ar, numero desconectado pelo
+  // próprio celular sem passar pelo nosso botão, etc).
   const [whatsappStatus, setWhatsappStatus] = useState<string>('close');
   useEffect(() => {
     const loadStatus = async () => {
@@ -45,7 +51,20 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
     };
     loadStatus();
     const channel = supabase.channel('integracoes-whatsapp-status').on('postgres_changes', { event: '*', schema: 'public', table: 'robozinho_config', filter: `company_id=eq.rafa-arts` }, loadStatus).subscribe();
-    return () => { supabase.removeChannel(channel); };
+
+    const verificarNaEvolutionApi = async () => {
+      try {
+        const resp = await fetch('/api/whatsapp-connect?status=1');
+        const data = await resp.json().catch(() => ({}));
+        if (resp.ok && data.status && data.status !== 'unknown') setWhatsappStatus(data.status);
+      } catch {
+        // Falha de rede pontual no polling de segurança — sem problema, tenta de novo no
+        // próximo ciclo (e o Realtime continua ativo em paralelo).
+      }
+    };
+    const backupPollRef = setInterval(verificarNaEvolutionApi, 30000);
+
+    return () => { supabase.removeChannel(channel); clearInterval(backupPollRef); };
   }, []);
   const whatsappConectado = whatsappStatus === 'open';
 
@@ -89,6 +108,11 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
         setQrError(data.error || 'Não foi possível desconectar.');
         return;
       }
+      // Atualiza o status na hora, sem esperar o Supabase Realtime — o Realtime so avisa
+      // quando o webhook grava a mudanca no banco, e se o webhook atrasar ou falhar por
+      // qualquer motivo, o card ficava preso mostrando "Conectado" ate a pessoa dar F5.
+      // Como a API ja confirmou o logout (resp.ok), sabemos que desconectou de verdade.
+      setWhatsappStatus('close');
       setQrCode(null);
     } catch (err) {
       setQrError('Falha de conexão ao tentar desconectar.');
