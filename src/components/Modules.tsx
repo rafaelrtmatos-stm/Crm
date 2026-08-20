@@ -3172,14 +3172,26 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                        leads.find(l => l.id === overId)?.funnelStageId;
 
     if (lead && overStageId && lead.funnelStageId !== overStageId) {
+      const stageAnterior = lead.funnelStageId;
+
+      // Atualiza a coluna na hora (otimista) -- sem isso o card ficava "preso" na
+      // coluna antiga ate o listener em tempo real do Supabase (loadLeads no
+      // useEffect acima) devolver a mudanca, e na pratica parecia que o card
+      // "voltava" sozinho depois do drop, so corrigindo com um refresh manual.
+      setLeads(prev => prev.map(l => l.id === leadId ? { ...l, funnelStageId: overStageId } : l));
+
       try {
-        await supabase.from('leads').update({ 
+        const { error } = await supabase.from('leads').update({
           funnel_stage_id: overStageId,
           company_id: 'rafa-arts',
           updated_at: new Date().toISOString(),
         }).eq('id', leadId).eq('company_id', 'rafa-arts');
+        if (error) throw error;
       } catch (err) {
         console.error('Kanban: Fallback move failed', err);
+        // Deu erro no servidor -- desfaz a atualizacao otimista pra nao deixar o
+        // card mostrando uma coluna que na verdade nao foi salva.
+        setLeads(prev => prev.map(l => l.id === leadId ? { ...l, funnelStageId: stageAnterior } : l));
       }
     }
   };
