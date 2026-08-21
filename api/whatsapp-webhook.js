@@ -23,6 +23,30 @@ const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY;
 // direto pra essa URL sem saber o segredo.
 const WEBHOOK_SECRET = process.env.EVOLUTION_WEBHOOK_SECRET;
 
+// Normaliza numero de celular brasileiro pro formato canonico 55DDD9XXXXXXXX (13 digitos).
+// A Evolution/Baileys pode mandar o remoteJid COM ou SEM o nono digito dependendo da
+// versao/origem do evento -- sem normalizar, o mesmo contato gera dois telefones
+// diferentes (com e sem o "9"), o que faz o front-end (App.tsx, match exato por
+// phone) criar um lead duplicado em vez de achar o lead ja existente.
+// So mexe em numeros com DDI 55 (Brasil); numeros internacionais passam direto.
+function normalizarTelefoneBR(digitos) {
+  if (!digitos) return digitos;
+  if (!digitos.startsWith('55')) return digitos; // fora do Brasil, nao mexe
+  const resto = digitos.slice(2); // tudo depois do "55"
+  if (resto.length === 10) {
+    // DDD (2) + numero de 8 digitos (sem o "9") -- so celular tem o nono digito,
+    // fixo continua com 8 (nao insere "9" em numero que comeca com 2,3,4 ou 5,
+    // que sao prefixos de linha fixa no Brasil)
+    const ddd = resto.slice(0, 2);
+    const numero = resto.slice(2);
+    if (/^[6-9]/.test(numero)) {
+      return `55${ddd}9${numero}`;
+    }
+    return digitos; // provavel fixo, mantem como esta
+  }
+  return digitos; // ja tem 13 digitos (com "9") ou formato nao reconhecido
+}
+
 // Percorre o objeto `message` da Evolution/Baileys e devolve o "node" de midia bruto
 // (imageMessage/videoMessage/documentMessage/audioMessage/stickerMessage), sem desembrulhar
 // texto -- usado pra extrairInfoMidia conseguir o mimetype/fileName/caption reais.
@@ -446,7 +470,7 @@ export default async function handler(req, res) {
         // @lid e o formato "linked id" que o WhatsApp/Baileys mais recente usa em alguns
         // casos no lugar do numero puro — remove os dois sufixos possiveis pra sempre
         // sobrar so os digitos do telefone.
-        const phone = phoneRaw.replace('@s.whatsapp.net', '').replace('@g.us', '').replace('@lid', '').replace(/\D/g, '');
+        const phone = normalizarTelefoneBR(phoneRaw.replace('@s.whatsapp.net', '').replace('@g.us', '').replace('@lid', '').replace(/\D/g, ''));
         const text = extrairTextoMensagem(msg?.message);
         const whatsappMessageId = msg?.key?.id || null;
         const createdAt = msg?.messageTimestamp ? new Date(Number(msg.messageTimestamp) * 1000).toISOString() : undefined;
@@ -485,7 +509,7 @@ export default async function handler(req, res) {
       const dados = body?.data;
       const remoteJid = dados?.id || dados?.remoteJid || '';
       if (remoteJid && !remoteJid.endsWith('@g.us')) {
-        const phone = remoteJid.replace('@s.whatsapp.net', '').replace('@lid', '').replace(/\D/g, '');
+        const phone = normalizarTelefoneBR(remoteJid.replace('@s.whatsapp.net', '').replace('@lid', '').replace(/\D/g, ''));
         const presencas = dados?.presences
           ? Object.values(dados.presences)
           : (dados?.presence ? [dados.presence] : []);
