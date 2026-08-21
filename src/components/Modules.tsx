@@ -660,14 +660,19 @@ function formatNamePreview(fullName: string, maxTotalChars: number = 16): string
 // paga em partes (ex: R$100 dia 7, R$100 dia 14), o faturamento conta em cada dia separado, nao
 // tudo de uma vez na data de criacao da nota. Vendas antigas sem lista detalhada de pagamentos
 // (so tem o campo down_payment/total) caem no formato antigo: tudo na data de criacao.
-function getRevenueEventsForSale(o: SaleOrder): { date: string; value: number }[] {
+function getRevenueEventsForSale(o: SaleOrder): { date: string; value: number; method?: string }[] {
   if (o.payments && o.payments.length > 0) {
-    return o.payments.filter(p => p.value > 0).map(p => ({ date: p.date || o.createdAt, value: p.value }));
+    return o.payments.filter(p => p.value > 0).map(p => ({ date: p.date || o.createdAt, value: p.value, method: p.method }));
   }
   const valor = o.status === 'pending' ? (o.downPayment || 0) : (o.total || 0);
   if (valor <= 0) return [];
-  return [{ date: o.createdAt, value: valor }];
+  return [{ date: o.createdAt, value: valor, method: o.paymentMethod }];
 }
+
+const EXTRATO_PAYMENT_LABELS: Record<string, string> = {
+  pix: 'Pix', dinheiro: 'Dinheiro', cartao_debito: 'Débito', cartao_credito: 'Crédito',
+  transferencia: 'Transferência', boleto: 'Boleto', crediario: 'Crediário',
+};
 
 const CONTRATO_STATUS_LABELS: Record<string, string> = {
   rascunho: 'Rascunho', aguardando_aceite: 'Aguardando Aceite', aceito: 'Aceito',
@@ -1017,26 +1022,28 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     .filter(ev => { const d = new Date(ev.date); return d >= periodoStart && d <= periodoEnd; })
     .reduce((acc, ev) => acc + ev.value, 0);
 
-  const totalCost = filteredOrders.reduce((acc, o) => {
-    let orderCost = 0;
-    o.items?.forEach(item => {
-      const invItem = inventory.find(i => i.id === item.productId || i.name?.toLowerCase() === item.name?.toLowerCase());
-      let unitCost = 0;
-      if (invItem && typeof invItem.costPrice === 'number') {
-        unitCost = invItem.costPrice;
-      } else {
-        unitCost = (item.price || 0) * 0.35;
-      }
-      const itemCost = item.area ? unitCost * item.area * item.quantity : unitCost * item.quantity;
-      orderCost += itemCost;
-    });
-
-    if (o.status === 'pending' && o.total > 0) {
-      const scale = (o.downPayment || 0) / o.total;
-      orderCost = orderCost * scale;
-    }
-    return acc + orderCost;
-  }, 0);
+  // Custo tambem por evento de pagamento (mesma base do faturamento acima) — cada pagamento
+  // recebido no periodo abate a fatia proporcional do custo do pedido a que pertence, entao
+  // Lucro Liquido = Faturamento - Custo usa exatamente a mesma janela de tempo (pagamentos
+  // recebidos no periodo), eliminando a soma incorreta que misturava "pedidos criados no
+  // periodo" com "dinheiro recebido no periodo".
+  const totalCost = realSales
+    .filter(o => o.status !== 'canceled')
+    .reduce((acc, o) => {
+      const eventos = getRevenueEventsForSale(o);
+      const eventosNoPeriodo = eventos.filter(ev => { const d = new Date(ev.date); return d >= periodoStart && d <= periodoEnd; });
+      if (eventosNoPeriodo.length === 0) return acc;
+      let orderCost = 0;
+      o.items?.forEach(item => {
+        const invItem = inventory.find(i => i.id === item.productId || i.name?.toLowerCase() === item.name?.toLowerCase());
+        const unitCost = invItem && typeof invItem.costPrice === 'number' ? invItem.costPrice : (item.price || 0) * 0.35;
+        orderCost += item.area ? unitCost * item.area * item.quantity : unitCost * item.quantity;
+      });
+      const totalRecebidoPedido = eventos.reduce((s, ev) => s + ev.value, 0);
+      const recebidoNoPeriodo = eventosNoPeriodo.reduce((s, ev) => s + ev.value, 0);
+      const fatiaCusto = totalRecebidoPedido > 0 ? orderCost * (recebidoNoPeriodo / totalRecebidoPedido) : 0;
+      return acc + fatiaCusto;
+    }, 0);
 
   const netProfit = Math.max(0, totalRevenue - totalCost);
   const avgMarkup = totalCost > 0 ? (totalRevenue / totalCost) : 3.1;
@@ -1158,6 +1165,16 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
       .slice(0, 8);
 
+    // Extrato de caixa: cada RECEBIMENTO individual (nao pedido) que entrou dentro do periodo
+    // selecionado, com a data/hora exata do pagamento — mostra os recebimentos fracionados
+    // (ex: uma nota de R$300 paga em 2 partes aparece como 2 linhas separadas, cada uma na
+    // sua propria data/hora real)
+    const extratoRecebimentos = realSales
+      .filter(o => o.status !== 'canceled')
+      .flatMap(o => getRevenueEventsForSale(o).map(ev => ({ ...ev, saleId: o.id, customerName: o.customerName || 'Cliente de Balcão' })))
+      .filter(ev => new Date(ev.date) >= inicioPeriodo && new Date(ev.date) <= now)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
     // Linha do periodo (por dia, ou por mes se for "ano") — usa o INICIO REAL do periodo
     // selecionado (inicioPeriodo), nao um numero fixo de dias, senao o grafico de "Hoje" e
     // "Semana" ficavam mostrando sempre a mesma janela de 7 dias corridos
@@ -1201,7 +1218,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       }
     }
 
-    return { periodo, mediaDiariaPeriodo, produtosMaisVendidos, vendasDoPeriodo, linhaGrafico };
+    return { periodo, mediaDiariaPeriodo, produtosMaisVendidos, vendasDoPeriodo, extratoRecebimentos, linhaGrafico };
   }, [realSales, inventory, analisePeriodo]);
 
   const addWidget = (type: WidgetType) => {
@@ -1747,6 +1764,29 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
             </div>
 
             <Button className="w-full h-11" onClick={() => { setPendingGoToHistorico(true); setActiveTab?.('pos'); }}>Ver Histórico de Vendas</Button>
+
+            {/* Extrato de Caixa: cada recebimento individual, na ordem exata de hora que entrou */}
+            <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-3">
+               <h4 className="text-[9px] font-black uppercase text-white/40 tracking-widest mb-2">Extrato de Caixa do Período (recebimentos)</h4>
+               <div className="space-y-1 max-h-[220px] overflow-y-auto custom-scrollbar">
+                  {analiseDetalhada.extratoRecebimentos.length === 0 && (
+                    <p className="text-[10px] text-white/30 text-center py-6">Nenhum recebimento nesse período.</p>
+                  )}
+                  {analiseDetalhada.extratoRecebimentos.map((rec, idx) => {
+                     const methodLabel = EXTRATO_PAYMENT_LABELS[rec.method || ''] || rec.method;
+                     return (
+                       <div key={`${rec.saleId}-${idx}`} className="flex items-center justify-between gap-2 bg-white/5 border border-white/5 rounded-lg px-2.5 py-1.5">
+                          <div className="flex items-center gap-2 min-w-0">
+                             <span className="text-[9px] font-black text-white/70 shrink-0 tabular-nums">{safeFormat(rec.date, 'dd/MM HH:mm')}</span>
+                             <span className="text-[9px] font-bold text-white/50 truncate">{rec.customerName}</span>
+                             {methodLabel && <span className="text-[8px] font-black uppercase text-primary-300/70 shrink-0">{methodLabel}</span>}
+                          </div>
+                          <span className="text-[10px] font-black text-emerald-400 shrink-0">R$ {rec.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                       </div>
+                     );
+                  })}
+               </div>
+            </div>
          </div>
       </Modal>
 
