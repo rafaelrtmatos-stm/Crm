@@ -8200,17 +8200,42 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const handleSaveEditSale = async () => {
     if (!editingSale) return;
+    // Zerar/remover a entrada (cliente reaver o dinheiro e quitar so na retirada) precisa:
+    // 1) limpar o registro financeiro vinculado (lista de pagamentos e valor recebido), senao
+    //    o caixa continua contando um pagamento que na pratica foi estornado;
+    // 2) reverter o status de "Quitado"/"completed" pra "Aberto"/"pending" imediatamente.
+    const novoDownPayment = editSaleForm.downPayment || 0;
+    const entradaZeradaOuVazia = novoDownPayment <= 0;
+    const novoStatus: 'completed' | 'pending' = novoDownPayment >= editSaleForm.total && editSaleForm.total > 0 ? 'completed' : 'pending';
     const { data, error } = await supabase.from('vendas').update({
       customer_name: editSaleForm.customerName,
       total: editSaleForm.total,
-      down_payment: editSaleForm.downPayment,
+      down_payment: novoDownPayment,
+      received_value: novoDownPayment,
+      payments: entradaZeradaOuVazia ? [] : (editingSale.payments || []),
+      pending_payment_method: entradaZeradaOuVazia ? null : (editingSale.pendingPaymentMethod || null),
       payment_method: editSaleForm.paymentMethod,
       observacoes: editSaleForm.observacoes || null,
       scheduled_for: localDatetimeToIso(editSaleForm.scheduledFor),
-      status: editSaleForm.downPayment >= editSaleForm.total ? 'completed' : 'pending',
+      status: novoStatus,
     }).eq('id', editingSale.id).select();
     if (error) { console.error(error); showAlert('Não foi possível salvar as alterações.'); return; }
     if (!data || data.length === 0) { showAlert('Nada foi salvo — o pedido pode ter sido removido ou alterado por outra pessoa. Feche e abra a tela de novo.'); return; }
+    const atualizado: SaleOrder = {
+      ...editingSale,
+      customerName: editSaleForm.customerName,
+      total: editSaleForm.total,
+      downPayment: novoDownPayment,
+      receivedValue: novoDownPayment,
+      payments: entradaZeradaOuVazia ? [] : (editingSale.payments || []),
+      pendingPaymentMethod: entradaZeradaOuVazia ? undefined : editingSale.pendingPaymentMethod,
+      paymentMethod: editSaleForm.paymentMethod as any,
+      observacoes: editSaleForm.observacoes || undefined,
+      scheduledFor: localDatetimeToIso(editSaleForm.scheduledFor) || undefined,
+      status: novoStatus,
+    };
+    setAllSalesHistory(prev => prev.map(s => s.id === editingSale.id ? atualizado : s));
+    setSalesToday(prev => prev.map(s => s.id === editingSale.id ? atualizado : s));
     setEditingSale(null);
     loadSalesHistory();
   };
