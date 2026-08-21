@@ -8850,10 +8850,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     showAlert('Agendamento excluído!');
   };
 
-  const confirmAddPayment = () => {
+  // Monta o objeto de pagamento a partir do que esta digitado no formulario (valor/percentual,
+  // forma, parcelas, taxa e data). Retorna null se nao ha valor valido digitado ainda.
+  // Usado tanto pelo botao "+ Adicionar" quanto pela protecao automatica do handleFinalize
+  // (evita perder um valor digitado e nunca clicado em Adicionar).
+  const buildPaymentEntryFromInput = (): PaymentEntry | null => {
     const rawInput = newPaymentInput === '' ? 0 : Number(newPaymentInput);
     const baseValue = newPaymentMode === 'percentual' ? Number(((total * rawInput) / 100).toFixed(2)) : rawInput;
-    if (baseValue <= 0) { showAlert('Digite um valor válido para o pagamento.'); return; }
+    if (baseValue <= 0) return null;
     let value = baseValue;
     let installments: number | undefined;
     let feePercent: number | undefined;
@@ -8866,7 +8870,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       value = Number((baseValue * (1 + feePercent / 100)).toFixed(2));
     }
     const dataLancamento = useCustomPaymentDate && customPaymentDate ? new Date(customPaymentDate).toISOString() : new Date().toISOString();
-    setPaymentEntries(prev => [...prev, { method: newPaymentMethod, value, date: dataLancamento, installments, feePercent }]);
+    return { method: newPaymentMethod, value, date: dataLancamento, installments, feePercent };
+  };
+
+  const confirmAddPayment = () => {
+    const entry = buildPaymentEntryFromInput();
+    if (!entry) { showAlert('Digite um valor válido para o pagamento.'); return; }
+    setPaymentEntries(prev => [...prev, entry]);
     setNewPaymentMode('valor');
     setNewPaymentInstallments(1);
     setUseCustomPaymentDate(false);
@@ -8939,6 +8949,21 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   }, [allSalesHistory]);
 
   const handleFinalize = async (isPending: boolean = false, forceZeroPayment: boolean = false) => {
+    // Protecao de UX: se o usuario digitou um valor no campo de pagamento mas esqueceu de
+    // clicar em "+ Adicionar", inclui esse valor automaticamente na lista antes de processar —
+    // evita registrar/quitar um pagamento de R$ 0,00 por engano so porque o valor ficou
+    // digitado no campo e nunca foi confirmado na lista.
+    const pendingEntry = forceZeroPayment ? null : buildPaymentEntryFromInput();
+    const effectivePaymentEntries = pendingEntry ? [...paymentEntries, pendingEntry] : paymentEntries;
+    const effectivePaymentEntriesTotal = effectivePaymentEntries.reduce((sum, p) => sum + (p.value || 0), 0);
+    if (pendingEntry) {
+      setPaymentEntries(effectivePaymentEntries);
+      setNewPaymentMode('valor');
+      setNewPaymentInstallments(1);
+      setUseCustomPaymentDate(false);
+      setCustomPaymentDate('');
+    }
+
     // Play money sound
     try {
       const audio = new Audio('/sounds/sale-complete.mp3');
@@ -8949,7 +8974,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     // linha no banco (itens + total) em vez de criar uma venda nova, e ajusta o estoque so pela
     // DIFERENCA entre o que tinha antes e o que ficou agora (nao deduz tudo de novo).
     if (editingFullOrder) {
-      const totalPago = (editingFullOrder.downPayment || 0) + paymentEntriesTotal;
+      const totalPago = (editingFullOrder.downPayment || 0) + effectivePaymentEntriesTotal;
       const novoSaldo = Math.max(0, total - totalPago);
       try {
         // Ajusta estoque so pela diferenca de consumo entre os itens antigos e os novos
@@ -8969,7 +8994,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           }
         }));
 
-        const pagamentosFinaisEdicao = [...editingPaymentsList, ...paymentEntries];
+        const pagamentosFinaisEdicao = [...editingPaymentsList, ...effectivePaymentEntries];
         const { data, error } = await supabase.from('vendas').update({
           cliente_id: selectedCustomer?.id || null,
           customer_name: selectedCustomer?.name || editingFullOrder.customerName,
@@ -9042,10 +9067,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
     // Quitar Debito: atualiza a venda ja existente em vez de criar uma nova
     if (settlingOrder) {
-      const novoTotalPago = alreadyPaidForSettle + paymentEntriesTotal;
+      const novoTotalPago = alreadyPaidForSettle + effectivePaymentEntriesTotal;
       const novoSaldo = Math.max(0, paymentModalTotal - novoTotalPago);
       // Usa a lista EDITADA (pode ter pagamento excluido ou data alterada), nao a original travada
-      const pagamentosFinais = [...editingPaymentsList, ...paymentEntries];
+      const pagamentosFinais = [...editingPaymentsList, ...effectivePaymentEntries];
       try {
         const { data, error } = await supabase.from('vendas').update({
           down_payment: novoTotalPago,
@@ -9084,7 +9109,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
     const finalDownPayment = forceZeroPayment ? 0 : (downPayment === '' || typeof downPayment === 'string' ? 0 : Number(downPayment));
     const currentRemaining = Math.max(0, total - finalDownPayment);
-    const paymentsToSave = forceZeroPayment ? [] : paymentEntries;
+    const paymentsToSave = forceZeroPayment ? [] : effectivePaymentEntries;
 
     // So salva agendamento de entrega se o usuario escolheu uma data/hora manualmente
     // (campo scheduledFor). Antes, toda venda com pagamento parcial ("entrada") sem data
@@ -12111,27 +12136,30 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                          {!useCustomPaymentDate ? (
                            <button
                              onClick={() => setUseCustomPaymentDate(true)}
-                             className="flex items-center gap-1 text-[8px] font-black uppercase text-white/30 hover:text-primary-400 shrink-0 self-start border-0 bg-transparent cursor-pointer"
+                             className="w-full flex items-center justify-center gap-1.5 text-[9px] font-black uppercase text-amber-300 hover:text-amber-200 shrink-0 border border-amber-500/30 hover:border-amber-400/50 bg-amber-500/10 hover:bg-amber-500/15 rounded-lg h-8 cursor-pointer transition-all active:scale-95"
                            >
-                             <CalendarClock size={11} /> Lançar com data/hora retroativa
+                             <CalendarClock size={13} /> Lançar com data/hora retroativa
                            </button>
                          ) : (
-                           <div className="flex items-center gap-1.5 shrink-0">
+                           <div className="flex items-center gap-1.5 shrink-0 p-1.5 bg-amber-500/10 border border-amber-500/30 rounded-lg">
                               <div className="flex-1 space-y-0.5">
-                                 <label className="text-[7px] font-black text-white/40 uppercase tracking-widest block">Data/Hora do Pagamento</label>
+                                 <label className="flex items-center gap-1 text-[7.5px] font-black text-amber-300 uppercase tracking-widest">
+                                    <CalendarClock size={10} /> Data/Hora Retroativa do Pagamento
+                                 </label>
                                  <input
+                                   autoFocus
                                    type="datetime-local"
                                    value={customPaymentDate}
                                    onChange={(e) => setCustomPaymentDate(e.target.value)}
-                                   className="w-full h-8 bg-slate-900/50 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500"
+                                   className="w-full h-9 bg-slate-900/70 border border-amber-500/30 rounded-lg px-2 text-xs sm:text-sm text-white font-bold focus:outline-none focus:border-amber-400"
                                  />
                               </div>
                               <button
                                 onClick={() => { setUseCustomPaymentDate(false); setCustomPaymentDate(''); }}
                                 title="Usar a hora de agora"
-                                className="h-8 px-2 rounded-lg border border-white/10 text-white/40 hover:text-rose-400 hover:border-rose-500/30 bg-transparent cursor-pointer text-[9px] font-bold shrink-0"
+                                className="h-9 px-2 rounded-lg border border-white/10 text-white/40 hover:text-rose-400 hover:border-rose-500/30 bg-transparent cursor-pointer text-[9px] font-bold shrink-0"
                               >
-                                <X size={12} />
+                                <X size={14} />
                               </button>
                            </div>
                          )}
