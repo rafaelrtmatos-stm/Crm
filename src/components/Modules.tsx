@@ -6647,6 +6647,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const { error } = await supabase.from('contratos').update({ deleted_at: new Date().toISOString() }).eq('id', c.id);
     if (error) { showAlert(`Não foi possível excluir o contrato: ${error.message}`); return; }
     setAllContratos(prev => prev.filter(ct => ct.id !== c.id));
+    // Solta o vinculo na Nota (a Nota continua intacta, so para de apontar pra um contrato
+    // que nao existe mais) -- sem isso a etiqueta "Contrato" ficava no card pra sempre
+    if (c.vendaId) {
+      await supabase.from('vendas').update({ contrato_id: null }).eq('id', c.vendaId);
+      setAllSalesHistory(prev => prev.map(s => s.id === c.vendaId ? { ...s, contratoId: undefined } as SaleOrder : s));
+    }
   };
 
   const handleDownloadContratoPdf = async (c: Contrato) => {
@@ -8361,6 +8367,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     if (!(await showConfirm(`Restaurar o contrato ${c.numero}?`))) return;
     const { error } = await supabase.from('contratos').update({ deleted_at: null }).eq('id', c.id);
     if (error) { showAlert('Não foi possível restaurar o contrato.'); return; }
+    // Devolve o vinculo na Nota (foi solto na exclusao), so se ela ainda nao foi religada a
+    // outro contrato nesse meio tempo
+    if (c.vendaId) {
+      const { data: venda } = await supabase.from('vendas').select('contrato_id').eq('id', c.vendaId).maybeSingle();
+      if (venda && !venda.contrato_id) {
+        await supabase.from('vendas').update({ contrato_id: c.id }).eq('id', c.vendaId);
+        setAllSalesHistory(prev => prev.map(s => s.id === c.vendaId ? { ...s, contratoId: c.id } as SaleOrder : s));
+      }
+    }
     loadDeletedContratos();
   };
 
@@ -16182,7 +16197,8 @@ export const ServicesModule = ({ currentCompany }: { currentCompany: Company | n
     try {
       const isPending = formData.downPaymentValue < formData.totalValue;
 
-      // 1. Create sale order so it counts in faturamento/revenue instantly
+      // 1. Create sale order — down_payment reflete so o que realmente entrou (0 se nao houve
+      // entrada); faturamento so conta de verdade quando ha pagamento, nao na criacao da nota
       const { data: vendaRow, error: vendaErr } = await supabase.from('vendas').insert({
         customer_name: formData.client,
         items: [{
@@ -16192,7 +16208,7 @@ export const ServicesModule = ({ currentCompany }: { currentCompany: Company | n
           quantity: 1
         }],
         total: formData.totalValue,
-        down_payment: formData.downPaymentValue > 0 ? formData.downPaymentValue : formData.totalValue,
+        down_payment: formData.downPaymentValue > 0 ? formData.downPaymentValue : 0,
         payment_method: 'pix',
         status: isPending ? 'pending' : 'completed',
       }).select().single();
