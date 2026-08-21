@@ -9150,6 +9150,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   // Nunca mexe no modo (R$ ou %) escolhido pelo usuário.
   useEffect(() => {
     if (!isPaymentModalOpen) return;
+    // Editando os itens de uma nota que já existe (ex: adicionar mais um produto): NÃO
+    // pré-preenche o campo com o saldo restante. Nesse modo o usuário normalmente só quer
+    // salvar a alteração dos itens sem lançar pagamento nenhum, e o botão de salvar reaproveita
+    // qualquer valor que estiver digitado nesse campo — se ele vier preenchido sozinho com o
+    // saldo total, a nota é quitada (status "pago") mesmo o usuário não tendo digitado nada e
+    // mesmo o botão mostrando "R$ 0,00" (o texto do botão não olha esse campo nesse modo).
+    if (editingFullOrder) {
+      if (newPaymentInput !== '') setNewPaymentInput('');
+      return;
+    }
     if (newPaymentMode === 'valor') {
       setNewPaymentInput(paymentModalRemaining > 0 ? Number(paymentModalRemaining.toFixed(2)) : '');
     } else if (newPaymentMode === 'percentual') {
@@ -9157,7 +9167,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       setNewPaymentInput(pct > 0 ? Number(pct.toFixed(2)) : '');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPaymentModalOpen, paymentModalRemaining, newPaymentMethod, newPaymentMode]);
+  }, [isPaymentModalOpen, paymentModalRemaining, newPaymentMethod, newPaymentMode, editingFullOrder]);
 
   // Soma por data de CADA pagamento (nao pela data de criacao da nota) — uma nota paga em
   // partes em dias diferentes conta o faturamento em cada dia certo, nao tudo de uma vez
