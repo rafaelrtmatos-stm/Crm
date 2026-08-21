@@ -222,6 +222,7 @@ import { transcribeAudioMessage } from '../lib/audioTranscription';
 import { generateSuggestion, type KnowledgeProduct } from '../lib/robozinhoRafa';
 import { validateCpfCnpj } from '../lib/validators';
 import { buscarClienteDuplicado, montarPayloadMesclagem } from '../lib/clienteDedupe';
+import { custoTotalDaNota, calcularLucroLiquido, somaCustosExtras, isMaterialLonaAdesivo } from '../lib/lucro';
 import { format } from 'date-fns';
 
 // Formata uma data com fallback seguro — evita "RangeError: Invalid time value"
@@ -1110,13 +1111,18 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   const [analisePeriodo, setAnalisePeriodo] = useState<'hoje' | 'semana' | 'mes' | 'ano'>('mes');
 
   const analiseDetalhada = useMemo(() => {
+    // Custo de uma nota = so material Lona/Adesivo (por m2/metro, batendo com o item do
+    // Estoque de Insumos) + custos extras manuais lancados na nota (frete, mao de obra,
+    // ferro, tinta, etc — ver painel "Custos da Nota" no PDV / ExtraCost). Nenhum outro
+    // produto do carrinho entra automaticamente no custo -- ver src/lib/lucro.ts.
     const custoDoPedido = (o: SaleOrder) => {
-      let c = 0;
-      o.items?.forEach(item => {
+      const custoMaterial = (o.items || []).reduce((total, item) => {
+        if (!isMaterialLonaAdesivo(item.name)) return total;
         const invItem = inventory.find(i => i.id === item.productId || i.name?.toLowerCase() === item.name?.toLowerCase());
-        const unitCost = invItem && typeof invItem.costPrice === 'number' ? invItem.costPrice : (item.price || 0) * 0.35;
-        c += item.area ? unitCost * item.area * item.quantity : unitCost * item.quantity;
-      });
+        const unitCost = invItem && typeof invItem.costPrice === 'number' ? invItem.costPrice : 0;
+        return total + (item.area ? unitCost * item.area * item.quantity : unitCost * item.quantity);
+      }, 0);
+      let c = custoMaterial + somaCustosExtras(o.extraCosts);
       if (o.status === 'pending' && o.total > 0) c *= (o.downPayment || 0) / o.total;
       return c;
     };
@@ -7378,27 +7384,21 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     loadCosts();
   }, []);
 
-  // Lucro liquido de uma venda (valor recebido - custo dos produtos), so pro Admin ver na
-  // coluna de valor do modo lista -- mesma logica ja usada no resumo de Ordem de Servicos
-  // (servicosResumo acima), aplicada por nota individual em vez do total do periodo.
+  // Lucro liquido de uma venda (valor recebido - custo Lona/Adesivo - custos extras manuais),
+  // so pro Admin ver na coluna de valor do modo lista -- ver src/lib/lucro.ts pra regra completa.
   const calcularLucroDaVenda = (sale: SaleOrder) => {
     const down = sale.status === 'completed' ? sale.total : (sale.downPayment || 0);
-    let custoTotal = 0;
-    (sale.items || []).forEach(item => {
-      const custoUnit = produtosCostMap[item.productId] || 0;
-      const qtd = item.area ? item.area * item.quantity : item.quantity;
-      custoTotal += custoUnit * qtd;
-    });
-    // Custos extras/diretos lancados manualmente pra essa nota especifica (mao de obra,
-    // frete, aluguel de andaime, etc) -- separados do custo de material do Estoque de
-    // Insumos, mas somados aqui pra refletir o lucro liquido REAL da nota.
-    const custosExtrasTotal = (sale.extraCosts || []).reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
-    custoTotal += custosExtrasTotal;
     // Nota parcialmente paga: proporcionaliza o custo pelo tanto que ja entrou, igual ao
-    // resumo do periodo (custoDoPedido em DashboardModule), pra nao contar custo de material
-    // que ainda nao foi de fato "pago" pelo cliente.
-    if (sale.status === 'pending' && sale.total > 0) custoTotal *= down / sale.total;
-    return down - custoTotal;
+    // resumo do periodo (servicosResumo abaixo), pra nao contar custo que ainda nao foi
+    // de fato "pago" pelo cliente.
+    const proporcao = (sale.status === 'pending' && sale.total > 0) ? down / sale.total : undefined;
+    return calcularLucroLiquido({
+      valorRecebido: down,
+      items: sale.items,
+      custoPorId: produtosCostMap,
+      extraCosts: sale.extraCosts,
+      proporcao,
+    });
   };
 
   // Painel "Custos da Nota" (Admin) -- custos extras/diretos daquela producao especifica
@@ -7893,16 +7893,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       const isFullyPaid = sale.status === 'completed' || down >= total;
       faturamento += total;
       liquido += down;
-      let custoPedido = 0;
-      (sale.items || []).forEach(item => {
-        const custoUnit = produtosCostMap[item.productId] || 0;
-        const qtd = item.area ? item.area * item.quantity : item.quantity;
-        custoPedido += custoUnit * qtd;
-      });
       // Amortiza o custo pela proporcao efetivamente recebida (down/total) — mesma regra de
-      // calcularLucroDaVenda, pra nao abater custo de material que ainda nao foi pago
-      if (!isFullyPaid && total > 0) custoPedido *= down / total;
-      custoTotal += custoPedido;
+      // calcularLucroDaVenda, pra nao abater custo que ainda nao foi pago. Custo = so Lona/
+      // Adesivo (materia-prima) + custos extras manuais lancados na nota (ver src/lib/lucro.ts).
+      const proporcao = (!isFullyPaid && total > 0) ? down / total : undefined;
+      custoTotal += custoTotalDaNota({
+        items: sale.items,
+        custoPorId: produtosCostMap,
+        extraCosts: sale.extraCosts,
+        proporcao,
+      });
       if (down > 0 && !isFullyPaid) {
         comEntrada.count += 1;
         comEntrada.total += total;
