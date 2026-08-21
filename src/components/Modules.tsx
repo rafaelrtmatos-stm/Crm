@@ -11120,13 +11120,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           onClick={() => handleCycleServiceStatus(sale.id, currentStage)}
                           title="Clique para avançar a etapa — ao concluir, volta ao início"
                           className={cn(
-                            "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase whitespace-nowrap transition-all cursor-pointer border-0",
-                            entregue
-                              ? "bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25"
-                              : "bg-white/5 text-white/60 hover:bg-white/10 hover:text-white"
+                            "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase whitespace-nowrap transition-all cursor-pointer border-0 hover:brightness-125",
+                            stageColorOf(currentStage).bg, stageColorOf(currentStage).text
                           )}
                         >
-                          <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", entregue ? "bg-emerald-400" : "bg-white/30")} />
+                          <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", stageColorOf(currentStage).dot)} />
                           {entregue ? 'Entregue' : (STAGE_LABELS[currentStage] || currentStage)}
                           <RefreshCw size={10} className="opacity-40" />
                         </button>
@@ -11303,7 +11301,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                    {estaPago ? '✓ Pago' : 'Pendente'}
                                  </span>
                                )}
-                               <span className="text-[7px] font-black uppercase px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-300">
+                               <span className={cn("text-[7px] font-black uppercase px-1.5 py-0.5 rounded", stageColorOf(o.serviceStatus || 'pedido_recebido').bg, stageColorOf(o.serviceStatus || 'pedido_recebido').text)}>
                                  {STAGE_LABELS[o.serviceStatus || 'pedido_recebido']}
                                </span>
                             </div>
@@ -11565,7 +11563,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                    <p className="font-mono text-[9px] text-purple-300">{c.numero}{c.versao > 1 ? ` · v${c.versao}` : ''}</p>
                                    <span className={cn("text-[8px] font-black uppercase px-2 py-0.5 rounded-full", CONTRATO_STATUS_STYLES[c.status])}>{CONTRATO_STATUS_LABELS[c.status] || c.status}</span>
                                    {orcamentoVinc && <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-primary-500/10 text-primary-300">Orç. {orcamentoVinc.numero}</span>}
-                                   <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-300">{STAGE_LABELS[c.serviceStatus || 'pedido_recebido']}</span>
+                                   <span className={cn("text-[8px] font-black uppercase px-2 py-0.5 rounded-full", stageColorOf(c.serviceStatus || 'pedido_recebido').bg, stageColorOf(c.serviceStatus || 'pedido_recebido').text)}>{STAGE_LABELS[c.serviceStatus || 'pedido_recebido']}</span>
                                 </div>
                                 <p className="font-black text-white truncate mt-1 text-[15px]">{(c.customerName || '').toUpperCase()}</p>
                                 <p className="text-[10px] text-white/40 truncate">{c.cpfCnpj || 'CPF/CNPJ não informado'} · {c.phone || 'sem telefone'}</p>
@@ -17255,6 +17253,21 @@ const STAGE_LABELS: Record<string, string> = {
   aguardando_retirada: 'Aguardando Retirada', produto_entregue: 'Produto Entregue',
 };
 
+// Cor de cada etapa (bolinha + badge) nos cards do funil de Serviços, na lista de Notas em Aberto
+// e nos badges de Orçamento/Contrato. Pra mudar a cor de uma etapa, so trocar a classe aqui —
+// dot/text/bg seguem a mesma cor base pra ficar consistente em todo lugar que a etapa aparece.
+const STAGE_COLORS: Record<string, { dot: string; text: string; bg: string }> = {
+  pedido_recebido: { dot: 'bg-slate-400', text: 'text-slate-300', bg: 'bg-slate-500/15' },
+  aguardando_arte: { dot: 'bg-amber-400', text: 'text-amber-300', bg: 'bg-amber-500/15' },
+  arte_em_desenvolvimento: { dot: 'bg-indigo-400', text: 'text-indigo-300', bg: 'bg-indigo-500/15' },
+  aguardando_aprovacao: { dot: 'bg-purple-400', text: 'text-purple-300', bg: 'bg-purple-500/15' },
+  producao: { dot: 'bg-orange-400', text: 'text-orange-300', bg: 'bg-orange-500/15' },
+  acabamento: { dot: 'bg-cyan-400', text: 'text-cyan-300', bg: 'bg-cyan-500/15' },
+  aguardando_retirada: { dot: 'bg-yellow-400', text: 'text-yellow-300', bg: 'bg-yellow-500/15' },
+  produto_entregue: { dot: 'bg-emerald-400', text: 'text-emerald-400', bg: 'bg-emerald-500/15' },
+};
+const stageColorOf = (stageId: string) => STAGE_COLORS[stageId] || STAGE_COLORS.pedido_recebido;
+
 // Etapas unificadas: Pedido, Orçamento e Contrato usam as MESMAS 8 etapas (STAGE_ORDER)
 // Antigas constantes removidas: ORCAMENTO_CONTRATO_STAGES, ORCAMENTO_CONTRATO_LABELS
 
@@ -17295,18 +17308,21 @@ const OrdemServicoCard = ({ pedido, onDropdownChange, selectMode, selected, onTo
             {safeFormat(pedido.scheduledFor, 'dd/MM HH:mm')}
           </span>
         )}
-        <select
-          value={pedido.serviceStatus || 'pedido_recebido'}
-          onPointerDown={(e: any) => e.stopPropagation()}
-          onClick={(e: any) => e.stopPropagation()}
-          onChange={(e: any) => { e.stopPropagation(); onDropdownChange(pedido, e.target.value); }}
-          disabled={selectMode}
-          className="w-full h-6 bg-slate-900/60 border border-white/10 rounded-md px-1 text-[8px] text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer disabled:opacity-40"
-        >
-          {STAGE_ORDER.map(id => (
-            <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
-          ))}
-        </select>
+        <div className="relative">
+          <span className={cn("absolute left-1.5 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full pointer-events-none", stageColorOf(pedido.serviceStatus || 'pedido_recebido').dot)} />
+          <select
+            value={pedido.serviceStatus || 'pedido_recebido'}
+            onPointerDown={(e: any) => e.stopPropagation()}
+            onClick={(e: any) => e.stopPropagation()}
+            onChange={(e: any) => { e.stopPropagation(); onDropdownChange(pedido, e.target.value); }}
+            disabled={selectMode}
+            className="w-full h-6 bg-slate-900/60 border border-white/10 rounded-md pl-4 pr-1 text-[8px] text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer disabled:opacity-40"
+          >
+            {STAGE_ORDER.map(id => (
+              <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
+            ))}
+          </select>
+        </div>
       </GlassCard>
     </div>
   );
@@ -17331,6 +17347,7 @@ const OrdemServicoColumn = ({ stageId, pedidos, onDropdownChange, selectMode, se
              {todosSelecionados && <Check size={9} className="text-slate-900" />}
            </button>
          )}
+         <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", stageColorOf(stageId).dot)} />
          <h3 className="text-[7.5px] font-black uppercase tracking-wide text-white/50 truncate leading-tight">{STAGE_LABELS[stageId]}</h3>
          <Badge className="bg-white/5 border-none opacity-50 px-1.5 py-0 h-4 flex items-center shrink-0 text-[8px]">{pedidos.length}</Badge>
       </div>
@@ -17390,17 +17407,20 @@ const OrdemServicoListRow = ({ pedido, onDropdownChange, selectMode, selected, o
            {safeFormat(pedido.scheduledFor, 'dd/MM HH:mm')}{atrasado && ' · ATRASADO'}
          </span>
        )}
-       <select
-         value={pedido.serviceStatus || 'pedido_recebido'}
-         onClick={(e: any) => e.stopPropagation()}
-         onChange={(e: any) => { e.stopPropagation(); onDropdownChange(pedido, e.target.value); }}
-         disabled={selectMode}
-         className="shrink-0 w-40 h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-[10px] text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer disabled:opacity-40"
-       >
-         {STAGE_ORDER.map(id => (
-           <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
-         ))}
-       </select>
+       <div className="relative shrink-0">
+         <span className={cn("absolute left-2 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full pointer-events-none", stageColorOf(pedido.serviceStatus || 'pedido_recebido').dot)} />
+         <select
+           value={pedido.serviceStatus || 'pedido_recebido'}
+           onClick={(e: any) => e.stopPropagation()}
+           onChange={(e: any) => { e.stopPropagation(); onDropdownChange(pedido, e.target.value); }}
+           disabled={selectMode}
+           className="w-40 h-8 bg-slate-900/60 border border-white/10 rounded-lg pl-6 pr-2 text-[10px] text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer disabled:opacity-40"
+         >
+           {STAGE_ORDER.map(id => (
+             <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
+           ))}
+         </select>
+       </div>
     </div>
   );
 };
