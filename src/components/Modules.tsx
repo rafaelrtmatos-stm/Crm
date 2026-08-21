@@ -1323,7 +1323,10 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       />
 
       {user?.isAdmin && (
-        <GlassCard className="p-6 border-white/5 flex items-center gap-6 group relative overflow-hidden max-w-md">
+        <GlassCard
+          onClick={() => setActiveTab?.('inventory')}
+          className="p-6 border-white/5 flex items-center gap-6 group relative overflow-hidden max-w-md cursor-pointer hover:border-emerald-500/30 transition-all"
+        >
           <div className="absolute top-0 right-0 w-24 h-24 bg-white/5 rounded-full -mr-12 -mt-12 group-hover:scale-150 transition-transform duration-1000" />
           <div className="p-4 rounded-2xl bg-white/5 text-emerald-400">
             <Banknote size={24} />
