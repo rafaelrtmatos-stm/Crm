@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { CalendarClock, Bell, ChevronRight } from 'lucide-react';
 import { supabase } from '../../supabase';
+import { formatCurrency } from '../utils/storage';
 import { NotaDetalheModal, NotaDetalhe, NotaDetalheItem, NotaSelecionadoItem } from './NotaDetalheModal';
 
 interface NotaAgendada {
@@ -119,10 +120,13 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({ onAddItems
                     {(nota.items || []).map(i => i.name).join(', ') || 'Sem itens'}
                   </p>
                   <div className="flex items-center gap-3 mt-1">
+                    <span className="text-[11px] font-black text-[var(--text-main)]">{formatCurrency(nota.total)}</span>
                     <span className={`text-[11px] font-bold ${atrasado ? 'text-[var(--accent-red)]' : 'text-[var(--text-muted)]'}`}>
                       {nota.scheduled_for
                         ? `${atrasado ? 'ATRASADO — ' : ''}${new Date(nota.scheduled_for).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
-                        : 'Sem agendamento'}
+                        : nota.created_at
+                          ? new Date(nota.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+                          : 'Sem agendamento'}
                     </span>
                   </div>
                 </div>
