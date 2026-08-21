@@ -125,7 +125,8 @@ import {
   PlusSquare,
   ShieldCheck,
   Lock,
-  Loader2
+  Loader2,
+  Wallet
 } from 'lucide-react';
 import { 
   DndContext, 
@@ -7325,6 +7326,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [historyClienteIdFilter, setHistoryClienteIdFilter] = useState<string | null>(null);
   const [historyDateFrom, setHistoryDateFrom] = useState('');
   const [historyDateTo, setHistoryDateTo] = useState('');
+  // Abas de filtro no topo do Historico: Visao Geral (todos os pedidos, com os filtros normais),
+  // Vendas do Dia (so pedidos CRIADOS hoje) e Entradas de Caixa (cada RECEBIMENTO individual,
+  // nao pedido -- uma nota paga em 2 partes aparece como 2 linhas, cada uma na sua data/hora real).
+  const [historyViewTab, setHistoryViewTabState] = useState<'geral' | 'vendas_dia' | 'entradas_caixa'>(() => {
+    const saved = localStorage.getItem('rpro_history_view_tab');
+    return (saved === 'geral' || saved === 'vendas_dia' || saved === 'entradas_caixa') ? saved : 'geral';
+  });
+  const setHistoryViewTab = (tab: 'geral' | 'vendas_dia' | 'entradas_caixa') => {
+    setHistoryViewTabState(tab);
+    localStorage.setItem('rpro_history_view_tab', tab);
+  };
   const [historyViewMode, setHistoryViewModeState] = useState<'miniatura' | 'normal' | 'lista'>(() => {
     const saved = localStorage.getItem('rpro_history_view_mode');
     return (saved === 'miniatura' || saved === 'normal' || saved === 'lista') ? saved : 'normal';
@@ -7748,15 +7760,62 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       }
       return true;
     });
-    // Ordena pela data/hora REAL da transacao (createdAt, com precisao de hora) — uma venda
-    // feita ontem as 10h fica na posicao cronologica de ontem, mesmo que seja editada ou
-    // receba um pagamento hoje. Edicao/pagamento parcial NAO move o registro no tempo.
-    const chronoKey = (s: SaleOrder) => new Date(s.createdAt).getTime();
+    // Ordena pela data/hora do pagamento/transacao MAIS RECENTE de cada pedido (nao pela
+    // criacao da nota) -- um pagamento lancado as 12:00 fica posicionado exatamente entre
+    // um das 11:00 e um das 13:00. Pedidos sem nenhum pagamento lancado (ex: em aberto sem
+    // entrada) caem de volta na data de criacao, que e o unico marco temporal que tem.
+    const chronoKey = (s: SaleOrder) => {
+      const eventos = getRevenueEventsForSale(s);
+      if (eventos.length === 0) return new Date(s.createdAt).getTime();
+      return Math.max(...eventos.map(ev => new Date(ev.date).getTime()));
+    };
     return filtered.sort((a, b) => {
       const diff = chronoKey(b) - chronoKey(a);
       return historySortOrder === 'desc' ? diff : -diff;
     });
   }, [allSalesHistory, selectedOrderStatusFilters, selectedPaymentFilters, historySearch, historyClienteIdFilter, historySortOrder, historyDateFrom, historyDateTo]);
+
+  // Aba "Vendas do Dia": os mesmos pedidos da Visao Geral (respeitando os filtros de status/
+  // pagamento/busca ja aplicados), restritos aos CRIADOS hoje -- independente do periodo
+  // personalizado escolhido no filtro de data, pra sempre dar uma visao rapida do dia atual.
+  const historyVendasDoDia = useMemo(() => {
+    const inicioHoje = new Date(); inicioHoje.setHours(0, 0, 0, 0);
+    const fimHoje = new Date(); fimHoje.setHours(23, 59, 59, 999);
+    return allSalesHistory.filter(sale => {
+      if (!matchesOrderStatusGroup(sale, selectedOrderStatusFilters)) return false;
+      if (!matchesPaymentGroup(sale, selectedPaymentFilters)) return false;
+      if (!matchesHistorySearch(sale)) return false;
+      const d = new Date(sale.createdAt);
+      return !isNaN(d.getTime()) && d >= inicioHoje && d <= fimHoje;
+    }).sort((a, b) => {
+      const diff = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      return historySortOrder === 'desc' ? diff : -diff;
+    });
+  }, [allSalesHistory, selectedOrderStatusFilters, selectedPaymentFilters, historySearch, historyClienteIdFilter, historySortOrder]);
+
+  // Aba "Entradas de Caixa": cada RECEBIMENTO individual (nao o pedido inteiro), com a data/hora
+  // exata de cada pagamento -- uma nota paga em 2 partes em dias diferentes vira 2 linhas
+  // separadas, cada uma na sua propria posicao cronologica real (mesma logica do Extrato de
+  // Caixa ja usado na Analise de Performance).
+  const historyEntradasCaixa = useMemo(() => {
+    const fromDate = historyDateFrom ? new Date(historyDateFrom + 'T00:00:00') : null;
+    const toDate = historyDateTo ? new Date(historyDateTo + 'T23:59:59') : null;
+    const eventos = allSalesHistory
+      .filter(sale => sale.status !== 'canceled')
+      .filter(matchesHistorySearch)
+      .flatMap(o => getRevenueEventsForSale(o).map(ev => ({ ...ev, saleId: o.id, customerName: o.customerName || 'Cliente de Balcão' })))
+      .filter(ev => {
+        const d = new Date(ev.date);
+        if (isNaN(d.getTime())) return false;
+        if (fromDate && d < fromDate) return false;
+        if (toDate && d > toDate) return false;
+        return true;
+      });
+    return eventos.sort((a, b) => {
+      const diff = new Date(b.date).getTime() - new Date(a.date).getTime();
+      return historySortOrder === 'desc' ? diff : -diff;
+    });
+  }, [allSalesHistory, historySearch, historyClienteIdFilter, historyDateFrom, historyDateTo, historySortOrder]);
 
   // Resumo da Ordem de Servicos: usa o mesmo filtro de periodo (De/Ate) do Historico
   const servicosResumo = useMemo(() => {
@@ -9860,6 +9919,27 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               </div>
             </div>
 
+            {/* Abas de Filtro: Visao Geral | Vendas do Dia | Entradas de Caixa */}
+            <div className="flex bg-white/[0.02] border border-white/5 rounded-2xl p-1.5 gap-1.5 w-full sm:w-fit">
+              {([
+                { id: 'geral', label: 'Visão Geral', icon: History },
+                { id: 'vendas_dia', label: 'Vendas do Dia', icon: ShoppingBag },
+                { id: 'entradas_caixa', label: 'Entradas de Caixa', icon: Wallet },
+              ] as { id: 'geral' | 'vendas_dia' | 'entradas_caixa'; label: string; icon: any }[]).map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => setHistoryViewTab(t.id)}
+                  className={cn(
+                    "flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all whitespace-nowrap",
+                    historyViewTab === t.id ? "bg-primary-500 text-slate-900 shadow-lg shadow-primary-500/20" : "text-white/40 hover:text-white hover:bg-white/5"
+                  )}
+                >
+                  <t.icon size={13} />
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
             {/* Barra de controles: Pesquisa | Ordenação & Visualização | Filtros de Status — tudo em uma linha */}
             <div className="flex flex-wrap items-center gap-2 bg-white/[0.02] border border-white/5 rounded-2xl p-2.5">
               {/* Grupo 1: Pesquisa */}
@@ -10116,7 +10196,49 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
             {/* Orders List */}
             {(() => {
-              const filteredSales = filteredSalesHistory;
+              // Aba "Entradas de Caixa": lista cada recebimento individual (nao o pedido inteiro),
+              // ja ordenada pela data/hora real de cada pagamento.
+              if (historyViewTab === 'entradas_caixa') {
+                if (historyEntradasCaixa.length === 0) {
+                  return (
+                    <div className="py-16 text-center bg-white/5 rounded-3xl border border-dashed border-white/10 space-y-2">
+                      <Wallet size={36} className="mx-auto text-white/20" />
+                      <p className="text-sm font-bold text-white/40 uppercase">Nenhum recebimento encontrado</p>
+                      <p className="text-xs text-white/20">Os pagamentos recebidos aparecerão aqui, na ordem exata em que entraram.</p>
+                    </div>
+                  );
+                }
+                return (
+                  <div className="space-y-1.5">
+                    {historyEntradasCaixa.map((rec, idx) => {
+                      const methodLabel = EXTRATO_PAYMENT_LABELS[rec.method || ''] || rec.method;
+                      return (
+                        <div
+                          key={`${rec.saleId}-${idx}`}
+                          onClick={() => { setPendingReceiptOpenId(rec.saleId); }}
+                          className="flex items-center justify-between gap-3 bg-white/5 hover:bg-white/10 border border-white/5 hover:border-primary-500/30 rounded-xl px-3.5 py-2.5 cursor-pointer transition-colors"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-9 h-9 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0">
+                              <Wallet size={15} className="text-emerald-400" />
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-[11px] font-black text-white truncate">{rec.customerName}</p>
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                <span className="text-[9px] font-bold text-white/40 tabular-nums">{safeFormat(rec.date, 'dd/MM/yyyy HH:mm')}</span>
+                                {methodLabel && <span className="text-[8px] font-black uppercase text-primary-300/70 shrink-0">{methodLabel}</span>}
+                              </div>
+                            </div>
+                          </div>
+                          <span className="text-sm font-black text-emerald-400 shrink-0">R$ {rec.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              }
+
+              const filteredSales = historyViewTab === 'vendas_dia' ? historyVendasDoDia : filteredSalesHistory;
 
               if (filteredSales.length === 0) {
                 return (
