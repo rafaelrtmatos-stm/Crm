@@ -103,6 +103,20 @@ export const formatDateBR = (dateStr: string): string => {
   return dateStr;
 };
 
+// Hora (HH:mm) de um timestamp (ex: createdAt/deletedAt de um serviço), pra exibir
+// junto da data na planilha e na Lixeira.
+export const formatTimeBR = (timestamp?: number): string => {
+  if (!timestamp) return '';
+  return new Date(timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+};
+
+// Data + hora completas (ex: "20/08/2026 14:32"), a partir de um timestamp.
+export const formatDateTimeBR = (timestamp?: number): string => {
+  if (!timestamp) return '';
+  const d = new Date(timestamp);
+  return `${d.toLocaleDateString('pt-BR')} ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+};
+
 export const applyThemeToDocument = (theme: 'dark' | 'light' | 'auto'): void => {
   const root = document.documentElement;
   

@@ -38,6 +38,7 @@ const mapServiceRow = (row: any): ServiceItem => ({
   status: row.status,
   notes: row.observacoes || undefined,
   createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
+  deletedAt: row.deleted_at ? new Date(row.deleted_at).getTime() : undefined,
 });
 
 // --- LOGIN ---
@@ -70,9 +71,44 @@ export async function getServicesFromSupabase(colaboradorId: string): Promise<Se
     .from('comissoes_servicos')
     .select('*')
     .eq('colaborador_id', colaboradorId)
+    .is('deleted_at', null)
     .order('data', { ascending: false });
   if (error || !data) return [];
   return data.map(mapServiceRow);
+}
+
+// Serviços excluídos (na Lixeira) do colaborador, mais recentes primeiro.
+export async function getDeletedServicesFromSupabase(colaboradorId: string): Promise<ServiceItem[]> {
+  const { data, error } = await supabase
+    .from('comissoes_servicos')
+    .select('*')
+    .eq('colaborador_id', colaboradorId)
+    .not('deleted_at', 'is', null)
+    .order('deleted_at', { ascending: false });
+  if (error || !data) return [];
+  return data.map(mapServiceRow);
+}
+
+// Restaura um serviço da Lixeira de volta pra planilha.
+export async function restoreServiceFromSupabase(id: string): Promise<boolean> {
+  const { error } = await supabase
+    .from('comissoes_servicos')
+    .update({ deleted_at: null, updated_at: new Date().toISOString() })
+    .eq('id', id);
+  return !error;
+}
+
+// Apaga em definitivo o que já está há mais de 30 dias na Lixeira (mesma regra usada
+// em Clientes/Vendas/Contratos no CRM principal — ver Modules.tsx).
+export async function purgeOldDeletedServices(colaboradorId: string): Promise<void> {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 30);
+  await supabase
+    .from('comissoes_servicos')
+    .delete()
+    .eq('colaborador_id', colaboradorId)
+    .not('deleted_at', 'is', null)
+    .lt('deleted_at', cutoff.toISOString());
 }
 
 export async function saveServiceToSupabase(colaboradorId: string, item: ServiceItem, isNew: boolean): Promise<ServiceItem | null> {
@@ -102,8 +138,14 @@ export async function saveServiceToSupabase(colaboradorId: string, item: Service
   return mapServiceRow(data);
 }
 
+// "Excluir" um serviço não apaga de vez — só marca deleted_at (soft-delete), pra ele
+// sumir da planilha mas continuar disponível na Lixeira (ver getDeletedServicesFromSupabase
+// / restoreServiceFromSupabase acima) por 30 dias antes da limpeza definitiva.
 export async function deleteServiceFromSupabase(id: string): Promise<boolean> {
-  const { error } = await supabase.from('comissoes_servicos').delete().eq('id', id);
+  const { error } = await supabase
+    .from('comissoes_servicos')
+    .update({ deleted_at: new Date().toISOString() })
+    .eq('id', id);
   return !error;
 }
 
@@ -313,6 +355,20 @@ export const formatDateBR = (dateStr: string): string => {
   const parts = dateStr.split('-');
   if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
   return dateStr;
+};
+
+// Hora (HH:mm) de um timestamp (ex: createdAt/deletedAt de um serviço), pra exibir
+// junto da data na planilha e na Lixeira.
+export const formatTimeBR = (timestamp?: number): string => {
+  if (!timestamp) return '';
+  return new Date(timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+};
+
+// Data + hora completas (ex: "20/08/2026 14:32"), a partir de um timestamp.
+export const formatDateTimeBR = (timestamp?: number): string => {
+  if (!timestamp) return '';
+  const d = new Date(timestamp);
+  return `${d.toLocaleDateString('pt-BR')} ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
 };
 
 // Aplica o tema DENTRO do wrapper .comissoes-app, sem mexer no <html> do sistema inteiro

@@ -25,6 +25,7 @@ export interface ServiceItem {
   status: ServiceStatus;
   notes?: string;
   createdAt: number;
+  deletedAt?: number; // preenchido só quando o serviço está na Lixeira
 }
 
 export type ThemeMode = 'dark' | 'light' | 'auto';

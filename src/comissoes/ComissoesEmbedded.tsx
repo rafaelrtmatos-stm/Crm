@@ -17,6 +17,8 @@ import {
   getServicesFromSupabase,
   saveServiceToSupabase,
   deleteServiceFromSupabase,
+  getDeletedServicesFromSupabase,
+  restoreServiceFromSupabase,
   saveColaboradorSettings,
   colaboradorToUserSettings,
   calculateSummaryStats,
@@ -48,6 +50,9 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   const [services, setServices] = useState<ServiceItem[]>([]);
+  const [deletedServices, setDeletedServices] = useState<ServiceItem[]>([]);
+  const [isTrashOpen, setIsTrashOpen] = useState(false);
+  const [isLoadingTrash, setIsLoadingTrash] = useState(false);
   const [descontos, setDescontos] = useState<Desconto[]>([]);
   const [userSettings, setUserSettings] = useState<UserSettings>({
     userName: '', userRole: '', baseSalary: 0, defaultCommissionRate: 10, weeklyGoal: 0, themePreference: 'dark',
@@ -202,11 +207,37 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
   };
 
   const handleDeleteService = async (id: string) => {
-    if (!confirm('Deseja realmente excluir este serviço da planilha?')) return;
+    if (!confirm('Deseja realmente excluir este serviço da planilha? Ele fica disponível na Lixeira por 30 dias.')) return;
     const ok = await deleteServiceFromSupabase(id);
     if (!ok) { showToast('Não foi possível excluir.'); return; }
     setServices((prev) => prev.filter((s) => s.id !== id));
-    showToast('Serviço excluído.');
+    // Se a lixeira já estiver aberta, reflete o item recém-excluído nela também.
+    if (isTrashOpen && colaborador) {
+      getDeletedServicesFromSupabase(colaborador.id).then(setDeletedServices);
+    }
+    showToast('Serviço movido para a Lixeira.');
+  };
+
+  const handleToggleTrash = () => {
+    const opening = !isTrashOpen;
+    setIsTrashOpen(opening);
+    if (opening && colaborador) {
+      setIsLoadingTrash(true);
+      getDeletedServicesFromSupabase(colaborador.id).then((list) => {
+        setDeletedServices(list);
+        setIsLoadingTrash(false);
+      });
+    }
+  };
+
+  const handleRestoreService = async (id: string) => {
+    const ok = await restoreServiceFromSupabase(id);
+    if (!ok) { showToast('Não foi possível restaurar o serviço.'); return; }
+    setDeletedServices((prev) => prev.filter((s) => s.id !== id));
+    if (colaborador) {
+      getServicesFromSupabase(colaborador.id).then(setServices);
+    }
+    showToast('Serviço restaurado!');
   };
 
   const handleEditService = (service: ServiceItem) => {
@@ -330,6 +361,11 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
                 onDeleteService={handleDeleteService}
                 onOpenAddModal={() => { setEditingService(null); setModalInitialDate(undefined); setModalHeaderOverride(undefined); setIsAddModalOpen(true); }}
                 highlightServiceId={highlightServiceId}
+                deletedServices={deletedServices}
+                isTrashOpen={isTrashOpen}
+                isLoadingTrash={isLoadingTrash}
+                onToggleTrash={handleToggleTrash}
+                onRestoreService={handleRestoreService}
               />
             )}
             {activeTab === 'reports' && (

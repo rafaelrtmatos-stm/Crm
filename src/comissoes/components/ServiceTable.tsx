@@ -12,9 +12,11 @@ import {
   FileSpreadsheet,
   Download,
   Plus,
+  RotateCcw,
+  ArrowLeft,
 } from 'lucide-react';
 import { ServiceItem, ServiceStatus, FilterOptions } from '../types';
-import { formatCurrency, formatDateBR } from '../utils/storage';
+import { formatCurrency, formatDateBR, formatTimeBR } from '../utils/storage';
 
 interface ServiceTableProps {
   services: ServiceItem[];
@@ -26,6 +28,12 @@ interface ServiceTableProps {
   // se chega nessa aba a partir de um clique num item da lista "Serviços no Período"
   // do Dashboard (ver Dashboard.tsx / onGoToServiceInTable).
   highlightServiceId?: string | null;
+  // Lixeira: serviços excluídos, e os controles pra abrir/fechar e restaurar.
+  deletedServices?: ServiceItem[];
+  isTrashOpen?: boolean;
+  isLoadingTrash?: boolean;
+  onToggleTrash?: () => void;
+  onRestoreService?: (id: string) => void;
 }
 
 export const ServiceTable: React.FC<ServiceTableProps> = ({
@@ -35,6 +43,11 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
   onDeleteService,
   onOpenAddModal,
   highlightServiceId,
+  deletedServices = [],
+  isTrashOpen = false,
+  isLoadingTrash = false,
+  onToggleTrash,
+  onRestoreService,
 }) => {
   const [filters, setFilters] = useState<FilterOptions>({
     dateRange: 'all',
@@ -278,26 +291,180 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
               <Download className="w-3.5 h-3.5 text-[var(--accent-red)]" />
               <span className="hidden sm:inline">EXPORTAR CSV</span>
             </button>
+
+            {/* Lixeira Toggle Button */}
+            {onToggleTrash && (
+              <button
+                onClick={onToggleTrash}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                  isTrashOpen
+                    ? 'bg-red-950/40 border-[var(--accent-red)] text-[var(--accent-red)]'
+                    : 'border-[var(--border-color)] bg-[var(--bg-card-sec)] text-[var(--text-muted)] hover:text-white hover:border-[var(--accent-red)]'
+                }`}
+                title={isTrashOpen ? 'Voltar para a planilha' : 'Ver serviços excluídos'}
+              >
+                {isTrashOpen ? <ArrowLeft className="w-3.5 h-3.5" /> : <Trash2 className="w-3.5 h-3.5" />}
+                <span className="hidden sm:inline">{isTrashOpen ? 'VOLTAR' : 'LIXEIRA'}</span>
+                {!isTrashOpen && deletedServices.length > 0 && (
+                  <span className="inline-flex items-center justify-center min-w-[1.1rem] h-[1.1rem] px-1 rounded-full bg-[var(--accent-red)] text-white text-[10px]">
+                    {deletedServices.length}
+                  </span>
+                )}
+              </button>
+            )}
           </div>
         </div>
 
         {/* Quick Result Summary Bar */}
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-[var(--border-color)] text-xs text-[var(--text-muted)] font-medium">
-          <div>
-            Exibindo <span className="font-bold text-[var(--text-main)]">{filteredServices.length}</span> registros de {services.length}
+        {isTrashOpen ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-[var(--border-color)] text-xs text-[var(--text-muted)] font-medium">
+            <div>
+              <span className="font-bold text-[var(--text-main)]">{deletedServices.length}</span> serviço(s) na lixeira
+            </div>
+            <div className="text-[10px] italic">Ficam disponíveis por 30 dias antes de serem apagados de vez.</div>
           </div>
+        ) : (
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-[var(--border-color)] text-xs text-[var(--text-muted)] font-medium">
+            <div>
+              Exibindo <span className="font-bold text-[var(--text-main)]">{filteredServices.length}</span> registros de {services.length}
+            </div>
 
-          <div className="flex items-center gap-4 text-xs font-bold">
-            <div>
-              Produção: <span className="text-[var(--accent-red)]">{formatCurrency(totals.totalProduction)}</span>
-            </div>
-            <div>
-              Comissão: <span className="text-[var(--accent-red)]">{formatCurrency(totals.totalCommission)}</span>
+            <div className="flex items-center gap-4 text-xs font-bold">
+              <div>
+                Produção: <span className="text-[var(--accent-red)]">{formatCurrency(totals.totalProduction)}</span>
+              </div>
+              <div>
+                Comissão: <span className="text-[var(--accent-red)]">{formatCurrency(totals.totalCommission)}</span>
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
 
+      {isTrashOpen ? (
+        <>
+          {/* Lixeira - Desktop Table */}
+          <div className="hidden md:block overflow-hidden rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] shadow-lg">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-gradient-red text-white text-xs font-black uppercase tracking-wider">
+                    <th className="py-4 px-4 border-r border-red-700/50">Excluído em</th>
+                    <th className="py-4 px-4 border-r border-red-700/50">Serviço</th>
+                    <th className="py-4 px-4 border-r border-red-700/50">Data / Hora do Serviço</th>
+                    <th className="py-4 px-4 border-r border-red-700/50 text-right">Valor Produção</th>
+                    <th className="py-4 px-4 border-r border-red-700/50 text-right bg-red-900/60">Valor Comissão</th>
+                    <th className="py-4 px-4 text-center">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--border-color)] text-sm font-medium">
+                  {isLoadingTrash ? (
+                    <tr>
+                      <td colSpan={6} className="py-12 text-center text-[var(--text-muted)]">Carregando lixeira...</td>
+                    </tr>
+                  ) : deletedServices.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-12 text-center text-[var(--text-muted)]">
+                        <Trash2 className="w-8 h-8 mx-auto mb-2 text-[var(--accent-red)] opacity-50" />
+                        <p className="font-bold text-sm">Lixeira vazia</p>
+                        <p className="text-xs mt-1">Serviços excluídos aparecem aqui.</p>
+                      </td>
+                    </tr>
+                  ) : (
+                    deletedServices.map((item) => (
+                      <tr key={item.id} className="hover:bg-[var(--bg-card-hover)] transition-colors group">
+                        <td className="py-3.5 px-4 font-mono text-xs text-[var(--text-muted)] whitespace-nowrap">
+                          {item.deletedAt ? `${formatDateBR(new Date(item.deletedAt).toISOString().split('T')[0])} ${formatTimeBR(item.deletedAt)}` : '—'}
+                        </td>
+                        <td className="py-3.5 px-4 font-semibold text-[var(--text-main)]">
+                          {item.serviceType}
+                          {item.vehicle && (
+                            <span className="block text-[10px] text-[var(--text-muted)] font-mono font-normal">{item.vehicle}</span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4 font-mono text-xs text-[var(--text-muted)] whitespace-nowrap">
+                          {formatDateBR(item.date)}{item.createdAt ? ` · ${formatTimeBR(item.createdAt)}` : ''}
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono font-bold text-[var(--text-main)]">
+                          {formatCurrency(item.productionValue)}
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono font-black text-[var(--accent-red)] bg-red-950/10">
+                          {formatCurrency(item.commissionValue)}
+                        </td>
+                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                          {onRestoreService && (
+                            <button
+                              onClick={() => onRestoreService(item.id)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 text-xs font-bold transition-colors cursor-pointer"
+                              title="Restaurar Serviço"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" /> Restaurar
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Lixeira - Mobile Cards */}
+          <div className="grid grid-cols-1 gap-3 md:hidden">
+            {isLoadingTrash ? (
+              <div className="p-8 text-center bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl text-[var(--text-muted)]">
+                Carregando lixeira...
+              </div>
+            ) : deletedServices.length === 0 ? (
+              <div className="p-8 text-center bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl text-[var(--text-muted)]">
+                <p className="font-bold">Lixeira vazia</p>
+              </div>
+            ) : (
+              deletedServices.map((item) => (
+                <div key={item.id} className="p-4 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] space-y-3 shadow-sm">
+                  <div className="flex items-center justify-between gap-2 border-b border-[var(--border-color)] pb-2.5">
+                    <div>
+                      <span className="text-[10px] font-mono text-[var(--text-muted)] block">
+                        {formatDateBR(item.date)}{item.createdAt ? ` · ${formatTimeBR(item.createdAt)}` : ''}
+                      </span>
+                      <h3 className="font-bold text-sm text-[var(--text-main)] leading-tight">{item.serviceType}</h3>
+                      {item.vehicle && <p className="text-xs font-mono text-[var(--text-muted)]">{item.vehicle}</p>}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 p-2.5 rounded-xl bg-[var(--bg-card-sec)] border border-[var(--border-color)] text-xs">
+                    <div>
+                      <span className="text-[10px] uppercase text-[var(--text-muted)] block">Produção</span>
+                      <span className="font-bold font-mono text-[var(--text-main)] text-sm">{formatCurrency(item.productionValue)}</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] uppercase text-[var(--accent-red)] block font-bold">Comissão</span>
+                      <span className="font-black font-mono text-[var(--accent-red)] text-sm">{formatCurrency(item.commissionValue)}</span>
+                    </div>
+                  </div>
+
+                  <p className="text-[10px] text-[var(--text-muted)]">
+                    Excluído em {item.deletedAt ? `${formatDateBR(new Date(item.deletedAt).toISOString().split('T')[0])} ${formatTimeBR(item.deletedAt)}` : '—'}
+                  </p>
+
+                  {onRestoreService && (
+                    <div className="flex items-center justify-end pt-1">
+                      <button
+                        onClick={() => onRestoreService(item.id)}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-xs font-bold text-emerald-400"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" /> Restaurar
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </>
+      ) : (
+      <>
       {/* Desktop Spreadsheet Table View */}
       <div className="hidden md:block overflow-hidden rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] shadow-lg">
         <div className="overflow-x-auto">
@@ -305,7 +472,7 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
             {/* Header with Vibrant Red Gradient */}
             <thead>
               <tr className="bg-gradient-red text-white text-xs font-black uppercase tracking-wider">
-                <th className="py-4 px-4 border-r border-red-700/50">Data</th>
+                <th className="py-4 px-4 border-r border-red-700/50">Data / Hora</th>
                 <th className="py-4 px-4 border-r border-red-700/50">Veículo / Detalhe</th>
                 <th className="py-4 px-4 border-r border-red-700/50">Serviço Realizado</th>
                 <th className="py-4 px-4 border-r border-red-700/50 text-right">Valor Produção</th>
@@ -337,6 +504,9 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
                   >
                     <td className="py-3.5 px-4 font-mono text-xs text-[var(--text-muted)] whitespace-nowrap">
                       {formatDateBR(item.date)}
+                      {item.createdAt && (
+                        <span className="block text-[10px] opacity-70">{formatTimeBR(item.createdAt)}</span>
+                      )}
                     </td>
 
                     <td className="py-3.5 px-4 text-[var(--text-muted)] text-xs whitespace-nowrap font-mono">
@@ -439,7 +609,7 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
               <div className="flex items-center justify-between gap-2 border-b border-[var(--border-color)] pb-2.5">
                 <div>
                   <span className="text-[10px] font-mono text-[var(--text-muted)] block">
-                    {formatDateBR(item.date)}
+                    {formatDateBR(item.date)}{item.createdAt ? ` · ${formatTimeBR(item.createdAt)}` : ''}
                   </span>
                   <h3 className="font-bold text-sm text-[var(--text-main)] leading-tight">
                     {item.serviceType}
@@ -495,6 +665,8 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
           ))
         )}
       </div>
+      </>
+      )}
     </div>
   );
 };
