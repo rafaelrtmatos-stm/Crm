@@ -1,6 +1,10 @@
 import { supabase } from '../../supabase';
 import { ServiceItem, UserSettings, SummaryStats, ThemeMode } from '../types';
 
+// 'livre' = colaborador pode usar lançamento manual E puxar de nota;
+// 'somente_nota' = só pode puxar de nota (lançamento manual fica oculto).
+export type ModoLancamentoComissao = 'livre' | 'somente_nota';
+
 export interface Colaborador {
   id: string;
   nome: string;
@@ -10,6 +14,7 @@ export interface Colaborador {
   metaSemanal: number;
   tema: ThemeMode;
   ativo: boolean;
+  modoLancamentoComissao: ModoLancamentoComissao;
 }
 
 export const mapColaboradorRow = (row: any): Colaborador => ({
@@ -21,6 +26,7 @@ export const mapColaboradorRow = (row: any): Colaborador => ({
   metaSemanal: Number(row.meta_semanal) || 0,
   tema: (row.tema as ThemeMode) || 'dark',
   ativo: row.ativo !== false,
+  modoLancamentoComissao: row.modo_lancamento_comissao === 'somente_nota' ? 'somente_nota' : 'livre',
 });
 
 const mapServiceRow = (row: any): ServiceItem => ({

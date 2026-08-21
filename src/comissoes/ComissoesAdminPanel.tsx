@@ -29,11 +29,15 @@ interface ColaboradorRow {
   meta_semanal: number;
   tema: string;
   ativo: boolean;
+  modo_lancamento_comissao: string | null;
   created_at: string;
   updated_at: string;
 }
 
-const emptyForm = { nome: '', senha: '', cargo: '', salarioBase: 0, comissaoPadraoPercentual: 10, metaSemanal: 0 };
+const emptyForm = {
+  nome: '', senha: '', cargo: '', salarioBase: 0, comissaoPadraoPercentual: 10, metaSemanal: 0,
+  modoLancamento: 'livre' as 'livre' | 'somente_nota',
+};
 
 function formatCurrencyBR(value: number): string {
   return `R$ ${Number(value || 0).toFixed(2).replace('.', ',')}`;
@@ -92,6 +96,7 @@ export default function ComissoesAdminPanel() {
       nome: c.nome || '', senha: c.senha || '', cargo: c.cargo || '',
       salarioBase: Number(c.salario_base) || 0, comissaoPadraoPercentual: Number(c.comissao_padrao_percentual) || 10,
       metaSemanal: Number(c.meta_semanal) || 0,
+      modoLancamento: c.modo_lancamento_comissao === 'somente_nota' ? 'somente_nota' : 'livre',
     });
     setShowForm(true);
   };
@@ -112,6 +117,7 @@ export default function ComissoesAdminPanel() {
       salario_base: form.salarioBase || 0,
       comissao_padrao_percentual: form.comissaoPadraoPercentual || 0,
       meta_semanal: form.metaSemanal || 0,
+      modo_lancamento_comissao: form.modoLancamento,
       updated_at: new Date().toISOString(),
     };
     const { error } = editingId
@@ -141,6 +147,7 @@ export default function ComissoesAdminPanel() {
     id: c.id, nome: c.nome, cargo: c.cargo || undefined,
     salarioBase: Number(c.salario_base) || 0, comissaoPadraoPercentual: Number(c.comissao_padrao_percentual) || 10,
     metaSemanal: Number(c.meta_semanal) || 0, tema: (c.tema as any) || 'dark', ativo: c.ativo !== false,
+    modoLancamentoComissao: c.modo_lancamento_comissao === 'somente_nota' ? 'somente_nota' : 'livre',
   });
 
   if (selected) {
@@ -222,6 +229,41 @@ export default function ComissoesAdminPanel() {
                   className="w-full h-10 bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl px-3 text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)]" />
               </label>
             </div>
+
+            {/* Modo de lançamento de comissão -- controla quais botões o colaborador vê. */}
+            <label className="space-y-1 block">
+              <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">Como lançar Comissão?</span>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setForm({ ...form, modoLancamento: 'livre' })}
+                  className={`h-10 rounded-xl text-xs font-bold border transition-colors ${
+                    form.modoLancamento === 'livre'
+                      ? 'bg-gradient-red text-white border-transparent shadow-red-glow'
+                      : 'bg-[var(--bg-card-sec)] text-[var(--text-muted)] border-[var(--border-color)] hover:text-[var(--text-main)]'
+                  }`}
+                >
+                  Livre
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setForm({ ...form, modoLancamento: 'somente_nota' })}
+                  className={`h-10 rounded-xl text-xs font-bold border transition-colors ${
+                    form.modoLancamento === 'somente_nota'
+                      ? 'bg-gradient-red text-white border-transparent shadow-red-glow'
+                      : 'bg-[var(--bg-card-sec)] text-[var(--text-muted)] border-[var(--border-color)] hover:text-[var(--text-main)]'
+                  }`}
+                >
+                  Somente Nota
+                </button>
+              </div>
+              <p className="text-[10px] text-[var(--text-muted)] pt-0.5">
+                {form.modoLancamento === 'somente_nota'
+                  ? 'O botão "+ ADICIONAR" fica oculto; só vê "+ PUXAR DE UMA NOTA".'
+                  : 'Vê os dois botões: "+ ADICIONAR" (manual) e "+ PUXAR DE UMA NOTA".'}
+              </p>
+            </label>
+
             <div className="flex justify-end gap-2">
               <button onClick={closeForm} className="h-9 px-4 rounded-xl text-xs font-black uppercase text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors">Cancelar</button>
               <button
@@ -247,9 +289,12 @@ export default function ComissoesAdminPanel() {
               <div key={c.id} className={`bg-[var(--bg-card)] border rounded-xl px-4 py-3 ${c.ativo ? 'border-[var(--border-color)]' : 'border-[var(--border-color)] opacity-50'}`}>
                 <div className="flex items-center gap-3 flex-wrap">
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <p className="font-bold text-[var(--text-main)] truncate">{c.nome}</p>
                       {!c.ativo && <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-400">Inativo</span>}
+                      <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full ${c.modo_lancamento_comissao === 'somente_nota' ? 'bg-amber-500/15 text-amber-400' : 'bg-emerald-500/15 text-emerald-400'}`}>
+                        {c.modo_lancamento_comissao === 'somente_nota' ? 'Somente Nota' : 'Livre'}
+                      </span>
                     </div>
                     <p className="text-[10px] text-[var(--text-muted)]">
                       {c.cargo || 'Sem cargo definido'} · Salário {formatCurrencyBR(c.salario_base)} · Comissão {c.comissao_padrao_percentual || 0}% · Meta semanal {formatCurrencyBR(c.meta_semanal)} · Criado em {formatDateBR(c.created_at)}

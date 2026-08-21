@@ -19,6 +19,7 @@ import {
   applyComissoesTheme,
   getDescontosFromSupabase,
   lancarComissoesComoCustoDaNota,
+  mapColaboradorRow,
 } from './utils/supabaseStorage';
 import { Header } from './components/Header';
 import { Dashboard } from './components/Dashboard';
@@ -80,11 +81,7 @@ export default function ComissoesApp() {
     import('../supabase').then(async ({ supabase }) => {
       const { data } = await supabase.from('colaboradores').select('*').eq('id', savedId).eq('ativo', true).maybeSingle();
       if (data) {
-        setColaborador({
-          id: data.id, nome: data.nome, cargo: data.cargo || undefined,
-          salarioBase: Number(data.salario_base) || 0, comissaoPadraoPercentual: Number(data.comissao_padrao_percentual) || 10,
-          metaSemanal: Number(data.meta_semanal) || 0, tema: data.tema || 'dark', ativo: data.ativo !== false,
-        });
+        setColaborador(mapColaboradorRow(data));
         setCheckingSession(false);
       } else {
         localStorage.removeItem(COLABORADOR_SESSION_KEY);
@@ -177,6 +174,21 @@ export default function ComissoesApp() {
     setIsAddModalOpen(true);
   };
 
+  // Ponto único ao clicar em "+ ADICIONAR SERVIÇO". Checa o modo do colaborador:
+  // - "livre": abre o modal de lançamento manual (comportamento atual)
+  // - "somente_nota": vai direto pra aba Serviços (lista de notas pra puxar itens)
+  const handleOpenAddModal = (dateISO?: string) => {
+    if (colaborador?.modoLancamentoComissao === 'somente_nota') {
+      setActiveTab('servicos');
+      showToast('Selecione uma nota para puxar os itens de serviço.');
+      return;
+    }
+    setEditingService(null);
+    setModalInitialDate(dateISO);
+    setModalHeaderOverride(undefined);
+    setIsAddModalOpen(true);
+  };
+
   // Adiciona, de uma vez, os itens marcados pelo colaborador na nota agendada (aba
   // "Serviços") direto na tabela dele — o valor de cada item já vem revisado/editado
   // de lá. Quando é só 1 item, some direto sem precisar abrir mais nada.
@@ -220,6 +232,11 @@ export default function ComissoesApp() {
     lancarComissoesComoCustoDaNota(nota.id, comissoes);
   };
 
+  const handleGoToPullFromNote = () => {
+    setActiveTab('servicos');
+    showToast('Selecione uma nota para puxar os itens de serviço.');
+  };
+
   const summaryStats = useMemo(() => calculateSummaryStats(services, userSettings.baseSalary), [services, userSettings.baseSalary]);
 
   const todayStats = useMemo(() => {
@@ -256,7 +273,7 @@ export default function ComissoesApp() {
         activeTab={activeTab as any}
         setActiveTab={setActiveTab as any}
         userSettings={userSettings}
-        onOpenAddModal={() => { setEditingService(null); setModalInitialDate(undefined); setModalHeaderOverride(undefined); setIsAddModalOpen(true); }}
+        onOpenAddModal={() => handleOpenAddModal()}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onLogout={handleLogout}
       />
@@ -272,14 +289,16 @@ export default function ComissoesApp() {
                 stats={summaryStats}
                 todayStats={todayStats}
                 recentServices={services}
-                onOpenAddModal={() => { setEditingService(null); setModalInitialDate(undefined); setModalHeaderOverride(undefined); setIsAddModalOpen(true); }}
+                onOpenAddModal={() => handleOpenAddModal()}
                 onGoToTable={() => setActiveTab('table')}
                 onGoToDescontos={() => setActiveTab('descontos')}
                 onGoToServiceInTable={handleGoToServiceInTable}
                 onEditService={handleEditService}
+                onGoToPullFromNote={handleGoToPullFromNote}
                 weeklyGoal={userSettings.weeklyGoal}
                 descontos={descontos}
                 colaboradorId={colaborador?.id}
+                onlyPullFromNote={colaborador?.modoLancamentoComissao === 'somente_nota'}
               />
             )}
             {activeTab === 'weekly' && (
@@ -287,7 +306,7 @@ export default function ComissoesApp() {
                 services={services}
                 onEditService={handleEditService}
                 onDeleteService={handleDeleteService}
-                onOpenAddModalWithDate={(dateISO) => { setEditingService(null); setModalInitialDate(dateISO); setModalHeaderOverride(undefined); setIsAddModalOpen(true); }}
+                onOpenAddModalWithDate={(dateISO) => handleOpenAddModal(dateISO)}
                 weeklyGoal={userSettings.weeklyGoal}
               />
             )}
@@ -297,7 +316,7 @@ export default function ComissoesApp() {
                 baseSalary={userSettings.baseSalary}
                 onEditService={handleEditService}
                 onDeleteService={handleDeleteService}
-                onOpenAddModal={() => { setEditingService(null); setModalInitialDate(undefined); setModalHeaderOverride(undefined); setIsAddModalOpen(true); }}
+                onOpenAddModal={() => handleOpenAddModal()}
                 highlightServiceId={highlightServiceId}
                 deletedServices={deletedServices}
                 isTrashOpen={isTrashOpen}
