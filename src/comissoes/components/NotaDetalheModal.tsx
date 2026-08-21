@@ -12,6 +12,10 @@ export interface NotaDetalhe {
   id: string;
   customer_name: string;
   total: number;
+  // Valor de desconto dado na nota (vendas.discount_value) — quando presente, o preço
+  // "bruto" de cada item (price * quantity) é abatido proporcionalmente antes de pré-preencher
+  // o valor sugerido pro colaborador, pra comissão já sair calculada sobre o valor líquido.
+  discount_value?: number | null;
   scheduled_for: string | null;
   items: NotaDetalheItem[];
   observacoes?: string | null;
@@ -57,19 +61,33 @@ export const NotaDetalheModal: React.FC<NotaDetalheModalProps> = ({ nota, onClos
   const [values, setValues] = useState<Record<number, string>>({});
   const [dataServico, setDataServico] = useState<string>(() => new Date().toISOString().split('T')[0]);
 
+  // Fator de desconto da nota: se teve desconto, cada item perde a mesma fração
+  // proporcional ao seu peso no total bruto (soma de price*quantity de todos os itens).
+  // Ex.: nota de R$200 com R$20 de desconto (10%) -> cada item some 10% do seu valor bruto
+  // antes de virar o valor sugerido pro colaborador — assim a comissão já sai sobre o líquido.
+  const fatorDesconto = useMemo(() => {
+    const desconto = nota?.discount_value ?? 0;
+    if (!desconto || desconto <= 0) return 1;
+    const brutoTotal = items.reduce((sum, item) => sum + (item.price ?? 0) * (item.quantity ?? 1), 0);
+    if (brutoTotal <= 0) return 1;
+    const fator = (brutoTotal - desconto) / brutoTotal;
+    return fator > 0 ? fator : 0;
+  }, [nota?.id, nota?.discount_value, items]);
+
   useEffect(() => {
     if (!nota) return;
     const initialSelected: Record<number, boolean> = {};
     const initialValues: Record<number, string> = {};
     (nota.items || []).forEach((item, idx) => {
       initialSelected[idx] = (nota.items || []).length === 1;
-      const total = (item.price ?? 0) * (item.quantity ?? 1);
-      initialValues[idx] = total ? total.toFixed(2).replace('.', ',') : '';
+      const bruto = (item.price ?? 0) * (item.quantity ?? 1);
+      const liquido = bruto * fatorDesconto;
+      initialValues[idx] = liquido ? liquido.toFixed(2).replace('.', ',') : '';
     });
     setSelected(initialSelected);
     setValues(initialValues);
     setDataServico(toDateInputValue(nota.scheduled_for));
-  }, [nota?.id]);
+  }, [nota?.id, fatorDesconto]);
 
   const selectedCount = useMemo(() => Object.values(selected).filter(Boolean).length, [selected]);
 
@@ -204,6 +222,15 @@ export const NotaDetalheModal: React.FC<NotaDetalheModalProps> = ({ nota, onClos
             <span className="text-xs font-bold uppercase text-[var(--text-muted)]">Total da Nota</span>
             <span className="text-base font-black text-[var(--text-main)]">{formatCurrency(nota.total)}</span>
           </div>
+
+          {!!nota.discount_value && nota.discount_value > 0 && (
+            <div className="flex items-center gap-2 bg-emerald-500/5 border border-emerald-500/20 rounded-xl px-3 py-2.5">
+              <span className="text-[11px] text-emerald-400 font-bold shrink-0">DESCONTO</span>
+              <p className="text-xs text-[var(--text-muted)]">
+                Essa nota teve {formatCurrency(nota.discount_value)} de desconto — os valores acima já saem ajustados proporcionalmente, então a comissão é calculada sobre o valor líquido, não sobre o preço cheio.
+              </p>
+            </div>
+          )}
 
           <p className="text-[10px] text-[var(--text-muted)] leading-relaxed">
             {singleItem

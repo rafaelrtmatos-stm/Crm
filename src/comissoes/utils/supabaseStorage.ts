@@ -149,6 +149,48 @@ export async function deleteServiceFromSupabase(id: string): Promise<boolean> {
   return !error;
 }
 
+// Quando um colaborador "puxa" um serviço da aba Serviços pra sua planilha de comissão,
+// a comissão dele sobre aquele item (ex.: 10% de R$100 = R$10) é lançada automaticamente
+// como um Custo Extra da nota de origem (coluna vendas.custos_extras, mesmo painel "Custos
+// da Nota" do PDV -- ver src/lib/lucro.ts). Isso já abate no Lucro Líquido da nota sem o
+// Admin precisar lançar a mão de obra na mão. Uma vez lançado, o item fica igual a qualquer
+// outro custo extra: editável/removível manualmente em Custos da Nota -- não sincroniza
+// de volta se o serviço for depois editado, cancelado ou trocado de colaborador.
+export interface ComissaoParaCustoDaNota {
+  descricao: string;
+  valor: number;
+}
+
+export async function lancarComissoesComoCustoDaNota(
+  vendaId: string,
+  comissoes: ComissaoParaCustoDaNota[]
+): Promise<boolean> {
+  if (!vendaId || comissoes.length === 0) return false;
+
+  const { data: venda, error: fetchError } = await supabase
+    .from('vendas')
+    .select('custos_extras')
+    .eq('id', vendaId)
+    .maybeSingle();
+  if (fetchError) { console.error('Erro ao buscar custos da nota:', fetchError); return false; }
+
+  const custosAtuais: Array<{ id: string; description: string; amount: number }> =
+    Array.isArray(venda?.custos_extras) ? venda.custos_extras : [];
+
+  const novosCustos = comissoes.map((c, i) => ({
+    id: `comissao-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 7)}`,
+    description: c.descricao,
+    amount: Number(c.valor.toFixed(2)),
+  }));
+
+  const { error: updateError } = await supabase
+    .from('vendas')
+    .update({ custos_extras: [...custosAtuais, ...novosCustos] })
+    .eq('id', vendaId);
+  if (updateError) { console.error('Erro ao lançar comissão como custo da nota:', updateError); return false; }
+  return true;
+}
+
 // --- CONFIGURACOES do colaborador (salario, meta, comissao padrao, tema) ---
 export async function saveColaboradorSettings(colaboradorId: string, settings: UserSettings): Promise<boolean> {
   const { error } = await supabase.from('colaboradores').update({

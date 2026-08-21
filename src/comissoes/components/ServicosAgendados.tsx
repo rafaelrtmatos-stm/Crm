@@ -9,6 +9,7 @@ interface NotaAgendada {
   id: string;
   customer_name: string;
   total: number;
+  discount_value?: number | null;
   scheduled_for: string | null;
   items: (NotaDetalheItem & { productId?: string | null })[];
   observacoes: string | null;
@@ -66,7 +67,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({ onAddItems
 
     const { data } = await supabase
       .from('vendas')
-      .select('id, customer_name, total, scheduled_for, items, observacoes, service_status, created_at')
+      .select('id, customer_name, total, discount_value, scheduled_for, items, observacoes, service_status, created_at')
       .neq('status', 'canceled')
       .is('deleted_at', null)
       // "produto_entregue" = entrega ja concluida, nao deve mais aparecer como pendencia aqui.

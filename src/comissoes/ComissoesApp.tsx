@@ -18,6 +18,7 @@ import {
   calculateSummaryStats,
   applyComissoesTheme,
   getDescontosFromSupabase,
+  lancarComissoesComoCustoDaNota,
 } from './utils/supabaseStorage';
 import { Header } from './components/Header';
 import { Dashboard } from './components/Dashboard';
@@ -209,6 +210,14 @@ export default function ComissoesApp() {
     setServices((prev) => [...salvos, ...prev]);
     showToast(salvos.length > 1 ? `${salvos.length} serviços adicionados!` : 'Serviço adicionado!');
     setActiveTab('table');
+
+    // Lança a comissão de cada item puxado como Custo Extra na nota de origem (aba "Custos
+    // da Nota" do PDV), pra já abater no Lucro Líquido sem o Admin lançar mão de obra na mão.
+    const comissoes = salvos.map((s) => ({
+      descricao: `Comissão ${colaborador.nome} — ${s.serviceType} (${s.commissionPercent}%)`,
+      valor: s.commissionValue,
+    }));
+    lancarComissoesComoCustoDaNota(nota.id, comissoes);
   };
 
   const summaryStats = useMemo(() => calculateSummaryStats(services, userSettings.baseSalary), [services, userSettings.baseSalary]);
