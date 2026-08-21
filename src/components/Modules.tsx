@@ -172,7 +172,8 @@ import {
   DashboardLayout,
   WidgetType,
   ModuleCrudPermission,
-  ModulePermissions
+  ModulePermissions,
+  ExtraCost
 } from '../types';
 import { 
   AreaChart, 
@@ -525,6 +526,7 @@ const mapVendaRow = (row: any): SaleOrder => ({
   responsavel: row.responsavel || undefined,
   orcamentoId: row.orcamento_id || undefined,
   contratoId: row.contrato_id || undefined,
+  extraCosts: Array.isArray(row.custos_extras) ? row.custos_extras : [],
 } as SaleOrder);
 
 const mapOrcamentoRow = (row: any): Orcamento => ({
@@ -7387,11 +7389,59 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       const qtd = item.area ? item.area * item.quantity : item.quantity;
       custoTotal += custoUnit * qtd;
     });
+    // Custos extras/diretos lancados manualmente pra essa nota especifica (mao de obra,
+    // frete, aluguel de andaime, etc) -- separados do custo de material do Estoque de
+    // Insumos, mas somados aqui pra refletir o lucro liquido REAL da nota.
+    const custosExtrasTotal = (sale.extraCosts || []).reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
+    custoTotal += custosExtrasTotal;
     // Nota parcialmente paga: proporcionaliza o custo pelo tanto que ja entrou, igual ao
     // resumo do periodo (custoDoPedido em DashboardModule), pra nao contar custo de material
     // que ainda nao foi de fato "pago" pelo cliente.
     if (sale.status === 'pending' && sale.total > 0) custoTotal *= down / sale.total;
     return down - custoTotal;
+  };
+
+  // Painel "Custos da Nota" (Admin) -- custos extras/diretos daquela producao especifica
+  // (mao de obra, frete, aluguel de andaime, insumo aplicado fora do estoque padrao), SEPARADOS
+  // do Estoque de Insumos (materia-prima, controlado na aba lateral "Estoque de Insumos").
+  // Fica oculto do cliente e so afeta o Lucro Liquido mostrado pro Admin/autorizado.
+  const [custosNotaSale, setCustosNotaSale] = useState<SaleOrder | null>(null);
+  const [custosNotaDraft, setCustosNotaDraft] = useState<ExtraCost[]>([]);
+  const [custosNotaSaving, setCustosNotaSaving] = useState(false);
+  const [novoCustoDesc, setNovoCustoDesc] = useState('');
+  const [novoCustoValor, setNovoCustoValor] = useState<number | ''>('');
+
+  const openCustosDaNota = (sale: SaleOrder) => {
+    setCustosNotaSale(sale);
+    setCustosNotaDraft(sale.extraCosts ? [...sale.extraCosts] : []);
+    setNovoCustoDesc('');
+    setNovoCustoValor('');
+  };
+
+  const adicionarCustoNota = () => {
+    if (!novoCustoDesc.trim() || novoCustoValor === '' || Number(novoCustoValor) <= 0) return;
+    setCustosNotaDraft(prev => [...prev, { id: `${Date.now()}`, description: novoCustoDesc.trim(), amount: Number(novoCustoValor) }]);
+    setNovoCustoDesc('');
+    setNovoCustoValor('');
+  };
+
+  const removerCustoNota = (id: string) => setCustosNotaDraft(prev => prev.filter(c => c.id !== id));
+
+  const salvarCustosNota = async () => {
+    if (!custosNotaSale) return;
+    setCustosNotaSaving(true);
+    try {
+      const { error } = await supabase.from('vendas').update({ custos_extras: custosNotaDraft }).eq('id', custosNotaSale.id);
+      if (error) throw error;
+      const atualizarLista = (list: SaleOrder[]) => list.map(s => s.id === custosNotaSale.id ? { ...s, extraCosts: custosNotaDraft } : s);
+      setAllSalesHistory(atualizarLista);
+      setCustosNotaSale(null);
+    } catch (e) {
+      console.error('Erro ao salvar custos da nota:', e);
+      await showAlert('Não foi possível salvar os custos extras. Tente novamente.');
+    } finally {
+      setCustosNotaSaving(false);
+    }
   };
 
   // Composicao dos pagamentos de uma venda, ja formatada pro botao de Pagamento do modo lista
@@ -10384,9 +10434,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           <div className="min-w-0 text-right overflow-hidden" style={colFlex('valor')}>
                             <span className="text-[11px] font-black text-white block truncate">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
                             {lucro !== null && (
-                              <span className={cn("text-[8px] font-bold block truncate", lucro >= 0 ? "text-emerald-400/80" : "text-rose-400/80")}>
-                                Lucro: R$ {lucro.toFixed(2).replace('.', ',')}
-                              </span>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); openCustosDaNota(sale); }}
+                                title="Lançar custos extras dessa nota (mão de obra, frete, andaime...)"
+                                className={cn("text-[8px] font-bold block truncate w-full text-right hover:underline", lucro >= 0 ? "text-emerald-400/80" : "text-rose-400/80")}
+                              >
+                                Lucro: R$ {lucro.toFixed(2).replace('.', ',')}{(sale.extraCosts && sale.extraCosts.length > 0) ? ' •' : ''}
+                              </button>
                             )}
                           </div>
 
@@ -11924,6 +11978,56 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                Pular (Cliente de Balcão)
              </button>
            )}
+        </div>
+      </Modal>
+
+      {/* Custos da Nota (Admin) -- custos extras/diretos dessa producao especifica (mao de
+          obra, frete, andaime, insumo aplicado fora do padrao), separados do Estoque de
+          Insumos. Fica oculto do cliente; so entra no calculo do Lucro Liquido do painel. */}
+      <Modal isOpen={!!custosNotaSale} onClose={() => setCustosNotaSale(null)} title="Custos da Nota (interno)" size="sm">
+        <div className="space-y-4">
+          <p className="text-[10px] text-white/40">
+            Custos extras dessa nota específica — mão de obra, frete, aluguel de andaime, insumo aplicado fora do estoque padrão, etc.
+            Isso é <b>separado</b> do Estoque de Insumos e <b>nunca aparece</b> para o cliente; só ajusta o Lucro Líquido exibido para o Admin.
+          </p>
+
+          <div className="space-y-2 max-h-52 overflow-y-auto custom-scrollbar">
+            {custosNotaDraft.length === 0 && (
+              <p className="text-[10px] text-white/25 italic text-center py-3">Nenhum custo extra lançado nessa nota.</p>
+            )}
+            {custosNotaDraft.map(c => (
+              <div key={c.id} className="flex items-center justify-between gap-2 bg-slate-900/60 border border-white/5 rounded-lg px-3 py-2">
+                <span className="text-[11px] text-white/80 truncate">{c.description}</span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[11px] font-bold text-rose-300">R$ {Number(c.amount).toFixed(2).replace('.', ',')}</span>
+                  <button onClick={() => removerCustoNota(c.id)} className="text-white/30 hover:text-rose-400"><Trash2 size={13} /></button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex gap-2 items-end">
+            <div className="flex-1">
+              <Input label="DESCRIÇÃO" placeholder="Ex: Mão de obra, Frete..." value={novoCustoDesc} onChange={(e: any) => setNovoCustoDesc(e.target.value)} />
+            </div>
+            <div className="w-28">
+              <Input label="VALOR" type="number" prefix="R$" step="any" value={novoCustoValor} onChange={(e: any) => setNovoCustoValor(e.target.value === '' ? '' : Number(e.target.value))} />
+            </div>
+            <Button variant="secondary" className="h-14 px-4" onClick={adicionarCustoNota}>+</Button>
+          </div>
+
+          {custosNotaDraft.length > 0 && (
+            <p className="text-[11px] text-white/50 text-right">
+              Total de custos extras: <b className="text-rose-300">R$ {custosNotaDraft.reduce((s, c) => s + (Number(c.amount) || 0), 0).toFixed(2).replace('.', ',')}</b>
+            </p>
+          )}
+
+          <div className="flex gap-3 pt-2">
+            <Button variant="secondary" className="flex-1 h-12" onClick={() => setCustosNotaSale(null)}>Cancelar</Button>
+            <Button disabled={custosNotaSaving} className="flex-[2] h-12 bg-primary-500 text-slate-900 border-none" onClick={salvarCustosNota}>
+              {custosNotaSaving ? 'Salvando...' : 'Salvar Custos'}
+            </Button>
+          </div>
         </div>
       </Modal>
 

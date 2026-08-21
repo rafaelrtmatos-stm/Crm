@@ -209,6 +209,54 @@ const SidebarItem = ({
   </button>
 );
 
+// Aba "Financeiro": duas sub-abas internas -- Funcionários (colaboradores/comissões, o
+// que já existia) e Produtos e Serviços (Estoque de Insumos: materia-prima, produtos,
+// materiais, acabamentos e serviços cadastrados, reaproveitando o InventoryModule).
+const FinanceiroModule = ({ currentCompany, user }: { currentCompany: Company | null; user: AppUser | null }) => {
+  const [subTab, setSubTab] = useState<'funcionarios' | 'produtos_servicos'>('funcionarios');
+  return (
+    <div className="h-full flex flex-col min-h-0">
+      <div className="flex items-center gap-2 mb-4 shrink-0">
+        <button
+          onClick={() => setSubTab('funcionarios')}
+          className={cn(
+            "flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors border",
+            subTab === 'funcionarios'
+              ? "bg-primary-500 text-white border-white/20 shadow-lg shadow-primary-500/20"
+              : "bg-white/5 text-white/50 border-white/10 hover:bg-white/10 hover:text-white"
+          )}
+        >
+          <Users size={14} /> Funcionários
+        </button>
+        <button
+          onClick={() => setSubTab('produtos_servicos')}
+          className={cn(
+            "flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors border",
+            subTab === 'produtos_servicos'
+              ? "bg-primary-500 text-white border-white/20 shadow-lg shadow-primary-500/20"
+              : "bg-white/5 text-white/50 border-white/10 hover:bg-white/10 hover:text-white"
+          )}
+        >
+          <Package size={14} /> Produtos e Serviços
+        </button>
+      </div>
+      <div className="flex-1 min-h-0">
+        {subTab === 'funcionarios' ? (
+          <Suspense fallback={<div className="h-64 flex items-center justify-center text-white/40 text-sm">Carregando...</div>}>
+            <ComissoesEmbedded />
+          </Suspense>
+        ) : (
+          <ModuleErrorBoundary label="Produtos e Serviços">
+            <div className="overflow-y-auto custom-scrollbar h-full">
+              <InventoryModule currentCompany={currentCompany} user={user} />
+            </div>
+          </ModuleErrorBoundary>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const Navbar = () => {
   const { user, companies, currentCompany, setCurrentCompany, setIsSidebarOpen, theme, toggleTheme, logout, logoLightUrl, logoDarkUrl, activeTab } = useApp();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -1766,10 +1814,8 @@ export default function App() {
                   {activeTab === 'production' && <ProductionModule currentCompany={currentCompany} />}
                   {activeTab === 'robozinho_rafa' && <ModuleErrorBoundary label="Integrações"><IntegracoesModule currentCompany={currentCompany} user={user} /></ModuleErrorBoundary>}
                   {activeTab === 'comissoes' && (
-                    <ModuleErrorBoundary label="Comissões">
-                      <Suspense fallback={<div className="h-64 flex items-center justify-center text-white/40 text-sm">Carregando...</div>}>
-                        <ComissoesEmbedded />
-                      </Suspense>
+                    <ModuleErrorBoundary label="Financeiro">
+                      <FinanceiroModule currentCompany={currentCompany} user={user} />
                     </ModuleErrorBoundary>
                   )}
                   {activeTab === 'settings' && <SettingsModule currentCompany={currentCompany} user={user} />}

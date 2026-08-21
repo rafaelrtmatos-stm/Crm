@@ -26,6 +26,12 @@ export interface SaleOrderItem {
   observacao?: string; // observacao livre por item do carrinho
 }
 
+export interface ExtraCost {
+  id: string;
+  description: string; // ex: "Mão de obra", "Frete", "Aluguel de andaime"
+  amount: number;
+}
+
 export interface PaymentEntry {
   method: 'pix' | 'dinheiro' | 'cartao_debito' | 'cartao_credito' | 'transferencia' | 'boleto' | 'crediario';
   value: number;
@@ -60,6 +66,8 @@ export interface SaleOrder {
   scheduledFor?: string;
   deletedAt?: string;
   observacoes?: string;
+  extraCosts?: ExtraCost[]; // custos extras/diretos dessa nota especifica (mao de obra, frete, andaime, etc)
+                             // -- somados ao custo de material pra formar o lucro liquido, visivel so pro Admin/autorizado; NUNCA aparece pro cliente
 }
 
 export type UserRole = 'admin' | 'gerente' | 'atendente' | 'caixa' | 'vendedor' | 'designer' | 'operador' | 'comissao';
