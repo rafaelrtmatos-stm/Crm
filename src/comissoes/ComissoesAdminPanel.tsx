@@ -230,7 +230,9 @@ export default function ComissoesAdminPanel() {
               </label>
             </div>
 
-            {/* Modo de lançamento de comissão -- controla quais botões o colaborador vê. */}
+            {/* Modo de lançamento de comissão -- controla se o único botão "+ ADICIONAR
+                SERVIÇO" abre o lançamento manual (livre) ou manda direto pra aba Serviços
+                pra puxar de uma nota (somente_nota). */}
             <label className="space-y-1 block">
               <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">Como lançar Comissão?</span>
               <div className="grid grid-cols-2 gap-2">
@@ -259,8 +261,8 @@ export default function ComissoesAdminPanel() {
               </div>
               <p className="text-[10px] text-[var(--text-muted)] pt-0.5">
                 {form.modoLancamento === 'somente_nota'
-                  ? 'O botão "+ ADICIONAR" fica oculto; só vê "+ PUXAR DE UMA NOTA".'
-                  : 'Vê os dois botões: "+ ADICIONAR" (manual) e "+ PUXAR DE UMA NOTA".'}
+                  ? 'Só pode adicionar serviços vinculados a uma nota (puxando da aba Serviços).'
+                  : 'Pode adicionar serviços livremente, sem precisar vincular a uma nota.'}
               </p>
             </label>
 

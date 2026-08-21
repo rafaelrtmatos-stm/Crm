@@ -1,9 +1,8 @@
--- Modo de lançamento de comissão por colaborador.
--- 'livre'        -> colaborador pode usar AMBOS os botões:
---                   1. "+ ADICIONAR SERVIÇO" (lançamento manual) — funciona hoje
---                   2. "+ PUXAR DE UMA NOTA" (aba Serviços) — nova opção
--- 'somente_nota' -> colaborador SÓ vê o botão "+ PUXAR DE UMA NOTA", o botão
---                   de lançamento manual fica oculto.
+-- Modo de lançamento de comissão por colaborador. Há um único botão
+-- "+ ADICIONAR SERVIÇO" -- o que muda é pra onde ele leva o colaborador:
+-- 'livre'        -> abre o lançamento manual (pode adicionar serviço sem vincular a nota).
+-- 'somente_nota' -> manda direto pra aba Serviços, pra puxar itens de uma nota
+--                   (só pode adicionar serviço vinculado a uma nota).
 -- Configurável por colaborador em Comissões > Colaboradores (Admin). Default 'livre'.
 
 ALTER TABLE colaboradores
