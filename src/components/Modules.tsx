@@ -9059,7 +9059,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       feePercent = debitCardFeePercent;
       value = Number((baseValue * (1 + feePercent / 100)).toFixed(2));
     }
-    const dataLancamento = useCustomPaymentDate && customPaymentDate ? new Date(customPaymentDate).toISOString() : new Date().toISOString();
+    const dataLancamento = useCustomPaymentDate && customPaymentDate ? (localDatetimeToIso(customPaymentDate) || new Date().toISOString()) : new Date().toISOString();
     return { method: newPaymentMethod, value, date: dataLancamento, installments, feePercent };
   };
 
@@ -12407,9 +12407,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                     <span className="text-[9px] font-black text-white uppercase truncate shrink-0">{opt?.label || p.method}</span>
                                     <input
                                       type="datetime-local"
-                                      value={p.date ? p.date.slice(0, 16) : ''}
+                                      value={p.date ? isoToLocalDatetimeInput(p.date) : ''}
                                       onChange={(e) => {
-                                         const novaData = e.target.value ? new Date(e.target.value).toISOString() : p.date;
+                                         const novaData = localDatetimeToIso(e.target.value) || p.date;
                                          setEditingPaymentsList(prev => prev.map((pp, i) => i === idx ? { ...pp, date: novaData } : pp));
                                       }}
                                       className="h-6 bg-transparent border border-white/10 rounded px-1 text-[8px] text-white/60 focus:outline-none focus:border-primary-500 w-[112px] shrink-0"
