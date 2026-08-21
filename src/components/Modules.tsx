@@ -6117,9 +6117,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   // unidades fr do CSS Grid): a soma dos pesos sempre preenche exatamente 100% da largura
   // disponivel, entao a lista nunca estoura nem no celular nem no PC -- arrastar so redistribui
   // o espaco entre a coluna e a vizinha, nunca aumenta a largura total da linha.
-  const SALE_LIST_RESIZABLE_ORDER = ['nome', 'itens', 'codigo', 'data', 'status', 'valor'] as const;
+  const SALE_LIST_RESIZABLE_ORDER = ['nome', 'itens', 'codigo', 'data', 'etapa', 'status', 'valor'] as const;
   const SALE_LIST_COL_WEIGHTS_DEFAULT: Record<string, number> = {
-    nome: 3, itens: 4, codigo: 1.6, data: 1.8, status: 1.6, valor: 2.6,
+    nome: 3, itens: 4, codigo: 1.6, data: 1.8, etapa: 2, status: 1.6, valor: 2.6,
   };
   const [saleListColWeights, setSaleListColWeightsState] = useState<Record<string, number>>(() => {
     try {
@@ -10423,6 +10423,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       <div className="relative min-w-0" style={colFlex('itens')}>Itens / Descrição<ResizeHandle colKey="itens" /></div>
                       <div className="relative min-w-0 hidden sm:block" style={colFlex('codigo')}>Código<ResizeHandle colKey="codigo" /></div>
                       <div className="relative min-w-0 hidden sm:block" style={colFlex('data')}>Data<ResizeHandle colKey="data" /></div>
+                      <div className="relative min-w-0 hidden sm:block text-center" style={colFlex('etapa')}>Etapa<ResizeHandle colKey="etapa" /></div>
                       <div className="relative min-w-0 text-center" style={colFlex('status')}>Pagamento<ResizeHandle colKey="status" /></div>
                       <div className="relative min-w-0 text-right" style={colFlex('valor')}>Valor / Pagamento</div>
                       <div className="shrink-0 w-8 text-center">Ações</div>
@@ -10484,6 +10485,22 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           {/* Data */}
                           <div className="min-w-0 overflow-hidden hidden sm:block" style={colFlex('data')}>
                             <span className="text-[9px] text-white/30 truncate block">{safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
+                          </div>
+
+                          {/* Etapa -- mesmo select do modo normal (Pedido Recebido ate Produto
+                              Entregue), so que aqui encaixado como coluna do modo lista. */}
+                          <div className="min-w-0 hidden sm:flex justify-center" style={colFlex('etapa')}>
+                            <select
+                              value={sale.serviceStatus || 'pedido_recebido'}
+                              onChange={(e) => handleUpdateServiceStatus(sale.id, e.target.value)}
+                              onClick={(e) => e.stopPropagation()}
+                              title="Etapa Atual"
+                              className="h-6 w-full max-w-[130px] bg-blue-500/15 border border-blue-500/20 rounded-full pl-2 pr-1 text-[8px] font-black uppercase text-blue-300 focus:outline-none focus:border-primary-500 cursor-pointer truncate"
+                            >
+                              {STAGE_ORDER.map(id => (
+                                <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
+                              ))}
+                            </select>
                           </div>
 
                           {/* Botao de Pagamento -- quadrado de cantos arredondados, verde quando
