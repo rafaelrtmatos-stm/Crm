@@ -3,6 +3,7 @@ import { CalendarClock, Bell, ChevronRight, Trash2, ArrowLeft, RotateCcw, CheckS
 import { supabase } from '../../supabase';
 import { showConfirm } from '../../lib/notify';
 import { formatCurrency } from '../utils/storage';
+import { getItensJaAdicionadosDeNotas } from '../utils/supabaseStorage';
 import { NotaDetalheModal, NotaDetalhe, NotaDetalheItem, NotaSelecionadoItem } from './NotaDetalheModal';
 
 interface NotaAgendada {
@@ -20,8 +21,9 @@ interface ServicosAgendadosProps {
   // Chamado quando o colaborador confirma "Adicionar" no modal da nota — vem com todos
   // os itens marcados (1 ou mais), já com o valor revisado, e a data escolhida pra lançar
   // o serviço. Quem usa esse componente decide o que fazer (normalmente: salvar direto na
-  // tabela dele, usando a data recebida em vez de calcular uma).
-  onAddItemsToTable?: (items: NotaSelecionadoItem[], nota: NotaDetalhe, data: string) => void;
+  // tabela dele, usando a data recebida em vez de calcular uma). Retorna true se salvou com
+  // sucesso — usado aqui pra marcar os itens como "já adicionados" (check verde) na hora.
+  onAddItemsToTable?: (items: NotaSelecionadoItem[], nota: NotaDetalhe, data: string) => Promise<boolean>;
   // Id do colaborador logado — usado só pra dispensar (esconder) notas dessa lista pra ele.
   // Sem isso, o botão de Excluir some (não tem como saber de quem é a dispensa).
   colaboradorId?: string;
@@ -40,6 +42,9 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({ onAddItems
   // Ids de venda que ESSE colaborador já dispensou (excluiu da própria lista) — não apaga a
   // venda de verdade, só esconde pra ele. Carregado uma vez e atualizado na hora ao excluir.
   const [dispensadas, setDispensadas] = useState<Set<string>>(new Set());
+  // Índices já adicionados (viraram serviço em Comissões) por nota — key = venda_id.
+  // Global (não é por colaborador): trava duplicação mesmo se outro colaborador já puxou.
+  const [itensAdicionadosPorNota, setItensAdicionadosPorNota] = useState<Record<string, Set<number>>>({});
   // Modo de seleção em massa: liga checkboxes nos cards pra excluir várias notas de uma vez.
   const [modoSelecao, setModoSelecao] = useState(false);
   const [selecionadas, setSelecionadas] = useState<Set<string>>(new Set());
@@ -82,6 +87,14 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({ onAddItems
 
     setNotas(comServico);
     setLoading(false);
+
+    // Busca junto quais itens dessas notas já viraram serviço de Comissões (global, não só
+    // desse colaborador), pra travar duplicação e mostrar o check verde.
+    const ids = comServico.map((n) => n.id);
+    if (ids.length > 0) {
+      const mapa = await getItensJaAdicionadosDeNotas(ids);
+      setItensAdicionadosPorNota(mapa);
+    }
   };
 
   useEffect(() => {
@@ -93,6 +106,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({ onAddItems
       .channel('comissoes-servicos-agendados')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vendas' }, carregar)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'produtos' }, carregar)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'comissoes_servicos' }, carregar)
       .subscribe();
     // Fallback de seguranca: se o realtime nao estiver habilitado no projeto (publication sem
     // "vendas"/"produtos"), essa aba nao fica travada — continua atualizando, so que a cada 1 minuto.
@@ -110,9 +124,17 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({ onAddItems
     [notas, dispensadas]
   );
 
-  const handleAddItems = (items: NotaSelecionadoItem[], nota: NotaDetalhe, data: string) => {
-    onAddItemsToTable?.(items, nota, data);
-    setNotaSelecionada(null);
+  const handleAddItems = async (items: NotaSelecionadoItem[], nota: NotaDetalhe, data: string) => {
+    const ok = await onAddItemsToTable?.(items, nota, data);
+    if (ok) {
+      // Otimista: marca na hora como adicionado (check verde), sem esperar o realtime.
+      // O modal continua aberto pra mostrar a confirmação — o colaborador fecha quando quiser.
+      setItensAdicionadosPorNota((prev) => {
+        const atual = new Set(prev[nota.id] || []);
+        items.forEach((item) => atual.add(item.idx));
+        return { ...prev, [nota.id]: atual };
+      });
+    }
   };
 
   const handleExcluirNota = async (e: React.MouseEvent, vendaId: string) => {
@@ -305,6 +327,9 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({ onAddItems
           {notasVisiveis.map((nota) => {
             const atrasado = !!nota.scheduled_for && new Date(nota.scheduled_for).getTime() <= agora;
             const selecionada = selecionadas.has(nota.id);
+            const totalItens = (nota.items || []).length;
+            const adicionadosDaNota = itensAdicionadosPorNota[nota.id]?.size || 0;
+            const notaCompleta = totalItens > 0 && adicionadosDaNota === totalItens;
             return (
               <div
                 key={nota.id}
@@ -352,14 +377,23 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({ onAddItems
                     <Trash2 className="w-4 h-4" />
                   </button>
                 )}
-                {!modoSelecao && <ChevronRight className="w-4 h-4 text-[var(--text-muted)] shrink-0" />}
+                {!modoSelecao && (
+                  notaCompleta
+                    ? <span title="Nota já adicionada"><CheckSquare className="w-4 h-4 text-emerald-400 shrink-0" /></span>
+                    : <ChevronRight className="w-4 h-4 text-[var(--text-muted)] shrink-0" />
+                )}
               </div>
             );
           })}
         </div>
       )}
 
-      <NotaDetalheModal nota={notaSelecionada} onClose={() => setNotaSelecionada(null)} onAddItems={handleAddItems} />
+      <NotaDetalheModal
+        nota={notaSelecionada}
+        onClose={() => setNotaSelecionada(null)}
+        onAddItems={handleAddItems}
+        itensJaAdicionados={notaSelecionada ? (itensAdicionadosPorNota[notaSelecionada.id] || new Set()) : undefined}
+      />
     </div>
   );
 };

@@ -266,8 +266,8 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
   // Adiciona, de uma vez, os itens marcados pelo colaborador na nota agendada (aba
   // "Serviços") direto na tabela dele — o valor de cada item já vem revisado/editado
   // de lá. Quando é só 1 item, some direto sem precisar abrir mais nada.
-  const handleAddItemsFromNota = async (items: NotaSelecionadoItem[], nota: NotaDetalhe, dataSelecionada: string) => {
-    if (!colaborador || items.length === 0) return;
+  const handleAddItemsFromNota = async (items: NotaSelecionadoItem[], nota: NotaDetalhe, dataSelecionada: string): Promise<boolean> => {
+    if (!colaborador || items.length === 0) return false;
     const dataAgendada = dataSelecionada || new Date().toISOString().split('T')[0];
     const commissionPercent = userSettings.defaultCommissionRate;
 
@@ -287,12 +287,14 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
         status: 'CONCLUÍDO',
         notes: `Adicionado da nota #${nota.id.slice(-6).toUpperCase()}`,
         createdAt: Date.now(),
+        origemNotaId: nota.id,
+        origemItemIndex: item.idx,
       };
       return saveServiceToSupabase(colaborador.id, novoServico, true);
     }));
 
     const salvos = resultados.filter((r): r is ServiceItem => !!r);
-    if (salvos.length === 0) { showToast('Não foi possível adicionar o(s) serviço(s).'); return; }
+    if (salvos.length === 0) { showToast('Não foi possível adicionar o(s) serviço(s).'); return false; }
     setServices((prev) => [...salvos, ...prev]);
     showToast(salvos.length > 1 ? `${salvos.length} serviços adicionados!` : 'Serviço adicionado!');
     setActiveTab('table');
@@ -304,6 +306,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
       valor: s.commissionValue,
     }));
     lancarComissoesComoCustoDaNota(nota.id, comissoes);
+    return true;
   };
 
   const summaryStats = useMemo(() => calculateSummaryStats(services, userSettings.baseSalary), [services, userSettings.baseSalary]);

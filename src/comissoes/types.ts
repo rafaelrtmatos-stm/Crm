@@ -26,6 +26,10 @@ export interface ServiceItem {
   notes?: string;
   createdAt: number;
   deletedAt?: number; // preenchido só quando o serviço está na Lixeira
+  // Preenchidos só quando o serviço foi puxado de uma nota do PDV (aba "Serviços") — usados
+  // pra travar duplicação: o mesmo item da mesma nota não pode ser puxado de novo.
+  origemNotaId?: string;
+  origemItemIndex?: number;
 }
 
 export type ThemeMode = 'dark' | 'light' | 'auto';

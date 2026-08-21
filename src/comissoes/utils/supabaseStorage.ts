@@ -45,6 +45,8 @@ const mapServiceRow = (row: any): ServiceItem => ({
   notes: row.observacoes || undefined,
   createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
   deletedAt: row.deleted_at ? new Date(row.deleted_at).getTime() : undefined,
+  origemNotaId: row.origem_nota_id || undefined,
+  origemItemIndex: row.origem_item_index !== null && row.origem_item_index !== undefined ? Number(row.origem_item_index) : undefined,
 });
 
 // --- LOGIN ---
@@ -117,6 +119,27 @@ export async function purgeOldDeletedServices(colaboradorId: string): Promise<vo
     .lt('deleted_at', cutoff.toISOString());
 }
 
+// Busca, pra um conjunto de notas (vendas), quais itens (por índice) já viraram serviço de
+// Comissões — GLOBAL, sem filtrar por colaborador, porque a trava de duplicação é da nota/item
+// em si (não pode ser puxado duas vezes nem por colaboradores diferentes). Usado pela aba
+// "Serviços" pra marcar com o check verde os itens já adicionados e travar eles no modal.
+export async function getItensJaAdicionadosDeNotas(notaIds: string[]): Promise<Record<string, Set<number>>> {
+  const mapa: Record<string, Set<number>> = {};
+  if (notaIds.length === 0) return mapa;
+  const { data, error } = await supabase
+    .from('comissoes_servicos')
+    .select('origem_nota_id, origem_item_index')
+    .in('origem_nota_id', notaIds)
+    .is('deleted_at', null)
+    .not('origem_item_index', 'is', null);
+  if (error || !data) return mapa;
+  data.forEach((row: { origem_nota_id: string; origem_item_index: number }) => {
+    if (!mapa[row.origem_nota_id]) mapa[row.origem_nota_id] = new Set();
+    mapa[row.origem_nota_id].add(Number(row.origem_item_index));
+  });
+  return mapa;
+}
+
 export async function saveServiceToSupabase(colaboradorId: string, item: ServiceItem, isNew: boolean): Promise<ServiceItem | null> {
   const payload = {
     colaborador_id: colaboradorId,
@@ -132,6 +155,8 @@ export async function saveServiceToSupabase(colaboradorId: string, item: Service
     comissao_valor: item.commissionValue,
     status: item.status,
     observacoes: item.notes || null,
+    origem_nota_id: item.origemNotaId || null,
+    origem_item_index: item.origemItemIndex ?? null,
     updated_at: new Date().toISOString(),
   };
   if (isNew) {

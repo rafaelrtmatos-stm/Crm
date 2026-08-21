@@ -24,6 +24,7 @@ export interface NotaDetalhe {
 // Item selecionado pra virar lançamento em Comissões — já com o valor final
 // (produção) que o colaborador confirmou/editou antes de adicionar.
 export interface NotaSelecionadoItem {
+  idx: number; // índice do item dentro de nota.items — usado pra travar duplicação
   name: string;
   quantity: number;
   value: number;
@@ -35,6 +36,9 @@ interface NotaDetalheModalProps {
   // Chamado uma única vez, com todos os itens marcados (1 ou mais), já com o
   // valor revisado/editado pelo colaborador, e a data escolhida pra lançar o serviço.
   onAddItems: (items: NotaSelecionadoItem[], nota: NotaDetalhe, data: string) => void;
+  // Índices (dentro de nota.items) que já viraram serviço de Comissões antes — travados
+  // (não podem ser marcados/adicionados de novo) e mostrados com o check verde.
+  itensJaAdicionados?: Set<number>;
 }
 
 // Formata uma data (ISO completo ou já YYYY-MM-DD) pro formato aceito pelo <input type="date">.
@@ -51,12 +55,17 @@ const toDateInputValue = (raw: string | null | undefined): string => {
 // exatamente o preço da nota (ex: só uma parte do serviço foi feita por ele). A data do
 // lançamento também é editável (vem pré-preenchida com a entrega, se houver, ou hoje).
 // Um único botão "Adicionar" no rodapé finaliza tudo de uma vez.
-export const NotaDetalheModal: React.FC<NotaDetalheModalProps> = ({ nota, onClose, onAddItems }) => {
+export const NotaDetalheModal: React.FC<NotaDetalheModalProps> = ({ nota, onClose, onAddItems, itensJaAdicionados }) => {
   const items = nota?.items || [];
-  const singleItem = items.length === 1;
+  const jaAdicionados = itensJaAdicionados || new Set<number>();
+  // "Item único" só conta pra auto-marcar/travar seleção se esse item ainda não foi adicionado
+  // — senão o único item da nota fica marcado sozinho mesmo já estando travado (verde).
+  const itensRestantes = items.filter((_, idx) => !jaAdicionados.has(idx));
+  const singleItem = itensRestantes.length === 1 && items.length === 1;
 
-  // Se só tem 1 item na nota, já vem marcado (não faz sentido pedir pra selecionar).
-  // Com mais de 1, o colaborador escolhe (pode marcar quantos quiser, inclusive todos).
+  // Se só tem 1 item na nota (e ele ainda não foi adicionado), já vem marcado (não faz
+  // sentido pedir pra selecionar). Com mais de 1, o colaborador escolhe (pode marcar quantos
+  // quiser, inclusive todos) — itens já adicionados nunca entram na seleção.
   const [selected, setSelected] = useState<Record<number, boolean>>({});
   const [values, setValues] = useState<Record<number, string>>({});
   const [dataServico, setDataServico] = useState<string>(() => new Date().toISOString().split('T')[0]);
@@ -79,7 +88,7 @@ export const NotaDetalheModal: React.FC<NotaDetalheModalProps> = ({ nota, onClos
     const initialSelected: Record<number, boolean> = {};
     const initialValues: Record<number, string> = {};
     (nota.items || []).forEach((item, idx) => {
-      initialSelected[idx] = (nota.items || []).length === 1;
+      initialSelected[idx] = singleItem && idx === 0;
       const bruto = (item.price ?? 0) * (item.quantity ?? 1);
       const liquido = bruto * fatorDesconto;
       initialValues[idx] = liquido ? liquido.toFixed(2).replace('.', ',') : '';
@@ -87,9 +96,13 @@ export const NotaDetalheModal: React.FC<NotaDetalheModalProps> = ({ nota, onClos
     setSelected(initialSelected);
     setValues(initialValues);
     setDataServico(toDateInputValue(nota.scheduled_for));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nota?.id, fatorDesconto]);
 
-  const selectedCount = useMemo(() => Object.values(selected).filter(Boolean).length, [selected]);
+  const selectedCount = useMemo(
+    () => Object.entries(selected).filter(([idx, v]) => v && !jaAdicionados.has(Number(idx))).length,
+    [selected, jaAdicionados]
+  );
 
   if (!nota) return null;
 
@@ -99,6 +112,7 @@ export const NotaDetalheModal: React.FC<NotaDetalheModalProps> = ({ nota, onClos
   };
 
   const toggleSelected = (idx: number) => {
+    if (jaAdicionados.has(idx)) return; // já adicionado — travado
     if (singleItem) return; // item único sempre fica marcado
     setSelected((prev) => ({ ...prev, [idx]: !prev[idx] }));
   };
@@ -106,8 +120,9 @@ export const NotaDetalheModal: React.FC<NotaDetalheModalProps> = ({ nota, onClos
   const handleAdicionar = () => {
     const escolhidos: NotaSelecionadoItem[] = items
       .map((item, idx) => ({ item, idx }))
-      .filter(({ idx }) => selected[idx])
+      .filter(({ idx }) => selected[idx] && !jaAdicionados.has(idx))
       .map(({ item, idx }) => ({
+        idx,
         name: item.name,
         quantity: item.quantity ?? 1,
         value: parseValor(values[idx] ?? ''),
@@ -115,6 +130,24 @@ export const NotaDetalheModal: React.FC<NotaDetalheModalProps> = ({ nota, onClos
     if (escolhidos.length === 0) return;
     onAddItems(escolhidos, nota, dataServico);
   };
+
+  // Adiciona de uma vez TODOS os itens que ainda não foram puxados dessa nota — sem precisar
+  // marcar um por um. Itens já adicionados antes (verde) são ignorados automaticamente.
+  const handleAdicionarTudo = () => {
+    const escolhidos: NotaSelecionadoItem[] = items
+      .map((item, idx) => ({ item, idx }))
+      .filter(({ idx }) => !jaAdicionados.has(idx))
+      .map(({ item, idx }) => ({
+        idx,
+        name: item.name,
+        quantity: item.quantity ?? 1,
+        value: parseValor(values[idx] ?? ''),
+      }));
+    if (escolhidos.length === 0) return;
+    onAddItems(escolhidos, nota, dataServico);
+  };
+
+  const notaTotalmenteAdicionada = items.length > 0 && jaAdicionados.size === items.length;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-fadeIn" onClick={onClose}>
@@ -149,7 +182,7 @@ export const NotaDetalheModal: React.FC<NotaDetalheModalProps> = ({ nota, onClos
                 <Layers className="w-3.5 h-3.5" /> Itens da Nota
               </p>
               {!singleItem && items.length > 0 && (
-                <span className="text-[10px] font-bold text-[var(--text-muted)]">{selectedCount} de {items.length} selecionado{items.length !== 1 ? 's' : ''}</span>
+                <span className="text-[10px] font-bold text-[var(--text-muted)]">{selectedCount} de {itensRestantes.length} selecionado{itensRestantes.length !== 1 ? 's' : ''}</span>
               )}
             </div>
 
@@ -159,6 +192,23 @@ export const NotaDetalheModal: React.FC<NotaDetalheModalProps> = ({ nota, onClos
               <div className="space-y-2">
                 {items.map((item, idx) => {
                   const isSelected = !!selected[idx];
+                  const isAdicionado = jaAdicionados.has(idx);
+                  if (isAdicionado) {
+                    return (
+                      <div
+                        key={idx}
+                        className="flex items-center gap-3 border rounded-xl px-3 py-2.5 bg-emerald-500/10 border-emerald-500/40"
+                      >
+                        <div className="shrink-0 w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center">
+                          <Check className="w-3.5 h-3.5 text-white stroke-[3]" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-bold text-[var(--text-main)] truncate">{item.name}</p>
+                          <p className="text-[11px] text-emerald-400 font-bold">Já adicionado</p>
+                        </div>
+                      </div>
+                    );
+                  }
                   return (
                     <div
                       key={idx}
@@ -239,15 +289,33 @@ export const NotaDetalheModal: React.FC<NotaDetalheModalProps> = ({ nota, onClos
           </p>
         </div>
 
-        <div className="p-4 sm:p-5 pt-3 border-t border-[var(--border-color)] bg-[var(--bg-card-sec)]/50 shrink-0">
-          <button
-            onClick={handleAdicionar}
-            disabled={selectedCount === 0}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-gradient-red text-white text-sm font-black uppercase tracking-wide hover:brightness-110 active:scale-95 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
-          >
-            <ClipboardCheck className="w-4 h-4" />
-            {selectedCount > 1 ? `Adicionar ${selectedCount} Serviços` : 'Adicionar Serviço'}
-          </button>
+        <div className="p-4 sm:p-5 pt-3 border-t border-[var(--border-color)] bg-[var(--bg-card-sec)]/50 shrink-0 space-y-2">
+          {notaTotalmenteAdicionada ? (
+            <div className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 text-sm font-black uppercase tracking-wide">
+              <Check className="w-4 h-4 stroke-[3]" />
+              Nota Adicionada
+            </div>
+          ) : (
+            <>
+              <button
+                onClick={handleAdicionar}
+                disabled={selectedCount === 0}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-gradient-red text-white text-sm font-black uppercase tracking-wide hover:brightness-110 active:scale-95 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
+              >
+                <ClipboardCheck className="w-4 h-4" />
+                {selectedCount > 1 ? `Adicionar ${selectedCount} Serviços` : 'Adicionar Serviço'}
+              </button>
+              {!singleItem && itensRestantes.length > 1 && (
+                <button
+                  onClick={handleAdicionarTudo}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-transparent border border-emerald-500/40 text-emerald-400 text-xs font-black uppercase tracking-wide hover:bg-emerald-500/10 active:scale-95 transition-all cursor-pointer"
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  Adicionar Toda a Nota ({itensRestantes.length})
+                </button>
+              )}
+            </>
+          )}
         </div>
       </div>
     </div>
