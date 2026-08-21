@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { CalendarClock, Bell, ChevronRight } from 'lucide-react';
+import { CalendarClock, Bell, ChevronRight, Trash2 } from 'lucide-react';
 import { supabase } from '../../supabase';
+import { showConfirm } from '../../lib/notify';
 import { formatCurrency } from '../utils/storage';
 import { NotaDetalheModal, NotaDetalhe, NotaDetalheItem, NotaSelecionadoItem } from './NotaDetalheModal';
 
@@ -20,6 +21,9 @@ interface ServicosAgendadosProps {
   // o serviço. Quem usa esse componente decide o que fazer (normalmente: salvar direto na
   // tabela dele, usando a data recebida em vez de calcular uma).
   onAddItemsToTable?: (items: NotaSelecionadoItem[], nota: NotaDetalhe, data: string) => void;
+  // Id do colaborador logado — usado só pra dispensar (esconder) notas dessa lista pra ele.
+  // Sem isso, o botão de Excluir some (não tem como saber de quem é a dispensa).
+  colaboradorId?: string;
 }
 
 // Mostra todas as vendas do PDV que tem pelo menos um item de serviço (produto marcado
@@ -28,10 +32,22 @@ interface ServicosAgendadosProps {
 // precisar lancar nada. Notas ja marcadas como "Produto Entregue" somem da lista (entrega
 // concluida nao e mais uma pendencia). O telefone do cliente nao e mostrado nem buscado aqui —
 // essa aba e so pra dar visibilidade do serviço, nao pra contato direto com o cliente.
-export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({ onAddItemsToTable }) => {
+export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({ onAddItemsToTable, colaboradorId }) => {
   const [notas, setNotas] = useState<NotaAgendada[]>([]);
   const [loading, setLoading] = useState(true);
   const [notaSelecionada, setNotaSelecionada] = useState<NotaAgendada | null>(null);
+  // Ids de venda que ESSE colaborador já dispensou (excluiu da própria lista) — não apaga a
+  // venda de verdade, só esconde pra ele. Carregado uma vez e atualizado na hora ao excluir.
+  const [dispensadas, setDispensadas] = useState<Set<string>>(new Set());
+
+  const carregarDispensadas = async () => {
+    if (!colaboradorId) { setDispensadas(new Set()); return; }
+    const { data } = await supabase
+      .from('servicos_agendados_dispensados')
+      .select('venda_id')
+      .eq('colaborador_id', colaboradorId);
+    setDispensadas(new Set((data || []).map((d: { venda_id: string }) => d.venda_id)));
+  };
 
   const carregar = async () => {
     // Produtos marcados como serviço no cadastro — usado pra filtrar quais vendas têm
@@ -64,6 +80,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({ onAddItems
 
   useEffect(() => {
     carregar();
+    carregarDispensadas();
     // Realtime: mesmo padrao usado no Dashboard/PDV/Producao — reage na hora quando "vendas"
     // ou "produtos" mudam (precisa que ambas estejam na publication supabase_realtime).
     const channel = supabase
@@ -77,11 +94,28 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({ onAddItems
     return () => { supabase.removeChannel(channel); clearInterval(interval); };
   }, []);
 
+  useEffect(() => { carregarDispensadas(); }, [colaboradorId]);
+
   const agora = Date.now();
+  const notasVisiveis = notas.filter((n) => !dispensadas.has(n.id));
 
   const handleAddItems = (items: NotaSelecionadoItem[], nota: NotaDetalhe, data: string) => {
     onAddItemsToTable?.(items, nota, data);
     setNotaSelecionada(null);
+  };
+
+  const handleExcluirNota = async (e: React.MouseEvent, vendaId: string) => {
+    e.stopPropagation();
+    if (!colaboradorId) return;
+    if (!(await showConfirm('Excluir essa nota da sua lista de Serviços? Ela some só pra você — continua normal no PDV/Financeiro.'))) return;
+    // Otimista: some da tela na hora, e desfaz se der erro ao salvar
+    setDispensadas((prev) => new Set(prev).add(vendaId));
+    const { error } = await supabase
+      .from('servicos_agendados_dispensados')
+      .insert({ colaborador_id: colaboradorId, venda_id: vendaId });
+    if (error) {
+      setDispensadas((prev) => { const next = new Set(prev); next.delete(vendaId); return next; });
+    }
   };
 
   return (
@@ -89,7 +123,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({ onAddItems
       <div className="flex items-center gap-2">
         <Bell className="w-5 h-5 text-[var(--accent-red)]" />
         <h2 className="text-lg font-black uppercase tracking-tight">Serviços</h2>
-        <span className="text-xs text-[var(--text-muted)] font-bold">({notas.length})</span>
+        <span className="text-xs text-[var(--text-muted)] font-bold">({notasVisiveis.length})</span>
       </div>
       <p className="text-xs text-[var(--text-muted)] -mt-2">
         Todas as vendas com item de serviço no sistema principal, agendadas ou não — atualiza em tempo real. Toque numa nota para ver os detalhes.
@@ -97,13 +131,13 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({ onAddItems
 
       {loading ? (
         <div className="animate-skeleton h-24 rounded-2xl" />
-      ) : notas.length === 0 ? (
+      ) : notasVisiveis.length === 0 ? (
         <div className="bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl p-8 text-center text-[var(--text-muted)] text-sm">
           Nenhum serviço no momento.
         </div>
       ) : (
         <div className="space-y-3">
-          {notas.map((nota) => {
+          {notasVisiveis.map((nota) => {
             const atrasado = !!nota.scheduled_for && new Date(nota.scheduled_for).getTime() <= agora;
             return (
               <div
@@ -130,6 +164,15 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({ onAddItems
                     </span>
                   </div>
                 </div>
+                {colaboradorId && (
+                  <button
+                    onClick={(e) => handleExcluirNota(e, nota.id)}
+                    title="Excluir dessa lista (só pra você)"
+                    className="shrink-0 p-2 rounded-lg text-[var(--text-muted)] hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
                 <ChevronRight className="w-4 h-4 text-[var(--text-muted)] shrink-0" />
               </div>
             );

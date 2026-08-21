@@ -371,7 +371,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
             {activeTab === 'reports' && (
               <ReportsView services={services} userSettings={userSettings} stats={summaryStats} onGoToServiceInTable={handleGoToServiceInTable} />
             )}
-            {activeTab === 'servicos' && <ServicosAgendados onAddItemsToTable={handleAddItemsFromNota} />}
+            {activeTab === 'servicos' && <ServicosAgendados onAddItemsToTable={handleAddItemsFromNota} colaboradorId={colaborador.id} />}
             {activeTab === 'descontos' && (
               <DescontosView colaboradorId={colaborador.id} descontos={descontos} isAdmin={isAdmin} onChange={setDescontos} baseSalary={userSettings.baseSalary} services={services} />
             )}
