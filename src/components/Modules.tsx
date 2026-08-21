@@ -8352,7 +8352,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     try {
       const cutoff = new Date();
       cutoff.setDate(cutoff.getDate() - 30);
+      // Antes de purgar de vez, pega quais Notas estao vinculadas pra soltar o vinculo delas —
+      // senao a Nota fica apontando pra um contrato que nem existe mais no banco
+      const { data: expirando } = await supabase.from('contratos').select('id, venda_id').not('deleted_at', 'is', null).lt('deleted_at', cutoff.toISOString());
       await supabase.from('contratos').delete().not('deleted_at', 'is', null).lt('deleted_at', cutoff.toISOString());
+      const vendaIdsParaSoltar = (expirando || []).map((c: any) => c.venda_id).filter(Boolean);
+      if (vendaIdsParaSoltar.length > 0) {
+        await supabase.from('vendas').update({ contrato_id: null }).in('id', vendaIdsParaSoltar);
+      }
 
       const { data } = await supabase.from('contratos').select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending: false });
       setDeletedContratos((data || []).map(mapContratoRow));
@@ -8383,6 +8390,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     if (!(await showConfirm(`Excluir DEFINITIVAMENTE o contrato ${c.numero}? Essa ação não pode ser desfeita.`))) return;
     const { error } = await supabase.from('contratos').delete().eq('id', c.id);
     if (error) { showAlert('Não foi possível excluir.'); return; }
+    // Mesma limpeza do soft-delete: se a Nota ainda estava com o vinculo (ex: contrato excluido
+    // antes da correcao, ou restaurado e apagado de novo), solta aqui tambem
+    if (c.vendaId) {
+      await supabase.from('vendas').update({ contrato_id: null }).eq('id', c.vendaId).eq('contrato_id', c.id);
+    }
     loadDeletedContratos();
   };
 
