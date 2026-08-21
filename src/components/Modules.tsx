@@ -7411,6 +7411,59 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [novoCustoDesc, setNovoCustoDesc] = useState('');
   const [novoCustoValor, setNovoCustoValor] = useState<number | ''>('');
 
+  // Calculadora auxiliar pro campo VALOR -- util quando o custo e composto de varias
+  // partes (ex: 2 ajudantes x R$50 + frete R$30) e o usuario quer somar tudo antes de
+  // lancar como um unico item de custo extra.
+  const [calculadoraOpen, setCalculadoraOpen] = useState(false);
+  const [calculadoraExpr, setCalculadoraExpr] = useState('');
+
+  const calculadoraResultado = (): number | null => {
+    if (!calculadoraExpr.trim()) return null;
+    const sanitizado = calculadoraExpr.replace(/×/g, '*').replace(/÷/g, '/');
+    if (!/^[0-9+\-*/.%() ]+$/.test(sanitizado)) return null;
+    try {
+      // eslint-disable-next-line no-new-func
+      const resultado = Function(`"use strict"; return (${sanitizado})`)();
+      return typeof resultado === 'number' && isFinite(resultado) ? resultado : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const calculadoraPressionar = (val: string) => {
+    if (val === 'C') { setCalculadoraExpr(''); return; }
+    if (val === '⌫') { setCalculadoraExpr(prev => prev.slice(0, -1)); return; }
+    if (val === '=') {
+      const resultado = calculadoraResultado();
+      if (resultado !== null) setCalculadoraExpr(String(Number(resultado.toFixed(4))));
+      return;
+    }
+    setCalculadoraExpr(prev => {
+      const operadores = ['+', '-', '×', '÷'];
+      const ultimoChar = prev.slice(-1);
+      // Evita dois operadores seguidos (ex: "10++5") -- so troca o ultimo pelo novo.
+      if (operadores.includes(val) && operadores.includes(ultimoChar)) return prev.slice(0, -1) + val;
+      if (val === '.') {
+        const partesAtuais = prev.split(/[+\-×÷]/);
+        const numeroAtual = partesAtuais[partesAtuais.length - 1];
+        if (numeroAtual.includes('.')) return prev;
+      }
+      return prev + val;
+    });
+  };
+
+  const abrirCalculadora = () => {
+    setCalculadoraExpr(novoCustoValor !== '' ? String(novoCustoValor) : '');
+    setCalculadoraOpen(true);
+  };
+
+  const usarValorCalculadora = () => {
+    const resultado = calculadoraResultado();
+    if (resultado !== null && resultado > 0) setNovoCustoValor(Number(resultado.toFixed(2)));
+    setCalculadoraOpen(false);
+    setCalculadoraExpr('');
+  };
+
   const openCustosDaNota = (sale: SaleOrder) => {
     setCustosNotaSale(sale);
     setCustosNotaDraft(sale.extraCosts ? [...sale.extraCosts] : []);
@@ -12013,8 +12066,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             <div className="w-28">
               <Input label="VALOR" type="number" prefix="R$" step="any" value={novoCustoValor} onChange={(e: any) => setNovoCustoValor(e.target.value === '' ? '' : Number(e.target.value))} />
             </div>
+            <Button variant="secondary" className="h-14 px-3" title="Abrir calculadora" onClick={abrirCalculadora}>
+              <Calculator size={16} />
+            </Button>
             <Button variant="secondary" className="h-14 px-4" onClick={adicionarCustoNota}>+</Button>
           </div>
+          <p className="text-[10px] text-white/25 -mt-2">Adicione quantos custos precisar — cada um vira uma linha na lista e o total é somado abaixo.</p>
 
           {custosNotaDraft.length > 0 && (
             <p className="text-[11px] text-white/50 text-right">
@@ -12028,6 +12085,77 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               {custosNotaSaving ? 'Salvando...' : 'Salvar Custos'}
             </Button>
           </div>
+        </div>
+      </Modal>
+
+      {/* Calculadora auxiliar do campo VALOR em Custos da Nota -- soma partes de um custo
+          composto (ex: 2 ajudantes x R$50 + frete) antes de lancar como um unico item. */}
+      <Modal isOpen={calculadoraOpen} onClose={() => setCalculadoraOpen(false)} title="Calculadora" size="sm">
+        <div className="space-y-3">
+          <div className="bg-slate-950/60 border border-white/5 rounded-xl px-4 py-4 text-right">
+            <p className="text-2xl font-black text-white truncate">{calculadoraExpr || '0'}</p>
+          </div>
+
+          <div className="grid grid-cols-4 gap-2">
+            {['C', '⌫', '%', '÷'].map(b => (
+              <button
+                key={b}
+                onClick={() => calculadoraPressionar(b)}
+                className="h-12 rounded-xl bg-slate-900/60 border border-white/5 text-white/70 font-bold hover:bg-slate-800/80 active:scale-95 transition"
+              >
+                {b}
+              </button>
+            ))}
+            {['7', '8', '9', '×'].map(b => (
+              <button
+                key={b}
+                onClick={() => calculadoraPressionar(b)}
+                className={`h-12 rounded-xl font-bold active:scale-95 transition ${b === '×' ? 'bg-slate-900/60 border border-white/5 text-white/70 hover:bg-slate-800/80' : 'bg-slate-800/60 border border-white/5 text-white hover:bg-slate-800'}`}
+              >
+                {b}
+              </button>
+            ))}
+            {['4', '5', '6', '-'].map(b => (
+              <button
+                key={b}
+                onClick={() => calculadoraPressionar(b)}
+                className={`h-12 rounded-xl font-bold active:scale-95 transition ${b === '-' ? 'bg-slate-900/60 border border-white/5 text-white/70 hover:bg-slate-800/80' : 'bg-slate-800/60 border border-white/5 text-white hover:bg-slate-800'}`}
+              >
+                {b}
+              </button>
+            ))}
+            {['1', '2', '3', '+'].map(b => (
+              <button
+                key={b}
+                onClick={() => calculadoraPressionar(b)}
+                className={`h-12 rounded-xl font-bold active:scale-95 transition ${b === '+' ? 'bg-slate-900/60 border border-white/5 text-white/70 hover:bg-slate-800/80' : 'bg-slate-800/60 border border-white/5 text-white hover:bg-slate-800'}`}
+              >
+                {b}
+              </button>
+            ))}
+            <button
+              onClick={() => calculadoraPressionar('0')}
+              className="h-12 rounded-xl bg-slate-800/60 border border-white/5 text-white font-bold hover:bg-slate-800 active:scale-95 transition col-span-2"
+            >
+              0
+            </button>
+            <button
+              onClick={() => calculadoraPressionar('.')}
+              className="h-12 rounded-xl bg-slate-800/60 border border-white/5 text-white font-bold hover:bg-slate-800 active:scale-95 transition"
+            >
+              .
+            </button>
+            <button
+              onClick={() => calculadoraPressionar('=')}
+              className="h-12 rounded-xl bg-primary-500 text-slate-900 font-black hover:brightness-110 active:scale-95 transition"
+            >
+              =
+            </button>
+          </div>
+
+          <Button className="w-full h-12 bg-primary-500 text-slate-900 border-none" onClick={usarValorCalculadora}>
+            Usar este valor
+          </Button>
         </div>
       </Modal>
 
