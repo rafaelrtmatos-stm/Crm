@@ -9139,7 +9139,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     // linha no banco (itens + total) em vez de criar uma venda nova, e ajusta o estoque so pela
     // DIFERENCA entre o que tinha antes e o que ficou agora (nao deduz tudo de novo).
     if (editingFullOrder) {
-      const totalPago = (editingFullOrder.downPayment || 0) + effectivePaymentEntriesTotal;
+      // Recalcula o total pago a partir da lista EDITADA de pagamentos (editingPaymentsList),
+      // nao do downPayment travado da nota original. Usar o downPayment antigo aqui somava o
+      // valor anterior com o novo mesmo quando um pagamento existente foi removido/substituido
+      // na edicao (ex: 50 excluido + 60 lancado virava 50 + 60 = 110 em vez de 60). Assim o
+      // total pago fica sempre igual a soma real do array que vai ser salvo (idempotente).
+      const totalPagoAnteriorEditado = editingPaymentsList.reduce((sum, p) => sum + (p.value || 0), 0);
+      const totalPago = totalPagoAnteriorEditado + effectivePaymentEntriesTotal;
       const novoSaldo = Math.max(0, total - totalPago);
       try {
         // Ajusta estoque so pela diferenca de consumo entre os itens antigos e os novos
