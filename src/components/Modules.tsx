@@ -8206,13 +8206,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     // 2) reverter o status de "Quitado"/"completed" pra "Aberto"/"pending" imediatamente.
     const novoDownPayment = editSaleForm.downPayment || 0;
     const entradaZeradaOuVazia = novoDownPayment <= 0;
+    // Se o novo valor de entrada ficou menor que a soma dos pagamentos individuais ja
+    // lancados, esse formulario simples (sem lista editavel por pagamento) nao tem como saber
+    // qual pagamento especifico foi reduzido/excluido — entao limpa o array pra nao deixar o
+    // caixa somando um valor de pagamentos maior do que a entrada informada (dessincronizado).
+    const somaPagamentosExistentes = (editingSale.payments || []).reduce((sum, p) => sum + (p.value || 0), 0);
+    const limparPagamentos = entradaZeradaOuVazia || novoDownPayment < somaPagamentosExistentes;
     const novoStatus: 'completed' | 'pending' = novoDownPayment >= editSaleForm.total && editSaleForm.total > 0 ? 'completed' : 'pending';
     const { data, error } = await supabase.from('vendas').update({
       customer_name: editSaleForm.customerName,
       total: editSaleForm.total,
       down_payment: novoDownPayment,
       received_value: novoDownPayment,
-      payments: entradaZeradaOuVazia ? [] : (editingSale.payments || []),
+      payments: limparPagamentos ? [] : (editingSale.payments || []),
       pending_payment_method: entradaZeradaOuVazia ? null : (editingSale.pendingPaymentMethod || null),
       payment_method: editSaleForm.paymentMethod,
       observacoes: editSaleForm.observacoes || null,
@@ -8227,7 +8233,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       total: editSaleForm.total,
       downPayment: novoDownPayment,
       receivedValue: novoDownPayment,
-      payments: entradaZeradaOuVazia ? [] : (editingSale.payments || []),
+      payments: limparPagamentos ? [] : (editingSale.payments || []),
       pendingPaymentMethod: entradaZeradaOuVazia ? undefined : editingSale.pendingPaymentMethod,
       paymentMethod: editSaleForm.paymentMethod as any,
       observacoes: editSaleForm.observacoes || undefined,
@@ -12420,7 +12426,44 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                     <button
                                       onClick={async () => {
                                          if (!(await showConfirm(`Excluir esse pagamento de R$ ${p.value.toFixed(2).replace('.', ',')} (${opt?.label || p.method})?`))) return;
-                                         setEditingPaymentsList(prev => prev.filter((_, i) => i !== idx));
+                                         // Exclusao de pagamento ja lancado precisa ser persistida no banco IMEDIATAMENTE
+                                         // (nao so ao clicar em Finalizar/Quitar depois), senao o operador fecha o
+                                         // modal achando que ja excluiu e o valor volta a aparecer/computar ao reabrir
+                                         // a nota, porque a interface removeu o item so localmente.
+                                         const listaAnterior = editingPaymentsList;
+                                         const novaLista = listaAnterior.filter((_, i) => i !== idx);
+                                         setEditingPaymentsList(novaLista);
+                                         const orderId = settlingOrder?.id || editingFullOrder?.id;
+                                         if (!orderId) return;
+                                         const novoTotalPago = novaLista.reduce((sum, pp) => sum + (pp.value || 0), 0);
+                                         const novoSaldo = Math.max(0, paymentModalTotal - novoTotalPago);
+                                         const novoStatus: 'completed' | 'pending' = novoSaldo <= 0 ? 'completed' : 'pending';
+                                         const agoraIso = new Date().toISOString();
+                                         try {
+                                            const { data, error } = await supabase.from('vendas').update({
+                                               payments: novaLista,
+                                               down_payment: novoTotalPago,
+                                               received_value: novoTotalPago,
+                                               status: novoStatus,
+                                               pending_payment_method: novoSaldo > 0 ? (pendingPaymentMethod || null) : null,
+                                               updated_at: agoraIso,
+                                            }).eq('id', orderId).select();
+                                            if (error) throw error;
+                                            if (!data || data.length === 0) throw new Error('O pedido não foi encontrado — pode ter sido removido ou alterado por outra pessoa.');
+                                            const atualizarLocal = (s: SaleOrder): SaleOrder => s.id === orderId
+                                              ? { ...s, payments: novaLista, downPayment: novoTotalPago, receivedValue: novoTotalPago, status: novoStatus, updatedAt: agoraIso }
+                                              : s;
+                                            setAllSalesHistory(prev => prev.map(atualizarLocal));
+                                            setSalesToday(prev => prev.map(atualizarLocal));
+                                            setSettlingOrder(prev => prev && prev.id === orderId ? atualizarLocal(prev) : prev);
+                                            setEditingFullOrder(prev => prev && prev.id === orderId ? atualizarLocal(prev) : prev);
+                                         } catch (err: any) {
+                                            console.error('Erro ao excluir pagamento:', err);
+                                            // Reverte a remocao local, ja que nao foi possivel persistir no banco —
+                                            // evita que a nota fique com o array de pagamentos fora de sincronia.
+                                            setEditingPaymentsList(listaAnterior);
+                                            showAlert(`Não foi possível excluir o pagamento: ${err?.message || 'erro desconhecido'}. Nada foi alterado.`);
+                                         }
                                       }}
                                       className="text-white/30 hover:text-rose-400 transition-colors"
                                     >
