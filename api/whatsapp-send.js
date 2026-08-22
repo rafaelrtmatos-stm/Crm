@@ -55,7 +55,21 @@ export default async function handler(req, res) {
       return;
     }
 
-    res.status(200).json({ ok: true });
+    // Pega o id da mensagem que a propria Evolution API devolveu no envio -- o front-end
+    // salva esse id junto com a mensagem no crm_messages. Isso e o que permite ao webhook
+    // (que recebe o "eco" de toda mensagem enviada, inclusive essa) reconhecer que essa
+    // mensagem especifica ja foi gravada por aqui e nao duplicar quando o evento
+    // messages.upsert com fromMe:true chegar (ver whatsapp-webhook.js).
+    let idMensagem = null;
+    try {
+      const corpo = await r.json();
+      idMensagem = corpo?.key?.id || corpo?.message?.key?.id || null;
+    } catch (err) {
+      // Corpo nao veio em JSON valido -- segue sem o id (webhook so nao vai conseguir
+      // deduplicar essa mensagem em particular, sem prejuizo pro envio em si)
+    }
+
+    res.status(200).json({ ok: true, whatsappMessageId: idMensagem });
   } catch (err) {
     console.error('Erro ao enviar mensagem via Evolution API:', err);
     res.status(500).json({ error: 'Não foi possível enviar a mensagem. Confira se a Evolution API está no ar e o número está conectado.' });

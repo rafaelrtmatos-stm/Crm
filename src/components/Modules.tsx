@@ -2519,7 +2519,7 @@ export const ChatPanel = ({
     if (!newMessage.trim() || !conversation || !currentCompany) return;
     const textoEnviado = newMessage;
     try {
-      await supabase.from('crm_messages').insert({
+      const { data: msgRow } = await supabase.from('crm_messages').insert({
         company_id: 'rafa-arts',
         lead_id: conversation.id || null,
         phone: conversation.phone,
@@ -2527,7 +2527,7 @@ export const ChatPanel = ({
         direction: 'outgoing',
         sender_name: user?.name || 'Sistema',
         channel: conversation.sourceType || 'WhatsApp',
-      });
+      }).select('id').single();
       // Also update lead's last message
       await supabase.from('leads').update({
         last_message_text: textoEnviado,
@@ -2547,9 +2547,14 @@ export const ChatPanel = ({
             headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
             body: JSON.stringify({ phone: conversation.phone, text: textoEnviado }),
           });
+          const respData = await resp.json().catch(() => ({}));
           if (!resp.ok) {
-            const errData = await resp.json().catch(() => ({}));
-            showAlert(`A mensagem ficou salva aqui no sistema, mas não foi possível enviar pro WhatsApp de verdade: ${errData.error || 'erro desconhecido'}`);
+            showAlert(`A mensagem ficou salva aqui no sistema, mas não foi possível enviar pro WhatsApp de verdade: ${respData.error || 'erro desconhecido'}`);
+          } else if (respData.whatsappMessageId && msgRow?.id) {
+            // Guarda o id que a Evolution API deu pra essa mensagem -- e o que permite ao
+            // webhook (que recebe o "eco" dessa mesma mensagem, com fromMe:true) reconhecer
+            // que ela ja foi gravada por aqui e nao duplicar na conversa (ver whatsapp-webhook.js).
+            await supabase.from('crm_messages').update({ whatsapp_message_id: respData.whatsappMessageId }).eq('id', msgRow.id);
           }
         } catch (sendErr) {
           console.error('Falha ao disparar mensagem pro WhatsApp:', sendErr);

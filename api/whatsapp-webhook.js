@@ -223,6 +223,34 @@ async function inserirMensagem({ phone, text, senderName, direction = 'incoming'
 // Busca o nome/assunto real do grupo direto na Evolution API (metadata do grupo).
 // Sem isso o grupo ficava cadastrado com nome=null e a tela de Grupos (WhatsAppGroupsModule.tsx)
 // caia sempre no fallback `g.nome || g.group_jid`, mostrando o JID cru pro admin.
+// Atualiza a previa da conversa (barra lateral) quando uma mensagem MINHA (fromMe) chega
+// pelo webhook -- ou seja, foi mandada direto no WhatsApp do celular/computador, fora do
+// CRM. Quando o envio e feito pelo proprio botao do CRM (ver handleSendMessage em
+// Modules.tsx), essa mesma atualizacao ja acontece na hora, direto do front-end -- essa
+// funcao aqui so cobre o caminho que faltava. So atualiza lead que JA EXISTE (nunca cria
+// lead a partir de mensagem enviada por mim, só de mensagem recebida do cliente).
+async function atualizarPreviaLeadOutgoing(phone, text) {
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/leads?company_id=eq.${COMPANY_ID}&phone=eq.${phone}`, {
+      method: 'PATCH',
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+      body: JSON.stringify({
+        last_message_text: text,
+        last_message_direction: 'outgoing',
+        waiting_since: null,
+        updated_at: new Date().toISOString(),
+      }),
+    });
+  } catch (err) {
+    console.error('Falha ao atualizar previa do lead pra mensagem enviada fora do CRM (nao impede o resto):', err);
+  }
+}
+
 async function buscarNomeGrupo(groupJid, evoHeaders) {
   if (!EVOLUTION_API_URL || !EVOLUTION_API_KEY || !evoHeaders) return null;
   try {
@@ -417,14 +445,19 @@ export default async function handler(req, res) {
       const mensagens = Array.isArray(body.data) ? body.data : [body.data].filter(Boolean);
 
       for (const msg of mensagens) {
-        // Ignora mensagens que o proprio numero conectado enviou (fromMe) — essas ja
-        // sao gravadas direto pelo CRM quando o atendente manda (ver handleSendMessage
-        // em ChatPanel), gravar de novo aqui duplicaria
-        if (msg?.key?.fromMe) continue;
-
         // Reacoes (👍, ❤️ etc.) chegam como um MESSAGES_UPSERT proprio, sem conteudo de
         // texto real — nao sao mensagem nova, entao nao devem virar linha no chat.
         if (msg?.message?.reactionMessage) continue;
+
+        // fromMe:true = mensagem enviada PELO PROPRIO numero conectado -- pode ter sido
+        // mandada pelo botao de enviar do CRM OU direto no WhatsApp do celular/computador,
+        // fora do sistema. Antes essas eram todas descartadas aqui (assumindo que so vinham
+        // do CRM), o que fazia mensagem mandada direto no celular nunca aparecer no CRM.
+        // Agora processa como 'outgoing' -- se ja tiver sido gravada pelo CRM no momento do
+        // envio (com o mesmo whatsapp_message_id, ver whatsapp-send.js), o indice unico em
+        // (company_id, whatsapp_message_id) + ignore-duplicates faz esse insert virar um
+        // no-op, sem duplicar. So se for realmente nova (mandada fora do CRM) que ela entra.
+        const ehMinhaMensagem = !!msg?.key?.fromMe;
 
         const phoneRaw = msg?.key?.remoteJid || '';
         const evoHeaders = (EVOLUTION_API_URL && EVOLUTION_API_KEY)
@@ -448,22 +481,33 @@ export default async function handler(req, res) {
         const whatsappMessageId = msg?.key?.id || null;
         const createdAt = msg?.messageTimestamp ? new Date(Number(msg.messageTimestamp) * 1000).toISOString() : undefined;
 
-        // Nome real do contato e OBRIGATORIO: pushName do proprio evento primeiro
-        // (mais rapido e cobre 99% dos casos); se vier vazio, busca na agenda/contatos
-        // da Evolution API antes de gravar a mensagem — nunca grava com nome generico.
-        let senderName = (msg?.pushName || '').trim();
-        if (!senderName && phone && evoHeaders && !phoneRaw.endsWith('@g.us')) {
-          senderName = await buscarNomeContato(phone, evoHeaders);
+        // Nome real do contato e OBRIGATORIO pra mensagem RECEBIDA: pushName do proprio
+        // evento primeiro (mais rapido e cobre 99% dos casos); se vier vazio, busca na
+        // agenda/contatos da Evolution API antes de gravar — nunca grava com nome generico.
+        // Pra mensagem enviada por mim (ehMinhaMensagem), nao faz sentido, sender_name fica
+        // nulo (igual o CRM ja faz quando o atendente manda pelo botao de enviar).
+        let senderName = '';
+        if (!ehMinhaMensagem) {
+          senderName = (msg?.pushName || '').trim();
+          if (!senderName && phone && evoHeaders && !phoneRaw.endsWith('@g.us')) {
+            senderName = await buscarNomeContato(phone, evoHeaders);
+          }
         }
 
         if (phone && text) {
           const midiaSalva = await baixarEGuardarMidia(msg, evoHeaders);
           await inserirMensagem({
-            phone, text, senderName, direction: 'incoming', whatsappMessageId, createdAt,
+            phone, text, senderName, direction: ehMinhaMensagem ? 'outgoing' : 'incoming', whatsappMessageId, createdAt,
             mediaUrl: midiaSalva?.mediaUrl, fileName: midiaSalva?.fileName, contentType: midiaSalva?.contentType,
           });
-          if (evoHeaders) {
+          // Busca de foto de perfil e so faz sentido pro CONTATO (nao pro meu proprio numero)
+          if (!ehMinhaMensagem && evoHeaders) {
             garantirFotoLead(phone, evoHeaders); // nao usa await de proposito — nao atrasa a resposta do webhook
+          }
+          // Mensagem minha mandada fora do CRM (direto no celular) -- atualiza a previa da
+          // conversa na lista, que senao so e atualizada quando o envio parte do proprio CRM.
+          if (ehMinhaMensagem) {
+            atualizarPreviaLeadOutgoing(phone, text); // sem await de proposito, mesmo motivo acima
           }
         }
       }
