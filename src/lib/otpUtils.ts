@@ -24,6 +24,19 @@ export async function sha256Hex(text: string): Promise<string> {
     .join('');
 }
 
+/**
+ * Gera um ID EXCLUSIVO de assinatura, no formato "XXXX-XXXX-XXXX-XXXX" (hex maiusculo),
+ * usado no carimbo digital (DigitalSignatureStamp) e no QR Code de validacao daquela
+ * assinatura especifica. Chamado uma vez pra CONTRATANTE e uma vez pra CONTRATADA -- cada
+ * assinatura tem o seu proprio, nunca reaproveitado entre as duas partes nem entre contratos.
+ */
+export function generateSignatureId(): string {
+  const bytes = new Uint8Array(8);
+  window.crypto.getRandomValues(bytes);
+  const hex = Array.from(bytes).map((b) => b.toString(16).padStart(2, '0').toUpperCase()).join('');
+  return hex.match(/.{1,4}/g)!.join('-');
+}
+
 export interface GeneratedOtp {
   code: string;         // codigo em texto puro -- SO existe aqui, na memoria do navegador do operador.
                          // Nunca e' salvo em texto puro no banco, so o hash.
@@ -134,6 +147,7 @@ export interface SignContractParams {
   // ('assinado') e gera o PDF final com os dois carimbos, sem precisar de nenhum passo depois.
   companyAlreadySignedAt?: string;
   companySignedByName?: string;
+  companySignatureId?: string; // ID exclusivo da assinatura da empresa (contratos.contratado_signature_id), ja gravado antes
 }
 
 /**
@@ -189,6 +203,7 @@ export async function signContract(params: SignContractParams): Promise<SignCont
   const documentHash = await sha256Hex(params.documentText);
   const signedAt = new Date().toISOString();
   const empresaJaAssinou = !!params.companyAlreadySignedAt;
+  const contratanteSignatureId = generateSignatureId(); // ID exclusivo desta assinatura (CONTRATANTE)
 
   const { error } = await supabase
     .from('contratos')
@@ -199,6 +214,7 @@ export async function signContract(params: SignContractParams): Promise<SignCont
       signer_user_agent: params.clientUserAgent,
       document_hash: documentHash,
       signature_method: 'otp_manual_whatsapp',
+      contratante_signature_id: contratanteSignatureId,
       updated_at: signedAt,
     })
     .eq('id', params.contractId);
@@ -219,12 +235,14 @@ export async function signContract(params: SignContractParams): Promise<SignCont
     signatureMethodLabel: 'Token OTP',
     clienteCpfCnpj: params.clientCpfCnpj,
     clientePhone: params.clientPhone,
+    contratanteSignatureId,
     empresaRazaoSocial: OFFICIAL_COMPANY.razaoSocial,
     empresaNomeFantasia: OFFICIAL_COMPANY.nomeFantasia,
     empresaCnpj: OFFICIAL_COMPANY.cnpj,
     empresaValidatedAt: params.companyAlreadySignedAt!,
     empresaOrigin: PUBLIC_SIGN_ORIGIN,
     empresaSignedByName: params.companySignedByName,
+    contratadoSignatureId: params.companySignatureId || generateSignatureId(),
   };
 
   const pdfUrl = await uploadContratoPdfAssinado(params.contractId, params.numero, params.customerName, params.documentText, auditStamp);
@@ -249,6 +267,7 @@ export interface SignContractByCompanyParams {
   documentHash?: string;      // contratos.document_hash
   clientCpfCnpj?: string;
   clientPhone?: string;
+  clientSignatureId?: string; // ID exclusivo da assinatura do cliente (contratos.contratante_signature_id), ja gravado antes
   companySignerName: string;  // nome de quem confirmou a assinatura da empresa (usuario logado)
 }
 
@@ -278,6 +297,7 @@ export interface SignContractByCompanyResult {
 export async function signContractByCompany(params: SignContractByCompanyParams): Promise<SignContractByCompanyResult> {
   const empresaSignedAt = new Date().toISOString();
   const clienteJaAssinou = !!params.clientSignedAt;
+  const contratadoSignatureId = generateSignatureId(); // ID exclusivo desta assinatura (CONTRATADA)
 
   const { error } = await supabase
     .from('contratos')
@@ -285,6 +305,7 @@ export async function signContractByCompany(params: SignContractByCompanyParams)
       status: clienteJaAssinou ? 'assinado' : 'aguardando_assinatura_cliente',
       empresa_signed_at: empresaSignedAt,
       empresa_signed_by: params.companySignerName,
+      contratado_signature_id: contratadoSignatureId,
       updated_at: empresaSignedAt,
     })
     .eq('id', params.contractId);
@@ -298,7 +319,8 @@ export async function signContractByCompany(params: SignContractByCompanyParams)
   // Carimbo completo de auditoria: lado do cliente (dados de quando ele assinou, ja gravados
   // antes) e lado da empresa (dados oficiais da CONTRATADA + a confirmacao manual que acabou de
   // acontecer). O hash e' o mesmo dos dois lados -- prova que e' o mesmo documento que o cliente
-  // efetivamente assinou, sem alteracao entre uma etapa e outra.
+  // efetivamente assinou, sem alteracao entre uma etapa e outra. Cada lado tem seu proprio ID de
+  // assinatura, nunca reaproveitado entre CONTRATANTE e CONTRATADA.
   const auditStamp: AuditStamp = {
     signedAt: params.clientSignedAt!,
     signerIp: params.clientIp || '',
@@ -307,12 +329,14 @@ export async function signContractByCompany(params: SignContractByCompanyParams)
     signatureMethodLabel: 'Token OTP',
     clienteCpfCnpj: params.clientCpfCnpj,
     clientePhone: params.clientPhone,
+    contratanteSignatureId: params.clientSignatureId || generateSignatureId(),
     empresaRazaoSocial: OFFICIAL_COMPANY.razaoSocial,
     empresaNomeFantasia: OFFICIAL_COMPANY.nomeFantasia,
     empresaCnpj: OFFICIAL_COMPANY.cnpj,
     empresaValidatedAt: empresaSignedAt,
     empresaOrigin: PUBLIC_SIGN_ORIGIN,
     empresaSignedByName: params.companySignerName,
+    contratadoSignatureId,
   };
 
   // Nao deve travar/reverter a assinatura ja confirmada acima caso a geracao/upload do PDF falhe

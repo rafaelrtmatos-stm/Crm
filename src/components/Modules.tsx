@@ -217,7 +217,7 @@ import { exportClientesXlsx, parseClientesXlsx, exportProdutosXlsx, parseProduto
 import { downloadContratoPdf, type AuditStamp } from '../lib/contratoPdf';
 import { buildContratoClausulasTexto } from '../lib/contratoTemplate';
 import { OFFICIAL_COMPANY, PUBLIC_SIGN_ORIGIN, getContractSignatureLink } from '../lib/companyIdentity';
-import { signContractByCompany } from '../lib/otpUtils';
+import { signContractByCompany, generateSignatureId } from '../lib/otpUtils';
 import { transcribeAudioMessage } from '../lib/audioTranscription';
 import { generateSuggestion, type KnowledgeProduct } from '../lib/robozinhoRafa';
 import { validateCpfCnpj } from '../lib/validators';
@@ -630,8 +630,10 @@ const mapContratoRow = (row: any): Contrato => ({
   signerUserAgent: row.signer_user_agent || undefined,
   documentHash: row.document_hash || undefined,
   signatureMethod: row.signature_method || undefined,
+  contratanteSignatureId: row.contratante_signature_id || undefined,
   empresaSignedAt: row.empresa_signed_at || undefined,
   empresaSignedBy: row.empresa_signed_by || undefined,
+  contratadoSignatureId: row.contratado_signature_id || undefined,
   pdfUrl: row.pdf_url || undefined,
   responsavel: row.responsavel || undefined,
   serviceStatus: row.service_status || undefined,
@@ -6623,6 +6625,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         documentHash: signingContrato.documentHash || undefined,
         clientCpfCnpj: signingContrato.cpfCnpj,
         clientPhone: signingContrato.phone,
+        clientSignatureId: signingContrato.contratanteSignatureId,
         companySignerName: user.name,
       });
       await loadContratos();
@@ -6682,11 +6685,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           signatureMethodLabel: 'Token OTP',
           clienteCpfCnpj: c.cpfCnpj,
           clientePhone: c.phone,
+          // Contratos assinados antes desta migration podem nao ter o ID individual salvo --
+          // gera um na hora so pra exibicao (nao persiste, ja que aqui e' so fallback de download).
+          contratanteSignatureId: c.contratanteSignatureId || generateSignatureId(),
           empresaRazaoSocial: OFFICIAL_COMPANY.razaoSocial,
           empresaNomeFantasia: OFFICIAL_COMPANY.nomeFantasia,
           empresaCnpj: OFFICIAL_COMPANY.cnpj,
           empresaValidatedAt: c.signedAt,
           empresaOrigin: PUBLIC_SIGN_ORIGIN,
+          contratadoSignatureId: c.contratadoSignatureId || generateSignatureId(),
         }
       : undefined;
     await downloadContratoPdf(`${c.numero}${c.versao > 1 ? ` (v${c.versao})` : ''}`, c.customerName, c.textoContrato || 'Contrato sem texto gerado.', auditStamp);

@@ -20,8 +20,10 @@ interface ContratoPublico {
   signerIp?: string;
   documentHash?: string;
   pdfUrl?: string;
+  contratanteSignatureId?: string;
   empresaSignedAt?: string;
   empresaSignedBy?: string;
+  contratadoSignatureId?: string;
 }
 
 // Extrai o id do contrato da URL /assinar/:id (mesmo padrao de deteccao de rota usado em AppRoot.tsx)
@@ -73,7 +75,7 @@ export default function ContractSignaturePublicPage() {
 
     supabase
       .from('contratos')
-      .select('id, numero, customer_name, cpf_cnpj, phone, texto_contrato, status, signed_at, signer_ip, document_hash, pdf_url, empresa_signed_at, empresa_signed_by')
+      .select('id, numero, customer_name, cpf_cnpj, phone, texto_contrato, status, signed_at, signer_ip, document_hash, pdf_url, contratante_signature_id, empresa_signed_at, empresa_signed_by, contratado_signature_id')
       .eq('id', id)
       .maybeSingle()
       .then(({ data, error: fetchError }) => {
@@ -90,8 +92,10 @@ export default function ContractSignaturePublicPage() {
           signerIp: data.signer_ip || undefined,
           documentHash: data.document_hash || undefined,
           pdfUrl: data.pdf_url || undefined,
+          contratanteSignatureId: data.contratante_signature_id || undefined,
           empresaSignedAt: data.empresa_signed_at || undefined,
           empresaSignedBy: data.empresa_signed_by || undefined,
+          contratadoSignatureId: data.contratado_signature_id || undefined,
         });
         setLoading(false);
       });
@@ -228,6 +232,7 @@ export default function ContractSignaturePublicPage() {
         // cliente ja fecha o contrato de vez -- ver signContract em otpUtils.ts.
         companyAlreadySignedAt: contrato.empresaSignedAt,
         companySignedByName: contrato.empresaSignedBy,
+        companySignatureId: contrato.contratadoSignatureId,
       });
 
       if (result.pdfUrl) {

@@ -25,12 +25,14 @@ export interface AuditStamp {
   signatureMethodLabel?: string; // ex: "Token OTP"
   clienteCpfCnpj?: string;
   clientePhone?: string;
+  contratanteSignatureId: string; // ID EXCLUSIVO da assinatura do CONTRATANTE — nunca reaproveitado
   empresaRazaoSocial: string;
   empresaNomeFantasia?: string;
   empresaCnpj: string;
   empresaValidatedAt: string; // ISO string — instante em que o operador confirmou a assinatura da empresa
   empresaOrigin: string;      // ex: "pro.rafaartsgraphics.com.br"
   empresaSignedByName?: string; // nome de quem confirmou a assinatura da empresa (login + senha)
+  contratadoSignatureId: string; // ID EXCLUSIVO da assinatura do CONTRATADO(A) — nunca reaproveitado
 }
 
 /** Monta o nome de arquivo padrao usado tanto no download direto quanto no path do Storage. */
@@ -39,72 +41,278 @@ export function contratoPdfFileName(numero: string, customerName: string): strin
   return `${numero}_${nomeArquivo}.pdf`;
 }
 
-/**
- * Imprime, logo abaixo da linha "___" + NOME — CONTRATANTE (linha final do texto do contrato,
- * ver buildTextoContrato em Modules.tsx), o "carimbo digital" com nome/CPF, contato, o link
- * exclusivo de assinatura, data/hora, IP e o hash SHA-256 -- o "lado do cliente" da caixa de provas.
- */
-function drawCarimboCliente(doc: any, yStart: number, marginX: number, pageW: number, stamp: AuditStamp): number {
-  let y = yStart + 1.5;
-  const maxW = pageW - marginX * 2;
-  doc.setTextColor(80, 80, 92);
+// =====================================================================================
+// CARIMBO DIGITAL DE ASSINATURA ELETRÔNICA — "DigitalSignatureStamp"
+// =====================================================================================
+// Componente visual único e reutilizável. Recebe os dados de UMA assinatura e desenha UM
+// carimbo. É chamado exatamente 2 vezes por documento (nunca mais, nunca menos): uma para a
+// assinatura do CONTRATANTE, outra para a assinatura do CONTRATADO(A) — ver
+// injetarCarimbosDeAssinatura (loop abaixo, em buildContratoPdfDoc). Os dois usam o MESMO
+// layout/estilo; só os dados internos mudam entre eles (regra de design: um único modelo
+// visual, dados sempre isolados por assinatura — nunca reaproveitados entre as duas partes).
 
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.5);
-  const cpfLinha = `CPF/CNPJ: ${stamp.clienteCpfCnpj || 'não informado'}${stamp.clientePhone ? `   |   Contato: ${stamp.clientePhone}` : ''}`;
-  doc.text(cpfLinha, marginX, y);
-  y += 3.8;
+interface DigitalSignatureStampData {
+  signerName: string;
+  cpfCnpj: string;
+  dateStr: string;         // já formatado, ex: "22/08/2026"
+  timeStr: string;         // já formatado, ex: "17:42:18"
+  signatureId: string;     // ID EXCLUSIVO desta assinatura — nunca repete entre CONTRATANTE/CONTRATADO(A)
+  hash: string;
+  validationUrl: string;   // URL que o QR Code deste carimbo especificamente valida
+}
 
-  if (stamp.signatureLink) {
-    const linkWrapped = doc.splitTextToSize(`Link exclusivo de assinatura: ${stamp.signatureLink}`, maxW);
-    linkWrapped.forEach((l: string) => { doc.text(l, marginX, y); y += 3.8; });
-  }
+const hexToRgb = (hex: string): [number, number, number] => {
+  const n = parseInt(hex.replace('#', ''), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+};
 
-  const dataAssinatura = new Date(stamp.signedAt).toLocaleString('pt-BR');
-  doc.text(`[Assinado via ${stamp.signatureMethodLabel || 'Token OTP'}]   IP: ${stamp.signerIp}   |   ${dataAssinatura}`, marginX, y);
-  y += 3.8;
+const STAMP_COLORS = {
+  azulPrincipal: hexToRgb('#0D376B'),
+  azulSecundario: hexToRgb('#164A82'),
+  verdeValidacao: hexToRgb('#18A544'),
+  cinzaTexto: hexToRgb('#3F4D63'),
+  branco: hexToRgb('#FFFFFF'),
+};
 
-  doc.setFont('courier', 'normal');
-  doc.text(`Hash SHA-256: ${stamp.documentHash}`, marginX, y);
-  y += 6;
+/** Desenha um pequeno "escudo" com marca de verificação (check) dentro — usado no painel esquerdo (branco sobre azul) e no bloco de integridade (verde). */
+function drawShieldCheck(doc: any, cx: number, cy: number, r: number, shieldRgb: number[], checkRgb: number[]) {
+  doc.setFillColor(shieldRgb[0], shieldRgb[1], shieldRgb[2]);
+  doc.circle(cx, cy, r, 'F');
+  doc.setDrawColor(checkRgb[0], checkRgb[1], checkRgb[2]);
+  doc.setLineWidth(0.45);
+  doc.line(cx - r * 0.45, cy, cx - r * 0.1, cy + r * 0.4);
+  doc.line(cx - r * 0.1, cy + r * 0.4, cx + r * 0.5, cy - r * 0.35);
+}
 
-  return y;
+/** Cadeado simples (retângulo + arco) — usado no bloco "documento protegido". */
+function drawLockIcon(doc: any, cx: number, cy: number, size: number, rgb: number[]) {
+  doc.setDrawColor(rgb[0], rgb[1], rgb[2]);
+  doc.setLineWidth(0.4);
+  doc.roundedRect(cx - size / 2, cy - size * 0.1, size, size * 0.7, 0.3, 0.3, 'D');
+  doc.circle(cx, cy - size * 0.35, size * 0.32, 'D');
+}
+
+/** Calendário simples — usado no bloco de data. */
+function drawCalendarIcon(doc: any, cx: number, cy: number, size: number, rgb: number[]) {
+  doc.setDrawColor(rgb[0], rgb[1], rgb[2]);
+  doc.setLineWidth(0.35);
+  doc.roundedRect(cx - size / 2, cy - size / 2, size, size, 0.3, 0.3, 'D');
+  doc.line(cx - size / 2, cy - size * 0.15, cx + size / 2, cy - size * 0.15);
+}
+
+/** Relógio simples — usado no bloco de hora. */
+function drawClockIcon(doc: any, cx: number, cy: number, size: number, rgb: number[]) {
+  doc.setDrawColor(rgb[0], rgb[1], rgb[2]);
+  doc.setLineWidth(0.35);
+  doc.circle(cx, cy, size / 2, 'D');
+  doc.line(cx, cy, cx, cy - size * 0.32);
+  doc.line(cx, cy, cx + size * 0.25, cy);
+}
+
+/** Impressão digital simplificada (arcos concêntricos) — usada no bloco de ID da assinatura. */
+function drawFingerprintIcon(doc: any, cx: number, cy: number, size: number, rgb: number[]) {
+  doc.setDrawColor(rgb[0], rgb[1], rgb[2]);
+  doc.setLineWidth(0.3);
+  doc.ellipse(cx, cy, size * 0.5, size * 0.42, 'D');
+  doc.ellipse(cx, cy, size * 0.32, size * 0.27, 'D');
+  doc.ellipse(cx, cy, size * 0.14, size * 0.12, 'D');
+}
+
+/** Avatar circular simplificado (silhueta de pessoa) — identificação do assinante. */
+function drawAvatarIcon(doc: any, cx: number, cy: number, r: number) {
+  doc.setFillColor(...STAMP_COLORS.azulSecundario);
+  doc.circle(cx, cy, r, 'F');
+  doc.setFillColor(...STAMP_COLORS.branco);
+  doc.circle(cx, cy - r * 0.32, r * 0.32, 'F');
+  doc.ellipse(cx, cy + r * 0.55, r * 0.5, r * 0.32, 'F');
 }
 
 /**
- * Idem, para o "lado da empresa": logo abaixo da linha "___" + CONTRATADA -- Razão Social,
- * Nome Fantasia, CNPJ, a validação interna automática do ERP e o MESMO hash SHA-256 usado no
- * lado do cliente (prova de que o documento é o mesmo).
+ * Gera a imagem do QR Code (dataURL PNG) para a URL de validação específica desta assinatura.
+ * Cada carimbo chama isso com sua PRÓPRIA validationUrl — nunca um QR único compartilhado.
  */
-function drawCarimboEmpresa(doc: any, yStart: number, marginX: number, stamp: AuditStamp): number {
-  let y = yStart + 1.5;
-  doc.setTextColor(80, 80, 92);
+async function generateQrDataUrl(text: string): Promise<string | null> {
+  try {
+    const QRCode = (await import('qrcode')).default;
+    return await QRCode.toDataURL(text, { margin: 0, width: 240, color: { dark: '#0D376B', light: '#FFFFFF' } });
+  } catch (e) {
+    console.warn('Falha ao gerar QR Code do carimbo:', e);
+    return null;
+  }
+}
 
+const STAMP_HEIGHT = 46; // mm — altura fixa do carimbo (mesma para as duas assinaturas)
+
+/**
+ * Desenha UM carimbo digital completo (estrutura fixa do modelo — só os dados mudam):
+ * painel institucional à esquerda ("ASSINADO ELETRONICAMENTE, COM VALIDADE JURÍDICA" + base
+ * legal), identificação do assinante, data/hora/ID, bloco de integridade verificada, hash
+ * SHA-256, bloco de proteção do documento e QR Code de validação exclusivo desta assinatura.
+ */
+async function drawDigitalSignatureStamp(
+  doc: any,
+  yStart: number,
+  marginX: number,
+  pageW: number,
+  data: DigitalSignatureStampData
+): Promise<number> {
+  const x0 = marginX;
+  const y0 = yStart + 1.5;
+  const w = pageW - marginX * 2;
+  const h = STAMP_HEIGHT;
+
+  // ---- Moldura externa (borda azul arredondada, fundo branco) ----
+  doc.setFillColor(...STAMP_COLORS.branco);
+  doc.setDrawColor(...STAMP_COLORS.azulPrincipal);
+  doc.setLineWidth(0.55);
+  doc.roundedRect(x0, y0, w, h, 2.5, 2.5, 'FD');
+
+  // ---- Painel institucional esquerdo (fundo azul sólido) ----
+  const painelW = 34;
+  doc.setFillColor(...STAMP_COLORS.azulPrincipal);
+  doc.rect(x0 + 0.6, y0 + 0.6, painelW - 0.6, h - 1.2, 'F');
+
+  const painelCx = x0 + 0.6 + (painelW - 0.6) / 2;
+  drawShieldCheck(doc, painelCx, y0 + 7.5, 4.2, STAMP_COLORS.branco, STAMP_COLORS.verdeValidacao);
+
+  doc.setTextColor(...STAMP_COLORS.branco);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.text('ASSINADO', painelCx, y0 + 14.5, { align: 'center' });
+  doc.setFontSize(6);
+  doc.text('ELETRONICAMENTE', painelCx, y0 + 17.8, { align: 'center' });
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.5);
-  const fantasiaLinha = stamp.empresaNomeFantasia
-    ? `${stamp.empresaNomeFantasia}   |   CNPJ: ${stamp.empresaCnpj}`
-    : `CNPJ: ${stamp.empresaCnpj}`;
-  doc.text(fantasiaLinha, marginX, y);
-  y += 3.8;
+  doc.setFontSize(5.2);
+  doc.text('COM VALIDADE JURÍDICA', painelCx, y0 + 21, { align: 'center' });
 
-  doc.text(
-    stamp.empresaSignedByName
-      ? `[Assinado internamente por ${stamp.empresaSignedByName}]`
-      : '[Validado e Assinado Internamente pelo ERP]',
-    marginX, y
-  );
-  y += 3.8;
+  doc.setDrawColor(...STAMP_COLORS.branco);
+  doc.setLineWidth(0.15);
+  doc.line(x0 + 4, y0 + 24, x0 + painelW - 4, y0 + 24);
 
-  const dataValidacao = new Date(stamp.empresaValidatedAt).toLocaleString('pt-BR');
-  doc.text(`Origem: ${stamp.empresaOrigin}   |   ${dataValidacao}`, marginX, y);
-  y += 3.8;
+  doc.setFontSize(4.6);
+  doc.text('MP 2.200-2/2001', painelCx, y0 + 27.5, { align: 'center' });
+  doc.text('LEI 14.063/2020', painelCx, y0 + 31, { align: 'center' });
 
+  // ---- Área de conteúdo (direita do painel, deixando espaço pro QR Code) ----
+  const qrSize = 20;
+  const contentX = x0 + painelW + 4;
+  const contentRight = x0 + w - qrSize - 5;
+  const contentW = contentRight - contentX;
+
+  // Identificação do assinante (avatar + nome + CPF/CNPJ)
+  drawAvatarIcon(doc, contentX + 3.2, y0 + 7, 3.2);
+  doc.setTextColor(...STAMP_COLORS.cinzaTexto);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(5.5);
+  doc.text('ASSINANTE', contentX + 8, y0 + 4.5);
+  doc.setFontSize(8.2);
+  const nomeWrapped = doc.splitTextToSize(data.signerName, contentW - 8);
+  doc.text(nomeWrapped[0], contentX + 8, y0 + 8.2);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.5);
+  doc.text(data.cpfCnpj, contentX + 8, y0 + 11.8);
+
+  doc.setDrawColor(220, 224, 232);
+  doc.setLineWidth(0.15);
+  doc.line(contentX, y0 + 14.5, contentRight, y0 + 14.5);
+
+  // Data / Hora / ID da assinatura — três colunas
+  const colW = contentW / 3;
+  const iconY = y0 + 19;
+  const labelY = y0 + 22.2;
+  const valueY = y0 + 25.4;
+
+  drawCalendarIcon(doc, contentX + 2.2, iconY, 3, STAMP_COLORS.azulSecundario);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(4.8);
+  doc.setTextColor(...STAMP_COLORS.cinzaTexto);
+  doc.text('DATA', contentX + 5, labelY);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.3);
+  doc.setTextColor(30, 34, 44);
+  doc.text(data.dateStr, contentX + 5, valueY);
+
+  drawClockIcon(doc, contentX + colW + 2.2, iconY, 3, STAMP_COLORS.azulSecundario);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(4.8);
+  doc.setTextColor(...STAMP_COLORS.cinzaTexto);
+  doc.text('HORA', contentX + colW + 5, labelY);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.3);
+  doc.setTextColor(30, 34, 44);
+  doc.text(data.timeStr, contentX + colW + 5, valueY);
+
+  drawFingerprintIcon(doc, contentX + colW * 2 + 2.2, iconY, 3.4, STAMP_COLORS.azulSecundario);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(4.8);
+  doc.setTextColor(...STAMP_COLORS.cinzaTexto);
+  doc.text('ID DA ASSINATURA', contentX + colW * 2 + 5, labelY);
   doc.setFont('courier', 'normal');
-  doc.text(`Hash SHA-256: ${stamp.documentHash}`, marginX, y);
-  y += 6;
+  doc.setFontSize(5.6);
+  doc.setTextColor(30, 34, 44);
+  doc.text(data.signatureId, contentX + colW * 2 + 5, valueY);
 
-  return y;
+  doc.setDrawColor(220, 224, 232);
+  doc.line(contentX, y0 + 27.5, contentRight, y0 + 27.5);
+
+  // Integridade do documento — verificada (escudo verde)
+  drawShieldCheck(doc, contentX + 2.2, y0 + 31, 2.4, STAMP_COLORS.verdeValidacao, STAMP_COLORS.branco);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(5.8);
+  doc.setTextColor(...STAMP_COLORS.cinzaTexto);
+  doc.text('INTEGRIDADE DO DOCUMENTO', contentX + 6, y0 + 30.2);
+  doc.setTextColor(...STAMP_COLORS.verdeValidacao);
+  doc.setFontSize(5.8);
+  doc.text('VERIFICADA', contentX + 6, y0 + 33);
+
+  // Hash SHA-256
+  doc.setFillColor(...STAMP_COLORS.azulSecundario);
+  doc.circle(contentX + 2.2, y0 + 36.3, 2.2, 'F');
+  doc.setTextColor(...STAMP_COLORS.branco);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(5);
+  doc.text('#', contentX + 2.2, y0 + 37.1, { align: 'center' });
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(4.8);
+  doc.setTextColor(...STAMP_COLORS.cinzaTexto);
+  doc.text('HASH SHA-256', contentX + 6, y0 + 35.4);
+  doc.setFont('courier', 'normal');
+  doc.setFontSize(5);
+  doc.setTextColor(60, 64, 74);
+  const hashDisplay = data.hash.length > 52 ? `${data.hash.slice(0, 52)}…` : data.hash;
+  doc.text(hashDisplay, contentX + 6, y0 + 38.4);
+
+  // Documento protegido
+  drawLockIcon(doc, contentX + 2.2, y0 + 41.6, 3, STAMP_COLORS.azulSecundario);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(4.8);
+  doc.setTextColor(...STAMP_COLORS.cinzaTexto);
+  doc.text('DOCUMENTO PROTEGIDO', contentX + 6, y0 + 40.6);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(4.4);
+  doc.setTextColor(120, 126, 138);
+  doc.text('Contra alterações após a assinatura', contentX + 6, y0 + 43.2);
+
+  // QR Code (canto superior direito) — valida especificamente ESTA assinatura
+  const qrX = x0 + w - qrSize - 3;
+  const qrY = y0 + 3;
+  doc.setDrawColor(220, 224, 232);
+  doc.setLineWidth(0.2);
+  doc.roundedRect(qrX - 1, qrY - 1, qrSize + 2, qrSize + 2, 1, 1, 'D');
+  const qrDataUrl = await generateQrDataUrl(data.validationUrl);
+  if (qrDataUrl) {
+    doc.addImage(qrDataUrl, 'PNG', qrX, qrY, qrSize, qrSize);
+  }
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(4.3);
+  doc.setTextColor(...STAMP_COLORS.azulPrincipal);
+  doc.text('VALIDAR DOCUMENTO', qrX + qrSize / 2, qrY + qrSize + 3, { align: 'center' });
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(3.8);
+  doc.setTextColor(140, 146, 158);
+  doc.text('Escaneie o QR Code', qrX + qrSize / 2, qrY + qrSize + 5.8, { align: 'center' });
+
+  return y0 + h + 3;
 }
 
 /** Monta o documento jsPDF em si (sem salvar/baixar) -- reaproveitado pelo download direto e pela geracao do Blob pro Storage. */
@@ -161,6 +369,8 @@ async function buildContratoPdfDoc(numero: string, textoContrato: string, auditS
   // Detecta as linhas finais "___" + NOME — CONTRATANTE / — CONTRATADA (ver buildTextoContrato
   // em Modules.tsx) pra injetar automaticamente, logo abaixo de cada uma, o carimbo digital com
   // os dados de auditoria daquela parte -- sem precisar duplicar/editar o texto do contrato.
+  // Exatamente 2 assinaturas existem neste fluxo (CONTRATANTE e CONTRATADO(A)) -- portanto
+  // exatamente 2 carimbos são desenhados, nunca mais, nunca menos, cada um com dados isolados.
   const linhas = textoContrato.split('\n');
   for (const linha of linhas) {
     if (linha.trim() === '') { y += 3; continue; }
@@ -176,7 +386,7 @@ async function buildContratoPdfDoc(numero: string, textoContrato: string, auditS
 
     const wrapped = doc.splitTextToSize(linha, pageW - marginX * 2);
     const lineHeight = isTitulo ? 5.5 : 5;
-    const alturaCarimbo = (isAssinaturaContratante || isAssinaturaContratada) ? 24 : 0;
+    const alturaCarimbo = (isAssinaturaContratante || isAssinaturaContratada) ? STAMP_HEIGHT + 6 : 0;
     checkPageBreak(wrapped.length * lineHeight + (isTitulo ? 3 : 0) + alturaCarimbo);
     if (isTitulo) y += 2;
     wrapped.forEach((l: string) => {
@@ -185,9 +395,32 @@ async function buildContratoPdfDoc(numero: string, textoContrato: string, auditS
     });
 
     if (isAssinaturaContratante) {
-      y = drawCarimboCliente(doc, y, marginX, pageW, auditStamp!);
+      // Nome impresso na própria linha de assinatura ("NOME — CONTRATANTE"), garantindo que o
+      // carimbo mostre exatamente quem assinou como CONTRATANTE, sem depender de outro campo.
+      const nome = trimmed.replace(/—\s*CONTRATANTE\s*$/i, '').trim();
+      const dt = new Date(auditStamp!.signedAt);
+      y = await drawDigitalSignatureStamp(doc, y, marginX, pageW, {
+        signerName: nome,
+        cpfCnpj: auditStamp!.clienteCpfCnpj ? `CPF/CNPJ: ${auditStamp!.clienteCpfCnpj}` : 'CPF/CNPJ não informado',
+        dateStr: dt.toLocaleDateString('pt-BR'),
+        timeStr: dt.toLocaleTimeString('pt-BR'),
+        signatureId: auditStamp!.contratanteSignatureId,
+        hash: auditStamp!.documentHash,
+        validationUrl: `${auditStamp!.signatureLink || ''}?sig=${encodeURIComponent(auditStamp!.contratanteSignatureId)}`,
+      });
     } else if (isAssinaturaContratada) {
-      y = drawCarimboEmpresa(doc, y, marginX, auditStamp!);
+      // Nome impresso na própria linha de assinatura ("NOME — CONTRATADA").
+      const nome = trimmed.replace(/—\s*CONTRATADA\s*$/i, '').trim();
+      const dtEmpresa = new Date(auditStamp!.empresaValidatedAt);
+      y = await drawDigitalSignatureStamp(doc, y, marginX, pageW, {
+        signerName: auditStamp!.empresaSignedByName || nome,
+        cpfCnpj: `CNPJ: ${auditStamp!.empresaCnpj}`,
+        dateStr: dtEmpresa.toLocaleDateString('pt-BR'),
+        timeStr: dtEmpresa.toLocaleTimeString('pt-BR'),
+        signatureId: auditStamp!.contratadoSignatureId,
+        hash: auditStamp!.documentHash,
+        validationUrl: `${auditStamp!.signatureLink || ''}?sig=${encodeURIComponent(auditStamp!.contratadoSignatureId)}`,
+      });
     }
   }
 
