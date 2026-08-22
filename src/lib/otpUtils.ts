@@ -225,6 +225,8 @@ export async function signContract(params: SignContractParams): Promise<SignCont
     empresaValidatedAt: params.companyAlreadySignedAt!,
     empresaOrigin: PUBLIC_SIGN_ORIGIN,
     empresaSignedByName: params.companySignedByName,
+    contratoId: params.contractId,
+    clienteNome: params.customerName,
   };
 
   const pdfUrl = await uploadContratoPdfAssinado(params.contractId, params.numero, params.customerName, params.documentText, auditStamp);
@@ -313,6 +315,8 @@ export async function signContractByCompany(params: SignContractByCompanyParams)
     empresaValidatedAt: empresaSignedAt,
     empresaOrigin: PUBLIC_SIGN_ORIGIN,
     empresaSignedByName: params.companySignerName,
+    contratoId: params.contractId,
+    clienteNome: params.customerName,
   };
 
   // Nao deve travar/reverter a assinatura ja confirmada acima caso a geracao/upload do PDF falhe

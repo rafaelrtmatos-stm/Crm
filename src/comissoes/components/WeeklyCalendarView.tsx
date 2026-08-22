@@ -252,14 +252,14 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
           {weekOffset !== 0 && <button onClick={() => setWeekOffset(0)} className="px-2.5 py-1.5 rounded-lg bg-[var(--accent-red)] text-white text-[11px] font-bold">Esta Semana</button>}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <input
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             placeholder="Buscar..."
-            className="w-32 sm:w-44 px-3 py-2 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card-sec)] text-xs"
+            className="w-24 sm:w-44 px-3 py-2 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card-sec)] text-xs"
           />
-          <div className="hidden sm:flex items-center p-1 bg-[var(--bg-card-sec)] rounded-xl border border-[var(--border-color)]">
+          <div className="flex items-center p-1 bg-[var(--bg-card-sec)] rounded-xl border border-[var(--border-color)]">
             <button onClick={() => setViewMode('grid')} className={`p-2 rounded-lg ${viewMode === 'grid' ? 'bg-gradient-red text-white' : ''}`} title="Grade"><LayoutGrid className="w-4 h-4" /></button>
             <button onClick={() => setViewMode('columns')} className={`p-2 rounded-lg ${viewMode === 'columns' ? 'bg-gradient-red text-white' : ''}`} title="Colunas"><Columns className="w-4 h-4" /></button>
             <button onClick={() => setViewMode('table')} className={`p-2 rounded-lg ${viewMode === 'table' ? 'bg-gradient-red text-white' : ''}`} title="Tabela"><TableIcon className="w-4 h-4" /></button>

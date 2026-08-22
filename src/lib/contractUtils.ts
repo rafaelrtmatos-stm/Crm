@@ -316,6 +316,22 @@ export function isValidRg(value: string): boolean {
   return formatOk && digits.length >= 4;
 }
 
+/**
+ * Mascara um CPF ou CNPJ para exibicao publica (ex: no carimbo visual do PDF e na pagina de
+ * validacao), escondendo os digitos do meio e mantendo so os necessarios pro dono reconhecer
+ * o proprio documento. Ex: CPF 123.***.***-45 — CNPJ 12.***.***-40 (parte final mascarada).
+ */
+export function maskCpfCnpj(value?: string | null): string {
+  const digits = onlyDigits(value || '');
+  if (digits.length === 11) {
+    return `${digits.slice(0, 3)}.***.***-${digits.slice(9, 11)}`;
+  }
+  if (digits.length === 14) {
+    return `${digits.slice(0, 2)}.***.***/**${digits.slice(10, 12)}-${digits.slice(12, 14)}`;
+  }
+  return '***.***.***-**';
+}
+
 /** Valida telefone brasileiro com DDD: 10 digitos (fixo) ou 11 digitos (celular com 9º digito). */
 export function isValidPhoneBR(value: string): boolean {
   const digits = onlyDigits(value);

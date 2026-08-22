@@ -7,6 +7,7 @@ import { ShieldCheck, Loader2, AlertCircle, CheckCircle2, Download, Hash, Globe,
 import { supabase } from '../supabase';
 import { validateVerificationCode, signContract, checkDocumentLastDigits, createVerificationCode } from '../lib/otpUtils';
 import { getPublicIpAddress } from '../lib/contractUtils';
+import { getContractValidationLink } from '../lib/companyIdentity';
 
 interface ContratoPublico {
   id: string;
@@ -328,6 +329,13 @@ export default function ContractSignaturePublicPage() {
         <CheckCircle2 className="text-emerald-400" size={32} />
         <p className="text-white font-bold">Este contrato já foi assinado</p>
         <p className="text-white/40 text-sm">Nº {contrato.numero}</p>
+
+        <button
+          onClick={() => window.open(getContractValidationLink(contrato.id), '_blank', 'noopener,noreferrer')}
+          className="flex items-center gap-1.5 text-[11px] font-bold text-white/50 hover:text-white/80 underline underline-offset-2 transition-colors"
+        >
+          <ShieldCheck size={12} /> Validar Documento
+        </button>
 
         {downloadInfo && (
           redownloadVerified ? (

@@ -3,6 +3,7 @@ import App from './App';
 
 const ComissoesApp = React.lazy(() => import('./comissoes/ComissoesApp'));
 const ContractSignaturePublicPage = React.lazy(() => import('./components/ContractSignaturePublicPage'));
+const ContractValidationPublicPage = React.lazy(() => import('./components/ContractValidationPublicPage'));
 
 // Decide qual "site" mostrar com base na URL, ANTES de qualquer hook do App/ComissoesApp
 // ser chamado — evita violar as regras de hooks do React (early return dentro do proprio
@@ -12,6 +13,8 @@ export default function AppRoot() {
   const isComissoesRoute = path === '/comissoes';
   // Tela publica de assinatura digital de contrato (link enviado manualmente ao cliente)
   const isAssinaturaRoute = /^\/assinar\/[a-zA-Z0-9-]+$/.test(path);
+  // Tela publica de VALIDACAO do documento assinado (pra onde aponta o QR Code do carimbo)
+  const isValidacaoRoute = /^\/validar\/[a-zA-Z0-9-]+$/.test(path);
 
   // O CRM principal trava html/body/#root (overflow hidden + position fixed) pra se
   // comportar como app nativo, sem arrastar a pagina. A tela de Comissoes e a tela publica
@@ -21,14 +24,22 @@ export default function AppRoot() {
   // (que tem overflow-y-auto proprio) rola, e o resto da tela (checkbox, verificacao de
   // CPF/CNPJ, codigo, botao de assinar) fica inacessivel se nao couber na tela do celular.
   useEffect(() => {
-    document.documentElement.classList.toggle('scrollable-route', isComissoesRoute || isAssinaturaRoute);
+    document.documentElement.classList.toggle('scrollable-route', isComissoesRoute || isAssinaturaRoute || isValidacaoRoute);
     return () => document.documentElement.classList.remove('scrollable-route');
-  }, [isComissoesRoute, isAssinaturaRoute]);
+  }, [isComissoesRoute, isAssinaturaRoute, isValidacaoRoute]);
 
   if (isAssinaturaRoute) {
     return (
       <Suspense fallback={<div className="min-h-screen bg-black" />}>
         <ContractSignaturePublicPage />
+      </Suspense>
+    );
+  }
+
+  if (isValidacaoRoute) {
+    return (
+      <Suspense fallback={<div className="min-h-screen bg-black" />}>
+        <ContractValidationPublicPage />
       </Suspense>
     );
   }

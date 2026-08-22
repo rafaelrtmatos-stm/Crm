@@ -11,7 +11,7 @@ import { Modal } from './SharedUI';
 import { showAlert } from '../lib/notify';
 import { supabase } from '../supabase';
 import { parseDeviceLabel } from '../lib/contractUtils';
-import { OFFICIAL_COMPANY, PUBLIC_SIGN_ORIGIN, getContractSignatureLink } from '../lib/companyIdentity';
+import { OFFICIAL_COMPANY, PUBLIC_SIGN_ORIGIN, getContractSignatureLink, getContractValidationLink } from '../lib/companyIdentity';
 import type { Contrato } from '../types';
 
 // Formata uma data com fallback seguro — mesma lógica usada em Modules.tsx — evita
@@ -325,12 +325,22 @@ export const ContractAcceptanceDetailsModal = ({ contrato, onClose }: ContractAc
         </p>
 
         <div className="flex items-center justify-between gap-2 pt-1">
-          <button
-            onClick={handleCopiarTudo}
-            className="flex items-center gap-1.5 text-xs font-bold text-primary-400 hover:text-primary-300 bg-primary-500/10 hover:bg-primary-500/20 border border-primary-500/20 rounded-xl px-4 py-2.5 transition-colors"
-          >
-            <ClipboardList size={14} /> Copiar Tudo
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleCopiarTudo}
+              className="flex items-center gap-1.5 text-xs font-bold text-primary-400 hover:text-primary-300 bg-primary-500/10 hover:bg-primary-500/20 border border-primary-500/20 rounded-xl px-4 py-2.5 transition-colors"
+            >
+              <ClipboardList size={14} /> Copiar Tudo
+            </button>
+            {assinado && (
+              <button
+                onClick={() => window.open(getContractValidationLink(contrato.id), '_blank', 'noopener,noreferrer')}
+                className="flex items-center gap-1.5 text-xs font-bold text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 rounded-xl px-4 py-2.5 transition-colors"
+              >
+                <ShieldCheck size={14} /> Validar Documento
+              </button>
+            )}
+          </div>
           <button
             onClick={onClose}
             className="text-xs font-bold text-white/50 hover:text-white/80 px-4 py-2 transition-colors"

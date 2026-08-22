@@ -21,3 +21,13 @@ export const PUBLIC_SIGN_ORIGIN = 'pro.rafaartsgraphics.com.br';
 export function getContractSignatureLink(contratoId: string): string {
   return `${PUBLIC_SIGN_BASE_URL}/assinar/${contratoId}`;
 }
+
+/**
+ * Monta o link publico de VALIDACAO de um documento ja assinado (rota /validar/:id, ver
+ * ContractValidationPublicPage.tsx) -- e' pra onde o QR Code do carimbo visual do PDF aponta.
+ * Diferente do link de assinatura (/assinar/:id), essa rota e' so leitura: mostra status,
+ * as duas partes e o hash, sem exigir nenhum codigo OTP.
+ */
+export function getContractValidationLink(contratoId: string): string {
+  return `${PUBLIC_SIGN_BASE_URL}/validar/${contratoId}`;
+}

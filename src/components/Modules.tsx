@@ -216,7 +216,7 @@ import { renderOrcamentoCanvas } from '../lib/orcamentoDoc';
 import { exportClientesXlsx, parseClientesXlsx, exportProdutosXlsx, parseProdutosXlsx, exportVendasXlsx, parseVendasXlsx, exportFichaClienteXlsx } from '../lib/spreadsheet';
 import { downloadContratoPdf, type AuditStamp } from '../lib/contratoPdf';
 import { buildContratoClausulasTexto } from '../lib/contratoTemplate';
-import { OFFICIAL_COMPANY, PUBLIC_SIGN_ORIGIN, getContractSignatureLink } from '../lib/companyIdentity';
+import { OFFICIAL_COMPANY, PUBLIC_SIGN_ORIGIN, getContractSignatureLink, getContractValidationLink } from '../lib/companyIdentity';
 import { signContractByCompany } from '../lib/otpUtils';
 import { transcribeAudioMessage } from '../lib/audioTranscription';
 import { generateSuggestion, type KnowledgeProduct } from '../lib/robozinhoRafa';
@@ -6680,6 +6680,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           empresaCnpj: OFFICIAL_COMPANY.cnpj,
           empresaValidatedAt: c.signedAt,
           empresaOrigin: PUBLIC_SIGN_ORIGIN,
+          contratoId: c.id,
+          clienteNome: c.customerName,
         }
       : undefined;
     await downloadContratoPdf(`${c.numero}${c.versao > 1 ? ` (v${c.versao})` : ''}`, c.customerName, c.textoContrato || 'Contrato sem texto gerado.', auditStamp);
@@ -14750,6 +14752,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             />
             <div className="flex justify-end gap-3">
                <Button variant="ghost" onClick={() => setViewingContrato(null)}>Fechar</Button>
+               {viewingContrato.status === 'assinado' && (
+                 <Button
+                   variant="ghost"
+                   className="text-emerald-400 hover:text-emerald-300"
+                   onClick={() => window.open(getContractValidationLink(viewingContrato.id), '_blank', 'noopener,noreferrer')}
+                 >
+                   Validar Documento
+                 </Button>
+               )}
                <Button className="bg-purple-500 hover:bg-purple-400 text-white border-none" onClick={() => handleDownloadContratoPdf(viewingContrato)}>Baixar PDF</Button>
             </div>
          </div>
