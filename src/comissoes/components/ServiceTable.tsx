@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { ServiceItem, ServiceStatus, FilterOptions } from '../types';
 import { formatCurrency, formatDateBR, formatTimeBR } from '../utils/storage';
+import { getTodayISO } from '../utils/dateHelpers';
 
 interface ServiceTableProps {
   services: ServiceItem[];
@@ -137,7 +138,7 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
       [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
     const link = document.createElement('a');
     link.href = encodeURI(csv);
-    link.download = `relatorio_comissoes_${new Date().toISOString().split('T')[0]}.csv`;
+    link.download = `relatorio_comissoes_${getTodayISO()}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

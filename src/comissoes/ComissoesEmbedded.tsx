@@ -40,6 +40,7 @@ import { ServicosAgendados } from './components/ServicosAgendados';
 import { DescontosView } from './components/DescontosView';
 import { NotaDetalhe, NotaSelecionadoItem } from './components/NotaDetalheModal';
 import { CheckCircle2 } from 'lucide-react';
+import { getTodayISO } from './utils/dateHelpers';
 import './comissoes-theme.css';
 
 // Sessão própria (não mexe na sessão do colaborador usada em /comissoes)
@@ -268,7 +269,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
   // de lá. Quando é só 1 item, some direto sem precisar abrir mais nada.
   const handleAddItemsFromNota = async (items: NotaSelecionadoItem[], nota: NotaDetalhe, dataSelecionada: string): Promise<boolean> => {
     if (!colaborador || items.length === 0) return false;
-    const dataAgendada = dataSelecionada || new Date().toISOString().split('T')[0];
+    const dataAgendada = dataSelecionada || getTodayISO();
     const commissionPercent = userSettings.defaultCommissionRate;
 
     const resultados = await Promise.all(items.map((item) => {
@@ -312,7 +313,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
   const summaryStats = useMemo(() => calculateSummaryStats(services, userSettings.baseSalary), [services, userSettings.baseSalary]);
 
   const todayStats = useMemo(() => {
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getTodayISO();
     const todayServices = services.filter((s) => s.date === todayStr && s.status !== 'CANCELADO');
     return {
       production: todayServices.reduce((acc, s) => acc + s.productionValue, 0),

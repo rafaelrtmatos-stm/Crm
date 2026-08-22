@@ -3,6 +3,7 @@ import { X, Check, Calculator, AlertCircle, Layers, Tag } from 'lucide-react';
 import { ServiceItem, ServiceStatus, ChargingUnit } from '../types';
 import { CHARGING_UNITS } from '../data/mockData';
 import { formatCurrency } from '../utils/storage';
+import { getTodayISO as getTodayISOLocal } from '../utils/dateHelpers';
 
 interface ServiceModalProps {
   isOpen: boolean;
@@ -27,7 +28,7 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
   defaultCommissionRate,
   headerOverride,
 }) => {
-  const getTodayISO = () => new Date().toISOString().split('T')[0];
+  const getTodayISO = () => getTodayISOLocal();
 
   const [date, setDate] = useState(getTodayISO());
   const [clientName, setClientName] = useState('');

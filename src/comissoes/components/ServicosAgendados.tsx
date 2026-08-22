@@ -6,8 +6,9 @@ import {
 import { supabase } from '../../supabase';
 import { showConfirm } from '../../lib/notify';
 import { formatCurrency } from '../utils/storage';
-import { getItensJaAdicionadosDeNotas } from '../utils/supabaseStorage';
+import { getItensJaAdicionadosDeNotas, excluirServicoPorOrigem } from '../utils/supabaseStorage';
 import { NotaDetalheModal, NotaDetalhe, NotaDetalheItem, NotaSelecionadoItem } from './NotaDetalheModal';
+import { getTodayISO, toLocalISO } from '../utils/dateHelpers';
 
 interface NotaAgendada {
   id: string;
@@ -26,10 +27,10 @@ interface ServicosAgendadosProps {
 }
 
 const dateKey = (raw: string | null | undefined) => {
-  if (!raw) return new Date().toISOString().split('T')[0];
+  if (!raw) return getTodayISO();
   const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return new Date().toISOString().split('T')[0];
-  return d.toISOString().split('T')[0];
+  if (Number.isNaN(d.getTime())) return getTodayISO();
+  return toLocalISO(d);
 };
 
 const dateLabel = (iso: string) =>
@@ -171,6 +172,23 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
       const atual = new Set(prev[nota.id] || []);
       items.forEach(item => atual.add(item.idx));
       return { ...prev, [nota.id]: atual };
+    });
+  };
+
+  // Tira um serviço já lançado a partir de um item da nota (o colaborador se enganou ao
+  // adicionar). O item volta a ficar "Disponível" pra ser lançado de novo, se for o caso.
+  const handleRemoverItem = async (notaId: string, idx: number) => {
+    if (!(await showConfirm(
+      'Tirar esse serviço da nota? Ele some da sua planilha de comissões e o item volta a ficar disponível.'
+    ))) return;
+
+    const ok = await excluirServicoPorOrigem(notaId, idx);
+    if (!ok) return;
+
+    setItensAdicionadosPorNota(prev => {
+      const atual = new Set(prev[notaId] || []);
+      atual.delete(idx);
+      return { ...prev, [notaId]: atual };
     });
   };
 
@@ -362,6 +380,15 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
                   <span className={`text-[10px] font-bold ${added ? 'text-emerald-400' : 'text-[var(--text-muted)]'}`}>
                     {added ? 'Já adicionado' : 'Disponível'}
                   </span>
+                  {added && colaboradorId && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleRemoverItem(nota.id, idx); }}
+                      title="Tirar este serviço da nota"
+                      className="shrink-0 p-1.5 rounded-lg text-rose-400 hover:bg-rose-500/10 cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
               );
             })}
@@ -518,6 +545,11 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
         itensJaAdicionados={
           notaSelecionada
             ? (itensAdicionadosPorNota[notaSelecionada.id] || new Set())
+            : undefined
+        }
+        onRemoveItem={
+          notaSelecionada
+            ? (idx) => handleRemoverItem(notaSelecionada.id, idx)
             : undefined
         }
       />

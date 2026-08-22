@@ -1,4 +1,5 @@
 import { ServiceItem, UserSettings, ChargingUnit } from '../types';
+import { toLocalISO } from '../utils/dateHelpers';
 
 export const CHARGING_UNITS: ChargingUnit[] = [
   'unidade',
@@ -24,7 +25,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
 const getOffsetDateString = (offsetDays: number): string => {
   const d = new Date();
   d.setDate(d.getDate() + offsetDays);
-  return d.toISOString().split('T')[0];
+  return toLocalISO(d);
 };
 
 export const INITIAL_SERVICES: ServiceItem[] = [

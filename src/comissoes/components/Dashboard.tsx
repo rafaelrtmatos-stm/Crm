@@ -177,7 +177,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   descontos = [],
   colaboradorId,
 }) => {
-  const [period, setPeriod] = useState<PeriodFilter>('semana');
+  const [period, setPeriod] = useState<PeriodFilter>('hoje');
   const [customStartDate, setCustomStartDate] = useState(getTodayISO());
   const [customEndDate, setCustomEndDate] = useState(getTodayISO());
 

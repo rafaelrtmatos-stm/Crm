@@ -10,6 +10,8 @@
  * ✅ Saldo 0 + Salário 400 = Recebe 400
  */
 
+import { toLocalISO } from './dateHelpers';
+
 export interface ComissaoSemanal {
   semanaInicio: string; // YYYY-MM-DD
   semanaFim: string;    // YYYY-MM-DD
@@ -68,8 +70,8 @@ export function getSemanasProximas(quantidade: number = 4): Array<{
     const dataFim = new Date(dataInicio);
     dataFim.setDate(dataInicio.getDate() + 6);
 
-    const inicio = dataInicio.toISOString().split('T')[0];
-    const fim = dataFim.toISOString().split('T')[0];
+    const inicio = toLocalISO(dataInicio);
+    const fim = toLocalISO(dataFim);
 
     const isThisWeek = i === 0;
     const label = isThisWeek 

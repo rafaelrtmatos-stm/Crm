@@ -8,6 +8,7 @@
  */
 
 import { Desconto, DescontoFormInput } from './supabaseStorage';
+import { getTodayISO, toLocalISO } from './dateHelpers';
 
 /** Calcula débito automático do saldo anterior */
 export function calcularDebitoAutomatico(
@@ -25,7 +26,7 @@ export function calcularDebitoAutomatico(
     descricao: `Débito do saldo anterior: -R$ ${debitoValor.toFixed(2)}`,
     valor: debitoValor,
     recorrencia: 'unica',
-    data: new Date().toISOString().split('T')[0], // Hoje
+    data: getTodayISO(), // Hoje
   };
 }
 
@@ -60,7 +61,7 @@ export function gerarParcelasDivida(
       dataParc.setMonth(dataParc.getMonth() + i);
     }
 
-    const dateStr = dataParc.toISOString().split('T')[0];
+    const dateStr = toLocalISO(dataParc);
 
     parcelas.push({
       tipo: 'divida',

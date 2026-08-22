@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { ServiceItem } from '../types';
 import { formatCurrency } from '../utils/storage';
+import { getTodayISO } from '../utils/dateHelpers';
 
 interface WeeklyCalendarViewProps {
   services: ServiceItem[];
@@ -35,7 +36,7 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
   const [selectedDayISO, setSelectedDayISO] = useState<string | null>(null);
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
 
-  const todayISO = useMemo(() => new Date().toISOString().split('T')[0], []);
+  const todayISO = useMemo(() => getTodayISO(), []);
 
   const weekDaysData = useMemo(() => {
     const now = new Date();

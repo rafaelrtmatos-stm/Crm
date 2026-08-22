@@ -140,6 +140,22 @@ export async function getItensJaAdicionadosDeNotas(notaIds: string[]): Promise<R
   return mapa;
 }
 
+// Remove (soft-delete) o serviço já lançado a partir de um item específico de uma nota —
+// usado quando o colaborador se engana e quer "tirar" um serviço que puxou da nota. O item
+// volta a aparecer como disponível pra ser adicionado de novo (getItensJaAdicionadosDeNotas
+// só conta os que ainda não têm deleted_at).
+export async function excluirServicoPorOrigem(notaId: string, itemIndex: number): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('comissoes_servicos')
+    .select('id')
+    .eq('origem_nota_id', notaId)
+    .eq('origem_item_index', itemIndex)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (error || !data) return false;
+  return deleteServiceFromSupabase(data.id);
+}
+
 export async function saveServiceToSupabase(colaboradorId: string, item: ServiceItem, isNew: boolean): Promise<ServiceItem | null> {
   const payload = {
     colaborador_id: colaboradorId,

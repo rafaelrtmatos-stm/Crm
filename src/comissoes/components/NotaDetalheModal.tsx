@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { X, CalendarClock, ClipboardCheck, StickyNote, Layers, Check } from 'lucide-react';
+import { X, CalendarClock, ClipboardCheck, StickyNote, Layers, Check, Trash2 } from 'lucide-react';
 import { formatCurrency } from '../utils/storage';
+import { getTodayISO, toLocalISO } from '../utils/dateHelpers';
 
 export interface NotaDetalheItem {
   name: string;
@@ -39,14 +40,17 @@ interface NotaDetalheModalProps {
   // Índices (dentro de nota.items) que já viraram serviço de Comissões antes — travados
   // (não podem ser marcados/adicionados de novo) e mostrados com o check verde.
   itensJaAdicionados?: Set<number>;
+  // Chamado quando o colaborador quer tirar um item já adicionado (desfazer o lançamento).
+  // Depois de remover, o item volta a ficar disponível pra seleção.
+  onRemoveItem?: (idx: number) => void | Promise<void>;
 }
 
 // Formata uma data (ISO completo ou já YYYY-MM-DD) pro formato aceito pelo <input type="date">.
 const toDateInputValue = (raw: string | null | undefined): string => {
-  if (!raw) return new Date().toISOString().split('T')[0];
+  if (!raw) return getTodayISO();
   const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return new Date().toISOString().split('T')[0];
-  return d.toISOString().split('T')[0];
+  if (Number.isNaN(d.getTime())) return getTodayISO();
+  return toLocalISO(d);
 };
 
 // Mostra os dados da nota (itens, valores, observação) pra quem recebeu o serviço decidir
@@ -55,7 +59,8 @@ const toDateInputValue = (raw: string | null | undefined): string => {
 // exatamente o preço da nota (ex: só uma parte do serviço foi feita por ele). A data do
 // lançamento também é editável (vem pré-preenchida com a entrega, se houver, ou hoje).
 // Um único botão "Adicionar" no rodapé finaliza tudo de uma vez.
-export const NotaDetalheModal: React.FC<NotaDetalheModalProps> = ({ nota, onClose, onAddItems, itensJaAdicionados }) => {
+export const NotaDetalheModal: React.FC<NotaDetalheModalProps> = ({ nota, onClose, onAddItems, itensJaAdicionados, onRemoveItem }) => {
+  const [removendo, setRemovendo] = useState<number | null>(null);
   const items = nota?.items || [];
   const jaAdicionados = itensJaAdicionados || new Set<number>();
   // "Item único" só conta pra auto-marcar/travar seleção se esse item ainda não foi adicionado
@@ -68,7 +73,7 @@ export const NotaDetalheModal: React.FC<NotaDetalheModalProps> = ({ nota, onClos
   // quiser, inclusive todos) — itens já adicionados nunca entram na seleção.
   const [selected, setSelected] = useState<Record<number, boolean>>({});
   const [values, setValues] = useState<Record<number, string>>({});
-  const [dataServico, setDataServico] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [dataServico, setDataServico] = useState<string>(() => getTodayISO());
 
   // Fator de desconto da nota: se teve desconto, cada item perde a mesma fração
   // proporcional ao seu peso no total bruto (soma de price*quantity de todos os itens).
@@ -129,6 +134,16 @@ export const NotaDetalheModal: React.FC<NotaDetalheModalProps> = ({ nota, onClos
       }));
     if (escolhidos.length === 0) return;
     onAddItems(escolhidos, nota, dataServico);
+  };
+
+  const handleRemover = async (idx: number) => {
+    if (!onRemoveItem || removendo !== null) return;
+    setRemovendo(idx);
+    try {
+      await onRemoveItem(idx);
+    } finally {
+      setRemovendo(null);
+    }
   };
 
   // Adiciona de uma vez TODOS os itens que ainda não foram puxados dessa nota — sem precisar
@@ -206,6 +221,16 @@ export const NotaDetalheModal: React.FC<NotaDetalheModalProps> = ({ nota, onClos
                           <p className="text-sm font-bold text-[var(--text-main)] truncate">{item.name}</p>
                           <p className="text-[11px] text-emerald-400 font-bold">Já adicionado</p>
                         </div>
+                        {onRemoveItem && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleRemover(idx); }}
+                            disabled={removendo === idx}
+                            title="Tirar este serviço da nota"
+                            className="shrink-0 p-1.5 rounded-lg text-rose-400 hover:bg-rose-500/10 disabled:opacity-40 cursor-pointer"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     );
                   }

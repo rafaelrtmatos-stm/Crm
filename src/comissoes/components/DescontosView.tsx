@@ -34,6 +34,7 @@ import {
 import { formatDateBR } from '../utils/storage';
 import { showAlert, showConfirm } from '../../lib/notify';
 import { ServiceItem } from '../types';
+import { getTodayISO as getTodayISOLocal, toLocalISO } from '../utils/dateHelpers';
 
 interface DescontosViewProps {
   colaboradorId: string;
@@ -63,7 +64,7 @@ const sugerirValorFalta = (tipo: DescontoTipo, baseSalary: number): number => {
   return 0;
 };
 
-const getTodayISO = () => new Date().toISOString().split('T')[0];
+const getTodayISO = () => getTodayISOLocal();
 
 // Tipo de período pro card "Descontos" (Semana / Mês / Ano), com offset pra navegar
 // entre períodos anteriores/seguintes -- mesma ideia do seletor do Caixa da Semana.
@@ -75,7 +76,7 @@ const DESCONTOS_PERIODO_LABELS: Record<DescontosPeriodo, string> = {
   ano: 'Ano',
 };
 
-const format = (d: Date) => d.toISOString().split('T')[0];
+const format = (d: Date) => toLocalISO(d);
 
 // Calcula início/fim do período selecionado, aplicando o offset (0 = atual,
 // -1 = anterior, 1 = seguinte...). Semana sempre domingo a sábado.
