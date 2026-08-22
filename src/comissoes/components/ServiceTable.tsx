@@ -101,14 +101,15 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
     }));
   }, [filteredServices]);
 
-  const totals = useMemo(() => ({
-    production: filteredServices
+  const totals = useMemo(() => {
+    const production = filteredServices
       .filter(s => s.status !== 'CANCELADO')
-      .reduce((sum, s) => sum + s.productionValue, 0),
-    commission: filteredServices
+      .reduce((sum, s) => sum + s.productionValue, 0);
+    const commission = filteredServices
       .filter(s => s.status !== 'CANCELADO')
-      .reduce((sum, s) => sum + s.commissionValue, 0)
-  }), [filteredServices]);
+      .reduce((sum, s) => sum + s.commissionValue, 0);
+    return { production, commission, forecast: baseSalary + commission };
+  }, [filteredServices, baseSalary]);
 
   const toggle = (key: string) => {
     setExpanded(prev => {
@@ -381,7 +382,109 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
               <p className="font-bold">Nenhum serviço encontrado</p>
             </div>
           ) : (
-            <div className="space-y-3">{groups.map(renderGroup)}</div>
+            <>
+              {/* Desktop Spreadsheet Table View */}
+              <div className="hidden md:block overflow-hidden rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] shadow-lg">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-gradient-red text-white text-xs font-black uppercase tracking-wider">
+                        <th className="py-4 px-4 border-r border-red-700/50">Data / Hora</th>
+                        <th className="py-4 px-4 border-r border-red-700/50">Veículo / Detalhe</th>
+                        <th className="py-4 px-4 border-r border-red-700/50">Serviço Realizado</th>
+                        <th className="py-4 px-4 border-r border-red-700/50 text-right">Valor Produção</th>
+                        <th className="py-4 px-4 border-r border-red-700/50 text-center">% Com.</th>
+                        <th className="py-4 px-4 border-r border-red-700/50 text-right bg-red-900/60">Valor Comissão</th>
+                        <th className="py-4 px-4 border-r border-red-700/50">Observação</th>
+                        <th className="py-4 px-4 text-center">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[var(--border-color)] text-sm font-medium">
+                      {filteredServices.map(item => (
+                        <tr
+                          key={item.id}
+                          ref={el => { rowRefs.current[item.id] = el; }}
+                          className={`hover:bg-[var(--bg-card-hover)] transition-colors group ${
+                            activeHighlightId === item.id ? 'bg-[var(--accent-red)]/15 ring-2 ring-inset ring-[var(--accent-red)]' : ''
+                          }`}
+                        >
+                          <td className="py-3.5 px-4 font-mono text-xs text-[var(--text-muted)] whitespace-nowrap">
+                            {formatDateBR(item.date)}
+                            {item.createdAt && (
+                              <span className="block text-[10px] opacity-70">{formatTimeBR(item.createdAt)}</span>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4 text-[var(--text-muted)] text-xs whitespace-nowrap font-mono">
+                            {item.vehicle || '—'}
+                          </td>
+                          <td className="py-3.5 px-4 font-semibold text-[var(--text-main)]">
+                            {item.serviceType}
+                            {item.unit && item.quantity ? (
+                              <span className="block text-[10px] text-[var(--text-muted)] font-mono font-normal">
+                                ({item.quantity} {item.unit})
+                              </span>
+                            ) : null}
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-mono font-bold text-[var(--text-main)]">
+                            {formatCurrency(item.productionValue)}
+                          </td>
+                          <td className="py-3.5 px-4 text-center font-mono text-xs text-[var(--text-muted)]">
+                            {item.commissionPercent}%
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-mono font-black text-[var(--accent-red)] bg-red-950/10">
+                            {formatCurrency(item.commissionValue)}
+                          </td>
+                          <td className="py-3.5 px-4 text-xs text-[var(--text-muted)] max-w-xs truncate">
+                            {item.notes || '—'}
+                          </td>
+                          <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                            <div className="flex items-center justify-center gap-1 opacity-80 group-hover:opacity-100">
+                              <button
+                                onClick={() => onEditService(item)}
+                                className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-card-sec)] transition-colors cursor-pointer"
+                                title="Editar Serviço"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => onDeleteService(item.id)}
+                                className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-red-500 hover:bg-red-500/10 transition-colors cursor-pointer"
+                                title="Excluir Serviço"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-[var(--bg-card-sec)] border-t-2 border-[var(--accent-red)] font-black text-sm">
+                        <td colSpan={3} className="py-4 px-4 uppercase text-xs tracking-wider text-[var(--text-main)]">
+                          TOTALIZADOR DE PRODUÇÃO E COMISSÃO
+                        </td>
+                        <td className="py-4 px-4 text-right font-mono text-base text-[var(--text-main)]">
+                          {formatCurrency(totals.production)}
+                        </td>
+                        <td className="py-4 px-4 text-center text-xs text-[var(--text-muted)]">—</td>
+                        <td className="py-4 px-4 text-right font-mono text-lg text-[var(--accent-red)] bg-red-950/30">
+                          {formatCurrency(totals.commission)}
+                        </td>
+                        <td colSpan={2} className="py-4 px-4 text-right">
+                          <div className="inline-flex items-center gap-2 bg-gradient-red px-3.5 py-1.5 rounded-xl text-white text-xs font-bold uppercase tracking-wider shadow-red-glow">
+                            <span>Previsão Final (Base + Com.):</span>
+                            <span className="text-sm font-black font-mono">{formatCurrency(totals.forecast)}</span>
+                          </div>
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+
+              {/* Mobile Grouped Cards View */}
+              <div className="space-y-3 md:hidden">{groups.map(renderGroup)}</div>
+            </>
           )}
         </>
       )}
