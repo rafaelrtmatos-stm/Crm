@@ -8226,9 +8226,26 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const somaPagamentosExistentes = (editingSale.payments || []).reduce((sum, p) => sum + (p.value || 0), 0);
     const limparPagamentos = entradaZeradaOuVazia || novoDownPayment < somaPagamentosExistentes;
     const novoStatus: 'completed' | 'pending' = novoDownPayment >= editSaleForm.total && editSaleForm.total > 0 ? 'completed' : 'pending';
+
+    // Se o total foi alterado nessa tela, os itens (items[].price) precisam ser reajustados
+    // proporcionalmente — senão o preço de cada item (inclusive os por metro/m², onde o preço
+    // já É o valor total do item) fica desatualizado e a aba Comissões (que le item.price, não
+    // o total da venda) continua puxando o valor antigo pro colaborador.
+    const totalMudou = Number(editSaleForm.total) !== Number(editingSale.total);
+    const itemTotal = (item: SaleOrderItem) => (item.price ?? 0) * (item.area ? item.area : 1) * (item.quantity ?? 1);
+    const brutoAtual = (editingSale.items || []).reduce((sum, item) => sum + itemTotal(item), 0);
+    const itemsAtualizados: SaleOrderItem[] =
+      totalMudou && brutoAtual > 0
+        ? (editingSale.items || []).map((item) => {
+            const fator = editSaleForm.total / brutoAtual;
+            return { ...item, price: Number(((item.price ?? 0) * fator).toFixed(2)) };
+          })
+        : (editingSale.items || []);
+
     const { data, error } = await supabase.from('vendas').update({
       customer_name: editSaleForm.customerName,
       total: editSaleForm.total,
+      items: itemsAtualizados,
       down_payment: novoDownPayment,
       received_value: novoDownPayment,
       payments: limparPagamentos ? [] : (editingSale.payments || []),
@@ -8244,6 +8261,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       ...editingSale,
       customerName: editSaleForm.customerName,
       total: editSaleForm.total,
+      items: itemsAtualizados,
       downPayment: novoDownPayment,
       receivedValue: novoDownPayment,
       payments: limparPagamentos ? [] : (editingSale.payments || []),
