@@ -10,18 +10,13 @@
 // Configura essa URL (https://seu-dominio.vercel.app/api/whatsapp-webhook) como "Webhook URL"
 // dentro da propria Evolution API (na criacao/config da instancia).
 
-const SUPABASE_URL = 'https://areqouezrbdubfutjzki.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_YbzFXDHWQy-k0F9uNtVJ2g_urcsgmVt';
-const COMPANY_ID = 'rafa-arts';
-const INSTANCE_NAME = 'rafa-arts';
-const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL;
-const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY;
+import { EVOLUTION_API_URL, EVOLUTION_API_KEY, EVOLUTION_WEBHOOK_SECRET, INSTANCE_NAME, SUPABASE_URL, SUPABASE_ANON_KEY, COMPANY_ID } from './_lib/whatsapp-config.js';
 
 // Segredo compartilhado com a Evolution API — configura o MESMO valor nos dois lados
 // (aqui via variavel de ambiente da Vercel, e na Evolution API como header customizado
 // no webhook). Protege pra ninguem conseguir inserir mensagem falsa mandando um POST
 // direto pra essa URL sem saber o segredo.
-const WEBHOOK_SECRET = process.env.EVOLUTION_WEBHOOK_SECRET;
+const WEBHOOK_SECRET = EVOLUTION_WEBHOOK_SECRET;
 
 // Normaliza numero de celular brasileiro pro formato canonico 55DDD9XXXXXXXX (13 digitos).
 // A Evolution/Baileys pode mandar o remoteJid COM ou SEM o nono digito dependendo da

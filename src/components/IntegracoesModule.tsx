@@ -62,7 +62,7 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
       while (!cancelarImportRef.current) {
         const resp = await fetch('/api/whatsapp-import-history', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
           body: JSON.stringify({ cursor }),
         });
         const data = await resp.json();
@@ -82,7 +82,7 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
     if (!(await showConfirm('Desconectar esse número do WhatsApp? Você vai precisar escanear o QR Code de novo pra reconectar (com o mesmo número ou outro).'))) return;
     setDesconectando(true);
     try {
-      const resp = await fetch('/api/whatsapp-connect', { method: 'DELETE' });
+      const resp = await fetch('/api/whatsapp-connect', { method: 'DELETE', headers: { 'x-user-id': user?.id || '' } });
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) {
         setQrError(data.error || 'Não foi possível desconectar.');
@@ -103,7 +103,7 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
   const handleVerificarStatusAgora = async () => {
     setVerificandoStatus(true);
     try {
-      const resp = await fetch('/api/whatsapp-connect?status=1');
+      const resp = await fetch('/api/whatsapp-connect?status=1', { headers: { 'x-user-id': user?.id || '' } });
       const data = await resp.json();
       setWhatsappStatus(data.status || 'close');
     } catch (err) {
@@ -117,7 +117,7 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
     setLoadingQr(true);
     setQrError(null);
     try {
-      const resp = await fetch('/api/whatsapp-connect');
+      const resp = await fetch('/api/whatsapp-connect', { headers: { 'x-user-id': user?.id || '' } });
       const data = await resp.json();
       if (!resp.ok) { setQrError(data.error || 'Não foi possível gerar o QR Code.'); return; }
       setQrCode(data.qrCode || null);

@@ -745,9 +745,14 @@ export default function App() {
         if (stageRows && stageRows.length > 0) stageId = stageRows[0].id;
       }
 
-      // If no lead exists, create it in the ENTRADA stage
+      // If no lead exists, create it in the ENTRADA stage. Usa upsert com
+      // ignoreDuplicates (em vez de insert simples) pra ser seguro mesmo se duas
+      // mensagens do mesmo contato chegarem quase ao mesmo tempo: se a linha ja
+      // existir (por causa da constraint idx_leads_company_phone_unique — ver
+      // supabase/add_unique_leads_company_phone.sql), esse upsert simplesmente
+      // nao faz nada, em vez de criar um segundo lead pro mesmo telefone.
       if (!leadRows || leadRows.length === 0) {
-        await supabase.from('leads').insert({
+        await supabase.from('leads').upsert({
           company_id: 'rafa-arts',
           funnel_id: funnelId || null,
           funnel_stage_id: stageId || null,
@@ -774,7 +779,7 @@ export default function App() {
           estimated_value: 0,
           status: 'ENTRADA',
           waiting_since: new Date().toISOString(),
-        });
+        }, { onConflict: 'company_id,phone', ignoreDuplicates: true });
         console.log(`CRM Automation: New Lead created from channel [${msgData.channel}] into ENTRADA stage.`);
       } else {
         // Atualiza o lead existente, mas so mexe no whatsappName (reflete o nome de perfil

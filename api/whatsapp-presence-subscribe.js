@@ -6,9 +6,8 @@
 // POST /api/whatsapp-presence-subscribe
 // body: { phone: "5593999999999" }
 
-const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL;
-const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY;
-const INSTANCE_NAME = 'rafa-arts';
+import { EVOLUTION_API_URL, EVOLUTION_API_KEY, INSTANCE_NAME } from './_lib/whatsapp-config.js';
+import { exigirUsuarioAutorizado } from './_lib/auth.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -19,6 +18,8 @@ export default async function handler(req, res) {
     res.status(200).json({ ok: false, ignorado: 'Evolution API não configurada.' });
     return;
   }
+
+  if (!(await exigirUsuarioAutorizado(req, res))) return;
 
   const { phone } = req.body || {};
   const numero = (phone || '').replace(/\D/g, '');

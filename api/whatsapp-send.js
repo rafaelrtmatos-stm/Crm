@@ -5,9 +5,8 @@
 // POST /api/whatsapp-send
 // body: { phone: "5593999999999", text: "Mensagem..." }
 
-const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL;
-const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY;
-const INSTANCE_NAME = 'rafa-arts';
+import { EVOLUTION_API_URL, EVOLUTION_API_KEY, INSTANCE_NAME } from './_lib/whatsapp-config.js';
+import { exigirUsuarioAutorizado } from './_lib/auth.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -19,6 +18,11 @@ export default async function handler(req, res) {
     res.status(500).json({ error: 'Evolution API não configurada — falta EVOLUTION_API_URL/EVOLUTION_API_KEY nas variáveis de ambiente da Vercel.' });
     return;
   }
+
+  // So um usuario logado do CRM pode disparar mensagem usando a conta conectada —
+  // sem essa checagem, qualquer pessoa que descobrisse essa URL conseguia mandar
+  // mensagem em nome do numero conectado.
+  if (!(await exigirUsuarioAutorizado(req, res))) return;
 
   const { phone, text } = req.body || {};
   if (!phone || !text) {

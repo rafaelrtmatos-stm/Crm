@@ -8,18 +8,10 @@
 //   POST /api/whatsapp-import-history  { cursor: 1 }
 //   -> processa o chat de indice 1, e assim por diante, ate cursor >= total
 
-const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL;
-const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY;
-const INSTANCE_NAME = 'rafa-arts';
-const SUPABASE_URL = 'https://areqouezrbdubfutjzki.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_YbzFXDHWQy-k0F9uNtVJ2g_urcsgmVt';
-const COMPANY_ID = 'rafa-arts';
+import { EVOLUTION_API_URL, EVOLUTION_API_KEY, INSTANCE_NAME, SUPABASE_URL, SUPABASE_ANON_KEY, COMPANY_ID, supabaseHeaders } from './_lib/whatsapp-config.js';
+import { exigirUsuarioAutorizado } from './_lib/auth.js';
 
-const supaHeaders = {
-  apikey: SUPABASE_ANON_KEY,
-  Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-  'Content-Type': 'application/json',
-};
+const supaHeaders = supabaseHeaders();
 
 async function buscarListaDeChats(headers) {
   const r = await fetch(`${EVOLUTION_API_URL}/chat/findChats/${INSTANCE_NAME}`, { method: 'POST', headers, body: JSON.stringify({}) });
@@ -171,6 +163,10 @@ export default async function handler(req, res) {
     res.status(500).json({ error: 'Evolution API não configurada.' });
     return;
   }
+
+  // So um usuario logado do CRM pode disparar a importacao de historico — ela
+  // baixa todas as conversas/mensagens da instancia conectada.
+  if (!(await exigirUsuarioAutorizado(req, res))) return;
 
   const evoHeaders = { apikey: EVOLUTION_API_KEY, 'Content-Type': 'application/json' };
   const cursor = Number(req.body?.cursor) || 0;

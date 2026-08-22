@@ -2480,7 +2480,7 @@ export const ChatPanel = ({
 
     fetch('/api/whatsapp-presence-subscribe', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
       body: JSON.stringify({ phone: phoneDigits }),
     }).catch((err) => console.error('Falha ao assinar presença (não impede o resto):', err));
 
@@ -2544,7 +2544,7 @@ export const ChatPanel = ({
         try {
           const resp = await fetch('/api/whatsapp-send', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
             body: JSON.stringify({ phone: conversation.phone, text: textoEnviado }),
           });
           if (!resp.ok) {

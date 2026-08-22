@@ -10,12 +10,8 @@
 //   EVOLUTION_API_KEY  -> chave de admin da sua Evolution API
 //   EVOLUTION_WEBHOOK_SECRET -> mesmo segredo usado em api/whatsapp-webhook.js
 
-const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL;
-const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY;
-const EVOLUTION_WEBHOOK_SECRET = process.env.EVOLUTION_WEBHOOK_SECRET;
-const INSTANCE_NAME = 'rafa-arts'; // nome fixo da instancia dentro da Evolution API
-const SUPABASE_URL = 'https://areqouezrbdubfutjzki.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_YbzFXDHWQy-k0F9uNtVJ2g_urcsgmVt';
+import { EVOLUTION_API_URL, EVOLUTION_API_KEY, EVOLUTION_WEBHOOK_SECRET, INSTANCE_NAME, SUPABASE_URL, SUPABASE_ANON_KEY, evolutionHeaders } from './_lib/whatsapp-config.js';
+import { exigirUsuarioAutorizado } from './_lib/auth.js';
 
 export default async function handler(req, res) {
   if (!EVOLUTION_API_URL || !EVOLUTION_API_KEY) {
@@ -23,7 +19,12 @@ export default async function handler(req, res) {
     return;
   }
 
-  const headers = { apikey: EVOLUTION_API_KEY, 'Content-Type': 'application/json' };
+  // So um usuario logado do CRM pode conectar/desconectar o WhatsApp ou ver a
+  // configuracao do webhook — sem isso, qualquer pessoa que descobrisse essa URL
+  // conseguia desconectar o numero ou espiar a config da instancia.
+  if (!(await exigirUsuarioAutorizado(req, res))) return;
+
+  const headers = evolutionHeaders();
 
   try {
     // --- Desconectar o numero (logout) — a instancia continua existindo na Evolution API,
