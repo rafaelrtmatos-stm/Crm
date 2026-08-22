@@ -9,6 +9,7 @@ import { formatCurrency } from '../utils/storage';
 import { getItensJaAdicionadosDeNotas, excluirServicoPorOrigem } from '../utils/supabaseStorage';
 import { NotaDetalheModal, NotaDetalhe, NotaDetalheItem, NotaSelecionadoItem } from './NotaDetalheModal';
 import { getTodayISO, toLocalISO } from '../utils/dateHelpers';
+import { getWorkWeekBounds, addDaysISO } from '../utils/caixaSemanalStorage';
 
 interface NotaAgendada {
   id: string;
@@ -38,6 +39,24 @@ const dateLabel = (iso: string) =>
     weekday: 'long', day: '2-digit', month: '2-digit'
   });
 
+// Rótulo curto pro dia dentro da subpasta da semana (ex: "SEG 18").
+const dayShortLabel = (iso: string) => {
+  const d = new Date(`${iso}T00:00:00`);
+  const dow = d.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '').toUpperCase();
+  return `${dow} ${String(d.getDate()).padStart(2, '0')}`;
+};
+
+// Rótulo da "pasta" da semana (ex: "18 a 24 de Ago").
+const weekLabel = (start: string, end: string) => {
+  const s = new Date(`${start}T00:00:00`);
+  const e = new Date(`${end}T00:00:00`);
+  const mesFmt = (d: Date) => d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '');
+  if (s.getMonth() === e.getMonth()) {
+    return `${String(s.getDate()).padStart(2, '0')} a ${String(e.getDate()).padStart(2, '0')} de ${mesFmt(e)}`;
+  }
+  return `${String(s.getDate()).padStart(2, '0')} ${mesFmt(s)} a ${String(e.getDate()).padStart(2, '0')} ${mesFmt(e)}`;
+};
+
 export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
   onAddItemsToTable,
   colaboradorId
@@ -52,7 +71,10 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
   const [selecionadas, setSelecionadas] = useState<Set<string>>(new Set());
   const [lixeiraAberta, setLixeiraAberta] = useState(false);
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
-  const [selectedDay, setSelectedDay] = useState<string>('all');
+  // Navegação em duas camadas: semana (pasta) -> dia da semana (subpasta).
+  // Sempre começa na semana atual, com o dia de HOJE selecionado por padrão.
+  const [weekOffset, setWeekOffset] = useState(0);
+  const [selectedDay, setSelectedDay] = useState<string>(getTodayISO());
 
   const carregarDispensadas = async () => {
     if (!colaboradorId) {
@@ -130,16 +152,46 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
     [notas, dispensadas]
   );
 
-  const diasDisponiveis = useMemo(() => {
-    const keys = new Set<string>();
-    notasVisiveis.forEach(n => keys.add(dateKey(n.scheduled_for || n.created_at)));
-    return Array.from(keys).sort();
-  }, [notasVisiveis]);
+  // Limites (domingo a sábado) da semana selecionada — pasta de nível 1.
+  const weekBounds = useMemo(() => getWorkWeekBounds(weekOffset), [weekOffset]);
+
+  // Sempre que a semana muda, o dia selecionado se reajusta: se a semana atual contém
+  // hoje, seleciona hoje; senão volta pra "Todos" da semana (não há um "hoje" nela).
+  useEffect(() => {
+    const hoje = getTodayISO();
+    if (hoje >= weekBounds.start && hoje <= weekBounds.end) {
+      setSelectedDay(hoje);
+    } else {
+      setSelectedDay('all');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekBounds.start, weekBounds.end]);
+
+  // Notas dentro da semana selecionada (pasta).
+  const notasDaSemana = useMemo(
+    () => notasVisiveis.filter(n => {
+      const key = dateKey(n.scheduled_for || n.created_at);
+      return key >= weekBounds.start && key <= weekBounds.end;
+    }),
+    [notasVisiveis, weekBounds]
+  );
+
+  // Os 7 dias (domingo a sábado) da semana selecionada — subpastas — com a contagem de
+  // notas de cada um, pra montar os chips mesmo em dias sem nenhum serviço.
+  const diasDaSemana = useMemo(() => {
+    const dias: { iso: string; count: number }[] = [];
+    for (let i = 0; i < 7; i++) {
+      const iso = addDaysISO(weekBounds.start, i);
+      const count = notasDaSemana.filter(n => dateKey(n.scheduled_for || n.created_at) === iso).length;
+      dias.push({ iso, count });
+    }
+    return dias;
+  }, [weekBounds, notasDaSemana]);
 
   const notasFiltradas = useMemo(() => {
-    if (selectedDay === 'all') return notasVisiveis;
-    return notasVisiveis.filter(n => dateKey(n.scheduled_for || n.created_at) === selectedDay);
-  }, [notasVisiveis, selectedDay]);
+    if (selectedDay === 'all') return notasDaSemana;
+    return notasDaSemana.filter(n => dateKey(n.scheduled_for || n.created_at) === selectedDay);
+  }, [notasDaSemana, selectedDay]);
 
   const gruposPorDia = useMemo(() => {
     const map = new Map<string, NotaAgendada[]>();
@@ -461,30 +513,77 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
       </div>
 
       {!lixeiraAberta && (
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          <button
-            onClick={() => setSelectedDay('all')}
-            className={`shrink-0 px-3 py-2 rounded-xl text-xs font-bold border ${
-              selectedDay === 'all'
-                ? 'bg-gradient-red text-white border-transparent'
-                : 'bg-[var(--bg-card)] border-[var(--border-color)] text-[var(--text-muted)]'
-            }`}
-          >
-            Todos
-          </button>
-          {diasDisponiveis.map(day => (
+        <div className="space-y-2">
+          {/* Pasta: navegação por semana */}
+          <div className="flex items-center gap-2 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl px-2 py-1.5">
             <button
-              key={day}
-              onClick={() => setSelectedDay(day)}
+              onClick={() => setWeekOffset(v => v - 1)}
+              className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-card-sec)] cursor-pointer"
+              title="Semana anterior"
+            >
+              <ChevronRight className="w-4 h-4 rotate-180" />
+            </button>
+            <div className="flex-1 min-w-0 flex items-center justify-center gap-2">
+              <CalendarClock className="w-3.5 h-3.5 text-[var(--accent-red)] shrink-0" />
+              <span className="text-xs font-black uppercase tracking-wide truncate">
+                {weekOffset === 0 ? 'Esta Semana' : weekLabel(weekBounds.start, weekBounds.end)}
+              </span>
+            </div>
+            <button
+              onClick={() => setWeekOffset(v => v + 1)}
+              className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-card-sec)] cursor-pointer"
+              title="Próxima semana"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+            {weekOffset !== 0 && (
+              <button
+                onClick={() => setWeekOffset(0)}
+                className="shrink-0 px-2.5 py-1 rounded-lg bg-gradient-red text-white text-[10px] font-black uppercase cursor-pointer"
+              >
+                Hoje
+              </button>
+            )}
+          </div>
+
+          {/* Subpastas: dias da semana selecionada */}
+          <div className="flex gap-2 overflow-x-auto pb-1 pl-1">
+            <button
+              onClick={() => setSelectedDay('all')}
               className={`shrink-0 px-3 py-2 rounded-xl text-xs font-bold border ${
-                selectedDay === day
+                selectedDay === 'all'
                   ? 'bg-gradient-red text-white border-transparent'
                   : 'bg-[var(--bg-card)] border-[var(--border-color)] text-[var(--text-muted)]'
               }`}
             >
-              {dateLabel(day)}
+              Todos
             </button>
-          ))}
+            {diasDaSemana.map(({ iso, count }) => {
+              const isToday = iso === getTodayISO();
+              const selected = selectedDay === iso;
+              return (
+                <button
+                  key={iso}
+                  onClick={() => setSelectedDay(iso)}
+                  className={`shrink-0 px-3 py-2 rounded-xl text-xs font-bold border flex items-center gap-1.5 ${
+                    selected
+                      ? 'bg-gradient-red text-white border-transparent'
+                      : isToday
+                        ? 'bg-[var(--bg-card)] border-[var(--accent-red)]/50 text-[var(--text-main)]'
+                        : 'bg-[var(--bg-card)] border-[var(--border-color)] text-[var(--text-muted)]'
+                  }`}
+                >
+                  {dayShortLabel(iso)}
+                  {isToday && !selected && <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent-red)]" />}
+                  {count > 0 && (
+                    <span className={`text-[10px] ${selected ? 'text-white/80' : 'text-[var(--text-muted)]'}`}>
+                      ({count})
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -518,7 +617,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
         )
       ) : gruposPorDia.length === 0 ? (
         <div className="p-8 text-center bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl text-[var(--text-muted)]">
-          Nenhum serviço no momento.
+          Nenhum serviço {selectedDay === 'all' ? 'nesta semana' : 'neste dia'}.
         </div>
       ) : (
         <div className="space-y-5">
