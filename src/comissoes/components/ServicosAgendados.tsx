@@ -1,5 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CalendarClock, Bell, ChevronRight, Trash2, ArrowLeft, RotateCcw, CheckSquare, Square, X } from 'lucide-react';
+import {
+  CalendarClock, Bell, ChevronRight, ChevronDown, Trash2, ArrowLeft,
+  RotateCcw, CheckSquare, Square, X, CheckCircle2
+} from 'lucide-react';
 import { supabase } from '../../supabase';
 import { showConfirm } from '../../lib/notify';
 import { formatCurrency } from '../utils/storage';
@@ -18,41 +21,43 @@ interface NotaAgendada {
 }
 
 interface ServicosAgendadosProps {
-  // Chamado quando o colaborador confirma "Adicionar" no modal da nota — vem com todos
-  // os itens marcados (1 ou mais), já com o valor revisado, e a data escolhida pra lançar
-  // o serviço. Quem usa esse componente decide o que fazer (normalmente: salvar direto na
-  // tabela dele, usando a data recebida em vez de calcular uma). Retorna true se salvou com
-  // sucesso — usado aqui pra marcar os itens como "já adicionados" (check verde) na hora.
   onAddItemsToTable?: (items: NotaSelecionadoItem[], nota: NotaDetalhe, data: string) => Promise<boolean>;
-  // Id do colaborador logado — usado só pra dispensar (esconder) notas dessa lista pra ele.
-  // Sem isso, o botão de Excluir some (não tem como saber de quem é a dispensa).
   colaboradorId?: string;
 }
 
-// Mostra todas as vendas do PDV que tem pelo menos um item de serviço (produto marcado
-// como "is_service" no cadastro) — agendadas ou não. Os dois sistemas compartilham o mesmo
-// banco de dados, entao o que e criado no CRM aparece aqui automaticamente, sem o colaborador
-// precisar lancar nada. Notas ja marcadas como "Produto Entregue" somem da lista (entrega
-// concluida nao e mais uma pendencia). O telefone do cliente nao e mostrado nem buscado aqui —
-// essa aba e so pra dar visibilidade do serviço, nao pra contato direto com o cliente.
-export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({ onAddItemsToTable, colaboradorId }) => {
+const dateKey = (raw: string | null | undefined) => {
+  if (!raw) return new Date().toISOString().split('T')[0];
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return new Date().toISOString().split('T')[0];
+  return d.toISOString().split('T')[0];
+};
+
+const dateLabel = (iso: string) =>
+  new Date(`${iso}T00:00:00`).toLocaleDateString('pt-BR', {
+    weekday: 'long', day: '2-digit', month: '2-digit'
+  });
+
+export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
+  onAddItemsToTable,
+  colaboradorId
+}) => {
   const [notas, setNotas] = useState<NotaAgendada[]>([]);
   const [loading, setLoading] = useState(true);
   const [notaSelecionada, setNotaSelecionada] = useState<NotaAgendada | null>(null);
-  // Ids de venda que ESSE colaborador já dispensou (excluiu da própria lista) — não apaga a
-  // venda de verdade, só esconde pra ele. Carregado uma vez e atualizado na hora ao excluir.
   const [dispensadas, setDispensadas] = useState<Set<string>>(new Set());
-  // Índices já adicionados (viraram serviço em Comissões) por nota — key = venda_id.
-  // Global (não é por colaborador): trava duplicação mesmo se outro colaborador já puxou.
-  const [itensAdicionadosPorNota, setItensAdicionadosPorNota] = useState<Record<string, Set<number>>>({});
-  // Modo de seleção em massa: liga checkboxes nos cards pra excluir várias notas de uma vez.
+  const [itensAdicionadosPorNota, setItensAdicionadosPorNota] =
+    useState<Record<string, Set<number>>>({});
   const [modoSelecao, setModoSelecao] = useState(false);
   const [selecionadas, setSelecionadas] = useState<Set<string>>(new Set());
-  // Lixeira: mostra as notas que esse colaborador já dispensou, com opção de restaurar.
   const [lixeiraAberta, setLixeiraAberta] = useState(false);
+  const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
+  const [selectedDay, setSelectedDay] = useState<string>('all');
 
   const carregarDispensadas = async () => {
-    if (!colaboradorId) { setDispensadas(new Set()); return; }
+    if (!colaboradorId) {
+      setDispensadas(new Set());
+      return;
+    }
     const { data } = await supabase
       .from('servicos_agendados_dispensados')
       .select('venda_id')
@@ -61,13 +66,11 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({ onAddItems
   };
 
   const carregar = async () => {
-    // Produtos marcados como serviço no cadastro — usado pra filtrar quais vendas têm
-    // pelo menos um item de serviço (o item salvo na venda não guarda esse flag, só o
-    // productId, então cruzamos com o cadastro de produtos).
     const { data: servicos } = await supabase
       .from('produtos')
       .select('id')
       .eq('is_service', true);
+
     const servicoIds = new Set((servicos || []).map((p: { id: string }) => p.id));
 
     const { data } = await supabase
@@ -75,7 +78,6 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({ onAddItems
       .select('id, customer_name, total, discount_value, scheduled_for, items, observacoes, service_status, created_at')
       .neq('status', 'canceled')
       .is('deleted_at', null)
-      // "produto_entregue" = entrega ja concluida, nao deve mais aparecer como pendencia aqui.
       .or('service_status.is.null,service_status.neq.produto_entregue')
       .order('scheduled_for', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: false });
@@ -83,124 +85,302 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({ onAddItems
     const todas = (data || []) as NotaAgendada[];
     const comServico = servicoIds.size === 0
       ? todas
-      : todas.filter((nota) => (nota.items || []).some((item) => item.productId && servicoIds.has(item.productId)));
+      : todas.filter(n =>
+          (n.items || []).some(i => i.productId && servicoIds.has(i.productId))
+        );
 
     setNotas(comServico);
     setLoading(false);
 
-    // Busca junto quais itens dessas notas já viraram serviço de Comissões (global, não só
-    // desse colaborador), pra travar duplicação e mostrar o check verde.
-    const ids = comServico.map((n) => n.id);
-    if (ids.length > 0) {
+    const ids = comServico.map(n => n.id);
+    if (ids.length) {
       const mapa = await getItensJaAdicionadosDeNotas(ids);
       setItensAdicionadosPorNota(mapa);
+    } else {
+      setItensAdicionadosPorNota({});
     }
   };
 
   useEffect(() => {
     carregar();
     carregarDispensadas();
-    // Realtime: mesmo padrao usado no Dashboard/PDV/Producao — reage na hora quando "vendas"
-    // ou "produtos" mudam (precisa que ambas estejam na publication supabase_realtime).
+
     const channel = supabase
       .channel('comissoes-servicos-agendados')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vendas' }, carregar)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'produtos' }, carregar)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'comissoes_servicos' }, carregar)
       .subscribe();
-    // Fallback de seguranca: se o realtime nao estiver habilitado no projeto (publication sem
-    // "vendas"/"produtos"), essa aba nao fica travada — continua atualizando, so que a cada 1 minuto.
+
     const interval = setInterval(carregar, 60000);
-    return () => { supabase.removeChannel(channel); clearInterval(interval); };
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(interval);
+    };
   }, []);
 
-  useEffect(() => { carregarDispensadas(); }, [colaboradorId]);
+  useEffect(() => {
+    carregarDispensadas();
+  }, [colaboradorId]);
 
-  const agora = Date.now();
-  const notasVisiveis = notas.filter((n) => !dispensadas.has(n.id));
-  // Lixeira: as notas que esse colaborador já dispensou, mais recentes primeiro.
+  const notasVisiveis = notas.filter(n => !dispensadas.has(n.id));
   const notasNaLixeira = useMemo(
-    () => notas.filter((n) => dispensadas.has(n.id)),
+    () => notas.filter(n => dispensadas.has(n.id)),
     [notas, dispensadas]
   );
 
-  const handleAddItems = async (items: NotaSelecionadoItem[], nota: NotaDetalhe, data: string) => {
+  const diasDisponiveis = useMemo(() => {
+    const keys = new Set<string>();
+    notasVisiveis.forEach(n => keys.add(dateKey(n.scheduled_for || n.created_at)));
+    return Array.from(keys).sort();
+  }, [notasVisiveis]);
+
+  const notasFiltradas = useMemo(() => {
+    if (selectedDay === 'all') return notasVisiveis;
+    return notasVisiveis.filter(n => dateKey(n.scheduled_for || n.created_at) === selectedDay);
+  }, [notasVisiveis, selectedDay]);
+
+  const gruposPorDia = useMemo(() => {
+    const map = new Map<string, NotaAgendada[]>();
+    notasFiltradas.forEach(n => {
+      const key = dateKey(n.scheduled_for || n.created_at);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(n);
+    });
+    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [notasFiltradas]);
+
+  const toggleExpanded = (id: string) => {
+    setExpandedNotes(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleAddItems = async (
+    items: NotaSelecionadoItem[],
+    nota: NotaDetalhe,
+    data: string
+  ) => {
     const ok = await onAddItemsToTable?.(items, nota, data);
-    if (ok) {
-      // Otimista: marca na hora como adicionado (check verde), sem esperar o realtime.
-      // O modal continua aberto pra mostrar a confirmação — o colaborador fecha quando quiser.
-      setItensAdicionadosPorNota((prev) => {
-        const atual = new Set(prev[nota.id] || []);
-        items.forEach((item) => atual.add(item.idx));
-        return { ...prev, [nota.id]: atual };
-      });
-    }
+    if (!ok) return;
+
+    setItensAdicionadosPorNota(prev => {
+      const atual = new Set(prev[nota.id] || []);
+      items.forEach(item => atual.add(item.idx));
+      return { ...prev, [nota.id]: atual };
+    });
   };
 
   const handleExcluirNota = async (e: React.MouseEvent, vendaId: string) => {
     e.stopPropagation();
     if (!colaboradorId) return;
-    if (!(await showConfirm('Excluir essa nota da sua lista de Serviços? Ela some só pra você — continua normal no PDV/Financeiro.'))) return;
-    // Otimista: some da tela na hora, e desfaz se der erro ao salvar
-    setDispensadas((prev) => new Set(prev).add(vendaId));
+    if (!(await showConfirm(
+      'Excluir essa nota da sua lista de Serviços? Ela some só pra você — continua normal no PDV/Financeiro.'
+    ))) return;
+
+    setDispensadas(prev => new Set(prev).add(vendaId));
     const { error } = await supabase
       .from('servicos_agendados_dispensados')
       .insert({ colaborador_id: colaboradorId, venda_id: vendaId });
+
     if (error) {
-      setDispensadas((prev) => { const next = new Set(prev); next.delete(vendaId); return next; });
+      setDispensadas(prev => {
+        const next = new Set(prev);
+        next.delete(vendaId);
+        return next;
+      });
     }
   };
 
-  // --- Seleção em massa ---
-  const toggleModoSelecao = () => {
-    setModoSelecao((prev) => !prev);
-    setSelecionadas(new Set());
-  };
-
-  const toggleSelecionada = (vendaId: string) => {
-    setSelecionadas((prev) => {
+  const toggleSelecionada = (id: string) => {
+    setSelecionadas(prev => {
       const next = new Set(prev);
-      if (next.has(vendaId)) next.delete(vendaId); else next.add(vendaId);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   };
 
-  const toggleSelecionarTodas = () => {
-    setSelecionadas((prev) =>
-      prev.size === notasVisiveis.length ? new Set() : new Set(notasVisiveis.map((n) => n.id))
-    );
-  };
-
   const handleExcluirSelecionadas = async () => {
-    if (!colaboradorId || selecionadas.size === 0) return;
+    if (!colaboradorId || !selecionadas.size) return;
     const ids = Array.from(selecionadas);
+
     if (!(await showConfirm(
-      `Excluir ${ids.length} nota(s) da sua lista de Serviços? Elas somem só pra você — continuam normais no PDV/Financeiro.`
+      `Excluir ${ids.length} nota(s) da sua lista de Serviços?`
     ))) return;
-    // Otimista: some da tela na hora, e desfaz o que der erro ao salvar
-    setDispensadas((prev) => { const next = new Set(prev); ids.forEach((id) => next.add(id)); return next; });
-    setModoSelecao(false);
+
+    setDispensadas(prev => {
+      const next = new Set(prev);
+      ids.forEach(id => next.add(id));
+      return next;
+    });
     setSelecionadas(new Set());
+    setModoSelecao(false);
+
     const { error } = await supabase
       .from('servicos_agendados_dispensados')
-      .insert(ids.map((venda_id) => ({ colaborador_id: colaboradorId, venda_id })));
-    if (error) {
-      await carregarDispensadas();
-    }
+      .insert(ids.map(venda_id => ({ colaborador_id: colaboradorId, venda_id })));
+
+    if (error) await carregarDispensadas();
   };
 
-  // --- Lixeira: restaurar ---
   const handleRestaurarNota = async (vendaId: string) => {
     if (!colaboradorId) return;
-    setDispensadas((prev) => { const next = new Set(prev); next.delete(vendaId); return next; });
+
+    setDispensadas(prev => {
+      const next = new Set(prev);
+      next.delete(vendaId);
+      return next;
+    });
+
     const { error } = await supabase
       .from('servicos_agendados_dispensados')
       .delete()
       .eq('colaborador_id', colaboradorId)
       .eq('venda_id', vendaId);
-    if (error) {
-      setDispensadas((prev) => new Set(prev).add(vendaId));
-    }
+
+    if (error) setDispensadas(prev => new Set(prev).add(vendaId));
+  };
+
+  const renderNotaCard = (nota: NotaAgendada) => {
+    const totalItens = nota.items?.length || 0;
+    const adicionados = itensAdicionadosPorNota[nota.id]?.size || 0;
+    const completa = totalItens > 0 && adicionados >= totalItens;
+    const parcial = adicionados > 0 && !completa;
+    const expanded = expandedNotes.has(nota.id);
+    const data = dateKey(nota.scheduled_for || nota.created_at);
+    const atrasado =
+      !!nota.scheduled_for && new Date(nota.scheduled_for).getTime() <= Date.now();
+
+    return (
+      <div
+        key={nota.id}
+        className={`rounded-2xl border overflow-hidden transition-all ${
+          completa
+            ? 'bg-emerald-500/5 border-emerald-500/25 opacity-60'
+            : parcial
+              ? 'bg-[var(--bg-card)] border-[var(--border-color)]'
+              : 'bg-[var(--bg-card)] border-[var(--border-color)]'
+        }`}
+      >
+        <div
+          className="p-4 flex items-center gap-3 cursor-pointer hover:border-[var(--accent-red)]/50"
+          onClick={() => modoSelecao ? toggleSelecionada(nota.id) : toggleExpanded(nota.id)}
+        >
+          {modoSelecao && (
+            <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 ${
+              selecionadas.has(nota.id)
+                ? 'bg-[var(--accent-red)] border-[var(--accent-red)]'
+                : 'border-[var(--border-color)]'
+            }`}>
+              {selecionadas.has(nota.id) && <CheckSquare className="w-3.5 h-3.5 text-white" />}
+            </div>
+          )}
+
+          <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${
+            completa ? 'bg-emerald-500/15' : atrasado ? 'bg-gradient-red' : 'bg-[var(--bg-card-sec)]'
+          }`}>
+            {completa
+              ? <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+              : <CalendarClock className={`w-5 h-5 ${atrasado ? 'text-white' : 'text-[var(--text-muted)]'}`} />}
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="font-black text-sm truncate">
+                {(nota.customer_name || 'Cliente de Balcão').toUpperCase()}
+              </p>
+              <span className="text-[10px] font-mono text-[var(--text-muted)]">
+                NOTA #{nota.id.slice(-6).toUpperCase()}
+              </span>
+            </div>
+
+            <p className="text-[11px] text-[var(--text-muted)]">
+              {adicionados}/{totalItens} serviços adicionados
+            </p>
+
+            <div className="flex flex-wrap items-center gap-2 mt-1">
+              <span className="text-[11px] font-black text-[var(--text-main)]">
+                {formatCurrency(nota.total)}
+              </span>
+              <span className={`text-[10px] font-bold ${
+                completa ? 'text-emerald-400' : atrasado ? 'text-[var(--accent-red)]' : 'text-[var(--text-muted)]'
+              }`}>
+                {completa
+                  ? 'CONCLUÍDA'
+                  : nota.scheduled_for
+                    ? new Date(nota.scheduled_for).toLocaleString('pt-BR', {
+                        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+                      })
+                    : 'Sem agendamento'}
+              </span>
+            </div>
+          </div>
+
+          {colaboradorId && !modoSelecao && (
+            <button
+              onClick={e => handleExcluirNota(e, nota.id)}
+              className="p-2 rounded-lg text-[var(--text-muted)] hover:text-rose-400 hover:bg-rose-500/10 shrink-0"
+              title="Excluir desta lista"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
+
+          {!modoSelecao && (
+            expanded
+              ? <ChevronDown className="w-5 h-5 text-[var(--text-muted)] shrink-0" />
+              : <ChevronRight className="w-5 h-5 text-[var(--text-muted)] shrink-0" />
+          )}
+        </div>
+
+        {expanded && (
+          <div className="border-t border-[var(--border-color)] bg-[var(--bg-card-sec)]/40 p-3 space-y-2">
+            {(nota.items || []).map((item, idx) => {
+              const added = itensAdicionadosPorNota[nota.id]?.has(idx);
+              return (
+                <div
+                  key={`${nota.id}-${idx}`}
+                  className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 ${
+                    added
+                      ? 'bg-emerald-500/5 border-emerald-500/20'
+                      : 'bg-[var(--bg-card)] border-[var(--border-color)]'
+                  }`}
+                >
+                  <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
+                    added ? 'bg-emerald-500' : 'border-2 border-[var(--border-color)]'
+                  }`}>
+                    {added && <CheckSquare className="w-3.5 h-3.5 text-white" />}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-bold text-[var(--text-main)] truncate">{item.name}</p>
+                    <p className="text-[10px] text-[var(--text-muted)]">{item.quantity ?? 1}x na nota</p>
+                  </div>
+                  <span className={`text-[10px] font-bold ${added ? 'text-emerald-400' : 'text-[var(--text-muted)]'}`}>
+                    {added ? 'Já adicionado' : 'Disponível'}
+                  </span>
+                </div>
+              );
+            })}
+
+            <div className="pt-2 flex items-center justify-between gap-2 text-[10px]">
+              <span className="text-[var(--text-muted)]">
+                {completa ? 'Todos os itens desta nota já foram lançados.' : 'Você pode adicionar 1, 2 ou todos os itens.'}
+              </span>
+              <button
+                onClick={() => setNotaSelecionada(nota)}
+                className="px-3 py-1.5 rounded-lg bg-gradient-red text-white font-bold"
+              >
+                {completa ? 'VER NOTA' : 'ADICIONAR SERVIÇOS'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -216,67 +396,68 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({ onAddItems
           <div className="ml-auto flex items-center gap-2">
             {!lixeiraAberta && (
               <button
-                onClick={toggleModoSelecao}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
-                  modoSelecao
-                    ? 'bg-red-950/40 border-[var(--accent-red)] text-[var(--accent-red)]'
-                    : 'border-[var(--border-color)] bg-[var(--bg-card-sec)] text-[var(--text-muted)] hover:text-white hover:border-[var(--accent-red)]'
-                }`}
+                onClick={() => {
+                  setModoSelecao(v => !v);
+                  setSelecionadas(new Set());
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card-sec)] text-xs font-bold"
               >
                 {modoSelecao ? <X className="w-3.5 h-3.5" /> : <CheckSquare className="w-3.5 h-3.5" />}
                 <span className="hidden sm:inline">{modoSelecao ? 'CANCELAR' : 'SELECIONAR'}</span>
               </button>
             )}
 
+            {modoSelecao && !lixeiraAberta && (
+              <button
+                onClick={handleExcluirSelecionadas}
+                disabled={!selecionadas.size}
+                className="px-3 py-1.5 rounded-xl bg-gradient-red text-white text-xs font-bold disabled:opacity-40"
+              >
+                <Trash2 className="w-3.5 h-3.5 inline mr-1" />
+                Excluir
+              </button>
+            )}
+
             <button
-              onClick={() => { setLixeiraAberta((prev) => !prev); setModoSelecao(false); setSelecionadas(new Set()); }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
-                lixeiraAberta
-                  ? 'bg-red-950/40 border-[var(--accent-red)] text-[var(--accent-red)]'
-                  : 'border-[var(--border-color)] bg-[var(--bg-card-sec)] text-[var(--text-muted)] hover:text-white hover:border-[var(--accent-red)]'
-              }`}
-              title={lixeiraAberta ? 'Voltar para a lista' : 'Ver notas excluídas'}
+              onClick={() => {
+                setLixeiraAberta(v => !v);
+                setModoSelecao(false);
+                setSelecionadas(new Set());
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card-sec)] text-xs font-bold"
             >
               {lixeiraAberta ? <ArrowLeft className="w-3.5 h-3.5" /> : <Trash2 className="w-3.5 h-3.5" />}
               <span className="hidden sm:inline">{lixeiraAberta ? 'VOLTAR' : 'LIXEIRA'}</span>
-              {!lixeiraAberta && notasNaLixeira.length > 0 && (
-                <span className="inline-flex items-center justify-center min-w-[1.1rem] h-[1.1rem] px-1 rounded-full bg-[var(--accent-red)] text-white text-[10px]">
-                  {notasNaLixeira.length}
-                </span>
-              )}
             </button>
           </div>
         )}
       </div>
 
-      <p className="text-xs text-[var(--text-muted)] -mt-2">
-        {lixeiraAberta
-          ? 'Notas que você excluiu da sua lista. Restaurar faz elas voltarem a aparecer só pra você — a nota nunca deixou de existir no PDV/Financeiro.'
-          : 'Todas as vendas com item de serviço no sistema principal, agendadas ou não — atualiza em tempo real. Toque numa nota para ver os detalhes.'}
-      </p>
-
-      {/* Barra de ação em massa */}
-      {modoSelecao && !lixeiraAberta && (
-        <div className="flex items-center justify-between gap-3 flex-wrap bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl px-4 py-2.5">
+      {!lixeiraAberta && (
+        <div className="flex gap-2 overflow-x-auto pb-1">
           <button
-            onClick={toggleSelecionarTodas}
-            className="flex items-center gap-1.5 text-xs font-bold text-[var(--text-muted)] hover:text-white transition-colors cursor-pointer"
+            onClick={() => setSelectedDay('all')}
+            className={`shrink-0 px-3 py-2 rounded-xl text-xs font-bold border ${
+              selectedDay === 'all'
+                ? 'bg-gradient-red text-white border-transparent'
+                : 'bg-[var(--bg-card)] border-[var(--border-color)] text-[var(--text-muted)]'
+            }`}
           >
-            {selecionadas.size === notasVisiveis.length && notasVisiveis.length > 0 ? (
-              <CheckSquare className="w-4 h-4 text-[var(--accent-red)]" />
-            ) : (
-              <Square className="w-4 h-4" />
-            )}
-            Selecionar todas
+            Todos
           </button>
-          <span className="text-xs font-bold text-[var(--text-muted)]">{selecionadas.size} selecionada(s)</span>
-          <button
-            onClick={handleExcluirSelecionadas}
-            disabled={selecionadas.size === 0}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-red text-white text-xs font-bold uppercase tracking-wide disabled:opacity-40 disabled:cursor-not-allowed hover:brightness-110 transition-all cursor-pointer"
-          >
-            <Trash2 className="w-3.5 h-3.5" /> Excluir selecionadas
-          </button>
+          {diasDisponiveis.map(day => (
+            <button
+              key={day}
+              onClick={() => setSelectedDay(day)}
+              className={`shrink-0 px-3 py-2 rounded-xl text-xs font-bold border ${
+                selectedDay === day
+                  ? 'bg-gradient-red text-white border-transparent'
+                  : 'bg-[var(--bg-card)] border-[var(--border-color)] text-[var(--text-muted)]'
+              }`}
+            >
+              {dateLabel(day)}
+            </button>
+          ))}
         </div>
       )}
 
@@ -284,107 +465,49 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({ onAddItems
         <div className="animate-skeleton h-24 rounded-2xl" />
       ) : lixeiraAberta ? (
         notasNaLixeira.length === 0 ? (
-          <div className="bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl p-8 text-center text-[var(--text-muted)] text-sm">
-            <Trash2 className="w-8 h-8 mx-auto mb-2 text-[var(--accent-red)] opacity-50" />
-            <p className="font-bold text-sm">Lixeira vazia</p>
-            <p className="text-xs mt-1">Notas que você excluir aparecem aqui.</p>
+          <div className="p-8 text-center bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl text-[var(--text-muted)]">
+            Lixeira vazia
           </div>
         ) : (
           <div className="space-y-3">
-            {notasNaLixeira.map((nota) => (
-              <div
-                key={nota.id}
-                className="bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl p-4 flex items-center gap-4 opacity-80"
-              >
-                <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 bg-[var(--bg-card-sec)]">
-                  <Trash2 className="w-5 h-5 text-[var(--text-muted)]" />
-                </div>
+            {notasNaLixeira.map(nota => (
+              <div key={nota.id} className="p-4 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] flex items-center gap-3 opacity-70">
+                <Trash2 className="w-5 h-5 text-[var(--text-muted)] shrink-0" />
                 <div className="min-w-0 flex-1">
                   <p className="font-black text-sm truncate">{(nota.customer_name || 'Cliente de Balcão').toUpperCase()}</p>
-                  <p className="text-xs text-[var(--text-muted)] truncate">
-                    {(nota.items || []).map(i => i.name).join(', ') || 'Sem itens'}
+                  <p className="text-[11px] text-[var(--text-muted)]">
+                    {dateLabel(dateKey(nota.scheduled_for || nota.created_at))}
                   </p>
-                  <span className="text-[11px] font-black text-[var(--text-main)] block mt-1">{formatCurrency(nota.total)}</span>
                 </div>
                 <button
                   onClick={() => handleRestaurarNota(nota.id)}
-                  className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 text-xs font-bold transition-colors cursor-pointer"
-                  title="Restaurar pra sua lista"
+                  className="px-3 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 text-xs font-bold"
                 >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">RESTAURAR</span>
+                  <RotateCcw className="w-3.5 h-3.5 inline mr-1" />Restaurar
                 </button>
               </div>
             ))}
           </div>
         )
-      ) : notasVisiveis.length === 0 ? (
-        <div className="bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl p-8 text-center text-[var(--text-muted)] text-sm">
+      ) : gruposPorDia.length === 0 ? (
+        <div className="p-8 text-center bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl text-[var(--text-muted)]">
           Nenhum serviço no momento.
         </div>
       ) : (
-        <div className="space-y-3">
-          {notasVisiveis.map((nota) => {
-            const atrasado = !!nota.scheduled_for && new Date(nota.scheduled_for).getTime() <= agora;
-            const selecionada = selecionadas.has(nota.id);
-            const totalItens = (nota.items || []).length;
-            const adicionadosDaNota = itensAdicionadosPorNota[nota.id]?.size || 0;
-            const notaCompleta = totalItens > 0 && adicionadosDaNota === totalItens;
-            return (
-              <div
-                key={nota.id}
-                onClick={() => (modoSelecao ? toggleSelecionada(nota.id) : setNotaSelecionada(nota))}
-                className={`bg-[var(--bg-card)] border rounded-2xl p-4 flex items-center gap-4 cursor-pointer transition-colors ${
-                  selecionada
-                    ? 'border-[var(--accent-red)] bg-[var(--accent-red)]/5'
-                    : `hover:border-[var(--accent-red)]/60 ${atrasado ? 'border-[var(--accent-red)]' : 'border-[var(--border-color)]'}`
-                }`}
-              >
-                {modoSelecao && (
-                  <div
-                    className={`shrink-0 w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors ${
-                      selecionada ? 'bg-[var(--accent-red)] border-[var(--accent-red)]' : 'border-[var(--border-color)]'
-                    }`}
-                  >
-                    {selecionada && <CheckSquare className="w-3.5 h-3.5 text-white" />}
-                  </div>
-                )}
-                <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${atrasado ? 'bg-gradient-red' : 'bg-[var(--bg-card-sec)]'}`}>
-                  <CalendarClock className={`w-5 h-5 ${atrasado ? 'text-white' : 'text-[var(--text-muted)]'}`} />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="font-black text-sm truncate">{(nota.customer_name || 'Cliente de Balcão').toUpperCase()}</p>
-                  <p className="text-xs text-[var(--text-muted)] truncate">
-                    {(nota.items || []).map(i => i.name).join(', ') || 'Sem itens'}
-                  </p>
-                  <div className="flex items-center gap-3 mt-1">
-                    <span className="text-[11px] font-black text-[var(--text-main)]">{formatCurrency(nota.total)}</span>
-                    <span className={`text-[11px] font-bold ${atrasado ? 'text-[var(--accent-red)]' : 'text-[var(--text-muted)]'}`}>
-                      {nota.scheduled_for
-                        ? `${atrasado ? 'ATRASADO — ' : ''}${new Date(nota.scheduled_for).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
-                        : nota.created_at
-                          ? new Date(nota.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
-                          : 'Sem agendamento'}
-                    </span>
-                  </div>
-                </div>
-                {colaboradorId && !modoSelecao && (
-                  <button
-                    onClick={(e) => handleExcluirNota(e, nota.id)}
-                    title="Excluir dessa lista (só pra você)"
-                    className="shrink-0 p-2 rounded-lg text-[var(--text-muted)] hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                )}
-                {!modoSelecao && (
-                  notaCompleta
-                    ? <span title="Nota já adicionada"><CheckSquare className="w-4 h-4 text-emerald-400 shrink-0" /></span>
-                    : <ChevronRight className="w-4 h-4 text-[var(--text-muted)] shrink-0" />
-                )}
+        <div className="space-y-5">
+          {gruposPorDia.map(([day, dayNotas]) => (
+            <section key={day} className="space-y-2">
+              <div className="flex items-center justify-between px-1">
+                <h3 className="text-xs font-black uppercase tracking-wider text-[var(--text-main)]">
+                  {dateLabel(day)}
+                </h3>
+                <span className="text-[10px] font-bold text-[var(--text-muted)]">
+                  {dayNotas.length} {dayNotas.length === 1 ? 'nota' : 'notas'}
+                </span>
               </div>
-            );
-          })}
+              {dayNotas.map(renderNotaCard)}
+            </section>
+          ))}
         </div>
       )}
 
@@ -392,7 +515,11 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({ onAddItems
         nota={notaSelecionada}
         onClose={() => setNotaSelecionada(null)}
         onAddItems={handleAddItems}
-        itensJaAdicionados={notaSelecionada ? (itensAdicionadosPorNota[notaSelecionada.id] || new Set()) : undefined}
+        itensJaAdicionados={
+          notaSelecionada
+            ? (itensAdicionadosPorNota[notaSelecionada.id] || new Set())
+            : undefined
+        }
       />
     </div>
   );
