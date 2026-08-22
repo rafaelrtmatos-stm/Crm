@@ -7,7 +7,7 @@ import { supabase } from '../../supabase';
 import { showConfirm } from '../../lib/notify';
 import { formatCurrency } from '../utils/storage';
 import { getItensJaAdicionadosDeNotas, excluirServicoPorOrigem } from '../utils/supabaseStorage';
-import { NotaDetalheModal, NotaDetalhe, NotaDetalheItem, NotaSelecionadoItem } from './NotaDetalheModal';
+import { NotaDetalhe, NotaDetalheItem, NotaSelecionadoItem } from './NotaDetalheModal';
 import { getTodayISO, toLocalISO } from '../utils/dateHelpers';
 import { getWorkWeekBounds, addDaysISO } from '../utils/caixaSemanalStorage';
 
@@ -57,14 +57,28 @@ const weekLabel = (start: string, end: string) => {
   return `${String(s.getDate()).padStart(2, '0')} ${mesFmt(s)} a ${String(e.getDate()).padStart(2, '0')} ${mesFmt(e)}`;
 };
 
+// Mesma lógica de rateio de desconto do antigo modal: se a nota teve desconto, cada item
+// perde a mesma fração proporcional ao seu peso no total bruto, pra comissão sair sobre o líquido.
+const calcFatorDesconto = (nota: NotaAgendada): number => {
+  const desconto = nota.discount_value ?? 0;
+  if (!desconto || desconto <= 0) return 1;
+  const brutoTotal = (nota.items || []).reduce((sum, item) => sum + (item.price ?? 0) * (item.quantity ?? 1), 0);
+  if (brutoTotal <= 0) return 1;
+  const fator = (brutoTotal - desconto) / brutoTotal;
+  return fator > 0 ? fator : 0;
+};
+
 export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
   onAddItemsToTable,
   colaboradorId
 }) => {
   const [notas, setNotas] = useState<NotaAgendada[]>([]);
   const [loading, setLoading] = useState(true);
-  const [notaSelecionada, setNotaSelecionada] = useState<NotaAgendada | null>(null);
   const [dispensadas, setDispensadas] = useState<Set<string>>(new Set());
+  // Itens marcados pelo colaborador dentro da lista expandida de cada nota — antes de
+  // confirmar o lançamento (um por um ou via "Selecionar Todos"). Some daqui assim que a
+  // nota é atualizada ou os itens são efetivamente adicionados.
+  const [itemSelecionados, setItemSelecionados] = useState<Record<string, Set<number>>>({});
   const [itensAdicionadosPorNota, setItensAdicionadosPorNota] =
     useState<Record<string, Set<number>>>({});
   const [modoSelecao, setModoSelecao] = useState(false);
@@ -224,6 +238,48 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
       const atual = new Set(prev[nota.id] || []);
       items.forEach(item => atual.add(item.idx));
       return { ...prev, [nota.id]: atual };
+    });
+  };
+
+  // Marca/desmarca um item da lista expandida da nota (seleção "um por um").
+  const toggleItemSelecionado = (notaId: string, idx: number) => {
+    setItemSelecionados(prev => {
+      const atual = new Set(prev[notaId] || []);
+      if (atual.has(idx)) atual.delete(idx); else atual.add(idx);
+      return { ...prev, [notaId]: atual };
+    });
+  };
+
+  // Botão "Selecionar Todos" (lado esquerdo) — marca de uma vez todos os itens ainda
+  // não adicionados dessa nota; um segundo clique desmarca tudo.
+  const toggleSelecionarTodos = (notaId: string, idxsRestantes: number[]) => {
+    setItemSelecionados(prev => {
+      const atual = prev[notaId] || new Set<number>();
+      const todosMarcados = idxsRestantes.length > 0 && idxsRestantes.every(idx => atual.has(idx));
+      return { ...prev, [notaId]: todosMarcados ? new Set() : new Set(idxsRestantes) };
+    });
+  };
+
+  // Botão "Adicionar Serviços" (lado direito) — confirma o lançamento dos itens marcados
+  // direto, sem abrir nenhum popup: só o toast de sucesso e o check verde no item/nota.
+  const handleAdicionarSelecionados = async (nota: NotaAgendada, idxs: number[]) => {
+    if (!idxs.length) return;
+    const fator = calcFatorDesconto(nota);
+    const escolhidos: NotaSelecionadoItem[] = idxs.map(idx => {
+      const item = nota.items[idx];
+      const bruto = (item.price ?? 0) * (item.quantity ?? 1);
+      return {
+        idx,
+        name: item.name,
+        quantity: item.quantity ?? 1,
+        value: Number((bruto * fator).toFixed(2)),
+      };
+    });
+    await handleAddItems(escolhidos, nota, dateKey(nota.scheduled_for || nota.created_at));
+    setItemSelecionados(prev => {
+      const next = { ...prev };
+      delete next[nota.id];
+      return next;
     });
   };
 
@@ -407,57 +463,81 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
           )}
         </div>
 
-        {expanded && (
-          <div className="border-t border-[var(--border-color)] bg-[var(--bg-card-sec)]/40 p-3 space-y-2">
-            {(nota.items || []).map((item, idx) => {
-              const added = itensAdicionadosPorNota[nota.id]?.has(idx);
-              return (
-                <div
-                  key={`${nota.id}-${idx}`}
-                  className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 ${
-                    added
-                      ? 'bg-emerald-500/5 border-emerald-500/20'
-                      : 'bg-[var(--bg-card)] border-[var(--border-color)]'
-                  }`}
-                >
-                  <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
-                    added ? 'bg-emerald-500' : 'border-2 border-[var(--border-color)]'
-                  }`}>
-                    {added && <CheckSquare className="w-3.5 h-3.5 text-white" />}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-bold text-[var(--text-main)] truncate">{item.name}</p>
-                    <p className="text-[10px] text-[var(--text-muted)]">{item.quantity ?? 1}x na nota</p>
-                  </div>
-                  <span className={`text-[10px] font-bold ${added ? 'text-emerald-400' : 'text-[var(--text-muted)]'}`}>
-                    {added ? 'Já adicionado' : 'Disponível'}
-                  </span>
-                  {added && colaboradorId && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleRemoverItem(nota.id, idx); }}
-                      title="Tirar este serviço da nota"
-                      className="shrink-0 p-1.5 rounded-lg text-rose-400 hover:bg-rose-500/10 cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-              );
-            })}
+        {expanded && (() => {
+          const idxsRestantes = (nota.items || [])
+            .map((_, idx) => idx)
+            .filter(idx => !itensAdicionadosPorNota[nota.id]?.has(idx));
+          const selecionadosNota = itemSelecionados[nota.id] || new Set<number>();
+          const todosMarcados = idxsRestantes.length > 0 && idxsRestantes.every(idx => selecionadosNota.has(idx));
 
-            <div className="pt-2 flex items-center justify-between gap-2 text-[10px]">
-              <span className="text-[var(--text-muted)]">
-                {completa ? 'Todos os itens desta nota já foram lançados.' : 'Você pode adicionar 1, 2 ou todos os itens.'}
-              </span>
-              <button
-                onClick={() => setNotaSelecionada(nota)}
-                className="px-3 py-1.5 rounded-lg bg-gradient-red text-white font-bold"
-              >
-                {completa ? 'VER NOTA' : 'ADICIONAR SERVIÇOS'}
-              </button>
+          return (
+            <div className="border-t border-[var(--border-color)] bg-[var(--bg-card-sec)]/40 p-3 space-y-2">
+              {(nota.items || []).map((item, idx) => {
+                const added = itensAdicionadosPorNota[nota.id]?.has(idx);
+                const isSelected = selecionadosNota.has(idx);
+                return (
+                  <div
+                    key={`${nota.id}-${idx}`}
+                    onClick={() => !added && toggleItemSelecionado(nota.id, idx)}
+                    className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 transition-colors ${
+                      added
+                        ? 'bg-emerald-500/5 border-emerald-500/20'
+                        : isSelected
+                          ? 'bg-[var(--accent-red)]/10 border-[var(--accent-red)]/50 cursor-pointer'
+                          : 'bg-[var(--bg-card)] border-[var(--border-color)] cursor-pointer'
+                    }`}
+                  >
+                    <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
+                      added ? 'bg-emerald-500' : isSelected ? 'bg-[var(--accent-red)]' : 'border-2 border-[var(--border-color)]'
+                    }`}>
+                      {(added || isSelected) && <CheckSquare className="w-3.5 h-3.5 text-white" />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-bold text-[var(--text-main)] truncate">{item.name}</p>
+                      <p className="text-[10px] text-[var(--text-muted)]">{item.quantity ?? 1}x na nota</p>
+                    </div>
+                    <span className={`text-[10px] font-bold ${
+                      added ? 'text-emerald-400' : isSelected ? 'text-[var(--accent-red)]' : 'text-[var(--text-muted)]'
+                    }`}>
+                      {added ? 'Já adicionado' : isSelected ? 'Selecionado' : 'Disponível'}
+                    </span>
+                    {added && colaboradorId && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleRemoverItem(nota.id, idx); }}
+                        title="Tirar este serviço da nota"
+                        className="shrink-0 p-1.5 rounded-lg text-rose-400 hover:bg-rose-500/10 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+
+              <div className="pt-2 flex items-center justify-between gap-2">
+                {completa ? (
+                  <span className="text-[10px] text-emerald-400 font-bold">Todos os itens desta nota já foram lançados.</span>
+                ) : (
+                  <>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); toggleSelecionarTodos(nota.id, idxsRestantes); }}
+                      className="px-3 py-1.5 rounded-lg border border-[var(--border-color)] text-[11px] font-bold text-[var(--text-muted)] hover:bg-[var(--bg-card)] cursor-pointer"
+                    >
+                      {todosMarcados ? 'DESMARCAR TODOS' : 'SELECIONAR TODOS'}
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleAdicionarSelecionados(nota, Array.from(selecionadosNota)); }}
+                      disabled={selecionadosNota.size === 0}
+                      className="px-3 py-1.5 rounded-lg bg-gradient-red text-white text-[11px] font-bold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                    >
+                      {selecionadosNota.size > 1 ? `ADICIONAR ${selecionadosNota.size} SERVIÇOS` : 'ADICIONAR SERVIÇO'}
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
       </div>
     );
   };
@@ -636,22 +716,6 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
           ))}
         </div>
       )}
-
-      <NotaDetalheModal
-        nota={notaSelecionada}
-        onClose={() => setNotaSelecionada(null)}
-        onAddItems={handleAddItems}
-        itensJaAdicionados={
-          notaSelecionada
-            ? (itensAdicionadosPorNota[notaSelecionada.id] || new Set())
-            : undefined
-        }
-        onRemoveItem={
-          notaSelecionada
-            ? (idx) => handleRemoverItem(notaSelecionada.id, idx)
-            : undefined
-        }
-      />
     </div>
   );
 };
