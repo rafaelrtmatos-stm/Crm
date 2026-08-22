@@ -16,7 +16,6 @@ interface WeeklyCalendarViewProps {
 }
 
 const WEEKDAYS = [
-  { full: 'Domingo', short: 'DOM', key: 'sun' },
   { full: 'Segunda-feira', short: 'SEG', key: 'mon' },
   { full: 'Terça-feira', short: 'TER', key: 'tue' },
   { full: 'Quarta-feira', short: 'QUA', key: 'wed' },
@@ -41,12 +40,15 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
   const weekDaysData = useMemo(() => {
     const now = new Date();
     const base = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const sunday = new Date(base);
-    sunday.setDate(base.getDate() - base.getDay() + weekOffset * 7);
+    // Segunda-feira da semana atual (getDay: 0=Dom...6=Sáb)
+    const dayOfWeek = base.getDay();
+    const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    const monday = new Date(base);
+    monday.setDate(base.getDate() + diffToMonday + weekOffset * 7);
 
     const standard = WEEKDAYS.map((info, index) => {
-      const d = new Date(sunday);
-      d.setDate(sunday.getDate() + index);
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + index);
       const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       return {
         ...info,
@@ -57,9 +59,10 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
       };
     });
 
-    const todayIndex = base.getDay();
-    const first = standard[todayIndex];
-    const rest = [...standard.slice(1), standard[0]].filter(d => d.key !== first.key);
+    // Índice de hoje dentro de Seg-Sáb (se hoje for domingo, cai fora do range: mantém ordem padrão a partir de segunda)
+    const todayIndexInWeek = dayOfWeek === 0 ? 0 : dayOfWeek - 1;
+    const first = standard[todayIndexInWeek];
+    const rest = [...standard.slice(todayIndexInWeek + 1), ...standard.slice(0, todayIndexInWeek)];
     return [first, ...rest];
   }, [weekOffset, todayISO]);
 
@@ -223,7 +226,7 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
   };
 
   const sortedDays = [...weekDaysData].sort((a, b) => a.dateISO.localeCompare(b.dateISO));
-  const range = `${sortedDays[0]?.dateFormatted || ''} — ${sortedDays[6]?.dateFormatted || ''}`;
+  const range = `${sortedDays[0]?.dateFormatted || ''} — ${sortedDays[sortedDays.length - 1]?.dateFormatted || ''}`;
 
   return (
     <div className="space-y-6">
