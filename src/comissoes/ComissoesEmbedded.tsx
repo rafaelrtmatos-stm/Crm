@@ -16,6 +16,7 @@ import {
   Desconto,
   getServicesFromSupabase,
   saveServiceToSupabase,
+  inserirServicosDeNota,
   deleteServiceFromSupabase,
   getDeletedServicesFromSupabase,
   restoreServiceFromSupabase,
@@ -272,30 +273,29 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
     const dataAgendada = dataSelecionada || getTodayISO();
     const commissionPercent = userSettings.defaultCommissionRate;
 
-    const resultados = await Promise.all(items.map((item) => {
+    const itensParaInserir = items.map((item) => {
       const productionValue = Number((item.value || 0).toFixed(2));
-      const novoServico: ServiceItem = {
-        id: `srv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      const commissionValue = Number(((productionValue * commissionPercent) / 100).toFixed(2));
+      return {
         date: dataAgendada,
         clientName: nota.customer_name || '',
         serviceType: item.name,
-        unit: 'unidade',
         quantity: item.quantity,
         unitPrice: item.quantity ? Number((productionValue / item.quantity).toFixed(2)) : productionValue,
         productionValue,
         commissionPercent,
-        commissionValue: Number(((productionValue * commissionPercent) / 100).toFixed(2)),
-        status: 'CONCLUÍDO',
+        commissionValue,
         notes: `Adicionado da nota #${nota.id.slice(-6).toUpperCase()}`,
-        createdAt: Date.now(),
         origemNotaId: nota.id,
         origemItemIndex: item.idx,
       };
-      return saveServiceToSupabase(colaborador.id, novoServico, true);
-    }));
+    });
 
-    const salvos = resultados.filter((r): r is ServiceItem => !!r);
-    if (salvos.length === 0) { showToast('Não foi possível adicionar o(s) serviço(s).'); return false; }
+    const { salvos, erro } = await inserirServicosDeNota(colaborador.id, itensParaInserir);
+    if (salvos.length === 0) {
+      showToast(erro ? `Não foi possível adicionar: ${erro}` : 'Não foi possível adicionar o(s) serviço(s).');
+      return false;
+    }
     setServices((prev) => [...salvos, ...prev]);
     showToast(salvos.length > 1 ? `${salvos.length} serviços adicionados!` : 'Serviço adicionado!');
     setActiveTab('table');

@@ -156,6 +156,58 @@ export async function excluirServicoPorOrigem(notaId: string, itemIndex: number)
   return deleteServiceFromSupabase(data.id);
 }
 
+// Adiciona vários serviços de uma vez a partir de itens de uma nota (usado pelo botão
+// "Adicionar Toda a Nota"). Um único INSERT em lote em vez de N requisições paralelas —
+// mais confiável (evita falhas parciais por concorrência) e, se der erro, devolve o motivo
+// real do Supabase em vez de só "não foi possível".
+export interface NovoServicoDeNotaInput {
+  date: string;
+  clientName: string;
+  serviceType: string;
+  quantity: number;
+  unitPrice: number;
+  productionValue: number;
+  commissionPercent: number;
+  commissionValue: number;
+  notes: string;
+  origemNotaId: string;
+  origemItemIndex: number;
+}
+
+export async function inserirServicosDeNota(
+  colaboradorId: string,
+  itens: NovoServicoDeNotaInput[]
+): Promise<{ salvos: ServiceItem[]; erro?: string }> {
+  if (!colaboradorId || itens.length === 0) return { salvos: [] };
+
+  const safeNumber = (n: number, fallback = 0) => (Number.isFinite(n) ? n : fallback);
+
+  const payload = itens.map((item) => ({
+    colaborador_id: colaboradorId,
+    data: item.date,
+    cliente_nome: item.clientName || null,
+    tipo_servico: item.serviceType,
+    unidade: 'unidade',
+    quantidade: safeNumber(item.quantity, 1),
+    valor_unitario: safeNumber(item.unitPrice),
+    valor_producao: safeNumber(item.productionValue),
+    comissao_percentual: safeNumber(item.commissionPercent),
+    comissao_valor: safeNumber(item.commissionValue),
+    status: 'CONCLUÍDO',
+    observacoes: item.notes || null,
+    origem_nota_id: item.origemNotaId,
+    origem_item_index: item.origemItemIndex,
+    updated_at: new Date().toISOString(),
+  }));
+
+  const { data, error } = await supabase.from('comissoes_servicos').insert(payload).select();
+  if (error || !data) {
+    console.error('Erro ao adicionar serviços da nota:', error);
+    return { salvos: [], erro: error?.message };
+  }
+  return { salvos: data.map(mapServiceRow) };
+}
+
 export async function saveServiceToSupabase(colaboradorId: string, item: ServiceItem, isNew: boolean): Promise<ServiceItem | null> {
   const payload = {
     colaborador_id: colaboradorId,
