@@ -11,6 +11,7 @@
 // dentro da propria Evolution API (na criacao/config da instancia).
 
 import { EVOLUTION_API_URL, EVOLUTION_API_KEY, EVOLUTION_WEBHOOK_SECRET, INSTANCE_NAME, SUPABASE_URL, SUPABASE_ANON_KEY, COMPANY_ID } from './_lib/whatsapp-config.js';
+import { normalizarTelefoneBR } from './_lib/phone.js';
 
 // Segredo compartilhado com a Evolution API — configura o MESMO valor nos dois lados
 // (aqui via variavel de ambiente da Vercel, e na Evolution API como header customizado
@@ -18,29 +19,6 @@ import { EVOLUTION_API_URL, EVOLUTION_API_KEY, EVOLUTION_WEBHOOK_SECRET, INSTANC
 // direto pra essa URL sem saber o segredo.
 const WEBHOOK_SECRET = EVOLUTION_WEBHOOK_SECRET;
 
-// Normaliza numero de celular brasileiro pro formato canonico 55DDD9XXXXXXXX (13 digitos).
-// A Evolution/Baileys pode mandar o remoteJid COM ou SEM o nono digito dependendo da
-// versao/origem do evento -- sem normalizar, o mesmo contato gera dois telefones
-// diferentes (com e sem o "9"), o que faz o front-end (App.tsx, match exato por
-// phone) criar um lead duplicado em vez de achar o lead ja existente.
-// So mexe em numeros com DDI 55 (Brasil); numeros internacionais passam direto.
-function normalizarTelefoneBR(digitos) {
-  if (!digitos) return digitos;
-  if (!digitos.startsWith('55')) return digitos; // fora do Brasil, nao mexe
-  const resto = digitos.slice(2); // tudo depois do "55"
-  if (resto.length === 10) {
-    // DDD (2) + numero de 8 digitos (sem o "9") -- so celular tem o nono digito,
-    // fixo continua com 8 (nao insere "9" em numero que comeca com 2,3,4 ou 5,
-    // que sao prefixos de linha fixa no Brasil)
-    const ddd = resto.slice(0, 2);
-    const numero = resto.slice(2);
-    if (/^[6-9]/.test(numero)) {
-      return `55${ddd}9${numero}`;
-    }
-    return digitos; // provavel fixo, mantem como esta
-  }
-  return digitos; // ja tem 13 digitos (com "9") ou formato nao reconhecido
-}
 
 // Percorre o objeto `message` da Evolution/Baileys e devolve o "node" de midia bruto
 // (imageMessage/videoMessage/documentMessage/audioMessage/stickerMessage), sem desembrulhar

@@ -7,6 +7,7 @@
 
 import { EVOLUTION_API_URL, EVOLUTION_API_KEY, INSTANCE_NAME } from './_lib/whatsapp-config.js';
 import { exigirUsuarioAutorizado } from './_lib/auth.js';
+import { normalizarTelefoneBR } from './_lib/phone.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -31,8 +32,11 @@ export default async function handler(req, res) {
   }
 
   // So numeros, sem formatacao (espaco, parenteses, traco) — a Evolution API exige o
-  // numero "cru", com codigo do pais na frente (ex: 55 93 99999-9999 -> 5593999999999)
-  const numero = phone.replace(/\D/g, '');
+  // numero "cru", com codigo do pais na frente (ex: 55 93 99999-9999 -> 5593999999999).
+  // Normaliza igual o webhook ja faz pro numero recebido: adiciona o "55" e o nono
+  // digito quando estiverem faltando -- sem isso a Evolution recusa o envio dizendo
+  // que o numero "nao existe" quando na verdade so falta o codigo do pais.
+  const numero = normalizarTelefoneBR(phone.replace(/\D/g, ''));
 
   try {
     const r = await fetch(`${EVOLUTION_API_URL}/message/sendText/${INSTANCE_NAME}`, {
