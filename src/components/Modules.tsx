@@ -6644,13 +6644,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       ? `\n\n⚠️ Este contrato está ligado a ${vinculos.join(' e ')}. Eles NÃO serão excluídos — continuam intactos.`
       : '';
     if (!(await showConfirm(`Excluir o contrato ${c.numero}?${avisoVinculo}\n\nEle fica 30 dias na aba Excluídos antes de sumir de vez — você pode restaurar dentro desse prazo.`))) return;
-    const { error } = await supabase.from('contratos').update({ deleted_at: new Date().toISOString() }).eq('id', c.id);
+    const now = new Date().toISOString();
+    const { error } = await supabase.from('contratos').update({ deleted_at: now }).eq('id', c.id);
     if (error) { showAlert(`Não foi possível excluir o contrato: ${error.message}`); return; }
     setAllContratos(prev => prev.filter(ct => ct.id !== c.id));
     // Solta o vinculo na Nota (a Nota continua intacta, so para de apontar pra um contrato
     // que nao existe mais) -- sem isso a etiqueta "Contrato" ficava no card pra sempre
     if (c.vendaId) {
-      await supabase.from('vendas').update({ contrato_id: null }).eq('id', c.vendaId);
+      // CORREÇÃO: Também marca a venda como deletada para não ficar órfã/aparecendo na lista
+      await supabase.from('vendas').update({ contrato_id: null, deleted_at: now }).eq('id', c.vendaId);
       setAllSalesHistory(prev => prev.map(s => s.id === c.vendaId ? { ...s, contratoId: undefined } as SaleOrder : s));
     }
   };
@@ -8396,6 +8398,34 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       await supabase.from('vendas').update({ contrato_id: null }).eq('id', c.vendaId).eq('contrato_id', c.id);
     }
     loadDeletedContratos();
+  };
+
+  // Limpar vendas órfãs: vendas que referenciavam contratos já deletados
+  const cleanupOrphanedSales = async () => {
+    if (!(await showConfirm('Isso vai marcar como deletadas todas as vendas que perderam seu contrato (contrato foi excluído). Continuar?'))) return;
+    try {
+      // Busca vendas com contrato_id que não existe mais (contrato deletado ou inexistente)
+      const { data: allVendas } = await supabase.from('vendas').select('id, contrato_id').is('deleted_at', null);
+      const { data: allContratos } = await supabase.from('contratos').select('id').is('deleted_at', null);
+      const validContratoIds = new Set((allContratos || []).map((c: any) => c.id));
+      const orphanedIds = (allVendas || [])
+        .filter((v: any) => v.contrato_id && !validContratoIds.has(v.contrato_id))
+        .map((v: any) => v.id);
+      
+      if (orphanedIds.length === 0) {
+        showAlert('Nenhuma venda órfã encontrada. ✓');
+        return;
+      }
+      
+      const now = new Date().toISOString();
+      const { error } = await supabase.from('vendas').update({ deleted_at: now }).in('id', orphanedIds);
+      if (error) { showAlert(`Erro ao limpar: ${error.message}`); return; }
+      
+      showAlert(`✓ ${orphanedIds.length} venda(s) órfã(s) marcada(s) como deletada(s)`);
+      loadSalesHistory();
+    } catch (err) {
+      showAlert(`Erro: ${err}`);
+    }
   };
 
   useEffect(() => {
@@ -11831,6 +11861,24 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   })}
                 </div>
               )}
+            </div>
+
+            <div className="h-px bg-white/10" />
+
+            <div className="space-y-4 bg-amber-500/5 border border-amber-500/20 rounded-2xl p-4">
+              <div className="flex items-center gap-2">
+                <AlertCircle size={16} className="text-amber-400" />
+                <h3 className="text-sm font-black text-amber-400">Limpeza de Dados</h3>
+              </div>
+              <p className="text-[11px] text-white/60">
+                Se há vendas aparecendo após deletar contratos, clique abaixo para marcá-las como deletadas:
+              </p>
+              <button 
+                onClick={cleanupOrphanedSales}
+                className="w-full text-[10px] font-black uppercase px-4 py-2.5 rounded-lg bg-amber-500/15 text-amber-400 hover:bg-amber-500/25 border border-amber-500/30"
+              >
+                🧹 Limpar Vendas Órfãs
+              </button>
             </div>
           </div>
         )}
