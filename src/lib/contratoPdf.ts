@@ -208,7 +208,7 @@ async function drawDigitalSignatureStamp(
   doc.setLineWidth(u(0.15));
   doc.line(x0 + u(4), y0 + u(24), x0 + painelW - u(4), y0 + u(24));
 
-  doc.setFontSize(u(6.4));
+  doc.setFontSize(u(6));
   doc.text('MP 2.200-2/2001', painelCx, y0 + u(27.6), { align: 'center' });
   doc.text('LEI 14.063/2020', painelCx, y0 + u(32), { align: 'center' });
 
@@ -296,10 +296,24 @@ async function drawDigitalSignatureStamp(
   doc.setTextColor(...STAMP_COLORS.cinzaTexto);
   doc.text('HASH SHA-256', contentX + u(6), y0 + u(36.3));
   doc.setFont('courier', 'normal');
-  doc.setFontSize(u(5.8));
   doc.setTextColor(60, 64, 74);
-  const hashDisplay = data.hash.length > 52 ? `${data.hash.slice(0, 52)}…` : data.hash;
-  doc.text(hashDisplay, contentX + u(6), y0 + u(39.7));
+  // Hash completo (sem truncar) — reduz a fonte até caber em no máx. 2 linhas na largura
+  // disponível do painel de conteúdo.
+  const hashMaxWidth = contentRight - (contentX + u(6));
+  let hashFontSize = u(5.8);
+  doc.setFontSize(hashFontSize);
+  let hashLines: string[] = doc.splitTextToSize(data.hash, hashMaxWidth);
+  while (hashLines.length > 2 && hashFontSize > u(4)) {
+    hashFontSize -= u(0.2);
+    doc.setFontSize(hashFontSize);
+    hashLines = doc.splitTextToSize(data.hash, hashMaxWidth);
+  }
+  if (hashLines.length <= 1) {
+    doc.text(hashLines[0] || data.hash, contentX + u(6), y0 + u(39.7));
+  } else {
+    doc.text(hashLines[0], contentX + u(6), y0 + u(38.8));
+    doc.text(hashLines[1], contentX + u(6), y0 + u(41.2));
+  }
 
   // Documento protegido
   drawLockIcon(doc, contentX + u(2.2), y0 + u(43), u(3), STAMP_COLORS.azulSecundario);
