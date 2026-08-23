@@ -75,44 +75,44 @@ const STAMP_COLORS = {
 };
 
 /** Desenha um pequeno "escudo" com marca de verificação (check) dentro — usado no painel esquerdo (branco sobre azul) e no bloco de integridade (verde). */
-function drawShieldCheck(doc: any, cx: number, cy: number, r: number, shieldRgb: number[], checkRgb: number[]) {
+function drawShieldCheck(doc: any, cx: number, cy: number, r: number, shieldRgb: number[], checkRgb: number[], lw = 0.45) {
   doc.setFillColor(shieldRgb[0], shieldRgb[1], shieldRgb[2]);
   doc.circle(cx, cy, r, 'F');
   doc.setDrawColor(checkRgb[0], checkRgb[1], checkRgb[2]);
-  doc.setLineWidth(0.45);
+  doc.setLineWidth(lw);
   doc.line(cx - r * 0.45, cy, cx - r * 0.1, cy + r * 0.4);
   doc.line(cx - r * 0.1, cy + r * 0.4, cx + r * 0.5, cy - r * 0.35);
 }
 
 /** Cadeado simples (retângulo + arco) — usado no bloco "documento protegido". */
-function drawLockIcon(doc: any, cx: number, cy: number, size: number, rgb: number[]) {
+function drawLockIcon(doc: any, cx: number, cy: number, size: number, rgb: number[], lw = 0.4) {
   doc.setDrawColor(rgb[0], rgb[1], rgb[2]);
-  doc.setLineWidth(0.4);
-  doc.roundedRect(cx - size / 2, cy - size * 0.1, size, size * 0.7, 0.3, 0.3, 'D');
+  doc.setLineWidth(lw);
+  doc.roundedRect(cx - size / 2, cy - size * 0.1, size, size * 0.7, size * 0.06, size * 0.06, 'D');
   doc.circle(cx, cy - size * 0.35, size * 0.32, 'D');
 }
 
 /** Calendário simples — usado no bloco de data. */
-function drawCalendarIcon(doc: any, cx: number, cy: number, size: number, rgb: number[]) {
+function drawCalendarIcon(doc: any, cx: number, cy: number, size: number, rgb: number[], lw = 0.35) {
   doc.setDrawColor(rgb[0], rgb[1], rgb[2]);
-  doc.setLineWidth(0.35);
-  doc.roundedRect(cx - size / 2, cy - size / 2, size, size, 0.3, 0.3, 'D');
+  doc.setLineWidth(lw);
+  doc.roundedRect(cx - size / 2, cy - size / 2, size, size, size * 0.06, size * 0.06, 'D');
   doc.line(cx - size / 2, cy - size * 0.15, cx + size / 2, cy - size * 0.15);
 }
 
 /** Relógio simples — usado no bloco de hora. */
-function drawClockIcon(doc: any, cx: number, cy: number, size: number, rgb: number[]) {
+function drawClockIcon(doc: any, cx: number, cy: number, size: number, rgb: number[], lw = 0.35) {
   doc.setDrawColor(rgb[0], rgb[1], rgb[2]);
-  doc.setLineWidth(0.35);
+  doc.setLineWidth(lw);
   doc.circle(cx, cy, size / 2, 'D');
   doc.line(cx, cy, cx, cy - size * 0.32);
   doc.line(cx, cy, cx + size * 0.25, cy);
 }
 
 /** Impressão digital simplificada (arcos concêntricos) — usada no bloco de ID da assinatura. */
-function drawFingerprintIcon(doc: any, cx: number, cy: number, size: number, rgb: number[]) {
+function drawFingerprintIcon(doc: any, cx: number, cy: number, size: number, rgb: number[], lw = 0.3) {
   doc.setDrawColor(rgb[0], rgb[1], rgb[2]);
-  doc.setLineWidth(0.3);
+  doc.setLineWidth(lw);
   doc.ellipse(cx, cy, size * 0.5, size * 0.42, 'D');
   doc.ellipse(cx, cy, size * 0.32, size * 0.27, 'D');
   doc.ellipse(cx, cy, size * 0.14, size * 0.12, 'D');
@@ -126,6 +126,7 @@ function drawAvatarIcon(doc: any, cx: number, cy: number, r: number) {
   doc.circle(cx, cy - r * 0.32, r * 0.32, 'F');
   doc.ellipse(cx, cy + r * 0.55, r * 0.5, r * 0.32, 'F');
 }
+
 
 /**
  * Gera a imagem do QR Code (dataURL PNG) para a URL de validação específica desta assinatura.
@@ -142,23 +143,22 @@ async function generateQrDataUrl(text: string): Promise<string | null> {
   }
 }
 
-// Conversão px -> mm a 96dpi (padrão web), usada só pra fixar as duas medidas pedidas:
-// largura do carimbo = 700px e largura do QR Code = 180px. O resto do layout (altura do
-// carimbo e espaçamento vertical do conteúdo) é recalculado proporcionalmente a partir
-// dessas duas medidas, pra tudo continuar legível e nada ser cortado.
-const PX_TO_MM = 25.4 / 96;
-const STAMP_WIDTH = 700 * PX_TO_MM;   // ≈ 185.2mm — largura fixa do carimbo
-const QR_SIZE = 180 * PX_TO_MM;       // ≈ 47.6mm — largura/altura fixa do QR Code
+// ---------------------------------------------------------------------------------------
+// Dimensões do carimbo. O layout inteiro (moldura, painel, ícones, textos e QR Code) foi
+// desenhado originalmente pra uma largura de referência (REFERENCE_WIDTH); pra mudar o
+// tamanho final SEM distorcer as proporções, escalamos TODOS os valores do desenho pelo
+// mesmo fator (STAMP_SCALE) — largura, altura, ícones, espessura de linha e fonte.
+// ---------------------------------------------------------------------------------------
+const PX_TO_MM = 25.4 / 96; // conversão px -> mm a 96dpi (padrão web)
+const REFERENCE_WIDTH = 700 * PX_TO_MM; // ≈ 185.2mm — largura em que o desenho foi projetado
 
-// Altura do carimbo é derivada do tamanho do QR (padding superior + QR + rótulo "VALIDAR
-// DOCUMENTO" / "Escaneie o QR Code" abaixo dele + padding inferior), senão o QR maior
-// estouraria uma altura fixa antiga (46mm).
-const STAMP_HEIGHT = QR_SIZE + 12; // mm — altura fixa do carimbo (mesma para as duas assinaturas)
+const STAMP_WIDTH = 70; // mm — largura final fixa do carimbo (exatamente 7cm, pedido do usuário)
+const STAMP_SCALE = STAMP_WIDTH / REFERENCE_WIDTH; // fator aplicado a todo o desenho (proporcional)
 
-// Fator de escala aplicado aos deslocamentos verticais do conteúdo (painel esquerdo + coluna
-// de dados), calculado a partir do layout original (desenhado pra uma altura de 46mm) — assim
-// o texto se espalha proporcionalmente pela nova altura, em vez de ficar apertado no topo.
-const CONTENT_SCALE = STAMP_HEIGHT / 46;
+// QR Code e altura do carimbo escalados pelo MESMO fator, preservando a proporção original
+// (QR ≈47.6mm e altura ≈59.6mm na referência de 185.2mm de largura).
+const QR_SIZE = 180 * PX_TO_MM * STAMP_SCALE;      // ≈ 18mm
+const STAMP_HEIGHT = (180 * PX_TO_MM + 12) * STAMP_SCALE; // ≈ 22.5mm
 
 /**
  * Desenha UM carimbo digital completo (estrutura fixa do modelo — só os dados mudam):
@@ -173,165 +173,165 @@ async function drawDigitalSignatureStamp(
   pageW: number,
   data: DigitalSignatureStampData
 ): Promise<number> {
-  const sy = (n: number) => n * CONTENT_SCALE; // aplica a escala vertical do conteúdo
+  const u = (n: number) => n * STAMP_SCALE; // aplica a escala proporcional (tamanhos e posições)
 
-  const y0 = yStart + 1.5;
+  const y0 = yStart + u(1.5);
   const w = STAMP_WIDTH;
-  const x0 = (pageW - w) / 2; // carimbo centralizado na página, largura fixa em 700px
+  const x0 = (pageW - w) / 2; // carimbo centralizado na página, largura fixa em 7cm
   const h = STAMP_HEIGHT;
 
   // ---- Moldura externa (borda azul arredondada, fundo branco) ----
   doc.setFillColor(...STAMP_COLORS.branco);
   doc.setDrawColor(...STAMP_COLORS.azulPrincipal);
-  doc.setLineWidth(0.55);
-  doc.roundedRect(x0, y0, w, h, 2.5, 2.5, 'FD');
+  doc.setLineWidth(u(0.55));
+  doc.roundedRect(x0, y0, w, h, u(2.5), u(2.5), 'FD');
 
   // ---- Painel institucional esquerdo (fundo azul sólido) ----
-  const painelW = 34;
+  const painelW = u(34);
   doc.setFillColor(...STAMP_COLORS.azulPrincipal);
-  doc.rect(x0 + 0.6, y0 + 0.6, painelW - 0.6, h - 1.2, 'F');
+  doc.rect(x0 + u(0.6), y0 + u(0.6), painelW - u(0.6), h - u(1.2), 'F');
 
-  const painelCx = x0 + 0.6 + (painelW - 0.6) / 2;
-  drawShieldCheck(doc, painelCx, y0 + sy(7.5), 4.2, STAMP_COLORS.branco, STAMP_COLORS.verdeValidacao);
+  const painelCx = x0 + u(0.6) + (painelW - u(0.6)) / 2;
+  drawShieldCheck(doc, painelCx, y0 + u(7.5), u(4.2), STAMP_COLORS.branco, STAMP_COLORS.verdeValidacao);
 
   doc.setTextColor(...STAMP_COLORS.branco);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8);
-  doc.text('ASSINADO', painelCx, y0 + sy(14.5), { align: 'center' });
-  doc.setFontSize(6);
-  doc.text('ELETRONICAMENTE', painelCx, y0 + sy(17.8), { align: 'center' });
+  doc.setFontSize(u(8));
+  doc.text('ASSINADO', painelCx, y0 + u(14.5), { align: 'center' });
+  doc.setFontSize(u(6));
+  doc.text('ELETRONICAMENTE', painelCx, y0 + u(17.8), { align: 'center' });
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(5.2);
-  doc.text('COM VALIDADE JURÍDICA', painelCx, y0 + sy(21), { align: 'center' });
+  doc.setFontSize(u(5.2));
+  doc.text('COM VALIDADE JURÍDICA', painelCx, y0 + u(21), { align: 'center' });
 
   doc.setDrawColor(...STAMP_COLORS.branco);
-  doc.setLineWidth(0.15);
-  doc.line(x0 + 4, y0 + sy(24), x0 + painelW - 4, y0 + sy(24));
+  doc.setLineWidth(u(0.15));
+  doc.line(x0 + u(4), y0 + u(24), x0 + painelW - u(4), y0 + u(24));
 
-  doc.setFontSize(4.6);
-  doc.text('MP 2.200-2/2001', painelCx, y0 + sy(27.5), { align: 'center' });
-  doc.text('LEI 14.063/2020', painelCx, y0 + sy(31), { align: 'center' });
+  doc.setFontSize(u(4.6));
+  doc.text('MP 2.200-2/2001', painelCx, y0 + u(27.5), { align: 'center' });
+  doc.text('LEI 14.063/2020', painelCx, y0 + u(31), { align: 'center' });
 
   // ---- Área de conteúdo (direita do painel, deixando espaço pro QR Code) ----
   const qrSize = QR_SIZE;
-  const contentX = x0 + painelW + 4;
-  const contentRight = x0 + w - qrSize - 5;
+  const contentX = x0 + painelW + u(4);
+  const contentRight = x0 + w - qrSize - u(5);
   const contentW = contentRight - contentX;
 
   // Identificação do assinante (avatar + nome + CPF/CNPJ)
-  drawAvatarIcon(doc, contentX + 3.2, y0 + sy(7), 3.2);
+  drawAvatarIcon(doc, contentX + u(3.2), y0 + u(7), u(3.2));
   doc.setTextColor(...STAMP_COLORS.cinzaTexto);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(5.5);
-  doc.text('ASSINANTE', contentX + 8, y0 + sy(4.5));
-  doc.setFontSize(8.2);
-  const nomeWrapped = doc.splitTextToSize(data.signerName, contentW - 8);
-  doc.text(nomeWrapped[0], contentX + 8, y0 + sy(8.2));
+  doc.setFontSize(u(5.5));
+  doc.text('ASSINANTE', contentX + u(8), y0 + u(4.5));
+  doc.setFontSize(u(8.2));
+  const nomeWrapped = doc.splitTextToSize(data.signerName, contentW - u(8));
+  doc.text(nomeWrapped[0], contentX + u(8), y0 + u(8.2));
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(6.5);
-  doc.text(data.cpfCnpj, contentX + 8, y0 + sy(11.8));
+  doc.setFontSize(u(6.5));
+  doc.text(data.cpfCnpj, contentX + u(8), y0 + u(11.8));
 
   doc.setDrawColor(220, 224, 232);
-  doc.setLineWidth(0.15);
-  doc.line(contentX, y0 + sy(14.5), contentRight, y0 + sy(14.5));
+  doc.setLineWidth(u(0.15));
+  doc.line(contentX, y0 + u(14.5), contentRight, y0 + u(14.5));
 
   // Data / Hora / ID da assinatura — três colunas
   const colW = contentW / 3;
-  const iconY = y0 + sy(19);
-  const labelY = y0 + sy(22.2);
-  const valueY = y0 + sy(25.4);
+  const iconY = y0 + u(19);
+  const labelY = y0 + u(22.2);
+  const valueY = y0 + u(25.4);
 
-  drawCalendarIcon(doc, contentX + 2.2, iconY, 3, STAMP_COLORS.azulSecundario);
+  drawCalendarIcon(doc, contentX + u(2.2), iconY, u(3), STAMP_COLORS.azulSecundario);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(4.8);
+  doc.setFontSize(u(4.8));
   doc.setTextColor(...STAMP_COLORS.cinzaTexto);
-  doc.text('DATA', contentX + 5, labelY);
+  doc.text('DATA', contentX + u(5), labelY);
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(6.3);
+  doc.setFontSize(u(6.3));
   doc.setTextColor(30, 34, 44);
-  doc.text(data.dateStr, contentX + 5, valueY);
+  doc.text(data.dateStr, contentX + u(5), valueY);
 
-  drawClockIcon(doc, contentX + colW + 2.2, iconY, 3, STAMP_COLORS.azulSecundario);
+  drawClockIcon(doc, contentX + colW + u(2.2), iconY, u(3), STAMP_COLORS.azulSecundario);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(4.8);
+  doc.setFontSize(u(4.8));
   doc.setTextColor(...STAMP_COLORS.cinzaTexto);
-  doc.text('HORA', contentX + colW + 5, labelY);
+  doc.text('HORA', contentX + colW + u(5), labelY);
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(6.3);
+  doc.setFontSize(u(6.3));
   doc.setTextColor(30, 34, 44);
-  doc.text(data.timeStr, contentX + colW + 5, valueY);
+  doc.text(data.timeStr, contentX + colW + u(5), valueY);
 
-  drawFingerprintIcon(doc, contentX + colW * 2 + 2.2, iconY, 3.4, STAMP_COLORS.azulSecundario);
+  drawFingerprintIcon(doc, contentX + colW * 2 + u(2.2), iconY, u(3.4), STAMP_COLORS.azulSecundario);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(4.8);
+  doc.setFontSize(u(4.8));
   doc.setTextColor(...STAMP_COLORS.cinzaTexto);
-  doc.text('ID DA ASSINATURA', contentX + colW * 2 + 5, labelY);
+  doc.text('ID DA ASSINATURA', contentX + colW * 2 + u(5), labelY);
   doc.setFont('courier', 'normal');
-  doc.setFontSize(5.6);
+  doc.setFontSize(u(5.6));
   doc.setTextColor(30, 34, 44);
-  doc.text(data.signatureId, contentX + colW * 2 + 5, valueY);
+  doc.text(data.signatureId, contentX + colW * 2 + u(5), valueY);
 
   doc.setDrawColor(220, 224, 232);
-  doc.line(contentX, y0 + sy(27.5), contentRight, y0 + sy(27.5));
+  doc.line(contentX, y0 + u(27.5), contentRight, y0 + u(27.5));
 
   // Integridade do documento — verificada (escudo verde)
-  drawShieldCheck(doc, contentX + 2.2, y0 + sy(31), 2.4, STAMP_COLORS.verdeValidacao, STAMP_COLORS.branco);
+  drawShieldCheck(doc, contentX + u(2.2), y0 + u(31), u(2.4), STAMP_COLORS.verdeValidacao, STAMP_COLORS.branco);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(5.8);
+  doc.setFontSize(u(5.8));
   doc.setTextColor(...STAMP_COLORS.cinzaTexto);
-  doc.text('INTEGRIDADE DO DOCUMENTO', contentX + 6, y0 + sy(30.2));
+  doc.text('INTEGRIDADE DO DOCUMENTO', contentX + u(6), y0 + u(30.2));
   doc.setTextColor(...STAMP_COLORS.verdeValidacao);
-  doc.setFontSize(5.8);
-  doc.text('VERIFICADA', contentX + 6, y0 + sy(33));
+  doc.setFontSize(u(5.8));
+  doc.text('VERIFICADA', contentX + u(6), y0 + u(33));
 
   // Hash SHA-256
   doc.setFillColor(...STAMP_COLORS.azulSecundario);
-  doc.circle(contentX + 2.2, y0 + sy(36.3), 2.2, 'F');
+  doc.circle(contentX + u(2.2), y0 + u(36.3), u(2.2), 'F');
   doc.setTextColor(...STAMP_COLORS.branco);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(5);
-  doc.text('#', contentX + 2.2, y0 + sy(37.1), { align: 'center' });
+  doc.setFontSize(u(5));
+  doc.text('#', contentX + u(2.2), y0 + u(37.1), { align: 'center' });
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(4.8);
+  doc.setFontSize(u(4.8));
   doc.setTextColor(...STAMP_COLORS.cinzaTexto);
-  doc.text('HASH SHA-256', contentX + 6, y0 + sy(35.4));
+  doc.text('HASH SHA-256', contentX + u(6), y0 + u(35.4));
   doc.setFont('courier', 'normal');
-  doc.setFontSize(5);
+  doc.setFontSize(u(5));
   doc.setTextColor(60, 64, 74);
   const hashDisplay = data.hash.length > 52 ? `${data.hash.slice(0, 52)}…` : data.hash;
-  doc.text(hashDisplay, contentX + 6, y0 + sy(38.4));
+  doc.text(hashDisplay, contentX + u(6), y0 + u(38.4));
 
   // Documento protegido
-  drawLockIcon(doc, contentX + 2.2, y0 + sy(41.6), 3, STAMP_COLORS.azulSecundario);
+  drawLockIcon(doc, contentX + u(2.2), y0 + u(41.6), u(3), STAMP_COLORS.azulSecundario);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(4.8);
+  doc.setFontSize(u(4.8));
   doc.setTextColor(...STAMP_COLORS.cinzaTexto);
-  doc.text('DOCUMENTO PROTEGIDO', contentX + 6, y0 + sy(40.6));
+  doc.text('DOCUMENTO PROTEGIDO', contentX + u(6), y0 + u(40.6));
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(4.4);
+  doc.setFontSize(u(4.4));
   doc.setTextColor(120, 126, 138);
-  doc.text('Contra alterações após a assinatura', contentX + 6, y0 + sy(43.2));
+  doc.text('Contra alterações após a assinatura', contentX + u(6), y0 + u(43.2));
 
   // QR Code (canto superior direito) — valida especificamente ESTA assinatura
-  const qrX = x0 + w - qrSize - 3;
-  const qrY = y0 + 3;
+  const qrX = x0 + w - qrSize - u(3);
+  const qrY = y0 + u(3);
   doc.setDrawColor(220, 224, 232);
-  doc.setLineWidth(0.2);
-  doc.roundedRect(qrX - 1, qrY - 1, qrSize + 2, qrSize + 2, 1, 1, 'D');
+  doc.setLineWidth(u(0.2));
+  doc.roundedRect(qrX - u(1), qrY - u(1), qrSize + u(2), qrSize + u(2), u(1), u(1), 'D');
   const qrDataUrl = await generateQrDataUrl(data.validationUrl);
   if (qrDataUrl) {
     doc.addImage(qrDataUrl, 'PNG', qrX, qrY, qrSize, qrSize);
   }
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(4.3);
+  doc.setFontSize(u(4.3));
   doc.setTextColor(...STAMP_COLORS.azulPrincipal);
-  doc.text('VALIDAR DOCUMENTO', qrX + qrSize / 2, qrY + qrSize + 3, { align: 'center' });
+  doc.text('VALIDAR DOCUMENTO', qrX + qrSize / 2, qrY + qrSize + u(3), { align: 'center' });
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(3.8);
+  doc.setFontSize(u(3.8));
   doc.setTextColor(140, 146, 158);
-  doc.text('Escaneie o QR Code', qrX + qrSize / 2, qrY + qrSize + 5.8, { align: 'center' });
+  doc.text('Escaneie o QR Code', qrX + qrSize / 2, qrY + qrSize + u(5.8), { align: 'center' });
 
-  return y0 + h + 3;
+  return y0 + h + u(3);
 }
 
 /** Monta o documento jsPDF em si (sem salvar/baixar) -- reaproveitado pelo download direto e pela geracao do Blob pro Storage. */
