@@ -157,7 +157,9 @@ const STAMP_SCALE = STAMP_WIDTH / REFERENCE_WIDTH; // fator aplicado a todo o de
 
 // QR Code e altura do carimbo escalados pelo MESMO fator, preservando a proporção original
 // (QR ≈47.6mm e altura ≈59.6mm na referência de 185.2mm de largura).
-const QR_SIZE = 180 * PX_TO_MM * STAMP_SCALE;      // ≈ 18mm
+// QR reduzido (156 em vez de 180) pra caber, junto com a legenda "Escaneie o QR Code" logo
+// abaixo dele, dentro da moldura azul do selo — antes o texto ultrapassava a borda inferior.
+const QR_SIZE = 156 * PX_TO_MM * STAMP_SCALE;      // ≈ 15.6mm
 const STAMP_HEIGHT = (180 * PX_TO_MM + 5) * STAMP_SCALE; // ≈ 19.7mm (reduzida p/ caber em 2 páginas)
 
 /**
