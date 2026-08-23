@@ -208,9 +208,9 @@ async function drawDigitalSignatureStamp(
   doc.setLineWidth(u(0.15));
   doc.line(x0 + u(4), y0 + u(24), x0 + painelW - u(4), y0 + u(24));
 
-  doc.setFontSize(u(4.6));
-  doc.text('MP 2.200-2/2001', painelCx, y0 + u(27.5), { align: 'center' });
-  doc.text('LEI 14.063/2020', painelCx, y0 + u(31), { align: 'center' });
+  doc.setFontSize(u(6.4));
+  doc.text('MP 2.200-2/2001', painelCx, y0 + u(27.6), { align: 'center' });
+  doc.text('LEI 14.063/2020', painelCx, y0 + u(32), { align: 'center' });
 
   // ---- Área de conteúdo (direita do painel, deixando espaço pro QR Code) ----
   const qrSize = QR_SIZE;
@@ -277,40 +277,40 @@ async function drawDigitalSignatureStamp(
   // Integridade do documento — verificada (escudo verde)
   drawShieldCheck(doc, contentX + u(2.2), y0 + u(31), u(2.4), STAMP_COLORS.verdeValidacao, STAMP_COLORS.branco);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(u(5.8));
+  doc.setFontSize(u(6.6));
   doc.setTextColor(...STAMP_COLORS.cinzaTexto);
   doc.text('INTEGRIDADE DO DOCUMENTO', contentX + u(6), y0 + u(30.2));
   doc.setTextColor(...STAMP_COLORS.verdeValidacao);
-  doc.setFontSize(u(5.8));
-  doc.text('VERIFICADA', contentX + u(6), y0 + u(33));
+  doc.setFontSize(u(6.6));
+  doc.text('VERIFICADA', contentX + u(6), y0 + u(33.6));
 
   // Hash SHA-256
   doc.setFillColor(...STAMP_COLORS.azulSecundario);
-  doc.circle(contentX + u(2.2), y0 + u(36.3), u(2.2), 'F');
+  doc.circle(contentX + u(2.2), y0 + u(37.2), u(2.2), 'F');
   doc.setTextColor(...STAMP_COLORS.branco);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(u(5));
-  doc.text('#', contentX + u(2.2), y0 + u(37.1), { align: 'center' });
+  doc.text('#', contentX + u(2.2), y0 + u(38), { align: 'center' });
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(u(4.8));
+  doc.setFontSize(u(5.6));
   doc.setTextColor(...STAMP_COLORS.cinzaTexto);
-  doc.text('HASH SHA-256', contentX + u(6), y0 + u(35.4));
+  doc.text('HASH SHA-256', contentX + u(6), y0 + u(36.3));
   doc.setFont('courier', 'normal');
-  doc.setFontSize(u(5));
+  doc.setFontSize(u(5.8));
   doc.setTextColor(60, 64, 74);
   const hashDisplay = data.hash.length > 52 ? `${data.hash.slice(0, 52)}…` : data.hash;
-  doc.text(hashDisplay, contentX + u(6), y0 + u(38.4));
+  doc.text(hashDisplay, contentX + u(6), y0 + u(39.7));
 
   // Documento protegido
-  drawLockIcon(doc, contentX + u(2.2), y0 + u(41.6), u(3), STAMP_COLORS.azulSecundario);
+  drawLockIcon(doc, contentX + u(2.2), y0 + u(43), u(3), STAMP_COLORS.azulSecundario);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(u(4.8));
+  doc.setFontSize(u(5.6));
   doc.setTextColor(...STAMP_COLORS.cinzaTexto);
-  doc.text('DOCUMENTO PROTEGIDO', contentX + u(6), y0 + u(40.6));
+  doc.text('DOCUMENTO PROTEGIDO', contentX + u(6), y0 + u(42));
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(u(4.4));
+  doc.setFontSize(u(5.1));
   doc.setTextColor(120, 126, 138);
-  doc.text('Contra alterações após a assinatura', contentX + u(6), y0 + u(43.2));
+  doc.text('Contra alterações após a assinatura', contentX + u(6), y0 + u(44.9));
 
   // QR Code (canto superior direito) — valida especificamente ESTA assinatura
   const qrX = x0 + w - qrSize - u(3);
