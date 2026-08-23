@@ -158,7 +158,7 @@ const STAMP_SCALE = STAMP_WIDTH / REFERENCE_WIDTH; // fator aplicado a todo o de
 // QR Code e altura do carimbo escalados pelo MESMO fator, preservando a proporção original
 // (QR ≈47.6mm e altura ≈59.6mm na referência de 185.2mm de largura).
 const QR_SIZE = 180 * PX_TO_MM * STAMP_SCALE;      // ≈ 18mm
-const STAMP_HEIGHT = (180 * PX_TO_MM + 12) * STAMP_SCALE; // ≈ 22.5mm
+const STAMP_HEIGHT = (180 * PX_TO_MM + 5) * STAMP_SCALE; // ≈ 19.7mm (reduzida p/ caber em 2 páginas)
 
 /**
  * Desenha UM carimbo digital completo (estrutura fixa do modelo — só os dados mudam):
@@ -342,7 +342,7 @@ async function buildContratoPdfDoc(numero: string, textoContrato: string, auditS
   const pageH = doc.internal.pageSize.getHeight();
   const marginX = 20;
   const marginTop = 22;
-  const marginBottom = auditStamp ? 30 : 18;
+  const marginBottom = auditStamp ? 16 : 18;
   let y = marginTop;
 
   const addFooter = () => {
@@ -350,21 +350,13 @@ async function buildContratoPdfDoc(numero: string, textoContrato: string, auditS
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(150, 150, 150);
-    const paginacaoY = auditStamp ? pageH - 22 : pageH - 10;
+    const paginacaoY = auditStamp ? pageH - 10 : pageH - 10;
     doc.text(`${numero} — Página ${doc.getCurrentPageInfo().pageNumber} de ${pageCount}`, pageW / 2, paginacaoY, { align: 'center' });
 
-    if (auditStamp) {
-      const dataAssinatura = new Date(auditStamp.signedAt).toLocaleString('pt-BR');
-      doc.setDrawColor(200, 200, 200);
-      doc.line(marginX, pageH - 18, pageW - marginX, pageH - 18);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(6.5);
-      doc.setTextColor(100, 100, 110);
-      doc.text('AUTENTICAÇÃO ELETRÔNICA AVANÇADA — Lei nº 14.063/2020 e MP nº 2.200-2/2001', marginX, pageH - 14);
-      doc.setFont('helvetica', 'normal');
-      doc.text(`Assinado em: ${dataAssinatura}  |  IP: ${auditStamp.signerIp}`, marginX, pageH - 11);
-      doc.text(`Hash SHA-256: ${auditStamp.documentHash}`, marginX, pageH - 8);
-    }
+    // Nota: o bloco de "AUTENTICAÇÃO ELETRÔNICA AVANÇADA" (base legal, data/hora, IP e hash
+    // SHA-256) foi removido daqui de propósito -- essa informação já está impressa dentro do
+    // próprio carimbo de assinatura (drawDigitalSignatureStamp), então mantê-la aqui duplicava
+    // o conteúdo e empurrava o contrato pra 3+ páginas.
   };
 
   const checkPageBreak = (neededHeight: number) => {
@@ -408,8 +400,15 @@ async function buildContratoPdfDoc(numero: string, textoContrato: string, auditS
     const alturaCarimbo = (isAssinaturaContratante || isAssinaturaContratada) ? STAMP_HEIGHT + 6 : 0;
     checkPageBreak(wrapped.length * lineHeight + (isTitulo ? 3 : 0) + alturaCarimbo);
     if (isTitulo) y += 2;
+    const isLinhaAssinatura = isAssinaturaContratante || isAssinaturaContratada;
     wrapped.forEach((l: string) => {
-      doc.text(l, marginX, y);
+      if (isLinhaAssinatura) {
+        // Linha de assinatura ("___" + NOME — CONTRATANTE/CONTRATADA) centralizada na página,
+        // alinhada com o carimbo (que também é centralizado), em vez de colada na margem esquerda.
+        doc.text(l, pageW / 2, y, { align: 'center' });
+      } else {
+        doc.text(l, marginX, y);
+      }
       y += lineHeight;
     });
 
