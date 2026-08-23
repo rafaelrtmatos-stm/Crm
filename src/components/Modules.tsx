@@ -215,6 +215,7 @@ import { renderReceiptCanvas, downloadCanvasAsPng, downloadCanvasAsPdf, COMPANY_
 import { renderOrcamentoCanvas } from '../lib/orcamentoDoc';
 import { exportClientesXlsx, parseClientesXlsx, exportProdutosXlsx, parseProdutosXlsx, exportVendasXlsx, parseVendasXlsx, exportFichaClienteXlsx } from '../lib/spreadsheet';
 import { downloadContratoPdf, type AuditStamp } from '../lib/contratoPdf';
+import { uploadContratoPdfAssinado } from '../lib/contratoPdfStorage';
 import { buildContratoClausulasTexto } from '../lib/contratoTemplate';
 import { OFFICIAL_COMPANY, PUBLIC_SIGN_ORIGIN, getContractSignatureLink } from '../lib/companyIdentity';
 import { signContractByCompany, generateSignatureId } from '../lib/otpUtils';
@@ -6665,6 +6666,73 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     }
   };
 
+  // Monta o AuditStamp (dados do carimbo digital) a partir de um contrato ja assinado.
+  // Extraido pra ser reaproveitado tanto no download avulso (fallback) quanto na regeneracao
+  // em massa dos PDFs ja salvos no Storage (ver handleRegenerateAllSignedContratoPdfs).
+  const buildAuditStampFromContrato = (c: Contrato): AuditStamp | undefined => {
+    if (!(c.signedAt && c.signerIp && c.documentHash)) return undefined;
+    return {
+      signedAt: c.signedAt,
+      signerIp: c.signerIp,
+      documentHash: c.documentHash,
+      signatureLink: getContractSignatureLink(c.id),
+      signatureMethodLabel: 'Token OTP',
+      clienteCpfCnpj: c.cpfCnpj,
+      clientePhone: c.phone,
+      // Contratos assinados antes desta migration podem nao ter o ID individual salvo --
+      // gera um na hora so pra exibicao (nao persiste, ja que aqui e' so fallback de download).
+      contratanteSignatureId: c.contratanteSignatureId || generateSignatureId(),
+      empresaRazaoSocial: OFFICIAL_COMPANY.razaoSocial,
+      empresaNomeFantasia: OFFICIAL_COMPANY.nomeFantasia,
+      empresaCnpj: OFFICIAL_COMPANY.cnpj,
+      empresaValidatedAt: c.empresaSignedAt || c.signedAt,
+      empresaOrigin: PUBLIC_SIGN_ORIGIN,
+      contratadoSignatureId: c.contratadoSignatureId || generateSignatureId(),
+    };
+  };
+
+  // Regera e SOBRESCREVE (upsert) o PDF ja salvo no Storage de TODOS os contratos ja assinados
+  // (ambas as partes), aplicando o layout/carimbo ATUAL -- usado uma unica vez apos uma mudanca
+  // visual no carimbo (ex: tamanho do QR Code / largura), pra que contratos antigos tambem
+  // passem a exibir o layout novo no download, em vez de continuarem com o PDF congelado no
+  // momento da assinatura original. O hash SHA-256 do TEXTO nao muda -- so a aparencia do carimbo.
+  const [isRegeneratingContratoPdfs, setIsRegeneratingContratoPdfs] = useState(false);
+  const [regenerateContratoProgress, setRegenerateContratoProgress] = useState<{ done: number; total: number } | null>(null);
+  const handleRegenerateAllSignedContratoPdfs = async () => {
+    const alvos = allContratos.filter(c => c.signedAt && c.empresaSignedAt);
+    if (alvos.length === 0) { showAlert('Nenhum contrato assinado (pelas duas partes) encontrado.'); return; }
+    if (!(await showConfirm(`Regenerar o PDF de ${alvos.length} contrato(s) já assinado(s) com o carimbo atualizado? O arquivo salvo de cada um será substituído.`))) return;
+
+    setIsRegeneratingContratoPdfs(true);
+    setRegenerateContratoProgress({ done: 0, total: alvos.length });
+    let falhas = 0;
+    for (let i = 0; i < alvos.length; i++) {
+      const c = alvos[i];
+      try {
+        const auditStamp = buildAuditStampFromContrato(c);
+        if (!auditStamp) { falhas++; continue; }
+        const novaUrl = await uploadContratoPdfAssinado(c.id, c.numero, c.customerName, c.textoContrato || '', auditStamp);
+        if (novaUrl) {
+          await supabase.from('contratos').update({ pdf_url: novaUrl }).eq('id', c.id);
+          setAllContratos(prev => prev.map(ct => ct.id === c.id ? { ...ct, pdfUrl: novaUrl } : ct));
+        } else {
+          falhas++;
+        }
+      } catch (err) {
+        console.error(`Erro ao regenerar PDF do contrato ${c.numero}:`, err);
+        falhas++;
+      }
+      setRegenerateContratoProgress({ done: i + 1, total: alvos.length });
+    }
+    setIsRegeneratingContratoPdfs(false);
+    setRegenerateContratoProgress(null);
+    showAlert(
+      falhas === 0
+        ? `${alvos.length} PDF(s) regenerado(s) com sucesso.`
+        : `Regeneração concluída: ${alvos.length - falhas} com sucesso, ${falhas} falharam (veja o console).`
+    );
+  };
+
   const handleDownloadContratoPdf = async (c: Contrato) => {
     // Contrato ja assinado com PDF salvo no Storage: baixa sempre o MESMO arquivo gerado no
     // momento da assinatura, em vez de recriar na hora com o codigo/layout atuais (ver
@@ -6676,26 +6744,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     // Fallback: contrato ainda nao assinado (rascunho, so preview mesmo) ou assinado antes
     // dessa migration (sem pdf_url salvo) -- gera na hora como antes, com o carimbo completo
     // (cliente + empresa) igual ao que teria sido salvo no Storage no momento da assinatura.
-    const auditStamp: AuditStamp | undefined = c.signedAt && c.signerIp && c.documentHash
-      ? {
-          signedAt: c.signedAt,
-          signerIp: c.signerIp,
-          documentHash: c.documentHash,
-          signatureLink: getContractSignatureLink(c.id),
-          signatureMethodLabel: 'Token OTP',
-          clienteCpfCnpj: c.cpfCnpj,
-          clientePhone: c.phone,
-          // Contratos assinados antes desta migration podem nao ter o ID individual salvo --
-          // gera um na hora so pra exibicao (nao persiste, ja que aqui e' so fallback de download).
-          contratanteSignatureId: c.contratanteSignatureId || generateSignatureId(),
-          empresaRazaoSocial: OFFICIAL_COMPANY.razaoSocial,
-          empresaNomeFantasia: OFFICIAL_COMPANY.nomeFantasia,
-          empresaCnpj: OFFICIAL_COMPANY.cnpj,
-          empresaValidatedAt: c.signedAt,
-          empresaOrigin: PUBLIC_SIGN_ORIGIN,
-          contratadoSignatureId: c.contratadoSignatureId || generateSignatureId(),
-        }
-      : undefined;
+    const auditStamp = buildAuditStampFromContrato(c);
     await downloadContratoPdf(`${c.numero}${c.versao > 1 ? ` (v${c.versao})` : ''}`, c.customerName, c.textoContrato || 'Contrato sem texto gerado.', auditStamp);
   };
 
@@ -11516,7 +11565,23 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               <SectionHeader
                 title="Contratos"
                 subtitle={`${contratos.length} contrato(s)`}
-                actions={<Button icon={FileSignature} onClick={openNewContrato}>Novo Contrato</Button>}
+                actions={
+                  <div className="flex items-center gap-2">
+                    {user?.isAdmin && (
+                      <Button
+                        variant="secondary"
+                        icon={RefreshCw}
+                        onClick={handleRegenerateAllSignedContratoPdfs}
+                        disabled={isRegeneratingContratoPdfs}
+                      >
+                        {isRegeneratingContratoPdfs
+                          ? `Regenerando ${regenerateContratoProgress?.done ?? 0}/${regenerateContratoProgress?.total ?? 0}...`
+                          : 'Atualizar PDFs Assinados'}
+                      </Button>
+                    )}
+                    <Button icon={FileSignature} onClick={openNewContrato}>Novo Contrato</Button>
+                  </div>
+                }
               />
 
               {/* Filtros -- 5 grupos baseados em quem ja assinou (contratante = cliente, contratada
