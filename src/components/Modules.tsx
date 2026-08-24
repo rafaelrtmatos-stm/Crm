@@ -6658,10 +6658,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     if (error) { showAlert(`Não foi possível excluir o contrato: ${error.message}`); return; }
     setAllContratos(prev => prev.filter(ct => ct.id !== c.id));
     // Solta o vinculo na Nota (a Nota continua intacta, so para de apontar pra um contrato
-    // que nao existe mais) -- sem isso a etiqueta "Contrato" ficava no card pra sempre
+    // que nao existe mais) -- sem isso a etiqueta "Contrato" ficava no card pra sempre.
+    // IMPORTANTE: NAO marca a venda como excluida aqui -- a mensagem de confirmacao acima
+    // promete pro usuario que a Nota/Recibo "continua intacta", entao so soltamos o vinculo,
+    // sem apagar a venda em si (que ficaria escondida do Historico sem o usuario esperar isso)
     if (c.vendaId) {
-      // CORREÇÃO: Também marca a venda como deletada para não ficar órfã/aparecendo na lista
-      await supabase.from('vendas').update({ contrato_id: null, deleted_at: now }).eq('id', c.vendaId);
+      await supabase.from('vendas').update({ contrato_id: null }).eq('id', c.vendaId);
       setAllSalesHistory(prev => prev.map(s => s.id === c.vendaId ? { ...s, contratoId: undefined } as SaleOrder : s));
     }
   };
