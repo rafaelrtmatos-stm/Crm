@@ -10,6 +10,14 @@ import type { AuditStamp } from './contratoPdf';
 const CODE_TTL_MINUTES = 30; // valor padrao, usado quando o operador nao escolhe um tempo customizado
 const MAX_ATTEMPTS = 5;
 
+/** Busca o horario oficial do servidor (NTP-sincronizado), em vez de confiar no relogio local do
+ *  navegador do cliente/operador -- usado como signed_at/empresa_signed_at de cada assinatura. */
+export async function getServerTimestamp(): Promise<string> {
+  const { data, error } = await supabase.rpc('get_server_now');
+  if (error || !data) return new Date().toISOString(); // fallback: relogio local se o RPC falhar
+  return new Date(data).toISOString();
+}
+
 /** Gera um codigo numerico de 6 digitos (ex: "482913"). */
 export function generateOtpCode(): string {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -148,6 +156,7 @@ export interface SignContractParams {
   // ('assinado') e gera o PDF final com os dois carimbos, sem precisar de nenhum passo depois.
   companyAlreadySignedAt?: string;
   companySignedByName?: string;
+  companyUserAgent?: string; // empresa_user_agent ja gravado antes, quando ela assinou primeiro
   companySignatureId?: string; // ID exclusivo da assinatura da empresa (contratos.contratado_signature_id), ja gravado antes
 }
 
@@ -202,7 +211,7 @@ export interface SignContractResult {
  */
 export async function signContract(params: SignContractParams): Promise<SignContractResult> {
   const documentHash = await sha256Hex(params.documentText);
-  const signedAt = new Date().toISOString();
+  const signedAt = await getServerTimestamp(); // horario oficial do servidor (NTP), nao do navegador
   const empresaJaAssinou = !!params.companyAlreadySignedAt;
   const contratanteSignatureId = generateSignatureId(); // ID exclusivo desta assinatura (CONTRATANTE)
 
@@ -233,6 +242,7 @@ export async function signContract(params: SignContractParams): Promise<SignCont
     signedAt,
     signerIp: params.clientIp,
     signerLocation: params.clientLocation,
+    signerUserAgent: params.clientUserAgent,
     documentHash,
     signatureLink: getContractSignatureLink(params.contractId),
     signatureMethodLabel: 'Token OTP',
@@ -245,12 +255,13 @@ export async function signContract(params: SignContractParams): Promise<SignCont
     empresaValidatedAt: params.companyAlreadySignedAt!,
     empresaOrigin: PUBLIC_SIGN_ORIGIN,
     empresaSignedByName: params.companySignedByName,
+    empresaUserAgent: params.companyUserAgent,
     contratadoSignatureId: params.companySignatureId || generateSignatureId(),
   };
 
-  const pdfUrl = await uploadContratoPdfAssinado(params.contractId, params.numero, params.customerName, params.documentText, auditStamp);
+  const { url: pdfUrl, pdfHash } = await uploadContratoPdfAssinado(params.contractId, params.numero, params.customerName, params.documentText, auditStamp);
   if (pdfUrl) {
-    await supabase.from('contratos').update({ pdf_url: pdfUrl }).eq('id', params.contractId);
+    await supabase.from('contratos').update({ pdf_url: pdfUrl, pdf_hash: pdfHash }).eq('id', params.contractId);
   }
 
   return { documentHash, signedAt, pdfUrl };
@@ -268,11 +279,13 @@ export interface SignContractByCompanyParams {
   clientSignedAt?: string;    // contratos.signed_at (assinatura do cliente, ja gravada)
   clientIp?: string;          // contratos.signer_ip
   clientLocation?: string;    // contratos.signer_location
+  clientUserAgent?: string;   // contratos.signer_user_agent
   documentHash?: string;      // contratos.document_hash
   clientCpfCnpj?: string;
   clientPhone?: string;
   clientSignatureId?: string; // ID exclusivo da assinatura do cliente (contratos.contratante_signature_id), ja gravado antes
   companySignerName: string;  // nome de quem confirmou a assinatura da empresa (usuario logado)
+  companyUserAgent: string;   // navegador/dispositivo do operador que confirmou a assinatura
 }
 
 export interface SignContractByCompanyResult {
@@ -299,7 +312,7 @@ export interface SignContractByCompanyResult {
  * de signContract(), quando o cliente enfim assinar pelo link.
  */
 export async function signContractByCompany(params: SignContractByCompanyParams): Promise<SignContractByCompanyResult> {
-  const empresaSignedAt = new Date().toISOString();
+  const empresaSignedAt = await getServerTimestamp(); // horario oficial do servidor (NTP), nao do navegador
   const clienteJaAssinou = !!params.clientSignedAt;
   const contratadoSignatureId = generateSignatureId(); // ID exclusivo desta assinatura (CONTRATADA)
 
@@ -309,6 +322,7 @@ export async function signContractByCompany(params: SignContractByCompanyParams)
       status: clienteJaAssinou ? 'assinado' : 'aguardando_assinatura_cliente',
       empresa_signed_at: empresaSignedAt,
       empresa_signed_by: params.companySignerName,
+      empresa_user_agent: params.companyUserAgent,
       contratado_signature_id: contratadoSignatureId,
       updated_at: empresaSignedAt,
     })
@@ -329,6 +343,7 @@ export async function signContractByCompany(params: SignContractByCompanyParams)
     signedAt: params.clientSignedAt!,
     signerIp: params.clientIp || '',
     signerLocation: params.clientLocation,
+    signerUserAgent: params.clientUserAgent,
     documentHash: params.documentHash || '',
     signatureLink: getContractSignatureLink(params.contractId),
     signatureMethodLabel: 'Token OTP',
@@ -341,6 +356,7 @@ export async function signContractByCompany(params: SignContractByCompanyParams)
     empresaValidatedAt: empresaSignedAt,
     empresaOrigin: PUBLIC_SIGN_ORIGIN,
     empresaSignedByName: params.companySignerName,
+    empresaUserAgent: params.companyUserAgent,
     contratadoSignatureId,
   };
 
@@ -355,9 +371,9 @@ export async function signContractByCompany(params: SignContractByCompanyParams)
     auditStamp
   );
 
-  if (pdfUrl) {
-    await supabase.from('contratos').update({ pdf_url: pdfUrl }).eq('id', params.contractId);
+  if (pdfUrl.url) {
+    await supabase.from('contratos').update({ pdf_url: pdfUrl.url, pdf_hash: pdfUrl.pdfHash }).eq('id', params.contractId);
   }
 
-  return { empresaSignedAt, pdfUrl, contratoFechado: true };
+  return { empresaSignedAt, pdfUrl: pdfUrl.url, contratoFechado: true };
 }

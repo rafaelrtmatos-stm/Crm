@@ -26,7 +26,7 @@ export async function uploadContratoPdfAssinado(
   customerName: string,
   textoContrato: string,
   auditStamp: AuditStamp
-): Promise<string | null> {
+): Promise<{ url: string | null; pdfHash: string | null }> {
   try {
     const blob = await generateContratoPdfBlob(numero, textoContrato, auditStamp);
     const path = `${contractId}.pdf`;
@@ -37,16 +37,23 @@ export async function uploadContratoPdfAssinado(
 
     if (uploadError) {
       console.error('Erro ao subir PDF assinado pro Storage:', uploadError);
-      return null;
+      return { url: null, pdfHash: null };
     }
+
+    // SHA-256 dos BYTES do arquivo PDF final (diferente de document_hash, que e' do TEXTO do
+    // contrato) -- permite que a pagina publica /validar confira um PDF enviado pelo usuario
+    // contra o que foi efetivamente gerado/assinado, sem precisar reabrir o contrato.
+    const pdfBuffer = await blob.arrayBuffer();
+    const hashBuffer = await window.crypto.subtle.digest('SHA-256', pdfBuffer);
+    const pdfHash = Array.from(new Uint8Array(hashBuffer)).map((b) => b.toString(16).padStart(2, '0')).join('');
 
     const { data } = supabase.storage.from(BUCKET).getPublicUrl(path, {
       download: contratoPdfFileName(numero, customerName),
     });
 
-    return data?.publicUrl || null;
+    return { url: data?.publicUrl || null, pdfHash };
   } catch (err) {
     console.error('Erro ao gerar/subir PDF assinado:', err);
-    return null;
+    return { url: null, pdfHash: null };
   }
 }

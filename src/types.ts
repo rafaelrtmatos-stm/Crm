@@ -642,6 +642,7 @@ export interface Contrato {
   contratanteSignatureId?: string; // ID exclusivo da assinatura do CONTRATANTE (carimbo digital)
   empresaSignedAt?: string;
   empresaSignedBy?: string;
+  empresaUserAgent?: string;
   contratadoSignatureId?: string; // ID exclusivo da assinatura do CONTRATADO(A) (carimbo digital)
   pdfUrl?: string;
   serviceStatus?: string;

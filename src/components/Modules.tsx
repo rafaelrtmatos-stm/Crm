@@ -635,6 +635,7 @@ const mapContratoRow = (row: any): Contrato => ({
   contratanteSignatureId: row.contratante_signature_id || undefined,
   empresaSignedAt: row.empresa_signed_at || undefined,
   empresaSignedBy: row.empresa_signed_by || undefined,
+  empresaUserAgent: row.empresa_user_agent || undefined,
   contratadoSignatureId: row.contratado_signature_id || undefined,
   pdfUrl: row.pdf_url || undefined,
   responsavel: row.responsavel || undefined,
@@ -6625,11 +6626,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         clientSignedAt: signingContrato.signedAt || undefined,
         clientIp: signingContrato.signerIp || undefined,
         clientLocation: signingContrato.signerLocation || undefined,
+        clientUserAgent: signingContrato.signerUserAgent || undefined,
         documentHash: signingContrato.documentHash || undefined,
         clientCpfCnpj: signingContrato.cpfCnpj,
         clientPhone: signingContrato.phone,
         clientSignatureId: signingContrato.contratanteSignatureId,
         companySignerName: user.name,
+        companyUserAgent: navigator.userAgent,
       });
       await loadContratos();
       setSigningContrato(null);

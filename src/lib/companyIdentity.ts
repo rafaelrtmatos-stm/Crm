@@ -21,3 +21,14 @@ export const PUBLIC_SIGN_ORIGIN = 'pro.rafaartsgraphics.com.br';
 export function getContractSignatureLink(contratoId: string): string {
   return `${PUBLIC_SIGN_BASE_URL}/assinar/${contratoId}`;
 }
+
+/**
+ * Monta o link publico da PAGINA DE VALIDACAO (/validar) para uma assinatura especifica, usado
+ * no QR Code do carimbo digital e no manifesto de assinatura. Diferente do link acima
+ * (/assinar/:id, que abre o contrato em si), essa pagina e' publica e independente do contrato:
+ * qualquer pessoa pode conferir a autenticidade da assinatura digitando o codigo ou enviando o
+ * PDF, sem precisar do link exclusivo enviado ao cliente.
+ */
+export function getSignatureValidationLink(signatureId: string): string {
+  return `${PUBLIC_SIGN_BASE_URL}/validar?sig=${encodeURIComponent(signatureId)}`;
+}

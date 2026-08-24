@@ -23,6 +23,7 @@ interface ContratoPublico {
   contratanteSignatureId?: string;
   empresaSignedAt?: string;
   empresaSignedBy?: string;
+  empresaUserAgent?: string;
   contratadoSignatureId?: string;
 }
 
@@ -75,7 +76,7 @@ export default function ContractSignaturePublicPage() {
 
     supabase
       .from('contratos')
-      .select('id, numero, customer_name, cpf_cnpj, phone, texto_contrato, status, signed_at, signer_ip, document_hash, pdf_url, contratante_signature_id, empresa_signed_at, empresa_signed_by, contratado_signature_id')
+      .select('id, numero, customer_name, cpf_cnpj, phone, texto_contrato, status, signed_at, signer_ip, document_hash, pdf_url, contratante_signature_id, empresa_signed_at, empresa_signed_by, empresa_user_agent, contratado_signature_id')
       .eq('id', id)
       .maybeSingle()
       .then(({ data, error: fetchError }) => {
@@ -95,6 +96,7 @@ export default function ContractSignaturePublicPage() {
           contratanteSignatureId: data.contratante_signature_id || undefined,
           empresaSignedAt: data.empresa_signed_at || undefined,
           empresaSignedBy: data.empresa_signed_by || undefined,
+          empresaUserAgent: data.empresa_user_agent || undefined,
           contratadoSignatureId: data.contratado_signature_id || undefined,
         });
         setLoading(false);
@@ -233,6 +235,7 @@ export default function ContractSignaturePublicPage() {
         // cliente ja fecha o contrato de vez -- ver signContract em otpUtils.ts.
         companyAlreadySignedAt: contrato.empresaSignedAt,
         companySignedByName: contrato.empresaSignedBy,
+        companyUserAgent: contrato.empresaUserAgent,
         companySignatureId: contrato.contratadoSignatureId,
       });
 

@@ -21,6 +21,7 @@ export interface AuditStamp {
   signedAt: string;     // ISO string — instante em que o cliente validou o token e assinou
   signerIp: string;
   signerLocation?: string; // cidade/regiao/pais aproximados via IP (ver getIpLocation)
+  signerUserAgent?: string; // navegador/dispositivo do cliente no momento da assinatura
   documentHash: string;
   signatureLink?: string;        // link exclusivo de assinatura deste contrato (/assinar/:id)
   signatureMethodLabel?: string; // ex: "Token OTP"
@@ -33,6 +34,7 @@ export interface AuditStamp {
   empresaValidatedAt: string; // ISO string — instante em que o operador confirmou a assinatura da empresa
   empresaOrigin: string;      // ex: "pro.rafaartsgraphics.com.br"
   empresaSignedByName?: string; // nome de quem confirmou a assinatura da empresa (login + senha)
+  empresaUserAgent?: string;    // navegador/dispositivo do operador no momento da confirmação
   contratadoSignatureId: string; // ID EXCLUSIVO da assinatura do CONTRATADO(A) — nunca reaproveitado
 }
 
@@ -52,7 +54,7 @@ export function maskCpfCnpj(value: string): string {
   return value; // formato desconhecido -- devolve como veio em vez de quebrar o layout
 }
 
-import { PUBLIC_SIGN_ORIGIN } from './companyIdentity';
+import { PUBLIC_SIGN_ORIGIN, getSignatureValidationLink } from './companyIdentity';
 
 /** Nome do sistema exibido na declaração de autenticidade impressa no carimbo ("Assinado eletronicamente via ..."). */
 export const SIGNATURE_SYSTEM_NAME = PUBLIC_SIGN_ORIGIN;
@@ -487,7 +489,7 @@ async function buildContratoPdfDoc(numero: string, textoContrato: string, auditS
         timeStr,
         signatureId: auditStamp!.contratanteSignatureId,
         hash: auditStamp!.documentHash,
-        validationUrl: `${auditStamp!.signatureLink || ''}?sig=${encodeURIComponent(auditStamp!.contratanteSignatureId)}`,
+        validationUrl: getSignatureValidationLink(auditStamp!.contratanteSignatureId),
         location: auditStamp!.signerLocation,
       });
     } else if (isAssinaturaContratada) {
@@ -501,7 +503,7 @@ async function buildContratoPdfDoc(numero: string, textoContrato: string, auditS
         timeStr: timeStrEmpresa,
         signatureId: auditStamp!.contratadoSignatureId,
         hash: auditStamp!.documentHash,
-        validationUrl: `${auditStamp!.signatureLink || ''}?sig=${encodeURIComponent(auditStamp!.contratadoSignatureId)}`,
+        validationUrl: getSignatureValidationLink(auditStamp!.contratadoSignatureId),
       });
     }
   }
@@ -576,6 +578,7 @@ async function addManifestoPage(doc: any, numero: string, auditStamp: AuditStamp
     ['Data e hora da assinatura:', `${clienteData} ${clienteHora}`],
     ['Endereço IP:', auditStamp.signerIp],
     ['Localização aproximada (via IP):', auditStamp.signerLocation || 'Não capturada'],
+    ['Dispositivo/Navegador:', auditStamp.signerUserAgent || 'Não capturado'],
     ['Meio de autenticação:', auditStamp.signatureMethodLabel || 'Token OTP (código enviado via WhatsApp/E-mail)'],
     ['ID exclusivo da assinatura:', auditStamp.contratanteSignatureId],
   ]);
@@ -587,6 +590,7 @@ async function addManifestoPage(doc: any, numero: string, auditStamp: AuditStamp
     ['Confirmado por:', auditStamp.empresaSignedByName || ''],
     ['Data e hora da confirmação:', `${empresaData} ${empresaHora}`],
     ['Meio de autenticação:', 'Login e senha pré-cadastrados (operador autenticado no sistema)'],
+    ['Dispositivo/Navegador:', auditStamp.empresaUserAgent || 'Não capturado'],
     ['Origem do sistema:', auditStamp.empresaOrigin],
     ['ID exclusivo da assinatura:', auditStamp.contratadoSignatureId],
   ]);
@@ -603,15 +607,19 @@ async function addManifestoPage(doc: any, numero: string, auditStamp: AuditStamp
   doc.setTextColor(...STAMP_COLORS.azulPrincipal);
   doc.text('Valide este documento publicamente:', marginX, y);
   y += 2;
+  const validationUrl = getSignatureValidationLink(auditStamp.contratanteSignatureId);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
   doc.setTextColor(90, 96, 108);
-  doc.text(auditStamp.signatureLink || '', marginX, y + 4);
+  doc.text(validationUrl, marginX, y + 4);
+  doc.text(`Ou acesse ${PUBLIC_SIGN_ORIGIN}/validar e informe um dos códigos abaixo:`, marginX, y + 9);
+  doc.text(`Código CONTRATANTE: ${auditStamp.contratanteSignatureId}`, marginX, y + 14);
+  doc.text(`Código CONTRATADA: ${auditStamp.contratadoSignatureId}`, marginX, y + 19);
 
   const qrSize = 28;
-  const qrDataUrl = await generateQrDataUrl(auditStamp.signatureLink || '');
+  const qrDataUrl = await generateQrDataUrl(validationUrl);
   if (qrDataUrl) {
-    doc.addImage(qrDataUrl, 'PNG', marginX, y + 8, qrSize, qrSize);
+    doc.addImage(qrDataUrl, 'PNG', marginX, y + 24, qrSize, qrSize);
   }
 }
 
