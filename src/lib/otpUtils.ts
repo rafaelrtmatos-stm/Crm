@@ -139,6 +139,7 @@ export interface SignContractParams {
   customerName: string;   // idem, e no nome do arquivo
   documentText: string;   // texto_contrato exibido/aceito no momento da assinatura
   clientIp: string;
+  clientLocation?: string; // cidade/regiao/pais aproximados via geolocalizacao por IP (ver getIpLocation)
   clientUserAgent: string;
   clientCpfCnpj?: string; // impresso no carimbo de auditoria (lado do cliente)
   clientPhone?: string;   // idem
@@ -211,6 +212,7 @@ export async function signContract(params: SignContractParams): Promise<SignCont
       status: empresaJaAssinou ? 'assinado' : 'aguardando_assinatura_empresa',
       signed_at: signedAt,
       signer_ip: params.clientIp,
+      signer_location: params.clientLocation || null,
       signer_user_agent: params.clientUserAgent,
       document_hash: documentHash,
       signature_method: 'otp_manual_whatsapp',
@@ -230,6 +232,7 @@ export async function signContract(params: SignContractParams): Promise<SignCont
   const auditStamp: AuditStamp = {
     signedAt,
     signerIp: params.clientIp,
+    signerLocation: params.clientLocation,
     documentHash,
     signatureLink: getContractSignatureLink(params.contractId),
     signatureMethodLabel: 'Token OTP',
@@ -264,6 +267,7 @@ export interface SignContractByCompanyParams {
   // de vez depois, quando o cliente assinar (ver signContract acima).
   clientSignedAt?: string;    // contratos.signed_at (assinatura do cliente, ja gravada)
   clientIp?: string;          // contratos.signer_ip
+  clientLocation?: string;    // contratos.signer_location
   documentHash?: string;      // contratos.document_hash
   clientCpfCnpj?: string;
   clientPhone?: string;
@@ -324,6 +328,7 @@ export async function signContractByCompany(params: SignContractByCompanyParams)
   const auditStamp: AuditStamp = {
     signedAt: params.clientSignedAt!,
     signerIp: params.clientIp || '',
+    signerLocation: params.clientLocation,
     documentHash: params.documentHash || '',
     signatureLink: getContractSignatureLink(params.contractId),
     signatureMethodLabel: 'Token OTP',

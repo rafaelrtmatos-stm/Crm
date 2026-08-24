@@ -635,6 +635,7 @@ export interface Contrato {
   rg?: string;
   signedAt?: string;
   signerIp?: string;
+  signerLocation?: string;
   signerUserAgent?: string;
   documentHash?: string;
   signatureMethod?: string;

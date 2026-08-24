@@ -20,6 +20,7 @@
 export interface AuditStamp {
   signedAt: string;     // ISO string — instante em que o cliente validou o token e assinou
   signerIp: string;
+  signerLocation?: string; // cidade/regiao/pais aproximados via IP (ver getIpLocation)
   documentHash: string;
   signatureLink?: string;        // link exclusivo de assinatura deste contrato (/assinar/:id)
   signatureMethodLabel?: string; // ex: "Token OTP"
@@ -34,6 +35,27 @@ export interface AuditStamp {
   empresaSignedByName?: string; // nome de quem confirmou a assinatura da empresa (login + senha)
   contratadoSignatureId: string; // ID EXCLUSIVO da assinatura do CONTRATADO(A) — nunca reaproveitado
 }
+
+// Mascara CPF/CNPJ pra exibicao no carimbo visual (privacidade) -- mantem so os primeiros e os
+// ultimos digitos visiveis (ex: CPF "123.***.***-00", CNPJ "12.***.***-0001-40"). Espera o valor
+// ja formatado (com pontuacao) ou so digitos; funciona nos dois casos.
+export function maskCpfCnpj(value: string): string {
+  const digits = (value || '').replace(/\D/g, '');
+  if (digits.length === 11) {
+    // CPF: 123.***.***-00
+    return `${digits.slice(0, 3)}.***.***-${digits.slice(9, 11)}`;
+  }
+  if (digits.length === 14) {
+    // CNPJ: 12.***.***/****-40
+    return `${digits.slice(0, 2)}.***.***/****-${digits.slice(12, 14)}`;
+  }
+  return value; // formato desconhecido -- devolve como veio em vez de quebrar o layout
+}
+
+import { PUBLIC_SIGN_ORIGIN } from './companyIdentity';
+
+/** Nome do sistema exibido na declaração de autenticidade impressa no carimbo ("Assinado eletronicamente via ..."). */
+export const SIGNATURE_SYSTEM_NAME = PUBLIC_SIGN_ORIGIN;
 
 /** Monta o nome de arquivo padrao usado tanto no download direto quanto no path do Storage. */
 export function contratoPdfFileName(numero: string, customerName: string): string {
@@ -55,10 +77,24 @@ interface DigitalSignatureStampData {
   signerName: string;
   cpfCnpj: string;
   dateStr: string;         // já formatado, ex: "22/08/2026"
-  timeStr: string;         // já formatado, ex: "17:42:18"
+  timeStr: string;         // já formatado, com fuso, ex: "17:42:18 (UTC-3)"
   signatureId: string;     // ID EXCLUSIVO desta assinatura — nunca repete entre CONTRATANTE/CONTRATADO(A)
   hash: string;
   validationUrl: string;   // URL que o QR Code deste carimbo especificamente valida
+  location?: string;       // localizacao aproximada (cidade/regiao/pais) no momento da assinatura
+}
+
+/** Formata data/hora em pt-BR já com o sufixo de fuso horário local, ex: "24/08/2026 19:17:40 (UTC-3)". */
+function formatDateTimeWithTz(iso: string): { dateStr: string; timeStr: string } {
+  const dt = new Date(iso);
+  const offsetMin = -dt.getTimezoneOffset();
+  const sign = offsetMin >= 0 ? '+' : '-';
+  const offsetH = Math.floor(Math.abs(offsetMin) / 60);
+  const tzLabel = `UTC${sign}${offsetH}`;
+  return {
+    dateStr: dt.toLocaleDateString('pt-BR'),
+    timeStr: `${dt.toLocaleTimeString('pt-BR')} (${tzLabel})`,
+  };
 }
 
 const hexToRgb = (hex: string): [number, number, number] => {
@@ -214,6 +250,12 @@ async function drawDigitalSignatureStamp(
   doc.text('MP 2.200-2/2001', painelCx, y0 + u(27.6), { align: 'center' });
   doc.text('LEI 14.063/2020', painelCx, y0 + u(32), { align: 'center' });
 
+  // Declaração de autenticidade — sistema que processou a assinatura eletrônica.
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(u(4.4));
+  const declaracao = doc.splitTextToSize(`Assinado eletronicamente via ${SIGNATURE_SYSTEM_NAME}`, painelW - u(4));
+  doc.text(declaracao, painelCx, y0 + u(36.5), { align: 'center' });
+
   // ---- Área de conteúdo (direita do painel, deixando espaço pro QR Code) ----
   const qrSize = QR_SIZE;
   const contentX = x0 + painelW + u(4);
@@ -232,6 +274,11 @@ async function drawDigitalSignatureStamp(
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(u(6.5));
   doc.text(data.cpfCnpj, contentX + u(8), y0 + u(11.8));
+  if (data.location) {
+    doc.setFontSize(u(5));
+    doc.setTextColor(120, 126, 138);
+    doc.text(`Local aprox.: ${data.location}`, contentX + u(8), y0 + u(14));
+  }
 
   doc.setDrawColor(220, 224, 232);
   doc.setLineWidth(u(0.15));
@@ -432,30 +479,35 @@ async function buildContratoPdfDoc(numero: string, textoContrato: string, auditS
       // Nome impresso na própria linha de assinatura ("NOME — CONTRATANTE"), garantindo que o
       // carimbo mostre exatamente quem assinou como CONTRATANTE, sem depender de outro campo.
       const nome = trimmed.replace(/—\s*CONTRATANTE\s*$/i, '').trim();
-      const dt = new Date(auditStamp!.signedAt);
+      const { dateStr, timeStr } = formatDateTimeWithTz(auditStamp!.signedAt);
       y = await drawDigitalSignatureStamp(doc, y, marginX, pageW, {
         signerName: nome,
-        cpfCnpj: auditStamp!.clienteCpfCnpj ? `CPF/CNPJ: ${auditStamp!.clienteCpfCnpj}` : 'CPF/CNPJ não informado',
-        dateStr: dt.toLocaleDateString('pt-BR'),
-        timeStr: dt.toLocaleTimeString('pt-BR'),
+        cpfCnpj: auditStamp!.clienteCpfCnpj ? `CPF/CNPJ: ${maskCpfCnpj(auditStamp!.clienteCpfCnpj)}` : 'CPF/CNPJ não informado',
+        dateStr,
+        timeStr,
         signatureId: auditStamp!.contratanteSignatureId,
         hash: auditStamp!.documentHash,
         validationUrl: `${auditStamp!.signatureLink || ''}?sig=${encodeURIComponent(auditStamp!.contratanteSignatureId)}`,
+        location: auditStamp!.signerLocation,
       });
     } else if (isAssinaturaContratada) {
       // Nome impresso na própria linha de assinatura ("NOME — CONTRATADA").
       const nome = trimmed.replace(/—\s*CONTRATADA\s*$/i, '').trim();
-      const dtEmpresa = new Date(auditStamp!.empresaValidatedAt);
+      const { dateStr: dateStrEmpresa, timeStr: timeStrEmpresa } = formatDateTimeWithTz(auditStamp!.empresaValidatedAt);
       y = await drawDigitalSignatureStamp(doc, y, marginX, pageW, {
         signerName: auditStamp!.empresaSignedByName || nome,
-        cpfCnpj: `CNPJ: ${auditStamp!.empresaCnpj}`,
-        dateStr: dtEmpresa.toLocaleDateString('pt-BR'),
-        timeStr: dtEmpresa.toLocaleTimeString('pt-BR'),
+        cpfCnpj: `CNPJ: ${maskCpfCnpj(auditStamp!.empresaCnpj)}`,
+        dateStr: dateStrEmpresa,
+        timeStr: timeStrEmpresa,
         signatureId: auditStamp!.contratadoSignatureId,
         hash: auditStamp!.documentHash,
         validationUrl: `${auditStamp!.signatureLink || ''}?sig=${encodeURIComponent(auditStamp!.contratadoSignatureId)}`,
       });
     }
+  }
+
+  if (auditStamp) {
+    await addManifestoPage(doc, numero, auditStamp);
   }
 
   const totalPages = doc.getNumberOfPages();
@@ -465,6 +517,102 @@ async function buildContratoPdfDoc(numero: string, textoContrato: string, auditS
   }
 
   return doc;
+}
+
+/**
+ * Página final de "Manifesto de Assinatura" / Trilha de Auditoria (Audit Trail), reunindo num só
+ * lugar o resumo de todas as evidências auditáveis das duas assinaturas (CONTRATANTE e
+ * CONTRATADA): IP, localização aproximada, dispositivo/navegador (User-Agent), meio de
+ * autenticação, hash SHA-256 do documento e timestamps — além do QR Code público de validação.
+ * Só é gerada quando o contrato já tem auditStamp (ou seja, no momento em que é efetivamente
+ * assinado), como última página do PDF final.
+ */
+async function addManifestoPage(doc: any, numero: string, auditStamp: AuditStamp) {
+  doc.addPage();
+  const pageW = doc.internal.pageSize.getWidth();
+  const marginX = 20;
+  let y = 22;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(13);
+  doc.setTextColor(20, 20, 30);
+  doc.text('MANIFESTO DE ASSINATURA ELETRÔNICA', pageW / 2, y, { align: 'center' });
+  y += 6;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.setTextColor(120, 120, 130);
+  doc.text(`Contrato ${numero} — Trilha de Auditoria (Audit Trail)`, pageW / 2, y, { align: 'center' });
+  y += 10;
+
+  const drawParteBlock = (titulo: string, campos: [string, string][]) => {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10.5);
+    doc.setTextColor(...STAMP_COLORS.azulPrincipal);
+    doc.text(titulo, marginX, y);
+    y += 2;
+    doc.setDrawColor(...STAMP_COLORS.azulPrincipal);
+    doc.setLineWidth(0.3);
+    doc.line(marginX, y, pageW - marginX, y);
+    y += 5.5;
+
+    campos.forEach(([label, valor]) => {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(...STAMP_COLORS.cinzaTexto);
+      doc.text(label, marginX, y);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(40, 44, 54);
+      const wrapped = doc.splitTextToSize(valor || 'Não informado', pageW - marginX * 2 - 45);
+      doc.text(wrapped, marginX + 45, y);
+      y += Math.max(5, wrapped.length * 4.2) + 1.5;
+    });
+    y += 4;
+  };
+
+  const { dateStr: clienteData, timeStr: clienteHora } = formatDateTimeWithTz(auditStamp.signedAt);
+  drawParteBlock('CONTRATANTE (Cliente)', [
+    ['Documento (CPF/CNPJ):', auditStamp.clienteCpfCnpj ? maskCpfCnpj(auditStamp.clienteCpfCnpj) : ''],
+    ['Data e hora da assinatura:', `${clienteData} ${clienteHora}`],
+    ['Endereço IP:', auditStamp.signerIp],
+    ['Localização aproximada (via IP):', auditStamp.signerLocation || 'Não capturada'],
+    ['Meio de autenticação:', auditStamp.signatureMethodLabel || 'Token OTP (código enviado via WhatsApp/E-mail)'],
+    ['ID exclusivo da assinatura:', auditStamp.contratanteSignatureId],
+  ]);
+
+  const { dateStr: empresaData, timeStr: empresaHora } = formatDateTimeWithTz(auditStamp.empresaValidatedAt);
+  drawParteBlock('CONTRATADA (Empresa)', [
+    ['Razão social:', auditStamp.empresaRazaoSocial],
+    ['CNPJ:', maskCpfCnpj(auditStamp.empresaCnpj)],
+    ['Confirmado por:', auditStamp.empresaSignedByName || ''],
+    ['Data e hora da confirmação:', `${empresaData} ${empresaHora}`],
+    ['Meio de autenticação:', 'Login e senha pré-cadastrados (operador autenticado no sistema)'],
+    ['Origem do sistema:', auditStamp.empresaOrigin],
+    ['ID exclusivo da assinatura:', auditStamp.contratadoSignatureId],
+  ]);
+
+  drawParteBlock('INTEGRIDADE DO DOCUMENTO', [
+    ['Hash SHA-256:', auditStamp.documentHash],
+    ['Sistema responsável:', SIGNATURE_SYSTEM_NAME],
+    ['Base legal:', 'MP 2.200-2/2001, art. 10, §2º — Lei 14.063/2020'],
+  ]);
+
+  // QR Code de validação pública, ao final da página.
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9.5);
+  doc.setTextColor(...STAMP_COLORS.azulPrincipal);
+  doc.text('Valide este documento publicamente:', marginX, y);
+  y += 2;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.setTextColor(90, 96, 108);
+  doc.text(auditStamp.signatureLink || '', marginX, y + 4);
+
+  const qrSize = 28;
+  const qrDataUrl = await generateQrDataUrl(auditStamp.signatureLink || '');
+  if (qrDataUrl) {
+    doc.addImage(qrDataUrl, 'PNG', marginX, y + 8, qrSize, qrSize);
+  }
 }
 
 /** Gera o PDF e dispara o download direto no navegador (usado pra preview de rascunho/nao assinado). */

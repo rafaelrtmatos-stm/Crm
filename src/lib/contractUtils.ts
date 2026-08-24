@@ -229,6 +229,35 @@ export async function getPublicIpAddress(): Promise<string> {
   return '189.102.45.12';
 }
 
+/**
+ * IP + localizacao aproximada (cidade/regiao/pais) via geolocalizacao por IP publico -- nenhum
+ * dado de GPS e coletado, so o que da pra inferir a partir do IP de acesso. Usa a mesma cadeia
+ * de fallback (ipapi.co -> ipwho.is -> ipify) ja usada no login (ver registerSession em App.tsx),
+ * reaproveitada aqui pro carimbo/trilha de auditoria da assinatura de contratos.
+ */
+export async function getIpLocation(): Promise<{ ip: string; location: string }> {
+  let ip = '';
+  let location = '';
+  try {
+    const res = await fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(3000) });
+    const j = await res.json();
+    ip = j.ip || ip;
+    location = [j.city, j.region, j.country_name].filter(Boolean).join(', ') || location;
+    if (ip) return { ip, location };
+  } catch (e) { /* tenta proximo provedor */ }
+  try {
+    const res2 = await fetch('https://ipwho.is/', { signal: AbortSignal.timeout(3000) });
+    const j2 = await res2.json();
+    if (j2?.success !== false) {
+      ip = j2.ip || ip;
+      location = [j2.city, j2.region, j2.country].filter(Boolean).join(', ') || location;
+      if (ip) return { ip, location };
+    }
+  } catch (e2) { /* tenta proximo provedor */ }
+  const fallbackIp = await getPublicIpAddress();
+  return { ip: fallbackIp, location };
+}
+
 // ---------------------------------------------------------------------------
 // Validacao de documentos do cliente (CPF, CNPJ, RG, telefone)
 // ---------------------------------------------------------------------------

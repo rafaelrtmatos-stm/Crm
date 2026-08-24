@@ -6,7 +6,7 @@ import React, { useEffect, useState } from 'react';
 import { ShieldCheck, Loader2, AlertCircle, CheckCircle2, Download, Hash, Globe, Clock, IdCard, Copy, Clipboard, Lock } from 'lucide-react';
 import { supabase } from '../supabase';
 import { validateVerificationCode, signContract, checkDocumentLastDigits, createVerificationCode } from '../lib/otpUtils';
-import { getPublicIpAddress } from '../lib/contractUtils';
+import { getPublicIpAddress, getIpLocation } from '../lib/contractUtils';
 
 interface ContratoPublico {
   id: string;
@@ -216,7 +216,7 @@ export default function ContractSignaturePublicPage() {
         return;
       }
 
-      const clientIp = await getPublicIpAddress();
+      const { ip: clientIp, location: clientLocation } = await getIpLocation();
       const clientUserAgent = navigator.userAgent;
 
       const result = await signContract({
@@ -225,6 +225,7 @@ export default function ContractSignaturePublicPage() {
         customerName: contrato.customerName,
         documentText: contrato.textoContrato,
         clientIp,
+        clientLocation,
         clientUserAgent,
         clientCpfCnpj: contrato.cpfCnpj,
         clientPhone: contrato.phone,
