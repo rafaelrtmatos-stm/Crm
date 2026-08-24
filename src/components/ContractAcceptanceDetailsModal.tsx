@@ -182,7 +182,7 @@ export const ContractAcceptanceDetailsModal = ({ contrato, onClose }: ContractAc
   };
 
   return (
-    <Modal isOpen={true} onClose={onClose} title="Ver Detalhes do Aceite" size="md">
+    <Modal isOpen={true} onClose={onClose} title="Log de Evidências" size="md">
       <div className="space-y-4 p-1">
         <div className={`rounded-2xl border p-4 flex items-center gap-3 ${assinado ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-amber-500/20 bg-amber-500/5'}`}>
           {assinado ? (
