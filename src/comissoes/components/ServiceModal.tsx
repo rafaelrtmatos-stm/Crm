@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { X, Check, Calculator, AlertCircle, Layers, Tag } from 'lucide-react';
+import { X, Check, Calculator, AlertCircle, Layers, Tag, Search } from 'lucide-react';
 import { ServiceItem, ServiceStatus, ChargingUnit } from '../types';
 import { CHARGING_UNITS } from '../data/mockData';
 import { formatCurrency } from '../utils/storage';
 import { getTodayISO as getTodayISOLocal } from '../utils/dateHelpers';
+import { supabase } from '../../supabase';
 
 interface ServiceModalProps {
   isOpen: boolean;
@@ -43,6 +44,40 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
   const [status, setStatus] = useState<ServiceStatus>('CONCLUÍDO');
   const [notes, setNotes] = useState('');
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
+
+  // Busca de produtos do catalogo (mesma tabela usada no PDV) — pra nao precisar digitar o
+  // servico na mao toda vez, e ja preencher o preco unitario certo direto do cadastro
+  const [buscandoProduto, setBuscandoProduto] = useState(false);
+  const [termoBusca, setTermoBusca] = useState('');
+  const [resultadosBusca, setResultadosBusca] = useState<any[]>([]);
+  const [carregandoBusca, setCarregandoBusca] = useState(false);
+
+  useEffect(() => {
+    if (!buscandoProduto) return;
+    const t = setTimeout(async () => {
+      setCarregandoBusca(true);
+      let query = supabase.from('produtos').select('id, name, sale_price, unit').eq('is_active', true).order('name', { ascending: true }).limit(30);
+      if (termoBusca.trim()) query = query.ilike('name', `%${termoBusca.trim()}%`);
+      const { data } = await query;
+      setResultadosBusca(data || []);
+      setCarregandoBusca(false);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [buscandoProduto, termoBusca]);
+
+  const mapUnidadeProduto = (u: string): ChargingUnit => {
+    if (u === 'm2') return 'metro quadrado (m²)';
+    if (u === 'm') return 'metro';
+    return 'unidade';
+  };
+
+  const escolherProdutoDaBusca = (p: any) => {
+    setServiceType(p.name);
+    setUnit(mapUnidadeProduto(p.unit));
+    handleQuantityOrPriceChange(quantity || 1, Number(p.sale_price) || 0);
+    setBuscandoProduto(false);
+    setTermoBusca('');
+  };
 
   useEffect(() => {
     if (editingService) {
@@ -208,24 +243,69 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
                 <label className="block text-xs font-bold uppercase tracking-wider text-[var(--text-main)] mb-1">
                   1. Serviço Realizado *
                 </label>
-                <input
-                  type="text"
-                  placeholder="Ex: Envelopamento Teto, Banner 440g, Placa ACM..."
-                  value={serviceType}
-                  onChange={(e) => {
-                    setServiceType(e.target.value);
-                    if (errors.serviceType) setErrors({ ...errors, serviceType: '' });
-                  }}
-                  required
-                  autoFocus
-                  className={`w-full px-3.5 py-3 rounded-xl border bg-[var(--bg-card)] text-[var(--text-main)] text-sm font-bold focus:outline-none ${
-                    errors.serviceType ? 'border-red-500' : 'border-[var(--border-color)] focus:border-[var(--accent-red)]'
-                  }`}
-                />
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="Ex: Envelopamento Teto, Banner 440g, Placa ACM..."
+                    value={serviceType}
+                    onChange={(e) => {
+                      setServiceType(e.target.value);
+                      if (errors.serviceType) setErrors({ ...errors, serviceType: '' });
+                    }}
+                    required
+                    autoFocus
+                    className={`flex-1 px-3.5 py-3 rounded-xl border bg-[var(--bg-card)] text-[var(--text-main)] text-sm font-bold focus:outline-none ${
+                      errors.serviceType ? 'border-red-500' : 'border-[var(--border-color)] focus:border-[var(--accent-red)]'
+                    }`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => { setBuscandoProduto(true); setTermoBusca(''); }}
+                    title="Buscar no catálogo de produtos"
+                    className="shrink-0 w-11 h-11 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] text-[var(--accent-red)] flex items-center justify-center hover:bg-[var(--accent-red)] hover:text-white transition-colors"
+                  >
+                    <Search size={16} />
+                  </button>
+                </div>
                 {errors.serviceType && (
                   <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
                     <AlertCircle className="w-3.5 h-3.5" /> {errors.serviceType}
                   </p>
+                )}
+
+                {buscandoProduto && (
+                  <div className="mt-2 border border-[var(--border-color)] rounded-xl bg-[var(--bg-card)] overflow-hidden">
+                    <input
+                      type="text"
+                      autoFocus
+                      placeholder="Digite pra filtrar..."
+                      value={termoBusca}
+                      onChange={(e) => setTermoBusca(e.target.value)}
+                      className="w-full px-3.5 py-2.5 bg-transparent text-sm text-[var(--text-main)] border-b border-[var(--border-color)] focus:outline-none"
+                    />
+                    <div className="max-h-52 overflow-y-auto">
+                      {carregandoBusca ? (
+                        <p className="text-xs text-[var(--text-muted)] px-3.5 py-3">Buscando...</p>
+                      ) : resultadosBusca.length === 0 ? (
+                        <p className="text-xs text-[var(--text-muted)] px-3.5 py-3">Nenhum produto encontrado.</p>
+                      ) : (
+                        resultadosBusca.map((p) => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => escolherProdutoDaBusca(p)}
+                            className="w-full flex items-center justify-between gap-2 px-3.5 py-2.5 text-left hover:bg-black/5 dark:hover:bg-white/5 border-b border-[var(--border-color)] last:border-b-0"
+                          >
+                            <span className="text-sm font-bold text-[var(--text-main)] truncate">{p.name}</span>
+                            <span className="text-xs font-mono text-[var(--accent-red)] shrink-0">{formatCurrency(Number(p.sale_price) || 0)}</span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                    <button type="button" onClick={() => setBuscandoProduto(false)} className="w-full text-center text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)] py-2 hover:bg-black/5 dark:hover:bg-white/5">
+                      Fechar busca
+                    </button>
+                  </div>
                 )}
               </div>
 
