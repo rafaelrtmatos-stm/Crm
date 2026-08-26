@@ -879,6 +879,18 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
    const [realSales, setRealSales] = useState<SaleOrder[]>([]);
   const [services, setServices] = useState<any[]>([]);
   const [inventory, setInventory] = useState<any[]>([]);
+  // Comissoes lancadas (valor ja calculado com % aplicado) - contam como CUSTO no
+  // faturamento/lucro que o ADM ve, ja que e dinheiro que sai pro funcionario
+  const [comissoesLancadas, setComissoesLancadas] = useState<{ data: string; valor: number }[]>([]);
+  useEffect(() => {
+    const loadComissoes = async () => {
+      const { data } = await supabase.from('comissoes_servicos').select('data, comissao_valor');
+      setComissoesLancadas((data || []).map((r: any) => ({ data: r.data, valor: Number(r.comissao_valor) || 0 })));
+    };
+    loadComissoes();
+    const channel = supabase.channel('dashboard-comissoes-custo').on('postgres_changes', { event: '*', schema: 'public', table: 'comissoes_servicos' }, loadComissoes).subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
   const { setCurrentCompany, setPrefilledCustomer } = React.useContext(AppContext)!;
   const [settleModalOrder, setSettleModalOrder] = useState<SaleOrder | null>(null);
   const [settleMethod, setSettleMethod] = useState<'pix' | 'dinheiro' | 'cartao_credito' | 'cartao_debito'>('pix');
@@ -1052,7 +1064,8 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       const recebidoNoPeriodo = eventosNoPeriodo.reduce((s, ev) => s + ev.value, 0);
       const fatiaCusto = totalRecebidoPedido > 0 ? orderCost * (recebidoNoPeriodo / totalRecebidoPedido) : 0;
       return acc + fatiaCusto;
-    }, 0);
+    }, 0)
+    + comissoesLancadas.filter(c => { const d = new Date(`${c.data}T00:00:00`); return d >= periodoStart && d <= periodoEnd; }).reduce((acc, c) => acc + c.valor, 0);
 
   const netProfit = Math.max(0, totalRevenue - totalCost);
   const avgMarkup = totalCost > 0 ? (totalRevenue / totalCost) : 3.1;
@@ -1132,6 +1145,14 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       return c;
     };
 
+    // Soma o valor de comissoes JA LANCADAS (com % ja aplicado) dentro de um periodo — conta
+    // como custo, ja que e dinheiro que sai pro funcionario sobre aquele servico
+    const custoComissoesNoPeriodo = (desde: Date, ate: Date = now) => {
+      return comissoesLancadas
+        .filter(c => { const d = new Date(`${c.data}T00:00:00`); return d >= desde && d <= ate; })
+        .reduce((acc, c) => acc + c.valor, 0);
+    };
+
     const now = new Date();
     const startOfDay = new Date(now); startOfDay.setHours(0, 0, 0, 0);
     const diaSemanaAtual = now.getDay(); // 0=domingo, 1=segunda, ..., 6=sabado
@@ -1153,8 +1174,9 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         .filter(ev => new Date(ev.date) >= desde)
         .reduce((acc, ev) => acc + ev.value, 0);
       // Custo continua ligado a data da nota (o produto foi consumido/produzido quando a venda
-      // foi feita, independente de quando cada parcela foi paga)
-      const custo = vendasNaoCanceladas.filter(o => new Date(o.createdAt) >= desde).reduce((acc, o) => acc + custoDoPedido(o), 0);
+      // foi feita, independente de quando cada parcela foi paga) + comissoes lancadas no periodo
+      const custo = vendasNaoCanceladas.filter(o => new Date(o.createdAt) >= desde).reduce((acc, o) => acc + custoDoPedido(o), 0)
+        + custoComissoesNoPeriodo(desde);
       const count = vendasNaoCanceladas.filter(o => new Date(o.createdAt) >= desde).length;
       return { faturamento, lucro: Math.max(0, faturamento - custo), count };
     };
@@ -1214,6 +1236,14 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         const fatiaCusto = totalRecebidoPedido > 0 ? custoPedido * (ev.value / totalRecebidoPedido) : 0;
         porBucket[key].custo += fatiaCusto;
       });
+    });
+    // Comissoes lancadas por dia tambem contam como custo, direto no dia que foram lancadas
+    comissoesLancadas.forEach(c => {
+      const d = new Date(`${c.data}T00:00:00`);
+      if (isNaN(d.getTime()) || d < inicioPeriodo || d > startOfDay) return;
+      const key = analisePeriodo === 'ano' ? format(d, 'MM/yyyy') : format(d, 'dd/MM');
+      if (!porBucket[key]) porBucket[key] = { faturamento: 0, custo: 0 };
+      porBucket[key].custo += c.valor;
     });
     const linhaGrafico: { day: string; faturamento: number; lucro: number }[] = [];
     if (analisePeriodo === 'ano') {
@@ -5682,6 +5712,30 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [dimWidth, setDimWidth] = useState<number | ''>('');
   const [dimHeight, setDimHeight] = useState<number | ''>('');
   const [dimLarguraMaterial, setDimLarguraMaterial] = useState<number>(0);
+  // Valor final do item — comeca preenchido com o calculo automatico (largura x altura x
+  // preco, ou consumo linear x preco pro tipo "metro"), mas o usuario pode editar aqui pra
+  // dar desconto ou aumentar antes de confirmar. Esse valor editado (nao o calculo puro) e
+  // o que fica salvo no carrinho, na nota, e e o que conta pra comissao do funcionario.
+  const [dimValorOverride, setDimValorOverride] = useState<number | ''>('');
+  const [dimValorFoiEditado, setDimValorFoiEditado] = useState(false);
+
+  // Recalcula o valor automatico (largura x altura x preco, ou consumo linear x preco pro
+  // tipo "metro") sempre que os dados relevantes mudam, e so aplica no campo editavel
+  // enquanto o usuario ainda NAO tiver digitado um valor manual ali
+  useEffect(() => {
+    if (!dimensionModalProduct || dimValorFoiEditado) return;
+    const w = dimWidth === '' ? 0 : Number(dimWidth);
+    const h = dimHeight === '' ? 0 : Number(dimHeight);
+    if (w <= 0 || h <= 0) { setDimValorOverride(''); return; }
+    const isMetro = dimensionModalProduct.unitType === 'metro';
+    const rolo = dimLarguraMaterial;
+    const consumo = rolo > 0 ? calcularConsumoLinear(w, h, rolo) : (w * h);
+    const valorCalculado = isMetro ? consumo * dimensionModalProduct.price * selectedQty : w * h * dimensionModalProduct.price * selectedQty;
+    const valorAutomatico = Math.max(valorCalculado, dimensionModalProduct.valorMinimo || 0);
+    setDimValorOverride(Number(valorAutomatico.toFixed(2)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dimensionModalProduct, dimWidth, dimHeight, dimLarguraMaterial, selectedQty, dimValorFoiEditado]);
+
 
   // Insulfilm: modal proprio pra aproveitamento entre varias pecas da mesma nota (corte fisico do rolo)
   const [insulfilmModalProduct, setInsulfilmModalProduct] = useState<Product | null>(null);
@@ -8718,6 +8772,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       setDimWidth('');
       setDimHeight('');
       setDimLarguraMaterial(product.larguraRolo || 0);
+      setDimValorOverride('');
+      setDimValorFoiEditado(false);
       return;
     }
     if (product.unitType === 'etiqueta') {
@@ -13775,7 +13831,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               const valorCalculado = isMetro
                 ? consumo * dimensionModalProduct.price * selectedQty
                 : w * h * dimensionModalProduct.price * selectedQty;
-              const valorFinal = Math.max(valorCalculado, dimensionModalProduct.valorMinimo || 0);
+              const valorAutomatico = Math.max(valorCalculado, dimensionModalProduct.valorMinimo || 0);
+              // So re-sincroniza com o valor automatico enquanto o usuario ainda nao editou
+              // manualmente — depois que ele edita, o valor digitado manda, mesmo se
+              // largura/altura mudarem de novo (ele pode ajustar as medidas sem perder o
+              // desconto que já tinha aplicado)
+              if (!dimValorFoiEditado && dimValorOverride !== valorAutomatico) {
+                setTimeout(() => setDimValorOverride(valorAutomatico), 0);
+              }
+              const valorFinal = dimValorOverride === '' ? valorAutomatico : Number(dimValorOverride);
               return (
                 <div className="bg-slate-900/60 rounded-2xl border border-white/10 p-4 space-y-1">
                   {isMetro ? (
@@ -13824,16 +13888,40 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   {naoCabeEmNenhuma && isMetro && (
                     <p className="text-[9px] text-rose-400">⚠ Nenhuma orientação cabe na largura do material — confira as medidas.</p>
                   )}
-                  {valorFinal > valorCalculado && (
+                  {valorAutomatico > valorCalculado && (
                     <div className="flex justify-between text-[10px] text-amber-400 pt-1 border-t border-white/5">
                        <span>Valor mínimo aplicado</span>
                        <span className="font-mono font-bold">R$ {dimensionModalProduct.valorMinimo?.toFixed(2).replace('.', ',')}</span>
                     </div>
                   )}
-                  <div className="flex justify-between text-sm pt-1 border-t border-white/5">
-                    <span className="text-emerald-400 font-bold">Subtotal</span>
-                    <span className="font-mono font-black text-emerald-400">R$ {valorFinal.toFixed(2).replace('.', ',')}</span>
+                  <div className="flex justify-between items-center text-sm pt-2 border-t border-white/5 gap-3">
+                    <span className="text-emerald-400 font-bold shrink-0">Valor final</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-emerald-400 font-mono text-xs">R$</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={dimValorOverride === '' ? valorAutomatico.toFixed(2) : dimValorOverride}
+                        onChange={(e) => { setDimValorFoiEditado(true); setDimValorOverride(e.target.value === '' ? '' : Number(e.target.value)); }}
+                        className="w-24 bg-slate-950 border border-emerald-500/30 rounded-lg px-2 py-1 text-right font-mono font-black text-emerald-400 focus:outline-none focus:border-emerald-400"
+                      />
+                      {dimValorFoiEditado && Number(dimValorOverride) !== valorAutomatico && (
+                        <button
+                          type="button"
+                          onClick={() => { setDimValorFoiEditado(false); setDimValorOverride(valorAutomatico); }}
+                          title="Voltar pro valor calculado automaticamente"
+                          className="text-[9px] text-white/30 hover:text-white/60 underline"
+                        >
+                          resetar
+                        </button>
+                      )}
+                    </div>
                   </div>
+                  {dimValorFoiEditado && Number(dimValorOverride) !== valorAutomatico && (
+                    <p className="text-[9px] text-amber-400 text-right">
+                      {Number(dimValorOverride) < valorAutomatico ? 'Desconto' : 'Acréscimo'} manual — automático seria R$ {valorAutomatico.toFixed(2).replace('.', ',')}
+                    </p>
+                  )}
                 </div>
               );
            })()}
