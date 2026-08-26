@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   CalendarClock, Bell, ChevronRight, ChevronDown, Trash2, ArrowLeft,
-  RotateCcw, CheckSquare, Square, X, CheckCircle2
+  RotateCcw, CheckSquare, Square, X, CheckCircle2, Search
 } from 'lucide-react';
 import { supabase } from '../../supabase';
 import { showConfirm } from '../../lib/notify';
@@ -89,6 +89,11 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
   // Sempre começa na semana atual, com o dia de HOJE selecionado por padrão.
   const [weekOffset, setWeekOffset] = useState(0);
   const [selectedDay, setSelectedDay] = useState<string>(getTodayISO());
+  // Busca por texto — filtra pelo nome do cliente ou nome de qualquer item dentro da nota.
+  // Quando ativa (texto digitado), ignora a navegacao por semana/dia e busca em TODAS as
+  // notas visiveis, nao so na semana selecionada — senao a pessoa precisaria adivinhar em
+  // qual semana o servico que ela procura esta
+  const [termoBuscaServico, setTermoBuscaServico] = useState('');
 
   const carregarDispensadas = async () => {
     if (!colaboradorId) {
@@ -203,9 +208,18 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
   }, [weekBounds, notasDaSemana]);
 
   const notasFiltradas = useMemo(() => {
+    const termo = termoBuscaServico.trim().toLowerCase();
+    if (termo) {
+      // Busca ativa: ignora semana/dia, procura em TODAS as notas visiveis
+      return notasVisiveis.filter(n => {
+        const nomeCliente = (n.customer_name || '').toLowerCase();
+        if (nomeCliente.includes(termo)) return true;
+        return (n.items || []).some(item => (item.name || '').toLowerCase().includes(termo));
+      });
+    }
     if (selectedDay === 'all') return notasDaSemana;
     return notasDaSemana.filter(n => dateKey(n.scheduled_for || n.created_at) === selectedDay);
-  }, [notasDaSemana, selectedDay]);
+  }, [notasDaSemana, notasVisiveis, selectedDay, termoBuscaServico]);
 
   const gruposPorDia = useMemo(() => {
     const map = new Map<string, NotaAgendada[]>();
@@ -592,7 +606,20 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
         )}
       </div>
 
-      {!lixeiraAberta && (
+      {colaboradorId && !lixeiraAberta && (
+        <div className="relative">
+          <Search className="w-4 h-4 text-[var(--text-muted)] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="text"
+            value={termoBuscaServico}
+            onChange={(e) => setTermoBuscaServico(e.target.value)}
+            placeholder="Buscar por cliente ou serviço..."
+            className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)]"
+          />
+        </div>
+      )}
+
+      {!lixeiraAberta && !termoBuscaServico.trim() && (
         <div className="space-y-2">
           {/* Pasta: navegação por semana */}
           <div className="flex items-center gap-2 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl px-2 py-1.5">
