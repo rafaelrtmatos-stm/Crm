@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import {
   ChevronLeft, ChevronRight, ChevronDown, Calendar as CalendarIcon,
   Plus, Edit2, Trash2, LayoutGrid, Table as TableIcon, Columns, Trash,
-  DollarSign, Percent, CheckCircle2, TrendingUp, Clock, Sparkles, X
+  DollarSign, Percent, CheckCircle2, TrendingUp, Clock, Sparkles, X, Copy, Check
 } from 'lucide-react';
 import { ServiceItem } from '../types';
 import { formatCurrency } from '../utils/storage';
@@ -136,6 +136,16 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
     });
   };
 
+  // Copia o número da nota (código completo, não só os 6 últimos dígitos mostrados) pra
+  // área de transferência — feedback visual rápido (ícone vira check por 1.5s).
+  const [notaCopiada, setNotaCopiada] = useState<string | null>(null);
+  const handleCopiarNota = (e: React.MouseEvent, noteId: string) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(noteId);
+    setNotaCopiada(noteId);
+    setTimeout(() => setNotaCopiada(prev => (prev === noteId ? null : prev)), 1500);
+  };
+
   const renderNoteCard = (group: ReturnType<typeof groupedByDayAndNote>[number]) => {
     const open = expandedNotes.has(group.key);
     return (
@@ -149,10 +159,22 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
             {open ? <ChevronDown className="w-4 h-4 text-[var(--text-muted)] shrink-0" /> : <ChevronRight className="w-4 h-4 text-[var(--text-muted)] shrink-0" />}
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-black text-xs text-[var(--text-main)]">
-                  {group.noteId ? `NOTA #${group.noteId.slice(-6).toUpperCase()}` : 'SERVIÇO AVULSO'}
-                </span>
-                <span className="text-[10px] text-[var(--text-muted)] truncate">{group.client}</span>
+                <span className="font-black text-xs text-[var(--text-main)] truncate">{group.client}</span>
+                {group.noteId && (
+                  <span
+                    onClick={(e) => handleCopiarNota(e, group.noteId!)}
+                    title="Copiar número da nota"
+                    className="inline-flex items-center gap-1 text-[10px] font-mono text-[var(--text-muted)] hover:text-[var(--text-main)] cursor-pointer shrink-0"
+                  >
+                    NOTA #{group.noteId.slice(-6).toUpperCase()}
+                    {notaCopiada === group.noteId
+                      ? <Check className="w-3 h-3 text-emerald-400" />
+                      : <Copy className="w-3 h-3" />}
+                  </span>
+                )}
+                {!group.noteId && (
+                  <span className="text-[10px] font-mono text-[var(--text-muted)]">SERVIÇO AVULSO</span>
+                )}
               </div>
               <span className="text-[10px] text-[var(--text-muted)]">
                 {group.items.length} {group.items.length === 1 ? 'serviço' : 'serviços'}

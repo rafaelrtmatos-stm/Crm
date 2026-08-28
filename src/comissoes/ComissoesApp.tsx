@@ -12,6 +12,7 @@ import {
   saveServiceToSupabase,
   inserirServicosDeNota,
   deleteServiceFromSupabase,
+  excluirServicoPorOrigem,
   saveColaboradorSettings,
   colaboradorToUserSettings,
   calculateSummaryStats,
@@ -156,6 +157,19 @@ export default function ComissoesApp() {
   };
 
   const handleDeleteService = async (id: string) => {
+    const item = services.find((s) => s.id === id);
+    // Serviço puxado de uma nota (tem origemNotaId): não vai pra Lixeira, volta a ficar
+    // disponível no card da própria nota lá na aba Serviços — agrupado automaticamente
+    // porque a nota já é 1 registro só com todos os itens dentro.
+    if (item?.origemNotaId && item.origemItemIndex !== undefined) {
+      if (!confirm('Tirar esse serviço da planilha? Ele volta a ficar disponível na nota, na aba Serviços.')) return;
+      const ok = await excluirServicoPorOrigem(item.origemNotaId, item.origemItemIndex);
+      if (!ok) { showToast('Não foi possível excluir.'); return; }
+      setServices((prev) => prev.filter((s) => s.id !== id));
+      showToast('Serviço removido da planilha. Disponível de novo na aba Serviços.');
+      return;
+    }
+
     if (!confirm('Deseja realmente excluir este serviço da planilha? Ele fica disponível na Lixeira por 30 dias.')) return;
     const ok = await deleteServiceFromSupabase(id);
     if (!ok) { showToast('Não foi possível excluir.'); return; }

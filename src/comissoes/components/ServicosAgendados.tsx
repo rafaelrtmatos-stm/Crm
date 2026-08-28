@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CalendarClock, Bell, ChevronRight, ChevronDown, Trash2, ArrowLeft,
-  RotateCcw, CheckSquare, Square, X, CheckCircle2, Search
+  RotateCcw, CheckSquare, Square, X, CheckCircle2, Search, Copy, Check
 } from 'lucide-react';
 import { supabase } from '../../supabase';
 import { showConfirm } from '../../lib/notify';
@@ -108,6 +108,11 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
   // Busca dentro da Lixeira (separada da busca da lista normal de notas) — filtra tanto
   // os serviços excluídos quanto as notas dispensadas ao mesmo tempo.
   const [termoBuscaLixeira, setTermoBuscaLixeira] = useState('');
+  // Modal de confirmação de data ao adicionar serviço(s) na planilha: pergunta se lança no
+  // mesmo dia da nota ou em outra data escolhida pelo colaborador (ex: fez o serviço num
+  // dia diferente do agendamento).
+  const [confirmarDataModal, setConfirmarDataModal] =
+    useState<{ nota: NotaAgendada; idxs: number[]; dataPadrao: string; dataEscolhida: string; alterando: boolean } | null>(null);
 
   const carregarDispensadas = async () => {
     if (!colaboradorId) {
@@ -300,6 +305,16 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
     });
   };
 
+  // Copia o número completo da nota (não só os 6 últimos dígitos mostrados) pra área de
+  // transferência — feedback visual rápido (ícone vira check por 1.5s).
+  const [notaCopiada, setNotaCopiada] = useState<string | null>(null);
+  const handleCopiarNota = (e: React.MouseEvent, notaId: string) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(notaId);
+    setNotaCopiada(notaId);
+    setTimeout(() => setNotaCopiada(prev => (prev === notaId ? null : prev)), 1500);
+  };
+
   const handleAddItems = async (
     items: NotaSelecionadoItem[],
     nota: NotaDetalhe,
@@ -334,9 +349,9 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
     });
   };
 
-  // Botão "Adicionar Serviços" (lado direito) — confirma o lançamento dos itens marcados
-  // direto, sem abrir nenhum popup: só o toast de sucesso e o check verde no item/nota.
-  const handleAdicionarSelecionados = async (nota: NotaAgendada, idxs: number[]) => {
+  // Confirma o lançamento dos itens marcados numa data específica (o dia da nota ou outro,
+  // escolhido no modal de confirmação abaixo).
+  const handleAdicionarSelecionados = async (nota: NotaAgendada, idxs: number[], data: string) => {
     if (!idxs.length) return;
     const fator = calcFatorDesconto(nota);
     const escolhidos: NotaSelecionadoItem[] = idxs.map(idx => {
@@ -349,12 +364,27 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
         value: Number((bruto * fator).toFixed(2)),
       };
     });
-    await handleAddItems(escolhidos, nota, dateKey(nota.scheduled_for || nota.created_at));
+    await handleAddItems(escolhidos, nota, data);
     setItemSelecionados(prev => {
       const next = { ...prev };
       delete next[nota.id];
       return next;
     });
+  };
+
+  // Abre o modal perguntando em que dia lançar os itens marcados — chamado pelo botão
+  // "ADICIONAR SERVIÇO(S)" em vez de lançar direto.
+  const abrirConfirmarData = (nota: NotaAgendada, idxs: number[]) => {
+    if (!idxs.length) return;
+    const dataPadrao = dateKey(nota.scheduled_for || nota.created_at);
+    setConfirmarDataModal({ nota, idxs, dataPadrao, dataEscolhida: dataPadrao, alterando: false });
+  };
+
+  const confirmarAdicaoComData = async (data: string) => {
+    if (!confirmarDataModal) return;
+    const { nota, idxs } = confirmarDataModal;
+    setConfirmarDataModal(null);
+    await handleAdicionarSelecionados(nota, idxs, data);
   };
 
   // Tira um serviço já lançado a partir de um item da nota (o colaborador se enganou ao
@@ -500,8 +530,15 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
               <p className="font-black text-sm truncate">
                 {(nota.customer_name || 'Cliente de Balcão').toUpperCase()}
               </p>
-              <span className="text-[10px] font-mono text-[var(--text-muted)]">
+              <span
+                onClick={(e) => handleCopiarNota(e, nota.id)}
+                title="Copiar número da nota"
+                className="inline-flex items-center gap-1 text-[10px] font-mono text-[var(--text-muted)] hover:text-[var(--text-main)] cursor-pointer shrink-0"
+              >
                 NOTA #{nota.id.slice(-6).toUpperCase()}
+                {notaCopiada === nota.id
+                  ? <Check className="w-3 h-3 text-emerald-400" />
+                  : <Copy className="w-3 h-3" />}
               </span>
             </div>
 
@@ -607,7 +644,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
                       {todosMarcados ? 'DESMARCAR TODOS' : 'SELECIONAR TODOS'}
                     </button>
                     <button
-                      onClick={(e) => { e.stopPropagation(); handleAdicionarSelecionados(nota, Array.from(selecionadosNota)); }}
+                      onClick={(e) => { e.stopPropagation(); abrirConfirmarData(nota, Array.from(selecionadosNota)); }}
                       disabled={selecionadosNota.size === 0}
                       className="px-3 py-1.5 rounded-lg bg-gradient-red text-white text-[11px] font-bold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                     >
@@ -914,6 +951,75 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
               {dayNotas.map(renderNotaCard)}
             </section>
           ))}
+        </div>
+      )}
+
+      {confirmarDataModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={() => setConfirmarDataModal(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] p-5 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="font-black text-sm uppercase tracking-wide">Em que dia lançar?</h3>
+              <button
+                onClick={() => setConfirmarDataModal(null)}
+                className="p-1 rounded-lg text-[var(--text-muted)] hover:bg-[var(--bg-card-sec)]"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-[var(--text-muted)]">
+              {confirmarDataModal.idxs.length > 1
+                ? `${confirmarDataModal.idxs.length} serviços vão ser adicionados na sua planilha.`
+                : 'Esse serviço vai ser adicionado na sua planilha.'}
+            </p>
+
+            {!confirmarDataModal.alterando ? (
+              <div className="space-y-2">
+                <button
+                  onClick={() => confirmarAdicaoComData(confirmarDataModal.dataPadrao)}
+                  className="w-full px-3 py-2.5 rounded-xl bg-gradient-red text-white text-xs font-bold"
+                >
+                  MESMO DIA DA NOTA — {dateLabel(confirmarDataModal.dataPadrao)}
+                </button>
+                <button
+                  onClick={() => setConfirmarDataModal(prev => prev ? { ...prev, alterando: true } : prev)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-[var(--border-color)] text-xs font-bold text-[var(--text-muted)] hover:bg-[var(--bg-card-sec)]"
+                >
+                  ALTERAR DATA
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <input
+                  type="date"
+                  value={confirmarDataModal.dataEscolhida}
+                  onChange={(e) => setConfirmarDataModal(prev => prev ? { ...prev, dataEscolhida: e.target.value } : prev)}
+                  className="w-full px-3 py-2 rounded-xl bg-[var(--bg-card-sec)] border border-[var(--border-color)] text-sm text-[var(--text-main)]"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setConfirmarDataModal(prev => prev ? { ...prev, alterando: false } : prev)}
+                    className="flex-1 px-3 py-2.5 rounded-xl border border-[var(--border-color)] text-xs font-bold text-[var(--text-muted)] hover:bg-[var(--bg-card-sec)]"
+                  >
+                    VOLTAR
+                  </button>
+                  <button
+                    onClick={() => confirmarAdicaoComData(confirmarDataModal.dataEscolhida)}
+                    disabled={!confirmarDataModal.dataEscolhida}
+                    className="flex-1 px-3 py-2.5 rounded-xl bg-gradient-red text-white text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    CONFIRMAR
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
