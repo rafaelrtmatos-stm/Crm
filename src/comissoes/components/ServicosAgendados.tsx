@@ -221,6 +221,23 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
     );
   }, [servicosExcluidos, termoBuscaLixeira]);
 
+  // Agrupa os serviços excluídos pela nota de origem (origemNotaId) — itens puxados juntos de
+  // uma mesma nota do PDV aparecem juntos num único card, com restauração em lote. Serviços
+  // sem origemNotaId (lançados manualmente) continuam aparecendo avulsos, um por card.
+  const gruposServicosExcluidos = useMemo(() => {
+    const mapa = new Map<string, ServiceItem[]>();
+    servicosExcluidosFiltrados.forEach(item => {
+      const chave = item.origemNotaId || `solo-${item.id}`;
+      if (!mapa.has(chave)) mapa.set(chave, []);
+      mapa.get(chave)!.push(item);
+    });
+    return Array.from(mapa.values()).sort((a, b) => {
+      const maisRecenteA = Math.max(...a.map(i => i.deletedAt || 0));
+      const maisRecenteB = Math.max(...b.map(i => i.deletedAt || 0));
+      return maisRecenteB - maisRecenteA;
+    });
+  }, [servicosExcluidosFiltrados]);
+
   const notasNaLixeiraFiltradas = useMemo(() => {
     const termo = termoBuscaLixeira.trim().toLowerCase();
     if (!termo) return notasNaLixeira;
@@ -450,6 +467,14 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
     const ok = await restoreServiceFromSupabase(id);
     if (!ok) return;
     setServicosExcluidos(prev => prev.filter(s => s.id !== id));
+  };
+
+  // Restaura de uma vez todos os itens de uma mesma nota (grupo) que estão na Lixeira.
+  const handleRestaurarGrupo = async (ids: string[]) => {
+    const resultados = await Promise.all(ids.map(id => restoreServiceFromSupabase(id)));
+    const idsRestaurados = ids.filter((_, i) => resultados[i]);
+    if (idsRestaurados.length === 0) return;
+    setServicosExcluidos(prev => prev.filter(s => !idsRestaurados.includes(s.id)));
   };
 
   const renderNotaCard = (nota: NotaAgendada) => {
@@ -818,44 +843,106 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {servicosExcluidosFiltrados.map(item => (
-                    <div key={item.id} className="p-4 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] space-y-3 opacity-80">
-                      <div className="flex items-center justify-between gap-2 border-b border-[var(--border-color)] pb-2.5">
-                        <div className="min-w-0">
-                          <span className="text-[10px] font-mono text-[var(--text-muted)] block">
-                            {formatDateBR(item.date)}{item.createdAt ? ` · ${formatTimeBR(item.createdAt)}` : ''}
-                          </span>
-                          <h3 className="font-bold text-sm text-[var(--text-main)] leading-tight truncate">{item.serviceType}</h3>
-                          {item.vehicle && <p className="text-xs font-mono text-[var(--text-muted)]">{item.vehicle}</p>}
-                        </div>
-                        <Trash2 className="w-5 h-5 text-[var(--text-muted)] shrink-0" />
-                      </div>
+                  {gruposServicosExcluidos.map(grupo => {
+                    // Grupo com 1 item só (lançamento manual, sem nota de origem) — card avulso.
+                    if (grupo.length === 1) {
+                      const item = grupo[0];
+                      return (
+                        <div key={item.id} className="p-4 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] space-y-3 opacity-80">
+                          <div className="flex items-center justify-between gap-2 border-b border-[var(--border-color)] pb-2.5">
+                            <div className="min-w-0">
+                              <span className="text-[10px] font-mono text-[var(--text-muted)] block">
+                                {formatDateBR(item.date)}{item.createdAt ? ` · ${formatTimeBR(item.createdAt)}` : ''}
+                              </span>
+                              <h3 className="font-bold text-sm text-[var(--text-main)] leading-tight truncate">{item.serviceType}</h3>
+                              {item.vehicle && <p className="text-xs font-mono text-[var(--text-muted)]">{item.vehicle}</p>}
+                            </div>
+                            <Trash2 className="w-5 h-5 text-[var(--text-muted)] shrink-0" />
+                          </div>
 
-                      <div className="grid grid-cols-2 gap-2 p-2.5 rounded-xl bg-[var(--bg-card-sec)] border border-[var(--border-color)] text-xs">
-                        <div>
-                          <span className="text-[10px] uppercase text-[var(--text-muted)] block">Produção</span>
-                          <span className="font-bold font-mono text-[var(--text-main)] text-sm">{formatCurrency(item.productionValue)}</span>
+                          <div className="grid grid-cols-2 gap-2 p-2.5 rounded-xl bg-[var(--bg-card-sec)] border border-[var(--border-color)] text-xs">
+                            <div>
+                              <span className="text-[10px] uppercase text-[var(--text-muted)] block">Produção</span>
+                              <span className="font-bold font-mono text-[var(--text-main)] text-sm">{formatCurrency(item.productionValue)}</span>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-[10px] uppercase text-[var(--accent-red)] block font-bold">Comissão</span>
+                              <span className="font-black font-mono text-[var(--accent-red)] text-sm">{formatCurrency(item.commissionValue)}</span>
+                            </div>
+                          </div>
+
+                          <p className="text-[10px] text-[var(--text-muted)]">
+                            Excluído em {item.deletedAt ? `${formatDateBR(new Date(item.deletedAt).toISOString().split('T')[0])} ${formatTimeBR(item.deletedAt)}` : '—'}
+                          </p>
+
+                          <div className="flex items-center justify-end pt-1">
+                            <button
+                              onClick={() => handleRestaurarServico(item.id)}
+                              className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-xs font-bold text-emerald-400"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" /> Restaurar
+                            </button>
+                          </div>
                         </div>
-                        <div className="text-right">
-                          <span className="text-[10px] uppercase text-[var(--accent-red)] block font-bold">Comissão</span>
-                          <span className="font-black font-mono text-[var(--accent-red)] text-sm">{formatCurrency(item.commissionValue)}</span>
+                      );
+                    }
+
+                    // Grupo com vários itens da mesma nota — card único agrupado.
+                    const primeiro = grupo[0];
+                    const totalProducao = grupo.reduce((s, i) => s + (i.productionValue || 0), 0);
+                    const totalComissao = grupo.reduce((s, i) => s + (i.commissionValue || 0), 0);
+                    const deletedAtMaisRecente = Math.max(...grupo.map(i => i.deletedAt || 0));
+                    const idsGrupo = grupo.map(i => i.id);
+
+                    return (
+                      <div key={primeiro.origemNotaId} className="p-4 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] space-y-3 opacity-80">
+                        <div className="flex items-center justify-between gap-2 border-b border-[var(--border-color)] pb-2.5">
+                          <div className="min-w-0">
+                            <span className="text-[10px] font-mono text-[var(--text-muted)] block">
+                              {formatDateBR(primeiro.date)} · {grupo.length} itens
+                            </span>
+                            <h3 className="font-bold text-sm text-[var(--text-main)] leading-tight truncate">
+                              {primeiro.clientName || 'Nota'}
+                            </h3>
+                          </div>
+                          <Trash2 className="w-5 h-5 text-[var(--text-muted)] shrink-0" />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          {grupo.map(item => (
+                            <div key={item.id} className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)] text-xs">
+                              <span className="font-bold text-[var(--text-main)] truncate">{item.serviceType}</span>
+                              <span className="font-mono text-[var(--accent-red)] font-bold shrink-0">{formatCurrency(item.commissionValue)}</span>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 p-2.5 rounded-xl bg-[var(--bg-card-sec)] border border-[var(--border-color)] text-xs">
+                          <div>
+                            <span className="text-[10px] uppercase text-[var(--text-muted)] block">Produção total</span>
+                            <span className="font-bold font-mono text-[var(--text-main)] text-sm">{formatCurrency(totalProducao)}</span>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-[10px] uppercase text-[var(--accent-red)] block font-bold">Comissão total</span>
+                            <span className="font-black font-mono text-[var(--accent-red)] text-sm">{formatCurrency(totalComissao)}</span>
+                          </div>
+                        </div>
+
+                        <p className="text-[10px] text-[var(--text-muted)]">
+                          Excluído em {deletedAtMaisRecente ? `${formatDateBR(new Date(deletedAtMaisRecente).toISOString().split('T')[0])} ${formatTimeBR(deletedAtMaisRecente)}` : '—'}
+                        </p>
+
+                        <div className="flex items-center justify-end pt-1">
+                          <button
+                            onClick={() => handleRestaurarGrupo(idsGrupo)}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-xs font-bold text-emerald-400"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" /> Restaurar nota
+                          </button>
                         </div>
                       </div>
-
-                      <p className="text-[10px] text-[var(--text-muted)]">
-                        Excluído em {item.deletedAt ? `${formatDateBR(new Date(item.deletedAt).toISOString().split('T')[0])} ${formatTimeBR(item.deletedAt)}` : '—'}
-                      </p>
-
-                      <div className="flex items-center justify-end pt-1">
-                        <button
-                          onClick={() => handleRestaurarServico(item.id)}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-xs font-bold text-emerald-400"
-                        >
-                          <RotateCcw className="w-3.5 h-3.5" /> Restaurar
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </section>
