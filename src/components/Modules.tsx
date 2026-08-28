@@ -880,12 +880,16 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   const [services, setServices] = useState<any[]>([]);
   const [inventory, setInventory] = useState<any[]>([]);
   // Comissoes lancadas (valor ja calculado com % aplicado) - contam como CUSTO no
-  // faturamento/lucro que o ADM ve, ja que e dinheiro que sai pro funcionario
-  const [comissoesLancadas, setComissoesLancadas] = useState<{ data: string; valor: number }[]>([]);
+  // faturamento/lucro que o ADM ve, ja que e dinheiro que sai pro funcionario.
+  // Traz origemNotaId junto: comissoes puxadas de uma nota (tem origem_nota_id) ja foram
+  // embutidas como Custo Extra na propria nota (ver lancarComissoesComoCustoDaNota /
+  // custoDoPedido em analiseDetalhada) -- quem for somar essa lista junto com o custo da nota
+  // precisa excluir essas pra nao contar a mesma comissao duas vezes (ver custoComissoesNoPeriodo).
+  const [comissoesLancadas, setComissoesLancadas] = useState<{ data: string; valor: number; origemNotaId: string | null }[]>([]);
   useEffect(() => {
     const loadComissoes = async () => {
-      const { data } = await supabase.from('comissoes_servicos').select('data, comissao_valor');
-      setComissoesLancadas((data || []).map((r: any) => ({ data: r.data, valor: Number(r.comissao_valor) || 0 })));
+      const { data } = await supabase.from('comissoes_servicos').select('data, comissao_valor, origem_nota_id');
+      setComissoesLancadas((data || []).map((r: any) => ({ data: r.data, valor: Number(r.comissao_valor) || 0, origemNotaId: r.origem_nota_id || null })));
     };
     loadComissoes();
     const channel = supabase.channel('dashboard-comissoes-custo').on('postgres_changes', { event: '*', schema: 'public', table: 'comissoes_servicos' }, loadComissoes).subscribe();
@@ -1146,9 +1150,14 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     };
 
     // Soma o valor de comissoes JA LANCADAS (com % ja aplicado) dentro de um periodo — conta
-    // como custo, ja que e dinheiro que sai pro funcionario sobre aquele servico
+    // como custo, ja que e dinheiro que sai pro funcionario sobre aquele servico.
+    // So entram aqui comissoes SEM origem_nota_id (lancadas manualmente, sem nota vinculada):
+    // as que tem origem_nota_id ja estao dentro de custoDoPedido via extraCosts da propria
+    // nota — somar as duas listas ao mesmo tempo duplicava a despesa e derrubava o Lucro
+    // Liquido artificialmente pra servicos puxados de nota.
     const custoComissoesNoPeriodo = (desde: Date, ate: Date = now) => {
       return comissoesLancadas
+        .filter(c => !c.origemNotaId)
         .filter(c => { const d = new Date(`${c.data}T00:00:00`); return d >= desde && d <= ate; })
         .reduce((acc, c) => acc + c.valor, 0);
     };
@@ -1237,8 +1246,10 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         porBucket[key].custo += fatiaCusto;
       });
     });
-    // Comissoes lancadas por dia tambem contam como custo, direto no dia que foram lancadas
-    comissoesLancadas.forEach(c => {
+    // Comissoes lancadas por dia tambem contam como custo, direto no dia que foram lancadas.
+    // So as SEM origem_nota_id — as puxadas de nota ja entraram acima via custoDoPedido(o)
+    // (extraCosts da propria nota), senao a mesma comissao conta 2x no grafico.
+    comissoesLancadas.filter(c => !c.origemNotaId).forEach(c => {
       const d = new Date(`${c.data}T00:00:00`);
       if (isNaN(d.getTime()) || d < inicioPeriodo || d > startOfDay) return;
       const key = analisePeriodo === 'ano' ? format(d, 'MM/yyyy') : format(d, 'dd/MM');
