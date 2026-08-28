@@ -137,27 +137,46 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
     const open = expandedNotes.has(group.key);
     return (
       <div key={group.key} className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card-sec)] overflow-hidden">
-        <button
-          type="button"
-          onClick={() => toggleNote(group.key)}
-          className="w-full p-3 text-left flex items-center gap-3 hover:bg-[var(--bg-card)]"
-        >
-          {open ? <ChevronDown className="w-4 h-4 text-[var(--text-muted)]" /> : <ChevronRight className="w-4 h-4 text-[var(--text-muted)]" />}
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-black text-xs text-[var(--text-main)]">
-                {group.noteId ? `NOTA #${group.noteId.slice(-6).toUpperCase()}` : 'SERVIÇO AVULSO'}
+        <div className="w-full p-3 flex items-center gap-3 hover:bg-[var(--bg-card)]">
+          <button
+            type="button"
+            onClick={() => toggleNote(group.key)}
+            className="flex items-center gap-3 flex-1 min-w-0 text-left"
+          >
+            {open ? <ChevronDown className="w-4 h-4 text-[var(--text-muted)] shrink-0" /> : <ChevronRight className="w-4 h-4 text-[var(--text-muted)] shrink-0" />}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-black text-xs text-[var(--text-main)]">
+                  {group.noteId ? `NOTA #${group.noteId.slice(-6).toUpperCase()}` : 'SERVIÇO AVULSO'}
+                </span>
+                <span className="text-[10px] text-[var(--text-muted)] truncate">{group.client}</span>
+              </div>
+              <span className="text-[10px] text-[var(--text-muted)]">
+                {group.items.length} {group.items.length === 1 ? 'serviço' : 'serviços'}
               </span>
-              <span className="text-[10px] text-[var(--text-muted)] truncate">{group.client}</span>
             </div>
-            <span className="text-[10px] text-[var(--text-muted)]">
-              {group.items.length} {group.items.length === 1 ? 'serviço' : 'serviços'}
-            </span>
-          </div>
+          </button>
           <span className="font-mono font-black text-xs text-[var(--text-main)]">
             {formatCurrency(group.total)}
           </span>
-        </button>
+          {group.items.length === 1 ? (
+            <button
+              onClick={() => onDeleteService(group.items[0].id)}
+              className="p-1.5 rounded-lg hover:bg-red-950/40 text-red-400 shrink-0"
+              title="Excluir serviço"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          ) : (
+            <button
+              onClick={() => { if (confirm(`Excluir os ${group.items.length} serviços desta nota?`)) group.items.forEach(s => onDeleteService(s.id)); }}
+              className="p-1.5 rounded-lg hover:bg-red-950/40 text-red-400 shrink-0"
+              title="Excluir todos os serviços desta nota"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
 
         {open && (
           <div className="border-t border-[var(--border-color)] p-2 space-y-2">
@@ -287,7 +306,7 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
       </div>
 
       {viewMode === 'grid' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-7 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7 gap-3 items-start">
           {weekDaysData.map(renderDay)}
         </div>
       )}
