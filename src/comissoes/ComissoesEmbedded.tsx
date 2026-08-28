@@ -56,6 +56,10 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
   const [deletedServices, setDeletedServices] = useState<ServiceItem[]>([]);
   const [isTrashOpen, setIsTrashOpen] = useState(false);
   const [isLoadingTrash, setIsLoadingTrash] = useState(false);
+  // Ref pra ler o isTrashOpen atual de dentro do listener de tempo real sem precisar
+  // re-inscrever o canal toda vez que a Lixeira abre/fecha (evitaria reconectar à toa).
+  const isTrashOpenRef = useRef(false);
+  useEffect(() => { isTrashOpenRef.current = isTrashOpen; }, [isTrashOpen]);
   const [descontos, setDescontos] = useState<Desconto[]>([]);
   const [userSettings, setUserSettings] = useState<UserSettings>({
     userName: '', userRole: '', baseSalary: 0, defaultCommissionRate: 10, weeklyGoal: 0, themePreference: 'dark',
@@ -138,7 +142,14 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'comissoes_servicos', filter: `colaborador_id=eq.${colaboradorId}` },
-        () => { getServicesFromSupabase(colaboradorId).then(setServices); }
+        () => {
+          getServicesFromSupabase(colaboradorId).then(setServices);
+          // Se a Lixeira estiver aberta nesse momento (ex: outro admin restaurando/excluindo
+          // em outra aba), reflete na hora também — antes só a Planilha atualizava sozinha.
+          if (isTrashOpenRef.current) {
+            getDeletedServicesFromSupabase(colaboradorId).then(setDeletedServices);
+          }
+        }
       )
       .subscribe();
 
@@ -382,6 +393,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
                 onDeleteService={handleDeleteService}
                 onOpenAddModalWithDate={(dateISO) => handleOpenAddModal(dateISO)}
                 weeklyGoal={userSettings.weeklyGoal}
+                onGoToTrash={() => { setActiveTab('table'); if (!isTrashOpen) handleToggleTrash(); }}
               />
             )}
             {activeTab === 'table' && (

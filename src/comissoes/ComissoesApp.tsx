@@ -34,6 +34,7 @@ import { DescontosView } from './components/DescontosView';
 import { NotaDetalhe, NotaSelecionadoItem } from './components/NotaDetalheModal';
 import { CheckCircle2 } from 'lucide-react';
 import { getTodayISO } from './utils/dateHelpers';
+import { supabase } from '../supabase';
 import './comissoes-theme.css';
 
 const COLABORADOR_SESSION_KEY = 'rpro_comissoes_colaborador_id';
@@ -48,6 +49,10 @@ export default function ComissoesApp() {
   const [deletedServices, setDeletedServices] = useState<ServiceItem[]>([]);
   const [isTrashOpen, setIsTrashOpen] = useState(false);
   const [isLoadingTrash, setIsLoadingTrash] = useState(false);
+  // Ref pra ler o isTrashOpen atual de dentro do listener de tempo real sem precisar
+  // re-inscrever o canal toda vez que a Lixeira abre/fecha.
+  const isTrashOpenRef = useRef(false);
+  useEffect(() => { isTrashOpenRef.current = isTrashOpen; }, [isTrashOpen]);
   const [descontos, setDescontos] = useState<Desconto[]>([]);
   const [userSettings, setUserSettings] = useState<UserSettings>({
     userName: '', userRole: '', baseSalary: 0, defaultCommissionRate: 10, weeklyGoal: 0, themePreference: 'dark',
@@ -105,6 +110,35 @@ export default function ComissoesApp() {
     // tem os botoes de criar/editar/excluir desconto (ver isAdmin={false} na DescontosView abaixo)
     getDescontosFromSupabase(colaborador.id).then(setDescontos);
   }, [colaborador]);
+
+  // Tempo real: reflete na hora qualquer alteração feita em outro lugar (admin editando
+  // pelo painel do CRM, o mesmo colaborador logado em outro aparelho, etc) sem precisar
+  // recarregar a página. Antes essa tela não tinha nenhuma inscrição de tempo real.
+  useEffect(() => {
+    if (!colaborador?.id) return;
+    const colaboradorId = colaborador.id;
+
+    const servicosChannel = supabase
+      .channel(`comissoes-servicos-app-${colaboradorId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'comissoes_servicos', filter: `colaborador_id=eq.${colaboradorId}` },
+        () => {
+          getServicesFromSupabase(colaboradorId).then(setServices);
+          // Se a Lixeira estiver aberta nesse momento, reflete o excluído/restaurado na hora
+          // também — antes só a Planilha atualizava sozinha, a Lixeira ficava parada até
+          // fechar e abrir de novo.
+          if (isTrashOpenRef.current) {
+            getDeletedServicesFromSupabase(colaboradorId).then(setDeletedServices);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(servicosChannel);
+    };
+  }, [colaborador?.id]);
 
   const handleLogout = () => {
     localStorage.removeItem(COLABORADOR_SESSION_KEY);
@@ -312,6 +346,7 @@ export default function ComissoesApp() {
                 onDeleteService={handleDeleteService}
                 onOpenAddModalWithDate={(dateISO) => handleOpenAddModal(dateISO)}
                 weeklyGoal={userSettings.weeklyGoal}
+                onGoToTrash={() => { setActiveTab('table'); if (!isTrashOpen) handleToggleTrash(); }}
               />
             )}
             {activeTab === 'table' && (

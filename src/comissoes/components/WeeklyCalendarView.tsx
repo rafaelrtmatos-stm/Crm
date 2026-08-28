@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   ChevronLeft, ChevronRight, ChevronDown, Calendar as CalendarIcon,
-  Plus, Edit2, Trash2, LayoutGrid, Table as TableIcon, Columns,
+  Plus, Edit2, Trash2, LayoutGrid, Table as TableIcon, Columns, Trash,
   DollarSign, Percent, CheckCircle2, TrendingUp, Clock, Sparkles, X
 } from 'lucide-react';
 import { ServiceItem } from '../types';
@@ -14,6 +14,9 @@ interface WeeklyCalendarViewProps {
   onDeleteService: (id: string) => void;
   onOpenAddModalWithDate: (dateISO: string) => void;
   weeklyGoal?: number;
+  // Vai direto pra Lixeira (aba Planilha) já aberta — antes só dava pra acessar a Lixeira
+  // trocando manualmente pra aba Planilha e clicando lá.
+  onGoToTrash?: () => void;
 }
 
 const WEEKDAYS = [
@@ -28,7 +31,7 @@ const WEEKDAYS = [
 const noteKey = (s: ServiceItem) => s.origemNotaId || `service:${s.id}`;
 
 export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
-  services, onEditService, onDeleteService, onOpenAddModalWithDate, weeklyGoal = 2500
+  services, onEditService, onDeleteService, onOpenAddModalWithDate, weeklyGoal = 2500, onGoToTrash
 }) => {
   const [weekOffset, setWeekOffset] = useState(0);
   const [viewMode, setViewMode] = useState<'grid' | 'columns' | 'table'>('grid');
@@ -283,6 +286,16 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
             <button onClick={() => setViewMode('columns')} className={`p-2 rounded-lg ${viewMode === 'columns' ? 'bg-gradient-red text-white' : ''}`} title="Colunas"><Columns className="w-4 h-4" /></button>
             <button onClick={() => setViewMode('table')} className={`p-2 rounded-lg ${viewMode === 'table' ? 'bg-gradient-red text-white' : ''}`} title="Tabela"><TableIcon className="w-4 h-4" /></button>
           </div>
+          {onGoToTrash && (
+            <button
+              onClick={onGoToTrash}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card-sec)] text-[var(--text-muted)] hover:text-red-400 hover:border-red-500/30 text-xs font-bold shrink-0"
+              title="Ver serviços excluídos"
+            >
+              <Trash className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">LIXEIRA</span>
+            </button>
+          )}
         </div>
       </div>
 
