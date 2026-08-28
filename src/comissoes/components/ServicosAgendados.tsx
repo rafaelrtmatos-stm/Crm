@@ -378,6 +378,11 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
     if (!idxs.length) return;
     const dataHoje = getTodayISO();
     const dataNota = dateKey(nota.scheduled_for || nota.created_at);
+    // Só HOJE é lançamento de 1 toque (é a ação mais comum e "segura" — sempre a data de
+    // agora). Qualquer outra data (nota ou personalizada) passa pela tela de conferência
+    // com o dia da semana em destaque, pra nunca gravar um dia errado sem o colaborador
+    // ver claramente o que vai ser salvo antes de confirmar (bug relatado: toque errado
+    // entre "HOJE" e "DATA DA NOTA", os dois com destaque visual igual).
     setConfirmarDataModal({ nota, idxs, dataHoje, dataNota, dataEscolhida: dataNota, alterando: false });
   };
 
@@ -1003,20 +1008,19 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
                     >
                       HOJE — {dateLabel(confirmarDataModal.dataHoje)}
                     </button>
+                    {/* "Data da nota" agora passa pela mesma tela de conferência da data
+                        personalizada — antes era 1 toque só, com destaque visual quase
+                        igual ao botão "HOJE" logo acima, e dava pra confirmar a data errada
+                        sem perceber. Pré-preenche a data e deixa o dia da semana bem visível
+                        antes de gravar de verdade. */}
                     <button
-                      onClick={() => confirmarAdicaoComData(confirmarDataModal.dataNota)}
-                      className="w-full px-3 py-2.5 rounded-xl border border-[var(--accent-red)]/50 bg-[var(--accent-red)]/10 text-xs font-bold text-[var(--text-main)]"
+                      onClick={() => setConfirmarDataModal(prev => prev ? { ...prev, dataEscolhida: prev.dataNota, alterando: true } : prev)}
+                      className="w-full px-3 py-2 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card-sec)] text-[11px] font-bold text-[var(--text-muted)] hover:bg-[var(--bg-card)]"
                     >
-                      DATA DA NOTA — {dateLabel(confirmarDataModal.dataNota)}
+                      Data da nota ({dateLabel(confirmarDataModal.dataNota)}) ou outra data
                     </button>
                   </>
                 )}
-                <button
-                  onClick={() => setConfirmarDataModal(prev => prev ? { ...prev, alterando: true } : prev)}
-                  className="w-full px-3 py-2 rounded-xl border border-[var(--border-color)] text-[11px] font-bold text-[var(--text-muted)] hover:bg-[var(--bg-card-sec)]"
-                >
-                  OUTRA DATA
-                </button>
               </div>
             ) : (
               <div className="space-y-3">
@@ -1026,6 +1030,13 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
                   onChange={(e) => setConfirmarDataModal(prev => prev ? { ...prev, dataEscolhida: e.target.value } : prev)}
                   className="w-full px-3 py-2 rounded-xl bg-[var(--bg-card-sec)] border border-[var(--border-color)] text-sm text-[var(--text-main)]"
                 />
+                {/* Conferência bem visível do dia da semana que vai ser gravado — pra nunca
+                    confirmar um dia errado sem perceber (a causa do bug relatado). */}
+                {confirmarDataModal.dataEscolhida && (
+                  <p className="text-center text-xs font-black uppercase tracking-wide text-[var(--accent-red)] bg-[var(--accent-red)]/10 border border-[var(--accent-red)]/30 rounded-xl px-3 py-2">
+                    Vai lançar em: {dateLabel(confirmarDataModal.dataEscolhida)}
+                  </p>
+                )}
                 <div className="flex gap-2">
                   <button
                     onClick={() => setConfirmarDataModal(prev => prev ? { ...prev, alterando: false } : prev)}
