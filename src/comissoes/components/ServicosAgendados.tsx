@@ -105,6 +105,9 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
   // notas visiveis, nao so na semana selecionada — senao a pessoa precisaria adivinhar em
   // qual semana o servico que ela procura esta
   const [termoBuscaServico, setTermoBuscaServico] = useState('');
+  // Busca dentro da Lixeira (separada da busca da lista normal de notas) — filtra tanto
+  // os serviços excluídos quanto as notas dispensadas ao mesmo tempo.
+  const [termoBuscaLixeira, setTermoBuscaLixeira] = useState('');
 
   const carregarDispensadas = async () => {
     if (!colaboradorId) {
@@ -205,6 +208,28 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
     () => notas.filter(n => dispensadas.has(n.id)),
     [notas, dispensadas]
   );
+
+  // Filtra as duas seções da Lixeira pelo mesmo termo de busca — por cliente, veículo
+  // ou nome do serviço/item.
+  const servicosExcluidosFiltrados = useMemo(() => {
+    const termo = termoBuscaLixeira.trim().toLowerCase();
+    if (!termo) return servicosExcluidos;
+    return servicosExcluidos.filter(item =>
+      (item.serviceType || '').toLowerCase().includes(termo) ||
+      (item.vehicle || '').toLowerCase().includes(termo) ||
+      (item.clientName || '').toLowerCase().includes(termo)
+    );
+  }, [servicosExcluidos, termoBuscaLixeira]);
+
+  const notasNaLixeiraFiltradas = useMemo(() => {
+    const termo = termoBuscaLixeira.trim().toLowerCase();
+    if (!termo) return notasNaLixeira;
+    return notasNaLixeira.filter(n => {
+      const nomeCliente = (n.customer_name || '').toLowerCase();
+      if (nomeCliente.includes(termo)) return true;
+      return (n.items || []).some(item => (item.name || '').toLowerCase().includes(termo));
+    });
+  }, [notasNaLixeira, termoBuscaLixeira]);
 
   // Limites (domingo a sábado) da semana selecionada — pasta de nível 1.
   const weekBounds = useMemo(() => getWorkWeekBounds(weekOffset), [weekOffset]);
@@ -638,6 +663,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
                 setLixeiraAberta(v => !v);
                 setModoSelecao(false);
                 setSelecionadas(new Set());
+                setTermoBuscaLixeira('');
               }}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card-sec)] text-xs font-bold"
             >
@@ -661,6 +687,19 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
             value={termoBuscaServico}
             onChange={(e) => setTermoBuscaServico(e.target.value)}
             placeholder="Buscar por cliente ou serviço..."
+            className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)]"
+          />
+        </div>
+      )}
+
+      {lixeiraAberta && (
+        <div className="relative">
+          <Search className="w-4 h-4 text-[var(--text-muted)] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="text"
+            value={termoBuscaLixeira}
+            onChange={(e) => setTermoBuscaLixeira(e.target.value)}
+            placeholder="Buscar na lixeira por cliente, veículo ou serviço..."
             className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)]"
           />
         </div>
@@ -749,6 +788,14 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
             <Trash2 className="w-8 h-8 mx-auto mb-2 text-[var(--accent-red)] opacity-50" />
             <p className="font-bold text-sm">Lixeira vazia</p>
           </div>
+        ) : termoBuscaLixeira.trim() &&
+          servicosExcluidosFiltrados.length === 0 &&
+          notasNaLixeiraFiltradas.length === 0 &&
+          !carregandoExcluidos ? (
+          <div className="p-8 text-center bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl text-[var(--text-muted)]">
+            <Search className="w-8 h-8 mx-auto mb-2 text-[var(--text-muted)] opacity-50" />
+            <p className="font-bold text-sm">Nenhum resultado para "{termoBuscaLixeira.trim()}"</p>
+          </div>
         ) : (
           <div className="space-y-6">
             {/* Seção 1: Serviços excluídos da Planilha (restauráveis por 30 dias) */}
@@ -765,13 +812,13 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
                 <div className="p-6 text-center bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl text-[var(--text-muted)] text-sm">
                   Carregando...
                 </div>
-              ) : servicosExcluidos.length === 0 ? (
+              ) : servicosExcluidosFiltrados.length === 0 ? (
                 <div className="p-6 text-center bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl text-[var(--text-muted)] text-sm">
-                  Nenhum serviço excluído.
+                  {termoBuscaLixeira.trim() ? 'Nenhum serviço excluído para essa busca.' : 'Nenhum serviço excluído.'}
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {servicosExcluidos.map(item => (
+                  {servicosExcluidosFiltrados.map(item => (
                     <div key={item.id} className="p-4 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] space-y-3 opacity-80">
                       <div className="flex items-center justify-between gap-2 border-b border-[var(--border-color)] pb-2.5">
                         <div className="min-w-0">
@@ -820,13 +867,13 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
                   Notas dispensadas
                 </h3>
               </div>
-              {notasNaLixeira.length === 0 ? (
+              {notasNaLixeiraFiltradas.length === 0 ? (
                 <div className="p-6 text-center bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl text-[var(--text-muted)] text-sm">
-                  Nenhuma nota dispensada.
+                  {termoBuscaLixeira.trim() ? 'Nenhuma nota dispensada para essa busca.' : 'Nenhuma nota dispensada.'}
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {notasNaLixeira.map(nota => (
+                  {notasNaLixeiraFiltradas.map(nota => (
                     <div key={nota.id} className="p-4 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] flex items-center gap-3 opacity-70">
                       <Trash2 className="w-5 h-5 text-[var(--text-muted)] shrink-0" />
                       <div className="min-w-0 flex-1">
