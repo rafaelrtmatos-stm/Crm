@@ -14,8 +14,8 @@ interface WeeklyCalendarViewProps {
   onDeleteService: (id: string) => void;
   onOpenAddModalWithDate: (dateISO: string) => void;
   weeklyGoal?: number;
-  // Vai direto pra Lixeira (aba Planilha) já aberta — antes só dava pra acessar a Lixeira
-  // trocando manualmente pra aba Planilha e clicando lá.
+  // Vai direto pra Lixeira (aba Serviços) já aberta — antes só dava pra acessar a Lixeira
+  // trocando manualmente pra aba Serviços e clicando lá.
   onGoToTrash?: () => void;
 }
 

@@ -18,8 +18,6 @@ import {
   saveServiceToSupabase,
   inserirServicosDeNota,
   deleteServiceFromSupabase,
-  getDeletedServicesFromSupabase,
-  restoreServiceFromSupabase,
   saveColaboradorSettings,
   colaboradorToUserSettings,
   calculateSummaryStats,
@@ -53,13 +51,6 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   const [services, setServices] = useState<ServiceItem[]>([]);
-  const [deletedServices, setDeletedServices] = useState<ServiceItem[]>([]);
-  const [isTrashOpen, setIsTrashOpen] = useState(false);
-  const [isLoadingTrash, setIsLoadingTrash] = useState(false);
-  // Ref pra ler o isTrashOpen atual de dentro do listener de tempo real sem precisar
-  // re-inscrever o canal toda vez que a Lixeira abre/fecha (evitaria reconectar à toa).
-  const isTrashOpenRef = useRef(false);
-  useEffect(() => { isTrashOpenRef.current = isTrashOpen; }, [isTrashOpen]);
   const [descontos, setDescontos] = useState<Desconto[]>([]);
   const [userSettings, setUserSettings] = useState<UserSettings>({
     userName: '', userRole: '', baseSalary: 0, defaultCommissionRate: 10, weeklyGoal: 0, themePreference: 'dark',
@@ -144,11 +135,6 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
         { event: '*', schema: 'public', table: 'comissoes_servicos', filter: `colaborador_id=eq.${colaboradorId}` },
         () => {
           getServicesFromSupabase(colaboradorId).then(setServices);
-          // Se a Lixeira estiver aberta nesse momento (ex: outro admin restaurando/excluindo
-          // em outra aba), reflete na hora também — antes só a Planilha atualizava sozinha.
-          if (isTrashOpenRef.current) {
-            getDeletedServicesFromSupabase(colaboradorId).then(setDeletedServices);
-          }
         }
       )
       .subscribe();
@@ -226,33 +212,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
     const ok = await deleteServiceFromSupabase(id);
     if (!ok) { showToast('Não foi possível excluir.'); return; }
     setServices((prev) => prev.filter((s) => s.id !== id));
-    // Se a lixeira já estiver aberta, reflete o item recém-excluído nela também.
-    if (isTrashOpen && colaborador) {
-      getDeletedServicesFromSupabase(colaborador.id).then(setDeletedServices);
-    }
     showToast('Serviço movido para a Lixeira.');
-  };
-
-  const handleToggleTrash = () => {
-    const opening = !isTrashOpen;
-    setIsTrashOpen(opening);
-    if (opening && colaborador) {
-      setIsLoadingTrash(true);
-      getDeletedServicesFromSupabase(colaborador.id).then((list) => {
-        setDeletedServices(list);
-        setIsLoadingTrash(false);
-      });
-    }
-  };
-
-  const handleRestoreService = async (id: string) => {
-    const ok = await restoreServiceFromSupabase(id);
-    if (!ok) { showToast('Não foi possível restaurar o serviço.'); return; }
-    setDeletedServices((prev) => prev.filter((s) => s.id !== id));
-    if (colaborador) {
-      getServicesFromSupabase(colaborador.id).then(setServices);
-    }
-    showToast('Serviço restaurado!');
   };
 
   const handleEditService = (service: ServiceItem) => {
@@ -393,7 +353,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
                 onDeleteService={handleDeleteService}
                 onOpenAddModalWithDate={(dateISO) => handleOpenAddModal(dateISO)}
                 weeklyGoal={userSettings.weeklyGoal}
-                onGoToTrash={() => { setActiveTab('table'); if (!isTrashOpen) handleToggleTrash(); }}
+                onGoToTrash={() => setActiveTab('servicos')}
               />
             )}
             {activeTab === 'table' && (
@@ -404,11 +364,6 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
                 onDeleteService={handleDeleteService}
                 onOpenAddModal={() => handleOpenAddModal()}
                 highlightServiceId={highlightServiceId}
-                deletedServices={deletedServices}
-                isTrashOpen={isTrashOpen}
-                isLoadingTrash={isLoadingTrash}
-                onToggleTrash={handleToggleTrash}
-                onRestoreService={handleRestoreService}
               />
             )}
             {activeTab === 'reports' && (

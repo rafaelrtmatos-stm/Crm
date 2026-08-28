@@ -1,15 +1,21 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CalendarClock, Bell, ChevronRight, ChevronDown, Trash2, ArrowLeft,
   RotateCcw, CheckSquare, Square, X, CheckCircle2, Search
 } from 'lucide-react';
 import { supabase } from '../../supabase';
 import { showConfirm } from '../../lib/notify';
-import { formatCurrency } from '../utils/storage';
-import { getItensJaAdicionadosDeNotas, excluirServicoPorOrigem } from '../utils/supabaseStorage';
+import { formatCurrency, formatDateBR, formatTimeBR } from '../utils/storage';
+import {
+  getItensJaAdicionadosDeNotas,
+  excluirServicoPorOrigem,
+  getDeletedServicesFromSupabase,
+  restoreServiceFromSupabase,
+} from '../utils/supabaseStorage';
 import { NotaDetalhe, NotaDetalheItem, NotaSelecionadoItem } from './NotaDetalheModal';
 import { getTodayISO, toLocalISO } from '../utils/dateHelpers';
 import { getWorkWeekBounds, addDaysISO } from '../utils/caixaSemanalStorage';
+import { ServiceItem } from '../types';
 
 interface NotaAgendada {
   id: string;
@@ -83,7 +89,12 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
     useState<Record<string, Set<number>>>({});
   const [modoSelecao, setModoSelecao] = useState(false);
   const [selecionadas, setSelecionadas] = useState<Set<string>>(new Set());
+  // Lixeira única da aba Serviços: reúne os serviços de comissão excluídos da Planilha
+  // (com restauração em até 30 dias) e as notas dispensadas dessa lista — antes eram duas
+  // lixeiras separadas, uma aqui e outra na Planilha.
   const [lixeiraAberta, setLixeiraAberta] = useState(false);
+  const [servicosExcluidos, setServicosExcluidos] = useState<ServiceItem[]>([]);
+  const [carregandoExcluidos, setCarregandoExcluidos] = useState(false);
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
   // Navegação em duas camadas: semana (pasta) -> dia da semana (subpasta).
   // Sempre começa na semana atual, com o dia de HOJE selecionado por padrão.
@@ -105,6 +116,18 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
       .select('venda_id')
       .eq('colaborador_id', colaboradorId);
     setDispensadas(new Set((data || []).map((d: { venda_id: string }) => d.venda_id)));
+  };
+
+  // Carrega os serviços de comissão excluídos (Lixeira, seção "Serviços excluídos").
+  const carregarServicosExcluidos = async () => {
+    if (!colaboradorId) {
+      setServicosExcluidos([]);
+      return;
+    }
+    setCarregandoExcluidos(true);
+    const lista = await getDeletedServicesFromSupabase(colaboradorId);
+    setServicosExcluidos(lista);
+    setCarregandoExcluidos(false);
   };
 
   const carregar = async () => {
@@ -143,15 +166,26 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
     }
   };
 
+  // Ref pra ler o lixeiraAberta atual de dentro do listener de tempo real sem precisar
+  // re-inscrever o canal toda vez que a Lixeira abre/fecha.
+  const lixeiraAbertaRef = useRef(false);
+  useEffect(() => { lixeiraAbertaRef.current = lixeiraAberta; }, [lixeiraAberta]);
+
   useEffect(() => {
     carregar();
     carregarDispensadas();
+    carregarServicosExcluidos();
 
     const channel = supabase
       .channel('comissoes-servicos-agendados')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vendas' }, carregar)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'produtos' }, carregar)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'comissoes_servicos' }, carregar)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'comissoes_servicos' }, () => {
+        carregar();
+        // Se a Lixeira estiver aberta nesse momento (ex: um serviço acabou de ser excluído
+        // ou restaurado na Planilha), reflete a seção "Serviços excluídos" na hora também.
+        if (lixeiraAbertaRef.current) carregarServicosExcluidos();
+      })
       .subscribe();
 
     const interval = setInterval(carregar, 60000);
@@ -163,6 +197,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
 
   useEffect(() => {
     carregarDispensadas();
+    carregarServicosExcluidos();
   }, [colaboradorId]);
 
   const notasVisiveis = notas.filter(n => !dispensadas.has(n.id));
@@ -385,6 +420,13 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
     if (error) setDispensadas(prev => new Set(prev).add(vendaId));
   };
 
+  // Restaura um serviço excluído da Planilha de volta pra tabela do colaborador.
+  const handleRestaurarServico = async (id: string) => {
+    const ok = await restoreServiceFromSupabase(id);
+    if (!ok) return;
+    setServicosExcluidos(prev => prev.filter(s => s.id !== id));
+  };
+
   const renderNotaCard = (nota: NotaAgendada) => {
     const totalItens = nota.items?.length || 0;
     const adicionados = itensAdicionadosPorNota[nota.id]?.size || 0;
@@ -562,7 +604,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
         <Bell className="w-5 h-5 text-[var(--accent-red)]" />
         <h2 className="text-lg font-black uppercase tracking-tight">Serviços</h2>
         <span className="text-xs text-[var(--text-muted)] font-bold">
-          ({lixeiraAberta ? notasNaLixeira.length : notasVisiveis.length})
+          ({lixeiraAberta ? notasNaLixeira.length + servicosExcluidos.length : notasVisiveis.length})
         </span>
 
         {colaboradorId && (
@@ -601,6 +643,11 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
             >
               {lixeiraAberta ? <ArrowLeft className="w-3.5 h-3.5" /> : <Trash2 className="w-3.5 h-3.5" />}
               <span className="hidden sm:inline">{lixeiraAberta ? 'VOLTAR' : 'LIXEIRA'}</span>
+              {!lixeiraAberta && (notasNaLixeira.length + servicosExcluidos.length) > 0 && (
+                <span className="inline-flex items-center justify-center min-w-[1.1rem] h-[1.1rem] px-1 rounded-full bg-[var(--accent-red)] text-white text-[10px]">
+                  {notasNaLixeira.length + servicosExcluidos.length}
+                </span>
+              )}
             </button>
           </div>
         )}
@@ -697,29 +744,108 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
       {loading ? (
         <div className="animate-skeleton h-24 rounded-2xl" />
       ) : lixeiraAberta ? (
-        notasNaLixeira.length === 0 ? (
+        notasNaLixeira.length === 0 && servicosExcluidos.length === 0 && !carregandoExcluidos ? (
           <div className="p-8 text-center bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl text-[var(--text-muted)]">
-            Lixeira vazia
+            <Trash2 className="w-8 h-8 mx-auto mb-2 text-[var(--accent-red)] opacity-50" />
+            <p className="font-bold text-sm">Lixeira vazia</p>
           </div>
         ) : (
-          <div className="space-y-3">
-            {notasNaLixeira.map(nota => (
-              <div key={nota.id} className="p-4 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] flex items-center gap-3 opacity-70">
-                <Trash2 className="w-5 h-5 text-[var(--text-muted)] shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <p className="font-black text-sm truncate">{(nota.customer_name || 'Cliente de Balcão').toUpperCase()}</p>
-                  <p className="text-[11px] text-[var(--text-muted)]">
-                    {dateLabel(dateKey(nota.scheduled_for || nota.created_at))}
-                  </p>
-                </div>
-                <button
-                  onClick={() => handleRestaurarNota(nota.id)}
-                  className="px-3 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 text-xs font-bold"
-                >
-                  <RotateCcw className="w-3.5 h-3.5 inline mr-1" />Restaurar
-                </button>
+          <div className="space-y-6">
+            {/* Seção 1: Serviços excluídos da Planilha (restauráveis por 30 dias) */}
+            <section className="space-y-2">
+              <div className="flex items-center justify-between px-1">
+                <h3 className="text-xs font-black uppercase tracking-wider text-[var(--text-main)]">
+                  Serviços excluídos
+                </h3>
+                <span className="text-[10px] font-bold text-[var(--text-muted)]">
+                  Ficam disponíveis por 30 dias antes de serem apagados de vez
+                </span>
               </div>
-            ))}
+              {carregandoExcluidos ? (
+                <div className="p-6 text-center bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl text-[var(--text-muted)] text-sm">
+                  Carregando...
+                </div>
+              ) : servicosExcluidos.length === 0 ? (
+                <div className="p-6 text-center bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl text-[var(--text-muted)] text-sm">
+                  Nenhum serviço excluído.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {servicosExcluidos.map(item => (
+                    <div key={item.id} className="p-4 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] space-y-3 opacity-80">
+                      <div className="flex items-center justify-between gap-2 border-b border-[var(--border-color)] pb-2.5">
+                        <div className="min-w-0">
+                          <span className="text-[10px] font-mono text-[var(--text-muted)] block">
+                            {formatDateBR(item.date)}{item.createdAt ? ` · ${formatTimeBR(item.createdAt)}` : ''}
+                          </span>
+                          <h3 className="font-bold text-sm text-[var(--text-main)] leading-tight truncate">{item.serviceType}</h3>
+                          {item.vehicle && <p className="text-xs font-mono text-[var(--text-muted)]">{item.vehicle}</p>}
+                        </div>
+                        <Trash2 className="w-5 h-5 text-[var(--text-muted)] shrink-0" />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 p-2.5 rounded-xl bg-[var(--bg-card-sec)] border border-[var(--border-color)] text-xs">
+                        <div>
+                          <span className="text-[10px] uppercase text-[var(--text-muted)] block">Produção</span>
+                          <span className="font-bold font-mono text-[var(--text-main)] text-sm">{formatCurrency(item.productionValue)}</span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[10px] uppercase text-[var(--accent-red)] block font-bold">Comissão</span>
+                          <span className="font-black font-mono text-[var(--accent-red)] text-sm">{formatCurrency(item.commissionValue)}</span>
+                        </div>
+                      </div>
+
+                      <p className="text-[10px] text-[var(--text-muted)]">
+                        Excluído em {item.deletedAt ? `${formatDateBR(new Date(item.deletedAt).toISOString().split('T')[0])} ${formatTimeBR(item.deletedAt)}` : '—'}
+                      </p>
+
+                      <div className="flex items-center justify-end pt-1">
+                        <button
+                          onClick={() => handleRestaurarServico(item.id)}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-xs font-bold text-emerald-400"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" /> Restaurar
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {/* Seção 2: Notas dispensadas da lista de "puxar itens" */}
+            <section className="space-y-2">
+              <div className="flex items-center justify-between px-1">
+                <h3 className="text-xs font-black uppercase tracking-wider text-[var(--text-main)]">
+                  Notas dispensadas
+                </h3>
+              </div>
+              {notasNaLixeira.length === 0 ? (
+                <div className="p-6 text-center bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl text-[var(--text-muted)] text-sm">
+                  Nenhuma nota dispensada.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {notasNaLixeira.map(nota => (
+                    <div key={nota.id} className="p-4 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] flex items-center gap-3 opacity-70">
+                      <Trash2 className="w-5 h-5 text-[var(--text-muted)] shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <p className="font-black text-sm truncate">{(nota.customer_name || 'Cliente de Balcão').toUpperCase()}</p>
+                        <p className="text-[11px] text-[var(--text-muted)]">
+                          {dateLabel(dateKey(nota.scheduled_for || nota.created_at))}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => handleRestaurarNota(nota.id)}
+                        className="px-3 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 text-xs font-bold"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5 inline mr-1" />Restaurar
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
           </div>
         )
       ) : gruposPorDia.length === 0 ? (
