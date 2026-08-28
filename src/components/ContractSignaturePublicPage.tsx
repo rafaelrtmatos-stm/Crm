@@ -213,7 +213,8 @@ export default function ContractSignaturePublicPage() {
     try {
       const validation = await validateVerificationCode(contrato.id, fullCode);
       if (!validation.ok) {
-        setError(OTP_ERROR_MESSAGES[validation.reason]);
+        const reason = 'reason' in validation ? validation.reason : 'wrong_code';
+        setError(OTP_ERROR_MESSAGES[reason] || 'Código inválido.');
         setIsValidating(false);
         return;
       }

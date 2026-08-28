@@ -407,7 +407,7 @@ export interface DescontoFormInput {
   valor: number;
   recorrencia: DescontoRecorrencia;
   data: string;
-  ativo: boolean;
+  ativo?: boolean;
 }
 
 export async function saveDescontoToSupabase(colaboradorId: string, input: DescontoFormInput, isNew: boolean): Promise<Desconto | null> {
