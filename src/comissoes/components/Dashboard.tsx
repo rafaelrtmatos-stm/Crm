@@ -285,20 +285,20 @@ export const Dashboard: React.FC<DashboardProps> = ({
     );
   }, [caixa, dataInicioColaborador, userSettings.baseSalary, recentServices, descontos, pagamentos, start, end]);
 
-  // ✅ Saldo anterior ao início da semana atual do caixa (dívidas ou créditos
-  // vindos de semanas anteriores já fechadas). Dentro da própria semana atual NÃO
-  // existe "crédito acumulado de ontem" porque a comissão e salário já são apurados
-  // na semana atual.
+  // Saldo anterior ao início da semana atual do caixa (dívidas ou créditos
+  // vindos de semanas anteriores já fechadas).
+  // Nota: Dívidas acumuladas anteriores (< 0) abatem do recebimento. Mas dentro
+  // da semana de trabalho atual não se soma "crédito acumulado" artificial.
   const saldoAnteriorAoPeriodo = useMemo(() => {
     if (!caixa) return 0;
-    // Se o filtro selecionado for anterior ao caixa atual, retorna 0 ou saldo anterior
-    if (start < caixa.semanaInicio) {
+    // Se houver dívida real de semana passada (saldo negativo), abatemos:
+    if (caixa.saldoAnterior < 0) {
       return caixa.saldoAnterior;
     }
-    // Para Hoje, Ontem, Semana Atual, Mês ou Personalizado dentro da semana do caixa:
-    // O único saldo vindo de fora é o saldo da semana passada (saldoAnterior do caixa)
-    return caixa.saldoAnterior || 0;
-  }, [caixa, start]);
+    // Para períodos normais (Hoje, Ontem, Semana, Mês) a previsão da semana
+    // é Salário + Comissões - Descontos - Já Pago. Não soma créditos passados que inflariam a previsão.
+    return 0;
+  }, [caixa]);
 
   // Calculate specific current week statistics for the bottom section
   const weeklyBounds = useMemo(() => getThisWeekBounds(), []);
