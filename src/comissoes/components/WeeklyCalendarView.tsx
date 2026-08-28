@@ -149,11 +149,13 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
             {open ? <ChevronDown className="w-4 h-4 text-[var(--text-muted)] shrink-0" /> : <ChevronRight className="w-4 h-4 text-[var(--text-muted)] shrink-0" />}
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-black text-xs text-[var(--text-main)]">
-                  {group.noteId ? `NOTA #${group.noteId.slice(-6).toUpperCase()}` : 'SERVIÇO AVULSO'}
-                </span>
-                <span className="text-[10px] text-[var(--text-muted)] truncate">{group.client}</span>
-              </div>
+                  <span className="font-black text-xs text-[var(--text-main)] truncate">
+                    {group.client}
+                  </span>
+                  <span className="text-[10px] text-[var(--text-muted)] shrink-0">
+                    {group.noteId ? `NOTA #${group.noteId.slice(-6).toUpperCase()}` : 'AVULSO'}
+                  </span>
+                </div>
               <span className="text-[10px] text-[var(--text-muted)]">
                 {group.items.length} {group.items.length === 1 ? 'serviço' : 'serviços'}
               </span>
