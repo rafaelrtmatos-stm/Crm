@@ -587,12 +587,16 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
             .filter(idx => !itensAdicionadosPorNota[nota.id]?.has(idx));
           const selecionadosNota = itemSelecionados[nota.id] || new Set<number>();
           const todosMarcados = idxsRestantes.length > 0 && idxsRestantes.every(idx => selecionadosNota.has(idx));
+          // Mesmo fator de desconto usado no lançamento — pra mostrar aqui o valor real
+          // que vai virar produção/comissão, já líquido, e não o preço bruto da nota.
+          const fator = calcFatorDesconto(nota);
 
           return (
             <div className="border-t border-[var(--border-color)] bg-[var(--bg-card-sec)]/40 p-3 space-y-2">
               {(nota.items || []).map((item, idx) => {
                 const added = itensAdicionadosPorNota[nota.id]?.has(idx);
                 const isSelected = selecionadosNota.has(idx);
+                const valorItem = (item.price ?? 0) * (item.quantity ?? 1) * fator;
                 return (
                   <div
                     key={`${nota.id}-${idx}`}
@@ -612,7 +616,9 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="text-xs font-bold text-[var(--text-main)] truncate">{item.name}</p>
-                      <p className="text-[10px] text-[var(--text-muted)]">{item.quantity ?? 1}x na nota</p>
+                      <p className="text-[10px] text-[var(--text-muted)]">
+                        {item.quantity ?? 1}x na nota · <span className="font-mono font-bold text-[var(--text-main)]">{formatCurrency(valorItem)}</span>
+                      </p>
                     </div>
                     <span className={`text-[10px] font-bold ${
                       added ? 'text-emerald-400' : isSelected ? 'text-[var(--accent-red)]' : 'text-[var(--text-muted)]'
