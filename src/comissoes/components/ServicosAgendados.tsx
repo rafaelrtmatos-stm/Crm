@@ -214,10 +214,13 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
   const servicosExcluidosFiltrados = useMemo(() => {
     const termo = termoBuscaLixeira.trim().toLowerCase();
     if (!termo) return servicosExcluidos;
+    // Busca "#6EA267F8" ou "6EA267F8" também bate pelo número curto da nota de origem.
+    const termoSemHash = termo.replace(/^#/, '');
     return servicosExcluidos.filter(item =>
       (item.serviceType || '').toLowerCase().includes(termo) ||
       (item.vehicle || '').toLowerCase().includes(termo) ||
-      (item.clientName || '').toLowerCase().includes(termo)
+      (item.clientName || '').toLowerCase().includes(termo) ||
+      (item.origemNotaId || '').slice(-8).toLowerCase().includes(termoSemHash)
     );
   }, [servicosExcluidos, termoBuscaLixeira]);
 
@@ -724,7 +727,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
             type="text"
             value={termoBuscaLixeira}
             onChange={(e) => setTermoBuscaLixeira(e.target.value)}
-            placeholder="Buscar na lixeira por cliente, veículo ou serviço..."
+            placeholder="Buscar na lixeira por cliente, nº da nota, veículo ou serviço..."
             className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)]"
           />
         </div>
@@ -893,13 +896,18 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
                     const totalComissao = grupo.reduce((s, i) => s + (i.commissionValue || 0), 0);
                     const deletedAtMaisRecente = Math.max(...grupo.map(i => i.deletedAt || 0));
                     const idsGrupo = grupo.map(i => i.id);
+                    // Número curto da nota (últimos 8 dígitos do ID, mesmo padrão usado no
+                    // resto do CRM pra identificar vendas — ex.: "Excluir a venda #6EA267F8").
+                    const numeroNota = primeiro.origemNotaId
+                      ? primeiro.origemNotaId.slice(-8).toUpperCase()
+                      : null;
 
                     return (
                       <div key={primeiro.origemNotaId} className="p-4 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] space-y-3 opacity-80">
                         <div className="flex items-center justify-between gap-2 border-b border-[var(--border-color)] pb-2.5">
                           <div className="min-w-0">
                             <span className="text-[10px] font-mono text-[var(--text-muted)] block">
-                              {formatDateBR(primeiro.date)} · {grupo.length} itens
+                              {formatDateBR(primeiro.date)} · {grupo.length} itens{numeroNota ? ` · Nota #${numeroNota}` : ''}
                             </span>
                             <h3 className="font-bold text-sm text-[var(--text-main)] leading-tight truncate">
                               {primeiro.clientName || 'Nota'}
