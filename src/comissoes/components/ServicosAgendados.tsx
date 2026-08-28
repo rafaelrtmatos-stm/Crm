@@ -108,11 +108,11 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
   // Busca dentro da Lixeira (separada da busca da lista normal de notas) — filtra tanto
   // os serviços excluídos quanto as notas dispensadas ao mesmo tempo.
   const [termoBuscaLixeira, setTermoBuscaLixeira] = useState('');
-  // Modal de confirmação de data ao adicionar serviço(s) na planilha: pergunta se lança no
-  // mesmo dia da nota ou em outra data escolhida pelo colaborador (ex: fez o serviço num
-  // dia diferente do agendamento).
+  // Modal de confirmação de data ao adicionar serviço(s) na planilha: pergunta se lança
+  // hoje, na data da nota, ou em outra data escolhida pelo colaborador (ex: fez o serviço
+  // num dia diferente do agendamento).
   const [confirmarDataModal, setConfirmarDataModal] =
-    useState<{ nota: NotaAgendada; idxs: number[]; dataPadrao: string; dataEscolhida: string; alterando: boolean } | null>(null);
+    useState<{ nota: NotaAgendada; idxs: number[]; dataHoje: string; dataNota: string; dataEscolhida: string; alterando: boolean } | null>(null);
 
   const carregarDispensadas = async () => {
     if (!colaboradorId) {
@@ -376,8 +376,9 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
   // "ADICIONAR SERVIÇO(S)" em vez de lançar direto.
   const abrirConfirmarData = (nota: NotaAgendada, idxs: number[]) => {
     if (!idxs.length) return;
-    const dataPadrao = dateKey(nota.scheduled_for || nota.created_at);
-    setConfirmarDataModal({ nota, idxs, dataPadrao, dataEscolhida: dataPadrao, alterando: false });
+    const dataHoje = getTodayISO();
+    const dataNota = dateKey(nota.scheduled_for || nota.created_at);
+    setConfirmarDataModal({ nota, idxs, dataHoje, dataNota, dataEscolhida: dataNota, alterando: false });
   };
 
   const confirmarAdicaoComData = async (data: string) => {
@@ -987,17 +988,34 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
 
             {!confirmarDataModal.alterando ? (
               <div className="space-y-2">
-                <button
-                  onClick={() => confirmarAdicaoComData(confirmarDataModal.dataPadrao)}
-                  className="w-full px-3 py-2.5 rounded-xl bg-gradient-red text-white text-xs font-bold"
-                >
-                  MESMO DIA DA NOTA — {dateLabel(confirmarDataModal.dataPadrao)}
-                </button>
+                {confirmarDataModal.dataHoje === confirmarDataModal.dataNota ? (
+                  <button
+                    onClick={() => confirmarAdicaoComData(confirmarDataModal.dataHoje)}
+                    className="w-full px-3 py-2.5 rounded-xl bg-gradient-red text-white text-xs font-bold"
+                  >
+                    HOJE (MESMA DATA DA NOTA) — {dateLabel(confirmarDataModal.dataHoje)}
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => confirmarAdicaoComData(confirmarDataModal.dataHoje)}
+                      className="w-full px-3 py-2.5 rounded-xl bg-gradient-red text-white text-xs font-bold"
+                    >
+                      HOJE — {dateLabel(confirmarDataModal.dataHoje)}
+                    </button>
+                    <button
+                      onClick={() => confirmarAdicaoComData(confirmarDataModal.dataNota)}
+                      className="w-full px-3 py-2.5 rounded-xl border border-[var(--accent-red)]/50 bg-[var(--accent-red)]/10 text-xs font-bold text-[var(--text-main)]"
+                    >
+                      DATA DA NOTA — {dateLabel(confirmarDataModal.dataNota)}
+                    </button>
+                  </>
+                )}
                 <button
                   onClick={() => setConfirmarDataModal(prev => prev ? { ...prev, alterando: true } : prev)}
-                  className="w-full px-3 py-2.5 rounded-xl border border-[var(--border-color)] text-xs font-bold text-[var(--text-muted)] hover:bg-[var(--bg-card-sec)]"
+                  className="w-full px-3 py-2 rounded-xl border border-[var(--border-color)] text-[11px] font-bold text-[var(--text-muted)] hover:bg-[var(--bg-card-sec)]"
                 >
-                  ALTERAR DATA
+                  OUTRA DATA
                 </button>
               </div>
             ) : (
