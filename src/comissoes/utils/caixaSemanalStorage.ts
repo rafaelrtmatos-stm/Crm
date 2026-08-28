@@ -184,6 +184,31 @@ export async function editarPagamento(id: string, input: PagamentoFormInput): Pr
   return mapPagamentoRow(data);
 }
 
+// Quantas cargas de salário-base semanal (semana de trabalho domingo a sábado) caem dentro
+// do intervalo [start, end], contando a partir da semana em que o colaborador começou
+// (semanaInicio) -- nunca conta semana anterior a semanaInicio. Cada semana de trabalho que
+// se sobrepõe ao intervalo gera 1x o salário-base semanal do colaborador.
+// ✅ Sem isso, o salário base era somado só 1x pra vida toda do caixa (nunca por semana),
+// o que subestimava o saldo acumulado de quem já trabalhou várias semanas.
+function contarSemanasSalario(semanaInicio: string, start: string, end: string): number {
+  const inicioEfetivo = semanaInicio > start ? semanaInicio : start;
+  if (inicioEfetivo > end) return 0;
+
+  // Domingo da semana que contém inicioEfetivo
+  const d = new Date(`${inicioEfetivo}T00:00:00`);
+  const domingo = new Date(d);
+  domingo.setDate(d.getDate() - d.getDay());
+
+  const fim = new Date(`${end}T00:00:00`);
+  let count = 0;
+  const cursor = new Date(domingo);
+  while (cursor <= fim) {
+    count++;
+    cursor.setDate(cursor.getDate() + 7);
+  }
+  return count;
+}
+
 // --- Cálculo do resumo ---
 
 export interface ResumoCaixa {
@@ -208,14 +233,18 @@ export function calcularResumoCaixa(
   pagamentos: Pagamento[]
 ): ResumoCaixa {
   const fimEfetivo = '9999-12-31';
+  const hoje = formatISO(new Date());
   const totalComissao = services
     .filter((s) => s.date >= caixa.semanaInicio && s.date <= fimEfetivo && s.status !== 'CANCELADO')
     .reduce((acc, s) => acc + (s.commissionValue || 0), 0);
   const totalDescontos = calculateDescontosNoPeriodo(descontos, caixa.semanaInicio, fimEfetivo);
   const totalPago = pagamentos.reduce((acc, p) => acc + p.valor, 0);
-  const saldoSemana = salarioBase + totalComissao - totalDescontos - totalPago;
+  // ✅ Salário base semanal -- multiplica pela quantidade de semanas de trabalho já
+  // decorridas até hoje (nunca semanas futuras), não soma mais só 1x pra vida toda do caixa.
+  const salarioBaseAcumulado = salarioBase * contarSemanasSalario(caixa.semanaInicio, caixa.semanaInicio, hoje);
+  const saldoSemana = salarioBaseAcumulado + totalComissao - totalDescontos - totalPago;
   const saldoFinal = caixa.saldoAnterior + saldoSemana;
-  return { salarioBase, totalComissao, totalDescontos, totalPago, saldoSemana, saldoFinal };
+  return { salarioBase: salarioBaseAcumulado, totalComissao, totalDescontos, totalPago, saldoSemana, saldoFinal };
 }
 
 /**
@@ -239,8 +268,14 @@ export function calcularResumoNoIntervalo(
   const totalPago = pagamentos
     .filter((p) => p.data >= inicio && p.data <= fim)
     .reduce((acc, p) => acc + p.valor, 0);
-  const saldoSemana = salarioBase + totalComissao - totalDescontos - totalPago;
-  return { salarioBase, totalComissao, totalDescontos, totalPago, saldoSemana, saldoFinal: saldoSemana };
+  // ✅ Salário base semanal -- multiplica pela quantidade de semanas de trabalho do
+  // colaborador que se sobrepõem ao intervalo [inicio, fim] (nunca conta antes de
+  // semanaInicio). Pra um intervalo de 1 semana isso continua dando exatamente 1x, então
+  // não muda nada pro filtro "Semana"; só corrige Mês/Ano, que antes somavam só 1x fixo.
+  const qtdSemanas = contarSemanasSalario(caixa.semanaInicio, inicio, fim);
+  const salarioBaseNoIntervalo = salarioBase * qtdSemanas;
+  const saldoSemana = salarioBaseNoIntervalo + totalComissao - totalDescontos - totalPago;
+  return { salarioBase: salarioBaseNoIntervalo, totalComissao, totalDescontos, totalPago, saldoSemana, saldoFinal: saldoSemana };
 }
 
 // --- Agregação por Período (Semana / Mês / Ano) ---
@@ -318,6 +353,6 @@ export function calcularResumoPorPeriodo(
     saldoPeriodo: r.saldoSemana,
     // saldo acumulado real continua sempre o completo, independente do período/offset navegado
     saldoFinal: resumoCompleto?.saldoFinal ?? caixa.saldoAnterior,
-    qtdSemanas: periodo === 'semana' ? 1 : 0,
+    qtdSemanas: contarSemanasSalario(caixa.semanaInicio, start, end),
   };
 }

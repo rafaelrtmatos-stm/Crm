@@ -445,8 +445,12 @@ export async function setDescontoAtivo(id: string, ativo: boolean): Promise<bool
 // inclusive). unica: 1 vez, se a data cair no periodo. semanal: 1 vez a cada 7 dias a partir
 // da data de inicio. mensal: 1 vez por mes, no mesmo dia (ou no ultimo dia do mes, se o mes
 // for mais curto que o dia de inicio -- ex: inicio dia 31 cai no dia 28/29 de fevereiro).
-function contarOcorrenciasNoPeriodo(desconto: Desconto, start: string, end: string): number {
-  if (!desconto.ativo || desconto.data > end) return 0;
+// ignorarAtivo=true: usado quando o objetivo é só EXIBIR o desconto no período (ex: lista da
+// aba Descontos, que também mostra os inativos acinzentados) -- nesse caso a data ainda manda,
+// só não descarta por causa do campo `ativo`. Nos totais financeiros (calculateDescontosNoPeriodo)
+// isso continua false, porque desconto inativo não pode entrar na soma.
+export function contarOcorrenciasNoPeriodo(desconto: Desconto, start: string, end: string, ignorarAtivo = false): number {
+  if ((!ignorarAtivo && !desconto.ativo) || desconto.data > end) return 0;
 
   if (desconto.recorrencia === 'unica') {
     return desconto.data >= start ? 1 : 0;

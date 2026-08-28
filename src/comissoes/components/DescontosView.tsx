@@ -14,6 +14,7 @@ import {
   deleteDescontoFromSupabase,
   setDescontoAtivo,
   calculateDescontosNoPeriodo,
+  contarOcorrenciasNoPeriodo,
   formatCurrency,
 } from '../utils/supabaseStorage';
 import {
@@ -158,6 +159,17 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
   const descontosPeriodoLabel = useMemo(
     () => getDescontosPeriodoLabel(descontosPeriodo, descontosPeriodoOffset, descontosPeriodoBounds),
     [descontosPeriodo, descontosPeriodoOffset, descontosPeriodoBounds]
+  );
+
+  // ✅ Lista de descontos exibida abaixo também acompanha o seletor Semana/Mês/Ano de cima
+  // (antes mostrava sempre TODOS os descontos já lançados, de qualquer data, ignorando o
+  // período navegado -- uma falta de outra semana continuava aparecendo aqui mesmo quando
+  // não fazia parte da semana selecionada). Considera ocorrência dentro do período (inclusive
+  // recorrentes), não só a data de cadastro. ignorarAtivo=true pra continuar mostrando também
+  // os inativos (acinzentados, com botão "Ativar") -- igual já era antes dessa mudança.
+  const descontosDoPeriodo = useMemo(
+    () => descontos.filter((d) => contarOcorrenciasNoPeriodo(d, descontosPeriodoBounds.start, descontosPeriodoBounds.end, true) > 0),
+    [descontos, descontosPeriodoBounds]
   );
 
   // --- Caixa da Semana ---
@@ -704,13 +716,13 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
       )}
 
       <div className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] overflow-hidden">
-        {descontos.length === 0 ? (
+        {descontosDoPeriodo.length === 0 ? (
           <div className="p-8 text-center text-[var(--text-muted)]">
-            <p className="font-bold text-sm">Nenhum desconto lançado.</p>
+            <p className="font-bold text-sm">Nenhum desconto lançado em {descontosPeriodoLabel}.</p>
           </div>
         ) : (
           <div className="divide-y divide-[var(--border-color)]">
-            {descontos.map((d) => (
+            {descontosDoPeriodo.map((d) => (
               <div key={d.id} className={`flex items-center gap-3 px-4 py-3 flex-wrap ${!d.ativo ? 'opacity-50' : ''}`}>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">

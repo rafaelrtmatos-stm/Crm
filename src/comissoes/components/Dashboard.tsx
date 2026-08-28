@@ -18,7 +18,7 @@ import {
   getOrCreateCaixaAberto,
   getPagamentosDoCaixa,
   calcularResumoNoIntervalo,
-  calcularResumoCaixa,
+  addDaysISO,
 } from '../utils/caixaSemanalStorage';
 import { ReceiptForecastCard } from './ReceiptForecastCard';
 import { AddServiceButton } from './AddServiceButton';
@@ -272,17 +272,20 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // ✅ Saldo acumulado do caixa (dívida/crédito carregado de fora do período selecionado),
   // igual ao que a aba Descontos mostra no card "Caixa". Sem isso, o "Total Estimado" do
   // card de Previsão ficava inflado quando o colaborador já tinha dívida acumulada.
-  // ✅ CORREÇÃO: subtraindo salarioBase de resumoPeriodoAtivo.saldoSemana para evitar duplicação
-  // quando o período inclui o salário base (que já é exibido como "Salário Base" no card).
+  // ✅ CORREÇÃO: calculado direto no intervalo ANTES do período selecionado (do início do
+  // caixa até o dia anterior), em vez de tentar isolar por subtração a partir do resumo
+  // completo -- a subtração duplicava o salário base (a semana atual acabava contada tanto
+  // no "resumo completo" quanto de novo no card "Salário Base"), inflando o Total Estimado
+  // mesmo sem nenhuma dívida/crédito real.
   const saldoAnteriorAoPeriodo = useMemo(() => {
-    if (!caixa || !resumoPeriodoAtivo) return 0;
-    const resumoCompleto = calcularResumoCaixa(caixa, userSettings.baseSalary, recentServices, descontos, pagamentos);
-    // saldoFinal = saldoAnterior + salarioBase + comissao - descontos - pago
-    // saldoSemana (período) = salarioBase + comissao - descontos - pago
-    // Queremos: saldoAnterior = saldoFinal - (comissao - descontos - pago)
-    // Logo: saldoAnterior = saldoFinal - (saldoSemana - salarioBase)
-    return resumoCompleto.saldoFinal - (resumoPeriodoAtivo.saldoSemana - userSettings.baseSalary);
-  }, [caixa, userSettings.baseSalary, recentServices, descontos, pagamentos, resumoPeriodoAtivo]);
+    if (!caixa) return 0;
+    const diaAnterior = addDaysISO(start, -1);
+    if (diaAnterior < caixa.semanaInicio) return caixa.saldoAnterior;
+    const resumoAntes = calcularResumoNoIntervalo(
+      caixa, userSettings.baseSalary, recentServices, descontos, pagamentos, caixa.semanaInicio, diaAnterior
+    );
+    return caixa.saldoAnterior + resumoAntes.saldoSemana;
+  }, [caixa, userSettings.baseSalary, recentServices, descontos, pagamentos, start]);
 
   // Calculate specific current week statistics for the bottom section
   const weeklyBounds = useMemo(() => getThisWeekBounds(), []);
