@@ -25,6 +25,8 @@ import {
   FORMA_PAGAMENTO_LABELS,
   getOrCreateCaixaAberto,
   getPagamentosDoCaixa,
+  getHistoricoCaixasFechados,
+  avancarCaixaSeNecessario,
   registrarPagamento,
   editarPagamento,
   deletePagamento,
@@ -181,6 +183,9 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
   // pagamento (que só aparece quando `caixa` existe).
   const [caixaError, setCaixaError] = useState(false);
   const [pagamentos, setPagamentos] = useState<Pagamento[]>([]);
+  // ✅ Semanas já fechadas (congeladas) do colaborador -- alimenta o card ao navegar pra
+  // semanas/meses/anos passados sem precisar recalcular tudo de novo.
+  const [historicoCaixas, setHistoricoCaixas] = useState<WeeklyCaixa[]>([]);
   const [showPagamentoForm, setShowPagamentoForm] = useState(false);
   // null = form em modo "novo pagamento"; id = form em modo "editando esse pagamento"
   const [editingPagamentoId, setEditingPagamentoId] = useState<string | null>(null);
@@ -196,7 +201,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
     let cancelled = false;
     setLoadingCaixa(true);
     setCaixaError(false);
-    getOrCreateCaixaAberto(colaboradorId).then((c) => {
+    getOrCreateCaixaAberto(colaboradorId).then(async (c) => {
       if (cancelled) return;
       if (!c) {
         setCaixa(null);
@@ -204,25 +209,32 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
         setLoadingCaixa(false);
         return;
       }
-      setCaixa(c);
+      // ✅ Fecha automaticamente qualquer semana já vencida (o caixa fecha todo sábado) antes
+      // de exibir qualquer coisa -- carrega só a sobra/dívida da semana anterior pra próxima,
+      // em vez de acumular o histórico inteiro do colaborador.
+      const atualizado = await avancarCaixaSeNecessario(c, baseSalary, services, descontos);
+      if (cancelled) return;
+      setCaixa(atualizado);
       setLoadingCaixa(false);
-      getPagamentosDoCaixa(c.id).then((list) => { if (!cancelled) setPagamentos(list); });
+      getPagamentosDoCaixa(atualizado.id).then((list) => { if (!cancelled) setPagamentos(list); });
+      getHistoricoCaixasFechados(colaboradorId).then((list) => { if (!cancelled) setHistoricoCaixas(list); });
     });
     return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [colaboradorId, reloadToken]);
 
-  // ✅ Resumo completo (desde que o colaborador começou) -- alimenta o saldo acumulado
+  // ✅ Resumo da semana atual (a do caixa aberto) -- alimenta o saldo acumulado
   // (dívida/crédito), que continua aparecendo sempre, independente do período visualizado.
   const resumoCaixa = useMemo(
     () => (caixa ? calcularResumoCaixa(caixa, baseSalary, services, descontos, pagamentos) : null),
     [caixa, baseSalary, services, descontos, pagamentos]
   );
 
-  // ✅ Resumo agregado conforme o período escolhido (Semana / Mês / Ano) -- sempre calculado
-  // ao vivo a partir dos mesmos dados (sem depender de "caixas fechados").
+  // ✅ Resumo agregado conforme o período escolhido (Semana / Mês / Ano): semana atual calcula
+  // ao vivo, semanas passadas usam o snapshot já congelado no fechamento (não recalcula nada).
   const resumoPorPeriodo = useMemo(
-    () => calcularResumoPorPeriodo(periodoVisualizacao, caixa, resumoCaixa, baseSalary, services, descontos, pagamentos, periodoOffset),
-    [periodoVisualizacao, caixa, resumoCaixa, baseSalary, services, descontos, pagamentos, periodoOffset]
+    () => calcularResumoPorPeriodo(periodoVisualizacao, caixa, historicoCaixas, resumoCaixa, periodoOffset),
+    [periodoVisualizacao, caixa, historicoCaixas, resumoCaixa, periodoOffset]
   );
 
   // ✅ Lista de pagamentos exibida abaixo também acompanha a navegação Semana/Mês/Ano
@@ -336,7 +348,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
             </div>
             <div>
               <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                Caixa {caixa ? `· desde ${formatDateBR(caixa.semanaInicio)}` : ''}
+                Caixa {caixa ? `· semana de ${formatDateBR(caixa.semanaInicio)} a ${formatDateBR(caixa.semanaFim)}` : ''}
               </span>
               {loadingCaixa ? (
                 <div className="text-sm text-[var(--text-muted)] mt-1">Carregando...</div>
@@ -412,9 +424,9 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
               <span className="text-[var(--text-muted)] block mb-1">
                 {periodoVisualizacao === 'semana' ? 'Saldo Anterior' : 'Saldo Anterior ao Período'}
               </span>
-              <span className={`font-bold font-mono ${caixa!.saldoAnterior >= 0 ? 'text-[var(--text-main)]' : 'text-rose-400'}`}>
+              <span className={`font-bold font-mono ${resumoPorPeriodo.saldoAnterior >= 0 ? 'text-[var(--text-main)]' : 'text-rose-400'}`}>
                 {periodoVisualizacao === 'semana'
-                  ? formatCurrency(caixa!.saldoAnterior)
+                  ? formatCurrency(resumoPorPeriodo.saldoAnterior)
                   : formatCurrency(resumoPorPeriodo.saldoFinal - resumoPorPeriodo.saldoPeriodo)}
               </span>
             </div>

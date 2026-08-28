@@ -17,6 +17,8 @@ import {
   Pagamento,
   getOrCreateCaixaAberto,
   getPagamentosDoCaixa,
+  avancarCaixaSeNecessario,
+  getDataInicioColaborador,
   calcularResumoNoIntervalo,
   addDaysISO,
 } from '../utils/caixaSemanalStorage';
@@ -190,15 +192,26 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // e já corrigidos na aba Descontos (caixaSemanalStorage).
   const [caixa, setCaixa] = useState<WeeklyCaixa | null>(null);
   const [pagamentos, setPagamentos] = useState<Pagamento[]>([]);
+  // ✅ Data em que o colaborador começou (para os filtros Mês/Ano do card de Previsão) --
+  // diferente de caixa.semanaInicio, que agora é sempre a semana atual (o caixa fecha
+  // automaticamente todo sábado, ver avancarCaixaSeNecessario abaixo).
+  const [dataInicioColaborador, setDataInicioColaborador] = useState<string | null>(null);
   useEffect(() => {
     if (!colaboradorId) return;
     let cancelled = false;
-    getOrCreateCaixaAberto(colaboradorId).then((c) => {
+    getOrCreateCaixaAberto(colaboradorId).then(async (c) => {
       if (cancelled || !c) return;
-      setCaixa(c);
-      getPagamentosDoCaixa(c.id).then((list) => { if (!cancelled) setPagamentos(list); });
+      // ✅ Fecha automaticamente qualquer semana que já tenha virado (o caixa fecha todo
+      // sábado) antes de calcular qualquer coisa -- sem isso o saldo ficava acumulando o
+      // histórico inteiro do colaborador em vez de só a sobra/dívida da semana anterior.
+      const atualizado = await avancarCaixaSeNecessario(c, userSettings.baseSalary, recentServices, descontos);
+      if (cancelled) return;
+      setCaixa(atualizado);
+      getPagamentosDoCaixa(atualizado.id).then((list) => { if (!cancelled) setPagamentos(list); });
+      getDataInicioColaborador(colaboradorId).then((d) => { if (!cancelled) setDataInicioColaborador(d); });
     });
     return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [colaboradorId]);
 
 
@@ -266,8 +279,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // inclusive se recebeu A MAIS (o que vira déficit/dívida e tem que abater daqui).
   const resumoPeriodoAtivo = useMemo(() => {
     if (!caixa) return null;
-    return calcularResumoNoIntervalo(caixa, userSettings.baseSalary, recentServices, descontos, pagamentos, start, end);
-  }, [caixa, userSettings.baseSalary, recentServices, descontos, pagamentos, start, end]);
+    return calcularResumoNoIntervalo(
+      dataInicioColaborador || caixa.semanaInicio,
+      userSettings.baseSalary, recentServices, descontos, pagamentos, start, end
+    );
+  }, [caixa, dataInicioColaborador, userSettings.baseSalary, recentServices, descontos, pagamentos, start, end]);
 
   // ✅ Saldo acumulado do caixa (dívida/crédito carregado de fora do período selecionado),
   // igual ao que a aba Descontos mostra no card "Caixa". Sem isso, o "Total Estimado" do
@@ -282,7 +298,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     const diaAnterior = addDaysISO(start, -1);
     if (diaAnterior < caixa.semanaInicio) return caixa.saldoAnterior;
     const resumoAntes = calcularResumoNoIntervalo(
-      caixa, userSettings.baseSalary, recentServices, descontos, pagamentos, caixa.semanaInicio, diaAnterior
+      caixa.semanaInicio, userSettings.baseSalary, recentServices, descontos, pagamentos, caixa.semanaInicio, diaAnterior
     );
     return caixa.saldoAnterior + resumoAntes.saldoSemana;
   }, [caixa, userSettings.baseSalary, recentServices, descontos, pagamentos, start]);
