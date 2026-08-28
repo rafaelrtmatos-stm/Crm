@@ -285,23 +285,20 @@ export const Dashboard: React.FC<DashboardProps> = ({
     );
   }, [caixa, dataInicioColaborador, userSettings.baseSalary, recentServices, descontos, pagamentos, start, end]);
 
-  // ✅ Saldo acumulado do caixa (dívida/crédito carregado de fora do período selecionado),
-  // igual ao que a aba Descontos mostra no card "Caixa". Sem isso, o "Total Estimado" do
-  // card de Previsão ficava inflado quando o colaborador já tinha dívida acumulada.
-  // ✅ CORREÇÃO: calculado direto no intervalo ANTES do período selecionado (do início do
-  // caixa até o dia anterior), em vez de tentar isolar por subtração a partir do resumo
-  // completo -- a subtração duplicava o salário base (a semana atual acabava contada tanto
-  // no "resumo completo" quanto de novo no card "Salário Base"), inflando o Total Estimado
-  // mesmo sem nenhuma dívida/crédito real.
+  // ✅ Saldo anterior ao início da semana atual do caixa (dívidas ou créditos
+  // vindos de semanas anteriores já fechadas). Dentro da própria semana atual NÃO
+  // existe "crédito acumulado de ontem" porque a comissão e salário já são apurados
+  // na semana atual.
   const saldoAnteriorAoPeriodo = useMemo(() => {
     if (!caixa) return 0;
-    const diaAnterior = addDaysISO(start, -1);
-    if (diaAnterior < caixa.semanaInicio) return caixa.saldoAnterior;
-    const resumoAntes = calcularResumoNoIntervalo(
-      caixa.semanaInicio, userSettings.baseSalary, recentServices, descontos, pagamentos, caixa.semanaInicio, diaAnterior
-    );
-    return caixa.saldoAnterior + resumoAntes.saldoSemana;
-  }, [caixa, userSettings.baseSalary, recentServices, descontos, pagamentos, start]);
+    // Se o filtro selecionado for anterior ao caixa atual, retorna 0 ou saldo anterior
+    if (start < caixa.semanaInicio) {
+      return caixa.saldoAnterior;
+    }
+    // Para Hoje, Ontem, Semana Atual, Mês ou Personalizado dentro da semana do caixa:
+    // O único saldo vindo de fora é o saldo da semana passada (saldoAnterior do caixa)
+    return caixa.saldoAnterior || 0;
+  }, [caixa, start]);
 
   // Calculate specific current week statistics for the bottom section
   const weeklyBounds = useMemo(() => getThisWeekBounds(), []);
