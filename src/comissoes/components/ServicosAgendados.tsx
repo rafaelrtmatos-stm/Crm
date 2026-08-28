@@ -146,7 +146,6 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
       .select('id, customer_name, total, discount_value, scheduled_for, items, observacoes, service_status, created_at')
       .neq('status', 'canceled')
       .is('deleted_at', null)
-      .or('service_status.is.null,service_status.neq.produto_entregue')
       .order('scheduled_for', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: false });
 
