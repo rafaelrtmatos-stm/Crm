@@ -33,6 +33,7 @@ import { NotaDetalhe, NotaSelecionadoItem } from './components/NotaDetalheModal'
 import { CheckCircle2 } from 'lucide-react';
 import { getTodayISO } from './utils/dateHelpers';
 import { supabase } from '../supabase';
+import { NotifyHost, showConfirm } from '../lib/notify';
 import './comissoes-theme.css';
 
 const COLABORADOR_SESSION_KEY = 'rpro_comissoes_colaborador_id';
@@ -156,7 +157,7 @@ export default function ComissoesApp() {
   };
 
   const handleDeleteService = async (id: string) => {
-    if (!confirm('Deseja realmente excluir este serviço da planilha? Ele fica disponível na Lixeira por 30 dias.')) return;
+    if (!(await showConfirm('Deseja realmente excluir este serviço da planilha? Ele fica disponível na Lixeira por 30 dias.'))) return;
     const ok = await deleteServiceFromSupabase(id);
     if (!ok) { showToast('Não foi possível excluir.'); return; }
     setServices((prev) => prev.filter((s) => s.id !== id));
@@ -259,6 +260,7 @@ export default function ComissoesApp() {
 
   return (
     <div ref={wrapperRef} className="comissoes-app min-h-screen bg-[var(--bg-main)] text-[var(--text-main)] transition-colors duration-300 flex flex-col">
+      <NotifyHost />
       {toastMessage && (
         <div className="fixed top-5 right-5 z-50 flex items-center gap-2 bg-gradient-red text-white px-4 py-3 rounded-xl shadow-red-lg-glow text-xs font-bold animate-fadeIn">
           <CheckCircle2 className="w-4 h-4" />
