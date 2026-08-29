@@ -1,5 +1,5 @@
 import React from 'react';
-import { Wallet, MinusCircle, ChevronRight, Calculator, CheckCircle2 } from 'lucide-react';
+import { Wallet, ChevronRight, Calculator, ArrowUpRight } from 'lucide-react';
 import { formatCurrency } from '../utils/storage';
 
 interface ReceiptForecastCardProps {
@@ -9,13 +9,8 @@ interface ReceiptForecastCardProps {
   totalProduction?: number;
   totalDiscounts?: number;
   // Quanto o colaborador já recebeu no período selecionado (dinheiro/pix/etc).
-  // Se ele recebeu A MAIS do que era esperado, isso vira déficit e precisa abater
-  // do total estimado -- senão o card mostra um valor inflado, ignorando a dívida.
   totalPaid?: number;
-  // Saldo do caixa que veio de fora do período selecionado (dívida ou crédito acumulado).
-  // Negativo = dívida do colaborador (precisa abater do total estimado);
-  // positivo = crédito a favor (soma no total estimado). Mesmo saldo mostrado no card
-  // "Caixa" da aba Descontos.
+  // Saldo do caixa acumulado fora do período (dívida ou crédito).
   previousBalance?: number;
   onOpenAddModal?: () => void;
   onOpenDescontos?: () => void;
@@ -30,139 +25,134 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
   onOpenDescontos,
 }) => {
   const forecastTotal = baseSalary + totalCommission - totalDiscounts - totalPaid + previousBalance;
+  const hasAdjustments = totalDiscounts > 0 || totalPaid > 0 || previousBalance !== 0;
 
   return (
     <div
       id="card-previsao-recebimento"
-      className="relative overflow-hidden rounded-2xl bg-gradient-red p-6 text-white shadow-red-lg-glow transition-all duration-300 hover:scale-[1.01] h-full flex flex-col justify-between"
+      className="relative overflow-hidden rounded-3xl bg-gradient-red p-5 sm:p-6 text-white shadow-red-lg-glow transition-all duration-300 hover:shadow-2xl h-full flex flex-col justify-between"
     >
-      {/* Subtle background graphic design */}
-      <div className="absolute -right-8 -top-8 w-40 h-40 rounded-full bg-white/10 blur-xl pointer-events-none" />
-      <div className="absolute -left-12 -bottom-12 w-48 h-48 rounded-full bg-black/20 blur-2xl pointer-events-none" />
+      {/* Background ambient lighting effects */}
+      <div className="absolute -right-8 -top-8 w-44 h-44 rounded-full bg-white/10 blur-2xl pointer-events-none" />
+      <div className="absolute -left-12 -bottom-12 w-52 h-52 rounded-full bg-black/25 blur-3xl pointer-events-none" />
 
       <div className="relative z-10 flex flex-col justify-between h-full space-y-4">
-        <div>
+        {/* ========================================================= */}
+        {/* 1. CABEÇALHO & VALOR PRINCIPAL (EM LINHA ÚNICA) */}
+        {/* ========================================================= */}
+        <div className="space-y-3">
           {/* Header Tag */}
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2 bg-black/20 backdrop-blur-md px-3 py-1 rounded-full text-xs font-bold tracking-wider uppercase border border-white/15">
-              <Wallet className="w-3.5 h-3.5 text-white" />
-              <span>PREVISÃO DE RECEBIMENTO</span>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 bg-black/25 backdrop-blur-md px-3 py-1.5 rounded-xl text-xs font-black tracking-wider uppercase border border-white/15 shadow-sm whitespace-nowrap">
+              <Wallet className="w-4 h-4 text-white shrink-0" />
+              <span>Previsão de Recebimento</span>
             </div>
+            <span className="text-[11px] font-bold text-white/80 bg-white/10 px-2.5 py-1 rounded-lg border border-white/10 shrink-0 whitespace-nowrap">
+              Semanal
+            </span>
           </div>
 
-          {/* Main Forecast Display */}
-          <div className="my-2">
-            <span className="text-xs uppercase tracking-wider text-white/75 font-medium">
-              Total Estimado para Receber
-            </span>
-            <div className="text-4xl sm:text-5xl font-black tracking-tight mt-1 text-white drop-shadow-sm">
+          {/* Main Forecast Hero Display - Organizado em linha única sem quebras */}
+          <div className="bg-black/25 backdrop-blur-md rounded-2xl p-4 border border-white/15 shadow-inner flex items-center justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <span className="text-xs uppercase tracking-wider text-white/90 font-black block whitespace-nowrap truncate">
+                Total Estimado
+              </span>
+              <span className="text-[11px] text-white/70 font-medium block whitespace-nowrap truncate mt-0.5">
+                Previsão líquida da semana
+              </span>
+            </div>
+            <div className="text-2xl sm:text-3xl font-black tracking-tight text-white drop-shadow-sm font-mono whitespace-nowrap text-right shrink-0">
               {formatCurrency(forecastTotal)}
             </div>
           </div>
         </div>
 
-        {/* Breakdown Items */}
-        <div className="pt-3 border-t border-white/20 grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-sm">
-          <div className="flex items-center justify-between bg-black/25 backdrop-blur-sm px-3.5 py-2.5 rounded-xl border border-white/10">
-            <span className="text-white/80 font-medium text-xs">Salário Base:</span>
-            <span className="font-bold text-white text-base">{formatCurrency(baseSalary)}</span>
+        {/* ========================================================= */}
+        {/* 2. COMPOSIÇÃO DOS VALORES (SEM CORTES OU TRUNCATE) */}
+        {/* ========================================================= */}
+        <div className="bg-black/30 backdrop-blur-md rounded-2xl p-4 border border-white/15 space-y-3 shadow-inner">
+          <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-white/90 pb-2 border-b border-white/15">
+            <span className="flex items-center gap-1.5 whitespace-nowrap">
+              <Calculator className="w-4 h-4 text-white/90 shrink-0" />
+              Composição do Valor
+            </span>
+            <span className="text-[10px] text-white/70 font-mono font-normal whitespace-nowrap">
+              Ciclo Atual
+            </span>
           </div>
 
-          <div className="flex items-center justify-between bg-black/25 backdrop-blur-sm px-3.5 py-2.5 rounded-xl border border-white/10">
-            <span className="text-white/80 font-medium text-xs">Comissão Acumulada:</span>
-            <span className="font-bold text-white text-base">{formatCurrency(totalCommission)}</span>
+          <div className="space-y-2 text-xs">
+            {/* 1. Salário Base */}
+            <div className="flex items-center justify-between py-1.5 px-3 rounded-xl bg-black/20 border border-white/10 gap-2">
+              <span className="text-white/85 font-semibold text-xs whitespace-nowrap">Salário Base</span>
+              <span className="font-bold text-white font-mono text-sm whitespace-nowrap">{formatCurrency(baseSalary)}</span>
+            </div>
+
+            {/* 2. Comissões Acumuladas */}
+            <div className="flex items-center justify-between py-1.5 px-3 rounded-xl bg-emerald-950/40 border border-emerald-500/30 gap-2">
+              <span className="text-emerald-200 font-semibold text-xs whitespace-nowrap">+ Comissões da Semana</span>
+              <span className="font-bold text-emerald-300 font-mono text-sm whitespace-nowrap">+{formatCurrency(totalCommission)}</span>
+            </div>
+
+            {/* 3. Descontos (faltas, atrasos, etc.) */}
+            {totalDiscounts > 0 && (
+              <div className="flex items-center justify-between py-1.5 px-3 rounded-xl bg-rose-950/40 border border-rose-500/30 gap-2">
+                <span className="text-rose-200 font-semibold text-xs whitespace-nowrap">- Descontos / Faltas</span>
+                <span className="font-bold text-rose-300 font-mono text-sm whitespace-nowrap">-{formatCurrency(totalDiscounts)}</span>
+              </div>
+            )}
+
+            {/* 4. Já Recebido na Semana (Vales/Adiantamentos) */}
+            {totalPaid > 0 && (
+              <div className="flex items-center justify-between py-1.5 px-3 rounded-xl bg-amber-950/40 border border-amber-500/30 gap-2">
+                <span className="text-amber-200 font-semibold text-xs whitespace-nowrap">- Já Recebido (Vales)</span>
+                <span className="font-bold text-amber-300 font-mono text-sm whitespace-nowrap">-{formatCurrency(totalPaid)}</span>
+              </div>
+            )}
+
+            {/* 5. Saldo Anterior do Caixa (Crédito ou Dívida fora do ciclo) */}
+            {previousBalance !== 0 && (
+              <div
+                className={`flex items-center justify-between py-1.5 px-3 rounded-xl gap-2 ${
+                  previousBalance > 0
+                    ? 'bg-emerald-950/40 border border-emerald-500/30'
+                    : 'bg-rose-950/40 border border-rose-500/30'
+                }`}
+              >
+                <span className={`font-semibold text-xs whitespace-nowrap ${previousBalance > 0 ? 'text-emerald-200' : 'text-rose-200'}`}>
+                  {previousBalance > 0 ? '+ Crédito Caixa' : '- Dívida Caixa'}
+                </span>
+                <span
+                  className={`font-bold font-mono text-sm whitespace-nowrap ${
+                    previousBalance > 0 ? 'text-emerald-300' : 'text-rose-300'
+                  }`}
+                >
+                  {previousBalance > 0 ? '+' : '-'}
+                  {formatCurrency(Math.abs(previousBalance))}
+                </span>
+              </div>
+            )}
+
+            {/* 6. Linha de Fechamento Líquido */}
+            <div className="flex items-center justify-between py-2 px-3 rounded-xl bg-white/20 border border-white/30 shadow-sm mt-1 gap-2">
+              <span className="text-white font-black uppercase text-xs tracking-wider whitespace-nowrap">= Saldo a Receber</span>
+              <span className="font-black text-white font-mono text-base whitespace-nowrap">{formatCurrency(forecastTotal)}</span>
+            </div>
           </div>
         </div>
 
-        {/* Aba / Memória de Cálculo: Salário Base + Comissão - Descontos */}
-        <div className="bg-black/30 backdrop-blur-md rounded-xl p-3 border border-white/15 space-y-2">
-          <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-white/80">
-            <span className="flex items-center gap-1.5">
-              <Calculator className="w-3.5 h-3.5 text-white" />
-              Cálculo de Previsão
-            </span>
-            <span className="text-[10px] text-white/60 font-medium">
-              Base + Comissão - Descontos
-            </span>
-          </div>
-          
-          <div className="grid grid-cols-4 gap-1.5 text-center font-mono">
-            <div className="bg-black/25 p-1.5 rounded-lg border border-white/10">
-              <div className="text-[9px] text-white/70 font-sans uppercase font-semibold truncate">Base</div>
-              <div className="text-xs sm:text-sm font-bold text-white mt-0.5 truncate">{formatCurrency(baseSalary)}</div>
-            </div>
-            
-            <div className="bg-black/25 p-1.5 rounded-lg border border-white/10">
-              <div className="text-[9px] text-emerald-300 font-sans uppercase font-semibold truncate">+ Comissão</div>
-              <div className="text-xs sm:text-sm font-bold text-emerald-200 mt-0.5 truncate">+{formatCurrency(totalCommission)}</div>
-            </div>
-
-            <div className="bg-black/25 p-1.5 rounded-lg border border-white/10">
-              <div className="text-[9px] text-rose-300 font-sans uppercase font-semibold truncate">- Descontos</div>
-              <div className="text-xs sm:text-sm font-bold text-rose-200 mt-0.5 truncate">-{formatCurrency(totalDiscounts)}</div>
-            </div>
-
-            <div className="bg-white/15 p-1.5 rounded-lg border border-white/30 shadow-inner">
-              <div className="text-[9px] text-white font-sans uppercase font-black truncate">= Total</div>
-              <div className="text-xs sm:text-sm font-black text-white mt-0.5 truncate">{formatCurrency(forecastTotal)}</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Prévia dos Descontos (faltas, etc.) do período -- clica e vai pra área de Descontos */}
-        {totalDiscounts > 0 && (
+        {/* ========================================================= */}
+        {/* 3. BOTÃO DE AÇÃO / DETALHES DE DESCONTOS E VALES */}
+        {/* ========================================================= */}
+        {onOpenDescontos && (
           <button
             type="button"
             onClick={onOpenDescontos}
-            disabled={!onOpenDescontos}
-            className="w-full flex items-center justify-between gap-2 bg-black/25 backdrop-blur-sm px-3.5 py-2.5 rounded-xl border border-white/10 text-left transition-colors hover:bg-black/35 disabled:cursor-default disabled:hover:bg-black/25"
+            className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-black/25 hover:bg-black/40 active:scale-[0.98] border border-white/20 text-xs font-bold text-white transition-all cursor-pointer shadow-md"
           >
-            <span className="flex items-center gap-1.5 text-white/80 font-medium text-xs">
-              <MinusCircle className="w-3.5 h-3.5" />
-              Descontos da semana:
-            </span>
-            <span className="flex items-center gap-1 font-bold text-rose-200 text-base">
-              -{formatCurrency(totalDiscounts)}
-              {onOpenDescontos && <ChevronRight className="w-4 h-4 text-white/60" />}
-            </span>
-          </button>
-        )}
-
-        {/* Saldo do caixa vindo de fora do período (dívida acumulada de antes, ou crédito a favor) */}
-        {previousBalance !== 0 && (
-          <button
-            type="button"
-            onClick={onOpenDescontos}
-            disabled={!onOpenDescontos}
-            className="w-full flex items-center justify-between gap-2 bg-black/25 backdrop-blur-sm px-3.5 py-2.5 rounded-xl border border-white/10 text-left transition-colors hover:bg-black/35 disabled:cursor-default disabled:hover:bg-black/25"
-          >
-            <span className="flex items-center gap-1.5 text-white/80 font-medium text-xs">
-              <MinusCircle className="w-3.5 h-3.5" />
-              {previousBalance < 0 ? 'Dívida acumulada do caixa:' : 'Crédito acumulado do caixa:'}
-            </span>
-            <span className={`flex items-center gap-1 font-bold text-base ${previousBalance < 0 ? 'text-rose-200' : 'text-emerald-200'}`}>
-              {previousBalance < 0 ? '-' : '+'}{formatCurrency(Math.abs(previousBalance))}
-              {onOpenDescontos && <ChevronRight className="w-4 h-4 text-white/60" />}
-            </span>
-          </button>
-        )}
-
-        {/* Já recebido no período (dinheiro/pix/etc) */}
-        {totalPaid !== 0 && (
-          <button
-            type="button"
-            onClick={onOpenDescontos}
-            disabled={!onOpenDescontos}
-            className="w-full flex items-center justify-between gap-2 bg-black/25 backdrop-blur-sm px-3.5 py-2.5 rounded-xl border border-white/10 text-left transition-colors hover:bg-black/35 disabled:cursor-default disabled:hover:bg-black/25"
-          >
-            <span className="flex items-center gap-1.5 text-white/80 font-medium text-xs">
-              <MinusCircle className="w-3.5 h-3.5" />
-              Já recebido na semana:
-            </span>
-            <span className="flex items-center gap-1 font-bold text-rose-200 text-base">
-              -{formatCurrency(totalPaid)}
-              {onOpenDescontos && <ChevronRight className="w-4 h-4 text-white/60" />}
-            </span>
+            <span>Ver Descontos, Vales & Histórico</span>
+            <ChevronRight className="w-4 h-4 text-white/80" />
           </button>
         )}
       </div>
