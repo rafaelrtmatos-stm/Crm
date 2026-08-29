@@ -1,12 +1,12 @@
 import React from 'react';
-import { Wallet, MinusCircle, ChevronRight } from 'lucide-react';
+import { Wallet, MinusCircle, ChevronRight, Calculator, CheckCircle2 } from 'lucide-react';
 import { formatCurrency } from '../utils/storage';
 
 interface ReceiptForecastCardProps {
   baseSalary: number;
   totalCommission: number;
   weeklyGoal?: number;
-  totalProduction: number;
+  totalProduction?: number;
   totalDiscounts?: number;
   // Quanto o colaborador já recebeu no período selecionado (dinheiro/pix/etc).
   // Se ele recebeu A MAIS do que era esperado, isso vira déficit e precisa abater
@@ -62,7 +62,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
         </div>
 
         {/* Breakdown Items */}
-        <div className="pt-4 border-t border-white/20 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+        <div className="pt-3 border-t border-white/20 grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-sm">
           <div className="flex items-center justify-between bg-black/25 backdrop-blur-sm px-3.5 py-2.5 rounded-xl border border-white/10">
             <span className="text-white/80 font-medium text-xs">Salário Base:</span>
             <span className="font-bold text-white text-base">{formatCurrency(baseSalary)}</span>
@@ -71,6 +71,41 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
           <div className="flex items-center justify-between bg-black/25 backdrop-blur-sm px-3.5 py-2.5 rounded-xl border border-white/10">
             <span className="text-white/80 font-medium text-xs">Comissão Acumulada:</span>
             <span className="font-bold text-white text-base">{formatCurrency(totalCommission)}</span>
+          </div>
+        </div>
+
+        {/* Aba / Memória de Cálculo: Salário Base + Comissão - Descontos */}
+        <div className="bg-black/30 backdrop-blur-md rounded-xl p-3 border border-white/15 space-y-2">
+          <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-white/80">
+            <span className="flex items-center gap-1.5">
+              <Calculator className="w-3.5 h-3.5 text-white" />
+              Cálculo de Previsão
+            </span>
+            <span className="text-[10px] text-white/60 font-medium">
+              Base + Comissão - Descontos
+            </span>
+          </div>
+          
+          <div className="grid grid-cols-4 gap-1.5 text-center font-mono">
+            <div className="bg-black/25 p-1.5 rounded-lg border border-white/10">
+              <div className="text-[9px] text-white/70 font-sans uppercase font-semibold truncate">Base</div>
+              <div className="text-xs sm:text-sm font-bold text-white mt-0.5 truncate">{formatCurrency(baseSalary)}</div>
+            </div>
+            
+            <div className="bg-black/25 p-1.5 rounded-lg border border-white/10">
+              <div className="text-[9px] text-emerald-300 font-sans uppercase font-semibold truncate">+ Comissão</div>
+              <div className="text-xs sm:text-sm font-bold text-emerald-200 mt-0.5 truncate">+{formatCurrency(totalCommission)}</div>
+            </div>
+
+            <div className="bg-black/25 p-1.5 rounded-lg border border-white/10">
+              <div className="text-[9px] text-rose-300 font-sans uppercase font-semibold truncate">- Descontos</div>
+              <div className="text-xs sm:text-sm font-bold text-rose-200 mt-0.5 truncate">-{formatCurrency(totalDiscounts)}</div>
+            </div>
+
+            <div className="bg-white/15 p-1.5 rounded-lg border border-white/30 shadow-inner">
+              <div className="text-[9px] text-white font-sans uppercase font-black truncate">= Total</div>
+              <div className="text-xs sm:text-sm font-black text-white mt-0.5 truncate">{formatCurrency(forecastTotal)}</div>
+            </div>
           </div>
         </div>
 
@@ -84,7 +119,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
           >
             <span className="flex items-center gap-1.5 text-white/80 font-medium text-xs">
               <MinusCircle className="w-3.5 h-3.5" />
-              Descontos do período:
+              Descontos da semana:
             </span>
             <span className="flex items-center gap-1 font-bold text-rose-200 text-base">
               -{formatCurrency(totalDiscounts)}
@@ -93,9 +128,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
           </button>
         )}
 
-        {/* Saldo do caixa vindo de fora do período (dívida acumulada de antes, ou crédito a
-            favor). Mesmo saldo do card "Caixa" na aba Descontos -- sem isso o Total Estimado
-            ficava inflado quando havia dívida acumulada. */}
+        {/* Saldo do caixa vindo de fora do período (dívida acumulada de antes, ou crédito a favor) */}
         {previousBalance !== 0 && (
           <button
             type="button"
@@ -114,8 +147,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
           </button>
         )}
 
-        {/* Já recebido no período (dinheiro/pix/etc) -- se recebeu a mais, isso vira déficit
-            e é o que faz o Total Estimado ficar negativo (dívida do colaborador). */}
+        {/* Já recebido no período (dinheiro/pix/etc) */}
         {totalPaid !== 0 && (
           <button
             type="button"
@@ -125,7 +157,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
           >
             <span className="flex items-center gap-1.5 text-white/80 font-medium text-xs">
               <MinusCircle className="w-3.5 h-3.5" />
-              Já recebido no período:
+              Já recebido na semana:
             </span>
             <span className="flex items-center gap-1 font-bold text-rose-200 text-base">
               -{formatCurrency(totalPaid)}

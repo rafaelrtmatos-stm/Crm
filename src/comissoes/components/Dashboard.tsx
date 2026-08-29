@@ -308,6 +308,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
     );
   }, [recentServices, weeklyBounds]);
 
+  // ✅ Resumo consolidado da semana atual para a Previsão de Recebimento
+  const resumoSemanaAtual = useMemo(() => {
+    if (!caixa) return null;
+    return calcularResumoNoIntervalo(
+      dataInicioColaborador || caixa.semanaInicio,
+      userSettings.baseSalary, recentServices, descontos, pagamentos, weeklyBounds.start, weeklyBounds.end
+    );
+  }, [caixa, dataInicioColaborador, userSettings.baseSalary, recentServices, descontos, pagamentos, weeklyBounds]);
+
   const weeklyStats = useMemo(() => {
     const prod = weeklyServices.reduce((acc, s) => acc + s.productionValue, 0);
     const comm = weeklyServices.reduce((acc, s) => acc + s.commissionValue, 0);
@@ -488,11 +497,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
         <div className="lg:col-span-1">
           <ReceiptForecastCard
             baseSalary={userSettings.baseSalary}
-            totalCommission={displayStats.totalCommission}
+            totalCommission={weeklyStats.weeklyCommission}
             weeklyGoal={userSettings.weeklyGoal}
-            totalProduction={displayStats.totalProduction}
-            totalDiscounts={resumoPeriodoAtivo?.totalDescontos ?? 0}
-            totalPaid={resumoPeriodoAtivo?.totalPago ?? 0}
+            totalProduction={weeklyStats.weeklyProduction}
+            totalDiscounts={resumoSemanaAtual?.totalDescontos ?? 0}
+            totalPaid={resumoSemanaAtual?.totalPago ?? 0}
             previousBalance={saldoAnteriorAoPeriodo}
             onOpenDescontos={onGoToDescontos}
           />
@@ -540,9 +549,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </div>
             </div>
             <div className="flex items-center justify-between text-xs text-[var(--text-muted)] pt-3 border-t border-[var(--border-color)]">
-              <span>Taxa Média: <strong className="text-[var(--text-main)]">{displayStats.averageCommissionRate.toFixed(1)}%</strong></span>
-              <span className="text-emerald-400 font-semibold flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5" /> 100% Acumulado
+              <span>Acumulado Semana: <strong className="text-emerald-400 font-bold">{formatCurrency(weeklyStats.weeklyCommission)}</strong></span>
+              <span className="text-[var(--text-muted)]">
+                Taxa: <strong className="text-[var(--text-main)]">{displayStats.averageCommissionRate.toFixed(1)}%</strong>
               </span>
             </div>
           </div>
