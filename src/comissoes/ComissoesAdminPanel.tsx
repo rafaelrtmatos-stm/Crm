@@ -198,7 +198,7 @@ export default function ComissoesAdminPanel() {
       const [servicosRes, descontosRes, pagamentosRes] = await Promise.all([
         supabase
           .from('comissoes_servicos')
-          .select('colaborador_id, valor_comissao, valor_venda')
+          .select('colaborador_id, comissao_valor, valor_producao, status')
           .gte('data', start)
           .lte('data', end)
           .is('deleted_at', null),
@@ -238,10 +238,11 @@ export default function ComissoesAdminPanel() {
       // Mapeia serviços por colaborador
       const servicosByColab: Record<string, { totalComissao: number; totalProducao: number; count: number }> = {};
       servicos.forEach((s: any) => {
+        if (s.status === 'CANCELADO') return;
         const cId = s.colaborador_id;
         if (!servicosByColab[cId]) servicosByColab[cId] = { totalComissao: 0, totalProducao: 0, count: 0 };
-        servicosByColab[cId].totalComissao += Number(s.valor_comissao) || 0;
-        servicosByColab[cId].totalProducao += Number(s.valor_venda) || 0;
+        servicosByColab[cId].totalComissao += Number(s.comissao_valor) || 0;
+        servicosByColab[cId].totalProducao += Number(s.valor_producao) || 0;
         servicosByColab[cId].count += 1;
       });
 
