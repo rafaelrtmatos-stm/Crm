@@ -2,7 +2,7 @@ import React, { useState, useEffect, useContext, useRef } from 'react';
 import { collection, query, where, orderBy, onSnapshot, getDocs, doc, writeBatch, addDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../firebase';
 import { supabase } from '../supabase';
-import { AppContext } from '../App';
+import { AppContext } from '../AppContext';
 import { Lead, Company, AppUser } from '../types';
 import { cn, Button } from './SharedUI';
 import {

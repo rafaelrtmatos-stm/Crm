@@ -3,9 +3,10 @@ import { Timestamp } from 'firebase/firestore';
 export interface Product {
   id: string;
   name: string;
-  code: string;
+  code?: string;
   price: number;
-  stock: number;
+  stock?: number;
+  category?: string;
   unitType?: 'unit' | 'm2' | 'etiqueta' | 'metro';
   tipoItem?: 'produto' | 'material' | 'servico' | 'acabamento' | 'composto';
   larguraRolo?: number;
@@ -22,9 +23,12 @@ export interface SaleOrderItem {
   area?: number;
   consumoEstoque?: number; // quantidade real baixada do estoque (m2 ou metro linear, dependendo do produto)
   descontoValor?: number; // desconto em R$ aplicado a esse item especifico (nao altera o preco cadastrado do produto)
+  discountValue?: number;
   precoOriginal?: number; // preco antes do desconto, guardado para auditoria/exibicao
   observacao?: string; // observacao livre por item do carrinho
 }
+
+export type CartItem = SaleOrderItem;
 
 export interface ExtraCost {
   id: string;
