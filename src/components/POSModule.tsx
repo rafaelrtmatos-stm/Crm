@@ -38,6 +38,8 @@ import { Company, Product, SaleOrder, CartItem, PaymentEntry, AppUser } from '..
 import { Badge, Button, Input, Modal, GlassCard, ModuleErrorBoundary } from './SharedUI';
 import { InventoryModule } from './InventoryModule';
 import { useApp } from '../AppContext';
+import { renderOrcamentoCanvas, renderOrcamentoSimplesCanvas } from '../lib/orcamentoDoc';
+import { downloadCanvasAsPdf, downloadCanvasAsPng } from '../lib/receipt';
 
 function cn(...classes: (string | boolean | undefined | null)[]) {
   return classes.filter(Boolean).join(' ');
@@ -140,6 +142,72 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
   const [orcamentosList, setOrcamentosList] = useState<any[]>([]);
   const [contratosList, setContratosList] = useState<any[]>([]);
 
+  // Viewing Orcamento on POS
+  const [viewingOrcamentoPos, setViewingOrcamentoPos] = useState<any | null>(null);
+  const [orcamentoPosViewMode, setOrcamentoPosViewMode] = useState<'detalhado' | 'simples'>('detalhado');
+
+  const formatOrcamentoObj = (o: any) => ({
+    id: o.id,
+    customerName: o.customer_name || 'Cliente',
+    clienteId: o.cliente_id,
+    phone: o.phone || o.customer_phone || '',
+    cpfCnpj: o.cpf_cnpj || '',
+    address: o.address || '',
+    responsavel: o.responsavel || '',
+    items: o.items || [],
+    desconto: Number(o.desconto || 0),
+    total: Number(o.total || 0),
+    validade: o.validade,
+    numero: o.numero || (o.id ? o.id.slice(-6) : '0001'),
+    observacoes: o.observacoes || '',
+    formaPagamentoTexto: o.forma_pagamento_texto || '',
+    prazoProducao: o.prazo_producao || '',
+    createdAt: o.created_at || new Date().toISOString(),
+  });
+
+  const handlePrintPosOrcamento = async (o: any, mode: 'detalhado' | 'simples' = orcamentoPosViewMode) => {
+    try {
+      const formatted = formatOrcamentoObj(o);
+      const canvas = mode === 'simples'
+        ? await renderOrcamentoSimplesCanvas({ orcamento: formatted as any, companyName: currentCompany?.name || 'Rafa Arts Graphics' })
+        : await renderOrcamentoCanvas({ orcamento: formatted as any, companyName: currentCompany?.name || 'Rafa Arts Graphics' });
+      const dataUrl = canvas.toDataURL('image/png');
+      const win = window.open('', '_blank');
+      if (!win) return;
+      win.document.write(`<html><head><title>Orçamento ${formatted.numero} (${mode === 'simples' ? 'Simples' : 'Detalhado'})</title></head><body style="margin:0"><img src="${dataUrl}" style="width:100%" onload="window.print()" /></body></html>`);
+      win.document.close();
+    } catch (err) {
+      console.error('Erro ao imprimir orçamento no PDV:', err);
+      showAlert('Não foi possível preparar a impressão.');
+    }
+  };
+
+  const handleDownloadPosOrcamentoPdf = async (o: any, mode: 'detalhado' | 'simples' = orcamentoPosViewMode) => {
+    try {
+      const formatted = formatOrcamentoObj(o);
+      const canvas = mode === 'simples'
+        ? await renderOrcamentoSimplesCanvas({ orcamento: formatted as any, companyName: currentCompany?.name || 'Rafa Arts Graphics' })
+        : await renderOrcamentoCanvas({ orcamento: formatted as any, companyName: currentCompany?.name || 'Rafa Arts Graphics' });
+      await downloadCanvasAsPdf(canvas, `Orcamento_${formatted.numero}_${mode}.pdf`);
+    } catch (err) {
+      console.error('Erro ao baixar PDF:', err);
+      showAlert('Não foi possível gerar o PDF do orçamento.');
+    }
+  };
+
+  const handleDownloadPosOrcamentoPng = async (o: any, mode: 'detalhado' | 'simples' = orcamentoPosViewMode) => {
+    try {
+      const formatted = formatOrcamentoObj(o);
+      const canvas = mode === 'simples'
+        ? await renderOrcamentoSimplesCanvas({ orcamento: formatted as any, companyName: currentCompany?.name || 'Rafa Arts Graphics' })
+        : await renderOrcamentoCanvas({ orcamento: formatted as any, companyName: currentCompany?.name || 'Rafa Arts Graphics' });
+      downloadCanvasAsPng(canvas, `Orcamento_${formatted.numero}_${mode}.png`);
+    } catch (err) {
+      console.error('Erro ao baixar PNG:', err);
+      showAlert('Não foi possível gerar a imagem do orçamento.');
+    }
+  };
+
   // Payment Form State
   const [paymentMethod, setPaymentMethod] = useState<'pix' | 'dinheiro' | 'cartao_credito' | 'cartao_debito' | 'boleto' | 'cheque'>('pix');
   const [downPayment, setDownPayment] = useState<number | ''>('');
@@ -209,7 +277,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
         const fallback = await supabase.from('produtos').select('*');
         data = fallback.data;
       }
-      setProducts((data || []).map((p: any) => ({
+      const mapped = (data || []).map((p: any) => ({
         id: p.id,
         name: p.name || p.nome || 'Produto',
         code: p.code || p.codigo || '',
@@ -221,10 +289,23 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
         larguraRolo: p.largura_rolo ? Number(p.largura_rolo) : undefined,
         category: p.category || p.categoria || 'Geral',
         materiasPrimas: p.materias_primas || p.materiasPrimas || []
-      })));
+      }));
+      if (mapped.length > 0) {
+        setProducts(mapped);
+        try { localStorage.setItem('pos_products_cache', JSON.stringify(mapped)); } catch (_) {}
+      } else {
+        const cached = localStorage.getItem('pos_products_cache') || localStorage.getItem('inventory_items_cache');
+        if (cached) {
+          try { setProducts(JSON.parse(cached)); } catch (_) {}
+        }
+      }
       setSyncedAt(new Date());
     } catch (err) {
       console.warn('Erro ao carregar produtos:', err);
+      const cached = localStorage.getItem('pos_products_cache') || localStorage.getItem('inventory_items_cache');
+      if (cached) {
+        try { setProducts(JSON.parse(cached)); } catch (_) {}
+      }
     }
   };
 
@@ -238,17 +319,31 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
         const fallback = await supabase.from('clientes').select('*');
         data = fallback.data;
       }
-      setCustomers((data || []).map((c: any) => ({
+      const mapped = (data || []).map((c: any) => ({
         id: c.id,
         name: c.full_name || c.nome || c.name || 'Cliente',
         phone: c.phone || c.telefone || '',
         email: c.email || '',
         cpf_cnpj: c.cpf_cnpj || '',
         saldo_credito: Number(c.saldo_credito) || 0
-      })));
+      }));
+      if (mapped.length > 0) {
+        setCustomers(mapped);
+        try { localStorage.setItem('pos_customers_cache', JSON.stringify(mapped)); } catch (_) {}
+      } else {
+        const cached = localStorage.getItem('pos_customers_cache') || localStorage.getItem('crm_contacts_cache');
+        if (cached) {
+          try { setCustomers(JSON.parse(cached)); } catch (_) {}
+        }
+      }
     } catch (err) {
       console.warn('Erro ao carregar clientes:', err);
-      setCustomers([]);
+      const cached = localStorage.getItem('pos_customers_cache') || localStorage.getItem('crm_contacts_cache');
+      if (cached) {
+        try { setCustomers(JSON.parse(cached)); } catch (_) {}
+      } else {
+        setCustomers([]);
+      }
     }
   };
 
@@ -1297,16 +1392,29 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
                   <th className="p-3">Cliente</th>
                   <th className="p-3">Valor Total</th>
                   <th className="p-3">Status</th>
+                  <th className="p-3 text-right">Ação</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
                 {orcamentosList.map(o => (
-                  <tr key={o.id} className="hover:bg-white/5">
+                  <tr key={o.id} className="hover:bg-white/5 transition-colors cursor-pointer" onClick={() => setViewingOrcamentoPos(o)}>
                     <td className="p-3 text-white/60 font-mono">{o.created_at ? new Date(o.created_at).toLocaleDateString('pt-BR') : ''}</td>
                     <td className="p-3 font-mono font-bold text-white">{o.numero || o.id.slice(-6)}</td>
                     <td className="p-3 font-bold text-white">{o.customer_name || 'Cliente'}</td>
                     <td className="p-3 font-mono font-black text-emerald-400">R$ {Number(o.total || 0).toFixed(2)}</td>
                     <td className="p-3"><Badge variant="outline" className="text-[9px] uppercase">{o.status || 'Rascunho'}</Badge></td>
+                    <td className="p-3 text-right">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setViewingOrcamentoPos(o);
+                        }}
+                        className="px-2.5 py-1 bg-primary-500/20 hover:bg-primary-500/30 text-primary-300 rounded-lg text-[10px] font-bold uppercase tracking-wider inline-flex items-center gap-1"
+                      >
+                        <Eye size={12} />
+                        <span>Ver / Imprimir</span>
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -1777,6 +1885,134 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
           </div>
         </div>
       </Modal>
+
+      {/* POS Orcamento Preview Modal (Simples / Detalhado) */}
+      {viewingOrcamentoPos && (
+        <Modal
+          isOpen={!!viewingOrcamentoPos}
+          onClose={() => setViewingOrcamentoPos(null)}
+          title={`Orçamento Nº ${viewingOrcamentoPos.numero || viewingOrcamentoPos.id?.slice(-6)}`}
+          size="md"
+        >
+          <div className="space-y-4 p-1">
+            {/* Format toggle: Detalhado vs Simples (Recibo) */}
+            <div className="bg-slate-900/80 p-1.5 rounded-xl border border-white/10 flex gap-1">
+              <button
+                type="button"
+                onClick={() => setOrcamentoPosViewMode('detalhado')}
+                className={cn(
+                  "flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5",
+                  orcamentoPosViewMode === 'detalhado'
+                    ? "bg-primary-500 text-slate-950 shadow-md shadow-primary-500/20"
+                    : "text-white/60 hover:text-white hover:bg-white/5"
+                )}
+              >
+                <FileText size={14} />
+                <span>Detalhado (A4 Completo)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setOrcamentoPosViewMode('simples')}
+                className={cn(
+                  "flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5",
+                  orcamentoPosViewMode === 'simples'
+                    ? "bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20"
+                    : "text-white/60 hover:text-white hover:bg-white/5"
+                )}
+              >
+                <Receipt size={14} />
+                <span>Simples (Estilo Recibo)</span>
+              </button>
+            </div>
+
+            {/* Mode badge explanation */}
+            <div className={cn(
+              "px-3 py-2 rounded-xl text-[11px] border flex items-start gap-2",
+              orcamentoPosViewMode === 'detalhado'
+                ? "bg-primary-500/10 border-primary-500/30 text-primary-200"
+                : "bg-emerald-500/10 border-emerald-500/30 text-emerald-200"
+            )}>
+              <div className="p-1 rounded bg-white/10 mt-0.5">
+                {orcamentoPosViewMode === 'detalhado' ? <FileText size={12} /> : <Receipt size={12} />}
+              </div>
+              <div>
+                <strong className="font-bold block">
+                  {orcamentoPosViewMode === 'detalhado' ? 'Modelo Proposta Comercial (A4)' : 'Modelo Comprovante / Cupom (Recibo)'}
+                </strong>
+                <span className="text-white/70">
+                  {orcamentoPosViewMode === 'detalhado'
+                    ? 'Gera proposta completa em formato de folha comercial com prazos, termos, políticas de pagamento e assinatura.'
+                    : 'Gera comprovante vertical idêntico a um recibo/cupom térmico de balcão (compacto para impressão rápida).'}
+                </span>
+              </div>
+            </div>
+
+            <div className="bg-slate-900/60 rounded-2xl border border-white/10 p-4 space-y-2">
+              <div className="flex justify-between text-xs">
+                <span className="text-white/40 font-bold uppercase">Cliente</span>
+                <span className="text-white font-black">{viewingOrcamentoPos.customer_name || 'Cliente'}</span>
+              </div>
+              {(viewingOrcamentoPos.phone || viewingOrcamentoPos.customer_phone) && (
+                <div className="flex justify-between text-xs">
+                  <span className="text-white/40 font-bold uppercase">Telefone</span>
+                  <span className="text-white font-black">{viewingOrcamentoPos.phone || viewingOrcamentoPos.customer_phone}</span>
+                </div>
+              )}
+              <div className="flex justify-between text-xs pt-1 border-t border-white/5">
+                <span className="text-white/40 font-bold uppercase">Itens</span>
+                <span className="text-white font-black">{viewingOrcamentoPos.items?.length || 0}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-emerald-400 font-bold uppercase">Total</span>
+                <span className="text-emerald-400 font-black">R$ {Number(viewingOrcamentoPos.total || 0).toFixed(2).replace('.', ',')}</span>
+              </div>
+            </div>
+
+            <div className="space-y-1.5 max-h-36 overflow-y-auto custom-scrollbar">
+              {(viewingOrcamentoPos.items || []).map((item: any, idx: number) => (
+                <div key={idx} className="flex items-center justify-between px-3 py-2 bg-white/5 border border-white/5 rounded-lg text-xs">
+                  <span className="text-white/70">{item.quantity}x {item.name?.toUpperCase()} {item.dimensions ? `(${item.dimensions})` : ''}</span>
+                  <span className="text-white font-bold">R$ {(item.area ? item.price * item.area * item.quantity : item.price * item.quantity).toFixed(2).replace('.', ',')}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 pt-2">
+              <Button variant="secondary" icon={Printer} onClick={() => handlePrintPosOrcamento(viewingOrcamentoPos, orcamentoPosViewMode)}>
+                Imprimir {orcamentoPosViewMode === 'simples' ? 'Recibo' : 'A4'}
+              </Button>
+              <Button variant="secondary" icon={Download} onClick={() => handleDownloadPosOrcamentoPng(viewingOrcamentoPos, orcamentoPosViewMode)}>
+                PNG {orcamentoPosViewMode === 'simples' ? 'Recibo' : 'A4'}
+              </Button>
+              <Button variant="secondary" icon={FileText} onClick={() => handleDownloadPosOrcamentoPdf(viewingOrcamentoPos, orcamentoPosViewMode)}>
+                PDF {orcamentoPosViewMode === 'simples' ? 'Recibo' : 'A4'}
+              </Button>
+            </div>
+
+            <div className="pt-2 border-t border-white/5">
+              <Button
+                variant="primary"
+                className="w-full justify-center gap-2"
+                onClick={() => {
+                  if (viewingOrcamentoPos.items) {
+                    setCart([...viewingOrcamentoPos.items]);
+                  }
+                  if (viewingOrcamentoPos.cliente_id) {
+                    const found = customers.find(c => c.id === viewingOrcamentoPos.cliente_id);
+                    if (found) setSelectedCustomer(found);
+                    else setSelectedCustomer({ id: viewingOrcamentoPos.cliente_id, name: viewingOrcamentoPos.customer_name || 'Cliente' } as any);
+                  }
+                  setViewingOrcamentoPos(null);
+                  setActiveTab('venda');
+                }}
+              >
+                <ShoppingBag size={14} />
+                <span>Iniciar Venda a partir deste Orçamento</span>
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 };

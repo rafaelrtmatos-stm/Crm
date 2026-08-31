@@ -128,7 +128,8 @@ import {
   Loader2,
   Wallet,
   ClipboardCheck,
-  DollarSign
+  DollarSign,
+  Receipt
 } from 'lucide-react';
 import { 
   DndContext, 
@@ -217,7 +218,7 @@ import { supabase } from '../supabase';
 import { showAlert, showConfirm, showPrompt } from '../lib/notify';
 import { buildPixPayload } from '../lib/pix';
 import { renderReceiptCanvas, downloadCanvasAsPng, downloadCanvasAsPdf, COMPANY_CONTACT, CompanyContactInfo } from '../lib/receipt';
-import { renderOrcamentoCanvas } from '../lib/orcamentoDoc';
+import { renderOrcamentoCanvas, renderOrcamentoSimplesCanvas } from '../lib/orcamentoDoc';
 import { exportClientesXlsx, parseClientesXlsx, exportProdutosXlsx, parseProdutosXlsx, exportVendasXlsx, parseVendasXlsx, exportFichaClienteXlsx } from '../lib/spreadsheet';
 import { downloadContratoPdf, type AuditStamp } from '../lib/contratoPdf';
 import { uploadContratoPdfAssinado } from '../lib/contratoPdfStorage';
@@ -8092,34 +8093,41 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const [viewingOrcamento, setViewingOrcamento] = useState<Orcamento | null>(null);
+  const [orcamentoViewMode, setOrcamentoViewMode] = useState<'detalhado' | 'simples'>('detalhado');
 
-  const handleDownloadOrcamentoPdf = async (o: Orcamento) => {
+  const handleDownloadOrcamentoPdf = async (o: Orcamento, mode: 'detalhado' | 'simples' = orcamentoViewMode) => {
     try {
-      const canvas = await renderOrcamentoCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoDarkUrl, companyContact });
-      await downloadCanvasAsPdf(canvas, buildFileName('Orcamento', o.customerName, o.createdAt, 'pdf'));
+      const canvas = mode === 'simples'
+        ? await renderOrcamentoSimplesCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoDarkUrl, companyContact })
+        : await renderOrcamentoCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoDarkUrl, companyContact });
+      await downloadCanvasAsPdf(canvas, buildFileName(mode === 'simples' ? 'Orcamento_Simples' : 'Orcamento_Detalhado', o.customerName, o.createdAt, 'pdf'));
     } catch (err) {
       console.error('Erro ao gerar PDF do or√ßamento:', err);
       showAlert('N√£o foi poss√≠vel gerar o PDF do or√ßamento.');
     }
   };
 
-  const handleDownloadOrcamentoImagem = async (o: Orcamento) => {
+  const handleDownloadOrcamentoImagem = async (o: Orcamento, mode: 'detalhado' | 'simples' = orcamentoViewMode) => {
     try {
-      const canvas = await renderOrcamentoCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoDarkUrl, companyContact });
-      downloadCanvasAsPng(canvas, buildFileName('Orcamento', o.customerName, o.createdAt, 'png'));
+      const canvas = mode === 'simples'
+        ? await renderOrcamentoSimplesCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoDarkUrl, companyContact })
+        : await renderOrcamentoCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoDarkUrl, companyContact });
+      downloadCanvasAsPng(canvas, buildFileName(mode === 'simples' ? 'Orcamento_Simples' : 'Orcamento_Detalhado', o.customerName, o.createdAt, 'png'));
     } catch (err) {
       console.error('Erro ao gerar imagem do or√ßamento:', err);
       showAlert('N√£o foi poss√≠vel gerar a imagem do or√ßamento.');
     }
   };
 
-  const handlePrintOrcamento = async (o: Orcamento) => {
+  const handlePrintOrcamento = async (o: Orcamento, mode: 'detalhado' | 'simples' = orcamentoViewMode) => {
     try {
-      const canvas = await renderOrcamentoCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoDarkUrl, companyContact });
+      const canvas = mode === 'simples'
+        ? await renderOrcamentoSimplesCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoDarkUrl, companyContact })
+        : await renderOrcamentoCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoDarkUrl, companyContact });
       const dataUrl = canvas.toDataURL('image/png');
       const win = window.open('', '_blank');
       if (!win) return;
-      win.document.write(`<html><head><title>Or√ßamento ${o.numero}</title></head><body style="margin:0"><img src="${dataUrl}" style="width:100%" onload="window.print()" /></body></html>`);
+      win.document.write(`<html><head><title>Or√ßamento ${o.numero} (${mode === 'simples' ? 'Simples' : 'Detalhado'})</title></head><body style="margin:0"><img src="${dataUrl}" style="width:100%" onload="window.print()" /></body></html>`);
       win.document.close();
     } catch (err) {
       console.error('Erro ao imprimir or√ßamento:', err);
@@ -9888,11101 +9896,482 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     } else if (saleDiscountMode === 'valor') {
       novoDesconto = val;
     } else {
-      // valor final desejado: desconto = total original - valor final que o cliente quer pagar
-      novoDesconto = Math.max(0, baseTotal - val);
-    }
-    setSaleDiscountValue(Math.max(0, Math.min(baseTotal, novoDesconto)));
-  };
-
-  // Quitar Debito: abre a mesma tela de pagamento do Terminal, mas pra uma venda ja existente com saldo pendente
-  const paymentModalTotal = settlingOrder 
-    ? Math.max(0, settlingRawTotal - saleDiscountValue - saleCreditApplied)
-    : total;
-  const paymentModalItems = settlingOrder ? settlingOrder.items : cart;
-
-  // Soma a lista EDITAVEL de pagamentos (nao o campo downPayment travado) ‚Äî assim, se a pessoa
-  // excluir um pagamento da lista, o valor "ja pago" cai na hora, refletindo a edicao
-  const alreadyPaidForSettle = (settlingOrder || editingFullOrder) ? editingPaymentsList.reduce((sum, p) => sum + p.value, 0) : 0;
-  const paymentModalRemaining = (settlingOrder || editingFullOrder)
-    ? Math.max(0, paymentModalTotal - alreadyPaidForSettle - paymentEntriesTotal)
-    : remainingValue;
-
-  const openSettlePayment = (order: SaleOrder) => {
-    setSettlingOrder(order);
-    setSelectedCustomer(order.customerId ? { id: order.customerId, name: order.customerName || 'Cliente', phone: order.customerPhone || '' } : null);
-    setPaymentEntries([]);
-    setDownPayment(0);
-    setScheduledFor(order.scheduledFor ? isoToLocalDatetimeInput(order.scheduledFor) : '');
-    setPendingPaymentMethod('');
-    setEditingPaymentsList(order.payments ? order.payments.map(p => ({ ...p })) : []);
-    setSaleDiscountValue(order.discountValue || 0);
-    setSaleDiscountInput(order.discountValue ? Number(order.discountValue) : '');
-    setSaleDiscountMode('valor');
-    setSaleCreditApplied(0);
-    setIsPaymentModalOpen(true);
-  };
-
-  // As 3 acoes do card de Entrega (clicavel em Servicos/Notas em Aberto e tambem disponivel
-  // dentro de Quitar Debito): editar a data, marcar como entregue, ou excluir o agendamento.
-  // Editar agendamento a partir do card (aba Servicos): antes isso tambem abria o modal
-  // grande de "Quitar Debito" por baixo do popup de data (via openSettlePayment), o que nao
-  // era necessario so pra mudar a data/hora e ainda arriscava um segundo save (o do modal
-  // grande) disputar/sobrescrever o valor logo depois. Agora seta so o minimo necessario
-  // (settlingOrder + scheduledFor) pra o popup de agendamento salvar sozinho, sem abrir
-  // o modal de pagamento.
-  const handleEditScheduleFromCard = (sale: SaleOrder) => {
-    setSettlingOrder(sale);
-    setScheduledFor(sale.scheduledFor ? isoToLocalDatetimeInput(sale.scheduledFor) : '');
-    setIsScheduleModalOpen(true);
-  };
-
-  const handleDeliverFromCard = async (sale: SaleOrder) => {
-    if (!(await showConfirm(`Marcar o pedido de ${sale.customerName || 'cliente'} como entregue?`))) return;
-    const nowIso = new Date().toISOString();
-    const { data, error } = await supabase.from('vendas').update({ service_status: 'produto_entregue', updated_at: nowIso }).eq('id', sale.id).select();
-    if (error) { showAlert(`N√£o foi poss√≠vel marcar como entregue: ${error.message}`); return; }
-    if (!data || data.length === 0) { showAlert('N√£o foi poss√≠vel marcar como entregue ‚Äî o pedido pode ter sido removido ou alterado por outra pessoa. Feche e abra a tela de novo.'); return; }
-    const atualizado = { ...sale, serviceStatus: 'produto_entregue' as any, updatedAt: nowIso };
-    setAllSalesHistory(prev => prev.map(s => s.id === sale.id ? atualizado : s));
-    setSalesToday(prev => prev.map(s => s.id === sale.id ? atualizado : s));
-    showAlert('Pedido marcado como entregue!');
-  };
-
-  const handleDeleteScheduleFromCard = async (sale: SaleOrder) => {
-    if (!(await showConfirm(`Excluir o agendamento de entrega do pedido de ${sale.customerName || 'cliente'}?`))) return;
-    const nowIso = new Date().toISOString();
-    const { data, error } = await supabase.from('vendas').update({ scheduled_for: null, updated_at: nowIso }).eq('id', sale.id).select();
-    if (error) { showAlert(`N√£o foi poss√≠vel excluir o agendamento: ${error.message}`); return; }
-    if (!data || data.length === 0) { showAlert('N√£o foi poss√≠vel excluir o agendamento ‚Äî o pedido pode ter sido removido ou alterado por outra pessoa. Feche e abra a tela de novo.'); return; }
-    const atualizado = { ...sale, scheduledFor: undefined, updatedAt: nowIso };
-    setAllSalesHistory(prev => prev.map(s => s.id === sale.id ? atualizado : s));
-    setSalesToday(prev => prev.map(s => s.id === sale.id ? atualizado : s));
-    showAlert('Agendamento exclu√≠do!');
-  };
-
-  // Monta o objeto de pagamento a partir do que esta digitado no formulario (valor/percentual,
-  // forma, parcelas, taxa e data). Retorna null se nao ha valor valido digitado ainda.
-  // Usado tanto pelo botao "+ Adicionar" quanto pela protecao automatica do handleFinalize
-  // (evita perder um valor digitado e nunca clicado em Adicionar).
-  const buildPaymentEntryFromInput = (): PaymentEntry | null => {
-    const rawInput = newPaymentInput === '' ? 0 : Number(newPaymentInput);
-    const baseValue = newPaymentMode === 'percentual' ? Number(((total * rawInput) / 100).toFixed(2)) : rawInput;
-    if (baseValue <= 0) return null;
-    let value = baseValue;
-    let installments: number | undefined;
-    let feePercent: number | undefined;
-    if (newPaymentMethod === 'cartao_credito') {
-      installments = newPaymentInstallments;
-      feePercent = creditCardFees.find(f => f.installments === newPaymentInstallments)?.feePercent || 0;
-      value = Number((baseValue * (1 + feePercent / 100)).toFixed(2));
-    } else if (newPaymentMethod === 'cartao_debito' && debitCardFeePercent > 0) {
-      feePercent = debitCardFeePercent;
-      value = Number((baseValue * (1 + feePercent / 100)).toFixed(2));
-    }
-    const dataLancamento = useCustomPaymentDate && customPaymentDate ? (localDatetimeToIso(customPaymentDate) || new Date().toISOString()) : new Date().toISOString();
-    return { method: newPaymentMethod, value, date: dataLancamento, installments, feePercent };
-  };
-
-  const confirmAddPayment = () => {
-    const entry = buildPaymentEntryFromInput();
-    if (!entry) { showAlert('Digite um valor v√°lido para o pagamento.'); return; }
-    setPaymentEntries(prev => [...prev, entry]);
-    setNewPaymentMode('valor');
-    setNewPaymentInstallments(1);
-    setUseCustomPaymentDate(false);
-    setCustomPaymentDate('');
-  };
-
-  const removePaymentEntry = (idx: number) => {
-    setPaymentEntries(prev => prev.filter((_, i) => i !== idx));
-  };
-
-  // Cliente pagou em dinheiro e nao quis levar o troco: guarda a diferenca como credito no
-  // cadastro dele, pra abater automaticamente numa proxima compra
-  const [isSavingTrocoCredito, setIsSavingTrocoCredito] = useState(false);
-  const handleSalvarTrocoComoCredito = async (trocoValor: number) => {
-    if (!selectedCustomer?.id || trocoValor <= 0) return;
-    setIsSavingTrocoCredito(true);
-    try {
-      const saldoAtual = allCustomers.find((c: any) => c.id === selectedCustomer.id)?.saldo_credito || 0;
-      const { error } = await supabase.from('clientes').update({ saldo_credito: saldoAtual + trocoValor }).eq('id', selectedCustomer.id);
-      if (error) throw error;
-      await loadAllCustomers();
-      setCashReceived('');
-      showAlert(`R$ ${trocoValor.toFixed(2).replace('.', ',')} guardado como cr√©dito para ${selectedCustomer.name}.`);
-    } catch (err) {
-      console.error('Erro ao guardar troco como cr√©dito:', err);
-      showAlert('N√£o foi poss√≠vel guardar o troco como cr√©dito.');
-    } finally {
-      setIsSavingTrocoCredito(false);
-    }
-  };
-
-  useEffect(() => {
-    setDownPayment(paymentEntriesTotal);
-    if (paymentEntries.length === 1) setPaymentMethod(paymentEntries[0].method as any);
-    else if (paymentEntries.length > 1) setPaymentMethod('misto');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paymentEntries]);
-
-  useEffect(() => {
-    if (enabledPaymentMethods.length > 0 && !enabledPaymentMethods.includes(newPaymentMethod)) {
-      setNewPaymentMethod(enabledPaymentMethods[0] as PaymentEntry['method']);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabledPaymentMethods]);
-
-  // O campo de valor sempre vem preenchido com o saldo restante ‚Äî ao abrir o pagamento,
-  // ao adicionar um pagamento (recalcula o que falta), ou ao trocar de forma de pagamento.
-  // Nunca mexe no modo (R$ ou %) escolhido pelo usu√°rio.
-  useEffect(() => {
-    if (!isPaymentModalOpen) return;
-    // Editando os itens de uma nota que j√° existe (ex: adicionar mais um produto): N√ÉO
-    // pr√©-preenche o campo com o saldo restante. Nesse modo o usu√°rio normalmente s√≥ quer
-    // salvar a altera√ß√£o dos itens sem lan√ßar pagamento nenhum, e o bot√£o de salvar reaproveita
-    // qualquer valor que estiver digitado nesse campo ‚Äî se ele vier preenchido sozinho com o
-    // saldo total, a nota √© quitada (status "pago") mesmo o usu√°rio n√£o tendo digitado nada e
-    // mesmo o bot√£o mostrando "R$ 0,00" (o texto do bot√£o n√£o olha esse campo nesse modo).
-    if (editingFullOrder) {
-      if (newPaymentInput !== '') setNewPaymentInput('');
-      return;
-    }
-    if (newPaymentMode === 'valor') {
-      setNewPaymentInput(paymentModalRemaining > 0 ? Number(paymentModalRemaining.toFixed(2)) : '');
-    } else if (newPaymentMode === 'percentual') {
-      const pct = paymentModalTotal > 0 ? (paymentModalRemaining / paymentModalTotal) * 100 : 0;
-      setNewPaymentInput(pct > 0 ? Number(pct.toFixed(2)) : '');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPaymentModalOpen, paymentModalRemaining, newPaymentMethod, newPaymentMode, editingFullOrder]);
-
-  // Soma por data de CADA pagamento (nao pela data de criacao da nota) ‚Äî uma nota paga em
-  // partes em dias diferentes conta o faturamento em cada dia certo, nao tudo de uma vez
-  const faturamentoHoje = useMemo(() => {
-    const inicioHoje = new Date(); inicioHoje.setHours(0, 0, 0, 0);
-    const fimHoje = new Date(); fimHoje.setHours(23, 59, 59, 999);
-    return allSalesHistory
-      .filter(o => o.status !== 'canceled')
-      .flatMap(getRevenueEventsForSale)
-      .filter(ev => { const d = new Date(ev.date); return d >= inicioHoje && d <= fimHoje; })
-      .reduce((acc, ev) => acc + ev.value, 0);
-  }, [allSalesHistory]);
-
-  const handleFinalize = async (isPending: boolean = false, forceZeroPayment: boolean = false) => {
-    // Protecao de UX: se o usuario digitou um valor no campo de pagamento mas esqueceu de
-    // clicar em "+ Adicionar", inclui esse valor automaticamente na lista antes de processar ‚Äî
-    // evita registrar/quitar um pagamento de R$ 0,00 por engano so porque o valor ficou
-    // digitado no campo e nunca foi confirmado na lista.
-    const pendingEntry = forceZeroPayment ? null : buildPaymentEntryFromInput();
-    const effectivePaymentEntries = pendingEntry ? [...paymentEntries, pendingEntry] : paymentEntries;
-    const effectivePaymentEntriesTotal = effectivePaymentEntries.reduce((sum, p) => sum + (p.value || 0), 0);
-    if (pendingEntry) {
-      setPaymentEntries(effectivePaymentEntries);
-      setNewPaymentMode('valor');
-      setNewPaymentInstallments(1);
-      setUseCustomPaymentDate(false);
-      setCustomPaymentDate('');
-    }
-
-    // Play money sound
-    try {
-      const audio = new Audio('/sounds/sale-complete.mp3');
-      audio.play().catch(() => {});
-    } catch (e) {}
-
-    // Edicao completa de uma nota ja existente (itens do carrinho alterados): atualiza a mesma
-    // linha no banco (itens + total) em vez de criar uma venda nova, e ajusta o estoque so pela
-    // DIFERENCA entre o que tinha antes e o que ficou agora (nao deduz tudo de novo).
-    if (editingFullOrder) {
-      // Recalcula o total pago a partir da lista EDITADA de pagamentos (editingPaymentsList),
-      // nao do downPayment travado da nota original. Usar o downPayment antigo aqui somava o
-      // valor anterior com o novo mesmo quando um pagamento existente foi removido/substituido
-      // na edicao (ex: 50 excluido + 60 lancado virava 50 + 60 = 110 em vez de 60). Assim o
-      // total pago fica sempre igual a soma real do array que vai ser salvo (idempotente).
-      const totalPagoAnteriorEditado = editingPaymentsList.reduce((sum, p) => sum + (p.value || 0), 0);
-      const totalPago = totalPagoAnteriorEditado + effectivePaymentEntriesTotal;
-      const novoSaldo = Math.max(0, total - totalPago);
-      try {
-        // Ajusta estoque so pela diferenca de consumo entre os itens antigos e os novos
-        const consumoItem = (i: any) => i.consumoEstoque !== undefined ? i.consumoEstoque * i.quantity : (i.area ? i.area * i.quantity : i.quantity);
-        const consumoAntigo: Record<string, number> = {};
-        (editingFullOrder.items || []).forEach((i: any) => { if (i.productId && i.productId !== 'manual') consumoAntigo[i.productId] = (consumoAntigo[i.productId] || 0) + consumoItem(i); });
-        const consumoNovo: Record<string, number> = {};
-        cart.forEach((i: any) => { if (i.productId && i.productId !== 'manual') consumoNovo[i.productId] = (consumoNovo[i.productId] || 0) + consumoItem(i); });
-        const todosIds = new Set([...Object.keys(consumoAntigo), ...Object.keys(consumoNovo)]);
-        await Promise.all(Array.from(todosIds).map(async (pid) => {
-          const delta = (consumoNovo[pid] || 0) - (consumoAntigo[pid] || 0);
-          if (delta === 0) return;
-          const { data: prodAtual } = await supabase.from('produtos').select('current_stock, controla_estoque').eq('id', pid).maybeSingle();
-          if (prodAtual && prodAtual.controla_estoque !== false) {
-            const novoEstoque = Math.max(0, (Number(prodAtual.current_stock) || 0) - delta);
-            await supabase.from('produtos').update({ current_stock: novoEstoque }).eq('id', pid);
-          }
-        }));
-
-        const pagamentosFinaisEdicao = [...editingPaymentsList, ...effectivePaymentEntries];
-        const { data, error } = await supabase.from('vendas').update({
-          cliente_id: selectedCustomer?.id || null,
-          customer_name: selectedCustomer?.name || editingFullOrder.customerName,
-          customer_phone: selectedCustomer?.phone || editingFullOrder.customerPhone,
-          items: cart,
-          total,
-          discount_value: saleDiscountValue || null,
-          down_payment: totalPago,
-          received_value: totalPago,
-          payments: pagamentosFinaisEdicao,
-          status: novoSaldo <= 0 ? 'completed' : 'pending',
-          observacoes: orderObservacoes || null,
-          scheduled_for: localDatetimeToIso(scheduledFor) || editingFullOrder.scheduledFor || null,
-          created_at: editingCreatedAt ? new Date(editingCreatedAt).toISOString() : editingFullOrder.createdAt,
-          updated_at: new Date().toISOString(),
-        }).eq('id', editingFullOrder.id).select();
-        if (error) throw error;
-        if (!data || data.length === 0) throw new Error('O pedido n√£o foi encontrado pra atualizar ‚Äî pode ter sido removido ou alterado por outra pessoa.');
-
-        // Se essa nota tem Orcamento e/ou Contrato vinculados, mantem os itens/valor deles
-        // em sincronia com o que foi editado aqui na nota
-        const idsVinculados = [editingFullOrder.orcamentoId, editingFullOrder.contratoId].filter(Boolean) as string[];
-        if (idsVinculados.length > 0) {
-          await Promise.all(idsVinculados.map(id =>
-            supabase.from('orcamentos').update({ items: cart, total, desconto: saleDiscountValue || 0 }).eq('id', id)
-          ));
-        }
-
-        const updatedOrder: SaleOrder = {
-          ...editingFullOrder,
-          customerId: selectedCustomer?.id || editingFullOrder.customerId,
-          customerName: selectedCustomer?.name || editingFullOrder.customerName,
-          customerPhone: selectedCustomer?.phone || editingFullOrder.customerPhone,
-          items: [...cart],
-          total,
-          discountValue: saleDiscountValue || undefined,
-          downPayment: totalPago,
-          receivedValue: totalPago,
-          payments: pagamentosFinaisEdicao,
-          status: novoSaldo <= 0 ? 'completed' : 'pending',
-          observacoes: orderObservacoes || undefined,
-          scheduledFor: localDatetimeToIso(scheduledFor) || editingFullOrder.scheduledFor || undefined,
-          createdAt: editingCreatedAt ? new Date(editingCreatedAt).toISOString() : editingFullOrder.createdAt,
-          updatedAt: new Date().toISOString(),
-        };
-        setLastFinalizedOrder(updatedOrder);
-        // Reordena pela data/hora real da transacao (createdAt) ‚Äî editar uma nota nao deve
-        // mudar sua posicao cronologica no historico.
-        setAllSalesHistory(prev => prev.map(s => s.id === editingFullOrder.id ? updatedOrder : s).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
-        setSalesToday(prev => prev.map(s => s.id === editingFullOrder.id ? updatedOrder : s));
-        setIsSuccessModalOpen(true);
-        setIsPaymentModalOpen(false);
-        setEditingFullOrder(null);
-        setCart([]);
-        setSelectedCustomer(null);
-        setPaymentEntries([]);
-        setDownPayment(0);
-        setScheduledFor('');
-        setOrderObservacoes('');
-        setSaleDiscountValue(0);
-        setSaleDiscountInput('');
-        setSaleCreditApplied(0);
-        setEditingCreatedAt('');
-      } catch (err: any) {
-        console.error('Erro ao salvar edi√ß√£o da nota:', err);
-        showAlert(`N√£o foi poss√≠vel salvar as altera√ß√µes: ${err?.message || 'erro desconhecido'}`);
-      }
-      return;
-    }
-
-    // Quitar Debito: atualiza a venda ja existente em vez de criar uma nova
-    if (settlingOrder) {
-      const novoTotalPago = alreadyPaidForSettle + effectivePaymentEntriesTotal;
-      const novoSaldo = Math.max(0, paymentModalTotal - novoTotalPago);
-      // Usa a lista EDITADA (pode ter pagamento excluido ou data alterada), nao a original travada
-      const pagamentosFinais = [...editingPaymentsList, ...effectivePaymentEntries];
-      try {
-        const { data, error } = await supabase.from('vendas').update({
-          total: paymentModalTotal,
-          discount_value: saleDiscountValue || null,
-          down_payment: novoTotalPago,
-          received_value: novoTotalPago,
-          payments: pagamentosFinais,
-          status: novoSaldo <= 0 ? 'completed' : 'pending',
-          pending_payment_method: novoSaldo > 0 ? (pendingPaymentMethod || null) : null,
-          scheduled_for: localDatetimeToIso(scheduledFor) || settlingOrder.scheduledFor || null,
-          updated_at: new Date().toISOString(),
-        }).eq('id', settlingOrder.id).select();
-        if (error) throw error;
-        if (!data || data.length === 0) throw new Error('O pedido n√£o foi encontrado pra atualizar ‚Äî pode ter sido removido ou alterado por outra pessoa.');
-
-        const updatedOrder: SaleOrder = { 
-          ...settlingOrder, 
-          total: paymentModalTotal,
-          discountValue: saleDiscountValue || undefined,
-          downPayment: novoTotalPago, 
-          receivedValue: novoTotalPago, 
-          status: novoSaldo <= 0 ? 'completed' : 'pending', 
-          payments: pagamentosFinais, 
-          scheduledFor: localDatetimeToIso(scheduledFor) || settlingOrder.scheduledFor || undefined, 
-          updatedAt: new Date().toISOString() 
-        };
-        setLastFinalizedOrder(updatedOrder);
-        // Atualiza so essa venda localmente (nao recarrega a tabela inteira, que fica lenta com muitas vendas)
-        // Reordena pela data/hora real da transacao (createdAt) ‚Äî quitar debito nao deve
-        // mudar a posicao cronologica da nota no historico.
-        setAllSalesHistory(prev => prev.map(s => s.id === settlingOrder.id ? updatedOrder : s).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
-        setSalesToday(prev => prev.map(s => s.id === settlingOrder.id ? updatedOrder : s));
-        setIsSuccessModalOpen(true);
-        setIsPaymentModalOpen(false);
-        setSettlingOrder(null);
-        setSelectedCustomer(null);
-        setPaymentEntries([]);
-        setDownPayment(0);
-        setScheduledFor('');
-        setOrderObservacoes('');
-        setPendingPaymentMethod('');
-        setSaleDiscountValue(0);
-        setSaleDiscountInput('');
-        setSaleCreditApplied(0);
-      } catch (err: any) {
-        console.error('Erro ao quitar d√©bito:', err);
-        showAlert(`N√£o foi poss√≠vel registrar o pagamento: ${err?.message || 'erro desconhecido'}`);
-      }
-      return;
-    }
-    const finalDownPayment = forceZeroPayment ? 0 : (downPayment === '' || typeof downPayment === 'string' ? 0 : Number(downPayment));
-    const currentRemaining = Math.max(0, total - finalDownPayment);
-    const paymentsToSave = forceZeroPayment ? [] : effectivePaymentEntries;
-
-    // So salva agendamento de entrega se o usuario escolheu uma data/hora manualmente
-    // (campo scheduledFor). Antes, toda venda com pagamento parcial ("entrada") sem data
-    // escolhida ganhava um agendamento automatico pra 2 dias depois as 17h, sem o usuario
-    // pedir nem saber -- removido.
-    const deliveryDate = localDatetimeToIso(scheduledFor) || undefined;
-
-    const isPartialSale = currentRemaining > 0 || isPending;
-
-    const order: SaleOrder = {
-      id: `ord_${Date.now()}`,
-      companyId: currentCompany?.id || 'default',
-      customerId: selectedCustomer?.id,
-      customerName: selectedCustomer?.name || 'Cliente de Balc√£o',
-      items: [...cart],
-      total,
-      discountValue: saleDiscountValue || undefined,
-      downPayment: finalDownPayment,
-      receivedValue: finalDownPayment,
-      paymentMethod,
-      payments: paymentsToSave,
-      pendingPaymentMethod: currentRemaining > 0 ? (pendingPaymentMethod || undefined) : undefined,
-      status: isPartialSale ? 'pending' : 'completed',
-      createdAt: new Date().toISOString(),
-      scheduledFor: deliveryDate || undefined,
-      observacoes: orderObservacoes || undefined
-    };
-
-    // Save to Supabase
-    let insertedVenda: any = null;
-    try {
-      const { data: insertedVendaResult, error } = await supabase.from('vendas').insert({
-        customer_name: order.customerName,
-        customer_phone: selectedCustomer?.phone,
-        items: order.items,
-        total: order.total,
-        down_payment: order.downPayment,
-        received_value: order.receivedValue,
-        payment_method: order.paymentMethod,
-        payments: paymentsToSave,
-        pending_payment_method: currentRemaining > 0 ? (pendingPaymentMethod || null) : null,
-        status: order.status,
-        scheduled_for: order.scheduledFor || null,
-        observacoes: orderObservacoes || null,
-        orcamento_id: linkedOrcamentoId || null,
-        discount_value: saleDiscountValue || null,
-      }).select().single();
-      if (error) throw error;
-      insertedVenda = insertedVendaResult;
-
-      // Baixa automatica de estoque para cada item vendido (produtos do catalogo real, ignora itens livres/manuais)
-      // Roda em paralelo (Promise.all) em vez de um item de cada vez, pra nao deixar o fechamento lento
-      await Promise.all(cart.filter(item => item.productId && item.productId !== 'manual').map(async (item) => {
-        const qtdBaixa = item.consumoEstoque !== undefined
-          ? item.consumoEstoque * item.quantity
-          : (item.area ? item.area * item.quantity : item.quantity);
-        const { data: prodAtual } = await supabase.from('produtos').select('current_stock, controla_estoque, unit').eq('id', item.productId).maybeSingle();
-        if (prodAtual && prodAtual.controla_estoque !== false) {
-          const estoqueAnterior = Number(prodAtual.current_stock) || 0;
-          const novoEstoque = Math.max(0, estoqueAnterior - qtdBaixa);
-          await Promise.all([
-            supabase.from('produtos').update({ current_stock: novoEstoque }).eq('id', item.productId),
-            supabase.from('movimentacoes_estoque').insert({
-              produto_id: item.productId,
-              produto_nome: item.name,
-              tipo: 'saida',
-              quantidade: qtdBaixa,
-              unidade: prodAtual.unit || (item.consumoEstoque !== undefined ? 'metro linear' : (item.area ? 'm¬≤' : 'un')),
-              motivo: 'venda',
-              referencia: `Pedido #${order.id.slice(-8).toUpperCase()}`,
-              quantidade_anterior: estoqueAnterior,
-              quantidade_posterior: novoEstoque,
-            }),
-          ]);
-        }
-      }));
-
-      // Se essa venda veio de um or√ßamento, marca o or√ßamento como Conclu√≠do ‚Äî Venda Gerada
-      if (linkedOrcamentoId && insertedVenda) {
-        await supabase.from('orcamentos').update({ status: 'concluido', venda_id: insertedVenda.id }).eq('id', linkedOrcamentoId);
-        setLinkedOrcamentoId(null);
-      }
-
-      // Se o cliente teve credito aplicado nessa venda (ex: troco de outra compra), abate do
-      // saldo dele agora que a venda foi confirmada
-      if (selectedCustomer?.id && saleCreditApplied > 0) {
-        const saldoAtual = allCustomers.find((c: any) => c.id === selectedCustomer.id)?.saldo_credito || 0;
-        await supabase.from('clientes').update({ saldo_credito: Math.max(0, saldoAtual - saleCreditApplied) }).eq('id', selectedCustomer.id);
-        loadAllCustomers();
-      }
-      
-      // RULE: Always create Service/OS if pending or has balance OR specific items
-      const hasServiceItems = cart.some(item => 
-        item.name.toLowerCase().includes('banner') || 
-        item.name.toLowerCase().includes('adesivo') ||
-        item.name.toLowerCase().includes('servi√ßo')
-      );
-
-      if (hasServiceItems || currentRemaining > 0 || isPending) {
-        await addDoc(collection(db, 'services'), {
-          companyId: currentCompany?.id,
-          orderId: order.id,
-          client: order.customerName,
-          phone: selectedCustomer?.phone || '',
-          service: cart.map(i => `${i.quantity}x ${i.name}`).join(', '),
-          status: currentRemaining > 0 ? 'pendente' : 'concluido',
-          priority: 'normal',
-          total: order.total,
-          balance: currentRemaining,
-          scheduledFor: deliveryDate || null,
-          createdAt: Timestamp.now()
-        });
-        console.log('Ordem de Servi√ßo gerada.');
-      }
-    } catch (err) {
-      console.error('Erro ao salvar venda:', err);
-    }
-
-    if (isPartialSale) {
-      addPendingOrder(order);
-    }
-    
-    // Adiciona a venda recem criada localmente (usa o id/dados reais vindos do banco)
-    // em vez de recarregar a tabela inteira, que fica lenta conforme o historico cresce
-    let novaVendaMapeada: SaleOrder = order;
-    if (insertedVenda) {
-      novaVendaMapeada = mapVendaRow(insertedVenda);
-      setAllSalesHistory(prev => [novaVendaMapeada, ...prev]);
-      const inicioHoje = new Date();
-      inicioHoje.setHours(0, 0, 0, 0);
-      if (new Date(novaVendaMapeada.createdAt) >= inicioHoje) {
-        setSalesToday(prev => [novaVendaMapeada, ...prev]);
-      }
-    }
-    // Usa a venda com o id REAL do banco (nao o id local temporario "ord_..."), senao
-    // qualquer acao feita a partir da tela de sucesso (ex: mudar Etapa Atual) falha
-    // tentando usar um id que nao existe de verdade no banco.
-    setLastFinalizedOrder(novaVendaMapeada);
-    setIsSuccessModalOpen(true);
-    setIsPaymentModalOpen(false);
-    
-    // Reset cart but keep customer for the success modal
-    setCart([]);
-    setDownPayment(0);
-    setOrderObservacoes('');
-    setScheduledFor('');
-    setSaleDiscountValue(0); setSaleDiscountInput(''); setSaleCreditApplied(0);
-    resetPaymentEntries();
-  };
-
-  const [isImportingVendas, setIsImportingVendas] = useState(false);
-  const vendasFileInputRef = React.useRef<HTMLInputElement>(null);
-
-  if (!isRegisterOpen) {
-    return (
-      <div className="h-[calc(100vh-8rem)] flex items-center justify-center animate-in fade-in zoom-in-95 duration-500">
-        <GlassCard className="max-w-md w-full p-10 text-center space-y-6">
-          <div className="w-20 h-20 bg-amber-500/20 text-amber-500 rounded-[32px] flex items-center justify-center mx-auto mb-6">
-            <AlertCircle size={40} />
-          </div>
-          <h2 className="text-2xl font-bold text-white tracking-widest uppercase">Caixa Fechado</h2>
-          {user?.isAdmin ? (
-            <>
-              <p className="text-white/40 text-sm">√â necess√°rio abrir o caixa para iniciar as vendas do dia.</p>
-              <Button className="w-full h-14 text-lg" onClick={() => setIsRegisterOpen(true)}>Abrir Caixa Agora</Button>
-            </>
-          ) : (
-            <p className="text-white/40 text-sm">Apenas o administrador pode abrir o caixa. Aguarde a libera√ß√£o para iniciar as vendas.</p>
-          )}
-        </GlassCard>
-      </div>
-    );
-  }
-
-  const handleManualSync = async () => {
-    setIsSyncing(true);
-    try {
-      const { data: vendasData } = await supabase.from('vendas').select('*').is('deleted_at', null);
-      const allSales = (vendasData || []).map(mapVendaRow);
-      allSales.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      setAllSalesHistory(allSales);
-      const startOfDay = new Date();
-      startOfDay.setHours(0, 0, 0, 0);
-      setSalesToday(allSales.filter(sale => new Date(sale.createdAt) >= startOfDay));
-
-      // Reforca a atualizacao do catalogo de produtos tambem (alem do tempo real)
-      const { data: produtosData } = await supabase.from('produtos').select('*').order('name', { ascending: true });
-      setProducts((produtosData || []).map((p: any) => ({
-        id: p.id,
-        name: p.name,
-        code: p.code || '',
-        price: Number(p.sale_price) || 0,
-        stock: Number(p.current_stock) || 0,
-        unitType: p.unit === 'm2' ? 'm2' : p.unit === 'etiqueta' ? 'etiqueta' : p.unit === 'm' ? 'metro' : 'unit',
-        tipoItem: p.tipo_item || 'produto',
-        larguraRolo: p.largura_rolo ? Number(p.largura_rolo) : undefined,
-        controlaEstoque: p.controla_estoque !== false,
-        valorMinimo: p.valor_minimo ? Number(p.valor_minimo) : undefined,
-      })));
-
-      setSyncedAt(new Date());
-    } catch (err) {
-      console.error('Erro ao sincronizar:', err);
-      showAlert('N√£o foi poss√≠vel sincronizar agora. Verifique sua conex√£o.');
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
-  const handleImportVendasFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setIsImportingVendas(true);
-    try {
-      const buffer = await file.arrayBuffer();
-      const rows = parseVendasXlsx(buffer);
-      if (rows.length === 0) {
-        showAlert('Nenhuma venda v√°lida encontrada na planilha. Confira se o modelo de colunas est√° correto.');
-        return;
-      }
-      const payload = rows.map(r => ({
-        customer_name: r.customerName,
-        items: r.items,
-        total: r.total,
-        down_payment: r.downPayment || 0,
-        payment_method: r.paymentMethod,
-        status: r.status,
-        ...(r.createdAt ? { created_at: r.createdAt } : {}),
-      }));
-      const falhasVendas: string[] = [];
-      let vendasNovas = 0;
-      const batchSize = 200;
-      for (let i = 0; i < payload.length; i += batchSize) {
-        const slice = payload.slice(i, i + batchSize);
-        const { error } = await supabase.from('vendas').insert(slice);
-        if (!error) {
-          vendasNovas += slice.length;
-        } else {
-          for (const row of slice) {
-            const { error: rowError } = await supabase.from('vendas').insert(row);
-            if (rowError) falhasVendas.push(`${row.customer_name || 'sem cliente'}: ${rowError.message}`);
-            else vendasNovas += 1;
-          }
-        }
-      }
-      if (falhasVendas.length > 0) {
-        showAlert(`${vendasNovas} venda(s) importada(s).\n\n${falhasVendas.length} venda(s) N√ÉO foram importadas:\n${falhasVendas.slice(0, 10).join('\n')}${falhasVendas.length > 10 ? `\n... e mais ${falhasVendas.length - 10}` : ''}`);
-      } else {
-        showAlert(`${vendasNovas} venda(s) importada(s) com sucesso!`);
-      }
-    } catch (err: any) {
-      console.error('Erro ao importar vendas:', err);
-      showAlert(`N√£o foi poss√≠vel importar: ${err?.message || 'erro desconhecido'}`);
-    } finally {
-      setIsImportingVendas(false);
-      if (vendasFileInputRef.current) vendasFileInputRef.current.value = '';
-    }
-  };
-
-  return (
-    <div className="h-full min-h-[500px] flex flex-col bg-slate-900/50 rounded-xl shadow-2xl border border-white/10 overflow-hidden animate-in fade-in slide-in-from-right-5 duration-500">
-      {alertToast && (
-        <div
-          onClick={() => { if (alertToast.saleId) { openReceiptById(alertToast.saleId); setAlertToast(null); } }}
-          className={cn(
-            "fixed top-4 right-4 z-[200] bg-amber-500 text-slate-950 font-black text-sm px-5 py-3 rounded-2xl shadow-2xl animate-in slide-in-from-top-4 flex items-center gap-3 max-w-[calc(100vw-2rem)] sm:max-w-sm",
-            alertToast.saleId ? "cursor-pointer hover:bg-amber-400 active:scale-95 transition-all" : ""
-          )}
-        >
-           <span className="flex-1">{alertToast.message}</span>
-           {alertToast.saleId && <ChevronRight size={16} className="shrink-0" />}
-           <button onClick={(e) => { e.stopPropagation(); setAlertToast(null); }} className="text-slate-900/50 hover:text-slate-900 border-0 bg-transparent cursor-pointer shrink-0"><X size={16} /></button>
-        </div>
-      )}
-      {/* Tab Navigation */}
-      <div className="flex flex-wrap bg-white/5 p-1 sm:p-1.5 gap-1 sm:gap-1.5 border-b border-white/10 items-center justify-between shrink-0">
-        <div className="flex sm:flex-wrap gap-1 flex-1 min-w-0 justify-between sm:justify-start">
-          {[
-            { id: 'venda', label: 'Terminal Venda', icon: ShoppingBag },
-            { id: 'historico', label: 'Hist√≥rico & Abertas', icon: History },
-            { id: 'estoque', label: 'Estoque / Produtos', icon: Box },
-            { id: 'servicos', label: 'Servi√ßos', icon: Wrench },
-            { id: 'orcamentos', label: 'Or√ßamentos', icon: FileSpreadsheet },
-            { id: 'contratos', label: 'Contratos', icon: FileText },
-            { id: 'excluidos', label: 'Exclu√≠dos', icon: Trash2 },
-            { id: 'clientes', label: 'Clientes', icon: Users }
-          ].sort((a, b) => {
-            if (!pdvMenuConfig) return 0;
-            const idxA = pdvMenuConfig.findIndex(m => m.id === a.id);
-            const idxB = pdvMenuConfig.findIndex(m => m.id === b.id);
-            if (idxA === -1 && idxB === -1) return 0;
-            if (idxA === -1) return 1;
-            if (idxB === -1) return -1;
-            return idxA - idxB;
-          }).filter(tab => {
-            // Config global do admin (Configuracoes > Menu Lateral > Abas do PDV)
-            if (pdvMenuConfig) {
-              const cfg = pdvMenuConfig.find(m => m.id === tab.id);
-              if (cfg && !cfg.visible) return false;
-            }
-            // Permissao individual desse usuario especifico (admin sempre ve tudo)
-            if (!user?.isAdmin && user?.allowedPdvTabs && !user.allowedPdvTabs.includes(tab.id)) return false;
-            return true;
-          }).map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
-              title={tab.label}
-              className={cn(
-                "flex items-center justify-center gap-1 flex-1 sm:flex-initial px-1 sm:px-2.5 py-1 sm:py-1.5 rounded-md sm:rounded-lg text-[9px] font-black uppercase tracking-tight sm:tracking-wider transition-all whitespace-nowrap",
-                activeTab === tab.id ? "bg-primary-500 text-slate-900 shadow-xl" : "text-white/40 hover:bg-white/5 hover:text-white"
-              )}
-            >
-              <tab.icon size={18} className="sm:hidden shrink-0" />
-              <tab.icon size={14} className="hidden sm:block shrink-0" />
-              <span className="hidden sm:inline">{tab.label}</span>
-            </button>
-          ))}
-        </div>
-        
-        <div className="flex items-center gap-1.5 shrink-0">
-          <button
-            onClick={handleManualSync}
-            disabled={isSyncing}
-            title={syncedAt ? `√öltima sincroniza√ß√£o: ${syncedAt.toLocaleTimeString('pt-BR')}` : 'Sincronizar agora'}
-            className={cn(
-              "flex items-center justify-center w-8 h-8 rounded-lg border transition-all shrink-0",
-              isSyncing ? "bg-white/5 border-white/10 text-white/30" : "bg-white/5 border-white/10 text-white/50 hover:text-emerald-400 hover:border-emerald-500/20"
-            )}
-          >
-            <RefreshCw size={13} className={cn(isSyncing && "animate-spin")} />
-          </button>
-          {(user?.isAdmin || user?.allowedActions?.includes('canCloseCashRegister')) && (
-            <button
-              onClick={() => setIsRegisterOpen(false)}
-              title="Fechar Caixa"
-              className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-rose-400 hover:border-rose-500/20 transition-all shrink-0"
-            >
-              <LogOut size={13} />
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-hidden">
-        {activeTab === 'venda' && (
-          <>
-            {/* Cima no mobile / Esquerda no desktop: Terminal POS + Carrinho */}
-            <div className="basis-[50%] shrink-0 grow-0 md:basis-auto md:flex-1 md:shrink bg-[#fef9c3] flex flex-col pt-1 px-2 pb-2 sm:p-6 relative overflow-hidden justify-between min-h-0">
-               {/* Top Bar */}
-               <div className="flex justify-between items-center text-slate-900/50 pb-1 sm:pb-2 border-b border-slate-900/10">
-                  <div className="flex items-center gap-1 sm:gap-2">
-                     <ShoppingBag size={10} className="sm:hidden text-slate-900" />
-                     <ShoppingBag size={16} className="hidden sm:block text-slate-900" />
-                     <p className="text-[6px] sm:text-[10px] font-black uppercase tracking-[1px] sm:tracking-[3px]">Rafa Arts POS Terminal</p>
-                  </div>
-                  <div className="flex items-center gap-1 sm:gap-3">
-                     <p className="hidden sm:block text-[10px] font-black uppercase tracking-[3px]">#001-ALPHA</p>
-                     {cart.length > 0 && (
-                        <button
-                           onClick={clearCart}
-                           className="text-[6px] sm:text-[9px] font-bold uppercase text-rose-700 bg-rose-500/10 hover:bg-rose-500/20 px-1 sm:px-2 py-0.5 sm:py-1 rounded-md transition-all flex items-center gap-0.5 sm:gap-1 cursor-pointer"
-                           title="Limpar Carrinho"
-                        >
-                           <Trash2 size={7} className="sm:hidden" />
-                           <Trash2 size={10} className="hidden sm:block" />
-                           <span className="hidden xs:inline sm:inline">Limpar</span>
-                        </button>
-                     )}
-                  </div>
-               </div>
-
-               {/* Total Banner */}
-               <div className="py-1.5 sm:py-3 px-2 sm:px-4 bg-slate-900/5 rounded-lg sm:rounded-2xl border border-slate-900/10 flex items-center justify-between my-0.5 sm:my-2 gap-2">
-                  <div className="min-w-0 flex-1">
-                     <div className="flex items-center gap-1.5 flex-wrap">
-                        <p className="text-[6.5px] sm:text-[9px] font-black uppercase tracking-[1.5px] sm:tracking-[3px] text-slate-900/40">Total da Nota</p>
-                        {saleDiscountValue > 0 && (
-                           <span className="text-[7px] sm:text-[8.5px] font-black text-emerald-700 bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.2 rounded">
-                              Desc: -R$ {saleDiscountValue.toFixed(2).replace('.', ',')}
-                           </span>
-                        )}
-                        {saleCreditApplied > 0 && (
-                           <span className="text-[7px] sm:text-[8.5px] font-black text-blue-700 bg-blue-500/15 border border-blue-500/30 px-1.5 py-0.2 rounded">
-                              Cr√©dito: -R$ {saleCreditApplied.toFixed(2).replace('.', ',')}
-                           </span>
-                        )}
-                     </div>
-                     <h1 className="text-base sm:text-3xl md:text-4xl font-black text-slate-900 tracking-tighter italic truncate">
-                        R$ {total.toFixed(2).replace('.', ',')}
-                     </h1>
-                  </div>
-                  <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-                     <button
-                        type="button"
-                        onClick={() => setIsSaleDiscountModalOpen(true)}
-                        className={cn(
-                           "px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl font-black uppercase text-[7px] sm:text-[9px] transition-all flex items-center gap-1 cursor-pointer border",
-                           saleDiscountValue > 0
-                              ? "bg-emerald-600 border-emerald-700 text-white shadow-sm hover:bg-emerald-700 active:scale-95"
-                              : "bg-white/90 hover:bg-white text-slate-800 border-slate-900/10 shadow-xs active:scale-95"
-                        )}
-                        title="Lan√ßar desconto geral na nota"
-                     >
-                        <Percent size={11} className={saleDiscountValue > 0 ? "text-white" : "text-slate-600"} />
-                        <span>{saleDiscountValue > 0 ? `Desc R$ ${saleDiscountValue.toFixed(2).replace('.', ',')}` : 'Desconto'}</span>
-                     </button>
-                     <Badge className="bg-slate-900 text-white border-none py-1 sm:py-1.5 px-2 sm:px-3 rounded-full font-black uppercase tracking-widest text-[7px] sm:text-[9px]">
-                        {cart.length} {cart.length === 1 ? 'Item' : 'Itens'}
-                     </Badge>
-                  </div>
-               </div>
-               {/* Visualizador de Itens no PDV (Compact Items Cart List) */}
-               <div className="flex-1 min-h-0 my-1 sm:my-2 bg-white/70 backdrop-blur-xs rounded-xl sm:rounded-2xl border border-slate-900/10 p-1.5 sm:p-3 flex flex-col overflow-hidden shadow-inner">
-                  <div className="flex items-center justify-between pb-1 sm:pb-2 border-b border-slate-900/10 mb-1 sm:mb-2">
-                     <span className="text-[7px] sm:text-[9px] font-black uppercase tracking-wider text-slate-700">Itens ({cart.length})</span>
-                     <span className="hidden sm:inline text-[8px] font-bold text-slate-400 uppercase">Lista de Lan√ßamento</span>
-                  </div>
-
-                  {cart.length === 0 ? (
-                     <div className="flex-1 flex flex-col items-center justify-center text-center p-3 sm:p-6 space-y-1.5 sm:space-y-2">
-                        <ShoppingBag size={20} className="sm:hidden text-slate-400/50 animate-bounce" />
-                        <ShoppingBag size={28} className="hidden sm:block text-slate-400/50 animate-bounce" />
-                        <p className="text-[9px] sm:text-[10px] font-black text-slate-700 uppercase tracking-wider">Carrinho Livre</p>
-                        <p className="text-[8px] sm:text-[9px] font-bold text-slate-500 max-w-[200px]">Selecione os produtos na lista abaixo para adicionar ao pedido.</p>
-                     </div>
-                  ) : (
-                     <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar divide-y divide-slate-200/60 pr-1">
-                        {cart.map((item, idx) => {
-                           const itemSubtotal = item.area ? item.price * item.area * item.quantity : item.price * item.quantity;
-                           return (
-                              <div key={idx} className="py-1 px-1.5 sm:py-1.5 sm:px-2 hover:bg-slate-900/5 rounded-lg transition-all group">
-                              <div className="flex items-center justify-between">
-                                 <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
-                                    <span className="text-[8px] sm:text-[9px] font-black text-slate-900 bg-slate-900/10 px-1 py-0.5 sm:px-1.5 rounded-md min-w-[20px] sm:min-w-[24px] text-center shrink-0">
-                                       {item.quantity}x
-                                    </span>
-                                    <div className="min-w-0 flex-1">
-                                       <p className="text-[9px] sm:text-[10px] font-bold text-slate-900 uppercase truncate leading-tight tracking-tight">
-                                          {item.name}
-                                       </p>
-                                       {item.dimensions && (
-                                          <p className="text-[7px] sm:text-[8px] font-bold text-slate-500 tracking-wider">
-                                             {item.dimensions}{item.area ? ` (${item.area.toFixed(2).replace('.', ',')} m¬≤)` : ''}
-                                          </p>
-                                       )}
-                                       {item.descontoValor !== undefined && item.descontoValor > 0 && (
-                                          <p className="text-[7px] sm:text-[8px] font-bold text-emerald-600">
-                                             Desconto: -R$ {item.descontoValor.toFixed(2).replace('.', ',')}
-                                          </p>
-                                       )}
-                                    </div>
-                                 </div>
-
-                                 <div className="flex items-center gap-1.5 sm:gap-3 shrink-0 ml-1 sm:ml-2">
-                                    <div className="flex items-center gap-0.5 sm:gap-1 bg-slate-900/5 rounded-md p-0.5 border border-slate-900/10">
-                                       <button
-                                          onClick={() => updateCartQty(idx, -1)}
-                                          className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded bg-white text-slate-800 font-black text-[8px] sm:text-[9px] flex items-center justify-center hover:bg-rose-500 hover:text-white transition-all cursor-pointer"
-                                          title="Diminuir"
-                                       >
-                                          -
-                                       </button>
-                                       <span className="text-[8px] sm:text-[9px] font-black px-0.5 sm:px-1 text-slate-900">{item.quantity}</span>
-                                       <button
-                                          onClick={() => updateCartQty(idx, 1)}
-                                          className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded bg-white text-slate-800 font-black text-[8px] sm:text-[9px] flex items-center justify-center hover:bg-emerald-500 hover:text-white transition-all cursor-pointer"
-                                          title="Aumentar"
-                                       >
-                                          +
-                                       </button>
-                                    </div>
-
-                                    <button
-                                       onClick={() => setObsItemIndex(obsItemIndex === idx ? null : idx)}
-                                       className={cn("p-0.5 sm:p-1 transition-colors cursor-pointer", item.observacao ? "text-amber-600" : "text-slate-400 hover:text-primary-600")}
-                                       title="Observa√ß√£o do item"
-                                    >
-                                       <MessageSquare size={11} className="sm:hidden" />
-                                       <MessageSquare size={12} className="hidden sm:block" />
-                                    </button>
-
-                                    <button
-                                       onClick={() => item.descontoValor ? removeItemDiscount(idx) : openItemDiscount(idx)}
-                                       className={cn(
-                                         "p-0.5 sm:p-1 transition-colors cursor-pointer",
-                                         item.descontoValor ? "text-emerald-600 hover:text-rose-600" : "text-slate-400 hover:text-primary-600"
-                                       )}
-                                       title={item.descontoValor ? "Remover desconto" : "Desconto / editar pre√ßo"}
-                                    >
-                                       <Percent size={11} className="sm:hidden" />
-                                       <Percent size={12} className="hidden sm:block" />
-                                    </button>
-
-                                    <span className="text-[9px] sm:text-[10px] font-black text-slate-900 tracking-tight min-w-[48px] sm:min-w-[60px] text-right">
-                                       R$ {itemSubtotal.toFixed(2).replace('.', ',')}
-                                    </span>
-
-                                    <button
-                                       onClick={() => removeFromCart(idx)}
-                                       className="text-slate-400 hover:text-rose-600 transition-colors p-0.5 sm:p-1 cursor-pointer"
-                                       title="Remover Item"
-                                    >
-                                       <Trash2 size={11} className="sm:hidden" />
-                                       <Trash2 size={12} className="hidden sm:block" />
-                                    </button>
-                                 </div>
-                              </div>
-                              {(obsItemIndex === idx || item.observacao) && (
-                                <input
-                                  value={item.observacao || ''}
-                                  onChange={(e) => updateItemObservacao(idx, e.target.value)}
-                                  onFocus={() => setObsItemIndex(idx)}
-                                  placeholder="Observa√ß√£o deste item (ex: cor, acabamento, pedido do cliente)..."
-                                  className="w-full mt-1 h-6 bg-amber-50 border border-amber-200 rounded-md px-2 text-[8px] sm:text-[9px] text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-amber-400"
-                                />
-                              )}
-                              </div>
-                           );
-                        })}
-                     </div>
-                  )}
-               </div>
-
-               {/* Bottom Automation Bar */}
-               <div className="pt-2 border-t border-slate-900/10 flex justify-between items-center text-slate-900">
-                  <div className="flex items-center gap-3">
-                     <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                        <span className="text-[9px] font-black uppercase tracking-wider opacity-70">PDV Conectado</span>
-                     </div>
-                     <button
-                       type="button"
-                       onClick={() => setSoundAlertsEnabled(!soundAlertsEnabled)}
-                       title={soundAlertsEnabled ? 'Alerta sonoro de hor√°rio ativado ‚Äî clique pra desativar' : 'Alerta sonoro de hor√°rio desativado ‚Äî clique pra ativar'}
-                       className={cn(
-                         "flex items-center gap-1 px-2 py-1 rounded-lg border-0 cursor-pointer transition-all",
-                         soundAlertsEnabled ? "bg-primary-500/20 text-primary-700" : "bg-slate-900/10 text-slate-400"
-                       )}
-                     >
-                        {soundAlertsEnabled ? <Bell size={12} /> : <BellOff size={12} />}
-                        <span className="text-[8px] font-black uppercase tracking-wider">{soundAlertsEnabled ? 'Alertas On' : 'Alertas Off'}</span>
-                     </button>
-                     <button
-                       type="button"
-                       onClick={() => { playAlertBeep(); setAlertToast({ message: '‚è∞ Teste de alerta ‚Äî se voc√™ ouviu o bipe e viu esse aviso, est√° tudo funcionando!' }); setTimeout(() => setAlertToast(null), 6000); }}
-                       title="Testar o som e o aviso agora, sem precisar esperar um hor√°rio real"
-                       className="px-2 py-1 rounded-lg bg-white/5 text-white/40 hover:text-white border-0 cursor-pointer text-[8px] font-black uppercase tracking-wider"
-                     >
-                        Testar
-                     </button>
-                     {'Notification' in window && Notification.permission !== 'granted' && (
-                       <button
-                         type="button"
-                         onClick={async () => {
-                            const perm = await Notification.requestPermission();
-                            if (perm === 'granted') {
-                              showAlert('Notifica√ß√µes do navegador ativadas! Agora os alertas de entrega aparecem mesmo com a aba minimizada ou trocada.');
-                            } else {
-                              showAlert('Notifica√ß√£o n√£o autorizada. Pra ativar depois, vai nas configura√ß√µes do navegador/site e permite notifica√ß√µes pra esse site.');
-                            }
-                         }}
-                         title="Ativa notifica√ß√£o do navegador, que aparece mesmo com a aba minimizada"
-                         className="px-2 py-1 rounded-lg bg-amber-500/20 text-amber-700 hover:bg-amber-500/30 border-0 cursor-pointer text-[8px] font-black uppercase tracking-wider"
-                       >
-                          Ativar Notifica√ß√£o do Navegador
-                       </button>
-                     )}
-                  </div>
-                  {user?.isAdmin && (
-                    <div className="text-right">
-                       <span className="text-[8px] font-black uppercase tracking-widest opacity-50 block leading-none">Faturamento Hoje</span>
-                       <span className="text-[10px] font-black italic">R$ {faturamentoHoje.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                    </div>
-                  )}
-               </div>
-            </div>
-
-            {/* Embaixo no mobile / Direita no desktop: Lista de Produtos */}
-            <div className="flex-1 min-h-0 md:w-[450px] md:flex-none bg-white flex flex-col min-h-0 border-t md:border-t-0 md:border-l border-slate-200 shadow-2xl relative">
-               {/* Search & Action Bar */}
-               <div className="p-2 sm:p-4 bg-slate-50 space-y-1.5 sm:space-y-3 shrink-0">
-                  <div className="flex gap-1.5 sm:gap-2 h-9 sm:h-12">
-                     {(user?.isAdmin || user?.allowedActions?.includes('canAddProduct')) && (
-                       <button 
-                          onClick={() => setIsQuickProductOpen(true)}
-                          title="Cadastrar Produto"
-                          className="w-9 sm:w-11 shrink-0 bg-white border-2 border-primary-400 text-primary-600 rounded-lg sm:rounded-xl hover:bg-primary-50 transition-all shadow-sm active:scale-95 flex items-center justify-center"
-                       >
-                          <PlusSquare size={15} className="sm:hidden" />
-                          <PlusSquare size={18} className="hidden sm:block" />
-                       </button>
-                     )}
-                     <div className="flex-[2] flex gap-1 bg-white border-2 border-slate-200 rounded-lg sm:rounded-xl p-1 overflow-x-auto no-scrollbar">
-                        {[1, 2, 3, 4, 5].map(q => (
-                          <button 
-                            key={q} 
-                            onClick={() => setSelectedQty(q)}
-                            className={cn(
-                              "flex-1 rounded-md sm:rounded-lg text-xs sm:text-sm font-black transition-all",
-                              selectedQty === q ? "bg-primary-500 text-slate-900" : "text-slate-400 hover:text-slate-600"
-                            )}
-                          >
-                            {q}x
-                          </button>
-                        ))}
-                     </div>
-                  </div>
-                  <div className="relative">
-                     <Search className="absolute left-2.5 sm:left-3 top-1/2 -translate-y-1/2 text-slate-300" size={14} />
-                     <input 
-                       value={search}
-                       onChange={(e) => setSearch(e.target.value.toUpperCase())}
-                       className="w-full h-8 sm:h-11 bg-white border-2 border-slate-200 rounded-lg sm:rounded-xl pl-8 sm:pl-10 pr-3 sm:pr-4 text-[11px] sm:text-xs font-bold text-slate-700 placeholder:text-slate-300 outline-none focus:border-primary-500 transition-all uppercase"
-                       placeholder="BUSCAR OU BIPAR..."
-                     />
-                  </div>
-                  <p className="text-[9px] font-bold text-slate-400 px-1">
-                     {products.filter(p => p.name.toUpperCase().includes(search.toUpperCase())).length} de {products.length} produto(s) ‚Äî role a lista pra ver todos
-                  </p>
-               </div>
-
-                {/* COMPACT PRODUCT LIST */}
-                <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-white">
-                   <div className="divide-y divide-slate-50">
-                      {products.filter(p => p.name.toUpperCase().includes(search.toUpperCase())).map(product => (
-                        <div 
-                          key={product.id} 
-                          onClick={() => addToCart(product)}
-                          className="flex items-center px-3 sm:px-4 py-1.5 sm:py-1.5 hover:bg-primary-50 transition-colors group cursor-pointer border-b border-slate-50 last:border-0"
-                        >
-                           <div className="flex-1 min-w-0">
-                              <p className="text-[9px] font-black text-slate-800 truncate leading-none uppercase tracking-tight">{product.name}</p>
-                              <div className="flex items-center gap-2 mt-1">
-                                 <span className="text-[7px] font-bold text-slate-300 tracking-[1px] uppercase bg-slate-100 px-1 rounded-sm">{product.code}</span>
-                                 <span className="text-[7px] font-bold text-slate-400 uppercase">Est: {product.stock}</span>
-                              </div>
-                           </div>
-                           <div className="flex items-center gap-3">
-                              <p className="text-[10px] font-black text-emerald-600 tracking-tighter italic">R$ {product.price.toFixed(2).replace('.', ',')}</p>
-                              <div className="w-6 h-6 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400 group-hover:bg-primary-500 group-hover:text-slate-900 transition-all">
-                                 <Plus size={12} />
-                              </div>
-                           </div>
-                        </div>
-                      ))}
-                   </div>
-                </div>
-
-               <div className="shrink-0 p-1.5 sm:p-6 bg-slate-50 border-t border-slate-200 space-y-4 sticky bottom-0 z-10">
-                  <div className="flex gap-2 sm:gap-4 h-11 sm:h-24">
-                     {orcamentoItemsEditMode ? (
-                       <button
-                         onClick={handleReturnItemsToOrcamento}
-                         className="flex-1 h-full bg-primary-500 border-2 border-primary-600 text-slate-900 rounded-2xl sm:rounded-[28px] flex flex-col items-center justify-center gap-0.5 sm:gap-1 shadow-xl shadow-primary-500/20 hover:bg-primary-400 transition-all active:scale-95"
-                       >
-                          <div className="flex items-center gap-1.5 sm:gap-3">
-                             <FileSpreadsheet size={16} className="sm:hidden" />
-                             <FileSpreadsheet size={24} className="hidden sm:block" />
-                             <span className="text-xs sm:text-lg font-black uppercase tracking-tighter">VOLTAR AO OR√áAMENTO ({cart.length})</span>
-                          </div>
-                          <span className="hidden sm:block text-[10px] font-black opacity-40 uppercase tracking-[4px]">Salva os itens escolhidos e retorna</span>
-                       </button>
-                     ) : contratoItemsEditMode ? (
-                       <button
-                         onClick={handleReturnItemsToContrato}
-                         className="flex-1 h-full bg-purple-500 border-2 border-purple-600 text-white rounded-2xl sm:rounded-[28px] flex flex-col items-center justify-center gap-0.5 sm:gap-1 shadow-xl shadow-purple-500/20 hover:bg-purple-400 transition-all active:scale-95"
-                       >
-                          <div className="flex items-center gap-1.5 sm:gap-3">
-                             <FileSignature size={16} className="sm:hidden" />
-                             <FileSignature size={24} className="hidden sm:block" />
-                             <span className="text-xs sm:text-lg font-black uppercase tracking-tighter">VOLTAR AO CONTRATO ({cart.length})</span>
-                          </div>
-                          <span className="hidden sm:block text-[10px] font-black opacity-40 uppercase tracking-[4px]">Salva os itens escolhidos e retorna</span>
-                       </button>
-                     ) : (
-                       <button 
-                         disabled={cart.length === 0}
-                         onClick={() => {
-                            if (selectedCustomer) {
-                               setIsPaymentModalOpen(true);
-                            } else {
-                               setCustomerModalIntent('finalize');
-                               setCustomerModalMode('search');
-                               setIsCustomerModalOpen(true);
-                            }
-                         }}
-                         className="flex-1 h-full bg-primary-500 border-2 border-primary-600 text-slate-900 rounded-2xl sm:rounded-[28px] flex flex-col items-center justify-center gap-0.5 sm:gap-1 shadow-xl shadow-primary-500/20 hover:bg-primary-400 transition-all disabled:opacity-50 disabled:grayscale active:scale-95"
-                       >
-                          <div className="flex items-center gap-1.5 sm:gap-3">
-                             <ShoppingBag size={16} className="sm:hidden" />
-                             <ShoppingBag size={24} className="hidden sm:block" />
-                             <span className="text-xs sm:text-lg font-black uppercase tracking-tighter">FINALIZAR VENDA</span>
-                          </div>
-                          <span className="hidden sm:block text-[10px] font-black opacity-40 uppercase tracking-[4px]">Ir para pagamento e fechamento</span>
-                       </button>
-                     )}
-                  </div>
-               </div>
-            </div>
-          </>
-        )}
-
-        {activeTab === 'historico' && (
-          <div className="flex-1 p-6 md:p-8 space-y-6 overflow-y-auto custom-scrollbar bg-slate-900/40">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-white/10 pb-4">
-              <div>
-                <h2 className="text-xl md:text-2xl font-black text-white italic tracking-tighter uppercase flex items-center gap-2">
-                  <History className="text-primary-400" size={24} />
-                  Hist√≥rico Geral de Vendas & Servi√ßos
-                </h2>
-                <p className="text-[10px] md:text-xs text-white/40 font-bold uppercase tracking-widest mt-1">
-                  Acompanhamento de entradas, saldos devedores e entregas agendadas
-                </p>
-              </div>
-
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <input ref={vendasFileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportVendasFile} />
-                <button
-                  disabled={isImportingVendas}
-                  title={isImportingVendas ? 'Importando...' : 'Importar Planilha'}
-                  onClick={() => vendasFileInputRef.current?.click()}
-                  className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all disabled:opacity-50"
-                >
-                  <Upload size={13} className={cn(isImportingVendas && "animate-pulse")} />
-                </button>
-                <button
-                  title="Exportar Planilha"
-                  onClick={() => exportVendasXlsx(filteredSalesHistory)}
-                  className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all"
-                >
-                  <Download size={13} />
-                </button>
-                {selectedSaleIds.size > 0 && (
-                  <>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-white/10"
-                      onClick={handleToggleSelectAll}
-                    >
-                      {selectedSaleIds.size === filteredSalesHistory.length ? 'Desmarcar Todos' : `Selecionar Todos (${filteredSalesHistory.length})`}
-                    </Button>
-                    <Button
-                      size="sm"
-                      className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 text-[9px] font-black uppercase tracking-wider px-3 h-9 border-none"
-                      onClick={handleBulkMarkAsPaid}
-                    >
-                      Marcar como Pago ({selectedSaleIds.size})
-                    </Button>
-                    <Button
-                      size="sm"
-                      className="bg-primary-500 hover:bg-primary-400 text-slate-900 text-[9px] font-black uppercase tracking-wider px-3 h-9 border-none"
-                      onClick={handleBulkClose}
-                    >
-                      Fechar ({selectedSaleIds.size})
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-white/10"
-                      onClick={handleOpenBulkEdit}
-                    >
-                      Editar em Massa ({selectedSaleIds.size})
-                    </Button>
-                    <Button
-                      size="sm"
-                      className="bg-rose-500 hover:bg-rose-400 text-white text-[9px] font-black uppercase tracking-wider px-3 h-9 border-none"
-                      onClick={handleBulkDeleteSales}
-                    >
-                      Excluir Selecionados ({selectedSaleIds.size})
-                    </Button>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* Abas de Filtro: Visao Geral | Vendas do Dia | Entradas de Caixa */}
-            <div className="flex bg-white/[0.02] border border-white/5 rounded-2xl p-1.5 gap-1.5 w-full sm:w-fit">
-              {([
-                { id: 'geral', label: 'Vis√£o Geral', icon: History },
-                { id: 'vendas_dia', label: 'Vendas do Dia', icon: ShoppingBag },
-                { id: 'entradas_caixa', label: 'Entradas de Caixa', icon: Wallet },
-              ] as { id: 'geral' | 'vendas_dia' | 'entradas_caixa'; label: string; icon: any }[]).map(t => (
-                <button
-                  key={t.id}
-                  onClick={() => setHistoryViewTab(t.id)}
-                  className={cn(
-                    "flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all whitespace-nowrap",
-                    historyViewTab === t.id ? "bg-primary-500 text-slate-900 shadow-lg shadow-primary-500/20" : "text-white/40 hover:text-white hover:bg-white/5"
-                  )}
-                >
-                  <t.icon size={13} />
-                  {t.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Barra de controles: Pesquisa | Ordena√ß√£o & Visualiza√ß√£o | Filtros de Status ‚Äî tudo em uma linha */}
-            <div className="flex flex-wrap items-center gap-2 bg-white/[0.02] border border-white/5 rounded-2xl p-2.5">
-              {/* Grupo 1: Pesquisa */}
-              <div className="relative w-full sm:w-40 xl:w-48 shrink-0">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/40" size={13} />
-                <input
-                  value={historySearch}
-                  onChange={e => { setHistorySearch(e.target.value); setHistoryClienteIdFilter(null); }}
-                  placeholder="Buscar..."
-                  className={cn(
-                    "w-full bg-white/5 border rounded-lg pl-8 pr-7 py-2 text-[11px] text-white placeholder-white/30 focus:outline-none focus:border-primary-500",
-                    historyClienteIdFilter ? "border-primary-500/50" : "border-white/10"
-                  )}
-                />
-                {historyClienteIdFilter && (
-                  <button
-                    onClick={() => { setHistorySearch(''); setHistoryClienteIdFilter(null); }}
-                    title="Limpar filtro do cliente"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-primary-400 hover:text-white"
-                  >
-                    <X size={12} />
-                  </button>
-                )}
-              </div>
-
-              <div className="w-px h-6 bg-white/10 shrink-0" />
-
-              {/* Grupo 1.5: Per√≠odo personalizado */}
-              <div className="flex items-center gap-1 shrink-0">
-                <input
-                  type="date"
-                  value={historyDateFrom}
-                  onChange={(e) => setHistoryDateFrom(e.target.value)}
-                  title="De"
-                  className="bg-white/5 border border-white/10 rounded-lg px-1.5 py-2 text-[10px] text-white/70 focus:outline-none focus:border-primary-500 w-[108px]"
-                />
-                <span className="text-white/20 text-[9px]">at√©</span>
-                <input
-                  type="date"
-                  value={historyDateTo}
-                  onChange={(e) => setHistoryDateTo(e.target.value)}
-                  title="At√©"
-                  className="bg-white/5 border border-white/10 rounded-lg px-1.5 py-2 text-[10px] text-white/70 focus:outline-none focus:border-primary-500 w-[108px]"
-                />
-                {(historyDateFrom || historyDateTo) && (
-                  <button
-                    onClick={() => { setHistoryDateFrom(''); setHistoryDateTo(''); }}
-                    title="Limpar per√≠odo"
-                    className="p-1.5 rounded-lg bg-white/5 text-white/40 hover:text-rose-400 transition-colors"
-                  >
-                    <X size={12} />
-                  </button>
-                )}
-              </div>
-
-              <div className="w-px h-6 bg-white/10 shrink-0" />
-
-              {/* Grupo 2: Ordena√ß√£o & Visualiza√ß√£o */}
-              <div className="flex items-center gap-1.5 shrink-0">
-                <button
-                  onClick={() => setHistorySortOrder(historySortOrder === 'desc' ? 'asc' : 'desc')}
-                  title={historySortOrder === 'desc' ? 'Mais recentes primeiro' : 'Mais antigas primeiro'}
-                  className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 border border-white/10 text-white/60 hover:text-white transition-all shrink-0"
-                >
-                  {historySortOrder === 'desc' ? <ArrowDownWideNarrow size={13} /> : <ArrowUpWideNarrow size={13} />}
-                </button>
-                <div className="flex bg-white/5 p-1 rounded-lg border border-white/10 gap-0.5">
-                  {[
-                    { id: 'miniatura', label: 'Miniaturas', icon: LayoutGrid },
-                    { id: 'normal', label: 'Normal', icon: Square },
-                    { id: 'lista', label: 'Lista', icon: List },
-                  ].map(v => (
-                    <button
-                      key={v.id}
-                      onClick={() => setHistoryViewMode(v.id as any)}
-                      title={v.label}
-                      className={cn(
-                        "w-7 h-7 rounded-md transition-all flex items-center justify-center",
-                        historyViewMode === v.id ? "bg-primary-500 text-slate-900 shadow-lg font-black" : "text-white/40 hover:text-white"
-                      )}
-                    >
-                      <v.icon size={12} />
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="w-px h-6 bg-white/10 shrink-0" />
-
-              {/* Grupo 3: Status do Pedido + Forma de Pagamento (duas listas independentes) */}
-              {(() => {
-                const orderStatusOptions: { id: OrderStatusFilterId; label: string }[] = [
-                  { id: 'em_aberto', label: 'Em Aberto' },
-                  { id: 'entrada_recebida', label: 'Entrada Recebida' },
-                  { id: 'quitado', label: 'Quitado' },
-                  { id: 'entregue', label: 'Entregue' },
-                  { id: 'cancelado', label: 'Cancelado' },
-                ];
-                const paymentOptions: { id: PaymentFilterId; label: string }[] = [
-                  { id: 'pix', label: 'Pix' },
-                  { id: 'dinheiro', label: 'Dinheiro' },
-                  { id: 'cartao_debito', label: 'Cart√£o de D√©bito' },
-                  { id: 'cartao_credito', label: 'Cart√£o de Cr√©dito' },
-                  { id: 'transferencia', label: 'Transfer√™ncia' },
-                  { id: 'boleto', label: 'Boleto' },
-                  { id: 'crediario', label: 'Credi√°rio' },
-                ];
-
-                const renderFilterDropdown = <T extends string>(cfg: {
-                  label: string;
-                  icon: any;
-                  options: { id: T; label: string }[];
-                  selected: Set<T>;
-                  toggle: (id: T) => void;
-                  clear: () => void;
-                  counts: Record<string, number>;
-                  isOpen: boolean;
-                  setIsOpen: (v: boolean | ((p: boolean) => boolean)) => void;
-                  containerRef: React.RefObject<HTMLDivElement>;
-                  btnRef: React.RefObject<HTMLButtonElement>;
-                  menuRef: React.RefObject<HTMLDivElement>;
-                  pos: { top: number; left: number; width: number } | null;
-                  setPos: (p: { top: number; left: number; width: number }) => void;
-                }) => {
-                  const buttonLabel = cfg.selected.size === 0
-                    ? 'Todos'
-                    : cfg.selected.size === 1
-                      ? cfg.options.find(o => cfg.selected.has(o.id))?.label
-                      : `${cfg.selected.size} Selecionados`;
-                  const buttonCount = cfg.selected.size === 0 ? cfg.counts.todos ?? 0 : cfg.options.filter(o => cfg.selected.has(o.id)).reduce((sum, o) => sum + (cfg.counts[o.id] ?? 0), 0);
-                  const toggleOpen = () => {
-                    if (!cfg.isOpen && cfg.btnRef.current) {
-                      const rect = cfg.btnRef.current.getBoundingClientRect();
-                      cfg.setPos({ top: rect.top, left: rect.left, width: rect.width });
-                    }
-                    cfg.setIsOpen(prev => !prev);
-                  };
-                  return (
-                    <div className="relative shrink-0" ref={cfg.containerRef}>
-                      <button
-                        ref={cfg.btnRef}
-                        onClick={toggleOpen}
-                        title={`${cfg.label}: ${buttonLabel}`}
-                        className={cn(
-                          "flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-[10px] font-black uppercase tracking-wide border transition-all whitespace-nowrap",
-                          cfg.selected.size > 0
-                            ? "bg-primary-500 text-slate-900 border-primary-500 shadow-lg shadow-primary-500/20"
-                            : "bg-white/5 border-white/10 text-white/60 hover:text-white"
-                        )}
-                      >
-                        <cfg.icon size={13} className="shrink-0" />
-                        <span>{buttonLabel}</span>
-                        <span className="bg-black/20 text-[8px] px-1.5 py-0.5 rounded-full font-mono">{buttonCount}</span>
-                        <ChevronDown size={11} className={cn("transition-transform shrink-0", cfg.isOpen && "rotate-180")} />
-                      </button>
-                      {cfg.isOpen && cfg.pos && createPortal(
-                        <div
-                          ref={cfg.menuRef}
-                          style={{
-                            position: 'fixed',
-                            left: cfg.pos.left,
-                            bottom: window.innerHeight - cfg.pos.top + 8,
-                            minWidth: Math.max(cfg.pos.width, 220),
-                          }}
-                          className="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl z-[100] py-2 max-h-[28rem] overflow-y-auto custom-scrollbar"
-                        >
-                          <button
-                            onClick={cfg.clear}
-                            className={cn(
-                              "w-full flex items-center justify-between gap-2 text-left px-4 py-2 text-[10px] font-black uppercase tracking-wider transition-all mb-1",
-                              cfg.selected.size === 0 ? "text-primary-400 bg-primary-500/10" : "text-white/60 hover:bg-white/5 hover:text-white"
-                            )}
-                          >
-                            <span>Todos</span>
-                            <span className={cn("text-[9px] font-mono px-1.5 py-0.5 rounded-full min-w-[20px] text-center", cfg.selected.size === 0 ? "bg-black/20" : "bg-white/5 text-white/30")}>
-                              {cfg.counts.todos ?? 0}
-                            </span>
-                          </button>
-                          <div className="h-px bg-white/5 my-1 mx-3" />
-                          {cfg.options.map(f => {
-                            const isSelected = cfg.selected.has(f.id);
-                            return (
-                              <button
-                                key={f.id}
-                                onClick={() => cfg.toggle(f.id)}
-                                className={cn(
-                                  "w-full flex items-center justify-between gap-2 text-left px-4 py-2 text-[10px] font-black uppercase tracking-wider transition-all",
-                                  isSelected ? "text-primary-400 bg-primary-500/10" : "text-white/60 hover:bg-white/5 hover:text-white"
-                                )}
-                              >
-                                <span className="flex items-center gap-2">
-                                  <span className={cn(
-                                    "w-3.5 h-3.5 rounded-md border flex items-center justify-center shrink-0",
-                                    isSelected ? "bg-current border-current" : "border-white/20"
-                                  )}>
-                                    {isSelected && <Check size={10} className="text-slate-900" />}
-                                  </span>
-                                  {f.label}
-                                </span>
-                                <span className={cn(
-                                  "text-[9px] font-mono px-1.5 py-0.5 rounded-full min-w-[20px] text-center",
-                                  isSelected ? "bg-black/20" : "bg-white/5 text-white/30"
-                                )}>
-                                  {cfg.counts[f.id] ?? 0}
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>,
-                        document.body
-                      )}
-                    </div>
-                  );
-                };
-
-                return (
-                  <>
-                    {renderFilterDropdown({
-                      label: 'Status do Pedido',
-                      icon: ClipboardList,
-                      options: orderStatusOptions,
-                      selected: selectedOrderStatusFilters,
-                      toggle: toggleOrderStatusFilter,
-                      clear: clearOrderStatusFilters,
-                      counts: orderStatusCounts,
-                      isOpen: isOrderStatusOpen,
-                      setIsOpen: setIsOrderStatusOpen,
-                      containerRef: orderStatusRef,
-                      btnRef: orderStatusBtnRef,
-                      menuRef: orderStatusMenuRef,
-                      pos: orderStatusPos,
-                      setPos: setOrderStatusPos,
-                    })}
-                    {renderFilterDropdown({
-                      label: 'Pagamento',
-                      icon: CreditCard,
-                      options: paymentOptions,
-                      selected: selectedPaymentFilters,
-                      toggle: togglePaymentFilter,
-                      clear: clearPaymentFilters,
-                      counts: paymentFilterCounts,
-                      isOpen: isPaymentFilterOpen,
-                      setIsOpen: setIsPaymentFilterOpen,
-                      containerRef: paymentFilterRef,
-                      btnRef: paymentFilterBtnRef,
-                      menuRef: paymentFilterMenuRef,
-                      pos: paymentFilterPos,
-                      setPos: setPaymentFilterPos,
-                    })}
-                  </>
-                );
-              })()}
-            </div>
-
-            {/* Orders List */}
-            {(() => {
-              // Aba "Entradas de Caixa": lista cada recebimento individual (nao o pedido inteiro),
-              // ja ordenada pela data/hora real de cada pagamento.
-              if (historyViewTab === 'entradas_caixa') {
-                if (historyEntradasCaixa.length === 0) {
-                  return (
-                    <div className="py-16 text-center bg-white/5 rounded-3xl border border-dashed border-white/10 space-y-2">
-                      <Wallet size={36} className="mx-auto text-white/20" />
-                      <p className="text-sm font-bold text-white/40 uppercase">Nenhum recebimento encontrado</p>
-                      <p className="text-xs text-white/20">Os pagamentos recebidos aparecer√£o aqui, na ordem exata em que entraram.</p>
-                    </div>
-                  );
-                }
-                return (
-                  <div className="space-y-1.5">
-                    {historyEntradasCaixa.map((rec, idx) => {
-                      const methodLabel = EXTRATO_PAYMENT_LABELS[rec.method || ''] || rec.method;
-                      return (
-                        <div
-                          key={`${rec.saleId}-${idx}`}
-                          onClick={() => { setPendingReceiptOpenId(rec.saleId); }}
-                          className="flex items-center justify-between gap-3 bg-white/5 hover:bg-white/10 border border-white/5 hover:border-primary-500/30 rounded-xl px-3.5 py-2.5 cursor-pointer transition-colors"
-                        >
-                          <div className="flex items-center gap-3 min-w-0">
-                            <div className="w-9 h-9 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0">
-                              <Wallet size={15} className="text-emerald-400" />
-                            </div>
-                            <div className="min-w-0">
-                              <p className="text-[11px] font-black text-white truncate">{rec.customerName}</p>
-                              <div className="flex items-center gap-1.5 mt-0.5">
-                                <span className="text-[9px] font-bold text-white/40 tabular-nums">{safeFormat(rec.date, 'dd/MM/yyyy HH:mm')}</span>
-                                {methodLabel && <span className="text-[8px] font-black uppercase text-primary-300/70 shrink-0">{methodLabel}</span>}
-                              </div>
-                            </div>
-                          </div>
-                          <span className="text-sm font-black text-emerald-400 shrink-0">R$ {rec.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              }
-
-              const filteredSales = historyViewTab === 'vendas_dia' ? historyVendasDoDia : filteredSalesHistory;
-
-              if (filteredSales.length === 0) {
-                return (
-                  <div className="py-16 text-center bg-white/5 rounded-3xl border border-dashed border-white/10 space-y-2">
-                    <History size={36} className="mx-auto text-white/20" />
-                    <p className="text-sm font-bold text-white/40 uppercase">Nenhum registro encontrado</p>
-                    <p className="text-xs text-white/20">As vendas e servi√ßos finalizados ou com entrada aparecer√£o aqui.</p>
-                  </div>
-                );
-              }
-
-              // --- MODO LISTA ---
-              if (historyViewMode === 'lista') {
-                const colFlex = (key: string) => {
-                  const w = saleListColWeights[key] ?? SALE_LIST_COL_WEIGHTS_DEFAULT[key] ?? 1;
-                  return { flex: `${w} ${w} 0%` };
-                };
-                const ResizeHandle = ({ colKey }: { colKey: string }) => (
-                  SALE_LIST_RESIZABLE_ORDER.indexOf(colKey as any) < SALE_LIST_RESIZABLE_ORDER.length - 1 ? (
-                    <div
-                      onMouseDown={(e) => handleColResizeStart(colKey, e)}
-                      onTouchStart={(e) => handleColResizeStart(colKey, e)}
-                      className="absolute top-0 -right-1.5 h-full w-3 cursor-col-resize group/resize z-10 flex justify-center"
-                      title="Arraste para ajustar a largura da coluna"
-                    >
-                      <div className="w-px h-full bg-white/10 group-hover/resize:bg-primary-400 group-hover/resize:w-0.5 transition-all" />
-                    </div>
-                  ) : null
-                );
-                return (
-                  <div className="flex flex-col gap-1.5">
-                    {/* Cabecalho com largura proporcional e ajustavel (arrasta a borda direita
-                        de cada titulo) -- as colunas sempre preenchem 100% da largura da tela,
-                        sem precisar rolar pro lado nem no celular nem no PC. Codigo/Data somem
-                        no celular pra sobrar espaco pro que importa (Nome, Itens e Valor). */}
-                    <div ref={saleListHeaderRef} className="flex items-center gap-2 px-3 py-1.5 text-[8px] font-black uppercase tracking-wider text-white/30">
-                      {canManageHistory && <span className="w-3.5 shrink-0" />}
-                      <div className="relative min-w-0" style={colFlex('nome')}>Nome<ResizeHandle colKey="nome" /></div>
-                      <div className="relative min-w-0" style={colFlex('itens')}>Itens / Descri√ß√£o<ResizeHandle colKey="itens" /></div>
-                      <div className="relative min-w-0 hidden sm:block" style={colFlex('codigo')}>C√≥digo<ResizeHandle colKey="codigo" /></div>
-                      <div className="relative min-w-0 hidden sm:block" style={colFlex('data')}>Data<ResizeHandle colKey="data" /></div>
-                      <div className="relative min-w-0 hidden sm:block text-center" style={colFlex('etapa')}>Etapa<ResizeHandle colKey="etapa" /></div>
-                      <div className="relative min-w-0 text-center" style={colFlex('status')}>Pagamento<ResizeHandle colKey="status" /></div>
-                      <div className="relative min-w-0 text-right" style={colFlex('valor')}>Valor / Pagamento</div>
-                      <div className="shrink-0 w-8 text-center">A√ß√µes</div>
-                    </div>
-
-                    {filteredSales.map(sale => {
-                      const down = sale.downPayment || 0;
-                      const balance = sale.total - down;
-                      const isPartial = balance > 0 || sale.status === 'pending';
-                      const composicaoPagamento = composicaoPagamentoDaVenda(sale);
-                      const lucro = user?.isAdmin ? calcularLucroDaVenda(sale) : null;
-                      const isRowMenuOpen = openSaleRowActionsId === sale.id;
-                      return (
-                        <div key={sale.id} className="flex items-center gap-2 bg-slate-900/60 hover:bg-slate-900 border border-white/5 rounded-xl px-3 py-2 transition-all">
-                          {canManageHistory && (
-                            <input type="checkbox" checked={selectedSaleIds.has(sale.id)} onChange={() => toggleSaleSelection(sale.id)} className="w-3.5 h-3.5 shrink-0 accent-primary-500" />
-                          )}
-
-                          {/* Nome */}
-                          <div className="min-w-0 overflow-hidden" style={colFlex('nome')}>
-                            <span className="text-[11px] font-black text-white block truncate">{(sale.customerName || 'Cliente de Balc√£o').toUpperCase()}</span>
-                            {sale.observacoes && (
-                              <span className="text-[9px] text-amber-300/70 italic block truncate" title={sale.observacoes}>"{sale.observacoes}"</span>
-                            )}
-                          </div>
-
-                          {/* Itens / Descri√ß√£o + etiquetas de origem (Contrato/Or√ßamento) */}
-                          <div className="min-w-0 flex items-center gap-1.5 overflow-hidden" style={colFlex('itens')}>
-                            {sale.items && sale.items.length > 0 && (
-                              <span className="text-[9px] text-white/40 italic truncate" title={sale.items[sale.items.length - 1].name}>
-                                {sale.items[sale.items.length - 1].name}{sale.items.length > 1 ? ` (+${sale.items.length - 1})` : ''}
-                              </span>
-                            )}
-                            {sale.contratoId && (
-                              <button
-                                onClick={() => { setActiveTab('contratos'); setHighlightContratoId(sale.contratoId!); setTimeout(() => setHighlightContratoId(null), 4000); }}
-                                title="Ver contrato vinculado"
-                                className="shrink-0 text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors"
-                              >
-                                Contrato
-                              </button>
-                            )}
-                            {sale.orcamentoId && (
-                              <button
-                                onClick={() => { setActiveTab('orcamentos'); setHighlightOrcamentoId(sale.orcamentoId!); setTimeout(() => setHighlightOrcamentoId(null), 4000); }}
-                                title="Ver or√ßamento vinculado"
-                                className="shrink-0 text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full bg-primary-500/20 text-primary-300 hover:bg-primary-500/30 transition-colors"
-                              >
-                                Or√ßamento
-                              </button>
-                            )}
-                          </div>
-
-                          {/* C√≥digo */}
-                          <div className="min-w-0 overflow-hidden hidden sm:block" style={colFlex('codigo')}>
-                            <span className="text-[9px] text-white/30 font-mono truncate block">#{sale.id.slice(-8).toUpperCase()}</span>
-                          </div>
-
-                          {/* Data */}
-                          <div className="min-w-0 overflow-hidden hidden sm:block" style={colFlex('data')}>
-                            <span className="text-[9px] text-white/30 truncate block">{safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
-                          </div>
-
-                          {/* Etapa -- mesmo select do modo normal (Pedido Recebido ate Produto
-                              Entregue), so que aqui encaixado como coluna do modo lista. */}
-                          <div className="min-w-0 hidden sm:flex justify-center" style={colFlex('etapa')}>
-                            <select
-                              value={sale.serviceStatus || 'pedido_recebido'}
-                              onChange={(e) => handleUpdateServiceStatus(sale.id, e.target.value)}
-                              onClick={(e) => e.stopPropagation()}
-                              title="Etapa Atual"
-                              className="h-6 w-full max-w-[130px] bg-blue-500/15 border border-blue-500/20 rounded-full pl-2 pr-1 text-[8px] font-black uppercase text-blue-300 focus:outline-none focus:border-primary-500 cursor-pointer truncate"
-                            >
-                              {STAGE_ORDER.map(id => (
-                                <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
-                              ))}
-                            </select>
-                          </div>
-
-                          {/* Botao de Pagamento -- quadrado de cantos arredondados, verde quando
-                              pago. Na propria legenda do botao mostra a composicao de como foi
-                              pago (ex.: Pix: R$100,00 / Din: R$100,00) e, se ainda faltar algo,
-                              destaca "Falta R$ X" embaixo. Sem pagamento nenhum, vira um botao
-                              "Pagar" que abre direto a tela de quitacao. */}
-                          <div className="min-w-0 flex justify-center" style={colFlex('status')}>
-                            <button
-                              onClick={() => { if (isPartial) openSettlePayment(sale); else openReceiptDetail(sale); }}
-                              title={isPartial ? 'Registrar pagamento' : 'Pago ‚Äî ver recibo'}
-                              className={cn(
-                                "w-full max-w-[130px] rounded-xl border px-2 py-1.5 flex flex-col items-center justify-center gap-0.5 text-center transition-colors",
-                                isPartial
-                                  ? "bg-amber-500/15 border-amber-500/30 text-amber-300 hover:bg-amber-500/25"
-                                  : "bg-emerald-500/15 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25"
-                              )}
-                            >
-                              <span className="text-[9px] font-black uppercase leading-none">
-                                {isPartial ? (down > 0 ? 'Pagar' : 'Pagar') : 'Pago'}
-                              </span>
-                              {composicaoPagamento.map(p => (
-                                <span key={p.label} className="text-[7.5px] font-bold leading-none opacity-90 truncate max-w-full">
-                                  {p.label}: R$ {p.value.toFixed(2).replace('.', ',')}
-                                </span>
-                              ))}
-                              {isPartial && (
-                                <span className="text-[7.5px] font-black leading-none text-rose-300">
-                                  Falta R$ {balance.toFixed(2).replace('.', ',')}
-                                </span>
-                              )}
-                            </button>
-                          </div>
-
-                          {/* Valor / Pagamento -- total em destaque; a composicao do pagamento
-                              agora mora no botao de Pagamento ao lado, e o lucro liquido do
-                              pedido (Admin) continua aqui embaixo do total. */}
-                          <div className="min-w-0 text-right overflow-hidden" style={colFlex('valor')}>
-                            <span className="text-[11px] font-black text-white block truncate">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
-                            {lucro !== null && (
-                              <button
-                                onClick={(e) => { e.stopPropagation(); openCustosDaNota(sale); }}
-                                title="Lan√ßar custos extras dessa nota (m√£o de obra, frete, andaime...)"
-                                className={cn("text-[8px] font-bold block truncate w-full text-right hover:underline", lucro >= 0 ? "text-emerald-400/80" : "text-rose-400/80")}
-                              >
-                                Lucro: R$ {lucro.toFixed(2).replace('.', ',')}{(sale.extraCosts && sale.extraCosts.length > 0) ? ' ‚Ä¢' : ''}
-                              </button>
-                            )}
-                          </div>
-
-                          {/* Menu oculto de a√ß√µes -- um unico botao "..." abre um dropdown com
-                              todas as opcoes (Contrato, Clonar, Reabrir, Cancelar, Editar, Apagar
-                              etc), no lugar da fileira de botoes direto na linha. Mesmo padrao de
-                              portal + posicionamento usado no menu de acoes de Contratos. */}
-                          <div className="shrink-0 w-8 flex justify-center">
-                            <button
-                              onClick={(e) => {
-                                if (isRowMenuOpen) { setOpenSaleRowActionsId(null); return; }
-                                const rect = e.currentTarget.getBoundingClientRect();
-                                const MENU_H_ESTIMADA = 300;
-                                const abreParaCima = rect.bottom + MENU_H_ESTIMADA > window.innerHeight;
-                                setSaleRowActionsMenuPos({
-                                  top: abreParaCima ? undefined : rect.bottom + 6,
-                                  bottom: abreParaCima ? window.innerHeight - rect.top + 6 : undefined,
-                                  left: Math.max(8, Math.min(rect.right - 200, window.innerWidth - 208)),
-                                });
-                                setOpenSaleRowActionsId(sale.id);
-                              }}
-                              title="Mais a√ß√µes"
-                              className={cn("flex items-center justify-center w-8 h-8 rounded-lg transition-colors shrink-0", isRowMenuOpen ? "bg-white/15 text-white" : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white")}
-                            >
-                              <MoreVertical size={14} />
-                            </button>
-                            {isRowMenuOpen && saleRowActionsMenuPos && createPortal(
-                              <>
-                                <div className="fixed inset-0 z-[200]" onClick={() => setOpenSaleRowActionsId(null)} />
-                                <div
-                                  style={{ top: saleRowActionsMenuPos.top, bottom: saleRowActionsMenuPos.bottom, left: saleRowActionsMenuPos.left }}
-                                  className="fixed z-[201] w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl py-1.5 flex flex-col"
-                                >
-                                  {isPartial && (
-                                    <button onClick={async () => { setOpenSaleRowActionsId(null); if (!(await showConfirm('Abrir a tela de pagamento deste pedido?'))) return; openSettlePayment(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-emerald-400 hover:bg-white/5 text-left"><CheckCircle2 size={13} /> Quitar D√©bito</button>
-                                  )}
-                                  <button onClick={async () => { setOpenSaleRowActionsId(null); if (!(await showConfirm('Abrir o recibo deste pedido?'))) return; openReceiptDetail(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left"><FileText size={13} /> Recibo</button>
-                                  {sale.contratoId ? (
-                                    <button onClick={() => { setOpenSaleRowActionsId(null); setActiveTab('contratos'); setHighlightContratoId(sale.contratoId!); setTimeout(() => setHighlightContratoId(null), 4000); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-purple-300 hover:bg-white/5 text-left"><FileSignature size={13} /> Ver Contrato</button>
-                                  ) : (
-                                    <button onClick={async () => { setOpenSaleRowActionsId(null); if (!(await showConfirm('Gerar um contrato a partir desta nota?'))) return; handleCreateContratoFromNota(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-purple-300 hover:bg-white/5 text-left"><FileSignature size={13} /> Gerar Contrato</button>
-                                  )}
-                                  <button onClick={() => { setOpenSaleRowActionsId(null); openCustosDaNota(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-emerald-400 hover:bg-white/5 text-left"><Calculator size={13} /> Custos da Nota</button>
-                                   <button onClick={() => { setOpenSaleRowActionsId(null); handleDuplicateSale(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left"><Copy size={13} /> Clonar</button>
-                                  {canManageHistory && (
-                                    <>
-                                      <div className="h-px bg-white/10 my-1.5" />
-                                      {!isPartial && <button onClick={() => { setOpenSaleRowActionsId(null); handleReopenSale(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-amber-400 hover:bg-white/5 text-left"><History size={13} /> Reabrir</button>}
-                                      {sale.status !== 'canceled' && <button onClick={() => { setOpenSaleRowActionsId(null); handleCancelSale(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-rose-400/80 hover:bg-white/5 text-left"><Ban size={13} /> Cancelar</button>}
-                                      <button onClick={async () => { setOpenSaleRowActionsId(null); if (!(await showConfirm('Editar este pedido?'))) return; handleStartFullEdit(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-primary-400 hover:bg-white/5 text-left"><Pencil size={13} /> Editar</button>
-                                      <button onClick={() => { setOpenSaleRowActionsId(null); handleDeleteSale(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-rose-400 hover:bg-white/5 text-left"><Trash2 size={13} /> Apagar</button>
-                                    </>
-                                  )}
-                                </div>
-                              </>,
-                              document.body
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              }
-
-              // --- MODO MINIATURA ---
-              if (historyViewMode === 'miniatura') {
-                return (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-                    {filteredSales.map(sale => {
-                      const down = sale.downPayment || 0;
-                      const balance = sale.total - down;
-                      const isPartial = balance > 0 || sale.status === 'pending';
-                      return (
-                        <GlassCard key={sale.id} className="p-3 border-white/10 space-y-2 bg-slate-900/80 hover:border-white/20 transition-all relative">
-                          <div className="flex items-start justify-between gap-1">
-                            {canManageHistory && (
-                              <input type="checkbox" checked={selectedSaleIds.has(sale.id)} onChange={() => toggleSaleSelection(sale.id)} className="w-3.5 h-3.5 mt-0.5 shrink-0 accent-primary-500" />
-                            )}
-                            <Badge className={cn("text-[6.5px] font-black uppercase px-1.5 py-0.5 border-none ml-auto", isPartial ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300")}>
-                              {isPartial ? `FALTA R$ ${balance.toFixed(2).replace('.', ',')}` : 'PAGO'}
-                            </Badge>
-                          </div>
-                          <div>
-                            <p className="text-[10px] font-black text-white uppercase truncate">{sale.customerName || 'Cliente de Balc√£o'}</p>
-                            {sale.items && sale.items.length > 0 && (
-                              <p className="text-[8px] text-white/40 italic truncate" title={sale.items[sale.items.length - 1].name}>
-                                {sale.items[sale.items.length - 1].name}{sale.items.length > 1 ? ` (+${sale.items.length - 1})` : ''}
-                              </p>
-                            )}
-                            <p className="text-[8px] text-white/30 font-mono">#{sale.id.slice(-8).toUpperCase()}</p>
-                          </div>
-                          {/* Etiquetas de origem (Contrato/Or√ßamento) -- as duas podem aparecer juntas,
-                              com quebra de linha (flex-wrap) pra nunca cortar nem esconder nada no celular. */}
-                          {(sale.contratoId || sale.orcamentoId) && (
-                            <div className="flex flex-wrap gap-1">
-                              {sale.contratoId && (
-                                <button
-                                  onClick={() => { setActiveTab('contratos'); setHighlightContratoId(sale.contratoId!); setTimeout(() => setHighlightContratoId(null), 4000); }}
-                                  title="Ver contrato vinculado"
-                                  className="text-[7px] font-black uppercase px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors whitespace-nowrap"
-                                >
-                                  Contrato
-                                </button>
-                              )}
-                              {sale.orcamentoId && (
-                                <button
-                                  onClick={() => { setActiveTab('orcamentos'); setHighlightOrcamentoId(sale.orcamentoId!); setTimeout(() => setHighlightOrcamentoId(null), 4000); }}
-                                  title="Ver or√ßamento vinculado"
-                                  className="text-[7px] font-black uppercase px-1.5 py-0.5 rounded-full bg-primary-500/20 text-primary-300 hover:bg-primary-500/30 transition-colors whitespace-nowrap"
-                                >
-                                  Or√ßamento
-                                </button>
-                              )}
-                            </div>
-                          )}
-                          <p className="text-sm font-black text-white">R$ {sale.total.toFixed(2).replace('.', ',')}</p>
-                          <div className="flex flex-wrap gap-1 pt-1">
-                            {isPartial && <button onClick={async () => { if (!(await showConfirm('Abrir a tela de pagamento deste pedido?'))) return; openSettlePayment(sale); }} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar D√©bito"><CheckCircle2 size={12} /></button>}
-                            <button onClick={async () => { if (!(await showConfirm('Abrir o recibo deste pedido?'))) return; openReceiptDetail(sale); }} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={12} /></button>
-                            <button onClick={() => handleDuplicateSale(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Duplicar Pedido"><Copy size={12} /></button>
-                            {!sale.contratoId && <button onClick={async () => { if (!(await showConfirm('Gerar um contrato a partir desta nota?'))) return; handleCreateContratoFromNota(sale); }} className="p-1.5 rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20" title="Gerar Contrato a partir desta nota"><FileSignature size={12} /></button>}
-                            {canManageHistory && (
-                              <>
-                                {!isPartial && <button onClick={() => handleReopenSale(sale)} className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20" title="Reabrir"><History size={12} /></button>}
-                                {sale.status !== 'canceled' && <button onClick={() => handleCancelSale(sale)} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" title="Cancelar Pedido"><Ban size={12} /></button>}
-                                <button onClick={async () => { if (!(await showConfirm('Editar este pedido?'))) return; handleStartFullEdit(sale); }} className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20" title="Editar"><Pencil size={12} /></button>
-                                <button onClick={() => handleDeleteSale(sale)} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" title="Excluir"><Trash2 size={12} /></button>
-                              </>
-                            )}
-                          </div>
-                        </GlassCard>
-                      );
-                    })}
-                  </div>
-                );
-              }
-
-              // --- MODO NORMAL (padr√£o) ---
-              return (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {filteredSales.map(sale => {
-                    const down = sale.downPayment || 0;
-                    const balance = sale.total - down;
-                    const isPartial = balance > 0 || sale.status === 'pending';
-
-                    return (
-                      <GlassCard key={sale.id} className="p-6 border-white/10 space-y-4 bg-slate-900/80 hover:border-white/20 transition-all relative overflow-hidden">
-                        <div className="flex justify-between items-start border-b border-white/5 pb-3">
-                          <div className="flex items-start gap-2">
-                            {canManageHistory && (
-                              <input type="checkbox" checked={selectedSaleIds.has(sale.id)} onChange={() => toggleSaleSelection(sale.id)} className="w-4 h-4 mt-1 shrink-0 accent-primary-500" />
-                            )}
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <h4 className="text-sm font-black text-white uppercase">{sale.customerName || 'Cliente de Balc√£o'}</h4>
-                                <Badge 
-                                  className={cn(
-                                    "text-[8px] font-black uppercase px-2 py-0.5 border-none",
-                                    isPartial ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300"
-                                  )}
-                                >
-                                  {isPartial ? `FALTA R$ ${balance.toFixed(2).replace('.', ',')}` : 'PAGO'}
-                                </Badge>
-                              </div>
-                              <p className="text-[9px] text-white/30 font-mono mt-0.5">
-                                #{sale.id.slice(-8).toUpperCase()} ‚Ä¢ Criada {safeFormat(sale.createdAt, 'dd/MM/yyyy HH:mm')}
-                                {sale.updatedAt && Math.abs(new Date(sale.updatedAt).getTime() - new Date(sale.createdAt).getTime()) > 60000 && (
-                                  <span className="text-primary-400"> ‚Ä¢ Ajustada {safeFormat(sale.updatedAt, 'dd/MM/yyyy HH:mm')}</span>
-                                )}
-                              </p>
-                              {/* Etiquetas de origem (Contrato/Or√ßamento) -- as duas podem aparecer juntas,
-                                  com quebra de linha (flex-wrap) pra nunca cortar nem esconder nada no celular. */}
-                              {(sale.contratoId || sale.orcamentoId) && (
-                                <div className="flex flex-wrap gap-1 mt-1.5">
-                                  {sale.contratoId && (
-                                    <button
-                                      onClick={() => { setActiveTab('contratos'); setHighlightContratoId(sale.contratoId!); setTimeout(() => setHighlightContratoId(null), 4000); }}
-                                      title="Ver contrato vinculado"
-                                      className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors whitespace-nowrap"
-                                    >
-                                      Contrato
-                                    </button>
-                                  )}
-                                  {sale.orcamentoId && (
-                                    <button
-                                      onClick={() => { setActiveTab('orcamentos'); setHighlightOrcamentoId(sale.orcamentoId!); setTimeout(() => setHighlightOrcamentoId(null), 4000); }}
-                                      title="Ver or√ßamento vinculado"
-                                      className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-primary-500/20 text-primary-300 hover:bg-primary-500/30 transition-colors whitespace-nowrap"
-                                    >
-                                      Or√ßamento
-                                    </button>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                          
-                          <div className="flex flex-col items-end gap-1.5 shrink-0">
-                            <select
-                              value={sale.serviceStatus || 'pedido_recebido'}
-                              onChange={(e) => handleUpdateServiceStatus(sale.id, e.target.value)}
-                              onClick={(e) => e.stopPropagation()}
-                              title="Etapa Atual"
-                              className="h-6 bg-blue-500/15 border border-blue-500/20 rounded-full pl-2 pr-1 text-[8px] font-black uppercase text-blue-300 focus:outline-none focus:border-primary-500 cursor-pointer max-w-[140px]"
-                            >
-                              {STAGE_ORDER.map(id => (
-                                <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
-                              ))}
-                            </select>
-                            {sale.scheduledFor && (
-                              <EntregaCountdown
-                                scheduledFor={sale.scheduledFor}
-                                delivered={sale.serviceStatus === 'produto_entregue'}
-                                onEdit={() => handleEditScheduleFromCard(sale)}
-                                onDeliver={() => handleDeliverFromCard(sale)}
-                                onDeleteSchedule={() => handleDeleteScheduleFromCard(sale)}
-                              />
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Items Summary */}
-                        <div className="space-y-1 text-xs text-white/70 bg-white/5 p-3 rounded-xl border border-white/5">
-                          {sale.items?.map((item, idx) => (
-                            <div key={idx} className="flex justify-between items-center text-[11px]">
-                              <span>{item.quantity}x {item.name.toUpperCase()} {item.dimensions ? `(${item.dimensions})` : ''}</span>
-                              <span className="font-bold text-white/80">R$ {((item.area ? item.price * item.area : item.price) * item.quantity).toFixed(2).replace('.', ',')}</span>
-                            </div>
-                          ))}
-                        </div>
-
-                        {/* Financial Box */}
-                        <div className="grid grid-cols-3 gap-2 bg-slate-950/60 p-3 rounded-2xl border border-white/5 text-center">
-                          <div>
-                            <span className="text-[8px] font-black uppercase text-white/30 tracking-wider block">Total</span>
-                            <span className="text-xs font-black text-white">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
-                          </div>
-                          <div>
-                            <span className="text-[8px] font-black uppercase text-emerald-400 tracking-wider block">Entrada Paga</span>
-                            <span className="text-xs font-black text-emerald-400">R$ {down.toFixed(2).replace('.', ',')}</span>
-                          </div>
-                          <div>
-                            <span className="text-[8px] font-black uppercase text-rose-400 tracking-wider block">Falta Quitar</span>
-                            <span className={cn("text-xs font-black", balance > 0 ? "text-rose-400 font-extrabold" : "text-white/30")}>
-                              R$ {balance.toFixed(2).replace('.', ',')}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Actions */}
-                        <div className="flex gap-2 justify-end pt-1 flex-wrap">
-                          {isPartial && (
-                            <Button
-                              size="sm"
-                              className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 text-[9px] font-black uppercase tracking-wider px-4 h-9"
-                              onClick={async () => { if (!(await showConfirm('Abrir a tela de pagamento deste pedido?'))) return; openSettlePayment(sale); }}
-                            >
-                              <CheckCircle2 size={14} className="mr-1" />
-                              Quitar D√©bito (R$ {balance.toFixed(2).replace('.', ',')})
-                            </Button>
-                          )}
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-white/10"
-                            onClick={async () => { if (!(await showConfirm('Abrir o recibo deste pedido?'))) return; openReceiptDetail(sale); }}
-                          >
-                            Recibo
-                          </Button>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/10"
-                            onClick={() => openCustosDaNota(sale)}
-                            title="Ver e lan√ßar custos de material, comiss√µes e extras"
-                          >
-                            <Calculator size={13} className="mr-1" />
-                            Custos da Nota
-                          </Button>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-white/10"
-                            onClick={() => handleDuplicateSale(sale)}
-                          >
-                            Duplicar
-                          </Button>
-                          {!sale.contratoId && (
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-purple-500/20 text-purple-300 hover:bg-purple-500/10"
-                              onClick={async () => { if (!(await showConfirm('Gerar um contrato a partir desta nota?'))) return; handleCreateContratoFromNota(sale); }}
-                            >
-                              Gerar Contrato
-                            </Button>
-                          )}
-                          {canManageHistory && (
-                            <>
-                              {!isPartial && (
-                                <Button
-                                  variant="secondary"
-                                  size="sm"
-                                  className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-amber-500/20 text-amber-400 hover:bg-amber-500/10"
-                                  onClick={() => handleReopenSale(sale)}
-                                >
-                                  Reabrir
-                                </Button>
-                              )}
-                              {sale.status !== 'canceled' && (
-                                <Button
-                                  variant="secondary"
-                                  size="sm"
-                                  className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-rose-500/20 text-rose-400 hover:bg-rose-500/10"
-                                  onClick={() => handleCancelSale(sale)}
-                                >
-                                  Cancelar
-                                </Button>
-                              )}
-                              <Button
-                                variant="secondary"
-                                size="sm"
-                                className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-primary-500/20 text-primary-400 hover:bg-primary-500/10"
-                                onClick={async () => { if (!(await showConfirm('Editar este pedido?'))) return; handleStartFullEdit(sale); }}
-                              >
-                                Editar
-                              </Button>
-                              <Button
-                                variant="secondary"
-                                size="sm"
-                                className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-rose-500/20 text-rose-400 hover:bg-rose-500/10"
-                                onClick={() => handleDeleteSale(sale)}
-                              >
-                                Excluir
-                              </Button>
-                            </>
-                          )}
-                        </div>
-                      </GlassCard>
-                    );
-                  })}
-                </div>
-              );
-            })()}
-          </div>
-        )}
-
-        {activeTab === 'estoque' && (
-          <div className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/30">
-            <InventoryModule currentCompany={currentCompany} user={user} />
-          </div>
-        )}
-
-        {activeTab === 'servicos' && (
-          <div className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/40 space-y-6">
-            {/* Resumo da Ordem de Servicos ‚Äî usa o mesmo filtro de periodo do Historico */}
-            <div className="space-y-3">
-               <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[9px] font-black uppercase text-white/30 tracking-widest">Per√≠odo:</span>
-                  <input
-                    type="date"
-                    value={historyDateFrom}
-                    onChange={(e) => setHistoryDateFrom(e.target.value)}
-                    className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-[11px] text-white/70 focus:outline-none focus:border-primary-500"
-                  />
-                  <span className="text-white/20 text-[9px]">at√©</span>
-                  <input
-                    type="date"
-                    value={historyDateTo}
-                    onChange={(e) => setHistoryDateTo(e.target.value)}
-                    className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-[11px] text-white/70 focus:outline-none focus:border-primary-500"
-                  />
-                  {(historyDateFrom || historyDateTo) && (
-                    <button onClick={() => { setHistoryDateFrom(''); setHistoryDateTo(''); }} className="text-[9px] font-black uppercase text-white/30 hover:text-rose-400 px-2">Limpar</button>
-                  )}
-               </div>
-
-               {user?.isAdmin && (
-                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
-                       <p className="text-[9px] font-black uppercase text-white/40 tracking-widest">Faturamento</p>
-                       <p className="text-xl font-black text-white italic mt-1">R$ {servicosResumo.faturamento.toFixed(2).replace('.', ',')}</p>
-                    </div>
-                    <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
-                       <p className="text-[9px] font-black uppercase text-white/40 tracking-widest">L√≠quido (Recebido)</p>
-                       <p className="text-xl font-black text-emerald-400 italic mt-1">R$ {servicosResumo.liquido.toFixed(2).replace('.', ',')}</p>
-                    </div>
-                    <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
-                       <p className="text-[9px] font-black uppercase text-white/40 tracking-widest">Lucro</p>
-                       <p className="text-xl font-black text-primary-400 italic mt-1">R$ {servicosResumo.lucro.toFixed(2).replace('.', ',')}</p>
-                       {!servicosResumo.temCustoRegistrado && (
-                         <p className="text-[8px] text-amber-400/70 font-bold mt-1">Sem custo cadastrado nos produtos ‚Äî lucro = l√≠quido</p>
-                       )}
-                    </div>
-                 </div>
-               )}
-
-               {user?.isAdmin && (
-                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="bg-amber-500/5 border border-amber-500/20 rounded-2xl p-4 space-y-1.5">
-                       <p className="text-[10px] font-black uppercase text-amber-400 tracking-widest">Com Entrada</p>
-                       <p className="text-[10px] text-white/50 font-bold">{servicosResumo.comEntrada.count} servi√ßo(s)</p>
-                       <div className="flex justify-between text-xs pt-1 border-t border-white/5">
-                          <span className="text-white/40">Total</span>
-                          <span className="font-black text-white">R$ {servicosResumo.comEntrada.total.toFixed(2).replace('.', ',')}</span>
-                       </div>
-                       <div className="flex justify-between text-xs">
-                          <span className="text-white/40">Recebido</span>
-                          <span className="font-black text-emerald-400">R$ {servicosResumo.comEntrada.recebido.toFixed(2).replace('.', ',')}</span>
-                       </div>
-                       <div className="flex justify-between text-xs">
-                          <span className="text-white/40">Pendente</span>
-                          <span className="font-black text-rose-400">R$ {servicosResumo.comEntrada.pendente.toFixed(2).replace('.', ',')}</span>
-                       </div>
-                    </div>
-                    <div className="bg-rose-500/5 border border-rose-500/20 rounded-2xl p-4 space-y-1.5">
-                       <p className="text-[10px] font-black uppercase text-rose-400 tracking-widest">Em Aberto</p>
-                       <p className="text-[10px] text-white/50 font-bold">{servicosResumo.emAberto.count} servi√ßo(s)</p>
-                       <div className="flex justify-between text-xs pt-1 border-t border-white/5">
-                          <span className="text-white/40">Total</span>
-                          <span className="font-black text-white">R$ {servicosResumo.emAberto.total.toFixed(2).replace('.', ',')}</span>
-                       </div>
-                    </div>
-                 </div>
-               )}
-            </div>
-
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-white/10 pb-4">
-              <div>
-                <h2 className="text-xl md:text-2xl font-black text-white italic tracking-tighter uppercase flex items-center gap-2">
-                  <Wrench className="text-primary-400" size={22} />
-                  Notas em Aberto & Servi√ßos Agendados
-                </h2>
-                <p className="text-[10px] md:text-xs text-white/40 font-bold uppercase tracking-widest mt-1">
-                  Vendas do PDV com saldo pendente ou entrega agendada
-                </p>
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <select
-                  value={servicosSortBy}
-                  onChange={(e) => setServicosSortBy(e.target.value as any)}
-                  className="h-8 bg-white/5 border border-white/10 rounded-lg px-2 text-[10px] font-black uppercase text-white/70 focus:outline-none focus:border-primary-500 cursor-pointer"
-                >
-                  <option value="data" className="bg-slate-900">Data</option>
-                  <option value="nome" className="bg-slate-900">Nome do Cliente</option>
-                  <option value="valor" className="bg-slate-900">Valor</option>
-                  <option value="status" className="bg-slate-900">Status</option>
-                  <option value="agendamento" className="bg-slate-900">Ordem de Agendamento</option>
-                </select>
-                <button
-                  onClick={() => setHistorySortOrder(historySortOrder === 'desc' ? 'asc' : 'desc')}
-                  title={historySortOrder === 'desc' ? 'Maior/Mais recente primeiro' : 'Menor/Mais antiga primeiro'}
-                  className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 border border-white/10 text-white/60 hover:text-white transition-all"
-                >
-                  {historySortOrder === 'desc' ? <ArrowDownWideNarrow size={13} /> : <ArrowUpWideNarrow size={13} />}
-                </button>
-                <input ref={vendasFileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportVendasFile} />
-                <button
-                  disabled={isImportingVendas}
-                  title={isImportingVendas ? 'Importando...' : 'Importar Planilha'}
-                  onClick={() => vendasFileInputRef.current?.click()}
-                  className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all disabled:opacity-50"
-                >
-                  <Upload size={13} className={cn(isImportingVendas && "animate-pulse")} />
-                </button>
-                <button
-                  title="Exportar Planilha"
-                  onClick={() => exportVendasXlsx(pendingOrScheduledSales)}
-                  className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all"
-                >
-                  <Download size={13} />
-                </button>
-              </div>
-            </div>
-
-            {pendingOrScheduledSales.length === 0 ? (
-              <div className="py-16 text-center bg-white/5 rounded-3xl border border-dashed border-white/10 space-y-2">
-                <Wrench size={36} className="mx-auto text-white/20" />
-                <p className="text-sm font-bold text-white/40 uppercase">Nenhuma nota em aberto ou entrega agendada</p>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-2.5">
-                {pendingOrScheduledSales.map(sale => {
-                  const down = sale.downPayment || 0;
-                  const balance = sale.total - down;
-                  const isPartial = balance > 0 || sale.status === 'pending';
-                  const currentStage = sale.serviceStatus || 'pedido_recebido';
-                  const entregue = currentStage === 'produto_entregue';
-                  return (
-                    <div key={sale.id} className="bg-slate-900/60 hover:bg-slate-900 border border-white/5 hover:border-white/10 rounded-2xl px-4 py-3.5 transition-all space-y-3">
-
-                      {/* Cabe√ßalho: cliente em destaque + identifica√ß√£o da nota, entrega √† direita */}
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p title={sale.customerName || 'Cliente de Balc√£o'} className="text-sm font-black text-white uppercase truncate">
-                            {formatNamePreview((sale.customerName || 'Cliente de Balc√£o').toUpperCase(), 26)}
-                          </p>
-                          {(() => {
-                            const clienteVinc = sale.customerId ? allCustomers.find(cl => cl.id === sale.customerId) : undefined;
-                            return clienteVinc?.cpf_cnpj ? (
-                              <p className="text-[9px] text-white/25 font-mono truncate">{clienteVinc.cpf_cnpj}</p>
-                            ) : null;
-                          })()}
-                          <div className="flex items-center gap-2.5 mt-0.5 text-white/30 text-[9px] font-bold">
-                            <span className="flex items-center gap-1 font-mono"><FileText size={10} /> #{sale.id.slice(-8).toUpperCase()}</span>
-                            <span className="flex items-center gap-1"><Clock size={10} /> {safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
-                          </div>
-                        </div>
-                        {sale.scheduledFor && (
-                          <div className="shrink-0">
-                            <EntregaCountdown
-                              scheduledFor={sale.scheduledFor}
-                              delivered={entregue}
-                              onEdit={() => handleEditScheduleFromCard(sale)}
-                              onDeliver={() => handleDeliverFromCard(sale)}
-                              onDeleteSchedule={() => handleDeleteScheduleFromCard(sale)}
-                            />
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Itens do pedido + observa√ß√£o (quando houver) */}
-                      {((sale.items && sale.items.length > 0) || sale.observacoes) && (
-                        <div className="flex items-start gap-1.5 text-[10px] text-white/40">
-                          <Package size={11} className="shrink-0 mt-0.5 text-white/25" />
-                          <div className="min-w-0 space-y-0.5">
-                            {sale.items && sale.items.length > 0 && (
-                              <p className="truncate" title={sale.items[sale.items.length - 1].name}>
-                                {sale.items[sale.items.length - 1].name}
-                                {sale.items.length > 1 && <span className="text-white/25"> +{sale.items.length - 1} item(ns)</span>}
-                              </p>
-                            )}
-                            {sale.observacoes && (
-                              <p className="italic text-amber-300/70 truncate" title={sale.observacoes}>"{sale.observacoes}"</p>
-                            )}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Rodap√©: etapa de produ√ß√£o + valor + a√ß√µes, separado por uma linha */}
-                      <div className="flex items-center justify-between gap-2 flex-wrap pt-2.5 border-t border-white/5">
-                        <button
-                          onClick={() => handleCycleServiceStatus(sale.id, currentStage)}
-                          title="Clique para avan√ßar a etapa ‚Äî ao concluir, volta ao in√≠cio"
-                          className={cn(
-                            "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase whitespace-nowrap transition-all cursor-pointer border-0 hover:brightness-125",
-                            stageColorOf(currentStage).bg, stageColorOf(currentStage).text
-                          )}
-                        >
-                          <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", stageColorOf(currentStage).dot)} />
-                          {entregue ? 'Entregue' : (STAGE_LABELS[currentStage] || currentStage)}
-                          <RefreshCw size={10} className="opacity-40" />
-                        </button>
-
-                        <div className="flex items-center gap-2.5 ml-auto">
-                          {isPartial && (
-                            <Badge className="text-[8px] font-black uppercase px-1.5 py-0.5 border-none shrink-0 bg-amber-500/20 text-amber-300">Falta R$ {balance.toFixed(2).replace('.', ',')}</Badge>
-                          )}
-                          <span className="text-sm font-black text-white shrink-0 tabular-nums">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
-
-                          <div className="flex items-center gap-1 shrink-0 pl-2 border-l border-white/10">
-                            {isPartial && (
-                              <button onClick={async () => { if (!(await showConfirm('Abrir a tela de pagamento deste pedido?'))) return; openSettlePayment(sale); }} className="w-7 h-7 flex items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar D√©bito"><CheckCircle2 size={13} /></button>
-                            )}
-                            <button
-                              onClick={() => { setHistorySearch(sale.id); setActiveTab('historico'); handleStartFullEdit(sale); }}
-                              className="w-7 h-7 flex items-center justify-center rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20"
-                              title="Editar (abre esta nota no Hist√≥rico)"
-                            >
-                              <Pencil size={13} />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-
-        {activeTab === 'orcamentos' && (() => {
-          // Filtra fora registros antigos que tinham sido marcados como "contrato" de uma
-          // abordagem anterior (antes dos Contratos terem tabela propria) - esses ja foram
-          // migrados pra tabela contratos de verdade, nao devem aparecer aqui
-          const orcamentosDeVerdade = allOrcamentos.filter(o => o.documentType !== 'contrato');
-          
-          const orcRascunho = orcamentosDeVerdade.filter(o => o.status === 'rascunho');
-          const orcEnviado = orcamentosDeVerdade.filter(o => o.status === 'enviado');
-          const orcEmEspera = orcamentosDeVerdade.filter(o => o.status === 'em_espera');
-          const orcAprovado = orcamentosDeVerdade.filter(o => o.status === 'aprovado');
-          const orcEmProducao = orcamentosDeVerdade.filter(o => o.status === 'em_producao');
-          const orcConcluido = orcamentosDeVerdade.filter(o => o.status === 'concluido');
-          const orcRecusado = orcamentosDeVerdade.filter(o => o.status === 'recusado');
-          const orcCancelado = orcamentosDeVerdade.filter(o => o.status === 'cancelado');
-          const orcExpirado = orcamentosDeVerdade.filter(o => o.status === 'expirado');
-
-          const filtrosOrcamento = [
-            { id: 'todos', label: 'Todos', count: orcamentosDeVerdade.length },
-            { id: 'rascunho', label: 'Rascunho', count: orcRascunho.length },
-            { id: 'enviado', label: 'Enviado', count: orcEnviado.length },
-            { id: 'em_espera', label: 'Em Espera', count: orcEmEspera.length },
-            { id: 'aprovado', label: 'Aprovado', count: orcAprovado.length },
-            { id: 'em_producao', label: 'Em Produ√ß√£o', count: orcEmProducao.length },
-            { id: 'concluido', label: 'Conclu√≠do', count: orcConcluido.length },
-            { id: 'recusado', label: 'Recusado', count: orcRecusado.length },
-            { id: 'cancelado', label: 'Cancelado', count: orcCancelado.length },
-            { id: 'expirado', label: 'Expirado', count: orcExpirado.length },
-          ];
-
-          const orcTerm = orcamentoSearchTerm.trim().toLowerCase();
-          const orcamentosFiltrados = orcamentosDeVerdade
-            .filter(o => {
-              if (orcamentoStatusFilter === 'todos') return true;
-              return o.status === orcamentoStatusFilter;
-            })
-            .filter(o => {
-              if (!orcTerm) return true;
-              return (
-                (o.numero || '').toLowerCase().includes(orcTerm) ||
-                (o.customerName || '').toLowerCase().includes(orcTerm)
-              );
-            })
-            .sort((a, b) => {
-              if (orcamentoSortBy === 'az') return (a.customerName || '').localeCompare(b.customerName || '');
-              if (orcamentoSortBy === 'za') return (b.customerName || '').localeCompare(a.customerName || '');
-              if (orcamentoSortBy === 'antigos') return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-              return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(); // 'recentes'
-            });
-
-          return (
-          <div className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/40 space-y-6">
-            <SectionHeader
-              title="Or√ßamentos"
-              subtitle={`${orcamentosDeVerdade.length} or√ßamento(s)`}
-              actions={<Button icon={Plus} onClick={openNewOrcamento}>Novo Or√ßamento</Button>}
-            />
-
-            {/* Filtros -- mesmo padrao visual dos botoes de Contratos */}
-            <div className="flex flex-col gap-3">
-              <div className="flex flex-nowrap items-center gap-0.5 md:gap-1.5 overflow-x-auto no-scrollbar -mx-1 px-1 pb-0.5">
-                {filtrosOrcamento.map(f => (
-                  <button
-                    key={f.id}
-                    onClick={() => setOrcamentoStatusFilter(f.id)}
-                    className={cn(
-                      "shrink-0 flex items-center gap-0.5 md:gap-1.5 px-2 md:px-3 h-8 md:h-9 rounded-lg text-[8px] md:text-[9px] font-black uppercase tracking-wide cursor-pointer border transition-all whitespace-nowrap",
-                      orcamentoStatusFilter === f.id ? "bg-primary-500 text-white border-primary-500" : "bg-white/5 text-white/50 border-white/10 hover:text-white"
-                    )}
-                  >
-                    {f.label}
-                    <span className={cn(
-                      "flex items-center justify-center min-w-[16px] md:min-w-[18px] h-[16px] md:h-[18px] px-0.5 md:px-1 rounded-full text-[7px] md:text-[9px] font-black",
-                      orcamentoStatusFilter === f.id ? "bg-white/25 text-white" : "bg-white/10 text-white/60"
-                    )}>
-                      {f.count}
-                    </span>
-                  </button>
-                ))}
-              </div>
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
-                  <input
-                    value={orcamentoSearchTerm}
-                    onChange={(e) => setOrcamentoSearchTerm(e.target.value)}
-                    placeholder="Buscar por n√∫mero ou cliente..."
-                    className="w-full h-9 bg-white/5 border border-white/10 rounded-lg pl-9 pr-3 text-[11px] text-white placeholder:text-white/30 focus:outline-none focus:border-primary-500"
-                  />
-                </div>
-                <select
-                  value={orcamentoSortBy}
-                  onChange={(e) => setOrcamentoSortBy(e.target.value as any)}
-                  className="h-9 bg-white/5 border border-white/10 rounded-lg px-2.5 text-[9px] font-black uppercase text-white/60 focus:outline-none focus:border-primary-500 cursor-pointer shrink-0"
-                >
-                  <option value="recentes" className="bg-slate-900">Mais Recentes</option>
-                  <option value="antigos" className="bg-slate-900">Mais Antigos</option>
-                  <option value="az" className="bg-slate-900">A-Z</option>
-                  <option value="za" className="bg-slate-900">Z-A</option>
-                </select>
-              </div>
-            </div>
-
-            {isLoadingOrcamentos ? (
-              <div className="flex justify-center py-16"><RefreshCw className="animate-spin text-primary-500" size={24} /></div>
-            ) : orcamentosFiltrados.length === 0 ? (
-              <div className="text-center py-16 text-white/30 text-sm">Nenhum or√ßamento encontrado.</div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {orcamentosFiltrados.map(o => {
-                  const statusStyles: Record<string, string> = {
-                    rascunho: 'bg-white/10 text-white/50',
-                    enviado: 'bg-blue-500/15 text-blue-400',
-                    em_espera: 'bg-amber-500/15 text-amber-400',
-                    aprovado: 'bg-emerald-500/15 text-emerald-400',
-                    em_producao: 'bg-amber-500/15 text-amber-400',
-                    concluido: 'bg-primary-500/15 text-primary-400',
-                    recusado: 'bg-rose-500/15 text-rose-400',
-                    cancelado: 'bg-rose-500/15 text-rose-400',
-                    expirado: 'bg-white/5 text-white/30',
-                  };
-                  const statusLabels: Record<string, string> = {
-                    rascunho: 'Rascunho', enviado: 'Enviado', em_espera: 'Em Espera', aprovado: 'Aprovado', em_producao: 'Em Produ√ß√£o',
-                    concluido: 'Conclu√≠do ‚Äî Venda Gerada', recusado: 'Recusado', cancelado: 'Cancelado', expirado: 'Expirado',
-                  };
-                  // Status de pagamento buscado AO VIVO na nota vinculada (fonte unica de verdade,
-                  // nao duplica dado ‚Äî se a nota for paga, aparece pago aqui automaticamente)
-                  const vendaVinculada = o.vendaId ? allSalesHistory.find(s => s.id === o.vendaId) : undefined;
-                  const estaPago = vendaVinculada && (vendaVinculada.status === 'completed' || (vendaVinculada.downPayment || 0) >= vendaVinculada.total);
-                  return (
-                    <div key={o.id} className={cn(
-                      "bg-white/5 border rounded-2xl p-4 space-y-3 transition-all",
-                      highlightOrcamentoId === o.id ? "border-primary-500 ring-2 ring-primary-500/40 shadow-lg shadow-primary-500/20" : "border-white/10"
-                    )}>
-                      <div className="flex items-start justify-between gap-2">
-                         <div className="min-w-0">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                               <span className={cn("text-[7px] font-black uppercase px-1.5 py-0.5 rounded", o.documentType === 'contrato' ? "bg-purple-500/20 text-purple-300" : "bg-primary-500/20 text-primary-300")}>
-                                 {o.documentType === 'contrato' ? 'Contrato' : 'Or√ßamento'}
-                               </span>
-                               {vendaVinculada && (
-                                 <span className={cn("text-[7px] font-black uppercase px-1.5 py-0.5 rounded", estaPago ? "bg-emerald-500/20 text-emerald-400" : "bg-amber-500/20 text-amber-400")}>
-                                   {estaPago ? '‚úì Pago' : 'Pendente'}
-                                 </span>
-                               )}
-                               <span className={cn("text-[7px] font-black uppercase px-1.5 py-0.5 rounded", stageColorOf(o.serviceStatus || 'pedido_recebido').bg, stageColorOf(o.serviceStatus || 'pedido_recebido').text)}>
-                                 {STAGE_LABELS[o.serviceStatus || 'pedido_recebido']}
-                               </span>
-                            </div>
-                            <p className="text-[9px] font-mono text-white/30 mt-1">{o.numero}</p>
-                            <p className="font-black text-white truncate">{(o.customerName || '').toUpperCase()}</p>
-                         </div>
-                         <span className={cn("text-[8px] font-black uppercase px-2 py-1 rounded-full shrink-0", statusStyles[o.status])}>{statusLabels[o.status]}</span>
-                      </div>
-                      <div className="flex justify-between items-baseline">
-                         <span className="text-[10px] text-white/30 uppercase font-bold">{o.items.length} item(ns)</span>
-                         <span className="text-lg font-black text-emerald-400 italic">R$ {o.total.toFixed(2).replace('.', ',')}</span>
-                      </div>
-                      {o.validade && (
-                        <p className="text-[9px] text-white/30">V√°lido at√© {safeFormat(o.validade, 'dd/MM/yyyy')}</p>
-                      )}
-                      <div className="flex flex-wrap gap-1.5 pt-2 border-t border-white/5 items-center">
-                         <button onClick={() => openEditOrcamento(o)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Editar</button>
-                         <select
-                           value={o.status}
-                           onChange={async (e) => {
-                              const novoStatus = e.target.value as Orcamento['status'];
-                              if (novoStatus === o.status) return;
-                              if (!(await showConfirm(`Mudar o status do or√ßamento ${o.numero} para "${statusLabels[novoStatus]}"?`))) return;
-                              updateOrcamentoStatus(o, novoStatus);
-                           }}
-                           className="h-[26px] bg-white/5 border border-white/10 rounded-lg px-2 text-[8px] font-black uppercase text-white focus:outline-none focus:border-primary-500 cursor-pointer"
-                         >
-                           <option value="rascunho" className="bg-slate-900">Rascunho</option>
-                           <option value="enviado" className="bg-slate-900">Enviado</option>
-                           <option value="em_espera" className="bg-slate-900">Em Espera</option>
-                           <option value="aprovado" className="bg-slate-900">Aprovado</option>
-                           <option value="em_producao" className="bg-slate-900">Em Produ√ß√£o</option>
-                           <option value="concluido" className="bg-slate-900">Conclu√≠do</option>
-                           <option value="recusado" className="bg-slate-900">Recusado</option>
-                           <option value="cancelado" className="bg-slate-900">Cancelado</option>
-                           <option value="expirado" className="bg-slate-900">Expirado</option>
-                         </select>
-                         <button onClick={() => openShareOrcamentoWhatsApp(o)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20">WhatsApp</button>
-                         <button onClick={() => setViewingOrcamento(o)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Exibir</button>
-                         {vendaVinculada && (
-                           <button onClick={() => { openReceiptById(vendaVinculada.id); }} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Ver Nota</button>
-                         )}
-                         {o.contratoId ? (
-                           <button
-                             onClick={() => { setActiveTab('contratos'); setHighlightContratoId(o.contratoId!); setTimeout(() => setHighlightContratoId(null), 4000); }}
-                             className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20"
-                           >
-                             Abrir Contrato
-                           </button>
-                         ) : (
-                           <button
-                             onClick={async () => { if (!(await showConfirm('Gerar um contrato a partir deste or√ßamento?'))) return; handleCreateContratoFromOrcamento(o); }}
-                             className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20"
-                           >
-                             Gerar Contrato
-                           </button>
-                         )}
-                         <button onClick={() => handleDeleteOrcamento(o)} className="text-white/30 hover:text-rose-400 p-1.5 ml-auto"><Trash2 size={12} /></button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-          );
-        })()}
-
-        {activeTab === 'clientes' && (
-          <div className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/30">
-            <ContactsModule
-              currentCompany={currentCompany}
-              onViewHistoryForClient={(clienteId: string, clienteName: string) => {
-                setHistoryClienteIdFilter(clienteId);
-                setHistorySearch(clienteName);
-                setActiveTab('historico');
-              }}
-              onStartSaleForClient={(cliente) => {
-                setSelectedCustomer(cliente);
-                setActiveTab('venda');
-              }}
-              onOpenReceiptById={openReceiptById}
-              onEditFullClient={(cliente) => {
-                startEditCustomer(cliente);
-                setIsCustomerModalOpen(true);
-              }}
-            />
-          </div>
-        )}
-
-        {activeTab === 'contratos' && (() => {
-          // So mostra a versao MAIS RECENTE de cada contrato na lista (versoes antigas ficam
-          // guardadas no historico, acessiveis a partir da versao atual). Agrupa pelo VINCULO
-          // real entre versoes (contratoAnteriorId aponta pra versao de origem), nao pelo numero
-          // (texto) - assim nunca da errado mesmo se dois contratos diferentes tiverem, por
-          // coincidencia, o mesmo numero gerado.
-          const idsSuperados = new Set(allContratos.map(c => c.contratoAnteriorId).filter(Boolean));
-          const contratos = allContratos.filter(c => !idsSuperados.has(c.id));
-          const term = contratoSearchTerm.trim().toLowerCase();
-
-          // Classificacao simplificada em 5 grupos, baseada exclusivamente em quem ja assinou
-          // (contratante = cliente, contratada = empresa) -- nao depende do usuario logado nem
-          // dos 8 status tecnicos do fluxo de assinatura por baixo.
-          const contratanteAssinou = (c: Contrato) => !!c.signedAt;
-          const contratadaAssinou = (c: Contrato) => !!c.empresaSignedAt;
-
-          const contratosContratantePendente = contratos.filter(c => c.status !== 'cancelado' && !contratanteAssinou(c));
-          const contratosContratadaPendente = contratos.filter(c => c.status !== 'cancelado' && contratanteAssinou(c) && !contratadaAssinou(c));
-          const contratosAssinados = contratos.filter(c => c.status !== 'cancelado' && contratanteAssinou(c) && contratadaAssinou(c));
-          const contratosCancelados = contratos.filter(c => c.status === 'cancelado');
-
-          const contratosFiltrados = contratos
-            .filter(c => {
-              if (contratoStatusFilter === 'contratante') return c.status !== 'cancelado' && !contratanteAssinou(c);
-              if (contratoStatusFilter === 'contratada') return c.status !== 'cancelado' && contratanteAssinou(c) && !contratadaAssinou(c);
-              if (contratoStatusFilter === 'assinados') return c.status !== 'cancelado' && contratanteAssinou(c) && contratadaAssinou(c);
-              if (contratoStatusFilter === 'cancelados') return c.status === 'cancelado';
-              return true; // 'todos'
-            })
-            .filter(c => {
-              if (!term) return true;
-              const orcamentoVinc = c.orcamentoId ? allOrcamentos.find(o => o.id === c.orcamentoId) : undefined;
-              return (
-                c.numero.toLowerCase().includes(term) ||
-                (c.customerName || '').toLowerCase().includes(term) ||
-                (c.cpfCnpj || '').toLowerCase().includes(term) ||
-                (c.phone || '').replace(/\D/g, '').includes(term.replace(/\D/g, '')) ||
-                (orcamentoVinc?.numero || '').toLowerCase().includes(term)
-              );
-            })
-            .sort((a, b) => {
-              if (contratoSortBy === 'az') return (a.customerName || '').localeCompare(b.customerName || '');
-              if (contratoSortBy === 'za') return (b.customerName || '').localeCompare(a.customerName || '');
-              if (contratoSortBy === 'antigos') return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-              return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(); // 'recentes'
-            });
-          const valorAssinado = contratosAssinados.reduce((acc, c) => acc + c.total, 0);
-
-          const filtrosContrato = [
-            { id: 'todos', label: 'Todos', count: contratos.length },
-            { id: 'contratante', label: 'Contratante', count: contratosContratantePendente.length },
-            { id: 'contratada', label: 'Contratada', count: contratosContratadaPendente.length },
-            { id: 'assinados', label: 'Assinados', count: contratosAssinados.length },
-            { id: 'cancelados', label: 'Cancelados', count: contratosCancelados.length },
-          ];
-
-          return (
-            <div
-              className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/40 space-y-6"
-              onScroll={() => { if (openContratoActionsId) setOpenContratoActionsId(null); }}
-            >
-              <SectionHeader
-                title="Contratos"
-                subtitle={`${contratos.length} contrato(s)`}
-                actions={
-                  <div className="flex items-center gap-2">
-                    {user?.isAdmin && (
-                      <Button
-                        variant="secondary"
-                        icon={RefreshCw}
-                        onClick={handleRegenerateAllSignedContratoPdfs}
-                        disabled={isRegeneratingContratoPdfs}
-                      >
-                        {isRegeneratingContratoPdfs
-                          ? `Regenerando ${regenerateContratoProgress?.done ?? 0}/${regenerateContratoProgress?.total ?? 0}...`
-                          : 'Atualizar PDFs Assinados'}
-                      </Button>
-                    )}
-                    <Button icon={FileSignature} onClick={openNewContrato}>Novo Contrato</Button>
-                  </div>
-                }
-              />
-
-              {/* Filtros -- 5 grupos baseados em quem ja assinou (contratante = cliente, contratada
-                  = empresa), com a quantidade dentro do proprio botao. Rolagem horizontal no mobile
-                  (sem quebrar linha) quando nao cabe tudo na largura da tela. */}
-              <div className="flex flex-col gap-3">
-                 <div className="flex flex-nowrap items-center gap-0.5 md:gap-1.5 overflow-x-auto no-scrollbar -mx-1 px-1 pb-0.5">
-                    {filtrosContrato.map(f => (
-                      <button
-                        key={f.id}
-                        onClick={() => setContratoStatusFilter(f.id)}
-                        className={cn(
-                          "shrink-0 flex items-center gap-0.5 md:gap-1.5 px-2 md:px-3 h-8 md:h-9 rounded-lg text-[8px] md:text-[9px] font-black uppercase tracking-wide cursor-pointer border transition-all whitespace-nowrap",
-                          contratoStatusFilter === f.id ? "bg-purple-500 text-white border-purple-500" : "bg-white/5 text-white/50 border-white/10 hover:text-white"
-                        )}
-                      >
-                        {f.label}
-                        <span className={cn(
-                          "flex items-center justify-center min-w-[16px] md:min-w-[18px] h-[16px] md:h-[18px] px-0.5 md:px-1 rounded-full text-[7px] md:text-[9px] font-black",
-                          contratoStatusFilter === f.id ? "bg-white/25 text-white" : "bg-white/10 text-white/60"
-                        )}>
-                          {f.count}
-                        </span>
-                      </button>
-                    ))}
-                 </div>
-                 <div className="flex gap-2">
-                    <div className="relative flex-1">
-                       <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
-                       <input
-                         value={contratoSearchTerm}
-                         onChange={(e) => setContratoSearchTerm(e.target.value)}
-                         placeholder="Buscar por n√∫mero, cliente, CPF/CNPJ, telefone ou n¬∫ do or√ßamento..."
-                         className="w-full h-9 bg-white/5 border border-white/10 rounded-lg pl-9 pr-3 text-[11px] text-white placeholder:text-white/30 focus:outline-none focus:border-primary-500"
-                       />
-                    </div>
-                    <select
-                      value={contratoSortBy}
-                      onChange={(e) => setContratoSortBy(e.target.value as any)}
-                      className="h-9 bg-white/5 border border-white/10 rounded-lg px-2.5 text-[9px] font-black uppercase text-white/60 focus:outline-none focus:border-primary-500 cursor-pointer shrink-0"
-                    >
-                      <option value="recentes" className="bg-slate-900">Mais Recentes</option>
-                      <option value="antigos" className="bg-slate-900">Mais Antigos</option>
-                      <option value="az" className="bg-slate-900">A-Z</option>
-                      <option value="za" className="bg-slate-900">Z-A</option>
-                    </select>
-                 </div>
-              </div>
-
-              {/* Indicadores financeiros -- vis√≠veis apenas para admin */}
-              {user?.isAdmin && (() => {
-                const valorNaoAssinado = contratos
-                  .filter(c => c.status !== 'cancelado' && !(contratanteAssinou(c) && contratadaAssinou(c)))
-                  .reduce((acc, c) => acc + c.total, 0);
-                return (
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-3">
-                      <p className="text-[8px] font-black uppercase text-emerald-400 tracking-widest mb-1">Contratos Assinados</p>
-                      <p className="text-base font-black italic text-emerald-400">R$ {valorAssinado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-                    </div>
-                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-3">
-                      <p className="text-[8px] font-black uppercase text-amber-400 tracking-widest mb-1">Contratos N√£o Assinados</p>
-                      <p className="text-base font-black italic text-amber-400">R$ {valorNaoAssinado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* Lista */}
-              {isLoadingContratos ? (
-                <div className="flex justify-center py-16"><RefreshCw className="animate-spin text-primary-500" size={24} /></div>
-              ) : contratosFiltrados.length === 0 ? (
-                <div className="text-center py-16 text-white/30 text-sm">Nenhum contrato encontrado.</div>
-              ) : (
-                <div className="space-y-2.5">
-                   {contratosFiltrados.map(c => {
-                     const vendaVinc = c.vendaId ? allSalesHistory.find(s => s.id === c.vendaId) : undefined;
-                     const orcamentoVinc = c.orcamentoId ? allOrcamentos.find(o => o.id === c.orcamentoId) : undefined;
-                     const servico = (c.items || []).map(i => i.name).join(', ') || 'Sem itens';
-                     const podeEditarDireto = c.status === 'rascunho';
-                     const jaAssinado = c.status === 'assinado' || c.status === 'em_execucao' || c.status === 'concluido' || c.status === 'encerrado';
-                     const statusBarColor = c.status === 'cancelado' ? 'bg-rose-500'
-                       : jaAssinado ? 'bg-emerald-500'
-                       : 'bg-amber-500';
-                     const isMenuOpen = openContratoActionsId === c.id;
-                     return (
-                       <div
-                         key={c.id}
-                         className={cn(
-                           "relative flex bg-white/5 border rounded-2xl transition-all",
-                           highlightContratoId === c.id ? "border-purple-500 ring-2 ring-purple-500/40" : "border-white/10"
-                         )}
-                       >
-                          {/* Barra lateral colorida -- indica de longe (sem precisar ler texto) se ta
-                              cancelado / assinado / aguardando, principalmente util no scroll rapido do celular.
-                              O arredondado fica aqui (em vez de overflow-hidden no card) pra nao cortar o menu
-                              de opcoes quando ele abre pra baixo e o card nao tem altura sobrando (ex: lista
-                              com 1 contrato so). */}
-                          <div className={cn("w-1 shrink-0 rounded-l-2xl", statusBarColor)} />
-
-                          <div className="flex-1 min-w-0 p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5">
-                             <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                   <p className="font-mono text-[9px] text-purple-300">{c.numero}{c.versao > 1 ? ` ¬∑ v${c.versao}` : ''}</p>
-                                   <span className={cn("text-[8px] font-black uppercase px-2 py-0.5 rounded-full", CONTRATO_STATUS_STYLES[c.status])}>{CONTRATO_STATUS_LABELS[c.status] || c.status}</span>
-                                   {orcamentoVinc && <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-primary-500/10 text-primary-300">Or√ß. {orcamentoVinc.numero}</span>}
-                                   <span className={cn("text-[8px] font-black uppercase px-2 py-0.5 rounded-full", stageColorOf(c.serviceStatus || 'pedido_recebido').bg, stageColorOf(c.serviceStatus || 'pedido_recebido').text)}>{STAGE_LABELS[c.serviceStatus || 'pedido_recebido']}</span>
-                                </div>
-                                <p className="font-black text-white truncate mt-1 text-[15px]">{(c.customerName || '').toUpperCase()}</p>
-                                <p className="text-[10px] text-white/40 truncate">{c.cpfCnpj || 'CPF/CNPJ n√£o informado'} ¬∑ {c.phone || 'sem telefone'}</p>
-                                <p className="text-[10px] text-white/30 truncate mt-0.5">{servico}</p>
-                                <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
-                                   <span className={cn(
-                                     "inline-flex items-center gap-1 text-[8px] font-black uppercase px-2 py-0.5 rounded-full",
-                                     c.signedAt ? "bg-emerald-500/15 text-emerald-400" : "bg-white/5 text-white/40"
-                                   )}>
-                                     {c.signedAt && <Check size={9} />} Contratante {c.signedAt ? 'Assinado' : 'Pendente'}
-                                   </span>
-                                   <span className={cn(
-                                     "inline-flex items-center gap-1 text-[8px] font-black uppercase px-2 py-0.5 rounded-full",
-                                     c.empresaSignedAt ? "bg-emerald-500/15 text-emerald-400" : "bg-white/5 text-white/40"
-                                   )}>
-                                     {c.empresaSignedAt && <Check size={9} />} Contratada {c.empresaSignedAt ? 'Assinado' : 'Pendente'}
-                                   </span>
-                                </div>
-                             </div>
-
-                             <div className="flex items-center justify-between sm:flex-col sm:items-end gap-2 sm:gap-1 shrink-0">
-                                <div className="text-left sm:text-right">
-                                   <p className="text-lg font-black text-emerald-400 italic">R$ {c.total.toFixed(2).replace('.', ',')}</p>
-                                   <p className="text-[9px] text-white/30">Criado {safeFormat(c.createdAt, 'dd/MM/yyyy')}</p>
-                                </div>
-
-                                {/* Acoes principais sempre visiveis + resto atras do menu "..." --
-                                    evita a fileira de 8-9 botoes quebrando linha, principalmente no mobile */}
-                                <div className="flex items-center gap-1.5">
-                                   <button onClick={() => setViewingContrato(c)} title="Visualizar" className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 text-white/60 hover:bg-white/10 hover:text-white transition-colors"><Eye size={14} /></button>
-                                   {/* Assinatura da empresa liberada a qualquer momento (antes ou depois do
-                                       cliente assinar) -- so fica escondida se o contrato ja foi assinado
-                                       pela empresa ou esta cancelado/encerrado. */}
-                                   {!c.empresaSignedAt && c.status !== 'cancelado' && c.status !== 'encerrado' && (
-                                     <button
-                                       onClick={() => { setSigningContrato(c); setSignContratoPassword(''); setSignContratoError(null); }}
-                                       title="Assinar pela empresa"
-                                       className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary-500/15 text-primary-400 hover:bg-primary-500/25 transition-colors"
-                                     >
-                                       <ShieldCheck size={14} />
-                                     </button>
-                                   )}
-                                   {c.phone && (
-                                     <button
-                                       onClick={() => openWhatsAppChat(c.phone!, c.customerName, `Ol√° ${c.customerName}! Segue o contrato ${c.numero} no valor de R$ ${c.total.toFixed(2).replace('.', ',')}.`)}
-                                       title="Abrir conversa no WhatsApp Interno"
-                                       className="flex items-center justify-center w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors"
-                                     >
-                                       <Send size={13} />
-                                     </button>
-                                   )}
-                                   <div className="relative">
-                                     <button
-                                       onClick={(e) => {
-                                         if (isMenuOpen) {
-                                           setOpenContratoActionsId(null);
-                                           return;
-                                         }
-                                         // Portal pro document.body + coordenadas reais do botao (em vez de
-                                         // absolute) pra escapar tanto do overflow-y-auto da lista quanto do
-                                         // motion.div (Framer Motion) que anima a troca de aba -- um motion.div
-                                         // com transform ativo vira "containing block" e quebra o position:fixed,
-                                         // fazendo ele ficar preso/cortado dentro da area animada em vez da tela toda.
-                                         const rect = e.currentTarget.getBoundingClientRect();
-                                         const MENU_H_ESTIMADA = 320; // so serve pra decidir se abre pra cima ou pra baixo
-                                         const abreParaCima = rect.bottom + MENU_H_ESTIMADA > window.innerHeight;
-                                         // Quando abre pra cima, ancora pelo "bottom" (colado no botao) em vez de
-                                         // calcular o "top" com a altura estimada -- o menu tem de 4 a 9 itens
-                                         // dependendo do contrato, entao a altura real quase nunca bate com a
-                                         // estimativa e o menu nascia flutuando longe do card, com um vao vazio
-                                         // entre ele e o botao.
-                                         setContratoActionsMenuPos({
-                                           top: abreParaCima ? undefined : rect.bottom + 6,
-                                           bottom: abreParaCima ? window.innerHeight - rect.top + 6 : undefined,
-                                           left: Math.max(8, Math.min(rect.right - 208, window.innerWidth - 216)),
-                                         });
-                                         setOpenContratoActionsId(c.id);
-                                       }}
-                                       title="Mais a√ß√µes"
-                                       className={cn("flex items-center justify-center w-8 h-8 rounded-lg transition-colors", isMenuOpen ? "bg-white/15 text-white" : "bg-white/5 text-white/60 hover:bg-white/10 hover:text-white")}
-                                     >
-                                       <MoreVertical size={14} />
-                                     </button>
-                                     {isMenuOpen && contratoActionsMenuPos && createPortal(
-                                       <>
-                                         {/* backdrop invisivel pra fechar o menu clicando fora, sem precisar de lib externa */}
-                                         <div className="fixed inset-0 z-[200]" onClick={() => setOpenContratoActionsId(null)} />
-                                         <div
-                                           style={{ top: contratoActionsMenuPos.top, bottom: contratoActionsMenuPos.bottom, left: contratoActionsMenuPos.left }}
-                                           className="fixed z-[201] w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl py-1.5 flex flex-col">
-                                            <button onClick={() => { setViewingAceiteDetalhes(c); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-emerald-400 hover:bg-white/5 text-left"><ShieldCheck size={13} /> Log de Evid√™ncias</button>
-                                            <button onClick={() => { openEditContrato(c); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left"><Pencil size={13} /> {podeEditarDireto ? 'Editar' : 'Editar (Nova Vers√£o)'}</button>
-                                            <button onClick={() => { handleDuplicateContrato(c); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left"><Copy size={13} /> Duplicar</button>
-                                            <button onClick={() => { handleDownloadContratoPdf(c); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left"><Download size={13} /> Gerar PDF</button>
-                                            {c.versao > 1 && (
-                                              <button onClick={() => { setViewingContratoHistorico(c); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left"><History size={13} /> Ver Hist√≥rico</button>
-                                            )}
-                                            {vendaVinc && (
-                                              <button onClick={() => { openReceiptById(vendaVinc.id); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left"><FileText size={13} /> Ver Nota</button>
-                                            )}
-                                            {orcamentoVinc && (
-                                              <button onClick={() => { setActiveTab('orcamentos'); setHighlightOrcamentoId(orcamentoVinc.id); setTimeout(() => setHighlightOrcamentoId(null), 4000); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-primary-300 hover:bg-white/5 text-left"><ExternalLink size={13} /> Abrir Or√ßamento</button>
-                                            )}
-
-                                            {!c.empresaSignedAt && c.status !== 'cancelado' && c.status !== 'encerrado' && (
-                                              <button onClick={() => { setSigningContrato(c); setSignContratoPassword(''); setSignContratoError(null); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-primary-400 hover:bg-white/5 text-left"><ShieldCheck size={13} /> Assinar pela empresa</button>
-                                            )}
-                                            {(c.status === 'rascunho' || c.status === 'aguardando_aceite' || c.status === 'aceito' || c.status === 'assinado' || c.status === 'em_execucao') && (
-                                              <div className="h-px bg-white/10 my-1.5" />
-                                            )}
-                                            {/* Contratos agora espelham as etapas do Pedido vinculado -- nao tem controle proprio aqui. */}
-                                            <button onClick={() => { handleDeleteContrato(c); setOpenContratoActionsId(null); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-rose-400/70 hover:bg-white/5 text-left"><Trash2 size={13} /> Excluir</button>
-                                         </div>
-                                       </>,
-                                       document.body
-                                     )}
-                                   </div>
-                                </div>
-                             </div>
-                          </div>
-                       </div>
-                     );
-                   })}
-                </div>
-              )}
-            </div>
-          );
-        })()}
-
-        {activeTab === 'excluidos' && (
-          <div className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar bg-slate-900/40 space-y-8">
-            <div className="space-y-6">
-              <SectionHeader
-                title="Notas/Recibos Exclu√≠dos"
-                subtitle={`Ficam aqui por 30 dias e depois somem automaticamente ‚Äî ${deletedSales.length} nota(s)`}
-              />
-
-              {isLoadingDeletedSales ? (
-                <div className="flex justify-center py-16"><RefreshCw className="animate-spin text-primary-500" size={24} /></div>
-              ) : deletedSales.length === 0 ? (
-                <div className="text-center py-16 text-white/30 text-sm">Nenhuma nota exclu√≠da no momento.</div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {deletedSales.map(sale => {
-                    const deletedDate = sale.deletedAt ? new Date(sale.deletedAt) : new Date();
-                    const diasRestantes = Math.max(0, 30 - Math.floor((Date.now() - deletedDate.getTime()) / (1000 * 60 * 60 * 24)));
-                    return (
-                      <div key={sale.id} className="bg-white/5 border border-rose-500/20 rounded-2xl p-4 space-y-3">
-                         <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                               <p className="text-[9px] font-mono text-white/30">#{sale.id.slice(-8).toUpperCase()}</p>
-                               <p className="font-black text-white truncate">{(sale.customerName || 'Cliente de Balc√£o').toUpperCase()}</p>
-                            </div>
-                            <span className="text-[8px] font-black uppercase px-2 py-1 rounded-full bg-rose-500/15 text-rose-400 shrink-0">{diasRestantes}d p/ apagar</span>
-                         </div>
-                         <div className="flex justify-between items-baseline">
-                            <span className="text-[10px] text-white/30 uppercase font-bold">{sale.items?.length || 0} item(ns)</span>
-                            <span className="text-lg font-black text-white/60 italic">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
-                         </div>
-                         <p className="text-[9px] text-white/30">Exclu√≠da em {safeFormat(sale.deletedAt, 'dd/MM/yyyy HH:mm')}</p>
-                         <div className="flex gap-1.5 pt-2 border-t border-white/5">
-                            <button onClick={() => handleRestoreSale(sale)} className="flex-1 text-[9px] font-black uppercase px-2 py-2 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20">Restaurar</button>
-                            <button onClick={() => handlePermanentDeleteSale(sale)} className="flex-1 text-[9px] font-black uppercase px-2 py-2 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20">Excluir Agora</button>
-                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            <div className="h-px bg-white/10" />
-
-            <div className="space-y-6">
-              <SectionHeader
-                title="Or√ßamentos Exclu√≠dos"
-                subtitle={`Ficam aqui por 30 dias e depois somem automaticamente ‚Äî ${deletedOrcamentos.length} or√ßamento(s)`}
-              />
-
-              {isLoadingDeletedOrcamentos ? (
-                <div className="flex justify-center py-16"><RefreshCw className="animate-spin text-primary-500" size={24} /></div>
-              ) : deletedOrcamentos.length === 0 ? (
-                <div className="text-center py-16 text-white/30 text-sm">Nenhum or√ßamento exclu√≠do no momento.</div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {deletedOrcamentos.map(o => {
-                    const deletedDate = o.deletedAt ? new Date(o.deletedAt) : new Date();
-                    const diasRestantes = Math.max(0, 30 - Math.floor((Date.now() - deletedDate.getTime()) / (1000 * 60 * 60 * 24)));
-                    const vinculos: string[] = [];
-                    if (o.vendaId) vinculos.push('Recibo');
-                    if (o.contratoId) vinculos.push('Contrato');
-                    return (
-                      <div key={o.id} className="bg-white/5 border border-rose-500/20 rounded-2xl p-4 space-y-3">
-                         <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                               <p className="text-[9px] font-mono text-white/30">{o.numero}</p>
-                               <p className="font-black text-white truncate">{(o.customerName || 'Sem cliente').toUpperCase()}</p>
-                            </div>
-                            <span className="text-[8px] font-black uppercase px-2 py-1 rounded-full bg-rose-500/15 text-rose-400 shrink-0">{diasRestantes}d p/ apagar</span>
-                         </div>
-                         <div className="flex justify-between items-baseline">
-                            <span className="text-[10px] text-white/30 uppercase font-bold">{o.items?.length || 0} item(ns)</span>
-                            <span className="text-lg font-black text-white/60 italic">R$ {o.total.toFixed(2).replace('.', ',')}</span>
-                         </div>
-                         {vinculos.length > 0 && (
-                           <p className="text-[9px] text-amber-400/80">‚ö†Ô∏è Ligado a: {vinculos.join(' e ')} (n√£o afetado)</p>
-                         )}
-                         <p className="text-[9px] text-white/30">Exclu√≠do em {safeFormat(o.deletedAt, 'dd/MM/yyyy HH:mm')}</p>
-                         <div className="flex gap-1.5 pt-2 border-t border-white/5">
-                            <button onClick={() => handleRestoreOrcamento(o)} className="flex-1 text-[9px] font-black uppercase px-2 py-2 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20">Restaurar</button>
-                            <button onClick={() => handlePermanentDeleteOrcamento(o)} className="flex-1 text-[9px] font-black uppercase px-2 py-2 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20">Excluir Agora</button>
-                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            <div className="h-px bg-white/10" />
-
-            <div className="space-y-6">
-              <SectionHeader
-                title="Contratos Exclu√≠dos"
-                subtitle={`Ficam aqui por 30 dias e depois somem automaticamente ‚Äî ${deletedContratos.length} contrato(s)`}
-              />
-
-              {isLoadingDeletedContratos ? (
-                <div className="flex justify-center py-16"><RefreshCw className="animate-spin text-primary-500" size={24} /></div>
-              ) : deletedContratos.length === 0 ? (
-                <div className="text-center py-16 text-white/30 text-sm">Nenhum contrato exclu√≠do no momento.</div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {deletedContratos.map(c => {
-                    const deletedDate = c.deletedAt ? new Date(c.deletedAt) : new Date();
-                    const diasRestantes = Math.max(0, 30 - Math.floor((Date.now() - deletedDate.getTime()) / (1000 * 60 * 60 * 24)));
-                    const vinculos: string[] = [];
-                    if (c.vendaId) vinculos.push('Recibo');
-                    if (c.orcamentoId) vinculos.push('Or√ßamento');
-                    return (
-                      <div key={c.id} className="bg-white/5 border border-rose-500/20 rounded-2xl p-4 space-y-3">
-                         <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                               <p className="text-[9px] font-mono text-white/30">{c.numero}</p>
-                               <p className="font-black text-white truncate">{(c.customerName || 'Sem cliente').toUpperCase()}</p>
-                            </div>
-                            <span className="text-[8px] font-black uppercase px-2 py-1 rounded-full bg-rose-500/15 text-rose-400 shrink-0">{diasRestantes}d p/ apagar</span>
-                         </div>
-                         <div className="flex justify-between items-baseline">
-                            <span className="text-[10px] text-white/30 uppercase font-bold">{c.items?.length || 0} item(ns)</span>
-                            <span className="text-lg font-black text-white/60 italic">R$ {c.total.toFixed(2).replace('.', ',')}</span>
-                         </div>
-                         {vinculos.length > 0 && (
-                           <p className="text-[9px] text-amber-400/80">‚ö†Ô∏è Ligado a: {vinculos.join(' e ')} (n√£o afetado)</p>
-                         )}
-                         <p className="text-[9px] text-white/30">Exclu√≠do em {safeFormat(c.deletedAt, 'dd/MM/yyyy HH:mm')}</p>
-                         <div className="flex gap-1.5 pt-2 border-t border-white/5">
-                            <button onClick={() => handleRestoreContrato(c)} className="flex-1 text-[9px] font-black uppercase px-2 py-2 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20">Restaurar</button>
-                            <button onClick={() => handlePermanentDeleteContrato(c)} className="flex-1 text-[9px] font-black uppercase px-2 py-2 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20">Excluir Agora</button>
-                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            <div className="h-px bg-white/10" />
-
-            <div className="space-y-4 bg-amber-500/5 border border-amber-500/20 rounded-2xl p-4">
-              <div className="flex items-center gap-2">
-                <AlertCircle size={16} className="text-amber-400" />
-                <h3 className="text-sm font-black text-amber-400">Limpeza de Dados</h3>
-              </div>
-              <p className="text-[11px] text-white/60">
-                Se h√° vendas aparecendo ap√≥s deletar contratos, clique abaixo para marc√°-las como deletadas:
-              </p>
-              <button 
-                onClick={cleanupOrphanedSales}
-                className="w-full text-[10px] font-black uppercase px-4 py-2.5 rounded-lg bg-amber-500/15 text-amber-400 hover:bg-amber-500/25 border border-amber-500/30"
-              >
-                üßπ Limpar Vendas √ìrf√£s
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-      {/* Customer Modal / Selecionar Cliente */}
-      <Modal 
-        isOpen={isCustomerModalOpen} 
-        onClose={() => { setIsCustomerModalOpen(false); setIsMoreOptionsOpen(false); setEditingCustomerId(null); setCustomerModalMode('search'); }} 
-        title={customerModalMode === 'create' ? (editingCustomerId ? 'Editar Cliente' : 'Cadastrar Cliente') : 'Selecionar Cliente'}
-        size={customerModalMode === 'create' ? 'md' : 'lg'}
-      >
-        <div className="space-y-5">
-           <div className="flex items-center justify-between gap-2">
-              <div className="flex bg-white/5 p-1 rounded-2xl border border-white/10 gap-1 flex-1">
-                 <button
-                   onClick={() => { setCustomerModalMode('search'); setEditingCustomerId(null); }}
-                   className={cn(
-                     "flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all",
-                     customerModalMode === 'search' ? "bg-primary-500 text-slate-900 shadow-lg" : "text-white/40 hover:text-white"
-                   )}
-                 >
-                   Pesquisar Cliente
-                 </button>
-                 <button
-                   onClick={() => { setCustomerModalMode('create'); setNewCustomerForm({ ...emptyCustomerForm }); setEditingCustomerId(null); setIsMoreOptionsOpen(false); }}
-                   className={cn(
-                     "flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all",
-                     customerModalMode === 'create' ? "bg-primary-500 text-slate-900 shadow-lg" : "text-white/40 hover:text-white"
-                   )}
-                 >
-                   Cadastrar Cliente
-                 </button>
-              </div>
-              <button
-                onClick={() => { setSelectedCustomer(null); proceedAfterCustomerStep(); }}
-                className="text-[9px] font-black uppercase text-white/30 hover:text-white/60 whitespace-nowrap px-1 transition-all shrink-0"
-                title="Continuar sem selecionar cliente"
-              >
-                Cliente Balc√£o
-              </button>
-           </div>
-
-           {customerModalMode === 'search' ? (
-             <div className="space-y-3">
-                <div className="flex gap-2">
-                   <Input
-                     icon={Search}
-                     placeholder="Buscar por nome, CPF/CNPJ, telefone ou e-mail..."
-                     value={customerSearchTerm}
-                     onChange={(e: any) => setCustomerSearchTerm(e.target.value)}
-                     autoFocus
-                     className="flex-1"
-                   />
-                   <select
-                     value={customerSortBy}
-                     onChange={(e) => setCustomerSortBy(e.target.value as any)}
-                     className="h-11 bg-white/5 border border-white/10 rounded-xl px-3 text-[10px] font-black uppercase text-white/70 focus:outline-none focus:border-primary-500 cursor-pointer shrink-0"
-                   >
-                     <option value="recentes" className="bg-slate-900">Mais Recentes</option>
-                     <option value="az" className="bg-slate-900">A-Z</option>
-                     <option value="ultima_compra" className="bg-slate-900">√öltima Compra</option>
-                     <option value="maior_valor" className="bg-slate-900">Maior Valor</option>
-                     <option value="frequentes" className="bg-slate-900">Frequentes</option>
-                   </select>
-                </div>
-
-                <div className="max-h-[26rem] overflow-y-auto custom-scrollbar space-y-2">
-                   {isLoadingCustomers && (
-                     <div className="flex justify-center py-10"><RefreshCw className="animate-spin text-primary-500" size={22} /></div>
-                   )}
-                   {!isLoadingCustomers && customerLoadError && (
-                     <p className="text-center text-xs text-rose-400 py-6 px-4">{customerLoadError}</p>
-                   )}
-                   {!isLoadingCustomers && !customerLoadError && filteredSortedCustomers.length === 0 && (
-                     <p className="text-center text-xs text-white/30 py-10">Nenhum cliente encontrado ({allCustomers.length} no total). Tente Cadastrar.</p>
-                   )}
-                   {!isLoadingCustomers && filteredSortedCustomers.map(c => {
-                     const stats = c._stats;
-                     const pendingBalance = stats?.pendingBalance || 0;
-                     const hasPending = pendingBalance > 0;
-                     const saldoCredito = Number(c.saldo_credito) || 0;
-                     const selectCustomer = () => {
-                       setSelectedCustomer({ id: c.id, name: c.full_name, phone: c.phone || '' });
-                       if (customerModalIntent === 'orcamento') {
-                         const enderecoParts = [c.logradouro, c.numero, c.distrito, c.city].filter(Boolean);
-                         setOrcamentoForm(prev => ({
-                           ...prev,
-                           clienteId: c.id,
-                           customerName: c.full_name,
-                           phone: c.phone || '',
-                           cpfCnpj: c.cpf_cnpj || '',
-                           address: enderecoParts.join(', '),
-                         }));
-                         setIsCustomerModalOpen(false);
-                         setOrcamentoModalOpen(true);
-                         return;
-                       }
-                       if (customerModalIntent === 'contrato') {
-                         const enderecoParts = [c.logradouro, c.numero, c.distrito, c.city].filter(Boolean);
-                         setContratoForm(prev => ({
-                           ...prev,
-                           clienteId: c.id,
-                           customerName: c.full_name,
-                           phone: c.phone || '',
-                           cpfCnpj: c.cpf_cnpj || '',
-                           address: enderecoParts.join(', '),
-                         }));
-                         setIsCustomerModalOpen(false);
-                         setContratoModalOpen(true);
-                         return;
-                       }
-                       proceedAfterCustomerStep();
-                     };
-                     return (
-                       <div key={c.id} className="w-full p-4 rounded-2xl border bg-white/5 border-white/5 hover:bg-white/10 transition-all group relative">
-                          <button
-                            onClick={() => {
-                              // Cliente com nota pendente: obriga o caixa a confirmar com o
-                              // cliente se ja foi paga antes de seguir, em vez de so mostrar
-                              // um aviso passivo que pode passar despercebido.
-                              if (hasPending) {
-                                setPendingDebtCustomer({ customer: c, pendingBalance });
-                                return;
-                              }
-                              selectCustomer();
-                            }}
-                            className="w-full text-left"
-                          >
-                            <div className="flex items-start justify-between gap-2">
-                               <div className="min-w-0">
-                                  <div className="flex items-center gap-1.5 flex-wrap">
-                                     <span className="font-bold text-white truncate">{(c.full_name || '').toUpperCase()}</span>
-                                  </div>
-                                  <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-[10px] text-white/40">
-                                     {c.phone && <span>{c.phone}</span>}
-                                     {c.city && <span>{c.city}</span>}
-                                     {c.created_at && <span>Desde {safeFormat(c.created_at, 'dd/MM/yyyy')}</span>}
-                                  </div>
-                                  {stats && (
-                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-[10px]">
-                                       <span className="text-emerald-400 font-bold">Total: R$ {stats.total.toFixed(2).replace('.', ',')}</span>
-                                       {stats.lastDate && <span className="text-white/30">√öltima compra: {format(new Date(stats.lastDate), 'dd/MM/yyyy')}</span>}
-                                    </div>
-                                  )}
-                                  {saldoCredito > 0 && (
-                                    <div className="mt-1.5 inline-flex items-center gap-1.5 px-2 py-1 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
-                                       <span className="text-[8px] font-black uppercase text-emerald-400 tracking-wider">Cr√©dito Dispon√≠vel:</span>
-                                       <span className="text-[11px] font-black text-emerald-300">R$ {saldoCredito.toFixed(2).replace('.', ',')}</span>
-                                    </div>
-                                  )}
-                                  {hasPending && (
-                                    <div className="mt-1.5 inline-flex items-center gap-1.5 px-2 py-1 bg-amber-500/10 border border-amber-500/30 rounded-lg">
-                                       <span className="text-[8px] font-black uppercase text-amber-400 tracking-wider">Conta em Aberto:</span>
-                                       <span className="text-[11px] font-black text-amber-300">R$ {pendingBalance.toFixed(2).replace('.', ',')}</span>
-                                    </div>
-                                  )}
-                               </div>
-                               <ChevronRight size={16} className="text-white/20 group-hover:text-white/50 transition-opacity shrink-0 mt-1" />
-                            </div>
-                          </button>
-                          <div className="flex items-center gap-1 mt-2 pt-2 border-t border-white/5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-                             <button onClick={(e) => { e.stopPropagation(); startEditCustomer(c); }} className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20" title="Editar"><Pencil size={12} /></button>
-                             <button onClick={(e) => { e.stopPropagation(); handleViewCustomerHistory(c); }} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Ver Hist√≥rico"><FileText size={12} /></button>
-                             {c.phone && (
-                               <button onClick={(e) => { e.stopPropagation(); openWhatsAppChat(c.phone, c.full_name); }} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Abrir conversa no WhatsApp Interno"><MessageSquare size={12} /></button>
-                             )}
-                             <button onClick={(e) => { e.stopPropagation(); handleDeleteCustomer(c); }} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 ml-auto" title="Excluir"><Trash2 size={12} /></button>
-                          </div>
-                       </div>
-                     );
-                   })}
-                </div>
-             </div>
-           ) : (
-             <div className="space-y-4">
-                <Input ref={customerNameInputRef} label="Nome *" value={newCustomerForm.full_name} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, full_name: e.target.value.toUpperCase() })} />
-                <div className="grid grid-cols-2 gap-3">
-                   <div className="relative">
-                      <Input
-                        label="CEP"
-                        placeholder="93000-000"
-                        value={newCustomerForm.cep}
-                        onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, cep: e.target.value })}
-                        onBlur={(e: any) => handleCepLookup(e.target.value)}
-                      />
-                      {isLookingUpCep && <RefreshCw size={14} className="animate-spin text-primary-400 absolute right-3 top-9" />}
-                   </div>
-                   <Input label="N√∫mero" value={newCustomerForm.numero} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, numero: e.target.value })} />
-                </div>
-                <Input label="E-mail" type="email" value={newCustomerForm.email} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, email: e.target.value })} />
-                <Input label="Logradouro" value={newCustomerForm.logradouro} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, logradouro: e.target.value })} />
-                <div className="grid grid-cols-2 gap-3">
-                   <PhoneInputBR label="WhatsApp (Telefone)" value={newCustomerForm.phone} onChange={(v: string) => setNewCustomerForm({ ...newCustomerForm, phone: v })} />
-                   <Input label="Bairro" value={newCustomerForm.distrito} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, distrito: e.target.value })} />
-                </div>
-
-                <AnimatePresence>
-                  {isMoreOptionsOpen && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      transition={{ duration: 0.25, ease: 'easeInOut' }}
-                      className="overflow-hidden space-y-5"
-                    >
-                       <div className="h-px bg-white/10" />
-                       <div className="space-y-3">
-                          <p className="text-[9px] font-black uppercase text-primary-300 tracking-[2px]">Dados Pessoais</p>
-                          <div className="grid grid-cols-2 gap-3">
-                             <Input label="Data de Nascimento" type="date" value={newCustomerForm.nascimento} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, nascimento: e.target.value })} />
-                             <CpfCnpjInput label="CPF / CNPJ" value={newCustomerForm.cpf_cnpj} onChange={(v: string) => setNewCustomerForm({ ...newCustomerForm, cpf_cnpj: v })} />
-                             <RgInput label="RG" value={newCustomerForm.rg} onChange={(v: string) => setNewCustomerForm({ ...newCustomerForm, rg: v })} />
-                             <Input label="Cidade" value={newCustomerForm.city} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, city: e.target.value })} />
-                             <Input label="Estado" value={newCustomerForm.state} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, state: e.target.value })} />
-                             <Input label="Complemento" className="col-span-2" value={newCustomerForm.complemento} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, complemento: e.target.value })} />
-                          </div>
-                       </div>
-
-                       <div className="space-y-3">
-                          <p className="text-[9px] font-black uppercase text-primary-300 tracking-[2px]">Financeiro</p>
-                          <Input label="Limite de Cr√©dito (R$)" type="number" step="any" value={newCustomerForm.limite_credito} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, limite_credito: e.target.value })} />
-                       </div>
-
-                       <div className="space-y-3">
-                          <div className="flex items-center justify-between">
-                             <p className="text-[9px] font-black uppercase text-primary-300 tracking-[2px]">Patrim√¥nios</p>
-                             <button onClick={addPatrimonioRow} className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20" title="Adicionar propriedade"><Plus size={13} /></button>
-                          </div>
-                          {newCustomerForm.patrimonios.length === 0 && (
-                            <p className="text-[10px] text-white/30">Ex: Casa ‚Äî R$ 350.000, Carro ‚Äî R$ 85.000</p>
-                          )}
-                          {newCustomerForm.patrimonios.map((p, idx) => (
-                            <div key={idx} className="flex gap-2 items-center">
-                               <input
-                                 placeholder="Propriedade (ex: Casa)"
-                                 value={p.propriedade}
-                                 onChange={(e) => updatePatrimonioRow(idx, 'propriedade', e.target.value)}
-                                 className="flex-1 h-10 bg-white/5 border border-white/10 rounded-xl px-3 text-xs text-white placeholder-white/30 focus:outline-none focus:border-primary-500"
-                               />
-                               <input
-          onFocus={(e: any) => e.target.select()}
-                                 placeholder="Valor (R$)"
-                                 type="number"
-                                 value={p.valor}
-                                 onChange={(e) => updatePatrimonioRow(idx, 'valor', e.target.value)}
-                                 className="w-32 h-10 bg-white/5 border border-white/10 rounded-xl px-3 text-xs text-white placeholder-white/30 focus:outline-none focus:border-primary-500"
-                               />
-                               <button onClick={() => removePatrimonioRow(idx)} className="p-2 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20"><Trash2 size={13} /></button>
-                            </div>
-                          ))}
-                       </div>
-
-                       <div className="space-y-2">
-                          <p className="text-[9px] font-black uppercase text-primary-300 tracking-[2px]">Observa√ß√µes</p>
-                          <textarea
-                            rows={4}
-                            placeholder="Anota√ß√µes internas sobre o cliente..."
-                            value={newCustomerForm.notes}
-                            onChange={(e) => setNewCustomerForm({ ...newCustomerForm, notes: e.target.value })}
-                            className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white placeholder-white/30 focus:outline-none focus:border-primary-500 resize-none"
-                          />
-                       </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-
-                <div className="flex gap-3 pt-2">
-                   <Button variant="ghost" className="flex-1 h-12" onClick={() => { setCustomerModalMode('search'); setIsMoreOptionsOpen(false); setEditingCustomerId(null); }}>Cancelar</Button>
-                   <Button variant="secondary" className="flex-1 h-12" onClick={() => setIsMoreOptionsOpen(prev => !prev)}>
-                     {isMoreOptionsOpen ? 'Menos Op√ß√µes' : 'Mais Op√ß√µes'}
-                   </Button>
-                   <Button className="flex-1 h-12" disabled={isCreatingCustomer} onClick={handleCreateCustomerInline}>
-                     {isCreatingCustomer ? 'Salvando...' : 'Salvar'}
-                   </Button>
-                </div>
-             </div>
-           )}
-
-           {customerModalMode === 'search' && (
-             <button
-               onClick={() => {
-                 setSelectedCustomer(null);
-                 proceedAfterCustomerStep();
-               }}
-               className="w-full text-center py-3 text-[10px] font-black uppercase tracking-widest text-white/40 hover:text-white transition-all"
-             >
-               Pular (Cliente de Balc√£o)
-             </button>
-           )}
-        </div>
-      </Modal>
-
-      {/* Custos da Nota (Admin) -- custos extras/diretos dessa producao especifica (mao de
-          obra, frete, andaime, insumo aplicado fora do padrao), separados do Estoque de
-          Insumos. Fica oculto do cliente; so entra no calculo do Lucro Liquido do painel. */}
-      <Modal isOpen={!!custosNotaSale} onClose={() => setCustosNotaSale(null)} title="Custos da Nota e An√°lise de Lucro" size="md">
-        {custosNotaSale && (() => {
-          const down = custosNotaSale.status === 'completed' ? custosNotaSale.total : (custosNotaSale.downPayment || 0);
-          const totalVenda = custosNotaSale.total;
-          const isFullyPaid = custosNotaSale.status === 'completed' || down >= totalVenda;
-          const proporcao = (!isFullyPaid && totalVenda > 0) ? down / totalVenda : undefined;
-          
-          // Custo de Material (Lona / Adesivo / Insumos)
-          const custoMaterialBruto = (custosNotaSale.items || []).reduce((acc, item) => {
-            if (!isMaterialLonaAdesivo(item.name)) return acc;
-            const custoUnit = (item.productId && produtosCostMap[item.productId]) || 0;
-            const qtd = item.area ? item.area * item.quantity : item.quantity;
-            return acc + custoUnit * qtd;
-          }, 0);
-          const custoMaterial = proporcao ? custoMaterialBruto * proporcao : custoMaterialBruto;
-
-          // Separar comiss√µes/m√£o de obra de custos extras manuais
-          const custosComissoes = custosNotaDraft.filter(c => c.description.toLowerCase().startsWith('comiss√£o') || c.description.toLowerCase().startsWith('mao de obra') || c.description.toLowerCase().startsWith('m√£o de obra'));
-          const outrosCustos = custosNotaDraft.filter(c => !c.description.toLowerCase().startsWith('comiss√£o') && !c.description.toLowerCase().startsWith('mao de obra') && !c.description.toLowerCase().startsWith('m√£o de obra'));
-          
-          const totalComissoes = custosComissoes.reduce((s, c) => s + (Number(c.amount) || 0), 0);
-          const totalOutros = outrosCustos.reduce((s, c) => s + (Number(c.amount) || 0), 0);
-          const totalExtras = totalComissoes + totalOutros;
-          const totalCustosNota = custoMaterial + totalExtras;
-          const lucroLiquidoReal = down - totalCustosNota;
-          const margemLucro = down > 0 ? (lucroLiquidoReal / down) * 100 : 0;
-
-          return (
-            <div className="space-y-4">
-              {/* Header da Nota */}
-              <div className="bg-slate-950/60 border border-white/10 rounded-xl p-3 flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-black text-white uppercase">{custosNotaSale.customerName || 'Cliente de Balc√£o'}</span>
-                    <Badge className="text-[7px] font-mono font-bold bg-white/10 text-white/70 border-none">
-                      #{custosNotaSale.id.slice(-8).toUpperCase()}
-                    </Badge>
-                  </div>
-                  <p className="text-[9px] text-white/40 mt-0.5">
-                    Total do Pedido: <b className="text-white/80">R$ {totalVenda.toFixed(2).replace('.', ',')}</b> ‚Ä¢ Recebido: <b className="text-emerald-400">R$ {down.toFixed(2).replace('.', ',')}</b> {!isFullyPaid && '(Parcial)'}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <span className="text-[8px] uppercase font-bold text-white/40 block">Lucro L√≠quido Real</span>
-                  <span className={cn("text-sm font-black", lucroLiquidoReal >= 0 ? "text-emerald-400" : "text-rose-400")}>
-                    R$ {lucroLiquidoReal.toFixed(2).replace('.', ',')} ({margemLucro.toFixed(0)}%)
-                  </span>
-                </div>
-              </div>
-
-              {/* 1. Materiais / Insumos */}
-              <div className="bg-slate-900/60 border border-white/5 rounded-xl p-3 space-y-2">
-                <div className="flex items-center justify-between border-b border-white/5 pb-1.5">
-                  <span className="text-[10px] font-black text-white/80 uppercase tracking-wider flex items-center gap-1.5">
-                    <Layers size={13} className="text-amber-400" /> 1. Mat√©ria-Prima & Insumos (Autom√°tico)
-                  </span>
-                  <span className="text-[10px] font-bold text-amber-300">
-                    R$ {custoMaterial.toFixed(2).replace('.', ',')}
-                  </span>
-                </div>
-                <div className="space-y-1">
-                  {(custosNotaSale.items || []).filter(item => isMaterialLonaAdesivo(item.name)).length === 0 ? (
-                    <p className="text-[9px] text-white/30 italic">Nenhum insumo de metragem (Lona/Adesivo) cadastrado nesta nota.</p>
-                  ) : (
-                    (custosNotaSale.items || []).filter(item => isMaterialLonaAdesivo(item.name)).map((item, idx) => {
-                      const custoUnit = (item.productId && produtosCostMap[item.productId]) || 0;
-                      const qtd = item.area ? item.area * item.quantity : item.quantity;
-                      const custoItem = custoUnit * qtd;
-                      return (
-                        <div key={idx} className="flex justify-between items-center text-[9.5px] text-white/60">
-                          <span className="truncate max-w-[240px]">{item.quantity}x {item.name}</span>
-                          <span className="font-mono text-white/80">R$ {custoItem.toFixed(2).replace('.', ',')}</span>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-
-              {/* 2. Comiss√µes / M√£o de Obra e 3. Custos Extras */}
-              <div className="bg-slate-900/60 border border-white/5 rounded-xl p-3 space-y-2">
-                <div className="flex items-center justify-between border-b border-white/5 pb-1.5">
-                  <span className="text-[10px] font-black text-white/80 uppercase tracking-wider flex items-center gap-1.5">
-                    <ClipboardCheck size={13} className="text-emerald-400" /> 2. Comiss√µes & Custos Extras da Produ√ß√£o
-                  </span>
-                  <span className="text-[10px] font-bold text-rose-300">
-                    R$ {totalExtras.toFixed(2).replace('.', ',')}
-                  </span>
-                </div>
-
-                <div className="space-y-1.5 max-h-44 overflow-y-auto custom-scrollbar">
-                  {custosNotaDraft.length === 0 ? (
-                    <p className="text-[9px] text-white/30 italic text-center py-2">Nenhum custo extra ou comiss√£o lan√ßado nesta nota.</p>
-                  ) : (
-                    custosNotaDraft.map(c => {
-                      const isComissao = c.description.toLowerCase().startsWith('comiss√£o') || c.description.toLowerCase().startsWith('mao de obra') || c.description.toLowerCase().startsWith('m√£o de obra');
-                      return (
-                        <div key={c.id} className={cn("flex items-center justify-between gap-2 border rounded-lg px-2.5 py-1.5", isComissao ? "bg-emerald-950/30 border-emerald-500/20" : "bg-slate-950/40 border-white/5")}>
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            {isComissao ? <ClipboardCheck size={12} className="text-emerald-400 shrink-0" /> : <DollarSign size={12} className="text-rose-400 shrink-0" />}
-                            <span className="text-[10px] text-white/80 truncate">{c.description}</span>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <span className={cn("text-[10px] font-bold", isComissao ? "text-emerald-300" : "text-rose-300")}>
-                              R$ {Number(c.amount).toFixed(2).replace('.', ',')}
-                            </span>
-                            <button type="button" onClick={() => removerCustoNota(c.id)} className="text-white/30 hover:text-rose-400 p-0.5" title="Remover custo">
-                              <Trash2 size={12} />
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-
-                {/* Formul√°rio para Adicionar Custo Extra */}
-                <div className="pt-2 border-t border-white/5 space-y-1.5">
-                  <span className="text-[8.5px] font-bold text-white/40 uppercase block">Adicionar Novo Custo ou M√£o de Obra</span>
-                  <div className="flex gap-2 items-end">
-                    <div className="flex-1">
-                      <Input label="DESCRICAO" placeholder="Ex: Frete, M√£o de obra, Terceiriza√ß√£o..." value={novoCustoDesc} onChange={(e: any) => setNovoCustoDesc(e.target.value)} />
-                    </div>
-                    <div className="w-24">
-                      <Input label="VALOR" type="number" prefix="R$" step="any" value={novoCustoValor} onChange={(e: any) => setNovoCustoValor(e.target.value === '' ? '' : Number(e.target.value))} />
-                    </div>
-                    <Button variant="secondary" className="h-12 px-2.5" title="Abrir calculadora" onClick={abrirCalculadora}>
-                      <Calculator size={15} />
-                    </Button>
-                    <Button variant="secondary" className="h-12 px-3.5 bg-white/10 hover:bg-white/20 text-white font-bold" onClick={adicionarCustoNota}>
-                      +
-                    </Button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Resumo Final de Custos */}
-              <div className="grid grid-cols-3 gap-2 bg-slate-950/80 border border-white/10 rounded-xl p-2.5 text-center">
-                <div>
-                  <span className="text-[7.5px] uppercase font-bold text-white/40 block">Total Mat√©ria-Prima</span>
-                  <span className="text-[10px] font-bold text-amber-300">R$ {custoMaterial.toFixed(2).replace('.', ',')}</span>
-                </div>
-                <div>
-                  <span className="text-[7.5px] uppercase font-bold text-white/40 block">Comiss√µes & Extras</span>
-                  <span className="text-[10px] font-bold text-rose-300">R$ {totalExtras.toFixed(2).replace('.', ',')}</span>
-                </div>
-                <div>
-                  <span className="text-[7.5px] uppercase font-bold text-emerald-400/80 block">Lucro L√≠quido</span>
-                  <span className="text-[10px] font-black text-emerald-400">R$ {lucroLiquidoReal.toFixed(2).replace('.', ',')}</span>
-                </div>
-              </div>
-
-              <div className="flex gap-3 pt-1">
-                <Button variant="secondary" className="flex-1 h-11" onClick={() => setCustosNotaSale(null)}>Cancelar</Button>
-                <Button disabled={custosNotaSaving} className="flex-[2] h-11 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black border-none" onClick={salvarCustosNota}>
-                  {custosNotaSaving ? 'Salvando...' : 'Salvar Altera√ß√µes'}
-                </Button>
-              </div>
-            </div>
-          );
-        })()}
-      </Modal>
-
-      {/* Calculadora auxiliar do campo VALOR em Custos da Nota -- soma partes de um custo
-          composto (ex: 2 ajudantes x R$50 + frete) antes de lancar como um unico item. */}
-      <Modal isOpen={calculadoraOpen} onClose={() => setCalculadoraOpen(false)} title="Calculadora" size="sm">
-        <div className="space-y-3">
-          <div className="bg-slate-950/60 border border-white/5 rounded-xl px-4 py-4 text-right">
-            <p className="text-2xl font-black text-white truncate">{calculadoraExpr || '0'}</p>
-          </div>
-
-          <div className="grid grid-cols-4 gap-2">
-            {['C', '‚å´', '%', '√∑'].map(b => (
-              <button
-                key={b}
-                onClick={() => calculadoraPressionar(b)}
-                className="h-12 rounded-xl bg-slate-900/60 border border-white/5 text-white/70 font-bold hover:bg-slate-800/80 active:scale-95 transition"
-              >
-                {b}
-              </button>
-            ))}
-            {['7', '8', '9', '√ó'].map(b => (
-              <button
-                key={b}
-                onClick={() => calculadoraPressionar(b)}
-                className={`h-12 rounded-xl font-bold active:scale-95 transition ${b === '√ó' ? 'bg-slate-900/60 border border-white/5 text-white/70 hover:bg-slate-800/80' : 'bg-slate-800/60 border border-white/5 text-white hover:bg-slate-800'}`}
-              >
-                {b}
-              </button>
-            ))}
-            {['4', '5', '6', '-'].map(b => (
-              <button
-                key={b}
-                onClick={() => calculadoraPressionar(b)}
-                className={`h-12 rounded-xl font-bold active:scale-95 transition ${b === '-' ? 'bg-slate-900/60 border border-white/5 text-white/70 hover:bg-slate-800/80' : 'bg-slate-800/60 border border-white/5 text-white hover:bg-slate-800'}`}
-              >
-                {b}
-              </button>
-            ))}
-            {['1', '2', '3', '+'].map(b => (
-              <button
-                key={b}
-                onClick={() => calculadoraPressionar(b)}
-                className={`h-12 rounded-xl font-bold active:scale-95 transition ${b === '+' ? 'bg-slate-900/60 border border-white/5 text-white/70 hover:bg-slate-800/80' : 'bg-slate-800/60 border border-white/5 text-white hover:bg-slate-800'}`}
-              >
-                {b}
-              </button>
-            ))}
-            <button
-              onClick={() => calculadoraPressionar('0')}
-              className="h-12 rounded-xl bg-slate-800/60 border border-white/5 text-white font-bold hover:bg-slate-800 active:scale-95 transition col-span-2"
-            >
-              0
-            </button>
-            <button
-              onClick={() => calculadoraPressionar('.')}
-              className="h-12 rounded-xl bg-slate-800/60 border border-white/5 text-white font-bold hover:bg-slate-800 active:scale-95 transition"
-            >
-              .
-            </button>
-            <button
-              onClick={() => calculadoraPressionar('=')}
-              className="h-12 rounded-xl bg-primary-500 text-slate-900 font-black hover:brightness-110 active:scale-95 transition"
-            >
-              =
-            </button>
-          </div>
-
-          <Button className="w-full h-12 bg-primary-500 text-slate-900 border-none" onClick={usarValorCalculadora}>
-            Usar este valor
-          </Button>
-        </div>
-      </Modal>
-
-      {/* Aviso obrigatorio: cliente selecionado tem nota pendente. Forca o caixa a olhar
-          e decidir antes de continuar, em vez de so um badge que pode passar despercebido. */}
-      {pendingDebtCustomer && (
-        <Modal isOpen={!!pendingDebtCustomer} onClose={() => setPendingDebtCustomer(null)} title="‚ö†Ô∏è Cliente com Conta em Aberto" size="sm">
-          <div className="space-y-4 p-2">
-             <p className="text-sm text-white/70">
-                <span className="font-black text-white">{(pendingDebtCustomer.customer.full_name || '').toUpperCase()}</span> tem uma nota pendente de{' '}
-                <span className="font-black text-amber-400">R$ {pendingDebtCustomer.pendingBalance.toFixed(2).replace('.', ',')}</span>.
-             </p>
-             <p className="text-xs text-white/50">
-                Confirme com o cliente se essa nota j√° foi paga antes de continuar, para n√£o deixar uma pend√™ncia duplicada ou esquecida no sistema.
-             </p>
-             <div className="space-y-2 pt-2">
-                <button
-                  onClick={() => {
-                    const c = pendingDebtCustomer.customer;
-                    setPendingDebtCustomer(null);
-                    setIsCustomerModalOpen(false);
-                    setHistoryClienteIdFilter(c.id);
-                    setHistorySearch(c.full_name);
-                    setActiveTab('historico');
-                  }}
-                  className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-900 font-black text-xs uppercase tracking-wide transition-all"
-                >
-                  Ver Nota Pendente
-                </button>
-                <button
-                  onClick={() => {
-                    const c = pendingDebtCustomer.customer;
-                    setPendingDebtCustomer(null);
-                    setSelectedCustomer({ id: c.id, name: c.full_name, phone: c.phone || '' });
-                    if (customerModalIntent === 'orcamento') {
-                      const enderecoParts = [c.logradouro, c.numero, c.distrito, c.city].filter(Boolean);
-                      setOrcamentoForm(prev => ({
-                        ...prev,
-                        clienteId: c.id,
-                        customerName: c.full_name,
-                        phone: c.phone || '',
-                        cpfCnpj: c.cpf_cnpj || '',
-                        address: enderecoParts.join(', '),
-                      }));
-                      setIsCustomerModalOpen(false);
-                      setOrcamentoModalOpen(true);
-                      return;
-                    }
-                    if (customerModalIntent === 'contrato') {
-                      const enderecoParts = [c.logradouro, c.numero, c.distrito, c.city].filter(Boolean);
-                      setContratoForm(prev => ({
-                        ...prev,
-                        clienteId: c.id,
-                        customerName: c.full_name,
-                        phone: c.phone || '',
-                        cpfCnpj: c.cpf_cnpj || '',
-                        address: enderecoParts.join(', '),
-                      }));
-                      setIsCustomerModalOpen(false);
-                      setContratoModalOpen(true);
-                      return;
-                    }
-                    proceedAfterCustomerStep();
-                  }}
-                  className="w-full py-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-black text-xs uppercase tracking-wide transition-all"
-                >
-                  J√° Verifiquei ‚Äî Continuar Mesmo Assim
-                </button>
-                <button
-                  onClick={() => setPendingDebtCustomer(null)}
-                  className="w-full py-2 text-white/40 hover:text-white/60 font-bold text-xs uppercase tracking-wide transition-all"
-                >
-                  Cancelar
-                </button>
-             </div>
-          </div>
-        </Modal>
-      )}
-
-      {/* Payment Modal */}
-      <Modal 
-        isOpen={isPaymentModalOpen} 
-        onClose={handleClosePaymentModal} 
-        title={settlingOrder ? `Quitar D√©bito ‚Äî Pedido #${settlingOrder.id.slice(-8).toUpperCase()}` : editingFullOrder ? `Salvar Altera√ß√µes ‚Äî Pedido #${editingFullOrder.id.slice(-8).toUpperCase()}` : "Finalizar Venda / Fechar Nota"}
-        size="lg"
-        className="max-h-[96vh] my-auto"
-        contentClassName="min-h-0"
-      >
-        <div className="flex-1 min-h-0 flex flex-col justify-between overflow-hidden gap-1.5 sm:gap-2.5">
-           {/* Top Info Bar: Customer & Summary combined */}
-           <div className="space-y-1.5 shrink-0">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 sm:gap-2">
-                 <div className="p-2 sm:p-2.5 bg-white/5 rounded-xl border border-white/5 flex gap-2 items-center min-w-0">
-                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-primary-500/20 text-primary-300 flex items-center justify-center border border-primary-500/30 shrink-0">
-                       <UserCheck size={16} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                       <p className="text-[7px] sm:text-[8px] font-black uppercase tracking-widest text-white/30 leading-none mb-0.5">Cliente Atendido</p>
-                       <p className="text-[10px] sm:text-xs font-black text-white truncate">{selectedCustomer ? selectedCustomer.name : 'Cliente de Balc√£o'}</p>
-                    </div>
-                    <Button 
-                      variant="secondary" 
-                      size="sm" 
-                      className={cn("text-[7.5px] sm:text-[8px] uppercase tracking-widest h-6 sm:h-7 px-2 border-white/10 shrink-0", settlingOrder && "invisible")}
-                      disabled={!!settlingOrder}
-                      onClick={() => {
-                         setIsPaymentModalOpen(false);
-                         setCustomerModalIntent('finalize');
-                         setCustomerModalMode('search');
-                         setIsCustomerModalOpen(true);
-                      }}
-                    >
-                      Alterar
-                    </Button>
-                 </div>
-
-                 <div className="p-2 sm:p-2.5 bg-slate-900 rounded-xl border border-white/5 flex justify-between items-center px-3 sm:px-4">
-                    <div>
-                       <p className="text-[7px] sm:text-[8px] font-black text-white/30 uppercase tracking-widest leading-none mb-0.5">
-                          Total a Pagar{saleDiscountValue > 0 ? ` (com desconto de R$ ${saleDiscountValue.toFixed(2).replace('.', ',')})` : ''}{saleCreditApplied > 0 ? ` (cr√©dito de R$ ${saleCreditApplied.toFixed(2).replace('.', ',')} aplicado)` : ''}
-                       </p>
-                       <p className="text-sm sm:text-lg md:text-xl font-black text-white tracking-tighter italic leading-none">
-                          R$ {paymentModalTotal.toFixed(2).replace('.', ',')}
-                       </p>
-                    </div>
-                    <Badge variant="primary" className="bg-emerald-500/10 text-emerald-400 border-none font-black text-[8px] sm:text-[9px] tracking-widest uppercase py-0.5 px-2">Conferido</Badge>
-                 </div>
-              </div>
-
-              {!settlingOrder && selectedCustomerCredit > 0 && (
-                <div className="flex items-center justify-between gap-2 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
-                   <p className="text-[9px] font-bold text-emerald-300">
-                      Cliente tem <span className="font-black">R$ {selectedCustomerCredit.toFixed(2).replace('.', ',')}</span> de cr√©dito
-                      {saleCreditApplied > 0 ? ` ¬∑ R$ ${saleCreditApplied.toFixed(2).replace('.', ',')} aplicado` : ''}
-                   </p>
-                   {saleCreditApplied > 0 ? (
-                     <button onClick={() => setSaleCreditApplied(0)} className="h-6 px-2 rounded-lg bg-rose-500/10 text-rose-400 text-[8px] font-black uppercase hover:bg-rose-500/20 shrink-0 cursor-pointer">Remover</button>
-                   ) : (
-                     <button onClick={applySaleCredit} className="h-6 px-2 rounded-lg bg-emerald-500/15 text-emerald-300 text-[8px] font-black uppercase hover:bg-emerald-500/25 shrink-0 cursor-pointer">Aplicar</button>
-                   )}
-                </div>
-              )}
-
-              {/* Bloco de Desconto na Nota (Acess√≠vel no Mobile e Desktop) */}
-              <div className="p-2 bg-white/5 rounded-xl border border-white/5 space-y-1.5">
-                 <div className="flex items-center justify-between gap-2">
-                    <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-wider text-white/40 flex items-center gap-1">
-                       <Percent size={11} className="text-primary-300" /> Desconto na Nota
-                    </span>
-                    <div className="flex bg-white/5 p-0.5 rounded-lg border border-white/10 gap-0.5">
-                       <button onClick={() => { setSaleDiscountMode('percentual'); setSaleDiscountInput(''); }} className={cn("px-2 py-0.5 rounded text-[8px] font-black uppercase transition-all cursor-pointer", saleDiscountMode === 'percentual' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Desc. %</button>
-                       <button onClick={() => { setSaleDiscountMode('valor'); setSaleDiscountInput(''); }} className={cn("px-2 py-0.5 rounded text-[8px] font-black uppercase transition-all cursor-pointer", saleDiscountMode === 'valor' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Desc. R$</button>
-                       <button onClick={() => { setSaleDiscountMode('final'); setSaleDiscountInput(''); }} className={cn("px-2 py-0.5 rounded text-[8px] font-black uppercase transition-all cursor-pointer", saleDiscountMode === 'final' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Valor Final</button>
-                    </div>
-                 </div>
-
-                 <div className="flex items-center gap-1.5 flex-wrap sm:flex-nowrap">
-                    {saleDiscountMode === 'percentual' && (
-                       <div className="flex items-center gap-1 shrink-0">
-                          {[5, 10, 15, 20].map((pct) => (
-                             <button
-                                key={pct}
-                                type="button"
-                                onClick={() => {
-                                   setSaleDiscountInput(pct);
-                                   const base = activeRawTotal;
-                                   setSaleDiscountValue(base * (pct / 100));
-                                }}
-                                className={cn(
-                                   "h-7 px-1.5 rounded-lg text-[8px] font-black uppercase border transition-all cursor-pointer",
-                                   saleDiscountInput === pct ? "bg-primary-500/20 border-primary-500 text-primary-300" : "bg-white/5 border-white/10 text-white/50 hover:bg-white/10"
-                                )}
-                             >
-                                {pct}%
-                             </button>
-                          ))}
-                       </div>
-                    )}
-                    <input 
-                      onFocus={(e: any) => e.target.select()}
-                      type="number"
-                      step="any"
-                      min={0}
-                      inputMode="decimal"
-                      value={saleDiscountInput}
-                      onChange={(e) => setSaleDiscountInput(e.target.value === '' ? '' : Number(e.target.value))}
-                      placeholder={saleDiscountMode === 'percentual' ? '% de desconto' : saleDiscountMode === 'valor' ? 'R$ de desconto' : 'R$ valor final'}
-                      className="flex-1 min-w-[90px] h-7 bg-slate-900/80 border border-white/10 rounded-lg px-2 text-[10px] text-white focus:outline-none focus:border-primary-500 font-bold"
-                    />
-                    <button onClick={applySaleDiscountInput} className="h-7 px-3 rounded-lg bg-primary-500 text-slate-900 text-[9px] font-black uppercase hover:bg-primary-400 shrink-0 cursor-pointer shadow-xs">Aplicar</button>
-                    {saleDiscountValue > 0 && (
-                      <button onClick={() => { setSaleDiscountValue(0); setSaleDiscountInput(''); }} className="h-7 px-2 rounded-lg bg-rose-500/10 text-rose-400 text-[9px] font-black uppercase hover:bg-rose-500/20 shrink-0 cursor-pointer">Limpar</button>
-                    )}
-                 </div>
-              </div>
-           </div>
-
-           <div className="grid grid-cols-1 md:grid-cols-12 gap-2 sm:gap-3 flex-1 min-h-0 overflow-y-auto md:overflow-hidden custom-scrollbar">
-              {/* Left Side: Items & Summary Details */}
-              <div className="md:col-span-5 flex flex-col justify-between min-h-0 overflow-hidden gap-1.5 sm:gap-2">
-                 <div className="flex-1 flex flex-col gap-1 overflow-hidden min-h-0 bg-white/5 rounded-xl border border-white/5 p-2">
-                    <p className="text-[8px] sm:text-[9px] font-black uppercase text-white/40 tracking-widest shrink-0">Resumo da Nota ({paymentModalItems.length})</p>
-                    <div className="flex-1 overflow-y-auto custom-scrollbar divide-y divide-white/5 min-h-[50px]">
-                       {paymentModalItems.map((item, idx) => (
-                          <div key={idx} className="py-1 px-1.5 flex justify-between items-center hover:bg-white/5 transition-colors">
-                             <div className="flex items-center gap-1.5 min-w-0">
-                                <span className="text-[8px] font-black text-white/40 bg-white/10 px-1 py-0.5 rounded text-center min-w-[18px]">{item.quantity}x</span>
-                                <div className="flex flex-col min-w-0">
-                                   <span className="text-[8.5px] sm:text-[9px] font-bold text-white/80 uppercase truncate max-w-[120px]">{item.name}</span>
-                                   {item.dimensions && (
-                                      <span className="text-[7px] text-white/40 font-bold tracking-wider uppercase">
-                                         {item.dimensions} ({item.area?.toFixed(2).replace('.', ',')} m¬≤)
-                                      </span>
-                                   )}
-                                </div>
-                             </div>
-                             <span className="text-[8.5px] sm:text-[9px] font-black text-primary-300 italic shrink-0 ml-1">R$ {(item.area ? item.price * item.area * item.quantity : item.price * item.quantity).toFixed(2).replace('.', ',')}</span>
-                          </div>
-                       ))}
-                    </div>
-                 </div>
-
-                 <div className="p-2 sm:p-2.5 bg-white/3 rounded-xl border border-white/5 flex justify-between items-center shrink-0">
-                    <div>
-                       <p className="text-[7.5px] sm:text-[8px] font-black text-white/30 uppercase tracking-widest leading-none">{settlingOrder ? 'Entrada J√° Recebida' : 'Pago / Entrada'}</p>
-                       <p className="text-xs font-black text-emerald-400 mt-0.5">R$ {(settlingOrder ? alreadyPaidForSettle : (downPayment === '' || typeof downPayment === 'string' ? 0 : Number(downPayment))).toFixed(2).replace('.', ',')}</p>
-                    </div>
-                    <div className="text-right">
-                       <p className="text-[7.5px] sm:text-[8px] font-black text-white/30 uppercase tracking-widest leading-none">Saldo Restante</p>
-                       <p className={cn("text-xs font-black mt-0.5", paymentModalRemaining > 0 ? "text-rose-400" : "text-white/40")}>R$ {paymentModalRemaining.toFixed(2).replace('.', ',')}</p>
-                    </div>
-                 </div>
-              </div>
-
-              {/* Right Side: Multiple Payments */}
-              <div className="md:col-span-7 flex flex-col justify-between min-h-0 overflow-hidden gap-1.5 sm:gap-2">
-                 <div className="flex-1 min-h-0 flex flex-col gap-1.5 overflow-hidden">
-                    <p className="text-[8px] sm:text-[9px] font-black uppercase text-white/30 tracking-widest px-0.5 shrink-0">Pagamentos ({paymentEntries.length})</p>
-
-                    {/* Pagamentos JA EXISTENTES (lancados antes) ‚Äî data editavel, pode excluir */}
-                    {(settlingOrder || editingFullOrder) && editingPaymentsList.length > 0 && (
-                      <div className="space-y-1 shrink-0 max-h-24 overflow-y-auto custom-scrollbar">
-                         <p className="text-[7px] font-black uppercase text-white/20 tracking-widest px-0.5">J√° Lan√ßados</p>
-                         {editingPaymentsList.map((p, idx) => {
-                            const opt = PAYMENT_METHOD_OPTIONS.find(o => o.id === p.method);
-                            return (
-                              <div key={idx} className="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-white/5 border border-white/5 rounded-lg">
-                                 <div className="flex items-center gap-2 min-w-0">
-                                    {opt?.icon && <opt.icon size={12} className="text-primary-300 shrink-0" />}
-                                    <span className="text-[9px] font-black text-white uppercase truncate shrink-0">{opt?.label || p.method}</span>
-                                    <input
-                                      type="datetime-local"
-                                      value={p.date ? isoToLocalDatetimeInput(p.date) : ''}
-                                      onChange={(e) => {
-                                         const novaData = localDatetimeToIso(e.target.value) || p.date;
-                                         setEditingPaymentsList(prev => prev.map((pp, i) => i === idx ? { ...pp, date: novaData } : pp));
-                                      }}
-                                      className="h-6 bg-transparent border border-white/10 rounded px-1 text-[8px] text-white/60 focus:outline-none focus:border-primary-500 w-[112px] shrink-0"
-                                    />
-                                 </div>
-                                 <div className="flex items-center gap-2 shrink-0">
-                                    <span className="text-[10px] font-black text-emerald-400">R$ {p.value.toFixed(2).replace('.', ',')}</span>
-                                    <button
-                                      onClick={async () => {
-                                         if (!(await showConfirm(`Excluir esse pagamento de R$ ${p.value.toFixed(2).replace('.', ',')} (${opt?.label || p.method})?`))) return;
-                                         // Exclusao de pagamento ja lancado precisa ser persistida no banco IMEDIATAMENTE
-                                         // (nao so ao clicar em Finalizar/Quitar depois), senao o operador fecha o
-                                         // modal achando que ja excluiu e o valor volta a aparecer/computar ao reabrir
-                                         // a nota, porque a interface removeu o item so localmente.
-                                         const listaAnterior = editingPaymentsList;
-                                         const novaLista = listaAnterior.filter((_, i) => i !== idx);
-                                         setEditingPaymentsList(novaLista);
-                                         const orderId = settlingOrder?.id || editingFullOrder?.id;
-                                         if (!orderId) return;
-                                         const novoTotalPago = novaLista.reduce((sum, pp) => sum + (pp.value || 0), 0);
-                                         const novoSaldo = Math.max(0, paymentModalTotal - novoTotalPago);
-                                         const novoStatus: 'completed' | 'pending' = novoSaldo <= 0 ? 'completed' : 'pending';
-                                         const agoraIso = new Date().toISOString();
-                                         try {
-                                            const { data, error } = await supabase.from('vendas').update({
-                                               payments: novaLista,
-                                               down_payment: novoTotalPago,
-                                               received_value: novoTotalPago,
-                                               status: novoStatus,
-                                               pending_payment_method: novoSaldo > 0 ? (pendingPaymentMethod || null) : null,
-                                               updated_at: agoraIso,
-                                            }).eq('id', orderId).select();
-                                            if (error) throw error;
-                                            if (!data || data.length === 0) throw new Error('O pedido n√£o foi encontrado ‚Äî pode ter sido removido ou alterado por outra pessoa.');
-                                            const atualizarLocal = (s: SaleOrder): SaleOrder => s.id === orderId
-                                              ? { ...s, payments: novaLista, downPayment: novoTotalPago, receivedValue: novoTotalPago, status: novoStatus, updatedAt: agoraIso }
-                                              : s;
-                                            setAllSalesHistory(prev => prev.map(atualizarLocal));
-                                            setSalesToday(prev => prev.map(atualizarLocal));
-                                            setSettlingOrder(prev => prev && prev.id === orderId ? atualizarLocal(prev) : prev);
-                                            setEditingFullOrder(prev => prev && prev.id === orderId ? atualizarLocal(prev) : prev);
-                                         } catch (err: any) {
-                                            console.error('Erro ao excluir pagamento:', err);
-                                            // Reverte a remocao local, ja que nao foi possivel persistir no banco ‚Äî
-                                            // evita que a nota fique com o array de pagamentos fora de sincronia.
-                                            setEditingPaymentsList(listaAnterior);
-                                            showAlert(`N√£o foi poss√≠vel excluir o pagamento: ${err?.message || 'erro desconhecido'}. Nada foi alterado.`);
-                                         }
-                                      }}
-                                      className="text-white/30 hover:text-rose-400 transition-colors"
-                                    >
-                                      <Trash2 size={12} />
-                                    </button>
-                                 </div>
-                              </div>
-                            );
-                         })}
-                      </div>
-                    )}
-
-                    {/* Lista de pagamentos ja adicionados */}
-                    {paymentEntries.length > 0 && (
-                      <div className="space-y-1 shrink-0 max-h-20 overflow-y-auto custom-scrollbar">
-                         {paymentEntries.map((p, idx) => {
-                            const opt = PAYMENT_METHOD_OPTIONS.find(o => o.id === p.method);
-                            return (
-                              <div key={idx} className="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-white/5 border border-white/5 rounded-lg">
-                                 <div className="flex items-center gap-2 min-w-0">
-                                    {opt?.icon && <opt.icon size={12} className="text-primary-300 shrink-0" />}
-                                    <span className="text-[9px] font-black text-white uppercase truncate">{opt?.label || p.method}{p.installments && p.installments > 1 ? ` ${p.installments}x` : ''}</span>
-                                    <span className="text-[8px] text-white/30 shrink-0">{safeFormat(p.date, 'dd/MM HH:mm')}</span>
-                                 </div>
-                                 <div className="flex items-center gap-2 shrink-0">
-                                    <span className="text-[10px] font-black text-emerald-400">
-                                      R$ {p.value.toFixed(2).replace('.', ',')}
-                                      {p.installments && p.installments > 1 && (
-                                        <span className="text-[8px] text-white/30 font-normal ml-1">({p.installments}x R$ {(p.value / p.installments).toFixed(2).replace('.', ',')})</span>
-                                      )}
-                                    </span>
-                                    {p.method === 'pix' && (
-                                      <button
-                                        onClick={() => { setPixQrAmount(p.value); setIsPixQrModalOpen(true); }}
-                                        title="Ver QR Code"
-                                        className="text-primary-300 hover:text-primary-200 transition-colors"
-                                      >
-                                        <QrCode size={13} />
-                                      </button>
-                                    )}
-                                    <button onClick={() => removePaymentEntry(idx)} className="text-white/30 hover:text-rose-400 transition-colors"><X size={12} /></button>
-                                 </div>
-                              </div>
-                            );
-                         })}
-                      </div>
-                    )}
-
-                    {/* Formulario de pagamento ‚Äî sempre visivel */}
-                    {paymentModalRemaining > 0 ? (
-                      <div className="flex-1 min-h-0 flex flex-col gap-1.5 bg-white/5 rounded-xl border border-white/5 p-2 overflow-hidden">
-                         <div className="grid grid-cols-4 gap-1 shrink-0">
-                            {PAYMENT_METHOD_OPTIONS.filter(m => enabledPaymentMethods.includes(m.id)).map(m => (
-                              <button
-                                key={m.id}
-                                onClick={() => setNewPaymentMethod(m.id)}
-                                className={cn(
-                                  "p-1 rounded-lg border-2 flex flex-col items-center justify-center gap-0.5 transition-all active:scale-95 min-h-[36px]",
-                                  newPaymentMethod === m.id ? "bg-primary-500 border-primary-600 text-slate-900" : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10"
-                                )}
-                              >
-                                 <m.icon size={12} />
-                                 <span className="text-[6.5px] font-black uppercase truncate w-full text-center">{m.label}</span>
-                              </button>
-                            ))}
-                         </div>
-
-                         <div className="flex items-center gap-1.5 shrink-0">
-                            <div className="flex-1 space-y-0.5">
-                               <label className="text-[7px] font-black text-white/40 uppercase tracking-widest block">
-                                 {newPaymentMode === 'valor' ? 'Valor (R$)' : 'Porcentagem (%)'}
-                               </label>
-                               <Input
-                                 type="number"
-                                 step="any"
-                                 placeholder={newPaymentMode === 'valor' ? `M√°x. R$ ${paymentModalRemaining.toFixed(2).replace('.', ',')}` : 'Ex: 30'}
-                                 className="h-8 text-xs bg-slate-900/50"
-                                 value={newPaymentInput}
-                                 onChange={(e: any) => setNewPaymentInput(e.target.value === '' ? '' : Number(e.target.value))}
-                               />
-                            </div>
-                            <div className="flex bg-white/5 p-0.5 rounded-lg border border-white/10 shrink-0 mt-3.5">
-                               <button
-                                 onClick={() => setNewPaymentMode('valor')}
-                                 className={cn("px-2 h-7 rounded-md text-[9px] font-black uppercase transition-all", newPaymentMode === 'valor' ? "bg-primary-500 text-slate-900" : "text-white/40")}
-                               >
-                                 R$
-                               </button>
-                               <button
-                                 onClick={() => setNewPaymentMode('percentual')}
-                                 className={cn("px-2 h-7 rounded-md text-[9px] font-black uppercase transition-all", newPaymentMode === 'percentual' ? "bg-primary-500 text-slate-900" : "text-white/40")}
-                               >
-                                 %
-                               </button>
-                            </div>
-                            <Button className="h-8 text-[9px] bg-primary-500 text-slate-900 border-none shrink-0 mt-3.5 px-3" onClick={confirmAddPayment}>
-                              <Plus size={12} className="mr-1" /> Adicionar
-                            </Button>
-                         </div>
-
-                         {!useCustomPaymentDate ? (
-                           <button
-                             onClick={() => setUseCustomPaymentDate(true)}
-                             className="w-full flex items-center justify-center gap-1.5 text-[9px] font-black uppercase text-amber-300 hover:text-amber-200 shrink-0 border border-amber-500/30 hover:border-amber-400/50 bg-amber-500/10 hover:bg-amber-500/15 rounded-lg h-8 cursor-pointer transition-all active:scale-95"
-                           >
-                             <CalendarClock size={13} /> Lan√ßar com data/hora retroativa
-                           </button>
-                         ) : (
-                           <div className="flex items-center gap-1.5 shrink-0 p-1.5 bg-amber-500/10 border border-amber-500/30 rounded-lg">
-                              <div className="flex-1 space-y-0.5">
-                                 <label className="flex items-center gap-1 text-[7.5px] font-black text-amber-300 uppercase tracking-widest">
-                                    <CalendarClock size={10} /> Data/Hora Retroativa do Pagamento
-                                 </label>
-                                 <input
-                                   autoFocus
-                                   type="datetime-local"
-                                   value={customPaymentDate}
-                                   onChange={(e) => setCustomPaymentDate(e.target.value)}
-                                   className="w-full h-9 bg-slate-900/70 border border-amber-500/30 rounded-lg px-2 text-xs sm:text-sm text-white font-bold focus:outline-none focus:border-amber-400"
-                                 />
-                              </div>
-                              <button
-                                onClick={() => { setUseCustomPaymentDate(false); setCustomPaymentDate(''); }}
-                                title="Usar a hora de agora"
-                                className="h-9 px-2 rounded-lg border border-white/10 text-white/40 hover:text-rose-400 hover:border-rose-500/30 bg-transparent cursor-pointer text-[9px] font-bold shrink-0"
-                              >
-                                <X size={14} />
-                              </button>
-                           </div>
-                         )}
-
-                         {newPaymentMode === 'percentual' && newPaymentInput !== '' && (
-                            <p className="text-[9px] text-primary-300 font-bold shrink-0">= R$ {((total * Number(newPaymentInput)) / 100).toFixed(2).replace('.', ',')}</p>
-                         )}
-
-                         {/* Painel contextual pela forma escolhida */}
-                         <div className="flex-1 min-h-0 bg-black/20 rounded-lg p-2 flex flex-col items-center justify-center text-center overflow-hidden">
-                            {newPaymentMethod === 'pix' && !pixConfig && (
-                              <p className="text-[9px] text-white/40">Nenhuma chave PIX cadastrada.</p>
-                            )}
-                            {newPaymentMethod === 'pix' && pixConfig && (
-                              <p className="text-[9px] text-white/40">Clique em Adicionar ‚Äî o QR Code aparece ao lado do pagamento na lista.</p>
-                            )}
-                            {newPaymentMethod === 'dinheiro' && (
-                              <div className="w-full max-w-xs space-y-1">
-                                 <div className="flex items-center justify-between gap-2">
-                                    <span className="text-[7.5px] font-black text-white/40 uppercase tracking-widest">Valor Recebido</span>
-                                    <input
-          onFocus={(e: any) => e.target.select()}
-                                       type="number"
-                                       step="any"
-                                       className="h-6 w-24 text-[10px] bg-slate-900/80 text-white rounded px-1.5 text-right font-bold border border-white/10"
-                                       value={cashReceived === "" ? "" : cashReceived}
-                                       placeholder="0,00"
-                                       onChange={(e: any) => setCashReceived(e.target.value === "" ? "" : Number(e.target.value))}
-                                    />
-                                 </div>
-                                 {cashReceived !== "" && newPaymentInput !== '' && (() => {
-                                    const trocoValor = Math.max(0, Number(cashReceived) - (newPaymentMode === 'percentual' ? (total * Number(newPaymentInput)) / 100 : Number(newPaymentInput)));
-                                    return (
-                                      <div className="space-y-1">
-                                        <div className="p-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-lg flex justify-between items-center">
-                                           <span className="text-[7.5px] font-black text-emerald-400 uppercase tracking-wider">Troco</span>
-                                           <span className="text-xs font-black text-white">R$ {trocoValor.toFixed(2).replace('.', ',')}</span>
-                                        </div>
-                                        {trocoValor > 0 && selectedCustomer?.id && (
-                                          <button
-                                            disabled={isSavingTrocoCredito}
-                                            onClick={() => handleSalvarTrocoComoCredito(trocoValor)}
-                                            className="w-full text-[8px] font-black uppercase text-primary-300 hover:text-primary-200 disabled:opacity-50 bg-transparent border-0 cursor-pointer py-0.5"
-                                          >
-                                            Cliente n√£o pegou o troco ‚Äî guardar como cr√©dito
-                                          </button>
-                                        )}
-                                      </div>
-                                    );
-                                 })()}
-                              </div>
-                            )}
-                            {newPaymentMethod === 'cartao_debito' && debitCardFeePercent > 0 && (() => {
-                               const rawInput = newPaymentInput === '' ? 0 : Number(newPaymentInput);
-                               const baseValue = newPaymentMode === 'percentual' ? (total * rawInput) / 100 : rawInput;
-                               const finalValue = baseValue * (1 + debitCardFeePercent / 100);
-                               return baseValue > 0 ? (
-                                 <div className="w-full max-w-xs p-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg flex justify-between items-center">
-                                    <span className="text-[7.5px] font-black text-amber-400 uppercase tracking-wider">Total Com Taxa ({debitCardFeePercent}%)</span>
-                                    <span className="text-xs font-black text-white">R$ {finalValue.toFixed(2).replace('.', ',')}</span>
-                                 </div>
-                               ) : null;
-                            })()}
-                            {newPaymentMethod === 'cartao_credito' && (() => {
-                               const rawInput = newPaymentInput === '' ? 0 : Number(newPaymentInput);
-                               const baseValue = newPaymentMode === 'percentual' ? (total * rawInput) / 100 : rawInput;
-                               const fee = creditCardFees.find(f => f.installments === newPaymentInstallments)?.feePercent || 0;
-                               const finalValue = baseValue * (1 + fee / 100);
-                               return (
-                                 <div className="w-full max-w-xs space-y-2">
-                                    <div className="flex items-center justify-between gap-2">
-                                       <span className="text-[7.5px] font-black text-white/40 uppercase tracking-widest">Parcelas</span>
-                                       <select
-                                         value={newPaymentInstallments}
-                                         onChange={(e) => setNewPaymentInstallments(Number(e.target.value))}
-                                         className="h-7 bg-slate-900/80 border border-white/10 rounded px-2 text-[10px] text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer"
-                                       >
-                                         {creditCardFees.map(f => {
-                                           const valorComTaxa = baseValue * (1 + f.feePercent / 100);
-                                           const valorParcela = valorComTaxa / f.installments;
-                                           return (
-                                             <option key={f.installments} value={f.installments} className="bg-slate-900">
-                                               {baseValue > 0
-                                                 ? `${f.installments}x de R$ ${valorParcela.toFixed(2).replace('.', ',')}`
-                                                 : `${f.installments}x`}
-                                             </option>
-                                           );
-                                         })}
-                                       </select>
-                                    </div>
-                                    {fee > 0 && baseValue > 0 && (
-                                      <div className="p-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg flex justify-between items-center">
-                                         <span className="text-[7.5px] font-black text-amber-400 uppercase tracking-wider">Total Com Taxa ({fee}%)</span>
-                                         <span className="text-xs font-black text-white">R$ {finalValue.toFixed(2).replace('.', ',')}</span>
-                                      </div>
-                                    )}
-                                 </div>
-                               );
-                            })()}
-                            {newPaymentMethod === 'cartao_debito' && (
-                              <div className="flex flex-col items-center gap-1">
-                                 <Smartphone size={16} className="text-blue-400" />
-                                 <p className="text-[8px] text-white/50">Insira/aproxime o cart√£o</p>
-                              </div>
-                            )}
-                            {(newPaymentMethod === 'transferencia' || newPaymentMethod === 'boleto' || newPaymentMethod === 'crediario') && (
-                              <p className="text-[9px] text-white/40 uppercase">{PAYMENT_METHOD_OPTIONS.find(o => o.id === newPaymentMethod)?.label}</p>
-                            )}
-                         </div>
-                      </div>
-                    ) : (
-                      <div className="flex-1 min-h-0 flex items-center justify-center text-center p-4">
-                         <p className="text-[9px] text-emerald-400/70 uppercase tracking-wider">Saldo Restante: R$ 0,00 ‚Äî Quitado ‚úì</p>
-                      </div>
-                    )}
-                 </div>
-
-                 <div className="shrink-0">
-                   <button
-                     ref={scheduleBtnRef}
-                     type="button"
-                     onClick={() => {
-                       if (scheduledFor && (settlingOrder || editingFullOrder)) {
-                         if (isScheduleActionsMenuOpen) { setIsScheduleActionsMenuOpen(false); return; }
-                         const rect = scheduleBtnRef.current?.getBoundingClientRect();
-                         if (rect) setScheduleMenuPos({ bottom: window.innerHeight - rect.top + 4, left: rect.left, width: rect.width });
-                         setIsScheduleActionsMenuOpen(true);
-                         return;
-                       }
-                       setIsScheduleModalOpen(true);
-                     }}
-                     className={cn(
-                       "w-full h-8 sm:h-9 rounded-lg border flex items-center justify-center gap-1.5 text-[8.5px] sm:text-[9px] font-black uppercase tracking-wider transition-all active:scale-95",
-                       scheduledFor ? "bg-primary-500/10 border-primary-500/30 text-primary-300" : "bg-white/5 border-white/10 text-white/50 hover:text-white hover:border-white/20"
-                     )}
-                   >
-                     <CalendarClock size={12} />
-                     {scheduledFor ? safeFormat(scheduledFor, 'dd/MM HH:mm') : 'Agendar Entrega'}
-                   </button>
-                   {isScheduleActionsMenuOpen && scheduleMenuPos && createPortal(
-                     <>
-                       <div className="fixed inset-0 z-[200]" onClick={() => setIsScheduleActionsMenuOpen(false)} />
-                       <div
-                         className="fixed z-[201] bg-[#1a2333] border border-white/10 rounded-xl shadow-2xl py-1 animate-in fade-in zoom-in-95 duration-150"
-                         style={{ bottom: scheduleMenuPos.bottom, left: scheduleMenuPos.left, width: scheduleMenuPos.width }}
-                       >
-                          <button onClick={() => { setIsScheduleActionsMenuOpen(false); setIsScheduleModalOpen(true); }} className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left cursor-pointer bg-transparent border-0">
-                             <Pencil size={12} /> Editar Agendamento
-                          </button>
-                          <button onClick={() => { setIsScheduleActionsMenuOpen(false); if (settlingOrder) handleDeliverFromCard(settlingOrder); else if (editingFullOrder) handleDeliverFromCard(editingFullOrder); }} className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-bold text-emerald-400 hover:bg-emerald-500/10 text-left cursor-pointer bg-transparent border-0">
-                             <CheckCircle2 size={12} /> Marcar como Entregue
-                          </button>
-                          <button
-                            onClick={async () => {
-                              setIsScheduleActionsMenuOpen(false);
-                              const pedidoAtual = settlingOrder || editingFullOrder;
-                              if (!pedidoAtual) return;
-                              if (!(await showConfirm(`Excluir o agendamento de entrega do pedido de ${pedidoAtual.customerName || 'cliente'}?`))) return;
-                              setScheduledFor('');
-                              const nowIso = new Date().toISOString();
-                              const { error } = await supabase.from('vendas').update({ scheduled_for: null, updated_at: nowIso }).eq('id', pedidoAtual.id);
-                              if (error) { showAlert(`N√£o foi poss√≠vel excluir o agendamento: ${error.message}`); return; }
-                              const atualizado = { ...pedidoAtual, scheduledFor: undefined, updatedAt: nowIso };
-                              if (settlingOrder) setSettlingOrder(atualizado);
-                              if (editingFullOrder) setEditingFullOrder(atualizado);
-                              setAllSalesHistory(prev => prev.map(s => s.id === pedidoAtual.id ? atualizado : s));
-                              setSalesToday(prev => prev.map(s => s.id === pedidoAtual.id ? atualizado : s));
-                              showAlert('Agendamento exclu√≠do!');
-                            }}
-                            className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-bold text-rose-400 hover:bg-rose-500/10 text-left cursor-pointer bg-transparent border-0"
-                          >
-                             <Trash2 size={12} /> Excluir Agendamento
-                          </button>
-                       </div>
-                     </>,
-                     document.body
-                   )}
-                 </div>
-
-                 {editingFullOrder && (
-                   <div className="w-full space-y-1">
-                      <label className="text-[8px] font-black uppercase text-white/40 tracking-widest block">Data/Hora do Pedido</label>
-                      <input
-                        type="datetime-local"
-                        value={editingCreatedAt}
-                        onChange={(e) => setEditingCreatedAt(e.target.value)}
-                        className="w-full h-8 sm:h-9 rounded-lg border border-white/10 bg-white/5 px-2.5 text-[9px] sm:text-[10px] text-white focus:outline-none focus:border-primary-500"
-                      />
-                   </div>
-                 )}
-
-                 <input
-                   value={orderObservacoes}
-                   onChange={(e) => setOrderObservacoes(e.target.value)}
-                   placeholder="Observa√ß√£o (opcional, aparece na lista de Servi√ßos)"
-                   className="w-full h-8 sm:h-9 rounded-lg border border-white/10 bg-white/5 px-2.5 text-[9px] sm:text-[10px] text-white placeholder-white/30 focus:outline-none focus:border-primary-500 shrink-0"
-                 />
-              </div>
-           </div>
-
-           {/* Bottom Action Bar (ALWAYS VISIBLE - NO SCROLL) */}
-           <div className="flex gap-2 pt-1 border-t border-white/5 shrink-0">
-              <Button
-                variant="secondary"
-                className="flex-1 h-9 sm:h-11 text-[8px] sm:text-[9px] uppercase font-black tracking-wider bg-emerald-500 hover:bg-emerald-400 text-slate-900 border-none shadow-lg shadow-emerald-500/20"
-                onClick={() => {
-                  setIsPaymentModalOpen(false);
-                  if (settlingOrder) {
-                    handleCreateOrcamentoFromCart(settlingOrder.items, {
-                      id: settlingOrder.customerId,
-                      name: settlingOrder.customerName,
-                      phone: settlingOrder.customerPhone,
-                    });
-                  } else {
-                    handleCreateOrcamentoFromCart();
-                  }
-                }}
-              >
-                Or√ßamento
-              </Button>
-              {paymentModalRemaining > 0 ? (
-                <Button 
-                  className="flex-[2] h-9 sm:h-11 bg-amber-500 hover:bg-amber-400 text-slate-900 border-none shadow-lg shadow-amber-500/20 text-[9px] sm:text-[10px] font-black uppercase tracking-wider gap-2 cursor-pointer"
-                  onClick={() => handleFinalize(true)}
-                >
-                   <Clock size={16} />
-                   <span>{settlingOrder ? `REGISTRAR PAGAMENTO (R$ ${paymentEntriesTotal.toFixed(2).replace('.', ',')})` : `LAN√áAR ENTRADA (R$ ${(downPayment === '' ? 0 : Number(downPayment)).toFixed(2).replace('.', ',')})`}</span>
-                </Button>
-              ) : (
-                <Button 
-                  className="flex-[2] h-9 sm:h-11 bg-primary-500 hover:bg-primary-400 text-slate-900 border-none shadow-lg shadow-primary-500/20 text-[8.5px] sm:text-[10px] font-black uppercase tracking-wider gap-1.5 cursor-pointer"
-                  onClick={() => handleFinalize(false)}
-                >
-                   <CheckCircle2 size={16} />
-                   <span>{settlingOrder ? 'QUITAR D√âBITO (TOTAL PAGO)' : 'FINALIZAR VENDA (TOTAL QUITADO)'}</span>
-                </Button>
-              )}
-           </div>
-        </div>
-      </Modal>
-
-     {/* Success Modal */}
-     <Modal 
-       isOpen={isSuccessModalOpen} 
-       onClose={() => {
-         setIsSuccessModalOpen(false);
-         setSelectedCustomer(null);
-         if (receiptOpenedFromProduction) {
-           setReceiptOpenedFromProduction(false);
-           setRootActiveTab('production');
-         }
-       }} 
-       title={lastFinalizedOrder?.status === 'pending' ? 'Entrada Salva / Nota Aberta üìù' : 'Venda Finalizada üéâ'}
-       size="lg"
-     >
-       <div className="space-y-3 py-1 flex flex-col min-h-0 flex-1 overflow-hidden">
-          <div className="flex items-center gap-4 p-3 sm:p-4 bg-white/5 rounded-3xl border border-white/10 shrink-0">
-             <div className="w-11 h-11 sm:w-12 sm:h-12 bg-emerald-500/20 text-emerald-500 rounded-2xl flex items-center justify-center shadow-xl shadow-emerald-500/20 shrink-0">
-                <Check size={22} />
-             </div>
-             <div>
-                <h3 className="text-lg sm:text-xl font-black text-white italic tracking-tighter uppercase">R$ {lastFinalizedOrder?.total.toFixed(2)}</h3>
-                <p className="text-[9px] text-white/40 font-black uppercase tracking-widest mt-0.5">
-                   {lastFinalizedOrder?.status === 'pending' ? 'OS registrada nas Notas Abertas' : 'Venda conclu√≠da e integrada'}
-                </p>
-             </div>
-          </div>
-
-          <div className="bg-slate-900/50 rounded-3xl p-3 sm:p-4 border border-white/5 text-left space-y-2 flex-1 min-h-0 overflow-y-auto custom-scrollbar">
-             <div className="flex justify-between items-center border-b border-white/5 pb-2">
-                <h4 className="text-[9px] font-black uppercase text-primary-300 tracking-[2px]">Resumo da Nota</h4>
-                <Badge variant="outline" className="font-mono text-[9px]">#{lastFinalizedOrder?.id?.slice(-8).toUpperCase()}</Badge>
-             </div>
-             
-             <div className="space-y-1.5">
-                {lastFinalizedOrder?.items.map((item, idx) => (
-                   <div key={idx} className="flex justify-between text-[11px] font-bold text-white/70">
-                      <span>{item.quantity}x {item.name.toUpperCase()}</span>
-                      <span>R$ {(item.price * item.quantity).toFixed(2)}</span>
-                   </div>
-                ))}
-             </div>
-
-             <div className="pt-2 border-t border-white/5 space-y-1">
-                <div className="flex justify-between text-[11px] text-white/40">
-                   <span>Valor Total</span>
-                   <span className="font-mono">R$ {lastFinalizedOrder?.total.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between text-[11px] text-emerald-400 font-black italic">
-                   <span>Entrada Recebida</span>
-                   <span className="font-mono">R$ {(lastFinalizedOrder?.downPayment ?? lastFinalizedOrder?.receivedValue ?? 0).toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between text-[11px] text-rose-400 font-black italic">
-                   <span>Valor que Falta Pagar</span>
-                   <span className="font-mono font-bold">R$ {Math.max(0, (lastFinalizedOrder?.total || 0) - (lastFinalizedOrder?.downPayment ?? lastFinalizedOrder?.receivedValue ?? 0)).toFixed(2)}</span>
-                </div>
-                {lastFinalizedOrder?.scheduledFor && (
-                   <div className="flex justify-between text-[10px] text-primary-300 font-black bg-primary-500/10 p-2 rounded-lg border border-primary-500/20 mt-1.5">
-                      <span>Entrega Agendada:</span>
-                      <span className="font-mono">{safeFormat(lastFinalizedOrder?.scheduledFor, 'dd/MM/yyyy HH:mm')}</span>
-                   </div>
-                )}
-                {lastFinalizedOrder?.status === 'pending' && lastFinalizedOrder?.id && (
-                   <div className="pt-2 border-t border-white/5 space-y-1">
-                      <label className="text-[9px] font-black uppercase text-white/40 tracking-widest block">Etapa Atual</label>
-                      <select
-                        value={lastFinalizedOrder.serviceStatus || 'pedido_recebido'}
-                        onChange={(e) => handleUpdateServiceStatus(lastFinalizedOrder.id, e.target.value)}
-                        className="w-full h-9 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer"
-                      >
-                        {STAGE_ORDER.map(id => (
-                          <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
-                        ))}
-                      </select>
-                   </div>
-                )}
-             </div>
-
-             {selectedCustomer && (
-               <div className="pt-2 border-t border-white/5 flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center text-[10px] shrink-0"><Users size={12} /></div>
-                  <div>
-                    <p className="text-[9px] font-black uppercase text-white/60">{selectedCustomer.name}</p>
-                    <p className="text-[8px] text-white/30">{selectedCustomer.phone || 'Sem telefone'}</p>
-                  </div>
-               </div>
-             )}
-          </div>
-
-          <div className="grid grid-cols-5 gap-1.5 sm:gap-3 shrink-0">
-             <Button 
-               variant="secondary" 
-               icon={Share2} 
-               className="flex-col h-16 sm:h-20 gap-1 py-2 px-1 text-[7.5px] sm:text-[9px] uppercase font-black tracking-wide border-white/5 bg-white/5 hover:bg-emerald-500/20 hover:text-emerald-300 transition-all"
-               onClick={() => {
-                  if (!lastFinalizedOrder) return;
-                  if (selectedCustomer?.phone) {
-                    handleShareViaWhatsApp(lastFinalizedOrder, selectedCustomer.name, selectedCustomer.phone);
-                  } else {
-                    setWaFormName(lastFinalizedOrder.customerName || '');
-                    setWaFormPhone('');
-                    setIsWhatsAppFormOpen(true);
-                  }
-               }}
-             >
-                Compartilhar
-                <span className="text-[8px] opacity-60 lowercase font-medium text-emerald-400">Via WhatsApp</span>
-             </Button>
-
-             <Button 
-               variant="secondary" 
-               icon={Printer} 
-               className="flex-col h-16 sm:h-20 gap-1 py-2 px-1 text-[7.5px] sm:text-[9px] uppercase font-black tracking-wide border-white/5 bg-white/5 hover:bg-primary-500/20 hover:text-primary-300 transition-all"
-               onClick={() => {
-                 if (!lastFinalizedOrder) return;
-                 const order = lastFinalizedOrder;
-                 const total = order.total;
-                 const down = order.downPayment ?? order.receivedValue ?? (order.status === 'completed' ? total : 0);
-                 const balance = Math.max(0, total - down);
-                 const printWin = window.open('', '_blank', 'width=450,height=650');
-                 if (!printWin) {
-                   window.print();
-                   return;
-                 }
-                 const itemsList = order.items.map(i => `
-                   <tr>
-                     <td style="padding:4px 0;">${i.quantity}x ${i.name}</td>
-                     <td style="text-align:right; padding:4px 0;">R$ ${((i.area ? i.price * i.area : i.price) * i.quantity).toFixed(2).replace('.', ',')}</td>
-                   </tr>
-                 `).join('');
-
-                 printWin.document.write(`
-                   <!DOCTYPE html>
-                   <html>
-                   <head>
-                     <title>Comprovante #${order.id.slice(-8).toUpperCase()}</title>
-                     <style>
-                       body { font-family: monospace; font-size: 12px; margin: 15px; color: #000; }
-                       .header { text-align: center; font-weight: bold; border-bottom: 1px dashed #000; padding-bottom: 8px; margin-bottom: 8px; }
-                       table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-                       .totals { border-top: 1px dashed #000; margin-top: 10px; padding-top: 8px; }
-                       .row { display: flex; justify-content: space-between; margin-bottom: 4px; }
-                       .bold { font-weight: bold; }
-                       .footer { text-align: center; margin-top: 20px; font-size: 10px; border-top: 1px dashed #000; padding-top: 8px; }
-                     </style>
-                   </head>
-                   <body>
-                     <div class="header">
-                       <div style="font-size:14px;">${currentCompany?.name || 'Rafa Arts Graphics'}</div>
-                       <div>COMPROVANTE DE PEDIDO / OS</div>
-                       <div>Ped #${order.id.slice(-8).toUpperCase()} - ${safeFormat(order.createdAt, 'dd/MM/yyyy HH:mm')}</div>
-                     </div>
-                     <div>
-                       <strong>Cliente:</strong> ${(order.customerName || 'Cliente de Balc√£o').toUpperCase()}<br/>
-                       ${selectedCustomer?.phone ? `<strong>Telefone:</strong> ${selectedCustomer.phone}<br/>` : ''}
-                       ${order.scheduledFor ? `<strong>Previs√£o Entrega:</strong> ${safeFormat(order.scheduledFor, 'dd/MM/yyyy HH:mm')}<br/>` : ''}
-                     </div>
-                     <table>
-                       <thead>
-                         <tr style="border-bottom:1px solid #000; text-align:left;">
-                           <th>Item</th>
-                           <th style="text-align:right;">Subtotal</th>
-                         </tr>
-                       </thead>
-                       <tbody>${itemsList}</tbody>
-                     </table>
-                     <div class="totals">
-                       <div class="row"><span>TOTAL:</span> <span class="bold">R$ ${total.toFixed(2).replace('.', ',')}</span></div>
-                       <div class="row"><span>ENTRADA RECEBIDA:</span> <span class="bold">R$ ${down.toFixed(2).replace('.', ',')}</span></div>
-                       ${balance > 0 ? `<div class="row" style="color:#c00;"><span>FALTA PAGAR:</span> <span class="bold">R$ ${balance.toFixed(2).replace('.', ',')}</span></div>` : '<div class="row"><span>SITUA√á√ÉO:</span> <span class="bold">QUITADO</span></div>'}
-                     </div>
-                     <div class="footer">
-                       Obrigado pela prefer√™ncia!<br/><br/>
-                       Assinatura: _____________________________
-                     </div>
-                     <script>
-                       window.onload = function() { window.print(); window.close(); };
-                     </script>
-                   </body>
-                   </html>
-                 `);
-                 printWin.document.close();
-               }}
-             >
-                Imprimir
-                <span className="text-[8px] opacity-60 lowercase font-medium text-primary-400">Via Balc√£o / Thermal</span>
-             </Button>
-
-             <Button 
-               variant="secondary" 
-               icon={Download} 
-               className="flex-col h-16 sm:h-20 gap-1 py-2 px-1 text-[7.5px] sm:text-[9px] uppercase font-black tracking-wide border-white/5 bg-white/5 hover:bg-blue-500/20 hover:text-blue-300 transition-all"
-               onClick={async () => {
-                 if (!lastFinalizedOrder) return;
-                 const canvas = await renderReceiptCanvas({
-                   order: lastFinalizedOrder,
-                   companyName: currentCompany?.name || 'Rafa Arts Graphics',
-                   customerPhone: selectedCustomer?.phone,
-                   logoDarkUrl,
-                   companyContact,
-                 });
-                 downloadCanvasAsPng(canvas, buildFileName('Comprovante', lastFinalizedOrder.customerName, lastFinalizedOrder.createdAt, 'png'));
-               }}
-             >
-                Imagem
-                <span className="text-[8px] opacity-60 lowercase font-medium text-blue-400">Baixar como PNG</span>
-             </Button>
-
-             <Button 
-               variant="secondary" 
-               icon={FileText} 
-               className="flex-col h-16 sm:h-20 gap-1 py-2 px-1 text-[7.5px] sm:text-[9px] uppercase font-black tracking-wide border-white/5 bg-white/5 hover:bg-violet-500/20 hover:text-violet-300 transition-all"
-               onClick={async () => {
-                 if (!lastFinalizedOrder) return;
-                 const canvas = await renderReceiptCanvas({
-                   order: lastFinalizedOrder,
-                   companyName: currentCompany?.name || 'Rafa Arts Graphics',
-                   customerPhone: selectedCustomer?.phone,
-                   logoDarkUrl,
-                   companyContact,
-                 });
-                 await downloadCanvasAsPdf(canvas, buildFileName('Comprovante', lastFinalizedOrder.customerName, lastFinalizedOrder.createdAt, 'pdf'));
-               }}
-             >
-                PDF
-                <span className="text-[8px] opacity-60 lowercase font-medium text-violet-400">Baixar como PDF</span>
-             </Button>
-
-             <Button 
-               className="flex-col h-16 sm:h-20 gap-1 py-2 px-1 text-[7.5px] sm:text-[9px] uppercase font-black tracking-wide bg-primary-500 hover:bg-primary-400 text-slate-900 border-none shadow-lg shadow-primary-500/20 transition-all"
-               onClick={() => {
-                 setIsSuccessModalOpen(false);
-                 setIsCustomerModalOpen(false);
-                 setSelectedCustomer(null);
-                 setCart([]);
-                 setOrderObservacoes('');
-                 setDownPayment(0);
-                 setScheduledFor('');
-                 resetPaymentEntries();
-                 setActiveTab('venda');
-               }}
-             >
-                Nova Venda
-                <span className="text-[8px] opacity-60 lowercase font-medium">Limpar & Concluir</span>
-             </Button>
-          </div>
-
-          {!selectedCustomer?.phone && (
-             <p className="text-[10px] text-rose-400/60 font-black uppercase tracking-widest italic animate-pulse text-center">
-               Cadastre o cliente para compartilhar no WhatsApp.
-             </p>
-          )}
-       </div>
-     </Modal>
-
-     {/* Modal Quitar Saldo Devedor */}
-     {settleModalOrder && (
-       <Modal
-         isOpen={!!settleModalOrder}
-         onClose={() => setSettleModalOrder(null)}
-         title="Quitar Saldo Devedor do Servi√ßo / Venda"
-         size="md"
-       >
-         <div className="space-y-6 p-4">
-           <div className="p-4 bg-white/5 rounded-2xl border border-white/10 space-y-2">
-             <div className="flex justify-between items-center">
-               <span className="text-xs font-bold text-white/50">Cliente:</span>
-               <span className="text-sm font-black text-white">{(settleModalOrder.customerName || 'Cliente de Balc√£o').toUpperCase()}</span>
-             </div>
-             <div className="flex justify-between items-center">
-               <span className="text-xs font-bold text-white/50">Total do Pedido:</span>
-               <span className="text-sm font-bold text-white">R$ {settleModalOrder.total.toFixed(2).replace('.', ',')}</span>
-             </div>
-             <div className="flex justify-between items-center">
-               <span className="text-xs font-bold text-emerald-400">Entrada J√° Paga:</span>
-               <span className="text-sm font-bold text-emerald-400">R$ {(settleModalOrder.downPayment || 0).toFixed(2).replace('.', ',')}</span>
-             </div>
-             <div className="flex justify-between items-center border-t border-white/10 pt-2">
-               <span className="text-xs font-black text-rose-400 uppercase">Saldo A Quitar Agora:</span>
-               <span className="text-xl font-black text-rose-400">R$ {(settleModalOrder.total - (settleModalOrder.downPayment || 0)).toFixed(2).replace('.', ',')}</span>
-             </div>
-           </div>
-
-           <div className="space-y-2">
-             <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Forma de Recebimento do Saldo</label>
-             <div className="grid grid-cols-2 gap-2">
-               {[
-                 { id: 'pix', label: 'PIX QR' },
-                 { id: 'dinheiro', label: 'Dinheiro' },
-                 { id: 'cartao_credito', label: 'Cart√£o Cr√©dito' },
-                 { id: 'cartao_debito', label: 'Cart√£o D√©bito' }
-               ].map(m => (
-                 <button
-                   key={m.id}
-                   type="button"
-                   onClick={() => setSettleMethod(m.id as any)}
-                   className={cn(
-                     "py-3 px-3 rounded-xl border text-xs font-bold transition-all text-center",
-                     settleMethod === m.id
-                       ? "bg-primary-500 border-primary-400 text-slate-900 font-black shadow-lg shadow-primary-500/20"
-                       : "bg-white/5 border-white/10 text-white/60 hover:text-white"
-                   )}
-                 >
-                   {m.label}
-                 </button>
-               ))}
-             </div>
-           </div>
-
-           <div className="flex justify-end gap-3 pt-2">
-             <Button variant="ghost" onClick={() => setSettleModalOrder(null)}>Cancelar</Button>
-             <Button 
-               className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-black gap-2"
-               onClick={() => handleSettleBalance(settleModalOrder)}
-             >
-               <CheckCircle2 size={16} />
-               <span>Confirmar Recebimento do Saldo</span>
-             </Button>
-           </div>
-         </div>
-       </Modal>
-     )}
-
-     {editingSale && (
-       <Modal
-         isOpen={!!editingSale}
-         onClose={() => setEditingSale(null)}
-         title="Editar Venda"
-         size="md"
-       >
-         <div className="space-y-4 p-4">
-           <Input label="Nome do Cliente" value={editSaleForm.customerName} onChange={(e: any) => setEditSaleForm({ ...editSaleForm, customerName: e.target.value.toUpperCase() })} />
-           <div className="grid grid-cols-2 gap-4">
-             <Input label="Valor Total (R$)" type="number" step="any" value={editSaleForm.total} onChange={(e: any) => setEditSaleForm({ ...editSaleForm, total: Number(e.target.value) })} />
-             <Input label="Valor Pago / Entrada (R$)" type="number" step="any" value={editSaleForm.downPayment} onChange={(e: any) => setEditSaleForm({ ...editSaleForm, downPayment: Number(e.target.value) })} />
-           </div>
-           <div className="space-y-2">
-             <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Forma de Pagamento</label>
-             <div className="grid grid-cols-2 gap-2">
-               {[
-                 { id: 'pix', label: 'PIX' },
-                 { id: 'dinheiro', label: 'Dinheiro' },
-                 { id: 'cartao_credito', label: 'Cart√£o Cr√©dito' },
-                 { id: 'cartao_debito', label: 'Cart√£o D√©bito' }
-               ].map(m => (
-                 <button
-                   key={m.id}
-                   type="button"
-                   onClick={() => setEditSaleForm({ ...editSaleForm, paymentMethod: m.id })}
-                   className={cn(
-                     "py-3 px-3 rounded-xl border text-xs font-bold transition-all text-center",
-                     editSaleForm.paymentMethod === m.id
-                       ? "bg-primary-500 border-primary-400 text-slate-900 font-black shadow-lg shadow-primary-500/20"
-                       : "bg-white/5 border-white/10 text-white/60 hover:text-white"
-                   )}
-                 >
-                   {m.label}
-                 </button>
-               ))}
-             </div>
-           </div>
-           <div className="space-y-2">
-             <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Data/Hora de Entrega Agendada</label>
-             <div className="flex gap-2">
-               <input
-                 type="datetime-local"
-                 value={editSaleForm.scheduledFor}
-                 onChange={(e: any) => setEditSaleForm({ ...editSaleForm, scheduledFor: e.target.value })}
-                 className="flex-1 h-11 bg-white/5 border border-white/10 rounded-xl px-3 text-xs text-white focus:outline-none focus:border-primary-500"
-               />
-               {editSaleForm.scheduledFor && (
-                 <button
-                   type="button"
-                   onClick={() => setEditSaleForm({ ...editSaleForm, scheduledFor: '' })}
-                   className="px-3 rounded-xl border border-white/10 text-white/50 hover:text-rose-400 hover:border-rose-500/30 bg-transparent cursor-pointer text-xs font-bold"
-                 >
-                   Remover
-                 </button>
-               )}
-             </div>
-           </div>
-           <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Observa√ß√µes</label>
-              <textarea
-                rows={2}
-                value={editSaleForm.observacoes}
-                onChange={(e) => setEditSaleForm({ ...editSaleForm, observacoes: e.target.value })}
-                placeholder="Ex: cliente pediu pra deixar na portaria, cor espec√≠fica, etc."
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-primary-500"
-              />
-           </div>
-           <div className="flex justify-end gap-3 pt-2">
-             <Button variant="ghost" onClick={() => setEditingSale(null)}>Cancelar</Button>
-             <Button className="bg-primary-500 hover:bg-primary-400 text-slate-900 font-black gap-2" onClick={handleSaveEditSale}>
-               <CheckCircle2 size={16} />
-               <span>Salvar Altera√ß√µes</span>
-             </Button>
-           </div>
-         </div>
-       </Modal>
-     )}
-
-     {isWhatsAppFormOpen && (
-       <Modal
-         isOpen={isWhatsAppFormOpen}
-         onClose={() => setIsWhatsAppFormOpen(false)}
-         title="Cadastrar Cliente para Compartilhar"
-         size="md"
-       >
-         <div className="space-y-4 p-4">
-           <p className="text-xs text-white/50">Essa venda ainda n√£o tem um cliente com WhatsApp vinculado. Cadastre para compartilhar o comprovante e j√° deixar a conversa pronta no Funil de Atendimento.</p>
-           <Input label="Nome do Cliente" value={waFormName} onChange={(e: any) => setWaFormName(e.target.value.toUpperCase())} />
-           <div>
-             <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block mb-1.5">WhatsApp *</label>
-             <div className="flex gap-2">
-               <div className="relative">
-                 <select
-                   value={waFormCountry.code}
-                   onChange={(e) => setWaFormCountry(WA_COUNTRIES.find(c => c.code === e.target.value) || WA_COUNTRIES[0])}
-                   className="h-11 bg-white/5 border border-white/10 rounded-xl pl-3 pr-7 text-sm text-white appearance-none focus:outline-none focus:border-primary-500 cursor-pointer"
-                 >
-                   {WA_COUNTRIES.map(c => (
-                     <option key={c.code} value={c.code} className="bg-slate-900">{c.flag} {c.code}</option>
-                   ))}
-                 </select>
-               </div>
-               <input
-                 value={waFormPhone}
-                 onChange={(e) => setWaFormPhone(e.target.value)}
-                 placeholder="93 99233-2012"
-                 className="flex-1 h-11 bg-white/5 border border-white/10 rounded-xl px-4 text-sm text-white placeholder-white/30 focus:outline-none focus:border-primary-500"
-               />
-             </div>
-             <p className="text-[9px] text-white/30 mt-1">Formato final: {waFormCountry.flag} {waFormCountry.code} {waFormPhone || '93 99233-2012'}</p>
-           </div>
-           <div className="flex justify-end gap-3 pt-2">
-             <Button variant="ghost" onClick={() => setIsWhatsAppFormOpen(false)}>Cancelar</Button>
-             <Button
-               className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-black gap-2"
-               disabled={isWaSaving}
-               onClick={handleSaveWhatsAppCustomer}
-             >
-               <CheckCircle2 size={16} />
-               <span>{isWaSaving ? 'Salvando...' : 'Salvar e Abrir Conversa'}</span>
-             </Button>
-           </div>
-         </div>
-       </Modal>
-     )}
-
-     {discountItemIndex !== null && cart[discountItemIndex] && (() => {
-       const itemQty = cart[discountItemIndex].quantity || 1;
-       return (
-       <Modal isOpen={discountItemIndex !== null} onClose={() => setDiscountItemIndex(null)} title="Desconto / Pre√ßo do Item" size="sm">
-         <div className="space-y-4 p-2">
-            <p className="text-xs text-white/50">Item: <span className="text-white font-bold">{cart[discountItemIndex].name}</span>{itemQty > 1 && <span className="text-white/40"> ({itemQty} unidades)</span>}</p>
-            <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 gap-1">
-               <button onClick={() => setDiscountMode('percentual')} className={cn("flex-1 py-2 rounded-lg text-[9px] font-black uppercase transition-all", discountMode === 'percentual' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Desc. %</button>
-               <button onClick={() => setDiscountMode('valor')} className={cn("flex-1 py-2 rounded-lg text-[9px] font-black uppercase transition-all", discountMode === 'valor' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Desc. R$</button>
-               <button onClick={() => setDiscountMode('preco')} className={cn("flex-1 py-2 rounded-lg text-[9px] font-black uppercase transition-all", discountMode === 'preco' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Editar Pre√ßo</button>
-            </div>
-            <Input
-              label={discountMode === 'percentual' ? 'Desconto (%)' : discountMode === 'valor' ? `Desconto (R$)${itemQty > 1 ? ' ‚Äî total das ' + itemQty + ' unidades' : ''}` : `Novo Pre√ßo${itemQty > 1 ? ` (R$) ‚Äî TOTAL das ${itemQty} unidades juntas` : ' (R$)'}`}
-              type="number"
-              step="any"
-              autoFocus
-              value={discountInput}
-              onChange={(e: any) => setDiscountInput(e.target.value === '' ? '' : Number(e.target.value))}
-            />
-            <p className="text-[10px] text-white/30">
-              {discountMode === 'preco'
-                ? (itemQty > 1
-                    ? `Digite o valor total das ${itemQty} unidades juntas (n√£o o valor de cada uma) ‚Äî o sistema divide automaticamente. O pre√ßo cadastrado do produto no Estoque n√£o muda.`
-                    : 'Define o pre√ßo s√≥ nesse item, nessa venda ‚Äî o pre√ßo cadastrado do produto no Estoque n√£o muda.')
-                : (itemQty > 1
-                    ? `O desconto √© sobre o total das ${itemQty} unidades juntas ‚Äî o pre√ßo cadastrado do produto n√£o muda.`
-                    : 'O desconto afeta s√≥ esse item nessa venda ‚Äî o pre√ßo cadastrado do produto n√£o muda.')}
-            </p>
-            <div className="flex justify-end gap-3 pt-1">
-               <Button variant="ghost" onClick={() => setDiscountItemIndex(null)}>Cancelar</Button>
-               <Button className="bg-primary-500 text-slate-900 border-none" onClick={applyItemDiscount}>{discountMode === 'preco' ? 'Salvar Pre√ßo' : 'Aplicar Desconto'}</Button>
-            </div>
-         </div>
-       </Modal>
-       );
-     })()}
-
-     {/* Modal de Desconto Geral da Nota (PDV / Mobile / Desktop) */}
-      <Modal 
-        isOpen={isSaleDiscountModalOpen} 
-        onClose={() => setIsSaleDiscountModalOpen(false)} 
-        title="Desconto na Nota" 
-        size="sm"
-      >
-        <div className="space-y-4 p-2">
-          <div className="p-3 bg-white/5 rounded-2xl border border-white/5 flex justify-between items-center">
-            <div>
-              <p className="text-[8px] font-black uppercase tracking-widest text-white/40">Subtotal dos Itens</p>
-              <p className="text-base font-black text-white italic">R$ {cartRawTotal.toFixed(2).replace('.', ',')}</p>
-            </div>
-            {saleDiscountValue > 0 && (
-              <div className="text-right">
-                <p className="text-[8px] font-black uppercase tracking-widest text-emerald-400">Desconto Atual</p>
-                <p className="text-base font-black text-emerald-400 italic">- R$ {saleDiscountValue.toFixed(2).replace('.', ',')}</p>
-              </div>
-            )}
-          </div>
-
-          <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 gap-1">
-            <button 
-              type="button"
-              onClick={() => { setSaleDiscountMode('percentual'); setSaleDiscountInput(''); }} 
-              className={cn("flex-1 py-2 rounded-lg text-[9px] font-black uppercase transition-all cursor-pointer", saleDiscountMode === 'percentual' ? "bg-primary-500 text-slate-900 shadow-sm" : "text-white/40 hover:text-white/70")}
-            >
-              Desc. %
-            </button>
-            <button 
-              type="button"
-              onClick={() => { setSaleDiscountMode('valor'); setSaleDiscountInput(''); }} 
-              className={cn("flex-1 py-2 rounded-lg text-[9px] font-black uppercase transition-all cursor-pointer", saleDiscountMode === 'valor' ? "bg-primary-500 text-slate-900 shadow-sm" : "text-white/40 hover:text-white/70")}
-            >
-              Desc. R$
-            </button>
-            <button 
-              type="button"
-              onClick={() => { setSaleDiscountMode('final'); setSaleDiscountInput(''); }} 
-              className={cn("flex-1 py-2 rounded-lg text-[9px] font-black uppercase transition-all cursor-pointer", saleDiscountMode === 'final' ? "bg-primary-500 text-slate-900 shadow-sm" : "text-white/40 hover:text-white/70")}
-            >
-              Valor Final
-            </button>
-          </div>
-
-          {/* Quick preset chips for percentages */}
-          {saleDiscountMode === 'percentual' && (
-            <div className="flex items-center gap-1.5 justify-between">
-              {[5, 10, 15, 20].map((pct) => (
-                <button
-                  key={pct}
-                  type="button"
-                  onClick={() => setSaleDiscountInput(pct)}
-                  className={cn(
-                    "flex-1 py-1.5 rounded-lg text-[9px] font-black uppercase border transition-all cursor-pointer",
-                    saleDiscountInput === pct 
-                      ? "bg-primary-500/20 border-primary-500 text-primary-300" 
-                      : "bg-white/5 border-white/10 text-white/50 hover:bg-white/10 hover:text-white"
-                  )}
-                >
-                  {pct}%
-                </button>
-              ))}
-            </div>
-          )}
-
-          <div>
-            <Input
-              label={
-                saleDiscountMode === 'percentual' 
-                  ? 'Porcentagem de Desconto (%)' 
-                  : saleDiscountMode === 'valor' 
-                    ? 'Valor do Desconto em Reais (R$)' 
-                    : 'Valor Final Desejado para a Nota (R$)'
-              }
-              type="number"
-              step="any"
-              min={0}
-              autoFocus
-              inputMode="decimal"
-              placeholder={saleDiscountMode === 'percentual' ? 'Ex: 10' : saleDiscountMode === 'valor' ? 'Ex: 15,00' : `Ex: ${(cartRawTotal * 0.9).toFixed(0)}`}
-              value={saleDiscountInput}
-              onChange={(e: any) => setSaleDiscountInput(e.target.value === '' ? '' : Number(e.target.value))}
-            />
-            {saleDiscountMode === 'percentual' && saleDiscountInput !== '' && (
-              <p className="text-[10px] text-emerald-400 font-bold mt-1">
-                = R$ {((cartRawTotal * Number(saleDiscountInput)) / 100).toFixed(2).replace('.', ',')} de desconto
-              </p>
-            )}
-            {saleDiscountMode === 'final' && saleDiscountInput !== '' && (
-              <p className="text-[10px] text-emerald-400 font-bold mt-1">
-                = R$ {Math.max(0, cartRawTotal - Number(saleDiscountInput)).toFixed(2).replace('.', ',')} de desconto
-              </p>
-            )}
-          </div>
-
-          <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/5">
-            {saleDiscountValue > 0 ? (
-              <Button 
-                variant="ghost" 
-                size="sm"
-                className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 text-[9px] uppercase font-black"
-                onClick={() => {
-                  setSaleDiscountValue(0);
-                  setSaleDiscountInput('');
-                  setIsSaleDiscountModalOpen(false);
-                }}
-              >
-                Remover Desconto
-              </Button>
-            ) : <div />}
-            <div className="flex gap-2">
-              <Button 
-                variant="ghost" 
-                size="sm"
-                className="text-white/50 hover:text-white text-[9px] uppercase font-black"
-                onClick={() => setIsSaleDiscountModalOpen(false)}
-              >
-                Cancelar
-              </Button>
-              <Button 
-                size="sm"
-                className="bg-primary-500 hover:bg-primary-400 text-slate-900 border-none font-black text-[9px] uppercase px-4 shadow-lg shadow-primary-500/20 cursor-pointer" 
-                onClick={() => {
-                  applySaleDiscountInput();
-                  setIsSaleDiscountModalOpen(false);
-                }}
-              >
-                Aplicar Desconto
-              </Button>
-            </div>
-          </div>
-        </div>
-      </Modal>
-
-      {insulfilmModalProduct && (() => {
-       const calc = otimizarCortesInsulfilm(insulfilmPecas, insulfilmLarguraMaterial);
-       const IMPRESSAO_MINIMA = insulfilmModalProduct.valorMinimo ?? 30;
-       const valorCalculado = calc ? calc.areaRetirada * insulfilmModalProduct.price : 0;
-       const valorFinal = Math.max(valorCalculado, IMPRESSAO_MINIMA);
-       const addPeca = () => setInsulfilmPecas(prev => [...prev, { id: 'p' + Date.now(), largura: 0, altura: 0 }]);
-       const removePeca = (id: string) => setInsulfilmPecas(prev => prev.filter(p => p.id !== id));
-       const updatePeca = (id: string, field: 'largura' | 'altura', value: number | '') => setInsulfilmPecas(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p));
-       return (
-         <Modal isOpen={!!insulfilmModalProduct} onClose={() => setInsulfilmModalProduct(null)} title="Metragem ‚Äî Pel√≠cula Insulfilm" size="md">
-           <div className="space-y-4 p-2 max-h-[75vh] overflow-y-auto custom-scrollbar">
-              <Input
-                label="Largura do Rolo (m)"
-                type="number"
-                step="any"
-                value={insulfilmLarguraMaterial}
-                onChange={(e: any) => setInsulfilmLarguraMaterial((e.target.value === '' ? '' : Number(e.target.value)))}
-              />
-              <p className="text-[9px] text-white/30 -mt-2">Vem pr√©-preenchida com a largura cadastrada ‚Äî pode editar aqui, e o novo valor fica salvo pra pr√≥xima vez.</p>
-
-              <div className="space-y-2">
-                 <div className="flex items-center justify-between">
-                    <label className="text-[10px] font-black uppercase text-white/60 tracking-wider">Pe√ßas (vidros) desta nota</label>
-                    <button onClick={addPeca} className="text-[9px] font-black uppercase text-primary-400 hover:text-primary-300 flex items-center gap-1">
-                       <Plus size={12} /> Adicionar Pe√ßa
-                    </button>
-                 </div>
-                 {insulfilmPecas.map((p, i) => (
-                   <div key={p.id} className="flex items-center gap-2">
-                      <span className="text-[9px] font-black text-white/30 w-10 shrink-0">Pe√ßa {i + 1}</span>
-                      <input
-          onFocus={(e: any) => e.target.select()} type="number" step="any" placeholder="Largura (m)" value={p.largura} onChange={(e) => updatePeca(p.id, 'largura', (e.target.value === '' ? '' : Number(e.target.value)))} className="flex-1 h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500" />
-                      <span className="text-white/20 text-xs">√ó</span>
-                      <input
-          onFocus={(e: any) => e.target.select()} type="number" step="any" placeholder="Altura (m)" value={p.altura} onChange={(e) => updatePeca(p.id, 'altura', (e.target.value === '' ? '' : Number(e.target.value)))} className="flex-1 h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500" />
-                      {insulfilmPecas.length > 1 && (
-                        <button onClick={() => removePeca(p.id)} className="text-rose-400 hover:text-rose-300 shrink-0"><Trash2 size={14} /></button>
-                      )}
-                   </div>
-                 ))}
-              </div>
-
-              {calc ? (
-                <div className="space-y-2">
-                   <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-3 space-y-1">
-                      <p className="text-[9px] font-black uppercase text-amber-300">Consumo do Rolo</p>
-                      <div className="flex justify-between text-xs text-white/70"><span>Largura do rolo</span><span className="font-mono font-bold text-white">{insulfilmLarguraMaterial.toFixed(2).replace('.', ',')} m</span></div>
-                      <div className="flex justify-between text-xs text-white/70"><span>Consumo linear</span><span className="font-mono font-bold text-white">{calc.metrosLineares.toFixed(2).replace('.', ',')} m</span></div>
-                      <div className="flex justify-between text-xs text-white/70"><span>√Årea retirada do rolo</span><span className="font-mono font-bold text-white">{calc.areaRetirada.toFixed(2).replace('.', ',')} m¬≤</span></div>
-                   </div>
-
-                   <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-3 space-y-1">
-                      <p className="text-[9px] font-black uppercase text-emerald-300">Aproveitamento ‚Äî {calc.cortes.length} corte{calc.cortes.length > 1 ? 's' : ''}</p>
-                      {calc.cortes.map((c, i) => (
-                        <div key={i} className="flex justify-between text-xs text-white/70">
-                           <span>Corte {i + 1}: {c.pecas.map(p => p.largura.toFixed(2).replace('.', ',')).join(' + ')} m</span>
-                           <span className="font-mono font-bold text-white">{c.comprimento.toFixed(2).replace('.', ',')} m</span>
-                        </div>
-                      ))}
-                      <div className="flex justify-between text-xs pt-1 border-t border-white/5"><span className="text-white/70">Aproveitamento</span><span className="font-mono font-bold text-emerald-400">{calc.aproveitamento.toFixed(2).replace('.', ',')}%</span></div>
-                   </div>
-
-                   <div className="bg-rose-500/10 border border-rose-500/20 rounded-2xl p-3 space-y-1">
-                      <p className="text-[9px] font-black uppercase text-rose-300">Desperd√≠cio</p>
-                      <div className="flex justify-between text-xs text-white/70"><span>√Årea desperdi√ßada</span><span className="font-mono font-bold text-white">{calc.desperdicio.toFixed(2).replace('.', ',')} m¬≤</span></div>
-                   </div>
-
-                   {calc.desperdicio <= 0.001 ? (
-                     <p className="text-[10px] text-emerald-400 font-bold text-center">‚úì SEM DESPERD√çCIO ‚Äî as pe√ßas foram aproveitadas no mesmo corte do rolo.</p>
-                   ) : (
-                     <p className="text-[10px] text-amber-400 font-bold text-center">‚ö† Desperd√≠cio ‚Äî sobra de material ap√≥s o melhor aproveitamento poss√≠vel.</p>
-                   )}
-                   {calc.cortes.length > 1 && (
-                     <p className="text-[10px] text-white/40 text-center">{calc.cortes.length} cortes necess√°rios ‚Äî nem todas as pe√ßas cabem juntas na largura do rolo.</p>
-                   )}
-
-                   <div className="bg-slate-900/60 rounded-2xl border border-white/10 p-4 space-y-1.5">
-                      {valorFinal > valorCalculado && (
-                        <div className="flex justify-between text-[10px] text-amber-400 pb-1 border-b border-white/5">
-                           <span>Impress√£o m√≠nima aplicada</span>
-                           <span className="font-mono font-bold">R$ {IMPRESSAO_MINIMA.toFixed(2).replace('.', ',')}</span>
-                        </div>
-                      )}
-                      <div className="flex justify-between text-sm">
-                         <span className="text-emerald-400 font-bold">Subtotal (sobre √°rea retirada do rolo)</span>
-                         <span className="font-mono font-black text-emerald-400">R$ {valorFinal.toFixed(2).replace('.', ',')}</span>
-                      </div>
-                   </div>
-                </div>
-              ) : (
-                <p className="text-center text-xs text-white/30 py-4">Informe largura e altura de pelo menos uma pe√ßa pra calcular.</p>
-              )}
-
-              <div className="flex justify-end gap-3 pt-1">
-                 <Button variant="ghost" onClick={() => setInsulfilmModalProduct(null)}>Cancelar</Button>
-                 <Button disabled={!calc} className="bg-primary-500 text-slate-900 border-none" onClick={confirmAddInsulfilmItem}>Adicionar ao Carrinho</Button>
-              </div>
-           </div>
-         </Modal>
-       );
-     })()}
-
-     {etiquetaModalProduct && (() => {
-       const calc = calcularEtiquetas(etiquetaModalProduct);
-       return (
-         <Modal isOpen={!!etiquetaModalProduct} onClose={() => setEtiquetaModalProduct(null)} title="Etiqueta Adesiva ‚Äî Calculadora" size="sm">
-           <div className="space-y-4 p-2">
-              <div className="grid grid-cols-2 gap-2">
-                 <Input label="Largura (cm)" type="number" step="any" value={etiquetaForm.largura} onChange={(e: any) => setEtiquetaForm({ ...etiquetaForm, largura: (e.target.value === '' ? '' : Number(e.target.value)) })} />
-                 <Input label="Altura (cm)" type="number" step="any" value={etiquetaForm.altura} onChange={(e: any) => setEtiquetaForm({ ...etiquetaForm, altura: (e.target.value === '' ? '' : Number(e.target.value)) })} />
-              </div>
-              <Input
-                label="Largura do Material (m)"
-                type="number"
-                step="any"
-                value={etiquetaForm.larguraMaterial}
-                onChange={(e: any) => setEtiquetaForm({ ...etiquetaForm, larguraMaterial: (e.target.value === '' ? '' : Number(e.target.value)) })}
-              />
-              <p className="text-[9px] text-white/30 -mt-2">Vem pr√©-preenchida com a largura cadastrada do material ‚Äî pode editar aqui, e o novo valor fica salvo pra pr√≥xima vez.</p>
-
-              <div className="space-y-1.5">
-                 <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">O cliente informou...</label>
-                 <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 gap-1">
-                    <button onClick={() => setEtiquetaInputMode('quantidade')} className={cn("flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all", etiquetaInputMode === 'quantidade' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Quantidade</button>
-                    <button onClick={() => setEtiquetaInputMode('metros')} className={cn("flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all", etiquetaInputMode === 'metros' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Metros</button>
-                    <button onClick={() => setEtiquetaInputMode('valor')} className={cn("flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all", etiquetaInputMode === 'valor' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Valor (R$)</button>
-                 </div>
-                 {etiquetaInputMode === 'quantidade' && (
-                   <Input label="Quantidade de Etiquetas" type="number" autoFocus value={etiquetaForm.quantidade} onChange={(e: any) => setEtiquetaForm({ ...etiquetaForm, quantidade: (e.target.value === '' ? '' : Number(e.target.value)) })} />
-                 )}
-                 {etiquetaInputMode === 'metros' && (
-                   <Input label="Metros Lineares Desejados" type="number" step="any" autoFocus value={etiquetaForm.metrosInput} onChange={(e: any) => setEtiquetaForm({ ...etiquetaForm, metrosInput: (e.target.value === '' ? '' : Number(e.target.value)) })} />
-                 )}
-                 {etiquetaInputMode === 'valor' && (
-                   <Input label="Valor Dispon√≠vel (R$)" type="number" step="any" autoFocus value={etiquetaForm.valorInput} onChange={(e: any) => setEtiquetaForm({ ...etiquetaForm, valorInput: (e.target.value === '' ? '' : Number(e.target.value)) })} />
-                 )}
-              </div>
-
-              {calc ? (
-                <div className="bg-slate-900/60 rounded-2xl border border-white/10 p-4 space-y-1.5">
-                   <div className="flex justify-between text-xs text-white/50">
-                      <span>Quantidade de etiquetas</span>
-                      <span className="font-mono font-bold text-white">{calc.quantidade} un</span>
-                   </div>
-                   <div className="flex justify-between text-xs text-white/50">
-                      <span>Etiquetas por fileira</span>
-                      <span className="font-mono font-bold text-white">{calc.porFileira} {calc.rotacionada ? '(rotacionada)' : ''}</span>
-                   </div>
-                   <div className="flex justify-between text-xs text-white/50">
-                      <span>Fileiras necess√°rias</span>
-                      <span className="font-mono font-bold text-white">{calc.fileiras}</span>
-                   </div>
-                   <div className="flex justify-between text-xs text-white/50">
-                      <span>Metros lineares</span>
-                      <span className="font-mono font-bold text-white">{calc.metrosLineares.toFixed(2).replace('.', ',')} m</span>
-                   </div>
-                   {(() => {
-                      const areaMaterial = calc.metrosLineares * etiquetaForm.larguraMaterial;
-                      const areaImpressa = calc.quantidade * (etiquetaForm.largura / 100) * (etiquetaForm.altura / 100);
-                      const desperdicio = Math.max(0, areaMaterial - areaImpressa);
-                      const aproveitamento = areaMaterial > 0 ? (areaImpressa / areaMaterial) * 100 : 0;
-                      return (
-                        <>
-                          <div className="flex justify-between text-xs text-rose-300 pt-1 border-t border-white/5">
-                             <span>√Årea desperdi√ßada</span>
-                             <span className="font-mono font-bold">{desperdicio.toFixed(3).replace('.', ',')} m¬≤</span>
-                          </div>
-                          <div className="flex justify-between text-xs text-emerald-300">
-                             <span>Aproveitamento</span>
-                             <span className="font-mono font-bold">{aproveitamento.toFixed(2).replace('.', ',')}%</span>
-                          </div>
-                        </>
-                      );
-                   })()}
-                   {calc.valorFinal > calc.valorCalculado && (
-                     <div className="flex justify-between text-[10px] text-amber-400 pt-1 border-t border-white/5">
-                        <span>Impress√£o m√≠nima aplicada</span>
-                        <span className="font-mono font-bold">R$ {(etiquetaModalProduct.valorMinimo ?? 30).toFixed(2).replace('.', ',')}</span>
-                     </div>
-                   )}
-                   <div className="flex justify-between text-sm pt-1 border-t border-white/5">
-                      <span className="text-emerald-400 font-bold">Valor Total</span>
-                      <span className="font-mono font-black text-emerald-400">R$ {calc.valorFinal.toFixed(2).replace('.', ',')}</span>
-                   </div>
-                </div>
-              ) : (
-                <p className="text-center text-xs text-white/30 py-4">Preencha as dimens√µes, a largura do material e a quantidade/metros/valor pra calcular.</p>
-              )}
-
-              <div className="flex justify-end gap-3 pt-1">
-                 <Button variant="ghost" onClick={() => setEtiquetaModalProduct(null)}>Cancelar</Button>
-                 <Button disabled={!calc} className="bg-primary-500 text-slate-900 border-none" onClick={confirmAddEtiquetaItem}>Adicionar ao Carrinho</Button>
-              </div>
-           </div>
-         </Modal>
-       );
-     })()}
-
-     {dimensionModalProduct && (
-       <Modal
-         isOpen={!!dimensionModalProduct}
-         onClose={() => setDimensionModalProduct(null)}
-         title={`Metragem ‚Äî ${dimensionModalProduct.name}`}
-         size="sm"
-       >
-         <div className="space-y-5 p-2">
-           <div className="grid grid-cols-2 gap-3">
-             <div className="space-y-1">
-               <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Largura (m)</label>
-               <Input
-                 type="number"
-                 step="any"
-                 autoFocus
-                 placeholder="Ex: 1,20"
-                 value={dimWidth}
-                 onChange={(e: any) => setDimWidth(e.target.value === '' ? '' : Number(e.target.value))}
-                 onKeyDown={(e: any) => { if (e.key === 'Enter') confirmAddDimensionedItem(); }}
-               />
-             </div>
-             <div className="space-y-1">
-               <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Altura (m)</label>
-               <Input
-                 type="number"
-                 step="any"
-                 placeholder="Ex: 2,20"
-                 value={dimHeight}
-                 onChange={(e: any) => setDimHeight(e.target.value === '' ? '' : Number(e.target.value))}
-                 onKeyDown={(e: any) => { if (e.key === 'Enter') confirmAddDimensionedItem(); }}
-               />
-             </div>
-           </div>
-
-           <Input
-             label="Largura do Material (m)"
-             type="number"
-             step="any"
-             value={dimLarguraMaterial}
-             onChange={(e: any) => setDimLarguraMaterial((e.target.value === '' ? '' : Number(e.target.value)))}
-           />
-           <p className="text-[9px] text-white/30 -mt-3">Vem pr√©-preenchida com a largura cadastrada do material ‚Äî pode editar aqui, e o novo valor fica salvo pra pr√≥xima vez.</p>
-
-           {dimWidth !== '' && dimHeight !== '' && Number(dimWidth) > 0 && Number(dimHeight) > 0 && (() => {
-              const w = Number(dimWidth);
-              const h = Number(dimHeight);
-              const isMetro = dimensionModalProduct.unitType === 'metro';
-              const rolo = dimLarguraMaterial;
-              const consumo = rolo > 0 ? calcularConsumoLinear(w, h, rolo) : (w * h);
-              const cabeComoEsta = rolo > 0 ? w <= rolo : true;
-              const cabeGirada = rolo > 0 ? h <= rolo : true;
-              const naoCabeEmNenhuma = rolo > 0 && !cabeComoEsta && !cabeGirada;
-              const areaUsada = w * h * selectedQty;
-              const areaRetirada = rolo * consumo * selectedQty;
-              const desperdicio = Math.max(0, areaRetirada - areaUsada);
-              const aproveitamento = areaRetirada > 0 ? (areaUsada / areaRetirada) * 100 : 0;
-              const valorCalculado = isMetro
-                ? consumo * dimensionModalProduct.price * selectedQty
-                : w * h * dimensionModalProduct.price * selectedQty;
-              const valorAutomatico = Math.max(valorCalculado, dimensionModalProduct.valorMinimo || 0);
-              // So re-sincroniza com o valor automatico enquanto o usuario ainda nao editou
-              // manualmente ‚Äî depois que ele edita, o valor digitado manda, mesmo se
-              // largura/altura mudarem de novo (ele pode ajustar as medidas sem perder o
-              // desconto que j√° tinha aplicado)
-              if (!dimValorFoiEditado && dimValorOverride !== valorAutomatico) {
-                setTimeout(() => setDimValorOverride(valorAutomatico), 0);
-              }
-              const valorFinal = dimValorOverride === '' ? valorAutomatico : Number(dimValorOverride);
-              return (
-                <div className="bg-slate-900/60 rounded-2xl border border-white/10 p-4 space-y-1">
-                  {isMetro ? (
-                    <div className="flex justify-between text-xs text-white/50">
-                      <span>Consumo linear (lado que sobra do material)</span>
-                      <span className="font-mono font-bold text-white">{consumo.toFixed(2).replace('.', ',')} m</span>
-                    </div>
-                  ) : (
-                    <div className="flex justify-between text-xs text-white/50">
-                      <span>√Årea</span>
-                      <span className="font-mono font-bold text-white">{(w * h).toFixed(2).replace('.', ',')} m¬≤</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between text-xs text-white/50">
-                    <span>Valor unit√°rio ({isMetro ? 'metro linear' : 'm¬≤'})</span>
-                    <span className="font-mono text-white">R$ {dimensionModalProduct.price.toFixed(2).replace('.', ',')}</span>
-                  </div>
-                  {rolo > 0 && !isMetro && (
-                    <div className="pt-1 border-t border-white/5 space-y-1">
-                       <div className="flex justify-between text-xs text-amber-300">
-                          <span>Consumo do material ({rolo}m largura)</span>
-                          <span className="font-mono font-bold">{(consumo * selectedQty).toFixed(2).replace('.', ',')} m linear</span>
-                       </div>
-                       {naoCabeEmNenhuma && (
-                         <p className="text-[9px] text-rose-400">‚ö† Nenhuma orienta√ß√£o cabe na largura do material ‚Äî confira as medidas.</p>
-                       )}
-                       {!naoCabeEmNenhuma && (
-                         <>
-                           <div className="flex justify-between text-xs text-rose-300">
-                              <span>√Årea desperdi√ßada</span>
-                              <span className="font-mono font-bold">{desperdicio.toFixed(2).replace('.', ',')} m¬≤</span>
-                           </div>
-                           <div className="flex justify-between text-xs text-emerald-300">
-                              <span>Aproveitamento</span>
-                              <span className="font-mono font-bold">{aproveitamento.toFixed(2).replace('.', ',')}%</span>
-                           </div>
-                           {desperdicio <= 0.001 ? (
-                             <p className="text-[9px] text-emerald-400 font-bold">‚úì Sem desperd√≠cio ‚Äî a pe√ßa aproveita 100% da largura ou do comprimento do material.</p>
-                           ) : (
-                             <p className="text-[9px] text-amber-400">‚ö† Sobra de material ap√≥s o melhor aproveitamento poss√≠vel.</p>
-                           )}
-                         </>
-                       )}
-                    </div>
-                  )}
-                  {naoCabeEmNenhuma && isMetro && (
-                    <p className="text-[9px] text-rose-400">‚ö† Nenhuma orienta√ß√£o cabe na largura do material ‚Äî confira as medidas.</p>
-                  )}
-                  {valorAutomatico > valorCalculado && (
-                    <div className="flex justify-between text-[10px] text-amber-400 pt-1 border-t border-white/5">
-                       <span>Valor m√≠nimo aplicado</span>
-                       <span className="font-mono font-bold">R$ {dimensionModalProduct.valorMinimo?.toFixed(2).replace('.', ',')}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between items-center text-sm pt-2 border-t border-white/5 gap-3">
-                    <span className="text-emerald-400 font-bold shrink-0">Valor final</span>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-emerald-400 font-mono text-xs">R$</span>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={dimValorOverride === '' ? valorAutomatico.toFixed(2) : dimValorOverride}
-                        onChange={(e) => { setDimValorFoiEditado(true); setDimValorOverride(e.target.value === '' ? '' : Number(e.target.value)); }}
-                        className="w-24 bg-slate-950 border border-emerald-500/30 rounded-lg px-2 py-1 text-right font-mono font-black text-emerald-400 focus:outline-none focus:border-emerald-400"
-                      />
-                      {dimValorFoiEditado && Number(dimValorOverride) !== valorAutomatico && (
-                        <button
-                          type="button"
-                          onClick={() => { setDimValorFoiEditado(false); setDimValorOverride(valorAutomatico); }}
-                          title="Voltar pro valor calculado automaticamente"
-                          className="text-[9px] text-white/30 hover:text-white/60 underline"
-                        >
-                          resetar
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  {dimValorFoiEditado && Number(dimValorOverride) !== valorAutomatico && (
-                    <p className="text-[9px] text-amber-400 text-right">
-                      {Number(dimValorOverride) < valorAutomatico ? 'Desconto' : 'Acr√©scimo'} manual ‚Äî autom√°tico seria R$ {valorAutomatico.toFixed(2).replace('.', ',')}
-                    </p>
-                  )}
-                </div>
-              );
-           })()}
-
-           <div className="flex justify-end gap-3 pt-1">
-             <Button variant="ghost" onClick={() => setDimensionModalProduct(null)}>Cancelar</Button>
-             <Button className="bg-primary-500 hover:bg-primary-400 text-slate-900 font-black gap-2" onClick={confirmAddDimensionedItem}>
-               <Plus size={16} />
-               <span>Adicionar ao Carrinho</span>
-             </Button>
-           </div>
-         </div>
-       </Modal>
-     )}
-
-     {waSendOrcamento && (
-       <Modal isOpen={!!waSendOrcamento} onClose={() => setWaSendOrcamento(null)} title="Enviar Or√ßamento pelo WhatsApp" size="sm">
-         <div className="space-y-4 p-2">
-            <p className="text-xs text-white/50">Or√ßamento <span className="text-white font-bold">{waSendOrcamento.numero}</span> ‚Äî {(waSendOrcamento.customerName || '').toUpperCase()}</p>
-            <Input
-              label="N√∫mero de WhatsApp"
-              placeholder="(93) 99999-9999"
-              value={waSendPhone}
-              onChange={(e: any) => setWaSendPhone(e.target.value)}
-              autoFocus
-            />
-            <p className="text-[10px] text-white/30">Pode trocar o n√∫mero aqui pra mandar pra outro contato ‚Äî o telefone principal do or√ßamento n√£o √© alterado, fica guardado s√≥ como n√∫mero alternativo de envio.</p>
-            {waSendOrcamento.telefoneAlternativo && waSendPhone === (waSendOrcamento.phone || '') && (
-              <button
-                onClick={() => setWaSendPhone(waSendOrcamento.telefoneAlternativo || '')}
-                className="text-[10px] text-primary-300 hover:text-primary-200 font-bold"
-              >
-                Usar √∫ltimo n√∫mero alternativo: {waSendOrcamento.telefoneAlternativo}
-              </button>
-            )}
-            <div className="flex justify-end gap-3 pt-1">
-               <Button variant="ghost" onClick={() => setWaSendOrcamento(null)}>Cancelar</Button>
-               <Button className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 border-none" onClick={confirmShareOrcamentoWhatsApp}>Enviar</Button>
-            </div>
-         </div>
-       </Modal>
-     )}
-
-     {viewingOrcamento && (
-       <Modal
-         isOpen={!!viewingOrcamento}
-         onClose={() => setViewingOrcamento(null)}
-         title={`Or√ßamento ${viewingOrcamento.numero}`}
-         size="md"
-       >
-         <div className="space-y-5 p-2">
-            <div className="bg-slate-900/60 rounded-2xl border border-white/10 p-4 space-y-2">
-               <div className="flex justify-between text-xs">
-                  <span className="text-white/40 font-bold uppercase">Cliente</span>
-                  <span className="text-white font-black">{viewingOrcamento.customerName}</span>
-               </div>
-               {viewingOrcamento.phone && (
-                 <div className="flex justify-between text-xs">
-                    <span className="text-white/40 font-bold uppercase">Telefone</span>
-                    <span className="text-white font-black">{viewingOrcamento.phone}</span>
-                 </div>
-               )}
-               <div className="flex justify-between text-xs pt-1 border-t border-white/5">
-                  <span className="text-white/40 font-bold uppercase">Itens</span>
-                  <span className="text-white font-black">{viewingOrcamento.items.length}</span>
-               </div>
-               <div className="flex justify-between text-sm">
-                  <span className="text-emerald-400 font-bold uppercase">Total</span>
-                  <span className="text-emerald-400 font-black">R$ {viewingOrcamento.total.toFixed(2).replace('.', ',')}</span>
-               </div>
-               {viewingOrcamento.validade && (
-                 <div className="flex justify-between text-xs">
-                    <span className="text-white/40 font-bold uppercase">V√°lido at√©</span>
-                    <span className="text-white font-black">{safeFormat(viewingOrcamento.validade, 'dd/MM/yyyy')}</span>
-                 </div>
-               )}
-            </div>
-
-            <div className="space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar">
-               {viewingOrcamento.items.map((item, idx) => (
-                 <div key={idx} className="flex items-center justify-between px-3 py-2 bg-white/5 border border-white/5 rounded-lg text-xs">
-                    <span className="text-white/70">{item.quantity}x {item.name.toUpperCase()}</span>
-                    <span className="text-white font-bold">R$ {(item.area ? item.price * item.area * item.quantity : item.price * item.quantity).toFixed(2).replace('.', ',')}</span>
-                 </div>
-               ))}
-            </div>
-
-            <div className="grid grid-cols-3 gap-2 pt-2">
-               <Button variant="secondary" icon={Printer} onClick={() => handlePrintOrcamento(viewingOrcamento)}>Imprimir</Button>
-               <Button variant="secondary" icon={ImageIcon} onClick={() => handleDownloadOrcamentoImagem(viewingOrcamento)}>Imagem</Button>
-               <Button variant="secondary" icon={FileText} onClick={() => handleDownloadOrcamentoPdf(viewingOrcamento)}>PDF</Button>
-            </div>
-         </div>
-       </Modal>
-     )}
-
-     <ProdutoFormModal
-       isOpen={isQuickProductOpen}
-       onClose={() => setIsQuickProductOpen(false)}
-       editingItem={null}
-       onSaved={(saved) => {
-         loadProducts();
-         if (quickProductAddToOrcamento && saved) {
-           setOrcamentoForm(prev => ({
-             ...prev,
-             items: [...prev.items, { productId: saved.id, name: saved.name, price: Number(saved.sale_price) || 0, quantity: 1 }],
-           }));
-           setQuickProductAddToOrcamento(false);
-         }
-       }}
-     />
-
-     {orcamentoModalOpen && (
-       <Modal
-         isOpen={orcamentoModalOpen}
-         onClose={() => setOrcamentoModalOpen(false)}
-         title={editingOrcamento ? `Editar Or√ßamento ${editingOrcamento.numero}` : 'Novo Or√ßamento'}
-         size="lg"
-       >
-         <div className="space-y-5 max-h-[70vh] overflow-y-auto custom-scrollbar pr-1">
-            <div className="flex items-center justify-between">
-               <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px]">Dados do Cliente</p>
-               <button
-                 onClick={() => {
-                    setOrcamentoModalOpen(false);
-                    setCustomerModalIntent('orcamento');
-                    setCustomerModalMode('search');
-                    setIsCustomerModalOpen(true);
-                 }}
-                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary-500/10 border border-primary-500/20 text-primary-300 hover:bg-primary-500/20 text-[9px] font-black uppercase tracking-wider transition-all"
-               >
-                 <Search size={11} /> Buscar Cliente Cadastrado
-               </button>
-            </div>
-            {orcamentoForm.clienteId && (
-              <p className="text-[9px] text-emerald-400 font-bold -mt-3">‚úì Vinculado ao cadastro de clientes</p>
-            )}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-               <Input label="Cliente *" value={orcamentoForm.customerName} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, customerName: e.target.value.toUpperCase(), clienteId: undefined })} />
-               <CpfCnpjInput label="CPF/CNPJ" value={orcamentoForm.cpfCnpj} onChange={(v: string) => setOrcamentoForm({ ...orcamentoForm, cpfCnpj: v })} />
-               <PhoneInputBR label="Telefone/WhatsApp" value={orcamentoForm.phone} onChange={(v: string) => setOrcamentoForm({ ...orcamentoForm, phone: v })} />
-               <Input label="Respons√°vel pelo Atendimento" value={orcamentoForm.responsavel} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, responsavel: e.target.value })} />
-               <Input label="Endere√ßo" className="sm:col-span-2" value={orcamentoForm.address} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, address: e.target.value })} />
-               <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Data de Emiss√£o</label>
-                  <div className="h-11 flex items-center px-3 bg-white/5 border border-white/10 rounded-xl text-sm text-white/70">
-                    {safeFormat(editingOrcamento?.createdAt || new Date().toISOString(), 'dd/MM/yyyy')}
-                  </div>
-               </div>
-               <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Etapa</label>
-                  <select
-                    value={orcamentoForm.serviceStatus || 'pedido_recebido'}
-                    onChange={(e) => setOrcamentoForm({ ...orcamentoForm, serviceStatus: e.target.value as any })}
-                    className="h-11 w-full bg-white/5 border border-white/10 rounded-xl px-3 text-[11px] font-bold text-white focus:outline-none focus:border-primary-500 cursor-pointer"
-                  >
-                    {STAGE_ORDER.map(stage => (
-                      <option key={stage} value={stage} className="bg-slate-900">
-                        {STAGE_LABELS[stage]}
-                      </option>
-                    ))}
-                  </select>
-               </div>
-               <Input label="Validade" type="date" value={orcamentoForm.validade} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, validade: e.target.value })} />
-            </div>
-
-            <div className="h-px bg-white/10" />
-
-            <div className="space-y-2">
-               <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px]">Itens do Or√ßamento</p>
-               <button
-                 onClick={() => {
-                    setCart([...orcamentoForm.items]);
-                    setOrcamentoModalOpen(false);
-                    setOrcamentoItemsEditMode(true);
-                    setActiveTab('venda');
-                 }}
-                 className="w-full h-11 rounded-xl bg-primary-500/10 border border-primary-500/20 text-primary-300 hover:bg-primary-500/20 text-[11px] font-black uppercase tracking-wider flex items-center justify-center gap-2"
-               >
-                 <Plus size={15} /> Adicionar Item
-               </button>
-               <div className="space-y-1.5">
-                  {orcamentoForm.items.map((item, idx) => (
-                    <div key={idx} className="flex items-center justify-between gap-2 px-3 py-2 bg-white/5 border border-white/5 rounded-lg flex-wrap">
-                       <div className="flex items-center gap-2 min-w-0 flex-1">
-                          <input
-          onFocus={(e: any) => e.target.select()}
-                            type="number"
-                            min={1}
-                            value={item.quantity}
-                            onChange={(e) => {
-                               const qty = Math.max(1, Number(e.target.value) || 1);
-                               setOrcamentoForm(prev => ({ ...prev, items: prev.items.map((it, i) => i === idx ? { ...it, quantity: qty } : it) }));
-                            }}
-                            className="w-12 h-7 bg-slate-900/60 border border-white/10 rounded px-1.5 text-xs text-white text-center"
-                            title="Quantidade"
-                          />
-                          <div className="min-w-0 flex-1">
-                             <p className="text-xs font-bold text-white truncate">{item.name}</p>
-                             <button
-                               onClick={() => setOrcamentoForm(prev => ({ ...prev, items: prev.items.map((it: any, i) => i === idx ? { ...it, category: it.category === 'servico' ? 'produto' : 'servico' } : it) }))}
-                               className={cn(
-                                 "text-[7px] font-black uppercase px-1.5 py-0.5 rounded mt-0.5 inline-block",
-                                 (item as any).category === 'servico' ? "bg-blue-500/20 text-blue-300" : "bg-white/10 text-white/40"
-                               )}
-                               title="Clique para alternar Produto/Servi√ßo"
-                             >
-                               {(item as any).category === 'servico' ? 'Servi√ßo' : 'Produto'}
-                             </button>
-                          </div>
-                       </div>
-                       <div className="flex items-center gap-2 shrink-0">
-                          <div className="flex flex-col items-end">
-                             <span className="text-[7px] font-black text-white/30 uppercase tracking-wider">Valor Unit.</span>
-                             <input
-          onFocus={(e: any) => e.target.select()}
-                               type="number"
-                               step="any"
-                               value={item.price}
-                               onChange={(e) => {
-                                  const price = e.target.value === '' ? 0 : Math.max(0, Number(e.target.value));
-                                  setOrcamentoForm(prev => ({ ...prev, items: prev.items.map((it, i) => i === idx ? { ...it, price } : it) }));
-                               }}
-                               className="w-20 h-6 bg-slate-900/60 border border-white/10 rounded px-1.5 text-[10px] text-white text-right"
-                             />
-                          </div>
-                          <span className="text-xs font-black text-emerald-400 min-w-[70px] text-right">R$ {(item.price * item.quantity).toFixed(2).replace('.', ',')}</span>
-                          <button onClick={() => setOrcamentoForm(prev => ({ ...prev, items: prev.items.filter((_, i) => i !== idx) }))} className="text-white/30 hover:text-rose-400"><X size={13} /></button>
-                       </div>
-                    </div>
-                  ))}
-                  {orcamentoForm.items.length === 0 && <p className="text-xs text-white/30 py-3 text-center">Nenhum item adicionado ainda.</p>}
-               </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
-               <Input label="Desconto (R$)" type="number" step="any" value={orcamentoForm.desconto} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, desconto: (e.target.value === '' ? '' : Number(e.target.value)) })} />
-               <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Entrada</label>
-                  <div className="flex gap-1.5">
-                     <input
-          onFocus={(e: any) => e.target.select()}
-                       type="number"
-                       step="any"
-                       value={orcamentoForm.entradaModo === 'percentual' ? orcamentoForm.entradaPercentual : orcamentoForm.entradaValor}
-                       onChange={(e: any) => orcamentoForm.entradaModo === 'percentual'
-                         ? updatePoliticaPagamento({ entradaPercentual: (e.target.value === '' ? '' : Number(e.target.value)) })
-                         : updatePoliticaPagamento({ entradaValor: (e.target.value === '' ? '' : Number(e.target.value)) })}
-                       className="flex-1 h-11 bg-white/5 border border-white/10 rounded-xl px-3 text-sm text-white focus:outline-none focus:border-primary-500"
-                     />
-                     <div className="flex bg-white/5 p-0.5 rounded-xl border border-white/10 shrink-0">
-                        <button onClick={() => updatePoliticaPagamento({ entradaModo: 'percentual' })} className={cn("px-2.5 h-full rounded-lg text-[10px] font-black", orcamentoForm.entradaModo === 'percentual' ? "bg-primary-500 text-slate-900" : "text-white/40")}>%</button>
-                        <button onClick={() => updatePoliticaPagamento({ entradaModo: 'valor' })} className={cn("px-2.5 h-full rounded-lg text-[10px] font-black", orcamentoForm.entradaModo === 'valor' ? "bg-primary-500 text-slate-900" : "text-white/40")}>R$</button>
-                     </div>
-                  </div>
-               </div>
-               <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Valor da Entrada (R$)</label>
-                  <input
-          onFocus={(e: any) => e.target.select()}
-                    type="number"
-                    step="any"
-                    placeholder="Personalizado"
-                    value={orcamentoForm.entradaModo === 'valor' ? orcamentoForm.entradaValor : orcamentoEntradaValorCalc() || ''}
-                    onChange={(e: any) => updatePoliticaPagamento({ entradaModo: 'valor', entradaValor: (e.target.value === '' ? '' : Number(e.target.value)) })}
-                    className="w-full h-11 bg-white/5 border border-white/10 rounded-xl px-3 text-sm text-emerald-400 font-bold focus:outline-none focus:border-primary-500"
-                  />
-               </div>
-            </div>
-
-            <div className="bg-slate-900/50 rounded-2xl p-4 border border-white/5 flex justify-between items-center">
-               <span className="text-[10px] font-black uppercase text-white/40 tracking-widest">Total do Or√ßamento</span>
-               <span className="text-xl font-black text-emerald-400 italic">R$ {Math.max(0, orcamentoItemsTotal() - (orcamentoForm.desconto || 0)).toFixed(2).replace('.', ',')}</span>
-            </div>
-
-            <div className="h-px bg-white/10" />
-
-            <div className="space-y-3">
-               <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px]">Prazo de Produ√ß√£o/Entrega</p>
-
-               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  <div className="space-y-1">
-                     <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Dias</label>
-                     <input
-          onFocus={(e: any) => e.target.select()}
-                       type="number"
-                       min={1}
-                       value={orcamentoForm.prazoDias}
-                       onChange={(e) => updatePrazoStructured({ prazoDias: Math.max(1, Number(e.target.value) || 1) })}
-                       className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500"
-                     />
-                  </div>
-                  <div className="space-y-1">
-                     <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Tipo</label>
-                     <select
-                       value={orcamentoForm.prazoTipo}
-                       onChange={(e) => updatePrazoStructured({ prazoTipo: e.target.value as 'uteis' | 'corridos' })}
-                       className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500 cursor-pointer"
-                     >
-                       <option value="uteis" className="bg-slate-900">Dias √öteis</option>
-                       <option value="corridos" className="bg-slate-900">Dias Corridos</option>
-                     </select>
-                  </div>
-                  <div className="space-y-1 col-span-2">
-                     <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Contado a partir de</label>
-                     <select
-                       value={orcamentoForm.prazoGatilho}
-                       onChange={(e) => updatePrazoStructured({ prazoGatilho: e.target.value as any })}
-                       className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500 cursor-pointer"
-                     >
-                       <option value="aprovacao" className="bg-slate-900">Aprova√ß√£o do or√ßamento</option>
-                       <option value="pagamento_entrada" className="bg-slate-900">Pagamento da entrada</option>
-                       <option value="aprovacao_arte" className="bg-slate-900">Aprova√ß√£o da arte</option>
-                       <option value="entrega_material" className="bg-slate-900">Entrega de material pelo cliente</option>
-                       <option value="personalizado" className="bg-slate-900">Condi√ß√£o personalizada (texto livre)</option>
-                     </select>
-                  </div>
-               </div>
-
-               <Input label="Data Prevista de Conclus√£o (opcional)" type="date" value={orcamentoForm.prazoDataPrevista} onChange={(e: any) => setOrcamentoForm({ ...orcamentoForm, prazoDataPrevista: e.target.value })} />
-
-               <textarea
-                 rows={2}
-                 value={orcamentoForm.prazoProducao}
-                 readOnly={orcamentoForm.prazoGatilho !== 'personalizado'}
-                 onChange={(e) => setOrcamentoForm({ ...orcamentoForm, prazoProducao: e.target.value })}
-                 className={cn(
-                   "w-full border rounded-xl px-3 py-2.5 text-xs resize-none focus:outline-none",
-                   orcamentoForm.prazoGatilho !== 'personalizado' ? "bg-white/[0.02] border-white/5 text-white/50" : "bg-white/5 border-white/10 text-white focus:border-primary-500"
-                 )}
-               />
-               <p className="text-[9px] text-amber-300/80 font-bold flex items-center gap-1.5">
-                  <AlertCircle size={12} /> Prazo de produ√ß√£o ‚â† prazo de pagamento ‚Äî essa distin√ß√£o fica registrada e vis√≠vel no PDF/WhatsApp enviado ao cliente.
-               </p>
-
-               <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px] pt-1">Pol√≠tica de Pagamento</p>
-               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <select
-                    value={orcamentoForm.politicaPagamento}
-                    onChange={(e) => updatePoliticaPagamento({ politicaPagamento: e.target.value as any })}
-                    className="h-10 bg-white/5 border border-white/10 rounded-xl px-3 text-xs text-white focus:outline-none focus:border-primary-500 cursor-pointer"
-                  >
-                     {Object.entries(POLITICA_PAGAMENTO_LABELS).map(([id, label]) => <option key={id} value={id} className="bg-slate-900">{label}</option>)}
-                  </select>
-                  <button
-                    onClick={() => updatePoliticaPagamento({ entradaObrigatoria: !orcamentoForm.entradaObrigatoria })}
-                    className={cn(
-                      "h-10 rounded-xl border-2 flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-wider transition-all",
-                      orcamentoForm.entradaObrigatoria ? "bg-amber-500/10 border-amber-500/30 text-amber-400" : "bg-white/5 border-white/10 text-white/40"
-                    )}
-                  >
-                     <div className={cn("w-3.5 h-3.5 rounded border flex items-center justify-center", orcamentoForm.entradaObrigatoria ? "bg-amber-500 border-amber-500" : "border-white/20")}>
-                        {orcamentoForm.entradaObrigatoria && <Check size={10} className="text-slate-900" />}
-                     </div>
-                     Entrada obrigat√≥ria p/ iniciar produ√ß√£o
-                  </button>
-               </div>
-
-               <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px] pt-1">Formas de Pagamento (combine quantas precisar)</p>
-               <div className="space-y-2">
-                  {orcamentoForm.formasPagamento.map((f, idx) => (
-                    <div key={idx} className="bg-white/5 border border-white/10 rounded-xl p-3 space-y-2">
-                       <div className="flex flex-wrap gap-2 items-end">
-                          <div className="space-y-0.5 flex-1 min-w-[130px]">
-                             <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Forma</label>
-                             <select
-                               value={f.metodo}
-                               onChange={(e) => updateOrcamentoFormaPagamento(idx, { metodo: e.target.value as any })}
-                               className="w-full h-9 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500 cursor-pointer"
-                             >
-                                {Object.entries(ORCAMENTO_PAGAMENTO_LABELS).map(([id, label]) => <option key={id} value={id} className="bg-slate-900">{label}</option>)}
-                             </select>
-                          </div>
-                          {f.metodo === 'outra' && (
-                            <div className="space-y-0.5 flex-1 min-w-[110px]">
-                               <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Qual?</label>
-                               <input value={f.metodoOutraLabel || ''} onChange={(e) => updateOrcamentoFormaPagamento(idx, { metodoOutraLabel: e.target.value })} className="w-full h-9 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
-                            </div>
-                          )}
-                          <div className="space-y-0.5 w-24">
-                             <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Valor (R$)</label>
-                             <input
-          onFocus={(e: any) => e.target.select()} type="number" step="any" value={f.valor} onChange={(e) => updateOrcamentoFormaPagamento(idx, { valor: (e.target.value === '' ? '' : Number(e.target.value)) })} className="w-full h-9 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
-                          </div>
-                          <button onClick={() => removeOrcamentoFormaPagamento(idx)} className="h-9 w-9 flex items-center justify-center rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 shrink-0"><Trash2 size={13} /></button>
-                       </div>
-
-                       {f.metodo === 'cartao_parcelado' && (
-                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-white/5">
-                            <div className="space-y-0.5">
-                               <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Parcelas</label>
-                               <input
-          onFocus={(e: any) => e.target.select()} type="number" min={1} value={f.parcelas || 1} onChange={(e) => {
-                                  const parcelas = Math.max(1, Number(e.target.value) || 1);
-                                  updateOrcamentoFormaPagamento(idx, { parcelas, valorParcela: Number(((f.valor || 0) / parcelas).toFixed(2)) });
-                               }} className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
-                            </div>
-                            <div className="space-y-0.5">
-                               <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Valor/Parcela</label>
-                               <div className="h-8 flex items-center px-2 bg-slate-900/30 border border-white/5 rounded-lg text-xs text-emerald-400 font-bold">
-                                 R$ {(f.valorParcela || 0).toFixed(2).replace('.', ',')}
-                               </div>
-                            </div>
-                            <div className="space-y-0.5">
-                               <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">1¬∫ Vencimento</label>
-                               <input type="date" value={f.primeiroVencimento || ''} onChange={(e) => updateOrcamentoFormaPagamento(idx, { primeiroVencimento: e.target.value })} className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-[10px] text-white" />
-                            </div>
-                            <div className="space-y-0.5">
-                               <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Intervalo (dias)</label>
-                               <input
-          onFocus={(e: any) => e.target.select()} type="number" min={1} value={f.intervaloDias || 30} onChange={(e) => updateOrcamentoFormaPagamento(idx, { intervaloDias: Number(e.target.value) || 30 })} className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
-                            </div>
-                         </div>
-                       )}
-                       {f.metodo !== 'cartao_parcelado' && (
-                         <div className="pt-1 border-t border-white/5">
-                            <div className="space-y-0.5 w-40">
-                               <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Data de Vencimento</label>
-                               <input type="date" value={f.dataVencimento || ''} onChange={(e) => updateOrcamentoFormaPagamento(idx, { dataVencimento: e.target.value })} className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-[10px] text-white" />
-                            </div>
-                         </div>
-                       )}
-                    </div>
-                  ))}
-                  <button onClick={addOrcamentoFormaPagamento} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-primary-500/10 border border-primary-500/20 text-primary-300 hover:bg-primary-500/20 text-[10px] font-black uppercase tracking-wider transition-all">
-                     <Plus size={12} /> Adicionar Forma de Pagamento
-                  </button>
-               </div>
-
-               <div className="bg-slate-900/50 rounded-xl p-3 border border-white/5 flex justify-between items-center">
-                  <span className="text-[9px] font-black uppercase text-white/40 tracking-widest">Saldo Restante (n√£o coberto acima)</span>
-                  <span className={cn("text-sm font-black", orcamentoSaldoRestante() > 0 ? "text-amber-400" : "text-emerald-400")}>R$ {orcamentoSaldoRestante().toFixed(2).replace('.', ',')}</span>
-               </div>
-
-               <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px] pt-1">Resumo (texto final exibido no or√ßamento)</p>
-               <textarea rows={2} value={orcamentoForm.formaPagamentoTexto} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, formaPagamentoTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-primary-500" />
-
-               <p className="text-[10px] font-black uppercase text-amber-300 tracking-[2px]">Prazo de Pagamento (n√£o √© o mesmo que prazo de produ√ß√£o)</p>
-               <textarea rows={2} value={orcamentoForm.prazoPagamentoTexto} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, prazoPagamentoTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-primary-500" />
-
-               <div className="bg-white/5 border border-white/10 rounded-xl p-3 space-y-2">
-                  <button
-                    onClick={() => setOrcamentoForm(prev => ({ ...prev, pagamentoPosteriorAutorizado: !prev.pagamentoPosteriorAutorizado }))}
-                    className="flex items-center gap-2 text-[10px] font-black uppercase text-white tracking-wider"
-                  >
-                     <div className={cn("w-4 h-4 rounded border flex items-center justify-center", orcamentoForm.pagamentoPosteriorAutorizado ? "bg-primary-500 border-primary-500" : "border-white/20")}>
-                        {orcamentoForm.pagamentoPosteriorAutorizado && <Check size={11} className="text-slate-900" />}
-                     </div>
-                     Pagamento Posterior Autorizado (exce√ß√£o ao prazo padr√£o)
-                  </button>
-                  <p className="text-[9px] text-white/40">S√≥ marque se voc√™ est√° concedendo, de forma expressa, um prazo diferente do padr√£o para este cliente pagar.</p>
-
-                  {orcamentoForm.pagamentoPosteriorAutorizado && (
-                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/5">
-                       <div className="space-y-0.5">
-                          <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Data de Vencimento</label>
-                          <input type="date" value={orcamentoForm.pagamentoPosteriorData} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, pagamentoPosteriorData: e.target.value })} className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-[10px] text-white" />
-                       </div>
-                       <div className="space-y-0.5">
-                          <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Prazo Concedido (dias)</label>
-                          <input
-          onFocus={(e: any) => e.target.select()} type="number" min={0} value={orcamentoForm.pagamentoPosteriorDias} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, pagamentoPosteriorDias: (e.target.value === '' ? '' : Number(e.target.value)) })} className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
-                       </div>
-                       <div className="space-y-0.5 col-span-2">
-                          <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Condi√ß√£o Especial</label>
-                          <input value={orcamentoForm.pagamentoPosteriorCondicao} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, pagamentoPosteriorCondicao: e.target.value })} placeholder="Ex: aguardar recebimento de outro pagamento" className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
-                       </div>
-                       <div className="space-y-0.5 col-span-2">
-                          <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Respons√°vel pela Autoriza√ß√£o</label>
-                          <input value={orcamentoForm.pagamentoPosteriorResponsavel} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, pagamentoPosteriorResponsavel: e.target.value })} placeholder="Nome de quem autorizou" className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
-                       </div>
-                    </div>
-                  )}
-               </div>
-
-               <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px]">Condi√ß√£o de Entrega/Retirada</p>
-               <textarea rows={2} value={orcamentoForm.condicaoEntregaTexto} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, condicaoEntregaTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-primary-500" />
-
-               <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px]">Multa e Juros por Atraso</p>
-               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  <div className="space-y-0.5">
-                     <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Multa (%)</label>
-                     <input
-          onFocus={(e: any) => e.target.select()} type="number" step="any" min={0} value={orcamentoForm.multaPercentual} onChange={(e) => updateMultaJuros({ multaPercentual: (e.target.value === '' ? '' : Number(e.target.value)) })} className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500" />
-                  </div>
-                  <div className="space-y-0.5">
-                     <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Juros (%)</label>
-                     <input
-          onFocus={(e: any) => e.target.select()} type="number" step="any" min={0} value={orcamentoForm.jurosPercentual} onChange={(e) => updateMultaJuros({ jurosPercentual: (e.target.value === '' ? '' : Number(e.target.value)) })} className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500" />
-                  </div>
-                  <div className="space-y-0.5">
-                     <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Forma de C√°lculo</label>
-                     <select value={orcamentoForm.jurosModo} onChange={(e) => updateMultaJuros({ jurosModo: e.target.value as any })} className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500 cursor-pointer">
-                        <option value="mensal" className="bg-slate-900">Juros ao m√™s</option>
-                        <option value="diario" className="bg-slate-900">Juros ao dia</option>
-                     </select>
-                  </div>
-                  <div className="space-y-0.5">
-                     <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Toler√¢ncia (dias)</label>
-                     <input
-          onFocus={(e: any) => e.target.select()} type="number" min={0} value={orcamentoForm.diasTolerancia} onChange={(e) => updateMultaJuros({ diasTolerancia: (e.target.value === '' ? '' : Number(e.target.value)) })} className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500" />
-                  </div>
-               </div>
-
-               <textarea rows={2} value={orcamentoForm.multaJurosTexto} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, multaJurosTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-primary-500" />
-
-               {/* Simulador de atraso: calculo automatico */}
-               <div className="bg-black/20 rounded-xl p-3 space-y-2 border border-white/5">
-                  <div className="flex items-center justify-between gap-2">
-                     <span className="text-[9px] font-black uppercase text-white/40 tracking-wider">Simular atraso de</span>
-                     <div className="flex items-center gap-1.5">
-                        <input
-          onFocus={(e: any) => e.target.select()} type="number" min={0} value={simuladorDias} onChange={(e) => setSimuladorDias((e.target.value === '' ? '' : Number(e.target.value)))} className="w-14 h-7 bg-slate-900/60 border border-white/10 rounded px-1.5 text-xs text-white text-center" />
-                        <span className="text-[9px] text-white/40 font-bold">dias, sobre R$ {orcamentoSaldoRestante().toFixed(2).replace('.', ',')} em aberto</span>
-                     </div>
-                  </div>
-                  {(() => {
-                     const calc = calcularAtraso(orcamentoSaldoRestante(), simuladorDias);
-                     return (
-                       <div className="grid grid-cols-3 gap-2 pt-1 border-t border-white/5">
-                          <div>
-                             <p className="text-[7px] font-black uppercase text-white/30 tracking-wider">Multa</p>
-                             <p className="text-xs font-black text-amber-400">R$ {calc.multa.toFixed(2).replace('.', ',')}</p>
-                          </div>
-                          <div>
-                             <p className="text-[7px] font-black uppercase text-white/30 tracking-wider">Juros ({calc.diasEfetivos}d)</p>
-                             <p className="text-xs font-black text-amber-400">R$ {calc.juros.toFixed(2).replace('.', ',')}</p>
-                          </div>
-                          <div>
-                             <p className="text-[7px] font-black uppercase text-white/30 tracking-wider">Valor Atualizado</p>
-                             <p className="text-xs font-black text-rose-400">R$ {calc.total.toFixed(2).replace('.', ',')}</p>
-                          </div>
-                       </div>
-                     );
-                  })()}
-               </div>
-
-               <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px]">Garantia do Servi√ßo</p>
-               <textarea rows={2} value={orcamentoForm.garantiaTexto} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, garantiaTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-primary-500" />
-
-               <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px]">Pol√≠tica de Cancelamento</p>
-               <textarea rows={2} value={orcamentoForm.politicaCancelamentoTexto} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, politicaCancelamentoTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-primary-500" />
-
-               <p className="text-[10px] font-black uppercase text-primary-300 tracking-[2px]">Observa√ß√µes</p>
-               <textarea rows={2} value={orcamentoForm.observacoes} onChange={(e) => setOrcamentoForm({ ...orcamentoForm, observacoes: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-primary-500" />
-            </div>
-
-            <div className="flex justify-end gap-3 pt-1">
-               <Button variant="ghost" onClick={() => setOrcamentoModalOpen(false)}>Cancelar</Button>
-               <Button disabled={savingOrcamento} onClick={handleSaveOrcamento} className="bg-primary-500 text-slate-900 border-none">
-                 {savingOrcamento ? 'Salvando...' : 'Salvar Or√ßamento'}
-               </Button>
-            </div>
-         </div>
-       </Modal>
-     )}
-
-     {contratoModalOpen && (
-       <Modal
-         isOpen={contratoModalOpen}
-         onClose={() => setContratoModalOpen(false)}
-         title={editingContrato ? (editingContrato.status === 'rascunho' ? `Editar Contrato ${editingContrato.numero}` : `Editar ${editingContrato.numero} ‚Äî cria Vers√£o ${editingContrato.versao + 1}`) : 'Novo Contrato'}
-         size="lg"
-       >
-         <div className="space-y-5 max-h-[70vh] overflow-y-auto custom-scrollbar pr-1">
-            {editingContrato && editingContrato.status !== 'rascunho' && (
-              <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 text-[11px] text-amber-300">
-                Esse contrato j√° saiu de rascunho ‚Äî salvar aqui cria uma <strong>nova vers√£o</strong> (v{editingContrato.versao + 1}), mantendo a vers√£o atual guardada no hist√≥rico.
-              </div>
-            )}
-
-            <div className="flex items-center justify-between">
-               <p className="text-[10px] font-black uppercase text-purple-300 tracking-[2px]">Dados do Cliente</p>
-               <button
-                 onClick={() => {
-                    setContratoModalOpen(false);
-                    setCustomerModalIntent('contrato');
-                    setCustomerModalMode('search');
-                    setIsCustomerModalOpen(true);
-                 }}
-                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-300 hover:bg-purple-500/20 text-[9px] font-black uppercase tracking-wider transition-all"
-               >
-                 <Search size={11} /> Buscar Cliente Cadastrado
-               </button>
-            </div>
-            {contratoForm.clienteId && (
-              <p className="text-[9px] text-emerald-400 font-bold -mt-3">‚úì Vinculado ao cadastro de clientes</p>
-            )}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-               <Input label="Cliente *" value={contratoForm.customerName} onChange={(e: any) => setContratoForm({ ...contratoForm, customerName: e.target.value.toUpperCase(), clienteId: undefined })} />
-               <CpfCnpjInput label="CPF/CNPJ" value={contratoForm.cpfCnpj} onChange={(v: string) => setContratoForm({ ...contratoForm, cpfCnpj: v })} />
-               <PhoneInputBR label="Telefone/WhatsApp" value={contratoForm.phone} onChange={(v: string) => setContratoForm({ ...contratoForm, phone: v })} />
-               <Input label="Respons√°vel pelo Atendimento" value={contratoForm.responsavel} onChange={(e: any) => setContratoForm({ ...contratoForm, responsavel: e.target.value })} />
-               <Input label="Endere√ßo" className="sm:col-span-2" value={contratoForm.address} onChange={(e: any) => setContratoForm({ ...contratoForm, address: e.target.value })} />
-               <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Data de Emiss√£o</label>
-                  <div className="h-11 flex items-center px-3 bg-white/5 border border-white/10 rounded-xl text-sm text-white/70">
-                    {safeFormat(editingContrato?.createdAt || new Date().toISOString(), 'dd/MM/yyyy')}
-                  </div>
-               </div>
-               <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Etapa</label>
-                  <select
-                    value={contratoForm.serviceStatus || 'pedido_recebido'}
-                    onChange={(e) => setContratoForm({ ...contratoForm, serviceStatus: e.target.value as any })}
-                    className="h-11 w-full bg-white/5 border border-white/10 rounded-xl px-3 text-[11px] font-bold text-white focus:outline-none focus:border-primary-500 cursor-pointer"
-                  >
-                    {STAGE_ORDER.map(stage => (
-                      <option key={stage} value={stage} className="bg-slate-900">
-                        {STAGE_LABELS[stage]}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-[9px] text-white/30">Sincroniza automaticamente com o Pedido e o Or√ßamento vinculados ao salvar.</p>
-               </div>
-            </div>
-
-            <div className="h-px bg-white/10" />
-
-            <div className="space-y-2">
-               <p className="text-[10px] font-black uppercase text-purple-300 tracking-[2px]">Itens do Contrato</p>
-               <button
-                 onClick={() => {
-                    setCart([...contratoForm.items]);
-                    setContratoModalOpen(false);
-                    setContratoItemsEditMode(true);
-                    setActiveTab('venda');
-                 }}
-                 className="w-full h-11 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-300 hover:bg-purple-500/20 text-[11px] font-black uppercase tracking-wider flex items-center justify-center gap-2"
-               >
-                 <Plus size={15} /> Adicionar Item
-               </button>
-               <div className="space-y-1.5">
-                  {contratoForm.items.map((item, idx) => (
-                    <div key={idx} className="flex items-center justify-between gap-2 px-3 py-2 bg-white/5 border border-white/5 rounded-lg flex-wrap">
-                       <div className="flex items-center gap-2 min-w-0 flex-1">
-                          <input
-                            onFocus={(e: any) => e.target.select()}
-                            type="number"
-                            min={1}
-                            value={item.quantity}
-                            onChange={(e) => {
-                               const qty = Math.max(1, Number(e.target.value) || 1);
-                               setContratoForm(prev => ({ ...prev, items: prev.items.map((it, i) => i === idx ? { ...it, quantity: qty } : it) }));
-                            }}
-                            className="w-12 h-7 bg-slate-900/60 border border-white/10 rounded px-1.5 text-xs text-white text-center"
-                            title="Quantidade"
-                          />
-                          <div className="min-w-0 flex-1">
-                             <p className="text-xs font-bold text-white truncate">{item.name}</p>
-                             <button
-                               onClick={() => setContratoForm(prev => ({ ...prev, items: prev.items.map((it: any, i) => i === idx ? { ...it, category: it.category === 'servico' ? 'produto' : 'servico' } : it) }))}
-                               className={cn(
-                                 "text-[7px] font-black uppercase px-1.5 py-0.5 rounded mt-0.5 inline-block",
-                                 (item as any).category === 'servico' ? "bg-blue-500/20 text-blue-300" : "bg-white/10 text-white/40"
-                               )}
-                               title="Clique para alternar Produto/Servi√ßo"
-                             >
-                               {(item as any).category === 'servico' ? 'Servi√ßo' : 'Produto'}
-                             </button>
-                          </div>
-                       </div>
-                       <div className="flex items-center gap-2 shrink-0">
-                          <div className="flex flex-col items-end">
-                             <span className="text-[7px] font-black text-white/30 uppercase tracking-wider">Valor Unit.</span>
-                             <input
-                               onFocus={(e: any) => e.target.select()}
-                               type="number"
-                               step="any"
-                               value={item.price}
-                               onChange={(e) => {
-                                  const price = e.target.value === '' ? 0 : Math.max(0, Number(e.target.value));
-                                  setContratoForm(prev => ({ ...prev, items: prev.items.map((it, i) => i === idx ? { ...it, price } : it) }));
-                               }}
-                               className="w-20 h-6 bg-slate-900/60 border border-white/10 rounded px-1.5 text-[10px] text-white text-right"
-                             />
-                          </div>
-                          <span className="text-xs font-black text-emerald-400 min-w-[70px] text-right">R$ {(item.price * item.quantity).toFixed(2).replace('.', ',')}</span>
-                          <button onClick={() => setContratoForm(prev => ({ ...prev, items: prev.items.filter((_, i) => i !== idx) }))} className="text-white/30 hover:text-rose-400"><X size={13} /></button>
-                       </div>
-                    </div>
-                  ))}
-                  {contratoForm.items.length === 0 && <p className="text-xs text-white/30 py-3 text-center">Nenhum item adicionado ainda.</p>}
-               </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
-               <Input label="Desconto (R$)" type="number" step="any" value={contratoForm.desconto} onChange={(e: any) => setContratoForm({ ...contratoForm, desconto: (e.target.value === '' ? '' : Number(e.target.value)) })} />
-               <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Entrada</label>
-                  <div className="flex gap-1.5">
-                     <input
-                       onFocus={(e: any) => e.target.select()}
-                       type="number"
-                       step="any"
-                       value={contratoForm.entradaModo === 'percentual' ? contratoForm.entradaPercentual : contratoForm.entradaValor}
-                       onChange={(e: any) => contratoForm.entradaModo === 'percentual'
-                         ? updateContratoPoliticaPagamento({ entradaPercentual: (e.target.value === '' ? '' : Number(e.target.value)) })
-                         : updateContratoPoliticaPagamento({ entradaValor: (e.target.value === '' ? '' : Number(e.target.value)) })}
-                       className="flex-1 h-11 bg-white/5 border border-white/10 rounded-xl px-3 text-sm text-white focus:outline-none focus:border-purple-500"
-                     />
-                     <div className="flex bg-white/5 p-0.5 rounded-xl border border-white/10 shrink-0">
-                        <button onClick={() => updateContratoPoliticaPagamento({ entradaModo: 'percentual' })} className={cn("px-2.5 h-full rounded-lg text-[10px] font-black", contratoForm.entradaModo === 'percentual' ? "bg-purple-500 text-white" : "text-white/40")}>%</button>
-                        <button onClick={() => updateContratoPoliticaPagamento({ entradaModo: 'valor' })} className={cn("px-2.5 h-full rounded-lg text-[10px] font-black", contratoForm.entradaModo === 'valor' ? "bg-purple-500 text-white" : "text-white/40")}>R$</button>
-                     </div>
-                  </div>
-               </div>
-               <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Valor da Entrada (R$)</label>
-                  <input
-                    onFocus={(e: any) => e.target.select()}
-                    type="number"
-                    step="any"
-                    placeholder="Personalizado"
-                    value={contratoForm.entradaModo === 'valor' ? contratoForm.entradaValor : contratoEntradaValorCalc() || ''}
-                    onChange={(e: any) => updateContratoPoliticaPagamento({ entradaModo: 'valor', entradaValor: (e.target.value === '' ? '' : Number(e.target.value)) })}
-                    className="w-full h-11 bg-white/5 border border-white/10 rounded-xl px-3 text-sm text-emerald-400 font-bold focus:outline-none focus:border-purple-500"
-                  />
-               </div>
-            </div>
-
-            <div className="bg-slate-900/50 rounded-2xl p-4 border border-white/5 flex justify-between items-center">
-               <span className="text-[10px] font-black uppercase text-white/40 tracking-widest">Total do Contrato</span>
-               <span className="text-xl font-black text-emerald-400 italic">R$ {Math.max(0, contratoItemsTotal() - (contratoForm.desconto || 0)).toFixed(2).replace('.', ',')}</span>
-            </div>
-
-            <div className="h-px bg-white/10" />
-
-            <div className="space-y-3">
-               <p className="text-[10px] font-black uppercase text-purple-300 tracking-[2px]">Prazo de Produ√ß√£o/Entrega</p>
-
-               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  <div className="space-y-1">
-                     <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Dias</label>
-                     <input
-                       onFocus={(e: any) => e.target.select()}
-                       type="number"
-                       min={1}
-                       value={contratoForm.prazoDias}
-                       onChange={(e) => updateContratoPrazoStructured({ prazoDias: Math.max(1, Number(e.target.value) || 1) })}
-                       className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-purple-500"
-                     />
-                  </div>
-                  <div className="space-y-1">
-                     <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Tipo</label>
-                     <select
-                       value={contratoForm.prazoTipo}
-                       onChange={(e) => updateContratoPrazoStructured({ prazoTipo: e.target.value as 'uteis' | 'corridos' })}
-                       className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-purple-500 cursor-pointer"
-                     >
-                       <option value="uteis" className="bg-slate-900">Dias √öteis</option>
-                       <option value="corridos" className="bg-slate-900">Dias Corridos</option>
-                     </select>
-                  </div>
-                  <div className="space-y-1 col-span-2">
-                     <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Contado a partir de</label>
-                     <select
-                       value={contratoForm.prazoGatilho}
-                       onChange={(e) => updateContratoPrazoStructured({ prazoGatilho: e.target.value as any })}
-                       className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-purple-500 cursor-pointer"
-                     >
-                       <option value="aprovacao" className="bg-slate-900">Assinatura do contrato</option>
-                       <option value="pagamento_entrada" className="bg-slate-900">Pagamento da entrada</option>
-                       <option value="aprovacao_arte" className="bg-slate-900">Aprova√ß√£o da arte</option>
-                       <option value="entrega_material" className="bg-slate-900">Entrega de material pelo cliente</option>
-                       <option value="personalizado" className="bg-slate-900">Condi√ß√£o personalizada (texto livre)</option>
-                     </select>
-                  </div>
-               </div>
-
-               <textarea rows={2} value={contratoForm.prazoTexto} onChange={(e) => setContratoForm({ ...contratoForm, prazoTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-purple-500" />
-
-               <p className="text-[10px] font-black uppercase text-purple-300 tracking-[2px]">Pol√≠tica de Pagamento</p>
-
-               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  {(['sem_entrada', 'entrada_percentual', 'entrada_fixa', 'pagamento_integral', 'entrada_restante_entrega', 'entrada_parcelas'] as const).map(pol => (
-                    <button
-                      key={pol}
-                      onClick={() => updateContratoPoliticaPagamento({ politicaPagamento: pol })}
-                      className={cn(
-                        "h-9 rounded-lg text-[9px] font-black uppercase tracking-wider border transition-all text-center px-2",
-                        contratoForm.politicaPagamento === pol
-                          ? "bg-purple-500/20 border-purple-500/40 text-purple-300"
-                          : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10"
-                      )}
-                    >
-                      {POLITICA_PAGAMENTO_LABELS[pol]}
-                    </button>
-                  ))}
-               </div>
-
-               {contratoForm.politicaPagamento !== 'sem_entrada' && contratoForm.politicaPagamento !== 'pagamento_integral' && (
-                 <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => updateContratoPoliticaPagamento({ entradaObrigatoria: !contratoForm.entradaObrigatoria })}
-                      className="flex items-center gap-2 text-[10px] font-black uppercase text-white tracking-wider"
-                    >
-                       <div className={cn("w-4 h-4 rounded border flex items-center justify-center", contratoForm.entradaObrigatoria ? "bg-purple-500 border-purple-500" : "border-white/20")}>
-                          {contratoForm.entradaObrigatoria && <Check size={11} className="text-white" />}
-                       </div>
-                       Entrada Obrigat√≥ria para Iniciar Produ√ß√£o
-                    </button>
-                 </div>
-               )}
-
-               <div className="space-y-2">
-                  {(contratoForm.formasPagamento || []).map((f, idx) => (
-                    <div key={idx} className="bg-white/5 border border-white/10 rounded-xl p-3 space-y-2">
-                       <div className="flex gap-2 flex-wrap">
-                          <div className="space-y-0.5 flex-1 min-w-[120px]">
-                             <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">M√©todo</label>
-                             <select value={f.metodo} onChange={(e) => updateContratoFormaPagamento(idx, { metodo: e.target.value as any })} className="w-full h-9 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white cursor-pointer">
-                                {Object.entries(ORCAMENTO_PAGAMENTO_LABELS).map(([v, l]) => <option key={v} value={v} className="bg-slate-900">{l}</option>)}
-                             </select>
-                          </div>
-                          {f.metodo === 'outra' && (
-                            <div className="space-y-0.5 flex-1 min-w-[110px]">
-                               <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Qual?</label>
-                               <input value={f.metodoOutraLabel || ''} onChange={(e) => updateContratoFormaPagamento(idx, { metodoOutraLabel: e.target.value })} className="w-full h-9 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
-                            </div>
-                          )}
-                          <div className="space-y-0.5 w-24">
-                             <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Valor (R$)</label>
-                             <input
-                               onFocus={(e: any) => e.target.select()} type="number" step="any" value={f.valor} onChange={(e) => updateContratoFormaPagamento(idx, { valor: (e.target.value === '' ? '' : Number(e.target.value)) })} className="w-full h-9 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
-                          </div>
-                          <button onClick={() => removeContratoFormaPagamento(idx)} className="h-9 w-9 flex items-center justify-center rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 shrink-0"><Trash2 size={13} /></button>
-                       </div>
-
-                       {f.metodo === 'cartao_parcelado' && (
-                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-white/5">
-                            <div className="space-y-0.5">
-                               <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Parcelas</label>
-                               <input
-                                 onFocus={(e: any) => e.target.select()} type="number" min={1} value={f.parcelas || 1} onChange={(e) => {
-                                    const parcelas = Math.max(1, Number(e.target.value) || 1);
-                                    updateContratoFormaPagamento(idx, { parcelas, valorParcela: Number(((f.valor || 0) / parcelas).toFixed(2)) });
-                                 }} className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
-                            </div>
-                            <div className="space-y-0.5">
-                               <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Valor/Parcela</label>
-                               <div className="h-8 flex items-center px-2 bg-slate-900/30 border border-white/5 rounded-lg text-xs text-emerald-400 font-bold">
-                                 R$ {(f.valorParcela || 0).toFixed(2).replace('.', ',')}
-                               </div>
-                            </div>
-                            <div className="space-y-0.5">
-                               <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">1¬∫ Vencimento</label>
-                               <input type="date" value={f.primeiroVencimento || ''} onChange={(e) => updateContratoFormaPagamento(idx, { primeiroVencimento: e.target.value })} className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-[10px] text-white" />
-                            </div>
-                            <div className="space-y-0.5">
-                               <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Intervalo (dias)</label>
-                               <input
-                                 onFocus={(e: any) => e.target.select()} type="number" min={1} value={f.intervaloDias || 30} onChange={(e) => updateContratoFormaPagamento(idx, { intervaloDias: Number(e.target.value) || 30 })} className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
-                            </div>
-                         </div>
-                       )}
-                       {f.metodo !== 'cartao_parcelado' && (
-                         <div className="pt-1 border-t border-white/5">
-                            <div className="space-y-0.5 w-40">
-                               <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Data de Vencimento</label>
-                               <input type="date" value={f.dataVencimento || ''} onChange={(e) => updateContratoFormaPagamento(idx, { dataVencimento: e.target.value })} className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-[10px] text-white" />
-                            </div>
-                         </div>
-                       )}
-                    </div>
-                  ))}
-                  <button onClick={addContratoFormaPagamento} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-300 hover:bg-purple-500/20 text-[10px] font-black uppercase tracking-wider transition-all">
-                     <Plus size={12} /> Adicionar Forma de Pagamento
-                  </button>
-               </div>
-
-               <div className="bg-slate-900/50 rounded-xl p-3 border border-white/5 flex justify-between items-center">
-                  <span className="text-[9px] font-black uppercase text-white/40 tracking-widest">Saldo Restante (n√£o coberto acima)</span>
-                  <span className={cn("text-sm font-black", contratoSaldoRestante() > 0 ? "text-amber-400" : "text-emerald-400")}>R$ {contratoSaldoRestante().toFixed(2).replace('.', ',')}</span>
-               </div>
-
-               <p className="text-[10px] font-black uppercase text-purple-300 tracking-[2px] pt-1">Resumo (texto final exibido no contrato)</p>
-               <textarea rows={2} value={contratoForm.formaPagamentoTexto} onChange={(e) => setContratoForm({ ...contratoForm, formaPagamentoTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-purple-500" />
-
-               <p className="text-[10px] font-black uppercase text-amber-300 tracking-[2px]">Prazo de Pagamento (n√£o √© o mesmo que prazo de produ√ß√£o)</p>
-               <textarea rows={2} value={contratoForm.prazoPagamentoTexto} onChange={(e) => setContratoForm({ ...contratoForm, prazoPagamentoTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-purple-500" />
-
-               <div className="bg-white/5 border border-white/10 rounded-xl p-3 space-y-2">
-                  <button
-                    onClick={() => setContratoForm(prev => ({ ...prev, pagamentoPosteriorAutorizado: !prev.pagamentoPosteriorAutorizado }))}
-                    className="flex items-center gap-2 text-[10px] font-black uppercase text-white tracking-wider"
-                  >
-                     <div className={cn("w-4 h-4 rounded border flex items-center justify-center", contratoForm.pagamentoPosteriorAutorizado ? "bg-purple-500 border-purple-500" : "border-white/20")}>
-                        {contratoForm.pagamentoPosteriorAutorizado && <Check size={11} className="text-white" />}
-                     </div>
-                     Pagamento Posterior Autorizado (exce√ß√£o ao prazo padr√£o)
-                  </button>
-                  <p className="text-[9px] text-white/40">S√≥ marque se voc√™ est√° concedendo, de forma expressa, um prazo diferente do padr√£o para este cliente pagar.</p>
-
-                  {contratoForm.pagamentoPosteriorAutorizado && (
-                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/5">
-                       <div className="space-y-0.5">
-                          <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Data de Vencimento</label>
-                          <input type="date" value={contratoForm.pagamentoPosteriorData} onChange={(e) => setContratoForm({ ...contratoForm, pagamentoPosteriorData: e.target.value })} className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-[10px] text-white" />
-                       </div>
-                       <div className="space-y-0.5">
-                          <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Prazo Concedido (dias)</label>
-                          <input
-                            onFocus={(e: any) => e.target.select()} type="number" min={0} value={contratoForm.pagamentoPosteriorDias} onChange={(e) => setContratoForm({ ...contratoForm, pagamentoPosteriorDias: (e.target.value === '' ? '' : Number(e.target.value)) })} className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
-                       </div>
-                       <div className="space-y-0.5 col-span-2">
-                          <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Condi√ß√£o Especial</label>
-                          <input value={contratoForm.pagamentoPosteriorCondicao} onChange={(e) => setContratoForm({ ...contratoForm, pagamentoPosteriorCondicao: e.target.value })} placeholder="Ex: aguardar recebimento de outro pagamento" className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
-                       </div>
-                       <div className="space-y-0.5 col-span-2">
-                          <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Respons√°vel pela Autoriza√ß√£o</label>
-                          <input value={contratoForm.pagamentoPosteriorResponsavel} onChange={(e) => setContratoForm({ ...contratoForm, pagamentoPosteriorResponsavel: e.target.value })} placeholder="Nome de quem autorizou" className="w-full h-8 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white" />
-                       </div>
-                    </div>
-                  )}
-               </div>
-
-               <p className="text-[10px] font-black uppercase text-purple-300 tracking-[2px]">Condi√ß√£o de Entrega/Retirada</p>
-               <textarea rows={2} value={contratoForm.condicaoEntregaTexto} onChange={(e) => setContratoForm({ ...contratoForm, condicaoEntregaTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-purple-500" />
-
-               <p className="text-[10px] font-black uppercase text-purple-300 tracking-[2px]">Multa e Juros por Atraso</p>
-               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  <div className="space-y-0.5">
-                     <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Multa (%)</label>
-                     <input
-                       onFocus={(e: any) => e.target.select()} type="number" step="any" min={0} value={contratoForm.multaPercentual} onChange={(e) => updateContratoMultaJuros({ multaPercentual: (e.target.value === '' ? '' : Number(e.target.value)) })} className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-purple-500" />
-                  </div>
-                  <div className="space-y-0.5">
-                     <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Juros (%)</label>
-                     <input
-                       onFocus={(e: any) => e.target.select()} type="number" step="any" min={0} value={contratoForm.jurosPercentual} onChange={(e) => updateContratoMultaJuros({ jurosPercentual: (e.target.value === '' ? '' : Number(e.target.value)) })} className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-purple-500" />
-                  </div>
-                  <div className="space-y-0.5">
-                     <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Forma de C√°lculo</label>
-                     <select value={contratoForm.jurosModo} onChange={(e) => updateContratoMultaJuros({ jurosModo: e.target.value as any })} className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-purple-500 cursor-pointer">
-                        <option value="mensal" className="bg-slate-900">Juros ao m√™s</option>
-                        <option value="diario" className="bg-slate-900">Juros ao dia</option>
-                     </select>
-                  </div>
-                  <div className="space-y-0.5">
-                     <label className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Toler√¢ncia (dias)</label>
-                     <input
-                       onFocus={(e: any) => e.target.select()} type="number" min={0} value={contratoForm.diasTolerancia} onChange={(e) => updateContratoMultaJuros({ diasTolerancia: (e.target.value === '' ? '' : Number(e.target.value)) })} className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-purple-500" />
-                  </div>
-               </div>
-
-               <textarea rows={2} value={contratoForm.multaJurosTexto} onChange={(e) => setContratoForm({ ...contratoForm, multaJurosTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-purple-500" />
-
-               {/* Simulador de atraso */}
-               <div className="bg-black/20 rounded-xl p-3 space-y-2 border border-white/5">
-                  <div className="flex items-center justify-between gap-2">
-                     <span className="text-[9px] font-black uppercase text-white/40 tracking-wider">Simular atraso de</span>
-                     <div className="flex items-center gap-1.5">
-                        <input
-                          onFocus={(e: any) => e.target.select()} type="number" min={0} value={simuladorDiasContrato} onChange={(e) => setSimuladorDiasContrato((e.target.value === '' ? '' : Number(e.target.value)) as number)} className="w-14 h-7 bg-slate-900/60 border border-white/10 rounded px-1.5 text-xs text-white text-center" />
-                        <span className="text-[9px] text-white/40 font-bold">dias, sobre R$ {contratoSaldoRestante().toFixed(2).replace('.', ',')} em aberto</span>
-                     </div>
-                  </div>
-                  {(() => {
-                     const calc = calcularAtrasoContrato(contratoSaldoRestante(), simuladorDiasContrato);
-                     return (
-                       <div className="grid grid-cols-3 gap-2 pt-1 border-t border-white/5">
-                          <div>
-                             <p className="text-[7px] font-black uppercase text-white/30 tracking-wider">Multa</p>
-                             <p className="text-xs font-black text-amber-400">R$ {calc.multa.toFixed(2).replace('.', ',')}</p>
-                          </div>
-                          <div>
-                             <p className="text-[7px] font-black uppercase text-white/30 tracking-wider">Juros ({calc.diasEfetivos}d)</p>
-                             <p className="text-xs font-black text-amber-400">R$ {calc.juros.toFixed(2).replace('.', ',')}</p>
-                          </div>
-                          <div>
-                             <p className="text-[7px] font-black uppercase text-white/30 tracking-wider">Valor Atualizado</p>
-                             <p className="text-xs font-black text-rose-400">R$ {calc.total.toFixed(2).replace('.', ',')}</p>
-                          </div>
-                       </div>
-                     );
-                  })()}
-               </div>
-
-               <p className="text-[10px] font-black uppercase text-purple-300 tracking-[2px]">Garantia do Servi√ßo</p>
-               <textarea rows={2} value={contratoForm.garantiaTexto} onChange={(e) => setContratoForm({ ...contratoForm, garantiaTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-purple-500" />
-
-               <p className="text-[10px] font-black uppercase text-purple-300 tracking-[2px]">Pol√≠tica de Cancelamento</p>
-               <textarea rows={2} value={contratoForm.politicaCancelamentoTexto} onChange={(e) => setContratoForm({ ...contratoForm, politicaCancelamentoTexto: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-purple-500" />
-
-               <p className="text-[10px] font-black uppercase text-purple-300 tracking-[2px]">Observa√ß√µes</p>
-               <textarea rows={2} value={contratoForm.observacoes} onChange={(e) => setContratoForm({ ...contratoForm, observacoes: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white resize-none focus:outline-none focus:border-purple-500" />
-            </div>
-
-            <div className="flex justify-end gap-3 pt-1">
-              <Button variant="ghost" onClick={() => setContratoModalOpen(false)}>Cancelar</Button>
-              <Button disabled={savingContrato} onClick={handleSaveContrato} className="bg-purple-500 hover:bg-purple-400 text-white border-none">
-                {savingContrato ? 'Salvando...' : (editingContrato && editingContrato.status !== 'rascunho' ? `Criar Vers√£o ${editingContrato.versao + 1}` : 'Salvar Contrato')}
-              </Button>
-            </div>
-         </div>
-       </Modal>
-     )}
-
-     {viewingContratoHistorico && (() => {
-       // Monta a cadeia de versoes desse contrato (numero igual), da mais antiga pra mais nova
-       // Monta a cadeia caminhando pelo vinculo real (contratoAnteriorId), nao pelo numero ‚Äî
-       // imune a coincidencia de numero repetido entre contratos diferentes
-       const cadeiaIds = new Set<string>([viewingContratoHistorico.id]);
-       let cursor: Contrato | undefined = viewingContratoHistorico;
-       while (cursor?.contratoAnteriorId) {
-         cadeiaIds.add(cursor.contratoAnteriorId);
-         cursor = allContratos.find(c => c.id === cursor!.contratoAnteriorId);
-       }
-       const todasVersoes = allContratos.filter(c => cadeiaIds.has(c.id)).sort((a, b) => a.versao - b.versao);
-       return (
-         <Modal isOpen={!!viewingContratoHistorico} onClose={() => setViewingContratoHistorico(null)} title={`Hist√≥rico ‚Äî Contrato ${viewingContratoHistorico.numero}`} size="sm">
-            <div className="space-y-2 p-1">
-               {todasVersoes.map(v => (
-                 <div key={v.id} className={cn("flex items-center justify-between gap-3 rounded-xl px-4 py-3 border", v.versao === viewingContratoHistorico.versao ? "bg-purple-500/10 border-purple-500/30" : "bg-white/5 border-white/10")}>
-                    <div className="min-w-0">
-                       <p className="text-xs font-black text-white">Vers√£o {v.versao}{v.versao === todasVersoes[todasVersoes.length - 1].versao ? ' (atual)' : ''}</p>
-                       <p className="text-[9px] text-white/40">{CONTRATO_STATUS_LABELS[v.status] || v.status} ¬∑ Criado {safeFormat(v.createdAt, 'dd/MM/yyyy HH:mm')}</p>
-                    </div>
-                    <button onClick={() => handleDownloadContratoPdf(v)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10 shrink-0">PDF</button>
-                 </div>
-               ))}
-            </div>
-         </Modal>
-       );
-     })()}
-
-     {viewingContrato && (
-       <Modal
-         isOpen={!!viewingContrato}
-         onClose={() => setViewingContrato(null)}
-         title={`Contrato ${viewingContrato.numero}${viewingContrato.versao > 1 ? ` ¬∑ v${viewingContrato.versao}` : ''}`}
-         size="md"
-       >
-         <div className="space-y-4 p-1">
-            <div className="flex items-center justify-between">
-               <span className={cn("text-[9px] font-black uppercase px-2 py-1 rounded-full", CONTRATO_STATUS_STYLES[viewingContrato.status])}>
-                 {CONTRATO_STATUS_LABELS[viewingContrato.status] || viewingContrato.status}
-               </span>
-               <span className="text-lg font-black text-emerald-400 italic">R$ {viewingContrato.total.toFixed(2).replace('.', ',')}</span>
-            </div>
-            {viewingContrato.signedAt && (
-               <p className="text-[10px] text-white/40 -mt-2">Cliente assinou em {safeFormat(viewingContrato.signedAt, 'dd/MM/yyyy HH:mm')}</p>
-            )}
-            {viewingContrato.empresaSignedAt && (
-               <p className="text-[10px] text-white/40 -mt-2">Empresa assinou em {safeFormat(viewingContrato.empresaSignedAt, 'dd/MM/yyyy HH:mm')}{viewingContrato.empresaSignedBy ? ` (${viewingContrato.empresaSignedBy})` : ''}</p>
-            )}
-            {viewingContrato.status === 'assinado' && (
-               <button
-                 onClick={() => setViewingAceiteDetalhes(viewingContrato)}
-                 className="w-full flex items-center justify-center gap-1.5 rounded-xl border border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/10 text-emerald-400 text-[11px] font-black uppercase py-2.5 transition-colors"
-               >
-                 <ShieldCheck size={13} /> Ver Detalhes do Aceite
-               </button>
-            )}
-            <div className="bg-slate-900/60 border border-white/10 rounded-2xl p-4 max-h-[55vh] overflow-y-auto custom-scrollbar">
-               <pre className="text-[11px] text-white/80 whitespace-pre-wrap font-sans leading-relaxed">{viewingContrato.textoContrato || 'Esse contrato ainda n√£o tem texto gerado.'}</pre>
-            </div>
-            <ContractSignatureOtpPanel
-              contrato={viewingContrato}
-              onRequestCompanySign={() => { setSigningContrato(viewingContrato); setSignContratoPassword(''); setSignContratoError(null); }}
-            />
-            <div className="flex justify-end gap-3">
-               <Button variant="ghost" onClick={() => setViewingContrato(null)}>Fechar</Button>
-               <Button className="bg-purple-500 hover:bg-purple-400 text-white border-none" onClick={() => handleDownloadContratoPdf(viewingContrato)}>Baixar PDF</Button>
-            </div>
-         </div>
-       </Modal>
-     )}
-
-     {viewingAceiteDetalhes && (
-       <ContractAcceptanceDetailsModal
-         contrato={viewingAceiteDetalhes}
-         onClose={() => setViewingAceiteDetalhes(null)}
-       />
-     )}
-
-     {signingContrato && (
-       <Modal
-         isOpen={!!signingContrato}
-         onClose={() => { if (!isSigningContrato) { setSigningContrato(null); setSignContratoPassword(''); setSignContratoError(null); } }}
-         title="Confirmar Assinatura da Empresa"
-         size="sm"
-       >
-         <div className="space-y-4 p-1">
-            <div className="flex items-start gap-3 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4">
-               <Lock size={18} className="text-amber-400 shrink-0 mt-0.5" />
-               <div>
-                  <p className="text-xs font-bold text-white">Contrato {signingContrato.numero}</p>
-                  <p className="text-[11px] text-white/50 mt-0.5">
-                    O cliente {signingContrato.customerName} j√° assinou. Confirme sua senha de login pra
-                    validar a assinatura da empresa e fechar o contrato de vez.
-                  </p>
-               </div>
-            </div>
-
-            <div className="space-y-1.5">
-               <label className="text-[10px] uppercase font-bold text-white/40">Sua senha de login</label>
-               <input
-                 type="password"
-                 autoFocus
-                 value={signContratoPassword}
-                 onChange={(e) => { setSignContratoPassword(e.target.value); setSignContratoError(null); }}
-                 onKeyDown={(e) => { if (e.key === 'Enter') handleConfirmCompanySignature(); }}
-                 disabled={isSigningContrato}
-                 className="w-full h-11 bg-slate-900/80 border border-white/10 rounded-xl px-3 text-sm text-white focus:outline-none focus:border-primary-500 disabled:opacity-50"
-               />
-               {signContratoError && (
-                 <p className="text-[11px] text-rose-400">{signContratoError}</p>
-               )}
-            </div>
-
-            <div className="flex justify-end gap-3">
-               <Button variant="ghost" disabled={isSigningContrato} onClick={() => { setSigningContrato(null); setSignContratoPassword(''); setSignContratoError(null); }}>Cancelar</Button>
-               <Button
-                 className="bg-primary-500 hover:bg-primary-400 text-black border-none"
-                 disabled={isSigningContrato}
-                 onClick={handleConfirmCompanySignature}
-               >
-                 {isSigningContrato ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />}
-                 {isSigningContrato ? 'Assinando...' : 'Confirmar e Assinar'}
-               </Button>
-            </div>
-         </div>
-       </Modal>
-     )}
-
-     {isScheduleModalOpen && (
-       <Modal
-         isOpen={isScheduleModalOpen}
-         onClose={() => setIsScheduleModalOpen(false)}
-         title="Agendar Entrega"
-         size="sm"
-       >
-         <div className="space-y-5 p-2">
-           <div className="bg-slate-900/60 rounded-2xl border border-white/10 p-4 space-y-2">
-             <div className="flex justify-between text-xs">
-               <span className="text-white/40 font-bold uppercase">Total da Venda</span>
-               <span className="text-white font-black">R$ {total.toFixed(2).replace('.', ',')}</span>
-             </div>
-             <div className="flex justify-between text-xs">
-               <span className="text-emerald-400 font-bold uppercase">Entrada Recebida</span>
-               <span className="text-emerald-400 font-black">R$ {(downPayment === "" ? 0 : Number(downPayment)).toFixed(2).replace('.', ',')}</span>
-             </div>
-             <div className="flex justify-between text-xs border-t border-white/5 pt-2">
-               <span className="text-rose-400 font-bold uppercase">Saldo Restante</span>
-               <span className="text-rose-400 font-black">R$ {remainingValue.toFixed(2).replace('.', ',')}</span>
-             </div>
-           </div>
-
-           <div className="space-y-1.5">
-             <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Data e Hora da Entrega</label>
-             <Input
-               type="datetime-local"
-               value={scheduledFor}
-               onChange={(e: any) => setScheduledFor(e.target.value)}
-               autoFocus
-             />
-           </div>
-
-           <div className="flex justify-end gap-3 pt-1">
-             <Button variant="ghost" onClick={() => setIsScheduleModalOpen(false)}>Cancelar</Button>
-             <Button
-               className="bg-primary-500 hover:bg-primary-400 text-slate-900 font-black gap-2"
-               disabled={!scheduledFor}
-               onClick={async () => {
-                 setIsScheduleModalOpen(false);
-                 // Quitar Debito de um pedido ja existente (ou edicao rapida de agendamento a partir
-                 // do card, sem abrir modal de pagamento nenhum): salva o agendamento na hora, direto
-                 // no banco, sem depender de tambem confirmar um pagamento junto. Tambem grava
-                 // updated_at, senao a lista de Servicos (que ordena por ultima atividade) nao reflete
-                 // que essa venda acabou de mudar.
-                 if (settlingOrder) {
-                   const vindoDoModalPagamento = isPaymentModalOpen;
-                   const nowIso = new Date().toISOString();
-                   const scheduledForIso = localDatetimeToIso(scheduledFor);
-                   const { data, error } = await supabase.from('vendas').update({ scheduled_for: scheduledForIso, updated_at: nowIso }).eq('id', settlingOrder.id).select();
-                   if (error) { showAlert(`N√£o foi poss√≠vel salvar o agendamento: ${error.message}`); return; }
-                   if (!data || data.length === 0) { showAlert('O agendamento n√£o foi salvo ‚Äî o pedido pode ter sido removido ou alterado por outra pessoa. Feche e abra a tela de novo.'); return; }
-                   const updated = { ...settlingOrder, scheduledFor: scheduledForIso || undefined, updatedAt: nowIso };
-                   setAllSalesHistory(prev => prev.map(s => s.id === settlingOrder.id ? updated : s));
-                   setSalesToday(prev => prev.map(s => s.id === settlingOrder.id ? updated : s));
-                   if (vindoDoModalPagamento) {
-                     // Modal grande continua aberto por baixo (fluxo normal de Quitar Debito) ‚Äî mantem
-                     // o settlingOrder atualizado pra ele continuar coerente se a pessoa confirmar o pagamento depois
-                     setSettlingOrder(updated);
-                   } else {
-                     // Edicao rapida direto do card: nao ha modal de pagamento aberto, entao limpa tudo
-                     // pra nao deixar settlingOrder "pendurado" e interferir num proximo Quitar Debito
-                     setSettlingOrder(null);
-                     setScheduledFor('');
-                   }
-                   showAlert('Agendamento atualizado!');
-                   return;
-                 }
-                 // Editar Pedido Completo: antes esse "OK" so atualizava o estado local (scheduledFor)
-                 // sem gravar no banco ‚Äî a hora nova so era salva de fato se, depois, a pessoa clicasse
-                 // em "Salvar Altera√ß√µes" do pedido inteiro. Se ela nao clicasse (ou achasse que aqui ja
-                 // tinha salvo), a aba Servi√ßos continuava mostrando a hora antiga pra sempre, mesmo com
-                 // a tela de edi√ß√£o j√° exibindo a hora nova. Agora salva direto no banco aqui tambem,
-                 // igual ao fluxo de Quitar D√©bito, pra nunca ficar dessincronizado.
-                 if (editingFullOrder) {
-                   const scheduledForIso = localDatetimeToIso(scheduledFor);
-                   const { data, error } = await supabase.from('vendas').update({ scheduled_for: scheduledForIso }).eq('id', editingFullOrder.id).select();
-                   if (error) { showAlert(`N√£o foi poss√≠vel salvar o agendamento: ${error.message}`); return; }
-                   if (!data || data.length === 0) { showAlert('O agendamento n√£o foi salvo ‚Äî o pedido pode ter sido removido ou alterado por outra pessoa. Feche e abra a tela de novo.'); return; }
-                   const updated = { ...editingFullOrder, scheduledFor: scheduledForIso || undefined };
-                   setEditingFullOrder(updated);
-                   setAllSalesHistory(prev => prev.map(s => s.id === editingFullOrder.id ? updated : s));
-                   setSalesToday(prev => prev.map(s => s.id === editingFullOrder.id ? updated : s));
-                   showAlert('Agendamento atualizado!');
-                 }
-               }}
-             >
-               <CheckCircle2 size={16} />
-               <span>OK</span>
-             </Button>
-           </div>
-         </div>
-       </Modal>
-     )}
-
-     {isPixQrModalOpen && pixConfig && (() => {
-       const amountToCharge = pixQrAmount > 0 ? pixQrAmount : remainingValue;
-       const pixPayload = buildPixPayload({
-         key: pixConfig.key,
-         keyType: pixConfig.keyType,
-         beneficiaryName: pixConfig.beneficiaryName,
-         city: pixConfig.city,
-         amount: amountToCharge,
-       });
-       return (
-         <Modal
-           isOpen={isPixQrModalOpen}
-           onClose={() => setIsPixQrModalOpen(false)}
-           title="Pagamento via PIX"
-           size="sm"
-         >
-           <div className="flex flex-col items-center gap-2.5 p-1">
-             <div className="w-[280px] h-[280px] max-w-full bg-white rounded-2xl p-2.5 shadow-lg flex items-center justify-center shrink-0">
-               <img src={`https://api.qrserver.com/v1/create-qr-code/?size=450x450&data=${encodeURIComponent(pixPayload)}`} alt="QR Code PIX" className="h-full w-full object-contain" referrerPolicy="no-referrer" />
-             </div>
-
-             <div className="w-full bg-slate-900/60 rounded-2xl border border-white/10 p-3 space-y-1.5">
-               <div className="flex justify-between text-xs">
-                 <span className="text-white/40 font-bold uppercase">Valor</span>
-                 <span className="text-white font-black">R$ {amountToCharge.toFixed(2).replace('.', ',')}</span>
-               </div>
-               <div className="flex justify-between text-xs">
-                 <span className="text-white/40 font-bold uppercase">Nome</span>
-                 <span className="text-white font-black">{pixConfig.beneficiaryName}</span>
-               </div>
-               {pixConfig.bank && (
-                 <div className="flex justify-between text-xs">
-                   <span className="text-white/40 font-bold uppercase">Banco</span>
-                   <span className="text-white font-black">{pixConfig.bank}</span>
-                 </div>
-               )}
-               <div className="flex justify-between text-xs">
-                 <span className="text-white/40 font-bold uppercase">Chave PIX</span>
-                 <span className="text-white font-black break-all text-right ml-4">{pixConfig.key}</span>
-               </div>
-             </div>
-
-             <div className="w-full flex gap-2">
-               <button
-                  type="button"
-                  onClick={() => {
-                     navigator.clipboard.writeText(pixConfig.key);
-                     showAlert("Chave PIX copiada!");
-                  }}
-                  className="flex-1 py-2 rounded-xl bg-primary-500/10 border border-primary-500/20 text-primary-300 hover:bg-primary-500/20 text-[10px] font-black uppercase tracking-wider transition-all active:scale-95"
-               >
-                  Copiar Chave
-               </button>
-               <button
-                  type="button"
-                  onClick={() => {
-                     navigator.clipboard.writeText(pixPayload);
-                     showAlert("C√≥digo Pix Copia e Cola copiado!");
-                  }}
-                  className="flex-1 py-2 rounded-xl bg-primary-500/10 border border-primary-500/20 text-primary-300 hover:bg-primary-500/20 text-[10px] font-black uppercase tracking-wider transition-all active:scale-95"
-               >
-                  Copia e Cola
-               </button>
-             </div>
-             <Button variant="ghost" size="sm" className="w-full" onClick={() => setIsPixQrModalOpen(false)}>Fechar</Button>
-           </div>
-         </Modal>
-       );
-     })()}
-
-     {isBulkDeleteConfirmOpen && (
-       <Modal
-         isOpen={isBulkDeleteConfirmOpen}
-         onClose={() => setIsBulkDeleteConfirmOpen(false)}
-         title="Confirmar Exclus√£o"
-         size="sm"
-       >
-         <div className="space-y-5 p-4">
-           <div className="flex items-center gap-4 p-4 bg-rose-500/10 rounded-2xl border border-rose-500/20">
-             <AlertCircle size={28} className="text-rose-400 shrink-0" />
-             <p className="text-sm text-white/80">
-               Tem certeza que deseja excluir <strong className="text-white">{selectedSaleIds.size} venda(s)</strong> selecionada(s)? Essa a√ß√£o n√£o pode ser desfeita.
-             </p>
-           </div>
-           <div className="flex justify-end gap-3">
-             <Button variant="ghost" onClick={() => setIsBulkDeleteConfirmOpen(false)}>Cancelar</Button>
-             <Button className="bg-rose-500 hover:bg-rose-400 text-white font-black gap-2" onClick={confirmBulkDeleteSales}>
-               <Trash2 size={16} />
-               <span>Excluir Definitivamente</span>
-             </Button>
-           </div>
-         </div>
-       </Modal>
-     )}
-
-     {isBulkEditOpen && (
-       <Modal isOpen={isBulkEditOpen} onClose={() => setIsBulkEditOpen(false)} title="Editar em Massa" size="sm">
-         <div className="space-y-4 p-2">
-           <p className="text-xs text-white/40">Marque s√≥ os campos que quer alterar em <strong className="text-white">{selectedSaleIds.size} venda(s)</strong> selecionada(s). O que n√£o marcar continua como est√° em cada uma.</p>
-
-           <div className="space-y-2 bg-white/5 border border-white/10 rounded-2xl p-4">
-             <label className="flex items-center gap-2 cursor-pointer">
-               <input type="checkbox" checked={bulkEditFields.paymentMethod.on} onChange={(e) => setBulkEditFields({ ...bulkEditFields, paymentMethod: { ...bulkEditFields.paymentMethod, on: e.target.checked } })} className="w-4 h-4 accent-primary-500" />
-               <span className="text-[10px] font-black uppercase text-white/70">Forma de Pagamento</span>
-             </label>
-             {bulkEditFields.paymentMethod.on && (
-               <div className="grid grid-cols-2 gap-2 pl-6">
-                 {[{ id: 'pix', label: 'PIX' }, { id: 'dinheiro', label: 'Dinheiro' }, { id: 'cartao_credito', label: 'Cart√£o Cr√©dito' }, { id: 'cartao_debito', label: 'Cart√£o D√©bito' }].map(m => (
-                   <button key={m.id} type="button" onClick={() => setBulkEditFields({ ...bulkEditFields, paymentMethod: { on: true, value: m.id } })}
-                     className={cn("py-2 px-3 rounded-lg border text-[10px] font-bold", bulkEditFields.paymentMethod.value === m.id ? "bg-primary-500 border-primary-400 text-slate-900" : "bg-white/5 border-white/10 text-white/60")}>
-                     {m.label}
-                   </button>
-                 ))}
-               </div>
-             )}
-           </div>
-
-           <div className="space-y-2 bg-white/5 border border-white/10 rounded-2xl p-4">
-             <label className="flex items-center gap-2 cursor-pointer">
-               <input type="checkbox" checked={bulkEditFields.scheduledFor.on} onChange={(e) => setBulkEditFields({ ...bulkEditFields, scheduledFor: { ...bulkEditFields.scheduledFor, on: e.target.checked } })} className="w-4 h-4 accent-primary-500" />
-               <span className="text-[10px] font-black uppercase text-white/70">Data/Hora de Entrega</span>
-             </label>
-             {bulkEditFields.scheduledFor.on && (
-               <input
-                 type="datetime-local"
-                 value={bulkEditFields.scheduledFor.value}
-                 onChange={(e) => setBulkEditFields({ ...bulkEditFields, scheduledFor: { on: true, value: e.target.value } })}
-                 className="ml-6 h-10 bg-slate-900/80 border border-white/10 rounded-lg px-3 text-xs text-white focus:outline-none focus:border-primary-500"
-               />
-             )}
-           </div>
-
-           <div className="space-y-2 bg-white/5 border border-white/10 rounded-2xl p-4">
-             <label className="flex items-center gap-2 cursor-pointer">
-               <input type="checkbox" checked={bulkEditFields.serviceStatus.on} onChange={(e) => setBulkEditFields({ ...bulkEditFields, serviceStatus: { ...bulkEditFields.serviceStatus, on: e.target.checked } })} className="w-4 h-4 accent-primary-500" />
-               <span className="text-[10px] font-black uppercase text-white/70">Etapa Atual</span>
-             </label>
-             {bulkEditFields.serviceStatus.on && (
-               <select
-                 value={bulkEditFields.serviceStatus.value}
-                 onChange={(e) => setBulkEditFields({ ...bulkEditFields, serviceStatus: { on: true, value: e.target.value } })}
-                 className="ml-6 h-10 bg-slate-900/80 border border-white/10 rounded-lg px-3 text-xs text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer"
-               >
-                 {STAGE_ORDER.map(id => (
-                   <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
-                 ))}
-               </select>
-             )}
-           </div>
-
-           <div className="space-y-2 bg-white/5 border border-white/10 rounded-2xl p-4">
-             <label className="flex items-center gap-2 cursor-pointer">
-               <input type="checkbox" checked={bulkEditFields.observacoes.on} onChange={(e) => setBulkEditFields({ ...bulkEditFields, observacoes: { ...bulkEditFields.observacoes, on: e.target.checked } })} className="w-4 h-4 accent-primary-500" />
-               <span className="text-[10px] font-black uppercase text-white/70">Observa√ß√µes (substitui a de cada uma)</span>
-             </label>
-             {bulkEditFields.observacoes.on && (
-               <textarea
-                 rows={2}
-                 value={bulkEditFields.observacoes.value}
-                 onChange={(e) => setBulkEditFields({ ...bulkEditFields, observacoes: { on: true, value: e.target.value } })}
-                 className="ml-6 w-[calc(100%-1.5rem)] bg-slate-900/80 border border-white/10 rounded-lg px-3 py-2 text-xs text-white resize-none focus:outline-none focus:border-primary-500"
-               />
-             )}
-           </div>
-
-           <div className="flex justify-end gap-3 pt-1">
-             <Button variant="ghost" onClick={() => setIsBulkEditOpen(false)}>Cancelar</Button>
-             <Button className="bg-primary-500 hover:bg-primary-400 text-slate-900 font-black" disabled={isSavingBulkEdit} onClick={handleSaveBulkEdit}>
-               {isSavingBulkEdit ? 'Salvando...' : `Aplicar em ${selectedSaleIds.size} venda(s)`}
-             </Button>
-           </div>
-         </div>
-       </Modal>
-     )}
-
-     {viewingReceiptSale && (() => {
-       const sale = viewingReceiptSale;
-       const down = sale.downPayment ?? sale.receivedValue ?? (sale.status === 'completed' ? sale.total : 0);
-       const balance = Math.max(0, sale.total - down);
-       const isPending = balance > 0 || sale.status === 'pending';
-       return (
-         <Modal
-           isOpen={!!viewingReceiptSale}
-           onClose={handleCloseReceiptViewer}
-           title="Visualizar Recibo"
-           size="lg"
-         >
-           <div className="space-y-3 p-2">
-             <div className="flex items-center justify-between border-b border-white/5 pb-3">
-               <div>
-                 <button
-                   onClick={() => { navigator.clipboard.writeText(sale.id.slice(-8).toUpperCase()); showAlert('N√∫mero do pedido copiado! Cole na busca do Hist√≥rico de Pedidos.'); }}
-                   className="flex items-center gap-1.5 text-lg font-black text-white uppercase hover:text-primary-300 transition-colors bg-transparent border-0 cursor-pointer p-0"
-                   title="Clique para copiar o n√∫mero do pedido"
-                 >
-                   Pedido #{sale.id.slice(-8).toUpperCase()} <Copy size={14} className="opacity-50" />
-                 </button>
-                 <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest">{safeFormat(sale.createdAt, 'dd/MM/yyyy HH:mm')}</p>
-               </div>
-               <Badge className={cn("text-[9px] font-black uppercase px-2.5 py-1 border-none", isPending ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300")}>
-                 {isPending ? 'EM ABERTO' : 'QUITADO'}
-               </Badge>
-             </div>
-
-             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-               <div className="space-y-3">
-                 {/* Dados do Cliente */}
-                 <div className="bg-slate-900/50 rounded-2xl p-4 border border-white/5 space-y-2">
-                   <h4 className="text-[9px] font-black uppercase text-primary-300 tracking-[2px] mb-1">Cliente</h4>
-                   <p className="text-sm font-black text-white">{(sale.customerName || 'Cliente de Balc√£o').toUpperCase()}</p>
-                   {sale.customerPhone ? (
-                     <button
-                       onClick={() => handleOpenChatFromReceipt(sale)}
-                       className="flex items-center gap-2 text-emerald-400 hover:text-emerald-300 text-xs font-bold underline decoration-dotted"
-                       title="Abrir conversa no Funil de Atendimento"
-                     >
-                       <MessageSquare size={13} />
-                       {sale.customerPhone}
-                     </button>
-                   ) : (
-                     <p className="text-xs text-white/30">Sem telefone cadastrado</p>
-                   )}
-                   {viewingReceiptEmail && <p className="text-xs text-white/50">{viewingReceiptEmail}</p>}
-                 </div>
-               </div>
-
-               <div className="space-y-3">
-                 {/* Itens */}
-                 <div className="bg-slate-900/50 rounded-2xl p-4 border border-white/5 space-y-1.5 max-h-36 overflow-y-auto custom-scrollbar">
-                   <h4 className="text-[9px] font-black uppercase text-primary-300 tracking-[2px] mb-1">Produtos</h4>
-                   {sale.items?.map((item, idx) => (
-                     <div key={idx} className="flex justify-between text-xs text-white/70 gap-2">
-                       <div className="min-w-0">
-                          <span>{item.quantity}x {item.name.toUpperCase()}</span>
-                          {item.dimensions && <p className="text-[9px] text-primary-400 font-bold">Medida: {item.dimensions}</p>}
-                          {item.observacao && <p className="text-[9px] text-white/40 italic truncate">Obs: {item.observacao}</p>}
-                       </div>
-                       <span className="font-bold text-white/90 shrink-0">R$ {((item.area ? item.price * item.area : item.price) * item.quantity).toFixed(2).replace('.', ',')}</span>
-                     </div>
-                   ))}
-                 </div>
-
-                 {/* Valores */}
-                 <div className="bg-slate-900/50 rounded-2xl p-4 border border-white/5 space-y-1.5">
-                   {!!sale.discountValue && (
-                     <>
-                       <div className="flex justify-between text-xs text-white/40">
-                         <span>Subtotal</span>
-                         <span className="font-mono">R$ {(sale.total + sale.discountValue).toFixed(2).replace('.', ',')}</span>
-                       </div>
-                       <div className="flex justify-between text-xs text-rose-400 font-bold">
-                         <span>Desconto Aplicado</span>
-                         <span className="font-mono">- R$ {sale.discountValue.toFixed(2).replace('.', ',')}</span>
-                       </div>
-                     </>
-                   )}
-                   <div className="flex justify-between text-xs text-white/50">
-                     <span>Total</span>
-                     <span className="font-mono font-bold text-white">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
-                   </div>
-                   <div className="flex justify-between text-xs text-emerald-400 font-bold">
-                     <span>Recebido</span>
-                     <span className="font-mono">R$ {down.toFixed(2).replace('.', ',')}</span>
-                   </div>
-                   {isPending && (
-                     <div className="flex justify-between text-xs text-rose-400 font-bold">
-                       <span>Falta Pagar</span>
-                       <span className="font-mono">R$ {balance.toFixed(2).replace('.', ',')}</span>
-                     </div>
-                   )}
-                   {sale.payments && sale.payments.length > 1 ? (
-                     <div className="pt-1 border-t border-white/5 space-y-1">
-                        <span className="text-xs text-white/40">Pagamentos ({sale.payments.length}x)</span>
-                        {sale.payments.map((p, i) => (
-                          <div key={i} className="flex justify-between text-xs text-white/60">
-                             <span>{i + 1}. {PAYMENT_METHOD_LABELS_PT[p.method] || p.method.toUpperCase()}</span>
-                             <span className="font-mono font-bold text-white">R$ {p.value.toFixed(2).replace('.', ',')}</span>
-                          </div>
-                        ))}
-                     </div>
-                   ) : (
-                     <div className="flex justify-between text-xs text-white/40 pt-1 border-t border-white/5">
-                       <span>Forma de Pagamento</span>
-                       <span className="font-bold uppercase">{sale.paymentMethod || '-'}</span>
-                     </div>
-                   )}
-                 </div>
-               </div>
-             </div>
-
-             {/* A√ß√µes */}
-             <div className="flex flex-wrap gap-2 pt-2">
-               {isPending && (
-                 <Button
-                   size="sm"
-                   icon={CheckCircle2}
-                   className="flex-1 min-w-[110px] text-[9px] uppercase tracking-wider font-black h-11 bg-emerald-500 hover:bg-emerald-400 text-slate-900 border-none"
-                   onClick={() => { setViewingReceiptSale(null); openSettlePayment(sale); }}
-                 >
-                   Pagar
-                 </Button>
-               )}
-               <Button variant="secondary" size="sm" icon={Printer} className="flex-1 min-w-[110px] text-[9px] uppercase tracking-wider font-black h-11" onClick={() => handlePrintReceipt(sale)}>
-                 Imprimir
-               </Button>
-               <Button variant="secondary" size="sm" icon={ImageIcon} className="flex-1 min-w-[110px] text-[9px] uppercase tracking-wider font-black h-11" onClick={() => handleDownloadReceiptImagem(sale)}>
-                 Imagem
-               </Button>
-               <Button variant="secondary" size="sm" icon={FileText} className="flex-1 min-w-[110px] text-[9px] uppercase tracking-wider font-black h-11" onClick={() => handleDownloadReceiptPdf(sale)}>
-                 Baixar PDF
-               </Button>
-               <Button variant="secondary" size="sm" icon={Share2} className="flex-1 min-w-[110px] text-[9px] uppercase tracking-wider font-black h-11 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/10" onClick={() => handleShareReceiptWhatsApp(sale)}>
-                 WhatsApp
-               </Button>
-               <Button variant="ghost" size="sm" className="flex-1 min-w-[110px] text-[9px] uppercase tracking-wider font-black h-11" onClick={handleCloseReceiptViewer}>
-                 Fechar
-               </Button>
-             </div>
-           </div>
-         </Modal>
-       );
-     })()}
-    </div>
-  );
-};
-
-// --- CONTACTS ---
-export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStartSaleForClient, onOpenReceiptById, onEditFullClient }: { currentCompany: Company | null; onViewHistoryForClient?: (clienteId: string, clienteName: string) => void; onStartSaleForClient?: (cliente: { id: string; name: string; phone: string }) => void; onOpenReceiptById?: (saleId: string) => void; onEditFullClient?: (cliente: any) => void }) => {
-  const { setActiveTab: setRootActiveTab, setPendingOpenContratoId, setPendingOpenOrcamentoId, openWhatsAppChat } = React.useContext(AppContext)!;
-  const [clientes, setClientes] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [formData, setFormData] = useState({ full_name: '', phone: '', email: '', cpf_cnpj: '', city: '', state: '' });
-  const [editingClienteId, setEditingClienteId] = useState<string | null>(null);
-  const [isImporting, setIsImporting] = useState(false);
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
-
-  // Estatisticas de vendas por cliente (ultimo pedido, faturamento, pago, pendente) e custo dos produtos (pro lucro)
-  const [clienteStats, setClienteStats] = useState<Record<string, { lastDate: string; count: number; total: number; pago: number; pendente: number; custoTotal: number }>>({});
-  const [clienteVendas, setClienteVendas] = useState<Record<string, any[]>>({});
-  const [produtosCostMap, setProdutosCostMap] = useState<Record<string, number>>({});
-  const [fichaCliente, setFichaCliente] = useState<any | null>(null);
-  const [fichaContratos, setFichaContratos] = useState<Contrato[]>([]);
-  const [fichaOrcamentos, setFichaOrcamentos] = useState<Orcamento[]>([]);
-  // Qual cartao (Or√ßamentos/Contratos/Notas) esta expandido na Ficha do Cliente. So um por vez.
-  const [fichaSecaoAberta, setFichaSecaoAberta] = useState<'orcamentos' | 'contratos' | 'notas' | null>(null);
-  useEffect(() => {
-    if (!fichaCliente?.id) { setFichaContratos([]); setFichaOrcamentos([]); setFichaSecaoAberta(null); return; }
-    supabase.from('contratos').select('*').eq('cliente_id', fichaCliente.id).is('deleted_at', null).order('created_at', { ascending: false })
-      .then(({ data }) => setFichaContratos((data || []).map(mapContratoRow)));
-    supabase.from('orcamentos').select('*').eq('cliente_id', fichaCliente.id).eq('document_type', 'orcamento').order('created_at', { ascending: false })
-      .then(({ data }) => setFichaOrcamentos((data || []).map(mapOrcamentoRow)));
-  }, [fichaCliente?.id]);
-  const [isLinkingVendas, setIsLinkingVendas] = useState(false);
-  const [clienteSearchTerm, setClienteSearchTerm] = useState('');
-  const [clienteSortBy, setClienteSortByState] = useState<'nome' | 'data' | 'valor' | 'servicos'>(() => {
-    const saved = localStorage.getItem('rpro_clientes_sort');
-    return (saved === 'nome' || saved === 'data' || saved === 'valor' || saved === 'servicos') ? saved : 'nome';
-  });
-  const setClienteSortBy = (v: 'nome' | 'data' | 'valor' | 'servicos') => {
-    setClienteSortByState(v);
-    localStorage.setItem('rpro_clientes_sort', v);
-  };
-  const [clienteLetraAtiva, setClienteLetraAtiva] = useState<string | null>(null);
-  const clienteRowRefs = React.useRef<Record<string, HTMLDivElement | null>>({});
-
-  const filteredSortedClientes = useMemo(() => {
-    let list = clientes;
-    const term = clienteSearchTerm.trim().toLowerCase();
-    if (term) {
-      list = list.filter(c => (c.full_name || '').toLowerCase().includes(term) || (c.phone || '').includes(term));
-    }
-    if (clienteLetraAtiva) {
-      list = list.filter(c => (c.full_name || '').trim().toUpperCase().startsWith(clienteLetraAtiva));
-    }
-    const withStats = list.map(c => ({ ...c, _stats: clienteStats[c.id] }));
-    switch (clienteSortBy) {
-      case 'data':
-        return withStats.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
-      case 'valor':
-        return withStats.sort((a, b) => (b._stats?.total || 0) - (a._stats?.total || 0));
-      case 'servicos':
-        return withStats.sort((a, b) => (b._stats?.count || 0) - (a._stats?.count || 0));
-      default:
-        return withStats.sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
-    }
-  }, [clientes, clienteSearchTerm, clienteSortBy, clienteLetraAtiva, clienteStats]);
-
-  const alfabeto = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
-  const letrasDisponiveis = new Set(clientes.map(c => (c.full_name || '').trim().toUpperCase()[0]).filter(Boolean));
-
-  const scrollToLetra = (letra: string) => {
-    setClienteLetraAtiva(null);
-    setClienteSortBy('nome');
-    setTimeout(() => {
-      const ordenados = clientes.slice().sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
-      const target = ordenados.find(c => (c.full_name || '').trim().toUpperCase().startsWith(letra));
-      if (target) clienteRowRefs.current[target.id]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 50);
-  };
-
-
-  const handleLinkVendasToClientes = async () => {
-    setIsLinkingVendas(true);
-    try {
-      const { data: vendasSemCliente } = await supabase.from('vendas').select('id, customer_name, customer_phone').is('cliente_id', null).is('deleted_at', null);
-      if (!vendasSemCliente || vendasSemCliente.length === 0) {
-        showAlert('Todas as vendas j√° est√£o vinculadas a um cliente cadastrado.');
-        return;
-      }
-      const { data: todosClientes } = await supabase.from('clientes').select('id, full_name, phone');
-      const porNome = new Map<string, string>();
-      const porTelefone8 = new Map<string, string>();
-      (todosClientes || []).forEach((c: any) => {
-        const nome = (c.full_name || '').trim().toLowerCase();
-        const tel = (c.phone || '').replace(/\D/g, '');
-        if (nome) porNome.set(nome, c.id);
-        if (tel.length >= 8) porTelefone8.set(tel.slice(-8), c.id);
-      });
-
-      let vinculadas = 0;
-      for (const v of vendasSemCliente) {
-        const nome = (v.customer_name || '').trim().toLowerCase();
-        const tel = (v.customer_phone || '').replace(/\D/g, '');
-        const clienteId = (nome && porNome.get(nome)) || (tel.length >= 8 && porTelefone8.get(tel.slice(-8)));
-        if (clienteId) {
-          await supabase.from('vendas').update({ cliente_id: clienteId }).eq('id', v.id);
-          vinculadas += 1;
-        }
-      }
-      showAlert(`${vinculadas} de ${vendasSemCliente.length} venda(s) sem cliente foram vinculadas com sucesso (por nome ou telefone igual ao cadastro).`);
-    } catch (err: any) {
-      console.error('Erro ao vincular vendas:', err);
-      showAlert(`N√£o foi poss√≠vel vincular: ${err?.message || 'erro desconhecido'}`);
-    } finally {
-      setIsLinkingVendas(false);
-    }
-  };
-
-  useEffect(() => {
-    const loadStats = async () => {
-      // Busca TODAS as vendas (nao so as ja vinculadas a um cliente) ‚Äî vendas orfas (sem cliente_id)
-      // sao casadas por nome/telefone na hora, pra nao depender de rodar a vinculacao manual antes.
-      const { data: vendasData } = await supabase.from('vendas').select('id, cliente_id, customer_name, customer_phone, total, down_payment, status, items, created_at').is('deleted_at', null);
-      const { data: produtosData } = await supabase.from('produtos').select('id, cost_price');
-      const costMap: Record<string, number> = {};
-      (produtosData || []).forEach((p: any) => { costMap[p.id] = Number(p.cost_price) || 0; });
-      setProdutosCostMap(costMap);
-
-      // Mapas de busca por nome e pelos ultimos 8 digitos do telefone (mais tolerante a formatacao/DDD diferente)
-      const porNome = new Map<string, string>();
-      const porTelefone8 = new Map<string, string>();
-      clientes.forEach((c: any) => {
-        const nome = (c.full_name || '').trim().toLowerCase();
-        const tel = (c.phone || '').replace(/\D/g, '');
-        if (nome) porNome.set(nome, c.id);
-        if (tel.length >= 8) porTelefone8.set(tel.slice(-8), c.id);
-      });
-      const resolveClienteId = (v: any): string | null => {
-        if (v.cliente_id) return v.cliente_id;
-        const nome = (v.customer_name || '').trim().toLowerCase();
-        const tel = (v.customer_phone || '').replace(/\D/g, '');
-        return (nome && porNome.get(nome)) || (tel.length >= 8 && porTelefone8.get(tel.slice(-8))) || null;
-      };
-
-      const stats: Record<string, { lastDate: string; count: number; total: number; pago: number; pendente: number; custoTotal: number }> = {};
-      const vendasPorCliente: Record<string, any[]> = {};
-      (vendasData || []).forEach((v: any) => {
-        const clienteId = resolveClienteId(v);
-        if (!clienteId) return;
-        if (!stats[clienteId]) stats[clienteId] = { lastDate: v.created_at, count: 0, total: 0, pago: 0, pendente: 0, custoTotal: 0 };
-        const s = stats[clienteId];
-        const total = Number(v.total) || 0;
-        const down = v.down_payment !== null ? Number(v.down_payment) : (v.status === 'completed' ? total : 0);
-        const isFullyPaid = v.status === 'completed' || down >= total;
-        s.count += 1;
-        s.total += total;
-        s.pago += isFullyPaid ? total : down;
-        s.pendente += Math.max(0, total - down);
-        (v.items || []).forEach((item: any) => {
-          const custoUnit = costMap[item.productId] || 0;
-          s.custoTotal += custoUnit * (item.area ? item.area * item.quantity : item.quantity);
-        });
-        if (new Date(v.created_at) > new Date(s.lastDate)) s.lastDate = v.created_at;
-
-        if (!vendasPorCliente[clienteId]) vendasPorCliente[clienteId] = [];
-        vendasPorCliente[clienteId].push({
-          id: v.id, total, down, isFullyPaid, status: v.status, createdAt: v.created_at,
-          itemsSummary: (v.items || []).map((i: any) => i.name).join(', ') || 'Sem itens',
-        });
-      });
-      Object.values(vendasPorCliente).forEach(list => list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
-      setClienteVendas(vendasPorCliente);
-      setClienteStats(stats);
-    };
-    if (clientes.length > 0) loadStats();
-  }, [clientes]);
-
-  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setIsImporting(true);
-    try {
-      const buffer = await file.arrayBuffer();
-      const rows = parseClientesXlsx(buffer);
-      if (rows.length === 0) {
-        showAlert('Nenhum cliente v√°lido encontrado na planilha. Confira se o modelo de colunas est√° correto.');
-        return;
-      }
-
-      // Busca os clientes ja cadastrados pra decidir Atualizar (mesmo CPF/CNPJ ou telefone) x Cadastrar novo
-      const { data: existentes } = await supabase.from('clientes').select('id, phone, cpf_cnpj');
-      const porCpf = new Map<string, string>();
-      const porTelefone = new Map<string, string>();
-      (existentes || []).forEach((c: any) => {
-        const cpf = (c.cpf_cnpj || '').replace(/\D/g, '');
-        const tel = (c.phone || '').replace(/\D/g, '');
-        if (cpf) porCpf.set(cpf, c.id);
-        if (tel) porTelefone.set(tel, c.id);
-      });
-
-      const paraInserir: any[] = [];
-      const paraAtualizar: { id: string; row: any }[] = [];
-      for (const row of rows) {
-        const cpf = (row.cpf_cnpj || '').replace(/\D/g, '');
-        const tel = (row.phone || '').replace(/\D/g, '');
-        const idExistente = (cpf && porCpf.get(cpf)) || (tel && porTelefone.get(tel));
-        if (idExistente) {
-          paraAtualizar.push({ id: idExistente, row });
-        } else {
-          paraInserir.push(row);
-        }
-      }
-
-      const falhas: string[] = [];
-      let novos = 0, atualizados = 0;
-
-      const batchSize = 200;
-      for (let i = 0; i < paraInserir.length; i += batchSize) {
-        const slice = paraInserir.slice(i, i + batchSize);
-        const { error } = await supabase.from('clientes').insert(slice);
-        if (!error) {
-          novos += slice.length;
-        } else {
-          for (const row of slice) {
-            const { error: rowError } = await supabase.from('clientes').insert(row);
-            if (rowError) falhas.push(`${row.full_name || 'sem nome'}: ${rowError.message}`);
-            else novos += 1;
-          }
-        }
-      }
-      for (const { id, row } of paraAtualizar) {
-        const { error } = await supabase.from('clientes').update(row).eq('id', id);
-        if (error) falhas.push(`${row.full_name || 'sem nome'}: ${error.message}`);
-        else atualizados += 1;
-      }
-
-      if (falhas.length > 0) {
-        showAlert(`${novos} novo(s) cadastrado(s), ${atualizados} atualizado(s).\n\n${falhas.length} cliente(s) N√ÉO foram importados:\n${falhas.slice(0, 10).join('\n')}${falhas.length > 10 ? `\n... e mais ${falhas.length - 10}` : ''}`);
-      } else {
-        showAlert(`${novos} cliente(s) novo(s) cadastrado(s) e ${atualizados} atualizado(s)!`);
-      }
-    } catch (err: any) {
-      console.error('Erro ao importar clientes:', err);
-      showAlert(`N√£o foi poss√≠vel importar: ${err?.message || 'erro desconhecido'}`);
-    } finally {
-      setIsImporting(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  };
-
-  useEffect(() => {
-    let active = true;
-    const load = async () => {
-      const { data, error } = await supabase.from('clientes').select('*').order('full_name', { ascending: true });
-      if (!active) return;
-      if (error) { console.error('Erro ao carregar clientes:', error); setLoading(false); return; }
-      setClientes(data || []);
-      setLoading(false);
-    };
-    load();
-    const channel = supabase
-      .channel('clientes-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'clientes' }, load)
-      .subscribe();
-    return () => { active = false; supabase.removeChannel(channel); };
-  }, [currentCompany]);
-
-  // --- Exclus√£o de clientes (lixeira de 30 dias, igual Vendas/Contratos) ---
-  const [selectedClienteIds, setSelectedClienteIds] = useState<Set<string>>(new Set());
-  const [isTrashOpen, setIsTrashOpen] = useState(false);
-  const [deletedClientes, setDeletedClientes] = useState<any[]>([]);
-  const [isLoadingTrash, setIsLoadingTrash] = useState(false);
-  const [isDeletingClientes, setIsDeletingClientes] = useState(false);
-
-  const loadDeletedClientes = async () => {
-    setIsLoadingTrash(true);
-    try {
-      // Purga automatica: excluidos ha mais de 30 dias somem de vez
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - 30);
-      await supabase.from('clientes').delete().not('deleted_at', 'is', null).lt('deleted_at', cutoff.toISOString());
-
-      const { data } = await supabase.from('clientes').select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending: false });
-      setDeletedClientes(data || []);
-    } catch (err) {
-      console.error('Erro ao carregar lixeira de clientes:', err);
-    } finally {
-      setIsLoadingTrash(false);
-    }
-  };
-  useEffect(() => { loadDeletedClientes(); }, [currentCompany]);
-  useEffect(() => { if (isTrashOpen) loadDeletedClientes(); }, [isTrashOpen]);
-
-  // Conta quantos pedidos/contratos/or√ßamentos est√£o vinculados aos clientes selecionados, pra
-  // avisar antes de confirmar a exclus√£o (excluir n√£o apaga esse hist√≥rico, s√≥ solta o v√≠nculo).
-  const contarPedidosVinculados = async (clienteIds: string[]) => {
-    const [vendasRes, contratosRes, orcamentosRes] = await Promise.all([
-      supabase.from('vendas').select('id', { count: 'exact', head: true }).in('cliente_id', clienteIds).is('deleted_at', null),
-      supabase.from('contratos').select('id', { count: 'exact', head: true }).in('cliente_id', clienteIds).is('deleted_at', null),
-      supabase.from('orcamentos').select('id', { count: 'exact', head: true }).in('cliente_id', clienteIds),
-    ]);
-    return (vendasRes.count || 0) + (contratosRes.count || 0) + (orcamentosRes.count || 0);
-  };
-
-  const handleDeleteClientes = async (ids: string[]) => {
-    if (ids.length === 0) return;
-    const totalPedidos = await contarPedidosVinculados(ids);
-    const quem = ids.length === 1 ? `"${clientes.find(c => c.id === ids[0])?.full_name || 'esse cliente'}"` : `${ids.length} clientes`;
-    const avisoPedidos = totalPedidos > 0
-      ? `\n\nAten√ß√£o: ${totalPedidos} pedido(s)/contrato(s)/or√ßamento(s) est√£o vinculados a ${ids.length === 1 ? 'ele' : 'eles'}. Continuam intactos, s√≥ perdem o v√≠nculo com o cadastro enquanto estiver na lixeira.`
-      : '';
-    if (!(await showConfirm(`Excluir ${quem}? Fica${ids.length === 1 ? '' : 'm'} 30 dias na Lixeira antes de sumir de vez ‚Äî d√° pra restaurar dentro desse prazo.${avisoPedidos}`))) return;
-    setIsDeletingClientes(true);
-    try {
-      const { error } = await supabase.from('clientes').update({ deleted_at: new Date().toISOString() }).in('id', ids);
-      if (error) throw error;
-      setSelectedClienteIds(new Set());
-    } catch (err) {
-      console.error('Erro ao excluir cliente(s):', err);
-      showAlert('N√£o foi poss√≠vel excluir.');
-    } finally {
-      setIsDeletingClientes(false);
-    }
-  };
-
-  const handleRestoreCliente = async (c: any) => {
-    if (!(await showConfirm(`Restaurar o cliente "${c.full_name}"?`))) return;
-    const { error } = await supabase.from('clientes').update({ deleted_at: null }).eq('id', c.id);
-    if (error) { showAlert('N√£o foi poss√≠vel restaurar.'); return; }
-    loadDeletedClientes();
-  };
-
-  const handlePermanentDeleteCliente = async (c: any) => {
-    if (!(await showConfirm(`Excluir DEFINITIVAMENTE "${c.full_name}"? Essa a√ß√£o n√£o pode ser desfeita.`))) return;
-    const { error } = await supabase.from('clientes').delete().eq('id', c.id);
-    if (error) { showAlert('N√£o foi poss√≠vel excluir.'); return; }
-    loadDeletedClientes();
-  };
-
-  const toggleClienteSelected = (id: string) => {
-    setSelectedClienteIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  };
-
-  const openEditCliente = (c: any) => {
-    setEditingClienteId(c.id);
-    setFormData({
-      full_name: c.full_name || '', phone: c.phone || '', email: c.email || '',
-      cpf_cnpj: c.cpf_cnpj || '', city: c.city || '', state: c.state || '',
-    });
-    setIsModalOpen(true);
-  };
-
-  const handleSave = async () => {
-    if (!formData.full_name.trim()) return;
-    try {
-      const payload = {
-        full_name: formData.full_name,
-        phone: formData.phone,
-        email: formData.email,
-        cpf_cnpj: formData.cpf_cnpj,
-        city: formData.city,
-        state: formData.state,
-      };
-
-      // Mesma regra do cadastro pelo Terminal de Vendas: CPF/CNPJ igual mescla automatico,
-      // nome completo igual so pergunta antes (ver src/lib/clienteDedupe.ts).
-      let idParaMesclar: string | null = null;
-      if (!editingClienteId) {
-        const duplicado = await buscarClienteDuplicado({ fullName: formData.full_name, cpfCnpj: formData.cpf_cnpj });
-        if (duplicado?.motivo === 'cpf') {
-          idParaMesclar = duplicado.cliente.id;
-        } else if (duplicado?.motivo === 'nome') {
-          const mesclar = await showConfirm(`J√° existe um cliente cadastrado como "${duplicado.cliente.full_name}"${duplicado.cliente.phone ? ` (tel. ${duplicado.cliente.phone})` : ''}. Deseja mesclar com esse cadastro em vez de criar um novo?`);
-          if (mesclar) idParaMesclar = duplicado.cliente.id;
-        }
-      }
-
-      let error;
-      if (editingClienteId) {
-        ({ error } = await supabase.from('clientes').update(payload).eq('id', editingClienteId));
-      } else if (idParaMesclar) {
-        const duplicadoAtual = (await supabase.from('clientes').select('*').eq('id', idParaMesclar).single()).data;
-        const payloadMesclado = montarPayloadMesclagem(duplicadoAtual, payload);
-        ({ error } = await supabase.from('clientes').update(payloadMesclado).eq('id', idParaMesclar));
-      } else {
-        ({ error } = await supabase.from('clientes').insert(payload));
-      }
-      if (error) throw error;
-      setIsModalOpen(false);
-      setEditingClienteId(null);
-      setFormData({ full_name: '', phone: '', email: '', cpf_cnpj: '', city: '', state: '' });
-      // Mantem a Ficha do Cliente atualizada na hora se ela estiver aberta pro mesmo cliente
-      if (fichaCliente && editingClienteId === fichaCliente.id) {
-        setFichaCliente((prev: any) => prev ? { ...prev, ...payload } : prev);
-      }
-    } catch (err) {
-      console.error(err);
-      showAlert('N√£o foi poss√≠vel salvar o cliente.');
-    }
-  };
-
-  const columns = [
-    { key: 'full_name', label: 'Nome', render: (v: string) => <span className="font-bold text-white">{v}</span> },
-    { key: 'phone', label: 'WhatsApp', render: (v: string, row: any) => v ? (
-        <button
-          onClick={(e: any) => { e.stopPropagation(); openWhatsAppChat(v, row?.full_name); }}
-          className="flex items-center gap-1.5 text-emerald-400 hover:text-emerald-300 font-bold"
-          title="Abrir conversa no WhatsApp Interno"
-        >
-          <MessageSquare size={13} /> {v}
-        </button>
-      ) : <span className="text-white/20">‚Äî</span>
-    },
-    { key: 'ultimo', label: '√öltimo Pedido/Servi√ßo', render: (_: any, row: any) => {
-        const s = clienteStats[row.id];
-        if (!s) return <span className="text-white/20 text-xs">‚Äî</span>;
-        const dias = Math.floor((Date.now() - new Date(s.lastDate).getTime()) / (1000 * 60 * 60 * 24));
-        const cor = dias >= 60 ? 'text-rose-400' : dias >= 30 ? 'text-amber-400' : 'text-white/60';
-        return (
-          <span className={cn("text-xs font-bold flex items-center gap-1.5", cor)}>
-            {dias >= 30 && <AlertCircle size={12} />}
-            {safeFormat(s.lastDate, 'dd/MM/yyyy')}
-          </span>
-        );
-      }
-    },
-    { key: 'exibir', label: '', render: (_: any, row: any) => (
-        <Button variant="secondary" size="sm" onClick={(e: any) => { e.stopPropagation?.(); setFichaCliente(row); }}>Exibir</Button>
-      )
-    },
-  ];
-
-  if (loading && clientes.length === 0) return (
-    <div className="h-96 flex items-center justify-center">
-       <RefreshCw className="animate-spin text-primary-500" />
-    </div>
-  );
-
-  return (
-    <div className="space-y-8 animate-in fade-in zoom-in-95 duration-500">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-white/10 pb-4">
-        <div>
-          <h2 className="text-xl md:text-2xl font-black text-white italic tracking-tighter uppercase flex items-center gap-2">
-            <Users className="text-primary-400" size={22} />
-            Base de Contatos
-          </h2>
-          <p className="text-[10px] md:text-xs text-white/40 font-bold uppercase tracking-widest mt-1">
-            Gest√£o unificada de clientes
-          </p>
-        </div>
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportFile} />
-          <button
-            disabled={isImporting}
-            title={isImporting ? 'Importando...' : 'Importar Planilha'}
-            onClick={() => fileInputRef.current?.click()}
-            className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all disabled:opacity-50"
-          >
-            <Upload size={14} className={cn(isImporting && "animate-pulse")} />
-          </button>
-          <button
-            title="Exportar Planilha"
-            onClick={() => exportClientesXlsx(clientes)}
-            className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all"
-          >
-            <Download size={14} />
-          </button>
-          <button
-            disabled={isLinkingVendas}
-            title="Vincula no banco de dados as vendas que ainda nao tem cliente vinculado, casando por nome ou telefone"
-            onClick={handleLinkVendasToClientes}
-            className="flex items-center gap-1.5 px-3 h-9 rounded-lg bg-primary-500/10 border border-primary-500/20 text-primary-400 hover:bg-primary-500/20 transition-all disabled:opacity-50 text-[10px] font-black uppercase tracking-wide"
-          >
-            <Link2 size={14} className={cn(isLinkingVendas && "animate-pulse")} />
-            <span className="hidden sm:inline">Vincular Vendas</span>
-          </button>
-          <button
-            title={isTrashOpen ? 'Voltar pra lista' : 'Lixeira'}
-            onClick={() => setIsTrashOpen(!isTrashOpen)}
-            className={cn(
-              "relative flex items-center justify-center w-9 h-9 rounded-lg border transition-all",
-              isTrashOpen ? "bg-rose-500/20 border-rose-500/40 text-rose-300" : "bg-white/5 border-white/10 text-white/50 hover:text-rose-400 hover:border-rose-500/20"
-            )}
-          >
-            <Trash2 size={14} />
-            {deletedClientes.length > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-[16px] px-1 rounded-full bg-rose-500 text-white text-[8px] font-black flex items-center justify-center">{deletedClientes.length}</span>
-            )}
-          </button>
-          <Button icon={Plus} onClick={() => { setEditingClienteId(null); setFormData({ full_name: '', phone: '', email: '', cpf_cnpj: '', city: '', state: '' }); setIsModalOpen(true); }}>Novo Cliente</Button>
-        </div>
-      </div>
-
-      {isTrashOpen ? (
-        <GlassCard className="p-4 border-white/5 bg-white/[0.02]">
-           <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-black text-white uppercase italic">Lixeira de Clientes</h3>
-              <p className="text-[9px] text-white/30 font-bold uppercase">Ficam aqui por 30 dias e depois somem automaticamente ‚Äî {deletedClientes.length} cliente(s)</p>
-           </div>
-           {isLoadingTrash ? (
-             <div className="h-40 flex items-center justify-center"><RefreshCw className="animate-spin text-primary-500" size={20} /></div>
-           ) : deletedClientes.length === 0 ? (
-             <p className="text-center text-xs text-white/30 py-10">Nenhum cliente na lixeira.</p>
-           ) : (
-             <div className="max-h-[65vh] overflow-y-auto custom-scrollbar space-y-1.5">
-                {deletedClientes.map(c => (
-                  <div key={c.id} className="flex items-center gap-3 bg-slate-900/60 border border-white/5 rounded-xl px-3 py-2">
-                     <div className="min-w-0 flex-1">
-                        <p className="text-[11px] font-black text-white/70 uppercase italic truncate">{c.full_name}</p>
-                        <p className="text-[9px] text-white/30">Exclu√≠do em {c.deleted_at ? safeFormat(c.deleted_at, 'dd/MM/yyyy HH:mm') : '‚Äî'}</p>
-                     </div>
-                     <button onClick={() => handleRestoreCliente(c)} className="text-[9px] font-black uppercase px-2.5 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 shrink-0">Restaurar</button>
-                     <button onClick={() => handlePermanentDeleteCliente(c)} title="Excluir definitivamente" className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 shrink-0"><Trash2 size={12} /></button>
-                  </div>
-                ))}
-             </div>
-           )}
-        </GlassCard>
-      ) : (
-      <>
-      {selectedClienteIds.size > 0 && (
-        <div className="flex items-center justify-between gap-3 bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-2.5">
-           <p className="text-[10px] font-black text-rose-300 uppercase">{selectedClienteIds.size} selecionado(s)</p>
-           <div className="flex items-center gap-2">
-              <button onClick={() => setSelectedClienteIds(new Set())} className="text-[9px] font-black uppercase text-white/40 hover:text-white/70">Limpar</button>
-              <button
-                disabled={isDeletingClientes}
-                onClick={() => handleDeleteClientes(Array.from(selectedClienteIds))}
-                className="flex items-center gap-1.5 text-[9px] font-black uppercase px-3 py-1.5 rounded-lg bg-rose-500 text-white hover:bg-rose-600 disabled:opacity-50"
-              >
-                <Trash2 size={12} /> {isDeletingClientes ? 'Excluindo...' : 'Excluir Selecionados'}
-              </button>
-           </div>
-        </div>
-      )}
-      <div className="flex items-center gap-2 flex-wrap">
-         <div className="relative flex-1 min-w-[180px]">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" size={14} />
-            <input
-              value={clienteSearchTerm}
-              onChange={(e) => setClienteSearchTerm(e.target.value)}
-              placeholder="Pesquisar por nome ou telefone..."
-              className="w-full h-10 bg-white/5 border border-white/10 rounded-xl pl-9 pr-3 text-xs text-white placeholder-white/30 focus:outline-none focus:border-primary-500"
-            />
-         </div>
-         <select
-           value={clienteSortBy}
-           onChange={(e) => setClienteSortBy(e.target.value as any)}
-           className="h-10 bg-white/5 border border-white/10 rounded-xl px-3 text-[10px] font-black uppercase text-white/70 focus:outline-none focus:border-primary-500 cursor-pointer"
-         >
-           <option value="nome" className="bg-slate-900">Ordem Alfab√©tica (Nome)</option>
-           <option value="data" className="bg-slate-900">Data de Cadastro</option>
-           <option value="valor" className="bg-slate-900">Maior Valor Comprado</option>
-           <option value="servicos" className="bg-slate-900">Mais Servi√ßos/Pedidos</option>
-         </select>
-         {clienteLetraAtiva && (
-           <button onClick={() => setClienteLetraAtiva(null)} className="h-10 px-3 rounded-xl bg-primary-500/10 border border-primary-500/20 text-primary-300 text-[10px] font-black uppercase flex items-center gap-1.5">
-             Letra "{clienteLetraAtiva}" <X size={12} />
-           </button>
-         )}
-         <span className="text-[10px] text-white/30 font-bold uppercase">{filteredSortedClientes.length} cliente(s)</span>
-      </div>
-
-      <div className="flex gap-3">
-         <GlassCard className="p-4 border-white/5 bg-white/[0.02] flex-1 min-w-0">
-            <div className="max-h-[65vh] overflow-y-auto custom-scrollbar space-y-1.5">
-               {filteredSortedClientes.map(c => {
-                  const s = c._stats;
-                  return (
-                    <div
-                      key={c.id}
-                      ref={(el) => { clienteRowRefs.current[c.id] = el; }}
-                      className={cn("flex items-center gap-3 bg-slate-900/60 hover:bg-slate-900 border rounded-xl px-3 py-2 transition-all", selectedClienteIds.has(c.id) ? "border-rose-500/40" : "border-white/5")}
-                    >
-                       <button onClick={() => toggleClienteSelected(c.id)} className={cn("w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-colors", selectedClienteIds.has(c.id) ? "bg-rose-500 border-rose-500" : "border-white/20 hover:border-rose-400")}>
-                         {selectedClienteIds.has(c.id) && <Check size={11} className="text-white" />}
-                       </button>
-                       <div className="min-w-0 flex-1">
-                          <p className="text-[11px] font-black text-white uppercase italic truncate">{c.full_name}</p>
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            {c.cpf_cnpj && <p className="text-[9px] text-white/30 font-mono">{c.cpf_cnpj}</p>}
-                            {s && <p className="text-[9px] text-white/30">{c.cpf_cnpj ? '¬∑ ' : ''}{s.count} pedido(s) ¬∑ R$ {s.total.toFixed(2).replace('.', ',')}</p>}
-                          </div>
-                       </div>
-                       {c.phone ? (
-                         <button
-                           onClick={() => openWhatsAppChat(c.phone, c.full_name)}
-                           title="Abrir conversa no WhatsApp Interno"
-                           className="flex items-center gap-1.5 text-emerald-400 hover:text-emerald-300 font-bold text-[11px] shrink-0"
-                         >
-                           <MessageSquare size={13} /> {c.phone}
-                         </button>
-                       ) : <span className="text-white/20 text-[11px] shrink-0">‚Äî</span>}
-                       <span className="text-white/40 text-[9px] shrink-0 hidden sm:block w-20 text-right">{s ? safeFormat(s.lastDate, 'dd/MM/yyyy') : '‚Äî'}</span>
-                       <button onClick={() => onEditFullClient ? onEditFullClient(c) : openEditCliente(c)} title="Editar" className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20 shrink-0"><Pencil size={12} /></button>
-                       <button onClick={() => setFichaCliente(c)} className="text-[9px] font-black uppercase px-3 py-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20 shrink-0">Exibir</button>
-                       <button onClick={() => handleDeleteClientes([c.id])} title="Excluir" className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 shrink-0"><Trash2 size={12} /></button>
-                    </div>
-                  );
-               })}
-               {filteredSortedClientes.length === 0 && (
-                 <p className="text-center text-xs text-white/30 py-10">Nenhum cliente encontrado.</p>
-               )}
-            </div>
-         </GlassCard>
-
-         {/* Barra lateral A-Z -- visivel tambem no mobile (fina, tipo agenda de contatos do
-             celular) pra pular direto pro nome sem precisar rolar a lista inteira. */}
-         <div className="flex flex-col gap-0.5 shrink-0 bg-white/[0.02] border border-white/5 rounded-2xl p-1 md:p-1.5 h-fit sticky top-0">
-            {alfabeto.map(letra => (
-              <button
-                key={letra}
-                disabled={!letrasDisponiveis.has(letra)}
-                onClick={() => scrollToLetra(letra)}
-                className={cn(
-                  "w-5 h-4 md:w-6 md:h-5 rounded text-[8px] md:text-[9px] font-black transition-all",
-                  letrasDisponiveis.has(letra) ? "text-white/50 hover:bg-primary-500 hover:text-slate-900" : "text-white/10 cursor-not-allowed"
-                )}
-              >
-                {letra}
-              </button>
-            ))}
-         </div>
-      </div>
-      </>
-      )}
-      <Modal isOpen={isModalOpen} onClose={() => { setIsModalOpen(false); setEditingClienteId(null); }} title={editingClienteId ? "EDITAR CLIENTE" : "NOVO CLIENTE"}>
-        <div className="p-6 space-y-4">
-          <Input label="NOME COMPLETO" value={formData.full_name} onChange={(e: any) => setFormData({ ...formData, full_name: e.target.value.toUpperCase() })} />
-          <div className="grid grid-cols-2 gap-4">
-            <PhoneInputBR label="TELEFONE" value={formData.phone} onChange={(v: string) => setFormData({ ...formData, phone: v })} />
-            <Input label="EMAIL" value={formData.email} onChange={(e: any) => setFormData({ ...formData, email: e.target.value })} />
-          </div>
-          <div className="grid grid-cols-3 gap-4">
-            <CpfCnpjInput label="CPF/CNPJ" value={formData.cpf_cnpj} onChange={(v: string) => setFormData({ ...formData, cpf_cnpj: v })} />
-            <Input label="CIDADE" value={formData.city} onChange={(e: any) => setFormData({ ...formData, city: e.target.value })} />
-            <Input label="ESTADO" value={formData.state} onChange={(e: any) => setFormData({ ...formData, state: e.target.value })} />
-          </div>
-          <div className="flex gap-4 pt-4">
-            <Button variant="secondary" className="flex-1 h-14" onClick={() => { setIsModalOpen(false); setEditingClienteId(null); }}>Cancelar</Button>
-            <Button className="flex-[2] h-14 bg-primary-500 text-slate-900 border-none shadow-xl shadow-primary-500/20" onClick={handleSave}>{editingClienteId ? "Salvar Altera√ß√µes" : "Salvar Cliente"}</Button>
-          </div>
-        </div>
-      </Modal>
-
-      {fichaCliente && (() => {
-        const s = clienteStats[fichaCliente.id];
-        const lucro = s ? s.total - s.custoTotal : 0;
-        return (
-          <Modal isOpen={!!fichaCliente} onClose={() => setFichaCliente(null)} title="Ficha do Cliente" size="md">
-            <div className="space-y-5 p-2">
-               <div className="flex items-start justify-between gap-3">
-                  <div>
-                     <h3 className="text-xl font-black text-white italic">{fichaCliente.full_name}</h3>
-                     {fichaCliente.phone && (
-                       <button
-                         onClick={() => openWhatsAppChat(fichaCliente.phone, fichaCliente.full_name)}
-                         title="Abrir conversa no WhatsApp Interno"
-                         className="flex items-center gap-1.5 text-emerald-400 hover:text-emerald-300 font-bold text-sm mt-1"
-                       >
-                         <MessageSquare size={14} /> {fichaCliente.phone}
-                       </button>
-                     )}
-                     {fichaCliente.telefone_alternativo && (
-                       <button
-                         onClick={() => openWhatsAppChat(fichaCliente.telefone_alternativo, fichaCliente.full_name)}
-                         title="Abrir conversa no WhatsApp Interno"
-                         className="flex items-center gap-1.5 text-emerald-400/70 hover:text-emerald-300 font-bold text-xs mt-1"
-                       >
-                         <MessageSquare size={12} /> {fichaCliente.telefone_alternativo} <span className="text-white/30 normal-case font-normal">(alternativo)</span>
-                       </button>
-                     )}
-                    {!!fichaCliente.saldo_credito && fichaCliente.saldo_credito > 0 && (
-                       <p className="text-[9px] font-black uppercase text-emerald-400 mt-1">Cr√©dito dispon√≠vel: R$ {Number(fichaCliente.saldo_credito).toFixed(2).replace('.', ',')}</p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                     <button
-                       title="Editar Cliente"
-                       onClick={() => { (onEditFullClient ? onEditFullClient(fichaCliente) : openEditCliente(fichaCliente)); setFichaCliente(null); }}
-                       className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all"
-                     >
-                       <Pencil size={14} />
-                     </button>
-                     {s && (
-                       <>
-                         <button
-                           title="Exportar em PDF"
-                           onClick={async () => {
-                             const { exportFichaClientePdf } = await import('../lib/fichaClientePdf');
-                             await exportFichaClientePdf({
-                               cliente: fichaCliente,
-                               servicos: clienteVendas[fichaCliente.id] || [],
-                               stats: { total: s.total, pago: s.pago, pendente: s.pendente, count: s.count },
-                             });
-                           }}
-                           className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all"
-                         >
-                           <FileText size={14} />
-                         </button>
-                         <button
-                           title="Exportar em Planilha"
-                           onClick={() => {
-                             exportFichaClienteXlsx(fichaCliente, clienteVendas[fichaCliente.id] || [], { total: s.total, pago: s.pago, pendente: s.pendente, count: s.count });
-                           }}
-                           className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all"
-                         >
-                           <Download size={14} />
-                         </button>
-                       </>
-                     )}
-                  </div>
-               </div>
-
-               <div className="grid grid-cols-2 gap-3 text-xs">
-                  {fichaCliente.email && <div><p className="text-white/30 uppercase font-bold text-[9px]">E-mail</p><p className="text-white">{fichaCliente.email}</p></div>}
-                  {fichaCliente.cpf_cnpj && <div><p className="text-white/30 uppercase font-bold text-[9px]">CPF/CNPJ</p><p className="text-white">{fichaCliente.cpf_cnpj}</p></div>}
-                  {fichaCliente.rg && <div><p className="text-white/30 uppercase font-bold text-[9px]">RG</p><p className="text-white">{fichaCliente.rg}</p></div>}
-                  {fichaCliente.nascimento && <div><p className="text-white/30 uppercase font-bold text-[9px]">Anivers√°rio</p><p className="text-white">{safeFormat(fichaCliente.nascimento, 'dd/MM/yyyy')}</p></div>}
-                  {(fichaCliente.logradouro || fichaCliente.city) && (
-                    <div className="col-span-2">
-                       <p className="text-white/30 uppercase font-bold text-[9px]">Endere√ßo</p>
-                       <p className="text-white">
-                          {[
-                            fichaCliente.logradouro && `${fichaCliente.logradouro}${fichaCliente.numero ? `, ${fichaCliente.numero}` : ''}`,
-                            fichaCliente.complemento,
-                            fichaCliente.distrito,
-                            fichaCliente.city && `${fichaCliente.city}${fichaCliente.state ? ` - ${fichaCliente.state}` : ''}`,
-                            fichaCliente.cep,
-                          ].filter(Boolean).join(', ')}
-                       </p>
-                    </div>
-                  )}
-               </div>
-
-               {fichaCliente.notes && (
-                 <div>
-                    <p className="text-[9px] font-black uppercase text-white/40 mb-1">Observa√ß√µes</p>
-                    <p className="text-xs text-white/60 bg-white/5 rounded-xl p-3 border border-white/5">{fichaCliente.notes}</p>
-                 </div>
-               )}
-
-               <div className="h-px bg-white/10" />
-
-               {onStartSaleForClient && (
-                 <button
-                   onClick={() => { onStartSaleForClient({ id: fichaCliente.id, name: fichaCliente.full_name, phone: fichaCliente.phone || '' }); setFichaCliente(null); }}
-                   className="w-full flex items-center justify-center gap-2 bg-primary-500 hover:bg-primary-400 text-slate-900 font-black text-xs uppercase tracking-wider py-3 rounded-2xl transition-all"
-                 >
-                   <ShoppingBag size={16} /> Iniciar Venda com este Cliente
-                 </button>
-               )}
-
-               {/* Or√ßamentos / Contratos / Notas ‚Äî bot√£o s√≥ fica clic√°vel se o cliente tiver
-                   pelo menos 1 registro daquele tipo; clicando expande a lista completa.
-                   Fica vis√≠vel mesmo sem vendas, caso o cliente j√° tenha or√ßamento/contrato
-                   mas ainda n√£o tenha comprado nada. */}
-               {(() => {
-                 const cards: { key: 'orcamentos' | 'contratos' | 'notas'; label: string; count: number }[] = [
-                   { key: 'orcamentos', label: 'Or√ßamentos', count: fichaOrcamentos.length },
-                   { key: 'contratos', label: 'Contratos', count: fichaContratos.length },
-                   { key: 'notas', label: 'Notas', count: s?.count || 0 },
-                 ];
-                 return (
-                   <div className="grid grid-cols-3 gap-2">
-                      {cards.map(card => {
-                        const disabled = card.count === 0;
-                        const active = fichaSecaoAberta === card.key;
-                        return (
-                          <button
-                            key={card.key}
-                            disabled={disabled}
-                            onClick={() => setFichaSecaoAberta(active ? null : card.key)}
-                            className={cn(
-                              "rounded-xl py-2.5 px-2 border text-center transition-all",
-                              disabled
-                                ? "bg-white/5 border-white/5 text-white/20 cursor-not-allowed"
-                                : active
-                                  ? "bg-primary-500 border-primary-500 text-slate-900 cursor-pointer"
-                                  : "bg-white/5 border-white/10 text-white/70 hover:bg-white/10 cursor-pointer"
-                            )}
-                          >
-                            <p className="text-[9px] font-black uppercase tracking-wide">{card.label}</p>
-                            <p className="text-sm font-black">{card.count}</p>
-                          </button>
-                        );
-                      })}
-                   </div>
-                 );
-               })()}
-
-               {fichaSecaoAberta === 'notas' && s && (
-                 <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                       <p className="text-[9px] font-black uppercase text-white/40">Notas ({s.count})</p>
-                       <button
-                         onClick={() => { onViewHistoryForClient?.(fichaCliente.id, fichaCliente.full_name); setFichaCliente(null); }}
-                         className="text-[9px] font-black uppercase text-primary-400 hover:text-primary-300 flex items-center gap-1"
-                       >
-                         Ver no Hist√≥rico <ChevronRight size={12} />
-                       </button>
-                    </div>
-                    <div className="space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar">
-                       {(clienteVendas[fichaCliente.id] || []).slice(0, 10).map(v => (
-                         <button
-                           key={v.id}
-                           onClick={() => { onOpenReceiptById?.(v.id); setFichaCliente(null); }}
-                           disabled={!onOpenReceiptById}
-                           className="w-full flex items-center justify-between gap-2 bg-white/5 hover:bg-white/10 border border-white/5 hover:border-primary-500/30 rounded-lg px-3 py-2 transition-all text-left cursor-pointer disabled:cursor-default disabled:hover:bg-white/5"
-                         >
-                            <div className="min-w-0 flex-1">
-                               <p className="text-[9px] font-mono font-black text-primary-400">#{v.id.slice(-8).toUpperCase()}</p>
-                               <p className="text-[10px] font-bold text-white truncate">{v.itemsSummary}</p>
-                               <p className="text-[9px] text-white/30">{safeFormat(v.createdAt, 'dd/MM/yyyy HH:mm')}</p>
-                            </div>
-                            <div className="text-right shrink-0">
-                               <p className="text-[10px] font-black text-white">R$ {v.total.toFixed(2).replace('.', ',')}</p>
-                               <p className={cn("text-[8px] font-black uppercase", v.isFullyPaid ? "text-emerald-400" : "text-amber-400")}>{v.isFullyPaid ? 'Pago' : 'Pendente'}</p>
-                            </div>
-                         </button>
-                       ))}
-                    </div>
-                 </div>
-               )}
-
-               {fichaSecaoAberta === 'contratos' && (
-                 <div className="space-y-1.5">
-                    <p className="text-[9px] font-black uppercase text-white/40">Contratos ({fichaContratos.length})</p>
-                    <div className="space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar">
-                       {fichaContratos.map(c => (
-                         <button
-                           key={c.id}
-                           onClick={() => { setPendingOpenContratoId(c.id); setRootActiveTab('pos'); setFichaCliente(null); }}
-                           className="w-full flex items-center justify-between gap-2 bg-purple-500/5 hover:bg-purple-500/10 border border-purple-500/10 rounded-lg px-3 py-2 text-left cursor-pointer transition-all"
-                         >
-                            <div className="min-w-0 flex-1">
-                               <p className="text-[9px] font-mono font-black text-purple-300">{c.numero}{c.versao > 1 ? ` ¬∑ v${c.versao}` : ''}</p>
-                               <p className="text-[9px] text-white/30">{safeFormat(c.createdAt, 'dd/MM/yyyy')}</p>
-                            </div>
-                            <div className="text-right shrink-0">
-                               <p className="text-[10px] font-black text-white">R$ {c.total.toFixed(2).replace('.', ',')}</p>
-                               <p className="text-[8px] font-black uppercase text-white/40">{CONTRATO_STATUS_LABELS[c.status] || c.status}</p>
-                            </div>
-                         </button>
-                       ))}
-                    </div>
-                 </div>
-               )}
-
-               {fichaSecaoAberta === 'orcamentos' && (
-                 <div className="space-y-1.5">
-                    <p className="text-[9px] font-black uppercase text-white/40">Or√ßamentos ({fichaOrcamentos.length})</p>
-                    <div className="space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar">
-                       {fichaOrcamentos.map(o => (
-                         <button
-                           key={o.id}
-                           onClick={() => { setPendingOpenOrcamentoId(o.id); setRootActiveTab('pos'); setFichaCliente(null); }}
-                           className="w-full flex items-center justify-between gap-2 bg-sky-500/5 hover:bg-sky-500/10 border border-sky-500/10 rounded-lg px-3 py-2 text-left cursor-pointer transition-all"
-                         >
-                            <div className="min-w-0 flex-1">
-                               <p className="text-[9px] font-mono font-black text-sky-300">{o.numero}</p>
-                               <p className="text-[9px] text-white/30">{safeFormat(o.createdAt, 'dd/MM/yyyy')}</p>
-                            </div>
-                            <div className="text-right shrink-0">
-                               <p className="text-[10px] font-black text-white">R$ {o.total.toFixed(2).replace('.', ',')}</p>
-                               <p className="text-[8px] font-black uppercase text-white/40">{ORCAMENTO_STATUS_LABELS_FICHA[o.status] || o.status}</p>
-                            </div>
-                         </button>
-                       ))}
-                    </div>
-                 </div>
-               )}
-
-               {s ? (
-                 <>
-                   {(() => {
-                     const diasDesdeUltimo = Math.floor((Date.now() - new Date(s.lastDate).getTime()) / (1000 * 60 * 60 * 24));
-                     const nivelAlerta = diasDesdeUltimo >= 60 ? 'critico' : diasDesdeUltimo >= 30 ? 'atencao' : 'ok';
-                     return (
-                       <div className={cn(
-                         "rounded-2xl p-4 border flex items-center justify-between gap-3",
-                         nivelAlerta === 'critico' ? "bg-rose-500/10 border-rose-500/30" :
-                         nivelAlerta === 'atencao' ? "bg-amber-500/10 border-amber-500/30" :
-                         "bg-emerald-500/10 border-emerald-500/20"
-                       )}>
-                         <div>
-                            <p className={cn(
-                              "text-[9px] font-black uppercase tracking-widest",
-                              nivelAlerta === 'critico' ? "text-rose-400" : nivelAlerta === 'atencao' ? "text-amber-400" : "text-emerald-400"
-                            )}>√öltimo Servi√ßo</p>
-                            <p className="text-sm font-black text-white">{safeFormat(s.lastDate, 'dd/MM/yyyy')} ‚Äî {diasDesdeUltimo} dia{diasDesdeUltimo !== 1 ? 's' : ''} atr√°s</p>
-                            {nivelAlerta !== 'ok' && (
-                              <p className={cn("text-[10px] font-bold mt-0.5", nivelAlerta === 'critico' ? "text-rose-300" : "text-amber-300")}>
-                                {nivelAlerta === 'critico' ? '‚ö† J√° faz tempo ‚Äî vale a pena chamar pra ver se precisa de algo novo.' : 'Comece a ficar de olho ‚Äî pode ser hora de um follow-up.'}
-                              </p>
-                            )}
-                         </div>
-                         {nivelAlerta !== 'ok' && fichaCliente.phone && (
-                           <button
-                             onClick={() => openWhatsAppChat(fichaCliente.phone!, fichaCliente.full_name)}
-                             title="Abrir conversa no WhatsApp Interno"
-                             className={cn(
-                               "shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-wide border-0 cursor-pointer",
-                               nivelAlerta === 'critico' ? "bg-rose-500 text-white hover:bg-rose-400" : "bg-amber-500 text-slate-900 hover:bg-amber-400"
-                             )}
-                           >
-                             <MessageSquare size={13} /> Chamar
-                           </button>
-                         )}
-                       </div>
-                     );
-                   })()}
-
-                   <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-white/5 rounded-xl p-3 border border-white/5">
-                         <p className="text-[9px] font-black uppercase text-white/40">Faturamento Total</p>
-                         <p className="text-lg font-black text-white">R$ {s.total.toFixed(2).replace('.', ',')}</p>
-                      </div>
-                      <div className="bg-white/5 rounded-xl p-3 border border-white/5">
-                         <p className="text-[9px] font-black uppercase text-white/40">Lucro Total</p>
-                         <p className="text-lg font-black text-emerald-400">R$ {lucro.toFixed(2).replace('.', ',')}</p>
-                      </div>
-                      <div className="bg-emerald-500/10 rounded-xl p-3 border border-emerald-500/20">
-                         <p className="text-[9px] font-black uppercase text-emerald-400/70">Valor L√≠quido Recebido</p>
-                         <p className="text-lg font-black text-emerald-400">R$ {s.pago.toFixed(2).replace('.', ',')}</p>
-                      </div>
-                      <div className="bg-amber-500/10 rounded-xl p-3 border border-amber-500/20">
-                         <p className="text-[9px] font-black uppercase text-amber-400/70">Valores Pendentes</p>
-                         <p className="text-lg font-black text-amber-400">R$ {s.pendente.toFixed(2).replace('.', ',')}</p>
-                      </div>
-                   </div>
-                 </>
-               ) : (
-                 fichaContratos.length === 0 && fichaOrcamentos.length === 0 && (
-                   <p className="text-center text-xs text-white/30 py-6">Esse cliente ainda n√£o tem pedidos/servi√ßos registrados.</p>
-                 )
-               )}
-            </div>
-          </Modal>
-        );
-      })()}
-    </div>
-  );
-};
-
-// --- SERVICES ---
-export const ServicesModule = ({ currentCompany }: { currentCompany: Company | null }) => {
-  const [subTab, setSubTab] = useState<'os_list' | 'contract_flow'>('os_list');
-  const [services, setServices] = useState<any[]>([]);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [formData, setFormData] = useState({
-    client: '',
-    phone: '',
-    serviceDesc: '',
-    totalValue: 0,
-    downPaymentValue: 0,
-    priority: 'normal'
-  });
-
-  useEffect(() => {
-    if (!currentCompany) return;
-    const q = query(
-      collection(db, 'services'),
-      where('companyId', '==', currentCompany.id),
-      orderBy('createdAt', 'desc')
-    );
-    return onSnapshot(q, (snapshot) => {
-      setServices(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
-  }, [currentCompany]);
-
-  const handleUpdateStatus = async (id: string, newStatus: string) => {
-    try {
-      await updateDoc(doc(db, 'services', id), { status: newStatus });
-    } catch (e) {
-      console.error('Erro ao atualizar status do servi√ßo:', e);
-    }
-  };
-
-  const handleSaveService = async () => {
-    if (!currentCompany || !formData.client || !formData.serviceDesc) return;
-    try {
-      const isPending = formData.downPaymentValue < formData.totalValue;
-
-      // 1. Create sale order ‚Äî down_payment reflete so o que realmente entrou (0 se nao houve
-      // entrada); faturamento so conta de verdade quando ha pagamento, nao na criacao da nota
-      const { data: vendaRow, error: vendaErr } = await supabase.from('vendas').insert({
-        customer_name: formData.client,
-        items: [{
-          productId: 'manual',
-          name: formData.serviceDesc.toUpperCase(),
-          price: formData.totalValue,
-          quantity: 1
-        }],
-        total: formData.totalValue,
-        down_payment: formData.downPaymentValue > 0 ? formData.downPaymentValue : 0,
-        payment_method: 'pix',
-        status: isPending ? 'pending' : 'completed',
-      }).select().single();
-      if (vendaErr) throw vendaErr;
-      const orderId = vendaRow.id;
-
-      // 2. Create the associated service document
-      await addDoc(collection(db, 'services'), {
-        companyId: currentCompany.id,
-        orderId: orderId,
-        client: formData.client,
-        phone: formData.phone || '',
-        service: formData.serviceDesc,
-        status: 'pendente',
-        priority: formData.priority,
-        total: formData.totalValue,
-        balance: Math.max(0, formData.totalValue - formData.downPaymentValue),
-        createdAt: Timestamp.now()
-      });
-
-      setIsModalOpen(false);
-      setFormData({ client: '', phone: '', serviceDesc: '', totalValue: 0, downPaymentValue: 0, priority: 'normal' });
-    } catch (e) {
-      console.error('Erro ao criar servi√ßo manual:', e);
-    }
-  };
-
-  const columns = [
-    { key: 'orderId', label: 'OS / Pedido', render: (v: string) => <span className="font-mono text-[10px] opacity-40">#{v?.slice(-6) || 'MNL'}</span> },
-    { key: 'client', label: 'Cliente' },
-    { key: 'phone', label: 'Contato', render: (v: string) => <span className="font-mono text-xs opacity-60">{v || 'Sem contato'}</span> },
-    { key: 'service', label: 'Servi√ßo' },
-    { key: 'total', label: 'Valor', render: (v: number) => `R$ ${(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
-    { key: 'balance', label: 'Saldo Devedor', render: (v: number) => (
-      <span className={v > 0 ? "text-rose-400 font-extrabold" : "text-emerald-400 font-extrabold"}>
-        {v > 0 ? `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'PAGO'}
-      </span>
-    )},
-    { key: 'status', label: 'Status', render: (v: string) => (
-      <Badge 
-        variant={v === 'producao' ? 'primary' : v === 'pendente' ? 'warning' : v === 'pronto' ? 'warning' : 'success'}
-        className={cn(
-          "uppercase text-[9px] font-black tracking-wider",
-          v === 'pronto' && "bg-amber-500/10 text-amber-400 border-amber-500/20"
-        )}
-      >
-        {v === 'producao' ? 'Em Produ√ß√£o' : v === 'pendente' ? 'Aguardando' : v === 'pronto' ? 'Pronto p/ Retirada' : 'Retirado'}
-      </Badge>
-    )},
-    { key: 'createdAt', label: 'Data', render: (v: any) => v?.toDate ? format(v.toDate(), 'dd/MM HH:mm') : 'Agora' },
-    { key: 'id', label: 'Evolu√ß√£o / Retirada', render: (id: string, row: any) => (
-      <div className="flex gap-2">
-        {row.status === 'pendente' && (
-          <Button size="sm" variant="outline" className="text-[8px] h-7 px-2 uppercase font-black tracking-widest text-[#4cc9f0] border-[#4cc9f0]/20 hover:bg-[#4cc9f0]/10" onClick={() => handleUpdateStatus(row.id, 'producao')}>Produzir</Button>
-        )}
-        {row.status === 'producao' && (
-          <Button size="sm" variant="outline" className="text-[8px] h-7 px-2 uppercase font-black tracking-widest text-amber-400 border-amber-500/20 hover:bg-amber-500/10" onClick={() => handleUpdateStatus(row.id, 'pronto')}>Pronto</Button>
-        )}
-        {row.status === 'pronto' && (
-          <Button size="sm" className="text-[8px] h-7 px-2 uppercase font-black tracking-widest bg-emerald-500 hover:bg-emerald-400 text-slate-950 border-none shadow-md" onClick={() => handleUpdateStatus(row.id, 'retirado')}>Marcar Retirada</Button>
-        )}
-        {row.status === 'retirado' && (
-          <span className="text-[9px] font-bold text-emerald-400 flex items-center gap-1 uppercase tracking-widest">
-            ‚óè Retirada Conclu√≠da
-          </span>
-        )}
-      </div>
-    )}
-  ];
-
-  return (
-    <div className="space-y-6">
-      <div className="flex bg-white/5 p-2 gap-2 border border-white/10 rounded-2xl w-fit">
-        <button
-          onClick={() => setSubTab('os_list')}
-          className={cn(
-            "px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer",
-            subTab === 'os_list' ? "bg-primary-500 text-slate-950 shadow-lg" : "text-white/40 hover:text-white"
-          )}
-        >
-          Ordens de Servi√ßo & Retirada
-        </button>
-        <button
-          onClick={() => setSubTab('contract_flow')}
-          className={cn(
-            "px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 cursor-pointer",
-            subTab === 'contract_flow' ? "bg-primary-500 text-slate-950 shadow-lg" : "text-white/40 hover:text-white"
-          )}
-        >
-          <FileText size={14} />
-          Contratos & Aprova√ß√£o WhatsApp (Rafa Art)
-        </button>
-      </div>
-
-      {subTab === 'os_list' ? (
-        <>
-          <GenericListView 
-            title="Gest√£o de Servi√ßos" 
-            subtitle="Ordens de Servi√ßo e Retirada de Mercadorias (Gr√°fica)" 
-            columns={columns} 
-            data={services} 
-            onAdd={() => setIsModalOpen(true)}
-          />
-
-          {/* Manual Service Creator Modal */}
-          <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="LAN√áAR NOVO SERVI√áO / OS MANUAL">
-            <div className="p-6 space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="md:col-span-2">
-                  <Input label="NOME DO CLIENTE" value={formData.client} onChange={(e: any) => setFormData({...formData, client: e.target.value})} />
-                </div>
-                <PhoneInputBR label="TELEFONE / CONTATO" value={formData.phone} onChange={(v: string) => setFormData({...formData, phone: v})} />
-                <div className="space-y-1">
-                  <p className="text-[9px] font-bold text-white/40 uppercase tracking-widest">Prioridade</p>
-                  <select 
-                    value={formData.priority} 
-                    onChange={(e: any) => setFormData({...formData, priority: e.target.value})}
-                    className="w-full h-11 bg-[#1a2333] border border-white/10 rounded-xl px-4 text-xs font-semibold text-white outline-none focus:border-primary-500"
-                  >
-                    <option value="baixa">Baixa</option>
-                    <option value="normal">Normal</option>
-                    <option value="alta">Alta</option>
-                    <option value="urgente">Cr√≠tica / Urgente</option>
-                  </select>
-                </div>
-                <div className="md:col-span-2">
-                  <Input label="DESCRI√á√ÉO DO SERVI√áO" value={formData.serviceDesc} placeholder="EX: BANNER IMPRESSO 1X1M ILH√ìS" onChange={(e: any) => setFormData({...formData, serviceDesc: e.target.value})} />
-                </div>
-                <Input label="VALOR TOTAL (R$)" type="number" value={formData.totalValue} onChange={(e: any) => setFormData({...formData, totalValue: e.target.value === '' ? '' : Number(e.target.value)})} />
-                <Input label="VALOR DE ENTRADA / SINAL PAGO (R$)" type="number" value={formData.downPaymentValue} onChange={(e: any) => setFormData({...formData, downPaymentValue: e.target.value === '' ? '' : Number(e.target.value)})} />
-              </div>
-              <div className="flex gap-4 pt-4">
-                <Button variant="secondary" className="flex-1 h-14" onClick={() => setIsModalOpen(false)}>Cancelar</Button>
-                <Button className="flex-[2] h-14 bg-primary-500 text-slate-900 border-none shadow-xl shadow-primary-500/20 font-black tracking-wider" onClick={handleSaveService}>Lan√ßar OS & Registrar Entrada</Button>
-              </div>
-            </div>
-          </Modal>
-        </>
-      ) : (
-        <ContractApprovalModule currentCompany={currentCompany} />
-      )}
-    </div>
-  );
-};
-
-// --- INVENTORY ---
-// Modal de cadastro/edicao de produto ‚Äî COMPONENTE UNICO usado tanto no Estoque quanto no Terminal de Venda,
-// pra garantir que "Adicionar Produto" no PDV seja literalmente o mesmo formulario/logica do Estoque.
-export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved }: {
-  isOpen: boolean;
-  onClose: () => void;
-  editingItem: InventoryItem | null;
-  onSaved: (savedRow: any) => void;
-}) => {
-  const emptyForm: Partial<InventoryItem> = {
-    name: '', code: '', category: 'substrato', unit: 'un', currentStock: 0, minStock: 0,
-    salePrice: 0, costPrice: 0, isActive: true, isService: false,
-    tipoItem: 'produto', controlaEstoque: true, estoqueMaximo: 0, localizacao: '', descricao: '', larguraRolo: 0,
-    valorMinimo: 0, materiasPrimas: []
-  };
-  const [formData, setFormData] = useState<Partial<InventoryItem>>(emptyForm);
-  const [saving, setSaving] = useState(false);
-  const [materiasPrimasList, setMateriasPrimasList] = useState<MateriaPrima[]>([]);
-  const [selectedMateriaPrimaId, setSelectedMateriaPrimaId] = useState<string>('');
-  const [rawMaterialConsumedQty, setRawMaterialConsumedQty] = useState<number>(1);
-  const [calcLarguraCm, setCalcLarguraCm] = useState<number>(0);
-  const [calcAlturaCm, setCalcAlturaCm] = useState<number>(0);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    const initialMaterials = editingItem?.materiasPrimas || (editingItem as any)?.materias_primas || [];
-    setFormData(editingItem ? { ...editingItem, materiasPrimas: Array.isArray(initialMaterials) ? [...initialMaterials] : [] } : { ...emptyForm });
-    setSelectedMateriaPrimaId('');
-    setRawMaterialConsumedQty(1);
-    setCalcLarguraCm(0);
-    setCalcAlturaCm(0);
-
-    fetchMateriasPrimas()
-      .then(list => setMateriasPrimasList(list.filter(m => m.isActive)))
-      .catch(err => console.warn('Erro ao carregar mat√©rias-primas no modal:', err));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, editingItem]);
-
-  const handleAddMateriaPrimaToProduct = () => {
-    if (!selectedMateriaPrimaId) {
-      showAlert('Selecione uma mat√©ria-prima.');
-      return;
-    }
-    const mp = materiasPrimasList.find(m => m.id === selectedMateriaPrimaId);
-    if (!mp) return;
-
-    if (rawMaterialConsumedQty <= 0) {
-      showAlert('Informe uma quantidade v√°lida.');
-      return;
-    }
-
-    const currentList = formData.materiasPrimas || [];
-    const existsIndex = currentList.findIndex(item => item.materiaPrimaId === mp.id);
-    if (existsIndex >= 0) {
-      const updated = [...currentList];
-      updated[existsIndex] = {
-        ...updated[existsIndex],
-        quantity: rawMaterialConsumedQty,
-        costPrice: mp.costPrice,
-        totalCost: Number((rawMaterialConsumedQty * mp.costPrice).toFixed(2))
-      };
-      setFormData({ ...formData, materiasPrimas: updated });
-    } else {
-      const newItem: MateriaPrimaConsumo = {
-        materiaPrimaId: mp.id,
-        name: mp.name,
-        unit: mp.unit,
-        quantity: rawMaterialConsumedQty,
-        costPrice: mp.costPrice,
-        larguraMaterial: mp.larguraMaterial,
-        totalCost: Number((rawMaterialConsumedQty * mp.costPrice).toFixed(2))
-      };
-      setFormData({
-        ...formData,
-        materiasPrimas: [...currentList, newItem]
-      });
-    }
-    setSelectedMateriaPrimaId('');
-    setRawMaterialConsumedQty(1);
-    setCalcLarguraCm(0);
-    setCalcAlturaCm(0);
-  };
-
-  const handleRemoveMateriaPrima = (index: number) => {
-    const currentList = formData.materiasPrimas || [];
-    setFormData({
-      ...formData,
-      materiasPrimas: currentList.filter((_, i) => i !== index)
-    });
-  };
-
-  const calculateTotalMateriasPrimasCost = () => {
-    const list = formData.materiasPrimas || [];
-    return list.reduce((acc, item) => {
-      return acc + ((item.costPrice || 0) * (item.quantity || 0));
-    }, 0);
-  };
-
-  const handleApplyMateriasPrimasCost = () => {
-    const totalCost = calculateTotalMateriasPrimasCost();
-    setFormData({ ...formData, costPrice: Number(totalCost.toFixed(2)) });
-    showAlert(`Pre√ßo de custo atualizado para R$ ${totalCost.toFixed(2)}.`);
-  };
-
-  const handleSave = async () => {
-    if (!formData.name?.trim()) { showAlert('Digite o nome do item.'); return; }
-    setSaving(true);
-    try {
-      // Gera codigo automatico se o usuario nao digitou nenhum (so pra item novo, edicao mantem o que ja tem)
-      let codigoFinal = formData.code?.trim();
-      if (!codigoFinal && !editingItem) {
-        const prefixo = (formData.category || formData.name || 'PRD').replace(/[^A-Za-z√Ä-√ø]/g, '').slice(0, 3).toUpperCase() || 'PRD';
-        codigoFinal = `${prefixo}-${String(Date.now()).slice(-6)}`;
-      }
-      const payload: any = {
-        name: formData.name.trim().toUpperCase(),
-        code: codigoFinal || null,
-        category: formData.category || null,
-        unit: formData.unit,
-        sale_price: formData.salePrice || 0,
-        cost_price: formData.costPrice || 0,
-        current_stock: formData.currentStock || 0,
-        min_stock: formData.minStock || 0,
-        is_service: formData.isService || false,
-        is_active: formData.isActive !== false,
-        tipo_item: formData.tipoItem || 'produto',
-        controla_estoque: formData.controlaEstoque !== false,
-        estoque_maximo: formData.estoqueMaximo || null,
-        localizacao: formData.localizacao || null,
-        descricao: formData.descricao || null,
-        largura_rolo: formData.larguraRolo || null,
-        comprimento_rolo: formData.comprimentoRolo || null,
-        valor_minimo: formData.valorMinimo || null,
-        materias_primas: formData.materiasPrimas || []
-      };
-      let saved: any;
-      if (editingItem) {
-        let res = await supabase.from('produtos').update(payload).eq('id', editingItem.id).select().single();
-        if (res.error && res.error.message?.includes('materias_primas')) {
-          const { materias_primas, ...rest } = payload;
-          res = await supabase.from('produtos').update(rest).eq('id', editingItem.id).select().single();
-        }
-        if (res.error) throw res.error;
-        saved = res.data;
-      } else {
-        let res = await supabase.from('produtos').insert(payload).select().single();
-        if (res.error && res.error.message?.includes('materias_primas')) {
-          const { materias_primas, ...rest } = payload;
-          res = await supabase.from('produtos').insert(rest).select().single();
-        }
-        if (res.error) throw res.error;
-        saved = res.data;
-      }
-      onSaved(saved);
-      onClose();
-    } catch (err: any) {
-      console.error('Erro ao salvar produto:', err);
-      showAlert(`N√£o foi poss√≠vel salvar o item: ${err?.message || 'erro desconhecido'}`);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title={editingItem ? 'EDITAR ITEM' : 'CADASTRO DE INSUMO / PRODUTO'} size="lg">
-      <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto custom-scrollbar">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="md:col-span-2">
-            <Input label="NOME DO ITEM *" value={formData.name} onChange={(e: any) => setFormData({ ...formData, name: e.target.value.toUpperCase() })} className="uppercase" />
-          </div>
-          <Input label="C√ìDIGO INTERNO (SKU)" placeholder="Deixe em branco pra gerar autom√°tico" value={formData.code} onChange={(e: any) => setFormData({ ...formData, code: e.target.value })} />
-          <div className="space-y-2">
-            <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">CATEGORIA</p>
-            <select className="w-full h-12 bg-[#1a2333] border border-white/10 rounded-xl px-4 text-xs text-white outline-none" value={formData.category} onChange={(e) => setFormData({ ...formData, category: e.target.value as any })}>
-              <option value="substrato">Substrato (Lona/Vinil/Papel)</option>
-              <option value="tinta">Tintas / Toners</option>
-              <option value="acabamento">Acabamento (Ilh√≥s/Verniz)</option>
-              <option value="diversos">Diversos</option>
-            </select>
-          </div>
-          <div className="space-y-2">
-            <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">UNIDADE</p>
-            <select className="w-full h-12 bg-[#1a2333] border border-white/10 rounded-xl px-4 text-xs text-white outline-none" value={formData.unit} onChange={(e) => setFormData({ ...formData, unit: e.target.value as any })}>
-              <option value="un">Unidade (un)</option>
-              <option value="kg">Quilograma (kg)</option>
-              <option value="m">Metro Linear (m)</option>
-              <option value="m2">Metro Quadrado (m2)</option>
-              <option value="rolo">Rolo</option>
-              <option value="litro">Litro (l)</option>
-              <option value="etiqueta">Etiqueta Adesiva (c√°lculo especial)</option>
-            </select>
-          </div>
-          <Input label="PRE√áO DE COMPRA (CUSTO)" type="number" prefix="R$" value={formData.costPrice} onChange={(e: any) => setFormData({ ...formData, costPrice: e.target.value === '' ? '' : Number(e.target.value) })} />
-          <Input label="PRE√áO DE VENDA" type="number" prefix="R$" value={formData.salePrice} onChange={(e: any) => setFormData({ ...formData, salePrice: e.target.value === '' ? '' : Number(e.target.value) })} />
-
-          <div className="space-y-2">
-            <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">TIPO DE ITEM</p>
-            <select className="w-full h-12 bg-[#1a2333] border border-white/10 rounded-xl px-4 text-xs text-white outline-none" value={formData.tipoItem} onChange={(e) => setFormData({ ...formData, tipoItem: e.target.value as any })}>
-              <option value="produto">Produto</option>
-              <option value="material">Material</option>
-              <option value="servico">Servi√ßo</option>
-              <option value="acabamento">Acabamento</option>
-              <option value="composto">Produto Composto</option>
-            </select>
-          </div>
-          <div className="space-y-2">
-            <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">CONTROLAR ESTOQUE?</p>
-            <div className="flex bg-[#1a2333] p-1 rounded-xl border border-white/10 h-12">
-               <button type="button" onClick={() => setFormData({ ...formData, controlaEstoque: true })} className={cn("flex-1 rounded-lg text-xs font-black uppercase transition-all", formData.controlaEstoque !== false ? "bg-primary-500 text-slate-900" : "text-white/40")}>Sim</button>
-               <button type="button" onClick={() => setFormData({ ...formData, controlaEstoque: false })} className={cn("flex-1 rounded-lg text-xs font-black uppercase transition-all", formData.controlaEstoque === false ? "bg-primary-500 text-slate-900" : "text-white/40")}>N√£o</button>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">STATUS DO PRODUTO</p>
-            <div className="flex bg-[#1a2333] p-1 rounded-xl border border-white/10 h-12">
-               <button type="button" onClick={() => setFormData({ ...formData, isActive: true })} className={cn("flex-1 rounded-lg text-xs font-black uppercase transition-all", formData.isActive !== false ? "bg-emerald-500 text-slate-900" : "text-white/40")}>Ativo</button>
-               <button type="button" onClick={() => setFormData({ ...formData, isActive: false })} className={cn("flex-1 rounded-lg text-xs font-black uppercase transition-all", formData.isActive === false ? "bg-rose-500 text-white" : "text-white/40")}>Inativo</button>
-            </div>
-          </div>
-
-          {formData.controlaEstoque !== false && (
-            <>
-              <Input label="ESTOQUE ATUAL" type="number" value={formData.currentStock} onChange={(e: any) => setFormData({ ...formData, currentStock: e.target.value === '' ? '' : Number(e.target.value) })} />
-              <Input label="ESTOQUE M√çNIMO (ALERTA)" type="number" value={formData.minStock} onChange={(e: any) => setFormData({ ...formData, minStock: e.target.value === '' ? '' : Number(e.target.value) })} />
-              <Input label="ESTOQUE M√ÅXIMO" type="number" value={formData.estoqueMaximo} onChange={(e: any) => setFormData({ ...formData, estoqueMaximo: e.target.value === '' ? '' : Number(e.target.value) })} />
-              <Input label="LOCALIZA√á√ÉO" placeholder="Ex: Prateleira A2" value={formData.localizacao} onChange={(e: any) => setFormData({ ...formData, localizacao: e.target.value })} />
-            </>
-          )}
-
-          {(formData.unit === 'm2' || formData.unit === 'etiqueta' || formData.unit === 'm') && (
-            <div className="md:col-span-2 space-y-2">
-              <Input label="LARGURA DO ROLO/MATERIAL (m) ‚Äî usado no c√°lculo autom√°tico e no PDV" type="number" step="any" placeholder="Ex: 1.02" value={formData.larguraRolo} onChange={(e: any) => setFormData({ ...formData, larguraRolo: e.target.value === '' ? '' : Number(e.target.value) })} />
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[9px] font-black uppercase text-white/30 tracking-widest">Larguras comuns:</span>
-                {[1.06, 1.10, 1.37].map(w => (
-                  <button
-                    key={w}
-                    type="button"
-                    onClick={() => setFormData({ ...formData, larguraRolo: w })}
-                    className={cn(
-                      "px-2.5 py-1 rounded-lg text-[10px] font-black transition-all",
-                      formData.larguraRolo === w ? "bg-primary-500 text-slate-900" : "bg-white/5 text-white/50 hover:text-white hover:bg-white/10"
-                    )}
-                  >
-                    {w.toFixed(2).replace('.', ',')}m
-                  </button>
-                ))}
-              </div>
-              <Input
-                label="COMPRIMENTO PADR√ÉO DA BOBINA (m) ‚Äî quantos metros vem em cada rolo comprado, ex: 50"
-                type="number"
-                step="any"
-                placeholder="Ex: 50"
-                value={formData.comprimentoRolo}
-                onChange={(e: any) => setFormData({ ...formData, comprimentoRolo: e.target.value === '' ? '' : Number(e.target.value) })}
-              />
-            </div>
-          )}
-
-          {(formData.unit === 'm2' || formData.unit === 'etiqueta' || formData.unit === 'm') && (
-            <div className="md:col-span-2">
-              <Input label="VALOR M√çNIMO (R$) ‚Äî cobran√ßa m√≠nima, mesmo se o c√°lculo der menos" type="number" step="any" placeholder="Ex: 20.00" value={formData.valorMinimo} onChange={(e: any) => setFormData({ ...formData, valorMinimo: e.target.value === '' ? '' : Number(e.target.value) })} />
-            </div>
-          )}
-
-          {/* Mat√©rias-Primas & Insumos Utilizados (Composi√ß√£o / Ficha T√©cnica) */}
-          <div className="md:col-span-2 p-4 rounded-2xl bg-white/[0.03] border border-white/10 space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <Layers size={16} className="text-primary-400" />
-                <span className="text-xs font-black uppercase tracking-wider text-white">
-                  Mat√©rias-Primas & Insumos do Produto
-                </span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-primary-500/20 text-primary-300 border border-primary-500/30">
-                  {formData.materiasPrimas?.length || 0} vinculada{formData.materiasPrimas?.length === 1 ? '' : 's'}
-                </span>
-              </div>
-              {formData.materiasPrimas && formData.materiasPrimas.length > 0 && (
-                <button
-                  type="button"
-                  onClick={handleApplyMateriasPrimasCost}
-                  className="text-[11px] font-black text-primary-400 hover:text-primary-300 bg-primary-500/10 hover:bg-primary-500/20 border border-primary-500/30 px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 shadow-sm"
-                >
-                  <Calculator size={13} />
-                  Usar Custo Total das Mat√©rias-Primas (R$ {calculateTotalMateriasPrimasCost().toFixed(2)})
-                </button>
-              )}
-            </div>
-
-            <p className="text-xs text-white/50 leading-relaxed">
-              Vincule as mat√©rias-primas cadastradas no sistema que s√£o consumidas na fabrica√ß√£o deste item para apurar o custo exato e dar baixa autom√°tica.
-            </p>
-
-            {/* Selector to add new materia prima */}
-            <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 pt-1">
-              <div className="sm:col-span-6">
-                <select
-                  value={selectedMateriaPrimaId}
-                  onChange={e => setSelectedMateriaPrimaId(e.target.value)}
-                  className="w-full bg-[#1a2333] border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white outline-none focus:border-primary-500/50"
-                >
-                  <option value="">-- Selecione a Mat√©ria-Prima --</option>
-                  {materiasPrimasList.map(mp => (
-                    <option key={mp.id} value={mp.id}>
-                      {mp.name} (R$ {mp.costPrice.toFixed(2)} / {mp.unit}){mp.larguraMaterial ? ` [${mp.larguraMaterial}m larg.]` : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="sm:col-span-3 flex items-center gap-1.5">
-                <input
-                  type="number"
-                  step="0.001"
-                  min="0.001"
-                  placeholder="Qtd consumida"
-                  value={rawMaterialConsumedQty}
-                  onChange={e => setRawMaterialConsumedQty(Number(e.target.value))}
-                  className="w-full bg-[#1a2333] border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white font-mono outline-none focus:border-primary-500/50"
-                />
-                <span className="text-[11px] font-bold text-white/50 whitespace-nowrap">
-                  {materiasPrimasList.find(m => m.id === selectedMateriaPrimaId)?.unit || 'un'}
-                </span>
-              </div>
-              <div className="sm:col-span-3">
-                <button
-                  type="button"
-                  onClick={handleAddMateriaPrimaToProduct}
-                  className="w-full h-full min-h-[38px] py-2 bg-primary-500/20 hover:bg-primary-500/30 text-primary-300 hover:text-primary-200 border border-primary-500/30 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5"
-                >
-                  <Plus size={14} /> Adicionar Insumo
-                </button>
-              </div>
-            </div>
-
-            {/* Calculador r√°pido por dimens√µes (cm) para bobinas */}
-            {(() => {
-              const selectedMp = materiasPrimasList.find(m => m.id === selectedMateriaPrimaId);
-              if (selectedMp && selectedMp.unit === 'm') {
-                const largBobina = selectedMp.larguraMaterial || 1.06;
-                const altM = (calcAlturaCm || 0) / 100;
-                const largM = (calcLarguraCm || 0) / 100;
-                let consumoLinear = 0;
-                if (altM > 0 && largM > 0) {
-                  if (largM <= largBobina) {
-                    consumoLinear = altM;
-                  } else if (altM <= largBobina) {
-                    consumoLinear = largM;
-                  } else {
-                    const aproveitamento = Math.floor(largBobina / Math.min(largM, altM)) || 1;
-                    consumoLinear = Math.max(largM, altM) / aproveitamento;
-                  }
-                }
-
-                return (
-                  <div className="p-3 bg-primary-500/5 border border-primary-500/20 rounded-xl space-y-2 text-xs">
-                    <div className="flex items-center justify-between text-primary-300 font-bold text-[11px]">
-                      <span>üìè Calculadora de corte em bobina ({largBobina}m de largura):</span>
-                      {consumoLinear > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => setRawMaterialConsumedQty(Number(consumoLinear.toFixed(3)))}
-                          className="underline text-primary-200 hover:text-white font-bold"
-                        >
-                          Usar {consumoLinear.toFixed(3)}m linear
-                        </button>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="space-y-1">
-                        <label className="text-[10px] text-white/50 uppercase font-black">Largura da Pe√ßa (cm)</label>
-                        <input
-                          type="number"
-                          placeholder="Ex: 60"
-                          value={calcLarguraCm || ''}
-                          onChange={e => setCalcLarguraCm(Number(e.target.value))}
-                          className="w-full bg-[#1a2333] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono outline-none"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] text-white/50 uppercase font-black">Altura da Pe√ßa (cm)</label>
-                        <input
-                          type="number"
-                          placeholder="Ex: 90"
-                          value={calcAlturaCm || ''}
-                          onChange={e => setCalcAlturaCm(Number(e.target.value))}
-                          className="w-full bg-[#1a2333] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono outline-none"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                );
-              }
-              return null;
-            })()}
-
-            {/* List of Attached Materias-Primas */}
-            {formData.materiasPrimas && formData.materiasPrimas.length > 0 ? (
-              <div className="space-y-1.5 pt-1">
-                <div className="text-[10px] font-black uppercase tracking-wider text-white/40">
-                  Insumos Vinculados na Composi√ß√£o:
-                </div>
-                <div className="divide-y divide-white/5 bg-[#1a2333]/80 border border-white/10 rounded-xl overflow-hidden">
-                  {formData.materiasPrimas.map((item, idx) => {
-                    const subtotal = (item.costPrice || 0) * (item.quantity || 0);
-                    return (
-                      <div key={idx} className="flex items-center justify-between p-2.5 text-xs hover:bg-white/[0.02] transition-all">
-                        <div className="flex items-center gap-2">
-                          <span className="w-5 h-5 rounded-lg bg-primary-500/20 text-primary-300 font-bold text-[10px] flex items-center justify-center">
-                            {idx + 1}
-                          </span>
-                          <div>
-                            <span className="font-bold text-white uppercase">{item.name}</span>
-                            <div className="text-[10px] text-white/50 font-mono">
-                              {item.quantity} {item.unit} x R$ {(item.costPrice || 0).toFixed(2)}/{item.unit}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-3">
-                          <span className="font-mono font-bold text-emerald-400 text-xs">
-                            R$ {subtotal.toFixed(2)}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveMateriaPrima(idx)}
-                            className="p-1 text-white/40 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-all"
-                            title="Remover mat√©ria-prima"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : (
-              <div className="p-3 text-center border border-dashed border-white/10 rounded-xl text-xs text-white/40">
-                Nenhuma mat√©ria-prima vinculada a este item ainda.
-              </div>
-            )}
-          </div>
-
-          <div className="md:col-span-2">
-             <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2">DESCRI√á√ÉO</p>
-             <textarea rows={2} className="w-full bg-[#1a2333] border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none resize-none" value={formData.descricao || ''} onChange={(e) => setFormData({ ...formData, descricao: e.target.value })} />
-          </div>
-        </div>
-        <div className="flex gap-4 pt-4">
-           <Button variant="secondary" className="flex-1 h-14" onClick={onClose}>Cancelar</Button>
-           <Button disabled={saving} className="flex-[2] h-14 bg-primary-500 text-slate-900 border-none shadow-xl shadow-primary-500/20 font-black tracking-wider uppercase" onClick={handleSave}>{saving ? 'Salvando...' : (editingItem ? 'Salvar Altera√ß√µes' : 'Salvar Item')}</Button>
-        </div>
-      </div>
-    </Modal>
-  );
-};
-export const InventoryModule = ({ currentCompany, user }: { currentCompany: Company | null; user: AppUser | null }) => {
-  const canManageInventory = !!(user?.isAdmin || user?.allowedActions?.includes('canManageInventory'));
-  const [items, setItems] = useState<InventoryItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [formData, setFormData] = useState<Partial<InventoryItem>>({
-    name: '',
-    category: 'substrato',
-    unit: 'un',
-    currentStock: 0,
-    minStock: 0,
-    salePrice: 0,
-    costPrice: 0,
-    isActive: true,
-    isService: false,
-    tipoItem: 'produto',
-    controlaEstoque: true,
-  });
-
-  const loadInventoryItems = async () => {
-    const { data, error } = await supabase.from('produtos').select('*').order('name', { ascending: true });
-    if (error) { console.error('Erro ao carregar produtos:', error); setLoading(false); return; }
-    setItems((data || []).map((row: any) => ({
-      id: row.id,
-      name: row.name,
-      code: row.code,
-      category: row.category,
-      unit: row.unit,
-      salePrice: row.sale_price,
-      costPrice: row.cost_price,
-      currentStock: row.current_stock,
-      minStock: row.min_stock,
-      isService: row.is_service,
-      isActive: row.is_active,
-      provider: row.provider,
-      createdAt: row.created_at,
-      tipoItem: row.tipo_item || 'produto',
-      controlaEstoque: row.controla_estoque !== false,
-      larguraRolo: row.largura_rolo ? Number(row.largura_rolo) : undefined,
-      comprimentoRolo: row.comprimento_rolo ? Number(row.comprimento_rolo) : undefined,
-      estoqueMaximo: row.estoque_maximo ? Number(row.estoque_maximo) : undefined,
-      localizacao: row.localizacao,
-      descricao: row.descricao,
-      valorMinimo: row.valor_minimo ? Number(row.valor_minimo) : undefined,
-      materiasPrimas: row.materias_primas || row.materiasPrimas || [],
-    } as InventoryItem)));
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    loadInventoryItems();
-    const channel = supabase
-      .channel('produtos-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'produtos' }, loadInventoryItems)
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [currentCompany]);
-
-  const [maisVendidos, setMaisVendidos] = useState<{ nome: string; quantidade: number }[]>([]);
-  useEffect(() => {
-    const loadMaisVendidos = async () => {
-      const { data } = await supabase.from('vendas').select('items').is('deleted_at', null);
-      const contagem: Record<string, number> = {};
-      (data || []).forEach((v: any) => {
-        (v.items || []).forEach((item: any) => {
-          contagem[item.name] = (contagem[item.name] || 0) + (item.quantity || 0);
-        });
-      });
-      const ordenado = Object.entries(contagem)
-        .map(([nome, quantidade]) => ({ nome, quantidade }))
-        .sort((a, b) => b.quantidade - a.quantidade)
-        .slice(0, 3);
-      setMaisVendidos(ordenado);
-    };
-    loadMaisVendidos();
-  }, [currentCompany]);
-
-  const totalUnidadesEstoque = items.reduce((acc, i) => acc + (Number(i.currentStock) || 0), 0);
-
-  const [editingItemId, setEditingItemId] = useState<string | null>(null);
-  const [estoqueSortBy, setEstoqueSortByState] = useState<'nome' | 'data' | 'estoque' | 'preco'>(() => {
-    const saved = localStorage.getItem('rpro_estoque_sort');
-    return (saved === 'nome' || saved === 'data' || saved === 'estoque' || saved === 'preco') ? saved : 'nome';
-  });
-  const setEstoqueSortBy = (v: 'nome' | 'data' | 'estoque' | 'preco') => {
-    setEstoqueSortByState(v);
-    localStorage.setItem('rpro_estoque_sort', v);
-  };
-  const [estoqueSearchTerm, setEstoqueSearchTerm] = useState('');
-
-  const sortedFilteredItems = useMemo(() => {
-    let list = items;
-    const term = estoqueSearchTerm.trim().toLowerCase();
-    if (term) {
-      list = list.filter(i => (i.name || '').toLowerCase().includes(term) || (i.code || '').toLowerCase().includes(term) || (i.category || '').toLowerCase().includes(term));
-    }
-    const sorted = [...list];
-    switch (estoqueSortBy) {
-      case 'data':
-        return sorted.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-      case 'estoque':
-        return sorted.sort((a, b) => (b.currentStock || 0) - (a.currentStock || 0));
-      case 'preco':
-        return sorted.sort((a, b) => (b.salePrice || 0) - (a.salePrice || 0));
-      default:
-        return sorted.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-    }
-  }, [items, estoqueSearchTerm, estoqueSortBy]);
-
-
-  const openEditItem = (item: InventoryItem) => {
-    setEditingItemId(item.id);
-    setFormData({ ...item });
-    setIsModalOpen(true);
-  };
-
-  const handleDeleteItem = async (item: InventoryItem) => {
-    if (!(await showConfirm(`Excluir "${item.name}"? Essa a√ß√£o n√£o pode ser desfeita. Prefira inativar se quiser manter o hist√≥rico.`))) return;
-    const { error } = await supabase.from('produtos').delete().eq('id', item.id);
-    if (error) { showAlert('N√£o foi poss√≠vel excluir. Tente inativar o item em vez de excluir.'); }
-  };
-
-  const columns = [
-    { key: 'name', label: 'Item / Insumo', render: (v: string, row: InventoryItem) => (
-      <div className="flex flex-col">
-        <span className="text-[11px] font-bold text-white uppercase italic">{v}</span>
-        <span className="text-[9px] text-white/30 uppercase font-black tracking-widest">{row.code || 'S/C'}</span>
-      </div>
-    )},
-    { key: 'category', label: 'Categoria', render: (v: string) => <Badge variant="outline" className="uppercase text-[9px] opacity-60">{v || 'Geral'}</Badge> },
-    { key: 'currentStock', label: 'Qtd. Atual', render: (v: number, row: InventoryItem) => (
-      <div className="flex items-center gap-2">
-        <span className={cn("text-[11px] font-black", v <= (row.minStock || 0) ? "text-amber-500" : "text-white")}>{v} {row.unit}</span>
-        {v <= (row.minStock || 0) && <AlertCircle size={12} className="text-amber-500 animate-pulse" />}
-      </div>
-    )},
-    { key: 'salePrice', label: 'Pre√ßo Venda', render: (v: number) => <span className="text-[11px]">{`R$ ${v.toLocaleString('pt-BR')}`}</span> },
-    { key: 'isActive', label: 'Status', render: (v: boolean) => <Badge variant={v ? 'success' : 'outline'} className="text-[9px]">{v ? 'ATIVO' : 'INATIVO'}</Badge> },
-    { key: 'actions', label: 'A√ß√µes', render: (_: any, row: InventoryItem) => (
-      <div className="flex items-center gap-1.5">
-        <button onClick={() => openEditItem(row)} title="Editar" className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20"><Pencil size={13} /></button>
-        <button onClick={() => handleDeleteItem(row)} title="Excluir" className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20"><Trash2 size={13} /></button>
-      </div>
-    )},
-  ];
-
-  const handleSave = async () => {
-    try {
-      const payload = {
-        name: formData.name,
-        code: formData.code,
-        category: formData.category,
-        unit: formData.unit,
-        sale_price: formData.salePrice,
-        cost_price: formData.costPrice,
-        current_stock: formData.currentStock,
-        min_stock: formData.minStock,
-        is_service: formData.isService,
-        is_active: formData.isActive,
-        tipo_item: formData.tipoItem || 'produto',
-        controla_estoque: formData.controlaEstoque !== false,
-        largura_rolo: formData.larguraRolo || null,
-        estoque_maximo: formData.estoqueMaximo || null,
-        localizacao: formData.localizacao || null,
-        descricao: formData.descricao || null,
-      };
-      let error;
-      if (editingItemId) {
-        ({ error } = await supabase.from('produtos').update(payload).eq('id', editingItemId));
-      } else {
-        ({ error } = await supabase.from('produtos').insert(payload));
-      }
-      if (error) throw error;
-      await loadInventoryItems();
-      setIsModalOpen(false);
-      setEditingItemId(null);
-      setFormData({ name: '', category: 'substrato', unit: 'un', currentStock: 0, minStock: 0, salePrice: 0, costPrice: 0, isActive: true, isService: false, tipoItem: 'produto', controlaEstoque: true });
-    } catch (err: any) {
-      console.error(err);
-      showAlert(`N√£o foi poss√≠vel salvar o item: ${err?.message || 'erro desconhecido'}`);
-    }
-  };
-
-  const [isImporting, setIsImporting] = useState(false);
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
-
-  const [isImportPreviewOpen, setIsImportPreviewOpen] = useState(false);
-  const [importPreviewRows, setImportPreviewRows] = useState<any[]>([]);
-  const [importFileName, setImportFileName] = useState('');
-  const [negStockChoice, setNegStockChoice] = useState<'manter' | 'zerar'>('manter');
-  const [isConfirmingImport, setIsConfirmingImport] = useState(false);
-
-  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setIsImporting(true);
-    try {
-      const buffer = await file.arrayBuffer();
-      const rows = parseProdutosXlsx(buffer);
-      if (rows.length === 0) {
-        showAlert('Nenhum produto v√°lido encontrado na planilha. Confira se a coluna DESCRI√á√ÉO est√° preenchida ‚Äî √© o √∫nico campo obrigat√≥rio.');
-        return;
-      }
-      setImportPreviewRows(rows);
-      setImportFileName(file.name);
-      setNegStockChoice('manter');
-      setIsImportPreviewOpen(true);
-    } catch (err) {
-      console.error('Erro ao ler a planilha:', err);
-      showAlert('N√£o foi poss√≠vel ler o arquivo. Confira se √© um .xlsx v√°lido.');
-    } finally {
-      setIsImporting(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  };
-
-  const confirmImportProdutos = async () => {
-    setIsConfirmingImport(true);
-    try {
-      const rows = importPreviewRows.map(r => ({
-        ...r,
-        current_stock: r.current_stock < 0 && negStockChoice === 'zerar' ? 0 : r.current_stock,
-      }));
-
-      // Busca os produtos ja cadastrados pra decidir Atualizar x Cadastrar novo (por Codigo, depois por Nome)
-      const { data: existentes } = await supabase.from('produtos').select('id, code, name');
-      const porCodigo = new Map<string, string>();
-      const porNome = new Map<string, string>();
-      (existentes || []).forEach((p: any) => {
-        const cod = (p.code || '').toString().trim();
-        const nome = (p.name || '').toString().trim().toLowerCase();
-        if (cod) porCodigo.set(cod, p.id);
-        if (nome) porNome.set(nome, p.id);
-      });
-
-      const paraInserir: any[] = [];
-      const paraAtualizar: { id: string; row: any }[] = [];
-      for (const row of rows) {
-        const cod = (row.code || '').toString().trim();
-        const nome = (row.name || '').toString().trim().toLowerCase();
-        const idExistente = (cod && porCodigo.get(cod)) || (nome && porNome.get(nome));
-        if (idExistente) {
-          paraAtualizar.push({ id: idExistente, row });
-        } else {
-          paraInserir.push(row);
-        }
-      }
-
-      const falhas: string[] = [];
-      let novos = 0, atualizados = 0;
-
-      // Insere em lote; se o lote falhar, tenta linha por linha pra nao perder o arquivo inteiro por 1 produto ruim
-      const batchSize = 200;
-      for (let i = 0; i < paraInserir.length; i += batchSize) {
-        const slice = paraInserir.slice(i, i + batchSize);
-        const { error } = await supabase.from('produtos').insert(slice);
-        if (!error) {
-          novos += slice.length;
-        } else {
-          for (const row of slice) {
-            const { error: rowError } = await supabase.from('produtos').insert(row);
-            if (rowError) falhas.push(`${row.name || 'sem nome'} (${row.code || 's/c√≥digo'}): ${rowError.message}`);
-            else novos += 1;
-          }
-        }
-      }
-      for (const { id, row } of paraAtualizar) {
-        const { error } = await supabase.from('produtos').update(row).eq('id', id);
-        if (error) falhas.push(`${row.name || 'sem nome'} (${row.code || 's/c√≥digo'}): ${error.message}`);
-        else atualizados += 1;
-      }
-
-      setIsImportPreviewOpen(false);
-      if (falhas.length > 0) {
-        showAlert(`${novos} novo(s) cadastrado(s), ${atualizados} atualizado(s).\n\n${falhas.length} produto(s) N√ÉO foram importados:\n${falhas.slice(0, 10).join('\n')}${falhas.length > 10 ? `\n... e mais ${falhas.length - 10}` : ''}`);
-      } else {
-        showAlert(`${novos} produto(s) novo(s) cadastrado(s) e ${atualizados} atualizado(s) com sucesso!`);
-      }
-    } catch (err: any) {
-      console.error('Erro ao importar produtos:', err);
-      showAlert(`N√£o foi poss√≠vel importar: ${err?.message || 'erro desconhecido'}`);
-    } finally {
-      setIsConfirmingImport(false);
-    }
-  };
-
-  if (loading && items.length === 0) return (
-    <div className="h-96 flex items-center justify-center">
-       <RefreshCw className="animate-spin text-primary-500" />
-    </div>
-  );
-
-  return (
-    <div className="space-y-8 animate-in fade-in zoom-in-95 duration-500">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-white/10 pb-4">
-        <div>
-          <h2 className="text-xl md:text-2xl font-black text-white italic tracking-tighter uppercase flex items-center gap-2">
-            <Package className="text-primary-400" size={22} />
-            Gest√£o de Insumos
-          </h2>
-          <p className="text-[10px] md:text-xs text-white/40 font-bold uppercase tracking-widest mt-1">
-            Controle de Estoque e Mat√©ria-Prima (Foco Gr√°fica)
-          </p>
-        </div>
-        <div className="flex items-center gap-1.5 flex-wrap">
-          {canManageInventory && (
-            <>
-              <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportFile} />
-              <button
-                disabled={isImporting}
-                title={isImporting ? 'Importando...' : 'Importar Planilha'}
-                onClick={() => fileInputRef.current?.click()}
-                className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all disabled:opacity-50"
-              >
-                <Upload size={14} className={cn(isImporting && "animate-pulse")} />
-              </button>
-            </>
-          )}
-          <button
-            title="Exportar Planilha"
-            onClick={() => exportProdutosXlsx(items.map(i => ({ ...i, sale_price: i.salePrice, cost_price: i.costPrice, current_stock: i.currentStock, min_stock: i.minStock })))}
-            className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all"
-          >
-            <Download size={14} />
-          </button>
-          {canManageInventory && (
-            <Button icon={Plus} onClick={() => { setEditingItemId(null); setFormData({ name: '', category: 'substrato', unit: 'un', currentStock: 0, minStock: 0, salePrice: 0, costPrice: 0, isActive: true, isService: false, tipoItem: 'produto', controlaEstoque: true }); setIsModalOpen(true); }}>Novo Item</Button>
-          )}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <GlassCard className="p-6 border-white/5 flex items-center gap-6 group relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-24 h-24 bg-white/5 rounded-full -mr-12 -mt-12 group-hover:scale-150 transition-transform duration-1000" />
-          <div className="p-4 rounded-2xl bg-white/5 text-primary-400">
-            <Package size={24} />
-          </div>
-          <div>
-            <p className="text-[10px] font-black uppercase text-white/30 tracking-widest mb-1">Quantidade em Estoque</p>
-            <h4 className="text-xl font-black text-white">{totalUnidadesEstoque.toLocaleString('pt-BR')} un ({items.length} itens)</h4>
-          </div>
-        </GlassCard>
-        <GlassCard className="p-6 border-white/5 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-24 h-24 bg-white/5 rounded-full -mr-12 -mt-12" />
-          <p className="text-[10px] font-black uppercase text-white/30 tracking-widest mb-3 flex items-center gap-2">
-            <TrendingUp size={14} className="text-emerald-400" /> Itens Mais Vendidos
-          </p>
-          {maisVendidos.length === 0 ? (
-            <p className="text-xs text-white/30">Nenhuma venda registrada ainda.</p>
-          ) : (
-            <div className="space-y-1.5">
-              {maisVendidos.map((m, i) => (
-                <div key={i} className="flex justify-between items-center text-xs">
-                  <span className="text-white/70 truncate">{i + 1}. {m.nome}</span>
-                  <span className="font-black text-emerald-400 shrink-0 ml-2">{m.quantidade}x</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </GlassCard>
-      </div>
-
-      <GlassCard className="p-4 border-white/5 bg-white/[0.02]">
-        <div className="flex items-center gap-2 mb-6 px-4 flex-wrap">
-          <div className="flex-1 min-w-[180px]">
-            <Input icon={Search} placeholder="Filtrar por nome, c√≥digo ou categoria..." value={estoqueSearchTerm} onChange={(e: any) => setEstoqueSearchTerm(e.target.value.toUpperCase())} className="uppercase" />
-          </div>
-          <select
-            value={estoqueSortBy}
-            onChange={(e) => setEstoqueSortBy(e.target.value as any)}
-            className="h-10 bg-white/5 border border-white/10 rounded-xl px-3 text-[10px] font-black uppercase text-white/70 focus:outline-none focus:border-primary-500 cursor-pointer"
-          >
-            <option value="nome" className="bg-slate-900">Ordem Alfab√©tica (Nome)</option>
-            <option value="data" className="bg-slate-900">Data de Cadastro</option>
-            <option value="estoque" className="bg-slate-900">Quantidade em Estoque</option>
-            <option value="preco" className="bg-slate-900">Pre√ßo de Venda</option>
-          </select>
-        </div>
-        <div className="flex flex-col gap-1.5">
-           {sortedFilteredItems.length === 0 ? (
-             <div className="py-16 text-center bg-white/5 rounded-3xl border border-dashed border-white/10 space-y-2">
-                <Package size={36} className="mx-auto text-white/20" />
-                <p className="text-sm font-bold text-white/40 uppercase">Nenhum item encontrado</p>
-             </div>
-           ) : sortedFilteredItems.map((item: InventoryItem) => (
-             <div key={item.id} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 bg-slate-900/60 hover:bg-slate-900 border border-white/5 rounded-xl px-3 py-2.5 sm:py-2 transition-all">
-                <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
-                   <span className="text-[11px] font-black text-white uppercase italic break-words">{item.name}</span>
-                   <span className="text-[9px] text-white/30 font-mono shrink-0">{item.code || 'S/C'}</span>
-                   <Badge variant="outline" className="uppercase text-[9px] opacity-60 shrink-0">{item.category || 'Geral'}</Badge>
-                </div>
-                <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-3 shrink-0">
-                   <div className="flex items-center gap-1.5 shrink-0">
-                      <span className={cn("text-[11px] font-black", item.currentStock <= (item.minStock || 0) ? "text-amber-500" : "text-white")}>{item.currentStock} {item.unit}</span>
-                      {item.currentStock <= (item.minStock || 0) && <AlertCircle size={12} className="text-amber-500 animate-pulse" />}
-                   </div>
-                   <span className="text-[11px] font-black text-white shrink-0 sm:w-20 sm:text-right">R$ {item.salePrice.toLocaleString('pt-BR')}</span>
-                   <Badge variant={item.isActive ? 'success' : 'outline'} className="text-[9px] shrink-0">{item.isActive ? 'ATIVO' : 'INATIVO'}</Badge>
-                   {canManageInventory && (
-                     <div className="flex gap-1 shrink-0">
-                        <button onClick={() => openEditItem(item)} title="Editar" className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20"><Pencil size={13} /></button>
-                        <button onClick={() => handleDeleteItem(item)} title="Excluir" className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20"><Trash2 size={13} /></button>
-                     </div>
-                   )}
-                </div>
-             </div>
-           ))}
-        </div>
-      </GlassCard>
-
-      {isImportPreviewOpen && (() => {
-        const semCodigo = importPreviewRows.filter(r => !r.code).length;
-        const comNegativo = importPreviewRows.filter(r => r.current_stock < 0);
-        return (
-          <Modal isOpen={isImportPreviewOpen} onClose={() => setIsImportPreviewOpen(false)} title="Importa√ß√£o de Estoque" size="md">
-            <div className="space-y-5">
-              <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-2">
-                 <p className="text-[9px] font-black uppercase text-white/30 tracking-widest">Arquivo</p>
-                 <p className="text-sm font-bold text-white truncate">{importFileName}</p>
-                 <div className="grid grid-cols-3 gap-3 pt-2 border-t border-white/5">
-                    <div>
-                       <p className="text-[8px] font-black uppercase text-white/30">Produtos</p>
-                       <p className="text-lg font-black text-white">{importPreviewRows.length}</p>
-                    </div>
-                    <div>
-                       <p className="text-[8px] font-black uppercase text-white/30">Sem C√≥digo</p>
-                       <p className="text-lg font-black text-amber-400">{semCodigo}</p>
-                    </div>
-                    <div>
-                       <p className="text-[8px] font-black uppercase text-white/30">Estoque Negativo</p>
-                       <p className="text-lg font-black text-rose-400">{comNegativo.length}</p>
-                    </div>
-                 </div>
-              </div>
-
-              {comNegativo.length > 0 && (
-                <div className="bg-rose-500/5 border border-rose-500/20 rounded-2xl p-4 space-y-3">
-                   <p className="text-xs font-bold text-rose-300">‚ö† Existem produtos com estoque negativo. O que fazer?</p>
-                   <div className="space-y-1 max-h-24 overflow-y-auto custom-scrollbar text-[10px] text-white/50">
-                      {comNegativo.slice(0, 6).map((r, i) => (
-                        <p key={i}>{r.name}: <span className="text-rose-400 font-bold">{r.current_stock}</span></p>
-                      ))}
-                      {comNegativo.length > 6 && <p className="text-white/30">... e mais {comNegativo.length - 6}</p>}
-                   </div>
-                   <div className="flex gap-2">
-                      <button onClick={() => setNegStockChoice('manter')} className={cn("flex-1 h-10 rounded-xl text-[10px] font-black uppercase border-2", negStockChoice === 'manter' ? "bg-rose-500 border-rose-600 text-white" : "bg-white/5 border-white/10 text-white/40")}>Manter Valor Negativo</button>
-                      <button onClick={() => setNegStockChoice('zerar')} className={cn("flex-1 h-10 rounded-xl text-[10px] font-black uppercase border-2", negStockChoice === 'zerar' ? "bg-primary-500 border-primary-600 text-slate-900" : "bg-white/5 border-white/10 text-white/40")}>Converter para Zero</button>
-                   </div>
-                </div>
-              )}
-
-              <div className="max-h-56 overflow-y-auto custom-scrollbar space-y-1">
-                 {importPreviewRows.slice(0, 30).map((r, i) => (
-                   <div key={i} className="flex items-center justify-between gap-2 px-3 py-1.5 bg-white/5 rounded-lg text-[10px]">
-                      <span className="text-white truncate flex-1">{r.name}</span>
-                      <span className="text-white/30 shrink-0">{r.code || 's/c√≥digo'}</span>
-                      <span className={cn("shrink-0 font-bold", r.current_stock < 0 ? "text-rose-400" : "text-white/50")}>{r.current_stock} {r.unit}</span>
-                   </div>
-                 ))}
-                 {importPreviewRows.length > 30 && <p className="text-[9px] text-white/30 text-center py-1">... e mais {importPreviewRows.length - 30} produto(s)</p>}
-              </div>
-
-              <div className="flex justify-end gap-3 pt-1">
-                 <Button variant="ghost" onClick={() => setIsImportPreviewOpen(false)}>Cancelar</Button>
-                 <Button disabled={isConfirmingImport} onClick={confirmImportProdutos} className="bg-primary-500 text-slate-900 border-none">
-                   {isConfirmingImport ? 'Importando...' : 'Confirmar Importa√ß√£o'}
-                 </Button>
-              </div>
-            </div>
-          </Modal>
-        );
-      })()}
-
-      <ProdutoFormModal
-        isOpen={isModalOpen}
-        onClose={() => { setIsModalOpen(false); setEditingItemId(null); }}
-        editingItem={editingItemId ? items.find(i => i.id === editingItemId) || null : null}
-        onSaved={() => { loadInventoryItems(); setEditingItemId(null); }}
-      />
-    </div>
-  );
-};
-
-// --- PRODUCTION ---
-// Cronometro de CONTAGEM (conta pra cima, elapsed) ‚Äî usado na Fila de Clientes em Espera
-const ElapsedTimer = ({ startedAt }: { startedAt: string }) => {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const interval = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(interval);
-  }, []);
-  const diffSeconds = Math.max(0, Math.floor((now - new Date(startedAt).getTime()) / 1000));
-  const minutes = Math.floor(diffSeconds / 60);
-  const seconds = diffSeconds % 60;
-  return <span className="font-mono font-black">{String(minutes).padStart(2, '0')}min {String(seconds).padStart(2, '0')}s</span>;
-};
-
-
-export const ClientesEsperaModule = ({ currentCompany, user }: { currentCompany: Company | null; user: AppUser | null }) => {
-  const [fila, setFila] = useState<any[]>([]);
-  const [finalizados, setFinalizados] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [newNome, setNewNome] = useState('');
-  const [newTelefone, setNewTelefone] = useState('');
-  const [newMotivo, setNewMotivo] = useState('');
-
-  const perm = user?.isAdmin ? { view: true, create: true, edit: true, delete: true } : (user?.modulePermissions?.clientes_espera || { view: true, create: false, edit: false, delete: false });
-
-  const load = async () => {
-    const { data: emEspera } = await supabase.from('fila_espera').select('*').in('status', ['aguardando', 'em_atendimento']).order('waiting_started_at', { ascending: true });
-    setFila(emEspera || []);
-    const { data: hoje } = await supabase.from('fila_espera').select('*').eq('status', 'finalizado').gte('waiting_ended_at', new Date(new Date().setHours(0, 0, 0, 0)).toISOString()).order('waiting_ended_at', { ascending: false });
-    setFinalizados(hoje || []);
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    load();
-    const channel = supabase.channel('fila-espera-changes').on('postgres_changes', { event: '*', schema: 'public', table: 'fila_espera' }, load).subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [currentCompany]);
-
-  const handleAdicionar = async () => {
-    if (!newNome.trim()) { showAlert('Digite o nome do cliente.'); return; }
-    try {
-      const { error } = await supabase.from('fila_espera').insert({
-        cliente_nome: newNome.trim(),
-        cliente_telefone: newTelefone.trim() || null,
-        motivo: newMotivo.trim() || null,
-        status: 'aguardando',
-        waiting_started_at: new Date().toISOString(),
-      });
-      if (error) throw error;
-      setIsAddModalOpen(false);
-      setNewNome(''); setNewTelefone(''); setNewMotivo('');
-    } catch (err: any) {
-      showAlert(`Erro ao adicionar cliente √† fila: ${err?.message || 'erro desconhecido'}`);
-    }
-  };
-
-  const handleAtender = async (id: string) => {
-    try {
-      const { error } = await supabase.from('fila_espera').update({ status: 'em_atendimento', atendido_por: user?.name || null }).eq('id', id);
-      if (error) throw error;
-    } catch (err: any) {
-      showAlert(`Erro: ${err?.message || 'erro desconhecido'}`);
-    }
-  };
-
-  const handleFinalizar = async (item: any) => {
-    try {
-      const inicio = new Date(item.waiting_started_at).getTime();
-      const fim = Date.now();
-      const duracao = Math.max(0, Math.floor((fim - inicio) / 1000));
-      const { error } = await supabase.from('fila_espera').update({
-        status: 'finalizado',
-        waiting_ended_at: new Date().toISOString(),
-        waiting_duration_seconds: duracao,
-      }).eq('id', item.id);
-      if (error) throw error;
-    } catch (err: any) {
-      showAlert(`Erro: ${err?.message || 'erro desconhecido'}`);
-    }
-  };
-
-  const handleRemover = async (id: string) => {
-    if (!(await showConfirm('Remover esse cliente da fila?'))) return;
-    await supabase.from('fila_espera').delete().eq('id', id);
-  };
-
-  const aguardando = fila.filter(f => f.status === 'aguardando');
-  const emAtendimento = fila.filter(f => f.status === 'em_atendimento');
-  const temposFinalizados = finalizados.filter(f => f.waiting_duration_seconds != null).map(f => f.waiting_duration_seconds);
-  const tempoMedio = temposFinalizados.length > 0 ? Math.round(temposFinalizados.reduce((a, b) => a + b, 0) / temposFinalizados.length) : 0;
-  const maiorEspera = temposFinalizados.length > 0 ? Math.max(...temposFinalizados) : 0;
-  const fmtMinSec = (totalSeconds: number) => `${String(Math.floor(totalSeconds / 60)).padStart(2, '0')}min ${String(totalSeconds % 60).padStart(2, '0')}s`;
-
-  if (!perm.view) {
-    return (
-      <div className="h-96 flex flex-col items-center justify-center gap-3 text-center">
-        <AlertCircle size={32} className="text-white/20" />
-        <p className="text-sm font-bold text-white/40 uppercase">Voc√™ n√£o tem permiss√£o para ver essa √°rea.</p>
-      </div>
-    );
-  }
-
-  if (loading) return (
-    <div className="h-96 flex items-center justify-center">
-      <RefreshCw className="animate-spin text-primary-500" />
-    </div>
-  );
-
-  return (
-    <div className="space-y-8 animate-in fade-in zoom-in-95 duration-500">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-white/10 pb-4">
-        <div>
-          <h2 className="text-xl md:text-2xl font-black text-white italic tracking-tighter uppercase flex items-center gap-2">
-            <Clock className="text-primary-400" size={22} />
-            Clientes em Espera
-          </h2>
-          <p className="text-[10px] md:text-xs text-white/40 font-bold uppercase tracking-widest mt-1">Fila de atendimento com tempo de espera em tempo real</p>
-        </div>
-        {(perm.create || user?.isAdmin) && (
-          <Button icon={Plus} onClick={() => setIsAddModalOpen(true)}>Adicionar √† Fila</Button>
-        )}
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <GlassCard className="p-5 border-white/5">
-          <p className="text-[9px] font-black uppercase text-white/30 tracking-widest">Em Espera Agora</p>
-          <h4 className="text-2xl font-black text-white mt-1">{aguardando.length}</h4>
-        </GlassCard>
-        <GlassCard className="p-5 border-white/5">
-          <p className="text-[9px] font-black uppercase text-white/30 tracking-widest">Tempo M√©dio (hoje)</p>
-          <h4 className="text-2xl font-black text-emerald-400 mt-1">{fmtMinSec(tempoMedio)}</h4>
-        </GlassCard>
-        <GlassCard className="p-5 border-white/5">
-          <p className="text-[9px] font-black uppercase text-white/30 tracking-widest">Maior Espera (hoje)</p>
-          <h4 className="text-2xl font-black text-amber-400 mt-1">{fmtMinSec(maiorEspera)}</h4>
-        </GlassCard>
-      </div>
-
-      {emAtendimento.length > 0 && (
-        <div className="space-y-3">
-          <h3 className="text-sm font-black uppercase text-emerald-400 tracking-widest">Em Atendimento</h3>
-          {emAtendimento.map(item => (
-            <div key={item.id} className="flex items-center gap-3 bg-emerald-500/5 border border-emerald-500/20 rounded-xl px-4 py-3">
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-white">{item.cliente_nome}</p>
-                <p className="text-[10px] text-white/40">{item.cliente_telefone} {item.motivo && `¬∑ ${item.motivo}`} {item.atendido_por && `¬∑ Atendido por ${item.atendido_por}`}</p>
-              </div>
-              <ElapsedTimer startedAt={item.waiting_started_at} />
-              {(perm.edit || user?.isAdmin) && (
-                <Button variant="secondary" className="shrink-0" onClick={() => handleFinalizar(item)}>Finalizar</Button>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div className="space-y-3">
-        <h3 className="text-sm font-black uppercase text-white/50 tracking-widest">Aguardando ({aguardando.length})</h3>
-        {aguardando.length === 0 ? (
-          <div className="py-12 text-center bg-white/5 rounded-3xl border border-dashed border-white/10">
-            <p className="text-sm font-bold text-white/30 uppercase">Nenhum cliente aguardando</p>
-          </div>
-        ) : aguardando.map(item => (
-          <div key={item.id} className="flex items-center gap-3 bg-slate-900/60 hover:bg-slate-900 border border-white/5 rounded-xl px-4 py-3 transition-all">
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-white">{item.cliente_nome}</p>
-              <p className="text-[10px] text-white/40">{item.cliente_telefone} {item.motivo && `¬∑ ${item.motivo}`}</p>
-            </div>
-            <ElapsedTimer startedAt={item.waiting_started_at} />
-            <div className="flex gap-1.5 shrink-0">
-              {(perm.edit || user?.isAdmin) && (
-                <Button className="bg-primary-500 text-slate-900 border-none" onClick={() => handleAtender(item.id)}>Atender</Button>
-              )}
-              {(perm.delete || user?.isAdmin) && (
-                <button onClick={() => handleRemover(item.id)} className="p-2.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" title="Remover"><Trash2 size={14} /></button>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <Modal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} title="Adicionar Cliente √† Fila" size="sm">
-        <div className="space-y-4 p-2">
-          <Input label="Nome do Cliente" autoFocus value={newNome} onChange={(e: any) => setNewNome(e.target.value.toUpperCase())} />
-          <PhoneInputBR label="Telefone (opcional)" value={newTelefone} onChange={(v: string) => setNewTelefone(v)} />
-          <Input label="Motivo (opcional)" placeholder="Ex: Retirar pedido, or√ßamento..." value={newMotivo} onChange={(e: any) => setNewMotivo(e.target.value)} />
-          <div className="flex justify-end gap-3 pt-1">
-            <Button variant="ghost" onClick={() => setIsAddModalOpen(false)}>Cancelar</Button>
-            <Button className="bg-primary-500 text-slate-900 border-none" onClick={handleAdicionar}>Adicionar</Button>
-          </div>
-        </div>
-      </Modal>
-    </div>
-  );
-};
-
-// As 8 etapas do pipeline de Servi√ßos, na ordem ‚Äî cada uma vira uma coluna de verdade agora
-const STAGE_ORDER = ['pedido_recebido', 'aguardando_arte', 'arte_em_desenvolvimento', 'aguardando_aprovacao', 'producao', 'acabamento', 'aguardando_retirada', 'produto_entregue'];
-
-const STAGE_LABELS: Record<string, string> = {
-  pedido_recebido: 'Pedido Recebido', aguardando_arte: 'Aguardando Arte', arte_em_desenvolvimento: 'Arte em Desenvolvimento',
-  aguardando_aprovacao: 'Aguardando Aprova√ß√£o', producao: 'Produ√ß√£o', acabamento: 'Acabamento',
-  aguardando_retirada: 'Aguardando Retirada', produto_entregue: 'Produto Entregue',
-};
-
-// Cor de cada etapa (bolinha + badge) nos cards do funil de Servi√ßos, na lista de Notas em Aberto
-// e nos badges de Or√ßamento/Contrato. Pra mudar a cor de uma etapa, so trocar a classe aqui ‚Äî
-// dot/text/bg seguem a mesma cor base pra ficar consistente em todo lugar que a etapa aparece.
-const STAGE_COLORS: Record<string, { dot: string; text: string; bg: string }> = {
-  pedido_recebido: { dot: 'bg-slate-400', text: 'text-slate-300', bg: 'bg-slate-500/15' },
-  aguardando_arte: { dot: 'bg-amber-400', text: 'text-amber-300', bg: 'bg-amber-500/15' },
-  arte_em_desenvolvimento: { dot: 'bg-indigo-400', text: 'text-indigo-300', bg: 'bg-indigo-500/15' },
-  aguardando_aprovacao: { dot: 'bg-purple-400', text: 'text-purple-300', bg: 'bg-purple-500/15' },
-  producao: { dot: 'bg-orange-400', text: 'text-orange-300', bg: 'bg-orange-500/15' },
-  acabamento: { dot: 'bg-cyan-400', text: 'text-cyan-300', bg: 'bg-cyan-500/15' },
-  aguardando_retirada: { dot: 'bg-yellow-400', text: 'text-yellow-300', bg: 'bg-yellow-500/15' },
-  produto_entregue: { dot: 'bg-emerald-400', text: 'text-emerald-400', bg: 'bg-emerald-500/15' },
-};
-const stageColorOf = (stageId: string) => STAGE_COLORS[stageId] || STAGE_COLORS.pedido_recebido;
-
-// Etapas unificadas: Pedido, Or√ßamento e Contrato usam as MESMAS 8 etapas (STAGE_ORDER)
-// Antigas constantes removidas: ORCAMENTO_CONTRATO_STAGES, ORCAMENTO_CONTRATO_LABELS
-
-const OrdemServicoCard = ({ pedido, onDropdownChange, selectMode, selected, onToggleSelect }: { key?: any; pedido: SaleOrder; onDropdownChange: (pedido: SaleOrder, novaEtapa: string) => void; selectMode?: boolean; selected?: boolean; onToggleSelect?: (id: string) => void }) => {
-  const { setActiveTab: setRootActiveTab, setPendingReceiptOpenId } = React.useContext(AppContext)!;
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: pedido.id,
-    data: { type: 'card', pedido },
-    disabled: selectMode,
-  });
-  const style = { transform: CSS.Translate.toString(transform), transition };
-
-  return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners} className={cn(isDragging ? "z-50" : "relative")}>
-      <GlassCard
-        onClick={() => { if (selectMode) { onToggleSelect?.(pedido.id); return; } setPendingReceiptOpenId(pedido.id); setRootActiveTab('pos'); }}
-        className={cn(
-          "group p-2 rounded-lg border-white/10 space-y-1 hover:border-primary-500/30 hover:scale-[1.08] hover:z-20 hover:shadow-xl transition-all relative",
-          selectMode ? "cursor-pointer" : "cursor-grab active:cursor-grabbing",
-          selected ? "ring-2 ring-primary-500 border-primary-500/50 bg-primary-500/10" : "",
-          isDragging ? "shadow-2xl ring-2 ring-primary-500 scale-105" : ""
-        )}
-      >
-        {selectMode && (
-          <div className={cn(
-            "absolute top-1 right-1 w-4 h-4 rounded flex items-center justify-center border shrink-0 z-10",
-            selected ? "bg-primary-500 border-primary-500" : "bg-slate-900/60 border-white/20"
-          )}>
-            {selected && <Check size={10} className="text-slate-900" />}
-          </div>
-        )}
-        <div className="min-w-0">
-           <p title={pedido.customerName || 'Balc√£o'} className="font-bold text-white text-[9px] truncate leading-tight">#{pedido.id.slice(-6).toUpperCase()} {formatNamePreview((pedido.customerName || 'Balc√£o').toUpperCase(), 14)}</p>
-           <p className="text-[8px] text-white/30 uppercase font-black truncate group-hover:whitespace-normal group-hover:break-words leading-tight">{(pedido.items || []).map(i => i.name).join(', ') || 'Sem itens'}</p>
-        </div>
-        {pedido.scheduledFor && (
-          <span className="inline-block text-[7px] font-black uppercase bg-primary-500/10 text-primary-300 px-1.5 py-0.5 rounded-full border border-primary-500/20 leading-none">
-            {safeFormat(pedido.scheduledFor, 'dd/MM HH:mm')}
-          </span>
-        )}
-        <div className="relative">
-          <span className={cn("absolute left-1.5 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full pointer-events-none", stageColorOf(pedido.serviceStatus || 'pedido_recebido').dot)} />
-          <select
-            value={pedido.serviceStatus || 'pedido_recebido'}
-            onPointerDown={(e: any) => e.stopPropagation()}
-            onClick={(e: any) => e.stopPropagation()}
-            onChange={(e: any) => { e.stopPropagation(); onDropdownChange(pedido, e.target.value); }}
-            disabled={selectMode}
-            className="w-full h-6 bg-slate-900/60 border border-white/10 rounded-md pl-4 pr-1 text-[8px] text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer disabled:opacity-40"
-          >
-            {STAGE_ORDER.map(id => (
-              <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
-            ))}
-          </select>
-        </div>
-      </GlassCard>
-    </div>
-  );
-};
-
-const OrdemServicoColumn = ({ stageId, pedidos, onDropdownChange, selectMode, selectedIds, onToggleSelect, onToggleSelectAll }: { key?: any; stageId: string; pedidos: SaleOrder[]; onDropdownChange: (pedido: SaleOrder, novaEtapa: string) => void; selectMode?: boolean; selectedIds?: Set<string>; onToggleSelect?: (id: string) => void; onToggleSelectAll?: (ids: string[]) => void }) => {
-  const { setNodeRef, isOver } = useDroppable({ id: stageId, data: { type: 'column', stageId } });
-  const todosSelecionados = selectMode && pedidos.length > 0 && pedidos.every(p => selectedIds?.has(p.id));
-
-  return (
-    <div className="min-w-0 flex flex-col gap-1.5">
-      <div className="flex items-center gap-1 px-0.5">
-         {selectMode && pedidos.length > 0 && (
-           <button
-             onClick={() => onToggleSelectAll?.(pedidos.map(p => p.id))}
-             title="Selecionar todos desta coluna"
-             className={cn(
-               "w-3.5 h-3.5 rounded flex items-center justify-center border shrink-0 cursor-pointer",
-               todosSelecionados ? "bg-primary-500 border-primary-500" : "bg-slate-900/60 border-white/20"
-             )}
-           >
-             {todosSelecionados && <Check size={9} className="text-slate-900" />}
-           </button>
-         )}
-         <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", stageColorOf(stageId).dot)} />
-         <h3 className="text-[7.5px] font-black uppercase tracking-wide text-white/50 truncate leading-tight">{STAGE_LABELS[stageId]}</h3>
-         <Badge className="bg-white/5 border-none opacity-50 px-1.5 py-0 h-4 flex items-center shrink-0 text-[8px]">{pedidos.length}</Badge>
-      </div>
-      <div
-        ref={setNodeRef}
-        className={cn(
-          "bg-white/[0.03] border rounded-2xl p-1.5 flex flex-col gap-1.5 min-h-[400px] max-h-[calc(100vh-20rem)] overflow-y-auto custom-scrollbar transition-colors",
-          isOver ? "border-primary-500/50 bg-primary-500/5" : "border-white/5"
-        )}
-      >
-        <SortableContext items={pedidos.map(p => p.id)} strategy={verticalListSortingStrategy}>
-          {pedidos.map(pedido => (
-            <OrdemServicoCard key={pedido.id} pedido={pedido} onDropdownChange={onDropdownChange} selectMode={selectMode} selected={selectedIds?.has(pedido.id)} onToggleSelect={onToggleSelect} />
-          ))}
-        </SortableContext>
-        {pedidos.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-16 opacity-10">
-             <Layers size={28} />
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
-// Linha compacta usada no modo "Lista" ‚Äî todos os pedidos numa lista so, ordenados por entrega/pedido
-const OrdemServicoListRow = ({ pedido, onDropdownChange, selectMode, selected, onToggleSelect }: { key?: any; pedido: SaleOrder; onDropdownChange: (pedido: SaleOrder, novaEtapa: string) => void; selectMode?: boolean; selected?: boolean; onToggleSelect?: (id: string) => void }) => {
-  const { setActiveTab: setRootActiveTab, setPendingReceiptOpenId } = React.useContext(AppContext)!;
-  const dias = pedido.scheduledFor ? Math.floor((new Date(pedido.scheduledFor).getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : null;
-  const atrasado = pedido.scheduledFor && new Date(pedido.scheduledFor).getTime() < Date.now();
-
-  return (
-    <div
-      onClick={() => { if (selectMode) { onToggleSelect?.(pedido.id); return; } setPendingReceiptOpenId(pedido.id); setRootActiveTab('pos'); }}
-      className={cn(
-        "flex items-center gap-3 bg-white/5 hover:bg-white/10 border rounded-xl px-3 py-2.5 cursor-pointer transition-all",
-        selected ? "ring-2 ring-primary-500 border-primary-500/50 bg-primary-500/10" : "border-white/5 hover:border-primary-500/30"
-      )}
-    >
-       {selectMode && (
-         <div className={cn(
-           "w-5 h-5 rounded flex items-center justify-center border shrink-0",
-           selected ? "bg-primary-500 border-primary-500" : "bg-slate-900/60 border-white/20"
-         )}>
-           {selected && <Check size={12} className="text-slate-900" />}
-         </div>
-       )}
-       <div className="min-w-0 flex-1">
-          <p title={pedido.customerName || 'Cliente de Balc√£o'} className="font-bold text-white text-xs truncate">#{pedido.id.slice(-6).toUpperCase()} ‚Äî {formatNamePreview((pedido.customerName || 'Cliente de Balc√£o').toUpperCase(), 22)}</p>
-          <p className="text-[9px] text-white/30 uppercase font-black truncate">{(pedido.items || []).map(i => i.name).join(', ') || 'Sem itens'}</p>
-       </div>
-       {pedido.scheduledFor && (
-         <span className={cn(
-           "shrink-0 text-[9px] font-black uppercase px-2 py-1 rounded-full border",
-           atrasado ? "bg-rose-500/10 text-rose-400 border-rose-500/20" : "bg-primary-500/10 text-primary-300 border-primary-500/20"
-         )}>
-           {safeFormat(pedido.scheduledFor, 'dd/MM HH:mm')}{atrasado && ' ¬∑ ATRASADO'}
-         </span>
-       )}
-       <div className="relative shrink-0">
-         <span className={cn("absolute left-2 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full pointer-events-none", stageColorOf(pedido.serviceStatus || 'pedido_recebido').dot)} />
-         <select
-           value={pedido.serviceStatus || 'pedido_recebido'}
-           onClick={(e: any) => e.stopPropagation()}
-           onChange={(e: any) => { e.stopPropagation(); onDropdownChange(pedido, e.target.value); }}
-           disabled={selectMode}
-           className="w-40 h-8 bg-slate-900/60 border border-white/10 rounded-lg pl-6 pr-2 text-[10px] text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer disabled:opacity-40"
-         >
-           {STAGE_ORDER.map(id => (
-             <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
-           ))}
-         </select>
-       </div>
-    </div>
-  );
-};
-
-export const ProductionModule = ({ currentCompany }: { currentCompany: Company | null }) => {
-  const [pedidos, setPedidos] = useState<SaleOrder[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showEntregues, setShowEntregues] = useState(false);
-  const [ordemSearch, setOrdemSearch] = useState('');
-  const [ordemSortBy, setOrdemSortByState] = useState<'entrega' | 'pedido'>(() => {
-    const saved = localStorage.getItem('rpro_ordem_servico_sort');
-    return saved === 'entrega' || saved === 'pedido' ? saved : 'pedido';
-  });
-  const [ordemSortDir, setOrdemSortDirState] = useState<'asc' | 'desc'>(() => {
-    const saved = localStorage.getItem('rpro_ordem_servico_dir');
-    return saved === 'asc' || saved === 'desc' ? saved : 'asc';
-  });
-  const setOrdemSortBy = (v: 'entrega' | 'pedido') => { setOrdemSortByState(v); localStorage.setItem('rpro_ordem_servico_sort', v); };
-  const setOrdemSortDir = (v: 'asc' | 'desc') => { setOrdemSortDirState(v); localStorage.setItem('rpro_ordem_servico_dir', v); };
-  const [activeDragId, setActiveDragId] = useState<string | null>(null);
-  const [viewMode, setViewModeState] = useState<'quadro' | 'etapa' | 'lista'>(() => {
-    const saved = localStorage.getItem('rpro_ordem_servico_view');
-    return saved === 'quadro' || saved === 'etapa' || saved === 'lista' ? saved : 'quadro';
-  });
-  const setViewMode = (v: 'quadro' | 'etapa' | 'lista') => { setViewModeState(v); localStorage.setItem('rpro_ordem_servico_view', v); };
-  const [etapaSelecionada, setEtapaSelecionada] = useState<string>('pedido_recebido');
-  const [selectMode, setSelectMode] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [isBulkEditOpen, setIsBulkEditOpen] = useState(false);
-  const [isSavingBulkEdit, setIsSavingBulkEdit] = useState(false);
-  const [bulkFields, setBulkFields] = useState({
-    serviceStatus: { on: false, value: 'pedido_recebido' as string },
-    scheduledFor: { on: false, value: '' },
-  });
-  const toggleSelected = (id: string) => {
-    setSelectedIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  };
-
-  // Selecionar Todos de uma coluna/grupo: se todos ja estao marcados, desmarca todos; senao marca todos
-  const toggleSelectedGroup = (ids: string[]) => {
-    setSelectedIds(prev => {
-      const next = new Set(prev);
-      const todosMarcados = ids.every(id => next.has(id));
-      ids.forEach(id => { if (todosMarcados) next.delete(id); else next.add(id); });
-      return next;
-    });
-  };
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
-  );
-
-  const loadPedidos = async () => {
-    const { data } = await supabase.from('vendas').select('*').is('deleted_at', null).neq('status', 'canceled').order('created_at', { ascending: true });
-    setPedidos((data || []).map(mapVendaRow));
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    loadPedidos();
-    const channel = supabase.channel('production-vendas').on('postgres_changes', { event: '*', schema: 'public', table: 'vendas' }, loadPedidos).subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [currentCompany]);
-
-  const handleAdvanceStage = async (pedido: SaleOrder, novaEtapa: string) => {
-    // Atualiza local na hora (nao espera o realtime) pra mover o card instantaneamente
-    setPedidos(prev => prev.map(p => p.id === pedido.id ? { ...p, serviceStatus: novaEtapa as any } : p));
-    const { error } = await supabase.from('vendas').update({ service_status: novaEtapa }).eq('id', pedido.id);
-    if (error) showAlert(`N√£o foi poss√≠vel atualizar a etapa: ${error.message}`);
-  };
-
-  // Usada na lista suspensa dentro do card ‚Äî pergunta antes de mudar (arrastar ja e um gesto deliberado, nao pergunta)
-  const handleAdvanceStageWithConfirm = async (pedido: SaleOrder, novaEtapa: string) => {
-    const confirmado = await showConfirm(`Mudar o pedido de ${pedido.customerName || 'cliente'} para "${STAGE_LABELS[novaEtapa]}"?`);
-    if (!confirmado) return;
-    handleAdvanceStage(pedido, novaEtapa);
-  };
-
-  const handleOpenBulkEdit = () => {
-    if (selectedIds.size === 0) return;
-    setBulkFields({ serviceStatus: { on: false, value: 'pedido_recebido' }, scheduledFor: { on: false, value: '' } });
-    setIsBulkEditOpen(true);
-  };
-
-  const handleSaveBulkEdit = async () => {
-    if (!bulkFields.serviceStatus.on && !bulkFields.scheduledFor.on) { showAlert('Marque pelo menos um campo pra alterar.'); return; }
-    if (!(await showConfirm(`Aplicar essas altera√ß√µes em ${selectedIds.size} pedido(s) selecionado(s)?`))) return;
-    setIsSavingBulkEdit(true);
-    const payload: Record<string, any> = {};
-    if (bulkFields.serviceStatus.on) payload.service_status = bulkFields.serviceStatus.value;
-    const scheduledForIso = bulkFields.scheduledFor.on ? localDatetimeToIso(bulkFields.scheduledFor.value) : null;
-    if (bulkFields.scheduledFor.on) payload.scheduled_for = scheduledForIso;
-    const ids = Array.from(selectedIds);
-    const { data, error } = await supabase.from('vendas').update(payload).in('id', ids).select();
-    setIsSavingBulkEdit(false);
-    if (error) { showAlert(`N√£o foi poss√≠vel salvar as altera√ß√µes em massa: ${error.message}`); return; }
-    // Atualiza local na hora, sem esperar o realtime
-    setPedidos(prev => prev.map(p => {
-      if (!ids.includes(p.id)) return p;
-      return {
-        ...p,
-        serviceStatus: bulkFields.serviceStatus.on ? (bulkFields.serviceStatus.value as any) : p.serviceStatus,
-        scheduledFor: bulkFields.scheduledFor.on ? (scheduledForIso || undefined) : p.scheduledFor,
-      };
-    }));
-    showAlert(`${data?.length || ids.length} pedido(s) atualizado(s) com sucesso!`);
-    setIsBulkEditOpen(false);
-    setSelectedIds(new Set());
-    setSelectMode(false);
-  };
-
-  const onDragStart = (event: DragStartEvent) => setActiveDragId(event.active.id as string);
-
-  const onDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    setActiveDragId(null);
-    if (!over) return;
-    const pedido = pedidos.find(p => p.id === active.id);
-    if (!pedido) return;
-    // Solta em cima de uma coluna vazia (id = stageId) ou em cima de outro card (pega a etapa do card)
-    const overStageId = STAGE_ORDER.includes(over.id as string)
-      ? (over.id as string)
-      : pedidos.find(p => p.id === over.id)?.serviceStatus || 'pedido_recebido';
-    if (overStageId && (pedido.serviceStatus || 'pedido_recebido') !== overStageId) {
-      handleAdvanceStage(pedido, overStageId);
-    }
-  };
-
-  if (loading) return (
-    <div className="h-96 flex items-center justify-center">
-       <RefreshCw className="animate-spin text-primary-500" />
-    </div>
-  );
-
-  const pedidosOrdenados = [...pedidos].filter(p => {
-    const etapa = p.serviceStatus || 'pedido_recebido';
-    if (etapa === 'produto_entregue' && !showEntregues) {
-      const dias = (Date.now() - new Date(p.createdAt).getTime()) / (1000 * 60 * 60 * 24);
-      return dias <= 2;
-    }
-    return true;
-  }).filter(p => {
-    const termo = ordemSearch.trim().toLowerCase();
-    if (!termo) return true;
-    const nomeMatch = (p.customerName || '').toLowerCase().includes(termo);
-    const itemMatch = (p.items || []).some(i => i.name.toLowerCase().includes(termo));
-    return nomeMatch || itemMatch;
-  }).sort((a, b) => {
-    if (ordemSortBy === 'entrega') {
-      if (!a.scheduledFor && !b.scheduledFor) return 0;
-      if (!a.scheduledFor) return 1;
-      if (!b.scheduledFor) return -1;
-      const diff = new Date(a.scheduledFor).getTime() - new Date(b.scheduledFor).getTime();
-      return ordemSortDir === 'asc' ? diff : -diff;
-    }
-    const diff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-    return ordemSortDir === 'asc' ? diff : -diff;
-  });
-
-  const activeDragPedido = pedidos.find(p => p.id === activeDragId);
-
-  return (
-    <div className="space-y-8 animate-in fade-in zoom-in-95 duration-500">
-      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 border-b border-white/10 pb-4">
-         <div>
-            <h2 className="text-xl md:text-2xl font-black text-white italic tracking-tighter uppercase flex items-center gap-2">
-               <Layers className="text-primary-400" size={22} /> Ordem de Servi√ßo
-            </h2>
-            <p className="text-[10px] md:text-xs text-white/40 font-bold uppercase tracking-widest mt-1">Arraste o pedido entre as colunas, ou clique nele pra ver o hist√≥rico completo</p>
-         </div>
-         <div className="flex items-center gap-2 flex-wrap">
-            <div className="flex items-center bg-white/5 border border-white/10 rounded-lg p-0.5">
-               {[
-                 { id: 'quadro', label: 'Quadro', icon: LayoutGrid },
-                 { id: 'etapa', label: 'Por Etapa', icon: Columns3 },
-                 { id: 'lista', label: 'Lista', icon: ListTodo },
-               ].map(v => (
-                 <button
-                   key={v.id}
-                   onClick={() => setViewMode(v.id as any)}
-                   className={cn(
-                     "flex items-center gap-1.5 h-8 px-2.5 rounded-md text-[9px] font-black uppercase tracking-wide cursor-pointer border-0 transition-all",
-                     viewMode === v.id ? "bg-primary-500 text-slate-900" : "bg-transparent text-white/40 hover:text-white"
-                   )}
-                 >
-                   <v.icon size={12} /> <span className="hidden sm:inline">{v.label}</span>
-                 </button>
-               ))}
-            </div>
-            <div className="relative">
-               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
-               <input
-                 value={ordemSearch}
-                 onChange={(e) => setOrdemSearch(e.target.value)}
-                 placeholder="Buscar por nome ou produto..."
-                 className="h-9 w-52 bg-white/5 border border-white/10 rounded-lg pl-9 pr-3 text-[10px] text-white placeholder:text-white/30 font-bold focus:outline-none focus:border-primary-500"
-               />
-            </div>
-            <select
-              value={ordemSortBy}
-              onChange={(e) => setOrdemSortBy(e.target.value as any)}
-              className="h-9 bg-white/5 border border-white/10 rounded-lg px-2.5 text-[10px] text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer"
-            >
-              <option value="pedido" className="bg-slate-900">Hora do Pedido</option>
-              <option value="entrega" className="bg-slate-900">Hora de Entrega</option>
-            </select>
-            <button
-              onClick={() => setOrdemSortDir(ordemSortDir === 'asc' ? 'desc' : 'asc')}
-              title={ordemSortDir === 'asc' ? 'Crescente (mais antigo primeiro)' : 'Decrescente (mais recente primeiro)'}
-              className="flex items-center gap-1 h-9 px-2.5 bg-white/5 border border-white/10 rounded-lg text-[10px] text-white font-bold hover:border-primary-500/40 cursor-pointer"
-            >
-              {ordemSortDir === 'asc' ? <ArrowUpWideNarrow size={13} /> : <ArrowDownWideNarrow size={13} />}
-              {ordemSortDir === 'asc' ? 'Crescente' : 'Decrescente'}
-            </button>
-            <button
-              onClick={() => setShowEntregues(!showEntregues)}
-              className={cn(
-                "text-[9px] font-black uppercase px-3 h-9 rounded-lg border-0 cursor-pointer transition-all",
-                showEntregues ? "bg-primary-500/20 text-primary-300" : "bg-white/5 text-white/40"
-              )}
-            >
-              {showEntregues ? '‚úì Mostrando Entregues' : 'Ocultar Entregues Antigos'}
-            </button>
-            {selectMode ? (
-              <>
-                <span className="text-[9px] font-black uppercase text-white/50 px-1">{selectedIds.size} selecionado(s)</span>
-                <Button size="sm" disabled={selectedIds.size === 0} className="bg-primary-500 hover:bg-primary-400 text-slate-900 text-[9px] font-black uppercase tracking-wider px-3 h-9 border-none" onClick={handleOpenBulkEdit}>
-                  Editar em Massa
-                </Button>
-                <button
-                  onClick={() => { setSelectMode(false); setSelectedIds(new Set()); }}
-                  className="text-[9px] font-black uppercase px-3 h-9 rounded-lg border-0 cursor-pointer bg-white/5 text-white/40 hover:text-white"
-                >
-                  Cancelar
-                </button>
-              </>
-            ) : (
-              <button
-                onClick={() => setSelectMode(true)}
-                className="flex items-center gap-1.5 text-[9px] font-black uppercase px-3 h-9 rounded-lg border-0 cursor-pointer bg-white/5 text-white/40 hover:text-white transition-all"
-              >
-                <CheckSquare size={13} /> Selecionar
-              </button>
-            )}
-         </div>
-      </div>
-
-      {viewMode === 'quadro' && (
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={onDragStart} onDragEnd={onDragEnd}>
-          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-1.5 md:gap-2 pb-4">
-            {STAGE_ORDER.map(stageId => (
-              <OrdemServicoColumn
-                key={stageId}
-                stageId={stageId}
-                pedidos={pedidosOrdenados.filter(p => (p.serviceStatus || 'pedido_recebido') === stageId)}
-                onDropdownChange={handleAdvanceStageWithConfirm}
-                selectMode={selectMode}
-                selectedIds={selectedIds}
-                onToggleSelect={toggleSelected}
-                onToggleSelectAll={toggleSelectedGroup}
-              />
-            ))}
-          </div>
-          <DragOverlay>
-            {activeDragPedido ? <OrdemServicoCard pedido={activeDragPedido} onDropdownChange={handleAdvanceStageWithConfirm} /> : null}
-          </DragOverlay>
-        </DndContext>
-      )}
-
-      {viewMode === 'etapa' && (
-        <div className="space-y-4">
-           <div className="flex gap-1.5 overflow-x-auto custom-scrollbar pb-1">
-              {STAGE_ORDER.map(stageId => {
-                const count = pedidosOrdenados.filter(p => (p.serviceStatus || 'pedido_recebido') === stageId).length;
-                return (
-                  <button
-                    key={stageId}
-                    onClick={() => setEtapaSelecionada(stageId)}
-                    className={cn(
-                      "shrink-0 flex items-center gap-1.5 px-3 h-9 rounded-lg text-[10px] font-black uppercase tracking-wide cursor-pointer border transition-all",
-                      etapaSelecionada === stageId ? "bg-primary-500 text-slate-900 border-primary-500" : "bg-white/5 text-white/50 border-white/10 hover:text-white"
-                    )}
-                  >
-                    {STAGE_LABELS[stageId]} <Badge className={cn("border-none px-1.5 py-0 h-4 text-[8px]", etapaSelecionada === stageId ? "bg-slate-900/20 text-slate-900" : "bg-white/10 text-white/50")}>{count}</Badge>
-                  </button>
-                );
-              })}
-           </div>
-           {selectMode && pedidosOrdenados.filter(p => (p.serviceStatus || 'pedido_recebido') === etapaSelecionada).length > 0 && (
-             <button
-               onClick={() => toggleSelectedGroup(pedidosOrdenados.filter(p => (p.serviceStatus || 'pedido_recebido') === etapaSelecionada).map(p => p.id))}
-               className="flex items-center gap-1.5 text-[9px] font-black uppercase text-white/50 hover:text-white cursor-pointer border-0 bg-transparent"
-             >
-               <CheckSquare size={13} /> Selecionar todos desta etapa
-             </button>
-           )}
-           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              {pedidosOrdenados.filter(p => (p.serviceStatus || 'pedido_recebido') === etapaSelecionada).map(pedido => (
-                <OrdemServicoCard key={pedido.id} pedido={pedido} onDropdownChange={handleAdvanceStageWithConfirm} selectMode={selectMode} selected={selectedIds.has(pedido.id)} onToggleSelect={toggleSelected} />
-              ))}
-              {pedidosOrdenados.filter(p => (p.serviceStatus || 'pedido_recebido') === etapaSelecionada).length === 0 && (
-                <div className="col-span-full flex flex-col items-center justify-center py-20 opacity-10">
-                   <Layers size={40} />
-                </div>
-              )}
-           </div>
-        </div>
-      )}
-
-      {viewMode === 'lista' && (
-        <div className="space-y-2">
-           {pedidosOrdenados.map(pedido => (
-             <OrdemServicoListRow key={pedido.id} pedido={pedido} onDropdownChange={handleAdvanceStageWithConfirm} selectMode={selectMode} selected={selectedIds.has(pedido.id)} onToggleSelect={toggleSelected} />
-           ))}
-           {pedidosOrdenados.length === 0 && (
-             <div className="flex flex-col items-center justify-center py-20 opacity-10">
-                <Layers size={40} />
-             </div>
-           )}
-        </div>
-      )}
-
-      {isBulkEditOpen && (
-        <Modal isOpen={isBulkEditOpen} onClose={() => setIsBulkEditOpen(false)} title="Editar em Massa" size="sm">
-          <div className="space-y-4 p-2">
-             <p className="text-xs text-white/50">Marque os campos que quer alterar em <strong className="text-white">{selectedIds.size} pedido(s)</strong> selecionado(s):</p>
-
-             <div className="space-y-3">
-                <div className={cn("rounded-2xl border p-3 space-y-2 transition-all", bulkFields.serviceStatus.on ? "border-primary-500/40 bg-primary-500/5" : "border-white/10")}>
-                   <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" checked={bulkFields.serviceStatus.on} onChange={(e) => setBulkFields({ ...bulkFields, serviceStatus: { ...bulkFields.serviceStatus, on: e.target.checked } })} className="w-4 h-4 accent-primary-500" />
-                      <span className="text-[10px] font-black uppercase text-white/70 tracking-wider">Mudar Etapa</span>
-                   </label>
-                   {bulkFields.serviceStatus.on && (
-                     <select
-                       value={bulkFields.serviceStatus.value}
-                       onChange={(e) => setBulkFields({ ...bulkFields, serviceStatus: { ...bulkFields.serviceStatus, value: e.target.value } })}
-                       className="w-full h-10 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white font-bold focus:outline-none focus:border-primary-500"
-                     >
-                       {STAGE_ORDER.map(id => (
-                         <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
-                       ))}
-                     </select>
-                   )}
-                </div>
-
-                <div className={cn("rounded-2xl border p-3 space-y-2 transition-all", bulkFields.scheduledFor.on ? "border-primary-500/40 bg-primary-500/5" : "border-white/10")}>
-                   <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" checked={bulkFields.scheduledFor.on} onChange={(e) => setBulkFields({ ...bulkFields, scheduledFor: { ...bulkFields.scheduledFor, on: e.target.checked } })} className="w-4 h-4 accent-primary-500" />
-                      <span className="text-[10px] font-black uppercase text-white/70 tracking-wider">Reagendar Entrega</span>
-                   </label>
-                   {bulkFields.scheduledFor.on && (
-                     <input
-                       type="datetime-local"
-                       value={bulkFields.scheduledFor.value}
-                       onChange={(e) => setBulkFields({ ...bulkFields, scheduledFor: { ...bulkFields.scheduledFor, value: e.target.value } })}
-                       className="w-full h-10 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white focus:outline-none focus:border-primary-500"
-                     />
-                   )}
-                </div>
-             </div>
-
-             <div className="flex justify-end gap-3 pt-1">
-               <Button variant="ghost" onClick={() => setIsBulkEditOpen(false)}>Cancelar</Button>
-               <Button className="bg-primary-500 hover:bg-primary-400 text-slate-900 font-black" disabled={isSavingBulkEdit} onClick={handleSaveBulkEdit}>
-                 {isSavingBulkEdit ? 'Salvando...' : `Aplicar em ${selectedIds.size} pedido(s)`}
-               </Button>
-             </div>
-          </div>
-        </Modal>
-      )}
-    </div>
-  );
-};
-
-// --- SETTINGS ---
-export const SettingsModule = ({ currentCompany, user }: { currentCompany: Company | null; user: AppUser | null }) => {
-  const [activeTab, setActiveTab] = useState('Geral');
-
-  const [logoUrl, setLogoUrl] = useState(currentCompany?.logoUrl || '');
-  const [logoLight, setLogoLight] = useState<string | null>(null);
-  const [logoDark, setLogoDark] = useState<string | null>(null);
-  const [savingLogo, setSavingLogo] = useState<'light' | 'dark' | null>(null);
-  const logoLightInputRef = React.useRef<HTMLInputElement>(null);
-  const logoDarkInputRef = React.useRef<HTMLInputElement>(null);
-
-  // Sessoes ativas (IP + dispositivo) de todos os usuarios, pra o admin poder desconectar
-  const [activeSessions, setActiveSessions] = useState<any[]>([]);
-
-  // Menu lateral principal (onde fica PDV, Contatos etc) ‚Äî admin escolhe o que aparece e a ordem
-  const MENU_ITEMS_DEFAULT = [
-    { id: 'dashboard', label: 'Dashboard' },
-    { id: 'crm', label: 'Funil CRM' },
-    { id: 'messages', label: 'Mensagens' },
-    { id: 'pos', label: 'PDV Gr√°fica' },
-    { id: 'contacts', label: 'Contatos' },
-    { id: 'clientes_espera', label: 'Clientes em Espera' },
-    { id: 'production', label: 'Ordem de Servi√ßo' },
-    { id: 'robozinho_rafa', label: 'Integra√ß√µes' },
-    { id: 'comissoes', label: 'Comiss√µes' },
-    { id: 'settings', label: 'Op√ß√µes' },
-  ];
-  const [menuConfig, setMenuConfig] = useState<{ id: string; visible: boolean }[]>(MENU_ITEMS_DEFAULT.map(m => ({ id: m.id, visible: true })));
-  const [menuConfigDragId, setMenuConfigDragId] = useState<string | null>(null);
-  const [savingMenuConfig, setSavingMenuConfig] = useState(false);
-  useEffect(() => {
-    if (!user?.isAdmin) return;
-    supabase.from('configuracoes').select('menu_config').eq('company_id', 'rafa-arts').maybeSingle().then(({ data }) => {
-      if (data?.menu_config && Array.isArray(data.menu_config) && data.menu_config.length > 0) {
-        // Garante que qualquer item novo do sistema (que a config salva ainda nao conhece) tambem apare√ßa
-        const salvos = data.menu_config as { id: string; visible: boolean }[];
-        const idsSalvos = new Set(salvos.map(s => s.id));
-        const faltando = MENU_ITEMS_DEFAULT.filter(m => !idsSalvos.has(m.id)).map(m => ({ id: m.id, visible: true }));
-        setMenuConfig([...salvos, ...faltando]);
-      }
-    });
-  }, [user?.isAdmin]);
-
-  const handleSaveMenuConfig = async () => {
-    setSavingMenuConfig(true);
-    const { error } = await supabase.from('configuracoes').upsert({
-      company_id: 'rafa-arts',
-      menu_config: menuConfig,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'company_id' });
-    setSavingMenuConfig(false);
-    if (error) { showAlert(`N√£o foi poss√≠vel salvar: ${error.message}`); return; }
-    showAlert('Menu lateral atualizado! Recarregue a p√°gina pra ver a nova ordem.');
-  };
-
-  // Abas horizontais de dentro do PDV (Terminal Venda, Historico, Estoque, Servicos, Orcamentos,
-  // Contratos, Excluidos, Clientes) ‚Äî mesma logica de ordem/visibilidade configuravel
-  const PDV_TABS_DEFAULT = [
-    { id: 'venda', label: 'Terminal Venda' },
-    { id: 'historico', label: 'Hist√≥rico & Abertas' },
-    { id: 'estoque', label: 'Estoque / Produtos' },
-    { id: 'servicos', label: 'Servi√ßos' },
-    { id: 'orcamentos', label: 'Or√ßamentos' },
-    { id: 'contratos', label: 'Contratos' },
-    { id: 'excluidos', label: 'Exclu√≠dos' },
-    { id: 'clientes', label: 'Clientes' },
-  ];
-  const [pdvMenuConfigForm, setPdvMenuConfigForm] = useState<{ id: string; visible: boolean }[]>(PDV_TABS_DEFAULT.map(m => ({ id: m.id, visible: true })));
-  const [pdvMenuConfigDragId, setPdvMenuConfigDragId] = useState<string | null>(null);
-  const [savingPdvMenuConfig, setSavingPdvMenuConfig] = useState(false);
-  useEffect(() => {
-    if (!user?.isAdmin) return;
-    supabase.from('configuracoes').select('pdv_menu_config').eq('company_id', 'rafa-arts').maybeSingle().then(({ data }) => {
-      if (data?.pdv_menu_config && Array.isArray(data.pdv_menu_config) && data.pdv_menu_config.length > 0) {
-        const salvos = data.pdv_menu_config as { id: string; visible: boolean }[];
-        const idsSalvos = new Set(salvos.map(s => s.id));
-        const faltando = PDV_TABS_DEFAULT.filter(m => !idsSalvos.has(m.id)).map(m => ({ id: m.id, visible: true }));
-        setPdvMenuConfigForm([...salvos, ...faltando]);
-      }
-    });
-  }, [user?.isAdmin]);
-
-  const handleSavePdvMenuConfig = async () => {
-    setSavingPdvMenuConfig(true);
-    const { error } = await supabase.from('configuracoes').upsert({
-      company_id: 'rafa-arts',
-      pdv_menu_config: pdvMenuConfigForm,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'company_id' });
-    setSavingPdvMenuConfig(false);
-    if (error) { showAlert(`N√£o foi poss√≠vel salvar: ${error.message}`); return; }
-    showAlert('Abas do PDV atualizadas! Recarregue a p√°gina pra ver a nova ordem.');
-  };
-
-  useEffect(() => {
-    if (!user?.isAdmin) return;
-    const minhaSessaoId = sessionStorage.getItem('rpro_session_id');
-    const q = query(collection(db, 'sessions'), where('isRevoked', '==', false));
-    const unsub = onSnapshot(q, (snap) => {
-      const sessions = snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
-      // So mostra sessoes com atividade nos ultimos 30 minutos (mais antigas provavelmente ja fecharam a aba)
-      // e nunca mostra a PROPRIA sessao de quem esta olhando ‚Äî evita clicar Desconectar em si mesmo
-      // sem querer quando a lista reordena sozinha (o "visto por ultimo" atualiza a cada 2min)
-      const now = Date.now();
-      const recent = sessions.filter(s => s.id !== minhaSessaoId && now - new Date(s.lastSeenAt || s.loginAt).getTime() < 30 * 60 * 1000);
-      recent.sort((a, b) => new Date(b.lastSeenAt || b.loginAt).getTime() - new Date(a.lastSeenAt || a.loginAt).getTime());
-      setActiveSessions(recent);
-    });
-    return () => unsub();
-  }, [user?.isAdmin]);
-
-  const handleDisconnectSession = async (sessionId: string) => {
-    if (!(await showConfirm('Desconectar essa sess√£o agora? A pessoa vai ser deslogada automaticamente.'))) return;
-    try {
-      await updateDoc(doc(db, 'sessions', sessionId), { isRevoked: true });
-    } catch (err: any) {
-      showAlert(`N√£o foi poss√≠vel desconectar: ${err?.message || 'erro desconhecido'}`);
-    }
-  };
-
-  // Pede pra sessao do usuario mandar a localizacao GPS atual (so funciona se ele tiver
-  // autorizado o compartilhamento de localiza√ß√£o no login ‚Äî geoPermission === 'granted').
-  // A resposta chega sozinha pelo onSnapshot da sessao (client em App.tsx escuta esse campo).
-  const [requestingLocationFor, setRequestingLocationFor] = useState<string | null>(null);
-  const handleRequestLocation = async (sessionId: string) => {
-    setRequestingLocationFor(sessionId);
-    try {
-      await updateDoc(doc(db, 'sessions', sessionId), { locationRequestedAt: new Date().toISOString(), locationDenied: false });
-    } catch (err: any) {
-      showAlert(`N√£o foi poss√≠vel pedir a localiza√ß√£o: ${err?.message || 'erro desconhecido'}`);
-    } finally {
-      setTimeout(() => setRequestingLocationFor(null), 15000);
-    }
-  };
-
-  useEffect(() => {
-    const load = async () => {
-      const { data } = await supabase.from('configuracoes').select('logo_light_url, logo_dark_url').eq('company_id', 'rafa-arts').maybeSingle();
-      setLogoLight(data?.logo_light_url || null);
-      setLogoDark(data?.logo_dark_url || null);
-    };
-    load();
-    const channel = supabase
-      .channel('settings-logos')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'configuracoes' }, load)
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, []);
-
-  const handleLogoFileChange = async (e: React.ChangeEvent<HTMLInputElement>, variant: 'light' | 'dark') => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.size > 800 * 1024) {
-      showAlert('A imagem precisa ter no m√°ximo 800KB. Comprima a logo e tente novamente.');
-      return;
-    }
-    setSavingLogo(variant);
-    try {
-      const dataUrl: string = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-      const column = variant === 'light' ? 'logo_light_url' : 'logo_dark_url';
-      const { error } = await supabase.from('configuracoes').upsert({
-        company_id: 'rafa-arts',
-        [column]: dataUrl,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'company_id' });
-      if (error) throw error;
-      if (variant === 'light') setLogoLight(dataUrl); else setLogoDark(dataUrl);
-    } catch (err) {
-      console.error('Erro ao salvar logo:', err);
-      showAlert('N√£o foi poss√≠vel salvar a logo.');
-    } finally {
-      setSavingLogo(null);
-    }
-  };
-  const [funnels, setFunnels] = useState<Funnel[]>([]);
-  const [selectedFunnel, setSelectedFunnel] = useState('');
-
-  // Configuracao PIX (Supabase, sincronizada em tempo real)
-  const [pixKey, setPixKey] = useState('');
-  const [pixKeyType, setPixKeyType] = useState<'cpf' | 'cnpj' | 'email' | 'telefone' | 'aleatoria'>('aleatoria');
-  const [pixBeneficiary, setPixBeneficiary] = useState('');
-  const [pixCity, setPixCity] = useState('Santarem');
-  const [pixBank, setPixBank] = useState('');
-  const [savingPix, setSavingPix] = useState(false);
-  const ALL_PAYMENT_METHODS = [
-    { id: 'pix', label: 'Pix' },
-    { id: 'dinheiro', label: 'Dinheiro' },
-    { id: 'cartao_credito', label: 'Cart√£o de Cr√©dito' },
-    { id: 'cartao_debito', label: 'Cart√£o de D√©bito' },
-    { id: 'transferencia', label: 'Transfer√™ncia' },
-    { id: 'boleto', label: 'Boleto' },
-    { id: 'crediario', label: 'Credi√°rio' },
-  ];
-  const [enabledPaymentMethods, setEnabledPaymentMethods] = useState<string[]>(['pix', 'dinheiro', 'cartao_credito', 'cartao_debito']);
-  const [savingPaymentMethods, setSavingPaymentMethods] = useState(false);
-  const [creditCardFees, setCreditCardFees] = useState<{ installments: number; feePercent: number }[]>(
-    Array.from({ length: 12 }, (_, i) => ({ installments: i + 1, feePercent: 0 }))
-  );
-  const [debitCardFeePercent, setDebitCardFeePercent] = useState(0);
-  const [savingCardFees, setSavingCardFees] = useState(false);
-
-  // Contato/identidade exibidos em Recibo, Or√ßamento (endereco, redes sociais, site usado no QR Code)
-  const [contactWhatsapp, setContactWhatsapp] = useState('');
-  const [contactInstagram, setContactInstagram] = useState('');
-  const [contactFacebook, setContactFacebook] = useState('');
-  const [contactEmail, setContactEmail] = useState('');
-  const [contactSite, setContactSite] = useState('');
-  const [contactEndereco, setContactEndereco] = useState('');
-  const [savingContact, setSavingContact] = useState(false);
-
-  useEffect(() => {
-    const load = async () => {
-      const { data } = await supabase.from('configuracoes').select('*').eq('company_id', 'rafa-arts').maybeSingle();
-      if (data) {
-        setPixKey(data.pix_key || '');
-        setPixKeyType(data.pix_key_type || 'aleatoria');
-        setPixBeneficiary(data.beneficiary_name || currentCompany?.name || '');
-        setPixCity(data.city || 'Santarem');
-        setPixBank(data.pix_bank || '');
-        setEnabledPaymentMethods(Array.isArray(data.enabled_payment_methods) && data.enabled_payment_methods.length > 0 ? data.enabled_payment_methods : ['pix', 'dinheiro', 'cartao_credito', 'cartao_debito']);
-        if (Array.isArray(data.credit_card_fees) && data.credit_card_fees.length > 0) {
-          const byInstallment: Record<number, number> = {};
-          data.credit_card_fees.forEach((f: any) => { byInstallment[f.installments] = f.feePercent; });
-          setCreditCardFees(Array.from({ length: 12 }, (_, i) => ({ installments: i + 1, feePercent: byInstallment[i + 1] ?? 0 })));
-        }
-        setDebitCardFeePercent(Number(data.debit_card_fee_percent) || 0);
-        setContactWhatsapp(data.contact_whatsapp || COMPANY_CONTACT.whatsapp);
-        setContactInstagram(data.contact_instagram || COMPANY_CONTACT.instagram);
-        setContactFacebook(data.contact_facebook || COMPANY_CONTACT.facebook);
-        setContactEmail(data.contact_email || COMPANY_CONTACT.email);
-        setContactSite(data.contact_site || COMPANY_CONTACT.site);
-        setContactEndereco(data.contact_endereco || COMPANY_CONTACT.endereco);
-      } else if (currentCompany?.name) {
-        setPixBeneficiary(currentCompany.name);
-      }
-    };
-    load();
-    const channel = supabase
-      .channel('configuracoes-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'configuracoes' }, load)
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [currentCompany]);
-
-  const togglePaymentMethodEnabled = (id: string) => {
-    setEnabledPaymentMethods(prev => prev.includes(id) ? prev.filter(m => m !== id) : [...prev, id]);
-  };
-
-  const handleSavePaymentMethods = async () => {
-    if (enabledPaymentMethods.length === 0) {
-      showAlert('Deixe pelo menos uma forma de pagamento habilitada.');
-      return;
-    }
-    setSavingPaymentMethods(true);
-    try {
-      const { error } = await supabase.from('configuracoes').upsert({
-        company_id: 'rafa-arts',
-        enabled_payment_methods: enabledPaymentMethods,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'company_id' });
-      if (error) throw error;
-    } catch (err) {
-      console.error('Erro ao salvar formas de pagamento:', err);
-      showAlert('N√£o foi poss√≠vel salvar.');
-    } finally {
-      setSavingPaymentMethods(false);
-    }
-  };
-
-  const updateCreditCardFee = (installments: number, feePercent: number) => {
-    setCreditCardFees(prev => prev.map(f => f.installments === installments ? { ...f, feePercent } : f));
-  };
-
-  const handleSaveCreditCardFees = async () => {
-    setSavingCardFees(true);
-    try {
-      const { error } = await supabase.from('configuracoes').upsert({
-        company_id: 'rafa-arts',
-        credit_card_fees: creditCardFees,
-        debit_card_fee_percent: debitCardFeePercent,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'company_id' });
-      if (error) throw error;
-    } catch (err: any) {
-      console.error('Erro ao salvar taxas de cart√£o:', err);
-      showAlert(`N√£o foi poss√≠vel salvar: ${err?.message || 'erro desconhecido'}`);
-    } finally {
-      setSavingCardFees(false);
-    }
-  };
-
-  const handleSavePixConfig = async () => {
-    setSavingPix(true);
-    try {
-      const { error } = await supabase.from('configuracoes').upsert({
-        company_id: 'rafa-arts',
-        pix_key: pixKey,
-        pix_key_type: pixKeyType,
-        beneficiary_name: pixBeneficiary,
-        city: pixCity,
-        pix_bank: pixBank,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'company_id' });
-      if (error) throw error;
-    } catch (err: any) {
-      console.error('Erro ao salvar configura√ß√£o PIX:', err);
-      showAlert(`N√£o foi poss√≠vel salvar a configura√ß√£o PIX: ${err?.message || 'erro desconhecido'}`);
-    } finally {
-      setSavingPix(false);
-    }
-  };
-
-  const handleSaveContactInfo = async () => {
-    setSavingContact(true);
-    try {
-      const { error } = await supabase.from('configuracoes').upsert({
-        company_id: 'rafa-arts',
-        contact_whatsapp: contactWhatsapp,
-        contact_instagram: contactInstagram,
-        contact_facebook: contactFacebook,
-        contact_email: contactEmail,
-        contact_site: contactSite,
-        contact_endereco: contactEndereco,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'company_id' });
-      if (error) throw error;
-      showAlert('Informa√ß√µes de contato salvas! J√° valem para os pr√≥ximos recibos e or√ßamentos.');
-    } catch (err: any) {
-      console.error('Erro ao salvar informa√ß√µes de contato:', err);
-      showAlert(`N√£o foi poss√≠vel salvar: ${err?.message || 'erro desconhecido'}`);
-    } finally {
-      setSavingContact(false);
-    }
-  };
-
-  // User Management State
-  const [usersList, setUsersList] = useState<AppUser[]>([]);
-  const { simulatedUserId, setSimulatedUserId, theme, setTheme } = React.useContext(AppContext)!;
-  const [editingUser, setEditingUser] = useState<AppUser | null>(null);
-  
-  const [editedName, setEditedName] = useState('');
-  const [editedEmail, setEditedEmail] = useState('');
-  const [editedPassword, setEditedPassword] = useState('');
-  const [editedRole, setEditedRole] = useState<'admin' | 'gerente' | 'atendente' | 'caixa' | 'vendedor' | 'designer' | 'operador' | 'comissao'>('atendente');
-  const [editedTabs, setEditedTabs] = useState<string[]>([]);
-  const [editedPdvTabs, setEditedPdvTabs] = useState<string[]>([]);
-  const [editedActions, setEditedActions] = useState<string[]>([]);
-  const [editedModulePermissions, setEditedModulePermissions] = useState<ModulePermissions>({});
-
-  // Create User Modal State
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [newUserName, setNewUserName] = useState('');
-  const [newUserEmail, setNewUserEmail] = useState('');
-  const [newUserPassword, setNewUserPassword] = useState('');
-  const [newUserRole, setNewUserRole] = useState<'admin' | 'gerente' | 'atendente' | 'caixa' | 'vendedor' | 'designer' | 'operador' | 'comissao'>('atendente');
-
-  useEffect(() => {
-    if (!currentCompany) return;
-    supabase.from('funnels').select('*').eq('company_id', 'rafa-arts').then(({ data }) => {
-      setFunnels((data || []).map(mapFunnelRow));
-    });
-  }, [currentCompany]);
-
-  useEffect(() => {
-    // Lista combinada: admin master fica no Firebase, usuarios comuns vivem no Supabase
-    let firebaseUsers: AppUser[] = [];
-    let supabaseUsers: AppUser[] = [];
-    const merge = () => setUsersList([...firebaseUsers, ...supabaseUsers]);
-
-    const q = query(collection(db, 'users'));
-    const unsubFirebase = onSnapshot(q, (snap) => {
-      firebaseUsers = snap.docs.map(d => ({ id: d.id, ...d.data() } as AppUser));
-      merge();
-    });
-
-    const loadSupabaseUsers = async () => {
-      const { data } = await supabase.from('usuarios').select('*').order('name', { ascending: true });
-      supabaseUsers = (data || []).map(mapUsuarioRow);
-      merge();
-    };
-    loadSupabaseUsers();
-    const channel = supabase
-      .channel('usuarios-list')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'usuarios' }, loadSupabaseUsers)
-      .subscribe();
-
-    return () => { unsubFirebase(); supabase.removeChannel(channel); };
-  }, []);
-
-  const handleSave = async () => {
-    if (!currentCompany) return;
-    try {
-      await updateDoc(doc(db, 'companies', currentCompany.id), {
-        logoUrl,
-        updatedAt: Timestamp.now()
-      });
-      showAlert('Configura√ß√µes salvas com sucesso!');
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const startEditUser = (u: AppUser) => {
-    setEditingUser(u);
-    setEditedName(u.name);
-    setEditedEmail(u.email);
-    setEditedPassword(u.password || '');
-    setEditedRole(u.role as any || 'atendente');
-    // Se o usuario nao tem allowedTabs definido ainda, o padrao NAO inclui Configuracoes ‚Äî
-    // s√≥ quem j√° √© admin (ou for promovido nessa mesma tela) deveria ver essa aba.
-    setEditedTabs(u.allowedTabs || (u.isAdmin || u.role === 'admin'
-      ? ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'clientes_espera', 'production', 'comissoes', 'settings']
-      : ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'clientes_espera', 'production', 'comissoes']));
-    setEditedPdvTabs(u.allowedPdvTabs || ['venda', 'historico', 'estoque', 'servicos', 'orcamentos', 'contratos', 'excluidos', 'clientes']);
-    setEditedActions(u.allowedActions || [
-      'canStartNote', 'canSendSavedMessage', 'canCreateCard', 'canAddTask',
-      'canStartPosSale', 'canMoveLead',
-      'canViewCustomerData', 'canViewAttachments', 'canTranscribeAudio'
-    ]);
-    setEditedModulePermissions(u.modulePermissions || getDefaultModulePermissions(u.role || 'atendente'));
-  };
-
-  const handleSaveUserPermissions = async () => {
-    if (!editingUser) return;
-    try {
-      if (editingUser.id === 'admin-rafael') {
-        // Admin master continua no Firebase
-        await updateDoc(doc(db, 'users', editingUser.id), {
-          name: editedName,
-          email: editedEmail,
-          ...(editedPassword ? { password: editedPassword } : {}),
-          role: editedRole,
-          allowedTabs: editedTabs,
-          allowedPdvTabs: editedPdvTabs,
-          allowedActions: editedActions,
-          updatedAt: Timestamp.now()
-        });
-      } else {
-        // Usuarios comuns vivem no Supabase. Se o id atual ja e um UUID valido (usuario ja
-        // existe no Supabase), atualiza por id normalmente ‚Äî assim funciona certo mesmo trocando
-        // o e-mail. Se nao for um UUID (usuario antigo, criado antes da migracao, id do Firebase
-        // tipo "user-1699999999"), o update por id nao acharia nada ‚Äî nesse caso faz upsert por
-        // e-mail, que migra ele pro Supabase na hora com os dados ja editados.
-        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(editingUser.id);
-
-        // Usuario com cargo "Comissao" precisa estar vinculado a um registro em "colaboradores"
-        // (e la que ficam os servicos/comissoes dele). Se ele ja tinha um colaborador vinculado,
-        // so mantem nome/senha sincronizados; se ainda nao tinha (acabou de virar "Comissao" agora,
-        // ou nunca teve), cria o colaborador na hora e guarda o id no proprio usuario.
-        let colaboradorId = editingUser.colaboradorId || null;
-        if (editedRole === 'comissao') {
-          if (colaboradorId) {
-            await supabase.from('colaboradores').update({
-              nome: editedName,
-              ...(editedPassword ? { senha: editedPassword } : {}),
-              ativo: true,
-              updated_at: new Date().toISOString(),
-            }).eq('id', colaboradorId);
-          } else {
-            const { data: colaboradorCriado, error: colaboradorErr } = await supabase
-              .from('colaboradores')
-              .insert({ nome: editedName, senha: editedPassword || '123456', ativo: true })
-              .select()
-              .single();
-            if (colaboradorErr) throw colaboradorErr;
-            colaboradorId = colaboradorCriado.id;
-          }
-        }
-
-        const payload = {
-          name: editedName,
-          email: editedEmail,
-          ...(editedPassword ? { password: editedPassword } : {}),
-          role: editedRole,
-          is_admin: editedRole === 'admin',
-          allowed_tabs: editedTabs,
-          allowed_pdv_tabs: editedPdvTabs,
-          allowed_actions: editedActions,
-          module_permissions: editedModulePermissions,
-          colaborador_id: editedRole === 'comissao' ? colaboradorId : null,
-          updated_at: new Date().toISOString(),
-        };
-        if (isUuid) {
-          const { error } = await supabase.from('usuarios').update(payload).eq('id', editingUser.id);
-          if (error) throw error;
-        } else {
-          const { error } = await supabase.from('usuarios').upsert(payload, { onConflict: 'email' });
-          if (error) throw error;
-        }
-      }
-      showAlert('Dados e senha do usu√°rio atualizados!');
-      setEditingUser(null);
-    } catch (err: any) {
-      console.error('Erro ao salvar permiss√µes:', err);
-      showAlert(`Erro ao salvar permiss√µes do usu√°rio: ${err?.message || 'erro desconhecido'}`);
-    }
-  };
-
-  const handleCreateUser = async () => {
-    if (!newUserName || !newUserEmail) {
-      showAlert('Por favor, preencha o nome e o e-mail.');
-      return;
-    }
-    try {
-      const isComissaoRole = newUserRole === 'comissao';
-      const cargosComOpcoes = ['admin', 'gerente'];
-      const defaultTabs = isComissaoRole
-        ? ['comissoes'] // usuario de Comissao nao usa o CRM, so a area de Comissoes
-        : cargosComOpcoes.includes(newUserRole)
-        ? ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'clientes_espera', 'production', 'settings']
-        : ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'clientes_espera', 'production'];
-      const defaultActions = [
-        'canStartNote', 'canSendSavedMessage', 'canCreateCard', 'canAddTask',
-        'canStartPosSale', 'canMoveLead',
-        'canViewCustomerData', 'canViewAttachments', 'canTranscribeAudio'
-      ];
-
-      // Usuario "Comissao" precisa de um registro em "colaboradores" (e quem guarda os
-      // servicos/comissoes dele na area separada de Comissoes). Cria o colaborador primeiro
-      // pra poder linkar o id dele na conta de usuario logo abaixo (usuarios.colaborador_id) ‚Äî
-      // e esse link que faz o login em pro.rafaartsgraphics.com reconhecer o usuario e mandar
-      // ele direto pra /comissoes.
-      let colaboradorId: string | null = null;
-      if (isComissaoRole) {
-        const { data: colaboradorCriado, error: colaboradorErr } = await supabase
-          .from('colaboradores')
-          .insert({ nome: newUserName, senha: newUserPassword || '123456', ativo: true })
-          .select()
-          .single();
-        if (colaboradorErr) throw colaboradorErr;
-        colaboradorId = colaboradorCriado.id;
-      }
-
-      const { error } = await supabase.from('usuarios').insert({
-        name: newUserName,
-        email: newUserEmail.trim().toLowerCase(),
-        password: newUserPassword || '123456',
-        role: newUserRole,
-        is_admin: newUserRole === 'admin',
-        is_active: true,
-        allowed_tabs: defaultTabs,
-        allowed_pdv_tabs: ['venda', 'historico', 'estoque', 'servicos', 'orcamentos', 'contratos', 'excluidos', 'clientes'],
-        allowed_actions: defaultActions,
-        module_permissions: getDefaultModulePermissions(newUserRole),
-        ...(colaboradorId ? { colaborador_id: colaboradorId } : {}),
-      });
-      if (error) throw error;
-
-      showAlert(
-        isComissaoRole
-          ? `Novo usu√°rio de Comiss√µes [${newUserName}] cadastrado com sucesso!\n\nE-mail: ${newUserEmail}\nSenha: ${newUserPassword || '123456'}\n\nAo entrar em pro.rafaartsgraphics.com com esse e-mail e senha, ele ser√° levado direto para a √°rea de Comiss√µes (/comissoes).`
-          : `Novo usu√°rio [${newUserName}] cadastrado com sucesso!\n\nE-mail: ${newUserEmail}\nSenha: ${newUserPassword || '123456'}\n\nEle j√° pode fazer login na tela inicial com essas credenciais.`
-      );
-      setIsCreateModalOpen(false);
-      setNewUserName('');
-      setNewUserEmail('');
-      setNewUserPassword('');
-      setNewUserRole('atendente');
-    } catch (err: any) {
-      console.error('Erro ao criar usu√°rio:', err);
-      showAlert(`Erro ao criar usu√°rio no reposit√≥rio: ${err?.message || 'erro desconhecido'}`);
-    }
-  };
-
-  const handleDeleteUser = async (u: AppUser) => {
-    if (u.id === 'admin-rafael') {
-      showAlert('N√£o √© poss√≠vel excluir o administrador master do sistema.');
-      return;
-    }
-    if (u.id === user?.id) {
-      showAlert('Voc√™ n√£o pode excluir a pr√≥pria conta enquanto est√° logado nela.');
-      return;
-    }
-    if (!(await showConfirm(`Excluir o usu√°rio "${u.name}" (${u.email}) permanentemente? Essa a√ß√£o n√£o pode ser desfeita.`))) return;
-    try {
-      const isSupabaseUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(u.id);
-      if (isSupabaseUuid) {
-        const { error } = await supabase.from('usuarios').delete().eq('id', u.id);
-        if (error) throw error;
-        // Se era um usuario de "Comissao", so desativa o colaborador vinculado (nao apaga) ‚Äî
-        // assim o historico de servicos/comissoes dele fica preservado no painel do admin,
-        // e ele so perde o acesso de login.
-        if (u.role === 'comissao' && u.colaboradorId) {
-          await supabase.from('colaboradores').update({ ativo: false }).eq('id', u.colaboradorId);
-        }
-      } else {
-        // Usuario legado que ainda so existe no Firebase (nunca logou depois da migracao pro Supabase)
-        await deleteDoc(doc(db, 'users', u.id));
-      }
-    } catch (err: any) {
-      console.error('Erro ao excluir usu√°rio:', err);
-      showAlert(`Erro ao excluir usu√°rio: ${err?.message || 'erro desconhecido'}`);
-    }
-  };
-
-  const MODULE_DEFINITIONS = [
-    { id: 'dashboard', label: 'Dashboard' },
-    { id: 'pos', label: 'Ordens de Servi√ßo / PDV' },
-    { id: 'messages', label: 'Mensagens' },
-    { id: 'clientes_espera', label: 'Clientes em Espera' },
-    { id: 'contacts', label: 'Clientes' },
-    { id: 'crm', label: 'Funil CRM' },
-    { id: 'production', label: 'Ordem de Servi√ßo' },
-    { id: 'inventory', label: 'Estoque' },
-    { id: 'comissoes', label: 'Comiss√µes' },
-    { id: 'robozinho_rafa', label: 'Integra√ß√µes (Robozinho)' },
-    { id: 'settings', label: 'Configura√ß√µes' },
-  ];
-
-  const tabOptions = [
-    { id: 'dashboard', label: 'Dashboard', desc: 'Painel de controle e faturamento consolidado' },
-    { id: 'crm', label: 'Funil CRM', desc: 'Cria√ß√£o e movimenta√ß√£o de Leads / Contatos comerciais' },
-    { id: 'messages', label: 'Mensagens / Chats', desc: 'Canal de atendimento direto integrado' },
-    { id: 'pos', label: 'PDV Gr√°fica', desc: 'Faturamento r√°pido, caixa e vendas' },
-    { id: 'contacts', label: 'Contatos', desc: 'Gest√£o de clientes e hist√≥rico de compras' },
-    { id: 'clientes_espera', label: 'Clientes em Espera', desc: 'Fila de atendimento com tempo de espera em tempo real' },
-    { id: 'production', label: 'Ordem de Servi√ßo', desc: 'Fila de producao com todos os pedidos e etapa atual de cada um' },
-    { id: 'inventory', label: 'Estoque', desc: 'Controle de produtos, com estoque atual e m√≠nimo' },
-    { id: 'comissoes', label: 'Comiss√µes', desc: 'Painel de comiss√µes do colaborador (login pr√≥prio, separado do CRM)' },
-    { id: 'robozinho_rafa', label: 'Integra√ß√µes', desc: 'Robozinho Rafa (assistente de IA) e conex√µes de WhatsApp/Facebook/Instagram' },
-    { id: 'settings', label: 'Op√ß√µes', desc: 'Par√¢metro de configura√ß√µes do Rafa Arts Graphics' },
-  ];
-
-  const actionOptions = [
-    { id: 'canStartNote', label: 'Criar Notas Internas', desc: 'Habilita o registro de notas internas no m√≥dulo de conversas' },
-    { id: 'canSendSavedMessage', label: 'Enviar Mensagens Prontas', desc: 'Permite responder rapidamente usando atalhos de chat' },
-    { id: 'canCreateCard', label: 'Criar Leads no CRM', desc: 'Permite criar novos cards de clientes no funil comercial' },
-    { id: 'canAddTask', label: 'Pode Criar Tarefas', desc: 'Gest√£o de agenda, lembretes e agendamentos de leads' },
-    { id: 'canStartPosSale', label: 'Iniciar Venda no PDV', desc: 'Permite registrar faturamento e receber pagamentos' },
-    { id: 'canManageContracts', label: 'Gerenciar Contratos e Or√ßamentos', desc: 'Permite criar e aprovar contratos de presta√ß√£o de servi√ßos' },
-    { id: 'canMoveLead', label: 'Movimentar Leads', desc: 'Permite arrastar leads entre as colunas do funil CRM' },
-    { id: 'canViewCustomerData', label: 'Ver Dados do Cliente', desc: 'Habilita visualiza√ß√£o de CPF, RG e endere√ßos de clientes' },
-    { id: 'canViewAttachments', label: 'Visualizar M√≠dias/Anexos', desc: 'Mostra arquivos recebidos e PDFs dentro de conversas' },
-    { id: 'canTranscribeAudio', label: 'Transcrever √Åudios', desc: 'Habilita convers√£o autom√°tica de voz para texto via IA' },
-    { id: 'canManageSaleHistory', label: 'Gerenciar Hist√≥rico de Vendas', desc: 'Permite reabrir, editar ou excluir vendas j√° registradas no PDV' },
-    { id: 'canCloseCashRegister', label: 'Fechar Caixa', desc: 'Permite fechar o caixa do PDV (abrir continua restrito ao admin)' },
-    { id: 'canAddProduct', label: 'Cadastrar Produto', desc: 'Permite cadastrar um novo produto direto pelo Terminal de Venda' },
-    { id: 'canManageInventory', label: 'Gerenciar Estoque', desc: 'Permite editar, ajustar e excluir produtos na aba Estoque do PDV' },
-  ];
-
-  return (
-    <div className="space-y-8 animate-in fade-in zoom-in-95 duration-500">
-      <SectionHeader 
-        title="Configura√ß√µes Hub" 
-        subtitle="Ajustes do ecossistema Rafa Arts Graphics" 
-        actions={<Button icon={Save} onClick={handleSave}>Salvar Tudo</Button>}
-      />
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-10">
-        <GlassCard className="p-0 overflow-hidden h-fit border-white/5">
-           {['Geral', 'Identidade', 'Menu Lateral', 'CRM / Funis', 'Integra√ß√µes', 'Usu√°rios e Permiss√µes', 'Backup'].map((tab) => (
-             <button 
-               key={tab} 
-               onClick={() => setActiveTab(tab)}
-               className={cn(
-                 "w-full text-left p-6 text-[10px] font-black uppercase tracking-widest border-b border-white/5 transition-all", 
-                 activeTab === tab ? "bg-primary-500 text-slate-900" : "text-white/40 hover:bg-white/5 hover:text-white"
-               )}
-             >
-                {tab}
-             </button>
-           ))}
-        </GlassCard>
-        <GlassCard className="lg:col-span-3 p-10 space-y-10 border-white/5">
-           {activeTab === 'Geral' && (
-             <div className="space-y-8">
-                <div className="space-y-6">
-                   <h3 className="text-xl font-bold text-white tracking-tight italic uppercase">Informa√ß√µes da Plataforma</h3>
-                   <div className="grid grid-cols-2 gap-8">
-                     <Input label="Vers√£o do Sistema" defaultValue="9.4.2 Enterprise" disabled />
-                     <Input label="ID do Ambiente" defaultValue="SYM-442-PROD" disabled />
-                     <Input label="Nome da Empresa" defaultValue={currentCompany?.name} />
-                     <Input label="CNPJ" defaultValue={currentCompany?.cnpj} />
-                   </div>
-                </div>
-             </div>
-           )}
-
-           {activeTab === 'Identidade' && (
-             <div className="space-y-8">
-                <div className="space-y-6">
-                   <h3 className="text-xl font-bold text-white tracking-tight italic uppercase">Logo da Empresa</h3>
-                   <p className="text-xs text-white/40">Envie duas vers√µes: uma clara (para fundos escuros, como o menu e a barra do sistema) e uma escura (para fundos claros, como o recibo). M√°ximo 800KB por imagem.</p>
-                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                      {/* Logo Clara */}
-                      <div className="space-y-3">
-                         <p className="text-[10px] font-black uppercase text-white/50 tracking-widest">Logo Clara (fundo escuro)</p>
-                         <div className="flex items-start gap-4">
-                            <div className="w-28 h-28 rounded-2xl border-2 border-dashed border-white/10 flex items-center justify-center p-2 bg-slate-950 shrink-0">
-                               {logoLight ? (
-                                 <img src={logoLight} alt="Logo clara" className="w-full h-full object-contain" />
-                               ) : (
-                                 <ImageIcon size={28} className="text-white/10" />
-                               )}
-                            </div>
-                            <div className="flex-1 space-y-2">
-                               <input ref={logoLightInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => handleLogoFileChange(e, 'light')} />
-                               <Button
-                                 variant="secondary"
-                                 icon={Upload}
-                                 disabled={savingLogo === 'light'}
-                                 onClick={() => logoLightInputRef.current?.click()}
-                                 className="text-[10px] uppercase tracking-wider font-black"
-                               >
-                                 {savingLogo === 'light' ? 'Enviando...' : 'Enviar Imagem'}
-                               </Button>
-                               <p className="text-[9px] text-white/30 font-bold uppercase">PNG transparente recomendado</p>
-                            </div>
-                         </div>
-                      </div>
-
-                      {/* Logo Escura */}
-                      <div className="space-y-3">
-                         <p className="text-[10px] font-black uppercase text-white/50 tracking-widest">Logo Escura (fundo claro)</p>
-                         <div className="flex items-start gap-4">
-                            <div className="w-28 h-28 rounded-2xl border-2 border-dashed border-white/10 flex items-center justify-center p-2 bg-white shrink-0">
-                               {logoDark ? (
-                                 <img src={logoDark} alt="Logo escura" className="w-full h-full object-contain" />
-                               ) : (
-                                 <ImageIcon size={28} className="text-slate-300" />
-                               )}
-                            </div>
-                            <div className="flex-1 space-y-2">
-                               <input ref={logoDarkInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => handleLogoFileChange(e, 'dark')} />
-                               <Button
-                                 variant="secondary"
-                                 icon={Upload}
-                                 disabled={savingLogo === 'dark'}
-                                 onClick={() => logoDarkInputRef.current?.click()}
-                                 className="text-[10px] uppercase tracking-wider font-black"
-                               >
-                                 {savingLogo === 'dark' ? 'Enviando...' : 'Enviar Imagem'}
-                               </Button>
-                               <p className="text-[9px] text-white/30 font-bold uppercase">Usada nos recibos (PDF/imagem)</p>
-                            </div>
-                         </div>
-                      </div>
-                   </div>
-                </div>
-                <div className="h-px bg-white/10" />
-                <div className="space-y-6">
-                   <h3 className="text-xl font-bold text-white tracking-tight italic uppercase">Tema do Sistema (Apar√™ncia)</h3>
-                   <p className="text-xs text-white/50">Escolha o modo de exibi√ß√£o preferido para toda a plataforma:</p>
-                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                      <button
-                        type="button"
-                        onClick={() => setTheme?.('dark')}
-                        className={cn(
-                          "p-6 rounded-3xl border-2 transition-all text-left space-y-3 cursor-pointer relative overflow-hidden",
-                          theme === 'dark' ? "border-red-500 bg-slate-900 shadow-2xl ring-2 ring-red-500/20" : "border-white/10 bg-slate-900/40 opacity-70 hover:opacity-100"
-                        )}
-                      >
-                         <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                               <Moon size={22} className="text-red-400" />
-                               <span className="font-black text-white uppercase text-sm">Modo Escuro (Dark)</span>
-                            </div>
-                            {theme === 'dark' && <Badge variant="primary">Ativo</Badge>}
-                         </div>
-                         <p className="text-[11px] text-white/50 leading-relaxed">Visual moderno e sofisticado em tom escuro, ideal para baixa ilumina√ß√£o.</p>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setTheme?.('light')}
-                        className={cn(
-                          "p-6 rounded-3xl border-2 transition-all text-left space-y-3 cursor-pointer relative overflow-hidden",
-                          theme === 'light' ? "border-red-500 bg-white text-slate-900 shadow-2xl ring-2 ring-red-500/20" : "border-slate-300 bg-slate-100 text-slate-800 opacity-70 hover:opacity-100"
-                        )}
-                      >
-                         <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                               <Sun size={22} className="text-amber-500" />
-                               <span className="font-black uppercase text-sm text-slate-900">Modo Claro (Light)</span>
-                            </div>
-                            {theme === 'light' && <Badge variant="primary">Ativo</Badge>}
-                         </div>
-                         <p className="text-[11px] text-slate-500 leading-relaxed">Interface clara e n√≠tida com fundo suave e excelente contraste diurno.</p>
-                      </button>
-                   </div>
-                </div>
-
-                <div className="h-px bg-white/10" />
-
-                <div className="space-y-6">
-                   <h3 className="text-xl font-bold text-white tracking-tight italic uppercase">Contato / Redes Sociais</h3>
-                   <p className="text-xs text-white/40">Essas informa√ß√µes aparecem no rodap√© do Recibo (Ordem de Servi√ßo) e do Or√ßamento, e o Site √© usado pra gerar o QR Code desses documentos.</p>
-                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <PhoneInputBR label="WhatsApp" value={contactWhatsapp} onChange={(v: string) => setContactWhatsapp(v)} />
-                      <Input label="Instagram" placeholder="Ex: Rafa Artes Gr√°ficos" value={contactInstagram} onChange={(e: any) => setContactInstagram(e.target.value)} />
-                      <Input label="Facebook" placeholder="Ex: Rafa Artes Gr√°ficos" value={contactFacebook} onChange={(e: any) => setContactFacebook(e.target.value)} />
-                      <Input label="E-mail" placeholder="Ex: contato@suaempresa.com.br" value={contactEmail} onChange={(e: any) => setContactEmail(e.target.value)} />
-                      <Input label="Site (usado no QR Code)" placeholder="Ex: suaempresa.com.br" value={contactSite} onChange={(e: any) => setContactSite(e.target.value)} />
-                      <Input label="Endere√ßo" placeholder="Ex: Avenida Maracan√£, n¬∫ 287 ‚Äì Santar√©m ‚Äì PA" value={contactEndereco} onChange={(e: any) => setContactEndereco(e.target.value)} className="md:col-span-2" />
-                   </div>
-                   <Button
-                     onClick={handleSaveContactInfo}
-                     disabled={savingContact}
-                     className="bg-primary-500 text-slate-900 border-none shadow-xl shadow-primary-500/20"
-                   >
-                     {savingContact ? 'Salvando...' : 'Salvar Contato / Identidade'}
-                   </Button>
-                </div>
-             </div>
-           )}
-
-           {activeTab === 'Menu Lateral' && (
-             <div className="space-y-6">
-                <div>
-                   <h3 className="text-xl font-bold text-white tracking-tight italic uppercase">Menu Lateral</h3>
-                   <p className="text-xs text-white/40 mt-1">Escolha o que aparece no menu lateral do sistema (onde fica PDV, Contatos, etc) e a ordem de cada item. Arraste pra reordenar.</p>
-                </div>
-
-                {!user?.isAdmin ? (
-                  <p className="text-xs text-white/30">S√≥ o administrador pode alterar o menu lateral.</p>
-                ) : (
-                  <>
-                    <div className="space-y-2">
-                       {menuConfig.map((item, idx) => {
-                         const info = MENU_ITEMS_DEFAULT.find(m => m.id === item.id);
-                         const isSettings = item.id === 'settings';
-                         return (
-                           <div
-                             key={item.id}
-                             draggable
-                             onDragStart={() => setMenuConfigDragId(item.id)}
-                             onDragOver={(e) => e.preventDefault()}
-                             onDrop={(e) => {
-                                e.preventDefault();
-                                if (!menuConfigDragId || menuConfigDragId === item.id) return;
-                                setMenuConfig(prev => {
-                                   const fromIdx = prev.findIndex(p => p.id === menuConfigDragId);
-                                   const toIdx = prev.findIndex(p => p.id === item.id);
-                                   if (fromIdx === -1 || toIdx === -1) return prev;
-                                   const next = [...prev];
-                                   const [moved] = next.splice(fromIdx, 1);
-                                   next.splice(toIdx, 0, moved);
-                                   return next;
-                                });
-                                setMenuConfigDragId(null);
-                             }}
-                             className={cn(
-                               "flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3 cursor-grab active:cursor-grabbing transition-all",
-                               menuConfigDragId === item.id ? "opacity-40" : "",
-                               !item.visible ? "opacity-50" : ""
-                             )}
-                           >
-                              <GripVertical size={16} className="text-white/30 shrink-0" />
-                              <span className="text-xs font-black text-white/30 w-5 shrink-0">{idx + 1}</span>
-                              <span className="flex-1 text-sm font-bold text-white">{info?.label || item.id}</span>
-                              <label className={cn("flex items-center gap-2 shrink-0", isSettings ? "opacity-40" : "cursor-pointer")}>
-                                 <input
-                                   type="checkbox"
-                                   checked={item.visible}
-                                   disabled={isSettings}
-                                   onChange={(e) => setMenuConfig(prev => prev.map(p => p.id === item.id ? { ...p, visible: e.target.checked } : p))}
-                                   className="w-4 h-4 accent-primary-500"
-                                 />
-                                 <span className="text-[9px] font-black uppercase text-white/40">{isSettings ? 'Sempre vis√≠vel' : (item.visible ? 'Vis√≠vel' : 'Oculto')}</span>
-                              </label>
-                           </div>
-                         );
-                       })}
-                    </div>
-                    <Button icon={Save} disabled={savingMenuConfig} onClick={handleSaveMenuConfig}>
-                      {savingMenuConfig ? 'Salvando...' : 'Salvar Menu Lateral'}
-                    </Button>
-
-                    <div className="h-px bg-white/10 my-4" />
-
-                    <div>
-                       <h3 className="text-xl font-bold text-white tracking-tight italic uppercase">Abas do PDV</h3>
-                       <p className="text-xs text-white/40 mt-1">Escolha o que aparece e a ordem das abas horizontais de dentro do PDV (Terminal Venda, Hist√≥rico, Estoque, Servi√ßos, Or√ßamentos, Contratos, Exclu√≠dos, Clientes).</p>
-                    </div>
-                    <div className="space-y-2">
-                       {pdvMenuConfigForm.map((item, idx) => {
-                         const info = PDV_TABS_DEFAULT.find(m => m.id === item.id);
-                         return (
-                           <div
-                             key={item.id}
-                             draggable
-                             onDragStart={() => setPdvMenuConfigDragId(item.id)}
-                             onDragOver={(e) => e.preventDefault()}
-                             onDrop={(e) => {
-                                e.preventDefault();
-                                if (!pdvMenuConfigDragId || pdvMenuConfigDragId === item.id) return;
-                                setPdvMenuConfigForm(prev => {
-                                   const fromIdx = prev.findIndex(p => p.id === pdvMenuConfigDragId);
-                                   const toIdx = prev.findIndex(p => p.id === item.id);
-                                   if (fromIdx === -1 || toIdx === -1) return prev;
-                                   const next = [...prev];
-                                   const [moved] = next.splice(fromIdx, 1);
-                                   next.splice(toIdx, 0, moved);
-                                   return next;
-                                });
-                                setPdvMenuConfigDragId(null);
-                             }}
-                             className={cn(
-                               "flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3 cursor-grab active:cursor-grabbing transition-all",
-                               pdvMenuConfigDragId === item.id ? "opacity-40" : "",
-                               !item.visible ? "opacity-50" : ""
-                             )}
-                           >
-                              <GripVertical size={16} className="text-white/30 shrink-0" />
-                              <span className="text-xs font-black text-white/30 w-5 shrink-0">{idx + 1}</span>
-                              <span className="flex-1 text-sm font-bold text-white">{info?.label || item.id}</span>
-                              <label className="flex items-center gap-2 shrink-0 cursor-pointer">
-                                 <input
-                                   type="checkbox"
-                                   checked={item.visible}
-                                   onChange={(e) => setPdvMenuConfigForm(prev => prev.map(p => p.id === item.id ? { ...p, visible: e.target.checked } : p))}
-                                   className="w-4 h-4 accent-primary-500"
-                                 />
-                                 <span className="text-[9px] font-black uppercase text-white/40">{item.visible ? 'Vis√≠vel' : 'Oculto'}</span>
-                              </label>
-                           </div>
-                         );
-                       })}
-                    </div>
-                    <Button icon={Save} disabled={savingPdvMenuConfig} onClick={handleSavePdvMenuConfig}>
-                      {savingPdvMenuConfig ? 'Salvando...' : 'Salvar Abas do PDV'}
-                    </Button>
-                  </>
-                )}
-             </div>
-           )}
-
-           {activeTab === 'CRM / Funis' && (
-             <div className="space-y-8">
-                <div className="space-y-6">
-                   <h3 className="text-xl font-bold text-white tracking-tight italic uppercase">Automa√ß√µes de Entrada</h3>
-                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                      <div className="space-y-4">
-                         <p className="text-[10px] font-black uppercase text-white/30 tracking-widest">Funil Principal de Mensagens</p>
-                         <div className="space-y-2">
-                           {funnels.map(f => (
-                             <button
-                               key={f.id}
-                               onClick={() => setSelectedFunnel(f.id)}
-                               className={cn(
-                                 "w-full p-4 rounded-2xl border text-left transition-all",
-                                 selectedFunnel === f.id ? "bg-primary-500 border-primary-400 text-slate-900" : "bg-white/5 border-white/5 text-white/60 hover:bg-white/10"
-                               )}
-                             >
-                                <p className="font-bold uppercase tracking-tight text-xs">{f.name}</p>
-                             </button>
-                           ))}
-                         </div>
-                      </div>
-                      <div className="bg-white/5 p-6 rounded-[32px] border border-white/5 space-y-4">
-                         <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-500 flex items-center justify-center">
-                            <Zap size={20} />
-                         </div>
-                         <h4 className="font-bold text-white text-sm">Regra de Lead Autom√°tico</h4>
-                         <p className="text-xs text-white/40 leading-relaxed">Toda nova mensagem recebida criar√° automaticamente um Lead na primeira etapa do funil selecionado ao lado.</p>
-                         <div className="pt-4 flex items-center gap-3">
-                            <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" />
-                            <span className="text-[10px] font-black uppercase text-emerald-400 tracking-widest">Ativo e Monitorando</span>
-                         </div>
-                      </div>
-                   </div>
-                </div>
-             </div>
-           )}
-
-           {activeTab === 'Integra√ß√µes' && (
-             <div className="space-y-10">
-                <div className="space-y-6">
-                   <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-2xl bg-[#32bcad]/20 flex items-center justify-center text-[#32bcad]">
-                         <QrCode size={24} />
-                      </div>
-                      <div>
-                         <h3 className="text-xl font-bold text-white tracking-tight italic uppercase">Configura√ß√£o PIX</h3>
-                         <p className="text-xs text-white/30">Chave base para gera√ß√£o de QR Codes no PDV</p>
-                      </div>
-                   </div>
-                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                      <Input label="Chave PIX" value={pixKey} onChange={(e: any) => setPixKey(e.target.value)} placeholder="CPF, CNPJ, telefone, e-mail ou chave aleat√≥ria" />
-                      <div className="space-y-1.5">
-                         <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Tipo de Chave</label>
-                         <select
-                           value={pixKeyType}
-                           onChange={(e: any) => setPixKeyType(e.target.value)}
-                           className="w-full h-11 bg-white/5 border border-white/10 rounded-xl px-3 text-sm text-white focus:outline-none focus:border-primary-500"
-                         >
-                           <option value="cpf" className="bg-slate-900">CPF</option>
-                           <option value="cnpj" className="bg-slate-900">CNPJ</option>
-                           <option value="email" className="bg-slate-900">E-mail</option>
-                           <option value="telefone" className="bg-slate-900">Telefone</option>
-                           <option value="aleatoria" className="bg-slate-900">Chave Aleat√≥ria</option>
-                         </select>
-                         {pixKeyType === 'telefone' && (
-                           <p className="text-[9px] text-amber-400/80">Pode digitar com ou sem +55 ‚Äî o sistema formata sozinho certo pro QR Code.</p>
-                         )}
-                      </div>
-                      <Input label="Nome do Benefici√°rio" value={pixBeneficiary} onChange={(e: any) => setPixBeneficiary(e.target.value)} />
-                      <Input label="Banco" placeholder="Ex: Nubank, Banco do Brasil..." value={pixBank} onChange={(e: any) => setPixBank(e.target.value)} />
-                      <Input label="Cidade (para o QR Code)" value={pixCity} onChange={(e: any) => setPixCity(e.target.value)} />
-                    </div>
-                    <Button
-                      onClick={handleSavePixConfig}
-                      disabled={savingPix || !pixKey.trim()}
-                      className="bg-primary-500 text-slate-900 border-none shadow-xl shadow-primary-500/20"
-                    >
-                      {savingPix ? 'Salvando...' : 'Salvar Configura√ß√£o PIX'}
-                    </Button>
-                 </div>
-
-                 <div className="h-px bg-white/10" />
-
-                 <div className="space-y-6">
-                    <div className="flex items-center gap-4">
-                       <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 flex items-center justify-center text-emerald-400">
-                          <CreditCard size={24} />
-                       </div>
-                       <div>
-                          <h3 className="text-xl font-bold text-white tracking-tight italic uppercase">Formas de Pagamento no PDV</h3>
-                          <p className="text-xs text-white/30">Escolha quais op√ß√µes aparecem na tela de pagamento (s√≥ o admin controla isso)</p>
-                       </div>
-                    </div>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                       {ALL_PAYMENT_METHODS.map(m => {
-                          const isEnabled = enabledPaymentMethods.includes(m.id);
-                          return (
-                            <button
-                              key={m.id}
-                              onClick={() => togglePaymentMethodEnabled(m.id)}
-                              className={cn(
-                                "p-4 rounded-2xl border-2 flex flex-col items-center justify-center gap-2 transition-all",
-                                isEnabled ? "bg-primary-500/10 border-primary-500 text-primary-300" : "bg-white/5 border-white/10 text-white/30 hover:border-white/20"
-                              )}
-                            >
-                               <div className={cn("w-5 h-5 rounded-md border-2 flex items-center justify-center", isEnabled ? "bg-primary-500 border-primary-500" : "border-white/20")}>
-                                  {isEnabled && <Check size={12} className="text-slate-900" />}
-                               </div>
-                               <span className="text-[10px] font-black uppercase tracking-wider text-center">{m.label}</span>
-                            </button>
-                          );
-                       })}
-                    </div>
-                    <Button
-                      onClick={handleSavePaymentMethods}
-                      disabled={savingPaymentMethods}
-                      className="bg-primary-500 text-slate-900 border-none shadow-xl shadow-primary-500/20"
-                    >
-                      {savingPaymentMethods ? 'Salvando...' : 'Salvar Formas de Pagamento'}
-                    </Button>
-                 </div>
-
-                 <div className="h-px bg-white/10" />
-
-                 <div className="space-y-6">
-                    <div className="flex items-center gap-4">
-                       <div className="w-12 h-12 rounded-2xl bg-blue-500/20 flex items-center justify-center text-blue-400">
-                          <Calculator size={24} />
-                       </div>
-                       <div>
-                          <h3 className="text-xl font-bold text-white tracking-tight italic uppercase">Taxas de Parcelamento (Cr√©dito)</h3>
-                          <p className="text-xs text-white/30">Defina a taxa (%) somada ao valor conforme o n√∫mero de parcelas escolhido no PDV</p>
-                       </div>
-                    </div>
-                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
-                       {creditCardFees.map(f => (
-                         <div key={f.installments} className="bg-white/5 border border-white/10 rounded-xl p-3 space-y-1.5">
-                            <label className="text-[9px] font-black uppercase text-white/40 tracking-wider block">{f.installments}x</label>
-                            <div className="relative">
-                               <input
-          onFocus={(e: any) => e.target.select()}
-                                 type="number"
-                                 step="any"
-                                 min={0}
-                                 value={f.feePercent}
-                                 onChange={(e) => updateCreditCardFee(f.installments, e.target.value === '' ? 0 : Number(e.target.value))}
-                                 className="w-full h-9 bg-slate-900/60 border border-white/10 rounded-lg px-2 pr-6 text-xs text-white text-right font-bold focus:outline-none focus:border-primary-500"
-                               />
-                               <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-white/30 font-bold">%</span>
-                            </div>
-                         </div>
-                       ))}
-                    </div>
-
-                    <div className="h-px bg-white/10" />
-
-                    <div className="flex items-center gap-4">
-                       <div className="w-12 h-12 rounded-2xl bg-amber-500/20 flex items-center justify-center text-amber-400">
-                          <CreditCard size={24} />
-                       </div>
-                       <div>
-                          <h3 className="text-xl font-bold text-white tracking-tight italic uppercase">Taxa do Cart√£o de D√©bito</h3>
-                          <p className="text-xs text-white/30">Taxa (%) somada ao valor quando o pagamento for no d√©bito</p>
-                       </div>
-                    </div>
-                    <div className="max-w-[160px]">
-                       <div className="bg-white/5 border border-white/10 rounded-xl p-3 space-y-1.5">
-                          <label className="text-[9px] font-black uppercase text-white/40 tracking-wider block">Taxa do D√©bito</label>
-                          <div className="relative">
-                             <input
-          onFocus={(e: any) => e.target.select()}
-                               type="number"
-                               step="any"
-                               min={0}
-                               value={debitCardFeePercent}
-                               onChange={(e) => setDebitCardFeePercent(e.target.value === '' ? 0 : Number(e.target.value))}
-                               className="w-full h-9 bg-slate-900/60 border border-white/10 rounded-lg px-2 pr-6 text-xs text-white text-right font-bold focus:outline-none focus:border-primary-500"
-                             />
-                             <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-white/30 font-bold">%</span>
-                          </div>
-                       </div>
-                    </div>
-
-                    <Button
-                      onClick={handleSaveCreditCardFees}
-                      disabled={savingCardFees}
-                      className="bg-primary-500 text-slate-900 border-none shadow-xl shadow-primary-500/20"
-                    >
-                      {savingCardFees ? 'Salvando...' : 'Salvar Taxas de Cart√£o'}
-                    </Button>
-                 </div>
-              </div>
-            )}
-
-            {activeTab === 'Usu√°rios e Permiss√µes' && (
-              <div className="space-y-8 animate-in fade-in duration-300">
-                {editingUser ? (
-                  <div className="space-y-8">
-                    <button 
-                      type="button"
-                      onClick={() => setEditingUser(null)}
-                      className="flex items-center gap-2 text-xs text-primary-450 font-bold hover:text-white uppercase tracking-wider bg-transparent border-0 cursor-pointer"
-                    >
-                      <ArrowLeft size={16} /> Voltar para a lista de colaboradores
-                    </button>
-
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                      <div>
-                        <h3 className="text-2xl font-black text-white italic uppercase tracking-tight">Ajustar Permiss√µes</h3>
-                        <p className="text-xs text-white/40 font-medium">Defina o n√≠vel de acesso e abas vis√≠veis de <span className="text-white font-bold">{editingUser.name}</span></p>
-                      </div>
-                      <div className="flex gap-3">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSimulatedUserId(editingUser.id);
-                            showAlert(`Simulando sess√£o de ${editingUser.name}!`);
-                          }}
-                          className="flex items-center gap-2 px-6 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-2xl transition-all shadow-lg text-slate-950 border-0 cursor-pointer"
-                        >
-                          <Eye size={16} /> Simular Vis√£o deste Usu√°rio
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4">
-                      <Input label="Nome Completo" value={editedName} onChange={(e) => setEditedName(e.target.value)} />
-                      <Input label="E-mail de Acesso" value={editedEmail} onChange={(e) => setEditedEmail(e.target.value)} />
-                      <Input label="Senha de Acesso" type="text" value={editedPassword} onChange={(e) => setEditedPassword(e.target.value)} placeholder="Altere a senha se desejar" />
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-xs uppercase tracking-widest text-white/50 font-black">Cargo / Fun√ß√£o</label>
-                      <select 
-                        value={editedRole}
-                        onChange={(e: any) => setEditedRole(e.target.value)}
-                        className="w-full bg-slate-900 border border-white/10 rounded-2xl p-4 text-white hover:border-primary-500 font-bold focus:outline-none transition-all"
-                      >
-                        <option value="admin">Administrador</option>
-                        <option value="gerente">Gerente de Equipe</option>
-                        <option value="atendente">Atendente Comercial</option>
-                        <option value="caixa">Operador de Caixa (PDV)</option>
-                        <option value="vendedor">Vendedor Externo</option>
-                        <option value="designer">Designer Gr√°fico</option>
-                        <option value="operador">Operador de Impress√£o</option>
-                        <option value="comissao">Comiss√£o (acesso somente √† √°rea de Comiss√µes)</option>
-                      </select>
-                      {editedRole === 'comissao' && (
-                        <p className="text-[11px] text-amber-400/80">
-                          Esse usu√°rio n√£o entra no CRM. Ao logar em pro.rafaartsgraphics.com, ele √© levado direto para /comissoes.
-                          {!editingUser?.colaboradorId && ' Ao salvar, um novo cadastro de colaborador ser√° criado e vinculado automaticamente.'}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="space-y-6 pt-6 border-t border-white/5">
-                      <div className="flex items-center justify-between flex-wrap gap-3">
-                         <div className="flex items-center gap-3">
-                            <span className="w-7 h-7 rounded-full bg-primary-500/15 text-primary-400 text-xs font-black flex items-center justify-center shrink-0">1</span>
-                            <div>
-                               <h4 className="text-lg font-bold text-white uppercase italic tracking-tight font-black">Permiss√µes por M√≥dulo</h4>
-                               <p className="text-xs text-white/30 font-medium">Controle fino de Visualizar / Criar / Editar / Excluir em cada √°rea do sistema</p>
-                            </div>
-                         </div>
-                         <button
-                           type="button"
-                           onClick={() => setEditedModulePermissions(getDefaultModulePermissions(editedRole))}
-                           className="text-[10px] font-black uppercase text-primary-400 hover:text-primary-300 bg-primary-500/10 px-3 py-2 rounded-lg border-0 cursor-pointer"
-                         >
-                           Aplicar padr√£o do cargo ({editedRole})
-                         </button>
-                      </div>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left border-separate border-spacing-y-1.5">
-                          <thead>
-                            <tr>
-                              <th className="text-[9px] font-black uppercase text-white/30 tracking-widest px-3 py-1">M√≥dulo</th>
-                              <th className="text-[9px] font-black uppercase text-white/30 tracking-widest px-3 py-1 text-center">Ver</th>
-                              <th className="text-[9px] font-black uppercase text-white/30 tracking-widest px-3 py-1 text-center">Criar</th>
-                              <th className="text-[9px] font-black uppercase text-white/30 tracking-widest px-3 py-1 text-center">Editar</th>
-                              <th className="text-[9px] font-black uppercase text-white/30 tracking-widest px-3 py-1 text-center">Excluir</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {MODULE_DEFINITIONS.map((mod) => {
-                              const perm = editedModulePermissions[mod.id] || { view: false, create: false, edit: false, delete: false };
-                              const toggle = (field: keyof ModuleCrudPermission) => {
-                                setEditedModulePermissions(prev => {
-                                  const current = prev[mod.id] || { view: false, create: false, edit: false, delete: false };
-                                  const updated = { ...current, [field]: !current[field] };
-                                  // Se desmarcar "Ver", desmarca tudo junto (nao faz sentido criar/editar sem ver)
-                                  if (field === 'view' && !updated.view) {
-                                    updated.create = false; updated.edit = false; updated.delete = false;
-                                  }
-                                  return { ...prev, [mod.id]: updated };
-                                });
-                              };
-                              return (
-                                <tr key={mod.id} className="bg-white/[0.03]">
-                                  <td className="px-3 py-2.5 text-xs font-bold text-white rounded-l-xl">{mod.label}</td>
-                                  {(['view', 'create', 'edit', 'delete'] as const).map(field => (
-                                    <td key={field} className={cn("px-3 py-2.5 text-center", field === 'delete' && "rounded-r-xl")}>
-                                      <input
-                                        type="checkbox"
-                                        checked={!!perm[field]}
-                                        disabled={field !== 'view' && !perm.view}
-                                        onChange={() => toggle(field)}
-                                        className="w-4 h-4 accent-primary-500 cursor-pointer disabled:opacity-20 disabled:cursor-not-allowed"
-                                      />
-                                    </td>
-                                  ))}
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-
-                    <div className="space-y-6 pt-6 border-t border-white/5">
-                      <div className="flex items-center gap-3">
-                         <span className="w-7 h-7 rounded-full bg-primary-500/15 text-primary-400 text-xs font-black flex items-center justify-center shrink-0">2</span>
-                         <div>
-                            <h4 className="text-lg font-bold text-white uppercase italic tracking-tight font-black">Abas Permitidas no Sistema</h4>
-                            <p className="text-xs text-white/30 font-medium">Marque quais abas estar√£o vis√≠veis no painel lateral do usu√°rio</p>
-                         </div>
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {tabOptions.map((opt) => {
-                          const isAllowed = editedTabs.includes(opt.id);
-                          return (
-                            <button
-                              key={opt.id}
-                              type="button"
-                              onClick={() => {
-                                if (isAllowed) {
-                                  setEditedTabs(prev => prev.filter(t => t !== opt.id));
-                                } else {
-                                  setEditedTabs(prev => [...prev, opt.id]);
-                                }
-                              }}
-                              className={cn(
-                                "flex flex-col text-left p-4 rounded-3xl border transition-all duration-300 relative overflow-hidden cursor-pointer",
-                                isAllowed 
-                                  ? "bg-primary-500/10 border-primary-500 text-white" 
-                                  : "bg-slate-950/40 border-white/5 text-white/40 hover:border-white/10 hover:text-white"
-                              )}
-                            >
-                              {isAllowed && (
-                                <span className="absolute top-3 right-3 w-2 h-2 rounded-full bg-primary-500 animate-pulse" />
-                              )}
-                              <span className="font-bold uppercase tracking-wide text-[11px] md:text-xs">{opt.label}</span>
-                              <span className="text-[10px] text-white/30 mt-1 lines-clamp-2 leading-tight">{opt.desc}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {editedTabs.includes('pos') && (
-                      <div className="space-y-6 pt-6 border-t border-white/5">
-                         <div className="flex items-center gap-3">
-                            <span className="w-7 h-7 rounded-full bg-purple-500/15 text-purple-400 text-xs font-black flex items-center justify-center shrink-0">3</span>
-                            <div>
-                               <h4 className="text-lg font-bold text-white uppercase italic tracking-tight font-black">Abas do PDV</h4>
-                               <p className="text-xs text-white/30 font-medium">Marque quais abas de dentro do PDV (Terminal Venda, Hist√≥rico, Estoque, etc) esse usu√°rio pode ver</p>
-                            </div>
-                         </div>
-                         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                            {[
-                              { id: 'venda', label: 'Terminal Venda' },
-                              { id: 'historico', label: 'Hist√≥rico & Abertas' },
-                              { id: 'estoque', label: 'Estoque / Produtos' },
-                              { id: 'servicos', label: 'Servi√ßos' },
-                              { id: 'orcamentos', label: 'Or√ßamentos' },
-                              { id: 'contratos', label: 'Contratos' },
-                              { id: 'excluidos', label: 'Exclu√≠dos' },
-                              { id: 'clientes', label: 'Clientes' },
-                            ].map((opt) => {
-                              const isAllowed = editedPdvTabs.includes(opt.id);
-                              return (
-                                <button
-                                  key={opt.id}
-                                  type="button"
-                                  onClick={() => {
-                                    if (isAllowed) {
-                                      setEditedPdvTabs(prev => prev.filter(t => t !== opt.id));
-                                    } else {
-                                      setEditedPdvTabs(prev => [...prev, opt.id]);
-                                    }
-                                  }}
-                                  className={cn(
-                                    "flex items-center justify-center text-center p-3 rounded-2xl border transition-all duration-300 relative cursor-pointer text-[11px] font-bold uppercase tracking-wide",
-                                    isAllowed
-                                      ? "bg-purple-500/10 border-purple-500 text-white"
-                                      : "bg-slate-950/40 border-white/5 text-white/40 hover:border-white/10 hover:text-white"
-                                  )}
-                                >
-                                  {opt.label}
-                                </button>
-                              );
-                            })}
-                         </div>
-                      </div>
-                    )}
-
-                    <div className="space-y-6 pt-6 border-t border-white/5">
-                      <div className="flex items-center gap-3">
-                         <span className="w-7 h-7 rounded-full bg-primary-500/15 text-primary-400 text-xs font-black flex items-center justify-center shrink-0">4</span>
-                         <div>
-                            <h4 className="text-lg font-bold text-white uppercase italic tracking-tight font-black">Permiss√µes de A√ß√µes Detalhadas</h4>
-                            <p className="text-xs text-white/30 font-medium">Defina quais a√ß√µes e flows internos de seguran√ßa este usu√°rio pode executar</p>
-                         </div>
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {actionOptions.map((act) => {
-                          const isAllowed = editedActions.includes(act.id);
-                          return (
-                            <button
-                              key={act.id}
-                              type="button"
-                              onClick={() => {
-                                if (isAllowed) {
-                                  setEditedActions(prev => prev.filter(a => a !== act.id));
-                                } else {
-                                  setEditedActions(prev => [...prev, act.id]);
-                                }
-                              }}
-                              className={cn(
-                                "flex items-start gap-4 text-left p-4 rounded-3xl border transition-all duration-300 relative cursor-pointer",
-                                isAllowed 
-                                  ? "bg-primary-500/10 border-primary-500/40 text-white" 
-                                  : "bg-slate-950/40 border-white/5 text-white/40 hover:border-white/10"
-                              )}
-                            >
-                              <div className={cn(
-                                "w-5 h-5 rounded-md border flex items-center justify-center shrink-0 mt-0.5 transition-all",
-                                isAllowed ? "bg-primary-500 border-primary-500 text-slate-950" : "border-white/20"
-                              )}>
-                                {isAllowed && <Check size={12} strokeWidth={4} />}
-                              </div>
-                              <div>
-                                <span className="font-bold text-xs uppercase tracking-wide block">{act.label}</span>
-                                <span className="text-[10px] text-white/30 mt-0.5 block leading-tight">{act.desc}</span>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    <div className="flex gap-4 pt-8 border-t border-white/5">
-                      <button 
-                        type="button"
-                        onClick={() => setEditingUser(null)} 
-                        className="flex-1 py-4 bg-white/5 hover:bg-white/10 text-white font-black text-xs uppercase tracking-wider rounded-2xl transition-all font-bold border-0 cursor-pointer"
-                      >
-                        Cancelar
-                      </button>
-                      <button 
-                        type="button"
-                        onClick={handleSaveUserPermissions} 
-                        className="flex-1 py-4 bg-primary-500 hover:bg-primary-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-2xl transition-all shadow-lg font-bold border-0 cursor-pointer"
-                      >
-                        Salvar Altera√ß√µes
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-6">
-                    {user?.isAdmin && (
-                      <div className="bg-white/[0.02] border border-white/10 rounded-3xl p-6 space-y-4">
-                         <div>
-                            <h3 className="text-lg font-bold text-white tracking-tight italic uppercase flex items-center gap-2">
-                               <Wifi size={18} className="text-primary-400" /> Sess√µes Ativas ({activeSessions.length})
-                            </h3>
-                            <p className="text-[11px] text-white/30 font-medium">Quem est√° acessando agora, de qual IP, aparelho e localiza√ß√£o aproximada ‚Äî desconecte remotamente se precisar</p>
-                         </div>
-                         {activeSessions.length === 0 ? (
-                            <p className="text-xs text-white/30 py-2">Nenhuma sess√£o ativa nos √∫ltimos 30 minutos.</p>
-                         ) : (
-                            <div className="space-y-2">
-                               {activeSessions.map(s => (
-                                 <div key={s.id} className="flex items-center justify-between gap-3 bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 flex-wrap">
-                                    <div className="min-w-0">
-                                       <p className="text-xs font-bold text-white">{s.userName}</p>
-                                       <p className="text-[10px] text-white/40">IP: {s.ip} ¬∑ {s.device}</p>
-                                       {s.location && s.location !== 'desconhecida' && (
-                                         <p className="text-[10px] text-white/40">üìç {s.location}</p>
-                                       )}
-                                       {s.preciseLocation?.lat != null && (
-                                         <p className="text-[10px] text-primary-300">
-                                           üéØ <a
-                                             href={`https://www.google.com/maps?q=${s.preciseLocation.lat},${s.preciseLocation.lng}`}
-                                             target="_blank"
-                                             rel="noopener noreferrer"
-                                             className="underline hover:text-primary-200"
-                                           >
-                                             Ver no mapa
-                                           </a>
-                                           {' ¬∑ atualizado '}{safeFormat(s.preciseLocation.updatedAt, 'dd/MM HH:mm')}
-                                         </p>
-                                       )}
-                                       {s.geoPermission !== 'granted' && (
-                                         <p className="text-[9px] text-amber-400/70">Localiza√ß√£o GPS n√£o autorizada por este usu√°rio</p>
-                                       )}
-                                       {s.notifPermission !== 'granted' && (
-                                         <p className="text-[9px] text-amber-400/70">Notifica√ß√µes n√£o autorizadas por este usu√°rio</p>
-                                       )}
-                                       {s.locationDenied && s.geoPermission === 'granted' && (
-                                         <p className="text-[9px] text-amber-400/70">N√£o foi poss√≠vel obter a localiza√ß√£o agora (GPS indispon√≠vel no aparelho)</p>
-                                       )}
-                                       <p className="text-[9px] text-white/20">Visto por √∫ltimo: {safeFormat(s.lastSeenAt || s.loginAt, 'dd/MM/yyyy HH:mm')}</p>
-                                    </div>
-                                    <div className="flex items-center gap-2 shrink-0">
-                                      {s.geoPermission === 'granted' && (
-                                        <button
-                                          onClick={() => handleRequestLocation(s.id)}
-                                          disabled={requestingLocationFor === s.id}
-                                          className="text-[9px] font-black uppercase px-3 py-1.5 rounded-lg bg-primary-500/10 text-primary-300 hover:bg-primary-500/20 disabled:opacity-50 flex items-center gap-1"
-                                        >
-                                          <MapPin size={11} />
-                                          {requestingLocationFor === s.id ? 'Pedindo...' : 'Ver Localiza√ß√£o'}
-                                        </button>
-                                      )}
-                                      <button
-                                        onClick={() => handleDisconnectSession(s.id)}
-                                        className="text-[9px] font-black uppercase px-3 py-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20"
-                                      >
-                                        Desconectar
-                                      </button>
-                                    </div>
-                                 </div>
-                               ))}
-                            </div>
-                         )}
-                         <p className="text-[9px] text-white/20">N√£o √© poss√≠vel ver o endere√ßo MAC do aparelho ‚Äî nenhum sistema web consegue, √© bloqueado por privacidade dos navegadores. Pra bloquear algu√©m de vez (n√£o s√≥ desconectar essa sess√£o), inative o usu√°rio na lista abaixo.</p>
-                      </div>
-                    )}
-
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                      <div>
-                        <h3 className="text-xl font-bold text-white tracking-tight italic uppercase">Membros de Equipe</h3>
-                        <p className="text-xs text-white/30 font-medium">Gerencie permiss√µes de visibilidade de abas e a√ß√µes permitidas</p>
-                      </div>
-                      <button 
-                        type="button"
-                        onClick={() => setIsCreateModalOpen(true)} 
-                        className="flex items-center gap-2 px-6 py-3 bg-primary-500 hover:bg-primary-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-2xl transition-all shadow-lg self-start sm:self-center text-slate-950 border-0 cursor-pointer"
-                      >
-                        <Plus size={16} /> Adicionar Usu√°rio Simulado
-                      </button>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
-                      {usersList.map((u) => {
-                        const allowedCount = u.allowedTabs?.length ?? 7;
-                        const actionsCount = u.allowedActions?.length ?? 10;
-                        const initials = u.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
-                        const isSimulated = simulatedUserId === u.id || (!simulatedUserId && u.id === 'mock-user-id');
-                        
-                        return (
-                          <div 
-                            key={u.id} 
-                            className={cn(
-                              "p-6 rounded-[28px] border-2 space-y-4 hover:border-white/10 transition-all duration-300 relative overflow-hidden flex flex-col justify-between bg-slate-900/40",
-                              isSimulated ? "border-amber-500 bg-amber-500/5" : "border-white/5 bg-slate-950/20"
-                            )}
-                          >
-                            {isSimulated && (
-                              <span className="absolute top-0 right-0 bg-amber-500 text-slate-950 px-3 py-1 font-black text-[8px] uppercase tracking-widest rounded-bl-xl shadow-lg">
-                                Sess√£o Ativa
-                              </span>
-                            )}
-                            
-                            <div className="flex items-start gap-4">
-                              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center text-slate-950 font-black tracking-wider text-sm shadow-lg shrink-0 uppercase">
-                                {initials}
-                              </div>
-                              <div className="space-y-1">
-                                <h4 className="font-bold text-white text-base leading-tight">{u.name}</h4>
-                                <p className="text-[10px] text-white/40 leading-none">{u.email}</p>
-                                <div className="flex items-center gap-2 pt-1.5">
-                                  <Badge className="bg-primary-500/10 text-primary-400 border-primary-500/20 text-[9px] px-2 py-0.5 uppercase font-black">
-                                    {u.role || 'membro'}
-                                  </Badge>
-                                  {u.isAdmin && (
-                                    <Badge className="bg-rose-500/10 text-rose-400 border-rose-500/20 text-[9px] px-2 py-0.5 uppercase font-black">
-                                      Admin
-                                    </Badge>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="border-t border-white/5 pt-4 grid grid-cols-2 gap-3 text-xs">
-                              <div className="space-y-1">
-                                <span className="text-[9px] uppercase font-black text-white/30 tracking-widest block">Abas Vis√≠veis</span>
-                                <span className="block font-bold text-white text-xs">{allowedCount} de 9 abas</span>
-                              </div>
-                              <div className="space-y-1">
-                                <span className="text-[9px] uppercase font-black text-white/30 tracking-widest block">A√ß√µes Permitidas</span>
-                                <span className="block font-bold text-white text-xs">{actionsCount} de 10 a√ß√µes</span>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-3 pt-3 border-t border-white/5">
-                              <button
-                                type="button"
-                                onClick={() => startEditUser(u)}
-                                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-primary-500/20 hover:bg-primary-500/30 border border-primary-500/40 text-primary-300 hover:text-white transition-all font-black text-xs uppercase tracking-wider cursor-pointer active:scale-95 shadow-sm"
-                              >
-                                <Settings2 size={15} className="text-primary-400" /> Editar / Configurar
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setSimulatedUserId(u.id);
-                                  showAlert(`Alternando visualiza√ß√£o para: ${u.name}`);
-                                }}
-                                className="px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white hover:text-amber-400 transition-all font-bold text-xs flex items-center justify-center cursor-pointer border-0"
-                                title="Simular Sess√£o"
-                              >
-                                <Eye size={16} />
-                              </button>
-                              {user?.isAdmin && u.id !== 'admin-rafael' && u.id !== user?.id && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteUser(u)}
-                                  className="px-4 py-3 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition-all font-bold text-xs flex items-center justify-center cursor-pointer border-0"
-                                  title="Excluir Usu√°rio"
-                                >
-                                  <Trash2 size={16} />
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                <Modal 
-                  isOpen={isCreateModalOpen} 
-                  onClose={() => setIsCreateModalOpen(false)} 
-                  title="Cadastrar Novo Usu√°rio no Reposit√≥rio"
-                >
-                  <div className="space-y-6">
-                    <p className="text-xs text-white/40 -mt-2">O usu√°rio criado ser√° salvo diretamente no banco de dados Firestore e poder√° fazer login imediatamente com o e-mail e senha cadastrados.</p>
-                    <Input label="Nome Completo do Colaborador" placeholder="Ex: Maria Silva" value={newUserName} onChange={(e) => setNewUserName(e.target.value)} />
-                    <Input label="E-mail de Acesso" placeholder="maria@empresa.com" value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)} />
-                    <Input label="Senha de Acesso" type="password" placeholder="Defina a senha (ex: 123456)" value={newUserPassword} onChange={(e) => setNewUserPassword(e.target.value)} />
-                    
-                    <div className="space-y-2">
-                      <label className="text-xs uppercase tracking-widest text-white/50 font-black">Cargo / Fun√ß√£o do Usu√°rio</label>
-                      <select 
-                        value={newUserRole}
-                        onChange={(e: any) => setNewUserRole(e.target.value)}
-                        className="w-full bg-slate-950 border border-white/10 rounded-2xl p-4 text-white hover:border-primary-500 font-bold focus:outline-none transition-all"
-                      >
-                        <option value="admin">Administrador (Total)</option>
-                        <option value="gerente">Gerente de Equipe</option>
-                        <option value="atendente">Atendente Comercial</option>
-                        <option value="caixa">Operador de Caixa (PDV)</option>
-                        <option value="vendedor">Vendedor Externo</option>
-                        <option value="designer">Designer Gr√°fico</option>
-                        <option value="operador">Operador de Impress√£o</option>
-                        <option value="comissao">Comiss√£o (acesso somente √† √°rea de Comiss√µes)</option>
-                      </select>
-                      {newUserRole === 'comissao' && (
-                        <p className="text-[11px] text-amber-400/80 -mt-1">
-                          Esse usu√°rio n√£o entra no CRM. Ao logar em pro.rafaartsgraphics.com com o e-mail e senha abaixo,
-                          ele √© reconhecido automaticamente e levado direto para a tela de Comiss√µes (/comissoes).
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="flex gap-4 pt-4">
-                      <button 
-                        type="button"
-                        onClick={() => setIsCreateModalOpen(false)} 
-                        className="flex-1 py-3 bg-white/5 hover:bg-white/10 text-white font-bold text-xs uppercase rounded-xl transition-all border-0 cursor-pointer"
-                      >
-                        Cancelar
-                      </button>
-                      <button 
-                        type="button"
-                        onClick={handleCreateUser} 
-                        className="flex-1 py-3 bg-primary-500 hover:bg-primary-400 text-slate-950 font-black text-xs uppercase rounded-xl transition-all shadow-lg border-0 cursor-pointer"
-                      >
-                        Salvar no Reposit√≥rio
-                      </button>
-                    </div>
-                  </div>
-                </Modal>
-              </div>
-            )}
-         </GlassCard>
-      </div>
-    </div>
-  );
-};
-
+      // valor final desejado: desconto = total original - valor final que o cliente quer xúÏΩÀrIñ ∫ÔØp°≥@% Ç)ïLä2à§2eWŸ$SU”jôDâ®"ê>íE≥k6ã±YÕÊÆÓÆÔ, jÃ Ï⁄¥ıå˛dædŒ9Ó·Ó· )efU¡2E ˛<~ﬁèπwÊ%ˇ¿Ë≈ÁÒnêé„(ãŸˆ À&ÉôwŸˆÿâó«qÊMYüù{”Ó7Ù ˝õŸë7vCxseoºÈ"Ë®/ÛÔa‘…[Èi}uª‘ﬁÕ7ˇ ˇÆ¨∞^Ñôó∞›‡$Ã‚MÊù$Ûÿ,HgÀÇ©«¸ÄÕa‹≥ Í«Ï8H†ylvÊ•lûxlèûëÔ±?x,∏”ûÿ8û±‘õ¬+s∏âó†GCöAÉWÿﬁ´ÿ˜¶|¶OpfŸ4åŒˆ?HMˆ©∂,ÚÅCÔBÆNj.Ö∏∂ì~òçÊÛi¯]jkìe¯“7÷1º»ÇYZ√S˝˜ §ß6ŸÿK2π|G1LﬁcSò¥«ˆv_èﬁÏΩ‘÷,eù»ãYØÕÊ∏Ç—ÔöeâwÓ˘qó˝Ôˇ˚ˇa^öÜ3ú%47“4ˆx¡Âx∫XeuDó=h@$NX÷Ó«-Ë'dë«&q∑ì‡tdaª {„ác/ŒW¿õ&ÅÁ_x°ˇ<NépÆ,BG_Ö?˛ﬂÉ&Œû/¶S∫÷Ö•◊ƒT“ó0ö¨˙bt:È&2Ô≤'€æ≤/Ÿ|péª”c√.¨ﬂ–æ	á¡Ã#h≥Ÿ,R´æ}í}˘Ë^î%aê“√N9Ç(⁄h>ÿ‡ò7 7„`6J±60ÎÎ¸¨™”‡œä„L7ß¡8¸ùEö≈3y0?_¯0Ωk˙õÃºG ¡º˛Æ·Rµw Ï·∏µaE&qTzÓ /“Émvé`MãQh+”y˚Æ∏µ[¿ng®Ãc<Åçü∏¿b©r	f¶Òq¸2{”]/pú/¢˘"≥<å—n+£‘QÄŸ´ õƒ~G}`Øá¢Y±≈)ÙØ_ pôwÊ∏Oùk6ÊÏ¶ã˝™S-#YﬁÜØaX√°˝u~˙;OŸÎ≈Ï$ﬂmÌ¶9{µEÄÍ†”¶√n<°a;uc^§ âÿÌd	Ù¢ÄQ ÷ô7éÉ±;‡6—npÊ±Œx
+8„<ò≤`∆éÇ‰<«È k8/)^¡D ,Û`N3≥ô«QœÛ∆Ì'16®—ôÓ&ùg¯Ù≈C46ÛËi¥F}#∫à9˙¸uÜ4ÜﬂÄ∑æ'⁄(n ÓÏœÀπtº/8ÙÎ¡¡H ”XéH^ËA˚3\$ﬁY‚≈¬a∑¥q∑ÿ‡˘ƒ/âŒ„˘béO·XÁõ1qDQÙè∞Ôa^DË@2£`(ﬁK¬ò¡@êàŒ~æ+àªaQ¢˜í@ (íÄëy
+{»GQwó∂a√^Ic†ÁÈ8	ŒÉ$'”¯∑dáÈÄçŒ∞/ G≠ÍÉ=(»[6ÚóL?¥8e=‘z|3K„ü¬h#Å„KûÜ≈¯5í9»QÓÊ3pü%íyûƒ≥‹X$ ¸Q/>Í¿Xx´)¬*=kûÿ©l€yÊ‘ôÌS8,â2)/Ωä∆USOYÁA«ª¬å•ì¯b'éN√d÷˘ä!d∑¸–ßC˜≈5∏D ∆Ç@‹ËÓÈ‡Å˛eã$‚3‚cç‚ã)r©Qp¡pA:›Aø8⁄?ùu∫Í√◊‚DIKyÉS‚c]Ã=‰Iß0Y@d!iª;XÃ}lÒViÿölë¬≤Œìÿ_dÒ{9<†g¸aˇΩóm Q›t¡èùvË√mömËw)ëV90\2NFák6ö⁄Í|x˝Òø«Ï4p”Ù„_ÀŸ–&¨#Ω>ò·ô8n>tøëÀ$¯r⁄B∞æ¯w0¢≥l¬û<yÇ\è⁄oªaøƒÊ€9¸9ú$¸LJ|é_ EzS∏Ï—#∞˝‡*9`œÄFƒ$'	≤©í°GÅ`–.MB∞ÖŸ¬õÜ?aÉOH\÷û‹ü#Áˆ ÏzΩ wi§lR~@F”)Bu˙Í8πÍÃ7!p„_"Ã)±ç∞ã¥tbG·H*√⁄diW'Å¿¡˘ﬁ›+∂ËÄ/:míu_¥›ß9»¶∫˝°ﬁ≥ë?‹¬@h©Û˛3üpâ8ﬂü∆	Á;?√ë∂rü„L[;˛•jÖñm2`-Ç”0
+¸øä3<RVùˆ‚„_¸X;º¿ºä£yó¯‰?YÖî≠2ì»¬(‰˚·pÑp%¬˝Nfã)±q‚≠VÊA2Üwad=ﬁ>>‚°h
+◊ß^⁄ÆÛy;ÑßÓÄBß	HÎxPˆGU¡ƒå¸K[ˆH¸†‡}øOÒJÊ·8Á¡4f'¿ì«¨ı%Åî∆ëó¥`–Ú>L%â≥ ƒÊ“ûy∞ı8/éπû£F'¸)Ã^p¬kƒÎ◊…áìèÜπà‡uí˜¨Ë¥[0o'ãpÍ+‚‰bD‚£êy^\Ω«˛»◊ Gâºçƒªêo j/à+  ¡>eCÿ!SœhhQ¡‘∂P¨‚M[◊.Ñ¥Ná‘FÏ∑˘H∫lÖ≠áàüáó p≠ë(oË©Ëoã–?ñ4K˛v.î?\‹
+a–ﬁtJ"+"K¨R~Fã'OÉ‡Äﬁ˝éHô5	“|ﬁ®ŒÚ‚˜cí"„vW¨?”`¨q„Òp1xî∑ÖƒÔy§Üﬂ9≈≠=Ëç>q5€}:PZD9[v$WLnP±ÃøeùUêLî˜¯Ni[%î©,ò¬i´]üƒæ6˚Õo}SíÌo∞≠ÄÂÈ˚ùÄÿàJ^zp 9÷z¬i¿uJbbH–q
+„“≈ß¨3U•ú„0}ßÙ\w¿≈ ÙW≥ÚØŸåVxìôkﬁcB?à4g”òPOƒû∫<7&6Ê|”»˜]◊D*!ú'Je3–„πﬂE\∏Ò¸„øÆ<Oíp. ñ	rY«&Iﬁ[TF¡˜°¢éz≠·´≤ËµıuVã'æ∑¿DÁ‘ÉSP<S~†]fuâI	4‘k˙ó˜Ëb∏c™D›OCdr:ù˜∞≈ÙV»¿·É∂#ÖPhíÇ{¡HœMÇ0!R‰!qS¿ÑÁ$˛fI<˛Ólß˘#?<íÄËrÒœ˘ÊmÛRÆ§BÜ5¿≈"OV ı°°»Ëe8£∂‡—|UﬁÜÈëw0åΩsç);P#P∫ÒéR•‘MPeâ#Rõó`ÿ‚≈Bñ†YæA0∞¨;Åmj®óü"€Á∏xS#L™
+£4‡Bá¡Ó∏ƒy|ƒdÂ!ÂƒÒMß≤GÅ˘;cTª]—¯∆9gåy¸ßjIí"ÌK—£FËíé.v®çn™£˝R]MÍ∞åNéD=≤I_!…ª|T”ÿÛG BtÚ∑ÒòyÈ‰0·y†Ë≤U÷ı√· ücSˇ 	ÊSoGs „l˜⁄›ÍRL'ˇLÀG∏DBs.h;∏|»I·ÿÀ∆öSW€ÿ8mö[ßΩ4ﬁS¬óMÔn≥M°e66ŸH6€ö¥Û±ù"c:- Œü*&ª…Qú±Ω”S;:VR-6SPÅ˝ıª™∏⁄Uõ∞LËOøæpí'T#¢›ú˜∞7æmm∫=CiKÆÍë”ie}?LΩìi–èÇÀ¨W8œﬁ8ÎO‚¯át%∏úx∞Ô j}?òß∏2=ˆVÔÈås±⁄#Ï¡◊∆£åvàº≈˚Caróàﬂ$˘›Æ∫ßØçªˆ.a=q!U⁄Û∂Õ∏˝NcåÓ∂<÷Œ≈*AÀ˚“î‚ü@‡&¯§fÚ√»baOPtDBñﬁò+¿U>AHãxKJR∫≈∑ìÄ6É¥)Ï	 Ò Aíçƒ„ß^Å!ë¿YRßC€ØIfõó®*@≠;4
+xﬁˇß.CÔÄ)õÑ…E∫¯¯o ÷*·‚AX20È‘D⁄h–bß8¶(≈°!!ç‡†—D˛ÒﬂÑ◊ @p≈Ã< Î∏
+\”„Îèˇy_∂<l—Î‰ˆu€™ÿÎ Ö#Gs.&CÄ•ör‚û~¸wM"[fO(b>˛	qòüO≠S/˙¯'x¶ÿ§(à&h˚∆·Ä<NØ≤)Ä;ò»y Î!;˘|äù
+8:¥(j:üB¸ ÑŒŒCxHÅ6a_·ÛW&ÅJÓ"ñ¸„üë]Ç¶=÷·™v÷"«Å.y}ËÑ3Ä˘™JàﬂdÚ1€Y¨mw@kÿ[h• ‡ë≠J<FÌºAC≈‰¢|èHá PO…ı óN5Ÿç´êJ†krƒ»–+tVÖ–B”gS	6€é©xªvDäπ¡˙à°>h∑+%Sõí¢kpaÛ1J;e>«@W /tA©S:j∏Ê=ŒåYé3ÁúÓ'óQMœÓ=“≥Hó˙JˆJŒ$n'TπíﬁV}g¥;R—0ä§Oìåì–CµöœœwÊ…æ	oµâA Â†cB0¡Kc°Ö<ÖÛòHïÂåd|ñç—Ãﬁ#Y'[p]?˜∫˙)îWøãˇp	„kù≤ (V<V»Óﬂ(7∞Áﬂ≈`]á=&˛”‘iß·Ã“Ä∏ZºΩ∂ﬁcøÊˇ˝ı◊∫F¿”…⁄§\„∞„Å@R∏Z&ˆÛ€›¸Ÿ©óΩÚÊù≥ ;ŒÉhÏù£ÏãŒ>hÛ5⁄‰“Áµ‘ú®£ÅÜ\^áª€O‘•B%äLbé œÁ≠Kœ'o<Ë:ßáÔ `@´πÔ”7ñçiËS•?©è-‰=ÄÓ
+≥	H8s/Ç{ƒıˆê‰èÉ	íX yÈ  §&†Ë˚ﬂo"E!úOzl¬Û¿‰öç(.ÿù‚†Ô_ê¡∏#õ&çpÇ†´)¢QÖÉ∂éÓyª%ÈZz—qÏxrB¿#ï£RM'¡Yàî&Y˘ë˚gËﬁq‘áé2©^ƒ-‚i¨tÑ8«ÒB6¨Íı˘Ñ•ö%°X‚êt†Ü9ﬂ©17∞$)∑7®úÑää8ÆPS¥ ´é^ÌÍ)◊iœÙ¥GﬁAß˙˝›HüL«m∑£_Gx˙qœ®eê∞£åJ#©Üä»—i◊Jå,Í∞&
+±f*±j•“µ¸HMΩ+`]¢‡
+¿l˘Eâ∑Cie·˜N{ÖûOW–Æ’G•öê≥˘z1zk RˇUß; a]¢Ùõí[åjè¸=ôh’”8oÕU∑#8sÚôJàèîˆGÚôñ6È,€“=¡Êÿ	†ÂX∂Ú%g8ªàÄ@Iô(~¬Q|éˆcÊ˝aë›Æ7∆ìôr‚*;ÿ}Ò|ÔpÔıŒàõªÖ‰ìQ∑M»ktîôGŒLD£} —ürbâ∂—F\%tz®Z‹¯ÉÏ±b‘‹}Å;0º}-û±›^—<ŒÍ,Y'ÄãÄ – áb¢˙0Ã;ƒ· ‚ÉÂö°_X\¥.p+¨ ÛDHC8{¡©£Ez“–eàÈ§z%]ú ñ-‡ª:z·EÃeµáCaÂÜ6ødèÜ(ëI<ƒ9·}∫¸Ñ≠ÆÄx4Ïÿ=û’¡+´}äÊI!Wág®´Ûh∂»)Nq˝ N·»·÷ü{!˙¶êòÖ@Ë√[1ÕGÏ∏<}‘¸¥>ÀC≤)YƒóÚfv!πR?–∞≥œ/+qØﬁ Óﬂârz†@&|úÛNÚÅ®®á{yÚìfú3E7éß:[H?óB^Á GG-•°§y√π—ﬂC'z2⁄ﬁp ÓÌâ~ëâÀìËgg>[∏DVÎ0ª ’	Ï8=I_å˚≈è|Í∆®F4˙M<’q‚o•dòÍ	ï˘6:C‹oñÉ˘áç~˚Æ; ≤æÁ!ˆU¶xM%êébúΩëMTﬂ:Û".≤i£z´<á&ÅN≈]Ç5Äe±;ayP«ƒ_√N5ú6;Ôqrÿ≥kjÂ{Õ'ñ≈@é^¯¬ÕéÇ¨É‹œ˛…‡~ÆR}·h⁄o„ ∫Ôîˆπ“¯‚Yò‡:#D/‹¶ ªÌí7ä`«Á°Ø0’Í(˝`
+Õò1<.g⁄7∑π∏˜ç“.ºhÍI…J£ˆ«Ω±6II∆≠N„à–£°qDxSµ«ãE–˜p¸∆?ÙHM‚©˜^ ä∂b¡)√\ùG K”†So1 ì¸«¿lî†F»%Í˙©ËN‚·u§Æ°h[7_bZ9m|¨vIr{ë÷Ê¶6úc=‘nÚÔ7].—©ì*8îÌ¬TfOàÅ∑êÇ]âxgûå€z‰©¿ƒgÔ1‹ƒe9$á=ıqˇ=èF)ø	ƒZU=≠-ä¿ïrìsº‚lì¬[‘F	áÛ∞-ı2Wã*d(∆{¢ÓõñË2À kˆ~.ÂÓú´è$¬÷'€µ>$ÉS6ê¢>+=§æ π@$€RÄ€®W[}7>A?^ä˜qA˚≈€ßMãªàÓo€ÕªﬁH@⁄•®xyá_ëÏú´hå{Ü∑	€¥@Ö|VÌOÛ9u∏ÆÙî„\˙2ÉPrM%ê´¥◊ªñÚóph{‹ ª/=F#iKÆÒ*πà¢œÇê—HYr+ø“∂ä¥Pä∆àTà$»€Ì'“≈(XÅñv®˚y˝≈%†í«·£íy\ûÉ∞@©⁄6<í¬[IÖûRHä√y	ôúàwo†ª–Oﬂ‰}"
+-ÌJ,áä±reò#ˆCÍüqÖYÌãúYz˚Nﬂ.≠S≈¯©”∞2'°øá,z@lk§…¿”˘Ë5≤§¢1i”ÒETØY5ÿ˝Æ“kW◊ìZâ≤o7"ﬂ®4QPÆ|mm»¸EIqbqÿ8KSØÔõ–‹?ùAÇéõÙÆ±ySAk
+wlÉ‡4¢7o~‰∆:G›+˝^Héµüú8|V≤3jFuä„ôŸK/Õ§QÄÀézFï≥L,\È»+U<¢êÎN<‘7E)≠:˘8π›JDeÊZBÆI;‘÷y§b∫@;Y åÄ«„i|Ü:õ(f2kÑ„x†Œ`…†°Ö-QÁL^ˇÉ4N≤Nxﬂí«Úu=)∂†;8≤cÄùä˘ûı	-.ò–p¿zÛ/“£≈çñhAÂ°RØÆ•V°Û˛;JX∑xd∞R–-ghF°óﬂsÖÑã€∂∞pŸ∏h©ò‡ÈÊæÅJîÉ∞ÕÊK◊∂&ÏÒ—˙≤Âg[mAuçJëÇ¸9<‰Ñ≥Ù(\F¯I2Ω„XM–ít?Iˇìˇ@JQKOe–w· #0	∆¿Êµo>Suü©_7ìz~K>õ:˘πV]6Ωêx+äQk^Ü˚Pä⁄í@hùÁk√£hò©ŒÔ‰Ã≥™"Jn‡{âml4:`!é,tˆBôÔic5iÏ≈~]ª{o* b6Àxœ2≤∂Ur≤ÛA7Ûr_lã∏&˝>\»€í^5ñ¸r	∫"∑∆•i=	Mù(}{—÷HvÛ◊)◊÷ä7Lóo¥EÈ±[ûñª1˘˙9`ñÛ∆v`ÿ]Œkv‹ò¥3Ì’ê≠£.«CèﬂÅáIZò∆\¬)"Mã;¨êôΩr
+ƒ∂⁄;A~;Ñõ!Ê^vix)@Ô.TsÃê‡¶º≠¥´ˆw{û]x¿Pµ
+é›ŒØKõÛ}ÒÌ&˘e3ÌMF˚…8v=CIôÌ˛sÊ’iôîm¯ÑÏ˚m∏syV>˛˘ƒ≤R«îÁ^g™Á˛}Ò‰r‘èyQ∂ŒÓPÜ∫’1DƒCcÑ◊’<àOYÈ&Wl!” S‘Öôõ¡‘¥l6Ás¥Zít’9Ïyã.jñ˜õ\T9¢ï+ÜÊƒ»£Ç…(.ÂÜj¬ﬁ≤Ÿwı”H”Ä°≥ÜÍ√Èxëw!`4≥Ô¥bUºVó"∞+Ÿ≤å®ÿôMD˙&-UïtÄ‰åŒöp
+¶ºL(¯≠~5·ŸíÚy…¶ëeJ 'b~EˆÓ˜sVHuJÙyr°+äÙ}“à"+A„JCË{ùd0a<éﬁmB2√vÓ£™Ωmf»Sî»hl¸ ˜ﬂqçDÒEß{ÛArB»õ¿πF˝±Ërá_ë⁄„6å÷[L≥úwØS9õœ’Èìe*=Ñ¥gﬁt8!ÔÀ•Ó’TΩ∑‚ 5Óœ<_Ω{hºüÎ±πä¢çãÈ¶q@Û˚Ùæiﬂˆ
+(ü
+B•IJñTÆßä¸h¡ùÊ;W®lÎƒù!’NÉm’õ´™9∆Vp‚68—GB÷¶Î"Ö–ÿ#<ıD£–w%O QvïŒ⁄ãáA
+0ﬁ\¥Á/+¢Ωaß/gçÏï≠6¿/àSﬁR≈=!"Ò{ÜD◊	à\àe-k¯£ÙõÚ∫ñ¯Q?ıß¿≠Xˆ$ÿµÚà,òÙKπ´k
+,y5K“ˇí∂˝‹ÃHN¿â˛Älon8-ø∞¥ÚÁ¶–!R√i®Zï† ˆƒv r©N‡3/ºÙ¥Ã6AÓÎHa–IÉ‡IÙuÈ˙√›û81-"ä[=ûE»/pˇG@IêÆÛÊBäl»`Ã't0≈®…éb˜U›üÅS◊®:ıà•¯â'‡¬9J`Ä&Ç5@ÅQ˙≈ñ- ‹]è€≠©]Ù¥ÑøÜõû~EÛ‘S=Ÿ9√ïç„¢3ü/ÎﬁVï+ß"†?µ>˝[~Uzk*œoÚ!‰~û˘w„ÙˆTó‹?©#\Êf™;úææNœ∏{ã°¸!ÈG\$ê©tÜ+˚∫ΩÎÃ˙9h~neÄ|´‹-93‹¡√ŒX‚^U7»˛‚·!\ß∏/ñà!ˇ»‰Öà˘Ùnzé'£i'=Œ¯…¬9àÇÌ‘éømﬁ‰0Î{>¥ ◊‘|‡ã?PÏ'ÇÓbßˆ¸!ﬂƒ	ÑNßÙí∂y¨⁄≥ˇı?â£ZDÌn◊Ï{ÉËÖ√'¢4¸$‡^‚!úÆ"3‚?~q-hæ?Hß·8ËÙ#ˆ˝|$;∞/*#_^á˜2Da”ªäw@ó/) £øp£MN’á‹‰D©´íÈÊƒÂºÛ —ï@?˛If ¢<êò%.ø∆3VÏƒë»+G™8N≠æ%ÀêBÊ §Ò≥J—‘o≈Xvó†<UÍò∆ÅzÜülµô‘√UîÆyyiﬁ÷µO7˙
+∆“îe¡yêÁÿÒÊ"C\§,1é¨∞–\Uœ≥Èt{<ıS#Nx;zêâ~Ÿñöß.π’ﬂVΩT¿t·˙|m;› ÉçV°©≠ˆA„¨6¨"gç<9
+ÎÛ˝ÀΩM6ö^xW©…DíÌ`eˇw@∞¬pbÿƒKŸâáëA€?dÈ<áß·òãö¯OäVdE‚uROŒÈhí°b¿:/„âuäî#Ì/äåﬂáe_‚5@5)†Czoâ◊(?Ó«?≈ylrÅf"Õπ¡òjı(e¥‡˘˛n<Óå„)neGˇ§«⁄"7/ Mœ`*4(öü‚Úπƒ§ﬂ‰ Y-82VÔ≤›÷(ã3˜h‰éë∏øæ∏.¢zn.˛§åE∫É?ƒa‘¡¥GíóX–!ïµe˘°Q»1•:v§*–<¿ìÇhw´‰X&Aª‹ø€£Õ‘E8¸°Q…Åò‡lŒïc53¯_TvÉ”i£éçDç#èÏåË—†múÁ•?	¬∫∫⁄\PrëUU9Eì ≥ûÀe0¯P§"EFåÁ¯≈¸˘õ∂∑Eä‰8ÙW|ÚÜı
+StDˆπ<G©›\õKbππ.ibØã0ó∑‹2Ü;ìé˙øu}ÂÕu<™öì&Z@;(æŸºáÅ∫∞Â˙[J`≤À0˜÷lê|Jn¡UßÅ»e… Ú‰)¸e≥o≈\ßgSPQõ›d◊d7
+ÂÓ<Ö∆!ÑÓç^Ê0!ãÒ¿u'tlüWÅVÉj¢°ãVI%Ø◊†ßÈ!˚Î)f—¬ÅeÊtÅÜAÀçÆ{ô7˜∏1πã≤›$∑†Sè≈My˛í®!”!aÇ© 3ªyê5◊Ô€çŸÊzâ´çñıK9Ê√ û%|ÕN˚!Êπ∆M;,õ–*`Wy]
+ãÎ°ªñå€ÚË¥Y∫,çncµe1	 Ü’RÃ∑a˙˝∑hÕSëÏ—∏ZôÈëklüáS^]‚08Öß1Œ ﬁÅü[ﬂøzI˜ˆ¶ég[r·ˇêg‡:$£$,eﬂ∫S†&qJ∂¸à∏ó¶H≥ü¥&˝∑‚ﬁYœ'˝«I0Îæcß”‡í≥d}Ã0ä!√·Èï¸ÈE·f—# dü˛˛«3¯€ˇ˙!Ûâá¸Hˇ·pÿ*¢∂æ≈n)æ2 ‡]˚˝ôœ.˙ßòcﬁ_Rí(ŸW:˜∆Aˇ™ˇ®•JòÛ∏ËØŸˇ99Îc1ó{_YmÂWXÇ9øˇv}m~Ÿ`™≥À>ÍŸÏƒåÅÃ√;a2Å$Ö√˜‰zcx√V¥qÆ¿@µì5u‹4∫µÀ)ô(ÎüƒSü¯bÇ9eAˇ  ‘øÅØDg%L˙‹fk{áÙqòˇ®ﬁ÷ dMÌ‰`Âút‰œ`oûÊ€/∆†œ.ÃKc¢¨làıKg≠ÌèˇUîÇ·	¡dﬁ∫1Ñ4´Ñ“π´*ág nzÉ≠ïy©Àgã,ã#}	&˝’ﬁÎÙ¨≈‚h«û\Û<t∞T8ÁÿÎf{D√·´BÖl∂Vx∆ûiªÉäxciö¨ƒ˙Ö…aÇ>¨ëìíãZ¬=“¥e¡ö:ò›2 œ“ì<yú}µÃeÍa§[+˘·ëO(ê≈Qíô8ËixèP≥õß“S_-Ä´h(´ÃÈ*µ©|îªË“Woyí ‘ﬂ¢‚p∑O1–±›cö˛@V†„,ÜK+âp{	N®»á"ﬁ∫7¢
+ÓJvjÃ XÛ$€?›ıÆ¨,TqªíÖ“†|~B«üí’]ô/Ú°1VEG∫và™éX·H9Ê˘GrãO¥ƒ-!¢"å Eàò3GdÈZÅCæXm;q«ù6 v ◊ ≠cô·
+!Sëpêsıl⁄Èh}*ê“ô:E›ãz∞π&œr#Ë‹–‚éc“ΩØ)´ÇtàÚù‘∑SÈå˜të+ŸUì)¥Û'-˘‚aTÔ_Õ©[RıíìŒl≠M˙⁄5W’Aòytª¯aº›ŒU¡B›f LPKçÍ|	øø'≠
+NW,´ÚÏ‘KŒÄ®∆”?ﬂ'[…˙ß]∑˙YnL
+[æÃ.€GÒ≈éæ¢zdõºÑdúºı…î®◊≠∏È*gè‡?
+ı(ŒÎmr!À ÷üºdπ‹« ã\•9`oÇ$<)3ÀÇ$œ‡ﬁ´ÕÉ,π=˘±J8W˙&Á7‚l
+ésû<„…Û lg)É‡)o$ ﬁ¸â®*HüﬁﬂÚÓºhI/n∞»’tËdqzJ¬4G-ÿ‰Ärˇ<£'Ò%IÛí4‡Õˇ~ö^vx+ö»äOö}äs¨l ÂtÕÌîÁﬂ+º‘—àÀÊS`éA∂0^∏I∏£ÅÑfaJ≠3]Dî2/˚¯o∞ÇíÊ?zzèmRsÔ
+ï≥0/4bªƒ@sÜãáKK'º5\û5^öáÜÅÃL	ß◊Ö‘÷ï=@ÙÓ(ëìT˝TÕ†ﬁ√∫•◊Ö≠Á¶k¿â⁄)áÄÕ<¢„nÚ(*øBº¡°∆H6Ç∏‡àga\Ê7QŒÌêwΩ∂‰	x¬k_>)ﬁ∑ÿ–b∆≥µ“{‹ÇˆEÂΩ≤â{I j◊∞F?êu≥ÆS]9Ω&'S®yjZı=Zã¸‰±¯îøjœÎ"FøâèÓ-7èDaˇäô»v∫⁄vÊãt“˘≈5‹hÁÇzTÊı––yW∂¢V”∫¢Y+¥™>¢d~1Œ/éRõ=oÄ‚v¸≈µ“”Ô∂ìvYHH”£Éç˛5˙‚⁄“∞Ú¶ ∆˝Òf≈ªÈfÈ=y¿çÆ•~˝_£v˜∆⁄<¶¶Gï˙áç‡∞≤ÄgË∂?⁄áGo>P`’˜ŸÑ°%ßNj=°g{`∫TWxÑ;h∏hZ(∂S7∑πÉÀóóı wPsì,ÍIe}ëd0ª]íº7êá⁄mìE–ÙDe-IÊ¿Xı'˝∑á√\uÇˇÙÅ§°⁄%ù¢NËÎ·pÂa°gπ&U§Â8!N_¸í5ÄQ|$ßSxf˙~ŸÙK úÙ•èX°üÑgì¨ÔP5]{∏O«±àÊ7øQ|úñrV’œpVºKº˝´˝`)_*”1œû]Ω-}√EyYËÊ`onîã%ΩG∫‚°uäÈ≤Å˙Œ˚åOoÉ˝‘‘Êù¶”jæ÷∞–\q4ı∆?Hõ_¬“ÃØ˙Î˘.¨È€†¨ØæÆº˚≤RÏÃõCk\WW(°1Æ0Lgõ¸^:kÈ>•ïî—hyΩ?èCj|Ç€øôœqÊËQ ¿f:∆T®_?‰!O!Ì4úñ†íVÀÆ)—‘=[È‹”TLÆ´≠mDr\øµÇOkÔ_óá µµ3	ŒÅk?ƒ]äø’G7j?È∏å˙√[Ÿæ—Ft¬’^ÏâåÃ¿?yöÉpã±dŒu’MIG•=æû˙uy‰H?J´	|1≤n∆^‰ﬂﬁ˙Ω2µïÌ≠ïCù¶©6Û∏^˘-;ˆNÿkÔ<‰Û`ø]ë7MºR†êãƒõ„–8Jxàj`Ñ*¯3xH–G?È\ì9)!´&˜$».¿*≈‹4åPtTåâ˜Õ·Ü‡¨a©ÂŸ¶ºD⁄MQ|≠˚ƒ]ìB∫WÅh} ª›>íçø7B õÏhœÁ@ûygÏ¶gk(7H*ç°¶Í„øìïÚ7º0;pP≤I°∆r4'›Âä∆§óeÁ⁄Ÿ‘≥¯“—L* ¨+ÌH#tÒ˙Ô–ìl‚hAqs*⁄ÿœùÆäVê–Õ1Ö@:	Ä∑7'=©≠Ì(◊ä∂é·‡∏Gƒ˛´çÏ…r¢E+«âóN÷\ëN= 8äKºÅÔa˘R¶"éw¶ÜSÁ™âôü˚ÁØÇhArÁY^dr®s∞2m÷ÂeıÚgz‰‚≤Cﬁ53ÈÕ‰åÙÜJ+œ∑rRnÖÁ“¬ë¿}8^Ë
+GM“O◊å∑Ú«V≠èïZÎœâÀ‘bü˙◊¯˘ÆTΩfÄ‘JÎéÈh⁄ÏlüàtƒdsÈÎ¿üê«˝6√%b/±ö‚ùpÛ»¡Óõni‹∆Nö´"(ÔÙÃ∫¯∆∫√∏À+œª¡∞^¸úáixRËh∏NÈ∆ú˙‚, û¿<GÄHC]œ|JÏ_Ñﬂ	ØX+ZòºBe‰.œ˝ÅnªÇÒÒ@˜„ã¿?œÅº§4nºa\/ú∞ƒº´&$Ó†“…ÿs‘´à7ÏCú
+ã˘Cpı‰öwxc‹*€ØFƒ€¿`≈eA0ÛÕ,Ã¶oñÖyøÇôƒO´÷¥©ë6IÙ¬(D∑‰!9æÏØàõ‰?Øà KærÊ„E˘kz∆Y–∑_ì|P0¶π›≤∞hfúyömj6Œƒ‡ÙQvnéb$»âO.®Ô»f;1OÄ—MÆJ|3¸Ï%Á&uK_ŒëJvDa©ËRÀÑ±y%c'
+é≠d©Î‹‚lS>*ﬂX◊∆Ü÷Ül`∂y2ça…´Z2π‚‚›0Bßq‡è®≥∞≈¨ÃbA’\©YΩ´Ÿ≠í†Å f·’Ïá/?_¶—SﬂQg»rJ]π˛Ä8m©0†f„„ˇ;Õ∞æg°§'Î- ¯Ú1Ú E!≠Ü"Ë∞=œ˙œ€]ÆÒ825¸mΩﬂ S\Ü/˙èŸ˛Wé†ê±çÉî/®y~ÚıGFÇº…Z+'d}Hg¶Ÿ√∫@Ãê˛˘$‰âS∆_ï7∏◊Ü~æ¥”e@‚apöÈdÁBãıcMã	ÕhI—7Æ∫’-ykî·˙∫£$å˛T	“à|o”ßä˚Ôÿ†å”ÄW˜‰æ
+m†Dö2¬–6ía∏<puêù^¥»%DxBòh™ÚË5Ä,s√õÔ{ÀQﬁt∫*˝tZçX_∆g˚ãLŸ˚ïò Å®ƒèZY’]3üìKTu+¬·§_Rf)ÏZßTB4¡¬ŒAÅz'§klü†±mÖÌaΩ•Ñ∂ √ıCœAÏê"‰¡˛˚ @‘o)‰o˚ÃÄSTÎ˝”ª|ŸŸÃ˛¿<˘mÓ%fΩäﬂ¯£oˇÒ48˝zºnÍÆ"#±∆Ê'…ÛèÄÎÀP“˙ôRµX–ñπÈ\«œŸ3ÄssrÆù3◊@ø¨CÅs~n™ä'W-£sç†LÁ§JcÕ⁄∂£äˇ∆á÷AüÉÖÏW¥˘®íïh‹rŸwÍÌ#‰ëÀ£_´√z∆Ì™|%ø≤WZ€áﬁ©«FIñ|K`∑∏ñ—XLøª[nÕ∫skÊµK÷l∫|rˇ8ÆˆG/æ9&ükäé–kÌñ˘˛|ÄV⁄¢}rB3û^Ç~π•≥§~j6Wa˙—çQôkN æí˛1G˚´
+´≠“U¯@—cà!>T—√ ˆ≠ÔÚ]’µù&y‘>Çúægs"ßô∫_qlöÿ°‚ÁÌ+˚vü,[#"0 ∞∂-ápô
+@ï¯ÿ≠I©U>%~Öøc;¶:!Œ?Ìc™°gÕ’˜yïœ:'F∞6ìï Ë(2mŸj•bˇ
+ˇ·úäÂ‡ﬂ÷òﬂõCó fi≥p‡°∆"UÆ”v5≈(|–uŒ›8ºxGCt&•› ˙…∑xô◊≈ç˝  Y&j— ≥¿:ü«W⁄¨Ûõ÷4)ñÃ•J)´&¨ﬁ\ÁHåkNÜÉ5	]kœ?ªA:ﬁd˝√/,≥UäÍí`£:Ì¡ı⁄÷„U,AÕŸ≠x˚⁄'˚I˝Ê*Wúæ[ó;øsÎµﬁI>˛ôá—ÊÎ≠MÙÛØ∑ìm¡{ì’“z¢üLæúÎó$ó–˜ç<§@±Á∫/]K¬«®	ç∆P≈ ·Bëgÿmgke≤˙)πµ5ªﬁHm∞Ü+¬|y —CnZoì–’¯"#∂ *5:\Â”RH◊∫K´ì.~Ã8âÑ‘ÒS&%é£E/´|¨àªÊtruîD™è
+∂äìï`°–MgO©>i∏TÚ~åi˙≠ØMç∞zû”8©_Nõ˜\(íı¢è¢ØºÿÙNemGÀ‰˛Ä◊êó,Â™¶;≥S€ß™≤º–ùÛπ√.µJ:≠G¬ãŒ¶? ˘CÛ≈≤‘èî≠ªbY⁄V≠u1àjNuÎôÁüöÜ‰LEû»â}è0®›8í⁄qï'íº®™Y'ÈÂ:£òYotaµM´ÄˇÛYµùhöV†9¶∂_E~˝MòÚXüj?1ÍµVªo–F
+Ç≈8c<
+†åj‰6’Í(Z∑ôX~b≤Ûì˚úMXX?âÁ»/$xUœ¥∆|˛<#`;u-ó©∆?DÂñ⁄!SÜh¨ç¬0Eæ'Z•&¨Y._Ïä”ˇ:·ÒÓh–ÿ≠>éuˆ(qÎ
+•cT,+±ë/©à@Gó‰/‚ÅC⁄d¨|ÜÜ•P :‘A•JﬂÆ∆º"ê	m©‡':7óY5|k¥Ü\Û)$'p0∆A•¡÷—„¶™ƒ[tgNøÆ÷/Í¿Èbß Úóò‚ØR
+µ„qï&L⁄°ÖÂy—∂∂)µwà$NãªHñ"ÒNºRDåz"'FÇ˛ ºXÇ-¥Vé”≈Tó£^ãw™ëléÍÆ∏=Äª‘˜”qOß'»ó†¿ß¸¬gS]y84q´1ò<møáÁã‘]Z\ùåèDÇé'<ı%s‡Sô“É,~[üRP{Pﬁ4}g¥è`Ô˙– íüLÎ∆TQI∂‡§ˆ3g<™*Ég?É[U
+˜6WR†⁄5ö˜•¥÷L≈eˆc'_Œ#hÄµı\
+gE—|izπë¬°Ω»ﬂπRK¶+®@Àük÷n.õ-BçÇA{ˆVäEK;K·_Û}m†_Æh`”¿Ûw ]/—|dLÆ"eáj<ü*,omﬁ«ºí)ö˚kı_f_ñµ3taïD√§WKtm˝Õµä!?∞Œ≈Öj1ãÕ˛◊ˇÏäPûe¶øƒRWk÷,”Bﬂ™/´Á¬î…oıgöË/Õ	‹jˇÂ≈≤[∂õós%›dy∑WNöSªˇΩ©RcZû˚¥eΩdòMÖH4≠‰öóÔN≥,:(4ê˛†[∂\◊õtçè°®‰Y$QŒ˛ÁÏ
+Ω£{ËΩ∞hÈZ÷a^˙ñ·¢øÅ&æƒ'œ\Í2ì.[iwùR…p\r“4y£%åø∆GhﬂvC ùã∞˘´Àú˘~s≤U©Ω≤ºpÜ	X Ö2}@∂¶evÑ}@˛’√±b>¸Ù†<ZPÜÏO _~PnL-ÿ“V6ËÏü§®ï‰ë,±ÚÉA qX’πõ$ß6Ü=›‚” ©“eì«1ê¯‘‹gë]w‚\œC'ëœ04Ú:4Iáx|≤˘†–àd|¢ömLÉi@Õ1√+çy®%	¨vâÊ3ıØ›≈á¶h;„œ õ~ˆ)Ø˘DŸÑ•…§C⁄ìM
+].]ø%¥6GÀ¬uÛñ≠”oô‹v…ıxπìqˇ¢ä/∞è˛êvØ∞Í—H• ¿Vd)ˆy|¸S‹j÷gÛÉQeºÂY3ö¸yNôùÎiÆ0.;JH-–∆c]ÙhòkÅíÂR¥ì∫À{Í$+ˆP«:œìxF9]oâY*Œ§<∫¢!ò[≤CÇ¨…„˜‚ê3›eÛ>Œñﬁ‚}≠è6Ì=tmg´0ÈΩŒ‰Xg¨ùÜòÌ§¡|)	ä¿≈
++Eô˛ö¿/úJêñ'o‡“Ne?oé%yR4Í≥—Èà£ÁÒxë∫X—¶áåp«$û˙Ab2n&î¶lîùz'=Lg}"+úà2‹~^…£ãô∞ÙYŒÂ:√êIˇëö¡ƒPÖÀkJj^‘ô†È√)SV=e™õ.9≈•‹åX\7‡~¸í÷˘Fí_{îj∑•˛Tî¢¥ãœÕ“.ÉÂ*¸™ü≈p˛gl$ ¶≈Q”‡öyV∏$dnÈ%¬oÓQ„é÷hÙz•QΩúpÛMÎÆ=Ü/m€Û≈4≠1mW0+Mú0‚π7≥+8≠mÙ¨ŸHgî∫“™¬€¥ö3h‰'Yñ™èpµ(£M∫Q@nÁAZ∫Ê>I2J∑Ù
+:7—¨“≈îp8âD‰™Œ¬sOfúF• ÙIÈ’»™x]>WnAºÓoS˘…Èÿ*#`VÀæ˝°ÈâidI™ê™¨hÃÁ…”ÂµØÜy‹Øv¿uúÎÑ◊ÆV˘˚€Üπı,¿¯–úˇYŸÜA—≈˝”SÌ∫!W©Dú∑÷v%¶l?R@
+~ûûﬁ—%Ò˛O„5“Õ+·≥ òó≥M]3ë&Úøˇ€ˇœéQà¬„èfCå«ˇãÁ·Ç≈Ï$ú.¬ ‚ùái‹…N1·;]D‰ƒ˘ÒÉ6fv∆n1|®tßHíadΩÍ1Üî¸™7¥pòTD3zÜ©Wi<ˆû—9zb•LNíä˘Y«◊Œ%TÈûı`“∂Ñeœ—Ú^ó=Q|qnÇ◊Ì◊qÜô\à=h≥0bXdÁπsı÷`Œ”¬ A•Fœ¨ÁóùıﬁÎ$—fû˘îó3ﬁª>"≥.å:œA™Õ'	 ›ßŸA>≠NüÜJ·CÕ©”/ÁÒ1?j™a1 `Ÿˇ#†DAëwúë-ßE^˙Ä:@ø1O ¨ueX’àyò‡K&¡)ûQçBFﬁdå“c£G.ºπ†Í{zI(˚«íÒµ˘@ÍàtK®Î;»…ß(tﬂ¡,dòy,S'Yføí‚Ò	hª[§/eB<¯X˝§‹w›x¶∞°‡Ë’p≠x>T^FJÏC≈6T@sÑ„*vÚ’phfV¡Rü˜T+GF|√_õkˆZÆô=‹[p)+ïGq¢%ìÁo¢·ªgxH≤Ú((ìœ¨tëBÈµµ˝‹À‡`∫£X<´∆ÚÍNIÔ…¿Z€®ê<-∫†ä_2«çûﬂÎ4/fœèí†ÏÜg!÷P_√*©ó÷;(«Vyyi÷rIªÜ“Ìﬁå{—™)4v√Ñ™w©4r«qôÈ∞6wÜÖ‡o¢~¯!-ØÃñAjá‹Ül‰/Ê4&‹ﬂE˙˛k™À÷kE+å\ê95Ïπ2é/O0‰x)—^ÊÏPB•*ÈÎ’ÆèV	º‰:ÈÕçÔ´NY¸v˘xFæ/ÍÜXÒ®Z+∞ò-¸ÔüpEt—$Ú/ß";H 3dC–U©¢4ƒ◊‹]auµu °L KÆöë2‹∆–Í)ä∑R¯`N?
+±∞úßGF›ô9{Î<nE@∂¶ãT∑·>ºïR›“PeËBUs∑!NÃÅKﬁÆ	üë‹≠Ãæ°pÓæü{Ïã2fQ\xÎW˘‚ø]Ì!_Ô±ç{¯é‹Ú,ßC4&TtDÆƒo™≤héD-YÙ˜˘±F’∫î’Z¢ÍîÜóiÆÉPWÜçu.ÙIãiêtcm¢¬≥uwYŸsÂäUk∂a≥™|“ÎmG›•U◊ç„¡›tO</HüÚäwí∆”πûüfî€6ñæØSˆı’ï5∆3d” ^—e©◊qKäåŒdHdçrBπ∞A•4<Áﬁî,MtïénYÌ{‰(y%j˜f€™Ì=˜é»f Çø´Í√#ÿí˛ÜLÜ¥™r‡<Y}›+Ï9∞Ãm…—êN¢ä»@◊≤h∆≤gﬂÌåŸ˛˜ÏŸãÉ—°€ˆe›z7Ë∫¢'úçÛäËåÎπ®Ç&”œ<Ê≤,πƒÅÕ ïn1lo—™º(“∞‹Í˚ÄrZÜ»'£¨çvÛ,ˆ„‘∫e«róeπ€u0⁄9fá˚ªﬂ√ﬂó/éém|Íù£‘$ú€◊l›”ˆ–Ì∑}è{ÉdW¥VM|i–Xö®Æh	≥/¡ﬁzæìÉáxøíñTŸ(^¶_“R3·∑nS8~PÑõ=ÖÔ√h2â"*HduÆ,7∏]4Ù™9¯¶€—cB`Fx·;WÂ÷væ≥ˇ‘ †£°=îÏ˜çbˇ*B ≠¯m]uÆ‚)ˇäÈÂ“Ê™¿Ç9Ÿ¡Í´˘d±>csœÛ•áhïÔ ÂG{@Uv^o˜oƒ›ÏﬂE;`¥;¡©ﬁîé|A\]$óÑBg´ÿnô˝G‰@¢+=®ıØ7vî–GﬂÇjÙ[e?@ïÀon(_j÷»O%ï∑<°„ï6˜&W;(Ÿ1i∫"ªc)ØÑ⁄hÉ¡nç∏Ç'–˚©øLVUëˆâ+ê6Ò±ƒœÆm8yßº¥ÂŸÛCLÿ∏s;4∞Ni»)(úö?é˜ewt≥L^&πKâ
+£.ΩŒ£rÇ{≠ˆS¡´ø]{\ÆﬁUW&@uÀ3ÁÀoÜ”@ÈpmîyÚ¶9ë*U8K÷‹-≥ñåΩ∏SsøMGÉkïπ˚4k•eäé∞dÉÚË»fˇÂ1H;£}∂¯Òøå^ÌΩ>ﬁ_*{PÚ™»ÒRô1WZC6¨…;ﬁnﬁÙúÃ†!ÂûA«˘ÈÀÙ∞ ”3ƒI‰’ôIj4xlì…Büg»“D∑Eãd>ÏÉﬂ ó¯?#≤»á¶„
+~˘WÜ*¬≥çe¡=!
+£π_$öÿŸ}|8˙;í(}*“Í4QçJJYß*êÄÈ‘UÎó"–;¢nΩW
+∑oâRœFfÀ{Ò¡‰p®˝p"£¨”¶⁄®pÍ‹8,M rÓ¥πV•ŸÎ/R≠Å∆sºù…ﬂø'°{Sqo»Øù%ﬁ°˜_*ÆØ-ô∞¶∑$M˚Â‡˘Á/^è^æ¯@ıoˆ^Ôé~ÈH˝E¬3£aÕTÓ∞S,ÄSìÛO˝û÷W^⁄RvöŒøõEaäzû•¬0v=$ ‹3DÔ«πP˝®ë\O√^ÎÊb/~cÏ†*®¯\È‹m∏ã∑ŒO˙eô}ÀÆ†ò¨ï·Ω»~Ωf…~Õ˘‹<—µ°–*@lô–ê-YK’ãÇ	[ !∑d•XÎ∑îÕƒ
+^˜õ˝ÜÂES-:ö…öeaú˙=π6Ätﬂdk…√)Õ©ç1Ök$úÙ?Eóñ&}Fˆ Œ?Nd¥Ñsj º3ú!<fôWIGhWG›OÂaßMÇ”'◊Â¬È7¬Ì¯ÆµÄ:çÉyˆ§5∏ú¶ó=¸∑UFl-≈jÀ;^Õ˝Mﬁ∏‹“¢Z∫Œ(o√P2“‹|ñ“ˇÚ2ıëûXVΩ?òzQ8ùòÂÈ¯«‡2›Êü∆¯`«ä;æÍc*c¢ 3√]jôñ2Gb≈ﬂœß±ÁWî§37G-M«√≈Ã⁄t¢e'Õrêp4€ª4∂⁄∆];\†˚{ ˙∑h>fªOˆ˚´ÿÏÜª_D∆÷.µK◊R˛:¢rÚÈ €©JH∑eÁN∂ûU)óhp¿î∫¯Ás/	Ω0Yåcÿ€‰ ı‰ÌC…÷ã˛ú∆∆πz2¥a«ÒŸŸ4‡^_£i©¯-ˇ8-÷UFˆ øR÷~J	‰D@ g«Ë‘Ä(ÚÉL–+/b∂ƒäfn∫ÏÉ›ZyV¡nﬁmCı\ıÂLR ≈ç≤‰x«ù%«Ùfª˙l1˝·ïó¸0Jºr≠d˛qmÍ+æ1¿pƒÏ¿;ãY«∫Õ7›üyıUÒ›.ˇú´OÖIó[xQQÙ≥‹øÏÖ⁄#\m¥,∑ÿ{<◊O0xOSÔó≥Í:êIÂï›™yA{*%/πÊó„È"LXéÈ	Àﬂ◊¬oYÑÀ¥D0ÀËÑ˙ˇù%Ò&ñÿ§Ë¯G)9˙1€=¯Ω'ƒ1|Éj7
+i)¯Ø∑√¡pÌùï	{®©π®%E.·]J
+ßa9^Í∫Û∂Ã±–ëÑJ⁄¥{å è√oòFâ}+.c	ÙM&Ôõ≤√µhÜ)Ô˝–S€RW'oL’»πîÇÌ˚1.£“hiâÛÜåeêï€|«‡im∫∞SÍàÒß—ﬂ7≤øî¬∞æ]x,¬€w‹U–·$Ë»-êÎeÅ4»ƒ™ø	ÉãcÔ§É/÷0ˇN|©Ω°oa¨∏g+:eQOã;Îº‰€öZ“≈°Mtó/—E>ÇlÆFãbRÿ=˙'⁄Jkâ´QÎÕ/UËË?mS¶ﬁ˛ÓÿqΩ’äUKnŸ+nÇAUK3p≤ü≈◊!Èò˛F.dˆÃK(7Ø«Ä∫7ŸAê˛∏ §á`–M$¬DS‚˛(P º£ÃÀ)9)Sö †ãz*GìÜ(/◊Ÿ!oÉ◊ÀxÊ¸m≤ò«lUôhŸ…ŸË†!V éÀ)˛}\{◊(¢:ÚA¬b´FÏue‡—‚–9É
+ÕY¿ST8«ˆ¿ìGà'vx≤™˛sÓuMy#	#táˇE
+ÇÖ√œø	*ª»MwÜŒBQhP|ƒ<È≈1ñ°me\¢≠ı˙$V
+©∆V∆
+≤*´Fä,/ıåØ…X†‚⁄—ªK·Q·6SJaRÇèv˚÷0añ|>%‰¢§A≥≥¢∂cE1‚∏Àïß™¨®* ¡÷óÉ´ˇ}ùó©[ÂbCkê≠Kô’-◊«Â·∆zÉáà˜íèâ}¨aî§q$Í√5¿ÇŒÚüÿœÖì∏b˜Ÿ÷Z«Xª¶π¨∆YEå÷w˙k&÷r´Ì[ª÷—Ë≤WçbTE:yY‹5ç1Rê˙WK· ?–:îái#V√4ÔxM’|¥∂ΩÏ„ü]ˆ⁄{€√c´?]Õ«KÏﬂ¶Ò◊¥É◊„`ºΩ∂¢Œh˙["Ú¸–®\l]mÑøÁÀ‘¢ÌπYC∑IßB›aF(˝µ¢ÓµÕjv¸÷Ë=q*∏åúÚÈQúd8‘Do~ÅªX`ûÌ6™˚=¸ª).TÎÎöv^ya 0ÀL
+sÖ≥ Lbjönaï¥zÁw~nãŸ£˙˘ñ4$kVhkî$Òœ~R˜ki≤¶£gæü;ûh.{÷©¥RfÑR>≈“z	G8´ﬂ√uY}EóπNÛ‚PEKÙJ^Ksı–KÔ
+pˆ∑IË€‘NJ{QúÃ4ùÿkyA(∞xãÍF(hWi„•¯-∆øÏ‰ÁÓ¯”jGwR1ù;TL¯©T3ë'æç3/≤€öÒ#ÍπKQ¡?3C ö¸
+Œ◊WjRà⁄‚ËFvw&àâ>=:)ÁK*è
+’VçëKáÓXLóö|Î\SπÉ⁄™ÎlÅhVß∫ONœ÷7•“dèûÛ˙KˆO•Ä ]
+;˛ÄèéO BÄáy ˇ ™∑™æÓ∏\±yûAB2º„˝9•*⁄'tø∏√≈’æ°ÙEM/{¬l∏G*©gÔ·Ö$ãU˝Ùåç¯5˚◊ı€ÔëéùÑæE√ÕÂ≠ Ü~\ÑòzXyˇü≈ï⁄˛É≥E`ÙKó*_{—8òÍ=Ó‰◊lØæ+˚tã$ê‹À›ÿ·˚~ÎMôáó –‡WÂ|¸0öóPº≥+/’,DíyÒ{ˆ(”#…xÊw∂˚Òœt≥I;„è8⁄I>˛ŸØmâêÊiê—X≥√ãÎˇ›®l„$û⁄(ûÒ’S¿±{I®çØQñWP8†"¡ÛûÌﬂM‚9‡‡v|ÎòäÖ{©ÄÑÌŒ¯Ùl”Ô†€n,‰÷€ÕXá«c⁄^ìL@tA∂uºm{&#?õM÷°Üπ{_˙∂G«”¿K6EJUÁCXdF
+®0›`èEÃ@iAò¢µ|ÿ/ÿW/≤O${!ûÍúÁO≤?≤Ngûˇ§a…Ô5cå2$Â‰08≈ëz„l _˜O˛ Àµı›Ò´óª·˘ﬁ4¿CoÚI9_ÂÜ‡™∑·∆‚∂=œcÇ V»◊ÙR‚ø.B?õ»üÏ	ïûéU=¿Êpói≤bmoúQH¸$qæ‡%/ 8-	£Öã÷– SÄî≈]≤¨w7m≠:XôßÙº8VÉS ÍùGÆµ2Ò“Nå&ŒÓSŒU:€dæ∏.ı£π|p¿aæ&;xn‹k"FÃO◊Ä2Ó∞ßO·˙¶1RsWÕe Xp1:ùt1Î±òÛ‹ã∞>ù¢á∑¯Ï;Í°€Éˇ›£Á¯œ&æ*Éœ`¸º£÷Ò£$˝á›—hèÂ"È/ŒÇÏ2ÎÄm∏“PÊN‘Ã·ø#@õÜÖù˜”o¸⁄ìOWË;¶-∑6lg®EgÖuÊI@¬‘¸bmÁ∆v±≤Œº”\X∞¬‰·Œw∏¿~7N^ø&x9oçoÉ;“-óÓ
+@q?,Ñ8qú∏$∑…æ∏V–∆ç√ª?çÛ˛Uh¢0Õ≤ÈV ì 6v+êÖ[:àŸî0¡∂7 O≠¸hQ◊˘#Tv»ãAËjß¶˙&wÀNø"˜	!›ì¡í®§æÀ∂ku·o%˚¨Fa›†‡ÀBã?T4Õd4&`ö≈Q‹í]%®Ôzgú'qÑ:5ky1*/™  g≈A∫-pBèÈ¯∏ïƒÂ’y<tÑàækR>^ó—<-Ù5	†ÉåCòV'3´Äª˜F™*Yö]!F©AÜ¡—Ååpä…ã⁄’Y<9}≥‚$¢ÚyûŸfSîKÑ‡ﬁÔ*(ÿœõ $¯quK≥ıßHã^yŸd0Û.;Ú}¢K=∂∂ª¢ç™òdêM¥·4S≠ë¡¯ı'ƒì√wÖ¬˚åANÇŸª⁄®ƒ€%hkRƒ0'CDQêπœ≤¬ƒ≠î—ë‹ôà«‰‹0ôoÌÆ~k≥ì˛jmÚY7oYäZ4‚–—ƒ–3>ñ—ñ¿Ò¯πCNZé´I híÉÕƒ”7Œ…àÑ´0µ(ˆπVÿ_•¶∑jaä–2Ë•≤òÎàpÎ2Ñ][%Äj8n¿]_˚—d/'®uUf2√≤≥À˛zM¨˙µ*´†U·¥iuñ0ï	†M	%õSîl™Û4T≤œ LD%´∆iÖU£¯ˆ<ÁÖ˘∞ÎX∫ÛœèèUtVˆÙg¬@¯©›Ä˙d%6p˘ÚÇÓ∆ﬁÜ]GáË	˝´ÆıÆµ)la£ÓÙ›É-í∏dƒœ≤/aùP¡?ıËêÆïq Éâl1Ä©`àá7%Á#%ØzUÅ∏‚”8¡(|Pi|\æÕ[¬¬=í∂•èqcz◊‡`6ZtEiuö+≠ÓköFÆ$=Œ¬≠L⁄8›ãÏ«„™Ç'±µú◊]H«¢µµX>*Ë•#$˘⁄f&È∏àª4 ò&XßÏ≈$@JÁ'±ó¯ËØ‡z47óîm≠ÆW
+Sâ¸V≤∆:ﬂï&°·2ﬂsΩ&Ã)Ùßyg“æ¢LçŒ§y˛™´DÓ•»ç-¸k≥◊t£ä2<¯ÌzG⁄Qîßü—%◊πÈDy„øÊzÖ,& „qpÉ÷‹nÇÎdﬂÓ ‰˛u'Ä¨≤;pj¡_∑f7}Õﬁ›ÏµwöÄ|≥N$∏œ’ßõº÷≈2 ﬂ¯EËµA6 {Ì˘ÜÄØΩ”ÙµöˇA£WÏ‡oçv5IŒM◊Ã„ä£sòrÔ4”◊∆Âi≥≤Ç1≤¨UäÀlmä XÒíq?Ó‚FT‹a·MY'ÚbÜ°	‰ÑÂ¬$.È‘†è?xÑV"lkL=Ê{ô∑2¡äúXDñÇ⁄Ëû<ÿ£¥àY‚Õ¿OõMLyUŒíf®•ç¥”ñ≤#aeÜG*G®J˝íÖ\øú*BŒ$K
+CôûÃ-mâàYŒøØÎIˆf¢ÜïDP°q∞‰¬ k7Âπ˛sß9%’ˇÎ ö,fÄœˇã’ù9Ï-ÍŸ∂`∏€˚i©Ëu9¢NhBuR\Ñ=q õ±‡ #±û(AG‚ÕŒÅ,≈˙-≈¯ô˘ﬂãJÄéΩ∂)j~:0Ÿ˝À º•\˘3≤IÏKØÅΩﬂS˛Ÿ˜£ˇÑŸ™ﬂø=€{yÙ⁄1D°›~áäã.ΩV/Tcå E–á/Æ±ßî‹Ùø∏ÜyU*ÌôØ—….úS¡~ßh∑≤¯5kË?Æ*~÷YIq¢zQ⁄C\ùï÷áj∂ù‹uÍ›!¸s˜DüÎµî=Kø¶\∫ãΩíZ◊®πR•V“‘0üQ‘P+»±1¨∂cRkµ≈$JÛΩK9«jœ∏(kŸ¥∂ÈååEí›◊˜Z©≥ÃÈ≠o4iØc+∆ïSáÃ;YLΩ§-f)Ã$ıNÚŒËÄbZèµ}Â’´ï+¯∞Ôæ€úÕ⁄’µn’œµä„PèµtaU}∫–˘ï‚Ω≠6/«Tß#iCµ…_óŒk+±h@ø2/¨?É ã‡-[®∏ÆqÌ\~@À§.≥«¶:ÜìA-ÈBÔ®Êyö?AwcÃ≥iMÅVR !É©=XÀY.¡7|^Æ2O“zLÂ›Y 3L“àülƒMéRëçì¿Bà\±L$Nß<FÒÇäŒ°¢ƒf∫ÿ»[√*HF˝~üΩ⁄ﬂ›ß
+~#¸Y-˘‰Q0"F…^¸ ª	¿÷∆K˙?◊8ù^¿„»B°πOGÆÈ[hÄî≈G£ó{Ôq§Ôwˆ_æˇ›ﬁãoø;>zøª˜|Ù˝À„¸©’
+üºk‚»Ù‚Ü—?√˙`s„≥\‚c<:ø£\V8ªkúÍˇ\±ÙÕÂﬂwÔÆ+´òÀ·ﬁ—ã=Éü˚áª{áå[π‹?ÌàfE4€™xEú¯>[uñ9©`é„ËUºHÙO ´yÆ.ÿ>›#Ã-F‘cÓjŸqt/∆z¸ÆmŸ“5`öÜ!ÎÛ¨TâêõE.Äy¨+4‹O®#^&lE¸¿bUúlV‹ZÜâ'âóbæL^Ó·´^Çu5Ω‰lÅ˘p<‹ÚEdM—Z†eé“ìì¨jÖŒƒ<ÃÖñ'.»ldòy›`.îmí?z=bYä¢Ë˘…GËíI±‘(0B¿)Lb¬çrŸÁI<èrŸû>Â˚rY«£˝Ç≠"Í&Aòyn√ç–˝¿v/¶qP û8æß) ÍŸ<ÅÕO@O@Æ_ˇ	7]Ÿˇ,òzn√¥ÄØè√‘√,3Sw™ÇO,Ç{L,ò"«*ÏÿNÏágÒ .jR`¬gŒˆï˜± kü`ÅzÚ]ç©'‘DÑ<w4ÎºÜ∂zÏØ´¬ﬁx “u÷ ≠˘ﬁëüD ﬂûœ›ëõ‘§§,Å¢dh-Wl8)hH∑˚¢ΩÚ"Ô,êúÉç!Á÷v’≥‘ÖrúŒŸR‰í^äÇ∫u⁄,(€∏∞[i‡ÓIü¿>+ô”Â;¶⁄8ÿ3ﬂÃ∂§„$§ ˚@Ëç;èÑïj^ò#Ï‚–v>˛;~µá?ˆ∆É ^&˚Pâ{àfù/*»ÄΩ√QÌ·˚∞Ëôªè´r)Œp πUÀ>˛‡=çÜËwy0Áàèp,Ñò ¶ã1-”g^Ïs/®≥ﬂ¡Ò¯è ≠hÕUı?z.i“ç"^¨◊ää(D|xÄﬂÖ’’ûCgÿè8Ú¶+_Œ‚Ë]ü¨~Mj	•i|í7ÇπÀ°Kjâo'gÂÁ\õŸÆnÀGƒi8ˆ‚"ﬁ˙âÌÍÆGR,≠ç;™á⁄ú.∆	∂‹gÚt¶#¿®ºÈI⁄KºØµ'òí∫…∆hq¡N1¸¡=É´#“*§/|ö:-Ö=Ú?ç4Œ\Ø,ZjDµÇ.™k\µ˜CSk+‹ˇöºµíÀj7%QtÉßo£«÷I|ŸbÙ]òôw—«S¨E˜FÕ◊Dí 7@„≥‹	≠<]"ŸçpSQè(”íËUkWª%ëW[‡.ël;ŸeèÀ⁄◊¬C^q±’Îk◊V©iu)îµ|	Uu-ŸUDF=‰pü¡yæ†›’À÷7“yr–éOPg<eê÷Mµ‚ñæz†*µü¢‘è11cfˆ≥›*_k5ôJ•iÊ+ c·∂ÿó,»B`≥3n¿éÅ∫'ﬂëÖAWˆìè‚®—ñÖBÉ÷‹™ÙZ(Ã˘ƒõL=‡ˆø§j°¢ÓÖ6Å∫}œ5nyy'€nS◊oÀ£Ë≥’wÉÌÙÙ[∫∂Mı(XÁÀ/,w·’õÓÃeM•-«]ÅRN#/iÎ7⁄ÖÜÆÒ6”ÊH÷8CFûwöÊÈ›Œ&S‰‹vÚ—tå—=‡Oá≥ ^d%OP˘U Ÿc√·∞Œ` ?B#Û&HÚøÏ<åêSpÂéS?6±N*≠ƒ’j˜ÊQÑ‚“˙∞\0Wò^ó0©ÚO=®ÀE≠Ö∆F.≤M‡±®À˛92Ôµë˚≈x:Ê kaR}˘.@Áx˛gK£zíao,ó:˘têYêæOõÕ∏–I‹”∑å2‰6l†I7◊áJîÄ$ùúojmˇ£B)¢†”º<ª◊lI-˘ôPjoÓi˘ÃES˝8-£∏gîI/Å%ö≠i|Pœ<“Y,\y—≠~ÜâñyA÷iŒDØò·òíÿ_‘%ôä–X ’øh=D;&∫t˘1ØÀƒ5‹y∑dŒskÇ´7µÿDõ}≈≠˚™ŸSZòö…äÃ¡\ßÅV’q ‚P‚Æ°2Oö=ôß˙)ÂÊ¶´ÔÁË6r§6/≈÷kêqÿËBê8ﬁ™b‚9Ï,∫í@\€Ñ¨Hp4 û•$û˛—B… Òç9Ü◊)òà¬ÅúMY53ìÊw÷Ü:πôOQœüÙWÎ¸xü⁄A¥L‰íOö*']¢{t<˙V⁄OQï˙ÓºôÍgã;Ìsµj| UùhÜ˜& Cˇ`ﬁN›8mYµ·¨srwºÙ,ŒºXœßHÍ«ÖÁ£Û7îë'¨ó$ÅèÂº¸8Ì1@Ëpã¸:Ã ÿknæKBèM*.ãXËÑzü≈iÜvVEØ»Ké ∆:ç√Ì≥Np9ÿd·Â&;¸bu8ÏÅºF≈Ô. 7^±ÛSoJ6›ÈY\DávΩ±«ZœÒhè˝æ≈ÇŸ	 Vòÿö˙Úµã»è÷'Ñ	-f|Ç5Ì∑pÈc“>I≤^B[‹»»hùCA|[T›AFÅj–kƒ’óxzt)…’”]Æú≤,LäcLaãÆp≥›∫NÂ›Z÷<ØÆ+·OY˚ê;ı†≠4è·a<¢'¶Ç4ÁX
+$á'ı¥b…XœñÈ*]Åp1´ë¥ôÍ∂Ú∫RKCie◊ Ï|}åhæZµO F\ëßÂ⁄˙–P˜¬GÒ–öµ.í˘·™öWoﬁ°zUv)Ø≠€Jk6Î∂ı÷:ƒ÷zØ$rxhà·’Ùh∏TÿÓêëiõRYPÑZ"!æu%êﬂã∆
+	e≥—yCJ+Ct."±ÀÎÙ’‡°ÓÁ´.ìÖûøVxz~∂ò5äﬂœ˚F Äø§oÍsL-‘Y√|TÊß”¥AËŸœﬂfÎ®∫∂π,N`”ë¿M[≈¢@¬˙∞ﬁ°?9Âªf≈œ≥^uLPÉÃ(çò†íÂy nvÍNÙàÛ7áÙ§f"pÅò·?ëdz4ñÀ„æA W∞XÿGß!P}‰¿j˘+.3v»å⁄%%i-<!ˇq6KÛπ-QÎçπAˇS€¿y5H62zÒï‰	ôõ?çé3ëE¸Üü4È•ªﬁkòTcæß(Æ‚EˇÑeò©LÄúêÅ
+k’F1zÉÕDÜhÙÎ±S`5Å/>ﬁg¡`0Ë.£ºT5=÷—∂æWR¯T¿àSgdÑî[=˜€j∆+%™`Â±í`FVwY°LxwVXí«ß4àjP¶WZ⁄]
+„YqI±†uë6ü˘ˇµZè>ìN]%Hﬂ”å¿¡„^2à˘@nYD·Xb™ñﬁ„í	‹ÒeÇm@ÖuÃxåéÔ_<'rnÌ±ù)lÔaäÂì$Ñ/"!<|„ñ{lÑ#©È"»∆›"’ÈF«Ã”pÑºf%ª‚T$™M`Ê®Çõ£àãSØ√Øîë}Ii…˘î„ÏEJﬁú1≈~”
+“$1òYö–ñ≈∂öìMhª_—,®åÌ,>\vSºk∫‹H≥oÒ∞ë%¸∏Õ7éåªÍGÀ»Ñ¡«\Ω∂d⁄`≥’W{Øøˇ›˚Ω£„ØFª#Ë 8û¶/#ƒ7ÊÌÑ3ﬁ§Ù¬<W$ ÉŸÚ∂%}d}G∞à˙‚
+S“„L•E÷˘î!>=tÍ≥Mc¿èö‰
+í©0çV≠ô1eBflzÀ{n“O—ô'…|‹ﬂ√®CÕ&¢èµ·∞ßıNÈ5È∆„ne"M˛qÂÅV?.@ñ.Ju-4‘I¥x•)éeõ´nâ¬ﬁ¶ﬁTI†Êï’}Âû*i†V’<P¢ñíª≠ZrﬂUñ~'¡õ ¢1``zªQë˘Vº÷àÑ^Îã hxÈ(6Oã+:o‡jFG Ø¡¬ pˇOòËk¯Æe)º‰F∏µk"˚mp8eN^é`¨ã¬±KlaÑﬂïÈ⁄ÌœPR√Ã-+/-”Í; ˝áäsÂ„˙t∏z6\õ“≠ûn§hXRñ«è†‡≈÷{ÈU4fäcDÕ•˛Ô¬3òb||»iòÃ:ÌÚXä>π–W£lÚiª€ÌÊÑ€©°Ωi‚ÓjÄ/Àvy4¶8\JôgælmÛÃÅ;a2ûkzm:*_î»⁄9ÕN?ˇ4PU|‚MâÖÊπf'⁄{›âº\im÷Nm_û√}øı=9§Y-≥%ü7WPcÌ˛4‹ôü’ÔÌ^wŒÊf;B∏UG·YÑu}ø–ïIw©,¬œä€æ–≤ÇiÓà)ù Ô&\qGZ˝@â–T"ÍrŒX“V◊∏¸“vàOÙV{t+,◊pc‹*´üâL(í,NÙÂ„cDérôÂªı“p8€]Ã·-t%Å«~Y®{'û_´Dzô•–ˆÚ·%˘∫6K!\óﬂxªOr’Ñ	£~†qgw€·√@∆}¢ÌÂV”Z–◊i‰Ñò4l˘ñ6¡¥Bjƒ™ƒE«¿oﬂ}≈∏∂ÔÆò¢ Æ^≥g^dú °à\z¡>}„ÍPÊ‰˘ÇRzÖÁ–>˛©hòíÄ†rM∞ú‰T_V>ç•–ÆmMó√º ≠üÌÊEÊ+ó„8Ò“â!≤pÂˆrÀaK›Y˛4≤æ÷fé¢ﬁj£§øn0®ö·¸Ú;©9s^Ωx˝bt¸˝·RysäÇ„wLÕtÜ≈»Ò‘S§ ùÈl≥¯πŒ¶g œv9U~>‰˘ˆ\i7˛F„úÎ√}ø≈Â«ÑŒÓ†_J÷Ë {•á˛I/∫`Ví1Ùï6üäÏ{ò≤&≥Êï\≠1#›ä£˚ÑÛÉwàÆ˜8yÊ˘gÅ›˛˝®‰s„ä‹OÆ8≥)•7#ï|·÷•ªÿ≠ôÓt-ã[‹ZŸÆI…"µ◊œG/èGhˇ¢ôõÖCåæ›Ø1jo≠–∫›-a}≤C[‚K≥>é"©YhÚ®Í∆A’ıπ1Ô-∫÷2Ø«≥°µ5ã^wÄ¨•n’,æ™rLµêÕ£ÉöÜíÛLU˛˛ô«ò|Z&TAµ5ÊbJS}¬=$»!Çu»ÅOªîN*BÇ'ìL‰ß
+R†ªhS°dÍEÚ©:ˇÜkScöSh%R≥€ Ö3ù∫Qª]LusØ_]\ıù#´ô≈ÔÙg©∂‘ÔΩC^√@Î¶vÁ"⁄≠¬≠ÔVâ!◊˜t}ü{_—÷ü
+h«`ﬂÿ÷∫j%@EÊ^És[÷Ò∑ö<7 -lû’M’˙d]¯sÍyÊò l˘nCã.iHﬁ≤•ﬁ6˙µJ◊Hõz∑uª?[∫m±:AÂã√-‡πæ À≠GG	P∂ñÓ}¢èDT3lFKÃ‰˙ÅÖ˝∫ÌvõØm˘dµ£¢ú›Äk≤À ºÃ∫ùˆ¶Å¯◊»bf7à’Æ´O8töºTçàr »ºU∂~-≥f4ø[ŸªÏÊ¨⁄˘í·@ùnŸíê?¢LV⁄¶ä”®òØñùmﬂΩ§¨L´(\aw“∞|Ö¯‡J6®%ïui4¥kXï>’fÔ]éßÇl›Ä¥‘\ÍlFw3Ã‰öÒ_éyÊı˛·´—K÷¡Ëéèˇù&¶ï∆©ÒØ1∂¨≤ôø©⁄^ê9‹∞ÚÖKSnkJπ•!Â.fkÉ5Vîf6îGN ∆›l(•ò≈
+†∂…¶Eµ∞»\)f⁄÷˘â”‘V—ì⁄rìö‰ø.[Õõ¿ˇ3ê¶>©ï¶âuªQŸ™&·∑&ç%Wµ‚ÃR¶Ü…FÉÅp„‘RZêÊ≈Î$ß[≥∏´øw„◊˝∏J,ÈËˇ	çh¯i`H„è59SHeÊπ∆ı€ÍM&Àví≠	ıπÿÙäm˘eÔÇV!Rpôwív¢‡ÛÿqŒ≠x¶ãqÜ®∑å÷g˙C˘pîá∫@&·”‘◊—ÏÆ0∂≠mZìï4±≠J>÷ª’±´]ø%ˇ>Ø¡
+?ü’hESº'√≠h„,´®àcåÌVv,Ic˚ ~~uˆ,¸‹Ÿ¶Öü% :™dÔóc’¬OSÀ∆÷-¸‹{‘¡--]4ñ˚ÑÊ_¶≈?˜`ı¬œ}¡Ùœi˜¬OS∞^¬˛Öü{ÏFÿ]Ìiµ‹ ÏU$ùâ?Ø8–∞NÚﬂ”∑∫>wNﬂ˙´…‘*sn†Ô›ﬂ”µ“p§kÕ-„I‡/¶Å‹#eœ¸ÏÌ¿∂g®Ò´]µá'ÂNÎ±õLÅn&§**üaÆ.‰I´ﬂ"-u·6éPyØÎ⁄Ò ëZÎPÉ(¥Ó⁄€Â„,©ÔÒ‚≠ZCΩøç’&p´ë~R}u"(Q€fñ≤£≈œs•hT V$î≥∑Ë≈èø™ÊfÙè/g=’5¶’E¨
+∑—ßÑ	:¯Ω«Bˇ“Yl◊π¿óÂ ªzW&T-¬j≈3Û∑ØÒ˝ÊF§us…¯té5ı ¸é¸#pGqî¢©ÛÖy5˜ém&Âóî÷`—«¢<;_…»‰òÈáærÏ∑¨∏±©‹Ë ;rÜ›ªgﬁ´˜™8M†¸yy—Utœ‚À•†‹0≠ó π=§rn*ÑØπ@\ØKX√û›*}b}W*"hÖWE]Ñc45⁄/kÔÄÓ≈a´a≈Öœø|™oî}˜DwLÌyØ©tÕóI˝Øv!s∏}y∫YÓ]võU,¬r¥ïlı43ÁS#ô$ír8"≤,≤MÊâÎjÓ'EÓùwÆ	JA≥K!C"óJ¢âR"˙G*ÕjBæDV§≠gM4<‰—JgK»S∫˘®ÏÊHêIÜºº6g]oêÁódÏ¸∫nP?≥ÉËù§3´∑ÁÜ∆^Õ@ÚlêïA˜#eù∆ß®[såû’*u™ŸÎ xÓ%!A Å⁄ÄâÆﬁÛf‡∫D˛¯2‰≠#‰ôæ’˝˝∑™ÓY[âÎ7˛Øao´l‡NˇÌ∆†¿Å¿ûﬂßs(:ÎÄMıå‘>fÏ˛(@{aöRﬁ·@‰™Æ\`M˝≥,6“Û˝»ñE uÍ∑ﬁ^Èä~«-±:¢ﬂ≤Ï>ﬁäsπ„^.oí¨€˜ÂI«'sﬁø3£;ÁZ∂‚6ŸkUÂñ-“®Ò≥<`„ß)p„Á˛ ‹Â8Ê$®án¸4ãq®m®âmQÑ3400÷√ ~Üö:√˛V·Hq»ØıŸøïGÓàdò»ÁÉ¢¶@ph ˜H'+‹úa(M‡‡≥€‘å¶îxÔu{ﬂà˛⁄`‰æQD≥`£ªÔ)+∫óM≠é.™7Ÿ∏n÷ƒY£äl1E÷nå∑o∫∫ÛÜÒNWâ6∫ˆ§√7r√©å\%Bi”öbyˇFÕ˚èãxî+Jˇƒe„Y?'Òtz^wY7›n∂^DÁ®ÙKÆ^≈hpf¢h N<õ{—’ìk˝˜[§h«çBKÃñ[˘„ÙìOw£à˚ydLı÷áA∫ò≈(†Ô'>ïgcGbhTÕsëz,e∂1+°ÚFp®√ò ©1Œtc}#SıÌ≤p[yê‘h≈ó.Ya≈K≥÷ˆAê|¸Ls”mA‡¡?÷s≈Ç|gïe·D#2¢ã<
+aˆS^Ú "∑HÌ≈N#/,]m/©55¶gZIU5ÖßÓ£∞ÑüìmM¨¯œæ©EåZæ≈≠m/˚¯Áœ¥U«Ò≠6Í8˛k›¶Îé»Ë}®-XÖÉUbZÃ€πK±∫™tı∆RµÈ·W2{ÁúÆfk˚ehø2πlyC¢OaJ’%ÎQ7k$)≠JCj∂’ò®öã#ó7Ìäx™[Ï¶}NÈ\…ÙV2cÈÜi¸fîlÜ<&Y„opZtyÀî7l◊Øe›_~¸Øã⁄9¬›ªØøj3©€Qóıox∞BÊ›◊\ßk◊ºæ(g’ÄÆÌõFfY¿©Z◊Uù72W1rR%ùÌ¯téÄE%~óç=ﬂΩE¿´
+YŒ¥Ú⁄ßOÿTÄw’tÿZˆÎ›RÖOÅÎ◊ñ≈ıÖj÷ÑzM≥k@~./T∆–5JkÉB{\: \1·Óµ‰iΩÍ9òr∏¡–p\«ÒLt_Qv√ËÅèä;i5ˆkíÃ@˙IëèXÏlﬂ‹*~wcÿÿ´–·∂j˜%t.–›´]´ñY“;≠ö$o˜∞p%ﬂA˜Ú…®õøÜ< GÄ(~+(Ï∫Âõã.?’Ú-«>‰ÍGó™™ÀœÜJÌ>üàI˜flhviNzY<Ãx7«¢V8ŒóÁì‚–•ŸÀCïJ;=îqÊo“˜$æ®L„œï¥wé‰>¿zœO,¸∂›[zk≤f„á°C˙∫V'Ê«%√àbZqÆñ…Z≥ıª$à∆ì $¬mjmÕQN˝-R»„ ~√5ØpÑR6:‹ºmj—¬O÷,À‚<œreÙÄ¢ïµvi“L0›ñ±ø¡·•®ˇ=ÿ}C%R†â1ì(õ≈∆£’<ÊÒπîΩø,h¬
+∑˜°v«“ ¯Yq|è‚${ve
+l∫Ω#Ì-Cπá©:ºË *ahÒ®èŸÚZæfd‚6:?#µ¨¥# Wu©^+ü‰ˇ  ˇˇÏ}€nIzÊ˝>Eà÷´¶…"Eäj5GPµ-C©ñZAJV%Y9SUYùYERÕ!‡X¿^`cÅuÔ\Ï≈‹¨◊∞◊óÊõÃÏ>¬˛ˇôëëëUEµ‘Óúië¨ åås¸«Ô´$á>éê4–ùjî6Já±ß¥5NEÅˆ‘†`¯ëfûí_„˜ „ëûyVgÉ˘‚!3ïßÿ¬w≥SﬁÓ~â;Å÷çQ•œXú˘¯˙LÄã∏£ˆëÓ2{»ñ#¸π->∞Æ	¡±QSŒÛ(I≥5‚G˘7úºqí•T˛Ûx$ø«å:ÿÄäØk‚,ƒıWYáw™§Ó»^ÿb´È¢{;–è”≥—ü¡6˛"¬øt¬¥mqœ7c«6ÔØÀ . ≤¯¯˛≈)ùª˚?<àè/ÖwÂ>["|∫Ò‰˛RÁ|êüØ‡ø⁄¨ÄÇ VÀ˜OáchÍÎ¢pÎâÍûºΩ$èéòaù‰º(8„xiûyXπgˇ*ïv:öo‚ìåÌ¢Q2ËG÷if¨üj?uÑó˘aßã7⁄1>Êd›“&´%^«‹£cF ûﬂNAJ&x[‡yÚÕxêF=kË9&§UÁÁ?gK0 ø:ûÚx©mü&ÓâÏú@à¨1‘6˜ò1“Òy9uˇ&}K`æÃdÇ;á5˝Qåw‡ÿ‚÷dånÉÅ≤»à6MÊ¬——í(	∑Ãu-∫)m¢;ıéök¨v´ÏÏÕJí27º’ÕcgìQÖR¡{eÛéûnqŒ£=4˜∑5ˇ¬G˛`§≠É†ÄhæàG˝Èêáå£^qΩƒ" áIÓ66sø~)C-}„Õ:4‡Ÿ∞ÄgB^,ù"/Mú
+ 7ûı®G˘qó'!D†,Ωh+Œà≠/8qâa%÷ìÓ(°}ef®=”ﬂÇOlzÏ0Eñ*Rgêw‰0±`$‘.L˜´ﬂGÉ~∫uÊ∏±$T√Ä}ˆKPµMéìntı˚´ﬂQ–.ïïby\˝xYú¿ÚqÁœƒ2È?6&£’≥p)ÿ#TFª ‡‹Äy2@Oe·õ¿9±Ï˝,>M‚≥V+∏bÍ
+€∏SÛ‚Âº»s.ûV~â’…kÛ:uÂ‚î5~⁄É≥¶ﬂÆ¯;Ô'£^´;¿≤ªÉÇ/›Ø<É[&Nj∏7ÓπHV˘%÷°R««Ô∫£ÒØ-«Z•k7∂ƒZÖ◊QygÒ z
+Gl¬ˆ˘öe∆èVjf
+*˘Kç?”YOñmo≠´&`Î+o©4áíöu“∫Bÿg πpTŸe BØC=@p‹y∏¶gAË™Dî‚Ë5ıö“KÙíi=$ﬁ"—∫â’u]H]ﬁX˜öâ„,⁄‘!πFd∂ÊÍÈäS‚Do!
+|‹Oß–Smœ)~!(?#mªD:ÊØÈ¶†È˘ßyìÅ‡izÌn◊ú¸˚pX£ƒ'∂Ö[ó∂eŸ>7∂j≤ΩrH!’„ù_…ÔN‚€§ ïÂôí|·œ–üÏ0Mô÷ù±¥ç_7Ö9Õõît—iËº∞è†ÚÆÀK’œñÊk“<áõ%L\îsëˆ¢Ò’ﬂo≥òK1ü/æ}¡»)?qO˙ß8_ay<é(–múb™w$0€gR1€ë™c(4tºoî‹\Ôı8“ˆ‘Õ›Å^V’SΩ#&yΩ0®¡|≤àEß/#ùç·ÅQä‚;%n≠∞”—±‡£dtıán‚ÖÄn@ı·í êıú˙VÑÈ+Ê∫∫P“
+»≥©Èÿ±b–
+=;Có˜(ŒÛ’[∞u¯©rÏÌ]ó~y‹“F†st≤‚˚[·)⁄3ÇM"1îÏåz∞Øı#ıÇ°∑¶Ωtb7óW!¡°ÌOöE–Æ•¡€™Âæ≈3?xŒﬁ;àè≥8ÔÔû)r∫≤t•›¸∂ü»ß¥ïŒ"Wò™”ÄLçD#.ùf†È
+]∞¬ÄS2’⁄‘ª`Ï´ 2ˇ8ZœißÖ§h∆$:Bç’—tòœÜÏ8∑∂¨–G¿µËÓÅiªnƒŸ[{Úzúæg´_¬^Ú•%»¥¸ ¥øõ·4ÖuhàADûL¨√8 ∫˝ÇîÏó˜C_ÊÉbF÷<	ıÛèÃ¨Ùó5”»1Y+: bV@Ì 5v‘’?b¥ÁCl7x7Ìn2ÌÅÄ2è\;K0≠%øºö]nÛÕòGÆêè–FTµÊÆ≠±'ò ¡Êˇd<o%Ò"≈«	 ÿCËzêªart1›R∂$°ññpy\/:¬m3B
+ßÁdí‚Åﬂ–ÏêòHçó¡=∞ˇ„N
+ L¬	≥@>É{Õ+7‘À&'U9öƒ£u÷&t/Í≈+l·éx™2DEﬂN•8n¡.{Îq¸ö?ÃÓ£›∫ [A√5“o∂R∞©©;≈/^}«„F‘`Yj€´¢º;ı17«Úb„E™£,ÍØ( ›ù&® 5-6ÊœπJÓÂ ëDÕãæãÈIG¡;0‹ß≥‘7:+ºèäd7ö°'ÜÔ∆‚YG·ª\eö°÷]˘§£‰É∏;ÕgÈéL<Ë™1GÓô•∆ÚIWGüèìl¶	'ƒr+s|ÖºXyP˙=§Å%Ωm∂<Ia 1pÄ ¸˝J¸MÅ¯€÷	√–Âä≠ºbqïEîï• ˝•…5U∂W|Rñ%>´)™XGJaC∂'?SäK’_^±| ‚v è “‰áµµ+ñåVø˝¬öc‘QÆNπÂr)KÂãÔÍFEã5Y3¿rù(\~§∞¯∞¶~≈‚PÍß|¶TO~Z”ërQ(ΩX~§t†¯–Z⁄[ÀÇÇg^≈ŸP]•\z≈O;ê˙ZËÅ{ñûIúuµã’ƒe<}≠´^kô∂òûdTn 
+—ÓÑnÁ{_ﬁR}A„gläP‚+mo±ñh¢Û4´‰—Å!u©*|≠¥Zmú•‰∏_6z∫ì‡‘•≠Uº‰∑øµïQ	®/…(¶ÇQ§˜BûfìV+ZaGVøø>ZÁ/„Ô AjE÷z“.h;î≈≠#€=fw:_˜]§ºŒZîÒ:kïÇ_'d·ÚùëkdeqU©^è¨w8&NÕSjπˆ7ˇ%„eû/c≠mñπ˙ÒñÓrBÔØcÿ.LÃ0°UñL{ÏÊ|z$‹Ôo^∏˘KÖŸ∞ï∑ﬂõ™Vƒô
+Ó_9zÍË˛≈˛`ö_ñz?⁄L^ƒgÖ,r˘‡Ezö*DÄ¶ô^˛öÖIt1$◊ y-íGΩ,B⁄≈|H-:J'Ë2Â£TêÍ§™°É’()˜3¬Ç^±Ü°¡^Îã¡·ó£T¯’!M˙Á»·ﬂº0•:äX<v—,˘Ã3WwåAu÷Ø´)/mGBÎò∏‰≠E98J'±›ûhÙ e+·R‚àwÒw˛´8>Ó™Èj°HÇvüáÈ©“c∫ºÓsªM™´…RäQ◊ü$Ë’5∆¢"‹⁄åg4sCÏ∆#Î–Ÿm20YH†r@\X\*Æ!Øµºqgˇõ[wƒ  øiP˚ }˘!Ã1Shi˛>æÙMà˘F∞àoSz[+3q«5.Kt=œãvÀú(eN^ï¥+<Y“ï»jﬁúÅ¥é∆4æE⁄S?Ôq⁄NQÂÈ`
+kaO`ΩORÿ÷6ÿ*-H:$?–:ê˙Õçÿ&í6-b}8.€ÀÍ√aËl‰âÈßXº˜óMÛ.Ëö]˝+âªÈTFev:˚ƒ—å€4Â	µQË ûgÿ…V§7µö€z‰‚‡÷ﬂ⁄¨[CÙMª}©?6kﬁm”Áé˚àOwÊ‚~-ºÿïv$éJyÿì5J9í‚æ&9©\5®+yáﬂ÷§‡Ô<eÓ¨˛eÉ¢æÛ•ˇÂÍNÛÏÿ–¥£$ñF<UEäËYFÜ8S)ÛhÈÅ"†Ó¥"’-'#›µµ•`‹Ê~Ckjé≈≤—47JÕäRÚ§ÙxÎ|(SãTŒıxƒ›Ω¥3cÍPX÷‡§ÇìhCuª∞ı ËV≥^‹0ƒM/áìÉ8ﬂ∆eÎ˘^>Å%KÒ1¯ÛªÔH#ê&◊m∂Ï9∂÷óÌé∞ØÚ'Ukzò>∏ΩÓ|XZT˘„
+w√ñ—Â(@öP˘ÛöÔ{´‚˚vWBNg≠Fa#Âhûﬁ≠äß◊Qà4ãÚ2JxÒ-b«Ui‹úÌqiÙTgÄëÆ`}Ú“ù€≈g‰3î¯ÁöëäÒøúl•_ùC™5^ôäU]l√:^;∂•›õ"˜(çñÿez¯Fe U{∂20™]ZÈÒ“º⁄√kkL‰€iA'G(˝AÂv^≤◊O_ød#pöåê<*€B!f”Q“çT≠˝‰∂Â‘LÒ_®’ SàbèA ƒóØHØ.˛ïígó°yNÑÑof±çÃèO =]T>K;ÙëÃX¢ºJÏ¡ìñrªd Rq{m≤íH9Ñyπè’ºoæ›Û˙GÜﬂp8∆¸Çﬁ2/Õ;Õ4Œ6{`æÄáQYÓ≥S#Ö—ß#WeIÿ¶ô6Ì“e˚…IÄQõÖ,ÒTéÅPe´B$.s8˝Ëá∫/¢a≤SÍEYÒõ¯BpOô[Ôù)ª—é±‰(1$Ω18Ùƒ˘0¶U^®ìó€*b≈îXZ1#)Ókë“–‰cìΩ
+ﬁVœ≥ÀP
+™©ŒÚnÒl†•ÿäv°˜Zœ:ª∞lıı^Ëê;Ô˝BHŸˇñ¨∞æ«0„ÚÕÀ¸oÉå◊º£%Ïb}7wt=/“B;U¿Ní◊-Êaèa√&ªºR¯€ÖÃÚZÜpOZÆíà´©X¢ÌB˙ZÎ”pı7ÿ√ìï\_ßVœ[ıΩ¥ÆŸûÈÊÁTæ»ˇBA{#]ÂoaÇ\®Çr˘MM¬´?02’í?GP{¥yœ<;ìI%◊os]≈/T∞:S-!¨í÷ÙÕ 1‘£ºÛı ^z{^p
+o£@Ee@Ç;rΩæ˙~ÄQm»¢•Gó/í©—k‡Ú√£ªsSùûHÚCﬁ≤IÅo¶]iÚãw˙ÿ˘4–ßãQÀÖ0ŸJ€ åÄ5ßÁ-ŸıWﬂ£L!‡Q”q n”qqI≤X¿ﬁ-∫¥"ãDÉ8 ‰Aj0£ÙTxì@á©⁄öã˛|≥Ãk≤¸÷›¿√.‘RI§ÁyEÿR$ﬁ?üˆ"d™Lm≈Ïv≥<)xÜ‹“M};,kıˆrÈ·{%è¢¶>”1Ë.ÁV∫¢ÙûU+.FÄf∏≥AÓƒYQ3›3\9âòY\ﬁ£Ÿ¥‡3å«ê--5>√∏´xa⁄Òî.L>3.mDæ‚•ÌhñHcìœa nô±˛“jÂoAiÕöÂ5Ö©ÀÛí“6À§âÃ7âƒ-35@⁄◊|ê˜Ã4¬RÁqK@Òn‰”Ú˜Ÿyÿè≤rÉ˚≥~4…w∆„≈¢≥fí=êU	9VÌÕÀ„…Î$>SΩV?Ñppû%!¬AS[Åì`á=†…xÚË√”ûic§¸6≠ÿµv√k8»<†#|∫¸BÛsõôvCz»∆€≤ï‘ø"©†h÷À›¢-µN7¯m≈	«lKAÆ>á¿QÌÀ`= yp!„•ﬂnUåoJÚ†j£ÛÊ˚’X&xj´l≥w∞&Ü≈Å™ó—h¿≥s—3ÉERãP ú@ªxzn)â⁄òów)∫Wˆ ¬	©ª—ètÿyü-jÿ==‰ÿU$'ˇÊÔ'K§Æ,†ÓΩÒµ_‰/oÑ‰/*Ÿ•Z©ëÆ¯”Ã6Å^◊œ„[•-∆)µ…9k±—‰c„ÓtÑßø˘=I3é≤3D4ÔioõIG≤¯[%?t®“eŒ¯Æ,FÑ ≈ZÜØíiÆº–~ª#˚‹∏µ≤y§#JLGwß•…Ó6í˜$≤cÒD]ÂH∏™ÿK],··¯ ’'–ÆÇ)ˆ°Õ¿ñ„3açxöÀ˚`≤E¨^sÅÍ⁄2+;v)I∏S∏S6LëŒXIyî≤Á;OŸ¡ﬁÓﬁãW{ËkGé¿Ú(!pÊÈ∑vL7‡¸ 9CHW#”˙d°üæ•¨òU+,Í∆yUEvÅ‚h+*M¶—†›a;'Ÿtﬂ«ÉîΩ~˙b˜õg/ı‚·†pÿX&+”í›i„ ¥Ec\„îÌ-ﬁ–√349âámû„MØ‡˝-‹ûSLüÅ-(¬=#ä)`qFô´<#G‚å$Wì»ì„8£-çM∆p∏Ç¡≠z·›DdÑ√Ì&—J¡.≤ΩNbäÍRû¿»Ω¸p:ée
+fı∆ìb§ ∑S‹UóR;’ÓhÀÑµGi:à£Q€íÆW6Ñ≤ÿÀí≈£T¯µ*ù~î∑∫(Í[äõÙAYjmˆ†ﬁMª∏˝`0¶d√(åÙWè‡µ∑Œí4_aË†œA”áŸ≈#8ûoßœØ#√Q:5ÜXT—∞í|Ø»⁄Ú‡éx8Œ‚ëV( qÙ†Ypö√$OR6HOàF36÷ é”]iFúƒ›±¬√ù«ÉÈ9ME™ÈR ÙQîú[^©Êo‘´’›.ÑZﬁ7nt;yr2¬Ï.Á∏BõjäÌ=,JrOë›≤^“Õ™åµ>e∫22ÂÜûé˚”çj[]Ô‰‹-Z3◊ã≠Ô’jTtWMÖË.±0Xè¶’(LEı®&ÍªÀUSwãµìJ{á-¥ÿ*˘∫JÎÀl…ÊÛ≈ñôYˇ“^ˆŒfS•Y]"9yÊ¨ ¸5)^d´ä1aÈ®î‚L•<[ªÀë@Ìú47&uŸ”Fíπ@ÔvR%‡Îaèe‘ì‡"&O{¿óÁ|Î
+øê+πz‚Ã—Ó6…—ˆ3>ﬁEÙÚŸK˜—O#ûó~ÁµˇÙx¸H+ƒrÉ#	]ûáaYÌìkID/¶˛G…C∑ΩÌ˙“–≠m˚—d°óâ(\Dyï«Æz,G1Lœﬁfg+ÍvA®£9ø≤/`©Rå≈
+[˜¿»H…hFôÚÙ≠+)?ÆD˘‘,—"wÖΩ§Yﬁ—ã<Ø(¨dò‚S†aîœÃÚÀA
+ÉJ…mX)∂ÇÀ/PN¨{9ûÃCÊö‡™z®Ù∫Ër.ÓpÏ<¢0ãœˆ∑ÙWlΩïl,ñB	,ªµj†’–Ã…~YàAA¡P∞X$qVÒ;”<Œví|ß7LF>«ñÄop⁄{OA∑É%v)è°1Ω(˚‡∂Rsà"œÃmD.l«‹j|üƒ#P£Aí∏ %ª|øwÏâ»Q˘äBí—I»”F	waª˙Cˆ^>Öÿˇ7/≤¢UE	Yz]ì?ÏÙPæx¯ê≠_Æ˘o‰dQtgß”yÔy?n5h7JæCfπ«OrVÓ<n¶ÉGS∫√†~ G	™Ôq˘C∂H »?}/vÈÕ ò!êivë4∑XBåññÊê"-é>Lx4! ÷!Œ:°1¶àJ•vêœ±üf…whê†Qpò%≥;^≠úW˜˝:’ﬁfÇW0]8ÿd⁄„…(;AÎIè#⁄v,†Ó≥¿ûx˚X»'4≤Ü0‚?°z◊¯%k@P™∆6»◊á‚†‡ˆ˛£∆C°ûpÈ€*$J·µ!¢_^ 
+^ŒqÙ^pº §‡ı9Å§‡2¨¬I¡Àüô·«K°—®â˜˘ñ´ÿ)ÃÌSnÑ†b{ EÖ?¯—†T¯Î‹x*tâxÍ™≥√T`CÁÿ≠Ü´BW∏ Jy“ÔÓ?Y€}±ˇß+xt∆«(òÅ\0˙∑’Cûù,t}÷@,t9∆€L·≠7gÅò/Ô7≈f1∆„3∆g¡ÀπS]Nã•¯≈aµÿ
+üØ≈R‹Ïò-Tò;∂◊îe%ã#í∏Qù¥)(
+Ï±Q7NÑjrö‰W‡ﬁPì`.sñ!“’´¢ªEôwqã*F¡Qj≥ZÓ°Tµ• ù< –i>ÊI¥ØtŸ2ﬂöW„ßı√HÊ’SÛ›Ù∫∂,≤öÙ5d[ìÕaÄáG(îóÖ¶ÔI)≥T·®Ã˜£®ÃijÜ2e‰iñfrW†y˛ê"∑ZÀ„…Í£ÉÂvÅ“i2úüd‹∫ı89I&˘6€¿Ä:gı|«LuÑ†s|¥,Íkù"7ªvl^ €5Pô^è≤Ê?⁄9æ®∆tÈê¸¬}ÚESY∂Ω´ÏL[¯˘åÅ≈É§´1u XÛ√`!i~,WwÖW‰7\fòK#ãH+G
+§ÅCNÈF01›`òˆ∏¡µ˜Ú¸ˇîBä˝ËoÀﬁºmS/%¯äÑò<€ù_ÉÏ◊¬4f¢v]>åá®ÒèÚJ8ÅˆÇq⁄ãyÊÎ„D:◊Ì¸&ﬁb~©ÇÅŒ"æ ®˝+Ã≈;èªƒSP˝∂HA≥=	2E˙´≈ye◊P©ö"ä<‘†≤ñ˚)åõ““á&“òÁ1LÃ_È$è¶ËÇB$õ'JÃ®ƒ5wºBÃÍàS.≤cvΩvÃ|ì∫Õ¡¢6©'j ¯]˝j.N—/* Qi˛”á $â€‡ÖËr	ºv$8ó`&fhZü‡îÅ·ÜIôÙ"ﬂíÏ1rqêÇ÷ MıcP¡ímıh(ÂQ≥(-ÿÍUÃk∂∆‰Ú√_yË®óÆ@—';é<†s:I»u¿ÌË,ã∆< ˇárê∞SÛ∆óZ˜–õáQòÿÇ˛jA+N„Ô(8XZÌ˚IØs{ÑáˆBå!&˜hÂîUö÷ºÀóØ_ÄÇ≈àÔK£hO∑–®	ÚM(4Oè∏?≠üoÛ¿Î∫˛LáÏVy6Êi€ÊQ/„ îú†%üaa¿y_@Ç»ùäìÜó/ùÁíÿ!ΩtoL>‹¶ﬂ≥ÙØ∏6	£~©c¬víi◊ôΩu∑∏°õ¿_Q±UÙòîF¡◊P`™\»–≤À
+(éÈ≠≤˜Ïﬂ˛ôùﬁ,>æ|èõ¯r=àç¨Õ<»1Îk,Ãè›ó/^Ïºz˘Ó’Œ´o·«_<€;|#œ3è1Ôë∞Úı≠:—Æ]˙qrœ–≤:2D%ÑÙÍµ(AÖÇ8ƒØeLtﬂŸ£¬¯Q::T»£u–AJÁ‘#@—m0öJöû∑†á¥…í⁄d≠âÜËˆ∫ä•«qJ+=°:ùåé\˙Ïó˛Ö±âg±¥‰nAµ€\◊˙äú’B‰|Ms0Aß[‹,øô£QπñíŸ≠]Ãæ≥Øª∞˜ó)Ã<"∞«ˇ{ªñxïÆ@D=TzÀ∫·fJ¥∫¬&û¸ó2®ÖBH.¥¶¡çA¯Ça¯Ë÷œx‡çDõOq¸Õ*÷L–,}ú…r0ÿ=ÊMµ{ï	K'ÖV!¿Ú{°ëB@k)Uœ |rπ¯xÇ•Òºq‘)g9õ‚—u√ËÂÕ@Lπ›åËhU4πn5ﬁ NNyu»‡3Æ ÔêŒ&ïœ$u'5zØxÍÍ¶8¢3¿ºßå>TŸ∫ AMZ_Ò)Ù2ã0⁄<N2“©Ô¢√ñyÒ7Tˇ( Æ¢	Òs5ûh{Ë˘8°Í0p§≠£’QÑø&≤2å—\
+[^‚œ≥’ªÂ5L%Jµ›êa#_zpoÔC¨ÑêÑÚƒããÊKô∆I©©¥¬»–:èí¿êf0hFN0ZßSÃ'≈‚ûπBΩD¸Ü0ôdîòökFúc®2kr≤+H[ ±a'Öï%ÙUc‰«ñÕÅ∫K{a∂Y+ÃõuvÜ≤≥™	¶‰Cıeªiﬂï’@|cºÇ†Z ÀÜ“Éµ’'ˆ/Â«EË2ÙÓYöıZÀÀ’/˜≤,Õ°˘ûK¨>ø2m<Ç{ºÊ_l5Ï
+¶ãä§ΩeYkauP0˛´üƒÉû*í8/ö¨Ûz‘gº
+ÖÏcÕN¥ºK¯≤›>ùìTÅ+L◊aWÿ˚óÉ´Ôã‘œ/o∞√¯d™m7Kãû4‰a≈
+‰ÅõaAÁ}X·%'9¡7A»îÖÔïÌbOqré“è8ÂgÑí˚S%K1◊7–πÓ
+€"Êò¯a–≥ ÖiT•ø™›‰QVóh’§®0 XÂ
+^CÑ7±èÆâf_0…E–9J{0ƒ(Eø—à Y@å&ÅÉßg(ŒèF/ì·µ‹3Ç2™0¥êG∆ÃäÎIJI»;Ù∂aäΩﬁ¡◊zí¡tÀÿs˙SC@¬@ê≥&Y ›S—˘´¶CÂ…F/Dg
+-f¥∑1ú◊»∑ãxø∏KF	JÏhêv≥ƒb!Æ√:N˘Íﬂ>∆Ω1– ^y}K'Jsz÷Útç<NËÁ˘5–PBﬁféÑB√«3`ÿ$ÌEu~0Â‚Œ‹,ÓNöY¿\Ω‚ßﬂ#‹QÚ!©Û Ó´¶ ◊ˇ|Ô≈7Ôæ~∑w¯ÍÈÛù«;¶ÕçuJ¯ÕS
+‡±^‹Mzp‰äì¨ã¢g·0k˙n,i? ¢],Ë>µl<CXf≈0P_zÈY'ç‚ÏÎïÏ≠Ö˝ä;˙¥˙Ø¿X¡ 
+<£%˛ˆ%Ã¿"ÔÁH¨ƒ6õm%v£¬m¢OriíéóDfñ#ÇÃŒÁ	,°ß¢ó÷»m∏È+}—Ë}g$\Øb_DÆ+‹NäD¨vMéùtÑd™[£◊Ò¿å»WJ-Ey7âGg¬˚õª£{‹ï s”`Ìü"IvÙ]“lØ·∞R∏
+Ò}<á-º %Ä[xÓÏßy´—©π≠œ›áe0€6ÊÒù;c¸±JÒ’©œV˘{†2¯5®——rµÕûGì~gù∑ÓÆàﬂìQã œƒÀ6÷·+µñÙ&}¸‚÷ùvª¡+/õÏQŒû@≠Çj¨’Q‡xtı˚´äC≈D3§e&Ò∂*£Æ®—<j‚“-w‚Rs€ÀR®J.?O≥¯uú!i€‡∫@äÀ,z©å¸6ñ9}CñJ.éjÅPô‡fs£”Q‘˝M/Éïôå∏]r@Œq‹ÌÒ)h,Í“	búCZ∏FÒ$G∆î+[™Ø≤¶E≈®	¨•’uˆ›Íõçıı∑K°Gî7YÉFb<Úÿ‹ø∏‡;´}Ïp£[)∂G«=¸Î±©9n"[}¯éÄW•7©oΩÖ%ºµQÇH‹]7#ø+©<Á…OGÒﬂ
+œjh™¢…æv¡ó&ﬂùnµx√åÔ«π¥è’ Tƒ◊ÑﬂMNå%˘'xÜX¡◊„QœµΩ
+eÈÅÕhDä4{ñû‡¢ÿ;MzWˇÄ–åy√¢Æª$ÅåiF¸ò›ƒ{‰KKUmÂJßÌ#VÂ@ÔØãJXÓC∂Ãˇ&Oˇïµ^§ ª¡6ù_˝.mcd¬B;U‡/s“œI‚3Í€›t¸AÔY—ö(ˇ∫*=“HE˘å:K÷^Ô0æˇ¯…l=¶«’Ö€nÎªºÍ˚ZÇ·~Fù.“Ù>Gö¸‚Í±5≥u|∏ïòèSôO±»Ar≤XpãœcåèÊ¸]§@.åO%sëÎHA/)ÁM™ÖËWá,Ü“Mó°>´Ûe|‰†ƒï˙Eô=.ªû%#Cñ·ﬁîífvÊÒo6~ˇn–ÏY®˜ö≥ã∂6Ú«ŸZéD≠j∂Tô¯Ò."m¬v~a}8,´=”¥2î›˛ÍXI≈kH*ñ:d!]	Jôù§d›ÖÌGCÑÖ ›kÃ£ëˆ)æöù
+¶Tbó£·ó÷t ]ò¿QˆIçåIt(?§,.âU¨©∫f^iD+|πÏ!ê|ìV•_¬‘ãª[55ó^ÿCÅ~‹¿ò˙ÀYo}k7ƒVπj•˜Õ¡XC$I/Ω~ +ÙÆI^„HaæS±ÏÑ}¢àòØÅú¡ﬁB”˝∏üOêˆÉg–!¬–Ê:Î%∏…ò∂<b>4˝7]¡ «ø˙/ÏÊEè6à%A†°#®Ö0‘ÇxX§»?V
+˙t≥‰-ÕΩæ¸¯à:í≥a¿(F<ZîÉ9Õë&o¿ã‹¢»fmdp¢¸πI˚ım´°Q|Lœ·7wLw‰äáBö›g¯DG|DAÊº¥˛6≠¯ ·ÃÂ√‹=¿GäÃº_∫´÷WpjØÚ`ıÇÿ¬‚:£Ùåê≠ïöïx÷m∂∆Z∑@}`ø`wä6n∑€éZ‘§C”hP“350Èi«•ÁIÊäWQAnõãƒ2îÉôHê*·>§7W°";≥ﬁ,Ì 72)ÀPÚ?ë˝’…APâ[´wg…„jíPÜ˘cÙŒJ
+ô†ÒB#Û£h–Ω˙]⁄<©,‡û9ÔÒV%Î±ò>“X’ïŸ⁄ πÏ±ÒIÙÕó5…uçÒÓ›r¬Ò…àà1ò—S7ÛÏ}cKz+˚ß-1ÒçfæÚ°‹»ah◊/©≠Qﬁ…X±◊¬íïQ∏W’î™BPV∆º›òÆ±Wú4pﬁ´I˙^¨Âm∞Øøﬁk≥7ú`í;Åy+6∫âÓ´Keí9‚dN≥œ'jBª¢öbnò<π®6≈RLKlöÖzº-‹èa|F∞qÒÈzZZnÎ∆ÊQ¥Q9ûƒ4J2∂É™m≥o˙zæ¥¿sj^È‹4,U$⁄EÀÛ•·ÔcJÛ
+∏êÈK—˚≤ÃO^∫Ø4ˇ!∞ ~-‰¸ÙSïÛï~Aa?m&Èßv1?˝e|
+Fvπ4óÙØoﬁ"«Ã[˚#DRBÅ…g;„iﬁo-sçΩ §>+CT,èKcú´Ä`ù$˝I!	UH†Ø
+Tê≈+iUÎ@å5ë4¯ì∫Òπ©È¨k§E—∏(ˆ%—Ãpl÷yj¸⁄IÅ∫v&ÕˇˆÔ˛Ôø¸5{ñSk¥≠ºë#Çúa-BY3.⁄˛’·Âäo®9•¶Êî~æjSq‹∑“Ω‚t]m˝Iu˙¡Tß“≈˙Òß‚ùA¸iZ”g Ïh˙GÅ˛‘5¶≤Sj`Üm
+S◊Æ0uˇ)L›9&Ÿxæ4¨Ã≠3u“ôÇu¶ÓuÍL∞øüt¶–∆|Ç:S˜÷ô!≥~“ôö‘-@gÍ~æ:ìÜòı„VôÆ©©?iLskL∑ôF1cJ!Üô™4;;ãÛΩùAúMvì¨;(`ŸÓ\V∂Üí∆v{ØøYy"V∂oÖJÊY2«ﬂx»cŒW”ﬂ¨4  Ée√–5(Ïêÿ±Z…√òıØæÁ!HàóÓµ„´Ãπe%√
+q˜‹	áé'Ó,–∫∫WﬂØBı OAÅ€ï W6?πl+5+÷1åA4öé_fcXÀ"b´:u´$ÄÍëÌZ∆∑i+¯©|!+G[&ÂP±îïπËû¶õD‘Í¸øˇ˛˚ˇ√pÏ°£_ÛÅ∏˙õÏ¯Íw&&Ü}ã®Ã„Éb˝jüS$∑9ŸÛ¥@/:Dˆµ$≈(}'Teﬂ„wÂ&9∆R#˚∑,án¿/Àªpaœ”Ú ûVühGÉ<Ê!⁄OsÃ©I<qπ˘%&tbÖ(†å›F–µT¯dùú¯+óylwQ)a6Èö˜≤JùG¶ìVlæ≠L/ï=Di¶ª8€'ôÚ)Í∑À’˛Tg˘æR[áÂaè^18)û-«÷µçÚ@s@Y˚Œh-GQ«änÄª≤#Iúc—∫i<®\∂¥Ô∞˚¶å=9> πà´÷wèÛÄ]G£,3Yù]–ÕéY"ö)˘õöK~⁄»0nôã?8! ˆ=à°Ÿ&4[Öç˝8ˇvJÿb∆[Ü◊-ÈÃ?Úb·ëü…[P>o]∞Nì√&‘è™•nkqÔIü˝$*∑öOfU∂”Idóè” ö§G§qON9	∆Y⁄çAØ;ÜÌR~w8â«-˚Xó<d∂õ’ûDÕæ¬ıŒàJ‹`ÑwsŸ*nÖd4ç2a…À√IòôÍE)à–·˘ƒ¢/∏Ωr;3VåÎò≥õRﬂ{Íf‘N@ÓΩ¡9∞V'◊u:tÚ[«´√(∏I≠%}≥úeu$ﬁ*ÉÛ6Q3KÁJ	Å,ﬁË)zÇ éùƒTô≠±ß"zô´Õñ˚à´≠º’⁄ÉÕx´5˝ı÷≠º’®ûó‹·ûm[À≠ø.⁄jáÖ‡zI´K+mî6 ˛ﬁ;P.«ôè`˙ÍoÈF∂K76{,…4{G8√˛.Å≈˝ÔjV¸qÉ⁄\”·OäõºÖªi≤]?Itæ⁄_}≥q'ãáoÎSvR7iI+÷_Ó±áz~◊ÁÛ¸n8=øtŸwÅãˆ¶»	ø£,|_˚™∆—*˙˝<7lÉ–÷;dã@∑Å˘ßΩ∏Y˝oX¿©«„Óñ•¿cx¡Ánh!ŸàAïûp!Jî¸π¨ubåYÇˇ&gFª√^—#ÖxÿYLÔ∏˙!å_Û¸sÚyø£_˝,≤1AŸÇ¸ÑòDàè<Ïü£ª»[N? ˜˘#PÜÒÉögÛh–Kw3¥m 	Ìã)Z´#?◊Â_¥ÎÎ¿7°¬àtüµ¸†ÿ6·˙Ç%Ωmb"]a#òG¯;ZÔﬁç/ûp‰Ò≥íblŸá¨IŒsU∏Dÿˆ—ÑãóÖO}ŸøÕá≤pD¶˚QF£˚¶€§'8MßYä¿ˆ‹åøı	ò–Ô›dÚ·máO®÷£4E€•ø	dµHEgÒ)ˆ¢™dGº—õ∏/ÿSŸøﬁ{Á≥>æßl£„'ï√G‡◊w]I0Á*Íı‡»∑ı1Qhú=O_∫¢:ËÚ€"√F≠|líMΩO’@Ø;›íﬁI--Ûü÷úñ∂ü¶¥˝˙$ß¥¥Îü—[ä˝ëÀ9¯ªëN¬KÑÒK6ìµ©¸ h*ÙéaÜ9Å‚∆,àâ"Ñ~¬¥Qyo&pi§ArBa∫ªmñe…IDtœ…9≤¿∆púdCrÒYH9"Ωã¬AõåN√√xp^??ô&ŸJâ#è¯˙√îƒµ˙“A.åNì˝äyé|ËjDàO˙Ä ÉsT¶â≥µ˜ÕRN
+°‹ÄE Ó~M!En&∞ÃWLq+Ë;åu£*G∏ÍHj†SB$Ú<ÿ,o!A~ñrÉ„¸¸ur1ø”«ò1Z6E#ŒØ8á\åæ°Ã£¡0O÷(Yn+]q.‚É9≥®JM\%Ì)ïîäzÌÅ¸§15ÑÚàV~0C1úÀÒ]4){Á∞◊X9·æ*Èc+ÉÎÇ´ì¡qã‹pPn{x¢ÿ•ÑCæBı}õp6o!¡â∂~Î@}&ÉÓ‰^/É¯§µêõ∑Ÿ≈1Ú∆G+≤=«7ò AÄiöuYVƒ‹Jâ‰ö˘πà9Êùà˛≠ıÈˆqıÀÕu%¥fﬁŸÂâMÆÃ>›CätÆWOùı8…«ÈËÍßÒ`ª·sEﬂ2™•Ufª2•≤≈M˝œ+≈ÆÙqgîreŒ'5öÍ#Œ¶2‰´2óê~%‹∏cí^Î4‚µ(&ë.{~í”(¨($Ò>Õ“—ÒÓ∏c,˘vΩ±Œ’™’äw|K”ø“qD“ÅÙè—Wä YÅ(fbç6º°‹L4bUo≥¸Ù÷∫¬lúÙìëˆEµ+ÍVI5lZP≤∏z∆x?KQ¡√"1“Å§x‚èêZH∑Çõ W∑áøu=îøu}IÜ.òª
+	ƒFÆ‰Ü-ÂÅ„ú/õ*Ë[l°(⁄≤P-‘°Ï-`ÍM⁄⁄à∂a«∏Ë^WT#[PÕö–ÄÆı¡ΩÁqûG'Ò·∑”(ãgÈÀ∫o¶y%Úö-¢f˘l8 wnπÜx∫Ao8∏3~(‰‹ÍgñúXgFÅ-Fàb~Xó±&¯}|_≤AtìÙÙ_,…∏îëOXN˜Kwé5—(hÖ%m3=hE7`óYs¸Ÿ¿tˆ8“3sË˙"¶‡]∑ª∑Ô∂#iQS_Åt≥æ
+ˇπÔwÙ7ªÁú#eõcaù∞ÂÎ¶ô˛2æ÷w„Ò≥4˝Õt|ÂW(–"EQÙõ1îJJn"QíœK‡æ!t—bS:^˝
+&k›‹K\¨(πlÆ˛IŒu#âΩÁ"^åmî¨kƒ^yΩÊ{ö[Êá1t^Ãˇp¥ÇæùªTJp¥ >+úwŒ:ñ˛Ωπ+Z\€yv•}î)®πèdÉã„ΩıJÑS∂ù-Á∆Eµ—ß2wøYªÖK‘’  ∞<äíÃ3$“µ:˜Ä»Ç.ÄÍÁ;|èÿá}…O¨®â Ô-Ô’Ú]'#–Q¢R!ˆâÂuõ≠ØHΩ~w˚.ƒv¶>πåBŒ≤Ú¯-˜„Òy2ô·≠•ZÖ˜¶IsHgcV0ÕP¸ÒtÙr:Yv§,Ü"ËÆüÙz–ùeÍéıY∑ÿí{¯lêCvÇ’ñ¢≤	÷î7dq¶TGÃ…”(…kêÊŸRîR¥ı˙8öPŒÂdt¶òπˇ˜–k„<ƒä€Á?»ä¢B◊≤ﬁú]Ñ†µjwˇ	[c|ÓlÅXXƒ.)ÀÚoîJùN¥Í¸Gg5≥ìET0;	ÆöﬁèI/Íπg˘ûÊñ5iöe‰u·%G¯gU—ù1ø¶B•,†≤£=à≈rSV4¨„U¥[Æn∏˚º|t˛Æ/Àjﬁ® Ö¯ìﬁ|ü$#4$'YZ∑ÒÍíg2L8â@·Wi‹lÀ}sD!•K0W‚1™ ‹Ú)$ÉNÁóQµ‚ËıåW”‘€⁄≥k±`?ÇΩtxıøGIZwˆ2ã≠+Íıx	)pêû]ª!xßóà§5N”Ó¸‡ﬁ˛`ökZÛ¥‡™jEcÉ√‰=„f¡BTêm∂Â¡Û‹dõ[ÎùıuêTw#P+‰ßw∑√öÛö.Ωm√–˜÷xÖ%ΩsZÅ5m+¬Ï‡˛*á˘hì> ‚'ÒôäK≥$ÌóSÇµb—èm_8ì∏ƒÓ4Ó(ì*¿_ZIAõéQd‘VD∫dÖ-+ÉÆhRÆ*JM=•≥%©iπjñŸ≤”j;∏ûî∞2‹ÈàÚıs†Ë6	◊
+È8mÇP‚?™Íü‘Œ≤sàr»;{®»yÁÕŸÍÊ∆èl÷ÿ1ü≤xßH•€∆·4/|ìç∂1´™Ó‹iªávF)≈dπ`°‚ÂQgß—’ÔØ˛)Æ’Ë±¥(ã#oèeÈÏ∑˝^[Í;˙Ãk¿(iîlñßGYå·œ<äŸùÇ-.óÍüNlDÍeÀN4`·ç\xU√yõ/rDqkñ$Æ∫…◊„µ¬π˝´“‡hª√Íe¨ÿ<k≠◊Ö(≥I·≥ı#æ#ùFYç&˜óN˙i>Y≤ﬂ†·ŒÇg3>“ÂÂÉ]Œzù›[{‰ﬁ§*-»„n:Í¡@∑¬ZGôti_:⁄bg~»ñü«£4g/«|9Â¶ü8ºUÕt5©ó‰—— ÓæF +ùzY6Xx¯(D∏Ës
+|Û¥–,õxNëwvj˝ù5mX†˜¸≤GUµq‰≠‘ß™∏ÒU™˜6H™⁄€ŸezyZÉˆóOÙ¿˜
+Nã	¬£◊®2T˚SXà¨U•clõ£g(îM›{k4Ñ≈fVÄºÂ¨1$ÿe≠ùﬁ0µëéªÀøÅÄ≈d1›àÒ2ÿ˘=d+'vÔnrút·—aÑÿ~™ê~îE+ÏåW@HÔE	&Ì&£|:DAòò÷}å,·=ÃÈÈeQ⁄^ÅYÄ∞ÅhıáO˜†òÂ£¸îä»;ÅÌ*ÉIä7ãs˚óòTc∂˝t°„¶˙˛Ÿ¥*Ú≥‰[dGÊÔÑ•8ËTaÏ$z›ûücÁ ¥‡•âX'7‰‚>a/PΩc∂3∫˙~ê‰4¶TI∞4Ï)g∆Ö˛ZZd’e#–”≥&òkOh¸Ú‹ä	´
+¡så˚(÷„eåœ±‘˝Ëö>)◊[[V¸≈Ù(AV_OﬂUIÚ'–=ˆ£§\ex;5Ò¡}Âç’¢QÖ∆nLZo›P_ùßTı¥∫Åä\Søÿf(Ô√åË©•+øbˆV«Ó9lÈpXÎY:ä†§Xòì∂&ßgªREjØ|Q6•{≥„…Çç~Û√vaù≈≠V‘ÌÆêâƒ≤ub"¥Wñã’ui·
+∏kÀdH(Iﬂ ï™}3J&X#zåØÒ…SÍ?˙jπ‚ Ûh¸Fø„≠Äó˚ÌönG):æ¸˝¸˜oß H`XÓ∂˛∑^\Y}ˆÖR€_‡‘;/W¨sUÎzE(fÀC€∞¸Bπa€r√/ˇÉ>-iœ¢4…$œQËX"Ê4L‹Òß∂ü≤a4öÇåbØ't3ì°A9=g—ÒDfZÚ‚IÁ›,!y÷‹≥ÙL∆Çu(7ˇ≥d“o-ãj!õ/éTËc|Gß4|Pi˚r€2†Ä≤,6GoÃ“H5ô©ïçût7”æYV«µ¯§XÍ¢ÀèòË≠~#Ç:6·≠mü„Ùäó‘≥»J®tÒ¢
+ﬂ„ì˜æŸö/‘w;û-èIŸ¯b9~°ñ^}|Ä«§8µbZæ¥{ØöW¢í<‰ÁæxÍÁn©∫F_∑aÈc®¸6ngJq÷TÚ†Rµ8©O!
+î2á´∏˝ikq˛Ùt\})~°˘µ˜∫ÚÏòŸÙtìÃ.5‚∂D?*œI52◊≈]ÓMrπ˜(Íùƒ’˙|©}îIªZVøÜ’&ÜÑÏ.≈üòæ;TaÎ∏∏Ã!å∑)fΩ„b	†ÙLîñ˜„,ñm–Ôy8wER)T’• =`¸´ˇA(rGÆ≤ïò^<Æ”ÄÇ/L!pπµ*+l8m´‚lµD∫¬BmDO%kÌD_äôÖ!ƒù£A⁄˝Õ“°Ω\˝Å´/∏iπß∑˘FƒôµÄÃ/≠Tw◊ú›™⁄˘Æ´¥|/π58Jfπ˛c≠eØ.Ó]o_˛¨m+{√Ì¯ÆVõ8n…∑:RéOÚRpo¥5Ø;∑Ê-sgˆ€õcpãwô/°_Ω…4¨9¥%Ì∆vÊn∫ˆˇg—ƒT+="^ 1:W√≥∫è÷bˆÛbàZ;»Vwı˝$Èö6Ô	ÍÑb	*ÈïŒyÆâ2˛I>ÔDvKV†tv·’-Öêçü°DX´A÷”ﬂQÉ8r
+6"˜'åBptcòe∞pΩzM‘£Õ∫’)Òê˙Ö∞k\vR<º€#Åî°.ôÎR≥Õ7,L·∂V˝)uçOˇVØ:¸•∫»;Ióä"˘Ê´ŒVëâÚ  Ú¯+QOœVﬂl‹ÊPZﬂ\û≥ãb‰rßÌÿ/&súòäæù/e€Î8v‡]⁄vœPÚ˜…∫—aªÖ-é÷ÁBU~â÷êòmv§ÂY®î?π◊s‰ÇR4>J£¨∑€è·5Ó£WÙ‡’Á∆pÅªè€“’Ô´8Ô|b,‚¯%9”˙*ÜÉEüΩ·á/BÂdÚÌ€µh…ˆÉ⁄4Ä-˛®5=\%‘.ô¥….âÛÖç¢—’ÔÁ=pÕñ’°Êé>˚»úˇyò9p
+ö0Ñ§µ“Ò»QâZBDR°)
+™û“©úŒC.z40mÆ€z6∏⁄ßô¢nØ†ST⁄±‹v°µ√±≈mx∑∏"˜∫mvÔ1¨Œ(;LNFû™º•ÆTÿ≤ÌÅT°w◊U 8mÜHµ%aÜ;ÖêµQ´JÎÇπëWf]˝H∑*lz¨
+ÂÖ;øiºnº˝´›@∏*Ç	yÿ'ˇ£⁄¬Cy<ny-\–mlçNÁR"æì-N:êxë|≠å∂a7‘4}Ó8¯è uV>G„·¶É´Ô≥Dñ¡ˇ‹KKbÅE≤¨./‡érÃ72ÓqÕƒe‘+E<aﬁ+kˇ"=ME‡<V%gèXÂ‰µÀ<ı\2¢ÂQáAÅn◊≥#˜wûÓÓº\“„+1M·	è¸xÆúí+Ï‚≥&YÚ]D≤#∆Xqî–njˆcÿ¸|…>Í}‘◊å˜Ö=p∂∫a√±µˇıŒ≥ófb”8ãèìsXª7≠IN≤˙n“N∫—§´°0	¢ ƒà0±ù1[oÑÖ¯a úê0L»ä∏¡ŸX \ ¸n∑¸ π…ﬂ7M“LÓc[ûvx¢¯ö6eD’…c¿1m®nÂàSÛùƒ.N g+øh‹óI∞ôb~ì•3˚î°«ı∫z˝€»•ﬁîRß*ﬁsRaƒŒtß“æ◊~…˜⁄`W
+wiÈ∆ÂÖ[åág∞_ci∫?◊Ø≠”7RﬂÿﬁQ4ö„6á‹\›S-ºùÕ¸hpå˘#€mÇA„†[∂†pke@T∫|{ì≠⁄¯Oì—Iï≈˝Õ∆[&i‹u∑ä)w€ ∫‹ZWGLı˚ó- )8ªléı®T“ÊÕv–-9ÉŸ]]cÛ Gä|~Ÿn)d–ñP·ÚÏf—Ù<$à∏è∂√q HB‘S#‚uuïÂÈ0B	]p HììRåˆLQﬁ•¥Ã˝z⁄„úÁ†ÎAü¡√à€%ì "úÚÄªKúéín ›Óh^E0·<‘ñ`^˝ë;QÜÛ™¢è€Õá äÀü%–gÀ»«!nÚ€Ãx`1"ÅÖ=ÃF5=î-‹;gY≥ælçUwéq·∂52Ë‚ÕÚ.Ó\¸œˇ¸ˇπ˙ÁÂ∑d%<≤eª81»|vT]∆6£¥s{r÷ZGÕ”ïﬁÛDòléÚ@)∂^∆]~§D]’€Œ°Ç8îtÅz⁄’jªÌZΩô6Ωˇ%ˆ¯]¸Á+Í˚ˇ˙âı˝≈{≥ÛÀétwªyqƒı#hÓ´≥åòuúhW÷>(ÕR‘ÚÂ{≥Ÿ◊€8ö[¯œ¸gıG6¨´ˇ>GıéÂ˛≥âˇ|Ò#’/˛é™}òÇéÂ pÑúZ°=·;≤|„©@4iµ3;m›êLm›5O˜t>…ÓÒ˜IÁö˚‰~”>Q≥¥U=h]”ÉDê:Ç∑Åf5{‹ØÌãÙYÕ◊âù‘&CÏZ‹4è22º∫mñﬂ ÁXú√d ≠Ü¶JVõâπCÃfúÇmífI∫≠∞©b≤+ˆ0z»†mÎ†#§´≤∂•Éæ∆¶Ü!Ò›§ód•ˆÑºê…hôTl†IQTºóYM—∞$ÂÑ à¶ßW2*-Oÿ41’öû[˘«ø˝ªˇ˚/≠⁄‹VÕì∑¡,…E*ÍÁèÕ$bÁ˛2/‰¸≤tGë€HFìb:åÙâcv±ÃlˆÇ∫∫ïa∏*´àV√òFBæj$â•ßuñË-[OÔréB>˛©≤f•*Só¸˙Í{°≤»8‚é*XDı&∂ÒÍF›$bΩ)OW¶ô8á’ä“ãÛ÷ˇ0™oúy≈·f‚|Aõ%ˇ≥uÇŸΩ≥æ’Á|¢)Ø(<"(3v%oÎëˆáNÛ∫á	~†•ëJ∏Ÿ°ìËUt‘ZÓ””I7µ«ÎX°y-¥†à†îQ)(AŒìSŒrGƒü6ÄŸÅë+Ñlo˚b'∞X]^ˇœm÷]+e¯‹|·èXy¶ZNÂ`Be5/êMπïÚ< 3ì({îg¢OûÅ‹Gkeöó¸£Œ‘¶¸ﬂ?MTÎuµ!…wÛy⁄å€{ˆ„∏I«µƒ
+b'∆…qcBÿ¨ªRÊdœ„|ò≤PÕá◊q>{5®–^›®A5BCâ·*_pJ˜ohUú∆ÖÊÕˇ,±ÆPóx7\c≠∏ãB§.õ‰‚âbπ\ñ7≠ √?‘€ï[π>{CÜ`y'/…ÚÙêΩˇ’iÌÿ„´ø?Bmú?<õ˝…M˝n_2˘{[«}√tË¢tãsŸxÖ˘T›[ñ(™(˘JÂê:kÏI‹ÌG\]*ß◊ 'ÂP	B)ï‚ÕWwN˚oŸêßQ(7¶t∞ÌÍlﬂ˝’0‘ÌåÒ‚~(°õ*1ı&áQœá€‰…4ÉAq˛ºJëZÓ8eè¢lõïÊv8¢Ò	U‘#ƒ2√≠|ô%ŒêÏèÎ-™™¡}°∂¿·X	å≈ò·6ŸR #’Õ÷j(u ;◊D¯W1ød}¯™p∂zÙ·á2|√ÄGÙQw˙Ñ¯SoÄZ‹Êz@@¸ΩorXjÍ¡ùEƒ†*ì’õaK"Ë¨Z"[7Ñ4§8<>8tÁà#DHc€Œóûó¿çi.ÎáEm@Bnhx∞uôQR&z{Ï éÑ¿:Zfãsr…T“˛Ë∫¡öD!‚—Ù!tè[ı__r÷d3¯≤òƒÆßû1?ˇ9[JFßIû‚%gñDYu„ÜVÄÎÅ [ÔTÕS¥FNÂèÌVµù÷Ú1?Äbw6ñÂaDµ¶≤U©⁄+";»û\ãÜü∆Uq/Op∞ˆπnC/çRa[∫7%õ`Ç±Ùs+Ø¶¨œ˜2}«rØÎ^ÊhÅyÅDxe–?NÚ.ÊΩ¶‡{"ıtÓtàæîJ(…·‡&ªYΩﬂoo£Ï¥º|Iœq
+¯ùÒ∂≤ûÚI§¢æCª∑_E‚m ó9«†ŸÜûã¡Å„xÿ˚∫;–LåÀ]Ö0eDr™:>ﬁÅ!Ñ≤]–@Õñ˙5€¡@ﬁ±‚ “ÇÊ@]¨x+≈Áx1„yBØ1ùÀâJ⁄:¶xû£<áÆP7ÒTvAE5…∏Q9,ÃÉóO@ö•VÜìÊ)ˆ\dîx„∑¯&etßæ=ÈŸ™ 6ÊÄ‡ˆcŸWBæ›ÈÁ¨<¢˚Õ„T„^4{ﬂyŒ»Y%6 GU<{«ø˝Û|;Üg√p-!gmI–¶¥Ôõ!$î≥pá=°luB±ï,[JP¨;ÕÚ¥Ñ4·ô+"=”õFÈNé∑0&A+?îçi™∂:∂*≥7º¡⁄J⁄r∑yá&FMõD∞q∆ÈGÉ¥KG›cy¥é
+ÄÍnúÁW8çË}}û%Éò—çøô§„v@"ì»Z
+VekÚ?g‹„öa$ZŒÑzç.3¨wéº{ènπè!£âTloU3ôMõRÈÕs∞TF[w*√EŸ—⁄
+∞'úa”ºRûcœπêªé‡∏v0Ê=1çÇfAΩÖ2B[ÀÀƒ£`jt¥b≈1-™]ª$uK©π Aã3Í«›<JæÉ;Ë©Lªó””ÓqÙ:ÏgµI·Õ˙é”}≤›∆´7Wè‹\póë˚ÈvØﬁå]∆Y∂»TÏÔ5ó¨Ï∫ÅFJ|\ÿTÈèQä:∂ãã˙Ác¯¨W˙∆≈õ≠vk˛ÉüÎo_w¿ƒÁqÈEâCôıbFÌ›·Ü°Ú≤.lØ«RS^‹±}Ñs˝æI=àŒ^ôÙ°o'uæE≈˝Ça-ÿ‚Eª=±ÂÂ§˝V*´-ËêÍ-	£üA•Y∑Ï≈°Y≥˙É˙«Zÿ1ï›i˘SUé‡ÄC:=ïzy´‚ﬂΩUOÁÁΩd2ı‚¢•Ò≥ö•Ä¨RO‰f} ÅM$â.;Û|åâ!dá%“Ö„Üa2∫±Óz’˜÷˚KÆ<å,b~	ç ÃÛX£+dk’e&x«U(îÄ≥^Ú3‘v§!ﬂX#´,ÉJo<Å—˜åœÆ πúLoæ"ﬂn(ZN=®ÉÄ”8ì¥(ãp&∏U√Z{ó_Õ©FÎD◊¶ø‰v&ß;—€¨Sæ*‰ƒ*Tò±π¬ÁQ/=[=œ√ÙiÊ0B{ƒéPâìiÎ·¬ÊR·hjfs	Ëπ õÀ≥d8ÆÎ.€“ÙŸ>´ü¯¸ÛW˚∞ß∏⁄omH45ÓiÁúJ‰Åâ	Oõ·µ∞ëh&yOÿ!h˙€Ï)·óëè„IîBp]‡ÂE∆÷VMPD•é‡àP;	Ùâ˛B.õ≈À◊6±⁄xL,p∞}E3®òf˘R~(;≠öÊ≥†±üóm∑¬ﬁau £ÉÍ¨~êø»·Ω¯fã√ª‰KM-(◊>Ÿ‘Íå})¨÷{…NM √πífyﬁ¢Å'©LèÅŒÓòºΩÆ$b˚≠Z∫!ÛÊ÷]+
+uT°≥È≈2oÆß≈FåÇÕâb4÷·∂om®p€ÅË⁄≈≈üÍ%0c1≈1˜™·aÌ˙≤Jè¢¥J∑Ø*Ù4Å/µ‘π/
+åˆá5Nô·ø˝/t¢µ}·›@^1zO„ŸTÆ'5¨K8é!a8@K6:⁄Z{xÆKÙ{æv£¸≤Yt^tVó1∑ıÀª∑πà@èCUÛ [º”úa:¶‘.Ôat; ò-8á"Rùˆ£dnﬂ{Ç∆Ï∞ƒ±©Ó~IØD≥”¨T4Ä	Ÿ#í¢'ivàﬂb,[K%‡ ËoKäxzÃ*_b2∆Ë5√ıR]UÓj∑kßÒ—ÕXê>ÚÉ*C4I˘3>ÉG¥√”GU"Êäñ“A<åí¢w=PHì
+~$´˝€a) X 5Üƒq⁄ƒÛÈ`íåaäŸ”Tè¯Ú„Îˆ®nY†Ò¢Î’6´ö}ÎZ,7ñQFX^*∏˚$±°ÿçî¨Pîß;lÔœüæ⁄{ÒjÔêµ˘ì)”πMA˝ΩÛ‚{pjû∆Éû⁄üw”$≥"$”[åΩ
+∂3#Ä¯2≈árÆ<KÚÇ¿†ŒD·ä{WŒu ÿòëX¡3∞_ÜÂÜk(ó‡ÚL0$‰æ›:“÷C‹mSOƒ/Aõ:F‚†˝ùøxC˝Ó˘ﬁ´Ø_>~˜rˇ’”ó/;«…®◊J±®¥ÉÙ hÜÔ„I?ueSÀ´ñ°@-7[OX\WIH¿*6~‚›‡$Dæ≈∏o§¸∞ËÛáù˙'Ú=¯ãˇ·f	P•‘p¢Ä¢v˘ÿ*ô•nUÓ3º˙VçÎWNà&:ñp,j‹S €M<guêv›Ü|ÛÜ˝qG·=O_•œ∞Ñ«¢<·¸£⁄˛@V„™8Ç|è¸‚ãoîûFè#¢Ø®uzï>ÕS”5¿;´‰e‰l∑{’ù¢»ê≈üb€¿}ÉZë–:áı›uAâ≤ævª¨Ô%t‘x‚¢‰WÄ£RÙãõÎôL4cP±Fìß∑É(g¨ôUÓ3@+¬≠:ßÂºj@5]!*-›∑XÇç¢ÿπ†É«|2Œ´ø*’	‡WÈç…?å∫¨ÅÀü_DlﬂäŒ¢M´Èô@ziΩﬂÇKúc¥îÉä–¯†f≥÷M◊ﬁÿ~¯‘%or≥ıZkñs>°≤bøéòê…pwì<Ç•û1ÿ∂=F …¡){˙|ÔÒ”ùW;x¿Ô5zukØÕSb„∆CV$dÆâ\“^<Nìºçâ@x?¸jÅÿVÏ35ô+æÿ˛Œ!Â≈F]LqM	3
+ö ≈ )ã°tÓè<M¶äpgË∆Ÿ‚˝N±:P–~ë†—{9¨ä±æ4b‰:Ü,S∆¡Ä±Ch≥TV”- √Ì`Ÿ	4„æM“m0? c§sD-_(¥ﬁïõ˚æπo›ÃyàØmRñê:q«}ä¥íö>•LãNÄü7x≠rÒä]—©)≈Ùê!Á~Ÿ…∞Ú{ú˘~:\¡Sê¸ˇ”!˚Ç¡)*|˝V⁄˚‡˜r;√}§Ë√Ò|ﬁZ◊m<óhUØ„åØöD8—cÍ˘$Ó-≥ﬂb,%˙/ÛÜã
+›„‘qÍ≠€Â≠ç_uŒ"tÒC·ßÖ&•ßá/…ˆdGpp\ìÏCìì†®≈)≤+,Œ2Xêó“≈èáÈ8¬†¨Œqñ[Àßò}û/∑;”1 Bh«%∆/ﬂ.gRP4îz°ıÌù(h[˝∆e·∂ôú∆Ωw4aÁ--”®úRçãÛH∂Ô?:∑ï˘'>ƒç2≈ìn√G@0#Òg„∑ÛaÌΩã†cÂƒlV»eª€ZNz »ÕßàÇj0ëﬂ¿h>∂Ÿ§ü•g|r6/„Ÿh†kß∆ )∆Ö∑áÖ∑ñ_¬LÅ÷!∂]<‚0?=A≤’„]t*‚/ÈîEîbä≤,!ê∞3D∫ÀÛ4Íxì_-óÿ0à	e“‘êÿ¶∆ëpëÚ;ÌΩ“6!zΩ·–-'_±.Q’.n.íbΩ∂-!€öê”lGôeX˜µÕÚfùäxuÉˆY.†Ó™
+†ﬁÂ·ö]Ò*˛úN◊R∏*%hÂsékxè>–¢Ωî¬›Å~6Æ¿û!ë|‹:\≤n4ÈˆiS°ñÕè∫twbæ‘q≈£†,ÕµÖ^±ΩLa√˛Ò˘ >ç≥	 Õ∏/t#!#Ø†ÙéÚ4jóôÊyÇôVRS…JEˆò¶ØçOAa\`'XN¬E∏ùQñE4µ	Ω/∞7!0m2ÍfÈ(1Q6k.á$¨	›M'®°;Ëº÷˚r„≈^‚	irÑReå@Ö1z∫eûG'?VÑnˆH4]æÏ∞ËòƒÚ‰˛‹yﬂh÷]£qG˜mÿ8+´°9Ao	çöhLkY<Ñ]‹`È	∏…7hóŒ@∏∑”	ƒI}’¿"ñ<t=+≥õx‹ÍuZú«¶Êÿƒcc÷Ó'o…Oﬁ[+‡-q;I.∆ù&R4p'8J˙'ÿ- ±øi‹zy.≤ÊYW=°Ö˙¨¯wÚË8FÕH∫EVÿrØ∑ˆ¸9˚˙ÎÌ·∞âÅ˜≥µuû"¡&Ò¿Ú¬¶GÉàƒ&SÄ:dÑ?±o≠ §∑§ïkÕ®]M@Pª…‘
+!§6(ÙB.Dë1ìú˚”,ÕW5rVTs	B39ˇU∂C„≤yûƒ”úæ2A†¬≈+â˙∏Ñh›ø:`ª†Øá˙I´¬ô∫ã*Úô¸xcv-\HÉˇUÜÕêª˝f∞ò÷HPc·ìÕû√]˚•ÄÒ°ÖbECövK4˙Ω?◊$‘ª…	ÿ#‰_◊‹]h~ „!ËÕ°ÂP3™B≠¡t°2hPX√‹ë¿à1k}¨‘áÅŸ›–%NÅïºCC €üfTÕası‘ ÷	⁄$3í¬õeÖc·ıÀØä‰Û">”ÍÀky9—KÿŸÄR}b¯ Axàôm2âåöÕ;ò¡b}@ˆÉJ¡t∏cGWpÂIo)◊ê&r0‹öÚP–Ö]
+∫√√Ñ8"ÙIÄW+5 $πp(
+áÌ€û‹mOê~qCpjR‡∂·ÿ•~^x»À‡*Pm®§>µ‹ÒÿÇ'ª~¿/îÖa…uÊà!≠Éõm¨üRÍttYÎgÌ˙∞{k‘∞˙ˆ?t…ÜWÆ⁄ƒxÂ“2«ΩΩÚ˛˘’˜ÁÒ“<úúÙ”ΩÛm∂πCßÖz›-†ﬁµDÒ≠ê∏+„W6Õõ∫Ø\j _â`†,ãO‰/Æöm+@4[∞Uigõ¨n≠ÍP=»{f´HNçÊK	MÑi„≤}√^mR∏A∞¬ºÀa$¢∫Vl\7Î˜û@%`Å√§Çï}Bc57>Ÿ¨¥%tºB÷{ïí≤ÿ9yO≥Rökûp+™ .å‹ÈIç‡≤VƒŸLsªUvò≠ﬁ"(ø·DáÊy@©çŒÚ˚oLÛò„¢ä<Ê‡^q?h¡TÀ7ñWqÎMÕ¸™2§‘RH.(yà”≈˛·Ü
+$¢üÔ\iß–æπM≥∆Pß—‚(üjßŒU≤ƒØyœ˛∫§‡](ÅÙwQb‘ÏG"«&#71F∆¨ı—+ú≈ì,ç†vÑIYn˝bˆÄ≥ä2KÍ¨∞8h]Ó∑ÆõE»˘6IﬂÖIßeh⁄âBq :ïÄP„øu¨”¿$ÜµØq‘äQgΩ¥ÃÄ±ØÖi Mí]–ßIòZ!7œú#‰ÂÆπeY@m»W’ÕœÜÉJ∂-•´_Ny;
+4
+ôj©qÏ*uâ!%wm}3jmafŸ@¡ÕÊ_∞FÇ˝¬>Xé©ˆm¬ª@’ÎãH
+c´ÔMf˘™äıd◊Lú\aÖÕ\;ü
+¨ßÕu3u»<xl #°π>X)ÖŸ˛vÄ}*H@¨õ8.≥:]VΩﬂ¿5ÙgJXpè9·Ô´ºI’û~pü{[
+iˇÖ‘¶ç ¥€s∆ÑˆÄ¢¸gÿ úÏ˚Öç„FPe√àal’†èô5.œÔø'f%v*Ø ÓWçl…*∂OßÇ1,~–•DùÑxE˝_(Y^ƒ£>í_w˚—iÃˆü˛9C⁄Îúp1:˛!cµ6„ö]KÉ`”≈(C‰Ñó
+y®RÈuïiIc9¿∏Ëûøá8Ê0x]mÔ%£~údiêkª èFG/áR¬√SFc-&®	p}•t∫í]ê¨7&/	‹h€íŒï¿<jÂjhÊW´0øåt€3DEPcdL‘NE~Rìn•>J@- 6o?’Ék'’(ÔàH{ö·KKhÏA{é˙Upﬂ™Ò•ıï πé_NÉÒÆRõµ∏¨Ò¨÷b∫ô^¨wÎ^Iø–$›ñ«KÇn’M˘*”≥ŸD7®uh≥U÷™7ÚJ
+eWWnåÅ îó3åµê[ok∫"+ja∑öÄÃ5›ÄU∏*ù»“ÉW8Cö≈ÖyÍ‚b‰…ÎÂl\\˛:’%p…âK©áåç6ôú(∂Qò_Û‡4ºJ∆$?åNa\h<8SP⁄,1…PF9G1gÊÖ¶CYp´ÏÁŒ˜ˇ  ˇˇÏ}[oGñÊ_	±Âe—Õ;%_ ä§=ÏïDö§Âô)Yï$”]UYŒÃ"%≥	ÏbÛ∞˚“,0ò≈éw›@ølc^˙q¯O˙ÏOÿ8'"2„ûëu°dO–m±*32ÚƒâÁ˙˚«‘Tj€Q&≥	R¥S∫qìËv¯	xôAoÜß⁄5IÄÉèh
+ÜÖy√¯<ÖZt$!™ùÁ£(Î2wfZ◊‘Àˆiñ(ü‡Ek∞3B§ÚÕBΩ
+í“6ñZ›â≤"J_wcËúç"˛sáˇÀ8}çD±C‡Y…é…,∫‚çå„∑å5{N¥Z U+Ã˜£Ä`ZyŒä…U´¯&πà/\M‚c“Z#ø¥ëŸ˙µ√Û∫“ü‰'}Í¨ûfÓˆŸ∫ÕN€“IÈ;kqE©&'—[Äê∂–˛Ê£FY⁄„√?LÈì2¢4‹œVı"∆/:ÏÑk§0ˇª1<ëQás\Œ*¶ŒÄFgjïLE~A©ƒ‡ÒÚY%( fc*R¶◊LÍLA !ÿ2S˜
+ôÖáÂ0¢E«k®Ro2Ö8\â±‰ÄIe+·„ÿ¬[œ≠É∂&≤‰Ò£ıøh÷"•¶?JhpKN—∫bÑæH†rM @>˘YC/±°1OãfxñŸ∂¥,(˜∂„)úãÈSîáÆhb´—›¸ıèI:`yÛÍ”oƒ&–øVIW˘PÕå˙πV4≠¶w“∆õ˚˙Ïﬁñk2•kMõ?∫m{ÙõÜ»õ+å˙ç◊®‚>\zPÅä"2¥h=ÿªÜ£ê[1™f›§PŒÂ»zè˙4õÿÏïjJøÜJ¥gfw¨I≥ô40⁄¯5P;ü≠Z.YÌM#bû∏lM≥ciÃcz»√Ãºdâüò≈Åßt!»{ê£ﬂ-Æt3ú€¢JKíE+—0Kﬂ&}ÄPö‹˛KZ~úä3•e_Ù´ù≈Y<Ë$ˆ!∞_GïòŒyjP18ø0ΩØ‹Ü≈]=g¿=Ë3\x\V	MÈı.ÇØ–“ìáRöÇ0\z–)Ω¢∏%ÄÙ.∑úU{/¥AgÄÿz@âP ˛È∑J7Ï‹≈_NÂuÀgÒŸ£ÎºswGΩ¯I18äœå–7¥. √âgBÉ‹6ı∏¸^Ã)3…è˘®€PìÚgÒ`ïÏ,3mﬂı{ôû∆°:}»C‹WB5 U(∑LÌ”?^¶ÊÿP Ë¸ôÔ¸®ÑÊÉ. ⁄ÊwòÊ≠k™¢P∫˜€‰äÓ˘Ùä™ëÉ8˚õ£›K8z˛©ÕÒ`ëÙ‚≥¢ÕæÉ.“{∫≈ˇˇM3œLºÑbê Óõk∞NùtU™#ÿor%Ü◊V)ûüA~&§öŸÄì·Î>πdK]∫≥WŸDfo‚5[oblÂ°Ö§∆iO,˚J
+§h2·êˆs∆!1Ì‘ûä€kç"íå¸ãé'uÉ€Á¯$ÏóüGˆBo§Í⁄)0¬™Ói¯äj‘>L©Çÿs0Í¶ª¡è~ÄÇˆM®}Ù¸¸aÈÂ˙ÍÍ´9K±HùÙÂã¬C=¢QüŒb≥x^˛b-ZﬂÿÿxU◊x˜mOÙë]ßˇƒˆä—Ärj/%ruÒø?§iü˛*÷ª£,¬≠≥Ê-÷Ããw= =ï(’dô}/‰ß˛´"JıπTuJ7üÍÂki[`yÂ¶÷‚÷Y·SBsm ΩUüûµ˚·ßFÒ˝CS*‡?Ålz¥⁄‘ÆÌ|y™zOë¿È¶eõ∑Æp"$Œ<Ÿr†f#+2<a7ÓQëû}ô•}=j}Abz?C›5∫Ÿ0Æõ≈jÀ4ÂÇk©@S_Êùã∏ÛÎù$ÎÙbë<ã≤éH3`bzOgπΩS´ÁCª‘¡4MÜâºçŸ‡ZΩMKÆQô•1C·ÈkW§$™6!¯TcvêbÍ1√u¶_ﬁøñûΩ‹·ŸF¿±à"⁄aâ&Û7M⁄UH
+3ÓXND⁄Az5˙ª po
+›^)nØœ“åÜ+‡|j2§∑L∏§–QÅæ∆xïñê£º¶ôÄyΩyf IîË√ÿKÄµÚ©^bQQ_€éˇ≥dwêjAàê◊’$Ø€\M'åzÜ(∂·074;W ≈’5óú)E©RüIZÉã=Ìßïl6/ù»åønˇÿMÔ’ÌÃö"∞)oz◊yUø5Œ¡Êôz›ôg¡&B∞NI∑Ò9Ò6W∂6f7Ìå‡—T;Óæ≥]“»qu≠o)ß√‘ëπPü”Ï¬˚©…œ,˝Æºü™^ätqü‘‘ﬂ÷›6+ûÂÅUNæ¥©xtÔ[¡ûvwxë¨≠2÷„6—M;Ü·ˇJ˛ë“[b…!ŒpQŒn…∫∂Çµ>œΩé|Qp2ßyú]Fù4∂'{ÿ÷„@ª1h=î⁄~ÛÌÔ‡Lo•C,£´®˛Ö^†y”+ì€ﬂ•˘ÇïXÔgâ•∑ëa`√3F<≥∆⁄õÀnTPÜ˘=ÑiÌ‰	59Z€Oø›˛ªcÚbˇxˇ…”=≤Dûê„ù£ÉßOÙrLk¯éüJ≈“ö ]°“–ä∆QWå7ºå≤$èÊÚò™[]Jì
+fÑ÷óuMiU®:-+È(Uß•j
+öˆ·É:¸tÚPñ‚ˇR´HÃW	à.0[	8¨∆⁄≤(çvªéŸ‡LrP¬‡iÃmÒBbµëEßÅòt€™WZA˚]ó£w@Ë∫◊u∆{]7¬èˆ;ÌÒÅÊ•áBˆÒåÔıœ“ŸÌÔ¨ ê¥ß!´Ä8≤ÃWﬂK/◊_)ªIŒ.—¡hön%≈-JCÇLÙ‘ß÷YÀgx≥E'öê˝|U‹ıü∏ òp≤u≠∫4ì7G{_Ìümë√ÌØ∞k‰ %VòÄ{¨Å&æ‘ ~$‡õß€œoˇûGG:⁄ﬁ›ÊÉµ§∆J÷gÈ˜Ö:`Ò7Œ_⁄É„ì±ü|2ñ(æl ÇrÃ®dB=ƒ’å!T6)#Ú E('ZúâMr˛ÎoˆO(˚Ïﬁ˛√ì}‡≈ìÉìÌß¿úºÛÀ˝Á€O˜ˇΩ‰≈ﬁs‡/vﬁ∂KØiŒ™B°Í- üõ+(◊Ñ⁄ÀÒ®”âÛú‡ïr≤…˛√$9úçXv«Æ/œÀõÚXj[N\Ê›‘n4ZÙ¿®ÖÖ-lí']√ﬂq2,`ê∏á∆añvG®~i'2Ò»}±Ì®á;“¥ÿ∆òÍIt⁄öñ◊+ÓàíÊ7‚Ã5›yÖ`¿.o ö´âöﬁ¨í2À6¨ãíÚ∫BmSyBˇÛˇ˛˜oˇrÃ0ÈÀN∂]¯ÂøˇCrDFùÎùÛ›QÆΩ´ƒwÉ≈…‘D19ïÜ˛Ë√È√{@ÜÙItÎ√?-ÿ„ÒµUßnkö˘k†°“ˇ£è°¨sÈ∂Æ◊ Å$k†b7¨ç‹s!WEµ—=95L®pi≤nâF€ÏÀM´…πy±a∏*@sÒ
+/bÌ¯í–ì/ÈT"∂ÄL˙VR÷§g⁄¯∂–NM*ú.6,3KS´ó¸yèN∑F{Î‡òdÒy¬ê[®Vú„Ó ˘ˆ •≠E"ÊsåHåùîœ·KPﬂL◊2Vœ¥u∂’ Éï!Ô+2Âg,Àqàñ◊¥Îîu?˚2ò≈úNç∂ß÷ÚùÕãıä<%–%áºÑ˜îY„|‘O	]-XP ë,œ|uœ„ ÍÂÇ9ÂE·È˝têJ:Û‹÷/¨Lñt)£—]∑ñ>ıÓòÓùnˆ>,`_˚	_˙+≠Ïoü,Îˇ¨⁄Éπ˝§Óé\˙ös•mÕŸw{VôvìZ˛~Dó )ﬁ›º%Ï∞P˙ræŸhΩÖPÓË@Âå2¸Ç*ßú„9zF-î’1mî
+t:ù4t–ÆìW@Cur´§™ÌÙ˛r74:\™™˝ Îùeë$0ÿ©Ê#ÑPÆ8bR45Z6r»&·„«ƒvâ“r.Z‚“©“Ø\5"„" ˚2ÍQm∞F≥±(X…FKX«JWV≈ã=Èdgz§üÑˆv’CœKâN˘V≠ryõHÑ∏pf“Ê–M©ôÂT∑≤.Ú ÛúFJÏFÌ ŸÏÿ:rsæ:˙â4ÀïwÙ“ªœ%«Mµ-\m§kh?˝ÉWwÏÅÁàH÷®Ku…Ω"“Ö}]$≤¶ñô«±L*-CtâÀ¨w8&Ë∞Å◊G¨Û¥Ÿ0"^ÃèÛ¶vÀ[¯à.œ"ô(<©˜~RWÕlÄˆﬁQ1≥;3‡˙¯d˚´Ω◊Gª{G®BñÜøÒïRúõtÀÇ\¯ß≥ó?ÁÈˆìΩß«/ìÓ´õ˙2Swïπ∑,4p[’¥k¢ ∫Ì]GÚàu'õûäOïÜ»vR/™¿
+&~>TﬁÜÕoË¶Àµû{éÃªOqYÔuÚÊÏø™Qµ{w	YH‡Üu\VèrÂ8llj”/Ê]è≤¬ˆ≠¬Qıˆª÷›Óaﬂo√?7‹,áøﬁõ5ÆÅ.bèÆè/¢,^ø1~’›˝‡“ªXZ˚ÑyƒË…œ∞Ï1«	 0UT˚¶·\}kâ›¶ˇMJ¯øl®=$°mä˛ZQ\L55œ_:(‰Ív»^˛ê.RˇE}{˘ˆph9ãp<‹ñØŸÛáNÛ∏¯6ï
+V€vi≤Æ4∫r$åÌ∫a—}/^Æ˜[≤^è”öõu'Ì£¨Hzñ^+æé¿¸éÿΩÙJÊ⁄>U=F}K´d∫|DºåUπ¨¬,”ﬁºáÓ?Ö›´Ÿ¬©ÏﬁÊõó7∂GÂÏëEWwﬁ¬å GÏVfb:ØÎ≤ºT35ŸóÜqŸbﬂÀFEáru/¶[º—ÏÒmbEuXWΩh–â5ËYv„Œ…}ÔXÎ€fÕã>Sÿ§Ûr~My`k¯V=zpuÒ´A}Úp’∫ÎYﬁ?”!˘s*GÚªs-˙ {TÅû&yQíøÚp&¿DV0ïÕ"sÂ™]^À57å∫`„µﬂí’/Ê∂Ó_'≤g˛‰öK—≠çnÙíÛAa§ø ˙¯,m†ï,”3#¢êT^KˆU[|µÄﬂŸ‹òVp«ÙË6*ºYX˛éLºõ?ãE^.swØ2JÚñùŒ˜vvN˛Ópè\}ªπÈ˘%é‹ÑÖ–ÈúYz	Û‰˜Ø9t=éwvücP\*ßY9 ‰öI…≥®üÙﬁµ	x-–FˇÇ}äuõ¨≠ﬂ~A®‘;OÙØávºnì_¨ÆÆzÍñ·ù©§∫&ø¶“ÛG\·Nl∞ø(#+ºÍpçÚR7 /‚.g≤ÚÇœ™ô©ﬂ9ßT l,ù/N\[]˝®|,}©^4ÃÈ+ãïÉÈ∞nd&Tsr]öPpèÒ
+ÚÄ`œT/Úå,Ω¢Ë&9›t¡‡∏¸¢≤ï†∆ Í1—œ¬}kÅ¯Å∂˚µmu‹˜ú•i·\g˘ç◊ÒçeÊ¬/º¶’gú,øπ‚‹õ∞\õ®4~Õ1fvó‰·µ\>Vo∏‰qÀÒPŸº{å“‘£Ë,"€YëìØ≤hxëtr0Í|P.hÀÓ<;<:x±˝¸dèÏÓë√Ω›˝›≤Bén>ÍàzÚﬁóΩòÏÜé»äw9-}’ûﬂº”Œã,úoqxe ≤/‡òIÌ™øÄb¶Jﬂì®◊π˝ótﬁê°ßôªÇ˚æaÖs;	2ÔƒÑN∏%ÆÃ»nÓ∞ßaÁ]∑3P¨äVù_>Ô0ã/ìíÿπßZ}∞æV>Ê⁄Iy%™{Ÿ
+œπ«.»ƒ¶Q•?»Å<Ì%BH¢ æ◊∆“ÁnÌS›âûëu:ïöπ≠„—i¡"âﬁa G˘£óõ
+†˚◊•ˆ'ªO(≠¯h.ã,v$’à,~-=ZÊ∂XSÚD‹C∂@açxÎ˛µuCô’$À$DÍ—ﬁŒﬁì˝›Ì⁄˘Äâ0ÖÈ‹øñK{~£œO∞”Å~—YuóÕ˘ÀÌß'€òâ{T;]˛î3∆=Í†÷Ò˛…7€∑˚_|ÊYñ ®cmziÏÏwÛÿ¡)›L6˜"®¶<ã≥€? êÿ=î<^	ºùÁ‘æ•fT‘&Ø}ü1ﬁ!Ôd…–…(…A/ç∫‘;Xﬁ‰™èäı'˛Ó@
+(¸Ì*¡•îw?us≈πÈ©˙b7,ﬁÿLO”™kÓú⁄ÔÉÀ#ôÖcJJ∂fé)~HS%Ê‰"¶gò=Åcv™]*A`µ
+.*Ñ4˝S¯uÁTN√∏.™N4∏åÚ≤»üjæÙ.ûçºÉøµ¨n|Ò∂≈≥e-æÈ0e˙9ñ¸4Q∞Ì£…≈>mKõó°≥
+®óûßªQˆÎo≤ûo¢;t¡£NaπƒZE‘Â¸»∂ùŒ[å∞ã‰tîÙ∫_&Ω·ÛíÔÄû5~q˚íR?úœ[*ÿC§Et˜g +J¥Õ≠'QÚV õ>ˇÍéEP¸ÑNËß ".Ä„¥	˛√_≈ƒœCL0⁄¬¢{vG¬¢{6û∞8‹˝ríÇ3∑)+vøúä¨∏Î}>„JµIcXÅ’M Âb´Ñ]_[%]ã¥/_9~5@ÏA_zÂnıjYcVa8JYLØ;T
+1≠±" ª©jÆ…2^˝ézN75¡¢é©n¨π≠ß	Ñ®… ;X+íÿSam%zfB…ı=óWÕLR≤•ÀHY¢"∑R÷Ç™kx-ê Iéz"•«ÖNø√∫#7w'RJDLTÛ†=§eP}Y'âíùSÂ⁄»¶©•0ë "TrFöÚn|w”¨™Rd≈ó…–@àa5å’≥E„Ω{˙m[iUåJ∫òÌ>Èﬁhﬁ:U˙O•Aç:dLIƒ∞ Ω~∑¸J¢î´8‰¿⁄l_`≠∏[˜T‹πZ˚4Æ2˘ß¶SÄVRÚê5¨n[ÓØ}¿ºÔj=p›“◊{<Gπ}√€ã˜Óúf¨ØC	74&Ì‘ÅY∫æAºp∑ÁE+%HîÜ¸ÍˆG¨lòî^ ‡X0bêMŒ#¡⁄Ü˜EBGÜ+î∂|÷‡Ve°âTX ƒ·∂‰€Ái÷êÿñ≤VÒ ©EŒL¿"Lg,9».˘mäXG∆ø,AN¡5êvX∆?∆¿∞[fﬂs†ÕîùOˆÄöD◊uW¬ÛıKS°ªFËö˘aÚ,˙0˙◊·˛ﬂíØèÊ…ç≈∞„7tì¡Eúd©t◊Æ¯ wü÷œ∞∫{áu!;º”l»(º˝ä9»ÓÌÔYc#d
+Sî˙éú{p,fﬂ˜ó{C¯⁄>
+&b7◊W∞£G&QéÕﬂ≠¡øü"h Ä$J∏€\ï∞H[ü^V.–Cπ4eÃùÉiª¬rΩ^Îd1•]Tc:QıÇ1Ô?11Ô≠É⁄÷√^ÙﬁÁmY,|Â¬qt≥öﬂ¯dñrîP›ï∞Ùv€1!ú•#Ò¸"Õ¢ºCüﬁ⁄Å``j≠0'ﬁà10∆$∆`¬≠∆˛Áy‡¯
+OX¸“8dt“õÁ\0ŒmrÙdz|⁄ey†!jÄ˙wiÉ·_%∫°Äë`ÿ@ÛJ∫√kYÌU◊πå*éÿ>√ÈÅ≈pb˝jqw=ö{N-†*∑ÊdMò#ú®äÂp£î≠µQ»JØ&Ói!ñ±< "ëáikµk™›]ˆ4Œ:ßç&GÍÀJE‚Äpµ0«èö¢YAà?>ö£od'jXº?ﬁ_bgiµ{ñW∂OüjÓ`Ve~å˜êÙ¡	ﬁF•¡;YDÚá¢3ÇIÑRÊ˝)ä’Âœ‘µƒ:ñ ç·⁄®êπ˙}~*§≤´áFﬂΩø*î“g∂
+•¸Õ{ñgw,íEKXÉ0—V·ÒZ#∞Á@¥n€y$'´ZñgÏJmû†ûMˆ}m√f∏ë*À˙Z3·~∑ñ»èè’m*…n
+:@<rvíT%˝¸|Ωùs»…‡Fkz´v_ŸÆ`cUÔJ†ı,0≤ÖV…r˜·âM‰ ,≈ ¨‰JÖ§˛ØqÓ¿”ÿÑÅ†ŒÀ Fñ^ÂèÆ◊M&∞	Ñ‘Ô¬Ì˜±£4`ê P ‰˜ﬁ∂´  DF…Ö+&"2ÑÓtYQáÓæ8∆ù€?û%˙E\tñΩà„W*B∞ÄÅD!Ø ô,CQ0c…ú¶j˚L‹&¶±Í1Q=$Ms)I57Óâ.c¡t7˚:5#€=*á 6[Gb∑˘9Ã€ºŒK	ΩNÃù<‚N…∞#‹Â*˘¯BÃDe3aîq/œ#ÇŸ$J‡ˇ`Ôqüå˙•`Ë§˝2Ä\&ÉŒ®Gı‚Â*ë¿LHÒOQ˙ìÔnR—9)õÊê:iaêkÂhêÙ@©€. π	M’e$ÃªsUÇ)x ‚ÇœWcı‘‹Ö™K˙ßÿ´§˚«SPoµk3*k E«VÈ‡AçRËºCewëΩ[Ó§›ÿ™Ÿé¥oÂ[[ﬂnøﬁ9¯Ê˘…—˛ÔjﬁÅÎ:8&{∫ÎÂ7ø!ÚM/W_’j`cË∫=ÒŸ“ßDÑà•É(¢kIôûäÎ∆áQ=2î›∆S»^áéJÅÇbî,·†ƒünH®ŒÚY/:ø!‚R/"î âÂ Òq^
+´avjç•r√A©ST¢œ7»ÁüØol,≠ØÆô·É©ŸQll5iCúZ„ öoÄıº¡†πG±H…dœ∂â&8€XDë3t:õ†OÔI+süÍÅ⁄Ÿá≥∫Iïì]T_"™∫—Éƒ‡pãÇ'ﬁR$,N;ƒ%M†ªQP•aya∫πVHœ˚”,… 5GØÑ)ÍÜî^‡K®§›ß€Ò-πG–ø±%7U`^óºBıQÀÆ‡Mæ.ﬁëGÆ[K‡˘µ2ñË:i©ä∫gyc—Dwı´π=!‘œ›8 à¨f1d.Rµ	.û„∫fﬁü‘1ıù§d¬£⁄éd b!9ñKCtﬂ"k∞8û±[ô¥ƒ7Ñjö›®Á|,nŒ*h‰gTÊ◊;s0iﬁ¢ÑŸ;LKÀHY!nÕÉÆHı⁄Q‘õ_∏—\Ú‚‡¡å|	¡≤ÈOMç_$]Èë8µ|¨≈èÆJß9py´î¶b∏mô|‰tÖ‡"Çw˙ÓÏâΩˆ—˝âﬂ{ò≈ùÙn◊ü8Ê{ÛÄ>,ˆó∑(Ãî”HƒªÎ:¶ú/ÂYÎ#Ï¿„Y…7’µG˜Ó+rÉéD˛Úüˇ‰¢¶,˝˚ó•Dˇ%˝Kàäy%Å›§ûßó)[}∏7¯ìµ Ç1Ôõíá*-‘ÏÕ±¯o°CÎg∂Ù÷~´B‡⁄–‚KPµÔπ]
+U†Ω˛@ß©º+ﬂ•)”U„¨˘y‚äîk˜JÌ	b4äD¸Pmæ66A>64ˆ«§%≠ì’^FIŒ·$J	ÚéƒÓ$-Ùñà[Ë4:êµ0ÍGå	Rzº“µÇ|r	ïO∞>T{NXºxô z »Ó!Í‚Ÿå-ä(œR≤G’3¿l«'ıG›hŸ
+‰¨¥ã˝≥I*∆ÃoˇDqû«ÑuíÄgõ^Ûáœ/Ooë˜ÄíáÔƒ€ﬂì<=≈˙ì *áÃµû:“¢≥∏àê<%uG¢»ç&ÏB¥	´Ÿb”ÇóXg∂Ñ∏ï›’x“L¢·∞˜û.fr≥Â‹£•I î∞€C:˝J»l∞lsn¢˘S›ü+›7≠ (ÎëËº #‚+0√D“:‹}A5ÊgÈi“ãÈ?Ëeø.“°‹Uk™&wUãz±t¨Î≠’¨ÓdÎ=¬˙¨n’ï˙õØTﬁ]*ı¸õäT·™ΩYÇ¥—§â£k7(¸∞Ae9°•É*„4@ —múÉı3»-8”ñ'ûÍ≈¨ïŸ"ön@—ò-G—U@WJSBò˙—u.1√$ÏK¯[_(/∞'[èö…	™∆îL»XpªC)*;A]ó÷+È§hH^+ÅBÑOœfÄUﬂ≥Á)Ë%Àòt≠
+Õ`¸BøÑ)oP“+˜7‰üY∫ó{ë‰⁄åõ€õ"ãJ6√12™†óïv4Îl¡-Um/Z-òY-7r:Îh#œf©éÓøœµBó˜Oi≠ÿÑÔ|≠X*7¬k‘.ó•ñû™f_èËjÄN)M:…2ó2¬eEtNmÉJ	√õÍÖãqtÜu=Ö6öcö¢/.íµU˙?˙ﬂıUñ‹v
+G„>w∫ÜÎËç∂hf]&õ•0«`RòìmÏÄå_âuÅ&òW$˚yÿ˙–\\W˙∂Ÿ1xA,1X˘ﬁG‚ü‡§ﬁáR@ß¸=$Õ7∞ô5≤≈G&/9‹ç∫◊≈PÅJ[à˝‹»CgÃ¢~˚Yﬁà⁄Äá©ÿ—}≈C«ûÂñ∂ˇTr8ÊôDB˛ ˙º£8JrÊ~≥ﬂÿ7¢(É{„Ôı≤]Ñë∑kwO≈ï◊O®π™Âra¯»ÒhÆw(WÈ…rà;@ZB'Î∑Äe=_GsqÂ√≈Uº¯¸uˇ∫%€C‰c≤∫¸yUôΩ∫`:<πè“ÿÒ¡~JS⁄M›WvÃòBÎ{≤ÕzÛ{?ÕNôPL—∑∫ä»#¥ñZ:Â˘ã≥ZX +Ä_S0˚RxŒ≥jË1™ú‰‚j…{ßî‹îC°Ÿíáf3"V†jm(&ú+ò @|-œÊÇúèM⁄;Ju∑§y0hÆ®Íc∏,‘˜Íª9U¢LyáØuÃ|d@Û)Mé QÏpYn+¿~≠ﬂøgﬁ§CcYîûú_ûj«ŸúßTˆ!o≠liBx&·]É≠Çy›&]˜zgk-ÂÖO=à‚zëcBº<›—¶Ss—Í@ı4m›|ìÄΩÖsÀ‹·Ü—AÀghŒ⁄ üÓπN˘®wñÙ˙¯˝!Ñè®ı‚Ã'ÍDΩtJ*í~ÚCîÌ§YÁ˚båV9⁄a‹ÃÚÔßTâe=“b∫%,A6Ï˛≥√£Ω„„ÌÉ◊œˆüÔ?€¶è∞Nlï∫g… Èß–kcUﬂ°ìƒpL{¢~åˇ¡&HGqë`Ìˆ«é'∞ûImbôi⁄Rø,ıyã∆ãË/uª@:Dµ◊öµÜY|	øº\^^Ü/ñÀ˝ﬂ•\§W≠®Fö“©.í®«€W…Õ+˝ôäaÒX+/≤dp^3¯Ô2˝öÆXkà_@I.(@IwA∆˚ÊöœX$gI‹ÉÈÛŸŒìﬂêy6[™î†R€&Ãˆ ÿ:0`R‡æ®fÙgD◊kèÜã‰%>ÚUõ#∫òCi¬zjõë‹vÔûï3lôm˚∂µÏ∂gqë°	a€√∏w˚G`Rﬁ:WTùa,åPÊ[∫Xz˘È√ÀãW$ÓYèJ≈wK`Åq∞á•ºì•ΩﬁidbòYçga>œÒÕ
+ÈQ⁄£÷n¡< |V£«n,)óhù)’æcà÷Xñïq¨©£Åâ»K}Ã}Aó|ò›˛ûUT˚Ì\$]¨A°ñ9ﬂ
+UËûÖÙá`Åƒ,])˙~î,HA@>K‡Ä∫6∞I.S¨Ç£ÉˇÈ-=…e¸´E—Á\∂hπ∏VüwÙüòrπ…‹÷a|˚;»eπL∫Tª^ ˚kr
+GAµòáûŒ∆EÔçc›3ìıG_Jáo÷”Ê∞7R€(ìÌn“I“§¿€_ ïºÁ*\êOxî§‹˜KèfáÛW∞sı.kΩπõÙ§∆°Ï∏:≈’tµ°eKc$}z¸≠ŸÛØ´«ÈuÈ ›Q™Ë(w>´Å¶[N•ÙBFàBéó˘væ1=™S±5ƒûÒÂ)∏H∆îQ÷ÚéœTwx…árXÎΩKŒÊ±æ*û;∑u˚?ﬂÎZn£¢-%SLÇV≤‘a~∂©Ké^<8/.DJª£∞ã8â+5I∏`
+bØãEÍAíE˘EY‰ÒÄ5°w
+F¸ÿÎÔ\2”‘,ÿu@!n]XBhMé^Ûr çp%©¨P˝¥æ™d:a+x˛$˜·„Tc‹G {"ƒ° .ıS°ZsjÏ/eÕ∏≤îd|∫*ZlIähÜœbM¥t√p””AÍ vÍö5Œ“~H˜≤…ﬂRP6kîç˝íh‚ˆ©±ëÊOq§8ˇ0ﬁÔˆø@Û·Lﬁì.¶a ◊ΩÂø˝ﬂ⁄˜¥oo◊÷îä‰ÃÕ)ˇxW€S<7Ë6îµ«‘ä`®ç`Y0öu–Y√≈¯¡?-øà⁄QU‡Ÿ· ›®XvºäeEP‘.Sµd,Á‡ÑîñtRBilC•∞TπÔÄÎb^ˆΩ¨°‹B⁄1µœo∆—ÀF¿Q¬ˆ¨õºæÕl≠ÖÆV%t5 ‹√Ò)Äü⁄X(	û\(#˙)¯—îÖÅÒQ%A˘À]â°+aﬁ+˝•{˚GjQŒÙÑf≤ΩÀóP;`Œ&Ïb(:ÒŸ u„qdÛY]^]]≥*tŒ5©çÒ XÇ[˘ßﬂí„ΩgdwÔ¯pÔh˜ˆøÌÏ†àéËÆbéé≥4ã˙§di(>°4Î«y?e2[ú†˛à¯@mº7`zûo˛ˇ¯œDf.ú;TÀ ‚]üÎUtˆ∑ 	Ã∫wëfD›üdòÊ˘Ì/„û˚¨b uXπ≠ë†‚≠´Í;∫OK∫1t]∫˝1KRV¯3à˚§Haë™ÏDßÙ[^4®¸}µÎv*t H8Ã⁄≠@ÉñR‰,Îqvâ¬RîcK¶¯çæ`QbÁ∑·iu§ú˙”Ù'£Ä¶©∞2Pˆt˚Gh6Dπ¢i•@öÙÃfezÄgånÚsΩáı‰gµZ8_˚÷n)&ïß¥Xq›≠~°ñÿµ§∂ñ\0‚W‹9	Ÿkèã†ØÌB÷"p∏ü‘rån¨B∂ÍÉπ≠˝˙˝∏1èÁÅL∆=ê£*oFî©Qƒ†˚ø√6ff'¶$ô® Ø@â'$V_ÎW=©πo™√5.ˇÎ0L˚Ìn∑ú!ﬁlU~˜(%;Qñ%Éã‘ô)QãTﬁGwÕ˜£∏à›≈ÇÔÒõÛñmòFÅN€ ∂8ÁûÂ:-Ã).!€TßJ.YH´<<≤»éÂ—Õ√º:úh‡l•'ø”ApÁÔÜ ôVwøäç+]Œ1•o§¿˝XÆc+XΩ˘Ü¬ø›¸mNFÔ'í¶¯zV≈˛æŸD≤m‹1F4;êkƒ»ê˜=∆πÈbîF¬ù∆ºZÔ¨zKl èˆtDó”Æû)†{Ç‹E∞›æH—oÕ3H(¿8h
+Û‚#õéÛÎf,=|LƒóØÀ¸Q°F4aéı˜@˛‡1iÒÔû"∆B=ö&¬>be2P3NE £∫LcıHÆ€5N?ûÀ"ÎS=vÇ∫d⁄JàÕhuQP∞vı+€*Îù˙IÍçüîÏ˘¨äg|ZJ£ºObÚFK∂!vì|ò–W◊ »OH|ˆ§t¨ô9'çÊœ 7Æ?˛°;$∆ºc™‰t∑ù´∑6˜‡Àj4<¬„áôJôç®nŸãì¨∆?8&Ü‡®¬·o∏ﬂ:KãT¶å‹í˛^(C≠±¯¸eß˜åXÜ/D˛ÅÄü8=~‚Ã‰’«JÿhFük›´§}xeBó∂%w6iì#ü©k+ìQáÁ>˙H_I
+:tÀ66Ø 5~ÊÓQˆ´ˇ¡rÑO*‹Äö	˘çóî÷å©≈≥©CÒEÂçWîK‡ÖËÃï*Ìc:Ô¥œ¶/†—|Kîyv˛ÿæ/à"∂ç;&pwmÊ⁄!ﬁ®â˚HÂ¡åGK%'Ñb÷åà©kúÃàÒâµÈÃ%µo(Ê∑¸¿d£å¨æ	âHNéoLãDZùˇf}‹8ÌÊÀ…8W€ëN€ .9ÖE,•é≥›ûê§∆®cS˚}Öô”6ÇÙÏkìC§E¢d-î.€ò~_ù⁄+L?Xaû⁄8&È	_}!…“—ˆﬁ"ílÌÈSçê§∏Õ›~€zØ∑7’ÆÌGKÓÎ7JÂ}˚T¸æå⁄b‘ÆÀ$qD	öA«†à„Ü—–√Ü∞@ËŒ&!’*πé¯YM@Ãs K_øµEk≥⁄ºˇm“-.ö4%›Â˜LYá?Ë?∆Ôv”´Å˙§kíúÅãÍ◊Ò;6ÙàŸ˘RmËí¡„.ÏÈbÔÈj~Ûﬁ©*î∫C>2òeΩéY˛&LŸÜ‹¬n˙Ÿ∞ã≈Øi[õFrœ"∫∞Zm∑oefP“≠u ro|PAÓR2J`T%ˇKﬂqöà´@sı=ª•¸¡·&b.è+Ú»Q∑Èÿï ï¸ˆKì]lÙ˚ô>$≈	Â?)\4o	rŸ0O˝^)ûQ≈KÆ±ô«F(ØºãπΩZWã‰bëÂ6Ç⁄}E>&Æ7áºﬂù¥üÓAÅ∫2Ù$ó„ﬂm*eG±˚˛ØX:•r˜E–›É(›°Ïıü«ÉHî∆†´{Oôù¯Ç=Œ> x¨æ…ŸlµÈˇXïm‹˝∫xÁæ©ƒX·3¯∏§w¿ ~]9ÙR5=«jXùtÂ˝íìéΩ„äÚª«CÁ ö·ºlú
+è•ó∑s9CúQHcå“.W xœº∑Eüè‘áecíÏa¯ÕoàÈ~]Y!«)…‚•<t≤tê¸¿D•vQıxÄ∆$¥(Â#j∆•¢À+5|@`¶#s~4E=lPÇ“µ”$'–Ñæ<ì≥ãU”hõ°D¶/Ú:ä<6«ÂÇ|Ö˚ñ°yF∆`?QR∑`pî‰ò®  s:Z7Å‹ˇéá:–ëÀ∆0GË4[PÉÆÙ	•zÀ–¿¶Bˇ≈óiÇåò∑K|{pS´êŒƒΩ∂§G?=SOËj¶£¢%€` X-}úEÀ‚ÍJâ…òcyTÎº◊ñŒ	Â„±No¯¥#≥Vœ”µ8ß\ÖA3ã@©•¡§Ö≤∏àó‹TäFM‚˝—)ˆËI ù˛CwÅ“Ã(âAâi”àk¡Öj©ds≤Nù@å<ÃW
+˙÷6A?¬íÁô‚≈y#’ÙçÊoºÁ°•LA†z¥qΩ©Ní^+ëxEg¡h2„ÒYîté±xÇ/,£Ÿ¸h·ﬂÙ≈ÈV_üYjYu∫⁄Ω†¢8	Âç3]™Æ∑4≠∆‘®#¨∏Qåòfêø›˛¢8†)kÖ|äÅ«˘H“ú5~qvëÎ{M_Õ_÷6v∏.n9a®wíXÔXBV<∂.ÿ;€hÔ¯·ﬁ˜Ô ÿu≥Ír`ÔûtDÙ∞zur≠Y‘≈ïØ∆€G–*MlŸtªV¬Yê7±w∑¬«SQˆBedôIô„©WLó3u _xﬁu[3›ƒ*óÎŸG:€ﬂJ7[¬£ﬂOÇ¨—±¸É¥¥5ÎŒ›‡ÙÉZÁ¿„Òf†+êÖR
+Çäﬁ÷së…ˇP·ñΩ‡æﬁÅ?!∏Ôœ§Yï6p|–∫ü˙©âıã–#bÕ}M=s#H|ÜΩñ’€‹‚–¿¯ªñΩ"ïﬂ•.W÷UÀpôåî∞Öv è¥hWKÎHÂœxËö⁄0a°° i©EîÛ_/·∆¥˚¥\> õo+x–s<÷ı®[√5gp®˜ oöwŸÀÆ©/“∏ÈÈœ˝óùÚî—ö3˚¶ÿ2ß}≤JÄÉ2Xy˜‡>Â˚°M™œx çÓ„¿mÊœí”=iÔπ·Vú3⁄4Ê#ıïgÕà;ŸÌÔÛ=iÁo∏Oú©¬pÀÌèxOJ)ë3¨2”r6;V!Te≤Á¨).]9ıàﬂ4~.Xì‘Ó¥£∫D∞˙.‘!ç/$ŸÀê
+lŸ`Z6¿çôp!£Gb+z‚Ü¶=ëÃrÃ[_∫IÎ*ìÏ*:¶Îuêu∏ÌbÊêI©c⁄≈6Ïâo’Ktÿâ¡eBﬂÔ £Ê∑ï 0Â€ã®»∑áC;ÍDÃ	Àv7=´“„=Ëwä•ÆΩ˘2Uù‚,z1ÉmlÈ1`ˇ8Éë!˙6?∑o üg' „ñ≠y≥ªOﬁ‹Û€?√C¡-	¶]©$‚¥>ﬂX ü√g	˛Oøñknl“áîÉõ£}[›£+La=ÊVjWÕ˛⁄ pqàËQ˚⁄Æ§d¿	YòäÅQCñ€Jï¢<‘Ó‰∞ö†=˜‚3PíËñtí!vÔ¶÷i…0PoêTqÇ®*Êzúè¢¨ßR~˚'pJHOÜTH_‚≤ƒîΩ-Äa˜àâlK∑”ç'-*ßCÒ'∆I÷Æfï î≠Ú
+ÜÃé=”<=|À&CÓ[ê¯◊oë6≤yx}ì”ïΩ˝sØHÏÙoëŸ¨-µ)9z∑ÀI2ü√œ;ªË¨Oy∂üuí¡Qùu≤Ò–$È˘¯" ‚rfB˙‹l1y÷È(Ï<∫L‚´dpÓ;ê™!´ìIøÕõœ¸Bªÿô ,œˇÌœ‰æ1;qòôÃ˝nìLf8 tﬁÅ÷≈«îÉ»ãà	‘é˜(óÔR•Ω]µ»eNéì˛∞Cﬂ—∏ìú¶Z#„öà˚gNó€Ô∫√Óe˚6áªπ˚Õ‹%]aÖÇEWºÆU”Ua-lö∞uAMÌÔ‚m.å’∂¬Ó∂*ös«⁄p8’_áπ™W≤~‘åáeáÌ~◊ﬁ^Õa™PüXZ·iáZ2¡VÅµ»'t\Ùﬂr*OC∑∂êù8∫pB:≠“ôraŒˆŸœá≈˘8P>AÍ8P≈QˇHÂaú√∞¢{î¨‘·≤¥⁄0*@Ä?â∫ÁT/|ã}¶&¶§è¢ºNV[∏iôGAÌ°"õ+^k†xqÒ-Ò$ø‹|’9§πÄ2;¢ØŸ:¢ÉÀJWˆÃµlÎl&¶˘K◊ß1ÿÇatπ &ë[™˜ã•U´o˛∫ñ6îÜ†cΩ°⁄ˇ·˜\s‚ñ¬¬úZ3És#÷ÉÚÇW~ÿ<k!/1œ4rò•√≤çw¿fÌ`> ˆv¡/·ú•ó$sÆêù—0Ìó™«ºÕµƒ¶m{?Ë¸XÔb:Ù˝æä1Küø]á0,ÀÇëT≈Î]Äü=ÎGΩERÄ±Õ¢Ω,¸∏ˆ‰)¸7Ì›˛\∫9BΩFÁl>Ùû8Îß9‘[ÊyBËS`üNõOß#Qíä<¥GíÓÌË
+å»®O2$ÏJ…\‹˛>Î√OÙ…ßQØñjFâ:o"üTÖÃŸÌèC(z‡&)È&ú©ÀˆE≤à9o⁄D‹î:-P†M2<¨|„cµrËØ¨≥ö€⁄apÄûîµZ∑ˆﬁ2Ÿ'‰
+´⁄=ÂÊXÃ`w}OL∑Ò(w¬MÓFŸÜ¡ƒ√v£Ìt3Ü)vœò√ÌÒ¿ÉX3>≈P∞¯çÿmbÿÚ&awôÉ¸ °£2Ç`0Eß	£èïÔ∫1/£ ˘†ˆÊã€È¥Ë·Bœí©Ïœ<:ã‡'*ZNPÇvª+œû≠º£_&I–Ê9É$‹6ﬁww„ìÊ=w-´ ˆ6NÇ.“Û˙≠´{í‘6©˚∂¶'ßæÚïí_”^°≈éÉ_@·∫Üqàß‚›Õ[¬æÄ2}#d1	ÁTÄ(8>qQˇ-ä¢™¯ø≈¨®Úd^(~9≈¡vcù5∞¡l.L[
+
+Áq'Ö‡≈ª9Bµº¡£Î√,Ó∏——†€ãÒ◊ Å©ÛÍ¢i⁄ô6˝ÏcÇeí9µk·' =ö)˙,ú˝¿‘$k˝”Ów›ÔGÁÒ>˝ß„m°JªóFïooËè˝⁄áœøzœo,«–>Ïûçˇ∂ª_ŒÓm«ÚÚob0ÉY_qÈá~í=¢D·1¯Æúé•≠ªq1Oı)ÔÅ*CJ9œ?∫gø4⁄qt	1≠˛´óT√qÛñúUﬂKO›ÓvOR%h¡«S™˚dÁ"´RÉÌO≠pyy~“¸5xj¥…K˛+;ê…5∑0â˝nõ={ﬁÇÏ√ø¡é•Ç≥Ãtcø‰Q/~ç?,`Å®@.ﬁµ…πy•L·fAM°ÔÛµì"ﬂ™∫°§∫»≠Z"µbOdX√†¿èyõ7s`\ÆsJ˚·,S-ÈcÚfèÅHQ°˚∆ueD∂—s(E≠.ü7¢DΩÛfx7Lüy˘ÈÍÂ≈´ZùÜÆ∑ÆôBﬂxw∞ææ);ÑÇK‹íóÎÙ¶π≠]@Ö∑hiuõ©KNÁæû˙gUK|+oGt§wÏpCoÿßÛ≠˘íﬂÊo‰·É8 :û{ˆsÂ.úKd5Ô∞%&Ü$ óz•Ò£ä£ÀüksÎÆØ∫B˚⁄(‚B_DøFÉñqÚ#YÖèu}ØOF9$áp^";Á√(ı˜˙ÒÂØ*!É`¶ºUƒ~◊öÄ—ºNF`ñ@µÃãd “GSQÇ?˛–‹ÿ5ô
+öN∫FÚ~ªãh„Çñóh4ä».-w“êzÚ!§∏2Œ"ëj5±HµBIπmÃÉ=Kq◊)æπ3<€øS_ÍÀïùÁáørΩªEyùKzöTÔ>oFlò6πtÕSppfOéƒ‹Ñm• ã≥Níπ√&ú"‚ô†Bµ£0ËÛ€ÑS˜∂©`Ï≤-«,3v’6zqá4éŒAsﬂÉtÈ¯ˆwtûÚŸ⁄o”Ω∞÷!‰wZﬂ Ív¡±>—Ï˘°3«É´g%∂ŸÎ'Upwƒ1Ê{±¥∂f	\„	T„‘X[5bõy?®£¥Ïè“’≤«Àù,éä∏ª]Äö;àØ}=*I®\Ÿ?>8∆MrEıVŸ^’Ó-Ú°æóe‹+¢a‰[;Vn%©u;‰qvIÌÖ„"*F9f!RñæŒ‚N|Jˇaâ2¡«(·	⁄8 ”åÌù\Ô,m≤ÿGg…´•3j˝5cAdZ9∆nÉó®-≈ë”y:£,OÈW)zxl…?>Ÿ˛jÔı¡—Óﬁ˙!Û":è}˝€7”!hTÃâWﬂà5Â9Çwû⁄h>ãß€Oˆûøƒa^9{üÆ∞	ÿG≥˜7ﬂ\a∫«ÙV)ËvÕQ∫Ù}R]x®'Îbêπ‚DºXæïÊ*Ÿqá/v:eK£T`©U&ÌLåµù(+Z/ub3w«+∑’‹∆´¸â04ò˜hØπ,/v”vßH.„ìË¥5Iuü»j÷’i\°Líì/gjä…“Àoã•ú≠ŸhrÌÀC¥–™2†zòYFºaûö|ëäyÉ7‚ic∆o∏ﬂ¨(f
+^e—∞!,çaØì~2X∫Zb©ª>òRØNX≥°
+ƒR¬1˘ÏhP~¬jå·CgJπ√?·jò {áY1ÏΩúx¥Ôãw2Œﬁ⁄¢£44ü5gÎëÚ„Ò˘ñn^·Ÿ≠º∫ÇSÈO8˜›ıî…cÇ˜¡OïßÊ|ÉÒ±√Ik|ºï≠öòZ[ßBÍS¢Áı¯µ&‡}p2ôÂWD∫˜Û/´Za˘.w#esø4ÿƒUPfUÈ±1ËD5VOÕ
+/Û	µu–¯Ò‰)7g+‹‘^ﬁÇ9O≥w¿SÀ‚3BçúÂY ÉFÂ˜'˙YçÑdO´Æ∆|Í< 8ÔQ…ªZ˘9yû'I®û3À»ö/≠~¨‡F∆Çõ†:üRô†ú∑¯≈or)Áú*©˛]@¸1Ï√∑
+e¿ƒT@^ïh[9Ü…ÇÔ√?X´∑Øß»ºx rüÖ√.,?uÁÏƒQÕØÅ'g“@¨‡`(S:ièèJ’√†ñB¶öÆÛ∑ä‡R‹j…7∫i√Õ‚‰'M‚áñW?≤ÄAÀ⁄â4◊àPXû…#›≤+aC oXF<v!à<pÜJ{ã`ÂÄ‘ÍD«=°v«“'ì®F≠Øå∆‡üãˇ‰Ømf›|Â˘n]a˙√ÀO´9sÿà*≠i™J’lùùü«·ù≥ŒàVÎu≈=˜˜∞É€ë,¶bëTx_õ+¨º∞ÚjEπgm‹ÄRvƒ/õ°«2^q? zh-. k±¥°(®[¿å∞#èõ≠]ézçeﬁñ$ô±ÚÊ˝q∫^`Ï9TT/òÄ©Îlıã	¸Îâ¸bbêÈ6˛0¸ÈÏ— Rœ∫a¿¶}¿ıØïCbFÅg)@È√r˘Ëó£®kΩ¯∞ºÑÆ∫ı
+T]úÔcÁ≈yπÂÍc∫˛‡&>L{	‘·ä∫ ÿ∆‰«Ág˜⁄ı@⁄L∞ó\◊òî
+tIéQ‚tM""ˆsÓ÷˝%Õy(õ~û¢ˆ =ﬂqÊ÷.`[›7 ô
+÷.îsÆ”ô^0o∞ûÃm™π≈_SFŒÌR’]∏Ÿ˙®ﬁõê&nu7‰‡èè ±Ë%EC§≥8DÃ¨∆nD¯ŸÜzÉÔÄõÊaUR’S
+Ë’9’“z…TS≥_v¶ïº„>¨‰ìlO˙∞f[3ß>^¨ŸZúÈ·‡VMx2ÿ3‡&<),z‚™W™’´P¶jèﬁ‘"ÿZ¥uª”'l?–vq^¢9=2k/a≥õº=Ø…õ–—ì≥peèG™ƒOqîÔóHÀnQ∞Dcÿ¡≥çú€ ß9?Ñ
+r»•BO(aØÄƒàœ#£cúm™FS≈>|¿„±!∂Hmﬂ◊ÛŸ8ºYÂí%QÓ9P»{2Äj"èˆ¨KXKxü [EÏp„qëç:≈(£ÏM °⁄¡Ò∆@mæîŸü7Ÿåÿ∑õë2ÔV°>∂=IÜæ¥G‚œû#>Ç°ßƒA0î-3n~TƒI>O®“I™6ÕÁ?|˛	Hè#ûHïHycîüCÃπNy&ò»Ì?¬U˛d5shA”∫—w¯u5„;Ûﬁ»8˚ÑHYÕw∫ev rú§â,¿Æõ—˙**íﬁ≈¥6≠iÜ)˘ynÏhu¢‘√‹ÿáwıPpTõn§IÁ5∑h<-≠"0Wc·ämˆºÚÂ^SçCﬂ0"pu”g≈LÀ{-zúxû∆B•—÷XtDa\C≤*¶∞˚πt«B7(xI˘ñà¥Ä°ï‹e/L]zŸîzbD2†·0ã/ìú#–…vz#9j•Cå»Ù≤}ô™EGÉMﬁ0FsÂˇo$pìLYzEï›uãòqø+ºçl2ê>£{0ËΩÛâN÷Z·õ√bºƒ}eÇ6˙ò
+ÄR¸L§ÍŒ»∑îœ≤bí≤‹îEi`bµ∏oë…Ùó´À´ÎØtˇÄ
+>Æ$=4ŒCˆÈ◊&-->ëÄFVÚÃ4Íf≥π›ã≥b'…:ΩXEƒ+Ìﬂaiˇíø¸√?3Q¿‘™;Œs∫ŸÈæJÏZÑ·¶¬1·=€cBw∂ÿ"É  R9<îLn.õí«frO’‰Á`–á1mÒé÷§˘1*7”zû°Óp,ﬂqª+ç'´€Y◊Ì8Ke q^ú~G©è~‚$Œ[áO˜Oˆw∂_nµ˝lÔ˘…ØúY`Ÿ;/™ªWHT•b'ÈñÂ:OÁ	~ç‹îGt≥∫‚œAmÊ98ÕíÛ®H©˛“&˜¨ﬁsÈí $Ü2Ó0"}tÑï08"K¡UÍÆ“⁄∑f«ì∫*iıùÄ=≠∫ŒƒR+±√¬¨¢ªZ⁄¿›Üî[kbŒZ)Ó
+◊y»b–ÑQ@~Ìuå’9cïˆ(è¸HH⁄πàÈ¢Ûk’L}í"Ö&å´†ñ'ŸLÑ’Rˆ‹€?¡Éá+$$ùÑ5ê‚ß¢uﬂ∫*b
+Ù,2,´ÕïS·GO©(euÙ◊! ñÊQ∂r¿yÍ÷ÃuCp÷º|4ùg„Ò4;OËq‚ü≠ı´Ñ`®Á·Ú&,/ÿE+Hk‡y<qmcû¡»¨<=»~ﬂN9øèG|¯Yw∂‹èã¥ÎˆÏàèC%QlÈà¢\ hIl1=‚„t¯4HÄΩSØè¯‘¶˜ÍÀ¡—◊Zﬁª˛"}|™LuMMÚo…f,RÉ¢˘öﬁ§—ﬁ\Ÿõ≥⁄ù_è¢ﬁ„∞›)Ço˙˛; í<≈…±\Üâ6\5ö’Y2„M5ÁO‡/S˙∏ZÉæ	Õ≤Tjíy6hÉ≠Õ0>cΩÜ«e†À	3\ﬁ3s’◊!ÿ3Í≤∏ü^˙h£æº“˝_≠È£Ça?∑Aî§˛™úººd]Nö‹<…¢¸b}¨º◊œöPÓDY•ØáQ-∞¿ﬂÊóœcÂMåŸ∏€˙@iﬂø/¡»àUìn!Õb:õûßRT;û/"ƒ¨Yv~ÉB,1“À≤È'HÙàg/2!ƒâ[JjÖ0—∆rõ»JyÉúÊB(†Ï *¶>˚êŒ¿í·Òî[·+ÃıF˙ÿgv¿™uï˛v˙€†∏=)èı§"ÿXp9∆d˛¸π⁄X„ü$¨˝€ü…ãx–I∏èΩëÊkâûA_?N≤¥u2=ÿ/XûL
+ñ?SI 0≠l“Í&TøÔ#0Û¡<  ;´„Úé2îKŸeèòM˜(ÒˇÓcïÇxo
+‚lT?™Ü?£∞fìjÀaß+Èü—¥‰†:÷OVé≈¬ãõÀ0Ív‘≠A©“Q†◊…ùa@è^s¶dP±uTâ¢*¶S	¨·—Ç©äg≠àW€_*rLïQËqôÿ|ÆÖ=œ;)=MË∂éËûå\ù/-ì¡ò†®±WÊ·Ûƒ„Zdã¨BòœŸ‘’eVÑ'ÖÇ¥°∆¬S∏À†ùÍ®üä4∫≥dıH¸6àTH[©&Ì3ë*VfÜŸ”7Œ)pœ≤Ê†î-ÀPÅ“πyÇÜñ™%Ö?¸Y[Óº(kæ›ÎZÊBy x™ (Óü€ﬂìîÙ„úÆ6b0ôÈN-1K•õ [Ü˙©/±)õß€mêÑƒRf∫¶9$˘¶Ÿˆ2 ù∞MÓ!BãÔ7™Z ≤UÉ:CZj“ºëTÉ{0qŒàó2fù∑çÖ&À ÒN¿»%Yõ~.I%z i
+≠¯m'fIìQ —0Íf Çö(B§.c¥Ã3⁄:æ˝°‰¡G9Ë2Ì‹˛Å–C˙ˆGpﬂv‚n<Ë¶Ä√éhÜH¯—"Ù∏Âí29ã3Xp®#‡≥e@vtú≤˚nùlŸöΩŸ|°<)#æ B’‘≠πŸ8Æ«‰≤›&bı·qcZ÷—>D√± ·˚e ¶ÕÏ‡ï4ÿg6MwŸ™KÂ1óJnß«@ËFõnD˘é¸kcÛX@M‡ŸM*3⁄Àá14ò8Å<ÇœÄzò©Òâ—*l‰ëΩ∑î˜œGQ÷ç2¬ZaBµò@rQZç>˜WˆiÃ>zÎ°®‘zêß¶ŒJGÆ∂Eìp”QM#Ö°ûß˝òá*V}±óMG*Ô∏õ.êƒŸ˙`Å]åXuÂ Q\$¨ht|{º√Ös"É‹6÷O›"üÚB>ı
+®˘˙’(Ks2Éá^íèSG5‰è≤6…«^øıQçj6˝‰=ØÇ÷áYU¿àŒXŒWé≤øv”LR˙ÓÏdJ∏&wŒTl/}hLıÃ™)Si7˝ï©ﬁSï±∑ù€{ùQ/;«√
+ x◊Ä	û˘Î:>êÂ’k6‹:´Ë@âì{$ÿ¶éR“ø˝C=úç><5ˇ©é2<ΩÚ.¡lÓúèO“^ú›˛üµQÉº"w·Åi‡º"òVÿ¶PÔ˘w&]VF†éﬂ/	9ëzØÛ◊ÏØW>&«I{T≤âPoìNÑÚÕ‘~T$ùî|ºb~f®∑'§ä∏Çrˆdä ç=∞UõS∂L1ÛÇJyF∑åìa±<¬z’x Â…¨ƒR.÷ﬂÌê=ñ/iç%uÙm±ˆ`vç»|â`>&P◊[JÓπªHÚÙ4ã…¯,‹>òó„Áîf0‘ö8˘pÚ¢ÿ—‰ﬂÿQ∆,ÓñÎMË€ kÓ™v»‚bî‹	ö5÷˚∆§;õµYÕVÁÖª€òƒÊñ«√8†úß«\»[%KaV,;§ÍÚ†ºèØØMª[íqªîΩÏ£Ω≥∏H.”¸¶kM°ô%—~¯YQínÉIåAÔiQØÍ˘SØ ‰Áœ˜´U‘‹,XêÅÔ»Ì¸UîA√ßrDºIúÕÁ|ºâ‘Peêü∏:upn§káöJq/r„tÖ¶ÏqÄ$yº…˜\˛u5ï’<8Ö6î¸◊8üdS6P'ç«N;êÜ¯â≠Rù‹¥ö'¬∫ä]ﬁ±åÂA+Ñ5\FYB•UÛ.“ºòÛ•SÍ-›o∂¯>»6Wû8R˘˘S∫Iùˆ‚.µ\¢K (Âò7’È⁄v{Òq$U€Îp%Óˆ1bâS“rJÈœ≈ˆ®QÔí>3•<ÉRÒÔLjﬂ`‚p⁄_T?’ø7Wêp¸oz$≤\C;Ü,í»™dƒm‚◊’òIó<2ÔíÊ§§äÅ¥v;˙’bÈ™õXÁ⁄Î∏K%€‡\‹@È”“æZ¶vF1 ôÈHëŒhpÅ‡õoˆËÖîpÂΩ˜ı—ñ©gÈÕJfqµÛ"DüÏ :◊ã8CêYÛ“K˙Kîí_íµõ7∞vœ”À¥úÄºnò:◊;/sgÂur¯:í~ÙvÈ˙K^^º"PWs÷KØË/‡Z!tÀi)ÔdiØwä–a∆3ËI◊÷Aœ{*=-iëóçµŒØ3=:\¥Øôò£ñM≥óSY/¯ç|w˚#…£d¥ò-.UŒ∂MÙ˝(aÀ6ÍG‘d/≤tpæ5H/#r…÷ëZ–ÏK“∫Ù≠(5d˚`—¡úﬂL"Ï[«r{∫‘n\$9¬∏uR]‘¢´ñ˚ŒA”Z?’îîå≤a/∂öª‘>»Aa›P”ñs”ïØâmªW¡#Ïæ∏ô=Œ®Ì≠y¡ÛÅ˜—ˇ£vHGYÁ¬sœ~Æ‹Ö”+≤ëuv∂πçjÔ÷ñÍ’wlmÏ≈w’oeÌ]µîUÈùyôœWÈ-º”ﬂœr™m#I•L˜ï-Údîw@ÛÑÌ∫[±◊®¡≥Áù[ˆNyË∞ƒ6~◊*™º˘Íˆ÷SK˝˙ˇ¸Âü~K^$Éz∞:òÕ3á¯CMeR31«ÅµıR –)?.≠UÇp¶Ö'zÕw§{ò¶*è≤H‰atMï⁄ıﬂ €ÏP∂G_πm|F Æ´_ÎŒlg0¸N}£√/Wvû˛ ÒBÏÂ].€ÑÆe÷‡◊aÉ¥…•kbáTY√i=9;â{1Âå∏ƒí∂œp∑N6?¬3;Ö^z‚cJ∂·|Jx&©mäô+w±Sd5…äuﬂ£‹ë≈∑øSC tHy§÷ÈG›.TàL0u>BË¥?Ñå¢cØü‰π?°’ƒÆY[≥É◊l43(E%Ø4ﬂO]8‘™9ã1·£–µı«Àj^qwª †ÄA|EË€±x«˛Ò¡1Ó%Û›Ó ≥g+ÔË«é\ÛìÎ§πWDCokËzpve+Äˇ Èƒ«L]‘Ö!kºf	Êˆ~ƒﬁ≤°n”(œö±}çåÌœêÕÑÍúûN¶çeÊÊ>>Ÿ˛jÔı¡—Óﬁ‚úR{È<v#˜ØÆ¶Ï/gZç”-Œg¡V_‚0Ø\¿(˛|∏Ñ/I'†¯oäˇ®÷D´‰á®ä˝£Ã∑>I…!+.äâ‹úí\
+eÛâò∑lµ:∆kÂ9~7HK:¿îç≠}z|3cãoøŸX[QV¥^jõ|àW”©±ç∆oÿáÅ¡ΩÇˆñÀrb˜lwä‰2>âN[ÛóTìâ¨fYçë%7•ïÒˇgfJ……oKÖµ≤±d†ìá–	P<Ã¨"û√—ë@rmr√{Üéèªòë#Å‘‘ ä]Ç≠7i∑ 3ÁUéËÏœ)–≥lÃœÑ≠LÒ‘œ?5MMÒ#PπÈõ/#|RºÛﬂ—øìÂë|_ºõ&nßÆ«ÿ p=€°÷•?·‘t$SÊ$è	ﬁ?	2¥q 7§M«Å‰«ö9Ÿ‰îL%âi}vIL~ÊAG˚‹◊¯ä›®˚.˜ck®¡F!˛MÕ£G»†Ê[åK‡·»a¿uH3‘4>W·ñˆ≤º«yöΩñZ∞`S∫1ñ1èh1Eä°Ú{â4&ÙÃë>µ&úıÜ¨˛S0dø¿?ìj‡ÃÚqu¬ë>xvp;b¡Mñ:Rè_¸bCoÅ÷ÛF˙‘ìêÔ ‰QèÓ/8qŸ˙¨à¨éIª-\Rd^<9Éœ¬a¯ïüZ$n2I÷M¯IZ·Ö7ê*UÔîN⁄löBú…ö:´yS.=NdP}3†õ÷õÅY>æ^ ”QH}Ä~™˙´∫+e≈ÄZ“ù∏yñ¿ﬁ ™∏ÑWâ‘}’•9Å}œNo`/¨/êZïÅhZïÅKüL¢5&<ì/9ø(j8b¬∆÷iI*î£3º} ß’úŸD1ﬂ∞Uq&˘ò(˙ÎxÄÄÚlÌm∆cù≥éçVÎu≈<˜Û∞≥‹†J)êò™ÂZn˛ÌX}˝d◊0l¶`/ú∏Vı ™◊©ØEïàEc›z.F}¬An◊B¯-t#tπR8-_Mâ€‡…JûcFkJÁ@ì;´Ã’6?QË◊Â˜N‹CLRœıÅAˆDCÔ‡ÿj
+5•0˛sy¬Û8ËÆ?mº3j<+€°À"gXd€µU4e €®”8_∆Œì¡ìrÀ÷«º<Q∂ßË4*π›iáO‰≈Ñ]á\ì–∏óä#Ùbé*Q¬uı¡ë“≥È‡D◊yo›w“îá≤ÖXub5ﬁ!¿p√¡Î∆™¿ïÕ¢&€""%î£b+SÙ#Î›;A6∑æeIk]G óFÎ¬Õ÷Gı÷⁄î®ÇÌDÓÑ ¸IçiqtøÜﬁ>‡h130ªQŸ ∂¶UõÁ õ‰´?¬jŒ/∂ä Ôú*r¨Ë»~}–aWÚèÛìé∏=ÈÎù®◊i-µ—ÒäZ„m•≈ôéà◊ÑgÖ=n≤≥√¢Qéß¨ª∞ı◊1è¯¡Ù¿ıﬁ¢∞=mÉ÷?Å285∞k«†∑[≈=ØUú–±ì3ÇeüàÿÄ≈Pﬁ_ÇÊÃ´É5ê√PûmÃ›ñ9›ò{Ö‹^"≤Øpƒ5+û¥aƒ˛?   ˇˇÏΩ]sGñ ˙Ó_ë‚xÄ?$k‹îDDR6ß%ëM“öûaÎRE†Hî†‡* "#b"ˆa˜a7‚FÃ”ıùáâﬁà~öÿòà}π√2ø‰ûsÚ£2≥2´
+ )€›ç∞E†>Ú„‰…ìÁ˚T=hÿ}•4¡®Ïìòüè!%ï.ùŒò∏Æîà†äH„"Ûÿ¿Ò8ôt∆ìvƒå©&∑*[-+r˚=s RÃ˛¬Èy>2&üD£jy•∆#l˘éÒõtπ“’&„0JkxîNú !â”⁄œã™˜´$ÕtSÅÇlST3ÌÊüÒ©“TVV”§e≠ÔàÁ>f2´ç
+itÔ-ÛòÙ´h÷G	•†πè}Ùe0é˙ΩªﬁJ¢’ESŸüÂÊ	FI<:AQ∫∂vöF√ `H©:ä']l/©$∆gBŒ)Ë1´M≤l(uπãıßfvHMè˘}ÜO/⁄W»9¿≥AÄÈôSÎ	fYH˘4∆Ë»àπ¡jH…˛~µ$∆˙+Å¨*’è¶Iÿ∏s∂pÚ4«iÍœvP£ﬁˇπáÕg÷ùÂ6(bÙDjØ›Å¸Ú∞@~ô’Oki8êªÖDÒıLSyjW/¢+z*#H.Û©D§é:{–hWî–ÆΩC‚NÆ2≈è‚~Å◊i°Áπ£¬˚æCbaµÍ»æ∂Öó
+é°äŒY+x6Â¥Øï9˙õÒú∫Ÿïé≤w-s#€ì$u\-∞¢€
+_Ù· ª_? π_9"ËN_üÁˆ∂…¸(/n•á4ÏY)üº⁄?Ÿﬂiü∂øløﬁ{sr C3  û¿å"U∂√‹Ó!ª≥íEy¿∆≤Mä6˘*Ô8ˆ®ß6REw/G[º7ó5iú'—eÄuÇ-ˆ¿•&÷û®¥3?R·¥">ÔNãßï¡$gúqúk÷K≥±’—kï2i™Öó´/v>í—/Êj∏;Á˛0ÍD“õì8´EwÆªg;ÀC~1ãbån¶Œñ™••ŸÜ˝·v˙éüÉıãÂC0Ó∏<¢sû )c≥JLF†–¶,l‰¬+lcsùx°bØµ{*ƒpÛG¨<^≠ú∂ï‹\ñ-˜&n÷y‚|…l˛ÚRπÕÔ¶*Lı§ÂÚ3;8ˇ @ 
+”˙¡—é85ÌÛS ıÈ¥…˙Ô$F4ÂT	”Ç( YÆ§†2ÔŸ"y({¶ƒ∑1´DO&>,Òîïüg°˙FTø/dˇ∞ıœ¨o·˙Ç‰Æ∏^|‹œ´\˜Ô—ˇ÷≈‚ãCäê‚√ÍÊ£üÜﬁq#{âOB pÂ÷Dñë~I§öﬁ“Zˇ#\πÁµ€](	 ˘AcNgÙ˛/çh5ìë◊≤àø5‹ò3ŸL=≤©ªÑ==IÇ¥∑πîß≥Ô∂E¶;A2b©bË∫ìûÈ≠/c^>Au!)¯©éÇC°èYÏ4(enìé~cûë©."[¨ÉTâGQ)≤≠;Y•Oö$;orÍ$¿Æ»∞˝ú‰q/∂¶^–:ê:U“¸'-aJüRˆ≥‹t(Æâµ©º#rÆ2_∏ˆlöËÜˇÁ9°Ñº”≥´≥Ne
+$~â…q4+ˆ*ùxÖ5˛E¢¡∆¸ü≈*gÛ±xÀg_`L” åí8kıV\sæπücΩÏ_0`B ˜Kı¬Ÿ|¥”1í√$è¿®áÎKbî—íè9Ê=¸‘%≤9†K–™¯æü∂eÂÉª‡(ÔáWæ˝QqÃ5o·~úE.ªª%ê3∏#‚h6ıã%åKaÇ·ü9A2Ëv›¿-…Ùc'¡›¸8)pãl6Ö9p}æzN¶M+'ì*Ä©Ä‚Ù∏%iÚ8]Ttê˙˙;Ûèg^˘•J†°á<Uçb≤l´—Ø•Së+¿v˛0m{0dìqŒ¿$´H€fÎhÚ“≤è?.õyÊÅHô)k°¬]>∑ˇ;¨?„s`§ìA,}Ñ.¢a–g·UÑ	#1{πúï≥¢REücÔﬂ¬Ÿ«—–_û◊è Ö_π†,Å|€‹¸ë≈l¶∞Œî™F>7RvÕ€,/5wÀÎhËæºyr|ó’"Wâ%S(è√8E∑≈8iO–
+èná[Ï%¨(z∆üwÍ£{MTãLæKèâB¿‹ÉÔƒ¨zÔw·CQƒ>f‘FıŒ¥ÓÎ·U'‰n©A,hœ(Ë&Huayòõ\ÊÀkÔpÛol$HÎ s¶qÁÊ18êo~ƒ5ÎÑ]¨ŸÅ…1¯Å«›SÄM6H‚]Ñ	•¶Ì™—rühGÂ˘ß-#í—∫º4Z£Ôå"£Ç≤"l...´*˘âÇ~)∞¯ÿ€í«î≥≠ü£d∏XZ∂üvı9Û≤C˚yœ ö≤ªK™Z\Ã∏üº%éó¿'“ö›≠¡˘#©”ñFπ
+±N˜à}ZÏƒ^:
+;Q–ØN|™!u—	ñÂçΩÌ9	èëfaÔ
+∞ûó§JØ BoBÜæHq÷˙ _qga‹±´Æä˚!Ñ∫k<:ÚUlYïéJ ∑ÿÙ&Ñà9¿](ë?Ã4û¸\«Ø¬º◊¢ø˛»ç“`	“≤vé#∑¥ﬁÙ@4y9‹’“/\ø€5§bÌ,dº˘àjgcÕ{ÁÍ›{zà~Ìûúõi˙ıˇR¬ù›Iñøo_{F≈Ó≥Ïp•¶ö≠&ÏÎÂ{Ò¸˚®Ó(y√G«3æΩ~ŒxˆépY<≥^˛+û˝Tx¶Lq;7?ˆ;ì~µú!~Ñx]%x#è
+Øó€¯)s¯ŸZ+ä8Œ¥0lûÔˆ fÉõˇUû∆√næ¿…Viû¸òI<>:6üƒ˝0π˘á √VR¢‹˘,¢ô8$cÄC\lüòÔ˛eQÃ€ÂY(0ﬁB0∞˘eÀ≥µœÿq4†“rò‡Üƒ√≥œ÷ÚíaﬁéG;”Q∫\YÏ‹Œï˚ä•ØºdÂ=1,€á0J$x0PAv¸j¡ﬂ∏YçÓù•TÆ=j[%Êª˜≈±Î—˙rƒt> {Øl<∫øäOEﬁcEËbbÜÊ%éÑ∏…“¯<	Ÿ“Œ/H‰–SåRã%Òe]TÒPƒotÇ~á=£?àﬂ\ÇWãÎôÃŸÖæ0ä$Oí°ﬂ≈≥D9∂1BOKΩ•ù™ï'!ÊIù’
+oîˆ 2öf^W‹Ω
+÷âübeUÖ›óG√}\ê	óOw’ﬁE8é¶q:Ô:}rÓ
+í$q¸YAíá†∂Qî&õ˙]A/+¨¢Ä7∆‹π˜º¢ªNR3o8™~}ˆóAÇ5u(qú,>v-ˆ•hÓ\™—ƒ/õGΩœ¨`; CÖ˝ K∂‹Ç…tAzs∑ÒÙ5˜◊Ö‘Ú‡k˛°}ÒáÈ-/ÊÌt‚pIﬂ≠Å_÷ïJß#≈∞pÿÖ†∏µ˝ß/xƒ4H"†D¿÷ı‚tºR‡ìi◊–ûo¸OûÆΩp∫√…>∫Qú˜√.»3¡0ƒdxo∞®›~xd¡¸vnMΩgH<2 p»µB:OkTèÎµª1`JEı∞€[{‰Wøb÷•⁄„I #¶Ä'ÔLÜ=™m˘~'¡dLo√$EÎÈß3˚EyƒÏ◊lc˛À_RﬂâJ±üèAu◊>}ÕﬂO◊h±ƒoï…i6ç¬⁄`æäR¥åw∏kü%é¨≠±◊òaó ~t√àË1é∂÷Ï
+ ∑´É¥&1ã.Å±˘£∞A°Vx]ËÆ»„i‡oøÄÙãàÛT§∞L®ËÜÙ≥ Ì!˜ÿÔBG√@<+üˇÙ?µˆA
+Ç«–0`§nÑYàáÅ!6z£úçj6iÊXô ∆§4Ü„‹Ôb8˝0¸ ¨ƒ¯i:N ¢€ıSl[QW+Pﬂ«B;Ω•÷ú˝¿êò\ MËBÀæÜTÄÂ˝ BÕ<o9 £ïj–≠†€/πﬁ—X6˛%Ë˜Â0∞‡ﬁßZ0'“$677a8ƒLﬂ
+4 ı@5yjÿΩ ≠cèçF:◊ÎAìùÆr7≠≤sÒ5Î7/÷>•M¡¢âÿ≥ŸÉ>Hs∫,µFﬂzû‘Ô˜QçCÖvgÔÒfgÎ2fk¸©wÛµ8:ŒﬂœπÔÛJ:∞»ñ7Ôπ≤’œtS.™©'≥ZñVm
+ ŒïP™¶„{hÜèxiDNÖWöl*W	1∆ÒL.€ÊÜ+€ÊC´pr.á¶◊-›SÔª¿˝∏í¸≈Ω∂%Ÿü…9œg∆ÏıÖ95VIT†\eÔ2P‘X=@Q±AÖíkÖÚZU∑ÛŸŒ¡õì£ˆ…¡ŸÒI˚‰ÎcôÛs*é¥wà*ÃŸ¸;√à$úõ!Y!«ıi´Dyv€c%ª›µ◊Ø◊Æ·√æ˙jk0(í,ãº†‹)~8g∞ˆ„@Öjv/ÍSG’—ªôB 57Zü[°öâ4P=v$^’2˚Óæ\<°¢u¥Áèp˝–ŒÑh.7ªOp√'ü”∑¨A/°”∆QJË}ÀﬁêÑŒOŸ$AÀﬂòΩÕ6êUB‰ö˙‚‹Q®b÷5'èÉÆä¶—°Á°ëè4ra[Fy±•,x≥¿Ü°0P·J@"Ì=y|ÚØˆémñBÓP'mÛÓkw¥Àù∑*ö™>¡Ü™Zı…Óæí¬ [ …ÄEnf—Ââï3Ñ≈/ˆöñÖ’¡ÌY;"¨&¿rÒÌiÙt]ëNZ4"7ìpÄa@¡ÒNhè7YuB÷‹Û*˜ãk⁄˛ı¸ﬁ∑õ7ﬁ{Næ28	˘åÃ]41o&oÄb^§±›	Çª!†k/Lm π¬ÛÜ“t2ΩÄ∑©‹V2%˘•qÂÛÏ¯“/Àv˙û≤·'[B∑ëÂËƒ˝8IsAçÆ£∏Ö˝Æ⁄GyPDfÜ®óÂPÕ◊)kü§E ˝πe%æApµ⁄[=˝¸ÛiÔCË]Ù„pÑ†ˇ8à:¿©V”N˜˚ÁÅ´˛ﬁÖ»‹∆€∞6ﬁÎåæ
+ﬁ°t¬Ú)@Dƒ†ãj¥$Ï@	ÅeÀQJ‘5f“„¨∂gà„TqúQT5÷"ÁQÛó∞‚›∏E{)	KiËSﬁ~gå{´ÆÑ„—a0Ì\˘≤◊gˆ0Ì}è¬Ô&a:ﬁâ@≈Ø±aππf‹Ç}9‘9{c=ë)&`˝µ^´ÂoÓ%IúpÓÂ	õõÉ±ukïÙhéØ¨Cs3U€/√NœØ>SÌﬂÖ"l∂⁄¶g€/ÇË
+3å#”{Á (ìöö≠ƒ¡vßé∆®mƒÁ¢~jq∫94≠¬ÔZD›‰z◊rÉOM\≠»á[o˘«5c—´?àRkO4‹;E`˘Ú€√ÿ ú√_Å'/"`÷÷*/LıWjã˚„À·<O∆ñ∫a3w&r#rv"fø±¢∑#Ì”Wqv.}ë'ïUZ…~ò&tótàıπÄ®∞P≠ÆAPecò™<íµìÁ≥èûœ’Ë›¯ÅäœıŒèø0¡ˆÁÏõõ%ªÿbOBñN¿≤aèt¨˝¯2¢Ê◊Ÿ”ƒ Ù\ß¬-¡ˇ±ê]idYrÆ~˛æÂÙ±qóñ´÷´ ⁄πÄT\6;cò\KÀc˛sÚπΩ˙‹À∏∑ÿHÏlGZ	dV»Ò,K˘îÂIÑÉgÕÁùı“Àl°£XÙı€œ"≠3$ÄaÎ€ö3Ò{»◊‚‹8ßqƒ¢‘=Ìg®E≠ƒ≠À"’W˘E)WÈ¨T]—˘6âÄÏ^”/áæfFcºò[ı<)2ô¿Ô´ÉSL72øí|ãNR‰÷q›+∑U¥∏6◊s?ßgπ%TæŸêè”V>cÓƒE≈›qMÁÓnãÚñ÷≥Ωr/∫ÙPπÓ@÷ác6Ä±™LËèåì6FXÉp5EC<WA‰wâçèÊÓ‘/Œkúg…å∫µåù	Cì‘∫Æª„oaXù^ÿùÙCe9Øƒ&:ﬁ+d`˜ÛœK}éßk_¬à®Ÿ[Úp»TYﬁe¢∏üwSEqoN©B‚!≠RÇ≈*◊⁄Æò
+±Ï‹Vg9Ü™ÄHÄº…[›B PIÌU*?“{.©ÁtZÓŒú€:Dd-™# “∞ LÚ≠gê©wÅ8Æ—°äN˝ïÿ Îô£∫vø±L“¬€Ç–ÁﬂL©ç™¬WUèp◊L)πh≠Ü3∏&· àê@æE˛ÏN‡Ê8ÿ`•ãÈ2ø⁄«Ö…ôBˆU,UN‰‹,ˆ”}Éù•hGÉpö˙π√UÚ—ÇÍv_/d?£sœY¯r⁄[6„úk≈√ÃØ-∫8ÜU◊iú;e¸êáZÜRßãé6<Ù»n>câî≠ùHú^;Ã¶QáÙ⁄˚›$Çgª@7πDã…‹x.©o0«[îéI˛Æ£ÜÚ[∞$ç•ÿ/:ºyVYÙ‹Ÿñ«ínFà¡+Iî∞πæt√,±
+Ç :4∂Xä.h iÎÌÄy4hIËJ˚›cvÎÛ~∫!L7#t2FΩ… Ew¡r·4U«ﬂL‡ﬂ;·]&¡‘°$Äˆyåe˜,cËÍ∞>@àÄAn‹K¿zHça»òÂb“á≠∞`Mn]'ÒÕ$Ñ=ê7/P?ÿ ¶÷cSú?:¡9Ä+cOÄWr(P4Ö≈GÒÌÚ œÅÜ;äá{<M#‡Bwπ˚§Vx¯=qî)‘qËFÜÒá˝4~g@Áx‹“˛Ò¡1˘ü’›¡=¸]Ÿy#D◊vï;â·b]®®1ûlº…B*ÁË¬ı!à†ì…(8B›∫H‚AΩF†Lkç_ƒ˙,≈Ÿ:øYÉjj´Ω%g;o¥¬ÔÍµ®[C–‡çﬁ`*ÑŒ9X“‡Ic⁄ã?¥˚a2ÆøÉFëã8TI”õ?a6§î{`¯øÖûõ¯zkÄòqŒﬂÉ†«] û0á¬{|Ä∞AÉ˛ï>=»»¨õ√®òõM
+á¬˝∆bIF1Ó'ÿV)˛¢zW¯4@gπÄI(E‡?6ZÌ
+Ä”∏˜—ørå˘û–Ô1û∆≠ZŸD¯:ãÂÄı%èj¸Mcırkâ Pçja€⁄∫:ó∫h˜˚¿ˇÑ)wªV`)≠+:≤•tˆH˜C'ÄYî√ÜA5‹òÅg0ˆqªÓ~z@Lpnzôæ∞H†Å‡HÁ'Åà<§>¢´ò’/˙ì+LzdïËπq¢4w»9º=≈Ê¨X†¢ë»QvïÍ?Åo"≈häé¥ø4∫Æee√ éjG	tΩ”∫Ä¢ÄsÙÁ÷ûy4“%OΩ-¢˜Ω¿u‰qp6—·ûÈGÉléI◊]1;BÄ`s›ê,`&‡V¿õ‡\ÅΩF©&.B<láî¢5æä±π>Å√ıJ˛áuµSN:q?£@mùôP¿”ö ˘[én¯˙‡§9	C5æ1Ú¡„0e‰;ær€ñf}ÇRº@«3è$g?©‰≈å–‡Ãπõc@&ìÉÈtQAîÜMÅØM≠ÅÎ‘Õ$@O+¬WøMÑó«µ¨PÓ]>OƒÄ(ŒÊhoü#élì8∫†”£Ô»pﬂM"‡˘ú}ç—û¨*l-Uõsä(û¢WF7ñ3÷ÓS≤•4EJıNÏ –Uv8Ñ2„w(πæ÷.B≤≈⁄óqIæÈÿi>úÔk:{¢ÿ Ãm¬)òF∫n˛à{£…7€dÿ	ÿ -° ÉhÿI‚!·¶á/aœîÛbøV»`{ÏŸ˝ïÛ˘ÿúèΩã0?~Ngœjµ¯@\ú5r‡Õ›sGKw≤‹1î[3€‘ó◊ìëa'J:˝Pœ]∂{“z¸÷£˛rh1ñ5
+FWøKã¿(∫"„ƒ•+ã„d0àAh>âwz®/‘a+m∫* ¿ËW∂ò©Ú{b∂èÇËâ~?–“˘$Íw’ï∫F=øØ∑≤—°-∂i‹<πÖ÷xI{Ë<¬NËDArçz˝aÎñˆö9ı'Ò∑võ√bÀÇâz`^§/cfu1∆@-ó—≈|<oqQ6óLÊüF;‹ˇΩ°ò Ÿ],4v™Ú®∞z'Ó;äT`E*áVœjÂ√ÍÈÊ§lÌ©oË˛h≈øZ.íÿx⁄É˝˘Å¸ºÀ\X≥pâ‹nãó,M:œfÔ{„Ò(›Z[Væı]ÇÅ∫!Üß÷¶k<»dıªÊ⁄◊û¨}æ~ˇˇ
+ögpVÒﬁ◊G˚»e∆CËπû°wÉ™‡¥x∂Úª#`C±ÍÄﬂ¨\JÛéœøÅÉu9¨ mëI}&á1∞q◊œVÜÒ™ºîw r¶2»^xq≥Xñ∏…Ìùr+[–r∆1 g·Må≥àUÃ‹Õ∑)Hı3 ¶üæ5Tf^Zπ ÙvÇ·∑>Gê[Çi9@Ω@Ÿ° ±“2∞Ç9˙ ‰Õ*Õ¶ˆ1∞PJÍñ®√ŒÅn~ãEˇÑOtŸ≥A g∆iΩ"-BﬁZû¸o˛ÇP‹¯∆oª
+&Ÿæ<n…0òÇ<∆ Á~4:èÉ§€˙ê Ñ0CG›òæW«¢¯”µ&¿:ç¢†<Xq'∑q	˛¨nòu"ØË–Ã\éBë⁄MU)R\{Ë≤ã›I≠Ht∆—4‹JA4Ü#ÍÛ*Åpºé0Û,èOæë?52HF°&‹¸[7∫å}|Æ eÓƒ˝@ F¸Wƒ`à!ÄU1úÙ«còVtûπ≠÷n∆Ω(c©H›(}1Èª¢ŸQ¯û-‡Ê|∑ƒÃ˘é◊,Ûá€ªÍÙ'∑~Ó`èä›¡‹ô6ëœ +y∞|˜≥ƒÍ©ÕúhÒî6+¯ÖºøÈpÎWû2JD…sÛy«X√âwÌá\sÇFo@¯}@JﬁnòÜd◊ G	√d!Ò“Sÿn{∆ıza50ò˘'0ÁVÈ:fHÊØ„j√sX°óÆ?g{hºÊÖ\∏FçTg)Ÿ‚”ã0-{ç
+|Y'›EúG
+±µ¢âÂ1"#£~j°›ågQ≤·	√V64“ÖÂ√≠üû$A⁄´¢Q⁄Køã
+A†£SR∏ÖÉ;U3·P…Ë°9©ëO∫2üÏO»ídDòz Ò_√R+Œ&EA@∂©3X∆ä£x-Í&ﬁ¸CÉH íJ˛OÑzò∆t?;Æ≈®7⁄k@A;d(&€N<àE!G§Ë(9˘˙ã˛§.’≥èâ»’r˜:_E”≤D˘FÂ¬*Sœ„+8iÒ:RùÃxâﬁ⁄ik$Z¬q/Ó∂‚°;_€„%û±ÕlÎ?i-m1«3fgMËIKÓ&àÅmvÇ7^I5Ë tÓ»—ÂN;\ÕMÒo◊µ™J	ËŸ˘.≈2Ë∫√Ÿ+÷‚ÏØ>v…≠≥”ã ‡5‡çkMF√Ç_  ’ÿº…ƒÕn4Ï°©S{bW^“É}1‚≥NÇÜ˝·∏Å{g'π˘#› ø‘%Éπ„a.ÑWﬁëIb‡…m§Ñû‡h@	é©¬q,-Ööày„d6πgË√æ8Íπ•
++mÒ˛+§ß•·;?èpò⁄∫…
+Q#Kı=‡&€ù“"ÚŒî%ÈïLo\`Ä:-ü	t5ö]"Å˘‘.…ød´€oEbM3¶ã¬ÍO¸L	,∫|ØqáÔ0s¯^öƒZ¿uSÿ¬–ÃﬂqÂ=^‘1=R%$s…ïŒ,;)™õtÈi”‡¯¿®»ıE£"yIíáKï$—P…úçYôîÅ\¢√cJ}s;“†∑‰°˙#?S‚∞7Fœ∂~ö`Å’M∏$Qyªmﬁ˘~∑óÔÁ∫·•dëÄhk”T–@ŒéO⁄_ÓùÌÓÀàÓ+>ûQTÏ"û9F±~fvL´lóË@d\ã∫ÔÊ≈ªúºç≥ñ◊_$”íuﬂäÑIø]L{‡gJæåÍ¨ûNŒ”q4ûDåò©Yh‹Ç¥ô¿v6ô§=è…2k{U¢ß˜v◊$œZÓ;"xVO±ñF}c}˝ø†”EÔñ•Ä$Ê›6A¸}Ú@˜%Ë“.ßﬂ]>"– A‡Â∏úYË’Õº;Ö˝æ#É¸˚ˆ®O.Ã·Ä}Z¢d|?∑wÓùiÅE2,å”éF‰◊È˜0LÒÆ œ¨Ωb˘b6<áè∑ÙpÌÁœ˘µﬂúÜ]Ú;ƒ´u∫¨ÁcÏxÄ∞ã	ÛÈ.Öƒ‹÷VoÁA:|å{px_’◊õ˙;´4 ˚µ(=Ë¬<–øQ4Å^í?¸¿r£Ò'kKy™‘∫¿‹ûÉ"±˛œb‚±0qyæçRÓ	õ`å}t;<˚óU=%W0ØlØb†≥ù^%:œÖ¿ü;ì∂∏sb˘Ì˛˘å-≈6|Zœ®€J·•∞æ˙ÜE~ç'Íú®ı¶n…ºçﬂ‹¸ ¸ü≈lH„=ZßCåz=ü§™§%rG˝-=ûíπ”§_©û ÛÂ»Â'A∆	pÍñ≥ÍÁRp‚YDGÜi…5±πdX˘¸y°!@Ì–àpg¿†Ä°,GNΩü˚˘õY…⁄Ã1¡ﬂË⁄ùFKw‰,Xî~ªb˛[áñÈ˛ '⁄∂û
+óÊ≥DÊsèc‚ã†{⁄ ‡*9§—«˜:´∂GÄö—„
+_#ûñÕÓa¶ﬁµr»	:1w¶iΩ£⁄ﬁkbœ—…%Ÿ˘›◊˚'Ì›gbúÌ2>eñcÉ∫[∂A√Cyúd–iˆX˚åÌ†L¥2√≥£»jæYÉ¸<üT÷Ya’üﬂFt“{‰…Ê_Pâ…§Z)&68GNLÎÈZÔëªSß«Éß“¡Ll-- %¢ï∞í˘8ÁõâkˆÆ˜’ò-ˆê˘}Ó+KYpÄ‡«ôÏèlê.∆/ìx Œ`öÖœLSÅ¶oÊ”)k§[€JäÒ◊àfK@>Ä’âìÄ»z7qq“j¸»4Nî”x ïèAx/'√àÇ]€c‹õdjÙ¥‚±’ õ√#æéøõ¿ibdkˆΩ‚X30Ë5∞¨Xu…Û^ô?¿CÃ´HYé˚·‚
+∆ÈØÆË^pã]ﬁ Q‡óKG˘zñ£Yô0›EB*ùΩ(€H?ÌB~ÜßÃ~¯xâtŸ4†˚†sáI‹Ö!§^B'¯‹ÀœIX«ÔpÄvØ^≈ ”äÂ¿ÉsØ‡lßå2î:≈E±Û+TZûÜIG£Œ°;w4‚z~≈¯Ö!4ì£øuå9ÄËU¢")•‘≥¥˙2∫ÆU`~çú`∞ïk–∑3¨H•Nóè@quºƒjÜù è™ÉÛt+◊`ÒJ*ü⁄ä=gæ◊ﬂËıb(ª°Yã
+>ß£§`…Ù3ñ›ÿ“n4‰π™À§<+üíC!Ì•FúƒP‘O¯±àå˘1õ6È ¢¥ÉëC\ﬂ‡ém°aUﬁsUwÛ£¬m…wÂÒ‰úÙ•{ŒçSÉx‰—tøf˘ôﬂ5JÒ}a ÂS‹ïÉj7L—á.f\w÷-Æ∑^≥U™¯ûá”ΩÅÈ©õIr≥À¢‹Á^î„0<)≈5?Ã<	…óM[Y∫≈a·LPYë™≤ß ˆ jÔ ö<]@æÓur Ω˙„Ä<˝!ù’ %tÆ˜s\πôw¬Q·GãqAf§‡ï«*¬ﬁåüÍÄ*†ln`˛QŒ°)´œ\„û_π≠|^ p∂v<mGõÕö≥µK1µèãπSñ1®TÙ∂≈fáÌxΩ˜Ê‰Ïıﬁ…Wª¬l~vxr:j»Åë™ì…sØ.¿W°r#nº’	¡ ŒR7∑U¸^ëtº4Ô¬ä∞ªîRTsk∂^s≥ÃZ ¨Å√‹óïîJ´µª$Ö‚∑Îöy‡∂∞…Á`∂*Ú$|Øù…ÇKèo
+ygâÏ[ıl¶gB©bø@=+	üßöÓú\ﬁhAMjó%4sæ$ô√f[ú’ﬁa J¯h68ôö?ÖC ≠
+;%W¯πm8ncá.$Ú$˙wx˜ÿ∂Ú4ÑÈÇ∏¨/ÚU:L»^ì#ƒw±ûP‘•©u bÄ"~>ﬂliÌ™*≥ﬁó·~›}>ﬁºeÈ+1u√† xˇ^¶ˇ2Íì-Û'ú=÷˝ÚN=+ˇu/”?Ó	–§˚!@ŒZâù}ÆV¢v4`∏øÔ„¥=˘°'üXvEÅŒ˜Ä&^O«‰x–t≈©y≥»køã´ç7‡÷¸…'ü¨≠±’’U*†€ﬁ99∆üÑW£8W¨	t∆X1nB.ı«—Z. õ†˜ŒPdVﬁÜ±˙1ñ√≈∏äÜ$ö◊˚{FæhpÊáÿù–Ãn∂ò¯¬~`x:=Òt˚ò=QÜkøª≈R Ô‹îïπx-~ëPrG›'Œëjmâ‡*˛ﬁ6‘Zy¬Fh∂ë?÷z≥÷T±Õî‹òúÉ0°`@¶¿«GEËÅ$3)bÜ; -púo·Ø£8ŒÆP˙g¡ëOzŸÔ⁄w Ÿâ!•eÅr˚°·èr4ÖÄ≠Iäa«∏QÍxìm<x¢Üt*FNÓ‘ca÷LﬂA*zVáOaJßÔ∂ÎßÔ⁄kHTi¡‡≠W¸ª˛RΩıÁ£T•"hr9ı€x/À*/^º |óÚO¬[/≈„ï√$g|±k ¡àÖ∆ØòÆœøvFgù·ËÒãíØ·7tí¢ßEJ5—ØH˙∑#Q¥©•3T8	ƒ‚høùe∑U Ê6¨Ñ⁄~ˆªplRá£B_W¯˘Ù´ì◊ØËﬁ^?DtPΩ~¬Û”‚‹`ﬂanV^WStR:IYØNy‰•ÎK”∆NéZxâˇbæ{x∂¡BnÔbË@0Ê'Váo¨?È$q#áU8#≥ËÇµ#4
+wü ˝?c@Ù«ª¥$r„vx"º!Gy¬HCó˝ƒAjøƒ`≥+4‰˝6ﬂﬁÆœå’„•⁄7∆Ä˘ï¢ÛÌa7(¡≥g⁄Î`ƒ˜Øy≠®Q>–\´úCbd|ChÏMÎ≈Dﬁä†-©÷éºd¥$ØÊi µ£(ë÷PvÕhI]÷ö¢bAüÒpXV?Hn˛Uºª¶∆≥ˆñ/mPﬁd«ú‹Ëy5uß9≥¥ÿqLU ≈EE}∞«a'à€ò;»F´]4Ü[ã’4j Àö¨–»qHµ<å·ıΩãÃ[´˚üRÓX}ıûcÜ[~ ò∞'¿8 i^◊∆,e@3Â´ïú7ªJ´[˚¨∆
+‹?£Dº˙)	oî÷k]JÅ5jMöo£E'ºÀΩƒ¯ù“?£∂ë1 ©Ç«iç{·∞^ÁπÑ≈¡òü{]¶◊Ö…Ú®Á`$Ô≈2—™5;m°ù>—ç;|˝É7P¶⁄´›ÌDµ’tÕT›Œ¶:oöõ—Êùy™ºäÜ»Ôj§kﬂºV|æJJIßw&É\´´F#"ª’úe/Æç∑È
+Ωbn¨a<i!ËÀM≠Ù-Oj€∆íﬁ€S XLAß«¿OÇ∞⁄∫ÑèA¶≠%@tœ$?sñBÔ2øÆÙuÔ£?¥√Lª&Üc\ì#3.™A6»µ{JiÄyì¥jxlp k>›b’`†¿	÷˙TL– HZ ê&„ØÃÛ¯*Ñ}÷∆‹-˙"fW`vDãÄ«¿•§6◊bùu»ƒÏFS¡¬»&≈—ß≥A„0	ª8˚∞+U>§◊· 6∞»ï–Å€r˙O44ÇÜŸ≠…[0¢Uúyê™¯'äÄ„kY⁄u—>˛iÒ¡’;dÑË¥?Jj›ö’`+v˙ìnòä·xáòV˘º˘Ñ¬\$∑`KéJŒV3<¥®u˙˜—∏ÁË∆	áÂxí∏:Ÿ+3ﬁ%E0uöÏŸ–tãÈL·i)ÏI—°ùNOMç„x6-Ì˘VŸRr¥ÿ’j-ƒz–˜úpA’:oe‰'øﬁ@¢q`¬l5{.(xN≈^°ÕZ},0ÜÁ¬ªÅöáŒ°S«´7EñÍê¯gWá⁄’a7º@&X†£ èYDéBR$~˚èÑÀdP«id/b•„’;ùf˝ã‡<§*Tµˆãù›Ωó_~µˇwø}ı˙Õ¡·ÔééOæ~˚˜øˇá¨µ“Q?õßZ€Ow£tA8èRQìÍ8KM5TØ∏ªN◊·¥€ÚE˜√`ÿ–Ã˝Oböû4Caü Ùz*ˆiQÁÁMvë:ûå≠ )>
+^eÖºå|ä‡Ü∆Ææ¢∆±}©~D√ÓÚtãÄñıB§õ˙hXSK®ÆNE–$P§Á-æ˚¿Ü°⁄
+àÿyÿ¶¶î®•É8˜‡•Jåx{≠©dÏÄÃüØÀÛ5[VÆjD¶åsd'±v~Â´ÔÂY∏Lù¬ÿ8π∂÷ãÛö[Bº?“;ΩºVádñ£nìI˜fÇµˆìN¶óföKnA˛É‹¿`!Ìkv1E¥∏&¨÷ê¿§"ÉJ∏§î.i
+GÊ§–} •~#ÛínÈ≈ÃB?s'8«1†¢Z(/,Â±†©∞VË£j÷ÉÑäÈ≥Yyå?ƒˇn◊Û/úﬂÔ/™ºU7«/Dçã8Ÿ:ΩzΩìÈ*3XÀ"|4Æ¬≠ócê¥˝ˆ˘€K#}÷˛∞ª√5Í9!í`ß	daÈ
+†!äiÊ£–Årty∆æh†°WÒ	çeµ!∏J¸ õ®! û|¿3‡uY|ë√÷Üh”ñ±èñ ú÷Bel˜>äH>*ª!@z)@⁄‡ßDÒd∆KåkTgf%¢äµÅ2B≤•[/	45ûÈ+ıÎgl#ª5∑∂±VË”Yˆ÷U†p¡Mx≤He*∑%È B0–ªÓƒò]Î∞:™ôŒÒ$ÃP†Ìâ≠˜Ú|ÄkƒÊÜI"ˆüN Å!hQQ¢zm˛`¢ÁD`‡VçÍ0)∏>í/ãbGœe≠#¬(ÏßB«Ω∞u„⁄<&¿Aøü4é#IØˇ:'ûO˝%x™8ËJQ¡UsvmçΩ†∞‘ìÉ›ˆ±FÁÎXbã®•X>÷CÍyQ@ÒFú\‡{⁄J¶5≤~RZû4êÍp\ƒ5µÇ™*lV/+˙öƒXY^Ωˆ¡êñú•Ç£ô
+7/x(´—ó–MÆoR†¯ôp.‚÷L\Da N¶∆*;πÕ	H}vÒ‰Sˆ$‚t|Fæ˛ˆ)ÿ·™-Ê÷cq*U[™nå¡>œF⁄y&õ=ëê˘L÷Uµ≤ë\¢’—…kËÎ¢ùÏƒ¿
+ñ¡à[Sxµ"!Ö}‡ôπA%í⁄ç.£1èµT®U Kåaß'à.ÄGtãx¥∂ªª/]RîP˜Œ.(FˇØ¬‹eeûÜ;˙È:Â¿QÊdÆµ2aER[˝ë≤¥~—ÜÕOÀGHEÈ›3¯˘H ´=%D_Æ#˙iÃÅùlQ„CÈeÊÜ∆Ì~&Ö“»ºMü¶˛›§≥m6Æ)ØD®ﬂeó+•˚)WØ)uÉŸW®‰_◊©¶ıjJËÆ7%`◊õ¶ÎMúÎMíÎz	@±†ò>≈Í9á©§ÒRÙy U`Ç4[œäå,”ñ~¿± .“Œ{û5¢?@N≈S^GJï\]<ÆL£∆ºM`-HÏj+k&˙5ìYMetì„yÑ3ﬁ–ªŒÜà›Oã≈¿7Ù¥1Óå1bròâW]»©–◊˘ÎaD⁄tq∞äË=8-;„}Ó»Æ-Õ]aé/k„3ñè§ÔV†TAÅøoR´crÉi
+‡¥%—QˆÉ÷5{Â…'ÊN≤IÄ±©
+nB≥ß™<ŸM“û^äê‹óPÚ1ÿπ¶éíß€R8©ÿ:¨=nÏfΩa\˚„… „W∑r»¿√É3,à(¢∂—˙&éÜu4â“û¨a zÑÅ◊µ¶c5≤oT`é§u Óqk≈67îjÔ€„2ΩΩÒDCÁÏwé¸àÚOí†R'&ÖúÃ§ò%o≥ﬁ»ƒõ∫2› Á≠4◊rÁÙâÕ§!:d–P∆ì√Ì¡0«yüú\u¡Qπﬂw˙ºu∫˛.Òºhû¶R±äÒ|B]¢ÿ~lvm\ø†6Ûâ)Û∞zgê§Ú(KﬂOØÍºC;àœVQ˛Ω	á=M±7Ω˘±èN XqH
+>€Ä≥F˝^–bº⁄÷áf1÷Hﬁú“	∆˝…0HEÂ8–±ºs°j–N±ÉT™Å4ö)Sª(KG	O«Jπ≠Íº4ıŒ·Àµù7áßÎ
+ÏäÌà™ﬁÎæ¬+ÿÀ©!Öl(ùﬂZ»ù—≈RRE%§6Úê»rÿ’U`Àâ–OC¿Ç§¯Ìì+YBä~£ [ê˚√4L"Æˆ95œàÏ!Ö5∂++ÏzìÕ≠w5M%<É∫J‹Py˝§Ä)‹\™¯ÚÇ*…®ª'QÄ÷F¡Öı%u&TXÇÑî#l’£÷®©|4@(W£ˆFì‡§Ûs¢è›êX0ﬁº£øaSAà =©\4k°PŸå;úÙÃM≠
+¥P<õÙ’Ñ«—˜¥ÕuS-çEÙ¸yjïìQº˛ÎgYyd πåhı.ó’¢&æ¨Ωk/Ë¨¨ºFà"lz\ßñm1F÷n◊ÄŒ°#ß‰däñ)è¸º/´Nû1Ú-|to—9òÎ/g![jà•Á∏Ú˛”ÓS5Ç™H≤¡ŒQ+_‘´œ≠”T@6ÙõsÊ¿Åh/0¡blå<>,≤®BÖè …îı9J.ñ–Çáægt®®mà=ã.uŒÃ≈O¿hºsÇ2™˝≥ì~5a4Zws≠o¨åÙá·ÜüŒåÆÊí-¿∂ﬁ‹¸◊a;àà√¬F∂¥w¯n:∞±.πÏ?kçπ’(Frc’Û˜∂Z-2R⁄≠¬CÛ˜ËÇV”Äñ€/Æ…kcv¬ÅÖÖÄx†u∑§ÖC¿Gπ§/h„êØﬂëç#„áu˚Ü¿,Õ_∫4òÎ™,MRÕ@Ç4ùùÑóêbŸM<&ùOl.∞âu'Y··™ˆ•Ì‡ä√—ŒK¢ﬁ|¨∂J€¯3ﬂrw@l/ÛÀ/=—ÇI$¯-∑f]BKuZMÄ≥Z–e7Ñ§‰N[í÷ê∏	,—PK‹…¿∂⁄!©¿'âa◊&é/ì0=ìwz!Jn∞?´Ò™$É KMMŒa”√ï1fh∆Pr=PV§Ú¨≤aÃÅﬁI¢s•‹ïzYaﬂP®Bs|í-t‚i∏#Ü.¶Äq¿J"5Çµﬁ©På.S2IPí2ÈWaƒ+œ<\g›ΩåπçìK”ôü~É‚“î_©L≠îô‹=˘8wŸ,=«B†ÿﬁÆKó´ÜÈÛLu	µX"ıªÿ◊Yª$˛–ÀªÊµÚ»ß(FùJákÌRÒ¢îzÃ¢à§œ∂}ŸŸÃ':M∞Ü^‡K§çŒ'ÁNíÀÄa^ªAÄ1C[¢¢'∑ΩÄ=∞éÌ+˙ﬁ Gh·B
+ï§†…§H∫Öb]?/≈OTÍ<Ã4±eDå/gΩ—∆cÀíYãRÂ†‘∑oä^«Ò˛Ò¡1aZΩaKl“AZZ<Aiç˚ŒXçöYãúßy˙â[zÿ*Í´mj˜πÎÛ–Q…·‡8‡\∏ZGö‰$GÆHÊÀ6y£®EÌπå∫Qt,#U2™ixíÎ5≥gQG∂C\	tïOV"#ûFI¿{¶QänÙÈôdŸaQóËj]ñ»•íö¡(Ä˝ÏJ»z*wì }¬⁄¡Äa7¬aƒç,í	G$"Q˜€lîj˜+ı≤&âÊtÜß\zDN∑Ù+¶9‚Dà„ˇ!†}Ë(Q?ïQÍ¿@.LJµ
+Œ-∏“ÉÆb+Z»˙nÖŸ¯}.
+MwˇÆ ßè<g$“≠«¿;{gÒjÔ_ì®÷”æg¨Æ~Ûâ‚Pu-µ®\ú;a"rqÌå≠œ’πDÕ'pX°ò≥±AÉg˚nb¯Ü’fºzøÚÈ,sdPNƒ®ú£g‡t¡~n	°¥≈{µ˘
+JR !eÌ+1)}Øè˜|úM¬ò»ùCHx˚√SÈjTÙGÁÇÅ4•(~œhRùá>⁄TâÈCT ®¡äQér¯õ÷Ê§ßäΩ âRä 
+‘3
+·4h4Ü\€2Ø59¡ƒæÅ€LPø.éç÷{1π-%·êXPg%Hl\ˇ>®øó•°?ù·∫ÕücÃf‡:ç{Põ+z|%*EY”… J€A._›õIÛû`xËÈhÂÇfíOÇÔ„±⁄jÅÿpCl¨ÃÌza•	päíliÏë…ãHr 4+©!z	˘j‹C›˝–òÖ<kmq–≤Ú∏ ¥~·ºÊŒ≈˚ æ‚a*rpw˚ÍÑ	®◊8N$e“?€™‡≈À#Ö.±2*!˘»h√|ÂyOÓjÈ—eA˜v’ÏÜ]_ÖÚT∞√ï›<íòá!p*Cxƒ ˜À U’Åﬂ{πˇfˇdˇmS‡ÌÂÀˆ“65QDŒçb‹‹‰cô^Ñ—àÃÌÅØDÑ[ZC‰e¿<é//˚Ærì¢=$Í∫É{yîÑ”ºÍg^çµ–$|» xø’`“/ÉP3„’†€≠kZ\¡d‡-±sì¬¥#ò#Có<¢8rf‘µ–Rz(/-ôGŒΩPÂˆ0Ï{*ÕGßE_ƒU	'ï˜√∂' , pNƒ5ë§CŒ°ﬁ÷º°ù*}IvH‰7ñÿräÂ‹$/¶ûÕR∏˜ôXü?yF¡µ–	f ]l˘v3o?ı∑gjvHuõ~g∑3X™'‰%Ì!jˆ ¸Ãn
+Ë™ªÙ[ﬁû~∂a:¿C˝2°ä-A/[Ü°Åxí ¿µP[ôÅù+ßa⁄ÈkÍå∏ôµMÓç¬â+œßÿtr9AIë3udz“§≥÷èŒ◊QŸªì¨S⁄êéﬁdéÎIözLr>°Üﬂ#7~Y{"oëÅ^xzhE‰»›X:¨Ï €"˚Õﬂ¬„íÌ∏W,ÁG•˙|ﬁƒ¿Ú≈¬ŸmtQ3-j∆taÄÍEÈ◊⁄“˝ZÖ¢†õËp=®.gÕﬂaÙYu›_∏¿1û<˘·i'ëÎˆHeyœ=]ô˜ôyCX]Zl7L√o5b‰•πX°ÿÈq¨®H∞Ú‘d@óÁ¶Â°$⁄h,
+geà—0”‡È¿+@Ω˙|ç†E⁄	õÎ¡∂Hq!QõZ˙ì—èñE¥pöYRÔ•ï¬∞˙Ë÷B-ömŸ3·O”∆pÅTøé…Õ¡5Âã∫ØÂÚÄî›{g·∑Ô-‘´∞kÀ±[fº
+≤Ü~ö∂2◊°oÑñ«˛›fÔ¬i@∑ñOîô/ÊÉ.ba?Pbn@iu0‚Öqœ-50zJÙY±Qû»öùkF∑ƒöôõÍƒ∑eº±zœy9_¸ﬁ§/‚–ü≥-f∞yy√´OÆ´.∏•XËSìå2	Œ‚s–ün0DıW
+Œ0«6¨ánM§Ωp#	‡gB°T[C°Òæï ç`"ô$ôÕõFó<Ã6ÎN¶ƒsvŸTU<]üë.=_u+KêÍqFXb3&1jr±∞U]$„’”Ò’ß‘ô¶t≤ÛVØ©X°Wñ_Î¡[PKîÌcgC≠òñû¡≤†dÉ… gUøBÔ{wvxûÅ{s}e˚?ˇÈÍYØ≠EÂ—T⁄™ﬁ¸3OX«59k«ò„Ê_c}ëœhâ¨Œπ@i	`(J}S"=DÅGS®†ù‚y»Ï„˙|ÏÜTZ¬Wˇ¢√Ü¨£˙ß5å?ò˛Ãöª∫ÊŒÃ÷Vh^gü±«ÍüÕG∫sú‹ìƒ,`o€œ±Á¨f‘J@=õº˝0ªÕÎ&ä˚5#˜}V6÷Q76ö¨¬£Q	Œã€+hÉHÏ¥≤3màXâ®OÌ-1p1–ÃDm≤Tp4äX÷å‰’v uõÆö¯Áyîh¯XäxY©î-∏*©yﬁ™k	·‰IB~j@]∂˜h†vä⁄F6ßwD≈…E.O≤Ìÿn(≈TÏ‰ÔΩ’ﬂ<v¨≠Lœœfâ‡üÖIòˆv>Ëç√hÄπ—”Q44kmÈeÁı¥∏ü∞‚a… _0Ÿ6¥|tÈÔ˜q<Äø´ø˘XMQì;í£Ù'∏á+s“wdãÏ*îüÀ°˚#Oe·çu,-¸HKòo◊~⁄€ÃŸ†¡–W,4ÂÆ∑´JÖâÃ»„Ë≤á√…í&{™>ZŸ˚ü~,cöÉVM‡Òls3WMÒˆ¬ôb«qjÏ¿ﬁ¶1Qoa[9◊\ïá
+5nŸ _‡˝KaVô£‰Ë{∏1B≠¬¢ïÕπº¥¥<¡UÅcO#t\æx6”}…Ê”B{pmÖùN8í—∫ÍßWM¸◊»è›ã∫›pHƒÉ‹êdzÎ, ƒZWaQΩvºÚÉ3©+Á#Ù˚xzZaxy%aá" √*ïk%w˘–=G!∑Ûm›™4P©à∑¯˘aı7®ì™≈÷øƒR≤¥ç´"€∆∫Yá U°ZÀ§Œ_’(qYıÍ†ﬂWP›“J=k3≤∑ÿàò|W≠h<Uu¿πVds4l•a/≤£©k·w∏we-⁄J—öÒÙ„Ftè‹9ø%+XYO@[†• Æo5#≠Ükª≠[8ÚÎÁ¡êWjÔr#∞ ëÅÖÕÉhÿÂ	+∆Z
+e3nR ã!:w‰-Ò,∂?w’ã,)‡Ëjı°cyı’ÿX∑VŸ^*œ∫^.æô~¥∏+±ÍGHZ x66≠±ƒ6Æ£íß,lEC¨¶º≤˝V¶Ü·ÕÊK-∂˝göÁı∑ËÇîêe√3¢Î¬_LÕMóÃ˙›uÀá4'„c+Iÿ»œu)™¡ë»⁄ŸM´sŒXƒìd$ÅB’•GÎZÕ9≠æºIû*–%U¥Œ JZ◊Êf4†f·	ç”GèPä2çìZ`Ñ´ SÔÇÛ4ÓOÄå¨Ç¯Aõx5A˛ë◊Eı8„Í…/#,’!óïLÉ´ŒòÚ˝˜Öµ˝ E	œúú’≥,Yœ±#ÑT&*ı'È‹Y}…£“º7e¶€Ãà¢›õx™Ùô˘${jñˆ≤∂∏&ô~âæ$]£0`&¨(ó»~∫ﬁZﬂ|g≤”Âú∞-,ŒæüˆÊ¯ˇt‡ëm2ZÕ•úïÌWôg´ƒ0Êz©Pf˘°S∞XŸF¶æõDtíJo%îoFq$=£3GÍù√Ë´‰√\Õ√∆ÆÊû/'33]–ÛïÛ:äH•€j)…\|ÎHxÚCE†á ëj¡1ˆ¸∫à·:$?Ä¸Ëzu‰v+:\sU≥·È(3ò+GNÂﬁO>ÌΩ+-˘^R√9∑‚Y“ÿ‹≥zïJÙí»™ÃqUôQx˙±Õ=…ç+…1V£F&¿Ê≠œÓ©ŒŒÂ◊¬B†.¡}√"Ôf°x{ˇjÕè!{K˚ÕÔÂïmÚN∫˘Sóå±–|ÊëEi‹ïﬁPøchŸW_m5D°lÁZ¡∞
+ã(ÛS»]vÀÙl´wsœ‰ú+,Ó&2⁄ÑéõmV˝™Xl”®Ô.˝Õ\i’	∫ΩÕh¢JÂ^d›"Fò€ò(Ëäy8Â'®®ùQ3¶¶≥wŸº,.jì3ˇ=ãõ+zÍ à∫±Dù∫∫ΩDíU…}ñè£j·@Û,‹‚∞"!:ËL
+¢CÃ§"èàäÿTœØΩ≥âÄd£Õ⁄®Ó…Œı¿◊)YIó'yL-Û•]hOö™JMêTôLñÌC9ó–Ü]ã`˚–Ê∫$˛ı6Êt·Œ˘Öp’Ù≠n∫,&Z›$À%5ò{˘Ò˙zôä?˘ÕÍ⁄ÛÃHîÖ9A“ÙõíBk—@5:ŒÂ¥µ«˙OﬂäÿÏ÷(€/b¥VDÒ‹î∂äügﬁw
+Ä˝bÎDb‡⁄&»É(ZÁqMÃjﬂ~âî+º-XQ¿Ù3ºëÂˇ∑aö)∏Î°‹©;ˆKuï
+âöÕ°-%-ÈS&œV√yﬁri≈`¡mT“`ÛÅã∑ΩU§ö•jJùzˆW√F	Ç3«’Í√”`<∑‚…ï?T7X\ ´…ÃÎ–œ¢‰õ\ﬁZ™`¿Øhx≠˙®£D3¶—à!ú,º+	∑B›ù¡g. >,hô∆p)¶"≈4ÕçèP≠$ ∂Çàc0(:_æ≤}@¡6m,HqÛGî	Y›a‡„Õ5çŒjMS∫IîvÖßaï&©|IAõØÉ6√[|äÍy¢?eïve°í‚¶S&›6“5ë„h¸È«NÌíDÀ¨ËENáÂ?–wÏwπgûCF¬/ﬂn£°~∏^AÕÏwå∞é-^d%Ü˘
+{˙{„(3œú‹A§oG∑gÀ©Vd∑X2s◊frÍ6tù©úrûyƒüá€íö*Û[∑èΩ˚S ¯Ä£‘ 3˚f∏(âb=OO9<qÃ)yÊLø‡yÄl—uÃu∆≥iÛ1€ES:"πvÿw◊ôÁ31ùÇ™*1èßÆ =ÁRd‰¥¸Ã!E`Öûê¢?ßŸÁ∫|áV¸.~ºäÌqFˇ±ÿ¶"‡(>v"cÉ]9ÒR#àguhtb†‡iÄhº∂ú<d6]ÜtˇpVóóhóç=ºvz!–EA≈6Ú2wÕπ|È+P¨ó∏ÖnkaÌ÷›®∂nÔ_‚X-
+¡æÄ&|cælÄFÔ]ﬁ]ZΩ£mîº˛„ﬂYçáXÃD∏∫/Õ‡Ó—ß–œ©ˇæåÆ`kmfô	k-Ã¡—¨5JZ§∞+ª;Î®ò75ÊmxƒxÌcQéú+±Ëß©á∆y®î¯,·˘Î¯‹èá2”7ë“∆˘«Qà÷Ö> nê*•ÂæÃÓÈh¡~≤U–Æ4:Û›¢à|Ê@µ»ÿáU9 2œ¢&ÕTj{ùa5evﬁ|™“}∫≈äÈ©9]á^ÌKıvb≈ã
+_∏$•˙]ãØÏ
+¢)z√a'ÍWVÙM‹vΩ]\SÔQz›~ö“˘wπâ95Éú›ÀÈË>:˘›»qœÛ<—,ñbÑπ“·1¡Ó fôe≤ŒŸ,iÊàs™›ö†IÃkü±ò©õ!#$òµWˇë≠Æ≤iîFÈ3FØEdÉ¯â◊1ECñy3 ßC·+‹vY76÷	˚
+·CG°˘#u#L™MT§N√ü£$ÏêíÑ&JäD>EòíÑå¥Ï≥5] -Ùæ∆„fLëB[‘+∂Ä¢üÙ%¡Ó«◊ﬁÍF ça\ìv”ñg≤é(	m}^õ3oøıÔ$n—[y˙üi‰*ésÃkYñ*Ûç¬°ﬁó
+›≠#ƒèGú´èÒè&åË˛:“;G‡JÆS4SîE\nS&µ”9ãLµÑräˆÓÜ“‰„1&˛vÛ‹ENæsı‹ƒ»0í∏|q‰èº“ü|}Xî¢{ötîÔwH*i8$90ã¸îÊítœr—ä ÛΩ›˝ìˆ€yµè˘:îoﬁ®ö`gÔŒ äTÅ<2]€…ßõá <Éˆ^Ô±ùÉ◊áØˆNV§¢9≥>7TÃYåÈh’jµ‰´M›Î T>õEbëÏ[˛∫÷\.ì®À§4ÈÍ&Ÿ∞µEá»K“‹^…ŸùÏΩ⁄{yf/?1ŒyÍì2Ê%‹«¶˘Å€¿›{›ﬁïÔõúŒñ ®pV≥4˘yŸ'n	<∫·π√síŸÚsR¢ÁR Õ|Ô*@ug∑ΩÎXR42.UÓÈW‘‹“ü¥wÜºóÖ2ºı⁄*Ì#6Áµ ÿÕj„ﬁÍ∆£ß€Â¬Tn{'S‰bﬂÃqŸc8›|G£∞pfû1í© R⁄^Ìj"≈7ì_±ùË1Ã|€I~èyºu9PLäÙø√îh∞∏.û]ôªÊTdQ~∫F–À<@Ì»u´ ∏7:÷
+fœUÚÍOÄ¡, (t∂d	*£‘ñ^" EjûË}Êé@[˙∂!ùÿaˇ2¿r–-—¸ÀÉÏsÊÚ)R∆Òê?ßÉçSgá˜È∑∞%—}dÖ—ñHW/Êù_ôÑÀ-·àqï)∞ ‘W˘˛öÃ=Ï"•÷]®¥ÓS°ïx¨°Ø˜5ñ[âıà+±Ú–[VÓÉÆŸÖÙÅ8ê,JÿÛÒ√’˝/
+]–Ô†∆\•wå1õåq¡s^®z|∏`JAïõ©q–¸¬ v]k•Q¶9\
+≠†ï‚≥NÇÁ'·a¡]OtK6"ü5¬ÔJ¢”Jºì‹¸ëzÎí(KôS∂» !JQ˙ÿ(∑U8áÓïWÔU›tî©›<'RÒŒ6‘∏ÍÃı=ùcÛÍUt»:0]Íd„æ#3Çb}√˙%á©jˇ.4uﬂy«ºÏ…‚˝ z˛ΩUD≠ M`v0r8`áª/≠S
+°\%R<ïKÙäG»gòrÿΩ–2hÒ˙2∞7[î¬|∞ñW-õﬁà≥ìz…UMÓ-É“π4j∆G˙`m…˜y|héÖÁU õ„Öôg≤∞‡ÓeU`^µV/úU¶U’Ñe¶ÒyIoÛbp˙˜.~˛Lˆ/~äùòŒ·ÛæñÔdzæÃ¥Ù∂t¶	∞>6±/FÄ¸F°ƒ˛WCÎ;Bÿø"$}ä≤,+Ç˝|©]“˜ˆÏèÈ\ò]Æ¢U^ŸNv»‰™y∆atp¡˛|•b•5OÀ‚7‰àø∑äM!ÎÁk≈Úπvóﬁ†Ÿ∫†cæa¯˝‹v¿REª»êø°™£N.ÔdºG_.2“‰r°1É¥QπÜ;k-cIzÛc≈%£÷|<<#≤≥üïÃÀl¶_¢MzíƒHYÕ≈ƒ∫Ï~^–ﬁk∞√VQNÙGû:≥Í”∞Ö7ˇy‘˘Y@‚fßÖ«ñ^ ô˜üŒ<wÁ÷ù·Ã≥cÌI«-U·±òâ2Wàr\s$®˛»≥„$ZË †Óò/YJ¨k<±:¶W^µg mÀL4=˝Æ≈Ω;Í/‚∏CΩ≤}ÅÕÉF~Gì\[ûc»Zﬂ„Ã<æ%^5Ò:ÂQ68G∆¡9 
+¬ﬁ‡ümæ”£Â±ø£;h£g∑À√¶µ è÷√Ï∆ºÙhÔ≠éÆ≤Åm,ÇπÖàá«®∏?˙HDÖ˙¡≥~.9ß“p5+jQ[kìâ¨˝N≈¶≤;TıTö@¶
+©ÆÎ»«Øïrß<⁄–ÈÉ°]|î7óŸ&@Ov•Ω¢^:•‹©_ü˜‚—ö}\JÜÙ1©C˜áQ'í˘íDÜˆ± ‚¬<üÍ@>Ù≥:–™»ÒösTÖæø$• Á1%ƒLòqeôŒÕèîr9‘
+—P&j◊Ï®˙ÙÕn`qÑàrÀwÉÔ&a?$ß≠'‘&•˘i
+˛Ü €JT<ZÆñ1©	zÖÒ–<ÛuJIÎQÃ¢‹a±6¬on~Ñ%ˆñ™Rı´\Ì0ê'(Cw;"∂ˆ@◊ˆÄÕY(’Gdªí.È'xÇV≠É˝ë’Ñ√_C\á⁄ôºï{<ëBﬂê¥∂lŒ∑ªÊ‡Ë$À´-M	í¥m‘„“õ–≠ëÕgÉŒZﬂ—ÆÈm´Î’öÊ–srÛﬂRÓ}Æ’Ñs6ıŒ!"UÚÒ3Ñ3Z^-ÖA_Ö*ôfô˚‘°	^"ˇMø0/*∫©∫∫⁄„∞ƒmû_ß÷ å˛V
+#≤< U-"@KÙV\ë9 o≈œ{|òµ©÷ûÛÍ%[j⁄≈qÂŒÖ˙gEÁÆy í+<bD÷6›Ö∂‹°–ê2µ¶zr¶n˚\Án6´π⁄ü-ÅL• ëËG´#(Ÿ:XΩ1 ™ò™Óoµ£›ˆ§¨‘_!¢á&-»”È∑˘ñ! VTÂÏ…H2&õ„1Ge1Z•*VØ—·âŒ[tÛ˝.Wˆ∫ãqR0A˛ëø-í7\1ÓÏVÆ7J≥Œ,$˝WiV∂9ìUWqbπ1FO∫* Gˇ6
+?|av¶k≈”?o’s¸º«Ea	ì$[yÕo.›c^∆˘‡-VçŸW™z1≈pNìxxÑAHﬁÄtc%ñãÈ(ƒT∆∏A–-ﬁˆ„‚L¶3.¥34Z)†IX_o≤çıÒ)S_r79ÓrÄÄiAÑ6}(äÆsGa'åF„◊˚]¿Œ)U€[ıåËÑ\”U-•"¶Ó)∑©+Úáê;∞√k‡x∏ÆõS|—‚|ﬂ`rÎêÀ“
+âÎ›"òÙ3sÀ·ÁÀPnïÃﬂ/§õ¥õìƒı¨˝€C»&PyıãÜÈ6_~òzÜ†ßº0Î¯Ë±––5‚≈ÒdÄZ∫3g0±¶ü∂:I=v€Óú~XÜ¬`˛àµêY@f©ãMuPZ†+€Ër4≠ΩPÔY%ó\öﬁ,Hì¡¶Ë™s}D]¬£yLe±9™»&òŸ/÷ÉÀòæÖI∂(«b≈u)Ìıp¨æÜ+´$=\ò¶î∏3&Ï6úS¶™™œúJÖ^ÍæOak<ÖŸSÂê*∞E)PË„äG@ºëOC9*U”Ô≈Ò∏MíﬂIp^Øç`ëó=~ouäé&…®œ√jµ£TªöOcd‹süúæ£Ún	~ísêœ≥πcÓ	ajÉo‰&åû§d™˙èg”O’ei¢∫Ø√™„9¨~Ò«TÁ^é©≤# &x≥ùÉ7'GÌìÉ≥„ìˆ…◊«gØ⁄/ˆ^üÚ¢œìîò{˘„œ “ï‰?ãH7ùà3(ß4ˇ©!m@x
+≈wt
+≈∑<Ö‘∞‡äv«P˙Ìµ}…KπHªÒór˙‡î˘—À£Áæéî¯œıHâG ¡—N˚ıﬁ˚L9{πøÛU˚4÷Oñ¯œ·dI›…Æ‹ﬁˇV\¸dıQw√¥~ÕKºﬁk©TGˇËr◊ß*£Å®ü™èFïRÌ$@j:±,¢j=√Î©¬xÜpÊí$[Ût[f.¥ˆT±]m≈LpÚ®<o†£Z`X3 C¨ÅU3i#_3È! ˛4≠ «õÊÍ≥ÌÏZI„+˘¢¢	≥¬Å˜ƒ(ÃgX¿+ü∞U)eV—Ö^È∏‘Z∏pF6&T–ÆÖ•ºQ˙]…Sb‹ñµõeˆﬂ[ÈÃ ‡ï*ˇä2<Ê∆ù„N∂/≤ ˛j©HA»ÇqrÛ£ﬂSN~f:$√˝≠è—ˆœW”ΩŸä‘¡3 ≠4´.√ºÓaY∫N◊\Ï.jˇ˘œˇ˚ªõŸE=÷≈ﬁi–Gß#`N‹Ê@îëõbí“P¶Ç¬¨RAˇsDMcûU'Ñ|]£∞¸ã˚=ﬁ‰(Ób"©ÿH^€iÇxÄ∆¯’…®ïKΩülŸíŸ¨ÀaÔr/^O}UpY"Ã˛¡2Å”¯πõÙëzá∞ï€´§ñ$…ö/…BT9ÔÜ“ò∏™¢øl≈£¨z†:ŒlıFFvãVºò%{Ω(Êm‚Bº-2+r¥ˆo07ÀÊvz†∂*¯xE˚ıÖõ»»m$/A^H∏úœ(ùJ1EsÙ¢tÅU9ÖÆnE4ÚÁ
+‘Wî¥ÊŒ¿©≥BTJäÛ—@jq∫Öêµ¯ﬂª∞ôceõóëxuÛßÔ&Q7fËDpuK∏ø%AŒ£;?ÃÒ§‚Ÿìwou<d–S&®%Ïj58g'êÑ≤h˝ ÌWM‰ı˘Zé¯q;F´ÆüÏ¢ØN8ïÂx}º≤Ωó¬"Ióy√˚} “òßk©¨Ö"˝˘±òî3,Lÿ°ô)ÑùJ ¶^êÁ)?Bçó‡ﬁ¸…'ü¨≠±’’UvºwÙvgÔ|¬≥Ö¢Ñ‰∑NàôŸ&}tóÆœò®
+Å≈bÇ·5õ£Gæymã…õ?p◊‚πR	ÒfO”…˘Ipﬁ§ÍkÙÒ')• ü÷‚Ù„4ø˛Œ¯5˙µÌ∫∫IÛìÌâqÚ≈£MÕÈªÌ˙È;˝5-Ûf”JAßø,”—e/j9ˆ≤Ù{∆+\ˇ≈Çj˛“Ô¨J0˝√Q¥ì]§„˘-¶Í€bÎ¸R7˛0<ÆãÕ£$ä^UòßÎ©}¬s+¿ ﬁ≈EÿπËÇ’òÀ’Í)é/|Üﬂ¡\æõÑ…µ‹"¿SaMá(÷ª∞p5	ÒZCÚ–za$°√›Ô"ixˆ#åﬁ–p!_!Ç˘‚^í
+k|©‡®q¸8,‘gÒxå“^<Æ◊dıT¸0Ùç⁄˙´Z›∏√M9V ¢≥∫‰¬Ÿjµ∫-¨ªDIC•ﬁêgò7Ÿ©9¯w¥F<◊ﬂ◊#xõ}ÇπÙDbÏÄù4QÖ…oô+˘Ä«…µ:œ 2°ˆv„NΩãˇ∞n2ÜD{™iïø`Œ:¡∏”cX≤k¶÷nò∆˝∞&Iú‘k{áﬂxÙ£Ô±Æo£3I¢∂∞éµlAëõ7Ê8êŒ¶]åh®ê•÷‰x∆5mCòX©√âè"JÖiÉ8‰˚ˆFaO≥{Ÿæz"Â	†-∂C»«R‘eìıÿ‘Ÿà∑Öur0G:£¿(ÿp!ËÛbœ∞¨æéè!ÄµOT0 tR¶Ô†ÒÑ]hú=4Dâ∂Q¡≤_7Äø éa,W/¿¸ÅàÁ∆QπíDA'¿¯/Üû›$fÒwã«o≈`Âp°≈Xm-…M:Á¿O è5ÚUk¥¢!Ä~¨%™·6”0…v≠UÀ‰fíÿ∑ÿ©ÆÔ%p\t∆˚∞jÉ`XV”m´EmÕMoƒ¶—$<≤ÂZL˝)Ñ‡ò»·Ü∫:◊ﬂà<!Ö≠ËÎæUÄY€T”⁄_—h>øs6«Ω¡2äÆ4ò»Ìú·ÙsxÑ%}ôàÁªÍ•y£≈´Ï‘·<÷Ä…∑û\˚˜í¯É¬Ö'Í∫Ôc ïD ä˙ˆÿT€c‹√i‹âêRÀ£¿’ô‡‘tªH¿
+Œ#©80∂Ú'E"1“-˘%ª#œX/ä ∏Z#M3è©’ñÄèÕçó˘ï™I∂Xk";å≥Æƒ•≈P<Ëcf€-nWËtÓxÉ≠˙ÒO€=Íp›bh5É)F‹æ¶pI-π;ovSK5¨Ò6_ì„i,~∆…À8¯òe4$íâ:¬'=E' Ëd0LUhıI8¶á|≥5∆+¬’¨ïå:óa1s–µ˚≤vÌ#Óè˝\zc?nRæ~ÛJUhëÅô*^î`Æãrâ£f?HbïÇà¥¸ÿAÏë„~åF)çı§Q0¬;fÅ⁄`§U(7jBÌAíp≠1Ûÿ]Û{êP?ù’i(ÎË ˛*Ó¿!~L≥™◊F„’G5dó—0L/Qé j¥]FòÈl≥â>CŒ;≠ıﬁûÿó˙L0’#€ßa∑h†™“∑dÄ"?FL ·J†»iÇ≥ü—<™UüÈ= ›∂€_(kåû¥aØ?ëLhÚÇ¥^›Àê©y…„0?R≈s6É[-k" OKy[Rhº˝!HÜ‚0ÕﬁÀæYK'8°Ùœ^É∆ä•ùqU»–“∆kø˙Uﬁn™cú⁄•L÷ó√5∞ •Ω;ƒﬂ7ˇzÛ/±VÌÀI )¢np“W6ZcG·8BÊñ '~ƒR–∫±Bó¯$b‡¡b°ÖÃrTrÔÚl22ÃÉ_FQX~eÄé¶}'Aé¿D:Mﬂõ˘'H0m*Zˇ∫<T6Ö°æD˘zò˚^n@6∞-îÃXœ3òßÉï,ßæ®gº‚Ò[Í≠˛-´∂3'ÂÒé=˛‚ﬂ<Ít~s±.´Ëd¥™èó⁄’çı\ﬁ˛º\OàÖljx◊òoŒ}9ıkZ≠<úÊ˛îp*‹Å∂Âéo›E·ÑãC	æ-#I@ä!t0MŸ‹ıcI∑l~Ó¨¢0Ë.üDíÄ–Î AwπWïj(,wU‰ﬂ8B⁄åÿm∞.p‚1’ºˇ˘ˇw5Ã!”bÙßn†ÃJ∂ù îøtÌÒ¥ÜìôœQ˙±Öìxiªë0°n:muö›–>`i-mÇyÔÜ|>
+Æ˘’∫∫Üª¿ç`0ˆ±L&ës	(*oÔo3<¥–7Äk¨ÖSΩTOÁÛ9XË/Pæió¨zdmsÛ¨÷ü
+i∞∂<à+›P9V±_) `ü≥–/≤¶æ˝ß^˜&€¨æVÊt>˙äï¶Õ"Ú~≈⁄@Õ)I€øh^7ı£‡"`Ìd‹.∞ôznÊA’l¡œ›ß_Ü√0â:Ø‡1Ã{¿P
+Ø†/aipTÊ•+Ã∫xÿÅ•aFÈ‡Úk\{ò"Ã‚erÛ#zÅ5¨ˆÑl®∆øÃÕ€®Ú|6ì%Îf<lwªnÎ*çq21}°Ã\qòﬁÎ5)§Òã+¿‚ÑÒ™5fÊ™Jπ9U+™éÕ´ˆõõˇ÷>bTãçr7ˇÌ ¯“Écˆ∫˝ÊÎˆ´ír6zm∂«9≥sâØ’H,+ÜÊj^+…ıÈ®∑õõÀ◊€"}F•ZWf¡-°å2k]9*n—ò‹vÁ¬joòÁÌ‡ÕI€U–n°∫oŒ≤oæÅ˙¢ù‹†.v(0„Úëûp*á§êC≥Ñ«≤ˇîküô„ÀH®˜ÊÓ«]ÏL[ò[ng˚˘∏¶ﬁÍ∆#Èf#ÿ|¯°ªî®ÂÈqµ˙HÈ¬§i8àÏtB ·ÔE‹ô§éÑ.Ô>Oº[<¬≥P@tÂ<àÆÇïÌ¯ÁÈøWÈEYÃÂ˝]Ë’†?Ü.€ÔBØM`]∞6O˘”SÆ±Ø˘µ¢vÄÁ%ƒ™ækoIív˜éwéÄÿﬁ¸◊§LíÙ:™eäÌ9#ˇó¨}ò<[Ÿ˚˝{—~ÛfÔàÌø><⁄;>>`øﬂxÕˆ_}uÛ?éWFpCá~+ífLım˚’¡;98iø∂‚S8q«◊#D“TÊgúiÓ'»∫÷ﬂ*@Hå	iíPo$*Ëòœ4|”tÃgwèÌaåÔn0ÏxˇLuìïfh#ügﬁúqW≥u.Èb•Èç€ógts.%ÂıæÔøcÅ⁄’UúQ∞vÛÌW¡Ê_ÉŸ,î§∏WV¬ˆ∏—ﬁ73«“î˚ciÖÄg∂ß;BDn˘ˇæp∂2ç°¿ø5Ñ)vÓ⁄Ûcè˛Åºª‡"ÁX±“7Ãì ÆÖ›à|BnπÛ@,‡å∞iÏÎ7˚;líb˛÷qÄ ﬂaÃˆ“qåÆdtß+'a2àÜºq •’ƒ˛0 ‰2H–2üêÔƒJ˙Úp>‰˝≠‡€áªo”æ¡∂TøúªWƒ"A-Ó8¨9≈k˝¯èìÆBÀtZç‚ÜÂs%∑5Œ¢7%Wﬁd¢:Á>óx—¢Kﬁl B˛` %GÎ°xoK8πLc4î3Ωï-∂?ú¢◊Frç?ÖÛóZáwS¸{§ÎíyC∂á\8ç1˜4z$„Œl£Òmò∑ÜroäevÌ o∞É.·I≤gúß$`¬Â…0B{Ìdò9eè„Œ∑dÇÖïS?®aÙá9‰nÎÿx:Œ~E)9ﬂ¬ÙN!˛>Vˆs§¬ì-≈05ÅX4JtòÈbÌd!ˇ˘ÕN1ı—GõUÙ=∫ΩY°_X©üÄóì$8ä˚±ÛÜØ—®≈€  PÃ<DbÅn*Ô∏∏∫#ﬂS7¯∑ÎjÖ?ƒ`J÷‘ß–◊b7Bsx(Å”´Øsóçâ€t7Ô”»Ÿß∞´?µﬂéëÆ[F€\jŸÆ◊˜ $¯ ﬁÈ±J'É∞˚ªÒ5µy‰ºe¥…ﬂÌ˙Üﬁ$¨mÁ_¡ùµ¥£_q6∞n7 L©˘æº‡}˝ìBøHæÌ]˛êÄRàr™Ë2†Ì¸Á-s%— ]◊Ó3Ãà˚={Ól§<âñuC˜9£≤Œπ≤Ò∫ù$¡uv%˛≠€Ém@ß–Ñ}˝√¡ÊlKt!QZ9_xëF"Û„ÄXoñ[[±éÃ^4π@å]Ñ„Nœ‹ Y•5ÓÇJ-¡ö‰w›ïu ¯ÿ†%)V£°"øízò$¯Ñt)A[∞ÊQ ïÑ√~ÛGÏeU,X<\»Ω$I§„(:¸•  éWEÓ¿’!9⁄ÉHà>ÉùÒj/éøM◊¬´^Ä¡Ÿ”pµé“O∏≥©<£¥µvxú∂ª∆búƒá‹ﬂœ9£›‘ Û§I{Ò
+o´◊h°#‰µ&É@Mòœ∑ïïø”˜∆\€!ÉÙü'h∞√ÆZÑ.±√ûA=…Ü=eõP]uS!ˆÙ[wNhà‘ùOá{íõÂÙÊ«>|ÛNIõì8$_≤eæV˘Õ.˜∞8ºØ‡Ötÿﬁ¸ôﬁÉÆ◊Qßç@¡ø≤AÇ—`D^¯h˙°ÙÓb3‰¶^‡∞ày.˚wıQl0“ö¬w`ÁkcTiﬂµßNµ∂ﬁ)ŒÉ6Q´Â{.”…gnôûÉD=©q  ıÀrü€âBîÚ°≈gFzVÂˆ&ÃB8ñ-Ô‚a¯Ås.H 0ónãØ[6^Œù°øñ¯Pó9'óÒÀΩ JpG≤zÃ∫vØP-¡≤¶Ñ;«∂É['rDxêgµí(]XØùNìˆ<¯≈~ÕÍ¥©≤—q∑02ø.ÅÀ/7öL7Üt/OM»ˇƒXjuËj„j*‰QÀ" ©œ%≠π6Çè|Œ∫\˙è¬A<ı‡ë·n6‹Ÿf∑'ë&rò$íéÌ˙¨/ıQ§=ç¢Ò‰ß¡íüI,∑UXÃ	jIË%ìˇ–®Á™_yÖÑAﬂI9Ò‰2Ä€^¬7èåÌ—®]qnc ÄSw≠'3çIπªV'„íœÒ˛ê “ëv(TåM7f£ 	yd∫Zõ∑ﬁ{ Å™ÑçZO<`û∑@|`Z§ôŒëÛ&™RÜÒ =ˆ9”Åi‚Á#9%µr#i>Ú∏€/√ã˘t£KòHÙÄFòûjM“	*h(f•ã}∆ÿ•√ﬁd¿ÍiLä b{01π®u Z¿5VÛMÄìÚ(A∂áwıí‘Jˆ¢ÆCŒV{x†?ˇ´_±+›0Ç¿£$ºàÆ@Øg-›	’@‘ÅKœáGªµ,˛uÌÙˇjØ˛c∞˙˝Õ?≠ﬁ¸Ô÷@Úzù%ähÂ◊VM<—¢œÔ˝ß31¶˘Íß3·ØõÂ√jdÆ‚Û˜*º”`\F¡5h%˝í¡®XQ7¯S¿œu√ıI˙ ‡*-Ì•hr¬œ|ò3=ÍAìıAm”ôÂ£TPD4LÓ'˜∞Ix¥á˘·rñrÌVˆº¶≥^D√‹„R?f=•g˘–•#$ b‚Ö@ËŒ¥ÁπpJ'ùı<*—Œ"‚E3√åP¨>)’öé‹§b;•éMí°}su(^:Uúz◊P—Âó◊–◊©ó¥´˘W4ç^fíë◊=pŒÊ,!ï_÷E¶t`(÷„≈QÌ˜¥[ÓwIõx6ÍDıû¶dÃøc)x∂ä\õgFäórU1Ï_ù∞yËæÄ9 <Ò}70¬è3"uA≠ª:wá÷ZFë”V&§0Âq7H^’è÷ÄÁîyﬁä–ë±^≥@Qk4å¨Ä2x—zåBrt√®E1\=5ÃB”≈ÜñõÎ‹=kOß.<—Hÿîjë·-tOR⁄0Y4ñ©Ìœcmƒ¨¯⁄|ú%Ö!ÜõaTO¬¥#ªŒ"ŒíDÿiJœ‡úöRÍ3ö¢T	™∞πå=|ÉNtqƒFq*Í/äw9S∂‹!º˙\.xÏåHe<ÏÖå@õøWCΩ¿ÉπmƒøsNè›ÀﬂL'a€{Õr\_§ì⁄ÃTK◊ˆv˜O⁄GlˇdÔ5œÍ÷ﬁmü†I~ˇÕÒ◊Ø—ÅÌË`˜ÎìÉ⁄\8£˜/Ω»ÜõHÁ|˙≈˙¥˜nëîŒ∑˜u[ƒ•ƒÌﬂÜ aüÂ˝êÎ™‰c`
+$úw3ù,Œ]¥!g5;L«Çºô⁄ˇŒÕˇÿ›ˇ∆ˇÊdÔËÕ´ˇˆÎ∆äÈÌ≤Ç»¬ Œì`ÿ·l˝eàVsín~DÅ¿·Ÿ‹‰SÁL®ÂSëÛó9 ÂVk°⁄5%>r;ÌìΩ/éˆ€99ÈÁt<€ºï„ô«’Ão¡áõ0/∑bË-êsB>Áa˙})ÉÛ ˆ±¸ ÍØ‚a∞ˆx¶˛⁄a0
+˚üò’êÙ>;¡?X_˜Êö§_¶ÛúÁQXŸn´Ô¨æﬂÔ›¸[∫ˆ6LÜ—˜|$ˇ?   ˇˇ Îòj_xúÏΩŸn#Yñ ¯_q]ì4Fâ‘‚KF»%9‰í<BUÆ%%yTU+}‰&öI≤p“åaFj	&ÅnÙC?˙°˚©1¿TÃ<$≤ÄHf0è≠?©ò˘Ñ9Á‹≈ÓfFRí«í(!3úfv˜{Ó9Áû5…“ıœòÒ∑öıIñ≤´∞;å◊Ê¢‰*Œã¨ò[ﬂøVx	≥‚ÍBw„Œ@ª∫ µçÃ:›∞(ˆ¬4^Ù√N‹∫m-œYçııRÉ¯f–:YZÏﬂºgÁY:hùe›à—€ÎÀd/<[d√~?Œ;a≥Av>&ÈEÎ:â‚b0∑˛nogkck{u°ou¬¨˜t›:vªÏ≤µ¥ÃŒ.Z'ˇn)\~˙ÙÈ{vñÂQúãDØKã,œÜiG≠õ.Îﬂ¥ûÒ1›⁄ÿX6tì4n•YœâEùgyo+ÑÌaö∆,K7/√Ù>qì≠≠≥"ºEÇk∑€≤¬<√+,n¬¸"¥©A,LoŸ∏9û∞õ√÷#M¢0äY0Lõ˛Ωt™}ºò[ˇ›0ÈfyÿYÒb⁄öΩπı›xêgÏ-,Bò≥†7uÕeYıw√0 √(É À”÷Œ≥n6∑~ˇù≤B7ÅÆÊ÷ﬂ‚?,ËN€O<Hæ∆Épn}[¸b v…¨RÁÓ«ngÿÕX\Ù„NV5:›—ŸI˚√ÎÜgqwmÓ‡p˚Ó?Ô≥≠m∂πø{p∏¡ÇÕwG«˚Õ96∏Ì√∞“aÔ,ŒÁX?èœìõµπ√œ]ÿÎd≈‡ O:±	Ä+Jì†P’u@qmmç5Ï˛gÖÌ—8≥Lï-L3ªo∑˜∂6fôTv„˚NJ’}–§~ntwºs@K∑sºΩ˚ãƒyÉ§üÌ‚ﬁlxO÷∫?ÓÎÁY4¿?‡?¶≈C· Œ·6ø¶¨Xƒ˘U“Å˛é«›ßÌ0ÏÑg∞3)uC˝û≤r'Îı·lñ≥dõ‚ÕØçloÓÔÓø›8d€ÄŸ~˜n˚ïÕ÷∏ŒªÒç	√˝÷í∞ ç∞?g/,[=∞≤˘á9ÑŸn“˘ ;G¶@K∫·6,>PÜò"Ä+bâr»£N–∞µqv/‘ô‚À÷Öï1W*-‹ VÿÌŒÕ3£=≤'Ä∂Œ√.‘y≈Ê`]˙y“Û€÷Û≈EﬁE—ên}µ∏8hmŒÿö98OGIouÅO¸”ØËOπ<k\ûΩªˇ#ÛØè{Ç~GÍËx„¯›€⁄gá˚[Ôé˜e'*)6:∏Ö¸GIvÂú°∏Áa7öH6†ï
+(y‘˘Ù«G-â}nÚ¨àÀı†…˚◊b'´W£ÍÃhoFS`∫ﬂ¸Üfª≈4xMA\úåç∑6ßÈ∞Ã√<b|4»:Ô√5k’âqÆû–Ó›ˇ≤∑≥ªœÇç∑€á«Œ’¿û[/IÔ;/Yı'ò”¸ò”§©ƒ*v√õ§ó›c>F˝O6©∑˚õow˛˝∆›æ˚O0•>ƒ¯yú√ÑoVÿAà•'9\)ó›Iv≥NÿM~ nÒ>S‘j;Ùå}’xnéçS‚æ>ΩÂ˚√òÁãº1W}Ô5öûCl—•^¥“…∫-†öikôUOg≈7ø~óe Ä¿YÓ/ÏnoÓlºE©˚◊ˇﬂÿ∞@1Cö1uuÅÖÓ›˝8 Fû≈¯Â`Î[¸äA‹∂=Ωıl‚R{—∑w∞‹√<DÒƒ}ˆÆ¨˝ò¿È#˝Äª{E´Hà¸Eÿá≈&zrùá}óæ√ı6ƒeXæ*˘õ⁄î$‚È¢À∞ºÂ3-Ä[Ï”bn+–Å€ÔË÷˘≈<¨ˆ“"˛˜Èoﬂ∑{a?∏∆ïú‚äÓzæ0ˆ1æ]]èΩﬂ:Ì-1=Ì6∂Ò7≈€†IŒΩEõÉ´¯r˚9ÎﬂzHΩ¡0“ÿDæ¢UºÑ]O«1C	æ∑œıç~ÏavÁ+öƒÄøPÂó˝ãÎ]"ot›doíõ8
+ñõÌ<¶ì4⁄çy÷òo4«=TT±i¨ÈÙÏ∞+Ùí–çS[†’ÌÏnÔæ±uhümm∞◊˚Øwˆ6˙~¬uø`=î}Ï*Ó1¯_'åBÜBM<
+}îÜô¸Ú‹≥Rvræñÿ ˘‰`/_ÎÆ±á`Ä2
+¬gNÖ{çÔç„¨ë8$Õ⁄¿_Uõ@Àæ›xªX2yáüsËÈdgp∂Ô˛≤ﬁ›üS8ù¿ù≈E/ÉıfY√;,pVÃBÀñ€x∞m ÄÁ,ﬂM“˚ÒZZÌG#fì∂v·∂Ó˛î'a—:@V∞ﬂ∞ù¥ˆ‡ƒΩ$»E3‡¬≥‰Óèp’gÏM“πŸÒ›ü:i“	õÏã»Íôî~Îô¬ÃÀxsñ»ÓñµZ‹*yõß∂`¿GÆm6	˜w√bêúﬂ∂Œ‚¡ußúêª5‡#˚o√€8/Xë¸ øÙbÏ∞ íP<C rXè*∆°ÊéZÚ	π~ÌÙ—Çö≠fOàI›U∞ŒHëÚ"›]Ú+˜ó$Í~açI5ñ·îÔû%5!A/˝t—;CÌ«E‘üÈ´v7N/óàì«Ï*I·!ôXﬁí<wç¢·"uˇÚxâbUoà+>…q¨≥EkRGï¸€$MÒgÄ¶¢nº—ÔwowçŒ7≥b‡„3\9‹íÕVY†ÆÛ9∆õ0∞¥XÚ?l‘Å™_û«ßA ìπc˛cåuäK@r◊≠¢ÁÆì V7C$· ÀÂIÍπG‡ﬂª"ÃŸ&`ùågÉ∞À"ÿnÁ—b£éh4¶ÇÓNMçè7=ÄËÁŸ,ÚÔ
+ìº≤UCèÖúj7#ƒ4y‹aŒÒ˚ñŒi°zj~}>?‰Ÿ
+ÿú<‹ãàk/d(Ø*êût2DC	}ŸyxñQ·§Ø?1ÌÎáy»¬>∞ﬂ9RpZ‘¯&ƒˇ¬≤lÑ…M®›S√∂5Òæ5m$G§ÙÅçÑf¬(bi|Õƒd4zã¥π‘·"O"Üˇiç+‡÷QÙV¥«eq[ÏZK)TUÑÚÖ˜ZI√ı ö‡E¯˜8‡C–≥˘q…üƒÇ19Ú÷µŸå	A(Qg◊ü“∆õ€5*†ÿ˙"ÒËﬁ„k*
+Á÷[-	6™„…O'kµ™4é¯72Òı[ m∫p˜˙U7Ór tøÓı€I4ñ˚«ü¸9Ï¨ﬂNaô«c¿ì2?–qg¯çLjö¯K‹Z•⁄ËŸvÚπÁÀ∏GóÒˆ˚HÓ<‘éÜ_≥Óı–ØYÂÔ}«öÒ¥Ö˚ŒJ‚ΩÇN∫ {!≤¯KæœΩ$≠˘j‹~7àJ‹Ê+-v=ØÂlRÒ8˙›‡v∫S{Ë≠¯Ô?ÀÈ%æ†ó‚øˇ9ûöS6xK'Tå~õDöU»Ó¸á˙<I£†áãﬁÉ#Jå°Ÿ6_Ò€.∞öça˙0é±ˆ4¯`˛—∏¡»ò’qF∑ÉŒ$vPô––?pRZó≠ìß_‚é |xx~/ø˜‘spêÀÆ/h\£0&qáÚ≤haöÈhÃAw®ÆÅœê9dQÇ~ÈööÅÛ@ÜèâCnF0¶3˘›è˝Æu}¯°©∏˚óXÕNØ…9©≥Ï,IÅ„≤˘õQ¿∂#kà»%Ã}c:&/≠ˆìsh≠„mß|4Hx¥¥Ok6ù°À¡c…◊4m∂V”∂øﬁ°l&Ïv°Å 9ˆçÓ jnˆËfŸ ªT]ªQÖDﬂÆÈbæ∂ﬂÁº“
+)=vë Ïiå“≠@X`ÒfßΩ„€Ï^¯ê:·Y‹€Ä1Ò±·5Û2@óÌÛnñÂÅ∂bºL8É rbóaÉ¢eﬁ"≠ÿÇ|∑¬ΩÀV◊Ù-≈†y6Ù°Po≥Á¥/®]†è∑ÖÎLeæ#o¬/X‰Úµ‘≥©[ıÂˆ5¨x
+gIÆWãˇ„ˇdAH[ˇÄu”†)◊/;ôf’_ÀUy-‰ãº _Æ–ê›UÁ≈¶XvßÉ∫eãM#üm’∑ pó»Ü˜‚Ó%‡Æ,O ˇä€`Ä¢⁄\Nòuπ)5¢8⁄wµªÒ@4¥ﬂ'oc–kº∆ˇ¶H§÷ËwÊXSÙ#,∂◊|;Ä≈˙q∞*L+ãà¨.ê√•ü»µBûB© 0§:µ>ú«ãkÁ*î€ÁØ!ÍHÄZU'∫™8”óF+ÎNêˇŸ´){©*Ø/+wU…ru%§Vï4óçß¸%«,Fö)Áº1Îú7¶ûseIgŒï%Ω†Âù¥Á≠Xí™Äa eômQ¶]íid Â∞'^{h¶<≥ùÄi·ZËüˆk!Ù—∫^ò “Eû§t®õ{gY¡‡»ÇS-Ω^xChm^Í…Î±4i)<h÷‡c«
+öä‚≈w¿tÜyíÈú´…9*˘qqï„\ˇL¢‹y±_TwÁ!y|GÍ∑Ê∞Óã˝÷S∏ìªRˆioM û®ºŸ{/Ã”ËÃ,›[E;”jﬂñ‰àÙ;¢uÎØ,u„®ØJÉëI∫)∏xŒ≠ˇˇ€˝/U∫1£ìıÕRŸÃ6≥|„YÏR0*yßq%wt"h :[≈y®qßáç6≥YﬂΩW¢ ˇF&VÍóTc5vB¸o≤EˇsÌÇÍEX∆@˘¨Èf…?K/)-Ç,SG˙Ã≤ﬂyæ®´µ\{"6Yí•M™WVØN5$IX⁄Ë√‚¡Üç¸ÀÚ¥â"\z76+m|¯_≈Ú˙DÍ[ΩjdπRoÓØ.±è´7—ÍêHïkÄ&¸{°;î{Z”4coÀÎ'{(=©YPKÕX´$“ÚoídZ˛yÃìX6DQWKõ·CïúüˇπÁMΩÅYÕÚÔag8|⁄â~ësı™yï∫¯Wã\qÄº°D]p¨KﬂÓ∆≤˛øAq’'Ô∑ëWQ«@∏åÈ2gLïùÏ¬ó∆‚¯ñÔπ‚G’Çq
+\w¨|‹§mfêhÌ®}È∑2Rmäúú;Ÿi¢ê≥lï6⁄V∆Ë<j´⁄!¿^î◊¢u∂T[î°‚˜Û≤¬òKÕ¯uçÖ¸ü‡Ûë~Q|≈(˝å∏–ì¨†î`öÂΩ∞€7?LËwEøº°I’‰q.	©*
+˜§Xıç≠ÒØˇ˝ü˛ﬂˇ˚ø‹ﬂt‚(fa.“∏¿Í·m7N£∞Yãs&s`54‰ß ›M!G}[ QiÓ∫Ñ¨, ÷-'Är%OÀzpQí“f˚Óló«¨é∫=x[F’¢Åâ∑®Oª©j[…4
+-ßBeã≈∑°ïO±≈ìÒìtùºµåëâõ)©˜K®Ÿd ≠ﬂ≈öˆGRäÙ©∑ÛŸ¢n;’÷·–ÿ;åœì.
+∏%äö~[◊Â4Ò∏|∫Â¨©Á≠SQﬁ	⁄uÖPÃ’ÂåõÅ’* QWÕ≤s∂1 rrGL⁄[JìLG+˛0€›WUﬁê%ÙŸ
+∫U*|ö¶0G7dﬂ¶HsoÖÅtFô∫Ìˇä;*ˇéŸÉÖGDÎñâí•”ôf‰'õ°ÃÊºõ]∑.ì(™$VmŸÊx ÁY›x¯ü–|œd∑ª∆®ñ%E›&OŒJ…‡ñøÆ¿Wn’äëM ål<ì0ïı„+Àâ˝*ñm1’¨<ÛT˛Z6È∏n=gó≠Áè?Ÿ¿"8ÿ'ÿÍL‚3`}Ÿﬂ∞•án|ïF>˘-O◊πıÅYxNÖ«kÅiˆ¶ò≥âdzd@ÛX<ÛËl7DƒΩÁ@7?]–ÍL ‚ñpÉ\sEı≠èé}vtZSÛπ34Ö˙ˇp5%Ç—a`9QP?Ω®ﬁ÷s„¿√∏FÁ|ƒ•ıõmiZL6H3Ó£œtŸºå™aâO,tV?·d–Öé˘¿sã)Æ´:· Áaqπlÿ˘’n^Ωƒ}íT±ÜïÚj;Ω∂ÿ>+S˜%ZËL‚X‡Ëmá…§‹¨j“™È∏«œƒÀñÏ≈ÈÂ∞Á\eî\’K'ë0Åky{ä	˛ä"ô…!ıC±ﬁ∂øµ}¥y∏CÒ0ú»Dl€
+Û›†Øãµ—Ú¯Å≤H¿Æ+w¥∆˝"è⁄+"⁄¡:Ëªì	ÅÏLÅÌTÂ…q8¨µ}xQ˝3‰¨üô€∑˙ö∫Ç€<=åV¨_»ú›†≠À÷“3-,˛ Ï4^ﬂ”N‹E•€k˜àÀ.¢§œ∫q¥6*BÄﬁá«kù õÜ]ÿzJ3§Ä‹H⁄°mºQzGã•2ÉË◊ÅíÒ∞≠øè¬+òì%äŸé¬ÓZ@¬~°ò-à#@ºÈÜ!Tüs‘2 	Ñk¬øƒI„ƒ{,zwmå}”Vv≥($`∂ÒÀœ‚õ~ñOæì^°§5øÖBËq¨˘HF¬´JòﬁŒ≥a3Ø0˚À
+?Ñ˝ﬂK*π¬6˙˝wXEXé’Õ@⁄k¶ªa^ƒ™sËˆ…ì +ø¬ÄPQ/IË˘ HŸuaò(®“Nw4‹ÜM¬ﬁºübOÊÒò‡™Ô°hÚh [ø™™‡ßì˜Î¡…{Ωj7#=™¸ñˇ÷´hÒctU–*Ô˜„îwX>ı»DJØ®
+-O≥1“É0`|HcƒÎÎøj!ÉãÓE<⁄F*\@ÙØû°õ‡ üxà_Ù¢Eç∞Qã¸esIº–¢óä7ZêVÒ∆†&ﬂQ| éå!∆ﬂñ·6"n¶å/™!~7…hGÿ|√F´P†—oqõvònf? Äí˜P^qƒ"Ç)œ3Äd¨u&x#Ìágph€Áy÷‰òäF≥ÕÕíÇ∆õD–¿ïnÃC[aD!BEåì∏Q∫m!Î∆ÌÎ0OÉ∆6|f°p”ÏPR,zEoŒ#1 8s<^ ZJwP™¬c+≠4ƒ$⁄Ω∏( ÚÒò_x≠≠—±"Ïj≈€¸,çDÆ„)ùíS*ﬁ–Z·∆zÿÜi®G´´ŒT∑G˚{Ì~ò±,›|	+Äÿπd¡)‘-ôÉÚWy™¥¡ˇ¯≈^>èç}ÏÖÄfqNÓ'ŒN-C ˘.#CÂÄìhI{;â x4¸Ã‡[¸5Ø-\$ﬁ„/ÌΩ:UÙM<ïﬂ˘—¬o¯´|Ø¸àèß}|÷ªTßâ˜[ú"∆A•R¸ÕiÅØ ÇÂ·≈Bd–%-Iq £…∆zyñEâêÀ®†Cä«»'m¥¿K [ãèß°∂,%¿¯D0HléâƒŒõ®ÅØy€°˙ äF$$¨$^úR¿epoAnYπs‡“"}V¯>ı“”™˝µ¢e+.÷ØN{ÙŒl’¸V—¶àçfXæ(KiL"ñQèe	#é
+ñ°ß=zcéKˇR1*S|(¿Tº;ÓÌ ˙Îıˆ‰Ωlhå~Òh*¸°GÍ=«Z*,ÍQ·<#‘4∞Tr~+[¨Bo(Mï,›4»RIﬁÑ›ÀmsRñ"∆á~°—Å˜’t≈˚¸Ω—˚§u@bN¥õÌÛs§Æ:—vi{ jäπ7ù∆(;ñD[Ù◊_JÚ›Í–5	»∏,í¡"c∏Í∏pù ØH cÏ∏ë/‡©ÄÈıBdMÜg¿¿√õﬁ0J^¯Òºg†™dπ‡ù≈rËRHÕÁY≤9…N6≈¿≈pa±ÙqbÚŸÔu&Ë§&≈∑»ÄDgnwµÁ8ñ)á·ó<•iXa‹†àç5÷◊ø1%Î•˜„eºLv´öœ∫BuøŒe|¬sL}Ô8≈Ä¿˚ÉÙÄ˙ÃÅz¬Â2èV˘ÏÊ≈å÷°”—XV1¯`µ∑ÜÉ‡™‰J¿Æ⁄4ßtB§ ≠¿‘PNî®˘=y$z^s«ﬂLPpîú‰ÿö5Ú†¬Ÿ`ˇÏ;X¥6ÄGû¿-HˆVjÈ9CtÇ{?ØÌ˘{¡1˚t¶U.‡r¿,üQ˘≥∂V∞≈BÌQØ&ÁŸSÎ »H|R{£Xsä#@B^ëp§Pq∑π4ŒV4Ñ±aß3œö¸ƒ•ƒ*1Ó6˘Ã”>îáLªîÔDt ∂ı7∆1„ (nªÎÅÇYŸ‡¨ÎÎ[ﬁî˛Ü⁄0⁄k‡ëgB/˝m–Ô~pﬂX˜“"º™!9†1…/ù‚.7,,%™£_∞¡òˆN∆xWéÀxÕáÿÅø\-æ¸LB∂tÄ6◊Oœ’
+õj¥Ÿ{ó4∏jJÛ}w5ÊØ1ˆÏ]ÊùÀ„8Ô˚ßﬁW¸FCá$l:éﬁ$(Œâ#yiÖ¬ª@L
+öEU∫Ädù˙AetƒqÜ”–ÎQ0£∑Ÿuúoéï¥…;V+âªhºÀ]Àq@AB(!!$≈≈åV[•¥Ö∑e ¡ıhñ‚‚∆4Mç]0óF~“n∑qÙÔyô‚:·úïæ˜èÖ"aA•¢]¿:o“∆uØh∑¨≠Æ1B%ßËXyÿØVY,¨.V¢oÖﬂ)Ç–pî†-Ñû˜VW¸tLﬂë∫§ÍΩX/U¿“á√Ó`⁄÷C∞Ë ∆Ñ–s\cÌõŒ$Œ+¡ùÁÙ{MDAù¥¨ßà§Iê*LV¨{Çâ3tåŒ	s"oéhùn®„Ú´&‡+ÖÅcÌ‡sÈÔq3bHÇc™û€'Å‡õ.≥ÎÕ,=OÚ^a˚ŒIí≥πœ5’ˆ‹+∂]!>›)˛ßèßÂØp®Œ—ò∂Õ0πQ≤ÑbÂ√≈ Â˚aRê˛éNªÑìu˜ÿÙ¨˝°ŸlÇ…◊M/@„lÔ¯{‡Ô"¿ÆÊÎ¢2öÁF7‡i`˙vû%0ã¢∏˚Û∞¸1üxõ£n¨úC∆µTø´¯º>…Çd•≠ÌËd›a/E‹{B˝è–:IóÍëï><“N-€xgçÑHñ$£I¢&w˚§äØ:Ü&åA”óÃsG”t¡¶«5∑>∫råÍ¢eõÅ±}ûn¥Ïëîá—Q=ZÿlX]j∫ÜÊxﬁX\â¯µﬁ‰Øí–ª∏¥ê´Ø√Ë".ïHBef®ê¨`ﬂ|zY?Ï W›z±à+C„˝Ìpƒ‘Ê:≥®aSmêøDm∂1BUsî¸éq?®5˙±wçíl¯BŒ£Çq'!Â”Iƒ+ë#ƒaíÉô2Ûe Ã∞ëV:‡3™l˚7øa´tH7ìº”ç•¢~ŸçÀ™zá[SÇíúVÿE’ÿ¬˙x2–(⁄£m‡Øª?fo	6‡-·ÄSs¢ ">~Œ>]˚ÅîËà@∞÷†ı˙∞—êãaCâäjBVoXXC9À≤n¶> Üe}Ö:ô⁄ºì>O@u√]>fÇ`®≤qºÛÌ>UÿŸ„ø+Å9‰2mîB®ÛîÆ≤è¡f∞8ôv∆≤s—È2¬Us,MHmòœYÊ,Ì:ª∂•E«æ*ÃÈ‹˙ÍAúvíÆW‘µ©∂Mø≠°sR3qÏ∫ΩÕ$ì≤i„≤svﬁ;l*ùß‘çı√[ºÑ£ÿƒRê(KüñDã‘ÓWïî*Ù%F<sSi¬U ZÖLÕâSN©Sı	◊ÖËE5‘oËPúíÍZ©9—ä)ÌäQ.îôîÏÑG¶>‰î3ÖN:√	JyÉ5ñ†"âë£!•ÑVSœ«.Õp¥BÌ†’2‘n=C·K3„V—‘~cΩ∏ı·ıôJC´≥¯∫ò;òÖóˆ#ºÓâì¢±¥fÛ•Œ˚1SoIZ ',{+[’Á≈9Á¡% %s÷ºıji∫sy1ıØŒµ»ê¿ö∑"ezPav†õ8ÊÜ©Åif`öÿÊÆiÅ◊¨†2Q¢´ñ¬][7CÀËZóÚöÚ¡sM)∏Åøï¨ ßU_Èz˙∂H–ù•óq'â≤∆¯É£Q%;=¥”ëF(;Âs≠A	∫≤PJá√¯ ∆ÄÄ⁄PWø9ﬁ}Kﬂ∂ªËr7P≤J∑[`∏Æí¯Z≥gqﬁ◊€µ$zÒ√ÏZÿ·ÿo¡'lÉkâ√z”B*´µ"_π¬7U7ç/∆6/3ƒÀXwœxe ]˘Uòdå?¿Ω!o¨ÚùiÎ#Ó‰xJh(bâÏ◊ﬁ≤(u9óí^«+bﬂ∏Ωﬂ6ûcwÛÒÔ9oDŸ˚·sÒ™}≤¯æºr?¡óÊ›ﬁÆRò·cŒÜÁÁqÆê6÷Û<º}MJ$√ã£M%&˝°HâP¸C∑∏	x;Ü*ÀÍôå¯P∫ÄÄ,X•fî]›˝ÿ≈–ú¿È·ÅßL[!:√ßI˜2l3æ'!
+<B¿WÕ"È⁄›èò¸∏L¢êÚù‹˝	éÒ›ˇìb~ÆNK√≤≥<πI>íµu3øπä‘iÜ6¿8†≈Dú™ó1¡’GkÛ¥£©obΩö#9eïKÃ ’≥µŒıbö.Ië¬¸˚arïÀ	;÷æÅùó˚•÷p@îÜ›n	i<öÙ	!EGqíçk2ﬂ[ôÒàîÕv¯âï(±|å≥˜Ä◊˝&$˝\nŸ)µ€ÌºíiÕMì∂ ù)MÙ∆U/q¡Õqë9ıœ‘l™PXÏı∞ËÑiLY¢}ñiË=Z' ¡Jr.Œ-g7lSî…Yö]e,@áÿÕ,J.24@ÓgIA>≤{YOÈ
+uÒ
+ão0{@t1ìQ^Õ”-dûXêÜÖt†K>G_≥›∞Øtƒ¸ﬂuOA‰4mÃ∂¶∏ÔSK@#≥µæ•:"à¶–„ÿ6|)T–∑4V5ü˙GËØY.	Íø’<Îó¢XY{k µ†í\Sló†#Ôèy∏É,k¬©§z'Ô_:Ö‰†!1öÂI≥i∫á∆F]XX?ìŒ∫ò
+≠Z\CP9ÀÚJK¿ôò7ìD€&∏˙?¬√YÆ˘_Û&WáQß¸;≠ÛÖXÁ¶µZ´¶¶±ñÌ˛∞∏¯zj5Hæ£xCj;«õA	áVC—4c+œ—X©êªgÌ^¬ ﬁ÷=√‰#ã:“°é)x[7ƒ/y&1¸…;»Å´«PµÎRÆ‡ørú±~Lnä‡∞¶ù‰<F˜íbÚa“3ÜÜƒ(˘∑jπ/M†Ü£Oh†œ™±>ú1¡˜≥V∂·Ç"BpñG’Â∆…<V÷Í⁄`tè;"µl¡Õ« ôâ-ÅëS9ô:ÿpèÔÀr5FN}€≥Œ¡:9ŸRS¿–üèå≥Z ¯ê≠¿òá3—Œ±–π˚ø∆∏âó1Ÿ†ºê©õó¸£%Peƒƒt-ò«.Ü¬3(é.óqJ]8πá¯J”¶Ÿÿ;~‘Âä+◊ä÷I?ÿ˙j)\Q¡ózò9>ﬁ“Ωﬂœˆ√Tho∆¥EÅíAÅßy≤6¶±6@¯⁄˛}˙˚ÙÛë—’X¢lko∞óaOpkÿ»äVGŸ7--6€ﬂeI4~ü6öc´QåÑÒ	>¸>~é≈⁄µ`v°ã§0Â :á–7ymÃﬁuÄ.Î≠ò–Pë=—∫ûM$¢nb≠™ÕTÎ&≤˙Ã≤ˇï¡aŒ˝Êßt¬ª…073ÔùFl[rŸ˙Í≈NÛ´p…„‚rÛZoDÍ≈ä~íö
+çÁZ.C%ËÁ<WÌ∞d»ã/ïŒZ>#˙˜á,Î¡ø≠Øû≥hòá‰Á˚\ã3S´≤fΩhÖ~#nÛác)`XŒ—=ì˛ugé«dˇÃp¥C ¨^.ªâ‘h0Ùì]⁄IÚ∏ñúÎ∆KEˆ π∏Ë.z°DmW‘’h ¡±6Ì$W‘,/;Ó _£dÅíÆ…H ˙‰.óç…VzΩ ˘⁄æΩöÖ@ç¨˚dìãEcóTƒvöÆ‡M÷…ÿ◊˘›èÁòë‘x6WQo∞a∂Ôë«1–ÕnÎ8\S E8Ák#]0û˘¯nM@„˛`méÑÛ¯_Cu'¢üh.∂∂tŒó€º":@Èö™	q]˜qÆI‘À†æó?h˛°ÚMŒÑX∆'Õ“]˙d!Ø⁄,b¡ø©¢£à«Î÷WP†•ÊTh¸Œ—ïy∫=j\7åˆÚ¢XÆä¥¯p”\yÇËºÎì¢≥0`ö[Ë`7g⁄.xì€{c¨ÂLﬂxƒ(Ö≤µÀÊÑ¨Ê>ºÜHï2-%¬Œ≠÷Ê}j¢)Rj¢iNm·ìi/=Ø´Hì“FdÏƒê˛µAïæ‡÷éne◊©;ñΩ”a3·Õû õ≥6¬<Wc{´GU:πømúﬂñíç«Î{(SƒÜ|q 4XÛ9æW5NzQ†ÆvHm=UËÍ◊Xw3Ã#”Œ„ÖK’OÍ^@_Ÿ∞œ0Õ+ÆYm¥-{¨·∞‹C‡gYøµ»r‰b‡ﬂÎ÷Ú38*ÀœÙbdànırÃî⁄B‚øÃG–‚ß†@´ß÷“sÚÈ'ÍŸK÷pi—I®Ì∆+©»;˛‹±œ©b´Á‰û%õt3∂MàbGn3¨=ABÄG˙]È‰ód•N∏ê’Àg>û‘ÀáŒ≠è|~*ï÷gp>iÎ◊ë1BTZ4ÅY|V∞CAÈ= ˜gÑMƒyW´2ú:|˛qŒ›˘ﬂıΩº¡úû3Ó‡÷0t]b“w©äM¶ò•ãìqŸtÇNLçŸ⁄er§É-ºHxFh±«Í›ç?T/—âdéù\Àz“± ìBΩåªÁF›õÀ≥"Ãóﬂ∞ìØ«oqÛá)=˙F±Ë⁄0Í6J∫jBøUî+O±É¨∏Ñ√˙@º◊E¯ı47∏ÒMU'ﬁ Q6õ‰2Hõs¥-WqÃüŸ«‹ä_h›ªß∞U∆ıÇá6Úﬂﬁ|Ì ÖM“÷5‰/=aYWÈé"òÓÂ16„ÿ£ﬂT.¢)seîSbh˚é4%FWÖOr|FÃ∏I•ÜŒÁ«e≈¨\˝ÒW˚4Ä÷˛L _û4„÷X…ô≈Ñ
+_¨'√«Õ*∫ƒ„Ã*YÀ¶*ö»S€ôàgA√ø]·Ùßä∞è<hë¡´,!âY5˜m¶G00ÓÓz‡˚πı}Ëß«6∫Á·Ÿ›ü0q=HˇÏO¥mµçZÈö∂ë”¶ºC\‰öM’¶ÿ‰öf+xè)⁄&_ØöñÖŸ<4LñÛæ6›Ñ‚”Huîl–õ2|‰qz¨ßz.	ƒËÖœe)û"„9M†<ïzÀÿ‰Güæ0éyÔ¶¢QÛeõ7Ì∏Ñ≥M
+Z'âπeRVLûPu5A¬Ó[jó∑Œ¬__xN∞πñK∂’fΩRø=DﬁRP3≈Õ⁄›ºÊ£˛TË–0%Ωûw∑ñ-V±Ñ4≠lu≤Øñ-Ü∂ùµÿYá[◊0›b⁄Ë¥”˚rïëT%´"˚®s›2;{∏€ï€πÓ˘k˘bM«.M√†ÿ|% ã|hœÕråﬁUòZà]ﬂég˜Í}∫¯zÈﬁΩ´2Nˆ}úºúÊå√ı°o› ïcyTß∞i†¡≥ÆSF≈ø¿-ï˛ÂÓ8xuù[«Ë¡4=%˙™ºßOÇF≥˝øú£§∑S„Ê◊T¢»˙@@?‰ßs√˘¸“º¿¶úá„fÕÂgt≥'Py~¶eÏ·7™•Æ⁄=Uºy\	ÍØÅd˜î’¶k1+¬Uê—ÏìúhZ”1cí∆ÄΩΩ¯eZìõÚÿ’:¶›∆1Y%A5K
+úÕöoä\~{ßÂ‰¨∂ÑQÄ#î|‹ãøTÕ
+˝Ú\/≤ØŒW~cóú˛àr]%‘qœ^©›W˜⁄Õ≠op[>ó˜≠Ë©Ç¡6BÜë˝∏¢Èz=¡S€/À’XåkM*ﬂJ$„[ª/ß[;º€qÂüFï ˛©WªgE»°+ª®Ky˜…&~˜§M.z¯‹9WBZäëBAø∞	K3â÷>kIm`“∫º˜v◊¬∑•…n’©°<®KQE{i‰≤ÅUdßã‹-ƒBÌ?≈%˚◊ˇ˛OåZ˜Jè	4¨ì±HS9?∂OY›œ√‚¸U’™V ‚Y/ºië6E©fnπ0ÇRıZE'œ∫›≥07§tÜVºíQ3ˆAY7æê¡t´¸⁄¢	1ˇ˙(ÁŸï
+Œ\Ò6jI1™àIz%[]€’D˝@ıÇ.'ÓﬁñK≥—Ù5—b/Ë,Ãz=©‚ükí5˚ôÕˇ/€xEã©ÔÊÖ®ìﬂä„≥7Pü;ëtâÑ;ßv˙åC˜bQ7≈†ª®√cxç6û-‚Muó«˙√«j(Æû?ü~¡∏?‘O∂^ ˝jŒ :`	¿_8âf^∏Õ.s9Æ⁄ö≥ÁıÀV%^Ò*©∆6‚víxrz˛b2r™MÿÏa: XíãS°£Zïc≠úàÜ§òq©˝‹'d.Û”◊&¨QQ*vîKóÊ∆¨√‘i=ü≤∂‹k»?[Ît*îú§D’Û^ÔC)ÉRúÑ)ÇB“”ªXû¡õI®*ÃÍ≈ˇïL+Äßã¿'@’U}Vù:Tˆ“Ç^t≥|ΩsBµŸ.•ÿÚiU˙B7’ ≈eW(F¨π}÷ßZ1;“≠ZmS{ÕhÕÎQ;∂∏∏È“±¯œöß{ø›¨(Ö9S¥Àµ/…p’Ï=êË™wÀÙ*¸OÛîJ4∫*ñˆ®Ç*_ î\9DKñ0™ﬁQi"8.õ“bï¨çå¿%∞|‹ÏË<I#n=ö¥ ’
+†"ÇØ∞˙G'Fä qzêL¶«ÒΩ6X´’bá˚[Ô6èwˆ˜ﬂnÊÍÉ‰+¬6˜˜é7æﬁﬁ!ò…W∞ê6œ ∆˚:GÔ˛a!¢ºI∫\ü€M∏C/©_Å“áüqY“6ØÜ!=sûá<(‡'Â√Qè““Ivsíf◊<DvmƒÉ‡+ÖqD€PDD≠¡MjÚ+JüâP ûÇíÛÅV¥Ê–WiQä≥å@‰ùnÊ™ælV^÷£oD…˘˘ÂpBŒ›pp	˘â3˝∫üÂA ÍaQ’¢ËÒPŸè÷8‡!Æ˙öﬁòﬁ„{±hDñ—˝OPÀà)NÃ1HÍñıëÎã14€˝0:¬qÀÛ¨±#Ê í•DœûRÖ dNÕ‹J¨8H˝Ñ	ñNŒ∞yB!¯19ƒ
+πSqá1QK=OÆ<{¶§ç(≤ì%ÈØÍ„  îÌe=ÀÖ~◊Äπ>éª1Ïº™!üÎkÌfxëu¯SMîÁ>èœlf∞z˚âWöJÛ`¡Ú	1´¸ÕÉ•J£h4◊„-ıf†Ò§(xˆ´é ™”ò†
+1≤øaçÕª≤zts+y_Xzö´Wˆƒ‡¨<JË5Y»∏â'çbÊRlÃR˜NaÿiƒÛ•4ﬁ´¥Kÿ¿‘©¿*</@u&ÙÅ(““3óÀÏª¯>Û@\5èFyx‡”BÜ1Ü\îy$nT?∞…¡7Ÿ0/õäˇ51“¿Œ—æ?‡,Ç÷§±ÂÜ™5PG8†yÍÀ‡M—1)9«§te\π_π2«CspË€!”p4öå\Á∑%8ÇaÓ=%‰y/pìa6ﬁJ..òÒ®ò÷ãüdäV,¢	O\_≥	Ó‚&¥
+◊zM«∆˚:Â˘@ÃqŒ;•ERIâ/Ei7\_èê#ïÂx≤≤$?4©T;˙Í´{–Wòv\åÉQF≤1¢˝UF≈sàåˆNBÏ©–ﬂÒ)JÇQÎ5≠y?KèÈPëXkv˜OË≠>4^úÄ—Öy’BçGFdÂ—„ÄóH0*7‘¬ﬁ˘É[åüˆ1.ßf2Å‡Yº±Í∂q˙•~ú’î8T_OO.w9ìwYD"%¿5Ÿåósû ;QrÛÊWt‘¡Pò’9÷oâqò¨˜É7›=ÕtO≥§XìœrYG:"ù
+æ{EŒ∏<ˆUaÂY$sd◊ü«™àˇYÜ+ÑÖÑ0^5Ï˝SÏ°'(‰$.(ë3åÎKìâsr-nÛ}Á‚nëkt‹€(ë¡‰F,‰°5[,É∆ÀPcÍ…j≥
+|ÿì5ûHä§…
+€ΩÔçspÜ¢k/_Ò√G"„¿-©R…ƒ!B~éfU√h‹ª®]ñ√$ÀK;›h-¥€mß®’yo∞õ§põ∆´)y¨…SßÖVˇπºkhF/Õ/Î˜hUŸ®Å7wﬂï˙Éä”ÒÔUmº›»ÉjŸ‰TÁPFÀun«\ƒ™â~uø◊¨Ò©«¨—k~o[o≥Œ›?Û,§^Ê7?JÍÅ:ÅBv˜#‹Út?/=&8h+‘…£5˘∑ò&ø⁄ò&õ]‘‡‹/¢âGL™µ¸SF4ëÇ[çlê·: √e,_¡iÈ÷Ö.Ñi∏Ï§L=.$9M€<e
+∑}˜∆AÇ∞Òzyè÷'‚jî¢kFov4q∑å÷h¨p|^g ˆ®ˆ}€pÿ∆Eñáñ±áœª∫˙HpHïHiæ§ªKœ‰˝”≠ƒ1ÅÂÓ›üêª 	MÛû´°ª©ä5Q$=(YòÊØc]vëÕë@Ú†uQñ}Ó™hº‘Àb¬ë¡‹Vö∞Uë2”mıÚi5£‡[8}≥}ßKÃÎ©·Énú≈PZ2€¨b
+è0áŒê√óúœ<Oˇ∂lªô>CçªkúWÔ ÂÛ˝ööÌR˛Iö\Ão˜XM«LÉ´A)Bì^7\HÜ0Ú·¸_Ïs˝Â¯É,§Md—Òé\†?wÀQ÷"g‹~ãLCù©¥tbü]ÈÑ'‚ë†ì®TòL%EØ∂°øhªaxI(kø«Öí≈áãuı¢Jy?—Õæ ôAS⁄Oqàg>¬*`ëk˝^^º]kö'⁄-·ı≠ı9÷.?ñc≠Õ]NÌyÍsÅï"érf6Ó77o≤⁄*T°¥{#¥«`Â∏≠ﬁouFD˜¯hÓ'Arn4èyÕCQTµÛZù«Ê–⁄Ωõ¸8NHÔU&R∏+7S¢85.Êõz&uûnBYé…dóÍŸ&˝üD?éß€≥:O∑I(ﬁFU˜*€©Kø∂˘˝π<™$Â U^6K^Ù§3W—´	ø"i‡Îˆ.¢•Pnøµπ=°E}Ã±ê¨À:√BFZæö¯'RÂ5!Íâﬂ‰‡ òÜÚ˙PF* XêıiÓ›Êú6åcÖ'¥°ò9?-Ö€ï”≠1yÆÑ3z3¬∆lﬂ`ùAB°cbdïÊYñﬂ˝1‰ºØ.F)-ÎóIh˝ÃÖr∆xoãŒYå9}†7¡éÛëpï•◊Dænù(eÜø®f4È1ˆ€(ÿó,Ñ˝∞@Ô'˝}•Q≤C—Ô˛àñJi»2äˆÇF}õQL,L:É?D≤®àÖ¢´Ñ(t¶}Gh)x∫∏µ}àLNÛ∏ü%‹$•d-Nëﬁ–+¯˜4Óù√ßWY˜J)<ç“˝<ªB}æ'€`ÒﬁùÖæ9+Â6ïAO°X_„¶w‘˝v„ıˆ€#ÑÃﬂNU"9ZÛ¡™Ùk…ZƒÑ°%∫¡ß\1c,_P¬∂eØÙÓ[´yzÕMrÁô\$Jı
+?Â˚r¡∞∂∂zfr˘Ã.ÀEµ◊Tˆ3»ÿ∂\Êy	}õ¶ŒÊE@»‡´(˚Êoà.båæ^@Å<"¯<¶I◊NLUO∑óBíönú≈˘ √>bjÅ+∞»æ¬N°94≈ í{C∏*QÍ*6ç	ˆ;Æ2ÎØx≤¿ø&x∞á(,‡±^8ª ƒÏAπ^\Ùx[®#$Yåúì.HÊ0A©i”Í/‡z∞…u1s{'n‡∏πˇvˇ–«é†LÚÇC)üŒ.JÉŸJà-4œ\ZQKe=•˜ÿfYñXêÁû#◊t≠i%'≤öÊÔÕ¶U≠È™Û°uë§Ëê·ÈC|0;/+'Pû'≠ã˛0Ôw}+$>ò]àóFÂ‘ö|	—”¨¯`6+^ö#◊N∞÷pÁ6L=Õ“k≥QzUµÂ¡◊⁄æçªËè‰∂.>òÌãóÓZËBk^ì¡YÌõ_d∫ËKÙ àFò4¬ãx3Îf˘>fkËy«4–OŸâ(ô{˝C€:=ìms
+Ë	OyÑi{;T"¿EÂ†i|C…ÌnÌnïD8–»eì(t:H.¬ÇÎêC“
+ëâ]BùÏnnÏnÔÔü¢I˛·¸†éÊ}ü8=ì4é∏Òò¬I¢…bZqqÈVûı£ÏZ0kh°ãñôªîåˇé#,wú]\t„#z√m´?∆∑Øà±{)ö[aGa7∆ÛóNÀ+,pJÕc÷çêV’ÿ¢´,â^j#y•rÅøTc“ﬂô£É/∂a6Ëòuì˜sû≠‡”añïo»Z˘ÄõÑ"ïO˙dw"2ÒQô@q≥ZÉç~_¸l>y©u`gh?O$,N„º.Êùg*fº&ÿ¿X–[yxqAX]ÿJ£ﬂÕYWö·,˘¢¬]íÛpS‹ÎáÛÇ4È5ÁUDÇsÓ]ﬂÏœ§ıü<I∑d]?*∑¬6èé⁄«¯à$°LÎ•J4ıÒ#W#M© Èèy_
+ˇ≥‹' 5„œj›‹ Ûjâ^±π0p=zŒ…(ºË4'yd•àP<¥¸Âí†¡©YÌ@-∑neZ(Fiº»|∑a:ôì”∏ˇ9˘˝+u˘@E\æ•Í0ÌO•‡ÄØ>Yj/~˘^º˙#9âØó!]Ú‡5S®ïù◊FWÆÓÇà˜Cº∫»√3&2xkØŒ`›<Ì≈ËI5áÜ≥∆jÄII≤Ë6¢Óç∆MêEçWUO"Ã˜‚sﬁñ´V÷Ñ»⁄Jÿ:nÛ6kÌ/Ï∞zIÅ^b@xŸe|¢Uâî¢*◊”`Ë∆òÎ[ÔW˝ºt§6§∑‰-Ÿ" #g¨ILY¸V7/„ŒG)çZtÌ4ˇm3êô-|“¥∂+µOŒª⁄ó	Bƒô‰~’qæ'¨hØ√ná› ∆v8ÕÈU∫"!äî%…‹˙ø©£/∞[/ö¶$0‚ÃpÄ=	g“ ò4:´ëy∂Ù¨ÈàÇ+√£TheØúëÈû™pÏí‚òª∆W-£Ω#ÖbeÜOïU#·	zE
+0∏¨7yh≈∏«cµ7∆µV&¢mÙr@«ûË◊Û«Œˆ_KRä•{FÜ;|i~[ù†>Npæ®ì@Yxˇ∂µÿ∂¢≥õ˙+YÜ\(ègÓ®œ„7Ågä∞LQ¥∞ªÀæ˘f•◊kòQ,?öc¢0˘zÕrëª¬L›¯|@≥%µ∞Ãx∂:≤∑Ù‚ö>_!⁄h-5hëwJ¡g=oÎj™<ˇ≈∑hEp∞eIÕ6\iau\Ë©∂cFAc∫Sä∑·xˆÄ¡/»TŒNT≤3÷ÚàLGæä.ÉHûﬁí™˛ïûÁ%µ™ås}Õ∑Ô3xi@e∏≥^ƒ˙]îªÁ@≈º8H”±›?–µõºËŸbuÎëvÒ‚h(Ú¬êq°πñ3KH≤tùftËë.N<I¢˜c–È¶}bÎF;4∂x◊sÀÉ√⁄Kï5ﬁoÂ†òˆ∆∑ˆ•œ~ﬁ@ØÎh›∑Â≈∞–Ó|'Ô?˝›FØè‚Åêû≠OyE¥ã¡yI-?ÔÑ˚§∫”%≈>öããŒ∑œon"W≥ÿ˚æF{◊òó†æ~+C9bAcC=7‡7YN±‡ñ!ï|ÿ7ø˙\˘QÆU˚2,JK=Ö±˙π2p˘îqë|.öÒŒG”L»8∞ﬁƒqv¿TgcÂ]é«˜¶5·K`iÅÖR≠zŒwWR+beK´aÛ·pÍS"íOK"9;[o›≤ÊÌ^\P˘Ã>≥µ∆ñNy‰√æ|5√%¿óLÔﬂÀæTÚ$ ~¡bDƒŸÛ±>Û§ìﬂ∂üW€gÍVIé≈íˇÚ`)¢[à":r](RNHÀ§~:≥JóJÍ|ïdB;8≤I∞‡∑§-ÍôB–adVy˙^¬ΩÉP&Ωt˘\∂Nû-r€xä™u¯N∞¥∏xuŸZ^Ã„^Û˝1 KπG·¢∞ÑÑ›ÒHM#á‡¢ÀË∑Nê∞*%}B§»7im‰GY(BÀ14<p+√,Å	øMä¡Oøx$>s≥).tmWÈ1qDÍn;ËYæ;§}mdøkÀ`AIZπƒI	“∆*«ÙgÎZ`ö%Z´Í\%≠¥ı"úπÈ£x˙yC?∂˙6ºçÛB˙ä|Yü√Õ∂ª1~ñZˇ∑§bÌ†~(ÜÈ	Å©b=TFŒ!|Ñs§ÎÁÙ˛'’§∫µ Sè(Ê∏çfπ'\‡Ö=¸'∂|ò]ˇõ¢·'U4DIà‹†O$Ú å.$˝Ü=E5j÷“É)±Ütë}¡^®ˇ,?k6EË™r! 
+Â©i∞j8l˚ÿRq~ir¸
+‚Vg+È∂2ÍS◊iã˛Yy\¨ª∞e´Öäxdâ∫e£[£nêdN -Ö≈™EÂ$Â¿œ!7w÷Ÿ‰ï?•,‹Ö◊H¬=û∞UL∞IJÚVwO≥,‰&√•©%lŒårqtCT·‚ßÉ#	öEÓõ#_^v§‚SÆ¨ä?≤@€‹ )ƒŸæ˚çq6,ˆΩ⁄oê»2±%>ëµyBF7Éª…nËpy^&	—Ω"Ú∫É4õÄ|§¶ ÀŸ`Ët|∏q¥±µﬂ0ñ!;Ø>Y*«´œ ~
+	˙Ú/P~Óü?Hz~/¯O"ˇû(˛6§ﬂœ¢¸Â¨≤ÔÓ æ_†Ï{π"ö¸O!¸6ÕT¢ÔO)˘6Dké‹ªÊ2cÑÅ$C”6^rö‡ènòG%#'6ê~Ò5ˆC£6b\i)À;<“ﬂ‘«lÃ¯e≥¨R’˝Úπ&
+#ØE…NµZÙL≈ç©6ƒ-Ø¡‘Ao¨{Ç®¶*v1∑◊— À!Oπúy?œN©ﬂSé>≤SÃØÿ0ÉÀâ6(tçÍı˙k1  @¸ÂäzE±9º≥‹Jrsö¬3œ∞Ë–1—„Ã0JÚÍ	ÚÓå…Qœ˙‘∞å=/sø‰ØVòoì ∏∆ˆ˛WÄ
+çYìˆiû]…ò~Ó0`=Â8åEÙå@.˝lC¿ÖtFp¬Õá–Ñ’'ÍbÕ_{+¢˘i_±ëÀÜê…î“á¡∑‚¡!ﬂ√(œh~dΩIøH8Ú8Ç„®’ª3r ∆K>&íDe0…˘ ¨ôdπü∆"Õ∂ó4Iw3©ØR;¿ÉÏn[/=õ∫∏Lçé]—“‡H=÷„UC˘©Í—≥IJ≈‚:âS‡E†Gb>Iä◊√ÓGåÕ≠Â’_’$)é¬+h^÷ò/Îõ8ÉRoí∏+¶ÚZ=’8‡¨›
+IKTà["ˇ+.≥áVÕ“„Äﬂtº¢anj4K±ùL7s7Ç>‹ı¨wº≠Â<J Ó2¬ÿ·wí&£ñèJÀn$ÿâ1Ê+Ω£(–B‡âSâüDt:-»€¬”TÉ«B5®yL-\‰√~ÜR?!h˝.ƒ‘Fa∆Ä©Î —˙ë¿/Å2¶T~ÁØ*÷Îk≤
+]Û©®i›4ΩÛÆ.¶å§.ô3ë∆ ™%áBp≠ﬂ;ó¢óÃçMµZ\“⁄ΩêË-ÍU8ÁúÀUœÅ∞Ï·O¸©›-6±ë<L0àÓÏ:Æ∞/I?o5ÙwÒÌYÊQŸR'‘ó§pºæé/^≠É,ª©J–‚g2vW8Z0ü„GW«öº¬¸‰Ö0∫|°eeä‚óöò;‰˚G-ôáqö&T¥x–Ë4·¸üR¶f◊Õ≤¯ÏQìeSOÓ´€BK≠…C'ãvd‘d1§ü8xÚÓ“^ˇK(ôZÌ¡◊›NCä˙¡	9:Ÿ]f(±èà˘≈É}í^‹$ˇ6B3#o=ñpoï0ç…˜%∂·@‚¸◊‘YÀ¢ÑÉ€Ω›n˜Ámb§&Äánv¿ÿÙõ∆˛Oåº™væå¥À{9-únÙX®öÿˇ3IDD,T-æÈ∆<œ0U‹˝˘
+ 1ÎöKW?ˇ4Àe TÈT—êw\;ß‘nCX˝¥@w«î≤qàGY)lÀ≈Ûqp?! 6‹©1Û<ƒXDaÄ±L°áQÍ(Ûe#∏±≤~≥®˛>\ä∏©˜Ü/ô?ñßç!çêîı√.ç=ì.*0õœ+•“"PFcÃ√7Œ}n
+‘`ﬁèÁ^}–ˆÏI93∆´;q%ERç9ÙÖWB.N≤bHÅ≠ ¥/ŸF?◊(õΩ|Y	î≥Òa„˘)9/OõÃh)ùpßâyh¥iVDj/πMSN®EÆ∆wm∞ŸäÍl:»ˆ„.∞?1˙ÙbõÉª!Ú	1>mò{bºW˝˝∞—ÔíG.ªB4p˜«ª·q?Ÿ%M`Mä“n	§öŒ⁄\yπñ*óExãd¬qËdFÆ∫„Nkñ±)€iõ®Z®¨EõØE_˚ù"≥Íö(ôàÍ`˚gP#®*œE≠ö2ÿùêΩÔj>Ú√)0ãH√ÕAÍ„O([Õ†π[éŸµÕÛ§§òüï.à!Ò‘"ûs°x®fı¶Î—Ô5"1ö@&ä∞{Ö4¬ÖÀ^‡Í%‹Wq§§=AƒsçäOG¢ÂÅé2ÚI⁄È·ö"ÃD%o”∑¯Ú2ú9Qsıd°∂:|Ò™Êò	N °≠o~◊˙3Pb-îˆ©¿8?iü')f∏¢NtÂíËc,Ø, ù˛|Ñ–˜J⁄A{∏Ç¬vNC/íK‡Opµv`ß≥'*Qµi÷ÂŒîD0SÚ·ÿ¸††%º†Ä—Hƒ¨ﬁm„≥åï¢⁄x…6∆!ßƒMßıÌ4≤⁄Ü7eÀÊµÜ∑8Oˆytp©ööê1%—päuL-≥	qÎ6eKLâŸLVTÕDoêó7õƒ˚~÷P0\LÜf^ˆÅ‡˛êÑåÓª“Üª…≤°^:"GGÏp°
+!òº¶6tú“ë0_”É¨îãò;  @ªÚ€J›ZàZÕWS(˝ ’“áäZÎÈ’ëÏâËÙH.òD#5¸ô^ﬁŒ©u?f§n4ã}ea∑∆Ns
+Ììå»ﬂ∑
+ò5Nÿ"QãT*vT‚”µT”	3-)ûû•Æ/¢=ªyÍºÜc›†∂W◊ÿrπïÍrT\Ñ]π≤á\”åâ¨9ÌAˆ6ªñÜ!⁄Ÿ¶*Mª%É{«.Â∂Ä	˜›õH√j∏<éº]Ék»“⁄2G
+å¶Yé‘∑j  1"ÖëùàïBôìñ!°‰’3]ç§Î‹ö&—;î'g¶©û«‚ÀÍz™–íQ®¢•ñ*%!Ó¸\O˚÷+™BgUÖ,êÀEñRŒΩ‚ΩÆ∞˛´Éc’ò|po»W¬ÿ ©«b‰ò+UaSS8N:ﬁdEØ:Y |{@Ç 'C¿/ G +ÕªßŒ¿Ì©ıXÊú¨‰ ü8=¿…ï‚RHC(ÉQ∏dz–Upà—fÒÍûÀIwu.&ºLä¡›_Ú§C˙›x`°µ£LNÁ8∂Ã°È:˚S5Î;n2µf<∂{ˇùÿo„û}Rï:œÉ+¬ãﬂ…òﬁ`Ö, ¯5&;^[™ÆÖ-9¿0Ó‚oáªyOÎZ·‹≤ï∑‚YåûPaÂi·=]Ø*íƒ{Ó¯Ÿ]°kàÔ´ÄQÍîÉ+¡ß‚ÕŒ[∑ﬁ©éˇUπíM›ódÙ®÷ı¢âfí¶˚ñe|%¿f±⁄Ï⁄¯ªR:w¿∆W\Í]8RöOR˚+.Xáò^kä}]˚÷”çÃ´0*ÄÕ(PëA·2â"Å©)ñ¬‹:l8AXu˙™ê≥Nz_„iíúı”Ç›Í\∫aÉ˘¥⁄”∞ûsÉ∂≥’Éß∫ì¶rÍYx›∆QÕÄÀââÍ∂`Ñf}=,P∫âé9î±`Ì1,´[Ÿº˚∞Î÷ÛÂb™ısôÁ…µk‘Ü∑böVﬂÀ‚—ôÉ°⁄0ûP÷ÓˇkØmı÷Pqkk™êïµ¬≥-.GPü–b‘\N'pπ∞˛‰k5«…˝\µ·Á7®-¬˘O∏ßUq·òÿl,bâÜ˛v›¿	Ù÷Kö\∫£€¶ïÏ∑0Œ&nŒV'äÍÍõy\bò$·∏HTe¿ …≥&5Ωw¨bxu«ß≤\êUy÷#	xö	'_•≥œ≥ŸÄ≠z›VÅ„ÃÆﬂıˇàÓ^àø%JJ$iEî¿¿,eúPÓSlíΩõ4˘hÿ¥ gÿ˜ñ§•z{ΩºŒƒ¨@‰"Ü ‡ãsL»'2/∆P]ûÉŸíqëPg¶=∞z∞fÔÄâ›„_ˇ◊ˇ v34“¡∞ƒÍmﬂ~gÿExYÅBkf≈Tõ©;•Ωr£¬x“ŸÿÃ—˘öÑ?>∞OÆ“‘<V±U2πäÉÔ87ÿ
+h€à_' ˜Pªñ⁄ëÃg‚óÛÎ"†ÎöÙ±è/≈®¡Ì±]TãπÀPëœ°Ó¢‚¯åzµ%5*;™ˇõf9£UGi
+˛ﬂ∑†2ºΩg%˝l˙™≈t°ZÃ9kÌAÖÂ:Û$~Nù…‰MqI?Ò€Ë“∫…œÛË˚!\ﬂL*Vöç:´Ì€Öfï®ïPÕ∏f*√n3õ⁄V…¿¬Z˝£Pßõ0∞≠xìÈP!LŸQ6i∆∫⁄êx„RÂ'ﬂ√O„PO»∫∏lf]|ÜÚ´ÚÒÀ2Œº&9ê-dO'L…ÈÀçúÂl!…4D.¨ä5%ÑPVEÔP⁄CüL£Ài“ÆJ≈¢€ï~£÷∂À3léärÑZ„íÆ√¥`ûT~£€µ´ê—≥]œFPVå5;ìB&FpÈÜ∑Ï8BıWû((2Íâ]ÿˇ§~8;ãöls¿ﬁ¬kup›Ùj÷…~S•Q¥NPm÷'9Á¶"rúH;!K˝ôπ¯_ò”A©‘x¥c#L1^:›ZŸ∞ıøëÁ¸Ä.¥ù\ÇÍ3M2ÖSÛ˛Æ&ö>¢®ﬂ¯Ó+ùR lè}c& Ck"2x®˜ÛEÁö;ï∏‘+/ıLYE®.78πÅÎQπÏP\Zº≠˘iV©tG^Æ´iãÇ1—Gt¥Ï8^˙_•¿ñ5Ìs36◊À»˘#˙=¯8€ã‘¨ãXyÇ≠£È!5¡ßp}‰¡G‚ÉÕ#·0¥UJSÔ`ùW&>õkN§≈∞v»spÕî≥{ôu/fí‚Ì∏¥ÈopEp5öœ#Xõ¿`Ãmmb∞5ã{sµ#.¬Â≠ã÷Ê Ñ
+SxTçô"∏û≠é‡&z3‚∏=[Ù¨èWc·ÄyM≤∑JÜO¯ˇN≈YF
+Ó’Æµ2‹€Øp-®u◊c§=(4‡$¿öU.HMŒ∆<2ùî-∏±sxÍE˝9<=f *áß%¡ÛfÓ¨πù8π;ô◊‚≈4qNg]∏ìPrπ^˛¡'¯.=IpHËëë•Ns2Âoçá»ÍØªn	lW»∆•D¸)ÏΩeây‘#†
+ûÉ«©Ìp‡¨Ï}ëKüMπtiqŒŒÒ!áMV ”XÔXz"?s-5ÌP7rgŸÕ£_à jf8ˆ™s´vªm∫…[ÓW∆wÀ”Äú¨îBXàú¨ªÃﬁvp˙^ª`œ¨˝JÖ∫Z	ˆøµ2°√‚r;∫qVh ö†›Û~´[h?›Ò)‚’ü–»◊{{¯Ô√ÃØ≠ºÌésñ l_vÙ?_÷Ñ•≈˚Ñé∫ëQ£åˆHˆ¸Ø
+ˆ¶Õê†ÔÚßLñ†˝yÓGb ^K YÀ≠d
+Ãµ˜èéug£ø6§kN8◊r]µŒ§‘ÔWÑqc`f”HÈ°ÔZ¿TÉv+Ï”¯ﬂ◊H∏u∂»i∞IxQ¥„ˆ˘xz`¯e‚Áábe?ÄV£0ﬂª).&S%Qgl¶<Í>ˆBu≠ááY%î'T∑Ä∞£(çm√›∑›á[ù–¯‰}v”Õ+—‡§Ù/ü‡L˛¡ŸƒäEqïU∂0@KˆÆÄ√ˇΩ’j±£Ì„„ùΩØè¡£x07@QDq„∞‰”ÑR|I%WÿFøˇ´TXçàÁ*Ç∂¥kLÔ€–˝\N∫ŸEˆ.ÔäËäÙ€®céÓU[îûZ/ÕÜﬁ¢ájäûf	áMlÖ˘G’>Ã“@A Ö5yê1ıhÜùÎ‚¿xT=Ë†Q’úö—‚¸√¯\èè´ﬂÔæ•o€›c¥x[¿9Ã‹¿g"¯UQdq¡–$3Ô∞ø¡C∑m‡äÆ≤&r™√b∏C^ı)∂Lıíîı3ƒ∏hk	8≥3 Éd∞‡∞
+n‰+c’`˜UlN>º›82D ThOôví>¸
+2@Êî´ùl};Oõ√0töeÖèá‘ΩD◊ €ŒÛµ3Ã‡NˆÑjúª€{ÔNwé∑wèN∑∂ﬂlº{{åûút2Ö+Fó˝Is«ÿRÔ§Ü(‹…{Z±7√4È≤Õ√]ªòPhew1jÃFö∂ bêzÕùdÎ[ˆu~˜#ÆÄ”9ÆEg†óÀ„ÂYäSg@Ø!æ ^‹ÊÌ©»LZ5«Ô…ÆïggŸIzôùÊ·πﬁ·Ùv!C(∏SÍ%¶∆úùØt!P£>Ææ—{Ì<√ôíÃíG›Uèd ¥_<-⁄UR$LJdñ`c[àxÏ,∫ÒzòËπ¨.‚o±ÀÒhA2w≠ó≥#¨]söG÷ÀähÑ˛H^‰ä$„U;)6†YqUÃ0ΩÁb<6Ó`”gz ?6x‘¶ß ßª£Å“
+Û÷ÈÖ∑gÒπã~µÉK`RD≠©!‡ÿx¯≠yd∂yÿ/˛KEÙM,bø‘íMÕ –“◊aé—õÑ<2ÏíLØlwà¬=òÚ∫≤Ä„†à!,LR
+Ö>u)\ÑÄªÑΩ3®MÍÓè•bM%Ì^ësπ=Btbòö/≠Êí®8í-JìHﬁ7Ì ¶∞≠«î52dµªÊAôR/D ˇDuB¢˝57Ìy(ª5`?@ﬂz>–yº]»—ºW83%b
+Œ≥H=ÅÿêÖ,€˜HÚ7H–ƒfˆˆå5RzËK¿_—·^Zah;æ¬4Ñ%>Û7‡o•t[F˜ù£}ë„]>œS|)¨lÔÄ£Vy‰ÙSŒî"göH8z)ùËóQVû`¶0'ªp8R˝ª/í4TŒ™!≈¸‚ÑΩ›0√≥m¿V`Xù‰§Ñ	E]+C≥!5é„`:§@áÛÏ8¿:æŒdpåÁôPôÙÌÁ
+ôóQ–ËIlé4äﬂt∫Câ\íQŒìÙ0L(2l»∑`$ÍA“M¢çs$ú¿‚)XÖÒùoºÆ‰M(íFÌÃ©ÿ‰ÒRNL´ÒMÈÊòÚv!t»jÃWA´%÷Ö-†ÓCƒ÷I±‰ú≤ôZRÉ° l(ﬁz¯Zqã—…}úN,˜D>æª˚sTÕy"—èÆ ÉÇi-xz˚ÌÃ¸ÑΩÌ˜·&å±i≈Å˚~vû¬hDc+å˜?g≥>˝ƒ‹Ö’Eáaï*πÎCß·£˛v«?‡¿Áß°ˇŒA˙4lÄ—M='`˝…ô Vòã>5_`.¿O…!$[qaq_÷‡~XàosÛ3¢#Ã(∫W¡%˛ú‚#.ß+ﬂCEº<‹Ë∂¡›5ÇËlI'ê4öÛÏ˙2Œ„†ëáÒUˆ1&¸µ∂ˇÂKo¥8Lã·∆RJè“∞K7æügA*ì¡∂y/8~(—é≤GëvJ#:•p“¢6¢ X™±ÙûVGé‚™±πıQ´(T¬òx(X‚ºÖ≈ ÜÔ”E\?dt◊ZhÎ
+ôäGåëpaw.·∂18CÕ≤;h≥z…>Cvp∏p∏≥AΩáäV∂G¡⁄Y÷Ω$¨ÖlX|ï`Êg.˜›*•V(Î(‚“≤≤√à;`7=lC˘ÕcûYì$“Äª^∆ÊÆêª"~>’9¶xD[‡eÑ'cR ∂©gK‘øro‚¿î˝ù¬“ÄÕGÃ”≠jaåäv7,Gqún(ÛäYì‘{¥ä#¢|aÿ/-Ë¬K•≈H2?Û5ﬁ“£.ôÂCOy’∑#3¯hd‹8_∏n:¡‘`+A(@0}î@¨˙é/≠AU‘⁄ÜU∞%¥wà√¿ØÿÎ„¡xÉ	Z6†V ¡ù2z!Ê ¶# Ë äZ;»o’!Ê]s<øïuÇˇo`èy¶&–D$Øpà˝}¿â±»{ã‹]≤ìz4Æâ}.%Q9	πãBóqáç…òeƒ?8gqƒ…„õIi3ÎÖ§ãR·(u‡˚◊G¸h¡¡ò †˘¶i¿F.9o4ß$„AåÄö&ÄËVÅXB∂z˜Gú]ö—-%Tqgxô0Åfö$˘¡˙‚j	õÉ“rD)óRb
+Ç\ba‡ﬁ‰‘~ø@|≥—Ô∑≈
+™áhU]¿¯…÷çö‹v*§gËP¥.“°b&Sﬂóy˝¢Ÿƒt∞_’{Y©˘⁄-ãæ0
+[3£äo≈iÇ0NÚ·@éj@ 	Tfwvé∑Únπ«uŸPÚïãJ˚6œñûóHπ<=~.F™á¬»ÀÕNõä¢ÍéÖzßS“rùQ∑Gœ®Î¬«Ÿn\¢W:=qÕ2{¡÷¢∆™®ˇ“+»aXÂEÃ_\íI(D˚e"
+©Tha0Y‡Å…(Ã’ï9)TÎèóì¬CÙpÂﬁ$›ò[yî@Ø"ˇ@°~]5‚º4+†8eÜ≤”B`X∞}eÌÅœ≈´ˆ…‚{-¢'æ4)æ∆∑< ¬:˚rëÛ%Àœ|Á∂±¡í√∆¬Ó$@t—t
+¶ﬂ˝xúVˇª◊m“}£-Áãå°1ÚöxEê$◊å5©Gë4TæÅX¶—&&ﬂÂ]â>’Cvê£+Äõ)≤.MŒ„Ô‡hg¥dC‘±Ú€:n⁄!Ω(œE  ≈ëÁ0"ƒWxæ‘˜Ï‘Á∑◊51ß ˛≥Ql·Ãﬂ“˛î˜nãuÌêC64%÷I::¥ºb°  &yi°™á]¨'^≠;·C~ø"∑Æ¸4˝mz⁄˚¥q]\bz–øzVÆÈ"J®Ãºd£D˙‰P?38pgåz€HøÄG±Ìq;VâøD∫Âë´	äOU’QÚ“>Ì ÈX˙3f$ô÷p∑x√ÁÊÙî∆<¸ªëéørìm*QæÄ"XáÉù`¡ë 3h$I;yñí‘˘7∏·˜yp˛2ÀI?π˘ªògÈ<†ü5i=yŸ„€~¨ï«G”ú§”?'¸⁄I˚ﬂÒ4pkÓ“ØLÍN-=Ñ›8DvìjVèØ„4>O:Iò´QjØÍGªôT%¸mñ>¬tB@åú√Ù£Í
+~◊Ù!dÀ…ç.QNnjÛÂmº}{z∞Òèª€{«ßª€«ﬂÏoŸJÑn@Oñ–?Æ£uÈÚï≠ ¨fßùÿ¬Å^a>‡ëÄ[≈f~˜'˙ÍØ≈gïU∑Ó˛tÊ©I¶ Áq√U«P˜à˜wˇL¨Zgm’äøÊ/ìòﬁ∂Ù!·ªªÒ•´ıàS≤”;oëhÓ∆ÉÀL$+‹ˆ}Ò\JË»ä}—Wﬂ]^k—ﬁ{¿≈∆ëÁC}“Eﬁ!∫qæâEZﬂM„ï≠¬¡ÙY]Ua™aÔ,Œ_≤Û8Ü;cá∏?˛é´shµµ‰'p∑!°ˇ
+[ZFÇúŒ≥§)≈nF”	˚∂4o¥ºàrÚœÑ;∑?-è´(Hìÿrﬂ±ËÆß±G∆+Ô*ÃâvF	ÍVπ–/æIŒ( ÀC`ÀŒ2TûJ•–¢xäµ¨∞“1∞%¿pÇ˝¢IÓê≤æ˜ªCh<ä5$+Ãú˛˛2aøœwÀ|WÉdDÌ\f∏—˜ÙÍÍÂ‰˙o¬N|ñeıÍÚ›‰⁄€à√ı™ÙbrΩ#XΩ>O—õZi≠CÒn":Âup‡o™†·gπì~qø{ß‘ÍÈ™7EãÖ"/π9˝ﬂj&©V1$ŸF—S4‘ßÚ÷+jTóW>+_ú¶"[Åm+ﬂ{Çô7ÑÓ®T»§»FÁ@áÀ!ü¡ìØU/6<∫NAN˚º‰iè-uûÙ∞ØjK¬˝‡Ù¢‹kœ‡y›SÃﬂr
+hVµ˝•BU+A˜ÏvßD›*ißÛÇËy√¯üø'ô}58¬*∫Û=úú∑uRÅßÒº]“	=ı™ÿOì¢èFêÃaQÅ˜Ï’+N®¥Aåu‡ÚP¶`è÷àom†Zë”>/“D8]4¡‘B˝bW˘À”kÒÎmÓÔlÏ˝„ÈÊ˛ﬁÒ∆Êq[~Û6ßHÅŸ^"_˚TΩ-JÍ`6x.ﬁ˙⁄ìﬂºÕ≈0€¢õÅØ!˙‡m	àŸQ_O¯ﬁ?AI¨±à∑ﬁ·ào•ÙÄ_`ÒÑ˙PûãùuÏi÷‡,sÄHˇÇ”íbæ_ù∞&1-èØ``yÅ˘Îíz˚âÉëìNÂ¿I¢&‡wzßäÙH{ôP™6 ù0qﬂ{'Ÿôf´aÙWô◊“{E1BAxÂà[qrcÂ∞‡bû˛´^ﬁı2D≥ΩAÖ”I≠U“ÏF\¡·O Í™ ≤+Ã≥˚Ÿ‰`˜[—n∆v›Gä5ç¯ ⁄U›fl0_9É ”·Ú\#Á=◊HÛËYt‹…yéO&w@0oºyõœıÓ(EÛy≥Ê¯ô]◊€J©˛‹‡nsW+Ã∫Ó´í~¶cÖ˘Æ◊øàSa©2Îè∆ º·'£√N’Áb¢—÷√4ü|‘Û√gΩ‰Êg8q\aBl†¢¸J`U¬æR)]h[éÆyÙïƒ≤Fx°„Qˆ˙ÎTµ‹.„`ÁÓ™ ˜∆hËÒ‡!m:–UWäÛl ‰v ∂oO+Úçíπ9E’›Gï-%lNay±Qeï4Õ)JWUéÀÕúBx7QeHFÊ∂#ÓeSR(ˆ≥ùÉA‡ ŒE$íÊ˛ (QÂ¿\<a{˜#∆N@%wà∏h0y˜ó≤©ÃIºZ0t,Q^sœsòTåÈÁ&‚î¯ﬂ¬#Wˆ›0Eì dkHDY 5—$∞¿‡w$”|'üøpàwtãpÁJzCÙPäª©8≤ﬂ‡¬«µ«¯ãŒ™ÚÕﬁ‰q†ËC¸l>—’+¿ö¿,±)ÆT)ü}CtºÃ¶‚£3®ñ¯cç‘ó◊)‘€ÂÛƒZaQ\gy§UîØ&÷=8‘Í·£©%ønRu^†&l ‘û<ŸÚ©&7!˝Bœ®8 rnõ…EÛá}öÂÓ_f§4UMπ£;œ
+mt¯X•◊zÔYóË j@ºô°ç≤◊€ofhÉáå(Ìı÷úoFªŒ◊ı`4.µ?î&Uú;ä?hπ§‡EË#ôÁ±G¨∑ıJ:¿…ÿÉÁΩÚπ∫D≠†˜¥ìÎ Ωgæõ\[ı^˘¸sBıgµé¶ê®÷ˇJòfÃ§Å©ÒÆ*<# ,À‰5ˆ˘∑√ÏZäìKØ`À?G TJ£â¸œYÇqhWD∞àfIÕyTâ4coí<ÊF2ÍV¶ªJÆ»”õÈÚ¬nåÜnºëPÂ7[:aa1πå5≈8ı‚ú,Ûîu®¢S‰etGFÀb&˚ö-lx¸H‰L·ObåÂ>Ó$bJ]M>–ˆZ
+HèÙπ>Hü(7ÿd
+˚4F“‹ÛäaVzÀvûôä˚ÂﬂwºÑ_ˇK˘¥1≥ôÖ’r6-tSy4!µZ#)ü6ÈV”KKZm¿UÄ9öb√ä´J˘o-*õ ,ù£±Ñ “0$düÆÆ2∆ë}è@su¥Òå”Îs˜yyâ"7µª*≤€úÔ'G™bÿAüë'>Üæäó/˘s˚^Z`æ§˘DÆbá
+Y"˛íÒÜ¢1ÉãÜ∫∂≈‰·õÆur¯A¯ﬁ?›≥¡ B°˛.g\•n2i"í+]F0∏Ü„ÄªCvÕ95∏b¿e#bS¸çyÃáF9‹€ÿg§¶H4€?Ù_˚◊ˇﬂdÎ≈›_∏;Ÿwpª˚ì A6DY3z≠Ïb€)π˚pOˇA‹1~“Uú'‹ë>¥∑ÕY‚`ñ˙`añFx,·ìXû˙êÿ±„ØÿâùHD“£âËAzh OÏ3§ètßå©Û^Ù∫Ú…{}ﬂt†Ü≥ÀÂJâÑhU#¿Åµ@F`0B	° H ÔÌ¡æªåxAÉã<[Jâµˆ≤AÃÌ“#&b≠hóØîxÕy‡Mπòa∫ ï<Fµuê°cµ¨∑(ÛmFF9Ã ΩIy}‚µEY|Ω1ÄΩ∏$ÈøxKÊÉÑ≤7ÜQíq∞r¶Î∞˛0Òû˝Á~ÅZ˝Ûpÿ¯™['∏F”@|∂÷~%¶◊ÆÀ’hûƒ0eAÙú,èSô‘∏€∞"˝lË¨!¬IíˆPÆ$"úªögf◊ı`åãyµ´∫ˆMHøÙ;πˆ©¿ºxìZG‚UYO}Dı‹⁄Ù&pWd9∫¨hﬂ4§$ã–-÷-"N£ÍP\w›Ç‚§»ÇÚN´úH<uÚ)Ïåm{7âeoszÅIÎ…âªê≈lÿcÔﬁÌl°Ñqy ©…w°ﬁv|É±ùÙ∆`/ïó/∫˛B´) ÃÑ3≈£Óïnä†ˆw5Õ:ËX¨˜ë±∏ÖM√DbÜTFOçãÁ#÷ËKDè(°Úì\êı:Í——ë“ÅUËaêÙ36á∞ŸZzÒï¯õk"Y‰´ØfΩáËÉù`Ã*hßì
+OEtΩ`\∏å5åÖjÒÎ6∆à°!ëk&‡{µp– ÜÂ°À
+3#L÷@{Å0qÉ.¬≈¿≈ª![∂?ü,∂æ
+[ÁÔG_é[Í˜≥)~/-è?_H⁄∞VHñ’"\'Ã/`Ω6≈ùzN9!pÊ _igÿ•M¿m „ãS†’+Ê,	œ2∫ó«≈úﬁA≥nHÀÉóNZI§!¢7	p˘`q‰_
+›h-ó#ò◊{(»{ñ&Î≈Eå55'Ü¨¿$©ZD2ﬁv –sºMCªògAõ8π0ù@AÓä? Vß…¡ë|mÀ—…}éŸ¨iÚ£ób.Ì¨èk,@∫‹oº'k-Pà}∑Ão¬—Ø¥Lí∏û#4éÁï@ƒ4‹#É#Ω5Û3´“ØhªJ˙<4ÅYì—≤W·u¸´¿ﬁ¥Q”†nÍ‰wR˚”,⁄˛7Ê‹ò´ÚR+Á‡\¸”/€+zÂM¬OÛ\Ìa|ŸŒ}*,{çº+nJRÆ‡róºb5ëYZ~˙Ï˘ã∆ºæÜ∞v€B*‡æ∑,â˘üP€π“˚òo_Z´gª≥~Ä†å-(I·gñÏá∑¬∆˙W¡b$≈)±`˙w˝¢„a!Nì˘ëSåî3òä#9'≤$úŸEk…ç ¬Æ<]´¶Ì"iZ+q¨®	<≠®á+öÚ0èMd»)ßœdy¢*Yè	,' LC!’∂∑V˚È≈%˜ù~10G/+‹Â∆≥Ï3Û_›Fêïòc´Ç<•¥xÖ≈ì“,–§ËÓé˜’À
+HD1Qç*∂∫í>Í˚GÓ–ol¸+J5M}Éù<—3^kÃ ÄÛ
+^ Àß¿â≤åp<*∫%õ\gÄÈO$Ödg¯Adö¢∆:ñ/çäƒbÂ˝>	à÷ÿâƒQ•ÍÊΩY'‚∑aT¨Y]+PC!é&˙@ÆJ2˘ËK(™á6,p6wÁëªY´^ÇÍ™—{º•1Æ6·¶1àO!”qÑGüH|‰_x)óYSbô«ÃL/öy,·9bä_⁄5≈s9â‚	∑ºÇêXS≤ÂEŸn≈UyyÇπ"Fî»>∏®l∫Ï?\@où≤qåÙ√„∆wìÙ#`&∫»ˆiœiÙbn©PrS^Àã∂I\õJ^+‚É—õÁW,∏ß ÿ>$"k£»’íp5Ì_&lWã#º8◊‰…±B§5#ç‡^ç—æ`.Â"…+åsÅQQ D~Ö5„ ¬i¥é‹HêèÀZOd´mñ⁄RΩOm)»ßd™}µáôûùëûÖâVlÛÏ‹Ü\’/Á≠ıRük≠∫6¿Aè8∑∑¿}Êõ§	”¨7_]∑∫™8g≠u[ÉrgÌP8õµ∆¢eÕæHö∑FÕ‹"%√˝…≈ÒnÁäÖ7Ò~Y–«¡◊I´uY∂Çw! *d≥˘f	Î>4Ÿ0–aÉ¥mÚÚHº?ÏaÏy≈à*¨LÃﬁ…Á#:«Ô)!Nå2Cª¯˚Ù˜ÈvãÉ¨™B@;˛=íH<ÛÍΩ.«ÿ¬`L‹√º”‚ˇ	Gs&N≤”ÛÑ[°˘ªâ^·%¢)–#ÃOgyh~AâÄõÌ⁄∫¨ÿÎÚ”Æƒ6äÏ`"HÎê≈π A)◊≤$EõÓÆ\Tˆ¢'|Jnj&˙E¬1ò2l ôe4û/\;Î˝§t≥ﬁØ§êuıØ≥ﬂbPHòóê…7≥ Ûò≤‘`‡ÚG∫¡l‰Ÿ7ØbÓpí…v1∫˚ìfÀÒZ.ìË$s©j*SH‘ﬁmåqà(óëwﬂfùªf)éÉ`Qˆíqy6Œu≈)∆9Ö”∏O Ü•DΩvwÚH|±0?l´â™Ωõ˚|ƒç∆¿Ä‚o¢ë„&]O√ã4'Øÿ6)ÃEdF5v1Û<Na˚C]ÄLyﬂS∆*è™=Í¢Œ¿È˘∏Èyåà`1–d,CS≤2I|¡m"‡öÑw Ì6YﬁË	I…ü,ñΩ‘h§BG:ù√Ê±5I´ï1E„ﬂÔΩÅÎ‡fÇﬂEXè~ò†1S$Å°U‡Í  &K`!·e±0h€X›<¢î©˝Ê7∞h5≤˝ô$˚íùï1%ıç©íî+Rµéhù0JCzòd©cT&x◊±‡M3˝,1t}Ü^≠‰´˘9,yµ“C#Ã˚¯ûÿ\bìπSÂÅ|wÎ›€mFø≥∑sº≥øÁÑÄö)áWﬂ C‰Æ–3[a÷ã≠oí“Î!Ÿ∑4°HEÜäYìë›/üWí¢Ò`ñﬂ6ú¥ K‚5]¢0 rÕ)“ÄY÷ueT+Dp{ŸÔõÚ¢©ÄgûÄã	å∆›d'!ﬂ‘IxçÛÑ¡ë<1∏¸;•«+,ßÖ1C{3lQºÄQ÷T∞Ö2^ELƒGŒ¶ÿ:xi›ÜòLz ∂/Åì9KûÌp'Sì∞N5¸F[¯ÿOPíAvÓ0A∫@z≥æTe∑SÌ~ç¨_îé:JD§Dí⁄û^?˜¥?À°,'ítC{Åê°Á·ë€¢
+fƒ¿{û@ßS^/= Tç<s)Œ;∆ÃÒ¬ÃÖ¸~#‰f9…%$Hòñ›R¬#~u·πÄx7 ûwNìû‚ıH¿{åtÖÖŒ°¸"%ÿWäkEIäÁ∆¡S&TÉP∏ÖBy ∑S`±0∞ùç&£SﬂHœ8råÑÀ¬ÇÙd\PÓè≥$)‘V!ø˚ﬂ{1•©“rCIW<1Æ∏W√·‚kN„Çë
+¥f	¬À–xŸÇóp≈’…”P◊7"ÚÀJŸ2%x¿‚â(ŒCÔ˛%vÂËØÄ„ú8ØË]Å`zÖ#)±”Aé«]_$Ÿ¿ñPvtÁd∞Ä_πÌ’∞‡9a˜2„Óã∞Iû1r~s8bM3À~˘ΩÛ˛®oâ
+Ì§õ>È*dÏ{]•P‚ÀåBHbÀ«aüá~Ï∆”îCµ∏wËò–«•iƒ,„Ë}ãnj, ≥@>Ê<wπœb”∂c®á«î'#™∞æûπS&·ï-¢[Êe>5hTOV±¸ò‹3ápM^ëpög)
+YTÂ3¥5%Iî$VÄÄ€yò	¡Ô¥»$Û";uå"úÚL5ÁUó_$˚˛ë+ôôqhÚ¿´§j…hﬁÃ≥√ØÔìo3NWá»äaò™'5
+Ÿ<ú¿ª?GIX,l æ”˜aW§_…ø&W‹9tﬁ*œ^=
+∞]Vx”NéVÙÏÓ?‚G&mSéÃ†q˜„@dŸª ~‡ÇCÙ±Õ`≈B@›ïPâßÅß˛ªı¬Â7Ò-ÁQ<«#<ÀìúõE†rk®Æ;ú≠!ô†<DGñûÎ‚•nV Z*.©túÎ,"Â∆aõ‰ËÇgŒ¡k=qT2—!ç¨4e∆í'∫í—%‹!õApÓDGéBnöÀÙû√©äEjT¡5(â.FYR˘
+ÂäVÓŒéáI)˜∆aW‰0¯.Ã≥ª!ù÷R˙%ôRjûÖ≤	±X1ï~L4∞’(π“≥ﬁ}†¯≠€÷óp[Nzòÿ8ìÛ0¢»≤¸€˙Í9ã W"n=_\úì9‡Wè∏3ﬁ7<»ª∫ªíA⁄∂}ÇæûÕïÖä·ô(∑Å≥„|A‹…
+ôÅ÷Â¥⁄Bi≤6ZÂ…Ï v∫6Bb<Fön“˘∏6*Ú«ÎG‹ê‰xe´º“∫îr,®YÀsë'√ˇ¥ 3≠%÷ΩX)ü±ã∞ﬂZ*¯+#5÷õÈ∑†È¸ºõ]∑.ìPªlù'vFæz≠ÎKÿÓÖÁZCD'")˝<P7ôü(—Ë[ûhüK√Ì/^§m≤Ÿ¬∆;!™ ‹VZ“‡ß◊aÁ„∞ﬂxOﬁ~\#y‡D}0´3æ»Ê[∆>∆∑k#®3væ®-P†<“qxFùåÌ
+Âjç:i`elÓ∫ué gDÜ≠n|>`˝÷˛t≤¥ÿøyœŒ3¥Œ∫06Ïc#>!•˛¸jÎ:Å≥•÷˚ÃZxF1™Ç∞€ùõw&ƒAé&@¬:ò{≈ÊŒ.Zîî!ø≈ì¡«S`0Ö÷WpPÿ
+õ£WºõgãÏ¡`j…é˘ã≤–ú›±ΩTÎŒ»h¨[‡;fnjM≠.(@ùº Ú Ì-¿iÎ)Cxgk¿œZ 6óL@3
+7m¯™¬JsÓl´ æî≈‚óOı“¥–7],Y7bÂ“ó¿2¿p/¿p	LsÎVòìê¿VáÙnu·Ú© ı(eôpào¢º6Â.·4cmÓ[¡) ¶<‚XrNjçøªCh˝´ˆ≥ˆ2€∆´¿%åV¡√!.L’≈Œ∂æ—;#ÆÀn˛Ëw[œû-∑˜∑fnzmﬂ`—∂{»ﬁ⁄C˘bgéßlzsÔ‡o'µá)™⁄[]Ä]Ú¿öÁµ˚Æ©Ÿ13Í5‘˝+}Ãv°m^5∏˜›>f ¡πuº(Å$ÊMA)Z%TÜ7 ∂. ƒç∞ëBZÉô–0Ö(^õÿ^b4}cì°B^¡j€’⁄‡áöm∏h)v∏„•‚iØ.ÙÔsöóX—[±w≈ˆ ®,|¡ha7iﬁ_,8dq¬Œ?≠l⁄øµ§≤‹£Áã6· ¿«–™äùiV-ï‰Á›¯¿+Ó-rÂ¶zV7O#◊≠Â/ÅÅÇˇ‰Ÿcä¥ñ∞)Zñ?PÚ»…†P@±¥`(D`\ëˇLŒoÂcõ∏êd÷¢∏ÃìÙckq¬(qCª2Ω0.∆ôX“ª`EﬁY++éYÿ¨Õ—r”qò3gN\–%ˇ';√LG-í-'È\%≤,ˇ0ZÌ4„⁄¡c∞3Ãaµ6Z˛rÏ ì\—©˙≠Çl—üˇE<ÄÑÁMúÑÂ…õ≥ö…»„smπâå∆ÁcÜa°Ÿ§T/Ït‚>ÏaÉÖ/å-‡¸˚≤∏åx‹òò\_v≤ ûWÈè™âô6F~3ôºC"ø†4˚åÄu8G˜è_íﬁı—’†~CËO“˜µQ°2È	ù¶h¬∫8ÀﬁT»3ñ&¿	˝U µ
+¶?◊∞›ƒ%ö∏?pƒ˝kÅi¡HÊò±›nSN0!¶≥‘õºZÍZ:±†±ÖK†Àßã°◊Ë¯¡ﬁ◊¸≤‰ëÕh6‹C·ﬁãÎ09õ|LkøãèìH·6'ﬂø|Z(*à!qµ¥ê3â3“ALÂv2àıt*»∫_,‰|¬”≈_-ƒı˛)» œ±˘WDiB˜#Ç˙öˇ–@Zâ_	|WÑ§!,#œ[o¯Õo
+gèCßˇRı⁄¬ó≠˛çB‘U<˘œ)?8Fë~)∑b¡0 <Û_Û˛¬ÑÁ(L(‡ÆMŒïΩ,‚F+òªç+˚ÄÂ‚ˇü∑k[AÜ°ø2˙ {Ò."?`·• `ZŸıÔÕIª≠≠÷+Ëã†µƒ–ûúúƒX`(ä.•)¸S}t®eª…}#†ç]Ω(|AÔEuûœ;Îƒ∂?˙J^Ø≤z≈$Ü6ìp%rKàØ	FÕï™h˜R–ı —z*˝⁄áß=8Æ‡ë√™cCA&AeoíÛísbÆg&=¯ë Ofmw†Uxü¯ÿ[@óWÙ≤„µ=Æ$˙ÍÖ>≈ı†µAáG=
+∂î«≥$o}Œ‹˝p4üíc≥Q™û3∏Á9ËË=ñ3E±¿1™!Ÿhx|ª‹â$≈ff≠¢Aí¿õ˝…ä$˛πjµàg,÷[Ÿ∞S …”åvÚ$jΩåè“éæß(√@Ü>µ˘‚"◊"—@4YÏ—†R™!g∂Bõ∫Ò∏un¬¨$IKﬂñ\1œÚÍ“åÄA%3≤´D‹   ˇˇÏ]Õr…qæ˚)ä∞dB¿‡üªÇ@RXªbò !Ç§l3ªçô¬†wg∫gª{ pàÿ=ÄÏ–¡±Ö:8BG·M¸zgf˝tı_Uı`Üƒ“Ï3›’ıõïôıÂóÔAl)œ»«%∑¥G†Fp…Ì≤pNÿNÜi{#bÎ≈£GÃ7ˇI†±›„âMûòõà∑îh1V>R}Á ‘»˝5©&g›k¢Â8·+rç0ôò@Cıp›¸	O«å+\) ˘Œπ¿∫!˘®6K˙·‰°üPÛoXìk KÀæSj∂ƒî≥UˆÇ“ã¥ƒ∑<Æ£Œb>ç ˝á=¡MòÄV=æ˘ëÄΩdQ±N˛çßs{â\&LwÇÒÖ"a2xB‡/ô9!Q)ÅÉzôdjï}‘Ø®ÏÕﬁ∂›£≥8‚d£ÒBù3+†ÙR-“!s1≥ÃµÈ9/‰¨…ıynsÜîéÂ{çó?Éâ¡ìó;(≈S™ßÂ
+ÍÁ5‰y~÷∫‹°ºõ…Äg]*Àø≤
+E>e]’„Ó™Í§§”÷TƒI◊‘SÊä˘5»".Nº1Úª{íî++´ù5qÀ”VìVIßíTº¶ﬁŒ˙bQÓÍRb’©;U·wkÍ∑wŒ#îˆáˇE7\f—_ˇ¬6>ˇå˝Ôø˛ûâ§œ7?éËØ£ΩJoÀ¥GÆÚ∫VZaH⁄¥—§X\667eQ/∞”∏aÛ-˚Âw-±‚–î.Å@S∫&Ï0ÚìÒjöuØj˜b%—˝G K√˝'Aó˘ÆdÄaj’Ï ú	ß úlÅ∆©€∫wß≈,7t≥∆∑Ÿ≈Ÿ([Y7ùeÙ$6qäx¡˜≈{PÎ`häÅ>z¸zYÈ¡ˆùıñà´Ωû"¥PSÔ≤ΩDËk∏£'ÔàÇ§~ÁnRæÆÓI^ …%_í‰l˙&(0«7ÆP@~Ä˘|I›0€__œ¶3£›˙’—4ï,4WX	Åöp\ÏK¥Ô/πAj.I RÙ<{ııìóá«Tº˜ÍÈÀÓiıe⁄bE∫@„Tb<¨/5=ñ1_L?%Vìé≥îQ@ü7\ÿUvåÄ∆Ú›éCÑ~(DÌ∑≈—c∏ëbâ«ƒ° ¸ıIø£z…ÒRQ⁄s∞≥ı1ßå– Ì$OèÛXÀà«˙yÀhÀ´˙À8»ãÿ.F•VbƒzÂ;séh*lW°un_wSòöl»d§	3M&‹é˙O@ ]v∆î$XMΩrm=ZÆ_ë≈/X˘Öù™+É©=*ﬂC´§ó∂®kr#e~Ò∑-}ÉIi(…“M«∞±pUÕe∂Ó◊4ÛYj–2[[fT¥_≤›Xé˚˛kè2ÎV©AK⁄\∂c˘y{ÈjÚJ1⁄/¥Æ
+ÊB9)A%_Æl±±·Å≥ÎDÏ_ù ˚^9D¡UE€äFﬂ§rn	Ô¢ª¿{ÙyòÜ ]Õ∂e	ˆÏÚœÂÅ€˝*	«ØyÇ.°ÙÍ≠ﬂo%n†M∑wØ‚‹SjDÌ±~±≤m†aÆ`áfø`Î◊>^Ω:_¢Äp(Ôaù¢à/Å›˝Qól,/j7Ù|ßxÆ8…&ÒFﬁ¥es˜ØŒô¢ﬂ|aÈ⁄; –'>¢Cú.ÙŒxÔªì¯“ÿãoFÛ…ú™p
+”Ú [Ïı`ˇRøÍ¸ˆµ˚åJh?^f≤“;LÆ≤Qƒ∆7^ÚAáL√ê1g¡<0±sœ£K›ûÒ¶Â#‡.t›-sé-ì˚Å«–éÏî$∆˜Íü˜@˘âó|ó¬*≠Îm.xÛfs›0>ñÎBÀéÄ|F’Ü7?7∆î≤ÿÎ3π©=_ÿŒ]ûs6!RÔ>Wè7vˇLÌÎΩÓ∆m£yM/Ω•âm òﬂz'·ÑY§@wo.√ùupÒkAïêp/´hﬂeÌ]s‹ XŒY‡^åæ˘Süæñ±ÙKÕ(∂y:ÖE;ÓüÁ3ÓÀ8›∆∞Ö~˘˙Âﬁ∑5kZ&ÈëŸÉ≥U:Æ6ıú∫ØßµMè ≥qé&jMΩ?Y©ïG?b+µn·~2Tk.«
+ˇd´ ˛h´:Ì‘ÄÀ∫≥fhù5Ÿºk}2*-F•á…¯1[åÖYSk4ÔpÿçÖõ-¶£aO9-«∫ﬂjŒ›*‹&-}Mvúü0√“ÉiÓé$H¡5-ÒH-™ëá§±Â÷p≈È£.7k¢.±Ïà¸^8¨[ö^±]‡•g∞‹’È$ä¯0%{Z√ãTyè/-/2O›vct˙ò–˛óTµŒ©áÿVeÃ…ñ∆ ·´Q•Ñ∫≠™áä±YZ†ßR…+aX§:™æ⁄™ßW™®±9•S>õÓWàó÷›˚î´[›õXq˙◊ƒ¢ïΩ‘Â`˜:Ù7Œ`4;‹U7≈÷ñ)„’XuYca¢Òﬂln‡íØ≥2∂ôü©ƒ<Éyr∂bÿ(4;9¶{uCŒ˝ç3÷ŸKˇó`¨–‰kˆ V'|˙l´~bò€ÅäàyÅTnä&õÌié»ˇV;Ÿ[qXV‡Ÿ/cäå<Ù%ÎHÒbÇ∞ÙÊ?MeÄ∂çd™â™EÅJóHÍfÕ"JãÛá˜âÆ≥3ÿ ‹5#>Œ@M	Pù<õ0w6ı‘!Isáè–›-5‚x2D-á¬⁄†´∫v:ıBílÂÕé†˙v∏8
+≥8AMÀ©¨Œ?Ú¥=˘UÅä∞Öˆµ^«2–V˝Úä$±@¿´bg≈ŒFYÏº˘˚Õçì^–ãb«…© fázƒ*˜~õ^äù-◊%®≠Úh∂öıÛè`<˘'Îπä'Ç¨‚sŒ(ü∫aîÄ¶ñxhEFkiπÿÃıË"o5˙Hù«·Â?Úw|Û›PÖ5†÷D¶å§xÀò¨ã√HÚeï≠,û ï¯9Çy@GJÅE¬5ÆœÓ∂uÊV|8m¥ˇ˚ke˛Çìa‹˚ˆßP§%†~sõÂªB€¥	ÔB∑ø|7∂ªi£ÇœWF∆V^•…˙zkﬂÏf1ÚL¨‘”∏7Iw‚I6#.∞ﬂ‚´íbm˜Ÿÿù1ëÛÀN\ËçOJ˙†srwU<–™–h¸≠≠Tò‰”ÀE‡Gcπ"2döí’Ç≥˛Rﬁ2MÒ¥jcZ¥ÕùBÎ{OØoè˜ÄrAk≈rã±HƒÊÆZZ∑ØóJ∑“u‘†’œ°ÚîB†àÄ£A`•†à˛b{”x±õNÒhÊùŸ.z<…D>)π#8îÃ∆µiﬂLkHMcˆè¯iÿâgŸîÊÍXjv©n‹8uËÕA‘´ªy69	¢Ôñ˝N’MÇ4vª›BU·G·é©+∑Oqíò”åb k∞fé^¬;ºk‡v°6TºŒ[
+Ôû“Üg*ÿí2≈ãU#SÁ6=¸ﬁBy∫Qkk OIπkÔ‰m‰Åõ.⁄∂≠Qpk´¿ﬂ,0,J√¿∞
+≠ÜÌÓ~ÇÈà≠€√>p8%¬lM<√
+»á}§“≠h’›j*¯Ÿ
+
+Äı˝ëUÒ∏±,3ÿbû˝˛Nö«©h√úOVF(õÑÒGRU8¡&≈ñÀÕqµ˜ÙÈ◊G{ˇ|xÏÂ◊á/Û¸Ò1˘¨G.hãä9àë˜∆≈ß£‡ˆÀ!œŒ‚~⁄£ﬁpV«	7ÒWy˙……MÓØ*{…≥x0ÚBd˚:>®©∂ﬁÚÖz/9å"-x:0áq¥Æ|qú›⁄õû\≈}æ∫^Ò†Î›D}±È°ØØïéd§›ºßiõ…/Gª©7äãÖÄÎài8É™€G˝RØ€¸ºÀ∂~´È¥*Å4⁄ÎŒÆÚ7!/«>∫+@H%âq¥±j„Áê„ÊaS9'ã¶7›Ø\‰∞IõÛ:9˜9õò«πx•Æ Êº5;ØßÓéJW®ÆEª´Ÿó?©wÕÍ›	ÿÌt;z¬≠ÿCÃ`F˛OM±{\™˘ìÙ@≈í™’~rÛ#®™q3—£™åèz˜¨dÃz≈2xÎ¸|	ÏˇFû1Zí1ÂC◊ ÚÀD7}:∫’â2JÄ~ˆc∑øx>˙›fë<r´®Ó›w™{=≠˘…π:Åj§pH2RŒºÎíòj·vƒf¯9ÉY≥?ÿœ’‡.7Ê“©UE˜ÊÀúl‹G_¢KµË®–ﬁ	·QÛ‚Û √hÇû0]öÒÒÉx°«Ω`–<∏ZÛ®Ét√úvO9?ÇQÄ.ı#7."E⁄˘}sévä„¥Ãä·MD¬º5Üæ*ÏÑ≤èß%)≤ˆ¶ˇ≤HıyÕ5µáÙ®o∞q¢ÚãDê¯òê ÃÖ‰l|Ì‚öÇå.8I„·…¸±^hIƒ„ïı’∂B&µ˛}a*T…>v:˚ÔM„iK0•QÛ‰¸tÇ ≈O)–ﬁÔè’›ÉZeÉïˇ˜ÒÕè'†ÃDxŸ§|?° ±·Âµ 7˝æz˝º7˛QpπrÎÌ>.8ˇÈ5∑çx>€∞`=™ŒMx⁄-x^p´Ì◊Ûı‹zÂ∆€Á'z«Ù›Î‚WÀÈÃc√˝∂[◊f{∂Zá$w ©ŸxJ
+˙ú∑ßƒuˇùÒë®äZº#⁄∏ï˚ÿ‘ÆÁó%L]T◊îŒ∑ÓæU¬gùÂy≥Vπ¬) ùı*Ö›@«÷"òÇÓo»,,/ÇÒ*F˛ Ø¶à∏Ùò~M!fë§±Ë€fjër
+ﬂfW*Ãq#˜ñö‘ïµVxw/I‚ãßDhÆ#W≤◊Òtÿ∞aÊó»eõsLx<mò¿VV¯Z]Zr§£˙U¬œ6pe≥X¨SP7¥ÜZN4P÷IK:Î¬√=ô`›XMv›‘]Mu¡öôå¥◊
+=RÖÜC+#M„KlíÔDpA‘;ÌÆKÔÊÇT¥ùLÅl\»⁄}öÁó'†≤îÌA˘é–Q ˚ÿO˙≥;úaÒÈY|±7‰I÷˘FîC‹„0$“F˘YµwÔ}c-”πÌ!k@∫/¢¨MK2]—ñbaw‘≤(üı0eêi∞ñR#»ÌT≤R˘≠^V}Ê‡/ä*—˝	√MÍ{dUõ\Û¥sú.M´µÇ˚näƒ?„<1øÑ√¨‘CûÂH1úkºèØºÆUÍÙÔ∑$ª∆©ΩGíßÙÓ&Î‚Ào…aÕ£≥¿|π
+8”J9ÇæøÄg´ã∫«ÅÉﬁC~W§ﬁIÈÌ)—…ÛoÉ§Ò‹fj∏√ÏÌÊıôf•Ã0F‚∂á†xb J¯+á°-—œM∫+ˆ˙ãÿ¢ﬁ…;–˚ü´Üc!£ì√b‹∏Åâ∆ñX¿%òVÑ’d,¡-™kŸ˜J¿\ÑÅ*a≤ªÅ∑•Bú≤≤.<¸J|†@ﬂÔ'·ÿ+\ÆO∆£æ(lO}Dπ”.<êÕe6¶Zx¯¶-Ò'ì!ÑŸÜ:Gè_/µ.ÓkÂ,<|-?±ÉÀìµ.
+VM8àùX~“πZóÀÊ˙Ñ(ıSZrmª-FÖ2à10ÜTKÿ‡:RÛKcAwÛ∂:N“Qﬁ
+®≥O]êmcaªQ’≈Å◊vdw)¢µ-˝A
+“m"∑q–{°ÂHqÜÜlˇ≈aóÌ≈ò6~>B‘v7	N∞≠”Aåœ¬^ä)ñ¥3Ñ˘9Üˆ√Ñg2õﬂ™hPÃ”Æ•W˜=ÓQ◊0Äû*gÎëíçøå¡åQ|ïyöâÉc„	êxâ°êòáîˆèÍ1¨±Ÿµ‰∫¥(Á38—¯‘IÓ+)öï‚nΩcﬁúŸúÑÌwCÊé∆úMjßäqt±Ú;ÉÂàŒnªd¬+-∫Hù„<≤…ôt÷ΩN…º Z≈x`^?®?m…ıi‘ñé_L}¡∞fŸ&Ô·Õü˚ì°+pX÷…}ÙR4p˜fsD¥lD
+ªXﬂ´lÉá·Tƒ§%iÈS⁄ ) up«|”∞2/™ØŸ⁄‡Ç‚˝√˙õÀa Iûv\Ò‚UÀ≈µ√˘ﬁ:™ŒúÙÜ∑ ¿ÅVñÀöà+kt√Ù’∑∂Ì¯Œ=‰l#/U?!”%/*πS+]≤çÚ‘F`UÈtó+(Œm.è›‹5älNç°≤ıq‹™`·™øëáV´«Y]v∆Éæcdâk%C1Sû˜U9XÙúX_x®ÖIvˆa™P¶æÊ…]©
+…∫ªR!pÔLmÑ‘wWÓ∞Œl,¡±:v≥ì∏ˇŒ˛ö´√Áè_==@BŸ'œûº|Ú¸ôúËå‚æﬂ©†Ä>aÏDΩ–Öu√˛[åªïë_Ï∞”`òÚeP$9»˝'†ˇËÉ‚´c◊.ŒIEä±PóŒi»á˝ƒ¸≈ßL‘i?ôÙÛzyÚπZ6≥6‰©¢z2”Ω‰5}?ìø] ”0 ÖxÒdeñŸÍ´∑;Ïû¸J~·WˆÍ*;&ølû∏ó-º¶ıÀ&∞´};!$lƒPÌ–ï! ï8UVπPä0»v Ànß/‚r≈:
+√ªéå∫{≤â]¸f…è’VuKWÙ9ÙuÏØÙ˜XΩÍ∑bÙ˜oÚ·î·CÇ∑¶»2SìdGü«®∏)ZùÖx2·{∞U¢ä÷#jﬂ¨u◊6≠\Fy˝ÛçR√∫€%É•dh-mÂràÅP™ë9‘q]uﬁàô¥Ã≈\¿O8˙¯øÔ≈∑,H≈rZ¿c1ù‘hF„ü3˚ä‚z*ç’!;∆ló5¡˘æ†ù`£˝br®ﬁÏütMAJóÊΩw∑)Vº∏6È ·¢˘˜äãÀ§ïÓ_¢·«5bÂƒ(˙ëÄäÜ˘0Åñ”j´÷ËT‘k˘wÚﬁ(Œ–_æo7˚∞â2“ºVÅ“ÿ•ùP9v”›§_`W^‡Ï∑9ü}Õ›ó‰ˆ›_œÜõ{ÀÈËôóóáWI-√ƒöDÇt¨|(.GOk/œaê`VZM∏é¿	¥›s CÑ˛ŸÈçÑí Ï‡}õ°ã¶i8®„⁄8Ø`Ω='wº∏Èƒ„Ã©A´Í=!—¥â281b™°§˜U-^Ètﬁ˛/÷∫Å™∞∫g¸TUmä`ˇI∞OC<ÈÌd¥ß—>){’É´ˇöq4$¶Ø¡≠¨äóæıy©K?ùuîzßï˚©ÃËıMÉ„µ1ëÅL°µôvòùÖ˝>è NAü vµ4<:øUåª`¢˜)V¿k∞"∑öôd∑jÉ‡◊◊* ¿9G≈_Â=Á‚^¢´«å¯ÂMâfﬁd+◊≤a€^[íc∫âtkíÿ®r—√§¿’t*	Ç='Œ≈Ë°^ÛÓfÿ6¶wb }aå±•T%åêﬁ"Ω˜¬„-‰î⁄ﬂU›Ê¥8é”≈%€$õ±“XS‚ºè	'…x»ãö£¯Íˆä„Êù?$,&@õ√¡`Ueú2ŸôH8^ PÔst˝œ˚¥p∂å=t]Ωq	yˆw¿‡«>Y\@:¯ªÿYãÏ⁄µœ rŒ†ScÏS£¨º£Ÿ?∞ΩûdAÍ_"Ccî'ã≠≤£$ÓO≤∏Ei)&≥Î¡yq:øù)q" Örå‰x˛%ıT=£ ùXØE'—ôGøPLûîØEudÚ>≥6Í+W!o˝mºöÏñ£˛yk”/_™_÷ å¡´ç)ÉWksØ)LºrP´ËﬁŸY6xµ∞n¨ïô∆»°˜˚ú¯‹‘6â´M~VÅ-?èR¯çññP…’i™ßNe÷'m3l%œëîÊí°‹‰÷í˛í˘[,Í˙0ˆ^ûYØsé‹FÙz§◊`∑ÛˆNÎÛ*á	ÍG>yqÎïÒ≠;Ï≈5±z$!I+sxÚ¡®spÊ ò4©ôÀ7rÜùîë ãb™M ëÛ5äQlNQˇÊóº7!ê…›Ï:]πNGo.|5µ7wØ'
+“Zˆæ∫‚ï?YáÆÏ¬ZÕ'¿/“|d«Œ…ß[ÆDÆÒà˜ﬁ]∑ÆxìâŸ?#ˇÓùÁÔ»pÈŒŸÉ[CkÍÌFﬁSˇm›òkØhO6´∆÷á4µBZÀ°ÍÏ`∑6WÙÉWV1Ñ„;˛ª∞üù=∏"æ$ß/⁄áT’Àagsk;¢ 5ø
+û6ﬁÏ∂˛lúÙÆä'ﬂÏÌ…ˆÍ∂ªÊÓnåuﬂB=˘Ûˆz≤ù ¬w˜ı°≥h~G©=†çAs6 T!s∆Ã$ê<üË-„öÁ∆~!{g“8q 3úúá≈ ≈N56¶‹‘„”î¯rÒ˛s0ïu8i[L5vç´ª·á%ÿi⁄0”4Ò_M(\ˆJ	–‚ ¨ ˙‹®O|iƒ3oR<Û}ˇLò.µ å“d†:®˚.:≤ÊR%~ûÜj˛ºJtnÃÌbÄ‡“Ù≈¥áA :íÚø'€j»£Avfã¬∑:Ëù°≠ıfÚo'|Ñv/Êæƒ¿]"
+	q  ÕÁ!{r¥,Lœ0.∂T
+}iRÇq_ÜDNà	åp[ç#ÃÇöˆ(ŒDƒ(íÄµ—”[Y“L”Eï˙é∞≥k¥M÷™8∆DyåGgìQ†)S–d¿ÿﬁî›¸eòÖ#¯ÄJF·)ê+S√¢5Í5]
+Á∫˛@É?ıÑ,Áº…i€Ìéå%øò!ﬁv)°€ñAÎ‡Z/Ëxµõ†˚W.VÏq⁄≈j«øNzÄíòvQH>º2[ﬂQUP∑†“Oévv¸¯ö˝ıSüüáΩv/Éßp5RL>q„Ø{LéãÃÜèRΩ∞4Ì€Ò∑?¸˛ﬂÃä¥jÄ?,ﬁ $*_Ù¨<4b®7Œ∂ufÔ∂‡ı∑?¸˚≥›†Õ#åù%¸Ù¡’7gY6NwVW/..∫É89r¨¬äN}ˇ‡g’¿ˆ_/◊˛ÆøÒGº”%¯M,|∫WÙù ]	≤‡Dq<Ê»P≈–"û$^tﬂÊeå	JåIuAΩT”Ê’j{Mm`–Û≠Frw5hı¢´E\˘A&"…aﬂ]ºæJÉSN©*≤NuXeê–^Ü!+˝’√CˆõﬂÏåFã-Çlï´’Í87Ñ¸ÄJıùÖË©K®¯,Œße‰´£c¡≈Å!Œ	vj@‰ «˛‹z äaá¸ }ﬂˆ‘!G©“˜ÿjxÃ£Px≠ Û‚¡˚ÍÏÑ”8Ñ∆ß©`%åOPè	 ˙+Í∫¨É3'å˙a:é%âak•◊ö%m˙≥∑G{æFlç¢T>Qq0ÂíÉR∂óa¥)√ år)±˙.-*º€‚óÇI‹Íuå∫aWzˆQEÆ‹b˛¯„o‘UrW	ø»˛˝Vì ù‘'ÌöyÂÅoâ(
+åTU)51ıÑ˛®´Elªé^Ôn»/*ßçä˜F¶®ƒæm◊•¿∞Óøk∑ŸIwÉÒQ)õ|›ñ;†Êrå“&Åπl∞&£ÇPÿy,åHï z¢.‘Â=∑⁄ŒÔ⁄Ÿ˝8DìxiR∂ùﬂ3ôâIúÚ¬4§/∂Ã9®oqüµ®ÀN<V^åFül˘j7™æ¢’Ô>WTß´+~«sè¢˝ˆÊGcªÖqbHäj<ø˘ØòÓÌ#$Z;í–[ëõEÁºæ‡'D‡ÑDCi'C‹¢jåªàùÛ†'-˜cPtÇs>dœ]vª∏º6˘·`rÛ„àÄ˙÷!ïì†ˆÛÅE¥µv,-√Ó/„~Z7≈-ú·elÛÛÃ  tw»¶ßŒÜr»G'âÄ’(b«[MóΩïDŸ9ëíà¢Û0O¬°úítökÿœXêNÕ=ØÛØ'È>±∆˝`¯ÃÁNñ’´ÔIãìk˘Éüø§|x*Ò0ëÈ/†:5≥e^'iëÜyØˆ†j∞Ï˜≤dfÓ7ë0{ù‹x-lL·õ˝Ωt`ì>a$ ]nI¿π$Ÿ¿>åíúL∫Úƒ>?RÆÛGèÿgÕ'”≤ Å™$QEfYÎkÆ¬¬fI0L© §Ô¶„aòuŸ¢†›à∞m—õµ∑K›oa
+t·˚tríf`<:kÀlc©õ≈ØpRÓ√§ÏX÷¨Mì©√K”"±:Èy‘Û¿vÍ‹+ˇ
+&˝HÜ«(Ó}∑ÇC±ˆ-Øm¸¡G≥«∫üìÀ~B.{Î}≠ 88’z~≥Ò9ÓÒ:Ì∞>æk <OP[‹Ô {Z·dakÕâ·1«¯ëÜ„‰DÛÖ¸e€U»Œ6+†™\Z•UÂrÑFôUı∞`Ì·≠k2ºµÿ¬≤hÕ)À ‚˝çt3c∑ö'C#)Õp‡a¡À≥3:ˆtBl‹@áñ€ÍÑ≠YËlîw™ºAÙ1|i%ãWNvöƒ£‚ûÎ?ÔØ˘&”´ﬂ£kZß#s˚Uÿ8COsé›ï“3Éî’ùoÆ{‘§ÑIØ◊KÒ„	Œﬁ2“k¢2áx˙yÈó —:ΩÉSv/«öØß¥w‚YY‰AP‡Ît¯r∂jAçË…1Ï;ë∏Ï°Ë–ÑÅÍ˜≤t°wà8ˆ÷≈Y^Æí›UjîWƒÀƒ«R*æÆÀöù≤≥ó√zä1jÑßˇ¿ª{ºü|÷∞≤Y'÷˜îÒDı@D 9¬*Å»t†	Ê)vÍ°¶ø,nñµôÍ(C%Êï‚—_+.°©aØ’⁄,
+â,¬T˛Ø—(˛%ô≈3Éºﬁ…˛ïˇëaœµèªà˙Dát:ÃZ‹~U5Ñ±·™⁄úÜ¥Bºƒ”ø‹.πÏAmA¡ÑûxHØ*Ú‘©M…-ˆù{Y	—€h8ÿ,£úÍ¬9™«&E7ZPÏÁp)Ö‚
+◊N⁄Ü®*≠/π˙›cAÛOD“ÂHŸvC5˛~ùÜWÁÚü˚˙ÕﬂÀ‰Ûå®*gfõ¯––≥yV6ÇGÑ∂<WπƒÅ4R™Ô∞ü)’’ûïM\!ÊE“’≠∫…Ô¢7&≥ë±≠	!Ø!vÆYö◊ Ë¡,ÃÜ–&ïeM⁄ú3ò˛ÂDn3ö«U‰5yó*BIñV0Q.~í˘Úayﬁí9Be≠∑ºˆöã¶.^w‰WR–?‡‘SP%˝P˛e˜£^∆›À$Hœ6⁄L≈Å˝∑;7t›–(πö¬ùZáC‘ú¨Ì“IJù7(LÒ|Â¡UX>r©u£‚TáÈe=™!v˙≥9)ˆE™%êLœ0Ûí>{àbˆÇècò≥HPT3Wj{°eîáO◊ï;<œ=e˛'ë
+SG…ºT…5?	¢e¡Èx˚%¸ä‰Kúqäô«ÁNÉ`âÖxz®Á{ÒèÖE∫F.s åTX\Û!´%”$,ÔÁô¨äâ.wÿa Õb«·<–#~ÒJAºk”1>ÀoNÈJKY®ŸkıkNÿD˚ñÎf…[˘Ã∏c ⁄5§≠À¸ì• JFïo≤√°[◊76∑∂Ô/ï´mœr˘¨xìwÂΩ€>tﬁJúäØ4Œr&9,eßNôƒÚY˛Ùl≤XnTY,YÁeú√ˆI?e≥¸îÕrfŸ,ç%>Øtñ¥’€]s3IjYø√ïÌW¶¬L∏
+Y™‰ùƒÿ√j¢Ã ö:,Î‰È3óöÛgŒ7Ye1ÊﬁÇœzÿ"ã¬*Æ⁄0ÓÕñ!ˆı$ÜÅW2◊>Ó8z1∏∫ßÍ˜ô¬∑ö« ?/ûuê|…‘ôjl⁄Üª´4ÁÀ?‘‹mÆÛ›’Øp@£”…Tå'ÙG0kØıw˜   ˇˇ dõâÙ

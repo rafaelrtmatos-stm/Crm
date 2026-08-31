@@ -1089,7 +1089,7 @@ export const MateriasPrimasModule: React.FC<MateriasPrimasModuleProps> = ({ curr
                             ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' 
                             : 'bg-white/5 text-white/90 border border-white/10'
                         }`}>
-                          {item.quantidadeEstoque ?? 0} {item.unit === 'm' ? 'bobina(s)' : item.unit}
+                          {item.tipoCalculoCusto === 'bobina' ? `${item.quantidadeEstoque ?? 0} bobina(s)` : `${item.quantidadeEstoque ?? 0} ${item.unit || 'm'}`}
                         </span>
                       </td>
 

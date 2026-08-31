@@ -109,10 +109,25 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
           materiasPrimas: p.materias_primas || p.materiasPrimas || []
         };
       });
-      setProducts(mapped);
+      if (mapped.length > 0) {
+        setProducts(mapped);
+        try { localStorage.setItem('inventory_items_cache', JSON.stringify(mapped)); } catch (_) {}
+      } else {
+        const cached = localStorage.getItem('inventory_items_cache');
+        if (cached) {
+          try { setProducts(JSON.parse(cached)); } catch (_) {}
+        } else {
+          setProducts([]);
+        }
+      }
     } catch (err) {
-      console.error('Erro ao buscar produtos:', err);
-      setProducts([]);
+      console.warn('Erro ao buscar produtos, recuperando cache local:', err);
+      const cached = localStorage.getItem('inventory_items_cache');
+      if (cached) {
+        try { setProducts(JSON.parse(cached)); } catch (_) {}
+      } else {
+        setProducts([]);
+      }
     } finally {
       setLoading(false);
     }
