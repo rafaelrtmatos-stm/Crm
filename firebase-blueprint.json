@@ -275,6 +275,28 @@
         "price": { "type": "number" }
       }
     },
+    "Maquina": {
+      "title": "Máquina",
+      "description": "Cadastro e custos operacionais das máquinas",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "nome": { "type": "string" },
+        "ativa": { "type": "boolean" },
+        "valorMaquina": { "type": "number" },
+        "vidaUtilAnos": { "type": "number" },
+        "horasUsoMes": { "type": "number" },
+        "manutencaoAnual": { "type": "number" },
+        "potenciaKw": { "type": "number" },
+        "velocidadeProducaoM2H": { "type": "number" },
+        "tintaQuantidadeMl": { "type": "number" },
+        "tintaValor": { "type": "number" },
+        "tintaConsumoMlM2": { "type": "number" },
+        "cabecaValor": { "type": "number" },
+        "cabecaVidaUtilHoras": { "type": "number" },
+        "tarifaKwh": { "type": "number" }
+      }
+    },
     "POSSale": {
       "title": "Venda PDV",
       "description": "Vendas de balcão",
@@ -364,6 +386,7 @@
     "real_estate_sales": { "schema": "RealEstateSale", "description": "Vendas realizadas" },
     "real_estate_installments": { "schema": "RealEstateInstallment", "description": "Financeiro de vendas" },
     "inventory_items": { "schema": "InventoryItem", "description": "Catálogo de produtos" },
+    "maquinas": { "schema": "Maquina", "description": "Cadastro e custos operacionais de máquinas" },
     "pos_sales": { "schema": "POSSale", "description": "Vendas de caixa" },
     "printing_services": { "schema": "PrintingService", "description": "Produção gráfica" },
     "payments": { "schema": "Payment", "description": "Transações financeiras" },

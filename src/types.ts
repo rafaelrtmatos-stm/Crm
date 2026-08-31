@@ -687,3 +687,104 @@ export interface Contrato {
   updatedAt?: string;
   deletedAt?: string;
 }
+
+export interface Maquina {
+  id: string;
+  companyId?: string;
+  nome: string;
+  ativa: boolean;
+  tipo?: 'impressao' | 'corte' | 'laser' | 'router' | 'prensa' | 'acabamento' | 'outra';
+
+  // DADOS DA MÁQUINA
+  valorMaquina: number; // R$
+  vidaUtilAnos: number; // Anos
+  horasUsoMes: number; // Horas de uso por mês
+  manutencaoAnual: number; // R$ Manutenção anual
+  potenciaKw: number; // Potência em kW
+  velocidadeProducaoM2H: number; // Velocidade de produção em m²/h
+
+  // TINTA
+  tintaQuantidadeMl: number; // Quantidade do frasco/galão de tinta (ml)
+  tintaValor: number; // Valor da tinta (R$)
+  tintaConsumoMlM2: number; // Consumo de tinta (ml/m²)
+
+  // CABEÇA DE IMPRESSÃO
+  cabecaValor: number; // Valor da cabeça de impressão (R$)
+  cabecaVidaUtilHoras: number; // Vida útil da cabeça (horas)
+
+  tarifaKwh?: number; // Tarifa de energia (R$/kWh, opcional)
+  observacoes?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface MaquinaCalculos {
+  depreciacaoHora: number;
+  manutencaoHora: number;
+  cabecaHora: number;
+  energiaHora: number;
+  custoTintaM2: number;
+  custoTotalMaquinaHora: number;
+  custoTotalMaquinaM2: number;
+  tempoProduzir1M2Minutos: number;
+  tempoProduzir1M2Horas: number;
+}
+
+export function calcularCustosMaquina(maquina: Partial<Maquina>, tarifaKwh = 0.98): MaquinaCalculos {
+  const valorMaquina = Number(maquina.valorMaquina) || 0;
+  const vidaUtilAnos = Number(maquina.vidaUtilAnos) || 0;
+  const horasUsoMes = Number(maquina.horasUsoMes) || 0;
+  const manutencaoAnual = Number(maquina.manutencaoAnual) || 0;
+  const potenciaKw = Number(maquina.potenciaKw) || 0;
+  const velocidadeProducaoM2H = Number(maquina.velocidadeProducaoM2H) || 0;
+
+  const tintaQuantidadeMl = Number(maquina.tintaQuantidadeMl) || 0;
+  const tintaValor = Number(maquina.tintaValor) || 0;
+  const tintaConsumoMlM2 = Number(maquina.tintaConsumoMlM2) || 0;
+
+  const cabecaValor = Number(maquina.cabecaValor) || 0;
+  const cabecaVidaUtilHoras = Number(maquina.cabecaVidaUtilHoras) || 0;
+  const tarifa = Number(maquina.tarifaKwh) > 0 ? Number(maquina.tarifaKwh) : tarifaKwh;
+
+  // 1. Depreciação/h: Valor da máquina / (Vida útil em anos * 12 meses * Horas de uso por mês)
+  const totalHorasVidaUtil = vidaUtilAnos * 12 * horasUsoMes;
+  const depreciacaoHora = totalHorasVidaUtil > 0 ? valorMaquina / totalHorasVidaUtil : 0;
+
+  // 2. Manutenção/h: Manutenção anual / (12 meses * Horas de uso por mês)
+  const totalHorasAno = 12 * horasUsoMes;
+  const manutencaoHora = totalHorasAno > 0 ? manutencaoAnual / totalHorasAno : 0;
+
+  // 3. Cabeça de Impressão/h: Valor da cabeça / Vida útil da cabeça em horas
+  const cabecaHora = cabecaVidaUtilHoras > 0 ? cabecaValor / cabecaVidaUtilHoras : 0;
+
+  // 4. Energia/h: Potência (kW) * Tarifa de energia (R$/kWh)
+  const energiaHora = potenciaKw * tarifa;
+
+  // 5. Custo da tinta/m²: Consumo de tinta (ml/m²) * (Valor da tinta / Quantidade de tinta em ml)
+  const custoPorMlTinta = tintaQuantidadeMl > 0 ? tintaValor / tintaQuantidadeMl : 0;
+  const custoTintaM2 = tintaConsumoMlM2 * custoPorMlTinta;
+
+  // 6. Custo total da máquina/h: Depreciação/h + Manutenção/h + Cabeça/h + Energia/h
+  const custoTotalMaquinaHora = depreciacaoHora + manutencaoHora + cabecaHora + energiaHora;
+
+  // 7. Tempo para produzir 1 m²: 1 / Velocidade (m²/h) em horas (ou 60 / Velocidade em minutos)
+  const tempoProduzir1M2Horas = velocidadeProducaoM2H > 0 ? 1 / velocidadeProducaoM2H : 0;
+  const tempoProduzir1M2Minutos = velocidadeProducaoM2H > 0 ? 60 / velocidadeProducaoM2H : 0;
+
+  // 8. Custo total da máquina/m²: (Custo total da máquina/h / Velocidade m²/h) + Custo da tinta/m²
+  const custoOperacionalM2 = velocidadeProducaoM2H > 0 ? custoTotalMaquinaHora / velocidadeProducaoM2H : 0;
+  const custoTotalMaquinaM2 = custoOperacionalM2 + custoTintaM2;
+
+  return {
+    depreciacaoHora,
+    manutencaoHora,
+    cabecaHora,
+    energiaHora,
+    custoTintaM2,
+    custoTotalMaquinaHora,
+    custoTotalMaquinaM2,
+    tempoProduzir1M2Minutos,
+    tempoProduzir1M2Horas
+  };
+}
+

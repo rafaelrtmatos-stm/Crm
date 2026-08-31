@@ -657,33 +657,18 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
             </div>
 
             {(formData.unit_type === 'metro' || formData.unit_type === 'etiqueta') && (
-              <div className="grid grid-cols-2 gap-2 sm:col-span-2">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase tracking-wider text-white/50">
-                    Largura Rolo (m)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={formData.largura_rolo}
-                    onChange={e => setFormData({ ...formData, largura_rolo: Number(e.target.value) })}
-                    placeholder="Ex: 1.52"
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white font-mono outline-none"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase tracking-wider text-white/50">
-                    Comprimento Rolo (m)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={formData.comprimento_rolo}
-                    onChange={e => setFormData({ ...formData, comprimento_rolo: Number(e.target.value) })}
-                    placeholder="Ex: 50.0"
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white font-mono outline-none"
-                  />
-                </div>
+              <div className="space-y-1 sm:col-span-2">
+                <label className="text-[10px] font-black uppercase tracking-wider text-white/50">
+                  Largura do Rolo / Bobina (m)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={formData.largura_rolo || ''}
+                  onChange={e => setFormData({ ...formData, largura_rolo: Number(e.target.value) })}
+                  placeholder="Ex: 1.52"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white font-mono outline-none focus:border-primary-500/50"
+                />
               </div>
             )}
 

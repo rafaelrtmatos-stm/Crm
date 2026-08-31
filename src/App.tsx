@@ -125,6 +125,7 @@ import { AssistantChatWidget } from './components/AssistantChatWidget';
 import { ModuleErrorBoundary } from './components/SharedUI';
 import { PrecificacaoModule } from './components/PrecificacaoModule';
 import { MateriasPrimasModule } from './components/MateriasPrimasModule';
+import { MaquinasModule } from './components/MaquinasModule';
 
 export { AppContext, useApp, type MainTab, type AppContextType };
 
@@ -169,12 +170,20 @@ const SidebarItem = ({
   </button>
 );
 
-// Aba "Financeiro": três sub-abas internas --
+// Aba "Financeiro": quatro sub-abas internas --
 // 1. Funcionários (colaboradores e comissões)
 // 2. Matérias-Primas (Cadastro de insumos e matérias-primas: custo por unidade, unidade de medida, observação)
-// 3. Precificação (Motor de Precificação Inteligente com formação automática de preços baseada em insumos, máquinas, energia, aluguel, equipe e comissões).
+// 3. Máquinas (Cadastro e custos operacionais com cálculo automático de depreciação, manutenção, cabeça, energia e tinta)
+// 4. Precificação (Motor de Precificação Inteligente com formação automática de preços baseada em insumos, máquinas, energia, aluguel, equipe e comissões).
 const FinanceiroModule = ({ currentCompany, user }: { currentCompany: Company | null; user: AppUser | null }) => {
-  const [subTab, setSubTab] = useState<'funcionarios' | 'materias_primas' | 'precificacao'>('funcionarios');
+  const [subTab, setSubTab] = useState<'funcionarios' | 'materias_primas' | 'maquinas' | 'precificacao'>('funcionarios');
+  const [selectedMaquinaForPrec, setSelectedMaquinaForPrec] = useState<string | null>(null);
+
+  const handleGoToPrecificacaoWithMaquina = (maqId: string) => {
+    setSelectedMaquinaForPrec(maqId);
+    setSubTab('precificacao');
+  };
+
   return (
     <div className="h-full flex flex-col min-h-0">
       <div className="flex flex-wrap items-center gap-2 mb-4 shrink-0">
@@ -201,6 +210,17 @@ const FinanceiroModule = ({ currentCompany, user }: { currentCompany: Company | 
           <Layers size={14} /> Matérias-Primas
         </button>
         <button
+          onClick={() => setSubTab('maquinas')}
+          className={cn(
+            "flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors border",
+            subTab === 'maquinas'
+              ? "bg-cyan-600 text-white border-white/20 shadow-lg shadow-cyan-600/20"
+              : "bg-white/5 text-white/50 border-white/10 hover:bg-white/10 hover:text-white"
+          )}
+        >
+          <Wrench size={14} className={subTab === 'maquinas' ? 'text-white' : 'text-cyan-400'} /> Máquinas & Equipamentos
+        </button>
+        <button
           onClick={() => setSubTab('precificacao')}
           className={cn(
             "flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors border",
@@ -223,10 +243,24 @@ const FinanceiroModule = ({ currentCompany, user }: { currentCompany: Company | 
               <MateriasPrimasModule currentCompany={currentCompany} user={user} />
             </div>
           </ModuleErrorBoundary>
+        ) : subTab === 'maquinas' ? (
+          <ModuleErrorBoundary label="Máquinas">
+            <div className="overflow-y-auto custom-scrollbar h-full">
+              <MaquinasModule
+                currentCompany={currentCompany}
+                user={user}
+                onSelectMaquinaForPrecificacao={handleGoToPrecificacaoWithMaquina}
+              />
+            </div>
+          </ModuleErrorBoundary>
         ) : (
           <ModuleErrorBoundary label="Precificação">
             <div className="overflow-y-auto custom-scrollbar h-full pr-1">
-              <PrecificacaoModule currentCompany={currentCompany} user={user} />
+              <PrecificacaoModule
+                currentCompany={currentCompany}
+                user={user}
+                initialMaquinaId={selectedMaquinaForPrec || undefined}
+              />
             </div>
           </ModuleErrorBoundary>
         )}

@@ -28,29 +28,23 @@ import {
   Info,
   Sliders,
   Share2,
-  ShoppingCart
+  ShoppingCart,
+  Droplet,
+  Cpu,
+  Gauge
 } from 'lucide-react';
-import { Company, AppUser, Product } from '../types';
+import { Company, AppUser, Product, Maquina, MaquinaCalculos, calcularCustosMaquina } from '../types';
 import { supabase } from '../supabase';
 import { showAlert, showConfirm } from '../lib/notify';
 import { Badge, Button, Modal } from './SharedUI';
 import { useApp } from '../AppContext';
+import { fetchMaquinas } from '../lib/maquinasStorage';
+import { MaquinasModule } from './MaquinasModule';
 
 interface PrecificacaoModuleProps {
   currentCompany?: Company | null;
   user?: AppUser | null;
-}
-
-export interface MaquinaConfig {
-  id: string;
-  nome: string;
-  custoHora: number; // R$/hora
-  custoTintaM2: number; // R$/m2
-  manutencaoHora: number; // R$/hora
-  depreciacaoHora: number; // R$/hora
-  potenciaKw: number; // kW
-  tipo: 'impressao' | 'corte' | 'laser' | 'router' | 'prensa' | 'acabamento' | 'manual';
-  ativa: boolean;
+  initialMaquinaId?: string;
 }
 
 export interface CustosFixosEmpresa {
@@ -58,7 +52,7 @@ export interface CustosFixosEmpresa {
   energiaMensal: number;
   outrosCustosFixos: number; // Internet, software, contador, etc.
   horasProdutivasMes: number; // Ex: 176h (22 dias x 8h)
-  tarifaKwh: number; // Ex: R$ 0,95 por kWh
+  tarifaKwh: number; // Ex: R$ 0,98 por kWh
   impostosPadraoPct: number; // Ex: 6% (Simples Nacional)
   taxaCartaoPct: number; // Ex: 3.5%
   comissaoPadraoPct: number; // Ex: 10%
@@ -85,115 +79,22 @@ export interface PrecificacaoSalva {
   detalhes: any;
 }
 
-// Máquinas padrão pré-configuradas para comunicação visual & gráfica
-const DEFAULT_MAQUINAS: MaquinaConfig[] = [
-  {
-    id: 'plotter-solvente',
-    nome: 'Plotter de Impressão Solvente / Eco (1.60m - 3.20m)',
-    custoHora: 18.00,
-    custoTintaM2: 5.50,
-    manutencaoHora: 4.50,
-    depreciacaoHora: 6.00,
-    potenciaKw: 2.2,
-    tipo: 'impressao',
-    ativa: true,
-  },
-  {
-    id: 'plotter-uv',
-    nome: 'Impressora Digital UV Flatbed / Híbrida',
-    custoHora: 35.00,
-    custoTintaM2: 9.80,
-    manutencaoHora: 8.00,
-    depreciacaoHora: 12.00,
-    potenciaKw: 3.5,
-    tipo: 'impressao',
-    ativa: true,
-  },
-  {
-    id: 'router-cnc',
-    nome: 'Router CNC 3D (Corte e Usinagem ACM, MDF, PVC, Acrílico)',
-    custoHora: 30.00,
-    custoTintaM2: 0.00,
-    manutencaoHora: 7.50,
-    depreciacaoHora: 10.00,
-    potenciaKw: 4.0,
-    tipo: 'router',
-    ativa: true,
-  },
-  {
-    id: 'laser-co2',
-    nome: 'Máquina de Corte & Gravação Laser CO2 (100W)',
-    custoHora: 22.00,
-    custoTintaM2: 0.00,
-    manutencaoHora: 5.00,
-    depreciacaoHora: 8.00,
-    potenciaKw: 2.5,
-    tipo: 'laser',
-    ativa: true,
-  },
-  {
-    id: 'plotter-recorte',
-    nome: 'Plotter de Recorte Eletrônico de Vinil',
-    custoHora: 12.00,
-    custoTintaM2: 0.00,
-    manutencaoHora: 2.00,
-    depreciacaoHora: 3.50,
-    potenciaKw: 0.3,
-    tipo: 'corte',
-    ativa: true,
-  },
-  {
-    id: 'prensa-termica',
-    nome: 'Prensa Térmica / Transfer Sublimático',
-    custoHora: 15.00,
-    custoTintaM2: 0.00,
-    manutencaoHora: 2.50,
-    depreciacaoHora: 3.00,
-    potenciaKw: 2.0,
-    tipo: 'prensa',
-    ativa: true,
-  },
-  {
-    id: 'laminadora',
-    nome: 'Laminadora a Quente / Frio',
-    custoHora: 14.00,
-    custoTintaM2: 0.00,
-    manutencaoHora: 2.00,
-    depreciacaoHora: 3.00,
-    potenciaKw: 1.5,
-    tipo: 'acabamento',
-    ativa: true,
-  },
-  {
-    id: 'nenhuma-manual',
-    nome: 'Nenhuma / Acabamento & Mão de Obra Manual',
-    custoHora: 0.00,
-    custoTintaM2: 0.00,
-    manutencaoHora: 0.00,
-    depreciacaoHora: 0.00,
-    potenciaKw: 0.0,
-    tipo: 'manual',
-    ativa: true,
-  }
-];
-
 const DEFAULT_CUSTOS_EMPRESA: CustosFixosEmpresa = {
   aluguelMensal: 3500.00,
   energiaMensal: 1200.00,
-  outrosCustosFixos: 1800.00,
-  horasProdutivasMes: 176, // 22 dias úteis x 8 horas
+  outrosCustosFixos: 1800.00, // Internet, software RIP, contador, limpeza, água
+  horasProdutivasMes: 176, // 22 dias úteis x 8 horas diárias
   tarifaKwh: 0.98,
-  impostosPadraoPct: 6.0,
-  taxaCartaoPct: 3.5,
-  comissaoPadraoPct: 10.0,
-  margemLucroAlvoPct: 50.0,
+  impostosPadraoPct: 6.0, // Simples Nacional Comércio/Serviço
+  taxaCartaoPct: 3.5, // Média débito/crédito
+  comissaoPadraoPct: 10.0, // 10% de comissão para a equipe/vendas
+  margemLucroAlvoPct: 50.0, // 50% de margem líquida desejada
 };
 
-const STORAGE_KEY_MAQUINAS = 'rpro_precificacao_maquinas';
 const STORAGE_KEY_CUSTOS = 'rpro_precificacao_custos_empresa';
 const STORAGE_KEY_HISTORICO = 'rpro_precificacao_historico';
 
-export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentCompany, user }) => {
+export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentCompany, user, initialMaquinaId }) => {
   const { setActiveTab } = useApp();
 
   // Dados carregados do sistema
@@ -201,16 +102,8 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
   const [colaboradores, setColaboradores] = useState<any[]>([]);
   const [loadingDados, setLoadingDados] = useState(true);
 
-  // Parâmetros de custos persistidos
-  const [maquinas, setMaquinas] = useState<MaquinaConfig[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_MAQUINAS);
-      if (saved) return JSON.parse(saved);
-    } catch (e) {
-      console.warn('Erro ao carregar máquinas do cache:', e);
-    }
-    return DEFAULT_MAQUINAS;
-  });
+  // Lista de máquinas dinâmicas cadastradas
+  const [maquinas, setMaquinas] = useState<Maquina[]>([]);
 
   const [custosEmpresa, setCustosEmpresa] = useState<CustosFixosEmpresa>(() => {
     try {
@@ -248,7 +141,7 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
 
   // Tempo de produção e máquina
   const [tempoProducaoMinutos, setTempoProducaoMinutos] = useState<number | ''>(30);
-  const [maquinaId, setMaquinaId] = useState('plotter-solvente');
+  const [maquinaId, setMaquinaId] = useState<string>(initialMaquinaId || '');
   const [colaboradorId, setColaboradorId] = useState('media'); // 'media' ou id de um colaborador
 
   // Prazo de entrega
@@ -270,6 +163,29 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
   const [isMaquinasModalOpen, setIsMaquinasModalOpen] = useState(false);
   const [isHistoricoModalOpen, setIsHistoricoModalOpen] = useState(false);
   const [copiedNotification, setCopiedNotification] = useState(false);
+
+  // Carrega máquinas do storage / Supabase
+  const loadMaquinasData = async () => {
+    try {
+      const data = await fetchMaquinas(currentCompany?.id);
+      setMaquinas(data);
+      if (!maquinaId && data.length > 0) {
+        setMaquinaId(data[0].id);
+      }
+    } catch (e) {
+      console.error('Erro ao carregar máquinas:', e);
+    }
+  };
+
+  useEffect(() => {
+    loadMaquinasData();
+  }, [currentCompany?.id]);
+
+  useEffect(() => {
+    if (initialMaquinaId) {
+      setMaquinaId(initialMaquinaId);
+    }
+  }, [initialMaquinaId]);
 
   // Carrega produtos do estoque e colaboradores do sistema
   useEffect(() => {
@@ -326,13 +242,6 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
     fetchData();
   }, [currentCompany]);
 
-  // Salva no localStorage quando mudar
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY_MAQUINAS, JSON.stringify(maquinas));
-    } catch (e) {}
-  }, [maquinas]);
-
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY_CUSTOS, JSON.stringify(custosEmpresa));
@@ -354,6 +263,24 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
   const maquinaSelecionada = useMemo(() => {
     return maquinas.find(m => m.id === maquinaId) || maquinas[0] || null;
   }, [maquinas, maquinaId]);
+
+  // Cálculos dinâmicos e automáticos da máquina selecionada
+  const maquinaCalculos = useMemo<MaquinaCalculos>(() => {
+    if (!maquinaSelecionada) {
+      return {
+        depreciacaoHora: 0,
+        manutencaoHora: 0,
+        cabecaHora: 0,
+        energiaHora: 0,
+        custoTintaM2: 0,
+        custoTotalMaquinaHora: 0,
+        custoTotalMaquinaM2: 0,
+        tempoProduzir1M2Minutos: 0,
+        tempoProduzir1M2Horas: 0
+      };
+    }
+    return calcularCustosMaquina(maquinaSelecionada, custosEmpresa.tarifaKwh);
+  }, [maquinaSelecionada, custosEmpresa.tarifaKwh]);
 
   // Cálculo da quantidade em formato numérico e da Área Total (m²)
   const qtdNum = Number(quantidade) > 0 ? Number(quantidade) : 1;
@@ -392,8 +319,14 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
     return qtdNum;
   }, [modoCalculo, areaUnitariaM2, qtdNum, larguraEmMetros]);
 
+  // Tempo sugerido de produção calculado automaticamente pela velocidade da máquina
+  const tempoSugeridoMinutos = useMemo(() => {
+    if (!maquinaCalculos.tempoProduzir1M2Minutos || areaTotalM2 <= 0) return 0;
+    return Math.max(5, Math.ceil(areaTotalM2 * maquinaCalculos.tempoProduzir1M2Minutos));
+  }, [areaTotalM2, maquinaCalculos]);
+
   // ==========================================
-  // CÁLCULOS AUTOMÁTICOS DE CUSTOS (PUXADOS DO SISTEMA)
+  // CÁLCULOS AUTOMÁTICOS DE CUSTOS (PUXADOS DO SISTEMA E DAS MÁQUINAS)
   // ==========================================
 
   // 1. Custo de Material (Estoque)
@@ -413,37 +346,33 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
   }, [insumosExtras]);
 
   // 2. Custo da Tinta (da Máquina / Material)
-  const custoTintaPorM2 = maquinaSelecionada?.custoTintaM2 || 0;
+  const custoTintaPorM2 = maquinaCalculos.custoTintaM2;
   const custoTotalTinta = useMemo(() => {
-    if (maquinaSelecionada?.tipo === 'impressao') {
+    if (maquinaSelecionada?.tintaConsumoMlM2 && maquinaSelecionada.tintaConsumoMlM2 > 0) {
       return areaTotalM2 * custoTintaPorM2;
     }
     return 0;
   }, [maquinaSelecionada, areaTotalM2, custoTintaPorM2]);
 
-  // 3. Custo Operacional da Máquina (Tempo x Custo/hora)
-  const custoHoraMaquina = maquinaSelecionada?.custoHora || 0;
+  // 3. Custo Operacional da Máquina (Depreciação + Manutenção + Cabeça + Energia)
+  const custoHoraMaquina = maquinaCalculos.custoTotalMaquinaHora;
   const custoTotalMaquina = useMemo(() => {
     return tempoHorasNum * custoHoraMaquina;
   }, [tempoHorasNum, custoHoraMaquina]);
 
-  // 4. Manutenção e Depreciação da Máquina
-  const manutencaoHora = maquinaSelecionada?.manutencaoHora || 0;
-  const depreciacaoHora = maquinaSelecionada?.depreciacaoHora || 0;
-  const custoTotalManutencaoDepreciacao = useMemo(() => {
-    return tempoHorasNum * (manutencaoHora + depreciacaoHora);
-  }, [tempoHorasNum, manutencaoHora, depreciacaoHora]);
+  // 4. Manutenção e Depreciação da Máquina (para detalhamento de Raio-X)
+  const manutencaoHora = maquinaCalculos.manutencaoHora;
+  const depreciacaoHora = maquinaCalculos.depreciacaoHora;
+  const cabecaHora = maquinaCalculos.cabecaHora;
+  const energiaHora = maquinaCalculos.energiaHora;
 
-  // 5. Energia Elétrica (Rateio Estrutural + Consumo Específico da Máquina)
+  // 5. Energia Elétrica (Rateio Estrutural da Fábrica)
   const horasProdutivasTotal = Math.max(1, custosEmpresa.horasProdutivasMes);
   const custoEnergiaEstruturaHora = custosEmpresa.energiaMensal / horasProdutivasTotal;
-  const consumoMaquinaKw = maquinaSelecionada?.potenciaKw || 0;
-  const custoEnergiaMaquinaHora = consumoMaquinaKw * custosEmpresa.tarifaKwh;
 
   const custoTotalEnergia = useMemo(() => {
-    const custoPorHoraTotal = custoEnergiaEstruturaHora + custoEnergiaMaquinaHora;
-    return tempoHorasNum * custoPorHoraTotal;
-  }, [tempoHorasNum, custoEnergiaEstruturaHora, custoEnergiaMaquinaHora]);
+    return tempoHorasNum * (custoEnergiaEstruturaHora + energiaHora);
+  }, [tempoHorasNum, custoEnergiaEstruturaHora, energiaHora]);
 
   // 6. Aluguel & Estrutura Fixa (Financeiro)
   const custoAluguelHora = custosEmpresa.aluguelMensal / horasProdutivasTotal;
@@ -460,7 +389,6 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
       const colab = colaboradores.find(c => c.id === colaboradorId);
       if (colab) {
         const sal = Number(colab.salario_base) || 0;
-        // Se salário semanal ou mensal (se < 1000 assume semanal x 4.33, ou divide pelas horas)
         const salMensal = sal < 1500 ? sal * 4.33 : sal;
         return Math.max(12, salMensal / horasProdutivasTotal);
       }
@@ -488,8 +416,6 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
       custoTotalInsumosExtras +
       custoTotalTinta +
       custoTotalMaquina +
-      custoTotalManutencaoDepreciacao +
-      custoTotalEnergia +
       custoTotalEstrutura +
       custoTotalMaoDeObra
     );
@@ -498,104 +424,70 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
     custoTotalInsumosExtras,
     custoTotalTinta,
     custoTotalMaquina,
-    custoTotalManutencaoDepreciacao,
-    custoTotalEnergia,
     custoTotalEstrutura,
     custoTotalMaoDeObra
   ]);
 
-  // ==========================================
-  // FORMAÇÃO DE PREÇO AUTOMÁTICA (O PREÇO NÃO É DIGITADO)
-  // ==========================================
-  //
-  // No comércio e indústria gráfica, o cálculo de preço de venda com comissões,
-  // impostos e margem utiliza a fórmula do Divisor de Markup:
-  // Preço de Venda = Custo Produção / (1 - (% Comissao + % Impostos + % Taxa Cartao + % Margem Lucro))
-  //
-  // Assim:
-  // - Comissão é paga sobre o preço de venda (% configurada)
-  // - O Preço Mínimo é o ponto de equilíbrio com Margem = 0 (cobre custos + comissão + impostos + cartão)
-  // - O Preço Recomendado entrega a margem de lucro alvo limpa e líquida para a empresa.
-
-  const totalDeducoesMinimoPct = useMemo(() => {
-    return (comissaoDesejada + impostosDesejado + taxaCartaoDesejada) / 100;
-  }, [comissaoDesejada, impostosDesejado, taxaCartaoDesejada]);
-
-  const divisorMinimo = useMemo(() => {
-    return Math.max(0.05, 1 - totalDeducoesMinimoPct);
-  }, [totalDeducoesMinimoPct]);
-
-  // Preço Mínimo de Equilíbrio
-  const precoMinimo = useMemo(() => {
-    if (subtotalCustosProducao <= 0) return 0;
-    return subtotalCustosProducao / divisorMinimo;
-  }, [subtotalCustosProducao, divisorMinimo]);
-
-  // Preço Recomendado com Margem de Lucro Alvo
-  const totalDeducoesRecomendadoPct = useMemo(() => {
+  // =========================================================================
+  // FÓRMULA DE MARGEM POR DENTRO E FORMAÇÃO AUTOMÁTICA DE PREÇOS
+  // =========================================================================
+  const totalTaxasPercentuais = useMemo(() => {
     return (comissaoDesejada + impostosDesejado + taxaCartaoDesejada + margemAlvoDesejada) / 100;
   }, [comissaoDesejada, impostosDesejado, taxaCartaoDesejada, margemAlvoDesejada]);
 
-  const divisorRecomendado = useMemo(() => {
-    return Math.max(0.05, 1 - totalDeducoesRecomendadoPct);
-  }, [totalDeducoesRecomendadoPct]);
-
   const precoRecomendado = useMemo(() => {
-    if (subtotalCustosProducao <= 0) return 0;
-    // Se a soma das porcentagens ultrapassar ou igualar 100%, usa markup multiplicador seguro
-    if (totalDeducoesRecomendadoPct >= 0.95) {
-      const markupMultiplicador = 1 + (margemAlvoDesejada / 100) + (comissaoDesejada / 100);
-      return subtotalCustosProducao * markupMultiplicador;
-    }
-    return subtotalCustosProducao / divisorRecomendado;
-  }, [subtotalCustosProducao, totalDeducoesRecomendadoPct, divisorRecomendado, margemAlvoDesejada, comissaoDesejada]);
+    const divisor = Math.max(0.05, 1 - totalTaxasPercentuais);
+    const preco = subtotalCustosProducao / divisor;
+    return Math.max(0, preco);
+  }, [subtotalCustosProducao, totalTaxasPercentuais]);
 
-  // Comissão em R$ sobre o preço recomendado
   const valorComissaoRecomendada = useMemo(() => {
     return precoRecomendado * (comissaoDesejada / 100);
   }, [precoRecomendado, comissaoDesejada]);
 
-  // CUSTO REAL TOTAL (Material + Tinta + Máquina + Energia + Estrutura + Funcionários + Comissão)
+  const valorImpostos = useMemo(() => {
+    return precoRecomendado * (impostosDesejado / 100);
+  }, [precoRecomendado, impostosDesejado]);
+
+  const valorTaxaCartao = useMemo(() => {
+    return precoRecomendado * (taxaCartaoDesejada / 100);
+  }, [precoRecomendado, taxaCartaoDesejada]);
+
   const custoReal = useMemo(() => {
     return subtotalCustosProducao + valorComissaoRecomendada;
   }, [subtotalCustosProducao, valorComissaoRecomendada]);
 
-  // Impostos e Taxa de Cartão em R$
-  const valorImpostos = useMemo(() => precoRecomendado * (impostosDesejado / 100), [precoRecomendado, impostosDesejado]);
-  const valorTaxaCartao = useMemo(() => precoRecomendado * (taxaCartaoDesejada / 100), [precoRecomendado, taxaCartaoDesejada]);
+  const precoMinimo = useMemo(() => {
+    const taxasSemMargem = (comissaoDesejada + impostosDesejado + taxaCartaoDesejada) / 100;
+    const divisor = Math.max(0.05, 1 - taxasSemMargem);
+    return subtotalCustosProducao / divisor;
+  }, [subtotalCustosProducao, comissaoDesejada, impostosDesejado, taxaCartaoDesejada]);
 
-  // LUCRO LÍQUIDO (Preço Recomendado - Custo Real - Impostos - Cartão)
   const lucroLiquido = useMemo(() => {
     return Math.max(0, precoRecomendado - subtotalCustosProducao - valorComissaoRecomendada - valorImpostos - valorTaxaCartao);
   }, [precoRecomendado, subtotalCustosProducao, valorComissaoRecomendada, valorImpostos, valorTaxaCartao]);
 
-  // Margem de Lucro % Real Efetiva
   const margemEfetivaPct = useMemo(() => {
     if (precoRecomendado <= 0) return 0;
     return (lucroLiquido / precoRecomendado) * 100;
   }, [lucroLiquido, precoRecomendado]);
 
-  // Markup % sobre o custo de produção
   const markupPct = useMemo(() => {
     if (custoReal <= 0) return 0;
     return ((precoRecomendado - custoReal) / custoReal) * 100;
   }, [precoRecomendado, custoReal]);
 
-  // Lucro por Hora
   const lucroPorHora = useMemo(() => {
     if (tempoHorasNum <= 0) return lucroLiquido;
     return lucroLiquido / tempoHorasNum;
   }, [lucroLiquido, tempoHorasNum]);
 
-  // Preço Unitário e Preço por m²
   const precoUnitario = useMemo(() => {
-    if (qtdNum <= 0) return 0;
-    return precoRecomendado / qtdNum;
+    return qtdNum > 0 ? precoRecomendado / qtdNum : precoRecomendado;
   }, [precoRecomendado, qtdNum]);
 
   const precoPorM2 = useMemo(() => {
-    if (areaTotalM2 <= 0) return 0;
-    return precoRecomendado / areaTotalM2;
+    return areaTotalM2 > 0 ? precoRecomendado / areaTotalM2 : precoRecomendado;
   }, [precoRecomendado, areaTotalM2]);
 
   // Sincronização ao selecionar um serviço cadastrado
@@ -718,10 +610,10 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
 *Composição de Custos:*
 - Material: R$ ${custoTotalMaterial.toFixed(2)}
 - Tinta: R$ ${custoTotalTinta.toFixed(2)}
-- Máquina: R$ ${custoTotalMaquina.toFixed(2)}
+- Máquina (Deprec/Manut/Cabeça/Energia): R$ ${custoTotalMaquina.toFixed(2)}
 - Mão de Obra: R$ ${custoTotalMaoDeObra.toFixed(2)}
-- Estrutura + Energia: R$ ${(custoTotalEstrutura + custoTotalEnergia).toFixed(2)}
-- Comissão (10%): R$ ${valorComissaoRecomendada.toFixed(2)}
+- Estrutura + Energia Fixa: R$ ${(custoTotalEstrutura + custoTotalEnergia).toFixed(2)}
+- Comissão (${comissaoDesejada}%): R$ ${valorComissaoRecomendada.toFixed(2)}
 *Custo Real Total:* R$ ${custoReal.toFixed(2)}
 *Preço Recomendado:* R$ ${precoRecomendado.toFixed(2)}`;
 
@@ -734,7 +626,6 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
   // Enviar para o PDV (Balcão de Vendas)
   const handleEnviarParaPDV = () => {
     const nomeFinal = servicoNome.trim() || materialSelecionado?.name || 'Serviço Personalizado';
-    // Armazena no sessionStorage para o POS carregar
     try {
       const itemParaPDV = {
         name: nomeFinal,
@@ -744,48 +635,52 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
         width: larguraEmMetros,
         height: alturaEmMetros,
         area: areaTotalM2,
-        observations: `Precificado via Financeiro: Material ${materialSelecionado?.name || ''} • Prazo: ${prazoEntrega}`
+        observations: `Precificado via Financeiro: Material ${materialSelecionado?.name || ''} • Máquina: ${maquinaSelecionada?.nome || ''} • Prazo: ${prazoEntrega}`
       };
       sessionStorage.setItem('rpro_pos_item_precificado', JSON.stringify(itemParaPDV));
       showAlert(`Serviço "${nomeFinal}" enviado para o PDV! Redirecionando...`);
       setActiveTab('pos');
     } catch (e) {
-      setActiveTab('pos');
+      showAlert('Não foi possível transferir o item para o PDV.');
     }
   };
 
   return (
-    <div className="space-y-6 pb-12">
-      {/* Top Banner de Apresentação e Botões de Gestão */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-gradient-to-br from-slate-900 via-slate-900/90 to-primary-950/40 p-5 sm:p-6 rounded-3xl border border-white/10 shadow-2xl relative overflow-hidden">
-        <div className="relative z-10">
-          <div className="flex items-center gap-2 mb-1.5">
-            <span className="p-2 rounded-xl bg-primary-500/20 text-primary-400 border border-primary-500/30">
+    <div className="space-y-6">
+      {/* Header Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900/60 p-4 sm:p-6 rounded-2xl sm:rounded-3xl border border-white/10 shadow-xl">
+        <div>
+          <div className="flex items-center gap-2.5 mb-1.5">
+            <div className="w-10 h-10 rounded-xl bg-primary-500/10 border border-primary-500/20 flex items-center justify-center text-primary-400">
               <Calculator size={22} />
-            </span>
-            <h2 className="text-xl sm:text-2xl font-black text-white italic tracking-tight uppercase">
-              Motor de Precificação Inteligente
-            </h2>
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-              Automático
-            </span>
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-xl sm:text-2xl font-black text-white italic tracking-tight uppercase">
+                  Motor de Precificação Inteligente
+                </h2>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                  Formação Automática
+                </span>
+              </div>
+              <p className="text-xs text-white/50">
+                Calcula custos de matéria-prima, máquinas, depreciação, cabeças, tinta, energia, estrutura e equipe, sugerindo o preço de venda ideal.
+              </p>
+            </div>
           </div>
-          <p className="text-xs sm:text-sm text-white/60 max-w-2xl">
-            O preço de venda é calculado e sugerido automaticamente com base no custo de estoque, máquinas, energia, aluguel, funcionários e comissão.
-          </p>
         </div>
 
-        {/* Botões de Ação Superior */}
-        <div className="flex flex-wrap items-center gap-2 relative z-10">
+        {/* Action Buttons Header */}
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={() => setIsConfigModalOpen(true)}
             className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold bg-white/5 hover:bg-white/10 text-white border border-white/10 transition-colors shadow-sm"
-            title="Configurar Aluguel, Energia e Horas da Empresa"
+            title="Parâmetros de Custos Fixos da Empresa"
           >
-            <Settings size={14} className="text-amber-400" />
-            <span>Custos da Empresa</span>
+            <Settings size={14} className="text-primary-400" />
+            <span>Custos Fixos</span>
           </button>
-          
+
           <button
             onClick={() => setIsMaquinasModalOpen(true)}
             className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold bg-white/5 hover:bg-white/10 text-white border border-white/10 transition-colors shadow-sm"
@@ -860,15 +755,15 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
               </div>
             </div>
 
-            {/* Material do Estoque */}
+            {/* Material Principal / Insumo */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <label className="block text-xs font-bold text-white/70 uppercase">
-                  Material Principal (Estoque)
+                  Matéria-Prima Principal (Estoque)
                 </label>
                 {materialSelecionado && (
-                  <span className="text-[11px] text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded-lg border border-emerald-500/20">
-                    Custo no Estoque: R$ {custoUnitarioMaterialEstoque.toFixed(2)}/{materialSelecionado.unitType === 'm2' ? 'm²' : materialSelecionado.unitType === 'metro' ? 'm' : 'un'}
+                  <span className="text-[11px] text-emerald-400 font-bold">
+                    Custo Estoque: R$ {((materialSelecionado as any).costPrice || 0).toFixed(2)} / {materialSelecionado.unitType || 'un'}
                   </span>
                 )}
               </div>
@@ -878,22 +773,22 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
                 onChange={(e) => handleSelectMaterial(e.target.value)}
                 className="w-full bg-slate-800/90 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-primary-500"
               >
-                <option value="">-- Selecione o material no estoque --</option>
+                <option value="">-- Selecionar Matéria-Prima --</option>
                 {produtos.map(p => (
                   <option key={p.id} value={p.id}>
-                    {p.name} • Custo: R$ {Number((p as any).costPrice || 0).toFixed(2)} ({p.unitType || 'unit'})
+                    {p.name} • Custo: R$ {Number((p as any).costPrice || 0).toFixed(2)} ({p.unitType || 'un'})
                   </option>
                 ))}
               </select>
             </div>
 
-            {/* Quantidade e Modo de Cálculo */}
-            <div className="pt-2 border-t border-white/10 space-y-3">
+            {/* Modo de Cálculo & Dimensões */}
+            <div className="space-y-3 pt-1">
               <div className="flex items-center justify-between">
-                <label className="text-xs font-bold text-white/70 uppercase">
-                  Dimensões & Quantidade Utilizada
+                <label className="block text-xs font-bold text-white/70 uppercase">
+                  Dimensões & Formato de Cálculo
                 </label>
-                <div className="flex items-center gap-1 bg-slate-800 p-1 rounded-xl border border-white/10 text-[11px]">
+                <div className="flex bg-slate-800 p-1 rounded-xl border border-white/10 text-xs">
                   <button
                     type="button"
                     onClick={() => setModoCalculo('m2')}
@@ -1106,7 +1001,13 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
                   2. Máquina, Tempo & Produção
                 </h3>
               </div>
-              <span className="text-[11px] text-white/40">Custos operacionais e depreciação</span>
+              <button
+                type="button"
+                onClick={() => setIsMaquinasModalOpen(true)}
+                className="text-[11px] text-cyan-400 hover:underline font-bold flex items-center gap-1"
+              >
+                <span>Gerenciar Máquinas</span>
+              </button>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1118,7 +1019,7 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
                   </label>
                   {maquinaSelecionada && (
                     <span className="text-[10px] text-cyan-400 font-semibold">
-                      {maquinaSelecionada.custoTintaM2 > 0 ? `Tinta: R$ ${maquinaSelecionada.custoTintaM2.toFixed(2)}/m²` : 'Sem consumo de tinta'}
+                      {maquinaCalculos.custoTintaM2 > 0 ? `Tinta: R$ ${maquinaCalculos.custoTintaM2.toFixed(2)}/m²` : 'Sem consumo tinta'}
                     </span>
                   )}
                 </div>
@@ -1128,11 +1029,14 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
                   onChange={(e) => setMaquinaId(e.target.value)}
                   className="w-full bg-slate-800/90 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500"
                 >
-                  {maquinas.filter(m => m.ativa).map(m => (
-                    <option key={m.id} value={m.id}>
-                      {m.nome} (R$ {m.custoHora.toFixed(2)}/h)
-                    </option>
-                  ))}
+                  {maquinas.filter(m => m.ativa).map(m => {
+                    const c = calcularCustosMaquina(m, custosEmpresa.tarifaKwh);
+                    return (
+                      <option key={m.id} value={m.id}>
+                        {m.nome} (Total: R$ {c.custoTotalMaquinaHora.toFixed(2)}/h • R$ {c.custoTotalMaquinaM2.toFixed(2)}/m²)
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
 
@@ -1177,6 +1081,51 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
                 </div>
               </div>
             </div>
+
+            {/* Painel com Detalhes e Sugestão Automática da Máquina Selecionada */}
+            {maquinaSelecionada && (
+              <div className="bg-slate-800/50 p-3.5 rounded-2xl border border-cyan-500/20 space-y-2.5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                  <div className="flex items-center gap-2">
+                    <Gauge size={14} className="text-cyan-400" />
+                    <span className="text-white/80 font-bold">
+                      Custo Máquina Calculado: <strong className="text-cyan-300">R$ {maquinaCalculos.custoTotalMaquinaHora.toFixed(2)}/h</strong> • <strong className="text-emerald-400">R$ {maquinaCalculos.custoTotalMaquinaM2.toFixed(2)}/m²</strong>
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-white/40">
+                    Velocidade: {maquinaSelecionada.velocidadeProducaoM2H} m²/h ({maquinaCalculos.tempoProduzir1M2Minutos.toFixed(1)} min/m²)
+                  </span>
+                </div>
+
+                {/* Sub-custos da máquina calculados automaticamente */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[10px] text-white/60">
+                  <div className="bg-slate-900/60 p-1.5 rounded-lg border border-white/5">
+                    Deprec: <strong className="text-white">R$ {maquinaCalculos.depreciacaoHora.toFixed(2)}/h</strong>
+                  </div>
+                  <div className="bg-slate-900/60 p-1.5 rounded-lg border border-white/5">
+                    Manut: <strong className="text-white">R$ {maquinaCalculos.manutencaoHora.toFixed(2)}/h</strong>
+                  </div>
+                  <div className="bg-slate-900/60 p-1.5 rounded-lg border border-white/5">
+                    Cabeça: <strong className="text-white">R$ {maquinaCalculos.cabecaHora.toFixed(2)}/h</strong>
+                  </div>
+                  <div className="bg-slate-900/60 p-1.5 rounded-lg border border-white/5">
+                    Energia: <strong className="text-white">R$ {maquinaCalculos.energiaHora.toFixed(2)}/h</strong>
+                  </div>
+                </div>
+
+                {/* Botão de aplicação de tempo automático estimado pela velocidade da máquina */}
+                {tempoSugeridoMinutos > 0 && modoCalculo === 'm2' && (
+                  <button
+                    type="button"
+                    onClick={() => setTempoProducaoMinutos(tempoSugeridoMinutos)}
+                    className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 rounded-xl text-xs font-bold transition-all"
+                  >
+                    <Zap size={13} />
+                    <span>⚡ Aplicar tempo calculado pela velocidade da máquina: <strong>{tempoSugeridoMinutos} min</strong></span>
+                  </button>
+                )}
+              </div>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
               {/* Funcionário Responsável / Custo/Hora */}
@@ -1251,38 +1200,28 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
 
             {/* Slider de Margem */}
             <div className="space-y-2">
-              <div className="flex justify-between items-center text-xs text-white/70">
-                <span>Margem de Lucro Alvo Desejada:</span>
-                <span className="text-sm font-black text-emerald-400">{margemAlvoDesejada}%</span>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-white/70">Margem Líquida Desejada (%):</span>
+                <span className="font-black text-emerald-400 text-sm">{margemAlvoDesejada}%</span>
               </div>
               <input
                 type="range"
                 min="10"
                 max="80"
-                step="5"
+                step="1"
                 value={margemAlvoDesejada}
-                onChange={(e) => setMargemAlvoDesejada(parseFloat(e.target.value))}
-                className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-primary-500"
+                onChange={(e) => setMargemAlvoDesejada(parseInt(e.target.value))}
+                className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
               />
-              <div className="flex justify-between gap-1 pt-1">
-                {[20, 30, 40, 50, 60, 70].map(m => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => setMargemAlvoDesejada(m)}
-                    className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-colors ${
-                      margemAlvoDesejada === m
-                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                        : 'bg-white/5 text-white/50 border-white/10 hover:bg-white/10'
-                    }`}
-                  >
-                    {m}%
-                  </button>
-                ))}
+              <div className="flex justify-between text-[10px] text-white/30 font-bold">
+                <span>10% (Baixa / Volume)</span>
+                <span>35% (Padrão)</span>
+                <span>50% (Recomendado)</span>
+                <span>70%+ (Alta Exclusividade)</span>
               </div>
             </div>
 
-            {/* Configurações de Taxas Rápidas */}
+            {/* Deduções: Comissão, Impostos e Cartão */}
             <div className="grid grid-cols-3 gap-3 pt-2">
               <div className="bg-slate-800/60 p-2.5 rounded-2xl border border-white/5">
                 <label className="block text-[10px] font-bold text-white/50 uppercase mb-1">
@@ -1489,7 +1428,7 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
               <span className="text-[11px] text-white/40">Fórmula de Formação</span>
             </div>
 
-            {/* Lista dos 7 pilares do custo puxados automaticamente */}
+            {/* Lista dos pilares do custo puxados automaticamente */}
             <div className="space-y-2 text-xs">
               {/* 1. Material */}
               <div className="flex items-center justify-between p-2 rounded-xl bg-slate-800/40 border border-white/5">
@@ -1515,25 +1454,25 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
               <div className="flex items-center justify-between p-2 rounded-xl bg-slate-800/40 border border-white/5">
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-cyan-400" />
-                  <span className="text-white/80 font-medium">Tinta (Máquina):</span>
+                  <span className="text-white/80 font-medium">Tinta da Máquina ({custoTintaPorM2 > 0 ? `R$ ${custoTintaPorM2.toFixed(2)}/m²` : 'Sem tinta'}):</span>
                 </div>
                 <strong className="text-white">R$ {custoTotalTinta.toFixed(2)}</strong>
               </div>
 
-              {/* 3. Máquina + Depreciação */}
+              {/* 3. Máquina (Depreciação + Manutenção + Cabeça + Energia) */}
               <div className="flex items-center justify-between p-2 rounded-xl bg-slate-800/40 border border-white/5">
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-teal-400" />
-                  <span className="text-white/80 font-medium">Máquina + Manutenção/Depreciação:</span>
+                  <span className="text-white/80 font-medium">Máquina (Deprec.+Manut.+Cabeça+Energia):</span>
                 </div>
-                <strong className="text-white">R$ {(custoTotalMaquina + custoTotalManutencaoDepreciacao).toFixed(2)}</strong>
+                <strong className="text-white">R$ {custoTotalMaquina.toFixed(2)}</strong>
               </div>
 
-              {/* 4. Energia */}
+              {/* 4. Energia Estrutural Fábrica */}
               <div className="flex items-center justify-between p-2 rounded-xl bg-slate-800/40 border border-white/5">
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-yellow-400" />
-                  <span className="text-white/80 font-medium">Energia Elétrica:</span>
+                  <span className="text-white/80 font-medium">Energia Fábrica:</span>
                 </div>
                 <strong className="text-white">R$ {custoTotalEnergia.toFixed(2)}</strong>
               </div>
@@ -1607,7 +1546,7 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
 
             <div>
               <label className="block text-xs font-bold text-white/70 uppercase mb-1">
-                Conta de Energia Mensal (R$)
+                Energia Elétrica Média Mensal (R$)
               </label>
               <input
                 type="number"
@@ -1620,11 +1559,12 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
 
             <div>
               <label className="block text-xs font-bold text-white/70 uppercase mb-1">
-                Outros Custos Fixos (Internet, Software, Contador) (R$)
+                Outros Custos Fixos Mensais (R$)
               </label>
               <input
                 type="number"
                 step="50"
+                placeholder="Software, internet, contador..."
                 value={custosEmpresa.outrosCustosFixos}
                 onChange={(e) => setCustosEmpresa({ ...custosEmpresa, outrosCustosFixos: parseFloat(e.target.value) || 0 })}
                 className="w-full bg-slate-800 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-primary-500"
@@ -1633,16 +1573,15 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
 
             <div>
               <label className="block text-xs font-bold text-white/70 uppercase mb-1">
-                Horas Produtivas / Mês da Empresa
+                Horas Produtivas / Mês
               </label>
               <input
                 type="number"
-                step="4"
+                step="1"
                 value={custosEmpresa.horasProdutivasMes}
                 onChange={(e) => setCustosEmpresa({ ...custosEmpresa, horasProdutivasMes: parseInt(e.target.value) || 1 })}
                 className="w-full bg-slate-800 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-primary-500"
               />
-              <span className="text-[10px] text-white/40">Padrão: 176h (22 dias x 8h/dia)</span>
             </div>
 
             <div>
@@ -1651,9 +1590,9 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
               </label>
               <input
                 type="number"
-                step="0.05"
+                step="0.01"
                 value={custosEmpresa.tarifaKwh}
-                onChange={(e) => setCustosEmpresa({ ...custosEmpresa, tarifaKwh: parseFloat(e.target.value) || 0 })}
+                onChange={(e) => setCustosEmpresa({ ...custosEmpresa, tarifaKwh: parseFloat(e.target.value) || 0.98 })}
                 className="w-full bg-slate-800 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-primary-500"
               />
             </div>
@@ -1688,187 +1627,26 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
       </Modal>
 
       {/* ========================================================================= */}
-      {/* MODAL 2: GESTÃO E CADASTRO DE MÁQUINAS */}
+      {/* MODAL 2: GESTÃO E CADASTRO DE MÁQUINAS (COMPONENTE COMPLETO) */}
       {/* ========================================================================= */}
       <Modal
         isOpen={isMaquinasModalOpen}
-        onClose={() => setIsMaquinasModalOpen(false)}
+        onClose={() => {
+          setIsMaquinasModalOpen(false);
+          loadMaquinasData();
+        }}
         title="Cadastro & Custos Operacionais das Máquinas"
         size="xl"
       >
-        <div className="space-y-4 p-2">
-          <p className="text-xs text-white/60">
-            Configure o custo/hora, consumo de tinta por m², manutenção, depreciação e potência de cada máquina.
-          </p>
-
-          <div className="max-h-[60vh] overflow-y-auto custom-scrollbar space-y-3 pr-1">
-            {maquinas.map((maq, index) => (
-              <div key={maq.id} className="bg-slate-800/80 p-3.5 rounded-2xl border border-white/10 space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Wrench size={16} className="text-cyan-400" />
-                    <input
-                      type="text"
-                      value={maq.nome}
-                      onChange={(e) => {
-                        const newMaq = [...maquinas];
-                        newMaq[index].nome = e.target.value;
-                        setMaquinas(newMaq);
-                      }}
-                      className="bg-transparent border-b border-white/15 text-xs font-bold text-white focus:outline-none focus:border-cyan-400 px-1 py-0.5"
-                    />
-                  </div>
-                  
-                  <div className="flex items-center gap-3">
-                    <label className="flex items-center gap-1.5 text-xs text-white/70 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={maq.ativa}
-                        onChange={(e) => {
-                          const newMaq = [...maquinas];
-                          newMaq[index].ativa = e.target.checked;
-                          setMaquinas(newMaq);
-                        }}
-                        className="rounded bg-slate-700 text-cyan-500"
-                      />
-                      <span>Ativa</span>
-                    </label>
-
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (maquinas.length <= 1) {
-                          showAlert('Você deve manter pelo menos uma máquina cadastrada.');
-                          return;
-                        }
-                        const confirmed = await showConfirm(`Deseja realmente excluir a máquina "${maq.nome}"?`);
-                        if (!confirmed) return;
-                        const updated = maquinas.filter(m => m.id !== maq.id);
-                        setMaquinas(updated);
-                        try {
-                          localStorage.setItem(STORAGE_KEY_MAQUINAS, JSON.stringify(updated));
-                        } catch (e) {}
-                        if (maquinaId === maq.id) {
-                          setMaquinaId(updated[0]?.id || '');
-                        }
-                        showAlert(`Máquina "${maq.nome}" excluída com sucesso!`);
-                      }}
-                      className="p-1 text-white/40 hover:text-rose-400 transition-colors rounded-lg hover:bg-rose-500/10"
-                      title="Excluir máquina"
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
-                  <div>
-                    <label className="block text-[9px] font-bold text-white/50 uppercase">Custo Máq/Hora</label>
-                    <input
-                      type="number"
-                      step="1"
-                      value={maq.custoHora}
-                      onChange={(e) => {
-                        const newMaq = [...maquinas];
-                        newMaq[index].custoHora = parseFloat(e.target.value) || 0;
-                        setMaquinas(newMaq);
-                      }}
-                      className="w-full bg-slate-900 border border-white/10 rounded-lg px-2 py-1 text-white text-xs font-bold"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[9px] font-bold text-white/50 uppercase">Tinta (R$/m²)</label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      value={maq.custoTintaM2}
-                      onChange={(e) => {
-                        const newMaq = [...maquinas];
-                        newMaq[index].custoTintaM2 = parseFloat(e.target.value) || 0;
-                        setMaquinas(newMaq);
-                      }}
-                      className="w-full bg-slate-900 border border-white/10 rounded-lg px-2 py-1 text-white text-xs font-bold"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[9px] font-bold text-white/50 uppercase">Manutenção/h</label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      value={maq.manutencaoHora}
-                      onChange={(e) => {
-                        const newMaq = [...maquinas];
-                        newMaq[index].manutencaoHora = parseFloat(e.target.value) || 0;
-                        setMaquinas(newMaq);
-                      }}
-                      className="w-full bg-slate-900 border border-white/10 rounded-lg px-2 py-1 text-white text-xs font-bold"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[9px] font-bold text-white/50 uppercase">Depreciação/h</label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      value={maq.depreciacaoHora}
-                      onChange={(e) => {
-                        const newMaq = [...maquinas];
-                        newMaq[index].depreciacaoHora = parseFloat(e.target.value) || 0;
-                        setMaquinas(newMaq);
-                      }}
-                      className="w-full bg-slate-900 border border-white/10 rounded-lg px-2 py-1 text-white text-xs font-bold"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[9px] font-bold text-white/50 uppercase">Potência (kW)</label>
-                    <input
-                      type="number"
-                      step="0.2"
-                      value={maq.potenciaKw}
-                      onChange={(e) => {
-                        const newMaq = [...maquinas];
-                        newMaq[index].potenciaKw = parseFloat(e.target.value) || 0;
-                        setMaquinas(newMaq);
-                      }}
-                      className="w-full bg-slate-900 border border-white/10 rounded-lg px-2 py-1 text-white text-xs font-bold"
-                    />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="flex justify-between items-center pt-3 border-t border-white/10">
-            <button
-              onClick={() => {
-                const novaMaq: MaquinaConfig = {
-                  id: 'maq-' + Date.now(),
-                  nome: 'Nova Máquina',
-                  custoHora: 20.00,
-                  custoTintaM2: 0.00,
-                  manutencaoHora: 4.00,
-                  depreciacaoHora: 5.00,
-                  potenciaKw: 2.0,
-                  tipo: 'impressao',
-                  ativa: true,
-                };
-                setMaquinas([...maquinas, novaMaq]);
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-white/10 hover:bg-white/15 text-white"
-            >
-              <Plus size={14} /> Adicionar Máquina
-            </button>
-
-            <button
-              onClick={() => setIsMaquinasModalOpen(false)}
-              className="px-4 py-2 rounded-xl text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white"
-            >
-              Concluir & Salvar
-            </button>
-          </div>
+        <div className="p-1 max-h-[75vh] overflow-y-auto custom-scrollbar">
+          <MaquinasModule
+            currentCompany={currentCompany}
+            user={user}
+            onSelectMaquinaForPrecificacao={(mId) => {
+              setMaquinaId(mId);
+              setIsMaquinasModalOpen(false);
+            }}
+          />
         </div>
       </Modal>
 
@@ -1878,48 +1656,52 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
       <Modal
         isOpen={isHistoricoModalOpen}
         onClose={() => setIsHistoricoModalOpen(false)}
-        title="Histórico de Precificações & Orçamentos Salvos"
-        size="xl"
+        title="Histórico de Precificações Realizadas"
+        size="lg"
       >
-        <div className="space-y-4 p-2">
+        <div className="space-y-3 p-2">
           {historico.length === 0 ? (
-            <div className="py-12 text-center text-white/40 text-xs">
-              Nenhuma precificação salva no histórico ainda. Clique em "Salvar Orçamento" para armazenar suas simulações.
-            </div>
+            <p className="text-xs text-white/50 text-center py-8">
+              Nenhuma precificação salva no histórico ainda.
+            </p>
           ) : (
-            <div className="max-h-[65vh] overflow-y-auto custom-scrollbar space-y-3 pr-1">
+            <div className="space-y-3 max-h-[60vh] overflow-y-auto custom-scrollbar pr-1">
               {historico.map(h => (
-                <div key={h.id} className="bg-slate-800/70 p-4 rounded-2xl border border-white/10 space-y-2">
-                  <div className="flex items-center justify-between">
+                <div key={h.id} className="bg-slate-800/80 p-4 rounded-2xl border border-white/10 space-y-2">
+                  <div className="flex items-start justify-between gap-2">
                     <div>
-                      <h4 className="text-sm font-black text-white">{h.servico}</h4>
-                      <span className="text-[11px] text-white/50">
-                        {h.material} • {h.unidade} • {new Date(h.data).toLocaleDateString('pt-BR')}
-                      </span>
+                      <h4 className="text-sm font-bold text-white">{h.servico}</h4>
+                      <p className="text-[11px] text-white/50">
+                        {h.material} • {h.unidade} • Máquina: {h.maquinaNome || 'Nenhuma'}
+                      </p>
                     </div>
+                    <span className="text-sm font-black text-emerald-400">
+                      R$ {h.precoRecomendado.toFixed(2)}
+                    </span>
+                  </div>
 
-                    <div className="text-right">
-                      <span className="block text-xs font-bold text-white/60">Preço Sugerido</span>
-                      <strong className="text-base font-black text-emerald-400">
-                        R$ {h.precoRecomendado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                      </strong>
+                  <div className="grid grid-cols-3 gap-2 text-[10px] bg-slate-900/60 p-2 rounded-xl border border-white/5">
+                    <div>
+                      <span className="text-white/40 block">Custo Real:</span>
+                      <strong className="text-rose-300">R$ {h.custoReal.toFixed(2)}</strong>
+                    </div>
+                    <div>
+                      <span className="text-white/40 block">Lucro Líquido:</span>
+                      <strong className="text-emerald-400">R$ {h.lucro.toFixed(2)} ({h.margemPct.toFixed(1)}%)</strong>
+                    </div>
+                    <div>
+                      <span className="text-white/40 block">Lucro/Hora:</span>
+                      <strong className="text-cyan-400">R$ {h.lucroPorHora.toFixed(2)}/h</strong>
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/5 text-[11px] text-white/60">
-                    <span>Custo Real: <strong className="text-rose-400">R$ {h.custoReal.toFixed(2)}</strong></span>
-                    <span>Lucro: <strong className="text-emerald-400">R$ {h.lucro.toFixed(2)}</strong></span>
-                    <span>Margem: <strong className="text-cyan-400">{h.margemPct.toFixed(1)}%</strong></span>
-                    <span>Lucro/Hora: <strong className="text-amber-400">R$ {h.lucroPorHora.toFixed(2)}/h</strong></span>
-
+                  <div className="flex items-center justify-between text-[10px] text-white/40 pt-1">
+                    <span>Salvo em {new Date(h.data).toLocaleDateString('pt-BR')} às {new Date(h.data).toLocaleTimeString('pt-BR').slice(0, 5)}</span>
                     <button
-                      onClick={() => {
-                        setHistorico(prev => prev.filter(item => item.id !== h.id));
-                      }}
-                      className="text-rose-400 hover:text-rose-300 ml-auto"
-                      title="Excluir do histórico"
+                      onClick={() => setHistorico(prev => prev.filter(i => i.id !== h.id))}
+                      className="text-rose-400 hover:text-rose-300 font-bold"
                     >
-                      <Trash2 size={13} />
+                      Excluir
                     </button>
                   </div>
                 </div>

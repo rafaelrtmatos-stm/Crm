@@ -581,22 +581,22 @@ export const MateriasPrimasModule: React.FC<MateriasPrimasModuleProps> = ({ curr
             </div>
           </div>
 
-          {/* Configuração de Bobina / Metro / Largura / Quantidade */}
+          {/* Configuração de Largura e Quantidade */}
           <div className="p-3 bg-white/[0.03] border border-white/10 rounded-xl space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-black uppercase tracking-wider text-primary-400">
-                Dimensões da Bobina & Estoque
+                Dimensões & Estoque
               </span>
               <span className="text-[10px] text-white/40">
                 {formData.unit === 'm' ? 'Adesivo / Lona / Rolo' : 'Quantidade e Medidas'}
               </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {/* Largura do Material */}
               <div className="space-y-1">
                 <label className="text-[10px] font-bold uppercase tracking-wider text-white/70">
-                  Largura (m)
+                  Largura do Material (m)
                 </label>
                 <input
                   type="number"
@@ -621,38 +621,10 @@ export const MateriasPrimasModule: React.FC<MateriasPrimasModuleProps> = ({ curr
                 </div>
               </div>
 
-              {/* Comprimento da Bobina */}
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold uppercase tracking-wider text-white/70">
-                  Metros por Bobina
-                </label>
-                <input
-                  type="number"
-                  step="any"
-                  min="0"
-                  value={formData.comprimentoBobina || ''}
-                  onChange={e => setFormData({ ...formData, comprimentoBobina: parseFloat(e.target.value) || 0 })}
-                  placeholder="Ex: 50"
-                  className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white font-mono outline-none focus:border-primary-500/50"
-                />
-                <div className="flex items-center gap-1 mt-1">
-                  {[25, 50, 100].map(len => (
-                    <button
-                      key={len}
-                      type="button"
-                      onClick={() => setFormData({ ...formData, comprimentoBobina: len })}
-                      className="text-[9px] px-1.5 py-0.5 rounded bg-white/5 hover:bg-white/10 text-white/60 hover:text-white"
-                    >
-                      {len}m
-                    </button>
-                  ))}
-                </div>
-              </div>
-
               {/* Quantidade em Estoque */}
               <div className="space-y-1">
                 <label className="text-[10px] font-bold uppercase tracking-wider text-white/70">
-                  Qtd. em Estoque ({formData.unit === 'm' ? 'bobinas' : formData.unit})
+                  Qtd. em Estoque ({formData.unit})
                 </label>
                 <input
                   type="number"
@@ -660,14 +632,9 @@ export const MateriasPrimasModule: React.FC<MateriasPrimasModuleProps> = ({ curr
                   min="0"
                   value={formData.quantidadeEstoque !== undefined ? formData.quantidadeEstoque : ''}
                   onChange={e => setFormData({ ...formData, quantidadeEstoque: parseFloat(e.target.value) || 0 })}
-                  placeholder="Ex: 2"
+                  placeholder="Ex: 50"
                   className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white font-mono outline-none focus:border-primary-500/50"
                 />
-                {formData.unit === 'm' && formData.larguraMaterial > 0 && formData.comprimentoBobina > 0 && (
-                  <p className="text-[9px] text-white/40 mt-1">
-                    Total: {((formData.quantidadeEstoque || 0) * (formData.comprimentoBobina || 0)).toFixed(0)}m lineares
-                  </p>
-                )}
               </div>
             </div>
           </div>

@@ -36,6 +36,7 @@ import { supabase } from '../supabase';
 import { showAlert, showConfirm } from '../lib/notify';
 import { Company, Product, SaleOrder, CartItem, PaymentEntry, AppUser } from '../types';
 import { Badge, Button, Input, Modal, GlassCard, ModuleErrorBoundary } from './SharedUI';
+import { InventoryModule } from './InventoryModule';
 import { useApp } from '../AppContext';
 
 function cn(...classes: (string | boolean | undefined | null)[]) {
@@ -1349,41 +1350,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
 
       {/* Tab: Estoque */}
       {activeTab === 'estoque' && (
-        <div className="flex-1 min-h-0 p-4 sm:p-6 flex flex-col overflow-hidden">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-black uppercase tracking-wider text-white">Estoque de Produtos e Insumos</h3>
-            <button
-              onClick={() => setIsQuickProductModalOpen(true)}
-              className="px-3 py-1.5 bg-primary-500 hover:bg-primary-400 text-slate-900 font-black uppercase text-xs rounded-xl flex items-center gap-1.5"
-            >
-              <Plus size={14} />
-              <span>Novo Produto</span>
-            </button>
-          </div>
-          <div className="flex-1 min-h-0 bg-white/5 border border-white/10 rounded-2xl overflow-y-auto custom-scrollbar">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-white/5 text-white/50 uppercase text-[10px] font-black tracking-wider sticky top-0 backdrop-blur-md">
-                <tr>
-                  <th className="p-3">Nome</th>
-                  <th className="p-3">Categoria</th>
-                  <th className="p-3">Unidade</th>
-                  <th className="p-3">Preço Venda</th>
-                  <th className="p-3">Estoque Atual</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/5">
-                {products.map(p => (
-                  <tr key={p.id} className="hover:bg-white/5">
-                    <td className="p-3 font-bold text-white">{p.name}</td>
-                    <td className="p-3 text-white/60">{p.category || 'Geral'}</td>
-                    <td className="p-3 font-mono text-white/60">{p.unitType}</td>
-                    <td className="p-3 font-black text-emerald-400 font-mono">R$ {p.price.toFixed(2)}</td>
-                    <td className="p-3 font-mono font-bold text-white">{p.stock ?? 0}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        <div className="flex-1 min-h-0 p-3 sm:p-4 overflow-y-auto custom-scrollbar">
+          <InventoryModule currentCompany={currentCompany} user={user} />
         </div>
       )}
 
