@@ -147,7 +147,7 @@ export const ContractSignatureOtpPanel = ({ contrato, onRequestCompanySign }: Co
               <Clock size={10} /> Validade do código para este cliente
             </label>
             <select
-              value={ttlMinutes}
+              value={ttlMinutes || 30}
               onChange={(e) => setTtlMinutes(Number(e.target.value))}
               className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-xs text-white/80"
             >

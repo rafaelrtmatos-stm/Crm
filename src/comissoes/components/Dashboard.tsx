@@ -4,6 +4,7 @@ import {
   TrendingUp,
   Percent,
   Calendar,
+  ChevronLeft,
   ChevronRight,
   Sparkles,
   CheckCircle2,
@@ -20,6 +21,7 @@ import {
   avancarCaixaSeNecessario,
   getDataInicioColaborador,
   calcularResumoNoIntervalo,
+  getWorkWeekBounds,
   addDaysISO,
 } from '../utils/caixaSemanalStorage';
 import { ReceiptForecastCard } from './ReceiptForecastCard';
@@ -180,6 +182,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   colaboradorId,
 }) => {
   const [period, setPeriod] = useState<PeriodFilter>('hoje');
+  const [weekOffset, setWeekOffset] = useState<number>(0);
   const [customStartDate, setCustomStartDate] = useState(getTodayISO());
   const [customEndDate, setCustomEndDate] = useState(getTodayISO());
 
@@ -236,11 +239,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
     }
 
     if (period === 'semana') {
-      const bounds = getThisWeekBounds();
+      const bounds = getWorkWeekBounds(weekOffset);
+      const label =
+        weekOffset === 0
+          ? `Esta Semana (${formatDateBR(bounds.start)} a ${formatDateBR(bounds.end)})`
+          : weekOffset === -1
+          ? `Semana Passada (${formatDateBR(bounds.start)} a ${formatDateBR(bounds.end)})`
+          : `Semana de ${formatDateBR(bounds.start)} a ${formatDateBR(bounds.end)} (${Math.abs(weekOffset)} sem. atrás)`;
       return {
         start: bounds.start,
         end: bounds.end,
-        periodLabel: `Esta Semana (${formatDateBR(bounds.start)} a ${formatDateBR(bounds.end)})`,
+        periodLabel: label,
       };
     }
 
@@ -261,7 +270,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       end: customEndDate,
       periodLabel: `Personalizado (${formatDateBR(customStartDate)} até ${formatDateBR(customEndDate)})`,
     };
-  }, [period, customStartDate, customEndDate]);
+  }, [period, weekOffset, customStartDate, customEndDate]);
 
   // Filter services for chosen period
   const filteredServices = useMemo(() => {
@@ -301,7 +310,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   }, [caixa]);
 
   // Calculate specific current week statistics for the bottom section
-  const weeklyBounds = useMemo(() => getThisWeekBounds(), []);
+  const weeklyBounds = useMemo(() => getWorkWeekBounds(period === 'semana' ? weekOffset : 0), [period, weekOffset]);
   const weeklyServices = useMemo(() => {
     return recentServices.filter(
       (s) => s.date >= weeklyBounds.start && s.date <= weeklyBounds.end && s.status !== 'CANCELADO'
@@ -419,17 +428,59 @@ export const Dashboard: React.FC<DashboardProps> = ({
           >
             Mês Atual
           </button>
-          <button
-            type="button"
-            onClick={() => setPeriod('semana')}
-            className={`px-2.5 sm:px-3.5 py-1.5 rounded-xl text-[11px] sm:text-xs font-extrabold uppercase transition-all cursor-pointer ${
-              period === 'semana'
-                ? 'bg-gradient-red text-white shadow-red-glow'
-                : 'bg-[var(--bg-card-sec)] text-[var(--text-muted)] hover:text-white border border-[var(--border-color)]'
-            }`}
-          >
-            Esta Semana
-          </button>
+
+          {/* Botão de Semana com controles de retroagir (< / >) */}
+          <div className="flex items-center gap-0.5 bg-[var(--bg-card-sec)] rounded-xl border border-[var(--border-color)] p-0.5">
+            <button
+              type="button"
+              onClick={() => {
+                setPeriod('semana');
+                setWeekOffset((v) => v - 1);
+              }}
+              title="Retroagir 1 semana (Semana Anterior)"
+              className="p-1.5 rounded-lg hover:bg-[var(--bg-card)] text-[var(--text-muted)] hover:text-[var(--accent-red)] transition-all cursor-pointer"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setPeriod('semana')}
+              className={`px-2 sm:px-3 py-1 rounded-lg text-[11px] sm:text-xs font-extrabold uppercase transition-all cursor-pointer ${
+                period === 'semana'
+                  ? 'bg-gradient-red text-white shadow-red-glow'
+                  : 'text-[var(--text-muted)] hover:text-white'
+              }`}
+            >
+              {period === 'semana' && weekOffset !== 0
+                ? `Semana (${weekOffset < 0 ? `${Math.abs(weekOffset)} sem. atrás` : `+${weekOffset} sem.`})`
+                : 'Esta Semana'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setPeriod('semana');
+                setWeekOffset((v) => v + 1);
+              }}
+              title="Avançar 1 semana"
+              className="p-1.5 rounded-lg hover:bg-[var(--bg-card)] text-[var(--text-muted)] hover:text-[var(--accent-red)] transition-all cursor-pointer"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+
+            {period === 'semana' && weekOffset !== 0 && (
+              <button
+                type="button"
+                onClick={() => setWeekOffset(0)}
+                title="Voltar para a semana atual"
+                className="px-2 py-0.5 rounded-md bg-[var(--accent-red)] text-white text-[10px] font-bold uppercase transition-all cursor-pointer"
+              >
+                Atual
+              </button>
+            )}
+          </div>
+
           <button
             type="button"
             onClick={() => setPeriod('hoje')}
@@ -490,18 +541,44 @@ export const Dashboard: React.FC<DashboardProps> = ({
         )}
       </div>
 
+      {/* Banner Informativo de Semana Retroagida no Dashboard */}
+      {period === 'semana' && weekOffset !== 0 && (
+        <div className="bg-amber-500/10 border-2 border-amber-500/30 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-300 shadow-sm animate-fadeIn">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0 border border-amber-500/30">
+              <Calendar className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xs font-black uppercase tracking-wider text-amber-200">
+                Visualizando Semana Passada ({formatDateBR(start)} a {formatDateBR(end)} — {Math.abs(weekOffset)} {Math.abs(weekOffset) === 1 ? 'semana' : 'semanas'} atrás)
+              </p>
+              <p className="text-[11px] text-amber-300/80 font-medium mt-0.5">
+                Os valores de produção, comissões, descontos e projeção de recebimento abaixo refletem exatamente os registros desta semana histórica.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setWeekOffset(0)}
+            className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-black uppercase tracking-wider shrink-0 transition-all shadow-md cursor-pointer active:scale-95 self-start sm:self-center"
+          >
+            Retornar à Semana Atual
+          </button>
+        </div>
+      )}
+
       {/* Grid of Main Stat Cards + Featured Receipt Forecast Card */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
         {/* Featured Card de Previsão de Recebimento */}
         <div className="lg:col-span-1">
           <ReceiptForecastCard
-            baseSalary={userSettings.baseSalary}
-            totalCommission={weeklyStats.weeklyCommission}
+            baseSalary={period === 'semana' && resumoPeriodoAtivo ? resumoPeriodoAtivo.salarioBase : userSettings.baseSalary}
+            totalCommission={period === 'semana' && resumoPeriodoAtivo ? resumoPeriodoAtivo.totalComissao : weeklyStats.weeklyCommission}
             weeklyGoal={userSettings.weeklyGoal}
-            totalProduction={weeklyStats.weeklyProduction}
-            totalDiscounts={resumoSemanaAtual?.totalDescontos ?? 0}
-            totalPaid={resumoSemanaAtual?.totalPago ?? 0}
+            totalProduction={period === 'semana' ? displayStats.totalProduction : weeklyStats.weeklyProduction}
+            totalDiscounts={period === 'semana' && resumoPeriodoAtivo ? resumoPeriodoAtivo.totalDescontos : (resumoSemanaAtual?.totalDescontos ?? 0)}
+            totalPaid={period === 'semana' && resumoPeriodoAtivo ? resumoPeriodoAtivo.totalPago : (resumoSemanaAtual?.totalPago ?? 0)}
             previousBalance={saldoAnteriorAoPeriodo}
             onOpenDescontos={onGoToDescontos}
           />

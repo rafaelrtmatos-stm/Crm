@@ -1,4 +1,4 @@
-import { useLayoutEffect } from 'react';
+import { useEffect } from 'react';
 
 // Mantem qualquer wrapper ".comissoes-app" sincronizado com o tema claro/escuro
 // do CRM principal. O CRM controla o tema global adicionando/removendo a classe
@@ -12,12 +12,18 @@ import { useLayoutEffect } from 'react';
 // um elemento raiz diferente — assim todas ficam corretas assim que aparecem,
 // sem depender de qual delas estava montada quando o hook rodou.
 export function useSyncWithCrmTheme() {
-  useLayoutEffect(() => {
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+
     const applyToAll = () => {
-      const isLight = document.documentElement.classList.contains('light-theme');
-      document.querySelectorAll('.comissoes-app').forEach((el) => {
-        el.setAttribute('data-theme', isLight ? 'light' : 'dark');
-      });
+      try {
+        const isLight = document.documentElement.classList.contains('light-theme');
+        document.querySelectorAll('.comissoes-app').forEach((el) => {
+          el.setAttribute('data-theme', isLight ? 'light' : 'dark');
+        });
+      } catch (err) {
+        console.warn('Erro ao sincronizar tema:', err);
+      }
     };
 
     applyToAll();

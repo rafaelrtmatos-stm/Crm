@@ -247,7 +247,7 @@ export const ServicesModule: React.FC<ServicesModuleProps> = ({ currentCompany }
                     </div>
 
                     <select
-                      value={currentStatus}
+                      value={currentStatus || 'pedido_recebido'}
                       onChange={e => handleUpdateStatus(order.id, e.target.value)}
                       className={`text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-lg border outline-none bg-slate-900 cursor-pointer ${statusInfo.color} ${statusInfo.border}`}
                     >

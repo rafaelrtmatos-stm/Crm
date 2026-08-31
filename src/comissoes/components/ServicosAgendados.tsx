@@ -63,12 +63,19 @@ const weekLabel = (start: string, end: string) => {
   return `${String(s.getDate()).padStart(2, '0')} ${mesFmt(s)} a ${String(e.getDate()).padStart(2, '0')} ${mesFmt(e)}`;
 };
 
+const getItemGrossValue = (item: { price?: number; quantity?: number; area?: number; discountValue?: number }) => {
+  const qty = item.quantity ?? 1;
+  const basePrice = item.price ?? 0;
+  const total = item.area ? basePrice * item.area * qty : basePrice * qty;
+  return Math.max(0, total - (item.discountValue ?? 0));
+};
+
 // Mesma lógica de rateio de desconto do antigo modal: se a nota teve desconto, cada item
 // perde a mesma fração proporcional ao seu peso no total bruto, pra comissão sair sobre o líquido.
 const calcFatorDesconto = (nota: NotaAgendada): number => {
   const desconto = nota.discount_value ?? 0;
   if (!desconto || desconto <= 0) return 1;
-  const brutoTotal = (nota.items || []).reduce((sum, item) => sum + (item.price ?? 0) * (item.quantity ?? 1), 0);
+  const brutoTotal = (nota.items || []).reduce((sum, item) => sum + getItemGrossValue(item), 0);
   if (brutoTotal <= 0) return 1;
   const fator = (brutoTotal - desconto) / brutoTotal;
   return fator > 0 ? fator : 0;
@@ -110,9 +117,17 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
   const [termoBuscaLixeira, setTermoBuscaLixeira] = useState('');
   // Modal de confirmação de data ao adicionar serviço(s) na planilha: pergunta se lança
   // hoje, na data da nota, ou em outra data escolhida pelo colaborador (ex: fez o serviço
-  // num dia diferente do agendamento).
+  // num dia diferente do agendamento), e se divide o serviço (100% ou 50%).
   const [confirmarDataModal, setConfirmarDataModal] =
-    useState<{ nota: NotaAgendada; idxs: number[]; dataHoje: string; dataNota: string; dataEscolhida: string; alterando: boolean } | null>(null);
+    useState<{
+      nota: NotaAgendada;
+      idxs: number[];
+      dataHoje: string;
+      dataNota: string;
+      dataEscolhida: string;
+      alterando: boolean;
+      splitPercent: 100 | 50 | 33;
+    } | null>(null);
 
   const carregarDispensadas = async () => {
     if (!colaboradorId) {
@@ -146,7 +161,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
 
     const servicoIds = new Set((servicos || []).map((p: { id: string }) => p.id));
 
-    const { data } = await supabase
+    const { data: vendasData } = await supabase
       .from('vendas')
       .select('id, customer_name, total, discount_value, scheduled_for, items, observacoes, service_status, created_at')
       .neq('status', 'canceled')
@@ -155,11 +170,52 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
       .order('scheduled_for', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: false });
 
-    const todas = (data || []) as NotaAgendada[];
+    const todasVendas = (vendasData || []) as NotaAgendada[];
+    const todasVendasIds = new Set(todasVendas.map(v => v.id));
+
+    // Carrega também orçamentos que já foram recebidos / aprovados / em produção
+    // sem precisar reabrir no terminal de vendas
+    let orcamentosNotas: NotaAgendada[] = [];
+    try {
+      const { data: orcData } = await supabase
+        .from('orcamentos')
+        .select('id, numero, customer_name, total, desconto, prazo_data_prevista, items, observacoes, status, down_payment, valor_pago, pagamentos, created_at, venda_id')
+        .is('deleted_at', null)
+        .neq('status', 'recusado')
+        .neq('status', 'cancelado')
+        .order('created_at', { ascending: false });
+
+      orcamentosNotas = (orcData || [])
+        .filter((o: any) => !o.venda_id || !todasVendasIds.has(o.venda_id))
+        .map((o: any) => ({
+          id: o.id,
+          customer_name: o.customer_name ? `${o.customer_name} [Orçamento #${o.numero || ''}]` : `Orçamento #${o.numero || ''}`,
+          total: Number(o.total) || 0,
+          discount_value: Number(o.desconto) || 0,
+          scheduled_for: o.prazo_data_prevista || o.created_at,
+          items: (o.items || []).map((i: any) => ({
+            name: i.description || i.name || 'Serviço',
+            quantity: Number(i.quantity) || 1,
+            price: Number(i.unitPrice ?? i.price) || 0,
+            area: i.area,
+            dimensions: i.dimensions,
+            discountValue: i.discountValue,
+            productId: i.productId || i.id,
+          })),
+          observacoes: o.observacoes || (o.status ? `Status Orçamento: ${o.status}` : null),
+          created_at: o.created_at,
+        }));
+    } catch (e) {
+      console.warn('Erro ao carregar orçamentos para comissões:', e);
+    }
+
+    const todas: NotaAgendada[] = [...todasVendas, ...orcamentosNotas];
+
     const comServico = servicoIds.size === 0
       ? todas
       : todas.filter(n =>
-          (n.items || []).some(i => i.productId && servicoIds.has(i.productId))
+          (n.items || []).length > 0 &&
+          ((n.items || []).some(i => i.productId && servicoIds.has(i.productId)) || n.id.startsWith('orc_') || !n.items.some(i => i.productId))
         );
 
     setNotas(comServico);
@@ -167,7 +223,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
 
     const ids = comServico.map(n => n.id);
     if (ids.length) {
-      const mapa = await getItensJaAdicionadosDeNotas(ids);
+      const mapa = await getItensJaAdicionadosDeNotas(ids, colaboradorId);
       setItensAdicionadosPorNota(mapa);
     } else {
       setItensAdicionadosPorNota({});
@@ -350,18 +406,24 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
   };
 
   // Confirma o lançamento dos itens marcados numa data específica (o dia da nota ou outro,
-  // escolhido no modal de confirmação abaixo).
-  const handleAdicionarSelecionados = async (nota: NotaAgendada, idxs: number[], data: string) => {
+  // escolhido no modal de confirmação abaixo) e com a fração de divisão (100%, 50%, etc).
+  const handleAdicionarSelecionados = async (
+    nota: NotaAgendada,
+    idxs: number[],
+    data: string,
+    splitMultiplier = 1
+  ) => {
     if (!idxs.length) return;
     const fator = calcFatorDesconto(nota);
+    const splitLabel = splitMultiplier === 0.5 ? ' (50% meio a meio)' : splitMultiplier === 1 / 3 ? ' (33%)' : '';
     const escolhidos: NotaSelecionadoItem[] = idxs.map(idx => {
       const item = nota.items[idx];
-      const bruto = (item.price ?? 0) * (item.quantity ?? 1);
+      const bruto = getItemGrossValue(item);
       return {
         idx,
-        name: item.name,
+        name: `${item.name}${splitLabel}`,
         quantity: item.quantity ?? 1,
-        value: Number((bruto * fator).toFixed(2)),
+        value: Number((bruto * fator * splitMultiplier).toFixed(2)),
       };
     });
     await handleAddItems(escolhidos, nota, data);
@@ -378,19 +440,23 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
     if (!idxs.length) return;
     const dataHoje = getTodayISO();
     const dataNota = dateKey(nota.scheduled_for || nota.created_at);
-    // Só HOJE é lançamento de 1 toque (é a ação mais comum e "segura" — sempre a data de
-    // agora). Qualquer outra data (nota ou personalizada) passa pela tela de conferência
-    // com o dia da semana em destaque, pra nunca gravar um dia errado sem o colaborador
-    // ver claramente o que vai ser salvo antes de confirmar (bug relatado: toque errado
-    // entre "HOJE" e "DATA DA NOTA", os dois com destaque visual igual).
-    setConfirmarDataModal({ nota, idxs, dataHoje, dataNota, dataEscolhida: dataNota, alterando: false });
+    setConfirmarDataModal({
+      nota,
+      idxs,
+      dataHoje,
+      dataNota,
+      dataEscolhida: dataNota,
+      alterando: false,
+      splitPercent: 100,
+    });
   };
 
   const confirmarAdicaoComData = async (data: string) => {
     if (!confirmarDataModal) return;
-    const { nota, idxs } = confirmarDataModal;
+    const { nota, idxs, splitPercent } = confirmarDataModal;
+    const multiplier = splitPercent === 50 ? 0.5 : splitPercent === 33 ? 1 / 3 : 1;
     setConfirmarDataModal(null);
-    await handleAdicionarSelecionados(nota, idxs, data);
+    await handleAdicionarSelecionados(nota, idxs, data, multiplier);
   };
 
   // Tira um serviço já lançado a partir de um item da nota (o colaborador se enganou ao
@@ -602,7 +668,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
               {(nota.items || []).map((item, idx) => {
                 const added = itensAdicionadosPorNota[nota.id]?.has(idx);
                 const isSelected = selecionadosNota.has(idx);
-                const valorItem = (item.price ?? 0) * (item.quantity ?? 1) * fator;
+                const valorItem = getItemGrossValue(item) * fator;
                 return (
                   <div
                     key={`${nota.id}-${idx}`}
@@ -623,7 +689,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
                     <div className="min-w-0 flex-1">
                       <p className="text-xs font-bold text-[var(--text-main)] truncate">{item.name}</p>
                       <p className="text-[10px] text-[var(--text-muted)]">
-                        {item.quantity ?? 1}x na nota · <span className="font-mono font-bold text-[var(--text-main)]">{formatCurrency(valorItem)}</span>
+                        {item.quantity ?? 1}x na nota {item.dimensions ? `(${item.dimensions})` : ''} · <span className="font-mono font-bold text-[var(--text-main)]">{formatCurrency(valorItem)}</span>
                       </p>
                     </div>
                     <span className={`text-[10px] font-bold ${
@@ -990,6 +1056,45 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
                 ? `${confirmarDataModal.idxs.length} serviços vão ser adicionados na sua planilha.`
                 : 'Esse serviço vai ser adicionado na sua planilha.'}
             </p>
+
+            {/* Opção de Divisão do Serviço */}
+            <div className="bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl p-2.5 space-y-1.5">
+              <div className="flex items-center justify-between text-[11px] font-black uppercase text-[var(--accent-red)]">
+                <span>Divisão do Serviço</span>
+                <span className="text-[9px] text-[var(--text-muted)] lowercase">fez com colega?</span>
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setConfirmarDataModal(prev => prev ? { ...prev, splitPercent: 100 } : prev)}
+                  className={`py-1.5 px-2 rounded-lg text-xs font-black transition-all flex items-center justify-center gap-1 border cursor-pointer ${
+                    confirmarDataModal.splitPercent === 100
+                      ? 'bg-[var(--accent-red)] text-white border-[var(--accent-red)]'
+                      : 'bg-[var(--bg-card)] border-[var(--border-color)] text-[var(--text-muted)]'
+                  }`}
+                >
+                  <span>100%</span>
+                  <span className="text-[9px] opacity-80">(Sozinho)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmarDataModal(prev => prev ? { ...prev, splitPercent: 50 } : prev)}
+                  className={`py-1.5 px-2 rounded-lg text-xs font-black transition-all flex items-center justify-center gap-1 border cursor-pointer ${
+                    confirmarDataModal.splitPercent === 50
+                      ? 'bg-amber-500 text-slate-900 border-amber-400 font-black ring-1 ring-amber-400'
+                      : 'bg-[var(--bg-card)] border-[var(--border-color)] text-[var(--text-muted)]'
+                  }`}
+                >
+                  <span>50%</span>
+                  <span className="text-[9px] opacity-80">(Dividido por 2)</span>
+                </button>
+              </div>
+              {confirmarDataModal.splitPercent === 50 && (
+                <p className="text-[10px] text-amber-400 font-bold bg-amber-500/10 border border-amber-500/20 rounded px-2 py-0.5">
+                  ✓ Metade (50%) da produção e comissão para você.
+                </p>
+              )}
+            </div>
 
             {!confirmarDataModal.alterando ? (
               <div className="space-y-2">

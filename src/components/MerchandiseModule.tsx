@@ -483,7 +483,7 @@ export const MerchandiseModule: React.FC<MerchandiseModuleProps> = ({ onAttachIt
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-zinc-400 uppercase">Unidade</label>
                   <select
-                    value={formUnit}
+                    value={formUnit || 'un'}
                     onChange={e => setFormUnit(e.target.value as any)}
                     className="w-full h-11 bg-zinc-900 border border-zinc-800 focus:border-red-500 rounded-xl px-3 text-xs text-white outline-none"
                   >

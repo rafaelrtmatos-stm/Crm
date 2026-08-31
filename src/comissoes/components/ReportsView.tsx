@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   BarChart3,
   Printer,
@@ -9,9 +9,14 @@ import {
   TrendingUp,
   Sliders,
   CheckCircle2,
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+  Filter,
 } from 'lucide-react';
 import { ServiceItem, UserSettings, SummaryStats } from '../types';
-import { formatCurrency, formatDateBR } from '../utils/storage';
+import { formatCurrency, formatDateBR, calculateSummaryStats } from '../utils/storage';
+import { getWorkWeekBounds } from '../utils/caixaSemanalStorage';
 
 interface ReportsViewProps {
   services: ServiceItem[];
@@ -22,10 +27,34 @@ interface ReportsViewProps {
 
 export const ReportsView: React.FC<ReportsViewProps> = ({ services, userSettings, stats, onGoToServiceInTable }) => {
   const [simulatedProduction, setSimulatedProduction] = useState<number>(3000);
+  const [periodFilter, setPeriodFilter] = useState<'semana' | 'mes' | 'todos'>('semana');
+  const [weekOffset, setWeekOffset] = useState<number>(0);
 
   const handlePrintReport = () => {
     window.print();
   };
+
+  const weekBounds = useMemo(() => getWorkWeekBounds(weekOffset), [weekOffset]);
+
+  const filteredServices = useMemo(() => {
+    if (periodFilter === 'todos') {
+      return services;
+    }
+    if (periodFilter === 'semana') {
+      return services.filter((s) => s.date >= weekBounds.start && s.date <= weekBounds.end);
+    }
+    if (periodFilter === 'mes') {
+      const now = new Date();
+      const first = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+      const last = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-31`;
+      return services.filter((s) => s.date >= first && s.date <= last);
+    }
+    return services;
+  }, [services, periodFilter, weekBounds]);
+
+  const currentStats = useMemo(() => {
+    return calculateSummaryStats(filteredServices, userSettings.baseSalary);
+  }, [filteredServices, userSettings.baseSalary]);
 
   const simulatedCommission = (simulatedProduction * userSettings.defaultCommissionRate) / 100;
   const simulatedTotalPayout = userSettings.baseSalary + simulatedCommission;
@@ -33,7 +62,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ services, userSettings
   return (
     <div className="space-y-6 animate-fadeIn">
       {/* Header Bar */}
-      <div className="p-6 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
+      <div className="p-6 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm print:hidden">
         <div>
           <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-[var(--accent-red)] mb-1">
             <BarChart3 className="w-4 h-4" /> Relatórios Consolidados de Comissões
@@ -42,11 +71,76 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ services, userSettings
             FECHAMENTO DE RENDIMENTOS
           </h2>
           <p className="text-xs text-[var(--text-muted)] mt-1 font-medium">
-            Resumo analítico de produção, cálculo de comissões e projeção de fechamento.
+            Resumo analítico de produção, cálculo de comissões e projeção de fechamento por período ou semana retroagida.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Controles de Período e Navegação Semanal */}
+          <div className="flex items-center gap-1 bg-[var(--bg-card-sec)] p-1 rounded-xl border border-[var(--border-color)]">
+            <button
+              type="button"
+              onClick={() => {
+                setPeriodFilter('semana');
+                setWeekOffset((v) => v - 1);
+              }}
+              title="Semana Anterior"
+              className="p-1.5 rounded-lg hover:bg-[var(--bg-card)] text-[var(--text-muted)] hover:text-[var(--accent-red)]"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setPeriodFilter('semana')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold uppercase ${
+                periodFilter === 'semana'
+                  ? 'bg-[var(--accent-red)] text-white'
+                  : 'text-[var(--text-muted)] hover:text-white'
+              }`}
+            >
+              {weekOffset === 0
+                ? 'Esta Semana'
+                : `Semana (${weekOffset < 0 ? `${Math.abs(weekOffset)} sem. atrás` : `+${weekOffset} sem.`})`}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setPeriodFilter('semana');
+                setWeekOffset((v) => v + 1);
+              }}
+              title="Próxima Semana"
+              className="p-1.5 rounded-lg hover:bg-[var(--bg-card)] text-[var(--text-muted)] hover:text-[var(--accent-red)]"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setPeriodFilter('mes')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold uppercase ${
+                periodFilter === 'mes'
+                  ? 'bg-[var(--accent-red)] text-white'
+                  : 'text-[var(--text-muted)] hover:text-white'
+              }`}
+            >
+              Mês
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setPeriodFilter('todos')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold uppercase ${
+                periodFilter === 'todos'
+                  ? 'bg-[var(--accent-red)] text-white'
+                  : 'text-[var(--text-muted)] hover:text-white'
+              }`}
+            >
+              Todos
+            </button>
+          </div>
+
           <button
             onClick={handlePrintReport}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[var(--bg-card-sec)] border border-[var(--border-color)] text-xs font-bold text-[var(--text-main)] hover:border-[var(--accent-red)] transition-all cursor-pointer"
@@ -72,7 +166,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ services, userSettings
 
           <div className="text-left sm:text-right font-mono text-xs text-[var(--text-muted)]">
             <p>Gerado em: {new Date().toLocaleDateString('pt-BR')}</p>
-            <p className="text-[var(--accent-red)] font-bold">Status: Período Aberto</p>
+            <p className="text-[var(--accent-red)] font-bold">
+              Período:{' '}
+              {periodFilter === 'semana'
+                ? `Semana (${formatDateBR(weekBounds.start)} a ${formatDateBR(weekBounds.end)})`
+                : periodFilter === 'mes'
+                ? 'Mês Atual'
+                : 'Histórico Completo'}
+            </p>
           </div>
         </div>
 
@@ -89,10 +190,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ services, userSettings
 
           <div className="p-4 rounded-xl bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
             <span className="text-[10px] font-bold uppercase text-[var(--text-muted)]">
-              Produção Total
+              Produção do Período
             </span>
             <div className="text-2xl font-black font-mono text-[var(--text-main)] mt-1">
-              {formatCurrency(stats.totalProduction)}
+              {formatCurrency(currentStats.totalProduction)}
             </div>
           </div>
 
@@ -101,7 +202,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ services, userSettings
               Comissão Gerada
             </span>
             <div className="text-2xl font-black font-mono text-[var(--accent-red)] mt-1">
-              {formatCurrency(stats.totalCommission)}
+              {formatCurrency(currentStats.totalCommission)}
             </div>
           </div>
 
@@ -110,7 +211,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ services, userSettings
               Recebimento Total Estimado
             </span>
             <div className="text-2xl font-black font-mono text-white mt-1">
-              {formatCurrency(stats.forecastTotal)}
+              {formatCurrency(currentStats.forecastTotal)}
             </div>
           </div>
         </div>
@@ -118,7 +219,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ services, userSettings
         {/* Services List Breakdown Table */}
         <div>
           <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] mb-3">
-            Detalhamento dos Serviços Registrados
+            Detalhamento dos Serviços Registrados ({filteredServices.length} serviços)
           </h4>
           <div className="overflow-x-auto rounded-xl border border-[var(--border-color)]">
             <table className="w-full text-left text-xs">
@@ -132,8 +233,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ services, userSettings
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border-color)] font-medium">
-                {services
-                  .map((item) => (
+                {filteredServices.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="p-4 text-center text-[var(--text-muted)] font-mono">
+                      Nenhum serviço registrado neste período.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredServices.map((item) => (
                     <tr
                       key={item.id}
                       onClick={() => onGoToServiceInTable?.(item.id)}
@@ -147,7 +254,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ services, userSettings
                         {formatCurrency(item.commissionValue)}
                       </td>
                     </tr>
-                  ))}
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -155,7 +263,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ services, userSettings
       </div>
 
       {/* Commission Simulator Tool */}
-      <div className="p-6 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] space-y-4">
+      <div className="p-6 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] space-y-4 print:hidden">
         <div className="flex items-center gap-2">
           <Calculator className="w-5 h-5 text-[var(--accent-red)]" />
           <h3 className="font-black text-base uppercase text-[var(--text-main)]">

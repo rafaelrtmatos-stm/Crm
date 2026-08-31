@@ -15,10 +15,14 @@ export interface LucroSaleItem {
   name?: string;
   quantity: number;
   area?: number;
+  consumoEstoque?: number;
+  dimensions?: string;
 }
 
 export interface LucroExtraCost {
   amount: number;
+  date?: string;
+  description?: string;
 }
 
 const REGEX_MATERIAL_LONA_ADESIVO = /lona|adesivo/i;
@@ -27,6 +31,66 @@ const REGEX_MATERIAL_LONA_ADESIVO = /lona|adesivo/i;
 // (convencao ja usada em todo o cadastro real de produtos -- ver import_produtos.sql).
 export function isMaterialLonaAdesivo(nomeProduto: string | undefined | null): boolean {
   return !!nomeProduto && REGEX_MATERIAL_LONA_ADESIVO.test(nomeProduto);
+}
+
+/**
+ * Calcula a metragem/quantidade real consumida de um item (metro linear, m² ou unidades).
+ * Ex: Adesivo de 0,50m consumirá 0,50 metros lineares. Se o custo do metro for R$ 14,42,
+ * o custo de matéria-prima será 0,50 * 14,42 = R$ 7,21.
+ */
+export function obterConsumoItem(item: LucroSaleItem): number {
+  const qtd = item.quantity || 1;
+
+  // 1. Se consumoEstoque está gravado diretamente
+  if (typeof item.consumoEstoque === 'number' && item.consumoEstoque > 0) {
+    return item.consumoEstoque;
+  }
+
+  // 2. Se area está gravada diretamente (m² ou comprimento do metro linear)
+  if (typeof item.area === 'number' && item.area > 0) {
+    return item.area * qtd;
+  }
+
+  // 3. Extrair da string de dimensões se existir (ex: "0,50m", "(0,50m linear)", "0,50x1,00", "0.50m x 2.00m (1.00m²)")
+  if (item.dimensions) {
+    const dimStr = item.dimensions;
+
+    // Ex: "0,50x1,00 (0,50m linear)" ou "(0.50m linear)"
+    const linearMatch = dimStr.match(/\(?([0-9.,]+)\s*m\s*linear\)?/i);
+    if (linearMatch) {
+      const val = parseFloat(linearMatch[1].replace(',', '.'));
+      if (val > 0) return val * qtd;
+    }
+
+    // Ex: "1.00m x 2.00m (2.00m²)"
+    const m2Match = dimStr.match(/\(?([0-9.,]+)\s*m²\)?/i);
+    if (m2Match) {
+      const val = parseFloat(m2Match[1].replace(',', '.'));
+      if (val > 0) return val * qtd;
+    }
+
+    // Ex: "0,50m" ou "0.50m"
+    const singleMeterMatch = dimStr.match(/^([0-9.,]+)\s*m$/i);
+    if (singleMeterMatch) {
+      const val = parseFloat(singleMeterMatch[1].replace(',', '.'));
+      if (val > 0) return val * qtd;
+    }
+
+    // Ex: "0,50x1,00" ou "0.50x1.00"
+    const whMatch = dimStr.match(/^([0-9.,]+)\s*x\s*([0-9.,]+)/i);
+    if (whMatch) {
+      const w = parseFloat(whMatch[1].replace(',', '.'));
+      const h = parseFloat(whMatch[2].replace(',', '.'));
+      if (w > 0 && h > 0) {
+        return (w * h) * qtd;
+      } else if (w > 0) {
+        return w * qtd;
+      }
+    }
+  }
+
+  // Fallback: quantidade padrão de unidades
+  return qtd;
 }
 
 // Custo de material (Lona + Adesivo) de uma lista de itens de venda. custoPorId e o mapa
@@ -42,8 +106,8 @@ export function custoMaterialLonaAdesivo(
     const nome = item.name || (item.productId && nomePorId ? nomePorId[item.productId] : '') || '';
     if (!isMaterialLonaAdesivo(nome)) return total;
     const custoUnit = (item.productId && custoPorId[item.productId]) || 0;
-    const qtd = item.area ? item.area * item.quantity : item.quantity;
-    return total + custoUnit * qtd;
+    const consumo = obterConsumoItem(item);
+    return total + custoUnit * consumo;
   }, 0);
 }
 

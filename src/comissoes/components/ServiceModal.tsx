@@ -45,6 +45,10 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
   const [notes, setNotes] = useState('');
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
 
+  // Divisao de servico (ex: 2 funcionarios fizeram o servico -> 50%)
+  const [splitOption, setSplitOption] = useState<100 | 50 | 33 | 'custom'>(100);
+  const [baseJobValue, setBaseJobValue] = useState<number | ''>('');
+
   // Busca de produtos do catalogo (mesma tabela usada no PDV) — pra nao precisar digitar o
   // servico na mao toda vez, e ja preencher o preco unitario certo direto do cadastro
   const [buscandoProduto, setBuscandoProduto] = useState(false);
@@ -88,9 +92,9 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
       setUnit(editingService.unit || 'unidade');
       setQuantity(editingService.quantity || 1);
       setUnitPrice(editingService.unitPrice || editingService.productionValue || '');
-      setProductionValue(editingService.productionValue);
-      setCommissionPercent(editingService.commissionPercent);
-      setCommissionValue(editingService.commissionValue);
+      setProductionValue(editingService.productionValue ?? '');
+      setCommissionPercent(editingService.commissionPercent ?? defaultCommissionRate);
+      setCommissionValue(editingService.commissionValue ?? '');
       setStatus(editingService.status || 'CONCLUÍDO');
       setNotes(editingService.notes || '');
     } else {
@@ -132,15 +136,45 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
     const num = parseFloat(val);
     if (isNaN(num) || num < 0) {
       setProductionValue('');
+      setBaseJobValue('');
       setCommissionValue('');
     } else {
       setProductionValue(num);
+      if (splitOption === 100) {
+        setBaseJobValue(num);
+      }
       if (quantity > 0) {
         setUnitPrice(Number((num / quantity).toFixed(2)));
       }
       const rate = typeof commissionPercent === 'number' ? commissionPercent : defaultCommissionRate;
       setCommissionValue(Number(((num * rate) / 100).toFixed(2)));
     }
+  };
+
+  const applySplit = (pct: 100 | 50 | 33 | 'custom') => {
+    setSplitOption(pct);
+    let original = typeof baseJobValue === 'number' && baseJobValue > 0 
+      ? baseJobValue 
+      : (typeof productionValue === 'number' && productionValue > 0 ? productionValue : 0);
+
+    if (splitOption === 100 && typeof productionValue === 'number' && productionValue > 0 && (baseJobValue === '' || baseJobValue === 0)) {
+      original = productionValue;
+      setBaseJobValue(original);
+    }
+    if (original <= 0) return;
+
+    let multiplier = 1;
+    if (pct === 50) multiplier = 0.5;
+    else if (pct === 33) multiplier = 1 / 3;
+    else if (pct === 100) multiplier = 1;
+
+    const newProd = Number((original * multiplier).toFixed(2));
+    setProductionValue(newProd);
+    if (quantity > 0) {
+      setUnitPrice(Number((newProd / quantity).toFixed(2)));
+    }
+    const rate = typeof commissionPercent === 'number' ? commissionPercent : defaultCommissionRate;
+    setCommissionValue(Number(((newProd * rate) / 100).toFixed(2)));
   };
 
   const handleCommissionPercentChange = (val: string) => {
@@ -312,7 +346,7 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
               {/* Value Input with Numeric Decimal Keyboard */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-[var(--text-main)] mb-1">
-                  2. Valor Total do Serviço (R$) *
+                  2. Valor do Serviço (R$) *
                 </label>
                 <div className="relative">
                   <span className="absolute left-3.5 top-3 text-sm font-extrabold font-mono text-[var(--accent-red)]">
@@ -335,6 +369,61 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
                 {errors.productionValue && (
                   <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
                     <AlertCircle className="w-3.5 h-3.5" /> {errors.productionValue}
+                  </p>
+                )}
+              </div>
+
+              {/* Opção de Divisão do Serviço (Ex: 2 funcionários -> 50%) */}
+              <div className="pt-2 border-t border-[var(--border-color)] space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-black uppercase tracking-wider text-[var(--text-main)] flex items-center gap-1.5">
+                    <Layers className="w-3.5 h-3.5 text-[var(--accent-red)]" /> Divisão do Trabalho
+                  </label>
+                  <span className="text-[10px] text-[var(--text-muted)] font-medium">
+                    Fez sozinho ou com colega?
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => applySplit(100)}
+                    className={`py-2 px-2 rounded-xl border text-xs font-black transition-all flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
+                      splitOption === 100
+                        ? 'bg-[var(--accent-red)] text-white border-[var(--accent-red)] shadow-red-glow'
+                        : 'bg-[var(--bg-card)] border-[var(--border-color)] text-[var(--text-muted)] hover:text-white'
+                    }`}
+                  >
+                    <span className="text-sm font-black">100%</span>
+                    <span className="text-[8px] uppercase font-bold opacity-80">Fiz Sozinho</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applySplit(50)}
+                    className={`py-2 px-2 rounded-xl border text-xs font-black transition-all flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
+                      splitOption === 50
+                        ? 'bg-amber-500 text-slate-900 border-amber-400 font-black shadow-md ring-2 ring-amber-400/40'
+                        : 'bg-[var(--bg-card)] border-[var(--border-color)] text-[var(--text-muted)] hover:text-white'
+                    }`}
+                  >
+                    <span className="text-sm font-black">50%</span>
+                    <span className="text-[8px] uppercase font-bold opacity-80">Dividido em 2</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applySplit(33)}
+                    className={`py-2 px-2 rounded-xl border text-xs font-black transition-all flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
+                      splitOption === 33
+                        ? 'bg-blue-500 text-white border-blue-400 shadow-md'
+                        : 'bg-[var(--bg-card)] border-[var(--border-color)] text-[var(--text-muted)] hover:text-white'
+                    }`}
+                  >
+                    <span className="text-sm font-black">33%</span>
+                    <span className="text-[8px] uppercase font-bold opacity-80">Dividido em 3</span>
+                  </button>
+                </div>
+                {splitOption === 50 && (
+                  <p className="text-[10px] text-amber-400 font-bold bg-amber-500/10 border border-amber-500/20 rounded-lg px-2.5 py-1.5 flex items-center gap-1.5">
+                    ✓ 50% selecionado: Sua parte de produção é {formatCurrency(typeof productionValue === 'number' ? productionValue : 0)} e a comissão será calculada sobre este valor.
                   </p>
                 )}
               </div>

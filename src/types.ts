@@ -32,8 +32,11 @@ export type CartItem = SaleOrderItem;
 
 export interface ExtraCost {
   id: string;
-  description: string; // ex: "Mão de obra", "Frete", "Aluguel de andaime"
+  description: string; // ex: "Mão de obra", "Frete", "Aluguel de andaime", "Compra de material"
   amount: number;
+  date?: string; // Data da despesa / compra / pagamento (YYYY-MM-DD ou ISO)
+  colaboradorId?: string;
+  origemItemIndex?: number;
 }
 
 export interface PaymentEntry {

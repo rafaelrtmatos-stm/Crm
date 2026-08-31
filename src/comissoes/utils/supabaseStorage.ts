@@ -119,19 +119,24 @@ export async function purgeOldDeletedServices(colaboradorId: string): Promise<vo
     .lt('deleted_at', cutoff.toISOString());
 }
 
-// Busca, pra um conjunto de notas (vendas), quais itens (por índice) já viraram serviço de
-// Comissões — GLOBAL, sem filtrar por colaborador, porque a trava de duplicação é da nota/item
-// em si (não pode ser puxado duas vezes nem por colaboradores diferentes). Usado pela aba
-// "Serviços" pra marcar com o check verde os itens já adicionados e travar eles no modal.
-export async function getItensJaAdicionadosDeNotas(notaIds: string[]): Promise<Record<string, Set<number>>> {
+// Busca, pra um conjunto de notas (vendas/orçamentos), quais itens (por índice) já viraram serviço de
+// Comissões. Se colaboradorId for passado, verifica apenas os que ESTE colaborador já adicionou,
+// permitindo divisão de 50% entre múltiplos colaboradores sem um travar o outro.
+export async function getItensJaAdicionadosDeNotas(notaIds: string[], colaboradorId?: string): Promise<Record<string, Set<number>>> {
   const mapa: Record<string, Set<number>> = {};
   if (notaIds.length === 0) return mapa;
-  const { data, error } = await supabase
+  let query = supabase
     .from('comissoes_servicos')
     .select('origem_nota_id, origem_item_index')
     .in('origem_nota_id', notaIds)
     .is('deleted_at', null)
     .not('origem_item_index', 'is', null);
+
+  if (colaboradorId) {
+    query = query.eq('colaborador_id', colaboradorId);
+  }
+
+  const { data, error } = await query;
   if (error || !data) return mapa;
   data.forEach((row: { origem_nota_id: string; origem_item_index: number }) => {
     if (!mapa[row.origem_nota_id]) mapa[row.origem_nota_id] = new Set();
@@ -141,17 +146,20 @@ export async function getItensJaAdicionadosDeNotas(notaIds: string[]): Promise<R
 }
 
 // Remove (soft-delete) o serviço já lançado a partir de um item específico de uma nota —
-// usado quando o colaborador se engana e quer "tirar" um serviço que puxou da nota. O item
-// volta a aparecer como disponível pra ser adicionado de novo (getItensJaAdicionadosDeNotas
-// só conta os que ainda não têm deleted_at).
-export async function excluirServicoPorOrigem(notaId: string, itemIndex: number): Promise<boolean> {
-  const { data, error } = await supabase
+// usado quando o colaborador se engana e quer "tirar" um serviço que puxou da nota.
+export async function excluirServicoPorOrigem(notaId: string, itemIndex: number, colaboradorId?: string): Promise<boolean> {
+  let query = supabase
     .from('comissoes_servicos')
     .select('id')
     .eq('origem_nota_id', notaId)
     .eq('origem_item_index', itemIndex)
-    .is('deleted_at', null)
-    .maybeSingle();
+    .is('deleted_at', null);
+
+  if (colaboradorId) {
+    query = query.eq('colaborador_id', colaboradorId);
+  }
+
+  const { data, error } = await query.maybeSingle();
   if (error || !data) return false;
   return deleteServiceFromSupabase(data.id);
 }
@@ -240,55 +248,181 @@ export async function saveServiceToSupabase(colaboradorId: string, item: Service
 // "Excluir" um serviço não apaga de vez — só marca deleted_at (soft-delete), pra ele
 // sumir da planilha mas continuar disponível na Lixeira (ver getDeletedServicesFromSupabase
 // / restoreServiceFromSupabase acima) por 30 dias antes da limpeza definitiva.
-export async function deleteServiceFromSupabase(id: string): Promise<boolean> {
-  const { error } = await supabase
-    .from('comissoes_servicos')
-    .update({ deleted_at: new Date().toISOString() })
-    .eq('id', id);
-  return !error;
+// Remove a comissão de uma nota em vendas.custos_extras quando o serviço for removido/desvinculado
+export async function removerComissaoDeCustoDaNota(
+  vendaId: string,
+  colaboradorId?: string,
+  itemIndex?: number,
+  colaboradorNome?: string,
+  tipoServico?: string
+): Promise<boolean> {
+  if (!vendaId) return false;
+  try {
+    const { data: venda, error: fetchError } = await supabase
+      .from('vendas')
+      .select('custos_extras')
+      .eq('id', vendaId)
+      .maybeSingle();
+    if (fetchError || !venda) return false;
+
+    const custosAtuais: Array<any> = Array.isArray(venda?.custos_extras) ? venda.custos_extras : [];
+    if (custosAtuais.length === 0) return true;
+
+    const custosFiltrados = custosAtuais.filter((c) => {
+      // 1. Tagged matching por colaboradorId + itemIndex
+      if (colaboradorId && c.colaboradorId && c.colaboradorId === colaboradorId) {
+        if (itemIndex !== undefined && c.origemItemIndex !== undefined && Number(c.origemItemIndex) === Number(itemIndex)) {
+          return false;
+        }
+      }
+      // 2. Matching por descrição contendo o nome do colaborador e tipo de serviço
+      const desc = (c.description || '').toLowerCase();
+      if (colaboradorNome && desc.includes(colaboradorNome.toLowerCase().trim())) {
+        if (tipoServico && desc.includes(tipoServico.toLowerCase().trim())) {
+          return false;
+        }
+      }
+      return true;
+    });
+
+    if (custosFiltrados.length === custosAtuais.length) return true;
+
+    const { error: updateError } = await supabase
+      .from('vendas')
+      .update({ custos_extras: custosFiltrados })
+      .eq('id', vendaId);
+
+    return !updateError;
+  } catch (err) {
+    console.error('Erro ao remover comissão de custos da nota:', err);
+    return false;
+  }
 }
 
-// Quando um colaborador "puxa" um serviço da aba Serviços pra sua planilha de comissão,
-// a comissão dele sobre aquele item (ex.: 10% de R$100 = R$10) é lançada automaticamente
-// como um Custo Extra da nota de origem (coluna vendas.custos_extras, mesmo painel "Custos
-// da Nota" do PDV -- ver src/lib/lucro.ts). Isso já abate no Lucro Líquido da nota sem o
-// Admin precisar lançar a mão de obra na mão. Uma vez lançado, o item fica igual a qualquer
-// outro custo extra: editável/removível manualmente em Custos da Nota -- não sincroniza
-// de volta se o serviço for depois editado, cancelado ou trocado de colaborador.
+// "Excluir" um serviço não apaga de vez — marca deleted_at (soft-delete) e sincroniza
+// removendo a comissão da nota em vendas.custos_extras para evitar duplicações.
+export async function deleteServiceFromSupabase(id: string): Promise<boolean> {
+  try {
+    const { data: servico } = await supabase
+      .from('comissoes_servicos')
+      .select('id, colaborador_id, origem_nota_id, origem_item_index, tipo_servico')
+      .eq('id', id)
+      .maybeSingle();
+
+    const { error } = await supabase
+      .from('comissoes_servicos')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('id', id);
+
+    if (error) return false;
+
+    if (servico && servico.origem_nota_id) {
+      let colabNome = '';
+      if (servico.colaborador_id) {
+        const { data: colab } = await supabase
+          .from('colaboradores')
+          .select('nome')
+          .eq('id', servico.colaborador_id)
+          .maybeSingle();
+        colabNome = colab?.nome || '';
+      }
+      await removerComissaoDeCustoDaNota(
+        servico.origem_nota_id,
+        servico.colaborador_id,
+        servico.origem_item_index !== null && servico.origem_item_index !== undefined ? Number(servico.origem_item_index) : undefined,
+        colabNome,
+        servico.tipo_servico
+      );
+    }
+
+    return true;
+  } catch (err) {
+    console.error('Erro ao excluir serviço:', err);
+    return false;
+  }
+}
+
 export interface ComissaoParaCustoDaNota {
   descricao: string;
   valor: number;
+  data?: string;
+  colaboradorId?: string;
+  colaboradorNome?: string;
+  itemIndex?: number;
 }
 
+// Lança a comissão como Custo Extra da nota com PROTEÇÃO ANTI-DUPLICAÇÃO:
+// se já existir uma comissão do mesmo colaborador/item/serviço, substitui em vez de duplicar.
 export async function lancarComissoesComoCustoDaNota(
   vendaId: string,
   comissoes: ComissaoParaCustoDaNota[]
 ): Promise<boolean> {
   if (!vendaId || comissoes.length === 0) return false;
+  try {
+    const { data: venda, error: fetchError } = await supabase
+      .from('vendas')
+      .select('custos_extras')
+      .eq('id', vendaId)
+      .maybeSingle();
+    if (fetchError) { console.error('Erro ao buscar custos da nota:', fetchError); return false; }
 
-  const { data: venda, error: fetchError } = await supabase
-    .from('vendas')
-    .select('custos_extras')
-    .eq('id', vendaId)
-    .maybeSingle();
-  if (fetchError) { console.error('Erro ao buscar custos da nota:', fetchError); return false; }
+    const custosAtuais: Array<any> = Array.isArray(venda?.custos_extras) ? venda.custos_extras : [];
 
-  const custosAtuais: Array<{ id: string; description: string; amount: number }> =
-    Array.isArray(venda?.custos_extras) ? venda.custos_extras : [];
+    // Filtra e remove qualquer entrada duplicada antiga que coincida com a comissão sendo lançada
+    const custosSemDuplicados = custosAtuais.filter((existente) => {
+      const descExistente = (existente.description || '').toLowerCase().trim();
+      return !comissoes.some((nova) => {
+        // 1. Tagged matching por colaboradorId e itemIndex
+        if (
+          existente.colaboradorId &&
+          nova.colaboradorId &&
+          existente.colaboradorId === nova.colaboradorId &&
+          existente.origemItemIndex !== undefined &&
+          nova.itemIndex !== undefined &&
+          Number(existente.origemItemIndex) === Number(nova.itemIndex)
+        ) {
+          return true;
+        }
+        // 2. Matching por descrição idêntica
+        const descNova = (nova.descricao || '').toLowerCase().trim();
+        if (descExistente === descNova) {
+          return true;
+        }
+        // 3. Matching por nome de colaborador + tipo de serviço
+        if (nova.colaboradorNome && descExistente.includes(nova.colaboradorNome.toLowerCase().trim())) {
+          const splitExistente = descExistente.split('—')[1]?.trim();
+          const splitNovo = descNova.split('—')[1]?.trim();
+          if (splitExistente && splitNovo && splitExistente === splitNovo) {
+            return true;
+          }
+        }
+        return false;
+      });
+    });
 
-  const novosCustos = comissoes.map((c, i) => ({
-    id: `comissao-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 7)}`,
-    description: c.descricao,
-    amount: Number(c.valor.toFixed(2)),
-  }));
+    const novosCustos = comissoes.map((c, i) => ({
+      id: `comissao-${c.colaboradorId || 'colab'}-${c.itemIndex !== undefined ? c.itemIndex : `${Date.now()}-${i}`}`,
+      colaboradorId: c.colaboradorId,
+      colaboradorNome: c.colaboradorNome,
+      origemItemIndex: c.itemIndex,
+      description: c.descricao,
+      amount: Number(c.valor.toFixed(2)),
+      date: c.data || new Date().toISOString().split('T')[0],
+    }));
 
-  const { error: updateError } = await supabase
-    .from('vendas')
-    .update({ custos_extras: [...custosAtuais, ...novosCustos] })
-    .eq('id', vendaId);
-  if (updateError) { console.error('Erro ao lançar comissão como custo da nota:', updateError); return false; }
-  return true;
+    const { error: updateError } = await supabase
+      .from('vendas')
+      .update({ custos_extras: [...custosSemDuplicados, ...novosCustos] })
+      .eq('id', vendaId);
+
+    if (updateError) { console.error('Erro ao lançar comissão como custo da nota:', updateError); return false; }
+    return true;
+  } catch (err) {
+    console.error('Erro ao lançar comissão:', err);
+    return false;
+  }
 }
+
 
 // --- CONFIGURACOES do colaborador (salario, meta, comissao padrao, tema) ---
 export async function saveColaboradorSettings(colaboradorId: string, settings: UserSettings): Promise<boolean> {

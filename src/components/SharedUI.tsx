@@ -59,7 +59,7 @@ export const GlassCard = ({ children, className, hover = true, ...props }: {
 );
 
 // --- INPUTS ---
-export const Input = ({ icon: Icon, label, className, onFocus, type, ...props }: any) => {
+export const Input = ({ icon: Icon, label, className, onFocus, type, value, ...props }: any) => {
   const handleFocus = (e: any) => {
     // Em campos numericos, seleciona o conteudo ao focar — assim digitar ja substitui
     // o valor (ex: "0"), sem precisar apagar manualmente ou posicionar o cursor.
@@ -68,6 +68,12 @@ export const Input = ({ icon: Icon, label, className, onFocus, type, ...props }:
     }
     onFocus?.(e);
   };
+
+  // Garante que o input nunca alterne de uncontrolled para controlled quando value for undefined/null
+  const inputValue = (props.onChange !== undefined || value !== undefined)
+    ? (value === null || value === undefined ? '' : value)
+    : undefined;
+
   return (
     <div className="space-y-1.5 w-full">
       {label && <label className="text-[10px] font-black uppercase tracking-[2px] text-white/40 ml-1">{label}</label>}
@@ -75,6 +81,7 @@ export const Input = ({ icon: Icon, label, className, onFocus, type, ...props }:
         {Icon && <Icon className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 group-focus-within:text-primary-400 transition-colors" size={18} />}
         <input
           type={type}
+          value={inputValue}
           onFocus={handleFocus}
           className={cn(
             "w-full bg-white/5 border border-white/10 rounded-2xl py-3 px-4 text-sm text-white placeholder:text-white/20 outline-none focus:bg-white/10 focus:border-primary-500/50 transition-all",
@@ -109,7 +116,7 @@ export const PhoneInputBR = ({ label, value, onChange, placeholder, className }:
         <input
           type="tel"
           inputMode="numeric"
-          value={value}
+          value={value ?? ''}
           onChange={handleChange}
           placeholder={placeholder || '(93) 99999-9999'}
           className={cn(
@@ -124,9 +131,10 @@ export const PhoneInputBR = ({ label, value, onChange, placeholder, className }:
 
 // --- CPF/CNPJ (com validacao de digito verificador) ---
 export const CpfCnpjInput = ({ label, value, onChange, className }: { label?: string; value: string; onChange: (v: string) => void; className?: string }) => {
-  const digits = value.replace(/\D/g, '');
+  const safeVal = value ?? '';
+  const digits = safeVal.replace(/\D/g, '');
   const completo = digits.length === 11 || digits.length === 14;
-  const { valid } = validateCpfCnpj(value);
+  const { valid } = validateCpfCnpj(safeVal);
   const mostrarErro = completo && !valid;
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -140,7 +148,7 @@ export const CpfCnpjInput = ({ label, value, onChange, className }: { label?: st
         <input
           type="text"
           inputMode="numeric"
-          value={value}
+          value={safeVal}
           onChange={handleChange}
           placeholder="000.000.000-00"
           className={cn(
@@ -164,7 +172,8 @@ export const CpfCnpjInput = ({ label, value, onChange, className }: { label?: st
 // entao aqui so avisa se o tamanho estiver bem fora do plausivel (a maioria dos estados
 // usa entre 7 e 10 caracteres, contando o digito verificador quando existe)
 export const RgInput = ({ label, value, onChange, className }: { label?: string; value: string; onChange: (v: string) => void; className?: string }) => {
-  const clean = value.replace(/[^\dXx.\-]/g, '');
+  const safeVal = value ?? '';
+  const clean = safeVal.replace(/[^\dXx.\-]/g, '');
   const mostrarErro = clean.length > 0 && !looksLikeValidRG(clean);
 
   return (
@@ -173,7 +182,7 @@ export const RgInput = ({ label, value, onChange, className }: { label?: string;
       <div className="relative group">
         <input
           type="text"
-          value={value}
+          value={safeVal}
           onChange={(e) => onChange(e.target.value)}
           placeholder="00.000.000-0"
           className={cn(

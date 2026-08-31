@@ -12,10 +12,13 @@ import {
   FileSpreadsheet,
   Download,
   Plus,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { ServiceItem, ServiceStatus, FilterOptions } from '../types';
 import { formatCurrency, formatDateBR, formatTimeBR } from '../utils/storage';
 import { getTodayISO } from '../utils/dateHelpers';
+import { getWorkWeekBounds } from '../utils/caixaSemanalStorage';
 
 interface ServiceTableProps {
   services: ServiceItem[];
@@ -43,6 +46,7 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
     searchQuery: '',
   });
 
+  const [weekOffset, setWeekOffset] = useState<number>(0);
   const [sortField, setSortField] = useState<'date' | 'productionValue'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
@@ -62,13 +66,12 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
     return () => { clearTimeout(scrollTimer); clearTimeout(clearTimer); };
   }, [highlightServiceId]);
 
+  const weekBounds = useMemo(() => getWorkWeekBounds(weekOffset), [weekOffset]);
+
   // Helper date comparisons
   const filteredServices = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-
-    const startOfWeek = new Date(today);
-    startOfWeek.setDate(today.getDate() - today.getDay() + 1); // Monday
 
     const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
 
@@ -95,7 +98,7 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
         if (filters.dateRange === 'today') {
           if (itemDate < today) return false;
         } else if (filters.dateRange === 'week') {
-          if (itemDate < startOfWeek) return false;
+          if (item.date < weekBounds.start || item.date > weekBounds.end) return false;
         } else if (filters.dateRange === 'month') {
           if (itemDate < startOfMonth) return false;
         }
@@ -115,7 +118,7 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
       if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [services, filters, sortField, sortOrder]);
+  }, [services, filters, weekBounds, sortField, sortOrder]);
 
   // Totals calculations for filtered view
   const totals = useMemo(() => {
@@ -236,16 +239,44 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
                 Hoje
               </button>
 
-              <button
-                onClick={() => setFilters({ ...filters, dateRange: 'week' })}
-                className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
-                  filters.dateRange === 'week'
-                    ? 'bg-gradient-red text-white'
-                    : 'text-[var(--text-muted)] hover:text-white'
-                }`}
-              >
-                Esta Semana
-              </button>
+              <div className="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilters({ ...filters, dateRange: 'week' });
+                    setWeekOffset((v) => v - 1);
+                  }}
+                  title="Semana Anterior"
+                  className="p-1 rounded hover:bg-[var(--bg-card)] text-[var(--text-muted)] hover:text-[var(--accent-red)]"
+                >
+                  <ChevronLeft className="w-3 h-3" />
+                </button>
+
+                <button
+                  onClick={() => setFilters({ ...filters, dateRange: 'week' })}
+                  className={`px-2.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+                    filters.dateRange === 'week'
+                      ? 'bg-gradient-red text-white'
+                      : 'text-[var(--text-muted)] hover:text-white'
+                  }`}
+                >
+                  {filters.dateRange === 'week' && weekOffset !== 0
+                    ? `Semana (${weekOffset < 0 ? `${Math.abs(weekOffset)} sem. atrás` : `+${weekOffset} sem.`})`
+                    : 'Esta Semana'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilters({ ...filters, dateRange: 'week' });
+                    setWeekOffset((v) => v + 1);
+                  }}
+                  title="Próxima Semana"
+                  className="p-1 rounded hover:bg-[var(--bg-card)] text-[var(--text-muted)] hover:text-[var(--accent-red)]"
+                >
+                  <ChevronRight className="w-3 h-3" />
+                </button>
+              </div>
 
               <button
                 onClick={() => setFilters({ ...filters, dateRange: 'month' })}

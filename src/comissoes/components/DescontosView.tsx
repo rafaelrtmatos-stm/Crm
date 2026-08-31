@@ -501,7 +501,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
               <label className="space-y-1 block">
                 <span className="text-[9px] font-black uppercase text-[var(--text-muted)] tracking-wider">Forma</span>
                 <select
-                  value={pagamentoForm.formaPagamento}
+                  value={pagamentoForm.formaPagamento || 'pix'}
                   onChange={(e) => setPagamentoForm({ ...pagamentoForm, formaPagamento: e.target.value as FormaPagamento })}
                   className="w-full h-9 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg px-2.5 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)]"
                 >
@@ -652,7 +652,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
             <label className="space-y-1 block">
               <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">Motivo</span>
               <select
-                value={form.tipo}
+                value={form.tipo || 'vale'}
                 onChange={(e) => {
                   const novoTipo = e.target.value as DescontoTipo;
                   // Ao escolher um tipo de falta (num desconto novo), sugere automaticamente
@@ -671,7 +671,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
             <label className="space-y-1 block">
               <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">Valor (R$)</span>
               <input
-                type="number" step="0.01" value={form.valor}
+                type="number" step="0.01" value={form.valor ?? ''}
                 onChange={(e) => setForm({ ...form, valor: Number(e.target.value) || 0 })}
                 className="w-full h-10 bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl px-3 text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)]"
               />
@@ -685,7 +685,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
             <label className="space-y-1 block">
               <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">Recorrência</span>
               <select
-                value={form.recorrencia}
+                value={form.recorrencia || 'unica'}
                 onChange={(e) => setForm({ ...form, recorrencia: e.target.value as DescontoRecorrencia })}
                 className="w-full h-10 bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl px-3 text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)]"
               >

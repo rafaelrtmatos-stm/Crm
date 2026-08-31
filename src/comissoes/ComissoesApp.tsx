@@ -236,8 +236,12 @@ export default function ComissoesApp() {
     // Lança a comissão de cada item puxado como Custo Extra na nota de origem (aba "Custos
     // da Nota" do PDV), pra já abater no Lucro Líquido sem o Admin lançar mão de obra na mão.
     const comissoes = salvos.map((s) => ({
+      colaboradorId: colaborador.id,
+      colaboradorNome: colaborador.nome,
+      itemIndex: s.origemItemIndex,
       descricao: `Comissão ${colaborador.nome} — ${s.serviceType} (${s.commissionPercent}%)`,
       valor: s.commissionValue,
+      data: s.date,
     }));
     lancarComissoesComoCustoDaNota(nota.id, comissoes);
     return true;

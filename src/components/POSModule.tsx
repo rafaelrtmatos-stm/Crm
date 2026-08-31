@@ -383,6 +383,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
         price: dimensionModalProduct.price,
         quantity: q,
         area: area,
+        consumoEstoque: area,
         dimensions: dimText,
       }
     ]);
@@ -505,7 +506,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
         if (item.productId && item.productId !== 'manual') {
           const prod = products.find(p => p.id === item.productId);
           if (prod && prod.stock !== undefined) {
-            const consumed = item.area ? item.area * item.quantity : item.quantity;
+            const consumed = item.consumoEstoque !== undefined
+              ? item.consumoEstoque * (item.quantity || 1)
+              : (item.area ? item.area * item.quantity : item.quantity);
             const newStock = Math.max(0, prod.stock - consumed);
             await supabase.from('produtos').update({ current_stock: newStock }).eq('id', item.productId);
           }
@@ -568,13 +571,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
     const updatedPayments = [...existingPayments, newPaymentEntry];
 
     try {
-      const { error } = await supabase.from('vendas').update({
+      const nowIso = new Date().toISOString();
+      const updatePayload: any = {
         down_payment: newPaid,
         received_value: newPaid,
         status: newStatus,
         payments: updatedPayments,
-        updated_at: new Date().toISOString()
-      }).eq('id', settlingOrder.id);
+        updated_at: nowIso
+      };
+      if (newStatus === 'completed') {
+        updatePayload.settled_at = nowIso;
+        updatePayload.settled_payment_method = settleMethod;
+      }
+      const { error } = await supabase.from('vendas').update(updatePayload).eq('id', settlingOrder.id);
 
       if (error) throw error;
 
@@ -614,13 +623,20 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
       const matchesStatus = historyStatusFilter === 'all' || s.status === historyStatusFilter;
       
       let matchesDate = true;
+      const saleDates = [
+        new Date(s.createdAt),
+        ...(s.settledAt ? [new Date(s.settledAt)] : []),
+        ...(s.payments || []).map(p => new Date(p.date))
+      ].filter(d => !isNaN(d.getTime()));
+
       if (historyDateFrom) {
-        matchesDate = matchesDate && new Date(s.createdAt) >= new Date(historyDateFrom);
+        const from = new Date(historyDateFrom);
+        matchesDate = matchesDate && saleDates.some(d => d >= from);
       }
       if (historyDateTo) {
         const end = new Date(historyDateTo);
         end.setHours(23, 59, 59, 999);
-        matchesDate = matchesDate && new Date(s.createdAt) <= end;
+        matchesDate = matchesDate && saleDates.some(d => d <= end);
       }
       return matchesSearch && matchesStatus && matchesDate;
     });
@@ -932,7 +948,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
                 />
               </div>
               <select
-                value={historyStatusFilter}
+                value={historyStatusFilter || 'all'}
                 onChange={e => setHistoryStatusFilter(e.target.value)}
                 className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-primary-500"
               >
@@ -1042,7 +1058,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-black uppercase tracking-wider text-white">Ordens de Serviço</h3>
             <select
-              value={serviceStatusFilter}
+              value={serviceStatusFilter || 'all'}
               onChange={e => setServiceStatusFilter(e.target.value)}
               className="bg-white/5 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none"
             >
@@ -1446,7 +1462,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
             <div>
               <label className="text-[10px] font-black uppercase text-white/50 block mb-1">Unidade</label>
               <select
-                value={quickProductUnit}
+                value={quickProductUnit || 'un'}
                 onChange={e => setQuickProductUnit(e.target.value as any)}
                 className="w-full h-10 bg-white/5 border border-white/10 rounded-xl px-3 text-xs text-white outline-none focus:border-primary-500"
               >
@@ -1460,8 +1476,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
             <label className="text-[10px] font-black uppercase text-white/50 block mb-1">Categoria (Opcional)</label>
             <Input
               placeholder="Ex: Impressão Digital, Fachadas..."
-              value={quickProductCategory}
-              onChange={e => setQuickProductCategory(e.target.value)}
+              value={quickProductCategory || ''}
+              onChange={(e: any) => setQuickProductCategory(e.target.value)}
             />
           </div>
           <div className="flex justify-end gap-2 pt-2">
@@ -1479,7 +1495,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
       <Modal isOpen={isNotaObservacoesModalOpen} onClose={() => setIsNotaObservacoesModalOpen(false)} title="Observações da Nota">
         <div className="space-y-3">
           <textarea
-            value={orderObservacoes}
+            value={orderObservacoes || ''}
             onChange={e => setOrderObservacoes(e.target.value)}
             placeholder="Instruções de acabamento, entrega ou observações gerais..."
             className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-xs text-white placeholder:text-white/30 outline-none focus:border-primary-500 min-h-[100px]"
@@ -1504,13 +1520,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
             <Input
               type="number"
               value={settleAmount}
-              onChange={e => setSettleAmount(Number(e.target.value) || 0)}
+              onChange={(e: any) => setSettleAmount(Number(e.target.value) || 0)}
             />
           </div>
           <div>
             <label className="text-[10px] font-black uppercase text-white/50 block mb-1">Forma de Pagamento</label>
             <select
-              value={settleMethod}
+              value={settleMethod || 'dinheiro'}
               onChange={e => setSettleMethod(e.target.value as any)}
               className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none"
             >
