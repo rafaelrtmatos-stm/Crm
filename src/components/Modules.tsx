@@ -506,20 +506,6 @@ const mapCrmMessageRow = (row: any): any => ({
   createdAt: row.created_at,
 });
 
-function deduplicateExtraCosts(costs: any[]): Array<{ id: string; description: string; amount: number; colaboradorId?: string; origemItemIndex?: number }> {
-  if (!Array.isArray(costs) || costs.length === 0) return [];
-  const seen = new Set<string>();
-  return costs.filter((c) => {
-    const desc = (c.description || '').trim().toLowerCase();
-    if (desc.startsWith('comissÃ£o') || desc.startsWith('comissao') || c.colaboradorId) {
-      const key = `${c.colaboradorId || ''}_${c.origemItemIndex ?? ''}_${desc}_${Number(c.amount || 0).toFixed(2)}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-    }
-    return true;
-  });
-}
-
 const mapVendaRow = (row: any): SaleOrder => ({
   id: row.id,
   companyId: row.company_id,
@@ -545,7 +531,7 @@ const mapVendaRow = (row: any): SaleOrder => ({
   responsavel: row.responsavel || undefined,
   orcamentoId: row.orcamento_id || undefined,
   contratoId: row.contrato_id || undefined,
-  extraCosts: deduplicateExtraCosts(row.custos_extras),
+  extraCosts: Array.isArray(row.custos_extras) ? row.custos_extras : [],
 } as SaleOrder);
 
 const mapOrcamentoRow = (row: any): Orcamento => ({
@@ -890,53 +876,6 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   const [customRange, setCustomRange] = useState({ start: '', end: '' });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isRevenueModalOpen, setIsRevenueModalOpen] = useState(false);
-  const openRevenueModal = (overridePeriod?: 'hoje' | 'semana' | 'mes' | 'ano' | 'custom', customDates?: { start: string; end: string }) => {
-    if (customDates?.start && customDates?.end) {
-      setAnalisePeriodo('custom');
-      setAnaliseCustomRange({ start: customDates.start, end: customDates.end });
-    } else if (overridePeriod) {
-      setAnalisePeriodo(overridePeriod);
-    } else {
-      if (period === 'Hoje') {
-        setAnalisePeriodo('hoje');
-        setAnaliseSelectedDate(format(new Date(), 'yyyy-MM-dd'));
-      } else if (period === 'Ontem') {
-        const y = new Date();
-        y.setDate(y.getDate() - 1);
-        setAnalisePeriodo('hoje');
-        setAnaliseSelectedDate(format(y, 'yyyy-MM-dd'));
-      } else if (period === 'Semana') {
-        setAnalisePeriodo('semana');
-        setAnaliseSelectedDate(format(new Date(), 'yyyy-MM-dd'));
-      } else if (period === '30 dias') {
-        const end = new Date();
-        const start = new Date();
-        start.setDate(end.getDate() - 29);
-        setAnalisePeriodo('custom');
-        setAnaliseCustomRange({
-          start: format(start, 'yyyy-MM-dd'),
-          end: format(end, 'yyyy-MM-dd')
-        });
-      } else if (period === 'Personalizado') {
-        setAnalisePeriodo('custom');
-        if (customRange.start && customRange.end) {
-          setAnaliseCustomRange({
-            start: customRange.start,
-            end: customRange.end
-          });
-        } else {
-          const end = new Date();
-          const start = new Date();
-          start.setDate(end.getDate() - 29);
-          setAnaliseCustomRange({
-            start: format(start, 'yyyy-MM-dd'),
-            end: format(end, 'yyyy-MM-dd')
-          });
-        }
-      }
-    }
-    setIsRevenueModalOpen(true);
-  };
   const [showLinhaFaturamento, setShowLinhaFaturamento] = useState(true);
   const [showLinhaLucro, setShowLinhaLucro] = useState(true);
   const [revenueDataPoint, setRevenueDataPoint] = useState<any>(null);
@@ -1493,58 +1432,22 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
               </div>
 
               {period === 'Personalizado' && (
-                <div className="flex flex-wrap gap-2 items-center bg-white/5 p-2 rounded-xl border border-white/5 animate-in slide-in-from-top-2">
-                   <div className="flex items-center gap-1">
-                      {[
-                        { label: '7d', days: 6 },
-                        { label: '15d', days: 14 },
-                        { label: '30d', days: 29 },
-                      ].map(pr => (
-                        <button
-                          key={pr.label}
-                          type="button"
-                          onClick={() => {
-                            const e = new Date();
-                            const s = new Date();
-                            s.setDate(e.getDate() - pr.days);
-                            setCustomRange({ start: format(s, 'yyyy-MM-dd'), end: format(e, 'yyyy-MM-dd') });
-                          }}
-                          className="px-2 py-0.5 text-[8px] font-black uppercase bg-white/5 hover:bg-primary-500/20 text-white/60 hover:text-primary-300 rounded border border-white/10 transition-all cursor-pointer"
-                        >
-                          {pr.label}
-                        </button>
-                      ))}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const now = new Date();
-                          const s = new Date(now.getFullYear(), now.getMonth(), 1);
-                          const e = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-                          setCustomRange({ start: format(s, 'yyyy-MM-dd'), end: format(e, 'yyyy-MM-dd') });
-                        }}
-                        className="px-2 py-0.5 text-[8px] font-black uppercase bg-white/5 hover:bg-primary-500/20 text-white/60 hover:text-primary-300 rounded border border-white/10 transition-all cursor-pointer"
-                      >
-                        MÃªs
-                      </button>
-                   </div>
-                   <div className="flex items-center gap-1.5">
-                     <span className="text-[8px] font-black uppercase text-primary-400">De:</span>
-                     <input
-                        type="date"
-                        className="bg-slate-900/60 border border-white/10 rounded px-2 py-0.5 text-[9px] font-bold text-white outline-none cursor-pointer uppercase"
-                        value={customRange.start}
-                        onChange={(e) => setCustomRange(prev => ({ ...prev, start: e.target.value }))}
-                     />
-                     <span className="text-[8px] font-black uppercase text-primary-400">AtÃ©:</span>
-                     <input
-                        type="date"
-                        className="bg-slate-900/60 border border-white/10 rounded px-2 py-0.5 text-[9px] font-bold text-white outline-none cursor-pointer uppercase"
-                        value={customRange.end}
-                        onChange={(e) => setCustomRange(prev => ({ ...prev, end: e.target.value }))}
-                     />
-                   </div>
+                <div className="flex gap-2 items-center bg-white/5 p-2 rounded-xl border border-white/5 animate-in slide-in-from-top-2">
+                   <input 
+                     type="date" 
+                     className="bg-transparent text-[9px] font-bold text-white outline-none" 
+                     value={customRange.start}
+                     onChange={(e) => setCustomRange(prev => ({ ...prev, start: e.target.value }))}
+                   />
+                   <span className="text-[9px] text-white/20">atÃ©</span>
+                   <input 
+                     type="date" 
+                     className="bg-transparent text-[9px] font-bold text-white outline-none" 
+                     value={customRange.end}
+                     onChange={(e) => setCustomRange(prev => ({ ...prev, end: e.target.value }))}
+                   />
                 </div>
-            )}
+              )}
             </div>
           </div>
         } 
@@ -1621,7 +1524,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       {user?.isAdmin && (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           {[
-            { label: 'Faturamento', val: `R$ ${totalRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, diff: 'Hoje/PerÃ­odo', color: 'emerald', action: () => openRevenueModal() },
+            { label: 'Faturamento', val: `R$ ${totalRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, diff: 'Hoje/PerÃ­odo', color: 'emerald', action: () => setIsRevenueModalOpen(true) },
             { label: 'Lucro LÃ­quido', val: `R$ ${netProfit.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, diff: `Margem: ${totalRevenue > 0 ? ((netProfit / totalRevenue) * 100).toFixed(0) : '65'}%`, color: 'emerald', action: () => setIsRevenueModalOpen(true) },
             { label: 'Markup MÃ©dio', val: `${avgMarkup.toFixed(2).replace('.', ',')}x`, diff: 'Faturamento/Custo', color: 'primary', action: () => setActiveTab?.('inventory') },
             { label: 'Pto EquilÃ­brio', val: `R$ ${breakevenPoint.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`, diff: `${Math.min(100, Math.round((totalRevenue / breakevenPoint) * 100))}% Reatido`, color: 'purple', action: () => setIsRevenueModalOpen(true) },
@@ -1653,7 +1556,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                    <h3 className="text-xl font-black text-white italic tracking-tighter uppercase">AnÃ¡lise de Performance</h3>
                    <p className="text-xs text-white/30 font-bold tracking-widest uppercase">EvoluÃ§Ã£o do Faturamento por PerÃ­odo</p>
                 </div>
-                <Button variant="ghost" icon={Maximize2} onClick={() => openRevenueModal()} />
+                <Button variant="ghost" icon={Maximize2} onClick={() => setIsRevenueModalOpen(true)} />
              </div>
              
              <div className="h-[350px] w-full">
@@ -2093,54 +1996,52 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                   )}
 
                   {analisePeriodo === 'custom' && (
-                     <div className="flex flex-col gap-2.5 w-full">
-                        {/* Linha de Atalhos RÃ¡pidos */}
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                           <span className="text-[9px] font-black uppercase text-white/40 tracking-wider mr-1">Atalhos:</span>
-                           {[
-                              { label: 'Hoje', getRange: () => { const d = format(new Date(), 'yyyy-MM-dd'); return { start: d, end: d }; } },
-                              { label: 'Ontem', getRange: () => { const d = new Date(); d.setDate(d.getDate() - 1); const s = format(d, 'yyyy-MM-dd'); return { start: s, end: s }; } },
-                              { label: 'Ãšltimos 7d', getRange: () => { const e = new Date(); const s = new Date(); s.setDate(e.getDate() - 6); return { start: format(s, 'yyyy-MM-dd'), end: format(e, 'yyyy-MM-dd') }; } },
-                              { label: 'Ãšltimos 15d', getRange: () => { const e = new Date(); const s = new Date(); s.setDate(e.getDate() - 14); return { start: format(s, 'yyyy-MM-dd'), end: format(e, 'yyyy-MM-dd') }; } },
-                              { label: 'Ãšltimos 30d', getRange: () => { const e = new Date(); const s = new Date(); s.setDate(e.getDate() - 29); return { start: format(s, 'yyyy-MM-dd'), end: format(e, 'yyyy-MM-dd') }; } },
-                              { label: 'Este MÃªs', getRange: () => { const now = new Date(); const s = new Date(now.getFullYear(), now.getMonth(), 1); const e = new Date(now.getFullYear(), now.getMonth() + 1, 0); return { start: format(s, 'yyyy-MM-dd'), end: format(e, 'yyyy-MM-dd') }; } },
-                              { label: 'MÃªs Passado', getRange: () => { const now = new Date(); const s = new Date(now.getFullYear(), now.getMonth() - 1, 1); const e = new Date(now.getFullYear(), now.getMonth(), 0); return { start: format(s, 'yyyy-MM-dd'), end: format(e, 'yyyy-MM-dd') }; } },
-                              { label: 'Este Ano', getRange: () => { const now = new Date(); const s = new Date(now.getFullYear(), 0, 1); const e = new Date(now.getFullYear(), 11, 31); return { start: format(s, 'yyyy-MM-dd'), end: format(e, 'yyyy-MM-dd') }; } },
-                           ].map(preset => (
-                              <button
-                                 key={preset.label}
-                                 type="button"
-                                 onClick={() => setAnaliseCustomRange(preset.getRange())}
-                                 className="px-2.5 py-1 text-[9px] font-black uppercase bg-white/5 hover:bg-primary-500/20 text-white/60 hover:text-primary-300 rounded-lg border border-white/10 hover:border-primary-500/30 transition-all cursor-pointer"
-                              >
-                                 {preset.label}
-                              </button>
-                           ))}
-                        </div>
-
-                        {/* Linha de SeleÃ§Ã£o Manual de Datas */}
-                        <div className="flex items-center gap-3 flex-wrap bg-white/5 p-2 rounded-xl border border-white/5">
-                           <div className="flex items-center gap-1.5">
-                              <span className="text-[9px] font-black uppercase text-primary-400 tracking-wider">De:</span>
-                              <input
-                                type="date"
-                                value={analiseCustomRange.start}
-                                onChange={(e) => setAnaliseCustomRange(prev => ({ ...prev, start: e.target.value }))}
-                                className="bg-slate-900/60 border border-white/10 rounded-lg px-2.5 py-1 text-[11px] font-black text-white outline-none cursor-pointer uppercase focus:border-primary-500/50"
-                              />
-                           </div>
-                           <div className="flex items-center gap-1.5">
-                              <span className="text-[9px] font-black uppercase text-primary-400 tracking-wider">AtÃ©:</span>
-                              <input
-                                type="date"
-                                value={analiseCustomRange.end}
-                                onChange={(e) => setAnaliseCustomRange(prev => ({ ...prev, end: e.target.value }))}
-                                className="bg-slate-900/60 border border-white/10 rounded-lg px-2.5 py-1 text-[11px] font-black text-white outline-none cursor-pointer uppercase focus:border-primary-500/50"
-                              />
-                           </div>
-                           <div className="text-[9px] font-bold text-white/50 bg-white/5 px-2.5 py-1 rounded-lg border border-white/5">
-                              {analiseDetalhada.diasNoPeriodo} {analiseDetalhada.diasNoPeriodo === 1 ? 'dia selecionado' : 'dias selecionados'}
-                           </div>
+                     <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[9px] font-black uppercase text-white/40 tracking-wider">De:</span>
+                        <input
+                          type="date"
+                          value={analiseCustomRange.start}
+                          onChange={(e) => setAnaliseCustomRange(prev => ({ ...prev, start: e.target.value }))}
+                          className="bg-white/5 border border-white/10 rounded-xl px-2.5 py-1 text-[11px] font-black text-white outline-none cursor-pointer uppercase"
+                        />
+                        <span className="text-[9px] font-black uppercase text-white/40 tracking-wider">AtÃ©:</span>
+                        <input
+                          type="date"
+                          value={analiseCustomRange.end}
+                          onChange={(e) => setAnaliseCustomRange(prev => ({ ...prev, end: e.target.value }))}
+                          className="bg-white/5 border border-white/10 rounded-xl px-2.5 py-1 text-[11px] font-black text-white outline-none cursor-pointer uppercase"
+                        />
+                        <div className="flex items-center gap-1">
+                           <button
+                             type="button"
+                             onClick={() => {
+                               const end = new Date();
+                               const start = new Date();
+                               start.setDate(end.getDate() - 7);
+                               setAnaliseCustomRange({
+                                 start: format(start, 'yyyy-MM-dd'),
+                                 end: format(end, 'yyyy-MM-dd')
+                               });
+                             }}
+                             className="px-2 py-1 text-[8px] font-black uppercase bg-white/5 hover:bg-white/10 text-white/60 hover:text-white rounded-lg border border-white/10 transition-all cursor-pointer"
+                           >
+                              Ãšltimos 7d
+                           </button>
+                           <button
+                             type="button"
+                             onClick={() => {
+                               const end = new Date();
+                               const start = new Date();
+                               start.setDate(end.getDate() - 30);
+                               setAnaliseCustomRange({
+                                 start: format(start, 'yyyy-MM-dd'),
+                                 end: format(end, 'yyyy-MM-dd')
+                               });
+                             }}
+                             className="px-2 py-1 text-[8px] font-black uppercase bg-white/5 hover:bg-white/10 text-white/60 hover:text-white rounded-lg border border-white/10 transition-all cursor-pointer"
+                           >
+                              Ãšltimos 30d
+                           </button>
                         </div>
                      </div>
                   )}
@@ -6004,4510 +5905,11 @@ export const MetaAdsModule = ({ currentCompany }: { currentCompany: Company | nu
   );
 };
 
-// --- PDV / POS ---
-// Cronometro de contagem regressiva ate a previsao de entrega. Se ja passou da hora,
-// para de contar e fica vermelho (nao fica contando "atraso" indefinidamente).
-const EntregaCountdown = ({ scheduledFor, delivered, onEdit, onDeliver, onDeleteSchedule }: { scheduledFor: string; delivered?: boolean; onEdit?: () => void; onDeliver?: () => void; onDeleteSchedule?: () => void }) => {
-  const target = new Date(scheduledFor).getTime();
-  const [now, setNow] = useState(() => Date.now());
-  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
-  const btnRef = React.useRef<HTMLButtonElement>(null);
-  const overdue = !delivered && now >= target;
-
-  useEffect(() => {
-    if (overdue || delivered) return;
-    const interval = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(interval);
-  }, [overdue, delivered]);
-
-  const diff = Math.max(0, target - now);
-  const totalSeconds = Math.floor(diff / 1000);
-  const days = Math.floor(totalSeconds / 86400);
-  const hours = Math.floor((totalSeconds % 86400) / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  const countdownLabel = days > 0 ? `${days}d ${hours}h` : `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-
-  const hasActions = onEdit || onDeliver || onDeleteSchedule;
-
-  return (
-    <div className="inline-block shrink-0">
-      <button
-        ref={btnRef}
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          if (!hasActions) return;
-          if (menuPos) { setMenuPos(null); return; }
-          const rect = btnRef.current?.getBoundingClientRect();
-          if (rect) setMenuPos({ top: rect.bottom + 4, left: rect.left });
-        }}
-        className={cn(
-          "text-[8.5px] font-black uppercase px-2 py-0.5 rounded-full border shrink-0 border-0",
-          hasActions && "cursor-pointer",
-          delivered ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" : overdue ? "bg-rose-500/15 text-rose-400 border-rose-500/30" : "bg-primary-500/10 text-primary-300 border-primary-500/20"
-        )}
-      >
-        {delivered ? `â— Entregue Â· ${safeFormat(scheduledFor, 'dd/MM HH:mm')}` : `Entrega: ${safeFormat(scheduledFor, 'dd/MM HH:mm')} ${overdue ? 'Â· ATRASADO' : `Â· faltam ${countdownLabel}`}`}
-      </button>
-      {menuPos && createPortal(
-        <>
-          <div className="fixed inset-0 z-[200]" onClick={() => setMenuPos(null)} />
-          <div
-            className="fixed z-[201] bg-[#1a2333] border border-white/10 rounded-xl shadow-2xl py-1 min-w-[180px] animate-in fade-in zoom-in-95 duration-150"
-            style={{ top: menuPos.top, left: menuPos.left }}
-          >
-             {onEdit && (
-               <button onClick={() => { setMenuPos(null); onEdit(); }} className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left cursor-pointer bg-transparent border-0">
-                  <Pencil size={12} /> Editar Agendamento
-               </button>
-             )}
-             {onDeliver && (
-               <button onClick={() => { setMenuPos(null); onDeliver(); }} className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-bold text-emerald-400 hover:bg-emerald-500/10 text-left cursor-pointer bg-transparent border-0">
-                  <CheckCircle2 size={12} /> Marcar como Entregue
-               </button>
-             )}
-             {onDeleteSchedule && (
-               <button onClick={() => { setMenuPos(null); onDeleteSchedule(); }} className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-bold text-rose-400 hover:bg-rose-500/10 text-left cursor-pointer bg-transparent border-0">
-                  <Trash2 size={12} /> Excluir Agendamento
-               </button>
-             )}
-          </div>
-        </>,
-        document.body
-      )}
-    </div>
-  );
-};
-
-export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany: Company | null, addPendingOrder: (order: SaleOrder) => void }) => {
-  const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare, openWhatsAppChat, pendingReceiptOpenId, setPendingReceiptOpenId, pendingHistoryClientFilter, setPendingHistoryClientFilter, pendingHistoryProductSearch, setPendingHistoryProductSearch, prefilledCustomer, setPrefilledCustomer, pendingReceivablesFilter, setPendingReceivablesFilter, pendingGoToHistorico, setPendingGoToHistorico, pendingGoToServicos, setPendingGoToServicos, pendingOpenContratoId, setPendingOpenContratoId, pendingOpenOrcamentoId, setPendingOpenOrcamentoId } = React.useContext(AppContext)!;
-  const [soundAlertsEnabled, setSoundAlertsEnabledState] = useState(() => localStorage.getItem('rpro_sound_alerts_enabled') !== 'false');
-  const setSoundAlertsEnabled = (v: boolean) => {
-    setSoundAlertsEnabledState(v);
-    localStorage.setItem('rpro_sound_alerts_enabled', v ? 'true' : 'false');
-  };
-  const alertedThresholdsRef = React.useRef<Set<string>>(new Set());
-  const initializedSalesRef = React.useRef<Set<string>>(new Set());
-  const [pdvMenuConfig, setPdvMenuConfig] = useState<{ id: string; visible: boolean }[] | null>(null);
-  useEffect(() => {
-    supabase.from('configuracoes').select('pdv_menu_config').eq('company_id', 'rafa-arts').maybeSingle().then(({ data }) => {
-      if (data?.pdv_menu_config && Array.isArray(data.pdv_menu_config) && data.pdv_menu_config.length > 0) {
-        setPdvMenuConfig(data.pdv_menu_config);
-      }
-    });
-  }, []);
-
-  // Toca um bipe simples via Web Audio (sem depender de nenhum arquivo de audio)
-  const playAlertBeep = () => {
-    try {
-      let tocadas = 0;
-      const tocarProxima = () => {
-        if (tocadas >= 3) return;
-        tocadas += 1;
-        const audio = new Audio('/sounds/service-alert.mp3');
-        audio.addEventListener('ended', () => {
-          if (tocadas < 3) setTimeout(tocarProxima, 500);
-        });
-        audio.play().catch(() => {
-          // Se o navegador bloquear o audio, ainda tenta as proximas repeticoes no tempo certo
-          if (tocadas < 3) setTimeout(tocarProxima, 500);
-        });
-      };
-      tocarProxima();
-    } catch (e) { /* navegador sem suporte a audio, ignora silenciosamente */ }
-  };
-
-  const [alertToast, setAlertToast] = useState<{ message: string; saleId?: string } | null>(null);
-
-  const [activeTab, setActiveTabState] = useState<'venda' | 'historico' | 'estoque' | 'servicos' | 'orcamentos' | 'clientes' | 'contratos' | 'excluidos'>(() => {
-    const saved = typeof window !== 'undefined' ? localStorage.getItem('rpro_pos_subtab') : null;
-    const validSubTabs = ['venda', 'historico', 'estoque', 'servicos', 'orcamentos', 'clientes', 'contratos', 'excluidos'];
-    return (saved && validSubTabs.includes(saved)) ? (saved as any) : 'venda';
-  });
-  const setActiveTab = (tab: 'venda' | 'historico' | 'estoque' | 'servicos' | 'orcamentos' | 'clientes' | 'contratos' | 'excluidos') => {
-    setActiveTabState(tab);
-    if (typeof window !== 'undefined') localStorage.setItem('rpro_pos_subtab', tab);
-  };
-  const [cart, setCart] = useState<SaleOrderItem[]>([]);
-  const [search, setSearch] = useState('');
-  const [selectedQty, setSelectedQty] = useState(1);
-  const [dimensionModalProduct, setDimensionModalProduct] = useState<Product | null>(null);
-  const [etiquetaModalProduct, setEtiquetaModalProduct] = useState<Product | null>(null);
-  const emptyEtiquetaForm = { quantidade: 100, largura: 8, altura: 8, larguraMaterial: 0, metrosInput: 0, valorInput: 0 };
-  const [etiquetaForm, setEtiquetaForm] = useState({ ...emptyEtiquetaForm });
-  const [etiquetaInputMode, setEtiquetaInputMode] = useState<'quantidade' | 'metros' | 'valor'>('quantidade');
-  const [dimWidth, setDimWidth] = useState<number | ''>('');
-  const [dimHeight, setDimHeight] = useState<number | ''>('');
-  const [dimLarguraMaterial, setDimLarguraMaterial] = useState<number>(0);
-  // Valor final do item â€” comeca preenchido com o calculo automatico (largura x altura x
-  // preco, ou consumo linear x preco pro tipo "metro"), mas o usuario pode editar aqui pra
-  // dar desconto ou aumentar antes de confirmar. Esse valor editado (nao o calculo puro) e
-  // o que fica salvo no carrinho, na nota, e e o que conta pra comissao do funcionario.
-  const [dimValorOverride, setDimValorOverride] = useState<number | ''>('');
-  const [dimValorFoiEditado, setDimValorFoiEditado] = useState(false);
-
-  // Recalcula o valor automatico (largura x altura x preco, ou consumo linear x preco pro
-  // tipo "metro") sempre que os dados relevantes mudam, e so aplica no campo editavel
-  // enquanto o usuario ainda NAO tiver digitado um valor manual ali
-  useEffect(() => {
-    if (!dimensionModalProduct || dimValorFoiEditado) return;
-    const w = dimWidth === '' ? 0 : Number(dimWidth);
-    const h = dimHeight === '' ? 0 : Number(dimHeight);
-    if (w <= 0 || h <= 0) { setDimValorOverride(''); return; }
-    const isMetro = dimensionModalProduct.unitType === 'metro';
-    const rolo = dimLarguraMaterial;
-    const consumo = rolo > 0 ? calcularConsumoLinear(w, h, rolo) : (w * h);
-    const valorCalculado = isMetro ? consumo * dimensionModalProduct.price * selectedQty : w * h * dimensionModalProduct.price * selectedQty;
-    const valorAutomatico = Math.max(valorCalculado, dimensionModalProduct.valorMinimo || 0);
-    setDimValorOverride(Number(valorAutomatico.toFixed(2)));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dimensionModalProduct, dimWidth, dimHeight, dimLarguraMaterial, selectedQty, dimValorFoiEditado]);
-
-
-  // Insulfilm: modal proprio pra aproveitamento entre varias pecas da mesma nota (corte fisico do rolo)
-  const [insulfilmModalProduct, setInsulfilmModalProduct] = useState<Product | null>(null);
-  const [insulfilmLarguraMaterial, setInsulfilmLarguraMaterial] = useState<number>(1.5);
-  const [insulfilmPecas, setInsulfilmPecas] = useState<{ id: string; largura: number | ''; altura: number | '' }[]>([]);
-  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
-  const [settlingOrder, setSettlingOrder] = useState<SaleOrder | null>(null);
-  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
-  const [isScheduleActionsMenuOpen, setIsScheduleActionsMenuOpen] = useState(false);
-  const [scheduleMenuPos, setScheduleMenuPos] = useState<{ bottom: number; left: number; width: number } | null>(null);
-  const scheduleBtnRef = React.useRef<HTMLButtonElement>(null);
-  const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
-  const [customerModalIntent, setCustomerModalIntent] = useState<'finalize' | 'preselect' | 'orcamento' | 'contrato'>('preselect');
-  const [customerModalMode, setCustomerModalMode] = useState<'search' | 'create'>('search');
-
-  // --- Pesquisa de clientes ---
-  const [customerSearchTerm, setCustomerSearchTerm] = useState('');
-  const [allCustomers, setAllCustomers] = useState<any[]>([]);
-  const [isLoadingCustomers, setIsLoadingCustomers] = useState(false);
-  const [customerSalesStats, setCustomerSalesStats] = useState<Record<string, { total: number; count: number; lastDate: string | null; hasPending: boolean; pendingBalance: number }>>({});
-  const [customerSortBy, setCustomerSortBy] = useState<'recentes' | 'az' | 'ultima_compra' | 'maior_valor' | 'frequentes'>('recentes');
-  // Cliente selecionado na busca que tem nota pendente â€” bloqueia o fluxo ate o caixa confirmar
-  // com o cliente se ja foi paga, pra nao deixar pendencia esquecida no sistema.
-  const [pendingDebtCustomer, setPendingDebtCustomer] = useState<{ customer: any; pendingBalance: number } | null>(null);
-
-  // --- Cadastro (rÃ¡pido + mais opÃ§Ãµes) ---
-  const emptyCustomerForm = {
-    full_name: '', cep: '', numero: '', email: '', logradouro: '', phone: '', distrito: '',
-    nascimento: '', cpf_cnpj: '', rg: '', city: '', state: '', complemento: '',
-    limite_credito: '', patrimonios: [] as { propriedade: string; valor: string }[], notes: '',
-  };
-  const [newCustomerForm, setNewCustomerForm] = useState({ ...emptyCustomerForm });
-  const [isCreatingCustomer, setIsCreatingCustomer] = useState(false);
-  const [isMoreOptionsOpen, setIsMoreOptionsOpen] = useState(false);
-  const [isLookingUpCep, setIsLookingUpCep] = useState(false);
-  const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null);
-  const customerNameInputRef = React.useRef<HTMLInputElement>(null);
-
-  // customer (opcional): quando vem de um cadastro feito na hora (handleCreateCustomerInline),
-  // precisamos repassar CPF/CNPJ, telefone e endereÃ§o pro formulario de orcamento/contrato --
-  // antes isso so acontecia ao SELECIONAR um cliente ja existente na busca, entao um cliente
-  // cadastrado ali na hora perdia o CPF (ficava salvo no cadastro, mas sumia do contrato).
-  const proceedAfterCustomerStep = (customer?: any) => {
-    setIsCustomerModalOpen(false);
-    if (customerModalIntent === 'finalize') {
-      setIsPaymentModalOpen(true);
-    } else if (customerModalIntent === 'orcamento') {
-      if (customer) {
-        const enderecoParts = [customer.logradouro, customer.numero, customer.distrito, customer.city].filter(Boolean);
-        setOrcamentoForm(prev => ({
-          ...prev,
-          clienteId: customer.id,
-          customerName: customer.full_name,
-          phone: customer.phone || '',
-          cpfCnpj: customer.cpf_cnpj || '',
-          address: enderecoParts.join(', '),
-        }));
-      }
-      setOrcamentoModalOpen(true);
-    } else if (customerModalIntent === 'contrato') {
-      if (customer) {
-        const enderecoParts = [customer.logradouro, customer.numero, customer.distrito, customer.city].filter(Boolean);
-        setContratoForm(prev => ({
-          ...prev,
-          clienteId: customer.id,
-          customerName: customer.full_name,
-          phone: customer.phone || '',
-          cpfCnpj: customer.cpf_cnpj || '',
-          address: enderecoParts.join(', '),
-        }));
-      }
-      setContratoModalOpen(true);
-    }
-  };
-
-  const [customerLoadError, setCustomerLoadError] = useState<string>('');
-  const loadAllCustomers = async () => {
-    setIsLoadingCustomers(true);
-    setCustomerLoadError('');
-    try {
-      const { data, error, count } = await supabase.from('clientes').select('*', { count: 'exact' }).order('created_at', { ascending: false }).limit(2000);
-      if (error) {
-        console.error('Erro Supabase ao carregar clientes:', error);
-        setCustomerLoadError(`Erro: ${error.message} (cÃ³digo: ${error.code || 's/cÃ³digo'})`);
-        setAllCustomers([]);
-        return;
-      }
-      console.log('Clientes carregados:', data?.length, 'count total:', count);
-      setAllCustomers(data || []);
-      // Agrega estatisticas de vendas por cliente (busca leve, so campos necessarios)
-      const { data: vendasData } = await supabase.from('vendas').select('cliente_id, total, status, down_payment, created_at');
-      const stats: Record<string, { total: number; count: number; lastDate: string | null; hasPending: boolean; pendingBalance: number }> = {};
-      (vendasData || []).forEach((v: any) => {
-        if (!v.cliente_id) return;
-        if (!stats[v.cliente_id]) stats[v.cliente_id] = { total: 0, count: 0, lastDate: null, hasPending: false, pendingBalance: 0 };
-        stats[v.cliente_id].total += Number(v.total) || 0;
-        stats[v.cliente_id].count += 1;
-        if (!stats[v.cliente_id].lastDate || new Date(v.created_at) > new Date(stats[v.cliente_id].lastDate!)) {
-          stats[v.cliente_id].lastDate = v.created_at;
-        }
-        const down = Number(v.down_payment) || 0;
-        const vTotal = Number(v.total) || 0;
-        const balance = Math.max(0, vTotal - down);
-        if ((v.status === 'pending' || balance > 0) && v.status !== 'canceled') {
-          stats[v.cliente_id].hasPending = true;
-          stats[v.cliente_id].pendingBalance += balance;
-        }
-      });
-      setCustomerSalesStats(stats);
-    } catch (err) {
-      console.error('Erro ao carregar clientes:', err);
-    } finally {
-      setIsLoadingCustomers(false);
-    }
-  };
-
-  useEffect(() => {
-    if (isCustomerModalOpen && customerModalMode === 'search') {
-      loadAllCustomers();
-    }
-  }, [isCustomerModalOpen, customerModalMode]);
-
-  useEffect(() => {
-    if (isCustomerModalOpen && customerModalMode === 'create') {
-      setTimeout(() => customerNameInputRef.current?.focus(), 50);
-    }
-  }, [isCustomerModalOpen, customerModalMode]);
-
-  const filteredSortedCustomers = useMemo(() => {
-    let list = allCustomers;
-    const term = customerSearchTerm.trim().toLowerCase();
-    if (term) {
-      const digits = term.replace(/\D/g, '');
-      list = list.filter(c =>
-        (c.full_name || '').toLowerCase().includes(term) ||
-        (c.email || '').toLowerCase().includes(term) ||
-        (c.cpf_cnpj || '').toLowerCase().includes(term) ||
-        (c.rg || '').toLowerCase().includes(term) ||
-        (digits.length >= 3 && (c.phone || '').replace(/\D/g, '').includes(digits))
-      );
-    }
-    const withStats = list.map(c => ({ ...c, _stats: customerSalesStats[c.id] }));
-    switch (customerSortBy) {
-      case 'az':
-        return withStats.sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
-      case 'ultima_compra':
-        return withStats.sort((a, b) => {
-          const da = a._stats?.lastDate ? new Date(a._stats.lastDate).getTime() : 0;
-          const db = b._stats?.lastDate ? new Date(b._stats.lastDate).getTime() : 0;
-          return db - da;
-        });
-      case 'maior_valor':
-        return withStats.sort((a, b) => (b._stats?.total || 0) - (a._stats?.total || 0));
-      case 'frequentes':
-        return withStats.sort((a, b) => (b._stats?.count || 0) - (a._stats?.count || 0));
-      default:
-        return withStats.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-    }
-  }, [allCustomers, customerSearchTerm, customerSortBy, customerSalesStats]);
-
-  const handleCepLookup = async (cep: string) => {
-    const digits = cep.replace(/\D/g, '');
-    if (digits.length !== 8) return;
-    setIsLookingUpCep(true);
-    try {
-      const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`);
-      const data = await res.json();
-      if (!data.erro) {
-        setNewCustomerForm(prev => ({
-          ...prev,
-          logradouro: data.logradouro || prev.logradouro,
-          distrito: data.bairro || prev.distrito,
-          city: data.localidade || prev.city,
-          state: data.uf || prev.state,
-        }));
-      }
-    } catch (err) {
-      console.error('Erro ao buscar CEP:', err);
-    } finally {
-      setIsLookingUpCep(false);
-    }
-  };
-
-  const addPatrimonioRow = () => {
-    setNewCustomerForm(prev => ({ ...prev, patrimonios: [...prev.patrimonios, { propriedade: '', valor: '' }] }));
-  };
-  const updatePatrimonioRow = (idx: number, field: 'propriedade' | 'valor', value: string) => {
-    setNewCustomerForm(prev => {
-      const next = [...prev.patrimonios];
-      next[idx] = { ...next[idx], [field]: value };
-      return { ...prev, patrimonios: next };
-    });
-  };
-  const removePatrimonioRow = (idx: number) => {
-    setNewCustomerForm(prev => ({ ...prev, patrimonios: prev.patrimonios.filter((_, i) => i !== idx) }));
-  };
-
-  const startEditCustomer = (c: any) => {
-    setEditingCustomerId(c.id);
-    setNewCustomerForm({
-      full_name: c.full_name || '', cep: c.cep || '', numero: c.numero || '', email: c.email || '',
-      logradouro: c.logradouro || '', phone: c.phone || '', distrito: c.distrito || '',
-      nascimento: c.nascimento || '', cpf_cnpj: c.cpf_cnpj || '', rg: c.rg || '', city: c.city || '', state: c.state || '',
-      complemento: c.complemento || '', limite_credito: c.limite_credito ? String(c.limite_credito) : '',
-      patrimonios: Array.isArray(c.patrimonios) ? c.patrimonios : [], notes: c.notes || '',
-    });
-    setIsMoreOptionsOpen(true);
-    setCustomerModalMode('create');
-  };
-
-  const handleCreateCustomerInline = async () => {
-    if (!newCustomerForm.full_name.trim()) {
-      showAlert('Digite o nome do cliente.');
-      return;
-    }
-    setIsCreatingCustomer(true);
-    try {
-      const payload = {
-        full_name: newCustomerForm.full_name,
-        phone: newCustomerForm.phone || null,
-        email: newCustomerForm.email || null,
-        cep: newCustomerForm.cep || null,
-        numero: newCustomerForm.numero || null,
-        logradouro: newCustomerForm.logradouro || null,
-        distrito: newCustomerForm.distrito || null,
-        nascimento: newCustomerForm.nascimento || null,
-        cpf_cnpj: newCustomerForm.cpf_cnpj || null,
-        rg: newCustomerForm.rg || null,
-        city: newCustomerForm.city || null,
-        state: newCustomerForm.state || null,
-        complemento: newCustomerForm.complemento || null,
-        limite_credito: newCustomerForm.limite_credito ? Number(newCustomerForm.limite_credito) : 0,
-        patrimonios: newCustomerForm.patrimonios.filter(p => p.propriedade.trim()),
-        notes: newCustomerForm.notes || null,
-      };
-
-      // Evita cliente duplicado: CPF/CNPJ igual mescla automatico (documento nao se repete);
-      // nome completo igual so pergunta antes (pode ser coincidencia, e a mesma pessoa pode
-      // legitimamente ter 2 numeros de telefone).
-      let idParaMesclar: string | null = null;
-      if (!editingCustomerId) {
-        const duplicado = await buscarClienteDuplicado({ fullName: newCustomerForm.full_name, cpfCnpj: newCustomerForm.cpf_cnpj, excludeId: editingCustomerId || undefined });
-        if (duplicado?.motivo === 'cpf') {
-          idParaMesclar = duplicado.cliente.id;
-        } else if (duplicado?.motivo === 'nome') {
-          const mesclar = await showConfirm(`JÃ¡ existe um cliente cadastrado como "${duplicado.cliente.full_name}"${duplicado.cliente.phone ? ` (tel. ${duplicado.cliente.phone})` : ''}. Deseja mesclar com esse cadastro em vez de criar um novo?`);
-          if (mesclar) idParaMesclar = duplicado.cliente.id;
-        }
-      }
-
-      let data, error;
-      if (editingCustomerId) {
-        ({ data, error } = await supabase.from('clientes').update(payload).eq('id', editingCustomerId).select().single());
-      } else if (idParaMesclar) {
-        const duplicadoAtual = (await supabase.from('clientes').select('*').eq('id', idParaMesclar).single()).data;
-        const payloadMesclado = montarPayloadMesclagem(duplicadoAtual, payload);
-        ({ data, error } = await supabase.from('clientes').update(payloadMesclado).eq('id', idParaMesclar).select().single());
-      } else {
-        ({ data, error } = await supabase.from('clientes').insert(payload).select().single());
-      }
-      if (error) throw error;
-      setSelectedCustomer({ id: data.id, name: data.full_name, phone: data.phone || '' });
-      setNewCustomerForm({ ...emptyCustomerForm });
-      setIsMoreOptionsOpen(false);
-      setEditingCustomerId(null);
-      setCustomerModalMode('search');
-      if (!editingCustomerId) {
-        proceedAfterCustomerStep(data);
-      } else {
-        loadAllCustomers();
-      }
-    } catch (err) {
-      console.error('Erro ao salvar cliente:', err);
-      showAlert('NÃ£o foi possÃ­vel salvar o cliente.');
-    } finally {
-      setIsCreatingCustomer(false);
-    }
-  };
-
-  const handleDeleteCustomer = async (c: any) => {
-    if (!(await showConfirm(`Excluir o cliente "${c.full_name}"? Essa aÃ§Ã£o nÃ£o pode ser desfeita.`))) return;
-    const { error } = await supabase.from('clientes').delete().eq('id', c.id);
-    if (error) { showAlert('NÃ£o foi possÃ­vel excluir o cliente.'); return; }
-    loadAllCustomers();
-  };
-
-  const handleViewCustomerHistory = (c: any) => {
-    const stats = customerSalesStats[c.id];
-    if (!stats) { showAlert(`${c.full_name} ainda nÃ£o tem vendas registradas.`); return; }
-    showAlert(`HistÃ³rico de ${c.full_name}\n\nTotal de compras: ${stats.count}\nValor total: R$ ${stats.total.toFixed(2).replace('.', ',')}\nÃšltima compra: ${stats.lastDate ? format(new Date(stats.lastDate), 'dd/MM/yyyy') : 'â€”'}`);
-  };
-
-  const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
-  const [lastFinalizedOrder, setLastFinalizedOrder] = useState<SaleOrder | null>(null);
-  const [selectedCustomer, setSelectedCustomer] = useState<{ id: string, name: string, phone: string } | null>(null);
-  const [editingFullOrder, setEditingFullOrder] = useState<SaleOrder | null>(null);
-  const [editingCreatedAt, setEditingCreatedAt] = useState('');
-  const [editingPaymentsList, setEditingPaymentsList] = useState<PaymentEntry[]>([]);
-  const [linkedOrcamentoId, setLinkedOrcamentoId] = useState<string | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState<'dinheiro' | 'pix' | 'cartao_credito' | 'cartao_debito' | 'misto'>('pix');
-  const [cashReceived, setCashReceived] = useState<number | ''>('');
-  const [downPayment, setDownPayment] = useState(0);
-  const [scheduledFor, setScheduledFor] = useState('');
-  const [orderObservacoes, setOrderObservacoes] = useState('');
-
-  // Multiplas formas de pagamento na mesma venda
-  const PAYMENT_METHOD_OPTIONS: { id: PaymentEntry['method']; label: string; icon: any }[] = [
-    { id: 'pix', label: 'Pix', icon: QrCode },
-    { id: 'dinheiro', label: 'Dinheiro', icon: Banknote },
-    { id: 'cartao_debito', label: 'DÃ©bito', icon: Smartphone },
-    { id: 'cartao_credito', label: 'CrÃ©dito', icon: CreditCard },
-    { id: 'transferencia', label: 'TransferÃªncia', icon: ArrowDownWideNarrow },
-    { id: 'boleto', label: 'Boleto', icon: FileText },
-    { id: 'crediario', label: 'CrediÃ¡rio', icon: Calculator },
-  ];
-  const [paymentEntries, setPaymentEntries] = useState<PaymentEntry[]>([]);
-  const [isAddPaymentOpen, setIsAddPaymentOpen] = useState(false);
-  const [newPaymentMethod, setNewPaymentMethod] = useState<PaymentEntry['method']>('pix');
-  const [newPaymentMode, setNewPaymentMode] = useState<'valor' | 'percentual'>('valor');
-  const [useCustomPaymentDate, setUseCustomPaymentDate] = useState(false);
-  const [customPaymentDate, setCustomPaymentDate] = useState('');
-  const [newPaymentInput, setNewPaymentInput] = useState<number | ''>('');
-  const [pendingPaymentMethod, setPendingPaymentMethod] = useState<string>('');
-  const [pixQrAmount, setPixQrAmount] = useState<number>(0);
-  const paymentEntriesTotal = paymentEntries.reduce((sum, p) => sum + (p.value || 0), 0);
-
-  const resetPaymentEntries = () => {
-    setPaymentEntries([]);
-    setIsAddPaymentOpen(false);
-    setNewPaymentInput('');
-    setNewPaymentMode('valor');
-    setPendingPaymentMethod('');
-  };
-
-  const openAddPayment = () => {
-    setNewPaymentMethod('pix');
-    setNewPaymentMode('valor');
-    setNewPaymentInput('');
-    setIsAddPaymentOpen(true);
-  };
-  const [isVerifying, setIsVerifying] = useState(false);
-  const [salesToday, setSalesToday] = useState<SaleOrder[]>([]);
-  const [allSalesHistory, setAllSalesHistory] = useState<SaleOrder[]>([]);
-
-  // Alerta sonoro de horario do pedido: 1h, 30min, 15min, 5min antes e na hora exata.
-  // So verifica pedidos com entrega agendada, ainda nao finalizados/cancelados.
-  useEffect(() => {
-    if (!soundAlertsEnabled) return;
-    // Pede permissao pra notificacao nativa do navegador (aparece mesmo com a aba minimizada
-    // ou trocada, diferente do aviso amarelo de dentro do sistema que sÃ³ aparece com a aba aberta)
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
-    const THRESHOLDS = [60, 30, 15, 5, 0];
-    const checkAlerts = () => {
-      const now = Date.now();
-      allSalesHistory.forEach(sale => {
-        if (!sale.scheduledFor || sale.status === 'completed' || sale.status === 'canceled' || sale.deletedAt) return;
-        const minutesUntil = (new Date(sale.scheduledFor).getTime() - now) / 60000;
-        // Primeira vez que vemos esse pedido nessa sessao (aba aberta agora, ou pedido novo) â€”
-        // se algum limite ja passou antes da gente ter chance de ver, marca como "ja alertado" SEM
-        // tocar som (nao alerta retroativo de coisa que ja passou antes de abrir a tela)
-        const primeiraVez = !initializedSalesRef.current.has(sale.id);
-        if (primeiraVez) initializedSalesRef.current.add(sale.id);
-        THRESHOLDS.forEach(threshold => {
-          const key = `${sale.id}-${threshold}`;
-          // Sem janela de tempo estreita â€” so verifica se ja cruzou o limite e ainda nao alertou.
-          // Assim nao depende do temporizador rodar EXATAMENTE no minuto certo (o navegador atrasa
-          // temporizadores em aba em segundo plano, o que fazia a janela antiga de 1min ser perdida).
-          if (minutesUntil <= threshold && !alertedThresholdsRef.current.has(key)) {
-            alertedThresholdsRef.current.add(key);
-            if (primeiraVez) return; // ja tinha passado antes da gente ver esse pedido â€” nao alerta retroativo
-            playAlertBeep();
-            const label = threshold === 0 ? 'na hora marcada agora' : `em ${threshold} minuto${threshold > 1 ? 's' : ''}`;
-            const msg = `â° Entrega de ${sale.customerName || 'cliente'} ${label}`;
-            setAlertToast({ message: msg, saleId: sale.id });
-            setTimeout(() => setAlertToast(prev => prev?.message === msg ? null : prev), 12000);
-            // Notificacao nativa do navegador â€” aparece mesmo com a aba minimizada, em segundo
-            // plano ou trocada por outra (o navegador tem que estar aberto, so nao precisa estar
-            // na tela). So dispara se a pessoa ja autorizou notificacoes.
-            if ('Notification' in window && Notification.permission === 'granted') {
-              try {
-                const notif = new Notification('Rafa Arts â€” Entrega Agendada', { body: msg, icon: '/icon-192.png', tag: key });
-                notif.onclick = () => { window.focus(); notif.close(); };
-              } catch {}
-            }
-          }
-        });
-      });
-    };
-    checkAlerts();
-    const interval = setInterval(checkAlerts, 15000);
-    return () => clearInterval(interval);
-  }, [allSalesHistory, soundAlertsEnabled]);
-
-  // ===== OrÃ§amentos =====
-  const [allOrcamentos, setAllOrcamentos] = useState<Orcamento[]>([]);
-  const [isLoadingOrcamentos, setIsLoadingOrcamentos] = useState(false);
-  const [orcamentoModalOpen, setOrcamentoModalOpen] = useState(false);
-  const [editingOrcamento, setEditingOrcamento] = useState<Orcamento | null>(null);
-  const emptyOrcamentoForm = {
-    documentType: 'orcamento' as 'orcamento' | 'contrato',
-    vendaId: undefined as string | undefined,
-    clausulasContratoTexto: '',
-    clienteId: undefined as string | undefined,
-    customerName: '', cpfCnpj: '', phone: '', address: '', responsavel: '',
-    items: [] as SaleOrderItem[], desconto: 0, observacoes: '',
-    prazoProducao: 'Prazo de produÃ§Ã£o de atÃ© 5 dias Ãºteis apÃ³s confirmaÃ§Ã£o do pagamento da entrada e aprovaÃ§Ã£o da arte. O prazo de produÃ§Ã£o nÃ£o Ã© prazo de pagamento.',
-    prazoDias: 5, prazoTipo: 'uteis' as 'uteis' | 'corridos', prazoGatilho: 'pagamento_entrada' as 'aprovacao' | 'pagamento_entrada' | 'aprovacao_arte' | 'entrega_material' | 'personalizado', prazoDataPrevista: '',
-    prazoPagamentoTexto: 'O saldo deverÃ¡ ser quitado no dia da conclusÃ£o e entrega do serviÃ§o, conforme data comunicada pelo contratado atravÃ©s de qualquer meio que comprove e comunique formalmente a finalizaÃ§Ã£o do trabalho (fotos, mensagens de texto, chamadas de Ã¡udio ou vÃ­deo, redes sociais ou equivalente). O cliente receberÃ¡ confirmaÃ§Ã£o da data de entrega quando a comunicaÃ§Ã£o de conclusÃ£o for realizada. Eventual prazo posterior de pagamento somente serÃ¡ vÃ¡lido quando previamente autorizado por escrito. Conforme Art. 35 do CDC, o atraso no pagamento implicarÃ¡ em multa e juros conforme especificado nas clÃ¡usulas de multa e juros.',
-    condicaoEntregaTexto: 'Entrega/retirada liberada somente apÃ³s a quitaÃ§Ã£o integral do valor, salvo autorizaÃ§Ã£o expressa em contrÃ¡rio. A data de entrega Ã© determinada pela comunicaÃ§Ã£o formal do contratado comprovando a conclusÃ£o do trabalho atravÃ©s de qualquer meio que registre a finalizaÃ§Ã£o (fotos, mensagens, chamadas de Ã¡udio/vÃ­deo, redes sociais ou outro meio que comprove). Em conformidade com o Art. 31 do CDC, a comunicaÃ§Ã£o deve ser clara e comprovÃ¡vel.',
-    formaPagamentoTexto: 'Entrada de 50% para iniciar a produÃ§Ã£o e saldo de 50% serÃ¡ devido no dia da conclusÃ£o e entrega do serviÃ§o. A data de entrega serÃ¡ marcada quando o contratado comunicar, atravÃ©s de qualquer meio comprovÃ¡vel (fotos, mensagens de texto, chamadas de Ã¡udio ou vÃ­deo, redes sociais ou equivalente), que o serviÃ§o foi finalizado. O cliente receberÃ¡ confirmaÃ§Ã£o no mesmo dia da comunicaÃ§Ã£o de conclusÃ£o.',
-    multaJurosTexto: 'Em caso de atraso no pagamento, incidirÃ¡ multa de 2% sobre o valor em aberto, acrescida de juros de 1% ao mÃªs (pro rata die), sem prejuÃ­zo de eventual correÃ§Ã£o monetÃ¡ria.',
-    garantiaTexto: 'Garantia de 90 dias para defeitos de fabricaÃ§Ã£o/impressÃ£o, nÃ£o cobrindo desgaste natural, mau uso, exposiÃ§Ã£o inadequada ou danos causados por terceiros. Consulte o CÃ³digo de Defesa do Consumidor (CDC) para direitos aplicÃ¡veis.',
-    politicaCancelamentoTexto: 'Cancelamento antes do inÃ­cio da produÃ§Ã£o: reembolso integral, descontadas eventuais despesas jÃ¡ realizadas. ApÃ³s o inÃ­cio da produÃ§Ã£o ou para itens personalizados, nÃ£o hÃ¡ reembolso dos valores jÃ¡ investidos em material e mÃ£o de obra.',
-    entradaPercentual: 50, entradaValor: 0, entradaModo: 'percentual' as 'percentual' | 'valor', validade: '',
-    formasPagamento: [] as OrcamentoPagamento[],
-    politicaPagamento: 'entrada_restante_entrega' as 'sem_entrada' | 'entrada_fixa' | 'entrada_percentual' | 'pagamento_integral' | 'entrada_restante_entrega' | 'entrada_parcelas',
-    entradaObrigatoria: true,
-    pagamentoPosteriorAutorizado: false, pagamentoPosteriorData: '', pagamentoPosteriorDias: 0,
-    pagamentoPosteriorCondicao: '', pagamentoPosteriorResponsavel: '',
-    multaPercentual: 2, jurosModo: 'mensal' as 'mensal' | 'diario', jurosPercentual: 1, diasTolerancia: 0,
-    serviceStatus: 'pedido_recebido' as typeof STAGE_ORDER[number],
-  };
-  const [orcamentoForm, setOrcamentoForm] = useState({ ...emptyOrcamentoForm });
-  const [savingOrcamento, setSavingOrcamento] = useState(false);
-  const [orcamentoFromCart, setOrcamentoFromCart] = useState(false);
-  const [contratoStatusFilter, setContratoStatusFilter] = useState('todos');
-  const [contratoSortBy, setContratoSortBy] = useState<'recentes' | 'antigos' | 'az' | 'za'>('recentes');
-  const [signingContrato, setSigningContrato] = useState<Contrato | null>(null);
-  const [signContratoPassword, setSignContratoPassword] = useState('');
-  const [signContratoError, setSignContratoError] = useState<string | null>(null);
-  const [isSigningContrato, setIsSigningContrato] = useState(false);
-  const [openContratoActionsId, setOpenContratoActionsId] = useState<string | null>(null);
-  // Menu oculto de acoes por linha do Historico de Vendas (modo lista) -- mesmo padrao de
-  // portal + posicionamento via getBoundingClientRect ja usado no menu de Contratos acima,
-  // pra escapar do overflow-y-auto da lista e do motion.div que anima a troca de aba.
-  const [openSaleRowActionsId, setOpenSaleRowActionsId] = useState<string | null>(null);
-  const [saleRowActionsMenuPos, setSaleRowActionsMenuPos] = useState<{ top?: number; bottom?: number; left: number } | null>(null);
-  // Largura das colunas do modo lista do Historico de Vendas -- ajustavel arrastando a borda
-  // de cada cabecalho. Em vez de largura fixa em pixel (que obrigava rolar a tela pro lado pra
-  // ver as colunas depois de um certo ponto), cada coluna guarda um "peso" relativo (como as
-  // unidades fr do CSS Grid): a soma dos pesos sempre preenche exatamente 100% da largura
-  // disponivel, entao a lista nunca estoura nem no celular nem no PC -- arrastar so redistribui
-  // o espaco entre a coluna e a vizinha, nunca aumenta a largura total da linha.
-  const SALE_LIST_RESIZABLE_ORDER = ['nome', 'itens', 'codigo', 'data', 'etapa', 'status', 'valor'] as const;
-  const SALE_LIST_COL_WEIGHTS_DEFAULT: Record<string, number> = {
-    nome: 3, itens: 4, codigo: 1.6, data: 1.8, etapa: 2, status: 1.6, valor: 2.6,
-  };
-  const [saleListColWeights, setSaleListColWeightsState] = useState<Record<string, number>>(() => {
-    try {
-      const saved = localStorage.getItem('rpro_historico_lista_col_pesos');
-      if (saved) return { ...SALE_LIST_COL_WEIGHTS_DEFAULT, ...JSON.parse(saved) };
-    } catch { /* ignora e usa o padrao */ }
-    return { ...SALE_LIST_COL_WEIGHTS_DEFAULT };
-  });
-  const setSaleListColWeights = (updater: (prev: Record<string, number>) => Record<string, number>) => {
-    setSaleListColWeightsState(prev => {
-      const next = updater(prev);
-      localStorage.setItem('rpro_historico_lista_col_pesos', JSON.stringify(next));
-      return next;
-    });
-  };
-  const saleListHeaderRef = React.useRef<HTMLDivElement>(null);
-  const resizingColRef = React.useRef<{ key: string; neighborKey: string; startX: number; startWeight: number; startNeighborWeight: number; pxPerWeight: number } | null>(null);
-  const handleColResizeStart = (key: string, e: React.MouseEvent | React.TouchEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const idx = SALE_LIST_RESIZABLE_ORDER.indexOf(key as any);
-    const neighborKey = SALE_LIST_RESIZABLE_ORDER[idx + 1];
-    if (!neighborKey) return; // ultima coluna redimensionavel nao tem vizinha a direita
-    const containerWidth = saleListHeaderRef.current?.getBoundingClientRect().width || 800;
-    const totalWeight = SALE_LIST_RESIZABLE_ORDER.reduce((acc, k) => acc + (saleListColWeights[k] || SALE_LIST_COL_WEIGHTS_DEFAULT[k]), 0);
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-    resizingColRef.current = {
-      key, neighborKey, startX: clientX,
-      startWeight: saleListColWeights[key] || SALE_LIST_COL_WEIGHTS_DEFAULT[key],
-      startNeighborWeight: saleListColWeights[neighborKey] || SALE_LIST_COL_WEIGHTS_DEFAULT[neighborKey],
-      pxPerWeight: containerWidth / totalWeight,
-    };
-    const onMove = (ev: MouseEvent | TouchEvent) => {
-      const r = resizingColRef.current;
-      if (!r) return;
-      const x = 'touches' in ev ? ev.touches[0].clientX : (ev as MouseEvent).clientX;
-      const deltaWeight = (x - r.startX) / r.pxPerWeight;
-      const MIN_WEIGHT = 0.7;
-      // Arrastar so troca espaco entre a coluna e a vizinha imediata -- a soma dos dois pesos
-      // fica sempre igual, entao a largura total da linha nunca muda.
-      const novoPeso = Math.max(MIN_WEIGHT, Math.min(r.startWeight + r.startNeighborWeight - MIN_WEIGHT, r.startWeight + deltaWeight));
-      const novoPesoVizinho = r.startWeight + r.startNeighborWeight - novoPeso;
-      setSaleListColWeights(prev => ({ ...prev, [r.key]: novoPeso, [r.neighborKey]: novoPesoVizinho }));
-    };
-    const onUp = () => {
-      resizingColRef.current = null;
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-      window.removeEventListener('touchmove', onMove);
-      window.removeEventListener('touchend', onUp);
-    };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    window.addEventListener('touchmove', onMove, { passive: false });
-    window.addEventListener('touchend', onUp);
-  };
-  // Posicao calculada via JS (nao CSS absolute) pro menu "..." do card de contrato --
-  // absolute ficava sendo cortado pelo scroll da lista (overflow-y-auto do container pai),
-  // fixed + coordenadas do getBoundingClientRect escapa desse corte.
-  const [contratoActionsMenuPos, setContratoActionsMenuPos] = useState<{ top?: number; bottom?: number; left: number } | null>(null);
-  const [contratoSearchTerm, setContratoSearchTerm] = useState('');
-  const [orcamentoStatusFilter, setOrcamentoStatusFilter] = useState('todos');
-  const [orcamentoSearchTerm, setOrcamentoSearchTerm] = useState('');
-  const [orcamentoSortBy, setOrcamentoSortBy] = useState<'recentes' | 'antigos' | 'az' | 'za'>('recentes');
-  const [orcamentoItemsEditMode, setOrcamentoItemsEditMode] = useState(false);
-
-  const handleReturnItemsToOrcamento = () => {
-    setOrcamentoForm(prev => ({ ...prev, items: [...cart] }));
-    setCart([]);
-    setOrcamentoItemsEditMode(false);
-    setActiveTab('orcamentos');
-    setOrcamentoModalOpen(true);
-  };
-  const [contratoItemsEditMode, setContratoItemsEditMode] = useState(false);
-  const handleReturnItemsToContrato = () => {
-    setContratoForm(prev => ({ ...prev, items: [...cart] }));
-    setCart([]);
-    setContratoItemsEditMode(false);
-    setActiveTab('contratos');
-    setContratoModalOpen(true);
-  };
-  const [highlightOrcamentoId, setHighlightOrcamentoId] = useState<string | null>(null);
-
-  const loadOrcamentos = async () => {
-    setIsLoadingOrcamentos(true);
-    try {
-      const { data } = await supabase.from('orcamentos').select('*').is('deleted_at', null).order('created_at', { ascending: false });
-      setAllOrcamentos((data || []).map(mapOrcamentoRow));
-    } catch (err) {
-      console.error('Erro ao carregar orÃ§amentos:', err);
-    } finally {
-      setIsLoadingOrcamentos(false);
-    }
-  };
-
-  useEffect(() => {
-    if (activeTab === 'orcamentos') loadOrcamentos();
-    if (activeTab === 'servicos') loadAllCustomers();
-  }, [activeTab]);
-
-  // ================= CONTRATOS (tabela propria, separada de orcamentos) =================
-  const [allContratos, setAllContratos] = useState<Contrato[]>([]);
-  const [isLoadingContratos, setIsLoadingContratos] = useState(false);
-  const [contratoModalOpen, setContratoModalOpen] = useState(false);
-  const [editingContrato, setEditingContrato] = useState<Contrato | null>(null);
-  const [savingContrato, setSavingContrato] = useState(false);
-  const [viewingContrato, setViewingContrato] = useState<Contrato | null>(null);
-  const [viewingAceiteDetalhes, setViewingAceiteDetalhes] = useState<Contrato | null>(null);
-  const [viewingContratoHistorico, setViewingContratoHistorico] = useState<Contrato | null>(null);
-  const [highlightContratoId, setHighlightContratoId] = useState<string | null>(null);
-  const emptyContratoForm = {
-    clienteId: undefined as string | undefined,
-    customerName: '', cpfCnpj: '', phone: '', address: '', responsavel: '',
-    items: [] as SaleOrderItem[], desconto: 0, observacoes: '',
-    prazoTexto: 'Prazo de produÃ§Ã£o de atÃ© 5 dias Ãºteis apÃ³s confirmaÃ§Ã£o do pagamento da entrada e aprovaÃ§Ã£o da arte. O prazo de produÃ§Ã£o nÃ£o Ã© prazo de pagamento.',
-    prazoDias: 5, prazoTipo: 'uteis' as 'uteis' | 'corridos', prazoGatilho: 'pagamento_entrada' as 'aprovacao' | 'pagamento_entrada' | 'aprovacao_arte' | 'entrega_material' | 'personalizado', prazoDataPrevista: '',
-    prazoPagamentoTexto: 'O saldo deverÃ¡ ser quitado no dia da conclusÃ£o e entrega do serviÃ§o, conforme data comunicada pelo contratado atravÃ©s de qualquer meio que comprove e comunique formalmente a finalizaÃ§Ã£o do trabalho (fotos, mensagens de texto, chamadas de Ã¡udio ou vÃ­deo, redes sociais ou equivalente). O cliente receberÃ¡ confirmaÃ§Ã£o da data de entrega quando a comunicaÃ§Ã£o de conclusÃ£o for realizada. Eventual prazo posterior de pagamento somente serÃ¡ vÃ¡lido quando previamente autorizado por escrito. Conforme Art. 35 do CDC, o atraso no pagamento implicarÃ¡ em multa e juros conforme especificado nas clÃ¡usulas de multa e juros.',
-    condicaoEntregaTexto: 'Entrega/retirada liberada somente apÃ³s a quitaÃ§Ã£o integral do valor, salvo autorizaÃ§Ã£o expressa em contrÃ¡rio. A data de entrega Ã© determinada pela comunicaÃ§Ã£o formal do contratado comprovando a conclusÃ£o do trabalho atravÃ©s de qualquer meio que registre a finalizaÃ§Ã£o (fotos, mensagens, chamadas de Ã¡udio/vÃ­deo, redes sociais ou outro meio que comprove). Em conformidade com o Art. 31 do CDC, a comunicaÃ§Ã£o deve ser clara e comprovÃ¡vel.',
-    formaPagamentoTexto: 'Entrada de 50% para iniciar a produÃ§Ã£o e saldo de 50% serÃ¡ devido no dia da conclusÃ£o e entrega do serviÃ§o. A data de entrega serÃ¡ marcada quando o contratado comunicar, atravÃ©s de qualquer meio comprovÃ¡vel (fotos, mensagens de texto, chamadas de Ã¡udio ou vÃ­deo, redes sociais ou equivalente), que o serviÃ§o foi finalizado. O cliente receberÃ¡ confirmaÃ§Ã£o no mesmo dia da comunicaÃ§Ã£o de conclusÃ£o.',
-    multaJurosTexto: 'Em caso de atraso no pagamento, incidirÃ¡ multa de 2% sobre o valor em aberto, acrescida de juros de 1% ao mÃªs (pro rata die), sem prejuÃ­zo de eventual correÃ§Ã£o monetÃ¡ria.',
-    garantiaTexto: 'Garantia de 90 dias para defeitos de fabricaÃ§Ã£o/impressÃ£o, nÃ£o cobrindo desgaste natural, mau uso, exposiÃ§Ã£o inadequada ou danos causados por terceiros.',
-    politicaCancelamentoTexto: 'Cancelamento antes do inÃ­cio da produÃ§Ã£o: reembolso integral, descontadas eventuais despesas jÃ¡ realizadas. ApÃ³s o inÃ­cio da produÃ§Ã£o ou para itens personalizados, nÃ£o hÃ¡ reembolso dos valores jÃ¡ investidos em material e mÃ£o de obra.',
-    entradaPercentual: 50, entradaValor: 0, entradaModo: 'percentual' as 'percentual' | 'valor',
-    formasPagamento: [] as OrcamentoPagamento[],
-    politicaPagamento: 'entrada_restante_entrega' as 'sem_entrada' | 'entrada_fixa' | 'entrada_percentual' | 'pagamento_integral' | 'entrada_restante_entrega' | 'entrada_parcelas',
-    entradaObrigatoria: true,
-    pagamentoPosteriorAutorizado: false, pagamentoPosteriorData: '', pagamentoPosteriorDias: 0,
-    pagamentoPosteriorCondicao: '', pagamentoPosteriorResponsavel: '',
-    multaPercentual: 2, jurosModo: 'mensal' as 'mensal' | 'diario', jurosPercentual: 1, diasTolerancia: 0,
-    vendaId: undefined as string | undefined,
-    orcamentoId: undefined as string | undefined,
-    serviceStatus: 'pedido_recebido' as typeof STAGE_ORDER[number],
-  };
-  const [contratoForm, setContratoForm] = useState({ ...emptyContratoForm });
-
-  const loadContratos = async () => {
-    setIsLoadingContratos(true);
-    try {
-      const { data } = await supabase.from('contratos').select('*').is('deleted_at', null).order('created_at', { ascending: false });
-      setAllContratos((data || []).map(mapContratoRow));
-    } catch (err) {
-      console.error('Erro ao carregar contratos:', err);
-    } finally {
-      setIsLoadingContratos(false);
-    }
-  };
-
-  useEffect(() => {
-    if (activeTab === 'contratos') loadContratos();
-  }, [activeTab]);
-
-  // Novo Contrato sempre comeca pela busca de cliente (aba "Pesquisar Cliente" ativa por
-  // padrao) -- so depois de escolher (ou cadastrar) o cliente e' que o formulario do contrato
-  // abre com os dados ja preenchidos. proceedAfterCustomerStep() cuida de abrir o
-  // contratoModalOpen na sequencia, inclusive se o usuario preferir seguir sem selecionar
-  // cliente (Cliente Balcao).
-  const openNewContrato = () => {
-    setEditingContrato(null);
-    setContratoForm({ ...emptyContratoForm });
-    setCustomerModalIntent('contrato');
-    setCustomerModalMode('search');
-    setIsCustomerModalOpen(true);
-  };
-
-  // Gera um Contrato a partir de uma Nota ja existente no Historico â€” vem com cliente/itens/valor
-  // ja preenchidos, e ja fica vinculado aquela nota (venda_id). Se a nota tiver orcamento vinculado,
-  // o contrato tambem fica vinculado ao mesmo orcamento.
-  const handleCreateContratoFromNota = async (sale: SaleOrder) => {
-    setEditingContrato(null);
-    // Nota/venda em si nao tem campo de CPF/CNPJ -- o CPF so existe no cadastro do
-    // CLIENTE vinculado a venda (sale.customerId). Antes essa funcao nao buscava esse
-    // dado, entao o contrato saia sem CPF mesmo quando o cliente da nota tinha CPF cadastrado.
-    // Busca direto no banco (em vez de depender de allCustomers, que sÃ³ Ã© carregado
-    // quando o modal de busca de cliente Ã© aberto e pode estar vazio nesse momento).
-    let clienteVinculado: any = null;
-    if (sale.customerId) {
-      const { data } = await supabase.from('clientes').select('*').eq('id', sale.customerId).maybeSingle();
-      clienteVinculado = data;
-    }
-    const enderecoParts = clienteVinculado
-      ? [clienteVinculado.logradouro, clienteVinculado.numero, clienteVinculado.distrito, clienteVinculado.city].filter(Boolean)
-      : [];
-    setContratoForm({
-      ...emptyContratoForm,
-      vendaId: sale.id,
-      orcamentoId: sale.orcamentoId,
-      clienteId: sale.customerId,
-      customerName: sale.customerName || clienteVinculado?.full_name || '',
-      cpfCnpj: clienteVinculado?.cpf_cnpj || '',
-      phone: sale.customerPhone || clienteVinculado?.phone || '',
-      address: enderecoParts.join(', '),
-      items: sale.items ? [...sale.items] : [],
-      desconto: sale.discountValue || 0,
-    });
-    setContratoModalOpen(true);
-  };
-
-  // Gera um Contrato a partir de um Orcamento â€” herda cliente/itens/valor/prazo/forma de
-  // pagamento do orcamento, e fica vinculado tanto ao orcamento quanto a nota dele (se existir)
-  const handleCreateContratoFromOrcamento = (o: Orcamento) => {
-    setEditingContrato(null);
-    setContratoForm({
-      ...emptyContratoForm,
-      orcamentoId: o.id,
-      vendaId: o.vendaId,
-      clienteId: o.clienteId,
-      customerName: o.customerName || '',
-      cpfCnpj: o.cpfCnpj || '',
-      phone: o.phone || '',
-      address: o.address || '',
-      responsavel: o.responsavel || '',
-      items: [...o.items],
-      desconto: o.desconto || 0,
-      observacoes: o.observacoes || '',
-      formaPagamentoTexto: o.formaPagamentoTexto || emptyContratoForm.formaPagamentoTexto,
-      prazoTexto: o.prazoProducao || emptyContratoForm.prazoTexto,
-      prazoDias: o.prazoDias ?? emptyContratoForm.prazoDias,
-      prazoTipo: o.prazoTipo ?? emptyContratoForm.prazoTipo,
-      prazoGatilho: o.prazoGatilho ?? emptyContratoForm.prazoGatilho,
-      prazoDataPrevista: o.prazoDataPrevista || '',
-      prazoPagamentoTexto: o.prazoPagamentoTexto || emptyContratoForm.prazoPagamentoTexto,
-      condicaoEntregaTexto: o.condicaoEntregaTexto || emptyContratoForm.condicaoEntregaTexto,
-      formasPagamento: o.formasPagamento ? [...o.formasPagamento] : [],
-      politicaPagamento: o.politicaPagamento ?? emptyContratoForm.politicaPagamento,
-      entradaObrigatoria: o.entradaObrigatoria ?? true,
-      entradaPercentual: o.entradaPercentual ?? 50,
-      entradaValor: o.entradaValor ?? 0,
-      entradaModo: 'percentual' as 'percentual' | 'valor',
-      pagamentoPosteriorAutorizado: o.pagamentoPosteriorAutorizado ?? false,
-      pagamentoPosteriorData: o.pagamentoPosteriorData || '',
-      pagamentoPosteriorDias: o.pagamentoPosteriorDias ?? 0,
-      pagamentoPosteriorCondicao: o.pagamentoPosteriorCondicao || '',
-      pagamentoPosteriorResponsavel: o.pagamentoPosteriorResponsavel || '',
-      multaPercentual: o.multaPercentual ?? 2,
-      jurosModo: o.jurosModo ?? 'mensal',
-      jurosPercentual: o.jurosPercentual ?? 1,
-      diasTolerancia: o.diasTolerancia ?? 0,
-      multaJurosTexto: o.multaJurosTexto || emptyContratoForm.multaJurosTexto,
-      garantiaTexto: o.garantiaTexto || emptyContratoForm.garantiaTexto,
-      politicaCancelamentoTexto: o.politicaCancelamentoTexto || emptyContratoForm.politicaCancelamentoTexto,
-    });
-    setContratoModalOpen(true);
-  };
-
-  const openEditContrato = (c: Contrato) => {
-    setEditingContrato(c);
-    setContratoForm({
-      clienteId: c.clienteId,
-      customerName: c.customerName,
-      cpfCnpj: c.cpfCnpj || '',
-      phone: c.phone || '',
-      address: c.address || '',
-      responsavel: c.responsavel || '',
-      items: [...c.items],
-      desconto: c.desconto || 0,
-      observacoes: c.observacoes || '',
-      formaPagamentoTexto: c.formaPagamentoTexto || emptyContratoForm.formaPagamentoTexto,
-      prazoTexto: c.prazoTexto || emptyContratoForm.prazoTexto,
-      prazoDias: c.prazoDias ?? emptyContratoForm.prazoDias,
-      prazoTipo: c.prazoTipo ?? emptyContratoForm.prazoTipo,
-      prazoGatilho: c.prazoGatilho ?? emptyContratoForm.prazoGatilho,
-      prazoDataPrevista: c.prazoDataPrevista || '',
-      prazoPagamentoTexto: c.prazoPagamentoTexto || emptyContratoForm.prazoPagamentoTexto,
-      condicaoEntregaTexto: c.condicaoEntregaTexto || emptyContratoForm.condicaoEntregaTexto,
-      formasPagamento: c.formasPagamento ? [...c.formasPagamento] : [],
-      politicaPagamento: c.politicaPagamento ?? emptyContratoForm.politicaPagamento,
-      entradaObrigatoria: c.entradaObrigatoria ?? true,
-      entradaPercentual: c.entradaPercentual ?? 50,
-      entradaValor: c.entradaValor ?? 0,
-      entradaModo: 'percentual' as 'percentual' | 'valor',
-      pagamentoPosteriorAutorizado: c.pagamentoPosteriorAutorizado ?? false,
-      pagamentoPosteriorData: c.pagamentoPosteriorData || '',
-      pagamentoPosteriorDias: c.pagamentoPosteriorDias ?? 0,
-      pagamentoPosteriorCondicao: c.pagamentoPosteriorCondicao || '',
-      pagamentoPosteriorResponsavel: c.pagamentoPosteriorResponsavel || '',
-      multaPercentual: c.multaPercentual ?? 2,
-      jurosModo: c.jurosModo ?? 'mensal',
-      jurosPercentual: c.jurosPercentual ?? 1,
-      diasTolerancia: c.diasTolerancia ?? 0,
-      multaJurosTexto: c.multaJurosTexto || emptyContratoForm.multaJurosTexto,
-      garantiaTexto: c.garantiaTexto || emptyContratoForm.garantiaTexto,
-      politicaCancelamentoTexto: c.politicaCancelamentoTexto || emptyContratoForm.politicaCancelamentoTexto,
-      vendaId: c.vendaId,
-      orcamentoId: c.orcamentoId,
-    });
-    setContratoModalOpen(true);
-  };
-
-  const contratoItemsTotal = () => contratoForm.items.reduce((acc, item) => acc + (item.area ? item.price * item.area * item.quantity : item.price * item.quantity), 0);
-
-  const handleSaveContrato = async () => {
-    if (!contratoForm.customerName.trim()) { showAlert('Informe o nome do cliente.'); return; }
-    if (contratoForm.items.length === 0) { showAlert('Adicione ao menos um item.'); return; }
-    // So gera contrato se o cadastro tiver pelo menos telefone ou CPF/CNPJ -- sem isso nao da pra
-    // mandar o link de assinatura pro cliente nem fazer a checagem de identidade na tela publica
-    if (!contratoForm.phone.trim() && !contratoForm.cpfCnpj.trim()) {
-      showAlert('Informe ao menos o telefone ou o CPF/CNPJ do cliente para gerar o contrato.');
-      return;
-    }
-    // Se o CPF/CNPJ foi preenchido, valida o digito verificador aqui -- evita que um numero
-    // digitado errado va parar no contrato e so de erro depois, na hora do cliente assinar
-    if (contratoForm.cpfCnpj.trim()) {
-      const { valid, tipo } = validateCpfCnpj(contratoForm.cpfCnpj);
-      if (!valid) {
-        showAlert(`${tipo === 'cnpj' ? 'CNPJ' : 'CPF'} invÃ¡lido. Confira os nÃºmeros e tente novamente.`);
-        return;
-      }
-    }
-    setSavingContrato(true);
-    try {
-      const total = Math.max(0, contratoItemsTotal() - (contratoForm.desconto || 0));
-
-      // Sem Nota vinculada ainda: cria a Nota agora (em aberto, sem pagamento) â€” o faturamento
-      // so conta de verdade quando ela for paga, gerar o contrato aqui nao fatura nada
-      let vendaId = contratoForm.vendaId || null;
-      if (!vendaId) {
-        const { data: novaVenda, error: vendaError } = await supabase.from('vendas').insert({
-          cliente_id: contratoForm.clienteId || null,
-          customer_name: contratoForm.customerName,
-          customer_phone: contratoForm.phone || null,
-          items: contratoForm.items,
-          total,
-          discount_value: contratoForm.desconto || null,
-          down_payment: 0,
-          received_value: 0,
-          status: 'pending',
-          observacoes: contratoForm.observacoes || null,
-          orcamento_id: contratoForm.orcamentoId || null,
-        }).select().single();
-        if (vendaError) throw vendaError;
-        vendaId = novaVenda.id;
-        // Guarda o vendaId no formulario JA -- se algo mais adiante nessa mesma funcao der erro
-        // (ex: salvar o contrato em si), uma nova tentativa reaproveita essa nota em vez de criar
-        // outra igual (que duplicava cliente/nota toda vez que dava erro e a pessoa tentava de novo)
-        setContratoForm(prev => ({ ...prev, vendaId: novaVenda.id }));
-        setAllSalesHistory(prev => [mapVendaRow(novaVenda), ...prev]);
-      } else {
-        const { error: syncError } = await supabase.from('vendas').update({
-          items: contratoForm.items,
-          total,
-          discount_value: contratoForm.desconto || null,
-        }).eq('id', vendaId);
-        if (syncError) throw syncError;
-        setAllSalesHistory(prev => prev.map(s => s.id === vendaId ? { ...s, items: [...contratoForm.items], total, discountValue: contratoForm.desconto || undefined } : s));
-      }
-
-      const textoContrato = buildTextoContrato({
-        companyName: currentCompany?.name || 'RAFA ARTS GRAPHICS',
-        customerName: contratoForm.customerName,
-        cpfCnpj: contratoForm.cpfCnpj,
-        phone: contratoForm.phone,
-        address: contratoForm.address,
-        items: contratoForm.items,
-        total,
-        desconto: contratoForm.desconto || 0,
-        formaPagamentoTexto: contratoForm.formaPagamentoTexto,
-        prazoTexto: contratoForm.prazoTexto,
-        observacoes: contratoForm.observacoes,
-        numero: editingContrato?.numero || `CTR-${Date.now().toString(36).toUpperCase()}`,
-        multaPercentual: contratoForm.multaPercentual,
-        jurosPercentual: contratoForm.jurosPercentual,
-      });
-
-      const payload = {
-        cliente_id: contratoForm.clienteId || null,
-        customer_name: contratoForm.customerName,
-        cpf_cnpj: contratoForm.cpfCnpj || null,
-        phone: contratoForm.phone || null,
-        address: contratoForm.address || null,
-        responsavel: contratoForm.responsavel || null,
-        venda_id: vendaId,
-        orcamento_id: contratoForm.orcamentoId || null,
-        items: contratoForm.items,
-        desconto: contratoForm.desconto || 0,
-        total,
-        forma_pagamento_texto: contratoForm.formaPagamentoTexto || null,
-        prazo_texto: contratoForm.prazoTexto || null,
-        prazo_dias: contratoForm.prazoDias || null,
-        prazo_tipo: contratoForm.prazoTipo || null,
-        prazo_gatilho: contratoForm.prazoGatilho || null,
-        prazo_data_prevista: contratoForm.prazoDataPrevista || null,
-        prazo_pagamento_texto: contratoForm.prazoPagamentoTexto || null,
-        condicao_entrega_texto: contratoForm.condicaoEntregaTexto || null,
-        formas_pagamento: contratoForm.formasPagamento?.length ? contratoForm.formasPagamento : null,
-        politica_pagamento: contratoForm.politicaPagamento || null,
-        entrada_obrigatoria: contratoForm.entradaObrigatoria ?? true,
-        entrada_percentual: contratoForm.entradaPercentual ?? null,
-        entrada_valor: contratoForm.entradaValor ?? null,
-        pagamento_posterior_autorizado: contratoForm.pagamentoPosteriorAutorizado ?? false,
-        pagamento_posterior_data: contratoForm.pagamentoPosteriorData || null,
-        pagamento_posterior_dias: contratoForm.pagamentoPosteriorDias || null,
-        pagamento_posterior_condicao: contratoForm.pagamentoPosteriorCondicao || null,
-        pagamento_posterior_responsavel: contratoForm.pagamentoPosteriorResponsavel || null,
-        multa_percentual: contratoForm.multaPercentual === '' || contratoForm.multaPercentual == null ? 2 : contratoForm.multaPercentual,
-        juros_modo: contratoForm.jurosModo || 'mensal',
-        juros_percentual: contratoForm.jurosPercentual === '' || contratoForm.jurosPercentual == null ? 1 : contratoForm.jurosPercentual,
-        dias_tolerancia: contratoForm.diasTolerancia ?? 0,
-        multa_juros_texto: contratoForm.multaJurosTexto || null,
-        garantia_texto: contratoForm.garantiaTexto || null,
-        politica_cancelamento_texto: contratoForm.politicaCancelamentoTexto || null,
-        observacoes: contratoForm.observacoes || null,
-        texto_contrato: textoContrato,
-        service_status: contratoForm.serviceStatus || 'pedido_recebido',
-        updated_at: new Date().toISOString(),
-      };
-
-      let newId: string | null = null;
-      // Contrato que ja saiu do rascunho (ja foi aceito/executado/etc): editar cria uma VERSAO
-      // NOVA em vez de sobrescrever a atual, mantendo o historico da versao anterior intacto
-      const precisaNovaVersao = editingContrato && editingContrato.status !== 'rascunho';
-      if (editingContrato && !precisaNovaVersao) {
-        const { error } = await supabase.from('contratos').update(payload).eq('id', editingContrato.id);
-        if (error) throw error;
-        newId = editingContrato.id;
-      } else if (precisaNovaVersao && editingContrato) {
-        const { data: inserted, error } = await supabase.from('contratos').insert({
-          ...payload,
-          numero: editingContrato.numero,
-          versao: editingContrato.versao + 1,
-          contrato_anterior_id: editingContrato.id,
-          status: 'aguardando_aceite',
-        }).select().single();
-        if (error) throw error;
-        newId = inserted?.id || null;
-        // A venda/orcamento passam a apontar pra versao nova (mais recente)
-      } else {
-        const numero = `CTR-${Date.now().toString(36).toUpperCase()}`;
-        const { data: inserted, error } = await supabase.from('contratos').insert({ ...payload, numero, status: 'aguardando_assinatura_cliente' }).select().single();
-        if (error) throw error;
-        newId = inserted?.id || null;
-      }
-
-      // Vincula a nota de volta pro contrato, e o orcamento (se tiver) tambem
-      if (newId && vendaId) {
-        await supabase.from('vendas').update({ contrato_id: newId }).eq('id', vendaId);
-        setAllSalesHistory(prev => prev.map(s => s.id === vendaId ? { ...s, contratoId: newId! } as SaleOrder : s));
-      }
-      if (newId && contratoForm.orcamentoId) {
-        await supabase.from('orcamentos').update({ contrato_id: newId }).eq('id', contratoForm.orcamentoId);
-        setAllOrcamentos(prev => prev.map(o => o.id === contratoForm.orcamentoId ? { ...o, contratoId: newId! } : o));
-      }
-
-      // Propaga a Etapa escolhida aqui pro Pedido e OrÃ§amento vinculados a este Contrato
-      if (newId) {
-        await syncServiceStatus('contrato', newId, contratoForm.serviceStatus || 'pedido_recebido');
-      }
-
-      setContratoModalOpen(false);
-      await loadContratos();
-      if (newId && (!editingContrato || precisaNovaVersao)) {
-        setActiveTab('contratos');
-        setHighlightContratoId(newId);
-        setTimeout(() => setHighlightContratoId(null), 4000);
-      }
-    } catch (err: any) {
-      console.error('Erro ao salvar contrato:', err);
-      showAlert(`NÃ£o foi possÃ­vel salvar o contrato: ${err?.message || 'erro desconhecido'}`);
-    } finally {
-      setSavingContrato(false);
-    }
-  };
-
-  const handleUpdateContratoStatus = async (c: Contrato, status: ContratoStatus) => {
-    if (!(await showConfirm(`Mudar o status do contrato ${c.numero} para "${CONTRATO_STATUS_LABELS[status]}"?`))) return;
-    const { error } = await supabase.from('contratos').update({ status, updated_at: new Date().toISOString() }).eq('id', c.id);
-    if (error) { showAlert(`NÃ£o foi possÃ­vel atualizar o status: ${error.message}`); return; }
-    setAllContratos(prev => prev.map(ct => ct.id === c.id ? { ...ct, status } : ct));
-  };
-
-  // Confirma a assinatura da CONTRATADA (empresa): o operador logado confirma a PROPRIA senha de
-  // login. Pode ser feita antes ou depois do cliente assinar -- as duas partes assinam em
-  // qualquer ordem. So quando o cliente ja tiver assinado o contrato fecha de vez ('assinado') e
-  // o PDF final (com os dois carimbos) e' gerado; se o cliente ainda nao assinou, so grava a
-  // assinatura da empresa e o fechamento acontece depois, quando ele assinar pelo link. Ver
-  // signContractByCompany em otpUtils.ts.
-  const handleConfirmCompanySignature = async () => {
-    if (!signingContrato || !user) return;
-    if (!signContratoPassword.trim()) {
-      setSignContratoError('Digite sua senha de login.');
-      return;
-    }
-    if (!user.password || signContratoPassword !== user.password) {
-      setSignContratoError('Senha incorreta.');
-      return;
-    }
-    setIsSigningContrato(true);
-    setSignContratoError(null);
-    try {
-      const result = await signContractByCompany({
-        contractId: signingContrato.id,
-        numero: signingContrato.numero,
-        customerName: signingContrato.customerName,
-        documentText: signingContrato.textoContrato || '',
-        clientSignedAt: signingContrato.signedAt || undefined,
-        clientIp: signingContrato.signerIp || undefined,
-        clientLocation: signingContrato.signerLocation || undefined,
-        clientUserAgent: signingContrato.signerUserAgent || undefined,
-        documentHash: signingContrato.documentHash || undefined,
-        clientCpfCnpj: signingContrato.cpfCnpj,
-        clientPhone: signingContrato.phone,
-        clientSignatureId: signingContrato.contratanteSignatureId,
-        companySignerName: user.name,
-        companyUserAgent: navigator.userAgent,
-      });
-      await loadContratos();
-      setSigningContrato(null);
-      setSignContratoPassword('');
-      showAlert(
-        result.contratoFechado
-          ? `Contrato ${signingContrato.numero} assinado com sucesso! VocÃª jÃ¡ pode avisar o cliente pelo mesmo link â€” ele agora mostra o contrato assinado.`
-          : `Assinatura da empresa confirmada no contrato ${signingContrato.numero}. Falta sÃ³ o cliente assinar pelo link â€” assim que ele assinar, o contrato fecha automaticamente.`
-      );
-    } catch (err: any) {
-      console.error('Erro ao confirmar assinatura da empresa:', err);
-      setSignContratoError(`NÃ£o foi possÃ­vel confirmar a assinatura: ${err?.message || 'erro desconhecido'}`);
-    } finally {
-      setIsSigningContrato(false);
-    }
-  };
-
-  const handleDeleteContrato = async (c: Contrato) => {
-    const vinculos: string[] = [];
-    if (c.vendaId) vinculos.push('um Recibo/Nota');
-    if (c.orcamentoId) vinculos.push('um OrÃ§amento');
-    const avisoVinculo = vinculos.length
-      ? `\n\nâš ï¸ Este contrato estÃ¡ ligado a ${vinculos.join(' e ')}. Eles NÃƒO serÃ£o excluÃ­dos â€” continuam intactos.`
-      : '';
-    if (!(await showConfirm(`Excluir o contrato ${c.numero}?${avisoVinculo}\n\nEle fica 30 dias na aba ExcluÃ­dos antes de sumir de vez â€” vocÃª pode restaurar dentro desse prazo.`))) return;
-    const now = new Date().toISOString();
-    const { error } = await supabase.from('contratos').update({ deleted_at: now }).eq('id', c.id);
-    if (error) { showAlert(`NÃ£o foi possÃ­vel excluir o contrato: ${error.message}`); return; }
-    setAllContratos(prev => prev.filter(ct => ct.id !== c.id));
-    // Solta o vinculo na Nota (a Nota continua intacta, so para de apontar pra um contrato
-    // que nao existe mais) -- sem isso a etiqueta "Contrato" ficava no card pra sempre.
-    // IMPORTANTE: NAO marca a venda como excluida aqui -- a mensagem de confirmacao acima
-    // promete pro usuario que a Nota/Recibo "continua intacta", entao so soltamos o vinculo,
-    // sem apagar a venda em si (que ficaria escondida do Historico sem o usuario esperar isso)
-    if (c.vendaId) {
-      await supabase.from('vendas').update({ contrato_id: null }).eq('id', c.vendaId);
-      setAllSalesHistory(prev => prev.map(s => s.id === c.vendaId ? { ...s, contratoId: undefined } as SaleOrder : s));
-    }
-  };
-
-  // Monta o AuditStamp (dados do carimbo digital) a partir de um contrato ja assinado.
-  // Extraido pra ser reaproveitado tanto no download avulso (fallback) quanto na regeneracao
-  // em massa dos PDFs ja salvos no Storage (ver handleRegenerateAllSignedContratoPdfs).
-  const buildAuditStampFromContrato = (c: Contrato): AuditStamp | undefined => {
-    if (!(c.signedAt && c.signerIp && c.documentHash)) return undefined;
-    return {
-      signedAt: c.signedAt,
-      signerIp: c.signerIp,
-      documentHash: c.documentHash,
-      signatureLink: getContractSignatureLink(c.id),
-      signatureMethodLabel: 'Token OTP',
-      clienteCpfCnpj: c.cpfCnpj,
-      clientePhone: c.phone,
-      // Contratos assinados antes desta migration podem nao ter o ID individual salvo --
-      // gera um na hora so pra exibicao (nao persiste, ja que aqui e' so fallback de download).
-      contratanteSignatureId: c.contratanteSignatureId || generateSignatureId(),
-      empresaRazaoSocial: OFFICIAL_COMPANY.razaoSocial,
-      empresaNomeFantasia: OFFICIAL_COMPANY.nomeFantasia,
-      empresaCnpj: OFFICIAL_COMPANY.cnpj,
-      empresaValidatedAt: c.empresaSignedAt || c.signedAt,
-      empresaOrigin: PUBLIC_SIGN_ORIGIN,
-      contratadoSignatureId: c.contratadoSignatureId || generateSignatureId(),
-    };
-  };
-
-  // Regera e SOBRESCREVE (upsert) o PDF ja salvo no Storage de TODOS os contratos ja assinados
-  // (ambas as partes), aplicando o layout/carimbo ATUAL -- usado uma unica vez apos uma mudanca
-  // visual no carimbo (ex: tamanho do QR Code / largura), pra que contratos antigos tambem
-  // passem a exibir o layout novo no download, em vez de continuarem com o PDF congelado no
-  // momento da assinatura original. O hash SHA-256 do TEXTO nao muda -- so a aparencia do carimbo.
-  const [isRegeneratingContratoPdfs, setIsRegeneratingContratoPdfs] = useState(false);
-  const [regenerateContratoProgress, setRegenerateContratoProgress] = useState<{ done: number; total: number } | null>(null);
-  const handleRegenerateAllSignedContratoPdfs = async () => {
-    const alvos = allContratos.filter(c => c.signedAt && c.empresaSignedAt);
-    if (alvos.length === 0) { showAlert('Nenhum contrato assinado (pelas duas partes) encontrado.'); return; }
-    if (!(await showConfirm(`Regenerar o PDF de ${alvos.length} contrato(s) jÃ¡ assinado(s) com o carimbo atualizado? O arquivo salvo de cada um serÃ¡ substituÃ­do.`))) return;
-
-    setIsRegeneratingContratoPdfs(true);
-    setRegenerateContratoProgress({ done: 0, total: alvos.length });
-    let falhas = 0;
-    for (let i = 0; i < alvos.length; i++) {
-      const c = alvos[i];
-      try {
-        const auditStamp = buildAuditStampFromContrato(c);
-        if (!auditStamp) { falhas++; continue; }
-        const novaUrl = await uploadContratoPdfAssinado(c.id, c.numero, c.customerName, c.textoContrato || '', auditStamp);
-        if (novaUrl) {
-          await supabase.from('contratos').update({ pdf_url: novaUrl }).eq('id', c.id);
-          setAllContratos(prev => prev.map(ct => ct.id === c.id ? { ...ct, pdfUrl: novaUrl } : ct));
-        } else {
-          falhas++;
-        }
-      } catch (err) {
-        console.error(`Erro ao regenerar PDF do contrato ${c.numero}:`, err);
-        falhas++;
-      }
-      setRegenerateContratoProgress({ done: i + 1, total: alvos.length });
-    }
-    setIsRegeneratingContratoPdfs(false);
-    setRegenerateContratoProgress(null);
-    showAlert(
-      falhas === 0
-        ? `${alvos.length} PDF(s) regenerado(s) com sucesso.`
-        : `RegeneraÃ§Ã£o concluÃ­da: ${alvos.length - falhas} com sucesso, ${falhas} falharam (veja o console).`
-    );
-  };
-
-  const handleDownloadContratoPdf = async (c: Contrato) => {
-    // Contrato ja assinado com PDF salvo no Storage: baixa sempre o MESMO arquivo gerado no
-    // momento da assinatura, em vez de recriar na hora com o codigo/layout atuais (ver
-    // supabase/add_pdf_url_contratos.sql e signContract em otpUtils.ts).
-    if (c.pdfUrl) {
-      window.open(c.pdfUrl, '_blank', 'noopener,noreferrer');
-      return;
-    }
-    // Fallback: contrato ainda nao assinado (rascunho, so preview mesmo) ou assinado antes
-    // dessa migration (sem pdf_url salvo) -- gera na hora como antes, com o carimbo completo
-    // (cliente + empresa) igual ao que teria sido salvo no Storage no momento da assinatura.
-    const auditStamp = buildAuditStampFromContrato(c);
-    await downloadContratoPdf(`${c.numero}${c.versao > 1 ? ` (v${c.versao})` : ''}`, c.customerName, c.textoContrato || 'Contrato sem texto gerado.', auditStamp);
-  };
-
-  const handleDuplicateContrato = (c: Contrato) => {
-    setEditingContrato(null);
-    setContratoForm({
-      ...emptyContratoForm,
-      clienteId: c.clienteId,
-      customerName: c.customerName,
-      cpfCnpj: c.cpfCnpj || '',
-      phone: c.phone || '',
-      address: c.address || '',
-      items: c.items.map(i => ({ ...i })),
-      desconto: c.desconto,
-      observacoes: c.observacoes || '',
-      formaPagamentoTexto: c.formaPagamentoTexto || '',
-      prazoTexto: c.prazoTexto || '',
-      // duplicar NAO herda venda/orcamento vinculados â€” vira um contrato novo e independente
-    });
-    setContratoModalOpen(true);
-  };
-
-  // Mesmo padrao do Novo Contrato: comeca pela busca de cliente (aba "Pesquisar Cliente"
-  // ativa por padrao), e so abre o formulario do orcamento depois (via proceedAfterCustomerStep).
-  const openNewOrcamento = () => {
-    setEditingOrcamento(null);
-    setOrcamentoFromCart(false);
-    setOrcamentoForm({ ...emptyOrcamentoForm });
-    setCustomerModalIntent('orcamento');
-    setCustomerModalMode('search');
-    setIsCustomerModalOpen(true);
-  };
-
-  const handleCreateOrcamentoFromCart = (overrideItems?: SaleOrderItem[], overrideCustomer?: { id?: string; name?: string; phone?: string }) => {
-    const items = overrideItems || cart;
-    if (items.length === 0) { showAlert('Adicione ao menos um item antes de criar o orÃ§amento.'); return; }
-    setEditingOrcamento(null);
-    setOrcamentoFromCart(true);
-    setOrcamentoForm({
-      ...emptyOrcamentoForm,
-      clienteId: overrideCustomer?.id ?? selectedCustomer?.id,
-      customerName: overrideCustomer?.name ?? selectedCustomer?.name ?? '',
-      phone: overrideCustomer?.phone ?? selectedCustomer?.phone ?? '',
-      items: [...items],
-      desconto: saleDiscountValue || 0,
-    });
-    setOrcamentoModalOpen(true);
-  };
-
-  // Gera um Orcamento ou Contrato a partir de uma nota ja existente no Historico â€” vem com
-  // cliente, itens e valor ja preenchidos, e ja fica vinculado aquela nota (venda_id).
-  const handleCreateDocumentFromNota = (sale: SaleOrder, documentType: 'orcamento' | 'contrato') => {
-    setEditingOrcamento(null);
-    setOrcamentoFromCart(false);
-    setOrcamentoForm({
-      ...emptyOrcamentoForm,
-      documentType,
-      vendaId: sale.id,
-      clienteId: sale.customerId,
-      customerName: sale.customerName || '',
-      phone: sale.customerPhone || '',
-      items: sale.items ? [...sale.items] : [],
-      desconto: sale.discountValue || 0,
-      clausulasContratoTexto: documentType === 'contrato' ? buildContratoClausulasTexto({
-        companyName: currentCompany?.name || OFFICIAL_COMPANY.razaoSocial,
-        companyNomeFantasia: OFFICIAL_COMPANY.nomeFantasia,
-        companyCnpj: currentCompany?.cnpj || OFFICIAL_COMPANY.cnpj,
-        companyAddress: currentCompany?.address
-          ? [
-              currentCompany.address.line,
-              currentCompany.address.number,
-              currentCompany.address.neighborhood,
-              currentCompany.address.city && currentCompany.address.state
-                ? `${currentCompany.address.city} - ${currentCompany.address.state}`
-                : currentCompany.address.city || currentCompany.address.state,
-              currentCompany.address.zipCode ? `CEP ${currentCompany.address.zipCode}` : undefined,
-            ].filter(Boolean).join(', ')
-          : undefined,
-        customerName: sale.customerName,
-      }) : '',
-    });
-    setOrcamentoModalOpen(true);
-  };
-
-  const openEditOrcamento = (o: Orcamento) => {
-    setEditingOrcamento(o);
-    setOrcamentoForm({
-      documentType: o.documentType || 'orcamento',
-      vendaId: o.vendaId,
-      clausulasContratoTexto: o.clausulasContratoTexto || '',
-      clienteId: o.clienteId,
-      customerName: o.customerName || '', cpfCnpj: o.cpfCnpj || '', phone: o.phone || '',
-      address: o.address || '', responsavel: o.responsavel || '', items: [...o.items],
-      desconto: o.desconto, observacoes: o.observacoes || '', prazoProducao: o.prazoProducao || '',
-      prazoDias: o.prazoDias || 5, prazoTipo: o.prazoTipo || 'uteis', prazoGatilho: o.prazoGatilho || 'pagamento_entrada', prazoDataPrevista: o.prazoDataPrevista || '',
-      prazoPagamentoTexto: o.prazoPagamentoTexto || '', condicaoEntregaTexto: o.condicaoEntregaTexto || '',
-      formaPagamentoTexto: o.formaPagamentoTexto || '', multaJurosTexto: o.multaJurosTexto || '',
-      garantiaTexto: o.garantiaTexto || '', politicaCancelamentoTexto: o.politicaCancelamentoTexto || '',
-      entradaPercentual: o.entradaPercentual || 0, entradaValor: o.entradaValor || 0,
-      entradaModo: (o.entradaValor && o.entradaValor > 0 && !o.entradaPercentual) ? 'valor' : 'percentual',
-      formasPagamento: o.formasPagamento ? [...o.formasPagamento] : [],
-      politicaPagamento: o.politicaPagamento || 'entrada_restante_entrega',
-      entradaObrigatoria: o.entradaObrigatoria !== undefined ? o.entradaObrigatoria : true,
-      pagamentoPosteriorAutorizado: !!o.pagamentoPosteriorAutorizado,
-      pagamentoPosteriorData: o.pagamentoPosteriorData || '',
-      pagamentoPosteriorDias: o.pagamentoPosteriorDias || 0,
-      pagamentoPosteriorCondicao: o.pagamentoPosteriorCondicao || '',
-      pagamentoPosteriorResponsavel: o.pagamentoPosteriorResponsavel || '',
-      multaPercentual: o.multaPercentual !== undefined ? o.multaPercentual : 2,
-      jurosModo: o.jurosModo || 'mensal', jurosPercentual: o.jurosPercentual !== undefined ? o.jurosPercentual : 1,
-      diasTolerancia: o.diasTolerancia || 0,
-      validade: o.validade || '',
-    });
-    setOrcamentoModalOpen(true);
-  };
-
-  const orcamentoItemsTotal = () => orcamentoForm.items.reduce((sum, i) => sum + (i.area ? i.price * i.area * i.quantity : i.price * i.quantity), 0);
-
-  const PRAZO_GATILHO_LABELS: Record<string, string> = {
-    aprovacao: 'apÃ³s a aprovaÃ§Ã£o deste orÃ§amento',
-    pagamento_entrada: 'apÃ³s a confirmaÃ§Ã£o do pagamento da entrada',
-    aprovacao_arte: 'apÃ³s a aprovaÃ§Ã£o da arte pelo cliente',
-    entrega_material: 'apÃ³s a entrega dos materiais pelo cliente',
-  };
-
-  const buildPrazoTexto = (dias: number, tipo: 'uteis' | 'corridos', gatilho: string) => {
-    const tipoLabel = tipo === 'uteis' ? 'dias Ãºteis' : 'dias corridos';
-    const gatilhoLabel = PRAZO_GATILHO_LABELS[gatilho] || '';
-    return `Prazo de produÃ§Ã£o de atÃ© ${dias} ${tipoLabel} ${gatilhoLabel}. O prazo de produÃ§Ã£o NÃƒO Ã© o prazo de pagamento â€” sÃ£o condiÃ§Ãµes independentes.`;
-  };
-
-  const updatePrazoStructured = (patch: Partial<typeof orcamentoForm>) => {
-    setOrcamentoForm(prev => {
-      const next = { ...prev, ...patch };
-      if (next.prazoGatilho !== 'personalizado') {
-        next.prazoProducao = buildPrazoTexto(next.prazoDias, next.prazoTipo, next.prazoGatilho);
-      }
-      return next;
-    });
-  };
-
-  const ORCAMENTO_PAGAMENTO_LABELS: Record<string, string> = {
-    pix: 'Pix', dinheiro: 'Dinheiro', cartao_debito: 'CartÃ£o de DÃ©bito', cartao_credito: 'CartÃ£o de CrÃ©dito',
-    cartao_parcelado: 'CartÃ£o Parcelado', transferencia: 'TransferÃªncia', boleto: 'Boleto', outra: 'Outra',
-  };
-
-  const POLITICA_PAGAMENTO_LABELS: Record<string, string> = {
-    sem_entrada: 'Sem Entrada',
-    entrada_fixa: 'Entrada Fixa (R$)',
-    entrada_percentual: 'Entrada Percentual (%)',
-    pagamento_integral: 'Pagamento Integral Antecipado',
-    entrada_restante_entrega: 'Entrada + Restante na Entrega',
-    entrada_parcelas: 'Entrada + Parcelas',
-  };
-
-  const buildPoliticaPagamentoTexto = (politica: string, entradaTexto: string, obrigatoria: boolean) => {
-    const obrigaTxt = obrigatoria ? ' O pagamento da entrada Ã© condiÃ§Ã£o obrigatÃ³ria para o inÃ­cio da produÃ§Ã£o â€” a produÃ§Ã£o sÃ³ comeÃ§a apÃ³s a confirmaÃ§Ã£o desse pagamento.' : '';
-    const quandoEntrada = ` A entrada deve ser paga no ato da aprovaÃ§Ã£o deste orÃ§amento.`;
-    switch (politica) {
-      case 'sem_entrada':
-        return `NÃ£o Ã© exigida entrada. A produÃ§Ã£o tem inÃ­cio apÃ³s a aprovaÃ§Ã£o deste orÃ§amento. O valor total deverÃ¡ ser pago conforme condiÃ§Ã£o definida no Prazo de Pagamento.`;
-      case 'pagamento_integral':
-        return `Pagamento integral antecipado, no valor de R$ ${(Math.max(0, orcamentoItemsTotal() - (orcamentoForm.desconto || 0))).toFixed(2).replace('.', ',')}, devido no ato da aprovaÃ§Ã£o deste orÃ§amento e antes do inÃ­cio da produÃ§Ã£o.`;
-      case 'entrada_fixa':
-      case 'entrada_percentual':
-        return `Entrada de ${entradaTexto} para iniciar a produÃ§Ã£o.${quandoEntrada}${obrigaTxt}`;
-      case 'entrada_restante_entrega':
-        return `Entrada de ${entradaTexto} para iniciar a produÃ§Ã£o.${quandoEntrada}${obrigaTxt} O saldo restante (R$ ${orcamentoSaldoRestante().toFixed(2).replace('.', ',')}) deverÃ¡ ser quitado no momento da conclusÃ£o do serviÃ§o e antes da entrega ou retirada do material.`;
-      case 'entrada_parcelas':
-        return `Entrada de ${entradaTexto} para iniciar a produÃ§Ã£o.${quandoEntrada}${obrigaTxt} O saldo restante (R$ ${orcamentoSaldoRestante().toFixed(2).replace('.', ',')}) serÃ¡ pago em parcelas, conforme detalhado nas formas de pagamento abaixo, e o material sÃ³ serÃ¡ liberado apÃ³s a quitaÃ§Ã£o integral, salvo autorizaÃ§Ã£o em contrÃ¡rio.`;
-      default:
-        return '';
-    }
-  };
-
-  const orcamentoEntradaValorCalc = () => {
-    const totalItens = Math.max(0, orcamentoItemsTotal() - (orcamentoForm.desconto || 0));
-    return orcamentoForm.entradaModo === 'percentual'
-      ? (totalItens * (orcamentoForm.entradaPercentual || 0)) / 100
-      : (orcamentoForm.entradaValor || 0);
-  };
-
-  const orcamentoFormasPagamentoTotal = () => orcamentoForm.formasPagamento.reduce((sum, f) => sum + (f.valor || 0), 0);
-
-  const orcamentoSaldoRestante = () => {
-    const totalItens = Math.max(0, orcamentoItemsTotal() - (orcamentoForm.desconto || 0));
-    return Math.max(0, totalItens - orcamentoEntradaValorCalc() - orcamentoFormasPagamentoTotal());
-  };
-
-  const addOrcamentoFormaPagamento = () => {
-    setOrcamentoForm(prev => ({
-      ...prev,
-      formasPagamento: [...prev.formasPagamento, { metodo: 'pix', valor: 0 } as OrcamentoPagamento],
-    }));
-  };
-
-  const updateOrcamentoFormaPagamento = (idx: number, patch: Partial<OrcamentoPagamento>) => {
-    setOrcamentoForm(prev => ({
-      ...prev,
-      formasPagamento: prev.formasPagamento.map((f, i) => i === idx ? { ...f, ...patch } : f),
-    }));
-  };
-
-  const removeOrcamentoFormaPagamento = (idx: number) => {
-    setOrcamentoForm(prev => ({ ...prev, formasPagamento: prev.formasPagamento.filter((_, i) => i !== idx) }));
-  };
-
-  const updatePoliticaPagamento = (patch: { politicaPagamento?: any; entradaObrigatoria?: boolean; entradaModo?: 'percentual' | 'valor'; entradaPercentual?: number | ''; entradaValor?: number | '' }) => {
-    setOrcamentoForm(prev => {
-      const next = { ...prev, ...patch };
-      const entradaTexto = next.entradaModo === 'percentual' ? `${next.entradaPercentual || 0}%` : `R$ ${(next.entradaValor || 0).toFixed(2).replace('.', ',')}`;
-      next.formaPagamentoTexto = buildPoliticaPagamentoTexto(next.politicaPagamento, entradaTexto, next.entradaObrigatoria);
-      return next;
-    });
-  };
-
-  const buildMultaJurosTexto = (multaPct: number, jurosModo: string, jurosPct: number, tolerancia: number) => {
-    const toleranciaTxt = tolerancia > 0 ? ` apÃ³s ${tolerancia} dia(s) de tolerÃ¢ncia` : '';
-    const jurosTxt = jurosModo === 'diario' ? `${jurosPct}% ao dia` : `${jurosPct}% ao mÃªs (pro rata die)`;
-    return `Em caso de atraso no pagamento${toleranciaTxt}, incidirÃ¡ multa de ${multaPct}% sobre o valor em aberto, acrescida de juros de ${jurosTxt}, calculados automaticamente sobre o saldo devedor atÃ© a data da efetiva quitaÃ§Ã£o, sem prejuÃ­zo de eventual correÃ§Ã£o monetÃ¡ria.`;
-  };
-
-  const updateMultaJuros = (patch: { multaPercentual?: number | ''; jurosModo?: 'mensal' | 'diario'; jurosPercentual?: number | ''; diasTolerancia?: number | '' }) => {
-    setOrcamentoForm(prev => {
-      const next = { ...prev, ...patch };
-      next.multaJurosTexto = buildMultaJurosTexto(Number(next.multaPercentual) || 0, next.jurosModo, Number(next.jurosPercentual) || 0, Number(next.diasTolerancia) || 0);
-      return next;
-    });
-  };
-
-  // Calculadora de atraso: dado um saldo e dias em atraso, calcula multa + juros e o valor atualizado
-  const calcularAtraso = (saldo: number, diasAtraso: number) => {
-    const dias = orcamentoForm.diasTolerancia || 0;
-    const diasEfetivos = Math.max(0, diasAtraso - dias);
-    if (diasEfetivos <= 0) return { multa: 0, juros: 0, total: saldo, diasEfetivos: 0 };
-    const multa = saldo * ((orcamentoForm.multaPercentual || 0) / 100);
-    const taxaDiaria = orcamentoForm.jurosModo === 'diario'
-      ? (orcamentoForm.jurosPercentual || 0) / 100
-      : (orcamentoForm.jurosPercentual || 0) / 100 / 30;
-    const juros = saldo * taxaDiaria * diasEfetivos;
-    return { multa, juros, total: saldo + multa + juros, diasEfetivos };
-  };
-
-  const [simuladorDias, setSimuladorDias] = useState(10);
-
-  // ---- Helpers de CONTRATO (paralelos aos de OrÃ§amento) ----
-  const contratoEntradaValorCalc = () => {
-    const totalItens = Math.max(0, contratoItemsTotal() - (contratoForm.desconto || 0));
-    return contratoForm.entradaModo === 'percentual'
-      ? (totalItens * (contratoForm.entradaPercentual || 0)) / 100
-      : (contratoForm.entradaValor || 0);
-  };
-
-  const contratoFormasPagamentoTotal = () => (contratoForm.formasPagamento || []).reduce((sum, f) => sum + (f.valor || 0), 0);
-
-  const contratoSaldoRestante = () => {
-    const totalItens = Math.max(0, contratoItemsTotal() - (contratoForm.desconto || 0));
-    return Math.max(0, totalItens - contratoEntradaValorCalc() - contratoFormasPagamentoTotal());
-  };
-
-  const addContratoFormaPagamento = () => {
-    setContratoForm(prev => ({
-      ...prev,
-      formasPagamento: [...(prev.formasPagamento || []), { metodo: 'pix', valor: 0 } as OrcamentoPagamento],
-    }));
-  };
-
-  const updateContratoFormaPagamento = (idx: number, patch: Partial<OrcamentoPagamento>) => {
-    setContratoForm(prev => ({
-      ...prev,
-      formasPagamento: (prev.formasPagamento || []).map((f, i) => i === idx ? { ...f, ...patch } : f),
-    }));
-  };
-
-  const removeContratoFormaPagamento = (idx: number) => {
-    setContratoForm(prev => ({ ...prev, formasPagamento: (prev.formasPagamento || []).filter((_, i) => i !== idx) }));
-  };
-
-  const buildContratoPoliticaPagamentoTexto = (politica: string, entradaTexto: string, obrigatoria: boolean) => {
-    const obrigaTxt = obrigatoria ? ' O pagamento da entrada Ã© condiÃ§Ã£o obrigatÃ³ria para o inÃ­cio da produÃ§Ã£o â€” a produÃ§Ã£o sÃ³ comeÃ§a apÃ³s a confirmaÃ§Ã£o desse pagamento.' : '';
-    const quandoEntrada = ` A entrada deve ser paga no ato da assinatura deste contrato.`;
-    switch (politica) {
-      case 'sem_entrada':
-        return `NÃ£o Ã© exigida entrada. A produÃ§Ã£o tem inÃ­cio apÃ³s a assinatura deste contrato. O valor total deverÃ¡ ser pago conforme condiÃ§Ã£o definida no Prazo de Pagamento.`;
-      case 'pagamento_integral':
-        return `Pagamento integral antecipado, no valor de R$ ${(Math.max(0, contratoItemsTotal() - (contratoForm.desconto || 0))).toFixed(2).replace('.', ',')}, devido no ato da assinatura deste contrato e antes do inÃ­cio da produÃ§Ã£o.`;
-      case 'entrada_fixa':
-      case 'entrada_percentual':
-        return `Entrada de ${entradaTexto} para iniciar a produÃ§Ã£o.${quandoEntrada}${obrigaTxt}`;
-      case 'entrada_restante_entrega':
-        return `Entrada de ${entradaTexto} para iniciar a produÃ§Ã£o.${quandoEntrada}${obrigaTxt} O saldo restante (R$ ${contratoSaldoRestante().toFixed(2).replace('.', ',')}) deverÃ¡ ser quitado no momento da conclusÃ£o do serviÃ§o e antes da entrega ou retirada do material.`;
-      case 'entrada_parcelas':
-        return `Entrada de ${entradaTexto} para iniciar a produÃ§Ã£o.${quandoEntrada}${obrigaTxt} O saldo restante (R$ ${contratoSaldoRestante().toFixed(2).replace('.', ',')}) serÃ¡ pago em parcelas, conforme detalhado nas formas de pagamento abaixo, e o material sÃ³ serÃ¡ liberado apÃ³s a quitaÃ§Ã£o integral, salvo autorizaÃ§Ã£o em contrÃ¡rio.`;
-      default:
-        return '';
-    }
-  };
-
-  const updateContratoPoliticaPagamento = (patch: { politicaPagamento?: any; entradaObrigatoria?: boolean; entradaModo?: 'percentual' | 'valor'; entradaPercentual?: number | ''; entradaValor?: number | '' }) => {
-    setContratoForm(prev => {
-      const next = { ...prev, ...patch };
-      const entradaTexto = next.entradaModo === 'percentual' ? `${next.entradaPercentual || 0}%` : `R$ ${(next.entradaValor || 0).toFixed(2).replace('.', ',')}`;
-      next.formaPagamentoTexto = buildContratoPoliticaPagamentoTexto(next.politicaPagamento, entradaTexto, next.entradaObrigatoria);
-      return next;
-    });
-  };
-
-  const updateContratoMultaJuros = (patch: { multaPercentual?: number | ''; jurosModo?: 'mensal' | 'diario'; jurosPercentual?: number | ''; diasTolerancia?: number | '' }) => {
-    setContratoForm(prev => {
-      const next = { ...prev, ...patch };
-      next.multaJurosTexto = buildMultaJurosTexto(Number(next.multaPercentual) || 0, next.jurosModo, Number(next.jurosPercentual) || 0, Number(next.diasTolerancia) || 0);
-      return next;
-    });
-  };
-
-  const updateContratoPrazoStructured = (patch: Partial<typeof contratoForm>) => {
-    setContratoForm(prev => {
-      const next = { ...prev, ...patch };
-      if (next.prazoGatilho !== 'personalizado') {
-        next.prazoTexto = buildPrazoTexto(next.prazoDias, next.prazoTipo, next.prazoGatilho);
-      }
-      return next;
-    });
-  };
-
-  const calcularAtrasoContrato = (saldo: number, diasAtraso: number) => {
-    const dias = contratoForm.diasTolerancia || 0;
-    const diasEfetivos = Math.max(0, diasAtraso - dias);
-    if (diasEfetivos <= 0) return { multa: 0, juros: 0, total: saldo, diasEfetivos: 0 };
-    const multa = saldo * ((contratoForm.multaPercentual || 0) / 100);
-    const taxaDiaria = contratoForm.jurosModo === 'diario'
-      ? (contratoForm.jurosPercentual || 0) / 100
-      : (contratoForm.jurosPercentual || 0) / 100 / 30;
-    const juros = saldo * taxaDiaria * diasEfetivos;
-    return { multa, juros, total: saldo + multa + juros, diasEfetivos };
-  };
-
-  const [simuladorDiasContrato, setSimuladorDiasContrato] = useState(10);
-
-  const handleSaveOrcamento = async () => {
-    if (!orcamentoForm.customerName.trim()) { showAlert('Informe o nome do cliente.'); return; }
-    if (orcamentoForm.items.length === 0) { showAlert('Adicione ao menos um item.'); return; }
-    // Orcamento nunca pode ser gerado sem telefone/endereco do cliente completos â€” evita
-    // orcamento incompleto que depois da trabalho pra completar na hora de virar venda/contrato.
-    // CPF/CNPJ NAO e obrigatorio aqui (so e obrigatorio pra Contrato, que tem sua propria validacao)
-    if (orcamentoForm.documentType !== 'contrato') {
-      if (!orcamentoForm.phone.trim()) { showAlert('Informe o telefone do cliente para gerar o orÃ§amento.'); return; }
-      if (!orcamentoForm.address.trim()) { showAlert('Informe o endereÃ§o do cliente para gerar o orÃ§amento.'); return; }
-      // Se o CPF/CNPJ foi preenchido (mesmo nao sendo obrigatorio), valida o digito verificador
-      if (orcamentoForm.cpfCnpj.trim()) {
-        const { valid, tipo } = validateCpfCnpj(orcamentoForm.cpfCnpj);
-        if (!valid) { showAlert(`${tipo === 'cnpj' ? 'CNPJ' : 'CPF'} invÃ¡lido. Confira os nÃºmeros e tente novamente.`); return; }
-      }
-    }
-    setSavingOrcamento(true);
-    try {
-      const total = Math.max(0, orcamentoItemsTotal() - (orcamentoForm.desconto || 0));
-      const isContrato = orcamentoForm.documentType === 'contrato';
-
-      // Se esse Orcamento/Contrato ainda nao tem uma Nota vinculada, cria a Nota AGORA (em
-      // aberto, sem pagamento) so pra existir o registro no Historico â€” o faturamento so
-      // conta de verdade quando essa nota for paga, gerar o documento aqui nao fatura nada.
-      let vendaId = orcamentoForm.vendaId || null;
-      if (!vendaId) {
-        const { data: novaVenda, error: vendaError } = await supabase.from('vendas').insert({
-          cliente_id: orcamentoForm.clienteId || null,
-          customer_name: orcamentoForm.customerName,
-          customer_phone: orcamentoForm.phone || null,
-          items: orcamentoForm.items,
-          total,
-          discount_value: orcamentoForm.desconto || null,
-          down_payment: 0,
-          received_value: 0,
-          status: 'pending',
-          observacoes: orcamentoForm.observacoes || null,
-        }).select().single();
-        if (vendaError) throw vendaError;
-        vendaId = novaVenda.id;
-        setOrcamentoForm(prev => ({ ...prev, vendaId: novaVenda.id }));
-        setAllSalesHistory(prev => [mapVendaRow(novaVenda), ...prev]);
-      } else {
-        // Ja tem nota vinculada: mantem os itens/valor em sincronia com o que foi editado aqui
-        const { error: syncError } = await supabase.from('vendas').update({
-          items: orcamentoForm.items,
-          total,
-          discount_value: orcamentoForm.desconto || null,
-        }).eq('id', vendaId);
-        if (syncError) throw syncError;
-        setAllSalesHistory(prev => prev.map(s => s.id === vendaId ? { ...s, items: [...orcamentoForm.items], total, discountValue: orcamentoForm.desconto || undefined } : s));
-      }
-
-      const payload = {
-        document_type: orcamentoForm.documentType,
-        venda_id: vendaId,
-        cliente_id: orcamentoForm.clienteId || null,
-        customer_name: orcamentoForm.customerName,
-        cpf_cnpj: orcamentoForm.cpfCnpj || null,
-        phone: orcamentoForm.phone || null,
-        address: orcamentoForm.address || null,
-        responsavel: orcamentoForm.responsavel || null,
-        items: orcamentoForm.items,
-        desconto: orcamentoForm.desconto || 0,
-        total,
-        observacoes: orcamentoForm.observacoes || null,
-        prazo_producao: orcamentoForm.prazoProducao || null,
-        prazo_dias: orcamentoForm.prazoDias || null,
-        prazo_tipo: orcamentoForm.prazoTipo || 'uteis',
-        prazo_gatilho: orcamentoForm.prazoGatilho || 'aprovacao',
-        prazo_data_prevista: orcamentoForm.prazoDataPrevista || null,
-        prazo_pagamento_texto: orcamentoForm.prazoPagamentoTexto || null,
-        condicao_entrega_texto: orcamentoForm.condicaoEntregaTexto || null,
-        forma_pagamento_texto: orcamentoForm.formaPagamentoTexto || null,
-        multa_juros_texto: orcamentoForm.multaJurosTexto || null,
-        garantia_texto: orcamentoForm.garantiaTexto || null,
-        politica_cancelamento_texto: orcamentoForm.politicaCancelamentoTexto || null,
-        entrada_percentual: orcamentoForm.entradaModo === 'percentual' ? (orcamentoForm.entradaPercentual || null) : null,
-        entrada_valor: orcamentoForm.entradaModo === 'valor' ? (orcamentoForm.entradaValor || null) : null,
-        formas_pagamento: orcamentoForm.formasPagamento,
-        politica_pagamento: orcamentoForm.politicaPagamento,
-        entrada_obrigatoria: orcamentoForm.entradaObrigatoria,
-        pagamento_posterior_autorizado: orcamentoForm.pagamentoPosteriorAutorizado,
-        pagamento_posterior_data: orcamentoForm.pagamentoPosteriorAutorizado ? (orcamentoForm.pagamentoPosteriorData || null) : null,
-        pagamento_posterior_dias: orcamentoForm.pagamentoPosteriorAutorizado ? (orcamentoForm.pagamentoPosteriorDias || null) : null,
-        pagamento_posterior_condicao: orcamentoForm.pagamentoPosteriorAutorizado ? (orcamentoForm.pagamentoPosteriorCondicao || null) : null,
-        pagamento_posterior_responsavel: orcamentoForm.pagamentoPosteriorAutorizado ? (orcamentoForm.pagamentoPosteriorResponsavel || null) : null,
-        multa_percentual: orcamentoForm.multaPercentual,
-        juros_modo: orcamentoForm.jurosModo,
-        juros_percentual: orcamentoForm.jurosPercentual,
-        dias_tolerancia: orcamentoForm.diasTolerancia,
-        validade: orcamentoForm.validade || null,
-        service_status: orcamentoForm.serviceStatus || 'pedido_recebido',
-      };
-      let newId: string | null = null;
-      if (editingOrcamento) {
-        const { error } = await supabase.from('orcamentos').update(payload).eq('id', editingOrcamento.id);
-        if (error) throw error;
-        newId = editingOrcamento.id;
-      } else {
-        const prefixo = isContrato ? 'CTR' : 'ORC';
-        const numero = `${prefixo}-${Date.now().toString(36).toUpperCase()}`;
-        const { data: inserted, error } = await supabase.from('orcamentos').insert({ ...payload, numero, service_status: orcamentoForm.serviceStatus || 'pedido_recebido' }).select().single();
-        if (error) throw error;
-        newId = inserted?.id || null;
-      }
-
-      // Vincula a nota de volta pro documento (orcamento_id ou contrato_id, dependendo do tipo)
-      if (newId && vendaId) {
-        const fkField = isContrato ? 'contrato_id' : 'orcamento_id';
-        await supabase.from('vendas').update({ [fkField]: newId }).eq('id', vendaId);
-        setAllSalesHistory(prev => prev.map(s => s.id === vendaId ? { ...s, [isContrato ? 'contratoId' : 'orcamentoId']: newId } as SaleOrder : s));
-      }
-
-      setOrcamentoModalOpen(false);
-      await loadOrcamentos();
-
-      // Veio da tela de venda: nao finaliza venda nenhuma, so limpa o carrinho e leva pra central de Orcamentos
-      if (!editingOrcamento && newId) {
-        if (orcamentoFromCart) {
-          setCart([]);
-          setSelectedCustomer(null);
-          setOrcamentoFromCart(false);
-        }
-        setActiveTab('orcamentos');
-        setHighlightOrcamentoId(newId);
-        setTimeout(() => setHighlightOrcamentoId(null), 4000);
-      }
-    } catch (err: any) {
-      console.error('Erro ao salvar orÃ§amento:', err);
-      showAlert(`NÃ£o foi possÃ­vel salvar o orÃ§amento: ${err?.message || 'erro desconhecido'}`);
-    } finally {
-      setSavingOrcamento(false);
-    }
-  };
-
-  // SINCRONIZAÃ‡ÃƒO DE ETAPAS: Pedido â†” OrÃ§amento â†” Contrato
-  // Quando qualquer um muda de etapa, atualiza os outros 2 (se vinculados)
-  const syncServiceStatus = async (sourceType: 'venda' | 'orcamento' | 'contrato', docId: string, newStatus: string) => {
-    try {
-      // 1. Atualizar o documento que foi alterado
-      const updates: Record<string, any> = { service_status: newStatus };
-      const { error: updateError } = await supabase
-        .from(sourceType === 'venda' ? 'vendas' : sourceType === 'orcamento' ? 'orcamentos' : 'contratos')
-        .update(updates)
-        .eq('id', docId);
-      if (updateError) throw updateError;
-
-      // 2. Buscar o documento alterado pra pegar dados de vinculaÃ§Ã£o
-      let vendaId: string | null = null;
-      let orcamentoId: string | null = null;
-      let contratoId: string | null = null;
-
-      if (sourceType === 'venda') {
-        vendaId = docId;
-        // Buscar OrÃ§amento e Contrato vinculados
-        const { data: venda } = await supabase.from('vendas').select('orcamento_id, contrato_id').eq('id', vendaId).single();
-        if (venda) {
-          orcamentoId = venda.orcamento_id;
-          contratoId = venda.contrato_id;
-        }
-      } else if (sourceType === 'orcamento') {
-        orcamentoId = docId;
-        // Buscar Pedido vinculado
-        const { data: orcamento } = await supabase.from('orcamentos').select('venda_id').eq('id', orcamentoId).single();
-        if (orcamento?.venda_id) {
-          vendaId = orcamento.venda_id;
-          // Buscar Contrato tambÃ©m vinculado ao mesmo Pedido
-          const { data: venda } = await supabase.from('vendas').select('contrato_id').eq('id', vendaId).single();
-          if (venda?.contrato_id) contratoId = venda.contrato_id;
-        }
-      } else if (sourceType === 'contrato') {
-        contratoId = docId;
-        // Buscar Pedido vinculado
-        const { data: contrato } = await supabase.from('contratos').select('venda_id').eq('id', contratoId).single();
-        if (contrato?.venda_id) {
-          vendaId = contrato.venda_id;
-          // Buscar OrÃ§amento tambÃ©m vinculado ao mesmo Pedido
-          const { data: venda } = await supabase.from('vendas').select('orcamento_id').eq('id', vendaId).single();
-          if (venda?.orcamento_id) orcamentoId = venda.orcamento_id;
-        }
-      }
-
-      // 3. Sincronizar os outros documentos (se vinculados ao mesmo Pedido)
-      const updates_others: Record<string, any> = { service_status: newStatus };
-      
-      if (vendaId && sourceType !== 'venda') {
-        await supabase.from('vendas').update(updates_others).eq('id', vendaId);
-        // Recarregar dados do Pedido
-        setAllSalesHistory(prev => prev.map(s => s.id === vendaId ? { ...s, serviceStatus: newStatus as any } : s));
-      }
-      if (orcamentoId && sourceType !== 'orcamento') {
-        await supabase.from('orcamentos').update(updates_others).eq('id', orcamentoId);
-        // Recarregar dados do OrÃ§amento
-        loadOrcamentos();
-      }
-      if (contratoId && sourceType !== 'contrato') {
-        await supabase.from('contratos').update(updates_others).eq('id', contratoId);
-        // Recarregar dados do Contrato
-        loadContratos();
-      }
-    } catch (err) {
-      console.error('Erro ao sincronizar etapas:', err);
-      showAlert('NÃ£o foi possÃ­vel sincronizar as etapas entre os documentos.');
-    }
-  };
-
-  const updateOrcamentoStatus = async (o: Orcamento, newStatus: string) => {
-    await syncServiceStatus('orcamento', o.id, newStatus);
-  };
-
-  const handleDeleteOrcamento = async (o: Orcamento) => {
-    const vinculos: string[] = [];
-    if (o.vendaId) vinculos.push('um Recibo/Nota');
-    if (o.contratoId) vinculos.push('um Contrato');
-    const avisoVinculo = vinculos.length
-      ? `\n\nâš ï¸ Este orÃ§amento estÃ¡ ligado a ${vinculos.join(' e ')}. Eles NÃƒO serÃ£o excluÃ­dos â€” continuam intactos.`
-      : '';
-    if (!(await showConfirm(`Excluir o orÃ§amento ${o.numero}?${avisoVinculo}\n\nEle fica 30 dias na aba ExcluÃ­dos antes de sumir de vez â€” vocÃª pode restaurar dentro desse prazo.`))) return;
-    const { error } = await supabase.from('orcamentos').update({ deleted_at: new Date().toISOString() }).eq('id', o.id);
-    if (error) { showAlert('NÃ£o foi possÃ­vel excluir.'); return; }
-    setAllOrcamentos(prev => prev.filter(or => or.id !== o.id));
-  };
-
-  const [waSendOrcamento, setWaSendOrcamento] = useState<Orcamento | null>(null);
-  const [waSendPhone, setWaSendPhone] = useState('');
-
-  const openShareOrcamentoWhatsApp = (o: Orcamento) => {
-    setWaSendOrcamento(o);
-    setWaSendPhone(o.phone || '');
-  };
-
-  const confirmShareOrcamentoWhatsApp = async () => {
-    const o = waSendOrcamento;
-    if (!o) return;
-    const phoneDigits = waSendPhone.replace(/\D/g, '');
-    if (!phoneDigits) { showAlert('Digite um telefone vÃ¡lido.'); return; }
-    const linhas = o.items.map(i => `${i.quantity}x ${i.name} â€” R$ ${(i.area ? i.price * i.area * i.quantity : i.price * i.quantity).toFixed(2)}`).join('\n');
-    const msg = `*OrÃ§amento ${o.numero} â€” Rafa Arts Graphics*\n\n${linhas}\n\n${o.desconto > 0 ? `Desconto: R$ ${o.desconto.toFixed(2)}\n` : ''}*Total: R$ ${o.total.toFixed(2)}*\n\n${o.prazoProducao ? `Prazo: ${o.prazoProducao}\n\n` : ''}${o.formaPagamentoTexto ? `Pagamento: ${o.formaPagamentoTexto}\n\n` : ''}${o.validade ? `VÃ¡lido atÃ©: ${safeFormat(o.validade, 'dd/MM/yyyy')}` : ''}`;
-    await findOrCreateLeadAndOpenChat(phoneDigits, o.customerName || 'Cliente', msg);
-    if (o.status === 'rascunho') {
-      await supabase.from('orcamentos').update({ status: 'enviado' }).eq('id', o.id);
-      loadOrcamentos();
-    }
-    // Se o numero foi trocado, salva como "telefone alternativo" (mantem o principal intacto)
-    if (phoneDigits !== (o.phone || '').replace(/\D/g, '')) {
-      await supabase.from('orcamentos').update({ telefone_alternativo: waSendPhone }).eq('id', o.id);
-      loadOrcamentos();
-    }
-    setWaSendOrcamento(null);
-  };
-
-  const [viewingOrcamento, setViewingOrcamento] = useState<Orcamento | null>(null);
-
-  const handleDownloadOrcamentoPdf = async (o: Orcamento) => {
-    try {
-      const canvas = await renderOrcamentoCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoDarkUrl, companyContact });
-      await downloadCanvasAsPdf(canvas, buildFileName('Orcamento', o.customerName, o.createdAt, 'pdf'));
-    } catch (err) {
-      console.error('Erro ao gerar PDF do orÃ§amento:', err);
-      showAlert('NÃ£o foi possÃ­vel gerar o PDF do orÃ§amento.');
-    }
-  };
-
-  const handleDownloadOrcamentoImagem = async (o: Orcamento) => {
-    try {
-      const canvas = await renderOrcamentoCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoDarkUrl, companyContact });
-      downloadCanvasAsPng(canvas, buildFileName('Orcamento', o.customerName, o.createdAt, 'png'));
-    } catch (err) {
-      console.error('Erro ao gerar imagem do orÃ§amento:', err);
-      showAlert('NÃ£o foi possÃ­vel gerar a imagem do orÃ§amento.');
-    }
-  };
-
-  const handlePrintOrcamento = async (o: Orcamento) => {
-    try {
-      const canvas = await renderOrcamentoCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoDarkUrl, companyContact });
-      const dataUrl = canvas.toDataURL('image/png');
-      const win = window.open('', '_blank');
-      if (!win) return;
-      win.document.write(`<html><head><title>OrÃ§amento ${o.numero}</title></head><body style="margin:0"><img src="${dataUrl}" style="width:100%" onload="window.print()" /></body></html>`);
-      win.document.close();
-    } catch (err) {
-      console.error('Erro ao imprimir orÃ§amento:', err);
-      showAlert('NÃ£o foi possÃ­vel preparar a impressÃ£o.');
-    }
-  };
-
-  const handleStartSaleFromOrcamento = (o: Orcamento) => {
-    setCart([...o.items]);
-    setSelectedCustomer(o.clienteId ? { id: o.clienteId, name: o.customerName || 'Cliente', phone: o.phone || '' } : null);
-    setActiveTab('venda');
-    // Guarda o vinculo para gravar no momento de finalizar a venda
-    setLinkedOrcamentoId(o.id);
-  };
-
-  type OrderStatusFilterId = 'em_aberto' | 'entrada_recebida' | 'quitado' | 'entregue' | 'cancelado';
-  type PaymentFilterId = 'pix' | 'dinheiro' | 'cartao_debito' | 'cartao_credito' | 'transferencia' | 'boleto' | 'crediario';
-
-  const [selectedOrderStatusFilters, setSelectedOrderStatusFilters] = useState<Set<OrderStatusFilterId>>(new Set());
-  const toggleOrderStatusFilter = (id: OrderStatusFilterId) => {
-    setSelectedOrderStatusFilters(prev => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  };
-  const clearOrderStatusFilters = () => setSelectedOrderStatusFilters(new Set());
-
-  const [selectedPaymentFilters, setSelectedPaymentFilters] = useState<Set<PaymentFilterId>>(new Set());
-  const togglePaymentFilter = (id: PaymentFilterId) => {
-    setSelectedPaymentFilters(prev => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  };
-  const clearPaymentFilters = () => setSelectedPaymentFilters(new Set());
-
-  const [historySearch, setHistorySearch] = useState('');
-  const [historyClienteIdFilter, setHistoryClienteIdFilter] = useState<string | null>(null);
-  const [historyDateFrom, setHistoryDateFrom] = useState('');
-  const [historyDateTo, setHistoryDateTo] = useState('');
-  // Abas de filtro no topo do Historico: Visao Geral (todos os pedidos, com os filtros normais),
-  // Vendas do Dia (so pedidos CRIADOS hoje) e Entradas de Caixa (cada RECEBIMENTO individual,
-  // nao pedido -- uma nota paga em 2 partes aparece como 2 linhas, cada uma na sua data/hora real).
-  const [historyViewTab, setHistoryViewTabState] = useState<'geral' | 'vendas_dia' | 'entradas_caixa'>(() => {
-    const saved = localStorage.getItem('rpro_history_view_tab');
-    return (saved === 'geral' || saved === 'vendas_dia' || saved === 'entradas_caixa') ? saved : 'geral';
-  });
-  const setHistoryViewTab = (tab: 'geral' | 'vendas_dia' | 'entradas_caixa') => {
-    setHistoryViewTabState(tab);
-    localStorage.setItem('rpro_history_view_tab', tab);
-  };
-  const [historyViewMode, setHistoryViewModeState] = useState<'miniatura' | 'normal' | 'lista'>(() => {
-    const saved = localStorage.getItem('rpro_history_view_mode');
-    return (saved === 'miniatura' || saved === 'normal' || saved === 'lista') ? saved : 'normal';
-  });
-  const setHistoryViewMode = (mode: 'miniatura' | 'normal' | 'lista') => {
-    setHistoryViewModeState(mode);
-    localStorage.setItem('rpro_history_view_mode', mode);
-  };
-  const [historySortOrder, setHistorySortOrderState] = useState<'desc' | 'asc'>(() => {
-    const saved = localStorage.getItem('rpro_history_sort_order');
-    return saved === 'asc' ? 'asc' : 'desc';
-  });
-  const setHistorySortOrder = (order: 'desc' | 'asc') => {
-    setHistorySortOrderState(order);
-    localStorage.setItem('rpro_history_sort_order', order);
-  };
-  const [servicosSortBy, setServicosSortByState] = useState<'data' | 'nome' | 'valor' | 'status' | 'agendamento'>(() => {
-    const saved = localStorage.getItem('rpro_servicos_sort');
-    return (saved === 'data' || saved === 'nome' || saved === 'valor' || saved === 'status' || saved === 'agendamento') ? saved : 'data';
-  });
-  const setServicosSortBy = (v: 'data' | 'nome' | 'valor' | 'status' | 'agendamento') => {
-    setServicosSortByState(v);
-    localStorage.setItem('rpro_servicos_sort', v);
-  };
-
-  const [produtosCostMap, setProdutosCostMap] = useState<Record<string, number>>({});
-  useEffect(() => {
-    const loadCosts = async () => {
-      const { data } = await supabase.from('produtos').select('id, cost_price');
-      const map: Record<string, number> = {};
-      (data || []).forEach((p: any) => { map[p.id] = Number(p.cost_price) || 0; });
-      setProdutosCostMap(map);
-    };
-    loadCosts();
-  }, []);
-
-  // Lucro liquido de uma venda (valor recebido - custo Lona/Adesivo - custos extras manuais),
-  // so pro Admin ver na coluna de valor do modo lista -- ver src/lib/lucro.ts pra regra completa.
-  const calcularLucroDaVenda = (sale: SaleOrder) => {
-    const down = sale.status === 'completed' ? sale.total : (sale.downPayment || 0);
-    // Nota parcialmente paga: proporcionaliza o custo pelo tanto que ja entrou, igual ao
-    // resumo do periodo (servicosResumo abaixo), pra nao contar custo que ainda nao foi
-    // de fato "pago" pelo cliente.
-    const proporcao = (sale.status === 'pending' && sale.total > 0) ? down / sale.total : undefined;
-    return calcularLucroLiquido({
-      valorRecebido: down,
-      items: sale.items,
-      custoPorId: produtosCostMap,
-      extraCosts: sale.extraCosts,
-      proporcao,
-    });
-  };
-
-  // Painel "Custos da Nota" (Admin) -- custos extras/diretos daquela producao especifica
-  // (mao de obra, frete, aluguel de andaime, insumo aplicado fora do estoque padrao), SEPARADOS
-  // do Estoque de Insumos (materia-prima, controlado na aba lateral "Estoque de Insumos").
-  // Fica oculto do cliente e so afeta o Lucro Liquido mostrado pro Admin/autorizado.
-  const [custosNotaSale, setCustosNotaSale] = useState<SaleOrder | null>(null);
-  const [custosNotaDraft, setCustosNotaDraft] = useState<ExtraCost[]>([]);
-  const [custosNotaSaving, setCustosNotaSaving] = useState(false);
-  const [novoCustoDesc, setNovoCustoDesc] = useState('');
-  const [novoCustoValor, setNovoCustoValor] = useState<number | ''>('');
-
-  // Calculadora auxiliar pro campo VALOR -- util quando o custo e composto de varias
-  // partes (ex: 2 ajudantes x R$50 + frete R$30) e o usuario quer somar tudo antes de
-  // lancar como um unico item de custo extra.
-  const [calculadoraOpen, setCalculadoraOpen] = useState(false);
-  const [calculadoraExpr, setCalculadoraExpr] = useState('');
-
-  const calculadoraResultado = (): number | null => {
-    if (!calculadoraExpr.trim()) return null;
-    const sanitizado = calculadoraExpr.replace(/Ã—/g, '*').replace(/Ã·/g, '/');
-    if (!/^[0-9+\-*/.%() ]+$/.test(sanitizado)) return null;
-    try {
-      // eslint-disable-next-line no-new-func
-      const resultado = Function(`"use strict"; return (${sanitizado})`)();
-      return typeof resultado === 'number' && isFinite(resultado) ? resultado : null;
-    } catch {
-      return null;
-    }
-  };
-
-  const calculadoraPressionar = (val: string) => {
-    if (val === 'C') { setCalculadoraExpr(''); return; }
-    if (val === 'âŒ«') { setCalculadoraExpr(prev => prev.slice(0, -1)); return; }
-    if (val === '=') {
-      const resultado = calculadoraResultado();
-      if (resultado !== null) setCalculadoraExpr(String(Number(resultado.toFixed(4))));
-      return;
-    }
-    setCalculadoraExpr(prev => {
-      const operadores = ['+', '-', 'Ã—', 'Ã·'];
-      const ultimoChar = prev.slice(-1);
-      // Evita dois operadores seguidos (ex: "10++5") -- so troca o ultimo pelo novo.
-      if (operadores.includes(val) && operadores.includes(ultimoChar)) return prev.slice(0, -1) + val;
-      if (val === '.') {
-        const partesAtuais = prev.split(/[+\-Ã—Ã·]/);
-        const numeroAtual = partesAtuais[partesAtuais.length - 1];
-        if (numeroAtual.includes('.')) return prev;
-      }
-      return prev + val;
-    });
-  };
-
-  const abrirCalculadora = () => {
-    setCalculadoraExpr(novoCustoValor !== '' ? String(novoCustoValor) : '');
-    setCalculadoraOpen(true);
-  };
-
-  const usarValorCalculadora = () => {
-    const resultado = calculadoraResultado();
-    if (resultado !== null && resultado > 0) setNovoCustoValor(Number(resultado.toFixed(2)));
-    setCalculadoraOpen(false);
-    setCalculadoraExpr('');
-  };
-
-  const openCustosDaNota = (sale: SaleOrder) => {
-    setCustosNotaSale(sale);
-    setCustosNotaDraft(sale.extraCosts ? [...sale.extraCosts] : []);
-    setNovoCustoDesc('');
-    setNovoCustoValor('');
-  };
-
-  const adicionarCustoNota = () => {
-    if (!novoCustoDesc.trim() || novoCustoValor === '' || Number(novoCustoValor) <= 0) return;
-    setCustosNotaDraft(prev => [...prev, { id: `${Date.now()}`, description: novoCustoDesc.trim(), amount: Number(novoCustoValor) }]);
-    setNovoCustoDesc('');
-    setNovoCustoValor('');
-  };
-
-  const removerCustoNota = (id: string) => setCustosNotaDraft(prev => prev.filter(c => c.id !== id));
-
-  const salvarCustosNota = async () => {
-    if (!custosNotaSale) return;
-    setCustosNotaSaving(true);
-    try {
-      const { error } = await supabase.from('vendas').update({ custos_extras: custosNotaDraft }).eq('id', custosNotaSale.id);
-      if (error) throw error;
-      const atualizarLista = (list: SaleOrder[]) => list.map(s => s.id === custosNotaSale.id ? { ...s, extraCosts: custosNotaDraft } : s);
-      setAllSalesHistory(atualizarLista);
-      setCustosNotaSale(null);
-    } catch (e) {
-      console.error('Erro ao salvar custos da nota:', e);
-      await showAlert('NÃ£o foi possÃ­vel salvar os custos extras. Tente novamente.');
-    } finally {
-      setCustosNotaSaving(false);
-    }
-  };
-
-  // Composicao dos pagamentos de uma venda, ja formatada pro botao de Pagamento do modo lista
-  // (ex.: "Pix: R$ 100,00" + "Din: R$ 100,00"). Usa sale.payments quando existe (pagamento
-  // misto/detalhado); cai pro paymentMethod unico como fallback pra notas antigas sem o array
-  // payments.
-  const PAYMENT_METHOD_SHORT: Record<string, string> = {
-    pix: 'Pix', dinheiro: 'Din', cartao_debito: 'DÃ©bito', cartao_credito: 'CrÃ©dito',
-    transferencia: 'Transf', boleto: 'Boleto', crediario: 'CrediÃ¡rio',
-  };
-  const composicaoPagamentoDaVenda = (sale: SaleOrder): { label: string; value: number }[] => {
-    if (sale.payments && sale.payments.length > 0) {
-      const porMetodo: Record<string, number> = {};
-      sale.payments.forEach(p => { porMetodo[p.method] = (porMetodo[p.method] || 0) + (p.value || 0); });
-      return Object.entries(porMetodo).map(([method, value]) => ({ label: PAYMENT_METHOD_SHORT[method] || method, value }));
-    }
-    if (sale.paymentMethod && sale.paymentMethod !== 'misto') {
-      const valor = sale.status === 'completed' ? sale.total : (sale.downPayment || 0);
-      if (valor > 0) return [{ label: PAYMENT_METHOD_SHORT[sale.paymentMethod] || sale.paymentMethod, value: valor }];
-    }
-    return [];
-  };
-
-  // Dropdown "Status do Pedido"
-  const [isOrderStatusOpen, setIsOrderStatusOpen] = useState(false);
-  const orderStatusRef = React.useRef<HTMLDivElement>(null);
-  const orderStatusBtnRef = React.useRef<HTMLButtonElement>(null);
-  const orderStatusMenuRef = React.useRef<HTMLDivElement>(null);
-  const [orderStatusPos, setOrderStatusPos] = useState<{ top: number; left: number; width: number } | null>(null);
-
-  // Dropdown "Forma de Pagamento"
-  const [isPaymentFilterOpen, setIsPaymentFilterOpen] = useState(false);
-  const paymentFilterRef = React.useRef<HTMLDivElement>(null);
-  const paymentFilterBtnRef = React.useRef<HTMLButtonElement>(null);
-  const paymentFilterMenuRef = React.useRef<HTMLDivElement>(null);
-  const [paymentFilterPos, setPaymentFilterPos] = useState<{ top: number; left: number; width: number } | null>(null);
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as Node;
-      const insideOrderBtn = orderStatusRef.current && orderStatusRef.current.contains(target);
-      const insideOrderMenu = orderStatusMenuRef.current && orderStatusMenuRef.current.contains(target);
-      if (!insideOrderBtn && !insideOrderMenu) setIsOrderStatusOpen(false);
-
-      const insidePayBtn = paymentFilterRef.current && paymentFilterRef.current.contains(target);
-      const insidePayMenu = paymentFilterMenuRef.current && paymentFilterMenuRef.current.contains(target);
-      if (!insidePayBtn && !insidePayMenu) setIsPaymentFilterOpen(false);
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-  const [selectedSaleIds, setSelectedSaleIds] = useState<Set<string>>(new Set());
-  const toggleSaleSelection = (id: string) => {
-    setSelectedSaleIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  };
-  const [viewingReceiptSale, setViewingReceiptSale] = useState<SaleOrder | null>(null);
-  const [viewingReceiptEmail, setViewingReceiptEmail] = useState<string | undefined>(undefined);
-  const handleDuplicateSale = async (sale: SaleOrder) => {
-    if (!(await showConfirm(`Duplicar pedido de ${sale.customerName || 'cliente'}?`))) return;
-    // Carrega os mesmos itens e cliente no carrinho â€” nao copia pagamento/status, a nova nota comeca do zero.
-    setCart(sale.items.map(item => ({ ...item })));
-    setActiveTab('venda');
-    if (sale.customerId) {
-      // Cliente ja identificado â€” pula a busca de cliente e vai direto pra tela de pagamento,
-      // igual o botao "Finalizar Venda" ja faz quando ha um cliente selecionado.
-      setSelectedCustomer({ id: sale.customerId, name: sale.customerName || '', phone: sale.customerPhone || '' });
-      setDownPayment(0);
-      setPaymentEntries([]);
-      setScheduledFor('');
-      setPendingPaymentMethod('');
-      setIsPaymentModalOpen(true);
-    } else {
-      // Pedido avulso (sem cliente cadastrado) â€” precisa escolher/criar o cliente antes de finalizar
-      setSelectedCustomer(null);
-      showAlert(`Pedido de ${sale.customerName || 'cliente avulso'} duplicado! Os itens jÃ¡ estÃ£o no carrinho, mas esse pedido nÃ£o tinha cliente cadastrado â€” selecione um cliente antes de finalizar.`);
-    }
-  };
-
-  const [receiptOpenedFromProduction, setReceiptOpenedFromProduction] = useState(false);
-
-  const handleCloseReceiptViewer = () => {
-    setViewingReceiptSale(null);
-    if (receiptOpenedFromProduction) {
-      setReceiptOpenedFromProduction(false);
-      setRootActiveTab('production');
-    }
-  };
-
-  const handleClosePaymentModal = () => {
-    setIsPaymentModalOpen(false);
-    if (receiptOpenedFromProduction) {
-      setReceiptOpenedFromProduction(false);
-      setRootActiveTab('production');
-    }
-  };
-
-  const openReceiptById = async (saleId: string) => {
-    const { data, error } = await supabase.from('vendas').select('*').eq('id', saleId).maybeSingle();
-    if (error || !data) { showAlert('NÃ£o foi possÃ­vel abrir esse pedido.'); return; }
-    await openReceiptDetail(mapVendaRow(data));
-  };
-
-  // Se outra aba (ex: Ordem de Servico) pediu pra abrir um recibo especifico, atende assim que o Terminal montar.
-  // Nao precisa trocar de sub-aba: o recibo e um modal que aparece por cima de qualquer uma delas.
-  useEffect(() => {
-    if (!pendingReceiptOpenId) return;
-    openReceiptById(pendingReceiptOpenId).then(() => setReceiptOpenedFromProduction(true));
-    setPendingReceiptOpenId(null);
-  }, [pendingReceiptOpenId]);
-
-  // Se a aba Contatos (fora do Terminal) pediu pra ver o historico de um cliente especifico
-  useEffect(() => {
-    if (!pendingHistoryClientFilter) return;
-    setHistoryClienteIdFilter(pendingHistoryClientFilter.clienteId);
-    setHistorySearch(pendingHistoryClientFilter.clienteName);
-    setActiveTab('historico');
-    setPendingHistoryClientFilter(null);
-  }, [pendingHistoryClientFilter]);
-
-  // Se a Analise Detalhada do Dashboard pediu pra ver o historico de vendas de um produto
-  // especifico (clicou em "Mais Vendidos") â€” a busca do Historico ja compara com o nome dos itens
-  useEffect(() => {
-    if (!pendingHistoryProductSearch) return;
-    setHistoryClienteIdFilter(null);
-    setHistorySearch(pendingHistoryProductSearch);
-    setActiveTab('historico');
-    setPendingHistoryProductSearch(null);
-  }, [pendingHistoryProductSearch]);
-
-  // Se o card "A Receber" do Dashboard pediu pra ver as notas com saldo em aberto
-  useEffect(() => {
-    if (!pendingReceivablesFilter) return;
-    setHistoryClienteIdFilter(null);
-    setHistorySearch('');
-    setSelectedOrderStatusFilters(new Set(['em_aberto', 'entrada_recebida']));
-    setActiveTab('historico');
-    setPendingReceivablesFilter(false);
-  }, [pendingReceivablesFilter]);
-
-  // Se a Analise Detalhada do Dashboard (ou outro atalho generico) pediu pra ir pro Historico, sem filtro nenhum
-  useEffect(() => {
-    if (!pendingGoToHistorico) return;
-    setActiveTab('historico');
-    setPendingGoToHistorico(false);
-  }, [pendingGoToHistorico]);
-
-  // Se o card "Ordem de Servicos" do Dashboard pediu pra ir pra aba Servicos do PDV
-  useEffect(() => {
-    if (!pendingGoToServicos) return;
-    setActiveTab('servicos');
-    setPendingGoToServicos(false);
-  }, [pendingGoToServicos]);
-
-  // Se a Ficha do Cliente (fora do Terminal) pediu pra abrir um contrato especifico
-  useEffect(() => {
-    if (!pendingOpenContratoId) return;
-    setActiveTab('contratos');
-    setHighlightContratoId(pendingOpenContratoId);
-    setTimeout(() => setHighlightContratoId(null), 4000);
-    setPendingOpenContratoId(null);
-  }, [pendingOpenContratoId]);
-
-  // Se a Ficha do Cliente (fora do Terminal) pediu pra abrir um orcamento especifico
-  useEffect(() => {
-    if (!pendingOpenOrcamentoId) return;
-    setActiveTab('orcamentos');
-    setHighlightOrcamentoId(pendingOpenOrcamentoId);
-    setTimeout(() => setHighlightOrcamentoId(null), 4000);
-    setPendingOpenOrcamentoId(null);
-  }, [pendingOpenOrcamentoId]);
-
-  // Se a aba Contatos pediu pra iniciar uma venda ja com o cliente selecionado
-  useEffect(() => {
-    if (!prefilledCustomer) return;
-    setSelectedCustomer({ id: prefilledCustomer.id || '', name: prefilledCustomer.name, phone: prefilledCustomer.phone });
-    setActiveTab('venda');
-    setPrefilledCustomer(null);
-  }, [prefilledCustomer]);
-
-  const openReceiptDetail = async (sale: SaleOrder) => {
-    setViewingReceiptSale(sale);
-    setViewingReceiptEmail(undefined);
-    setReceiptOpenedFromProduction(false); // reseta por padrao; so fica true se vier explicitamente da Ordem de Servico
-    const phoneDigits = (sale.customerPhone || '').replace(/\D/g, '');
-    if (phoneDigits.length >= 8) {
-      try {
-        const { data } = await supabase.from('clientes').select('email').ilike('phone', `%${phoneDigits.slice(-8)}%`).limit(1).maybeSingle();
-        if (data?.email) setViewingReceiptEmail(data.email);
-      } catch (e) { /* silencioso, email Ã© opcional */ }
-    }
-  };
-
-  const handlePrintReceipt = async (sale: SaleOrder) => {
-    const canvas = await renderReceiptCanvas({ order: sale, companyName: currentCompany?.name || 'Rafa Arts Graphics', customerPhone: sale.customerPhone, logoDarkUrl, companyContact });
-    const dataUrl = canvas.toDataURL('image/png');
-    const printWin = window.open('', '_blank', 'width=500,height=800');
-    if (!printWin) { showAlert('Permita pop-ups para imprimir.'); return; }
-    printWin.document.write(`<!DOCTYPE html><html><head><title>Recibo #${sale.id.slice(-8).toUpperCase()}</title><style>body{margin:0;background:#F5F7FA;display:flex;justify-content:center;}img{width:100%;max-width:560px;}</style></head><body><img src="${dataUrl}" onload="window.print();window.close();" /></body></html>`);
-    printWin.document.close();
-  };
-
-  const handleDownloadReceiptPdf = async (sale: SaleOrder) => {
-    const canvas = await renderReceiptCanvas({ order: sale, companyName: currentCompany?.name || 'Rafa Arts Graphics', customerPhone: sale.customerPhone, logoDarkUrl, companyContact });
-    await downloadCanvasAsPdf(canvas, buildFileName('Recibo', sale.customerName, sale.createdAt, 'pdf'));
-  };
-
-  const handleDownloadReceiptImagem = async (sale: SaleOrder) => {
-    const canvas = await renderReceiptCanvas({ order: sale, companyName: currentCompany?.name || 'Rafa Arts Graphics', customerPhone: sale.customerPhone, logoDarkUrl, companyContact });
-    downloadCanvasAsPng(canvas, buildFileName('Recibo', sale.customerName, sale.createdAt, 'png'));
-  };
-
-  const handleShareReceiptWhatsApp = async (sale: SaleOrder) => {
-    if (!sale.customerPhone) {
-      showAlert('Essa venda nÃ£o tem telefone de WhatsApp cadastrado. Edite a venda para adicionar o telefone do cliente.');
-      return;
-    }
-    setViewingReceiptSale(null);
-    await handleShareViaWhatsApp(sale, sale.customerName || 'Cliente', sale.customerPhone);
-  };
-
-  const handleOpenChatFromReceipt = async (sale: SaleOrder) => {
-    if (!sale.customerPhone) return;
-    setViewingReceiptSale(null);
-    const digits = sale.customerPhone.replace(/\D/g, '');
-    await findOrCreateLeadAndOpenChat(digits, sale.customerName || 'Cliente', buildOrderShareMessage(sale, sale.customerName || 'Cliente'));
-  };
-
-  const matchesOrderStatusFilter = (sale: SaleOrder, filter: OrderStatusFilterId): boolean => {
-    const down = sale.downPayment || 0;
-    const isFullyPaid = sale.status === 'completed' || down >= sale.total;
-    switch (filter) {
-      case 'em_aberto':
-        return down === 0 && sale.status !== 'canceled';
-      case 'entrada_recebida':
-        return down > 0 && down < sale.total && sale.status !== 'canceled';
-      case 'quitado':
-        return isFullyPaid && sale.status !== 'canceled';
-      case 'entregue':
-        return isFullyPaid && !sale.scheduledFor && sale.status !== 'canceled';
-      case 'cancelado':
-        return sale.status === 'canceled';
-      default:
-        return true;
-    }
-  };
-
-  const matchesPaymentFilter = (sale: SaleOrder, filter: PaymentFilterId): boolean => {
-    const method = (sale.paymentMethod || '').toLowerCase();
-    switch (filter) {
-      case 'pix':
-        return method.includes('pix');
-      case 'dinheiro':
-        return method.includes('dinheiro');
-      case 'cartao_debito':
-        return method.includes('debito');
-      case 'cartao_credito':
-        return method.includes('credito');
-      case 'transferencia':
-        return method.includes('transferencia');
-      case 'boleto':
-        return method.includes('boleto');
-      case 'crediario':
-        return method.includes('crediario');
-      default:
-        return true;
-    }
-  };
-
-  // Dentro de cada lista, selecionar varias = "ou" (um pedido so tem 1 status/1 pagamento).
-  // Entre as duas listas, o resultado e cruzado (E) â€” precisa bater com status E pagamento selecionados.
-  const matchesOrderStatusGroup = (sale: SaleOrder, filters: Set<OrderStatusFilterId>): boolean => {
-    if (filters.size === 0) return true;
-    for (const f of filters) if (matchesOrderStatusFilter(sale, f)) return true;
-    return false;
-  };
-  const matchesPaymentGroup = (sale: SaleOrder, filters: Set<PaymentFilterId>): boolean => {
-    if (filters.size === 0) return true;
-    for (const f of filters) if (matchesPaymentFilter(sale, f)) return true;
-    return false;
-  };
-
-  const matchesHistorySearch = (sale: SaleOrder): boolean => {
-    // Filtro preciso por cliente_id (evita confundir clientes com nomes iguais) â€” tem prioridade sobre o texto
-    if (historyClienteIdFilter) {
-      if (sale.customerId) return sale.customerId === historyClienteIdFilter;
-      // Venda orfa (sem cliente_id vinculado ainda) â€” casa pelo nome como reserva,
-      // mesma logica usada na Ficha do Cliente pra reconhecer vendas antigas/importadas
-      const nomeFiltro = historySearch.toLowerCase().trim();
-      return !!nomeFiltro && (sale.customerName || '').toLowerCase().trim() === nomeFiltro;
-    }
-    if (!historySearch.trim()) return true;
-    const term = historySearch.toLowerCase().trim();
-    const termDigits = term.replace(/\D/g, '');
-    const nameMatch = (sale.customerName || '').toLowerCase().includes(term);
-    const idMatch = sale.id.toLowerCase().includes(term);
-    const itemMatch = sale.items?.some(i => i.name.toLowerCase().includes(term));
-    const phoneMatch = termDigits.length >= 3 && (sale.customerPhone || '').replace(/\D/g, '').includes(termDigits);
-    return nameMatch || idMatch || !!itemMatch || phoneMatch;
-  };
-
-  // Contagens facetadas: quantas O.S. restam considerando a busca + a OUTRA lista ja selecionada
-  // (assim cada lista atualiza sozinha conforme a combinacao muda)
-  const orderStatusCounts = useMemo(() => {
-    const searched = allSalesHistory.filter(matchesHistorySearch).filter(s => matchesPaymentGroup(s, selectedPaymentFilters));
-    const ids: OrderStatusFilterId[] = ['em_aberto', 'entrada_recebida', 'quitado', 'entregue', 'cancelado'];
-    const counts: Record<string, number> = { todos: searched.length };
-    ids.forEach(id => { counts[id] = searched.filter(s => matchesOrderStatusFilter(s, id)).length; });
-    return counts;
-  }, [allSalesHistory, historySearch, historyClienteIdFilter, selectedPaymentFilters]);
-
-  const paymentFilterCounts = useMemo(() => {
-    const searched = allSalesHistory.filter(matchesHistorySearch).filter(s => matchesOrderStatusGroup(s, selectedOrderStatusFilters));
-    const ids: PaymentFilterId[] = ['pix', 'dinheiro', 'cartao_debito', 'cartao_credito', 'transferencia', 'boleto', 'crediario'];
-    const counts: Record<string, number> = { todos: searched.length };
-    ids.forEach(id => { counts[id] = searched.filter(s => matchesPaymentFilter(s, id)).length; });
-    return counts;
-  }, [allSalesHistory, historySearch, historyClienteIdFilter, selectedOrderStatusFilters]);
-
-  const pendingOrScheduledSales = useMemo(() => {
-    const filtered = allSalesHistory.filter(sale => {
-      const down = sale.downPayment || 0;
-      const balance = sale.total - down;
-      const isPartial = balance > 0 || sale.status === 'pending';
-      return isPartial || !!sale.scheduledFor;
-    });
-    return filtered.sort((a, b) => {
-      if (servicosSortBy === 'agendamento') {
-        // Sem agendamento sempre vai pro fim da lista, em qualquer direcao escolhida
-        if (!a.scheduledFor && !b.scheduledFor) return 0;
-        if (!a.scheduledFor) return 1;
-        if (!b.scheduledFor) return -1;
-        const cmp = new Date(a.scheduledFor).getTime() - new Date(b.scheduledFor).getTime();
-        return historySortOrder === 'desc' ? -cmp : cmp;
-      }
-      let cmp = 0;
-      switch (servicosSortBy) {
-        case 'nome':
-          cmp = (a.customerName || '').localeCompare(b.customerName || '');
-          break;
-        case 'valor':
-          cmp = (a.total || 0) - (b.total || 0);
-          break;
-        case 'status':
-          cmp = (a.status || '').localeCompare(b.status || '');
-          break;
-        default:
-          cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-      }
-      return historySortOrder === 'desc' ? -cmp : cmp;
-    });
-  }, [allSalesHistory, historySortOrder, servicosSortBy]);
-
-  const filteredSalesHistory = useMemo(() => {
-    const fromDate = historyDateFrom ? new Date(historyDateFrom + 'T00:00:00') : null;
-    const toDate = historyDateTo ? new Date(historyDateTo + 'T23:59:59') : null;
-    const filtered = allSalesHistory.filter(sale => {
-      if (!matchesOrderStatusGroup(sale, selectedOrderStatusFilters)) return false;
-      if (!matchesPaymentGroup(sale, selectedPaymentFilters)) return false;
-      if (!matchesHistorySearch(sale)) return false;
-      if (fromDate || toDate) {
-        const saleDate = new Date(sale.createdAt);
-        if (isNaN(saleDate.getTime())) return false;
-        if (fromDate && saleDate < fromDate) return false;
-        if (toDate && saleDate > toDate) return false;
-      }
-      return true;
-    });
-    // Ordena pela data/hora do pagamento/transacao MAIS RECENTE de cada pedido (nao pela
-    // criacao da nota) -- um pagamento lancado as 12:00 fica posicionado exatamente entre
-    // um das 11:00 e um das 13:00. Pedidos sem nenhum pagamento lancado (ex: em aberto sem
-    // entrada) caem de volta na data de criacao, que e o unico marco temporal que tem.
-    const chronoKey = (s: SaleOrder) => {
-      const eventos = getRevenueEventsForSale(s);
-      if (eventos.length === 0) return new Date(s.createdAt).getTime();
-      return Math.max(...eventos.map(ev => new Date(ev.date).getTime()));
-    };
-    return filtered.sort((a, b) => {
-      const diff = chronoKey(b) - chronoKey(a);
-      return historySortOrder === 'desc' ? diff : -diff;
-    });
-  }, [allSalesHistory, selectedOrderStatusFilters, selectedPaymentFilters, historySearch, historyClienteIdFilter, historySortOrder, historyDateFrom, historyDateTo]);
-
-  // Aba "Vendas do Dia": os mesmos pedidos da Visao Geral (respeitando os filtros de status/
-  // pagamento/busca ja aplicados), restritos aos CRIADOS hoje -- independente do periodo
-  // personalizado escolhido no filtro de data, pra sempre dar uma visao rapida do dia atual.
-  const historyVendasDoDia = useMemo(() => {
-    const inicioHoje = new Date(); inicioHoje.setHours(0, 0, 0, 0);
-    const fimHoje = new Date(); fimHoje.setHours(23, 59, 59, 999);
-    return allSalesHistory.filter(sale => {
-      if (!matchesOrderStatusGroup(sale, selectedOrderStatusFilters)) return false;
-      if (!matchesPaymentGroup(sale, selectedPaymentFilters)) return false;
-      if (!matchesHistorySearch(sale)) return false;
-      const d = new Date(sale.createdAt);
-      return !isNaN(d.getTime()) && d >= inicioHoje && d <= fimHoje;
-    }).sort((a, b) => {
-      const diff = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-      return historySortOrder === 'desc' ? diff : -diff;
-    });
-  }, [allSalesHistory, selectedOrderStatusFilters, selectedPaymentFilters, historySearch, historyClienteIdFilter, historySortOrder]);
-
-  // Aba "Entradas de Caixa": cada RECEBIMENTO individual (nao o pedido inteiro), com a data/hora
-  // exata de cada pagamento -- uma nota paga em 2 partes em dias diferentes vira 2 linhas
-  // separadas, cada uma na sua propria posicao cronologica real (mesma logica do Extrato de
-  // Caixa ja usado na Analise de Performance).
-  const historyEntradasCaixa = useMemo(() => {
-    const fromDate = historyDateFrom ? new Date(historyDateFrom + 'T00:00:00') : null;
-    const toDate = historyDateTo ? new Date(historyDateTo + 'T23:59:59') : null;
-    const eventos = allSalesHistory
-      .filter(sale => sale.status !== 'canceled')
-      .filter(matchesHistorySearch)
-      .flatMap(o => getRevenueEventsForSale(o).map(ev => ({ ...ev, saleId: o.id, customerName: o.customerName || 'Cliente de BalcÃ£o' })))
-      .filter(ev => {
-        const d = new Date(ev.date);
-        if (isNaN(d.getTime())) return false;
-        if (fromDate && d < fromDate) return false;
-        if (toDate && d > toDate) return false;
-        return true;
-      });
-    return eventos.sort((a, b) => {
-      const diff = new Date(b.date).getTime() - new Date(a.date).getTime();
-      return historySortOrder === 'desc' ? diff : -diff;
-    });
-  }, [allSalesHistory, historySearch, historyClienteIdFilter, historyDateFrom, historyDateTo, historySortOrder]);
-
-  // Resumo da Ordem de Servicos: usa o mesmo filtro de periodo (De/Ate) do Historico
-  const servicosResumo = useMemo(() => {
-    const fromDate = historyDateFrom ? new Date(historyDateFrom + 'T00:00:00') : null;
-    const toDate = historyDateTo ? new Date(historyDateTo + 'T23:59:59') : null;
-    const noPeriodo = allSalesHistory.filter(sale => {
-      if (sale.status === 'canceled') return false;
-      const saleDate = new Date(sale.createdAt);
-      if (isNaN(saleDate.getTime())) return false;
-      if (fromDate && saleDate < fromDate) return false;
-      if (toDate && saleDate > toDate) return false;
-      return true;
-    });
-
-    let faturamento = 0, liquido = 0, custoTotal = 0;
-    const comEntrada = { count: 0, total: 0, recebido: 0, pendente: 0 };
-    const emAberto = { count: 0, total: 0 };
-
-    noPeriodo.forEach(sale => {
-      const down = sale.downPayment || 0;
-      const total = sale.total || 0;
-      const isFullyPaid = sale.status === 'completed' || down >= total;
-      faturamento += total;
-      liquido += down;
-      // Amortiza o custo pela proporcao efetivamente recebida (down/total) â€” mesma regra de
-      // calcularLucroDaVenda, pra nao abater custo que ainda nao foi pago. Custo = so Lona/
-      // Adesivo (materia-prima) + custos extras manuais lancados na nota (ver src/lib/lucro.ts).
-      const proporcao = (!isFullyPaid && total > 0) ? down / total : undefined;
-      custoTotal += custoTotalDaNota({
-        items: sale.items,
-        custoPorId: produtosCostMap,
-        extraCosts: sale.extraCosts,
-        proporcao,
-      });
-      if (down > 0 && !isFullyPaid) {
-        comEntrada.count += 1;
-        comEntrada.total += total;
-        comEntrada.recebido += down;
-        comEntrada.pendente += Math.max(0, total - down);
-      } else if (down === 0) {
-        emAberto.count += 1;
-        emAberto.total += total;
-      }
-    });
-
-    return {
-      faturamento, liquido, lucro: liquido - custoTotal,
-      temCustoRegistrado: custoTotal > 0,
-      comEntrada, emAberto,
-    };
-  }, [allSalesHistory, historyDateFrom, historyDateTo, produtosCostMap]);
-
-  const handleToggleSelectAll = () => {
-    setSelectedSaleIds(prev => {
-      if (prev.size === filteredSalesHistory.length && filteredSalesHistory.length > 0) {
-        return new Set();
-      }
-      return new Set(filteredSalesHistory.map(s => s.id));
-    });
-  };
-
-  const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
-  const handleBulkDeleteSales = async () => {
-    if (selectedSaleIds.size === 0) return;
-    setIsBulkDeleteConfirmOpen(true);
-  };
-  const confirmBulkDeleteSales = async () => {
-    const ids = Array.from(selectedSaleIds);
-    const { error } = await supabase.from('vendas').update({ deleted_at: new Date().toISOString() }).in('id', ids);
-    setIsBulkDeleteConfirmOpen(false);
-    if (error) { console.error(error); showAlert('NÃ£o foi possÃ­vel excluir as vendas selecionadas.'); return; }
-    setSelectedSaleIds(new Set());
-  };
-
-  const handleBulkMarkAsPaid = async () => {
-    if (selectedSaleIds.size === 0) return;
-    if (!(await showConfirm(`Marcar ${selectedSaleIds.size} venda(s) selecionada(s) como paga/quitada (100% recebido)?`))) return;
-    const ids = Array.from(selectedSaleIds);
-    const vendasSelecionadas = filteredSalesHistory.filter(s => ids.includes(s.id));
-    for (const s of vendasSelecionadas) {
-      await supabase.from('vendas').update({ down_payment: s.total, received_value: s.total, status: 'completed' }).eq('id', s.id);
-    }
-    showAlert(`${vendasSelecionadas.length} venda(s) marcada(s) como paga(s)!`);
-    setSelectedSaleIds(new Set());
-    loadSalesHistory();
-  };
-
-  const handleBulkClose = async () => {
-    if (selectedSaleIds.size === 0) return;
-    if (!(await showConfirm(`Fechar (finalizar) ${selectedSaleIds.size} venda(s) selecionada(s)? Elas vÃ£o sair da lista de abertas.`))) return;
-    const ids = Array.from(selectedSaleIds);
-    const { error } = await supabase.from('vendas').update({ status: 'completed' }).in('id', ids);
-    if (error) { console.error(error); showAlert('NÃ£o foi possÃ­vel fechar as vendas selecionadas.'); return; }
-    showAlert(`${ids.length} venda(s) fechada(s)!`);
-    setSelectedSaleIds(new Set());
-    loadSalesHistory();
-  };
-
-  // Edicao em massa: so aplica os campos que o usuario marcar, pra nao sobrescrever nada sem querer
-  const [isBulkEditOpen, setIsBulkEditOpen] = useState(false);
-  const [bulkEditFields, setBulkEditFields] = useState({
-    paymentMethod: { on: false, value: 'pix' as string },
-    scheduledFor: { on: false, value: '' },
-    serviceStatus: { on: false, value: 'pedido_recebido' as string },
-    observacoes: { on: false, value: '' },
-  });
-  const [isSavingBulkEdit, setIsSavingBulkEdit] = useState(false);
-
-  const handleOpenBulkEdit = () => {
-    if (selectedSaleIds.size === 0) return;
-    setBulkEditFields({
-      paymentMethod: { on: false, value: 'pix' },
-      scheduledFor: { on: false, value: '' },
-      serviceStatus: { on: false, value: 'pedido_recebido' },
-      observacoes: { on: false, value: '' },
-    });
-    setIsBulkEditOpen(true);
-  };
-
-  const handleSaveBulkEdit = async () => {
-    const camposAtivos = bulkEditFields.paymentMethod.on || bulkEditFields.scheduledFor.on || bulkEditFields.serviceStatus.on || bulkEditFields.observacoes.on;
-    if (!camposAtivos) { showAlert('Marque pelo menos um campo pra alterar.'); return; }
-    if (!(await showConfirm(`Aplicar essas alteraÃ§Ãµes em ${selectedSaleIds.size} venda(s) selecionada(s)?`))) return;
-    setIsSavingBulkEdit(true);
-    const payload: Record<string, any> = {};
-    if (bulkEditFields.paymentMethod.on) payload.payment_method = bulkEditFields.paymentMethod.value;
-    if (bulkEditFields.scheduledFor.on) payload.scheduled_for = localDatetimeToIso(bulkEditFields.scheduledFor.value);
-    if (bulkEditFields.serviceStatus.on) payload.service_status = bulkEditFields.serviceStatus.value;
-    if (bulkEditFields.observacoes.on) payload.observacoes = bulkEditFields.observacoes.value || null;
-    const ids = Array.from(selectedSaleIds);
-    const { error } = await supabase.from('vendas').update(payload).in('id', ids);
-    setIsSavingBulkEdit(false);
-    if (error) { console.error(error); showAlert('NÃ£o foi possÃ­vel salvar as alteraÃ§Ãµes em massa.'); return; }
-    showAlert(`${ids.length} venda(s) atualizada(s) com sucesso!`);
-    setIsBulkEditOpen(false);
-    setSelectedSaleIds(new Set());
-    loadSalesHistory();
-  };
-  const [settleModalOrder, setSettleModalOrder] = useState<SaleOrder | null>(null);
-  const [settleMethod, setSettleMethod] = useState<'pix' | 'dinheiro' | 'cartao_credito' | 'cartao_debito'>('pix');
-  const [isWhatsAppFormOpen, setIsWhatsAppFormOpen] = useState(false);
-  const [waFormName, setWaFormName] = useState('');
-  const [waFormCountry, setWaFormCountry] = useState({ code: '+55', flag: 'ğŸ‡§ğŸ‡·', name: 'Brasil' });
-  const [waFormPhone, setWaFormPhone] = useState('');
-  const [isWaSaving, setIsWaSaving] = useState(false);
-  const WA_COUNTRIES = [
-    { code: '+55', flag: 'ğŸ‡§ğŸ‡·', name: 'Brasil' },
-    { code: '+1', flag: 'ğŸ‡ºğŸ‡¸', name: 'Estados Unidos' },
-    { code: '+351', flag: 'ğŸ‡µğŸ‡¹', name: 'Portugal' },
-    { code: '+54', flag: 'ğŸ‡¦ğŸ‡·', name: 'Argentina' },
-    { code: '+595', flag: 'ğŸ‡µğŸ‡¾', name: 'Paraguai' },
-    { code: '+598', flag: 'ğŸ‡ºğŸ‡¾', name: 'Uruguai' },
-  ];
-
-  const buildOrderShareMessage = (order: SaleOrder, customerName: string) => {
-    const total = order.total;
-    const down = order.downPayment ?? order.receivedValue ?? (order.status === 'completed' ? total : 0);
-    const balance = Math.max(0, total - down);
-    const isPending = balance > 0 || order.status === 'pending';
-    const itemsText = order.items.map(i => `â€¢ ${i.quantity}x ${i.name} (R$ ${((i.area ? i.price * i.area : i.price) * i.quantity).toFixed(2).replace('.', ',')})`).join('\n');
-    const deliveryStr = order.scheduledFor ? `\nğŸ“… *PrevisÃ£o de Entrega:* ${safeFormat(order.scheduledFor, 'dd/MM/yyyy HH:mm')}` : '';
-    return `OlÃ¡ *${customerName || 'Cliente'}*!\n\nSegue resumo do seu pedido *#${order.id.slice(-8).toUpperCase()}* na *${currentCompany?.name || 'Rafa Arts Graphics'}*:\n\n${itemsText}\n\nğŸ’° *Total do Pedido:* R$ ${total.toFixed(2).replace('.', ',')}\nâœ… *Valor Recebido (Entrada):* R$ ${down.toFixed(2).replace('.', ',')}${isPending ? `\nğŸ”´ *Valor que Falta Pagar:* R$ ${balance.toFixed(2).replace('.', ',')}` : '\nğŸ‰ *Status:* 100% Quitado'}${deliveryStr}\n\nObrigado pela preferÃªncia!`;
-  };
-
-  // Acha (ou cria) o lead correspondente ao telefone no Funil de Atendimento,
-  // deixa a conversa selecionada com a mensagem pronta para enviar.
-  // Delega pra funcao central do AppContext (openWhatsAppChat) -- assim todo botao de
-  // WhatsApp do sistema (Contratos, Orcamentos, Contatos, Ficha do Cliente etc.) passa pelo
-  // mesmo ponto unico, pronto pra quando a integracao de envio real for plugada.
-  const findOrCreateLeadAndOpenChat = async (phoneDigits: string, name: string, prefillMessage: string) => {
-    await openWhatsAppChat(phoneDigits, name, prefillMessage);
-    setIsSuccessModalOpen(false);
-  };
-
-  const handleShareViaWhatsApp = async (order: SaleOrder, customerName: string, phone: string) => {
-    const digits = phone.replace(/\D/g, '');
-    const message = buildOrderShareMessage(order, customerName);
-    await findOrCreateLeadAndOpenChat(digits, customerName, message);
-  };
-
-  const handleSaveWhatsAppCustomer = async () => {
-    const digits = waFormPhone.replace(/\D/g, '');
-    if (!waFormName.trim() || digits.length < 8) {
-      showAlert('Preencha o nome e um nÃºmero de WhatsApp vÃ¡lido.');
-      return;
-    }
-    setIsWaSaving(true);
-    try {
-      const fullPhone = `${waFormCountry.code} ${waFormPhone}`.trim();
-      // Salva/atualiza o cliente no Supabase
-      let customerId = selectedCustomer?.id;
-      if (customerId) {
-        await supabase.from('clientes').update({ phone: fullPhone }).eq('id', customerId);
-      } else {
-        const { data: inserted, error: insertErr } = await supabase.from('clientes').insert({ full_name: waFormName, phone: fullPhone }).select().single();
-        if (insertErr) throw insertErr;
-        customerId = inserted?.id;
-      }
-      setSelectedCustomer({ id: customerId || '', name: waFormName, phone: fullPhone });
-      setIsWhatsAppFormOpen(false);
-      if (lastFinalizedOrder) {
-        const message = buildOrderShareMessage(lastFinalizedOrder, waFormName);
-        await findOrCreateLeadAndOpenChat(`${waFormCountry.code.replace('+', '')}${digits}`, waFormName, message);
-      }
-    } catch (err) {
-      console.error('Erro ao salvar cliente:', err);
-      showAlert('NÃ£o foi possÃ­vel salvar o cliente.');
-    } finally {
-      setIsWaSaving(false);
-    }
-  };
-
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [syncedAt, setSyncedAt] = useState<Date | null>(null);
-  const [pixConfig, setPixConfig] = useState<{ key: string; keyType?: 'cpf' | 'cnpj' | 'email' | 'telefone' | 'aleatoria'; beneficiaryName: string; city: string; bank?: string } | null>(null);
-  const [isPixQrModalOpen, setIsPixQrModalOpen] = useState(false);
-  const [logoDarkUrl, setLogoDarkUrl] = useState<string | null>(null);
-  const [companyContact, setCompanyContact] = useState<CompanyContactInfo>(COMPANY_CONTACT);
-  const [enabledPaymentMethods, setEnabledPaymentMethods] = useState<string[]>(['pix', 'dinheiro', 'cartao_credito', 'cartao_debito']);
-  const [creditCardFees, setCreditCardFees] = useState<{ installments: number; feePercent: number }[]>(
-    Array.from({ length: 12 }, (_, i) => ({ installments: i + 1, feePercent: 0 }))
-  );
-  const [debitCardFeePercent, setDebitCardFeePercent] = useState(0);
-  const [newPaymentInstallments, setNewPaymentInstallments] = useState(1);
-  const canManageHistory = !!(user?.isAdmin || user?.allowedActions?.includes('canManageSaleHistory'));
-  const [editingSale, setEditingSale] = useState<SaleOrder | null>(null);
-  const [editSaleForm, setEditSaleForm] = useState({ customerName: '', total: 0, downPayment: 0, paymentMethod: 'pix', observacoes: '', scheduledFor: '' });
-
-  const handleReopenSale = async (sale: SaleOrder) => {
-    if (!(await showConfirm(`Reabrir a venda #${sale.id.slice(-8).toUpperCase()}? Ela voltarÃ¡ a aparecer como pendente.`))) return;
-    const { error } = await supabase.from('vendas').update({ status: 'pending' }).eq('id', sale.id);
-    if (error) { console.error(error); showAlert('NÃ£o foi possÃ­vel reabrir a venda.'); }
-  };
-
-  const handleCancelSale = async (sale: SaleOrder) => {
-    if (!(await showConfirm(`Cancelar o pedido de ${sale.customerName || 'cliente'} (R$ ${sale.total.toFixed(2).replace('.', ',')})? Ele deixa de contar como venda ativa, mas continua no histÃ³rico marcado como cancelado.`))) return;
-    const { error } = await supabase.from('vendas').update({ status: 'canceled' }).eq('id', sale.id);
-    if (error) { showAlert(`NÃ£o foi possÃ­vel cancelar o pedido: ${error.message}`); return; }
-    const atualizado = { ...sale, status: 'canceled' as const };
-    setAllSalesHistory(prev => prev.map(s => s.id === sale.id ? atualizado : s));
-    setSalesToday(prev => prev.map(s => s.id === sale.id ? atualizado : s));
-    showAlert('Pedido cancelado!');
-  };
-
-  // Abre a nota inteira no Terminal de Vendas pra editar os itens do carrinho, com o cliente ja
-  // preenchido (nao precisa escolher de novo). Ao avancar, vai pro pagamento e ATUALIZA a nota
-  // existente em vez de criar uma nova.
-  const handleStartFullEdit = (sale: SaleOrder) => {
-    setEditingFullOrder(sale);
-    setCart(sale.items ? [...sale.items] : []);
-    setSelectedCustomer(
-      sale.customerId
-        ? { id: sale.customerId, name: sale.customerName || 'Cliente', phone: sale.customerPhone || '' }
-        : (sale.customerName ? { id: '', name: sale.customerName, phone: sale.customerPhone || '' } : null)
-    );
-    setOrderObservacoes(sale.observacoes || '');
-    setScheduledFor(sale.scheduledFor ? isoToLocalDatetimeInput(sale.scheduledFor) : '');
-    setSaleDiscountValue(sale.discountValue || 0);
-    setSaleDiscountInput('');
-    setEditingCreatedAt(sale.createdAt ? isoToLocalDatetimeInput(sale.createdAt) : '');
-    setEditingPaymentsList(sale.payments ? sale.payments.map(p => ({ ...p })) : []);
-    setActiveTab('venda');
-  };
-
-  const startEditSale = (sale: SaleOrder) => {
-    setEditingSale(sale);
-    setEditSaleForm({
-      customerName: sale.customerName || '',
-      total: sale.total,
-      downPayment: sale.downPayment || 0,
-      paymentMethod: sale.paymentMethod || 'pix',
-      observacoes: sale.observacoes || '',
-      scheduledFor: sale.scheduledFor ? isoToLocalDatetimeInput(sale.scheduledFor) : '',
-    });
-  };
-
-  const handleSaveEditSale = async () => {
-    if (!editingSale) return;
-    // Zerar/remover a entrada (cliente reaver o dinheiro e quitar so na retirada) precisa:
-    // 1) limpar o registro financeiro vinculado (lista de pagamentos e valor recebido), senao
-    //    o caixa continua contando um pagamento que na pratica foi estornado;
-    // 2) reverter o status de "Quitado"/"completed" pra "Aberto"/"pending" imediatamente.
-    const novoDownPayment = editSaleForm.downPayment || 0;
-    const entradaZeradaOuVazia = novoDownPayment <= 0;
-    // Se o novo valor de entrada ficou menor que a soma dos pagamentos individuais ja
-    // lancados, esse formulario simples (sem lista editavel por pagamento) nao tem como saber
-    // qual pagamento especifico foi reduzido/excluido â€” entao limpa o array pra nao deixar o
-    // caixa somando um valor de pagamentos maior do que a entrada informada (dessincronizado).
-    const somaPagamentosExistentes = (editingSale.payments || []).reduce((sum, p) => sum + (p.value || 0), 0);
-    const limparPagamentos = entradaZeradaOuVazia || novoDownPayment < somaPagamentosExistentes;
-    const novoStatus: 'completed' | 'pending' = novoDownPayment >= editSaleForm.total && editSaleForm.total > 0 ? 'completed' : 'pending';
-
-    // Se o total foi alterado nessa tela, os itens (items[].price) precisam ser reajustados
-    // proporcionalmente â€” senÃ£o o preÃ§o de cada item (inclusive os por metro/mÂ², onde o preÃ§o
-    // jÃ¡ Ã‰ o valor total do item) fica desatualizado e a aba ComissÃµes (que le item.price, nÃ£o
-    // o total da venda) continua puxando o valor antigo pro colaborador.
-    const totalMudou = Number(editSaleForm.total) !== Number(editingSale.total);
-    const itemTotal = (item: SaleOrderItem) => (item.price ?? 0) * (item.area ? item.area : 1) * (item.quantity ?? 1);
-    const brutoAtual = (editingSale.items || []).reduce((sum, item) => sum + itemTotal(item), 0);
-    const itemsAtualizados: SaleOrderItem[] =
-      totalMudou && brutoAtual > 0
-        ? (editingSale.items || []).map((item) => {
-            const fator = editSaleForm.total / brutoAtual;
-            return { ...item, price: Number(((item.price ?? 0) * fator).toFixed(2)) };
-          })
-        : (editingSale.items || []);
-
-    const { data, error } = await supabase.from('vendas').update({
-      customer_name: editSaleForm.customerName,
-      total: editSaleForm.total,
-      items: itemsAtualizados,
-      down_payment: novoDownPayment,
-      received_value: novoDownPayment,
-      payments: limparPagamentos ? [] : (editingSale.payments || []),
-      pending_payment_method: entradaZeradaOuVazia ? null : (editingSale.pendingPaymentMethod || null),
-      payment_method: editSaleForm.paymentMethod,
-      observacoes: editSaleForm.observacoes || null,
-      scheduled_for: localDatetimeToIso(editSaleForm.scheduledFor),
-      status: novoStatus,
-    }).eq('id', editingSale.id).select();
-    if (error) { console.error(error); showAlert('NÃ£o foi possÃ­vel salvar as alteraÃ§Ãµes.'); return; }
-    if (!data || data.length === 0) { showAlert('Nada foi salvo â€” o pedido pode ter sido removido ou alterado por outra pessoa. Feche e abra a tela de novo.'); return; }
-    const atualizado: SaleOrder = {
-      ...editingSale,
-      customerName: editSaleForm.customerName,
-      total: editSaleForm.total,
-      items: itemsAtualizados,
-      downPayment: novoDownPayment,
-      receivedValue: novoDownPayment,
-      payments: limparPagamentos ? [] : (editingSale.payments || []),
-      pendingPaymentMethod: entradaZeradaOuVazia ? undefined : editingSale.pendingPaymentMethod,
-      paymentMethod: editSaleForm.paymentMethod as any,
-      observacoes: editSaleForm.observacoes || undefined,
-      scheduledFor: localDatetimeToIso(editSaleForm.scheduledFor) || undefined,
-      status: novoStatus,
-    };
-    setAllSalesHistory(prev => prev.map(s => s.id === editingSale.id ? atualizado : s));
-    setSalesToday(prev => prev.map(s => s.id === editingSale.id ? atualizado : s));
-    setEditingSale(null);
-    loadSalesHistory();
-  };
-
-  const handleUpdateServiceStatus = async (saleId: string, newStatus: string) => {
-    await syncServiceStatus('venda', saleId, newStatus);
-    // Atualizar estado local apÃ³s sincronizaÃ§Ã£o
-    setViewingReceiptSale(prev => prev && prev.id === saleId ? { ...prev, serviceStatus: newStatus as any } : prev);
-    setLastFinalizedOrder(prev => prev && prev.id === saleId ? { ...prev, serviceStatus: newStatus as any } : prev);
-    setAllSalesHistory(prev => prev.map(s => s.id === saleId ? { ...s, serviceStatus: newStatus as any } : s));
-    setSalesToday(prev => prev.map(s => s.id === saleId ? { ...s, serviceStatus: newStatus as any } : s));
-  };
-
-  // Botao unico de status (aba Servicos): em vez de duas setas (avancar/retroceder), um clique
-  // avanca pra proxima etapa â€” e ao chegar na ultima ("Produto Entregue"), o proximo clique volta
-  // pro inicio ("Pedido Recebido"), igual um ciclo.
-  const handleCycleServiceStatus = (saleId: string, currentStage: string) => {
-    const idx = STAGE_ORDER.indexOf(currentStage);
-    const nextIdx = idx >= 0 && idx < STAGE_ORDER.length - 1 ? idx + 1 : 0;
-    handleUpdateServiceStatus(saleId, STAGE_ORDER[nextIdx]);
-  };
-
-  const handleDeleteSale = async (sale: SaleOrder) => {
-    if (!(await showConfirm(`Excluir a venda #${sale.id.slice(-8).toUpperCase()} (R$ ${sale.total.toFixed(2)})? Ela fica 30 dias na aba ExcluÃ­dos antes de sumir de vez â€” vocÃª pode restaurar dentro desse prazo.`))) return;
-    const { error } = await supabase.from('vendas').update({ deleted_at: new Date().toISOString() }).eq('id', sale.id);
-    if (error) { console.error(error); showAlert('NÃ£o foi possÃ­vel excluir a venda.'); }
-  };
-
-  const handleRestoreSale = async (sale: SaleOrder) => {
-    if (!(await showConfirm(`Restaurar a venda de ${sale.customerName || 'cliente'} (R$ ${sale.total.toFixed(2)})?`))) return;
-    const { error } = await supabase.from('vendas').update({ deleted_at: null }).eq('id', sale.id);
-    if (error) { console.error(error); showAlert('NÃ£o foi possÃ­vel restaurar a venda.'); return; }
-    loadDeletedSales();
-  };
-
-  const handlePermanentDeleteSale = async (sale: SaleOrder) => {
-    if (!(await showConfirm(`Excluir DEFINITIVAMENTE a venda #${sale.id.slice(-8).toUpperCase()}? Essa aÃ§Ã£o nÃ£o pode ser desfeita.`))) return;
-    const { error } = await supabase.from('vendas').delete().eq('id', sale.id);
-    if (error) { console.error(error); showAlert('NÃ£o foi possÃ­vel excluir.'); return; }
-    loadDeletedSales();
-  };
-
-  const [deletedSales, setDeletedSales] = useState<SaleOrder[]>([]);
-  const [isLoadingDeletedSales, setIsLoadingDeletedSales] = useState(false);
-
-  const loadDeletedSales = async () => {
-    setIsLoadingDeletedSales(true);
-    try {
-      // Purga automatica: excluidas ha mais de 30 dias somem de vez
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - 30);
-      await supabase.from('vendas').delete().not('deleted_at', 'is', null).lt('deleted_at', cutoff.toISOString());
-
-      const { data } = await supabase.from('vendas').select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending: false });
-      setDeletedSales((data || []).map(mapVendaRow));
-    } catch (err) {
-      console.error('Erro ao carregar excluÃ­dos:', err);
-    } finally {
-      setIsLoadingDeletedSales(false);
-    }
-  };
-
-  // ===== OrÃ§amentos e Contratos excluÃ­dos (mesmo padrÃ£o de restauraÃ§Ã£o das Vendas) =====
-  const [deletedOrcamentos, setDeletedOrcamentos] = useState<Orcamento[]>([]);
-  const [isLoadingDeletedOrcamentos, setIsLoadingDeletedOrcamentos] = useState(false);
-
-  const loadDeletedOrcamentos = async () => {
-    setIsLoadingDeletedOrcamentos(true);
-    try {
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - 30);
-      await supabase.from('orcamentos').delete().not('deleted_at', 'is', null).lt('deleted_at', cutoff.toISOString());
-
-      const { data } = await supabase.from('orcamentos').select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending: false });
-      setDeletedOrcamentos((data || []).map(mapOrcamentoRow));
-    } catch (err) {
-      console.error('Erro ao carregar orÃ§amentos excluÃ­dos:', err);
-    } finally {
-      setIsLoadingDeletedOrcamentos(false);
-    }
-  };
-
-  const handleRestoreOrcamento = async (o: Orcamento) => {
-    if (!(await showConfirm(`Restaurar o orÃ§amento ${o.numero}?`))) return;
-    const { error } = await supabase.from('orcamentos').update({ deleted_at: null }).eq('id', o.id);
-    if (error) { showAlert('NÃ£o foi possÃ­vel restaurar o orÃ§amento.'); return; }
-    loadDeletedOrcamentos();
-  };
-
-  const handlePermanentDeleteOrcamento = async (o: Orcamento) => {
-    if (!(await showConfirm(`Excluir DEFINITIVAMENTE o orÃ§amento ${o.numero}? Essa aÃ§Ã£o nÃ£o pode ser desfeita.`))) return;
-    const { error } = await supabase.from('orcamentos').delete().eq('id', o.id);
-    if (error) { showAlert('NÃ£o foi possÃ­vel excluir.'); return; }
-    loadDeletedOrcamentos();
-  };
-
-  const [deletedContratos, setDeletedContratos] = useState<Contrato[]>([]);
-  const [isLoadingDeletedContratos, setIsLoadingDeletedContratos] = useState(false);
-
-  const loadDeletedContratos = async () => {
-    setIsLoadingDeletedContratos(true);
-    try {
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - 30);
-      // Antes de purgar de vez, pega quais Notas estao vinculadas pra soltar o vinculo delas â€”
-      // senao a Nota fica apontando pra um contrato que nem existe mais no banco
-      const { data: expirando } = await supabase.from('contratos').select('id, venda_id').not('deleted_at', 'is', null).lt('deleted_at', cutoff.toISOString());
-      await supabase.from('contratos').delete().not('deleted_at', 'is', null).lt('deleted_at', cutoff.toISOString());
-      const vendaIdsParaSoltar = (expirando || []).map((c: any) => c.venda_id).filter(Boolean);
-      if (vendaIdsParaSoltar.length > 0) {
-        await supabase.from('vendas').update({ contrato_id: null }).in('id', vendaIdsParaSoltar);
-      }
-
-      const { data } = await supabase.from('contratos').select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending: false });
-      setDeletedContratos((data || []).map(mapContratoRow));
-    } catch (err) {
-      console.error('Erro ao carregar contratos excluÃ­dos:', err);
-    } finally {
-      setIsLoadingDeletedContratos(false);
-    }
-  };
-
-  const handleRestoreContrato = async (c: Contrato) => {
-    if (!(await showConfirm(`Restaurar o contrato ${c.numero}?`))) return;
-    const { error } = await supabase.from('contratos').update({ deleted_at: null }).eq('id', c.id);
-    if (error) { showAlert('NÃ£o foi possÃ­vel restaurar o contrato.'); return; }
-    // Devolve o vinculo na Nota (foi solto na exclusao), so se ela ainda nao foi religada a
-    // outro contrato nesse meio tempo
-    if (c.vendaId) {
-      const { data: venda } = await supabase.from('vendas').select('contrato_id').eq('id', c.vendaId).maybeSingle();
-      if (venda && !venda.contrato_id) {
-        await supabase.from('vendas').update({ contrato_id: c.id }).eq('id', c.vendaId);
-        setAllSalesHistory(prev => prev.map(s => s.id === c.vendaId ? { ...s, contratoId: c.id } as SaleOrder : s));
-      }
-    }
-    loadDeletedContratos();
-  };
-
-  const handlePermanentDeleteContrato = async (c: Contrato) => {
-    if (!(await showConfirm(`Excluir DEFINITIVAMENTE o contrato ${c.numero}? Essa aÃ§Ã£o nÃ£o pode ser desfeita.`))) return;
-    const { error } = await supabase.from('contratos').delete().eq('id', c.id);
-    if (error) { showAlert('NÃ£o foi possÃ­vel excluir.'); return; }
-    // Mesma limpeza do soft-delete: se a Nota ainda estava com o vinculo (ex: contrato excluido
-    // antes da correcao, ou restaurado e apagado de novo), solta aqui tambem
-    if (c.vendaId) {
-      await supabase.from('vendas').update({ contrato_id: null }).eq('id', c.vendaId).eq('contrato_id', c.id);
-    }
-    loadDeletedContratos();
-  };
-
-  // Limpar vendas Ã³rfÃ£s: vendas que referenciavam contratos jÃ¡ deletados
-  const cleanupOrphanedSales = async () => {
-    if (!(await showConfirm('Isso vai marcar como deletadas todas as vendas que perderam seu contrato (contrato foi excluÃ­do). Continuar?'))) return;
-    try {
-      // Busca vendas com contrato_id que nÃ£o existe mais (contrato deletado ou inexistente)
-      const { data: allVendas } = await supabase.from('vendas').select('id, contrato_id').is('deleted_at', null);
-      const { data: allContratos } = await supabase.from('contratos').select('id').is('deleted_at', null);
-      const validContratoIds = new Set((allContratos || []).map((c: any) => c.id));
-      const orphanedIds = (allVendas || [])
-        .filter((v: any) => v.contrato_id && !validContratoIds.has(v.contrato_id))
-        .map((v: any) => v.id);
-      
-      if (orphanedIds.length === 0) {
-        showAlert('Nenhuma venda Ã³rfÃ£ encontrada. âœ“');
-        return;
-      }
-      
-      const now = new Date().toISOString();
-      const { error } = await supabase.from('vendas').update({ deleted_at: now }).in('id', orphanedIds);
-      if (error) { showAlert(`Erro ao limpar: ${error.message}`); return; }
-      
-      showAlert(`âœ“ ${orphanedIds.length} venda(s) Ã³rfÃ£(s) marcada(s) como deletada(s)`);
-      loadSalesHistory();
-    } catch (err) {
-      showAlert(`Erro: ${err}`);
-    }
-  };
-
-  useEffect(() => {
-    if (activeTab === 'excluidos') { loadDeletedSales(); loadDeletedOrcamentos(); loadDeletedContratos(); }
-  }, [activeTab]);
-
-  const loadSalesHistory = async () => {
-    const { data } = await supabase.from('vendas').select('*').is('deleted_at', null);
-    const allSales = (data || []).map(mapVendaRow);
-    // Ordena pela atividade mais recente â€” criacao OU ultima edicao, o que for mais novo. Assim
-    // uma nota antiga que acabou de ser editada (ex: pagamento lancado) sobe pro topo da lista.
-    const ultimaAtividade = (s: SaleOrder) => Math.max(new Date(s.createdAt).getTime(), s.updatedAt ? new Date(s.updatedAt).getTime() : 0);
-    allSales.sort((a, b) => ultimaAtividade(b) - ultimaAtividade(a));
-    setAllSalesHistory(allSales);
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-    const todaySales = allSales.filter(sale => {
-      const d = new Date(sale.createdAt);
-      return d >= startOfDay;
-    });
-    setSalesToday(todaySales);
-  };
-
-  useEffect(() => {
-    if (!currentCompany) return;
-    loadSalesHistory();
-    const channel = supabase.channel('pos-vendas').on('postgres_changes', { event: '*', schema: 'public', table: 'vendas' }, loadSalesHistory).subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [currentCompany]);
-
-  useEffect(() => {
-    const load = async () => {
-      const { data } = await supabase.from('configuracoes').select('*').eq('company_id', 'rafa-arts').maybeSingle();
-      setLogoDarkUrl(data?.logo_dark_url || null);
-      setCompanyContact({
-        whatsapp: data?.contact_whatsapp || COMPANY_CONTACT.whatsapp,
-        instagram: data?.contact_instagram || COMPANY_CONTACT.instagram,
-        facebook: data?.contact_facebook || COMPANY_CONTACT.facebook,
-        email: data?.contact_email || COMPANY_CONTACT.email,
-        site: data?.contact_site || COMPANY_CONTACT.site,
-        siteUrl: data?.contact_site ? (data.contact_site.startsWith('http') ? data.contact_site : `https://${data.contact_site}`) : COMPANY_CONTACT.siteUrl,
-        endereco: data?.contact_endereco || COMPANY_CONTACT.endereco,
-      });
-      setEnabledPaymentMethods(Array.isArray(data?.enabled_payment_methods) && data.enabled_payment_methods.length > 0 ? data.enabled_payment_methods : ['pix', 'dinheiro', 'cartao_credito', 'cartao_debito']);
-      if (Array.isArray(data?.credit_card_fees) && data.credit_card_fees.length > 0) {
-        const byInstallment: Record<number, number> = {};
-        data.credit_card_fees.forEach((f: any) => { byInstallment[f.installments] = f.feePercent; });
-        setCreditCardFees(Array.from({ length: 12 }, (_, i) => ({ installments: i + 1, feePercent: byInstallment[i + 1] ?? 0 })));
-      }
-      setDebitCardFeePercent(Number(data?.debit_card_fee_percent) || 0);
-      if (data && data.pix_key) {
-        setPixConfig({
-          key: data.pix_key,
-          keyType: data.pix_key_type || undefined,
-          beneficiaryName: data.beneficiary_name || currentCompany?.name || 'RAFA ARTS GRAPHICS',
-          city: data.city || 'Santarem',
-          bank: data.pix_bank || '',
-        });
-      } else {
-        setPixConfig(null);
-      }
-    };
-    load();
-    const channel = supabase
-      .channel('pos-configuracoes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'configuracoes' }, load)
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [currentCompany]);
-
-  const handleSettleBalance = async (order: SaleOrder) => {
-    if (!currentCompany || !order) return;
-    const balanceToSettle = order.total - (order.downPayment || 0);
-    if (balanceToSettle <= 0) return;
-
-    try {
-      try {
-        const audio = new Audio('/sounds/sale-complete.mp3');
-        audio.play().catch(() => {});
-      } catch (e) {}
-
-      const { error: settleErr } = await supabase.from('vendas').update({
-        status: 'completed',
-        down_payment: order.total,
-        settled_at: new Date().toISOString(),
-        settled_payment_method: settleMethod,
-      }).eq('id', order.id);
-      if (settleErr) throw settleErr;
-
-      const qSvc = query(
-        collection(db, 'services'),
-        where('companyId', '==', currentCompany.id),
-        where('orderId', '==', order.id),
-        limit(1)
-      );
-      const snapSvc = await getDocs(qSvc);
-      if (!snapSvc.empty) {
-        await updateDoc(doc(db, 'services', snapSvc.docs[0].id), {
-          status: 'concluido',
-          balance: 0,
-          updatedAt: Timestamp.now()
-        });
-      }
-
-      showAlert(`Saldo de R$ ${balanceToSettle.toFixed(2).replace('.', ',')} quitado com sucesso!\nA venda/serviÃ§o foi totalmente quitada.`);
-      setSettleModalOrder(null);
-    } catch (err) {
-      console.error('Erro ao quitar saldo:', err);
-      showAlert('Erro ao quitar saldo do pedido.');
-    }
-  };
-
-  const [products, setProducts] = useState<Product[]>([]);
-  const loadProducts = async () => {
-    const { data } = await supabase.from('produtos').select('*').order('name', { ascending: true });
-    setProducts((data || []).map((p: any) => ({
-      id: p.id,
-      name: p.name,
-      code: p.code || '',
-      price: Number(p.sale_price) || 0,
-      stock: Number(p.current_stock) || 0,
-      unitType: p.unit === 'm2' ? 'm2' : p.unit === 'etiqueta' ? 'etiqueta' : p.unit === 'm' ? 'metro' : 'unit',
-      tipoItem: p.tipo_item || 'produto',
-      larguraRolo: p.largura_rolo ? Number(p.largura_rolo) : undefined,
-      controlaEstoque: p.controla_estoque !== false,
-      valorMinimo: p.valor_minimo ? Number(p.valor_minimo) : undefined,
-    })));
-  };
-  useEffect(() => {
-    loadProducts();
-    const channel = supabase
-      .channel('pos-produtos')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'produtos' }, loadProducts)
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, []);
-
-  // Cadastro rapido de produto direto pelo Terminal de Venda (mesma tabela do Estoque)
-  const [isQuickProductOpen, setIsQuickProductOpen] = useState(false);
-  const [quickProductAddToOrcamento, setQuickProductAddToOrcamento] = useState(false);
-  const [isSavingQuickProduct, setIsSavingQuickProduct] = useState(false);
-  const emptyQuickProductForm = {
-    name: '', code: '', category: '', unit: 'un' as 'un' | 'm2' | 'etiqueta', costPrice: 0, salePrice: 0, currentStock: 0,
-    tipoItem: 'produto' as 'produto' | 'material' | 'servico' | 'acabamento' | 'composto',
-    controlaEstoque: true, minStock: 0, estoqueMaximo: 0, localizacao: '', descricao: '', larguraRolo: 0,
-  };
-  const [quickProductForm, setQuickProductForm] = useState({ ...emptyQuickProductForm });
-
-  const handleSaveQuickProduct = async () => {
-    if (!quickProductForm.name.trim()) { showAlert('Digite o nome do produto.'); return; }
-    setIsSavingQuickProduct(true);
-    try {
-      const { data, error } = await supabase.from('produtos').insert({
-        name: quickProductForm.name,
-        code: quickProductForm.code || null,
-        category: quickProductForm.category || null,
-        unit: quickProductForm.unit,
-        cost_price: quickProductForm.costPrice || 0,
-        sale_price: quickProductForm.salePrice || 0,
-        current_stock: quickProductForm.currentStock || 0,
-        is_active: true,
-        tipo_item: quickProductForm.tipoItem,
-        controla_estoque: quickProductForm.controlaEstoque,
-        min_stock: quickProductForm.minStock || 0,
-        estoque_maximo: quickProductForm.estoqueMaximo || null,
-        localizacao: quickProductForm.localizacao || null,
-        descricao: quickProductForm.descricao || null,
-        largura_rolo: quickProductForm.larguraRolo || null,
-      }).select().single();
-      if (error) throw error;
-      await loadProducts();
-
-      // Se veio do orcamento, adiciona o produto recem criado direto nos itens do orcamento
-      // e permanece na mesma tela do orcamento (nao navega pra Terminal Venda)
-      if (quickProductAddToOrcamento && data) {
-        setOrcamentoForm(prev => ({
-          ...prev,
-          items: [...prev.items, { productId: data.id, name: data.name, price: Number(data.sale_price) || 0, quantity: 1 }],
-        }));
-        setQuickProductAddToOrcamento(false);
-      }
-
-      setIsQuickProductOpen(false);
-      setQuickProductForm({ ...emptyQuickProductForm });
-      // Permanece na aba/tela onde o usuario estava (Terminal Venda ou Orcamentos)
-    } catch (err: any) {
-      console.error('Erro ao cadastrar produto:', err);
-      showAlert(`NÃ£o foi possÃ­vel cadastrar: ${err?.message || 'erro desconhecido'}`);
-    } finally {
-      setIsSavingQuickProduct(false);
-    }
-  };
-
-
-  const addToCart = (product: Product) => {
-    if (product.unitType === 'm2' && product.name.toUpperCase().includes('INSULFILM')) {
-      setInsulfilmModalProduct(product);
-      setInsulfilmLarguraMaterial(product.larguraRolo || 1.5);
-      setInsulfilmPecas([{ id: 'p1', largura: 0, altura: 0 }]);
-      return;
-    }
-    if (product.unitType === 'm2' || product.unitType === 'metro') {
-      setDimensionModalProduct(product);
-      setDimWidth('');
-      setDimHeight('');
-      setDimLarguraMaterial(product.larguraRolo || 0);
-      setDimValorOverride('');
-      setDimValorFoiEditado(false);
-      return;
-    }
-    if (product.unitType === 'etiqueta') {
-      setEtiquetaModalProduct(product);
-      setEtiquetaForm({ ...emptyEtiquetaForm, larguraMaterial: product.larguraRolo || 1.02 });
-      setEtiquetaInputMode('quantidade');
-      return;
-    }
-    setCart(prev => {
-      const existing = prev.find(item => item.productId === product.id && !item.dimensions);
-      if (existing) {
-        return prev.map(item => (item.productId === product.id && !item.dimensions)
-          ? { ...item, quantity: item.quantity + selectedQty }
-          : item
-        );
-      }
-      return [...prev, {
-        productId: product.id,
-        name: product.name,
-        price: product.price,
-        quantity: selectedQty,
-      }];
-    });
-    setSelectedQty(1);
-  };
-
-  const calcularEtiquetas = (product: Product) => {
-    const { largura, altura, larguraMaterial } = etiquetaForm;
-    const larguraRoloCm = (larguraMaterial || product.larguraRolo || 1) * 100;
-    if (largura <= 0 || altura <= 0 || larguraRoloCm <= 0) return null;
-
-    // Quantas etiquetas cabem por metro linear do material, testando as duas orientacoes
-    // (normal e rotacionada 90 graus) e usando a que da mais unidades por metro (melhor aproveitamento).
-    // IMPORTANTE: tanto as colunas (largura) quanto as linhas (por metro de comprimento) sao
-    // arredondadas pra baixo â€” nao da pra imprimir etiqueta fracionada, entao 100/8=12,5 vira 12, nao 12,5.
-    const porFileiraA = Math.max(1, Math.floor(larguraRoloCm / largura));
-    const linhasPorMetroA = Math.max(1, Math.floor(100 / altura));
-    const unidadesPorMetroA = porFileiraA * linhasPorMetroA;
-
-    const porFileiraB = Math.max(1, Math.floor(larguraRoloCm / altura));
-    const linhasPorMetroB = Math.max(1, Math.floor(100 / largura));
-    const unidadesPorMetroB = porFileiraB * linhasPorMetroB;
-
-    const usarB = unidadesPorMetroB > unidadesPorMetroA;
-    const porFileira = usarB ? porFileiraB : porFileiraA;
-    const alturaEfetiva = usarB ? largura : altura; // dimensao que determina o comprimento gasto do material por linha
-
-    // Regra de 3: a partir do campo que o usuario preencheu (quantidade, metros ou valor),
-    // calcula os outros dois automaticamente
-    let quantidade: number;
-    let metrosLineares: number;
-    const IMPRESSAO_MINIMA = product.valorMinimo ?? 30;
-
-    if (etiquetaInputMode === 'metros') {
-      metrosLineares = etiquetaForm.metrosInput;
-      if (metrosLineares <= 0) return null;
-      const linhas = Math.floor((metrosLineares * 100) / alturaEfetiva);
-      quantidade = linhas * porFileira;
-    } else if (etiquetaInputMode === 'valor') {
-      const valorInput = etiquetaForm.valorInput;
-      if (valorInput <= 0 || product.price <= 0) return null;
-      metrosLineares = valorInput / product.price;
-      const linhas = Math.floor((metrosLineares * 100) / alturaEfetiva);
-      quantidade = linhas * porFileira;
-    } else {
-      quantidade = etiquetaForm.quantidade;
-      if (quantidade <= 0) return null;
-      const fileiras = Math.ceil(quantidade / porFileira);
-      metrosLineares = (fileiras * alturaEfetiva) / 100;
-    }
-
-    const valorCalculado = metrosLineares * product.price;
-    const valorFinal = Math.max(valorCalculado, IMPRESSAO_MINIMA);
-    const fileiras = Math.ceil(quantidade / porFileira);
-
-    return { porFileira, fileiras, metrosLineares, valorCalculado, valorFinal, rotacionada: usarB, quantidade, unidadesPorMetro: usarB ? unidadesPorMetroB : unidadesPorMetroA };
-  };
-
-  const confirmAddEtiquetaItem = async () => {
-    if (!etiquetaModalProduct) return;
-    const calc = calcularEtiquetas(etiquetaModalProduct);
-    if (!calc) { showAlert('Preencha as dimensÃµes, a largura do material e a quantidade/metros/valor desejado.'); return; }
-    const { largura, altura, larguraMaterial } = etiquetaForm;
-    const dimensoesLabel = `${calc.quantidade}un ${largura}x${altura}cm`;
-    setCart(prev => [...prev, {
-      productId: etiquetaModalProduct.id,
-      name: etiquetaModalProduct.name,
-      price: calc.valorFinal,
-      quantity: 1,
-      dimensions: dimensoesLabel,
-      consumoEstoque: calc.metrosLineares,
-    }]);
-    // Se a largura do material foi mudada, salva como novo padrao pra proxima vez
-    if (larguraMaterial && larguraMaterial !== etiquetaModalProduct.larguraRolo) {
-      await supabase.from('produtos').update({ largura_rolo: larguraMaterial }).eq('id', etiquetaModalProduct.id);
-    }
-    setEtiquetaModalProduct(null);
-  };
-
-  // Insulfilm: aproveitamento entre TODAS as pecas da mesma nota, respeitando o corte fisico do rolo.
-  // Agrupa pecas lado a lado dentro da largura do rolo (bin-packing guloso), e o comprimento
-  // consumido por corte e o MAIOR comprimento entre as pecas daquele corte.
-  const otimizarCortesInsulfilm = (pecas: { largura: number; altura: number }[], larguraRoloM: number) => {
-    const validas = pecas.filter(p => p.largura > 0 && p.altura > 0);
-    if (validas.length === 0 || larguraRoloM <= 0) return null;
-
-    // Empacota um conjunto de pecas JA orientadas (guloso: mais larga primeiro, encaixa no primeiro corte que sobra espaco)
-    const empacotar = (pecasOrientadas: { largura: number; altura: number }[]) => {
-      const ordenadas = [...pecasOrientadas].sort((a, b) => b.largura - a.largura);
-      const cortes: { pecas: { largura: number; altura: number }[]; larguraUsada: number; comprimento: number }[] = [];
-      for (const peca of ordenadas) {
-        let encaixou = false;
-        for (const corte of cortes) {
-          if (corte.larguraUsada + peca.largura <= larguraRoloM + 0.0001) {
-            corte.pecas.push(peca);
-            corte.larguraUsada += peca.largura;
-            corte.comprimento = Math.max(corte.comprimento, peca.altura);
-            encaixou = true;
-            break;
-          }
-        }
-        if (!encaixou) {
-          cortes.push({ pecas: [peca], larguraUsada: peca.largura, comprimento: peca.altura });
-        }
-      }
-      const metrosLineares = cortes.reduce((s, c) => s + c.comprimento, 0);
-      return { cortes, metrosLineares };
-    };
-
-    // Pra cada peca, testa as duas orientacoes possiveis (normal e girada 90Â°) e so considera
-    // as que cabem na largura do rolo â€” assim uma peca pode "deitar" pra encaixar ao lado de outra
-    // (ex: peca de 1,00x0,80 pode virar 0,80x1,00 pra caber junto com uma de 0,70m de largura)
-    const opcoesPorPeca = validas.map(p => {
-      const normal = { largura: p.largura, altura: p.altura };
-      const girada = { largura: p.altura, altura: p.largura };
-      const cabem = [normal, girada].filter(o => o.largura <= larguraRoloM + 0.0001);
-      return cabem.length > 0 ? cabem : [normal]; // nenhuma orientacao cabe -> usa normal mesmo, o aviso de "nao cabe" aparece na tela
-    });
-
-    // Testa todas as combinacoes de orientacao entre as pecas e fica com a que da o MELHOR aproveitamento
-    // (menos metros lineares no total). Limitado pra nao travar a tela se vierem muitas pecas de uma vez.
-    const totalCombinacoes = opcoesPorPeca.reduce((acc, opcoes) => acc * opcoes.length, 1);
-    let melhor: { cortes: { pecas: { largura: number; altura: number }[]; larguraUsada: number; comprimento: number }[]; metrosLineares: number } | null = null;
-    if (totalCombinacoes <= 4096) {
-      const combinar = (index: number, atual: { largura: number; altura: number }[]) => {
-        if (index === opcoesPorPeca.length) {
-          const resultado = empacotar(atual);
-          if (!melhor || resultado.metrosLineares < melhor.metrosLineares - 0.0001) melhor = resultado;
-          return;
-        }
-        for (const opcao of opcoesPorPeca[index]) combinar(index + 1, [...atual, opcao]);
-      };
-      combinar(0, []);
-    } else {
-      melhor = empacotar(validas);
-    }
-
-    const { cortes, metrosLineares } = melhor!;
-    const areaUtilizada = validas.reduce((s, p) => s + p.largura * p.altura, 0);
-    const areaRetirada = cortes.reduce((s, c) => s + larguraRoloM * c.comprimento, 0);
-    const desperdicio = Math.max(0, areaRetirada - areaUtilizada);
-    const aproveitamento = areaRetirada > 0 ? (areaUtilizada / areaRetirada) * 100 : 0;
-
-    return { cortes, metrosLineares, areaUtilizada, areaRetirada, desperdicio, aproveitamento };
-  };
-
-  const confirmAddInsulfilmItem = async () => {
-    if (!insulfilmModalProduct) return;
-    const calc = otimizarCortesInsulfilm(insulfilmPecas, insulfilmLarguraMaterial);
-    if (!calc) { showAlert('Informe largura e altura vÃ¡lidas de pelo menos uma peÃ§a.'); return; }
-    const IMPRESSAO_MINIMA = insulfilmModalProduct.valorMinimo ?? 30;
-    const valorCalculado = calc.areaRetirada * insulfilmModalProduct.price;
-    const valorFinal = Math.max(valorCalculado, IMPRESSAO_MINIMA);
-    const pecasLabel = insulfilmPecas.filter(p => p.largura > 0 && p.altura > 0).map(p => `${p.largura}x${p.altura}`).join(' + ');
-    setCart(prev => [...prev, {
-      productId: insulfilmModalProduct.id,
-      name: insulfilmModalProduct.name,
-      price: valorFinal,
-      quantity: 1,
-      dimensions: `${pecasLabel} (${calc.cortes.length} corte${calc.cortes.length > 1 ? 's' : ''})`,
-      area: calc.areaUtilizada,
-      consumoEstoque: calc.metrosLineares,
-    }]);
-    if (insulfilmLarguraMaterial && insulfilmLarguraMaterial !== insulfilmModalProduct.larguraRolo) {
-      await supabase.from('produtos').update({ largura_rolo: insulfilmLarguraMaterial }).eq('id', insulfilmModalProduct.id);
-    }
-    setInsulfilmModalProduct(null);
-  };
-
-  // Consumo linear real do rolo: testa as duas orientacoes da peca e usa a dimensao
-  // que sobra como comprimento consumido, aproveitando a largura do rolo ao maximo.
-  // Ex: peca 80x70cm cabe deitada ou em pe num rolo largo -> usa a MENOR medida como comprimento (70cm).
-  // Ex: peca 3m x 0,50m num rolo de 1m -> sÃ³ cabe de um jeito (0,50m na largura) -> consome os 3m inteiros.
-  const calcularConsumoLinear = (w: number, h: number, larguraRolo?: number): number => {
-    const area = w * h;
-    if (!larguraRolo || larguraRolo <= 0) return area;
-    const cabeComoEsta = w <= larguraRolo;
-    const cabeGirada = h <= larguraRolo;
-    if (cabeComoEsta && cabeGirada) return Math.min(w, h);
-    if (cabeComoEsta) return h;
-    if (cabeGirada) return w;
-    return area / larguraRolo; // nenhuma orientacao cabe â€” fallback, tela avisa o usuario nesse caso
-  };
-
-  const confirmAddDimensionedItem = async () => {
-    if (!dimensionModalProduct) return;
-    const w = dimWidth === '' ? 0 : Number(dimWidth);
-    const h = dimHeight === '' ? 0 : Number(dimHeight);
-    if (w <= 0 || h <= 0) {
-      showAlert('Informe largura e altura vÃ¡lidas.');
-      return;
-    }
-    const area = w * h;
-    const dimensions = `${w.toString().replace('.', ',')}x${h.toString().replace('.', ',')}`;
-    const product = dimensionModalProduct;
-    let consumoUnitario = area;
-    const rolo = dimLarguraMaterial || product.larguraRolo || 0;
-    if (rolo > 0) {
-      const cabeComoEsta = w <= rolo;
-      const cabeGirada = h <= rolo;
-      if (!cabeComoEsta && !cabeGirada) {
-        showAlert(`AtenÃ§Ã£o: nem ${w}m nem ${h}m cabem na largura do material (${rolo}m) em nenhuma orientaÃ§Ã£o. Confira as medidas.`);
-      }
-      consumoUnitario = calcularConsumoLinear(w, h, rolo);
-    }
-    // Se a largura do material foi mudada, salva como novo padrao pra proxima vez
-    if (dimLarguraMaterial && dimLarguraMaterial !== product.larguraRolo) {
-      await supabase.from('produtos').update({ largura_rolo: dimLarguraMaterial }).eq('id', product.id);
-    }
-
-    if (product.unitType === 'metro') {
-      // Metro linear puro: preco cobrado e sobre o consumo linear (lado que "sobra" ao encaixar
-      // a peca na largura do material, sempre preferindo o lado menor quando os dois cabem)
-      const valorCalculado = consumoUnitario * product.price * selectedQty;
-      const valorFinal = Math.max(valorCalculado, product.valorMinimo || 0);
-      const dimensoesTexto = `${dimensions} (${consumoUnitario.toFixed(2).replace('.', ',')}m linear)`;
-      setCart(prev => [...prev, {
-        productId: product.id,
-        name: product.name,
-        price: valorFinal,
-        quantity: 1,
-        dimensions: dimensoesTexto,
-        consumoEstoque: consumoUnitario * selectedQty,
-      }]);
-      setDimensionModalProduct(null);
-      setDimWidth('');
-      setDimHeight('');
-      setSelectedQty(1);
-      return;
-    }
-
-    // m2: aplica o valor minimo ajustando o preco unitario, pra manter a formula preco x area x qtd
-    // usada em todo o resto do sistema (carrinho, recibo, orcamento) sem precisar mexer nela
-    let precoUnitarioEfetivo = product.price;
-    if (product.valorMinimo && area > 0) {
-      const valorCalculado = product.price * area * selectedQty;
-      if (valorCalculado < product.valorMinimo) {
-        precoUnitarioEfetivo = product.valorMinimo / (area * selectedQty);
-      }
-    }
-
-    setCart(prev => {
-      const existing = prev.find(item => item.productId === product.id && item.dimensions === dimensions);
-      if (existing) {
-        return prev.map(item => (item.productId === product.id && item.dimensions === dimensions)
-          ? { ...item, quantity: item.quantity + selectedQty }
-          : item
-        );
-      }
-      return [...prev, {
-        productId: product.id,
-        name: product.name,
-        price: precoUnitarioEfetivo,
-        quantity: selectedQty,
-        dimensions,
-        area,
-        consumoEstoque: consumoUnitario
-      }];
-    });
-    setDimensionModalProduct(null);
-    setDimWidth('');
-    setDimHeight('');
-    setSelectedQty(1);
-  };
-
-  const updateCartQty = (index: number, delta: number) => {
-    setCart(prev => {
-      const updated = [...prev];
-      const newQty = updated[index].quantity + delta;
-      if (newQty <= 0) {
-        return updated.filter((_, i) => i !== index);
-      }
-      updated[index] = { ...updated[index], quantity: newQty };
-      return updated;
-    });
-  };
-
-  const removeFromCart = (index: number) => {
-    setCart(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const [discountItemIndex, setDiscountItemIndex] = useState<number | null>(null);
-  const [discountMode, setDiscountMode] = useState<'percentual' | 'valor' | 'preco'>('percentual');
-  const [discountInput, setDiscountInput] = useState<number | ''>('');
-
-  const openItemDiscount = (index: number) => {
-    setDiscountItemIndex(index);
-    setDiscountMode('percentual');
-    setDiscountInput('');
-  };
-
-  const applyItemDiscount = () => {
-    if (discountItemIndex === null) return;
-    setCart(prev => {
-      const updated = [...prev];
-      const item = updated[discountItemIndex];
-      const original = item.precoOriginal ?? item.price;
-      const val = discountInput === '' ? 0 : Number(discountInput);
-      const qty = item.quantity || 1;
-
-      // Subtotal ORIGINAL da linha inteira (todas as unidades, considerando area se houver)
-      const subtotalOriginalLinha = item.area ? original * item.area * qty : original * qty;
-
-      if (discountMode === 'preco') {
-        // O valor digitado e o TOTAL da linha inteira (todas as unidades juntas) â€” nao por unidade.
-        // Ex: 2 unidades, digitou 120,00 -> as duas juntas valem 120,00 (60,00 cada), nao 120,00 cada.
-        const novoSubtotalLinha = Math.max(0, val);
-        const novoPreco = item.area ? novoSubtotalLinha / (item.area * qty) : novoSubtotalLinha / qty;
-        updated[discountItemIndex] = { ...item, price: novoPreco, precoOriginal: original, descontoValor: undefined };
-        return updated;
-      }
-
-      const descontoValor = discountMode === 'percentual' ? subtotalOriginalLinha * (val / 100) : val;
-      const novoSubtotalLinha = Math.max(0, subtotalOriginalLinha - descontoValor);
-      const novoPreco = item.area ? novoSubtotalLinha / (item.area * qty) : novoSubtotalLinha / qty;
-      updated[discountItemIndex] = { ...item, price: novoPreco, precoOriginal: original, descontoValor };
-      return updated;
-    });
-    setDiscountItemIndex(null);
-  };
-
-  const removeItemDiscount = (index: number) => {
-    setCart(prev => {
-      const updated = [...prev];
-      const item = updated[index];
-      if (item.precoOriginal !== undefined) {
-        updated[index] = { ...item, price: item.precoOriginal, precoOriginal: undefined, descontoValor: undefined };
-      }
-      return updated;
-    });
-  };
-
-  const [obsItemIndex, setObsItemIndex] = useState<number | null>(null);
-  const updateItemObservacao = (index: number, texto: string) => {
-    setCart(prev => {
-      const updated = [...prev];
-      updated[index] = { ...updated[index], observacao: texto || undefined };
-      return updated;
-    });
-  };
-
-  const clearCart = () => {
-    setCart([]);
-    setSelectedCustomer(null);
-    setSaleDiscountValue(0); setSaleDiscountInput(''); setSaleCreditApplied(0);
-    // Limpa tambem qualquer estado de "editando pedido existente" ou "quitando debito" que
-    // tenha ficado preso de uma acao anterior cancelada â€” senao a proxima nota nova herda
-    // dados (valor ja pago, itens) de um pedido antigo sem querer.
-    setEditingFullOrder(null);
-    setSettlingOrder(null);
-    setScheduledFor('');
-    setOrderObservacoes('');
-    setDownPayment(0);
-    setEditingCreatedAt('');
-    setEditingPaymentsList([]);
-    resetPaymentEntries();
-  };
-
-  const [saleDiscountValue, setSaleDiscountValue] = useState<number>(0);
-  const [saleDiscountMode, setSaleDiscountMode] = useState<'percentual' | 'valor' | 'final'>('valor');
-  const [saleDiscountInput, setSaleDiscountInput] = useState<number | ''>('');
-  const [isSaleDiscountModalOpen, setIsSaleDiscountModalOpen] = useState<boolean>(false);
-  // Credito acumulado do cliente (ex: troco de dinheiro que ele nao levou), abatido automaticamente
-  // do total da venda quando aplicado aqui. Fonte da verdade e' clientes.saldo_credito.
-  const [saleCreditApplied, setSaleCreditApplied] = useState<number>(0);
-  const selectedCustomerCredit = selectedCustomer ? (allCustomers.find((c: any) => c.id === selectedCustomer.id)?.saldo_credito || 0) : 0;
-
-  const cartRawTotal = cart.reduce((acc, item) => {
-    const itemTotal = item.area ? item.price * item.area * item.quantity : item.price * item.quantity;
-    return acc + itemTotal;
-  }, 0);
-
-  const settlingRawTotal = settlingOrder
-    ? ((settlingOrder.items && settlingOrder.items.length > 0)
-        ? settlingOrder.items.reduce((acc, item) => acc + (item.area ? item.price * item.area * item.quantity : item.price * item.quantity), 0)
-        : (settlingOrder.total + (settlingOrder.discountValue || 0)))
-    : 0;
-
-  const activeRawTotal = settlingOrder ? settlingRawTotal : cartRawTotal;
-  const total = Math.max(0, cartRawTotal - saleDiscountValue - saleCreditApplied);
-
-  const applySaleCredit = () => {
-    const disponivel = Math.max(0, selectedCustomerCredit);
-    const maxAplicavel = Math.max(0, activeRawTotal - saleDiscountValue);
-    setSaleCreditApplied(Math.min(disponivel, maxAplicavel));
-  };
-
-  const remainingValue = Math.max(0, total - (downPayment === '' || typeof downPayment === 'string' ? 0 : Number(downPayment)));
-
-  // Aplica o desconto da venda a partir do modo escolhido (%, R$ de desconto, ou valor final desejado)
-  const applySaleDiscountInput = () => {
-    const val = saleDiscountInput === '' ? 0 : Number(saleDiscountInput);
-    let novoDesconto = 0;
-    const baseTotal = activeRawTotal;
-    if (saleDiscountMode === 'percentual') {
-      novoDesconto = baseTotal * (val / 100);
-    } else if (saleDiscountMode === 'valor') {
-      novoDesconto = val;
-    } else {
-      // valor final desejado: desconto = total original - valor final que o cliente quer pagar
-      novoDesconto = Math.max(0, baseTotal - val);
-    }
-    setSaleDiscountValue(Math.max(0, Math.min(baseTotal, novoDesconto)));
-  };
-
-  // Quitar Debito: abre a mesma tela de pagamento do Terminal, mas pra uma venda ja existente com saldo pendente
-  const paymentModalTotal = settlingOrder 
-    ? Math.max(0, settlingRawTotal - saleDiscountValue - saleCreditApplied)
-    : total;
-  const paymentModalItems = settlingOrder ? settlingOrder.items : cart;
-
-  // Soma a lista EDITAVEL de pagamentos (nao o campo downPayment travado) â€” assim, se a pessoa
-  // excluir um pagamento da lista, o valor "ja pago" cai na hora, refletindo a edicao
-  const alreadyPaidForSettle = (settlingOrder || editingFullOrder) ? editingPaymentsList.reduce((sum, p) => sum + p.value, 0) : 0;
-  const paymentModalRemaining = (settlingOrder || editingFullOrder)
-    ? Math.max(0, paymentModalTotal - alreadyPaidForSettle - paymentEntriesTotal)
-    : remainingValue;
-
-  const openSettlePayment = (order: SaleOrder) => {
-    setSettlingOrder(order);
-    setSelectedCustomer(order.customerId ? { id: order.customerId, name: order.customerName || 'Cliente', phone: order.customerPhone || '' } : null);
-    setPaymentEntries([]);
-    setDownPayment(0);
-    setScheduledFor(order.scheduledFor ? isoToLocalDatetimeInput(order.scheduledFor) : '');
-    setPendingPaymentMethod('');
-    setEditingPaymentsList(order.payments ? order.payments.map(p => ({ ...p })) : []);
-    setSaleDiscountValue(order.discountValue || 0);
-    setSaleDiscountInput(order.discountValue ? Number(order.discountValue) : '');
-    setSaleDiscountMode('valor');
-    setSaleCreditApplied(0);
-    setIsPaymentModalOpen(true);
-  };
-
-  // As 3 acoes do card de Entrega (clicavel em Servicos/Notas em Aberto e tambem disponivel
-  // dentro de Quitar Debito): editar a data, marcar como entregue, ou excluir o agendamento.
-  // Editar agendamento a partir do card (aba Servicos): antes isso tambem abria o modal
-  // grande de "Quitar Debito" por baixo do popup de data (via openSettlePayment), o que nao
-  // era necessario so pra mudar a data/hora e ainda arriscava um segundo save (o do modal
-  // grande) disputar/sobrescrever o valor logo depois. Agora seta so o minimo necessario
-  // (settlingOrder + scheduledFor) pra o popup de agendamento salvar sozinho, sem abrir
-  // o modal de pagamento.
-  const handleEditScheduleFromCard = (sale: SaleOrder) => {
-    setSettlingOrder(sale);
-    setScheduledFor(sale.scheduledFor ? isoToLocalDatetimeInput(sale.scheduledFor) : '');
-    setIsScheduleModalOpen(true);
-  };
-
-  const handleDeliverFromCard = async (sale: SaleOrder) => {
-    if (!(await showConfirm(`Marcar o pedido de ${sale.customerName || 'cliente'} como entregue?`))) return;
-    const nowIso = new Date().toISOString();
-    const { data, error } = await supabase.from('vendas').update({ service_status: 'produto_entregue', updated_at: nowIso }).eq('id', sale.id).select();
-    if (error) { showAlert(`NÃ£o foi possÃ­vel marcar como entregue: ${error.message}`); return; }
-    if (!data || data.length === 0) { showAlert('NÃ£o foi possÃ­vel marcar como entregue â€” o pedido pode ter sido removido ou alterado por outra pessoa. Feche e abra a tela de novo.'); return; }
-    const atualizado = { ...sale, serviceStatus: 'produto_entregue' as any, updatedAt: nowIso };
-    setAllSalesHistory(prev => prev.map(s => s.id === sale.id ? atualizado : s));
-    setSalesToday(prev => prev.map(s => s.id === sale.id ? atualizado : s));
-    showAlert('Pedido marcado como entregue!');
-  };
-
-  const handleDeleteScheduleFromCard = async (sale: SaleOrder) => {
-    if (!(await showConfirm(`Excluir o agendamento de entrega do pedido de ${sale.customerName || 'cliente'}?`))) return;
-    const nowIso = new Date().toISOString();
-    const { data, error } = await supabase.from('vendas').update({ scheduled_for: null, updated_at: nowIso }).eq('id', sale.id).select();
-    if (error) { showAlert(`NÃ£o foi possÃ­vel excluir o agendamento: ${error.message}`); return; }
-    if (!data || data.length === 0) { showAlert('NÃ£o foi possÃ­vel excluir o agendamento â€” o pedido pode ter sido removido ou alterado por outra pessoa. Feche e abra a tela de novo.'); return; }
-    const atualizado = { ...sale, scheduledFor: undefined, updatedAt: nowIso };
-    setAllSalesHistory(prev => prev.map(s => s.id === sale.id ? atualizado : s));
-    setSalesToday(prev => prev.map(s => s.id === sale.id ? atualizado : s));
-    showAlert('Agendamento excluÃ­do!');
-  };
-
-  // Monta o objeto de pagamento a partir do que esta digitado no formulario (valor/percentual,
-  // forma, parcelas, taxa e data). Retorna null se nao ha valor valido digitado ainda.
-  // Usado tanto pelo botao "+ Adicionar" quanto pela protecao automatica do handleFinalize
-  // (evita perder um valor digitado e nunca clicado em Adicionar).
-  const buildPaymentEntryFromInput = (): PaymentEntry | null => {
-    const rawInput = newPaymentInput === '' ? 0 : Number(newPaymentInput);
-    const baseValue = newPaymentMode === 'percentual' ? Number(((total * rawInput) / 100).toFixed(2)) : rawInput;
-    if (baseValue <= 0) return null;
-    let value = baseValue;
-    let installments: number | undefined;
-    let feePercent: number | undefined;
-    if (newPaymentMethod === 'cartao_credito') {
-      installments = newPaymentInstallments;
-      feePercent = creditCardFees.find(f => f.installments === newPaymentInstallments)?.feePercent || 0;
-      value = Number((baseValue * (1 + feePercent / 100)).toFixed(2));
-    } else if (newPaymentMethod === 'cartao_debito' && debitCardFeePercent > 0) {
-      feePercent = debitCardFeePercent;
-      value = Number((baseValue * (1 + feePercent / 100)).toFixed(2));
-    }
-    const dataLancamento = useCustomPaymentDate && customPaymentDate ? (localDatetimeToIso(customPaymentDate) || new Date().toISOString()) : new Date().toISOString();
-    return { method: newPaymentMethod, value, date: dataLancamento, installments, feePercent };
-  };
-
-  const confirmAddPayment = () => {
-    const entry = buildPaymentEntryFromInput();
-    if (!entry) { showAlert('Digite um valor vÃ¡lido para o pagamento.'); return; }
-    setPaymentEntries(prev => [...prev, entry]);
-    setNewPaymentMode('valor');
-    setNewPaymentInstallments(1);
-    setUseCustomPaymentDate(false);
-    setCustomPaymentDate('');
-  };
-
-  const removePaymentEntry = (idx: number) => {
-    setPaymentEntries(prev => prev.filter((_, i) => i !== idx));
-  };
-
-  // Cliente pagou em dinheiro e nao quis levar o troco: guarda a diferenca como credito no
-  // cadastro dele, pra abater automaticamente numa proxima compra
-  const [isSavingTrocoCredito, setIsSavingTrocoCredito] = useState(false);
-  const handleSalvarTrocoComoCredito = async (trocoValor: number) => {
-    if (!selectedCustomer?.id || trocoValor <= 0) return;
-    setIsSavingTrocoCredito(true);
-    try {
-      const saldoAtual = allCustomers.find((c: any) => c.id === selectedCustomer.id)?.saldo_credito || 0;
-      const { error } = await supabase.from('clientes').update({ saldo_credito: saldoAtual + trocoValor }).eq('id', selectedCustomer.id);
-      if (error) throw error;
-      await loadAllCustomers();
-      setCashReceived('');
-      showAlert(`R$ ${trocoValor.toFixed(2).replace('.', ',')} guardado como crÃ©dito para ${selectedCustomer.name}.`);
-    } catch (err) {
-      console.error('Erro ao guardar troco como crÃ©dito:', err);
-      showAlert('NÃ£o foi possÃ­vel guardar o troco como crÃ©dito.');
-    } finally {
-      setIsSavingTrocoCredito(false);
-    }
-  };
-
-  useEffect(() => {
-    setDownPayment(paymentEntriesTotal);
-    if (paymentEntries.length === 1) setPaymentMethod(paymentEntries[0].method as any);
-    else if (paymentEntries.length > 1) setPaymentMethod('misto');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paymentEntries]);
-
-  useEffect(() => {
-    if (enabledPaymentMethods.length > 0 && !enabledPaymentMethods.includes(newPaymentMethod)) {
-      setNewPaymentMethod(enabledPaymentMethods[0] as PaymentEntry['method']);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabledPaymentMethods]);
-
-  // O campo de valor sempre vem preenchido com o saldo restante â€” ao abrir o pagamento,
-  // ao adicionar um pagamento (recalcula o que falta), ou ao trocar de forma de pagamento.
-  // Nunca mexe no modo (R$ ou %) escolhido pelo usuÃ¡rio.
-  useEffect(() => {
-    if (!isPaymentModalOpen) return;
-    // Editando os itens de uma nota que jÃ¡ existe (ex: adicionar mais um produto): NÃƒO
-    // prÃ©-preenche o campo com o saldo restante. Nesse modo o usuÃ¡rio normalmente sÃ³ quer
-    // salvar a alteraÃ§Ã£o dos itens sem lanÃ§ar pagamento nenhum, e o botÃ£o de salvar reaproveita
-    // qualquer valor que estiver digitado nesse campo â€” se ele vier preenchido sozinho com o
-    // saldo total, a nota Ã© quitada (status "pago") mesmo o usuÃ¡rio nÃ£o tendo digitado nada e
-    // mesmo o botÃ£o mostrando "R$ 0,00" (o texto do botÃ£o nÃ£o olha esse campo nesse modo).
-    if (editingFullOrder) {
-      if (newPaymentInput !== '') setNewPaymentInput('');
-      return;
-    }
-    if (newPaymentMode === 'valor') {
-      setNewPaymentInput(paymentModalRemaining > 0 ? Number(paymentModalRemaining.toFixed(2)) : '');
-    } else if (newPaymentMode === 'percentual') {
-      const pct = paymentModalTotal > 0 ? (paymentModalRemaining / paymentModalTotal) * 100 : 0;
-      setNewPaymentInput(pct > 0 ? Number(pct.toFixed(2)) : '');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPaymentModalOpen, paymentModalRemaining, newPaymentMethod, newPaymentMode, editingFullOrder]);
-
-  // Soma por data de CADA pagamento (nao pela data de criacao da nota) â€” uma nota paga em
-  // partes em dias diferentes conta o faturamento em cada dia certo, nao tudo de uma vez
-  const faturamentoHoje = useMemo(() => {
-    const inicioHoje = new Date(); inicioHoje.setHours(0, 0, 0, 0);
-    const fimHoje = new Date(); fimHoje.setHours(23, 59, 59, 999);
-    return allSalesHistory
-      .filter(o => o.status !== 'canceled')
-      .flatMap(getRevenueEventsForSale)
-      .filter(ev => { const d = new Date(ev.date); return d >= inicioHoje && d <= fimHoje; })
-      .reduce((acc, ev) => acc + ev.value, 0);
-  }, [allSalesHistory]);
-
-  const handleFinalize = async (isPending: boolean = false, forceZeroPayment: boolean = false) => {
-    // Protecao de UX: se o usuario digitou um valor no campo de pagamento mas esqueceu de
-    // clicar em "+ Adicionar", inclui esse valor automaticamente na lista antes de processar â€”
-    // evita registrar/quitar um pagamento de R$ 0,00 por engano so porque o valor ficou
-    // digitado no campo e nunca foi confirmado na lista.
-    const pendingEntry = forceZeroPayment ? null : buildPaymentEntryFromInput();
-    const effectivePaymentEntries = pendingEntry ? [...paymentEntries, pendingEntry] : paymentEntries;
-    const effectivePaymentEntriesTotal = effectivePaymentEntries.reduce((sum, p) => sum + (p.value || 0), 0);
-    if (pendingEntry) {
-      setPaymentEntries(effectivePaymentEntries);
-      setNewPaymentMode('valor');
-      setNewPaymentInstallments(1);
-      setUseCustomPaymentDate(false);
-      setCustomPaymentDate('');
-    }
-
-    // Play money sound
-    try {
-      const audio = new Audio('/sounds/sale-complete.mp3');
-      audio.play().catch(() => {});
-    } catch (e) {}
-
-    // Edicao completa de uma nota ja existente (itens do carrinho alterados): atualiza a mesma
-    // linha no banco (itens + total) em vez de criar uma venda nova, e ajusta o estoque so pela
-    // DIFERENCA entre o que tinha antes e o que ficou agora (nao deduz tudo de novo).
-    if (editingFullOrder) {
-      // Recalcula o total pago a partir da lista EDITADA de pagamentos (editingPaymentsList),
-      // nao do downPayment travado da nota original. Usar o downPayment antigo aqui somava o
-      // valor anterior com o novo mesmo quando um pagamento existente foi removido/substituido
-      // na edicao (ex: 50 excluido + 60 lancado virava 50 + 60 = 110 em vez de 60). Assim o
-      // total pago fica sempre igual a soma real do array que vai ser salvo (idempotente).
-      const totalPagoAnteriorEditado = editingPaymentsList.reduce((sum, p) => sum + (p.value || 0), 0);
-      const totalPago = totalPagoAnteriorEditado + effectivePaymentEntriesTotal;
-      const novoSaldo = Math.max(0, total - totalPago);
-      try {
-        // Ajusta estoque so pela diferenca de consumo entre os itens antigos e os novos
-        const consumoItem = (i: any) => i.consumoEstoque !== undefined ? i.consumoEstoque * i.quantity : (i.area ? i.area * i.quantity : i.quantity);
-        const consumoAntigo: Record<string, number> = {};
-        (editingFullOrder.items || []).forEach((i: any) => { if (i.productId && i.productId !== 'manual') consumoAntigo[i.productId] = (consumoAntigo[i.productId] || 0) + consumoItem(i); });
-        const consumoNovo: Record<string, number> = {};
-        cart.forEach((i: any) => { if (i.productId && i.productId !== 'manual') consumoNovo[i.productId] = (consumoNovo[i.productId] || 0) + consumoItem(i); });
-        const todosIds = new Set([...Object.keys(consumoAntigo), ...Object.keys(consumoNovo)]);
-        await Promise.all(Array.from(todosIds).map(async (pid) => {
-          const delta = (consumoNovo[pid] || 0) - (consumoAntigo[pid] || 0);
-          if (delta === 0) return;
-          const { data: prodAtual } = await supabase.from('produtos').select('current_stock, controla_estoque').eq('id', pid).maybeSingle();
-          if (prodAtual && prodAtual.controla_estoque !== false) {
-            const novoEstoque = Math.max(0, (Number(prodAtual.current_stock) || 0) - delta);
-            await supabase.from('produtos').update({ current_stock: novoEstoque }).eq('id', pid);
-          }
-        }));
-
-        const pagamentosFinaisEdicao = [...editingPaymentsList, ...effectivePaymentEntries];
-        const { data, error } = await supabase.from('vendas').update({
-          cliente_id: selectedCustomer?.id || null,
-          customer_name: selectedCustomer?.name || editingFullOrder.customerName,
-          customer_phone: selectedCustomer?.phone || editingFullOrder.customerPhone,
-          items: cart,
-          total,
-          discount_value: saleDiscountValue || null,
-          down_payment: totalPago,
-          received_value: totalPago,
-          payments: pagamentosFinaisEdicao,
-          status: novoSaldo <= 0 ? 'completed' : 'pending',
-          observacoes: orderObservacoes || null,
-          scheduled_for: localDatetimeToIso(scheduledFor) || editingFullOrder.scheduledFor || null,
-          created_at: editingCreatedAt ? new Date(editingCreatedAt).toISOString() : editingFullOrder.createdAt,
-          updated_at: new Date().toISOString(),
-        }).eq('id', editingFullOrder.id).select();
-        if (error) throw error;
-        if (!data || data.length === 0) throw new Error('O pedido nÃ£o foi encontrado pra atualizar â€” pode ter sido removido ou alterado por outra pessoa.');
-
-        // Se essa nota tem Orcamento e/ou Contrato vinculados, mantem os itens/valor deles
-        // em sincronia com o que foi editado aqui na nota
-        const idsVinculados = [editingFullOrder.orcamentoId, editingFullOrder.contratoId].filter(Boolean) as string[];
-        if (idsVinculados.length > 0) {
-          await Promise.all(idsVinculados.map(id =>
-            supabase.from('orcamentos').update({ items: cart, total, desconto: saleDiscountValue || 0 }).eq('id', id)
-          ));
-        }
-
-        const updatedOrder: SaleOrder = {
-          ...editingFullOrder,
-          customerId: selectedCustomer?.id || editingFullOrder.customerId,
-          customerName: selectedCustomer?.name || editingFullOrder.customerName,
-          customerPhone: selectedCustomer?.phone || editingFullOrder.customerPhone,
-          items: [...cart],
-          total,
-          discountValue: saleDiscountValue || undefined,
-          downPayment: totalPago,
-          receivedValue: totalPago,
-          payments: pagamentosFinaisEdicao,
-          status: novoSaldo <= 0 ? 'completed' : 'pending',
-          observacoes: orderObservacoes || undefined,
-          scheduledFor: localDatetimeToIso(scheduledFor) || editingFullOrder.scheduledFor || undefined,
-          createdAt: editingCreatedAt ? new Date(editingCreatedAt).toISOString() : editingFullOrder.createdAt,
-          updatedAt: new Date().toISOString(),
-        };
-        setLastFinalizedOrder(updatedOrder);
-        // Reordena pela data/hora real da transacao (createdAt) â€” editar uma nota nao deve
-        // mudar sua posicao cronologica no historico.
-        setAllSalesHistory(prev => prev.map(s => s.id === editingFullOrder.id ? updatedOrder : s).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
-        setSalesToday(prev => prev.map(s => s.id === editingFullOrder.id ? updatedOrder : s));
-        setIsSuccessModalOpen(true);
-        setIsPaymentModalOpen(false);
-        setEditingFullOrder(null);
-        setCart([]);
-        setSelectedCustomer(null);
-        setPaymentEntries([]);
-        setDownPayment(0);
-        setScheduledFor('');
-        setOrderObservacoes('');
-        setSaleDiscountValue(0);
-        setSaleDiscountInput('');
-        setSaleCreditApplied(0);
-        setEditingCreatedAt('');
-      } catch (err: any) {
-        console.error('Erro ao salvar ediÃ§Ã£o da nota:', err);
-        showAlert(`NÃ£o foi possÃ­vel salvar as alteraÃ§Ãµes: ${err?.message || 'erro desconhecido'}`);
-      }
-      return;
-    }
-
-    // Quitar Debito: atualiza a venda ja existente em vez de criar uma nova
-    if (settlingOrder) {
-      const novoTotalPago = alreadyPaidForSettle + effectivePaymentEntriesTotal;
-      const novoSaldo = Math.max(0, paymentModalTotal - novoTotalPago);
-      // Usa a lista EDITADA (pode ter pagamento excluido ou data alterada), nao a original travada
-      const pagamentosFinais = [...editingPaymentsList, ...effectivePaymentEntries];
-      try {
-        const { data, error } = await supabase.from('vendas').update({
-          total: paymentModalTotal,
-          discount_value: saleDiscountValue || null,
-          down_payment: novoTotalPago,
-          received_value: novoTotalPago,
-          payments: pagamentosFinais,
-          status: novoSaldo <= 0 ? 'completed' : 'pending',
-          pending_payment_method: novoSaldo > 0 ? (pendingPaymentMethod || null) : null,
-          scheduled_for: localDatetimeToIso(scheduledFor) || settlingOrder.scheduledFor || null,
-          updated_at: new Date().toISOString(),
-        }).eq('id', settlingOrder.id).select();
-        if (error) throw error;
-        if (!data || data.length === 0) throw new Error('O pedido nÃ£o foi encontrado pra atualizar â€” pode ter sido removido ou alterado por outra pessoa.');
-
-        const updatedOrder: SaleOrder = { 
-          ...settlingOrder, 
-          total: paymentModalTotal,
-          discountValue: saleDiscountValue || undefined,
-          downPayment: novoTotalPago, 
-          receivedValue: novoTotalPago, 
-          status: novoSaldo <= 0 ? 'completed' : 'pending', 
-          payments: pagamentosFinais, 
-          scheduledFor: localDatetimeToIso(scheduledFor) || settlingOrder.scheduledFor || undefined, 
-          updatedAt: new Date().toISOString() 
-        };
-        setLastFinalizedOrder(updatedOrder);
-        // Atualiza so essa venda localmente (nao recarrega a tabela inteira, que fica lenta com muitas vendas)
-        // Reordena pela data/hora real da transacao (createdAt) â€” quitar debito nao deve
-        // mudar a posicao cronologica da nota no historico.
-        setAllSalesHistory(prev => prev.map(s => s.id === settlingOrder.id ? updatedOrder : s).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
-        setSalesToday(prev => prev.map(s => s.id === settlingOrder.id ? updatedOrder : s));
-        setIsSuccessModalOpen(true);
-        setIsPaymentModalOpen(false);
-        setSettlingOrder(null);
-        setSelectedCustomer(null);
-        setPaymentEntries([]);
-        setDownPayment(0);
-        setScheduledFor('');
-        setOrderObservacoes('');
- xœì½[sG–0ø>¿"ñ@› ¯’eš¢‚"%[±’È!iuokRU$ªTÁU^ŒfÄFìÃÆ÷ô=ì>mìÃÎÎƒ£¿ˆØø&æe?ş“ù%{ÎÉÌªÌ¬ÌªHÉîÂºäåäÉ“ç~£OdGAä‡Ñù‘w=	¢ìUb¿Ónw¿ùÆò‡N¼qp¦Ãxeo¼ñ,è¬¹xMg™µ‰ı$ğÃlo:‡¯4qÃ†^6±N$ÛÌ‹®»l¿;Œ£4}¸'ö3øÃ¼˜ı83/aşíŸao·W< v9Š/÷ÆA’u>¼¾ı·˜Å!›Æizûç‹`Ì’à<L³ˆÙÔ;÷pîñ6û|<éO‚4õÎöÇ?²6vËü ¦‚aèÇí›ÅÀÅß$ÈfIÄ¯òk8êŒ…‘7>ˆ/#^öÆ‘ƒßI,/=akl›u|õ©ÇY»İg×Ó >c¥›0vX´¶xùõl2µ‰®"Æp–$pñ8˜xaïÁ0^yÙ¨?ñ®:k+,‹3oÌz¥ÑjmLùµô4>ñ.ûDŞ¾ƒÁggÁ0/qıYcÒoş[]e'1K½ñ…Ç Ä‘ÏAfğ–ÅdE™¥3/	c†€‚›M<æ{™·:ŠM¼hæñÕ@6Ûz“)4=şløÏã¤Ûg{ğDŠSô=vİÁt&Å’Ã·dÂì;-ìŞó½V0¡®dË|!¼{îE#F>›hƒ÷fY<ñ²píÁà6˜z)Li‡)ƒoë_V¨Õ|^²é)lˆ„Ep+õ`	Y¯¸4‰/ Ïú
-ğı` M®¼A?‡°Pğ='Áiü";Ú´sf‘À‚¾ <o(L¼$ƒ	ãv„–J˜±oÃsœ.hoÇ‰ÀÅwñ+4 ÷ièo³pÿıçsX?Š/;İ›+ÿ 7ñd
-ûú<%ºÜçWôCŸöŒÖ›³vşÆ, 	¾’c@©Àß×ğ%ó¹×°¶'#¸NìÑd@L{ê‡@ò¾Â,˜¤Ûìm¿ßxŞÉë´1ä_¥ÛˆÂ:IÔ€¿Tì¦íÒşZÉ©Ç0€åõEË®Ç¦*‰6.Âèõšß·÷mû²?aÛÓÚ¼º°ÁK“L3/›ÁtäzÂÚ¢¹6¼ÔF°4Å
-'`Š¿‰‚K†hÓéö³øÅÉá	‘·N7ïAÁîm}7Ø Ò ¹ğ†q £"¤=,®hopŠ­Ğ&¤m°£OfSoà¥œ¸À°YA0Ú7¸ëéŒäfã1§‘Yro¾WæDB¶õƒpœª8cï1ó.½0c©è®–Ä“N›UÚîöùËå0xı>"t§¹õÕ-°R~t:Š#ëÖ Åbğ6éGqv‚¼§mãï§Éù#~}<Á?ªañ°hğıD ,ØºêwA¾Ş›Í.ºpÉqàß¢u¹ø ù/å®ÄŞ÷gˆ¾â!¥eÃÅ+µl<ùQôéğ8Œ~üCyí…_~A3¹Vj¦¾rÓís‚-š`Æ°W%ç†O6JâKŞù]u Æ[6„Ø´Ÿzá•Wœ¨q€±?Â˜à°†óiÂU:Ïá „ÅJb^€#7FNÒÇç1` )Ï#äàù(À\$AºJÌC˜v‹N‘=&ÔÁ8C“G°CØ.7õõ~ê¾Ò8àò
-ù‘‡<9J`€F‚5ã¿¢#¾×•–;xÚôÏÂqÜµûx—ÚïÓŒ†,İ_˜W>C3@@"&Ş´ã¥×ÑQ]lBg3öcæs°>æmáÕÙ$~&ÀŠê‘XŸş¿úãÌ‹²0»VßæCè{ zù2}7^µß
-×®ÓNœó^ót“J¹ôí?ÛbK¿‡ñXÁ&³${ï­À\Ã~ì´C8ø"H¯Á‰äÍ‹Áºä?úfÒ3oœª$#§'BÖXAä¢¯4¨Îø¹µoJíDñE¾*:GoöĞËQ «6SFÈ·Ê]VëÙÔÇãzÎ´nkCºqƒx¥ªdqó­“µ†ü#FE”OïfÅñdãÙIÏFÚ‘É?Y8Q°zÀñ·Í›g}Ï‡$LÍg ¿øÅz"Êá*vj÷òMp8Ğ	d<ğ’¶¹­Ú“ÿñß‰£šEín×ì{ƒè…Ã'¢4ü$8`½@ävı( òùŸÏÅ™ï÷Óq8:½GÈ‡}?É>¬‹ÊÈ—áğŞX¶m¢]Å; ‰Ë—”Ñ_¸Ñ&÷NÁÜ›üPêªGÇ	©”ó.‚0$;Nnæôx$G8F×P8‰Ù~Ç³Û?@şóù??­¾P$T¹òÑŠôY=ÑÔo¥XùY­í#ÉA ŸŒã@=Ã
-ŸGlµ™ÔÍU”®yyiŞîSè048„ ”ÀIe"î0ÃàD
-ˆ;ÁÕ6°¾ñ Ï²„Äk8»+æŒÒV\´L†O‚pàã©ŒÈ/ÛBıÌı,L&:ÈmÂB=5JÈº™Š£ŒwÊI6!ã±l&…s7ò;¡P8Á±9Ä–Q½bv	×»OúÔÒ{	$[WZ R_gµ‘mh+#í•g×Õ–Ü6Âb4ãØó÷”©vJ
-+…õùşå³m¶7¾ô®S!’$@VOp+;†¼”¼±vxÌÒi0ÏÂ!4ñ­¼À{¨j@^'…ñäœ&y)ªó2¾”T(>l?H;íEAÒ¦“p×€Ô¤@é½^CN;¼ıŞ/d1ÒœŒ©VR&ïÄÃÎ0ãR†qÔñ+Œ÷=D¤Y1X‡
-ŠJ(‰–¿È%&ı&GÉjÁÊJ‰‘´)ÚÉ"Æ¼Í×9Ò×÷Ãçó0gòn®şD¸ß|èöÿ‡Q¹­yIR)pK	BN)Õ±ã©ıÁÀùO€GVïVÉ±L¢v¹mŒ•º]ÌÒ”§ÀÕÀ'S®+N3ƒÿEe7H06êØHÔ8øÈÎé<ê·ı¬êÏ»šÂ¢8'İkÂ©®®6'¢¸¦Ê)šœøLú¿Á±«ê½¥"eÏ‡€Ó^NßQÌŸ 8B›HIÚ[Ö™¥x‡ş*0 Â¼Â”] mæòìüaÜÍU±¹$íy	ê‹è"óÁ¤<h0L¼:XÎPxDñË£sp·Q¸œ ¦V&
-`C<:]_yÓÀCªæ¤‰~S€Ç~â›mÀ‹°¸ K®¿%—Nh ÕØYúîä€à7Ğ[³ÁÖï÷ñnÁ	½n„àş.şJ…6­Áåm’²ïâœ	pâˆÿ4A>Ùì»Ÿ£r—í>VšTI›0ô¤§ P/6‰`¡¿OÔA=b;~¶÷2Ç	*`3]'t~e2®­-ÔDC­.•ğœl¨Ñpfè¡œfØÍq=¡Ú“Æ!	NcÎáLf>`Ù³Ì›zŒÎç.Êv£Ü>!’¾2@å„T>a /¸‚5%¥3P	d}Iøø¹~ù3/Í£Î7ü	Ù4ÜW&¼”àáéÉlˆc{AìdÉ,P:«ü.ˆ~£íÏã %zÍ³ŒıÓ\cˆ¦–
-ØĞ”ì`Şé¼}Wô¨¨ªs›\>4´V…E‘D!¢ú›¥Ñma¬¶,&8IİÅ÷×øò­ó6L_ âd@Õæé
-‡£qõì¬Yœd¸9
-òF¸Æöy8hlÇÁ<}xÃ¬ïÀÏïN_½¤{ÏÆgWráÿÀ÷İgazLFI ,šÜTÜ²È:b—ìøáâ^šâ™ı¸5ê½ÔvÖ×Ö.F½GI0é¾cgãàŠ³d½!ÒØ„ıV6<»–?½(œÀ,zaˆìÓßŸâx{_?`ş,ñé=X[kíæ[{ç[ìVßW ¼kï²7ñÙeïæÃ¦½õ5ØW™ì+zÃ wİ{¨4UÇeocğŸÁyÏCeö¾º!ÚÊ¯°$FIÙï½İÜ˜^5˜êäª‡ºD6#€1yx?L† ¤°ùÏ·ÖnØª6ÎU¨va´¡›F·q5†-e½A<öù€/G!JP‰7ü¨w_™±JÔCà6[»û¤{ŠB?ŞYm¨ÌgPÎI÷ü	¬Í“|ùÅôyÀ…iiL4€Õ-¿tÒÚ½ı/p0àv¾ıW$‘Ş 	QW9¤f•H:§©Àg¤µ~èõwV§¥.ŸÎ²,ô5$õÖ·x¯ãó‹£}x<ïˆEKÅsN½nv÷h8*{(î¬òŒ5ÓVñhš@bú…É¼äàÅ›Æ@5°ôa(3@x”RÇ!  wû3úØ¡e‚©{SìÕ|óÈ'Ìâ$© H#8LÆÁ+Òğ fW®áU´»ü,€«h(S ·%ŠÎv¯åI*SƒŠ7 İ(µÃáÿŞË€eÔô¼O°0ĞpGé8b8*H$P8¡ü]ùÈ…p¨t€/Ğs&d pıó C Ğ+ğ¬OTqW²ScÀš'ÙáÙwme¡ŠÛ•,”Î åó:ş”¬îÊüğ‚ÁXéÚ-8DPu¨è!şD,Œjñ <Í-!’Ì	ƒ sæˆl"]+rÈ«ÑÃ¢mG!î¸ÓFÙ°cØ:äRj‡H¬€çˆ«gÓNGëSÁ”Î´ĞÉ(ê^ÔƒM5y–A§†w“îµMY¤C”ï¤¾u:Á{ºÈ•ìªIÚù“|ñ0ªwO¯§Ô-©zÉIg²Ñ&}íŠ«ê ?Ì<º]ü0Şnçª`¡î3e&¨¥Fõ¾„ßß“V§+Àª<;ö’s8ÔãqŒ‹Ÿïø}äST¯[ı,7¦…-³ËöQ¼vš¼Š9¡ĞÏ÷ú­@½nÀMWÙ¸Õ€şáÆ)¤¹ó‰Ãh˜Äl©Ät$+ÜÈÚ72åE®Òì³7AáŠÂŞ!É3¸‚÷r‘ı†»wŒ"­r•U¿1U~,p®ôMÎo‡¬ç8÷áÉóàá¬Ìv*GˆôQ£F‚>Ğ ŸHª‚ôIÿíÚ»BŞı/v577‹\}fgg$LsÒ‚MöA„÷®ŸÒA“øO8kÓ€7ÿ»qzÕá­h"+>ÙIÿ<ÑÖÑ´ÀêÑİÈ„}àö_ÇèÓD„Á(®GÀ9Ù®³0îh ¡YÍ¾ñx†Ü`ûí¿Â/ 
-YÜWU(×Ü‹•³0/4R»Ä s†‹‡KK'¼5\5^š‡†AÌL	§×…ÔÖ•=@ôî$Å¹{|.5aÀAĞ¤ò{7°Ñç…­ç¦kà‰Ú)Ç€mÆß¢0öö|õ7œéx‚3bÍšŞÆ iÁ	°øpkc-¿‰rn‡¼{èø³#WHà^ûòqñ¾Å¾€3ÂSş· …+ø¢ò^ÙÄ½ µkX£?^ªX…Œœ^““)T, :£½G°Èw‹Ïø«zãÆè·ñÑg‹Í#QØ¿b&²®¶Üıé,u>|>‡Û}m_ĞA‡•ÂÆÒ¾Aç]ÙŠtàU<uù‡fm@h]}¤`ÙoŒı‹£ÔÆ&Î®‹ÜÀ°•nx·´ËB"šıèÿKô/ÑçsKÃÊ¯oÿ×C\oR¼›n—Şã˜ÜèúšÔ¯ÿKÔîŞX›‡q¯£JıÃ¿D°YYÀ&¨vµ?ÚƒGo> ¢ù>›8´àÔI­'ôlŸ™.Õá3\4-Û©û·¹ƒË—õ wœææ±¨ê“Êú"É`v-º$y¯OŞZÃMAÓ•µD$™cÕõŞ>X[ËU'øO4T»¤cÔ	}½¶¶ú Ğ³\“ƒ*ŠKÒrˆÓ„dh_ÉÙ…¾D6ı '}é!Uè%áù(ë9TMs×é4ö€Ğ|ñ…"àã´”½j¨æØâ]âí_ø€8,ÿİ§ÙÓë¾å¡o¸ (/İ¬ïÍÒcÒù0Ò­³ğ*ğáôö¶ŸŞû©÷N›wšNK¨!8¬Ğ\q4ö†?H›^h¦×½Í|6ôePà«Ã•w_VŠ{Shëê
-…!4Æ†éd›ßK'-İ£) -ÀF×{Ó8¤ÆG¸üÛù·` l§ĞÎaQÒJÃni)iµìšMİ³“N=MÅDèºŞÚUP$§õ;«ø´öş¼<|@¨ıQp\û1®’Pü­?¼QûIGÀeüĞ[k±ÕİmD®ö*p/È OA¸ÅØ2ç:‘ê¦¤£Ò¶‡§~]n9Ò4/FÖÍX‹|à»;¿S¦¶º»³:0Ôišj3_ùêoØ©7`¯½‹ÏƒıfUŞ4éJAB.oŠCã$áª«àOÿaı¤/pALfP"$VMî È. *ÅÜ4ŠPtTŒ‰÷Íñ†à%À°Ôòd[^"í‹¦(ë>qsÒCH÷*­°ÛíÓ ™àQÀ‡Ğã‹mv2Š§S8zçìfÅÖPnTCMÕí¿“•ò¶›*J6)ÔXæ¤»\Ñ˜ô2[eGR{#›z_9šá}zT¶#ĞÅë¿EO²‘£ÅÍ©hã0wº*ZÁƒîd
-â€ŸàÅíÍqMom_¹V´u
-Çœ+î0 6òìJ¸}­œ&^:ÚpD:õ(ã(.ñ¾ğ¥L%ïL§ÎU3?õ/^ÑŒäÎs)lë~Ÿ¹¹×¿ÚC™C}ƒü™^ÀqqÕ!ïš‰ôfòtç ­•§[”[!K8îÃöBW8j’~ºf`¼•?¶n}¬ÔZÏxN\¦{Ô¿ÆÏw¥ê5¢V‚ûê*óÏÙù8Àîõ…Q€uøuàOÈã~—!ˆØK Ç	<¶»’›GŞtKã6VÒôXAygçVàp‡q—!Ï»Á æŸÁßşE˜†ƒBGÃpúK7æÔfÁá	Ìs„4ôÑõ]àê‹ğ;áâkE€¡6+Ã0™™—çş™n»‚ññpîÇ—ä_Àñ’Ò¸ñ†q½pÂó®š¸ƒJ'cÍQ¯"Ü°ñSĞ æÁõã9ïğÆ¸U¶_íoƒCD
-(æ›Y˜Ş,
-ó~3‰ŸV­iS;Úä¡F!ºí ÉOà«ŞFŸ¸Işóš`ÉWN|¼(Ï9úök’
-Æ4·[ÍŒ3O“mÍÆ™œ£“›€£dƒ¿Ä'ªà;²™ÀNL`t“ëß?;|Å¹IİÒ—s¤’QX*ºÔ2a,^ÉØIƒ‚m+YªG:·8Ù‚Ê7Öµ±¥µ!˜lÆ1€¼ª%“+.Ş#tş¸À:[ÌÊÌ €@3WjVïjv«$h ‚Yx5ûæË÷—iôÔWÄSÈ›ÿxJ]¹ş€Øm©0 fãöÿg€>Š’¬·(ãËÇÈ…´Š Ãö4ë==nw¹ÆãÄÔğ·õ~+wqı¾ì=b#ø_Ù‚BÆ66RPsÿäğ[F¢¼ÉZ+;dsöL³‡u$˜àùç“'vUŞà^úşÒv—‰ÇÁY¤£ıK¹-6o˜„3£%Eß¸êV·ä­QÆëyG?0úS=öÈ÷6}¢¸ÿ=@Ê8ö”¾
-m8‰4e„¡mG†áòÀÕAöó¢E.!ÂÂ$S•[¯f™Ş|İ GyÑéªôÓqàk5a}ŸÎ2eíWP*¡?jeUTwM|~\¢ª[G½’2K¡`sı¤2 ‰†w
-ÔûH†"´"ĞØ¶Ê¥è„èÓE@¹²x
-b‡!OØ—€	€p+ò·}fÀ‰†)ªõşé]vv3ƒ?0O~›;A‰Y¯ã7ş("ÅÛ<Î¾nš:A „ëÈHl°é ş!yş!p]pJZ?Sª m™‹Îuñ”=<7'çZ9³qõË:0çwpà¦º¡xrİ2:×ÊçœTilXÁvTñ_àøšƒuĞç`9ö+Ú|XÉJ4n¹ì;õö!r‚ÈåÑ¯õµzÆğíº|%¿²	WZ»ÇŞ™Çö’,%ü–Ènq-£±˜~wK.Í¦si¦µ k6]>¹\[[ïí½<únÏ1!øÌ):¢0•Ïm€Ö³EûäÍpx	úå–ö’ú©Y\…éG7Fe®ùğÕés²¿®°ÚêY 
-(z¬!GÈ…Uô0ûRŠwùªêÚNóxÔ>â8}N¦tœrbê~Å±hb1„Jˆï·¯ì[Ø½³l„ÀÀÀÚ¶2ÀU*d Uà0°	Z“–£Vù”øşm›êqşádS=¥h®&´_È«y6ùaÄkË0Y©Œ"Ó–­V*õ¯ğÎO±}áÛsÓ{sèRÙ,m:ÔX¤ÊuÚ®¦˜ƒ„÷¸ö¹›†ïh„Î<i·àüäK
-¼Ìkøâ¦~ˆ å,µdYpÏã+mVøˆMkšKåR¥”u“Vonr"Æ5'kı‰]°çŸƒ n³Şñç–Ù‚´ù­„n?	¦0Ê ÓîcÜJÛº½
-ÔìİŠ·çÖ8Ù
-ôÌUBœ¾[ÁßYÖûÉíŸxmom¢ŸŞN¶ïÖKğD?™œ›W$—Ğ÷­<¤@±çº/] a†CÔ„FCx¨r(ò[8;«£õÉ­mØõFjƒ5\æË‰ˆrŸõ6	]/2b«Ü¨R£ÃU>-åèÚt©cõ£KGƒ3v"õFü”ÉD‰íhÑË*+á®Ù\%‰êÃÂ†­Òd%XF(tÓIÁSªO.•¼cš~ëkS#¬î§GÅÀ4Î@ê—Óæ=W ŠäF½èögÌZIŞDè£ßi{ÒÑrÅq(^ ‚¥\×tgöÓö‰ª,/tç|î°J­’Fë‘è¢³éxü!ù|ÑÓ”­,m«ÖºD5§ºóÔóÏMCr®ÏåÄºGÔnlIm»ÊI^TÕ¬“ˆôríÑ
-Ê¬Š‡7º°ˆÚ¦uŒ@‡
-xù¬ÚN2MhN©íW‘_¦<Ö¤ü€Q¿¨µ::xƒ6R,†ãiP e/Ã4ë6Õê(Z·‰ ?1ÙùÎı
-ö& ÖOâ)ò	nGÕ3­1Ÿ?ÍÅXN]Ëeª±ÄÆQDYR;dÊµQ¦ÈÁ0¨Ğ*5aÍpùÂ`Wìş¯Ğ	¯pGÃÆnõv¬³G‰İğHW0(£bY‰D¢(lN.É_Ä=‡´ÉXy­•B)ëĞSG•*}»óŠH&´¥2üU Ÿüé\\fÕğm4ĞnqÍ§4`cƒJ=‚­£GMU‰KtgN¿®Ö/êÈéDb§Êò—˜â¯R
-µãQ•&LÚ¡…åyÑ¶vO0.Ä$N‹ğ»F‹½^‰ˆQOäÄHĞ_yJÉ·l¡µrœ.¦ºõZ¼SMdsRwÍíÜ¥¾—“x< _‚^ €ŸòŸ5Luõ!ĞĞÄ­Æ`r·Qüî“ôÅ±¸:á‰/œÌ<õc%sà™Òƒ,~SŸRP{PŞ4}g´`ïúdÉO¦ucª¨¤ [ğRû™3U•Á³ŸÃ­*{™+O Ú5š÷¥´ÖLÅeöc?¾œ[Ğ& kğ\
-gEÑ|ez¹ğ‘Â¦½Èß[¹RK¦+¨@ËŸ¹†k7WÍ€P£`Ğ]J±hig!úkP¾¯òËlx~á¤ë%šŒI(Rv¨Æó©¢òÖæ}Ì+™¢¹¿Vÿeöe¡«<4Ìój®-£¿™«òë|^\¨³Øäü÷®åYdú€ºZ³f™–úŞ`ğ¯‘S&¿ÕŸi¢¿4'°Ôú)Ê‹E—LŠ²B7YÅòÊIsj÷¿6UjLËsálÙ,<&c!+¹æÅ»Ó,‹ş [¶\€ ×›t¡¨äY$QÎşçì½£WĞ3zdÑÒµlÂ¼Fô/€á²·…F¾Ä'Ï\ê2ó\¶İuşI%ÃqÉIÓä0ş¡};áèœ…Í_]dÏ÷š[•Ú+ËË0LÀ)Ìé²k0-‹°#ìã ò_<+æÃÊ{3ÊıqPùËƒÊO¶0†•:‡ƒµ’<’%V~"0'ŒÇCÁäÔÆ¸§[|Zù)‚gˆ²ÈÃøÔ\g‘]wğâ\ÏC'‘Ï04ò[:6I‡x|²ù Òˆd|<‡•Ó`š!PsÊğŠGc iI«]¢¹ÃL}Ãwñ¡)ÚÎÑøà¦…Ÿ}Âk>Q6ai2éöd›B—K×—ÄÖæ$`Q¼nŞ²uú-“Û.¹/¶3î_TáöÑÓêV=© Ø*C—/aÓ$¸ı9n5ë³ùÆ¨².¹×Œ&™]fçzš+ŒËR´õH×=\Ëµ@ÉbŠ)ÚIİå=u’û¤ˆSçI<¡œ®KR–Š=)·®…‚hfIvHkrû½øÇ™î²y{Koñ¾·VƒGˆöšÛÙ*Lz¯39–Àk§!f;i0_J‚"h±ÂJQ¦¿&ø»€¤åÉ¸4‚S9Ì›ãBIúl´;âèy<œ¥.V´é&#Ú1ŠÇ~˜Œ[€	¥)Ûe§ÆÉ
-¦³È
-'Ü²D™!y`z3a7è³œËu‚ £ŞC5ƒ‰¡
-á—7”Ô¼¨3AÓ‡S¦2¬zÊT·Zr† Ügš‘¹Ÿ¿¤u¾ÕäÈ¯İJµËR¿+JQÚÅçfa—Áò~ÕOcØÿ¶'Ê¦ÅQÓàšiV¸$dnéÂoîQãÖhôz¥Q½œpóMë®=†/mÛÓÙ8­1mW0+Mœ0â©7³kØ­]ô¬ÙLf”ºÒªÂÛ´š3hä'Y–ªOZ”Ñ&}Q@nç³´tÍ½“d”nétn¢Kã(¦„[ÀI$"Wu^x¢0Ğ4*˜ ‡HJw¨FVÅëò¹râuçx›ÊONÇV³^ğí­™˜F–¤
-©Ê
-@#`>O.¯}µ–Çıj\§¹Nlp­j•¿¿m˜;OŒÍùŸÕ]]<<;Ó®»	r•J´Á~kíV¢`Ê#¥àçÙÙ]ï7ÎñÜ¼¦>‚i9ÛÔœ‰ÌX0‘ÿü¯ÿ/;D!
-oÜ
-˜1Şş7Ï.Â‹Ù œ.ÂÊâ]„i¼"’bÂv6‹È‰%òãÏÚ˜Ù»Åğy8¥;E’#ëÕ
-1`’_UÓ†“Šh¦paêU½çE´A†Xi““$¼âF¾×1Ãµ„ê¹gİ˜E€´-¡DÙs´¼…ÃÃEwÎR(8o¿3ÌäBìA›…»Ä";—È«·úS™*5z`…?¿è¬÷^'‰6óÌ/°¼œñŞõ™uaÔyRm>I ä>Íòiu*ø4üP
-jN~9ùQS‹ Ëş%
-Š¼‹àœÜhùYä¥ŸñBè7æ	Bƒµn£«1¼aÉ$ØÅªQÈÈ›ŒQzlôÈ…7gT}O/	eÿX2¾6ŸHşƒNc	uİgGùñ)
-İ¯€`2L<”©“,³_Mqû´\ø-Ò…‡2|¬~Rî»n:SØPpôê ¸V<*/#%Ö¡b*°¹Áq;ùjmÍÌ¬(‚¥>*í©VìñmÂìµ„™“<Ü[p)+•Gq’%“ço¢á»gtH²ò((“Ï¬t‘BéµµûÜË`cğº£X<«ÆòêNIïÉÀZ»¨<+º Š_2Çßë4Ï&Ï’ „ç!ÖPßÀ*©WÖ;(ÇVyqiÖrI»†Òí³	÷¢USh„	UïR3häã2Óamî3
-ÁßFığ¯Ì–Aj‡Ü†lä/æ4&ÜßEúşk¬ËÖE+Œ\95ì¹2N/0äp!Ñ^æìPB¥+é›Õ®V	¼ä:ê}ÍïëNY|¹|<{¾/ê†Xñ¨Z+¨˜-üïŸgpEtÑ$ò/?Eöñ(ÏHW¥ŠÒ_sw…õõÂ×)Ç2,¹jFÊp[k†P÷PQ¼•Âóó£ËyzdÔ™³·Îóa©dçh<Kuîƒ¥”ê–†*Cªš[æpbZòvCøŒäneö-È€sõğıÜc_”1‹âÂ[¿Êÿíú
-’ñÍ¶µÂ¼#·üËé	Õo‘+ñÇ›ê‡,š#QKı}~¬Qµ.dµ–$¼:¥áUšë ÕUƒac}Òb$üX›¨°Æl]Ä]Vö\	±jÍ6,V•Oz½í¨»°êºq<¸ûÜÏ‹£OyÅ¤ñxF®çgå¶„…¥ï›”}}}uƒñÙÙkº €z—¤HÁèL†DÖ('–TJÃs®MÉÒD_éè–%àÑ¾G’W¢v/¶­ÚŞ#qâŞ‘ØŒyCğwB}x[ÒÛ’ÉÖUCì'«¯{…= ÏÜ–méGTè‹f,{úıÉşŞ1;ü=}q´wì¶}Y—Şº®è	gDã´":c>UĞdzâ)¢ÇT–%W¡àƒ8²¨ÒÍ#†í-Z•E@–Û@}œ¼–!òÉ(k£İ<‹ı8µ‚¢ìXîòá£,w‡¯ööOÙÑñáÁ÷ğ÷å‹“SŸzç(5‰çvàš­ÛcÚ¸ı¶ïqmğØ­U¾4è
-*M§®h	³/ÀŞz¾“ƒ‡x¿ò,©4²Q0¼L¿¤¥fÂo5Ü¦pü 7{
-3&Ş‡Ñd’DT‘Õ¹²ÜèvÙ Ğ«fã›nGˆ€áQDï\Y”[»ùÊRüSƒ€†öP²ß7Šı«)·Ò·MÕ¹Š§ü+¦—K›ë‚
-æÇV_Í'‹õ›{/<D#¨ü R¾µûTÅ±açõvÿOÜÍş]´cAF»œêMéÈÄÕE$:[íÀ¶f^ö’‰®ô,Ğ£Ö¿ŞXQ"=©Ño•ı U.¿	º¡|©Y#?6–TŞvğ„w§´¹6¹ÚAÉñPÓÙCHy%ÔF[VkøÃ5<(ĞØO½E²ªŠ´O\´Åˆ%~vcËÉ;å¥E(ïÈ3?Ä„M;·Cë”‘†ü˜‚Â©ùÓøPvWqn–—QîR¢â¨K¯ó°œà^«ıTğêo7•«wÕ•	ĞBİòÌùò›á4PÚ\[e¼iN¤JÎÂAuwÇ¬%c/îÔÜoÓÑàFeîşÍZÏ2EGT²Aùtdxsøò¤½Cvx|û¿í½zöúôp¡ì-|@uÄ«"ÇKeÆ\iÙ²&ïx»ÅShxã2ƒ†”{çÇ#,ÓÃLÏ'‘Wg&©Ñà±m&}š!K-K2fÉtØ)¿•.ñBb‘M§üò_©Ï#4–÷D(Œæ~•dbÿğõéñŞß‰DéS‘V§‰j¼¨PRÊ:UAL§®Z¿©€ŞÕpë½R¸}K”z62[Ş‹Ïv ‡Cí¿€e6ÕF…PçÆai‰s§Íµ*Í^‘j4ãr.$küÄîmÅ½!¿vx×DŞ­´¾¶dÂ"”Ş’4í×CçŸ¿x½÷òÅïÔ¿yöú`ï×NÔ_$<3ÖLå>1;Ã859ÿÄĞï9a}å¥e¡éü»Y¦¨çY*c×C¢Ì=ñAô~”ÕéÀõ4ìµn.öâ7öÀª‚ŠÏ•öİ–»xëtĞ+Ëì;vÅh£ŒïEöëKökÎçæ‰®…Vb‹„†ìÈZªæXJØR6¹u#+ÅZ¿¥l¾ Vğºßì–MµèhFÀ8õ{6@tßdkÉÃ)Í©Şb
-×Hl8éŠ.-+˜ôÙ+?¸ü8	ÑÎ©)óÎq†ğ˜e^%¡]u?•„6	ÎÏË…Óo„Ûñ\kÁé4¦ÙãVÿjœ^­à¿­2ak)V[.ØñjîoòÆ­xà–ÕÒuFax…’‘ææ³”ş——©ü¸ßïó<À²êıÑØ‹ÂñÈ,OÇ?—é.0ÿ¤?Ä;VÚùËUS­ ™îRË´”9+]ø~:=¿¢$¹8ji:.fÖ¦-;Ï,7	G³gWÆRÛ¸+c¥ƒ«uHßáÍÀÇl÷© ~‹İpaâËÈXÚ…Vi.å¯*'Ÿö±ª„t;vîdçi•r‰L©‹¾ğ’Ğ‹€’¥Á0†µM®]O.’H¶^ôç4ÎÕ“¡;ÏÏÇ÷úÚ—ŠßòÓo…2²W6ü•²öJ (8;E§$‘d‚^y³%V4sÓı`ìÎêÓ
-vónªçª/g’R.n•%Ç;®,9¦7[Õ§³ñ¯¼ä‡½ôÈ+×Jæ×¢¾âGÌ¼ó˜u¬Ë|Óı…¡¯ŠïvÑø—„>&]ğ¢¢è¯ÜÔµGm´,ìg<×O0|OSï×uÉ¤‹òÊ–nUø´¨} €Ê"ÉÂüj8…	Ë)=Qùûü…A(±L³ìx ğßYoc‰OŠ”’£³ƒĞƒßÏ„8†oPMàF!-ÿõv­¿¶ñÎÊ„=ĞT\Ô’"—ğ.¥ …³°/5ï¼-óF,ôA$¡’6íFåÇá7Ì£Ä¾—±ú6“‚÷MÙáZ4Ã…”÷~è©m©ĞÉS5rî¥`û~ˆ`T-8oø·ÀXY¹ÍwÖ¦+¥ı}#ûK)ëÑ…Ş¾ã®‚'A·h@näX/¤A& ş&.O½A_¬aşøR{BßÂXqÏVtÊ¢v6yÉ·µ¤‹C›è._¢‹|„Ù\Å¤2°{ô4Hk‰Ğ¨õæ—*tôŸ¶)Óowì¸^‹jÕª%·,‹•6Á ª¥ØYŸÏâŠëtL#1{ê%”ˆƒ›×c İÛì(HœQƒMpä&a¢_Å„ø…?
-Hï$ó²YJNÊ”f ĞÙ=•£QC’—k‰lËĞÃşƒ2İƒ9›Ì¦1[W&Zvrv:h„ãjŒUÅŞ5Š¨|¸Øª{]¸D´ƒØ4'Î ‡BsğÍ±†=ğäâ‰}¬ê…ÿœ{]SŞGÂİá–‚`áğóoBÊ.sÓ¡³P1Mz_qŠ¥ÆD([[—hk³>‰•BAª©•!"VeÕÈ‘å¥ñµVÌ½»n3¥&%üh·—Æ	³äó%šµm+ŠÇU®ÜUeEU	¶¾\ıïê¼LİÚ(ZCŒàĞº’Yİr}\Npnª×€t/¹ısìc£$#Q®t–ÿ¬ ~.šÄû˜¸ÏkbÀS˜æ²šf1Zßé¯™TË­¶oXG£Ë^5ŠQ•èäeq74ÆH!ê_-D_àø&Ğ¡ <LÛ`5Ló7TÍGk×Ënÿä²×ŞÛZıéjVğ4^`ıö`M+8ï[ ãí5ˆ:£é—$äù¦1H¹X
-ºÚˆ~O•©%ÛS³†n“4N…ºÃŒPúk%İÛÕìøÒä=q*¸œòéIœd8ÔD"o~»X`í6ªû=ü»-.TlëyM;¯¼0e˜å&…9ˆÂI&15M·°JZ½ó;¿´Åìa}‰‰|I	’5ÚÙK’øg¿©ûµ‡¿4YSøÑ3ßOO4—=ëTZ(3B)Ÿb	^ÂÎê÷0/«¯è2×é`^J¢£h‰^Éki®zé]Íş6	}›ÚIi/Š“‰¦{-/ÏcQİí*m¼¿ÅXà—½üáÂZíèN*¦‡Š	?•j&òãÄ·QcæEv[3~ÄF½p)*ø§af “_ÁşúJM
-Q[İÈnâÎ1Ò§G;åbAåQ¡Új 1réĞÀt©Éw.4e‘;¨­Ê±ÎˆfuªûèçÙæ¶TìqÄs^ÉãÎ¢P¹KaÇŸòÑöIYø0à$õ¶BÕóË›ç$"Ã;>œRª¢m±C‹;\\}áJ_Ôô²ÇÌF{¤’zò^H²XÕOOØ¿fßàº~û=cƒĞ·h¸Ù±¼UÙĞ³S+ïÿ³¸RÛp>Œ~éRå‹C/c½ÇıüšíÕweŸn‘’{¹#|ß—^”ix¥í~UÎÇ£q	Å;òR ’Ì‹ßû°F™Œ$ã™ßÙÁíŸèf“v†	q4´ŸÜşÉ¯m‰ˆæYÑP³ÃœŠë·ÿnT¶1ˆÇ6Š§üBõpì^j£Çk”åÕ…¬Hp¿'|ù’x
-48‚ß9e@bá^*0a·3<;ß¶Æ;è¶Ë¹5Çv3ÖññÔ‚¶×¤]íœîÚÉÈÏf›u¨aîŞ‡¾íÑá8ğ’m‘RÕù‚‘© J·Ã¸Â¢f ´ LÑZ¾ì¬«Ù'’½Ou.ò'ÙY§3ÍÒ°ä÷š1F™’rrœáH½aÖ‡¯‡ƒ? ¸v¾;}õò ¼x6pÓ[‡<È"ç«Ü\õ6Ü˜-Ûó4&, l…¦ß¿øuúÙHşd7 $Tz: z„Í!i²¶7Î($¾“8_ğ‘6ì–¾ÄÑÂEkÍÊS€”Å]²¬w·m­;X™'ô¼ØVı38Ô;1\keä¥Mœİ'œ«t4¶Í>|>/õ£¹|pàa“}Ü7n˜ˆóİÕ§Œ;ìÉ¸¾mÌ„ÔÜUséœƒN'MVXÌyîÙXŸNÑÃ[|öõĞ]ÿİ£çô÷&¾*ƒÏ>Ãø~G­şâ[Iú»£Ñ$%J é/öÏƒì)2ë@m¸ÒPæNÔÌƒøß¨M`§+ùé7~]‘øOWè;¦-·6lg¨Egœ„u¦I@ÂÔgøÅÚÎíbey§¹°`…ÉÃ¯pAınœ¼~MğrŞ_w¤[.İˆâ~Xqb;qIn›}>WÈÆÃ»?óşUh¢0Í²éV “ 6v+…%ÄlJ”`×Aå§V~´¨ƒëü*;äÅ tµSS}“»e§Œ_‘û„‹îÉ`ITR_ƒeWÃµºğ·’} AˆQX7(ø²Ğâ¯)šf22Mâ(nÉ®é$¨ïz\$q„:5ky1*/ª  gÅAº-hÂ
-Óéq+‰3Ê«óhÍ~ ú®Iù8/“yà[èk@G‡0®NfVw9íŒTU:²4»FŠR‚ƒ#Œp†É‹ÚÕY<ùù fÅˆÊçyf›mQ.¡F@{¿¨ `/oN8‚U·4	QŠgÑ+/õ'ŞUG¾OçÒ
-ÛØ€»¢ª˜d‘M²á4Sm‘Áøõ'¤“kï8	…!öFƒœ“wµQ‰Ë%hkRÄ0?†èDAæ>SÈ
-·NPFGrg"“xÃd"¼»ú­M½õÚä³nŞ²µhÄ¡£ˆ¡g|¸VrD[€Æãç9i9­& I6“NsÚh8'#®¢Ô¢ØçFa•šŞ*À*'BË8/`n"Á­Ë6·J ÕxÜ$€»¾ö£É^PëªÌd‚e)&W½ÍšXõ¹*« Uá¬iu–0•	 M	%›3”lªó4T²ÏÊLD%«ÆY…U£øö<ç…ù°ëX¸ó/OUtVÖô¢@ø©]€úd%6pñò‚îÆŞ†UG‡èı«®Äé]kS.ØÂFİé«K $qÉ&ˆŸe_Â:¡‚êÉ!ÿÌ•q ƒ‰l1 ©`ˆ×nJÎGJ^õªqÅ§q‚Qô Òø¸x›KâÂ=moãÆç]ƒÙèŠÒê,WZİ×4+Œ\yô8·2iãtÙ‡3T÷±½˜×]HÇ¢µµX>*ÎKGHòÜf&é¸wi”1M°NÙ‹Hà(b/ñÑ_Áõhn.)ÛZ]¯¦ù­du¾+M(BÃe¾çzM˜SèOóÎ¤}E™)œ/Hó
-üU¡DnPäÆşµÙkºQEüv½#í(ÊÓOé’ë…Üt¢¼ñŠ_s½Båñ£¸	¸Akn7xÁµ³—Û¹¿Aİ «ì>lZô×­ÙÍQ_³w7D{í&(ß¬‰îSõé¦¯u±Ê7~QGzmĞ^{¾!âkï4A}í…fÈÔè;ú[£]Í#ç¦kfˆqÅ‡Ñ>L¹wšékãò´Y]ÅYÖ*Åe¶¶Eå
-¬xÉ¸Ÿwñ	#*î0óÆ¬y1ÃĞrÂòa—tjĞÇ<"+¶5Æó½Ì[aEN,"KAmtOnì¾ÑZÄ,q„fà§Í&¦¼*gI3ÔÒFÚiÙ‘°2ÃC•#T¥~ÉBn^!gø%…¡LOæ„vDÄ,çß7õ${QÃJ"¨Ğ8Xraåµ›ò\ÿ¹Óœ’êÿufA‚ˆçÿÅŠêÎö–õl[0ÜİÃ´ÀˆTôºQ'4¡:©?ÎÂq›°à
-0#±(aGâMúÎ,Äú-Äø™ùß‹J€[‘5?˜ì
-ı«Ê¼¥\ù3	²QìK¯g¿£ü³ïöşgÌVışåŞÓg/OŞB{}ş †(´ÛïğOqÑÅ¢×ê…jŒ¤úğù{J)QÀMïó9Ì«ÊPi€8
-È|Nvá”Š¾ğ;E»•Å¯YCÿqUñ³ÉJŠÕ‹ÒâêÌ¨´¹¦†a+ÑÙğÇ]§Ş2Á?wOô¹Ù°PKÙ³ôkÊE¡»Ø+©uFÍ•*µ’¦FùŒ¢†ZA­µj;&µV[L¢4ß»”³áq¬öŒ‹²–Mk—öÈP$Ù}}¯•jP±1ÉœŞúF“öJ0¶b\ùéyƒÙØKzÑl’ÂLRï, OáŒ6(F ­°¶ï¯¾zµzöİwÛ“I»ºÖ­ú™«4õX—VÕ§›€_)~Ğ»jórLu:’&8T›üuáì°¶‹ö+óÂú3¸ ²Ş¢…ŠëÊ×ÎÁå´HAê2{lªcø1¨%ƒƒĞÆ;ª9DäOĞÅƒ3Âl[S •@È`jÖr–ğŸ–«Ì“´ŞSyw–ò“4â'q“{©ÈÆÉ`!D®X&§S£xFEç…PQb3]läÒ¸
-’Q¯×c¯©‚ßş¬–|ò(£dC/¾€]xÀcÖÆKú?×8^ÂãÈB¡¹K®é[h€”Å'{/Ÿ½Ç‘¾ß?|ùş·Ï^|ûİéÉûƒgÏ÷¾yš?µ^á“7'>€Ü@/oı³öOln|–K|ŒÇbçw”Ë
-g7Ç©şOÁ5»Aß\ş½p÷îº‚±Š¹?;yñû½§ğóğøàÙqãV®Ï:¢YMÅv*^;¾ÇÖeN*˜ã8zÏÒ ı“òÀj«Ö€O÷³D‹­0wµì8:gÃ=~×¶lé0MÃëñ¬T‰›E.y¬+4ÜK¨#^&lUüÀbUœlVÜZ†‰'‰—b¾L^îá«^‚u5½ä|†ùp<\òYdMÑZ eÒ““¬k…ÎÄ<Ì…–'.Éld˜yİ`.”m“?z=aYèDÑó“Ğ%“b©Q`„€SÅD%Ø§I<rÙ=åërYÇ£õ‚¥¢Ó(L‚0óÜ†¡ûåã.@Üq|MS Ô“i‹Ÿ€$6\¿¾¶öO¸èÊúgÁØs† |}¦f™c¸;œ*ğÄ"¸ÁÄ‚1r¬òçÑ~ŸíÇ~x¯ 6!&|âl_y«¼¦ñ Ô“ïjL=¡&"ä¹£Yç5´µÂ^ğº*ì"]·o­Üš¯ùğI¢ü]àùÜ¹IMJÊ(J†ÖrÅ†“‚ft»/zÑ+/òÎÉ9ØrnmW=K]$Çéœ-E.é¥(N·N;€‚ğ°‹€İÑNà·ğ	ì³’9]¼cªƒ=óÅ\eA:LB
-ğ·„Ş¸óHX©æ…9²!á.mÿößñ«}8ü±O0Töâhp3Ù‡‚OÜû@4ë|iPAìê~±‹¹û¸*Ç‘’á’[µìƒáŞÓhèü.æé…àt1¦EúÌ‹]bîuö»{°=ş#H+ZsU½ÆKšt£Hëµ¢"
-îãwaµAµçš3ì…Gyc•/gqç]¬~Mj	¥i|œ7‚¹Ë¡Kj‰/'gå§\›Ù®nËGÄi8ôâ"Şú±íêGR,ÁÆÕCmgÃ[î3yÒÓ=Ğ¨¼ñ´—x_kO0%u“?/Ñâ&‚bøƒkW÷H«¾ğiê
-{ä!~iœ¹^Y´ÔèXÔ
-º¨®qÕ~ÜL­­pÿk^ğÖz\V»)‰¢<}Ó=¶ñU‹Ñ7,tafŞEO‹îš¯‰$n€Æg¹#Zyºtd´ƒ›ŠzD™–D¯Z»Ú-‰¼4€»ÄcÛÉş(k\Ö¾ò²˜ˆ‹5¨†¯]{X¥¦§K¡¬å TÕµdWõÃ}
-û	ø‚vW/[ßHçÉQ; ÎxÊ ­GšjÅ-}õ0@Uj?E©cb2ÆÌìÿf·U¾Öj2•JÒ*Ê/ cá¶Ø—,ÈB`³3nÀátN¾#ƒ®&·?sÒhËB¡ÁknUz-æ|bƒE¦py‹_RµPQ÷B›@İºç·¼¼“mµ©ë·åQôØú»~„öˆzú†-Ím“E=ÊÖùòsË]xõ¦û3FY“Cià¸+RÊiä%mıF«ĞĞ5ŞfÚÜ“5Î‘ç¦yz·óÑ9·ı|4ctŸñ'OÃIÏ²’'¨ü*eø\a[kkkuSş™7A’—øea„œ‚+wœú±qˆuRi…'®V»7"—6×Ês…éu“*ÿÔ£ºj-66r‘m‚E]öO‰y¯%Œ<,ÆÓ1X‹“êËwAÊ8§ó¿0ZÕ“{c¹ÔÉÇÃÌâèûø¸Ùì :‰ûaúQ†,Ãšçææš% NÎ7µvÿQ
-!ı6QĞé=ZœİkCRK~" JíÍ=ÏšêÀÏ2Š{ö÷2é%°€ƒ@3è‘ÆõÌ“ ÄÂ•İê'˜h™'d‘æLäñŠù(‰ıYíV’©¸€Œ¥\ı‹ÖC´c¢K—óºL\ÃwKæ<·&¸zQ‹E´ÙWÜº¯š5%ÀÔLVdæ:´ª§€"w•yÒìÉ<ÕO)¿07]}?E·‘µy)¶®°‡.ÄÇ{@UL<…•EWCˆk›U	ö²™g)‰§´€Ğ‡²2F|cáM
-&¢p gSÖÍÌ¤ù5ı¸™QÏŸôÖëüxŸÚÁ3h‘<È%Ÿ4!2TNº6D÷ätï[i?EU^è»ófªŸî´ÏÕ>¨ñ(h(TuŞ›p€ıw@Mx;uã´eaÔ†³Ê÷ÉİéÒÓ8ób=Ÿ"©gÎÜPF°^’>–óòãt…A‡[ğXä×Q&@ñ¸Ï^só]zlPqY¤Bê}§ÚY½"/9ë,´Ï:ÁU›…WÛìøóõµµÀ ×Ã¨øİeĞF ‹!v~æÉ¦;>ë‚è°Â®7ôXë9¾í±ßµX0 a…‰ ©/‡]D~$ Ÿ&4›ğ	Ö´ßBĞÅ$¢=H²^B[ÜÈÈÎ! ^–T7"Ğ…Q õqõ%]Jrõt—+gƒ,ËS„â˜cX"¼+ÜlàÜÇòn-kW×•Šğ'¬}ÌzĞVšÇğ0ÑSAš,ÃAıY±`¬gËJt® ¸˜ÕHÚLu[y]©¥5ie×Êì|}Œh­Ú'e#®ÈÓåÚæš¡î+„â¡k]$óÃ#T5¯Ş¼CõªìR^Û´•ÖlÖmé­uˆ­õ^5Èqà¡!†WÓk áRq»CF¦]JeAj‰ÄløÖ•H~/+4$”Í>tˆN¡:A§"»§¯út?_<LzşZáéùŞÂmÖ(~?ïOü%}SŸcj¡Î&à£2?v¿âÀŠ=ñü2 ¬;ÕµÅm `q"›DB7ŠE„Íµz‡rüä'ß\˜?¼ê˜ ™Q1A%Ë3ò@Üì
-§;ÿp8cp(qqÔLö °ü'’LÆryÜ7ä
-ûè8„S9°ZşŠËŒ2£vIIF3OÈœMÁÁÒ|–å 
-~½ñ!7èlâca!¯FÉFF/ùÏ?&sóÇÑq‚!²ˆ€ßã³&½ôÀ{“jÌ÷ÅU¼èög,ÃL­`ä„TX«6ŠÑl"2D£ÏØ
-;Vøbàã½pôûıî"ÊK%QÓ#lëk%…OøéŒŒP‚Ò`kEàı®šñJ‰*X}¤$˜‘Õ]V)Ş–äqÀÏD5*	Ó+vD—ÂxV\R,h]<›ÏüÚ­GŸH'Š®¤ïqFèàq/¤| ·Ì¢p()UKïqÉîø2Á6Â:f<FÇwø/’	97®°ı1l_ÁËƒ$„/"!<|ã–WØnŒ¤¦‹ vW¨gğ0:f…ã ä5+aøØ­§"Qm²3GÜE\œz}¥lˆìKJCHÎ§œfÏRòæŒ)ö› H“Ä`fiB[”Új>L6¡í~E³ 2¶³øpÙMñ®ér#Í¡ÅÃF–ğã^4ß82îª-sp ŸrõÚ‚iƒÍV_={ııûïŞ?;9}ñjï`: §éËˆñÀyûáÄƒ7)½0Ï	È`¶¼kIYß Q B˜’7`Ê(-²6È'ééSŸm~Ø$WL…i´jÍŒ)2cÛĞ[Şs“~xŠÎ<Iæ£ñ=Œ:Ôl"úØX[[Ñz§ôštãQ·2‘&ÿ¸ò@«"K¥ºê$Z¼Ò§²ÍU·tÂ.Soª¤PóÊê¾rO”4Pëj¨ŠQJÉİÖ-9„ï*K¿Š“àM Ñ(°½İªÈ|+^kt„Îu ˆ3¼´›§Å7p5£#×`a˜´ÿ'Lôµö®e)¼ä&¸µ0‘ı6Øœ2'/'0V ğDì’ZØáweºvû3”Ô°sËÊà"0­¿Ô 8W>ªO‡«gÃµ)İê9àFŠ†eyüˆ¼Xz/½†LqŒ¨:s)…Ç»ôÂ¦_r&“N{y,EŸ\è«Q¶„ù¤İívóƒÛ©¡½iâîj€/Ëvy4¦8\J™g¾líòÌûa2zm:*_”ÈÚ9Ív?ÿ4PU|äE‰…æ¹f%Úğ{]‰¼\imÖNm]Ã}
-¿õ59¦Y-²%Ÿ7WPcíú4\™_Ôïí^WÎæfÛB¸T'áy„u}½Ğ•Iw¡,Â/JÛ¾Ğ²‚iîˆ)€î&\qGZ}C‰ĞT:Ôåœ±¤­®qùµ­ŸèRk´•k¸0n•Õ/tLğ(’,Ntğñ1¢† G¹ø–Ç³ƒÙŞBWxì×Eº÷ãéµ%ÒË,D¶/ÉáÚ,…p]~sàí&<ÉU&XŒú3;»Û
-2Öè#-/·šÖ¢¾H#?ˆIÃ–/iZ@R#ÆP%.ê8~ûîãÚ¾1EA\³§^dì ¡ˆ\`é|ãêPæä9@)½Âsh
-ÿXg˜’€ ¦GXNr¬ƒ•Oc!²kƒéb”°õ£’İ¼È|%8N/"Wn/[êÎò§‘õµ6sõVëÕ ıuƒAÕçWßIÍ™óêÅë{§ß/”7§(8~ÇÔLçXŒÿA=E
-Ø™N¶‹Ÿ›l|®üÜbWcåçoÏ•vão4Î¹>Ü÷[?&tvıR²FWŞ+=ô·8ô¢fÅ C_ió©È¾‡)k2k^Éõ3ÒRİ¯ d˜'¼Cäp½ÇÉSÏ?ìöï‡%ŸWäXxrÅ™Œ)½©ä·.İÅnÃt§kYÜâ6ÊpMJ©½~x¾÷òt­àŸ7só¡pÈ£½okŒÚ;«·»%"¬OvhK|iÖÇQ!5MUİ8¨º>7æ½E×Zæõèo6´¶èu¸,Õp«fñU•cªÅlÔ4”œgªògğÏ4ÆäÓ2a ú¨­1Sšê÷ ‡Ö!Ã<íR:©QL2‘Ÿ*HáÜE›
-%S/’OÕù7ÌMi~B+‘šİù(œéÄpĞµåbª›;xıÅÅUß9²šYüNÑjKıŞ{1ä5´njwn ¢-n}¸úk¹¾‡ ëûÄØûŠ¶şXHÛ8ûŞĞ¶ö «VTdî58·E«çG›fõBSµ>Y×ş†z9¦2[¾ÛĞ¢K’·lé†w‡~ã†ÒÇ5Ò¦Şn÷gK·«¡Tn·Èu€, l1,İû$D‰¨şfØŒ˜Éü3ûµìr›¯|
-²ŞŒQQv‹nÀµÙe ^d-§½i ş5²˜ÙbµpUâ	×œ&/U#¢ì22o•­_‹ÀŒæ·”½ËnÎª/Ôé–-	ù#Êd¥mªØŠùjÑ	/»ùîÍ eİ`ZEá
-»“Î€åâƒ+Ù  TVĞhd×°*}¬Å~v5Ï³uÒBs©³İÍ0“kÆ=æ™×‡Ç¯ö^²FwÜş)LL+Sã_clYg[µ½ s¸eå6¦,kJYÒr3ŠµÁ+J3ÊC§eën6”RÌbRÛäÓŠ¢ZXd®3mëtà4µUô¤¶Ü¤&ù_–­f‹àÿ	HSÕJÓÄºİ¨lU“Šğ;£­Æ’«Zqf!SÃh«Á@¸qj!-Hóâõ’ÓmX\‹Õß»ñë~\%tôÿˆF4ü40¤ñÇšì ‹)¤2ó\ãúmõ&Œ†eûIˆÖ„ú\lzÅ¶†ŒüŒ²wA+H)¸Ì¤(¸Ä<vœs+ébœ!ê-¢õ˜şP>å¡.“×àÓÔ×Ñì®0¶­]‚É•4±A%ëİêØÕÂ¯AÉ¿Ok°ÂÏ'5ZÑïÉpEm¢aœdqŒ±-eÇ¢‘4¶àç/Î…Ÿ;Û´ğ³@YGõØûõXµğÓÔÅ²±u?÷u°¤¥‹ÆrŸØüë´xáç¬^ø¹/œş%í^øiŠÖØ¿ğsÏˆİˆ»«=­ö¥Ì^EÒ9øóŠë$ÿ=}«ësçô­1™Ze®Ã-ô½û{ºVNƒt­¹b8
-üÙ8ğûo¤Ìá™Ÿ½}Xö5~µÀQ{x\î´ºùÁÎÍ„TEå=ÌÕ…<iõû@¤¥n ÜÆ*ïu];^9cCkj…Ö½A{|œ%õ=^\ª5Ôû‹ÑXmKô£jè«A‰Ú6“”Ì&¸Ÿ+E£R¶"¡œ´E/~üÕšjnFÿørÖS]cZ]Äªp}B” ƒßWXè_9‹í#´àªdWïÊ„ªEøO­xFbşîßïcnd ú×7WŒ_@çXSÂïøÀ?wG)*:Ÿ›WsïØfR~IÙ`}$Ê³sHöA&ÇL?ôˆû0`¿aÅmåFWŞ‘3ìŞ=ó^½ïPÅ6h‚åÏÃÈ‹†¨¢{_-„å†h³TÎí•sS1|Ã…âz]Âöl©ô‰5ç»RA+¼*ê"œ¢á¨ÑzY{
-p/[+.|zğ©¾Qv>eÜ1µç½Réšƒú¿X@æp;yºYî]¶‹°’­ÍÌùÄH&ÉŸ¤H,‹l“yEâú€šûI‘{ç•kBEĞìBÄKN å¡‰R"úG*Íêƒ|¬H;O›hxÈ-¢•N§tóQÙÍ‘0“yymÎº,Ş"O¯ÈØùuİ ~aÑ;IgVoÏ-½š€äÙ +ƒîGÊ:wQ·f=­UêT³×ğÂKBàƒ ´7 ]½æÍĞuüñeÌÛDÌ3})ªûû%n+T0Ü³¶’:Ö/ü_ÃÚVÙÀşÛQ#=¿O5åPtÖë©}ÌØü/œ +hØÓ”ò"WuÕàj¸ kêŸE©‘'èïH¶(©óP_zy¥+ú—Äêˆ~|È¢ë¸çrÇµ\Ü$Y·î‹ÍyÿNÌŒîœÿqÙŠe*²×ªÊ?[´tH#¤ÆÏâˆŸ¦ÈŸûCp—ã˜# »ñÓ,Æ¡¶¡&¶EÎĞÀÀXƒøijê{ø[Å#Å!¿ÖgÿHT
-¹$’a"Ÿ‹š"Á2(Ğîñœ¬psp†¡4ÁƒOlS3šzTâ½×­}C$úkÃ‘û&Í‚î¾¦<¬è^µ:º¨ŞdãºYWd*²ÅY»1Ş¾éêÎÆ;]%ÚhîI‡1nä†]ÿ8J¥MkŠQä½‡A4í=*âQ®)ı—'½t˜Äãñ 6¼î²iºİì¼ˆ.Pé—\¿ŠÑàÌDÑ”ıx2õ¢ëÇsı÷›¥hÇBÌ–[ùãô£Ow«ˆûyhLõÖÇA:›Ä( &>•gc'bhTÍs–z,e¶1+¡òF°©Ã˜Ê©1Îtc}#Sõí²p[yÔhÅ.YaÅK³ÖîQÜş¦¹í¶ ğàë¾âA¾³Ê²p¢ÑE…0û./ye‘[¤öb§‘–®¶—†Ôšãs­¤ªšÂS÷QXÀÏÉ+ı³/j£–/qk×Ënÿô‰–ê4^j¡Nã¿ÖešwDFïC`şU‰iM4oç.Å*Téê¥jÓÍ¯döÎ9„fk÷ed¿2¹lyC:3ôÃ”ªK:àQ7k$)­JCj¶Õ™¨š‹#—7íŠxªö–…Ò>§t®dz«
-™±ô	Ã´Š~J6CâXã'^ÿ¬èrÉ”7l×_
-Ü_Şş™×Eíáîİá¯ÚLêVAÔeı^¬yw˜«ât-Ìë‹rVhş™Ñ°idæ‘•áªu]Õy#s#?ª¤³ŸÎ	°¨Äï²¡ç{¢·xUá"Ë™V^ûô1ô®šãv¡–ız·”EácĞúEi}¡š5±^Óì˜ŸË•1tÄÛ Ğ—öWL¸{-¸D¯z¦o04\G×a<Á×Y”İ0zàöç¸“VS¿&É¤Ÿ9ñ`g‹øæVñ»[k½
-n«v_B'€îî`XíZµHï5y¼İàJ¾ƒnğÉ¨›¿@#@¿J»|SÑåÇßbìC®~4i©ªºüd¤Ôîó‰”ôÙ„í™]˜“^”ŞÍß©¨sğ|Tº0›by¨Ri§‡2NümúÄ—•i|à¹’önË‘ÜXïéÀÂoÛ½¥wF6~:¤¯uò`¾]2Œ(†¡ûj‘¬5;¿M‚h8ªLB!Ü¦66ådÑß"eÜ®ì®y…-”²½s }ÀÛ¦-ühÃç~–ÑŠ¶TÖÚa¤I3Át[Æş‡—¢ş÷èàe”HáLŒ™$Ù,1­æ1Ï¥ìıe!V¼½í°;–VÆÏŠí{'ÙÓk›P`ÓíhoÊ=LÕáE×V	C‹G}Ä×ò5;&–Ñù!¨e uCˆQMÔ¥z-wpè‡Eİá FkQ<	*Z{·E¶§†?qRÑò¼¿@{Üó£¢AÕ¹@‹|óšª¢ÙÜv³W<îîÄ@ëÎQ.Ÿ-°ˆùØ}"Àùnè:2l³'¬íáßmqÁº'Dšv^yaœ¬Rıwä¯‘Ø òaSû¯‚HŞÇˆ: @ùíš¸Laøú«ìÃ‡å¢îF’½f›­D;{	Ğñeô[ ã¯=ü¥LÛÏ|?u<a³şºà"^œ=_Ğ¹€iw_àÅãàìFXWÎàZ‹òÓM³Ç­şÕ8½ZÁ5¬	RË÷/&S˜ê›¼që‰êF^?L½Á#¬Ã”7go­KÏ"öñK0¨¸ßï¾‰+	;{Q8yV43öON}ae~ÒâƒöŸYhÈjñ×±;÷è9#%ä·c„Âkx|?Çou=Ç€´òâ|ñkÁ ;|o:§A«kG7";(O"k,µÍ<f¬tpU îï é;"÷ça"ÜyZÓ¿Šõn¸¶HšŒÕ]`¡,<¢M’™; -%!É\³”E7¹M4§>TcU°J`o–‚”a¹¡Ww;*„
-•Í‡z¸Å÷öĞÌßÖø‹ªâFØ:ˆJÍ×A4šM¸Ë8Ê%—K,¬|3ÎİVÍ¼Z¾C-°q®f]6àår/•	ø~Ë)òÖÄ© |ãy>ú,?îöd
-hKoÚšgÄÖNerâ"7„-)±æ˜ôPqí+"Cí‘ş–üÄ¦ÅCDa«béBãRı*ô„Út¿ıÙâm3ÏKL5,Ø °/Yˆ¢mx½ÛŸoÿœ¦p«¬äÛãöÿ†/	BØ>î8à¥ªLV%?6œ„Qï²&¹Ğµ¢]£Ä¹K$æUŠV3|SrNlû(	.Âà²Ói<0#ê
-ÛxX“æ¥2)ç\dsÕiå±;ùhŞ„ÑPnN9â>œ-€~ûâwÚ?#¿3cÛÃq“/=.½ƒ$‘|W‘UşûP°Ó³÷ÃhúË±V‚BƒŒµ”ŒµJ]G¥Ï¼Ëú87LÛW5-Ó´4êfª ¢~©áâgëI³]9ê²
-ØÚåºZæ°T¤f¤®&Õ—HráV—Áúê/÷.µ¦—ÉĞUò(m˜GoÁ¤^wLé¥$ô’i}J¼ûÌÖuŸ¹º>V¦®J_÷Äq6]¨CäçŠHmÍ9&8Ôã²SâDï`&¸<Šg ©nÅ)>TuEÚn‘é˜w3ŒAÒ«FóF•OÓj·UsòÁaŸ ë7¶e!Ÿj¢½|HÎÕç;ÿHE~ñ"¾‹4¤VùÅJIUîÏ Oö¥£0¡L'Bc,‘ñ]xn¢ùâ%MtZ…4^ØWPéëf·U¾ÖºÛ”îr¸YüÁÄ‡b.bß›Şşi›”¿ã)Pğâ$èKFF	ø‹4é?‚t…¥ÁÔ#G·iŒ¡ŞÈÙ¾”ˆaèTC1 ¡á}£¨=±€é½>´=tóz8v¥—UåÔÊ“u½Ğ©“ù$ó.D¾O İ½Ùw
-ÜZa1fÇ‚KatûçaX™zR.®‹ ^l…›¾¢®«s%-%y6%]#w¬X´\ÎNĞäiÚ[ÒQ]* EhïcréÃ³¶ıÁùJÕmœEEÓ+¸ˆ'%%»$48R¢Şœ1¬©gvqñÉ98Ôı?“jÔkiémÕvßá™ßgwƒ³$HGû—
-Ÿ®l]©7ßª.äSèJ—á+LÑiLªÆ{Ì<FµtKš®”V*à•jêÚˆ¬ws_5(S½ÖsÚ©!É§‘y,£Ñ‹f“t¹Ìw––•òQ”àZ€{lê®ªÙ[{òÿújú^ö¾Zò•ÅÈ°´üe7›—)¬Ë†Ø¨ĞCE$ÖIà%ÃQ^”ì£öÃHÆƒbDÖ]êï¾2Ë–¿¬˜V“u¼A°<Õ–ÆA@İş;Â {·ŒíFİM»™L{¡†Ü…¯]Æ™Ö_^.·Y–Œ#WŠ!*ksWWÙseö€8Ã?	[‰…¿üEö1C{ ¾cˆÎxèè³–LµÔBü¸Ş´‡dÓÃNâd#À7T;¤yN$ôÆKà ÿHÉ@  $ô°`ğgğìøà&zÛ“ğ<¡`&ñj^:Gí{~°Â")â…Z!Êûq*Íqv­ƒà™=F½u^l×X~³S;àš†3¼qz=D1‚¶¶Ô¶®½t8‹F›céØèH5”%âE½‹¼İgÑEˆÒ¢Íü=W«“g)p$ŞâÍNŞô¦£á=Xî‹eÆë‰>BArè-‰Éû©x×Ñø>™–õP¾éhù8ÎÒeÀ‘ˆ]#æ™{–±|Óè«i˜,…pâEl·Ô0Ï¯æ;Z«»4°Ğßfí, là	 ü>¿ÉÛ:"¡ºY±µ—o®¢ÉãâRÑª¼XİšÜSEcÏò+E[âZMSù>R›°gòšÒœØªÕíåÛ§hn¯¸T´&/Ö.ß2Úørm1F¹;«Û-¶KÑ*ß|·6šïÉš–ûDYàâ’²ÀâbÍøòÍ¡ŒO¹¦O^­¤Ü
-‹K
- ÅEkkï,
-Ş9’‰ºK9÷ŠWûp}´À½Œ/¥ÎºÛÅnâ<¾Ö]¯ÍL#¦%…›b@DÓãœFğí-ÅT~&%ni´ÅÚ¢™g±A~& Ød,e¯÷Aª’˜÷mÒıQ„¶NŞÉÿhk£äPß’ÑL)G‘…4N²NÇ[a«İ__-òó‡ñOÅ"u<ë8Çñ¤J”íœÎî~ò”î¬MİY‡Ô¸;Á}æ…\=kWµÔëÀú„qjŞRÛµ÷ürÆmá¶µÖÈ‚W?a¾¥^Ğû» È…™3LH•E¥½Rîæt6æŸÏİ‡üRÙ°“v?˜¢–Ç+<‹räÔèñüh<Ko
-¹u&¯ƒËœ¹Ù}_ÄJ!À<§™Şşªé…Iåbˆ¯Áâµ<‘ÔÔóË.¦3oLbÑ ÎĞdÂG! Õå“*»–½¤ÜïzI†
-GXx©¬Ï_¸_F±²ğ½	¡
-ı3pØ7ç&WG‹g®2KUêò«;C§:ëírˆÆ¡íHèœQ-yk…‘Ø®O4 HÑJ¸•xÆ¿Gøÿ•Ôpµ¦™í6Ó0R.é²~¸Ïe›(¨®K)J]Kú$Q^]«X”»[›şŒflˆ]yd]:»N…*GŠ‹IÅµäµš7nì»şP,¢üM‹:RnŒäEÀ)´4ûG¯ªân+˜û·)ĞÖÖÊÜq­…KS çqÑe™3K™SƒW.ÚÕ<XÒÈj>œ ·Ê4N"í¡Ÿ;œ…¶—(ñi<Á^gì÷,"°ºÁz´!é¼¦z) Gê7wÆ6´iaë›çe;,¿Ü,;YbFñ6ïãÖÓY:„£ MóÑíÿGìn<“^™ı~ß8šr›Pr¡.:†7¦	ÙšéMæ¶îyÿ	àÚßÚ¨[ƒõlv{¨¿¶lÜí¢ç†û2>=¼Sí×ÜŠ]šGƒÀQÉWDRŒä±xn‘˜T.Ôµ¼Ç[¤áŸ*ÚÜëı~¦~ª
-?ş}ooñèØ¦aGaú2öx¨ŠdÑDii0Ä™J‘G­]ÅE@¥´"Ô-†‘nÚz äØâvCkhE³±hl”¥ÄIéşÖéD†©5×ƒˆ›ü¸¿dèP]²¬ñy)O¢-«ÛÜäÑ­jüpÅW½œd×ã İÆmûy'Í`Ë’şİeaRåºÍÚ–ãÁZÛÎáı*S-bM/Ó…­5çËR£Ê_Wj7<0Rt9*Tş¾fû~P²}»!§Ë#×‘ò4Kïƒ’¥×ÑˆT‹ò6Šôâô;®!Håær¯K¥§ŠF¸‚õÍwlÇÈ—Èñß	#ål…_Å!U¯ †¢U×ÛĞ×®m¡÷&Ï=
-£¥ê2>ö¨, ªÏVFÕK+/ÔËM!¼ºÊD¼æt2@î·wÈŞ¼xsÈ"ápFX<ÛA!`³(zª…ÖŞ™myi&†ù_hÖÀSˆfÏ€ËÄÎW¤UÅdÙe¨€!äÄ,°óãhB±çoò>fqŸ.Éˆ%Š«Î<h)%¶K†,å×+‰CÀË#æc³k4Ïë—»ádŠñ~•—æ“fg—íšp7*k‚û†QŒ±ÂX%#—yIW6°M3lÚ%ËÂóÑ½6s^â…\!Ê–™HÜæpúÑ•.¢br(u‰¬¬øf8¾Ü¤N™[î]*ºÑcÉÑb“ğÆÆ®oÀÎ7«´ÊuVÆåºŠ¾Œ%Z+¦'ÅcÍ“B*šª*ŒI…EUy|¬¾Î.C.¨f8íıüĞBlÍv¡C­Qu6·‡úqßë’ä”ŠC¿¦ ¤„E•¬f°G7ã¢çöş_ÿ;V¼æ€–iëÁÜĞõu‘î¨švÜ xİâaŞì5a3d×œ·›4şî^°¼¶BxEX®ˆ«‰X<EÛ\ÚZëÃpõìîÉJ¬¯Ó«Ç­VuZ7í
-t«tç¥ª<ÿsí­4•¿™«Œrq§&àµÚ1²IVK~ü`ô¨ª<óì•LJ±~›kjşB%Wg¬„•‚Áí8†ú,ïÜ}ı^VB:¸€ŞÈQ±:²A€;Özsû¯côjÃê!ZxtÑÑÿ  ÿÿì}[sIvŞ»EËºw€Æäp ^A¼`Ì¬dšAº
-@ívwõVuƒà`á7‡#Öƒá…ÒZ’c_,+dûQø'ûìŸàsNfVefefe5r4%í°Ñ]••—“'Ïõ;25zå\~xtwnªÓI~ÈÒ[6©"ğÍ´+M~ñ’½út1j¹&;Y×R2#`ÏéyKvıUÅ÷¨RxÔt@œ²Ût\^Ò†,6°—EWVd‘h€<Hf”	oè0u[s9Ÿ¯yOßø¡xØ…Ú*‰ôüá2o! 	[ŠÄ»Ó8ÂjâB•ÒVÌn·«“‚gÈ-ÜÖÙaÕ«7—ß)yı™±€árîdKÊìY5±òògh†û×ëäNœ5ÓMáÊ8OÄÌòòÍ¦_˜a<†li©ñÆ]ÍÓ§uaò™©qi#ò5/mG³¼@›|qËŒı—V+ÿ*kÖ,¯)M]—T&°YŞ Md>"·Ì4 i_ó@Ş3ÓBKoÄ-Í»‘O«[ÜgçÁi”Wî§Ñ¤ØçwˆÎšIöHv%äXµ¯H&ß¦É{Õkõ}çéQ"´µ8Œá²¢4O|ØM#å·ÙÊŠİè4|‚ƒL„O—¿@h~n³!ÓnÈùÏx[V ’úWf"•%Ú„õr»ìFGíÓ-~FqÂ1ÛQ…ëÏ!pTw‰Á6XHœËz)Æ·µšñMITmtŞ|¿ËOm•cö.V aX¨z­<0;=3QQ&¥±¥Ì	Œ‹§çV’¨­òò6E÷Ê@8!•ı@—ÏÙ¼–İ3C&¨"9ù™¿¿X"Me	ğàÄ×Ó2y=$ùSÉ.ÕZåˆtåŸf¶©ôºù:¾õ²ÅH2Ğ›‚W-6†ÜPÃØ¸;áé/|~Ï²œ£,…ˆáíÆ›L:’ÅW8*ù¥C•®rÆ·e3"¹lÖ²|µLså…öÛÙçÆ­5æ‘(1İ–!»Çt@"dKdÇò‰¦Î‘pÔ±WºXÂÃñ•/êO ]SìC‡#ÇgÂ±[Èû€Ø¢v¯ƒ¹@Mc™µ:v%I¸S¸26Ì° œ1°“Š(c/¶vØşÎöÎËÃôµcÀê(!pæéwğvL7àõ
-†®F¦õÉ4B?=ü8ÊXIUK,ê'E]ÅêåÑVv šL£A·Ç¶Nòé~Oûv÷åö7Ï_éÍÃA7à°±Lv¦#;º%ÒÆAh‹Æ¸Ç)Û[¼!Æ34=I†]ãM¯àıdÏ¦Ï J‡pÏˆb
-X’Sæ*ÏÄ(°pFZ¨Iäéq’Kc‚1.ap«Şx?ápûi´TÖÙ^'	Eu)O`ä¸8˜™B‡Y=É¤ƒ©òíwÕ'„Ô^}:º2aíI–’hÔµ¤ëU¡,öªeñ(5~KíJï4*:}õ-ÍMxú lµ1{PŸ¦mdÿŒ)Ù°
-ãı¼ö]†T’K]ôå9hú@]<‚ïùõşóËˆÖp”M%İBtì$ßÁK²·<¸#ó¤@de
-@5zĞ,8-€ÈÓŒ²*£™{ ×é¾4#N’şˆªÂÃÇƒé9‘"u‹
-éR ôQ”[^éæô«Óß,…ÚŞ·nõ{Ez2Âì.çºÂ˜šã=([r“ÈvÕ/éfUÖZ'™¾ŒL¹¥ç‡#ºU`§ï%Îír4×z±õ½ZÊéjèİ%6æûÑ¶¥©( õD}w»jênù¥vRiï°¥€–, –¯«Œ¾Ê–lO/¶ÌÌæ—ÆQØ;Û‘J»¾D’x®Ù•ë÷¤|‘­+Á8ÒQ)Å™2Jy¶v—#ÚI4·&MÙÓF’¹@ï÷2%àëqeKp	“§=àËs¾õ…_È•\=qæh÷Ûäh{›o#zùì-ŒOÑO#—~ç•ótüJkÄrƒ#	]]ÇaYí“ID/Iÿ£ä¡ÛŞvsièÖ±ı`²Ğ«¿D.¢¼ÊcW=–Ê£È3uv¢~„:¢	øÈ¾€­J1KlÕ##%£QdªÓ·	¬¤<ü4¸å[³E‹Üö’8²¼#<¯¨¬d˜òS a”ïÌö«E
-ƒJ)lX)¶†«PN¬¼Oæ!sCğuƒ
-=Tù]ôI‹[{ (Ìâ³ıÂ-ı5[o-Ë‡¥PAËi­h54“Ø/Ë±!((
-‹d Îª#~çbZ$ùã^ZlÅÃtäsl	ø§½÷t;ØbŠGù·•šC@”yfn#ri;æVãıä$’Ü`ÀU.9å{ñ±'"G­ÈW6’NBöT”p7æ±«?fïäSˆıû"/GU¶g'05Åã^ŒòÅãÇlõrÅ#/Ewöz½w÷#«A»QúV–{ú¬`çqW:xâ1¥;¼ :àÖ(Á%Cõ=©#È	àù§ïÅ#½Ù"¤"#Â.’KH€ñÃÒÃÊ²DE‹#†&<š	ëgĞ3D%‰²ÛÏ„çxšåéwh Qp˜¥5³;^‚w÷ı:ÕŞe¢®`úp°É4æÉ(?AëIÌm{P÷Y`O¼},äZYCñƒŸP¿ü’ (xÕcäëCqPğ
-{ÿAã¡ĞL¸ôm¥t‡ÚQÊo/ç:z/8
-^- Rğúœ@Rğ
-YÖ9á¤àåÏÌğã¥Ğj4ÄŒû|Ëuìæö)·BP±=‚¢ÂühP*üun<ºD<uİÙá	*°¡sl×ÃU¡«\e©:é·÷­l¿ÜûÓ%<:“cÌ@.ıóÿÑC,t}Ö@,t9ÖÛLá­7©À	Ì‚—wùÛb³ëñã³àåäT7‡Óbi~~X-¶Æ¯×binvÌjÌÛkÊ²‹£"q£´(
-ì±Q?I…jr–W¿çŞP“€–y•!ÒÕë¢»E™wÕUŒ‚/£Ìf´:ÜC©jK.:x@ 9Ò|Ì“hß è²î­|k>\ŸÖ†‘Ì«§æ»ËëÚ²ÈÒGÔmM6‡¡<Pa\–š¾'¥ÌÒ…£*ßz VNS3”)#O³4“»Íó¹ÕYO–Ÿì/.±”NÓátø,çÖ­§éI:)6Ù:Ô9»ç;fê+¤ ½˜ë£eQßàê”¹ÙkóË±İÀUÙáÕò({ş£­ã‡zL—É/ä“Ï)šÊÂöJ¬j2máçß3’®Ç4`]«Ióƒ`¹¢¸kep…A~İe†¹°²Œ´r¤@X1ä”nÓ†‰aßƒ\{/ÏÿÏ(¤H”ıÍoØë7]š¥_‘R%Ïnï— ûu0™J».$CÔøGE-œ@{Á8‹ùú4…‘Îu{}o3¿ŒTÁ@¯"~ ¨ı'ÌÅ;OúT§ şk™‚f{dŠôw‹?ò$Ê	®¡Ö5Ey¬Ae-:ø)¬›2ÒÇ&Ò˜ç1LÌßé´x‘Œ¦è‚B$›'JPTê¢/„³:â”‹ì˜}¯³E½Iİæ`Q›Ô5|ˆ®Óz.N9/* QeşÓğ‡ª$‰;-à…èr	¼v$8—€s4­Od`¹(Ó8Bñ=%É#h­ÜT?,-ĞV†R5‹Ò‚Í ^%]³&·~ä¡Ã£8[‚¦1Nvx@çt’’ë€ÛÑYx şÚÁ*€½†7¾b0²$FoFaâPú«£8K¾£à`iµ?Mãh{„‡x!Æ“û´rJ‡.MŞ‡í©–¯ğ_€‚Å¨Ş¶FÑn¡7Pã¬75 xĞ";âş´Nr¾É¯›æ3²µêl,²®Í¢^ÆA(k‚VõKã Ò}		"9/şŞ¾tËÂÖé¥{cŠá&}Î³÷ø¹æ
-Ø ŒJøĞT	ÛYL»É¤èí»ÅİşŠš­£ÇT 4
-¾†SõèB†–]^ P@qìXŞú1{ÇşùŸØÙíòëËwÈÄ›Aldo®ƒ³jTúØ~õòpëğÕÛƒÃ­ÃoàŸ?¾sğZgcŞ#KÀÊ{Ôc´èD».téÇYû{†‘5C¤UBH¯Ñ‹
-T(¨†ø¬‰^Àw6ü¨°Ç~”òht29ÍPt[Œ&B€’¦ç»0ÃÚä
-Ém²öÄCtgUEŒÒã8¥•PNGÇ®sv‰[ÿBØÄ³XZòY@Pï6Vµ¹"gõ…ù_ÓLVÅé7ÛoçhT®…tDvkWeßÙ÷]Øû«”fØãÿ½ÓXx•®@D=Tz«¾!3¥²ºÂ&ğü—2¨…BH.´¡”Á­Aø‚aøèÖÏxáD›OqıÍ.6è–‡>1„v…yS#¯2aé¤Ğ*X~/RˆBb­¤ê„O"—O°57:å,"g[<º~] ¼ˆ)·S9ZM®_E·€“S^²øŒ+À[¤³Iå3-@E¢FïO]ı‚‰#:Ğ=eô¡2ÈĞUjrĞşJÎ`–Y„ÑæIš“N}¶¼Cõàjšp?× á‰±‡¿Õ„#m>¨ˆ"”ø[*V†1šaÛKüù~ù>EyÍ„S‹€Rm7dØ(=Øù(!$¡uâÅEôR¥qRj*1@X¹#ZçQ’XÒÃÈ‰ŠÖÙóI18ö"W¨—ˆß&“œSaÍH
-UFcMAvi jØiie	}ÕëcËá@_©J{i¶Y)Í›Mv†j²ê	¦äCõe»i¿UÕ@|c¼‚ ZªË†Òƒ½Õ	ûå×eè2Ìîû,;‹‹õwò<Ë¡ùKìN_¹¶A‡=^×ßlÕ!LIû®e¯…õ9P@Áø¯Ó4ÄªHÂwp ]´ÙçÍ¨Ïx•
-ÙÇ¢N´¼Kø²íS:'©·–˜®Ã.±w¯W¿eh,R¿¿¼Å’“©Æ.nW'<iÈÃŠÈ·Ã‚Ş»°ùÂK9Á7AÈ”…ï•ãb»Hœ£ì#’üŒPrƒäQ²´¾ñ½Òº+l3Lˆ¸á‡AÏ*¦QUşªn›GYS¢U›¦Â€`•+xŞÄº&˜}Ád-‚ŞQÀ£ıF#d1š¡8?Z½L†×rÏXQ…¡-€<2fV\,Ác(a$k!ïĞÛ†Îz)®ó,rËÙú
-SC@Â@³&yÆİSÑù«¦CåÉV/Dg
-mf´·1¤k¬·‹x¿È%£¥v4Èú¿Z`‰×…3¾û7‘7ÚÄ+£ïé$Bi.GÏZ‘­Ç	ı\"¿
-KÈÇÌ‘Phùx›dqÔäS.îÌÍ“ş„ ™ÌÕ!8…ÿ=A¶ˆ’Iûp_=¸±ù;/¿yûõÛƒÃİ[O·àMë«”ğ[d<ÀbqÒOc8
-ÅIÖÇ…Ñ³t˜µ}7¶´åÑ66ôF
-›Ï¶…Ù±GÔ—8{ßKG£$ÿ:A%»Åha@?ç>­ÿK°V°ˆÏh¿}3°Èû9;±ËfÛ‰ıh€p›è“\˜dã‘™%üˆ ³s:í ôTô2Â¹7}Å£/Z½O àŒ„ëUğE¬u…ì¤|1A4Án‡ÕäØIGh@¦¾µz lÀˆ|¥4‚QTôÓqt&|¾¹;:æ®T›{ÿ‹dGß¥íx‡•Â]ˆïã9lá(Üâ¨Àsg/+:­NXÈMvWÁ8lÓ ã{-8cü±ZóuÒgËü=Ğ|‰Ôê…h¹Úd/¢Éiowî/‰Ïé¨Cíçâeë«ğ“Ú_¤ñäX»×í¶xåeå<à	Ô*¸¡ÖZGW¿»úÇ$TL4CZfoë2ê’Í£&.­¹—ÚÛ^BU‚paøE–'ß&9mÜ´Hq™å,U‘ßÆ6§_ÈRÉÅ±@-:<lnt:Šú¿ŠsØ™éˆÛ%tà'ıÓ2>E}b ÆÀ9¤…ë`OzÄ`}@¹²Å¡ú:kZQÜÀ^Z^eß-¿^_]}³`±zDéğu“=h%Æc›‡œ³Ú×İRÉ÷ğŸ—SsÜD¶úp€Wm6i×ŞÀ¾»^HÜ_5#¿k©<çYŸâ¿?”Õ2Ğ&TE“sí‚ÿ®L¾[ızñ4Š?M
-ik@¨ˆ¯á	¿¼0–¬?Á3ÄÊz=õ\ãU¸(lF#R¤Ùóì7ÅÎY_ı=B3-DÓtÉ2¦ñcNŸ‘/-sT·•+“¶‡X•}¾.ja¹Ù"ÿ›<}ü#ë¼Ì@v6]\ımÖÅÈ„¹NªÀ_æE?+$‰Ïhn·³ñ}fÅhB üg˜ªìıhE*ÒÈg4Y²÷ú„qğ½§Ïf›1=®.ÜvÛ<åu§Ø×÷3št‘¦ Ï9–YÀ®şG3ÛÄ‡[‰ù:Uùó\$g^ÀâóX#Ä£9„¿ë‹XcËSÁœç>RÀ«’óf©¥Ğ¯;X.¥»\†ú¬^/ã#S€Wêev¸ì>xY†{Sª2³3¯;ø^ü»AÔ3Wî÷D³‹¶6òÇa	G¢V=[ªJüx‘6a»°>–¿Õ‰¬e÷ty¬¤â5$Ë2—©¥¿JN2²îÂŠFC„… İkÌ£‘ö(¾š‰:L™Ä.GÃ/)¬Ù )Aº0&8€£š““Ê¡|Ÿ²¸,¬b=HÕ=s¨ZáÛeäƒ*iÕæ%,@½¼ûQ°USsé…=èÇŒ©°œõß¯vCl½V£ã¾kT¬¡"iœİ|É+ô¾Y¼Æ‘Â|¯fÙ	úD±X8=ŞBäı¸ŸÏ°ìÏ C„¡U§È‡dL[‘1ŸŠş›¾¨Êğ‡ûŸØí‹˜DLIĞ%hèzaµ –)òO•†>İ,yËpo.?>¢‰äÕ0`#-ÊÁœ®‘&oÀ‹¬Qd³‚628QşÜ ~}ÇjhÔSÄøäéà\ñBH³‡Ÿè‰¯(È¼„—ÖÁ¡•?9œ9¢} İ}Œp¤ÈÌ‡•»ju	I{™»ÄÀ6×eï	ÙZéY…gİe+¬³êû»WşgıN·ëèEC:4­%=Ó ÓX;.8O2W¼
-r§d.n|(3Aª…ÃûŞ\ŠìÌf³´3€ÜÈ¤¬BÉ"ç«W€ ’t–ïÏ’ÇÕ&¡óÇèµ2QÆÌO¢Aÿêo³öIeÇğÌykµ¬Ç’|¤'°¬WWe3\h;ç2fã’è	š/’7šãåİ’à81"bfô4Q}nlIoÕü”¢%&¾5á+KFK»zIİèŒŠnHÆŠ½–¬ŒÒ½ª¦dP‚²2®;ıé;åIç½š´¡ób-oƒ}ıõæpØ˜½á“$(Ø	Ğ­`tİÖ”Êà-æˆÄœå	O4„nM5)3ÄÜ0yrS­Ï«J1m±iêğp/õ3ââÓÍŒ´b«ó(Ç¨O‚ŒÒœm¡jR‹ÙG¾­ğ55	¯tnjí¼åùÊğ÷1¥y\HŠôèŒ‚}Õæ'/İ×†ƒXÕ¼–r~ö©ÊùÊ¼ °Ÿµ“ô3»˜Ÿ}2¾ #»\VÈò¯¯ß`™7öG¨H&Ÿí§Åig‘kìõz@ê³2DÅò¸4Æ¹ÖI²’P…æªD™¿â‘ÕµÄXIƒ?ªŸ›º‘}ÏºFöQ‹’/‰a>‚c³ÉSã×NJ”Ğ•û@4ø«¿ù¿ÿë/Øó”*µF›Ê9"!È90Ö!”P`0ã¢ëßŞZñ-5§ÌÔœ²ÏWm*ûNöƒWœnj¬?ªNß›êT¹X?âT¾3¨~Z€Öô ;†şQ`ƒ?u©š”˜a›ÂÔ·+LıA
-Sÿ
-“l<_V®­3õÔ™‚u¦şMêL°¿u¦ĞÁ|‚:Sÿ{Ö™!³~Ô™Úô-@gê¾:“†˜õÃV™nh¨?jL×Ö˜î0­ÄŒ)…x*ÌÔ¥ÙÙ«8?Ø$ùd;Íûƒ–íŞe5TU`la·N7jOÃûVJÉ<O‡ãä;yÊëÕœnÔe­ƒeÃĞ5JØaaÇz'vzõ[^#bETËyíøê
-.AGyUa…j÷Ü	‡§ÚY uõ¯~»=@ÔƒL<nÖ:_c~rÛÖzVîcXƒh4¿ÊÇ°—EÄVtëE Õ#ÛµïĞ6VğSùFVjİ5K•[Y¡E7™nÔQëkğÿşúwÿ›áÚÃDËâê/óã«¿511ì,¢FÆåşÕ¾§Hn!r²Y@/:Àêki†Qú2N¨
-Ê~Àï*ÛMŒ¥Æêß²º¿¼¬îÂe§åAìÖŸèGƒ"á!Ú»æÔ¿¢:q…ù#&tb…h ŠİFĞµUøÈ:Õ¯\ä±İe§„Ù¤oŞ/ŠPê<V:é$æÛªôR9C”fºÔ>É•oQ¿]¬Ï§‚8ËùJc‡1½bpR>[­­‹ò@{@Y;g´¶£¨ŒcE7@®ìHçX´î2T.[ZwÙ}$cOr.ãªuîqÀu´’efUgt³ƒJÄ0eıf¥Ì%?md·ÌÅœ€†ûT¡Ù&4[…½¤øõ”°Å[–×-é\åÅÆá+ÿ2y/oAù¼sÁz=L›|P¿F¨–&ÖâæIŸ=U¬æ“!¢;'"»|ä +k’U MbI’ÆyÖO@¯;v);˜$ã<Ö%O1ÛúL¢f_«õÎ¨”¸QŞ]ËVq+¤£i”KQNÂÌÔ,ªH©@„‡È'}ÁuèUìÌØ1®cÎfpl[úûÁ®»¢v
-rïÃ^Ûa5pÖºÎ†ÎúÖÉò0Jî¢Ö²|³¤²¦"ŞjçM*Í,Ë8×Z¬â¢gXBÙÁIL•Ù:{*¢·rµ9r_ájkİjíÁvu«5ıum­EİjÔ?Ï«Úá¶­åÖßTÙj‡…àf‹VÏ·¬´ÑÚt€ø{oA¹ç¾ÓWE7²mº±İ;`Kfù[ÂöO	lîoñ®vÍç	¨Íş¬¼ÉÛ¸»L¶«Â@ÍO/Ÿ.¿^¿—'Ã7Í)euRGmÒªX¬Ø…Ç
-êù]½çwİéù¥ËÎ.nÙ‡"şFYø¾ñÕ1bTôù¼0lƒ0Ö{d‹@·ù§½¸]ÿoYÀK'1rËJà1¼à×h)ÙˆE•p!JTõsYçÄ³ÿMÎŒnÒ#¥xØ›Ïì¸æ!¬¾.æùäó~KıUd‚²ù	(0‰yÜ3¾Gw‘·Ó¨Øã@ÆÃ-¢AœmçhÛÀ"´/§h­BŒüşmŸÿĞmîgB¥é!ëøA±mÂõKãMªDºÄF@Gø­woG„O8òø]UblÑ‡¬IÎsU¸DØöÑ„‹—¥O}Ñ¿Í‡ğ²pDf{QN«ûºßd'H¦Ó<C`{îÆOqŠ!úÜO'Şô8AudÚ.}øˆH »E*ê8OÎpıP­ ;âŞÄ}±ÁvåüzïUœÏúø²­ÿ5¼¨>ßöe9ÿSQÃ!Plêk¢”qö<}éŠê Ëo‹[µê±I>õ>Õ ½îtKz‰ZZæ?-š–¶IÚ~}’$-íæ)ÚcK±?ryúİH'á%Âø%›ÉÚTş 4zÇ0Ãœ@scT‰"¤ü„i£òŞLàáÒHƒä„Â0åî6Yv”§'•{NÏ±Z0†ã4’‹oÈš@Êé]4Ú¬¨è„1<ŒçÅøıÉ4Í—*yÄ×f$®5·rat–èW,
-¬w€®F„ø¤/0¸@ešj¶6!¢#ß¬ä¤’°	ÄİO“£‰"¤HfÛ|É·B€¾Ãªn4AåèWS„è_‡Ã”‰<¶‹Ç›KŸ¥İà8?Ÿ\•_ƒËÇ˜1Z6E#Î¯<‡\}C+Ã<Y' ªr[›ŠsÌ+‹ª¥‰ëEƒCgJ-JE³öH~Óª055„òˆÖ~1C3¼–ãÛhR5ö4)€×Xk>Â}õ¢Á¯^¬®NCÄÍwqÃA¹íá‰j`—yˆêû&#àŞ\‚móÖƒşL(İY{½
-â“ÖBnVÜdÇ|É+­Éî5–¿¦]h:|HÔeÕ“•R‘kæ¯EÌ1ïDôo=¨O·«?n¬*¡5×¥.Olrút)–s½ú;š¬§i1ÎFW¿?K›-iÌ¼ftKëÌvdJ¹dó#ı9Ó•bWú¸¥„\™ô¤FS}DjªB¾j´„å·PÂİ‚;&Ù’ïEIDºìùI’QXSXÄû,ÏFûTwÇcÉÙõú*W«–kŞñ»šş•#’¤Œ¸FPÔ ÈÈæä@1{´îåfbËú˜å·k«ÂsÔ89MGÚõ©hÚ%õ°iQÚ%=Ğ3Æ{y†
-6‰‘$ÅSı©…ôk¸©|w{ê·®†Öo]]¡<æ®Vb½E­ä–#åãœ/‡*èGl)Qt×R¢¨¡eoSo3ÖV5`[NŒ«Üë’jdš¢YSZ”k}ôàERÑIrğëi”'³ÌeÇ›‰®DB»MÔ.¿€äÎ­öO7¨áOÆ÷…œ[ÿÎ’ëÌ(°ÅQÌË“ã*ÖŸ¢¯÷“ãK6ˆ’bÒ‚ş³—2Òã	+r¿tÇàXc†–XÙÒ&ÓƒVtó N™5×ÀŸ¼Ng#=³u]_Ä\bê¶wöÜv$-jê+nV—áîûóßOÆîÍyÍ¶Íµ°lõº'ƒi®¿Œïõídü<Ë~5_¹Å
-´ÈPıf­’’[…HTÅç‚‚%oÈ
-ºŒÊbS6^ş
-&kßÜ[\ì(¹m®ş:’œûFö¾æñfl«dİ#öÎë=ß¡Ğ<`™Æ0y	ÿÃ1
-úõÚƒ V‚Ç uöyé¼sö±òï]»£USÁ½½WÚC™‚†ûd_¸<Ş;‡"œ²ë97.ªƒ>“¹ûíÆ-\‚g®QÖ–åI”æ%‘®Õk/ˆl¨å¨¿ÅyÄğ,~bE…HÍ x·hù ±Şu:%`)ÄSªòºÉV—¤ŞŸİ¾ÁÎÔ'QÈYT_s?œ§“ŞZ©Uøp<ÍIšƒGzëwaÃÑİÀvG¯¦“EwCÊf(ƒîNÓ8†é¬Rw¬ÏºÅ®ÜËÀgƒ€°¬¶µšPiMy½NgJuÄ¼‘"‹Ò¢Ùà:,EiEÛ¯O£	å\¾ÄŠÎÓ!ùŒ^ç!VŞ~ıƒ¬l*t/ëÃÙæAÚ¨¶÷±†ÁçÎÈ€…ypIÙ–ŸQ*}Ş?Ñº»ÿ'Înæ'óè`~Ü5}Ó8ŠİT@¾§kËšÄ€fYy]x)şÀÙUtg\_S¡VæĞYŒÑ$b»);öñ2Ú-—×İs^=zı©¯Új?¨ …ø“f¾ÏÒ’Ó<kb¼ºä™S^D ô«töow%ßQHéĞJ2Fäƒ[>¥†dĞéõeT­¹–z3ëÕ6õ¶ñìš/ìEÀK‡Wÿs”fMg/³Øº¢8æ-dĞÀ~öşÆÁ[q*’Öxñ°„¸ó£{ƒi¡Ğº¾A®ºVQ68LŞ³n<!DÙdÛQ<ßşm¶qwµ·º
-’êvj…üöş]ü²aÅ¼¦KïØ0ô½3^bi|N;°ale˜Ü_¯¡FA>ÑDü¤^#Syi–¤½Š$X'óØõ…3‰Kp§qO!ª i-m:F‘QÛ˜’%¶¨4ºJ !H¹ê(5§Ëè)-IMËÍPç°ÊÖh‘Ö8ÁÍE	kË(ÿP?Êiã‘p‰Ó„·øQÕü¤v–µ !Ê!›/õP“×¥›÷Ëë?0ª±c>åÉN‘Ú<vÃéºğM¶²XUMçN×½´3J)ş Ë9¯Š$?‹®~wõI£F­Eyyg,ÏŞ/¸ã'xm«oaè3ï£¤YP²Y‘å	†?ó(fw
-¶¸\ª6±a©—-;9Ğ€·r=àUçm¿ÉÅìuØ’¸Kè&ßŒ7
-çöŸ*ƒ£í«—±fól´^—¢Ì…o8ÌÖO8G:‹ò4M.œœfÅdÁ~|ƒ†;ÍløH——¶yÕëüÁÊ7“ª HúÙ(†……µ2è~è^:Úbg~Ì_$£¬`¯Æ|;å¦—ß8¼UÃt)N‹èhÄ„o…ÀÊ¤^V>
-.çœß<#4ÛÃ!Dƒ3¬;ÆGçmè=¿lÇQWmy+Í©*n|•ú½-’„êövGvC•^‚Ö †ı=ğ½†Ób‚ğè=ª-ÕŞ6"ëÔË1vÍÕ³
-GÓV÷Á
--aÉÌJ·‚ÅÃ»¬³ÓQËq÷ù/0c ™<¡1^'?ÆjåTİ»Ÿ§}xt!¶Ÿ*¤åÑ;†“%Òã(Å¤İtTL‡ˆ Ä€iİÇX%<Æœ8²îPÂ¢Õ¾İN`–Öğ.5QôÛ38T“oçöcRQ‚ÙjôÓ‡‰›è÷çÓ>¨ÈÏÓ_cudşNØŠƒ^ÆN¢×İâ©ñNB^šˆu’!—wp‚½,AuôùMØÖèê·ƒ´ 5¥şH‚…a¬œúki“Õ·@@ÏŞ0Á\{B«/Ï­˜°«<Ç¸bí1^Æø[İ‹> é“r½µmÅ_L$aıõô[ı‘´xÓóa/Jãà.ÃÛiˆ*o¬7*4æpcÒzç–ú"˜<¥«`,0ÔäŠúÃ&Cyç("V[W>böv×î°t8¬ó<EĞÒlÌI[‘äÙ­u‘Æ+|’O)ÁŞœx2„à _¿Á°]ØgI§õûKd"±°NLdƒñÊv±;¢/|¢Gw]™	-éRéÚ7£t‚=¢ÇøŸìÒüÑĞËmW^Dã×úolp ¼İ_Op¡év”âaâ«Ï?ãŸ=AÃr7õ¿õæªî³/”Şşß Şy¹d¥Umê¡¤–Ç¶eù™rÃ¦å†?şW:YÏ¢4É´(PèX"æ4
-rAüWã§l¦ £Øû	ÓŒÍdTĞ "§yt<‘™Ö„<xÒE?OI‚=÷<{/cÁz‹[ü"œvE·°š/®Tècœ£ÓZ>¨Œ}±kYP@YÌÑ?Æ[³’@Mfe«'İÃ´3Ëúº–ß”[AtùÑ„Ş)á7¢!¨c¾Ñºv§W¼¢™Åª„ÊÏ«ñN¼ÍÑ|¡¾ÛñluLÊÁ—Ûñµõúã<&Å©½ŸĞö%î½l6\tˆJòŸûâ©G¼vK­Ñú¹[Cå7‘)ÍYSÉÃƒJQÔâE}JQ ’9\ÍUèOwWç/@OÁÕ—âš_ûÀ¡+Ï™MO·ÉláRs)nKô£êœT#s]µË½I.DñIRïÏ—z¡*iWËê×°ÚÄ’ıÂe£ø‰9 OÁw‡!ƒ:l]—ù#¤bÁÊƒYí¹ªPz&JË{I›eô;GÎ}‘†T	UM)HGØşí#¹#WÛJÌ?o÷i@Ã¦¸ØÙ•N×ª8[-‘®°P[¡'Š’µN¢/ÅÌR!ÄX£AÖÿÕÂ#¡½\ı«/È´Üäm¾qf- óKuîúˆW·ªO~‰ë*-ß.C®’Ù®ÅXçBáÕå½«İËŸv­ke¸ßÕjG–¼Ö“r|ZT‚{+Ö¼êdÍwMÎì3¶·Çàï:2_:>B¿z2¬9´-íÆvænºøÿóèbªUoÉ±:WË³¼‡ÖböGåu¶°ZİÕo'iß´‰x	$hÊ-¨¤W:é\eüD~]BvKV tváÕ-…ß¡DØ¨A6—¿£ÕÈ)«	¸?a‚£{˜ •àzõŠèG—õª–ÄÃÒ/„]ãBø³ÅÃk¾3BqøE
-á‚‘¹)5Û|ÃÜnk×wij|ú·z5á/5E†Ø‹t©(’¯¿êİ)d¢¼²¶ış
-CÔÓ÷Ë¯×ïp¨‹mn.ÏÙE¹ò¹Óvì³rœ˜Ê¹½^Ê¶×qìÀº´qÏĞâ?î“u½Ç¶K[­/„ªü
-­!	ÛèIË³P)<roæÈ¥h|”Ey¼}šÀkÜG¯&èÁá«/àËJì²¥«ßÕqŞ9aÌãø%9Óú*†ƒyŸ½á‡/Bådò;hÉöƒÚ4€Íÿ¨5=\ëÔ.™´É.‰ğó¥¢ÑÕï®{àš#kBÍ-œúÈœÿy˜9çp
-š0„¤µ–ã‘Q‰ZBDR!UO™T^ÎCnz40m¬ÚzÖ¹Ú§™¢î¬Ğ©*ã‚Xn»ĞÆá`që^WAä#¯ÛdÂîŒòƒôdäi ^·Ô•
-[=°TèıUN#Ài£¢$Ìp§dm5ªÊº`2òÕÕĞt«Â†ÇªP]ÈùMãukö¯N_@ÁULÈÃ>ùµĞZÈãåupCw]°5z9—
-ñlqÒ¼Ï›ä|´10Ú†İĞ0ôkÇÁ©³ö=Š˜7\ı6OE¡Á*øŸ{iI,°H–õíàÜQùVÆ=®™¸Œz•ˆ'Ì{Uï_fg™œÇªäì«œumÄ6OF±KF´<ê0(ĞízväÎÁöşîöÖ«=¾ÓñÈÊ)¹ÄŸ5ÍÓï"’1Æ²Œ£„qÓ°Ÿóó%û¨÷ÕP\ï4fàıòºÄ6şo·¿Ú7›ÆyrœÃŞ½mMr’İ§póqÒf¹
-“ €&¸¡1³ÍFXˆÂ		Ã„Ü¡ˆ±K•„¿mW?9™üqÓ$Ë%»ë‡'Š¯íP6@Q<ÓºêöQ85ßIìáòpò‹ÖÃq™Û)æû	YÚ0³o@z\¯kÖ¿\ê)uª’áı0'eFìL÷q: í¼öKÎkƒ])Ü¥¥—çn1niÁ|ƒ3¤éş\¿·NßJ}ÿ~gGÑˆÆm¹kMO´ôv¶ó£ÍÁ1æl·	­ƒÂ×lAáÖ8Ê€¨tùö*&[µñŸ¥£“z÷×ëo˜,ã¦¨»uL¹;F¡Ë»«êŠ©~ÿjDgWÃ±µNºÃ¼Ùº%"g0»kj,k^ûJ‘Ï/»¥´%T¸:»Y4=O)"îc€ípœ1„õÔˆx]^fE6ŒPB5 ¤ÉIéF{f(ïRZæ:‹~9yÍ€sĞõ`Î¿àaÄİª’ "œò€»[œÒ~Æİîh^E0áu¨-Á¼ú-"w¢
-çUE·[•–>K Ï]#‡j“ßaÎÀ‹qXØÃlTÓC5ÂóqN‘5«‹f¡±:çhîX#ƒ.^/n#çúÃøïøÏOñ?Wÿ´ø†¬„G¶ÌbWM2ŸÕ÷†Áf”ÑanOAÂZçÈ¢yšâ¡2ûa³š£<PJÃÛ¸Ï”¨ z›tÉ@Ih.»Z·]«7Óaö¿Ä¿ÿùŠæş?bsñÎœüj"İSÆn_qı„|u–³®qeí»€Ö,M-^¾3‡=×u½ƒ«yÿsÿ³ü[Öå™«º†k¹ÿÙÀÿ|ñ[Õ/ş®ª}™‚åÚr„œZ¡3á;²|ë©@4i½3'mÕLmÓuéé}’ÓãŸ“ŞÏÉÃ¶s¢fi«zĞª¦‰ 9toÍjö9xØ8é³¯+;iLşØµ¸iådxuÛ,¿ÁšcIÄ@ZM•¬1s‹*›ñl“,O³M¥šÚ !»bŒÑCFÙ¶:BújÕ¶lpªUSÃø~§y¥=a]Èt4ÌRl IQT¼·²š¢aÉ’jE4=%¸–QiyÂ¦‰ÙJ­é¹•ø«¿ù¿ÿë/´‚vFí«æÉÛ`–ä‹"UõóÇf±×ş2/¬ùe™2·!°Åté„kv±Èlö‚¦¾Ua¸jU­‡3T1
-òÕ#I,3­W‰¾k›ém^£¯¦ìF©Ê4%¿¼ú­¥¡²	È8â*ØD9Í&ñêïGı4bñ”§+S„LRÀî€EéÅE
-û5Î…¼â‚‹pWªù(‚6«úÏV³{g}»ÏùDÛº¢ğˆ(™±-ë¶>iè4ozè€à:ZQ	×#[tFGÅSz:ígöx+4¯¥,("èeY†¨”AÎ“SR¹#âÏÀìÀ¿X+„lo{‚X,†.¯ÿçFu7Z2üÚõÂ?^aåY*…7ÖT.¨¬æâVSnWJy†:Ê3QöTP©|òåÀ}aí¡L×­şQ)µmıï	Õzİ ¡¶,òİNÛÕöı8nÃqcñŸ‚Ø	‡qzœ‚À˜6ë¶”9Ù‹¤flTóáMœÏ^*tV×PĞPb¸Êç<…Òı:E5§ñE©yó?+¬+TÁ%Ş×XknÄ²©Ë¦…x¢Ü.—ÕM¥F+@ÀğõvåV®Ï^À’!XŞÉ+²<=fï~>Å²vìéÕß!†6ÒÏÁf?¹­ßíK&Ç€µpÜ7L‡.[·8—W˜O5½e¢ŠÒï U©³Â%ıÓˆ‹£Ùq­|pRÑ€Z ”R)^uïìôò4
-åÆŒ¶m½Ú÷ér	êvÆŠøq¿”ĞÏµ˜z³ ‡Q/†›äÉ4ƒA‘~3,-wœ±'Q¾É*s;˜Ñø„*êâ™áV¾ÌgHvƒÇuºjÔ¾PG`‹p¬ÆbLøp“‡l)‘*³µJÈÎşõ@Ì/Ù)üºğ~ù>şs
-ÿ¸!Ã×ÈpDu§Oˆ?õ¨Ím¬Ä?ø¦€M ¦Ü›GªB¬ŞŒ[!XÀd5²uCØÁĞAŠÃãƒCw8B„4¶mMğp‰½uÜ˜æ²opX4$††¬ËüŠ’2ÑÛc‡ qô0 Ö12[œ“K¦’öG×Ö$
-¦/¡{İN—ïñ½ñ%¯šl_–DŒàzêóGÄÒÑYZ¤GƒdÁ™%QEVİº¥5àz ÈVÀçUómSùcÛum§³xÌ ÄeyØ Qmèl]ªöŠÈbO®MÃOãº¸ƒ—'8Ø	ûÜÄĞ+£TK÷¦dL0¶~n­«)û3G^¦s,÷±ò2÷BÌ›$Â“(Ç€¾äiZô1Ïè[
-¾ç Rï@çÎ†èA©„’öo³Ûõûıöñ.ÊN‹‹—ô/¿5+‹•÷ÈB*ê;´{ğU$Ş¦|™sÚ1ôbX.ÇÃXğuw ™X—	º
-dDrªº>Ş…!„Â.h¡fKıší` ïXy iAs(]¬xkÅi¼¤xĞksEè ¤­bŠç9Êsè
-uOeTT›l[µÃÂ<x9•Z+œ´O±ç"£Ä_ãLÊ˜N=éÙª
-s@pû±ìk!ßîôsVzÑıæqªq/š}î‚<gä¬ÀÑïøçºÇğ0×röÆ‘í¨Ô€ö}³!„„Òcîq¡'´ZC“Pl-–-%(ÖŸæEZB–òÌ‘éM£t'Ç[*&Á(?Tƒª¶;îÖ¨7|ÀÚNºëóFÃ˜D°qÆé'ƒ¬OGİSy´J€ê~RW¿?Kè}}‘¥ƒ„Ñ¿šdãn@"“ÈZ
-Veò?gäqí0-gB³F—Ö;GŞ½G·ÜÃÑD*¶kõLfEÓ¦TzsÁ¬•Ñ6ÊrQv´¶ì	g84¯”çà9’ëHkc>Óh Ê,¨·PFhgq‘ê(˜íXqL‹n7nIİRjn@ĞâŒşq7ÒGïàzªÒî%y`Ú=®^ı´1)¼İÜñòDŸì´ñî]kÆöoÏyÊHıt§ŒwoÆ)ãU¶ÈTìŸ5—¬ìºF*|\`ªôÇ(Ã?ìâ¢yÃù*üö+}ãâõİ%¶¶
-ÿƒ×Wßˆb|ıI@%>ûH¿(JÚl.!¦áa4Şnª.ëÀñz,5ÕÅÛGHëEHê~ôşĞ,OúvRç;ÔÜÏö‚­ ^´Û[]Î²ßJgµÒ½aô3Ji6m{qh6ìş ù1—†¶NL;  m)şT—#8à^Ê
-½|·æß]k.ç¯{É<ÅÔË‹¶ÆO¶Z ²Js!7ëS|h*’è²3_¯bbH±Ã
-éÂqÃ0=¼Xu½‚z¼õá†+#‹‡˜_G£Fykt­ØZ£Ì¯áx£
-…pvÀK~ŠÚ4$âd•EPé'ğ+úñãÙÕ9—“éõWä›A†¢åà4ƒ:¨1­f’e^	®BÕ°öŞåWsªÑ:èÚô—ÜÎät'ša›MÊW­8±
-f0Wø>Š³÷ËçE˜>ÍFhØ*qò#m5\Ø\(Míl.3dsyÇMÓeÛš>ÛgıŸ¾æjÆŠ«}m]¢©qO;¯É D˜‘ğ´nĞ‰f’çÉñ„€¦¿Év	Ç¸Š4xšL¢t‚ë//3¶î6EÔàµ“Àœè/är°Ù¼|m«ÇÄb± ÛW4ƒŠi–¯äw²S–UÓ|´Vâó²ëvCØ'¬	`”ÁcĞåòƒœ>‹¯ïrxc—Üaé©åÚ'›ºAÑ¢/…Õfo¢!Ù©	dH+Y^4ÁáÍx’ÚôèìÉ;«Z@"ßª¥k2¯×î[Q¨C 
-C/·Yøp=#6blN+ ±·½¶®Âm¢k—*Nb1Å±ğªáaãú²^E•n_UÊÓ¾ÔÒg¬}Qb´?npÊÿùØ ­ãŸÆ€Rá£¡÷´¦¦j?©a]Âq\
-	ÃZ²ÑÑÖ©ßÃsıD¢ßûğµåÈ¢×Egui×¶~Ùc÷6æèÑ`¨jäa‹wºf˜…éµ‹;İ‡2f‹šC©N{Ñ	Vn¿{‚Æì°Ä±©î~Y^‰¨ÓìT4 ‚Œ©HÑ³,?À_1–­£àÊèo~CŠxvÌj?b2Æè5ÃÕJ]UîêvÉx†hˆvU>òòƒ*Ce’Š	f|¯h†§¯ªXDÌ­¤ıd¥#Dïz¤M*ë#YíßfKÙÆœ¨-0$®›Ğ&^L“tt(¨§­ñåÇ×#ìQİ²AãE7«lÔ5úVµXn,£Œ°¢Rû¤‰¡Ø”¬P¶ğ§[lçÏvw^î°A£aıdÊtîRPa^|§æY2Xâ©ıÉy0Ms+B2½ÅàUÀ~ÌŒ ª—)¾”´ò<-ÊM&
-WÜ»r®S6ÀúŒ…<ûeÈR®»–rá!ÏE…„ÂÇ]`"m3Äİ6Í…ƒø%Ê¦±pĞŞÖŸ¿€¥~ûbçğëWOß¾Ú;Ü}õò wœâN†Me=,¯ŒføŞ0™œf®ljy5V(PVË]­',®«*HÀj6~âİà$D¾Å¸o¥ü°˜óÇ½æ	ùüÅÿpW	P¥ÔğBå(ìò±U6jdVºUÅgx÷	¬÷¯$ˆ6:–p,jÜS ì&™€†³<ÈúnC¾y	Ãş¸‡£ğ^d‡Ùslá©hO8ÿè†®?Õ¸jN€ ß#¿øæegÑÓˆÊ×Ô>f»Efºødc7ƒ¼Œüv»Sçe†,ş+ØòEJûö#L×%ÊÂOøÚÍª¿—0Qãqˆ‹’_J1/zlìg2ÑŒAÅMœÜ¢œ±fVa¸Ï ­këtNKº@CiºBTZºo¾6Êf¯<æÄx]ıUéN`ø ¿*oLñaÔg-\şü¢Âöè}”¢i5{/^:ïv„à’-å 24>hØ¬sÛÅ»ßºäMn¶^+ @bÏ
-^O¨êØ/#&d2ÜÃı´ˆ`«çØ6¢Ç ™#¸#c»/vînná¿ÓêÕ¼¶ÈXD8ˆ›Y™¹"rIãdœ¥Eğ~ø?èb[±cÌÔd®øbû;‡”õ1Å5#Ì(*+§,Ö¹?ò,L˜*BÎĞOòÄûbw  ıbe€Vïå°>(ÆæøÒˆ‘gèVX”`™2ŒBÌzHPYmYş –'ÚÂ¶SÆC›¤Û‚>ªc¤sDm_(tŞVÌıgîÁ¬›9‘òµmÚR'rÜ],+©éQÊ´èø}‹wĞ.¯˜aÓ•“šQLrV“;?æ•ï§Ã%<Éÿ?²/œ¢Â×o-{ü^ngxˆåNáx>ï¬ê6K´¬÷qÆWM¢	œˆè1õ|’Ä‹ì7K@‰ş‹|à¢Cxé8õÖÍêÖÖ¯‡>ç:øä=Cá§ƒ&¥İƒWd{²#88®Iş¡ÍIPöâ‚Ù%–ä9lÈKéâÇÃtaPVï8Ï†Å3Ì>/»½ée!´ˆãëWlV”¥^h}{+ÚÔW¿u[È6Ó³$~K{İÖ
-AFIµnBĞ‘ß[~tn*ô'>Ä2Å“nÃG@@‘øoë·óeßF0±’0Û5rÙí%¿î,¦1È’ù”QP-™qFôØe“Ó<{Ï‰³}·ÈFSƒÿj eÃ¸ñv°ñÎâ+X‚i Ğ:Ä¶KFæ'æ@dá![=ŞE§"~È¦,¢S”E`„#Ò]QdQÏ›üj¹gÀ &”1HSÃÂÆ@ZGÂ-DÊgâ½Ò6!f½åÒ-§X²nQÕ.nn’r}kÛB¶=!ÉlK¡2¬ûÚdE»IE¼ºÁ ç¬PwuPŸòpÍ®|5§Ó4®J	Zû¼Æ5¼G§ô‚h/¥‡;Ğ¿­;°cH$·—¬Mú§ÄD¨eû£.$½„ouÜñ((Ksm©Wl.ÒAØr~@|ŞOÎ’|‚r3ò…~$dä%”ŞQFÍ€à2³¢H1ÓJj*y¥¨ iûÚäTÆv‚å$\$ÛåyôAS›Ğû¼	iÓQ?ÏF©‰²Ùp9$aMènK\ †n`ò:ï^JÆ‹³ÄÒä
-eÊ>
-kôtË¢ˆN8~.¬İ<E Ñlñ²Ç^¢cÛ“ü¹÷®Õİ qG÷mØjVÖCs‚Ş5Ñº¬eù`@vyk€¥'à&ß¢]:-üáŞN'W$õ]›XÖ¡‹­•İÄãV¯Óü<6õ0Ç6³w?zK~ô–ØF1o‰ÛIr1î¥@HÑ`Àà(9èß<bk”cÛ¸õò\dÍ·²®zBu¬øwŠè8AÍHºE–Øb¯¼xÁ¾şzs8lcàılmİ§H°I<°½0òh‘Ø†hBF¸ğûÖ©Ñ ¸#­\+Fï‚ºmH7(„Ø¢Ñ¹EÆLzîO³4_ÕÊYQÏM$Íôüçù—óÈó$vúÉ
-¯$êã¢uÿ|Ÿmƒ¾ê'­g*Uä3ùõúì"Z¸3şó‡!¹ıF°˜ÖJPcáÄfÏ€á.‚½JÀøĞA±¢e™vK4úƒ?Ó$ÔºğÉ°GX]sw¡ù©H† 73„–CÍ¨IµÓ…Ê A`-sG#Æ¬ı±–>Ìî†)q
-¬äRŞæˆğø4£jÌÔOP+;C, Ğ%™yŞ.+oŞ~u$Ÿ—É{­¿¼—7½€“]%Õ	Ã	*ÀCÌüh³¢‘È¨Ù¸‡!öç‘1t°á<X Œ@‡{vtWô]#…áÒ¤C†CSş
-º°KA÷x˜°ÇB„>	ğj%£„ä!îEá0¾íÉİöé—7§&²S”úyà!oƒ«@¡’:i¹ã±Eìæ¿P6†%×™#†töowy°~F©ÓÑI2dŸv›CÀ¬ĞÀšÇ¿è’¯\‰ñÊ¥e{gåİ‹«ß÷DÄKûprÒOwÎ7ÙÆjHêu¿„z×Åï†Ä]‰¿jhŞÔ}åRø*í`™"y5°­ Ñl^ÀV•m²¼´«Cõ ï™­"9µ¢—
-šÓÆåø†qcR¸Q.`‰y·ÃHDM£`\û·›yO 0ÇeRÁÊ>¡µº6>Ù¬´%t½Bö{½$eÉ9ùLW¥4÷<áV(¥*û<0r+–Áe£ˆ³7˜v«ì0_^#(¿-áDğ‡æy@©ÉòûoM‹„ã¢Š<åà^q?hÃÔ7Ë7–WqëM}Õ+¤4–2\Pò/gXpø—ë*ˆ~.”uç*;…öË:˜µ
-uZYå[íôAZ5 KüÚ÷ìoJ
-Ş†6H%FÍ~$rlrrcdÌÊ)z…ód’gtÀ0)ÛmŞÌpVÑFkI•mÊ=ëÖÂu39ß&é»0é´M{¡P$Y§jü·RÀ*Q &1¬|«¾_®:‹³*.Ä¾¦´IvAŸ&aj…Ü<sZŒ—û&Ë
-²€Ú¯êÌÏ†ƒZ¶ZşJW¾$y;
-4
-™j©ÕØUšCªÚµÍÃh´E„™e7›Áz‰êöÅpLoŞ*Q±SICalÍ3£É,_Õ±ìš‰³VXi3×Î§ëicÕL2ÀHh®O VJi¶¿`Ÿ
-›ÇeV§Ëª÷X£†şL‰‹î1'ü}½nR}¦=äÅÎ„BÚ&µi£3İ® Åœ1¡=`†(ÿÀ€×;Çyaãd€Tù0b[58ÅÌ—çÏ†ß“ TI‡ZW ùU+[²ŠíÓÂ©`ĞÅz>PJÔIˆWÔ¿ğ¥’õèe2:Åâ×ıÓè,a{»Æ°ìuA¸=ÿ’±F›qÃˆnd@Àt1ÊkÂK…†<T™ôºÊ´$Œ±`\t¬Äï!9ŞÔØãttš¤yäÚ®×G££—C)áá)£±æÔ¸¾Öº]É.H6“n´€mÉ®•À|=0ÔÚÕÒÌ¯6Va~é¶ïA‘1Q;ùIMº•ú(µ(lŞ~ª÷N
-ªQqº/"í‰ÂĞØƒöõ§à¹Uâ«KAr¿œãm¥6kqÕãY­ÅtÍ3½XŸÖ[¼“~1 Mº-—İªŸñ]¦g³‰iPûĞeË¬Ólä”ª©®İ”)/gk ·:ŞÖ5ÊXÑ»Õd®-Váª\åD"…´‹óôÅUı‘'¯WÔ8¿üuêKà–—ÒmVr¢DØVa~íƒÓğªÊ0¦ÅAtëBëÁ+eí“e”×(æy£ÙP6Ü©f üH¤«.©4–£f“S±™ÁÆM'h@·ÃOÔ—9ôfx¨]› 8¼dQ0JÌ''æ¢Ó’Øy2ò˜›3³¦¢^¶«] ^Á‹Öbg„påËn³Ò6“XİòI”½¬œM"}Ü†É–$²®‘Lv<+ù1™GïE¡ƒÚñ[úš='ZãÌU+8Ì÷Ã gZyÎÊÎU«ü&ğ½„/_\uâg¬³Æ¾°N"×õ›'tÕ¤?ÈO¹š´væö›9tÛ¶¥‘ÒwÖÒŠf‡Ñ9BH[æşò§­¢´g9†+z˜Ó1Æedj¸Ÿ¬šYŒŸ=ôù	×J`şÁ|#ŸAqÏ˜:Æ9:Ö³°+ê •ƒÇ½ãŠQ ÌÆ\¸v¯×™—‘*B°äFÍ+ì&,,{,´×R¤~Àâp!Æ¦¤­„·cso½´6Ú¹–&O—Qÿ¢]‰”†ú(¡Î-5\Ä¨Š:6@åÀxòã–^rCSœft–Ù¶´Ê(÷¶ã-‚Šá-ÚKW¶Õªù–æqaşcšxÜ¼şöK¹	Ì¯õBÒU<T;%®MÒjû4"m¼»möî¼ÄXSgº!Ğ´ı«7m¯~×yãÁ
-ŸıV×*ã>œ{ C%š´¬‡]àQ(´]²n“(ç2d}ò4ïØÍÕ0-…hOÏ>²$Í{ÒBi ×@éüfÅrEkoëóøeŠ+mÀ!;ŸRä%¸WO<‚…ä ïA†~´¸VÍpá-i­Dã<;O‡¡ˆsrõ·Y£ûq.Æ”}]È®vœäÉ¨ŸFT‡À~1	.œó’(0cp±;?¯Z†Å=Wƒ{0{Ø}\f	]ÃÓë]_¢¥'1$á14a¼|§-Rz5ãŠ— Ã»Ü|V¯½°‰2úîÈJH¤ˆRö_şÒ3Ó-ë_WEñ§SyÍòyrüğ¢èŸ&ñt<™Œö“c!Å­„‹ÈpòX „¶M3.¿s
-ÛL‹ÑêVÅ¤âE2šb&{—G¦íº~/ÃÓT§yHØJ@òAğPmæz ¿ şqÔ±'(@@ÿ¹í|¿	„ûv	mL4‹ıÛËŠÎˆ(0ïÃMöö|öÄÈQ’·{™:çït;KlO6ùwøq	‰'§âú‡™§'Ş‰â î‡°Nóª½ÔD °?ä
-K®­B<ïc|&†Ö£[Ã7|rñ–¦(tg®¶‰êµ‰×lµ‰©”‡á’š¥<±¢ìk!²È„ƒGØÏÇ´GP{2n/ŒQdÔ_L<ÌÜ:¡7Q½¤ä$²'z=UNşCV}OãW 9€*¼—€8pêwó Eé›~™Làüünùõúêê›K²HôÅ‹âK=¬Ñìõb¢x^ÿd-ZßØØxÓTx÷| ëÈ®ÃG*¯€R'Ér:bÇQLÿ~—eCø3ÖãiÑÖYó&k“ Š•ÒãßKşişª±RóGÁUÜÍ'zùJÚ6X^¾i”¸ufø”Ğ\8ßºMÏZığËZòıİ:W 8m¦·ÚáÔn¬|¹‡¢ú@ãÁaÓòÍÛ”8âg¾Şrd£
-2]†ğ4 KÏŸåÙmÆMÌx£îÖªÙ¨İw«­FĞ”n„Í}™·O“ş¯¶Ó¼?HttDö"Êû2Ì€³éi2Ÿåövi¦š!äÒĞ—49&òEƒhõ6)¹©QBeVÚ…§o,\‘±¨Ú„hSMøAJ¡Ç×¾¼}¡¼»×ÑFH±„"Úç&‹—mÊU(3î”N4µ£ìıõĞß%€{[èöJp{{œå0\C ]S!½Õ‰K› 5ï‹`ŒWe	Êk–K˜×Ëwa
-’23}˜j	ğR>Õ –4ñu“áñœ’X©–2\ƒóÖ`›«î„Í^Ûp˜[4ƒ]h€âúš+xÎ0£ †4G’6àbÏûm%™-*'2§¯«ßÇÙ­¦Ù6çãÍÌá:©ò·f9Ø<]o:ó,XÀL2Ö9É6>#Şƒ•G3ÎúS|5HÇñÛ-­Wæ–rL‘Í1Í.¼Ÿ†øÌÒîêÀû©òu1I—öICşmCÒm»äYáXÓ·Mz#°G÷n±…ìO‡'ÉÚ2c=fSµSa8ş¯b)­%–‚àÈ×ÌÙ5Y×V°æç¹×Q,
-uæÕQ‘ägQ?KìÁ¶õxe<´Zîˆxøêwx¦w²1¥‚ÁÁ*³¿d¢J^pgzõ»¬èZ'ëûYbe4*lxÄˆ'c¶¶öõe·0*LÃ|B– Æ¥vöTÎÖó_lıùûv÷`÷Éó¶Ì^¾bÛû¯?ïšé˜V÷8•&Ëkrê&úz@ÑêJm„gQF£ÉÃ…"q+†)©ÏBİÃ‚ëIËº¦•*Ô–wT¿ºÑRWëúá&ü2ò I‰OzI}(Şb« ‡5h[¡Ñ®×qœsÎW01t]|¢7Ñ#idÉ© ¦ñ¦®Å•ZĞnì2ôà…®§pq]Ï‘¿×õàşhÒî¸äVŠYfÈŞ^í»šøWgÒ¯ò«ßY…!hOK8V	qdé¯¹—^¯¿Ñv“]b‚Ñ´İZ,Š›•†88ëi­³¦Ïˆb‹N4!ûùª™ëï¹ÊpòèB7i<fïöwşd÷àpkŸímı	U|…@‰&à/ @/€ß	øîùÖË«ÍAKû[O·Dc¥°’5ÀYù½Û,şÎââ¢K»süzä§Œ%Ê/Û’ ê3*‰Ğtqµ#Ct•]—…“"”-ÆÄ¶¹øóov|^ıû'»H‹‡¯·#q¾âàÏv_n=ßı×pË·;/‘¾øôØS¸§=mè….·h>X!¾&e”^¦ı~RŒ~¨„“üoÙLZàÙHiwüşò¼¼,ïÁ… …Ørârë¦ñ`ı %ŒXØ¡"yÊ=Âñ¤ã	6’ÄxhìåY<%ñË8‘¡Å}÷Í¶£ŸÈ²ÉùT££Îâ¸¼_3G”s~YÍ Gœ¹€7‘‹‚ ¼¸šÌYÅ*Xv¨`]Ä(ñ­°—Xjø	üóÿşú/ÿ+QÌ·¨Ò—•lcüå?şûÊåH„º08»£\{WŠï÷“ébj(üèÃéÃ»ÃÆğ&ØúøÑ‚=¾á _[uÊ¶u5%Tø¼şXÜmİÌA–I•@e?ĞoØè¹L®ò6­{bj8SÜdİâ¶é—¬*çƒÓš©9°`¯8kÅ—N¾´_±Ø	F‚À¨”¨1Ï´ÑíÄ859nXz¦ÖÌù‹	"<:1ÜZí­W,ONRÜRqA»«Û«P¶(DÜæ±„*)Ÿà#§~=\«¶zu-Ñ$[2XÛê±"óWvÆ2‡Ñpm«NY÷³/‚Yöé¨V6àÈš¾óàôNs…"O
-tI!¯±Æ=kRL‡ƒÕÂŠ¼cyç“(>I*­W´âÛ‡Ù(Sdæ…G?±Y¡Á.J:Ë÷Q¼û»»İíà —ìkÿÄ—öJ+ùÛ»…ËÂkƒáÇª<˜ÛNê®Èe®¹ÚÖ<}·e•KGØ©Ş¯§°éäÃå9ã_ †Z›C_Ì7o ·¨ >fÎhÍwu>ålÏaĞ«åBYÓµT	l@§‘Æc€Úuê
-¨Nn‘”C5¾ã›3€¿Ü­N—¨j?Àf³j"R?Õ|!…+˜]c6:¶éPUÂÇ™í­ä.Ş´D¥s¿ÒqÕjò8!pØ³h Ò(bæ3Í`Å;ø\ªÀ:ÖyåY¼T“Avæ7õ×™{»èaÆ%‡x§|«V™¼ëH„´põ Í±šÒPËA¶².êÊ‹˜FáJŒ£Í ŞìØ:jq¾¦ù“a–+à
-©İçâãu±-\l„5´ŸşÁ«;ó šsx$Ä¥&äÎ$ÃŠ¢‡¾ÉÙË,üXõYê¡w	e^;œtxˆÀÛ\ ÖyÊlÔ<^Üó…v¨[è–g‰]Ë=i ÷ŞkÊf®ö~¤dfwdÀÅÁáÖŸì¼}µÿtgŸäAŒÒğ¾Ò’sÓ¸LÈÅÎ$\ñç[Ov¼Nã7—Íi¦î,soZhàş¶Ši&D•uÿ¶Ú»àëN®[*¾Ô
-JÙ)µ¨3˜ÄùPY|›®0jî9"7ì6úÅ¥½7ñ›{TÕ˜i’îİ)d!y€Övy>"ò•ƒ±±A†/]¯²O„í[¢šõw£ºİİ
-ş~¸‰7Ü,‡½Şâ›­İƒUÄ^œFy²~YûÕ4÷£Iïtyí·ˆÁÉÏ±ì)Æ	!0uTû¶î\skÔ»ëö7%à[ş²¡×Ä²)æ°¼¸jZ?|á Ü‘kBØyù]º4ûß¦Ñ/N£I±5[Î¢¥8íË×ü}­]§E2ùE„"®¶í0¬…ÉºÂèÊ–Ğ·ûÿ  ÿÿì}ÍoäF–ç¿¥)¯R}«Ên§U*È’ìQ¯«$K²=‹B¡L1)‰îÌd6™™ªjYÀ.ö°ØÃfsÏn /kÌ¥“ÿIÿ%ïEŒ/™™’Êíº]Ê$ƒÁ/^¼Ïß‹ì‰°è¾¯×»‹­4Y¯ÆiõÍº—ôA:Œ»W†^+®ÀüØİäZæÚU=F=C«dº|D¼ŒQ¹,Â,³Ş¼Ç)îïÃîUìáLvoıÍËÛ£röÌ «[oaFå3v+31­×‚u™_ª˜šìKÍ¸l±ïe£"¤\İè–o4{|›Q]ÖU7è‡‘=Ën\Á9Ùï k}Ã¬yÑg›tBÎo(ôÿÂÊ£gO®/_a5è³®w=ËûçcZd"^eI~·®¢Adï*Ğ—q6ÌÉ_x8c`"#˜Êö0µåª;¼–katÀÆk?¼%ëŸ.ì<¾‰eÏ$üÉ5—a§z4¸Ñ/ûm„‘ş”¨ã³´V¼JÏŒ€r@\x-ÙWmñÕ~grcÁ1,Ó£?˜¨ğİÒê÷Ô¨`â]ÿY,òj»{R’·Ìt~´´wö_ÈÕ°g¶ ·¿D°:İs MÆP1Oşîñg€ÃñÎî³ŠKe5K G™Ü0)yôâî»6¯ÚèŸ²ïA±n“ÍÁÛO	•z—qŸşõşÂ×mòwëëëú†Uxg*©nˆÄ/„©ôü×¸Û,ÆOóÈ
-¯:Ü ¼Ô	²«¨ÃŸÄ™,¿à7ÅÌÊßY§4ØX:!^œ¸±¾şAşXúRİ`ÑWÿÊ&ƒª‘™PÍÈMnBÁ=Ú+È‚=S¼”Ï3Òäš> gt_ĞƒãòÓÂV‚V}¨ÇD?÷­izâ~Úî7¦Õ±ßs‘$Cë:Ëo¼‰o,3~á¤˜7}¨>ceùí5ëşÛ†­`ÛD¹ñól1³½$¯åò±xÃ 7ˆ[w€Ê^ÿİs”¶¨ ÙM‡ù"Wq˜Qç‚rA[vïèÅñÉÑ7»/ÏÈş9>Ø?Ü?"käèÔãæc ®‡ˆ¡'ïcÙ‹ÉnEV¼Íiéªpüæœv6L“şå‡W¯,û™Ä¬ú(fªô}tÃÉÿM5zÚ+¸kV8·“ óNLèŒ[â¥™Íö4ì¼kwŠUQªóóç§Ñ8Î ‰{ªËV×ÊÃÇ\9)ç¢¡Dµ/ÛĞqî±R±iÊÒä@–tc!$Ñ	 Ÿºkcésw©îDÏÈ«ª­JÍÂÎéè|È"‰Îa,ÊGş£“ÛC@oríNv—PZsÑ\YìHªYüZz´,ì°¦ä‰¸‡lÂñ8Öã5j‡2«H†IˆÔ“ƒ½ƒÏ÷w+ç&Â¦óøFX",íù;u~‚]˜ôwá:¨»lÎŸï~y¶‹™¸'•ÓåO©1cÜ£j}½;ù“ÿ~äz0Ï²,ÚhÓK“`g¿ÇÎéf
-°°¹@5åE”Nş@bPò8%ğn–Qû–šQA›¼q}¼C¦ñÀÉ(É~7	:Ô»õYŞäª%ëOüB
-(üm+Á¥”·?u{Íºé©úb6,¾3™ºU#&Vß9uØ—G<Ç””lÍSü¦JÌÙUDÏ0sÇü<TûT‚Àj¿.*„ÔıSøuçTNCSUôÇA–ùSÍ—ŞÅ³‘÷ğ·–Ñ­‚/Ş6x¶ŒÅ7!S¦_bÉOÛ<š\ìÓ6´yX«€ºÉe²¤¿û:íº&ºG<‡†KŒUDÎŒ`»Ùqÿ²Å»LÎGq·óyÜĞ¾(ùèÙQá7_ )õƒşå¢¡‚İGZ—Qo²"GÛÜù,ˆß
-`“ã—_Ü±ˆ ŠŸÑ	½"b§AHğ~¿1Áh§	‹ÎÅ	‹ÎE3aq¼ÿù$gn]Vì>Yq×û|Î•jÓÆ°<«›J—‹­âw}eU”t-Ğ¾zmùU0}é•ûEÔ«eŒYùá(¥½î¸TˆiŒØMQs…H†ñªwÔKº©	uÌtc-ì|Cˆšü'²‡µ"±9ÖT¢§'”Ü<²yÕô$%SºŒ”%*r{!eÍ«º†×	ÄÁ¨+Rzlèô{¬û1"qsw"¥DÀD5Ú“~’ÕWU’”²sŠ\Ù45&²D„JN	CSŞÆQ'I‹*EV|É‘5„VÃX<[1>z¤Ş&±•RÅ(P¡¤‹Ùî“náæS¥ÿPÔ¨CÆ”D«Üëuò¯$JÙŠC>Ò¬õöÆŠ»MGÅ­µOíÚ *:(%%OYÃjáá6åşšÌz¶Ö7-u½›9ÊÍŞ\¼wç4c}r¸¡†´+ÌÒõ5âù»=­JY@¢4ä·“±²aZz•Ç‚lr	Ö6Ü	-®PJ04å³z·úÈM¤ÂR&w… ß½LÒšÄ6”µŠÙH-rf<a6«`ÈA¶Éo]ÄZ2ş]`	r
-®†´Ã2ş1†İŠ0ûm&ì|2× T$ºnÚo^é
-İB×,â·h`Ñ‡Ñ¿ÿ‘|u²Hn†¿¡÷¯¢8M¤»öÅW®û”~†Åİ{¬{Ùãf}FáíWôAö'?±Æ,ZÈà5¦(õ,9÷àXÌ¾ï­Ææ†ğ•}tÄn®¯`GL‚›¿àƒ¿0@Ğ  I”p·¹*a¶e|zY¹´@eÒ”1w¦mKhÈõj­“Á ”vQ…=hEÕóÆ¼ÿHÇ¼7jZsÑ{·e1ğ•ÇÑVÌªã’Y¥£„ê®„¥·›	á,È‰—WI64!Ê[ôé=v¡ÆĞsâáh€1&1nö?ÏÇWøŒÅ/µCF%½~ÎyãÌ°Ğ&GO¦Ç§Y–{¢”ÿÎm0ü+G70’ ëi^Iw8-«ƒâ:›QÅÛga8=1N¬_-î®g/©E Tå¶À‚Œ£	s„µd9Ü–ÊÖÚ(d¥W÷´ËXe™ÈÃ´•Úµ²İ]öÎğ:§µ&Gå—•ŠÄáji5}D³‚4x¶@ßÈLÔ°¦x¼?ÇÎRj÷¯l>ÕÜÁ¬Ê|ƒ÷ôÁ)ŞF¥Æ;DòCÑÁ$B)sŠâ¯Z¢ü™¹–XÅÒ¹1\2[¿Ï¡B–võ@ë»÷«B)}æ«PÊßÜ³<“p¸#‘,šÃø‰¶×à±€={¢u›Î#9YÕ°<O¨ró„òÙdŞ×&,`†YfYWk&ÜïÆùæXİº’l§ ´Á!gç IË¤_\¬£9éİhMmUÀîËÛl­«]	”š@6Â(YN¢<±\™§X™—\)Ôÿ=Ê,xÛ0ÔyiÄH“ëìÙÍ¦Î&¸ âm¸ı.v”ô%ùƒ·í"‘Q2@áŠIı€ ;]ÔÀ¡»/ÊQ8ùóEÒ/¢a¸êD¿VP¼$ù²œI#0eÓHæÔUÛçâ6Ñe_IÙCR7—BósãÎ`	¦»Ú×@¨)ÙíR9”o°ù:8b­¸İËÏ¡ßætvJè5pbîôàwJ†=9à.WÉÏÁ¢'”6F², ˜A‚ş¿öÎ0ê‘Q/aÒË“È8î‡£.Õ‹W‹D=} Á?EégD¾Ÿü(¤
-¢sR6Í uÒÂ ×àóQ?î‚R·;ä&4UWU?ïÎu¦àp Hˆ._ÑSsª.é3`¯œîÎ@½U®M©¬S¥ƒ5ªDç=*»‡é»Õ0éDF-Èt¤}+ßÚúv÷ÍŞÑ×/ÏNxWó®qL4öT×Ë?ù¦Wë¯+5°ºnD|ºò1!bé 
-èZR¦§âºöaTe¶ñJd¯CèÀƒ*AA1JæpPâO;$T¸zÑ.o‰¸Ô‰eƒ²â@Y@|,†W‰Õ0;µÂ†*sÃA©+©DŸl‘O>ÙÜÚZÙ\ßĞÃ3³£˜ØjÚ†8•Æ•1ßÀëy‹Arâ0!=Û&ŠàlcD^DÌĞ)ÑY}º'­Ì~ª{jgwÎêÄTNvP}	¨êFÃ
-xK‘°8ë—4€îF-°O•†ÕU„éæZ!=ïÏÓ8…LÔ,½f¨Rz…À—PI{H·ã[òˆ0 cKnªÀ¼Ò.yê£’/\À›|5|GÙnÍQ@€ç7òXVD ê¤¹*jŸå­AİW¯æö„P?÷£€ ²rœF¹HÕ&¸xëšYoÁSÇTw–—’	j[’ˆE8|,„äX.5Ğ}‡lÀâ8ÆFleÒwÜªiv‚N”-ñ±t¸9£ ‘[œQ™_íÌÁ¤yƒfî0--#e…¨µº"ÕkGAwqéVqÉ‹ƒ3ò%ËJ¤¿rjü2éHÀ©ùc~ô²tZ —w™ÒTL·­’¬"_Œ!"x§ïÎ8ÕkŸ<ú½i&w»æøÄ†ïÍúL°˜_Ş t0SN!3ìnª˜r1—g­°c%¿+®=y¼ô¸$7èHä¯ÿõs@.jÊÒ¿ÿ>—èOÿ¢b‘AI`7©—É8áo«÷>Çd-€`ÌÇºä¡J5{3,~Ç[èĞê™]
-z+¿!påèñ9¨†Ê÷\Î…*Ğ^} ÕTŞ—ïR”é¢qÖâ"±EÊ{­òÑE"~¨2_› kûsÒ’ÖÉh/£Ä—p%yGb
-û’zKÄ-t!d-Œzc‚„¯t­ ¡ò	Ö‡jÏ1ë­’#@€9ä¢ÍØ¢ˆòl?!T=Ìv|RoÔ	V@^ÀJûØ?›$bÌlò3éGYÖIş-œ=lzõ¾¸¤=½íEŞ#J¾'?‘,9Çú/*ûÌµš:Ò‚‹h yrêÔ&D‘[EØùhF³Å¤-x.6%°Êlñq+Û«ñ¤™ƒA÷<]ÌävÇºGs“@(awt$ú•Ù`˜æ\Gó§º?Wºo—Z…×#ÑyåGÄ`†‰.4¤u¼ÿÕ˜_$çq7¢ÿ —ın˜ä†¯JS5¹«ZĞ¤c]m­ft'ïÖgq«ªÔ÷Ù|¥òî\©çß¤òWíõ¤­:%H]»Fá‡	*Ë
--íU§Ø øˆnã¬Ÿ~fÀ™6<ñ\-f-ÌÑtŠÀl9	®=ºRêB×n2‰&)`÷ÂßêB±x1€=™zÔLOĞRaLÎ„¼·Û—¢²DĞu…`½’JŠšä5¸&DøìL@aõ=s‚Z²ŒI×ea¡ŒŸª—0åJzåş†ü3CCõr/“L™q}{SäcQÉ¦™"ZFô²Rf•-¸¥ªìE£3¯EãFîû³^6ò|–êäñ}®º¼ß§µb¾óµb©Ü¯Q¹\†Zzªš}5¢«
-8¥4	¯âd.¥„ËŠà’Ú…†7Uíèôëz
-m -F7E_=]&ëôô¿›ë,'¸5‡–Æ}öt5×ÑMÑÌªL6CaÆ¤0'ÓØ¿ëMj0¯H
-vó°ñ¡™ú¸®ô-L²á£ñ: ‚b°*ò½Ä?ŞI½O¥€Nş»Oš¯g3kd‹t^²¸U¯‹¦å¶û¹–‡N›Eõö3¼µ±£{%K{†[ÚîSÉâ|Xd	QøèóN¢ Î˜ûÍ|c[Üˆ¢î¾GÔGÈvF"Ü®Ü=W^/¦väº:”ÍÁ‡ás Ç³…NR®ÖÒ“å·‡´„NÖoËz±ŠæâÊ§Ëëxñwğ×ã›–l‘Éúê'Eeöú’îğä>JmÇ{û)ui7s_¥ß1£­GìÉ&ëÍíıÔ;eB1EÏè*"ÏĞZj©”ç/ªÍji‰¬Z|EÁ<ìKá9ÓÌªÃ¨²’‹«%÷N)¹)G‰f+šÍ‰X¨±¡˜p®`‚ qµ<[ğr2<×io)ÕÕÜ’úÁ ¸¢Šæ²(§¸ßmÉ©yÊ»8|í¨cú#=šO)r‰b†Ë²[ækİş=ı&Ë ğäüüTÓ8Îä<]¢²ykmGÑü3	ï‚LeÌë6íºW;[+)/|ê^wĞË‹Sâå©6•r˜‹Vª§hëú›xì-è[æ7Œ`ğZ>MsV¾(ı©à‘›¸Ÿºq·‡ßCøˆZ/Ö|¢0è†Ğ)i÷â?é^’£ìPŒÑÊG;B@ÁÌÿş’*1£4 GZDw „%È†=|q|rpzº{ôæÅáËÃ»ôÆ‰­¢R÷"îÇ½š`m­+áï{t’˜iOtÂÏñ?Øé$ÆX»ı¡å	¬gR›Gfš¶Ô/«ü¼eíEÔ: ¢Øë%šµi4†_^­®®Â¿—ó‚eˆşïS®ö“ëÖT#MéT—IĞeˆíëäöµúÌÅ°x,Œ•Ó¸Y1øï*ıš®Xk€_@I.(@qgI}ÆûæêÏX&qÔ…éóÙ.’È"›-UJP©mf{lè1)p_3z†3¢kŒµGƒeò
-ùºMx]Ì4a5µMKn{ôÈÈ¦Ì¶CÓ…JvÛ‹h˜¢	aÛã¨;ù30Éo](
-*¼ŠÎ0F(ó­\­¼úøéøê5‰{Ñ¥Rñİ
-X`ìa%Ó¤Û=t3£ñ,Ìç¾YÁ =IºÔÚí-é€ËjtØ¹!eî¢³’Euh¢ÕÈ²ÒU-uÔ3y¥‡¾ßĞ%¤“ŸèQEµßğ*î`
-µÌùV(B÷,¤? $béJÁïGñ2„>äó°¨k›dœ`üç·ô$ãè¬E¯wÙ¢áâJ}ŞÒbÆå&;ÇÑäË2;T»^ûkr†–‚j15‹Ş[ËÚg&ë1–¾”ß¬£ÌqwTn£Lv;q'}H9€76¿”-yÏV¸ Ÿğ(I¹ï—Íç¯`æê]Uzs×éIC™1pUŠ—7Ğõ
- „æ-‘ô=èñ·aÎ¿.§Öi$}tG•EG¾óY4İ²b¸”J/„`(äØ`•oç[½Ğ£8[ìŸŸ‚Ë¤¡Œ2–w|R£ºÃÙHŞ¿ÃXï\r6ÍuñÜ…Éÿ¹×µÜEDYJ¦˜x­d®ÃübR•İ¨9¼)í–Â.bM$.ÔP$á’.ˆ.©ıYdWy‘ÇÖ„Ş*ñc®¿³ÉL]0`×…¸ua¡Õ9zõË)À7Â•Tf…â§ÍõR¦¶‚çO²>V5Æ~²'B
-°á²Q/Ê¡1§ÆüRÆŒ+CIÆÇë¢Å–¤ˆ¦ø,ÖDK07=é'Pa«®Yá,íùt/›ş-Ea³iã—D·G$ûGŠ²‡ñ~“ÿÍ‡SaxO»˜š)_õ–ÿñÿ*ßÓ¼½m[S*’Ó7§üã]mOñLÜ »PÖQ+‚¡6‚eÁh¢³†‹ñ[‚~µ¢ªÀ±ÃKw£b:Ë‚ ¨]ÆºjéÉXÖÁ	É!,é¤„ÒØ†JáA®şrß×Åœì#zYC¹…´c*Ÿ_£WŒ€£
-øíY;y]›ÙX]¬Šïj@.¸=†ãR ?Ö´¶(%xriPÑMÁf,äˆOYä¿Ü•ºæ½Ò_:“?S‹r®'4“íö¸˜Úi s6`CÑ‰ÏW®k#ÛÏÈúêúú†Q¡³®IeŒWÆÜùë¿ü9=xAöNNö'ÿkïğEt@wst\$iĞ#9KCñ	¥Y/Êz	“ÙâÕğGÄBhÍŞ€éy®ùÿó¿™¹pîP-ƒˆw=®WÑÙO~ÎÌº{•¤¤¼?É É²ÉŸÇQ×şF1e;¬ìÖˆWñÖ“õò;ÚOKºt]šü˜Æ	+üéG=2L`‘Šƒsú-¯êş¾Êu»õ:y$fíV AK.rVÕ8»Da)Ê±£SÜFŸ·(1óÛà¼8RÎİiê“Q@ÓTX({šüšQ®ƒhZ.¦=³Y…àiĞÍA~®ó°ş¬.ÎW¾µ]ŠIå)-VG÷€A«_ª$v%©%ŒøwNCöÊãÂëk³5î'5£[ë­údaç°O…~/ÊEÄãy SQähŸÊ›ej1èşÙÆLMâD—$SUùÕ(q„ÄªkıŠ'À!àMU8 Úå!Ã´ßítòB1àíNáw²¤iÜ¿J¬™•h‘^å}t×ü~ƒZAw±àüæ¬e¦V Ó4€)Îy`¸N	sŠKÈ.Õ©â1iå‡G˜±<ê¡yèWûœ-÷ä‡=wşnit÷—±q¥Ë9"¦ô¸oä:6‚Õëo(üÛõ_Ğä¯õ~"a†¯gÁŞQláï›O$ÛÄ¢Ù\#F‚¼÷ç¦‹‘	wó¶h½óÂëÍ±)c<Ú“]N{¸z®€>ì	VpÁv‡"E¿µÈ ¡ ã .Ì‹‹l*ÎK¤>˜1°ôğ†ˆ/_å#¸£BµhÂë÷@şà†´xwÏPf@†©°X™ÔÂ4I ğ`T›i\>’ÆÄö BSç¼ˆÆxÀâ„.™µb2Zm¬íG=ÆÊDÄ¶òz'~’zã&%{>«âiNKi”û$&ß ~´db?ÎI=qU­ŒÜ„ÄgOKÇb¹“qÚhş¼<pMıñOí!1æ+KAw3ĞyùÖú|Y@úG8ü0ó¢C.s¡q Õ-»QœVøRa *ş–û­Ód £ªÁ”‘[ÒßKy¨õ!‹Ï_vzÏ‰eøBdŒ üÄéòg.¯Ş(a£}nT¯’òá•	i”Û–ÜÙ¤L|H\¦®©L¦<<÷ÑbøBRĞ¡[¦±y¨ö3w²_İ–#|RáÔLÈo¼RšaÅ˜J<ëYy(^£XzãµÒ%ğBtæ¥*å£;ï”Ï¶+ QKäyvîØ¾+ˆ"¶=&ìqweæÆ!Şªˆ»Hå
-Á4£e)Ç‡bÆŒˆ™«IfDsbm[sIÍŠùÄ?0ÙX
-FßøD$§G6ÛSÇ"ı‘Fç¿^×¤İ|>ëj[ÒikÄ%›Q¸VÄRê8;åÑíI*ŒÚ˜Ú÷z<fNÛ Ò°¯M–I)k!wÙFôûâÔ^cúÁóÔ>à˜¤#|õ0B’¹£íŞ"’líéSµ¤¸ÍŞ~Ûx¯³7Õ¾éKKî›ïJ”ÍSeğû2j‹V».“Ä%xª½"[ZC[Â ¡;Ÿ„T«d<Xâg1WDÌ
- D}ı6–Íjs0ğŞ·qgxU§)é>¿gÈ:üAÿ9z·Ÿ\÷ËOº!ñ¸¨~½cC€˜]\"Å†Î<êÀn!öú ¯æ7÷ÎHE¡Ôò‘Æ,›UÌò`ÊÖävÓ/†]~MÓÚÔ
-;Ñ¶€Å¢¸k»]+3‡’n¥S{ëA¹sÉ(Qåü/}Çi"®^ ÍÅ÷ì–ü‹›ˆ¹<®É3mDÕ¦cW^•®äÏ0_gèb£7˜ÏôQ?Qş“ÂE‹æ‘ ÷ó¥Û+Å3ªxÉÕ3v#óØå•×c1·Wëz™\-³ÜFP»¯É‡Äöæ÷»—ô’(P/}Éåøw›JÙQd¿ÿ–NYºûÊëî~ìÑz/£ş¤
-JcĞÕ}Tšø‚=Î< x¬¾ÎØlğµéÿX•mÔùjøÎ~S±ÂgğaNoÜşº|è•bz–Õ0:éòû%'{ÇµÒïh†ó²v*<—^ŞÌåq¦Dm”v¾Şc8æ½+ú|$.,ó“dÃ?İıº¶FN’F+YÜÓ¤ÿ‰J!ì‚âáQIhQ2ÊFÔŒKD—Wjø€ÀLFúà½ ?
-ºØ ¥k'$qF }y&g—‹¦'Ğ6%@‰L^æuY¤Ëù÷-CóŒ”Á~¢¤nÁà(É0QA”gt´N¹ÿşT #ç=`ĞivHºÜ'”¨-K@[ ›
-ıŸ'1v0bŞ.ñíÑ8¢V!ˆ{eI—~z¦ÑÕLFÃ–lƒ•Æj©ã,WUJØHÚó£Zå½¶tN”nÑkõ†Ï:2kô<İˆsÊV4·T¹4˜´PÖ ñ’›BÑ¨H¼ob¦Ñê?´(Í’”˜5¸6à]¨V“J&'ëÌ	ÄÈÃ|¥ oamô#Ìy)^œ1RMßhñÖÉqZÊªã@kêMµ’ô¦¤‰W´†´&3ŸµGIgƒÅ“€\a™’°Í¾ñmOœnÕõ9¾‘¥–Q§«Üe”+¡œq¦MÕu–¦U˜zu„7Š“òwƒÉ!Šš²RÈW2ğ˜!HµÆ>ÖÂ.ró¨î«¹ËÚ‡«â–S†z§‰õ6²â±UÁŞùF{›‡{ï)ŞëA°›z%ÔùÀÎ=i‰èaõ4êäJ²¨‹Ë_Œ· UšØ²Év­„³ obçn…£¢Úï…òÈ2“2§3¯˜Îgj•-®ğ¼í¶zº‰Q.W²G:›ßJ5[ü£ï'AÖèXşA’ÛšUç®wúA¥sàyóÄƒ9hÄ%ÈB)Á
-EoëÙÈä€(pË¾á¾Ş¾;Á»ïÏ´Y…6p|Ğº_ùSëá1 GÄ†ıš"zàçFø{-—o³‹CãïFöŠ~—¸\YW-ÍeÒ$(a
-íäiÑ®W6ŸÂŸñÔ4µ¥ÃB$.B10à•ÓR‰(ç¿X^Â'höiÙ|@&ß–ğ ãx¬êQ%>¦†kÎàPï^Ş4ç²ç]S¿IºàZ¤§?÷_†ù)£4gvMß'°¥5Nûh ¥°òöÁ]ÊöCÓšŸf öãÀnæÏ“Ó<=iïÙáV¬3ÚÖæ#õ•gÍˆÃtòSÒ“vñ–ûÄ™*·L~Ä{2P‚Hœa”™†³Ù²
-¾*“9g­äÒ•SøMÍsÁêô ¶§U%‚Uw¡öi|!É^†T`ÊS²nõ„=ú#SÑ74Í‰d†cŞøÒuúX™d×Á)]¯£4ä¶‹C&¥)›°'¾-_¢ÂNôÇ1}¿£”šÜVÀ”o¯‚a¶;˜Q'ê`N¶»îY•ï@¿+YêÊ›¯RÕ)J¡3ØÆ–zöR¢o‹‹àpûòyö‚,j™š7Ûûä-¼œü
-†hN0åÊR"Në“­%ò	|VàÿÔk¹æÆ&}|Eù×»9Ú·Å=ªÂä×cn­rÕtà¯- ‡ˆµO¡íJBúœ ¥©5d¹­T)JÁƒ@íN«	Ús7º %‰nù~°{7µNsnèƒ:ù	 1¨âQUÌõ¸iN¥lò38%¤'Ã…}*¤Ç¸,eo`˜Æ=b"»ÒítãIKÊ©ÆPü‰q’±«™E¥Òe«¼‚>³cÏÔO×²Éû$şÍ’·HY?¼¾ÎèÊNşÒÆfú·½È¬×–š”µÛå4™ÏşçYtV§<›Ï:Éà(Î:Ùx¨“ô|z¤Q>3!}nw˜<÷ëtäwãè:î_º¤bÈâdRosæ3£\lMe–ŠÇÚÌÄ g1÷:Sf1Ï:Pn€Xªã97jÄ.ÜØ'²K%Ï_]ØÙc0+P`åqŒ=ÙvôÅÏZ›»Êlèc11k6)¦¦[3ÊqQV+ŠëM<|a»“ÏL7ı4˜!*ñŒ*ä}G%psŠ¡‡OÀÖb·©á ë¸3erWVùÊ‚FªJœläGöİ˜TÅdÈjo~3ù‘N‹*#ÃÉO3ÙŸYpAát0lYI@	Úé¬½x±ö~\z¯Ík‚Øp`sñ~f” µ{™V•í%¤‡.“¸óÖ†J/ÁÑwŞVô:RW~ğ”4€<ªhÛ¢÷£oÄ/€»}3â¥óÃw·o	ûÊŸ4SpÎ)
-Mq|H%Ï‘y²iñÿ·˜i.?6­Hµ°]¾SJ¸¶¤ÎÄÚvQ–…ïHLÿõìæ8Å¦£·ªN-İN7Â_ÅPåUªbL:®VÇíS8ì—Ñ!ı§eP”ÒM‚ÂÀzæÙÀ/SÌ`CÎ(7ùNå¸sašÇñşç3´¶ÑÙƒ´WRù…Âg_è\¹O¾ËùÊĞöQ»XíÌYÈô…À}÷ìŒi´Ó`5¤­ş«–\ iø¸Y©õ,dÿ^zên§s–”Œ>^)û—N6¿—D#Í–’$,º–¿Eé×Î{‘2Á
-Il‡Ğè‹=±@‰¿áßË@»hW¿@Sï7øÃ&4²á»6Ù ·¯KS¸]*;éû|e%‚Şz7§ºˆ½¬	Ñp“ˆ»òÎ½^†¡~›Ó0<Ò.×{8sÛ³L±¤ÏÉw¬h¨d5ª×åV#D^Bªzqù¢fIv/ëY’¢ÏèºOŸQºŞšÃb}%íÎ¼ê¦à*Êë_mÒ›vö5u¹õ¨‡6¬±DFÒÄ¹òfÄzÇ78ñ†C:¯ş°µ˜ó›¹q»~#ƒiÌ¢ ¯÷f¥»p~,Ğ­ßa
-\ú$(äúü[R€Êq½qŠÒÛÛâúSFºš¤”ë[èIõM*È)’UD^6°oçg£œÇœ—È¨ÔJÌAƒZS;âP²‡£ƒ¶~¨i„lºoâ¾/'¢„Ïü¡™¶7*<™ŠnµA²^»²Z(ğ„‚–æ Õ
-Ed×Œ=¨P>ùr°4Î2‘j“rà¡¬M/“|Ú'¿ˆûQÇ9¸½7¸Øë¾/¿Ôñçk{/k{'vKéuÆj«n7bÃ´ÉØ67tÑãÌ>;sÎ µ"nfœ$sëL9EÄ1ÁÕN"À¨Ì&?H%†öv©`ì°NË,SvÕ6ºSq‡4Ê^s?€tŠhòG:Oùlíµé^X+â¿Æ7:@šjö|ß™ûãÀÕóØ†˜{Ğ‹>ÉÑàYïÕÊÆ†¡3@ş=Ußvóä@Åì6£²_EUË¯†Ô2Fİ!¨¹ıèšĞ×£’„Ê•ÃÓ£SÜ4 WÊ^Ó«š½~^¾À{YÆƒa0p5çŞf#F’·C¥cj/œƒá(ÃÈá y“7iFçô‹æœ-ÅÏkã”¦mèôÔg€Ñg•%¯W.¨õW‘iùJl+Q.?«Óä—si–Ğ¯ôT˜²»,~z¶ûÅÁ›£“ıƒô§eÃà2rõwÜN Q1^}+Ö”ÿe	B9j'ø,¾ÜıìàËÓW8Ìkko¤56óhæş‡ÛkŒ!}÷˜
-¥ŒîS}¢-R]xZ§ëb¹îã»ZH½6XCh/·­ÉY6cK£-`©&í\Œµ½ ¶^©Äfî×v#ª¾W8à`h0ïÑ^³Y^ì¦İp£³à¼µ8¦ºO`4ë*Œ4.‡P&É­$æjŠÉÒËm‹Ù½’I¹ée£É¹qOÑB+Òà€ê~fq†+ÌeâæñBˆ§5ŒCpÿu£h6n¸NƒAÍ²UÍàß$½¸¿r½²Î†t”ÁC5AÒÇœ®²@Ì%“Ï°ĞüãWƒ :SÊîÑ¸/‡[œwèÎË‰€OøığŒÃ±±l) ÍgÃ
-Mœ>ßÜÍ+<»…WWpªhàcÂåEòœà}ğSá©…9ßbœgIsÒjgæ»"¦66©ú˜¨ù)n­	xœLzzf©µ§›{XBi•ïºÜ^IGôıRc_[Â©Q¤ÇF?X‹{tõëO¨¬“ÀO6[á¦vò¼Èe’¾Z°’¦‘'XY3`ÌÏ¿—8ÑÍjDæ6h\Su5áíd^}l=Ê8ïQÉ»^ø9IoˆÆ}TÏ™e´\ı4<+¸‘±d'¨ÎçT&”Î[üb‹7Á‘Tºr³[÷. îRöá[…²`‘(®d‘)á¶µS˜,ø>ÜƒUÕ=óøs5EÅ‘3ø,,vaş©ªHa×¸J +~õ<9‹"ÁbC™&]>*U½ Çu5]åïrµMqU_÷é¦õ.ŸÇÉOêşÄ=YşÈZ -+'R_ B`ùÏTË./+<2ÍVaèñÀ9*	ì-¼•R©µ.’Ú+M£"hµ rµ–{.î“¿²™€qóåç»¹(“é¯>.æÌËÊŠôœ™fÚ³µv†kÂ;1œ­Ö›‚{1îa·%é©\«Xàlÿ£°ò¶ÀÊ«åµ±œ›L†ïGûÑ…*ë†ûV¹÷<8 ìÈãfk‡£âaˆ"«Ï½A”§ÛâC¥ì¥‰U}ÄŒ~17•_L2ÛæaÃŸŞG\ÙÑT*`f}{ÀÕ¯‘C"F	@mÂrùè—£ k¼ø8¿„®ºñ
-T]¬ïcæEÿyÙåêsºşà&>Nº1Ôs—<é†h“oÎÏö	´«'€´™]áü£0)<è’l)ÅéêDD,ìg;Ü«ôJ¦Ÿ£E¯‡o9s+x°]Ş·z›V€† 3½bŞàÊF­Ë5¾asÖª°)iÂ[cŞ9¦jS,NRÔDBxÀ!bf5vÂÏ6Şœ×~ÀÍò°ª>©*©RQ4ÕÕÒºñ¨¦f¾ŞïLËyÇ~XÉ'Ùô=`Qµ–XMmu(¼ X½´<×ÃÁ¬šòd0gÀMyRôÄfZxÉ„}Z®Â„rKsô¦áÊ ­›>~»ø‰²‹³!/şR#³æR,³ÉÛuš¼1=™…+{<’Rü'Aù~…´ÌC(o`Ï7rnJ€œqäü8ş€‰œè	E ¼5Ñe u”0MUksT²Ÿğx¬-R‰‹k;b~Ó„7‹\2lVk=PÈ=@‘GsÖ%¬%¼—­"v¸ñt˜Âá(¥ìu|¨¶w¼ÑS›Ïeö'5D¶ +3Äíæ¤ÌÛU¨‡Á¶gñÀ•öHÜÙsÄÅA0ôŒ8†2eÆ-†Qœ-ª‡„	@Y%ÙâÃçô8âˆT‰”7Fù$Á‚í”g‚‰Lş®r'«éCšV¾Ç¯«ßš÷Fšì"e5ßé–ÙHp’B$rS³"šÓú"Æİ«Ym">ZİSòËÜ6ˆx„Aâ`nÎæ¨¿%œ¥ºi ,7Ü¢q<4·ŠÀ\„+¶Şóò—{C94ò}Ã€ÀÕuŸ1-ïÀ@v<+„% j¬±Ea\M²–Laûsé´xxIù–€´€¡ÕÄ8–f.½LJ=Ñ"PƒpœFã8cÅt²aw„İœ[É #2İ%l_¦jÑÑÄ`S…7´Ñlù¿ÚÛI¡H_'Sš\SewÓ fì/Ä
-o“¤Ïèõ»ï\¢“õ§+ñ‰ÉaÑ,q¿4A}ôU'		ËEªêl€|K)ñ, &)ËMY”š€êQ‹û™Lµ¾º¾ùZõ”Á	KÉ@Oµ3A“ı^úµNKƒOÄ(•š®k¿)yfj¡]oïv£t¸§a7ÑàMÌùÍíßAnÿ’¿şÏe<‚ßçb ü¢, ¿ó0î³k¦
-Ç˜÷tŒİuÁOú	9Şÿ</•CŒ>QAÉäæª.yL&÷LM~wœt'gÚşâIó*7-İzêpô,ß±»+µ§«ÛYoêvœ§2e9oÎ¿§ÔG?qe­ã£/Ï÷vßï~±ûâàåÙ¯œYbÙ;¯ ª»×HÔRÅNÜÉËuàŸÖü¸Íèzu5ÄƒZ7ÌstÆ—Á0¡úK›<2zÏ¥K<XÀ‘Ê¸C‹ôÑıáWÂ`‰,yW©ÛRH+ßšLê–J=¤ï¶ÖÕn%Ş‡‡5±ÔHl¿0+†è®W¶0B·%åÖòYEq[¸ÎA&Œòkob¬Î«4GyäGBrĞŞUDŸXëzê“)\Ós~8µÉf"¬–°çN~†ÖHÜÃ˜ÌóSÑ¸om1z–Õf¥SŒ´Â¤wNE)«C ¿Ò(Œ³ ]ò9àukúº]àãóG3ÑyÑ¼ˆ§ŞyB÷l/X$C=—7~yÁ6ZAZÏÓàYˆ[ë`pFæåéApûvò	¸}<âÃÏº‹Õ^4L:vÏøXT’’m"Q” -‰ŞÀÑ#>V‡OØ;õúˆOez¿¦¾ìq­åŞõéãReŠk*’s6c‘r +ü‘Z{sÃgoÎkw~5
-ºÏıv§¾©ûïHò%Nå2LµáŠÑŒÎ’9oªwª¸¿8™ÒÅĞ:è~$4ËR©HæÑØ ~¶2Ãø‚õ"kÊ@ã)3\î™¹ªëÌuiÔKÆ.Ú”ß^éšş¯Òô)ƒa?·AJIıE9y~É¦œ4¹}–ÙÕf£¼ÛÏŠPƒt$oA
-ùào«hÀÚ$o¢ac?ã¥}_‚ÿ˜«"İBšÅl6=O¥(v<_4DˆÙ0ìü…Xb¤–eÓ—èÏ^fBˆ7—6Ô
-a¢å6‘µü9Í	„GÙ•QLıæ!’áñ”[ã+ãÍõZúØoÌ€U›eúo™éo‚”v6Ï­æO,'ãÜÅ_1™;®òÅ=Öø½dƒÿøù&ê‡1÷±×Ò|ñÃ‹UlN§I1êtz°>·&<Ğ
-,¡’ `ZSØ0¤Õ‰©¾ï#0óÁ< Ê;[ëMy§4”MÙe˜Íö(qÿnc…‚øh
-â|T?ª†?©n??¯T[Û8[YHÿf%Ëc½·2°×,nÖ,Ã Ó±P·¥JEŞ¼;èÆá5[`JÛT@Å(¥@Å,b*•"<Z0³Bb­qàj»KEN©2šúï @[Ø1LèiB·u@÷d°äßEc‚¢ÂÇ\™‡Ïk-‘²a>CdSU—Y
-R†j„§p—A3:ÕQ/itØjDoc€H…´•"aÒ0©byf˜9}ã¢$ÎàYÁì•²eÊS:×OĞPRµ¤ğ‡;kËeÌ·k°®y.”£Œ§‚Š¢	éE]mÄ`ÒÓ¦Zb–J7“%6õ¾/±.›gÛ­‘ã…Ä’gº'$ù²Fà)¦¶É#Dhq]cGUó@¶ªQg¨BKM›7ò„jpO¦ÎqRF¯ó6±Ğt$Î	h¹$³Ï%)DO>"M¡½#–4$\‚N
-"¨"Dª2Fó<£ÓÉÏ„’å qNşDè!=ùÜ·aÔ‰úĞi¹±ã…€@Â–É¨'$e|¥°àPGÀgË€ìè8y÷Ü:éª1{³şB9RF\„¢9Y}³±©ÇäÙ‰v±Šúğ¸Æ‡–q´‡h8Ö ¼_`ÚÌîQPI½}f³t—­ÛT}É¡ävv„n´ÙF”ïÈ¿Ö˜Ç<jçÈnR™ÑA6ˆÂÚÕú
-OÁg@=ÌÌøDŒh6%ä‘ƒ·”÷/GAÚ	RÂZağBµˆ@rQRŒ¾ğ+ûÔfµõPk=ÈS3g¥[Û¢i¸é¤¢‡Q‰¡^&½˜‡*V=°—MF•wìMHâ|}0%]ŒXuåÚI4ŒYÑhs{<äB9•Anë}·Èg¼/Fİ!Ô|ıv”&€ÁC/ÉšÔQÍ 9Å¡¬ÍGò±×o}P¡šÍ>yÏ© õ`V0¢5„³Ç•£ì¯Ü4—”¾»;™®É3ÛK©¾‡YÕe*å¦_™êŞ˜*½íM~ì†£®vƒ ğ®¼p×u<åUk6ì:«è@‰“9$Ø¦Ò›ü©ÎFšÿTGõ^y—`6wÎÇgI7J'ÿÖ§6ª—Wä."0œW ÓòÛå{şÆ£ÍÊğÔñ{9!§Rï•aŞsÍşfíCr÷°G5 ;‘ ñ6	”÷h¦ö‚a&äÃ5İğÓCu¸=!UÄ”3'Sxiì­Ú¬²e†™TÊ3º¥œd‹åèøà×«Æ(Oæ%–2±şv‡ì©|I«‘ÔQ·ÅÆ“ù5"s%‚¹˜ ¼ŞRr7Èİe’%çiDšg°pû`^›SêÁPhâäjÀÉ‹.`G“g|c)³¸[¶7¡o+¯¹­Ú!†£´oOĞ¬°Ş·¦-ØÙ®Ìj6:/ìİÆ$ØÒ·<Æà=æ
-@Ş"Y
-³¢`aØ!U•å||umÚİ’ŒÛ¥ìõ`\DÃxœd·c
-Í¬(‰öÃ/Š’¬øsLbzÏŠzEÏŸœxC@~#ñ\¿EÍí’øÜÎ_)4|
- —AtÁ›ÆÙ|ÉÇ›J-ò+¡3ç–Aºö¨©u;N—oÊH’Ç›.qÏ6à¯«YZÍ£shC	AÁ²iV0a…IÔ8í@â=[¥*¹i4O„uõ;¼cËƒÖVà3VÔ0Ò˜J%ªæ]%ÙpÁ•N©¶t¿İáû İ^ûÌ’ÊÏŸÒ‰³à¼u¨åŒ)£äcŞ¤kÛéF§Tm¯Â•ØÛÇˆ%BLIÃ)¥>Û£İ1}fBy;¤âß©Ô¾AÇá4¿¨z4–ÿŞ^CÂñ¿é‘ÈşqíÒ@"k)#n¿.ÆŒ3¸ä™~—4G %U¤µÛS¯KWÜÄ:×ŞD*Ùú—âJŸ–òÕ*µ3†£Œ™Ô	Gı+ßüî€^H	—ßûXm•š±QšÜ~GÉ,®¶^„è“! s}¥2«_:¦¿	ù{²qûİ¬İËdœä×“@º—yî¬¼N_çSÒŞ®\AÉñÕku5İäšş®B·ì0é­dašt»ç¦í0tm-ô|T¦§!-Òà²1 ÖéàuºG‡‹ösÔ°i2*ë¿‘ï'?’,ˆGp@‹ÙâRelÛ¿ÅlÙF½€šìÃ4é_îô“q@Æl©Í¾$­±kE©!Û‹¶æüf`ß:–ÛÓ	 vã*ÎÆ-LTtQƒ®šï;M+ıT3jP2JİÈxhîSû …uO@MÎM["¼"¶Í^‡@0û
-àdö(Å ¶·?l-
-¦Xô¼şµC²(HÃ+Ç=‡Yé.œŞ0ggj[«öncõ©Z}ÇÖÆ\|Wü–×ŞKY”Şé—¹|•ÎÂ;õı§Úö)’TÊt_Û!Ÿ²¤1OØŞ£»{µ<sŞ¹aïä‡K¼avŒ¢Ê™¯nn=µÒBÿŸ¿şË?‘oâ~ˆ,„f3ÇÌ!şP]™TLÌ&¾¦ŞC% tAÊóDë2A8ÓÂˆæ{Ò=LS•GY&ò0ª¦Jíú¯mö(Û€£/_ƒ6¾ 
-eÇÖ¯uop±×|_~£ãÏ×ö^ÿÖòBìÒ»ŒÛ„®eVï×aƒ´ÉØ6±ã+ª¬á´>;;‹ºåŒ(Ç’6Ïp ·N7?Â1»½ÔÄÇ„ìÂùóLRÓS[îb-¦H+’«&~@¹#&,‡”é&òHÓ:¨™bê|ßi?„Œ¢ã g™;¡UÇ®ÙØ0ƒ×lÕ3(E%¯4ßm8Ôª¹ˆ0ác¨jëÏWCj^£Îî€úÑ5¡oÇâ‡§G§¸W@”,v:k/^¬½£3rÍ{×Ió`œ­¡«ÁÙK[üq2uPX¬ñ†%˜›û5sË†ªMSzÖtˆí¤±?C6Šsz6™6†™[˜ûôl÷‹ƒ7G'û'ˆsJí¥ËÈ4LÊ¸§xu0eYÓj¬nq>†·ú
-‡ymFqçãXÀ%\I:Å[PüGµ&jXÅŠØ?z0À|ë‘„³â¢ˆÈÍ)ÉX([˜OÄÌ¸U£ÕÑ¬•gón†t€[‡ôøfÆß~ó±¶‚tØz¥lòU< ^;L§Ú6¿á÷
-Ú[6Ë‰İ³ãqtœ·ÇT“	ŒfY…‘%7¥•ñÿçfJÉÉmKùµğ²±d “§
-Ğ	PÜÏ¬"ÃÑ’@r£sÃ{†6Ç]÷ÌÈ‘@j*’ƒ­×i7Ê3çuèìÎ)P³lôÏ”­LñãÕÏ?MMñ#P¹é›¯"|<|ç¾£>~'Ë#ùığİ,q;U=Æ±€ëÙ&¥Pb]úN=FG2eNòœà}ğ“ C§|KÚtH~¬˜“INÉD(%1mÎ/‰ÉÍ<èh_ø
-_±t"×ån,ceÕØ(Äa ¨yôé‡P`¾Ã¸´\‡ôÑCMÍ¹
-·´“µà=.“ô°Ôªøƒ3˜Ò±ŒED‹&Ê¿—±FcGÏéS™aÂYoÀê?Cö†øgÜGœY>¶N8ÒÏnG,ÙÉÀ²BGåã¿ØR[àøõ¼‘>Õ$ä;…rù EĞ¥ûNÜc¶>k"«cÚn7YDÎà³°~ù§‰›L“uã’xá5¤JÑ;%LºMSˆ5YSåïrŞ”MT_÷é¦uf`æ¯ÖÈl”RG Ÿ¢şªêJY1 –tÕoÂRØ@µ[‚ğ:‘£¯Û4/°ïùéì%¼õR©2Ek 2ğjå£i´Â„gòÅ—WÃ
-˜²±qC’
-åèoŸòq1g6QÌ7lœI>$%ıµ  <[s†f¬sÃ±Ñj½)˜çcv–kTÉ3C•\ËílÔg¡ÖOfÃd
-v£şåğ
-wÃ:¢^õºòkQ%b«¤±î¼ŒúW£a‡ ·k!ü÷;:ƒl)œ†¯¦ˆÄmñd%Ç1£4%2 I‚U*›Ÿ”è×á÷NÜCLSÏõ@ƒ ¢¡·wì5…ŠR÷¹<åyìuWŸ¿&^‰5^äíPy‘3,²éÚ¢š2€éÔi¬/cæIïIÙeës^(xÛÑ?t•Üö‰´ı'òÍ”]‡l“P¸—Š#ôb6•”ÂuÕÁ‘Ü³iáDÛyoÜwÒ”²…XtbÕŞÁÃ°ÃŞëÆªÀK›¥œl‹ˆ”PŠ­LÑ¬vïĞÙÂ²ÿ6@”9­Kè:é87Z—nw>¨¶ÖfDl'r'áOªM‹“ÇÄ¨Yğö€£ÅÌÀìyƒØŠVmƒlšS¬ú«8¿J°UT~gT‘cEGæë½»œ¬Ç˜tÄH_ïİ°µÄ[TFÇj5ÛJËs=.,¯)Ï
-s.Ütg‡A£l¦¬Û°õ71øÉìÀõ-Ş"¿=m‚Ö?ƒ2¸r`×ŒAo¶Š»N«8¦cÇ!3‚eŸˆØ€ÅPŞ_æÌ«ƒ5j`(Ï7ænÊ‚œmÌ½@nÏÙ×8âšOxş0bÖXÉœĞ~ãª€÷o%U.É˜°®DàcÒ˜Ä<p:LGáp”ÒqCò!ÛŞQKOmÿÎ‘S)ûµáyî˜“Ïâ®Tm>‚‘gÌG0¤)•nq4Œâl‘P%LR*H’lñÁs‘_³q»K²7…p MaÏ´É?ÃU•PVÊĞ‚¤U£ïñëîÌjÃFwn ÌCô¯BXs§A3}ôE0Œ»W³ŞJ|Ôº‰©ä¹y‚AšŒƒ0pÁµífYÜ(Š ÌuÒz{)1~ÃíÇ‹ŞÔ–„/·Şóò7{C™4r½^Èñ}W×}VÄ4À7½ à™Ğz\YR\ÍŠ1BQ1W“¬%+Ùş\	ÄX¾%]¥ºñ8–f.Àjƒ§NS;ÚAe}L~ÿC/›/4¬™a8Œ¨"ßk3°_¶öËMëÕbõÄî#‘ÿóäò”¾½ˆßâU…à w™–¯J9tÔ¾KãòÚ‹¯A¸cªÀ†âI×‘uêÌüÂtTz¿í¨íV¨ßµá+Ç1ä™œµ g“æ}õ.ääì_®ç”Ã®x”9ÒµÊY}ItgÑoQtÕá9\zúõ-ıÚ•ˆ '}=ÕövYùÉ³¸s?„e`ËJÙ$øÍñÑ—‡g‡{»ow¿Ø}qğòìH”fP‚X
-3\®lC¸İ"vo*åK+6)Ää}î1ìQKo$Ït/‹FëŞ›MCGçi|@_„ M™ÜÄÒ^;ó§¹ô¼™6O«¢‰œ1œk5û¥©ÜjxªO›´¼…U«w'‰ˆ
-.`5,ó°‡±ÈæDÍªîÎ5?YEyĞÓUct+ûl±[ZVlØ~ ¯^³s°uÑ¼cÆíï™'elúÔd81e#çYa›ë¨¹³ÖæÔˆaòt÷k§­€›‹¶åVàfY'Ö[f³›a›Ï¦+Œ?h¹øÜO	€ ²ÖÑÉ?5Õó“3õ«ñ2é¾F’”ª)Ç¹‘1vTQŞtos+¨*{Öe×Tä6è1Ä-‚ªöó¤«oø°ú¼˜ı+ªÖ?¯Ù9^áõ# É—89w¿xŞ/óîû7CöŸºY¼»ôÀÅ×+›OîGŞ± {EN‚ÆU¼2u‘œË0 ß©ÆSFëï™áª3¯ÍéBiÔ£æ‘4åƒ7º¦ÿ«¬h-ƒaÖ2¯¿-¥1¶Y~É¦œ¶}–ÙÕf£LgÛÏŠ˜ƒt$ÂÅĞ1ƒÉ£7	7¨vŠ‚û:
-¹?¦ŞiP© LG¿q[ˆá.ÂX¬AøÔ£ä)b¬–¬âÇG&‰‡/3éÄÉ‹!ªö3‘Ç²8ÈZ~ƒœĞÒÉcJ·÷ÚÂ?•2ìAn<×øÚxï-Uæ7fÀÍ2ı·Ìôª9å™]Ê:¶)üÅ_±™;W¨òÅ=Öø½dƒÿøK½ÎÙl.ÖöÙPÓÔ‹â4)FJkÖ‡{ˆı²ßc @Êö‹ãl‰îìtŒÅ41ãrÔÖzC*dSÙî»E6#t[¹·Ë¶B£|4r>º"ÕÛŸ¸k®ÙóI6äXv³ôÏ`FÂ±<Ô{+qpÍòOÍ:3q+~TÜÍ»ÀuÅlœ¸¶\
-“iSÁdÊ`æD1f\Ø@š,I	òÜ_?³üxbM‘oÔ2ä±km£H«y-a‚M®H@·c°d/ÓV'ƒ±1Q×`,LRšT‘²!/	}ü	p©Ê3+D*BYµwÙÒşgØÆ–$Â;.Ğ™z‰ÈºˆûA—Doc ŒôrñVÆJ9>¥½?E²a ¿½¬ŸßQ¹GÙ¶™üDÒ‹2ºÎU#®äqÍi–‡›ÅòzÏ—WÇ³¨ºR% SäÇIi‹Iº;‚(<¤¶É#¬p]cÇºó¬	¿ÊäYfL8	3‡Ü‰ÿ§Ï"‡Â¥>Ò&:‘ßŠŞ†KK.{A'©SGå!fq©·×¤ºÃägÒRu”sÆI8ù¡òäGX³0ê@Ï Ç`
-=î ,“QOÇø"Jš¶“Ï–å„ĞqrœÜ2ŒÖ”¥QkÙ® BEØ¬o6u•< SĞnVÖğ˜2õ-Ãz°l÷»úLyÙÃı	º§·§lv ªîfÆUüdmqÜ€ŸĞk6Û€ó¹Ó³œG­Ó¹Oª8ÈQ]áãÇ øˆ0hª[Ç3
-ÌÂÁ[Êõ¬%UJX7 ^zÈEJŠÑ~åÚ¼£v]	ríjÖ|tbëØÒœ•N*Ú·”¸éeÒ‹€s¨vÕC ú¦Éè¡2İ…9×¦¿öÊIÒ@VÒ²vcV×Ø¹<àCNa‡›FzÏñÙ®!6k'aÈØ;zŞWoîğ}mNÉÍøú­*´³™ DØsû\ê6»/Ğá*C?øF¸št?(7Ï%óïNfŞpç|Æ¶×Cæ³ïa†MùL¹ùW>»/>ËCq{“»á¨ë‡bgˆ>Å:+¼hZ¶qŸØvµV©b§gæ,›g»=HHoò§juøNPMÖgxzå]‚xÜ97Ÿ%İ(ü[ŸÚ°^N”yˆO—Ì„)á˜b½}R¾÷oKbN‡³ĞËÉ8…a ò~Û7k’Ó¸‡­å à†¨Ã“×tËPãáÎ4´.Ï#væä
-/ÅŞ³õ•U¬Ì0#…¶}@£T€èø~ÅßnâáÑ‰PÊÄÚƒ·Up¾y_œš.m5>ô@gR÷ÊÆ“ùu|re¹Ø¥ÌR–8âe’%çiD'¿p aB›¥êø(vu<äõaĞÉ3üğ7³àóÅµ¼}g/ØÊ(Òh8JûöÏ
-çÀÖ´5BÛ•ÙÒF×ˆ½Ë“Ä[º¨À³Ú£ñ–£µWhZd]±ô*ºNì«Ê¨r>¾ºînIÆm\öz°«.¢a<N²Û1'gV”D‹ãEIV‚º¦4ÆÔgE½¢±JN¼!`çÎ‘x®_¢ævÉ ¨z7şì/‚zê pœh>6…û’7…–ZâıÖQç‰
-¶Gm¨¨À`ÍLÀÉÃM“hî×…”òèzşA|ñß£lŠÅKØ8aùç.ü   ÿÿì½ÉrY’(ºÏ¯8bçKª@pĞP™”DDR™ì–DI©«[¥' ™ pHÌúÚ]ÜÕ³·¸×ì™İÕKëEY-jÕv­Íîæ™5ÿ¤¿ä¹û™‡¤2³ª›V•BLgğãÇİÖrüe-Ğ,B<ÇÈcX2èˆBPÜ‡Úş“ç<â"ÎS D Öu³b´Rá“éÖĞnüÏŸ¬=ºÃÉ>:iŸö’œgâÀë Ã{ƒEíô’ãXó»¹Qõ ñÀ*Ã!×
-Á<1P=J¬×>èd€9x*Š’loã•/¾`Î­&ÈÚ£qÁ#¦@&o]ªmùq'ÇdLo“¼@ëéç÷Cygì×lcúË_Rß¹J±ïÇ †ër_ûúÉ-–¸V™œ&iriæ›´@Ëx›»ö9Ç‘µ5ö
-3ì²$%zŒ£‡m„5»€ÈmÆ"8-&yÆÒslàüÑ‰Y?NQ+<JÏctWä×ƒì".o¿Ãé!ã©Ha™PÑ;(îé ­÷Øï@GƒX¼+ğïÿô?Œöá;Î %ÀHİ³/ƒ@b,ôF9Õl
-íXYÈÆäiÇ¹ßÁpúAr	¢ÄèI1Ê¢ÛÑ»2Ø6ÓQ ¾—Œ„vzK­9ûCbr4¡-—5¤Ú ,ï% jæY3 óP©İŒ;ñQèCdã/ÁPâ^O+ à{* s"Mñ^esS†#@Ìâ­@#¯ª1ÈûPÃîÆE„=ÖëMèlEqƒ®Ær7­²SñS÷ëkŸĞ¦`iDìéäŞ½2Hsº"µAß–¼¨ßë¡‡
-íN>âÌÎÖ&dÔküyéækrtœ~œrßç•¢ï­Ò¼klÊV?1aL¹¨.J2«é´j `¯„Ò|:¾û3|ÀK#r*¼Ò`r•cJ Şñ²mn„²mŞw
-'{94KİÒKê}W¸ÏuşâŞ?Û’ìOäœ§köæÂ¼³VIT \eï5(j,Šñ¨X§BÉµÊóÚ¼nç“ƒ×'G­“ƒÇ'­“7Ç2çç…`iï1U^LÙ¿ı+CDøæYBVÈQtÑlQ%Ö’ÎÚ«Wk×ğÇ¾ùf«ß¯:YVyA…SüpÉ`7»ô²X…jvÎ¢‹@ÕÑ
-»™B 57šPM‰D¨¯™}w_,PÑaí>7™¶>Dóss˜ƒ[>ùœ¾éK	1™„NĞ7ı…$tå”M4ÿÀìm¶¢"×EÙK\:ªUÔ]sòØï¨hz%4òA€F.lË˜]lIoVØ0*üÃÓHwOŸüÃË½cW¤;4HÛJ÷u¸ÚåÁGÍUŸ`CÍ[õÉí~.…Ui)'ŞÌÒó«`Kù±×¶,¬öGhÏÚa51–#ÈÆh°HcI×sÒI‡Fx3Iúßá„öx“óNÈAx^Õã~~MÛ?ò÷¾óÚ´ş±„óÍ‚“8Ÿ‘¹‹&VšÉ¢4@Ñ?	ÒØj' ÁİĞµ›.€Bá…¾†af
-:™^ ´©ÜV2%ù¹uç¡f_æm™ÁÎÜ“A6ÊÉ–Ğmè|í¬—å…Ôb…Çİ4éu¬Ğ>Êƒ‡Gd&aˆzYUŸø„¸¬ËI«2
-Ìöç–•øúñÕjwõİÃ‡İ÷¡wÖË.… ÿ8u@Rí¯í<ëõNãPı½!"½·ál¼/×ıà
-¾¡tÂò@ˆqÕhyÒ‹‚ÈæQJÔ5êÓãXmÏ:SÅqFQÕX‹œGÍŸÃŠw²&í¥<™ICŸğöÛ#Ü‹Xu%9ãAâæÊ—½>u‡éîƒlp”|?NŠÑNÖ*~ËÍ5áìó)y¸ë±|I	 ëKXÔ¨Vóîåy–séå1›ÚƒqukséÑ+>·-,Tm¿HÚİrõ™jÿ.aˆÕ.=Û~§W˜a…Ş;WFÙÔÔh%¶Úíd8Bm#¾—ö
-GÒõpĞnty×!ê¶Ô»æ¾°quN9Üùª|\–±è^Z8{¢Ş)Ë—ßÖáş
-¼y–‚³–Qy)fB^0¨¿R[|:¹øy>rÔ›OäFdÍõ5Vô¤~ò2Ó|éKÿ8©¬ÒêìÇ@hBwÉPØ2
-ª55
-¡\“‡ª’“uPæsYÏC5úğ	ü@ÅŒ{½sö—äØş”}{ó£›LàIÂŠqX6è’µ—§Ôü{º€c ú	©Sá–ÿXÂÎˆ42Ü…«Ÿh}lÆ¥åªõª²v! U—ÍÖShiyÌ¿¡2·×2÷2î-6;;V…r<ó)Ÿ2ŸDdV?ïl)}qüÇbÅ¢¯¿K®‘!Lšß%×\ˆßC©¸V|Kàœ!Iˆ•´¯PEKZ—EªµTùåL©2X©zNçÛ<²{M,^}+ÌLGxÓ[uŸY‹Là/«ƒSM7´_‰ßb…u\ŸTÚªZ\Wêù4Üs¶%T¾ÙP3V^wâ¦’îøÍ”în‹ò¶d{y†ôP^wpÖ6ÃXU&ô§)Ö \-†é ù*ùCÇÆÓpê—`5.³h£nM‹3‰hòZ@×uwò-«İM:ã^¢,çs‰‰ï*Ø}ÿ}i¡÷dºÖ9l0 ˆš½¥‡B•ãá=ë(^.»)ŠGñÒœR•ÄCZ¥„ˆ5[k»b+Ä4ßV¼CUàH€²É[İBÊPIíU*?Ò{.©çZ>8‚9·MˆÈZTG”¥aA˜ø­kÈDãkt¨"®¿²[y];ªÏëË$-¼-Ëü›)µÑ¼ğUÕ#‚ÀµSJ.Z§a×<éÇ)È·(Ÿİ	ÜŒ}QºZåWû¨29SÂ¾ÉÄA•¹°ˆıd?$`ëM£´Ÿ¬B³qÏc®RT·ód!÷SzÖá(E_¹‚³×J‰0¿¶èR,à6¿N«‚ïÌ’‡J¤¡ed!Å]L´á¡GnóZ$º7kíDjàâzĞf¥a•0x@¯­±ßSXq¶t“Ÿh1™Ï%õ-æxK‹¿#´ÃP~–ÇC ±ûEÌ›gÅ‘EÏƒ½`yì8ï4`„¼’§9ë“ëK'Ñ‰UØ ¢ã~}‹è‚'m³ıA0Ïã -OBi¡›AÆNa3ŞO'Éãf„NF¨7éãÑ]ˆ\8MÕñ·cøo“ğ—Îóø" $€öyŒeçC<ÂĞÕ+f=€ƒÜ¸Û–€ôÃ1ËÅ¸[7fñ(½ ¸uà8‰_æ	ìß¼@ı`˜Z]àüYÜOüX{²R@á€GSX|<¾ ¨‡£x¸ÇÓE
-Rè.wŸ4
-Ï‚¼'X™B`€od]î™ğ;:Çã–öÉÿ,
-÷ğoMdç]ÛTî$ƒ›‘ùRUc<Ùxƒ%t¨œ¢×eœB'ãa|
-„ºy–gı¨F ,jõ&_Äh¢GñáßœA5ŒÕŞ’³Ö›É÷Q-íÔx£7˜
-¡–´8DÒ˜v³ËV/ÉGÑÇ×h9ËR@•¢¸ù3fC*¸¦…ÿ[è¹‰Ÿ7ûˆçÉô#ô¸KÙc8„ğï!lĞ ƒÿJŸdÖíaÔìÍ&…Cá~c™$Ã÷l«¯¨Şş ÑY.¦WrJ‘øƒÍâ&C»à4î}ô¯a¾'ô{Ì.²fmÖDø:‹å€õ%jükõ¼µD (‡Fµ°-c]ƒK]´z=’‚»…]«°”ÖÙ
-â=ÒıĞÅ	å°aPõ0f Æ>N`×}š‚›¾„L_X$Ğ@p¤óLãXDÒ
-ŸÆéUÆ¢³Şø
-“^Y%znq”:áN%Ç~iO™=+«h$rÔ…]¥úÏá—H1Z #-Ç/ƒ®YÙdi@í(nv	(†8…A@åÀÚ³Y#±(Éõ¶ˆŞwãËãàl Ã/¼ÓKûCØãN¸b.v„ Áæ:	YÀlÀ­ Ãã\½F©&Îd¶JÑš]¥ıÌ^Ÿ9ÃõJå/›"$j§‚0â¾¦@-S˜Pp¯¤5A0üGnøúà¤9	C50ßåàQR0ò_9ø»Vè¾IÁS|@ì‰Ù,)ØO!å‡\	#´¸ğBîæØI!ä`:]TICàkÃ@kú@ 	ĞÓŠğÕoáåq-+”{—Ï1 ÍA²9ÚÛãˆ#Û$‰.nwé7
-ñ÷ãd¾`_#tƒçÌ ãÆªÂÖ
-µ9/ÅôÊèdrÆ†Ã}A¶”†H©ŞÎºÒÌ!‘ßĞ¸CÉõv’MÖ:Ï4$ù¦S`§ùp¹¯ì‰b0·	§`éºùîßlãA;fg ´œ‚ÒA;Ï„›%‚˜°x{f¶,ö— 
-Yb;»ÿ”|~jÉÇ]E„ŸrIgÏiµš!..ğæî¥£¥;Yykæšú|=vÒ¼İK”ñáÑ4d»'­×Áß•¨¿ZŒe‡éÕosË"0L¯È8q
-Ãâ8÷384Ÿd;]Ôj±•İe`Ì;[ÌVù=¶[ƒWáè‰~?ĞÒé8íuÕÈ ß%×[zth‹mXO®‡‰óŞ2^:M°Úiœ_£^Ç|Ùyd|„fNóM¼6sXl90Q/Lg‡ ™Ë¨­.öÂX¨2ºØ¯ûesÑgş‹4f‡û¿³SİÅAã *
-«·³^ HV¤
-hõœV.Wßm~IÊÖ®ú…îNü«ã"‰]ØŸ—äç=Ë…U‡Kx»-íŸ³"o?|ìFÃbkmDùæ÷9ê&Ö_»ØXãA&«ßç0×N²öŒ`õàáúüÿd4OWğÙ›£}”2³ôiô®cPp‹§+¿=1«Î øíÊ¥4a1ïìô[`¬«(aÅh‹Ìèó$?Ì@Œ»~º2ÈVå-ß(˜ÊÀ¼ğâf1¸)ìr+[ĞrÆ1ÊgQšg«˜½›oSê L?}k¨LJiåb 0Û‰ß•9‚ÜLËê9*+-+˜c€JC³ffSû)°Pÿ‚(Ô-Q‡İü‹ş	'ô¼;bı:@N,n½"-BŞZ%ùßÊBqã*˜äúò„$ƒøÀ#rî¥ÃÓ,Î;ÍË „:"kú¥:%Ÿ®¨5Ñi˜ÆøŞJ8¹Mè@áàÏê†]'òŠø€aæ
-Š4ªJ‘âŞı]ìNjE²¸=J/’­ÆÀ¢Îèìuˆ™`>>••ˆü¹‘A
-
-s`ÂÍ¿tÒóŒÜÇç
-§Ì¬ÄÈş1Xb`Í‰AúSb˜V´O‡ÂVë°à^‹±T¤nZ<÷¾ÛMĞì(|Ïp~;Ã,øM©+˜ö‡Û»j÷Æ·~î`ªİÁÂ™6Ï +y°|/‰Õ[›ŞÑâ	mV~àçıÍ€[¿ò”QG_š÷c-'Şµ/çš4zÃ ’bRòv’"!»> 8Í&Éç%…í¶'\¯—tPƒ™/pSn•0C2ÿWŞÃ
-½tÿÛCã5/äÂ5j¤:+È_œ%é(nºûkX‰àË:é.â<R‰­s:8#14õS”¸ˆ¢‡'[zh¤óÃ­ŸœäqÑG£´'–~‚@G/H>Ü©š	ç€JÆšãùf(óÉ¾õ†\!IF„©ÿ,E¼ÌaRä:ƒeœ8ŠW¢nâÍ¿04ˆÄpò/hÃÁÿs¡¦1}š×dÔí5  m2”
-“m;ëg¢#Rt”÷c¿şbyR—ù³‰ÈÕÙîueMg%Ê·*¶Q™zš]§Å_èHu*0ãzkÍ¡phIFİ¬ÓÌá|mÏ­xÆ6»!¬ÿd´´ÅïØ5 '#¹› ¶¹	Şx%Õ¸p0¥£`DW8íğ|nŠ¿Y7ª6(%`ÉÎ¹(Î‚n8œ}ÎZœ½ÕG¡sëäİ„¥ ğÈÆµ£aÁ€jlÚ`âa'tÑÔi¼±+o¯Á¾ÅÙ‡v†óåx€{g'¿ù=ò?êÁ<ğ0Â'ïÉ$Ñ/Ém¤<ÁQŸY§Š [Z
-5óFù8ipÏĞ-†}qÔŸ*œ´!$ûS¬™–†ï|á0µuƒU¢†Nõİç&×Ò9DøÎ”3Ò+ÙŞ¸å5€ê´|A8T$Ğ	Ôh	ì·pIşK¦±¦½ñV$Ö6c†(¬ùÆ/”À¢Ë÷wøN´Ã÷Ò$Ön˜ÂV†fÎğWŞãUÓ+ó„d.¹ÒÁr“¢†I—™6ØFE®/ÉK’Ü_ª$‰Jîà\ÌúIÈ%:9¦Ô7·#fK%´Á|åJöFñ0æÙÖoC°†‰?IÌ½İ­6ï|¿»Ë÷KİğÒ²H@´³iæĞ@NOZ_ï}88Úİ;"‘İWÊdFQ±‹dF”ÅúÙÙ1²]¢‘q-í¼ŸVï
-Ê6ÁZ^ÿ!‰˜‘¬ûV$ÌJú"`Æ¿Pòe%PgQ1>-Féhœ2v¤f¡~Òf;LØd’v“eÖöy‰ÙÛ]“<g¹ïˆà]®¾ÃZÑÆúúÿNyÒ¯¿_–Ò1ï¶	â?¥ô‰¢CÚÃåô»ËG:Y"(¼W0½zè»S¸ß2Èl{äÂœôÙç3”Œ§îÎ½3-°H†…qÚéü:Ë=|ªò3Ÿ8¾ƒ‚ïáëM3\ûÙ3~/Ç//’ùâİˆn›ùÛ< é`Â|zJ!ñ ·õºÓÛiÜCD_Å£.0ï«h½a~³Jr?K‹C€.ÌıEè%ù‡?0o4Cşfm)¯A•Z× XØsP$ÖÀñ.&KòÇàÛ´à°9ÆØ§§YÀc°w>¯Ç ”
-îûÊöyt®Ó‹ D§^üi0iK8'V¹İßÏØRmÃ§õL;Í>J¢Õ/1,òrÔà¨QS·hoã×7ÿ›2ÿë˜i¼Gët‚Q¯§ã¢Mu‚ŒDî¨¿¥×ò!šôçª'ÈÊrärN %Nİ<«¾—‚yİÆ¦%×Ä•’aå}~a @íĞˆpgÀ €¬@A½Ÿûù›ÉŒµ™b‚¿áu8)Œ‘î(X°*ıöœùoNX¶ûp´m3.Íg‰Ìç%‰ÏãÎyâ*ƒçÉ!>¾×ºÚe jD+|­dxF6»ûZ½ëäµtàkáLÓfGµ½W=G'”dç·oöOZ»ÁÄ:8Ûe|ÊÆëw¶\ƒF	å	’Á ÙcíWlè e¢•EVıf-ağ¡ŸT6Xaµ<¿è¤û $›E%&›N¥˜Xÿ%81­'kİáNƒ%•&b3i)­„Ìç 9ßüsVsw}Ym€‰Õâa…ßgee)+ş“"Ë†ÓÅèEõ¦Y”™iæ é›~:eƒt[I	şÑÁl	(ç°ÚYYïd# .AZ2åt Y‡råcŞ‹ñ ¥`×Ö÷&™KZ)±Õ ˜Ã#¾¿7±²5—}X³`VĞkY±êRÉw³üîc^EÊrÜKÎgğ`Œa‘åÕÃîˆË{ı 
-òòÌ<\×9šÍ	ÓC$d¡ÒÙ‹’±}@€â§ ](Ïğ”Ù÷-‘.›ô)èÜau`E)¡r	îåg¤Œğ70ĞÎU½T1ÈŒb9ğâ´ôàì¦Œ²”:ÕE±ıšY†IG£	Î¡	;w 4âzzÅø4ãÑßŠ:Æ@ô)Q‘ˆRQ²Œú2æ!Ü¨Àü
-%ÁxËk°lg8#J8›=%Õñ¨ı´cdU§Å–×`õfT>u{Á|¯_™õb(»¡Y“
->#VÒ°ÁÉôWL?Ø2Ôå¹ªË¤<›=¥€Bº”qCQ?ÉOEdÂÈÙ´I‘mŒâú†plkî=7ïn~P¹-ù®<Ÿ’bæãT?dyÇ¯™?óÛ ÆL|_@~Š»Ù ÚM
-ô¡Ë×uªë­Ï‚Ù*U|÷áôÉÀô$,$…EeQîa)ÊqÌÄµr˜•$$W`\6må,Ğ-‹`‚ÊjÀˆT•Õ85k¢¦ñ À8OW¯Oº9^Ä½QLŠå!óAJè\?»
-ï„£Âë†ÌHÁ+Í	c4|”füTª‚²…-€>QÎ¡‹&¡qO¯ÂV¾R p±v2m•D«gÍÅÚ¥„ÚGÕÒ)Ó*½m²Éaë^í½>ùğjïä›ƒ]a6ÿpxònØì“#U'“K¯!ÀÏCå†Ü6x+ÁfñÒ°´Uı]ÕéxiÙ…Ua÷LJ1Ÿ[³óYXd6`-æ¾¬¤TZ­İ%±¨<~‡îÙ7Q n	›¼' —gk "OÂ÷:˜,x&(M!L"¡ÿR«NÌL(óØ/PÏJ‡Ïw†îœ¸J£S»,™`¨˜ı’d›muVû€yH—ğ1lp256L”[-vJ®ğÛpÂÆd‡!$*IôğîqmåE+Òã²¼ÈWé0'{Gˆïb5JJ@Q—¶:4 ˆı>ñı|³3kWÍ3ëı~|ì·Ñİç§›·,}%¦NcèW Ÿ’é¿H{dËügu¿J§®Ë}’éwãhÒ§!@ÁZ‰%:{¯Vb	ìhÀpßGEk8,‡|cyØU:4)õTLMÏ9µÒ,òÆuU`µõ<š>şì³µ5¶ººJt[;'ÇxñYr5Ìò‘pÁš q{„ãÆäáMĞ8ÖrQŞ½ÿp†"³È6Üˆ…÷±ì2ë.’h_ïSìù¢Ïá/±):¡Ùİl1ñƒı!wz\Òí3öD®ıÎ+(¿sCVæâY´øMBÉ‹,í<ÔhhKWñï³ÑÊc6D³¼X›Í:SÅ6rc
-Â†‚5 ™_} ’Ì¤ˆî(·ÀI|º…WGY¦ïPúg!‘OzÙï¸O ÙI ¥erû¡ár4%€ÍqaÇ¸Q"|ÈÖï=VCz'FNîÔ#aÖ,ŞCğ)zV'O`JïŞoGïŞ×Ï¨Ò‚ÁW/ùoó£½Í÷ÓB¥"hp9um}§³Ê‹Ï@ß¥ü“ğÕqa}2a˜á_ìœ`ÄBãOL×ã?ÛÃ³íÁğ[qEÉ×ğ:IÑÛ"¥šèW$ıÛ‘(Ú0Òª›œbq´ßÖÙm@¸€+¡¶¯¯+!pl“Š8%gæºÂå“oN^½¤g{½ÑAõúÏO‹sƒ}‡¹Yy]9LÑIé$e¼ˆòÈK×—¦çµ0ğÿ‹ùîáİ:K¸½‹¡ÁP˜ŸX¿XoÜÎ³º‡U8#³è†µ#4
-wÈı?a@ôG»´$rã¶y"¼GyÌHC§/qÆ•¬¾CC>1¿aÓííhb­¶/Õ¾±ÌïT˜o·A	ài¯â!ß¿ö½ªFù@½VÏRàCbd|C7ÜM[Š‰¼A[
-£yËjIŞõi µ£(‘Ñ¾gµ¤nMQ±ˆ¸Çx8,‹ò›?Šo×ÔxÖ^ÃòuÊ›Ì€íçFÏ«AÌ¨;Ã™¥É3ªÂ (.ª(šƒ=NÚqÖÂìØ±­qÓn-SÓ¨,k²B#¿àj>Œáó½³3Ì[kúŸRîXsõa†[ÎlØ`´ïc–g@;å«“œW]¥Õ­ıªÆğ
-Üÿ@‰xÍ1RŞ´ˆjJ5jšo½I'|Ë½Äø“	‹‹6çQ[ŒÈT!ã4GİdE<—°`ŒşÜ#™^&Ë£ã¡|z”]Öe¢UgvÆB-:=|£“µÇøùŞ@˜j¯v·5V34SõXOuÚ°7=¢Í{›«¼L(ï¤kß¾WÍ_%¥Nâ¼İ=Iò¾E®Õ]«‘ŒİixÙókëkºCŸØkõÚDúq¦VúUˆ‚'µmkIïíÊXLA§Ç OÂaµy3Á™¶–Ñı å™ô.óëJ_gñ=úC‹1ü÷Äp¬{rdÖM5È:¹v_P`Ş$­š(š_l±ù``  ÖèBLĞHQãŸLı|™À>kaîsõİ„Ñ"à1H)…+µ8¼…˜İôBˆ0²IÁúL1h”äIgŸt¤ Ê‡ô*ég¶ ¹¢:ğXNÿ±FĞP_?ÒHŞ„õ©âÌËìRªâ+Ÿé´ë¢}ü§ÉµÉÑn*y”Ôº5§Áf:h÷Æ¤Â;ğ	­ò}û1„©ˆ·`KJÎÖ0<4©uñ÷é¨èÆ	‡å%¼IRì‰ï’"˜ÚöÅĞb‹™Bá»6R2Ø)’¢C;í®šÇq=-:Úó­²¥ÎÑbW«4Ã£Ğ÷”pAÕ:mjò“_¯#Ñ8Iû0a¶ªß‹+ŞS±|(|³Î?Ã3áİ@ÍCçĞiàÓ›"KuHòs¨Cãê°“œÅp&X £ØÇ,"G	)r¿û‚GÈáô4Àö V&^½7iFÜ;‹OªBUk=ßÙİ{ñõ7ûûw/_½>8üíÑñÉ›·ÿ»øÇZ³öÒ‘ÍÕzØ~±›Ãl ‡ó´5©“‘ÄÑÂ@õ9w×»uàöb[>Ï²^êæ€¹áIF³CNAÃ°t.7Ğ€0ë©¸Ü"âüF?E¤ÎÆ#'HŠ‚WÃC&Ÿ"¸¡~‡«¯¨1E,B_ª_ Ñ ³<İ" é^ˆtSu‡15…êêšŠô¬É×`Ä0T[;MºñEŠ)%jE?ËF]`¢T‰o`¯5•Œùáºä¯zY¹ª…2.‘dÿò«ïù"œV§06Ê¯õâ²æ–8Ş'}é>»V‡–ÓNƒI÷f‚µqIœ©ÆO–0ÍOá‚	ü{ŞÀ`!İ{n1EŒ¸&¬ÖP À¤"ƒJ¸”.éXæ¸Ós< Jı†ö’nšÅìB?Ó 8G ¢Z¨RXÊâ@Sa­ĞGÕ¬‡*¦ÏdåU<Tòÿw;ò?8¾ß_ÎóUd_5Î²|/nw£¨­u•Ö²«rëy’±Ÿ“ÿÚi¤ÁÚïw×`¸V='Dì´.¡‚",İ4Äcšı*t ]²/ëhèS|CEc9m©ÿPL4O¾`‚ğº†,;ó°µ^
-´‹¦µ– œÑÂÜ´Äî}<"ø¨ì† é¹ iKœÅ›Œç.ëÎ*¨ÎìJDsÖÒ„dË¶YèÂ^xf®Ô¯Ÿ²ıhêlc£ĞçıÕU p#Lxt¤2•Û’ô!î›]·³>Ì®uxX„j&‚s6Öª” =Y½ùQò¸Gbn’çbÿ™¤‚&%Šj{ğ¶!zÎnÕ¨“‚Kuá#ù±(vôLÖ:"ŒÂ0q*tÜMÚi'«Mõ0Ç½f4–dÖ
-W¦ş2UwäQ!Tsvm=§°Ô“ƒİÖ±Aç#,1†EÔ
-,[BêyQ@ñE–ŸáwÆJ¦Õu?-OKu8.âšZAUV×ÅÓE_ó+Ë«a ×~?Ğ’“ TÁš©pó‚LY~ƒnp½xƒÅ?ç"nİÀÄEßh5Ö,ÎmO@ê³«§ ßr'‘£äëïrÁ6W…o±°ş‹S©ÚR‘5—Ÿ~&›}7¤CæSYW}ØÔ#!*¸şØ¨£ãkè#ÑæXÁ2rk
-¡V$ aÃ¤237¨@R;éy:â±–
-µ¢~g‰ìôÑğèŒ‚nÖvwwá£3^Š²nê“‹JĞÿO	aê€2O€2_$;&w½àÀQæd®µ²aER›ı‘gió¦›ŸWŠÒ»ğ;ò@V{J}¹èç1ZtFˆ}D¥—AâÛıl
-ey—>]”ï&SlsqMix%Bİ3ä.·\)=/¸zM™¨ëÌ½C%ÿ4\/­WCBw½!»Ş0]oà\oX\7K ŠÅô)NÏ¦’ÆKÑç®¤ÙyWdd¹hšİƒã"í¼gºór*¾(ÏËHÉ¢’« ‹ÇõaŒiÔXiXGû€ÚÒÍB¿f«…Œn
-¼pÆf×zˆØõ¶XüÂLÎƒP !ÀÃL¼BN…¸Îo)iÓcÑ{À-Û£}îÈn,Í]aO·ñ+æÇÒo'P†ª @CŞwƒÔßš˜\g†¸hJtB¤/h]õ'?³w’K¬MUñš}g zÅ›Íá¸èš¥É}	O>–8×01BÊt[
-'•X‡µÇ­İl6Œk<îcüê–‡<<XcAJµõæ·Y:ˆĞ$J{²†è)^×ÕĞ¿¨À4(" ÷¸µb›fjï[£Yz{ëº)ÙYîşˆü7é “‡m	RÂ’Š·Y¯ëãM¤L·ò=K+ÍµÜù}bõiˆ˜Êxr¸=æÈ÷ññÎUg¼•û¯‹gÍwëïõˆïáM›cØ>HÕ*ÆÓ1êr%öcc°kóøú9=p…OL™‡Õ;ã¼¬¬ø]¯¸Šx;–vßGù÷:tÅŞÅÍ=tÁÂˆRğá±$›AÚëÆMÆ«m`}h–atÍ)`ÖâBT. †å+Uƒîá+1H¥œFµ‚± ãbÏÒiÎÓ±Rn«ˆ—¦Ş9|±¶óúğoM]A]±Ñ@NÕ{ƒ‡¯ä
-öÇrjHq6”Îo-äÎğl©SÅ\:Hcä( Û4$8ÈaÏ¯[îhıÔ,èt ×eç
-ë,!å*F¶8÷E’§\íóÎæú%…5®++ìú’MoM%¼ƒºJÜP¾~RÀ.UüxA•dÚÙ“(@ë£à‡õ9µ>T8	ypUF£¶òÑ¡`®Fã‹ÁÉ”!¦,A·!±`¼øÆüÂ¥‚Ç@z
-¹hÎB¡²w8é™Fh¡x¶é-ª	Óh›ë¶ZJéøç‰5TNFñş¯Ÿê6|d s'Ğê[~VKø±ñ­» “YuàB”bÓ£ˆZv1²v»t9} 'SµL>òó¾œ:yÖÈ·ğÕ½Eç`¯¿œ…l©.–ãÊÇÏ'¸SlÕª"É;Em¬üĞ¬>oµNSU Ù0NhèÑ^`:‚ÅÚ>>,²¨B… ÑÊzR&K%)…	ÁÃÜ3&TÔ6ÄE—¦d’'`4Ş)AÕşš“ÃUFct75úÆÊH¿ü~ğùÄêj*ÅlëõÍ=¶ƒ”$,ldËø†ï6 ëRÊşı VŸ:b$7V=ÿøûA³Ùd	#õ¡ûÒ*¼4ıˆ.h5hŞ~	MŞs,©Ä=£»%->Ê%}A‡üülZ6í³O|é:Pg¡»²4,È|¤é¼è$|„’øcÇnRb21åÄÆ›Øt’®j_º®8ƒ_õæcu5PÆÆŸ”-wÉ¹¿ÜğÑc#˜D‚ßqk6Oh…éCkàœÌ³BRJ§B,‚“Ö€¤	,ÑPS<Ñ`[mÓ©À'_É`×&Îó¤ø Ÿ"ô<¹ÁvüUW%éÇXjj|
-›îŒ0C3–€’ëgE*Ï*Æèí<=UÊ]©—ö…*4ÇÇz¡ó¤Ÿ]$;bèb
-¬N¤V°Ö{*‚Ñeª@&”äéWIÊ+ÏÜ_g½Œ¹“Ÿ¦µŸ~âÒ”_©L­”™Ü=ùØ»my–'#q ØŞ¤ËUİöy¦º„F,‘º®öuÆ.‰?ôñ®}oväSZ£N¥Ãµq«ziA=ê("é³íŞ6ó™Iœ¡Wø£+;çóó˜a^»~Œ1C[¢¢'²ÛnÌYFV Ûîó°¢,rÔ†Îä¡’4úIğØD÷Åå¹¸D¥Î}­‰EÄørFõæ 9–ÌZZ(¥ûPô:Êö	Ó¢º{b“şûÒÒê‘Jk=ÆÔÌYdŸæ™w&³UÔ×ØÔa¾[æ`¢RÀ ÀàB¸!M
-’£PtæÓ›¼^Õ¢ñ¦nËH•ŒjäzMÅ¬e:êÈu(ƒ;±©òÑ%21âi˜Ç¼‡ø"-Ğ-€Ş!=“,;,êâ]d‰\*©cØo ®$¬«²p7¨Ü'¬FqógFV×‘L8ê8‰ºßêQªİ¯ÔËÆIÔÓ¾ã*Ğ#rº•p +LsÄ‰ÇÿC@ûĞP"z'1b¦!¸0)Õ’+à[p§›Ä%V4QôµÜ
-õøË\áşCAN?ñ‚‘H·ïì½#¨´¼M'@µî3kuÍ‡•„jj©EåbÃ¤%ÈÅµ3®>×”ÃŸÀa…b%˜Z2Û÷ãÃ7œ~0ãÕÇ•Ï'Ú‘A9£rŞOĞû™s¥-(¾«MWğ$'$İ¾:&ÍqàÏô$¬9Á¹S`Ş~?À„ÅTº*æ«SAà4¥(şÖ4)â¡.Ubæj°b”£ş-jSR„SÅ^8‰RŠ 
-Ô3L€õC®mÚk%N0±o6sÔ¯¶Ñü(&·¥N8t,ˆ¯„×¿÷£²4ôç\·é3ŒÙŒÃC§q÷kS%b@/£R”µ÷Ó\ˆäòÕ¹ù‘4ï9†‡Q‘fQ~ğÃLòyüCÖ„C¬±Zp
-¬Œ!®6Ëíza¥	HŠ’lâ‘-‹Hr 4+…uôç«Qu;ta¾híHĞŠ’]i-Aùá¼8œ‹ï•}¥D¨ğàö-4	P¯Q–KÊd0?×ªPŠ—G
-]2eTBò¡iÃtå™‡'wµôè²`z»öë]_…òT°Ã>*‡e¤ 0TğŠEî—ªª¿÷bÿõşÉşÛ¦ÀÛóËöŠ65QD.3ÜÜäcYœ%éˆÌí¯·´ÈË€y”Ÿ÷$\å&E{HÚ	÷6ò0O.|ÕÏ ¹¡Iø’E.ğy³#`Ò•€	‚A¨™ñnÜéD†WøHlCoR˜vbhtñ%3#2VÀHé¡¼ Œd{¡ÊíaÙ÷Tšv“~ˆ»N*ï‡kO”Y@à>:œˆ{"H›œ+³­iİà*}‰fşÆÂ[Ác97É‹©ëY
-÷>ë}Î3Œ¯…NP+w°ùíjo?õ
-·k5;¤zL×ú±†¥zCŞ2^" êàR?ĞUOéZ>Z~¶IÑG¦~S‚%– —-ÃĞ@ä$(p-Ô–6°såT?)Ú=C‘5tÛäŞ(œ¸2ñ~Mççc<)ra#B¡§ÈÛk½ôtM•İ¤3Â:uéèMæ¸ÎaœÇ¯¨ÇÜó	µü¹ñËÙ¾Ezáé¡‘#wcé°²+‹ì7¯Ë—l'¼b•êóY³ŸÈ—	g·áYÍ¶¨YÓ…ª¥_kÓôkvˆŠxlbÀõ¬¯ºğš¿Åè/²ê†¾p3ä<şğNz<EY>rOWVúÎ´.¬.M¶›É·±1ÊÒüX¡Äé>I¬¨È±òÔ¸O—g¶å¡$Ú¨/
-geˆ10Ó’‰áU ^´„\#h‘Áa½\‹?$S«@2Z"kYDg˜%Í^š«‡aMÔ¢¹–m1ş6m¼>?š÷1y¢=¸†üĞôµ\²ûÒY”Û÷êUØµåØ3Şg“Ú¶²Ó·BK,¶·Ù»ğ‚4 Û>óióe,Ã|ĞE,éÅê˜SZŒxaÜsK@Í Œ™’}V\”'²ææš1-±væ¦ˆä6-;‘¨÷Œ—óÅßú!˜ş”m1KÌó¯eçºùnú4NFúçÈ9èO× úƒ+'˜cÖÃ´&R‰^¸‡‘p™S(ÕÅP²ï\åF°‘L’Ì¦«Kf«»“)ñ‚]6”GO×g¥K÷«né™‰g„%6³áa¡&[E"¯™/º Î¥“›˜wşšŠsTàÒyğJjÉ²}ìl`Ó23XV”Ìb° pNõ+ô¾g‡ç¸7×W¶ÿıŸş‡™õÚYTMe¬êÍÿä	ë¸&gí3cÜü13ù-‘³Â”‘ †¢Ğ7%5Cx4…
-Ú©‡Ì>nÎÇe0¤Ò¾úg½6d„êŸæ »´ı™wuÃ™­1¬Ğ¼Î~Å©ÿl>0ãä$a{Û~Š¯=c5«VêÙäãûú1¯›(×¬Ü÷ºll n¬]áÑªWŠÛ+hƒÈİ´²cˆX‰¨Oí-1p1ĞÎDm²Tp´ŠXÖ¬äÕnÊu—®Úøçišø8ñ²2W¶àyIÍ³fd$„“œ„üÔ€ºlïÑ@İµu=§÷DÅÉE.O²ëØn)ğÅTÜäïİÕ¯ÖV¦çç—:ü“£ä,OŠîÎ¥ÙH<Hû˜½¦»Ö–YvŞL‹û«–¬\ñ%“mCËgq‡şı!ËúğïêWAÔ5	±#9Êò÷Àğ°2'ıF±È­BÀa@yAğ=İ”TŞXÇÒÂŒ„ùnMá'İM¿È†~b¡©p½]U*LdF¥ç]Nš\RõÑÉŞÿäˆŒ…7£(šÀãÉæ¦WMñ9ö‡2Å²ÂÚİMk¢¥…må\½*sÔ¸e}¿Àû×Â¬2¤g(Ñ[öpk„F…E'›óìÒÒ’ƒ«	Ö(¤è<¸|ötbú’M¦#„öàŞ
-‹Ûíd$£yÕ+®ø_+?v7ít’rC’é­u”‰³ ¡Â¢fíxågSW.G˜Ï‘{ğ£0¼¼“³Cá”Êu‡|èá!·ı]äT˜«ˆ·¸¼\ıŠuRµØzçXªA–¶	UdÛX·ëP…*T™Ôù§¥"I@W¯{=Õ-£Ô³1#w‹IÈÕŠF®jÈµ"›Ã1ÀVêî"Š‘†^H‡{WÎ¢­T­O?nE÷Èó¾dË#ë	´ÄÍ­f¥Õm·aGyı4ğJínV92°°yœ:<aÅÈHa¢lÆJy1ÀBç¼%%‹]»jE–pxµz?°¼æjl¬;«ì.UÉº/¾™ÉZÂ•XMRÍŠMk-ñ7PIˆSxVô·ÒVS^Ù~+SÃğfıÒA‹mÿ‰á9…Dı-º ådYÇğÌ˜èº°ÆWSsÛ%3ºgºn•!ÂÉzÄØJôbòs]Šjp$rvvÃéÃ3ñ¤3’@!êÖƒu£æœQ_Ş&OsĞ%U´Î"JF×öf´ æà	³Œá)Ê6N¡LŞÅ§EÖY…ãmâÕåG^YÔãx„;¨+±T‡\
-Tz0®¦`Ê÷ß—Îö›}”(™S°z–sÖìq*•‰zãb¬¾T¢ÒüdÊÌ°™v¯³¥ÏôkXâ©]ÚËÙâÆÉôk\ğ8ïX…õaEa¸DöwëÍõÍ÷¶8=[vKıÓ@ï'İûü_ôKÎ6šVóSÎÊöKíÙ*ñ÷½^æ(³|?x°XÙF¦>‹¿§ÄI¥·o†Y*=£µ#uŸø0ú*•a®áaãVs÷ËÉLlt¿Ò£BÇ#ÒÌmµÔÉ\øÖ‘ğøCE`	"ÕB`ìşºˆáN~ ùáõêœÛèpÃUÍ…g Ì WœÊ½¿{ôğ¢û~fÉ÷5œ½×Ic½wÍ*•è%áªô¤ªûÌ*<ıÈ•äÆ•ä«Q£`+­Ï^RŸ_+†îy·Å»û×(hny¹«8³_/¯l“wÒÍŸ;dŒ…æµG¥qWzCó‰¥9dß|³Õï×…j°kÃª,¢Ì¹P¸ì–íÙµëÓ’É%VXÜM´	1Û®ú5gy°M«¾»ô71Òy'ö6£‰ªƒ(÷"ë$gé ÅÜÆDAWlæäOP	P¦ fMÍïô¼)j“³ò)–,®Wô4@Mc‰âº¦½D’UÉ}âÇQ5q ¾·8V$ÄMALˆÙTäQ—ê•kï\" Åh»6jx²S3ğ"Ä%çÒÂù$¯SgùÒ.´'mU¥qT…L–]†r¡Cş™Z×‡Ö/ü.h9øG-ÌéÂü…ÕôßtYM´î‡IVèÔ`ïåGëë³TløçoÖĞg@âY˜$C¿))Ô±Ts¡\NW{l^*øÎ‰Ía²û±uŒ6Š(~‰›ÒUñóÌûÁ`/9Á:Ñ1pmÎƒx´&ÉãšnØÕ¾ËO¤\áíÀŠ¦ŸÊàÿß…©VpG‰Ü©;îG‘J…DÍzhKIKº Ô'ùÓ•Ã¤ Aƒ·BZ1Xp•Ø\òãmw©æL5¥I={«_±aàô¤ZsxæAÏ­l<BåÕ·|5™=`ú^!J¾ÉÍ÷… êüªV€×°¡:J4cZX‡“…w%áV©»³äÌÀ‡-‹neT¤Ø€¦½‘³!ª•ÀVq,Å”ËW¶(Ø¦…)nş„gB¡;ğ1ŞLUÓè¬VÑ4¥›ÄÓ®ğ4œ§I*_RÑæ«8…Íğß¢zèO9O»²PIuÓ“nÅšˆÈ	4şdc§qK¢¥.záé°Êúû-×àL=d$ü2ğí6êûës¨™Ë#¶Åë‚¬ø`˜®°'¿³X™Ís<FdnÇ°gË;£Ènµ:d®ÍÔm˜
-:[9äy$ŸZÌmIM•ÍüÖ]¶÷é eÀQj€‰û³\”D±Ç·8ö”JÌZ¿PòÙ¢#ÌuÆ³ió1»ESÚ"¹vÒ×™ç3±‚æUb(Oİ•{.¤Èğ´ü,pŠÀ 
-=!E¿§Ùçº|‡Vò.ş•*"JhO0ú‡Å5DñÄ	-÷;râ3 ò8kB£/æˆ!k;Àñ!³2\ ûG°2¸üíôĞÃk§› ]TlÃ?cqPÏåË\j½Ä-t[k·îFµu{ÿ’ÀBPö4áılÑğe4úÒåàİó÷bµ'¯ûWVã!®nÄK3xzô9tÀs*Ã_¤W°µ6ufÂZsp4jõ™­RØÍz:i«˜‘05æm”ã?‡rx®Ä¢Ÿ†WB¥Äß¿¿Oã¡ÌÌM¤´qåã¨DëJe·
-HÍ¤³}™ÃÓ1‚ËÉVE»ÒèÌw‹"òÚ€j‘±ËU9 2Ï¢&ÍVj—:ÃÊlß|j2Ìİ2
-ÅôÔœ®C¯î­¨8ñ¢–ÂnÇùLı®#…Ïí
-b(z“A;íÍ­è­š¸ëz»¸¦¾DéuûiJçßå&ÔrqÏÓÑÿrtò4ºîIÏSŸhVŸb„¹2à1ÁîÊf©3Y{6Kš„=bO•cZŒóÚ¯ØsÌÔÍPÌZ«ÿÈVWÙEZ¤é3B¯Edıì‰G˜¢¡Ë<ÌÓpŠn»¬“Ùk'½1…ğ¡£Ğü‘:)&Õ¦ *R§aÏa´IÉ‡&JŠD>E˜’„Œ´ìWkæ´ÒûÙÍ:à™"…îQ¯ÚŠ~ÒC<	v¶8¾vWÏ0Rn;àš´›îép"ëˆÒ¡­ÇksúöÛ2öNÇ-úÊ§ÿZƒÏ«8JÂ1¯e9S™o-ı¨Òİ
-ÿÄñãçrõşcFLé‰í¸WøW5S<‹„Ü¦ljgJZµ„çãÛ¥Éd#Lv™t|éÂƒSÀ†\½01²Œ$!_yá+ıÉ×‡¥ºç IGùşp‡$ ’–CR  ³ÊOi*I÷Ä‹V˜ïíîŸ´ØÎË}Ì×A |}ğö@İ0vîî¢HÈÛµ|ºy¨ÌShïÕÛ9xuørïä`E*šı˜õ©¥bÖ10¶£U³Ù”Ÿ6L¯+[ùl‰E²ïøë:s9ÏÓÃÿ ¥)V7yÈ†«-:DY’æöüHÎîdïåŞ‹ƒ×{şÄ¸äiNÊ|¬˜—p»ğîwïUkÿ¥ß79-Pá¬æhò}ğ¹w<ï‡á¹ÃsX’Ùü9©£çR Õ¾ws@ug·µXR42.Uîé7¨ŞÒŸ´v†¼—…ğ2¼õÚ*í6ù‹Zìæ4Ì¸»ºñ`%èv¹0•ÛŞ‰ ”Ä^ì›=.wï6ßÓ(œÙ<F
-d@*º «]¢&Rü²åñ×‰³ÁL·ƒä÷˜Ç[·PÅ¤Hÿ+)ˆ‹ûâİ•ihNUå'k=íêF®;ÀK£c`v¯’WofQÆCgS– ²Ê@m™%¢BQ¤6ÿ»wÏìÓcîéKØrÄéÄû—–ıÎÍ¿ddYÈ[¤JÇCş‚6A}œŞg>
-xÀÎˆî#+Œ±D¦zÑw~el¬ğ	GŒk–k–úÊï¯ÁÂÃ®Rjİ…JëS*´Š>5,ë½BVb=àJ,zËêÁË kw!} >ÄH–1%ìùéğ#Ôı_º ßÁ|sUÜ1Æl0&Ïi¥êñş:€)ïÇ½Un¦ÆAó+Û‘ÑJ}–æp)lt8@³ àeÚ9òOÂÃŠ§%Ñ-zDeÖˆrW“ğPâüæOÔ[‡²”9e‹¢eù ë³mÁ¡AUª÷šßt¤Õn%©zg[j\ÅsËŞöÄ¼h²	Ì:ÙzÈŒ Ä²aı%‡©å»ĞÖ}ûyúÍêıÊzå{«ŠZÍ6¹ÁÈIŸî¾¨´N)„
-•H)ùS¹D¯x„¼Æ”ÃÎ™‘A‹×—½Ù¤4€gö‹5_µlÿñF‚D3F¨jroY”.¤Q³ş¤Ö–üÇ‡z"<¯"0»9^˜y"ëé^VæUkÍÒÀº2­ª&,3Ogô6­gùŞÅ¿¿’ı‹Õ†NLçp‚y_gïdz–hémLàü¹Ä¾üB‰,üŸ­ïaÿ!é¯!geEpßŸi—,ûzñÇv.Ô·çQø*¯ì 8dKÕ<ã0:¸`¹R‰Ò†¿§ã ñ9âï­bS(ú•µâò¹v—¾ Ù† caùıÜvÀRE»È-¿¡yGŸßÉx¾^d¤ùùBcÄE;¥rw2ÖZÆòâæÇ<ÍfŒÚğñ(‘›ılÆ¼ìfzÙ9Ú¤Çy†”Õ^L¬Ë^.º{vØ*Ë#Oƒ³ù7¦aKnş˜UyÔ•²‚ÄMŞU²­2xd>~>)y:uÆpÀÌ0ë0Ö<R«…({…(Ç5G‚ù¿‚óì(Oú„2¨æK–çO¬é•Wİ™r›Æ2M†Uo¿orïèy–õ’x`V¶¯P¢• Q¹£‰×V	rÖ7Ã8³ß’R5ñ:åQÖ?EÆÁ)„½¡|¶~?¶GË#+~ÇtĞFÏî3†Kk	 %Z0°ëÓ™¬½»:¼ÒÛàY½…ÈÇ¨¸?{HD…ú¡d)Ê¥dO¥jVÔ¢vÖYûƒŠMe¨ê©4L2¿®Ã_›)òhÃ †qóo.sM€8%Ù•rôŠºoyéÌ”Nƒøúä¸›‡Ğìóø\
-¤Hº?HÛ©Ì—$2´T–æ•È©äC?«£Š¯9GU¸à÷k8€” ä4£„ƒX€	3âY¦}ó#¥\NŒB4”‰:4;ª~ }@³X!¥ÜòøûqÒKÈië1µIi¾à4ÿ&ÊÛJT<ˆ›¡–1©	z…ñĞ<óuAIëñ˜E¹Ã2c„ßŞüK:èÆLªRõ«Bí÷1'(CğoÛ"¶ö@Çõ€õ,”êOd»óé'x‚V£ƒı¡kÂáÕ ×¡öX&oåå¡o@Z[6å…ÛCst¢3ÁË_SIÚ¶êuéMV„Èæõ uë;Æ=³mu¾¦9ÌœÜüZ{Ÿ5á‚M½ˆ«‘æò)'´¼<Z
-ƒ¾*U2Í2÷©C6|"&Dş›å‡yQÑMÕÕEĞ'í8kñlğø9µ`,o¥2"KÀc¶ªEh‰Şªƒ+´¡üUı~‰³1ÕH á¯^²¥¦]g0Û¹Ğü[1¥„k²ä
-YŒÈÚfºĞÎv(d–ZS=S·=4¥›ÍùÜİ¿-L3_”#1Yk (Ùa¬¥1Êš3UİoÖîzRÎÕ_%¢T‡&-(ÓZé·ù–!Ê6+¨*Ø“•dL6ÇcfÅhÍT±–êè¼Å°ÜreBòH‚	òòmÕy#äÎnúbfÖ™…NÿóiV¶¹©81/GŒÕÓ‚®
-(Ñ¿M“ËoRÌÎt­dúgÍÈ“çK\–0I²…Áák~½pô+ğ2Îo±*hÆ¾QÕ‹)†ó"ÏG„Tn­Är1•˜Êx 7tgo—ãâD¦3®´3Ô› I­7ØÆzä”‹²änrÜ³%  .*"´é/€¢è:w”´“t8z~½ßì¼ j{Ë à5=¯åcæÓô”Û4	>
-v”8î¯›æ”²hq¾o0¹ÃätZ!q¿“œÅã0·œ>\Ö€r›¨dş}%İÄ ]ï$nfíßşB6Ê«_Öm·ùÙÌ´dfÊ»]#^û8 ¥;ºñ‹f;O ÇN+œÓo‘¡2˜¿â,¤Èœéb3?(Ğ•mt9º˜7z¡Şu%/M¯N Ò`°„ºê\ÆiG…ğS:6G™Ád÷ÃÚa|QÀ÷¡0ÉVåXœs]f‡ö–H¬eÏ­’,‘Â¥Ä	a·‘œ´ª*š•
-²Ô§æÂÎx*³§Ê!ÍÉ`«R Ğ_(ñÈå¨TM[|~”e£üNâÓ¨6„E^–ıŞŠ‹Çù°ÇÃjVjÜõÓYÏÂœ³ŒUŞ#ÁÏÂù¬1›;æ¦6øEnÂèIºA¦ªûWvñ¹º-MTŸŠYµK˜Õ_<›j65‹E¹o²sğúä¨urğáø¤uòæøÃËÖó½—ÇïxÑçqAÂ½¼ø+d@¦’üÁLÓ‰àAÒüçfBÆ€ewÄ…²[r!5,`CÙ/ß]»<HŞòñà?
-÷Á)sÖ“IÖó©XJö×ÊR²_K98Úi½Ú{íò”/öw¾i½ËLÎ’ı5p–"œì*ìı_aÅÅ?]u7):É^âõ“–Jô.w=ª2‹ú©æhT)Õv¤¦É"ªÎ;¼*Œg <—N²Ùwµ’ng™=UmW[±œ<˜7ĞQ­0¬Y€¡¬S3iÃ¯™tÏş4­ Ç›æê»m}oFã+~ÑÑ„]á ”cTæ3¬à•o¸ª”YVÑ…^Åh¦1´rá¬lL¨ ©\Gy£ô9¦’g†Up[Ön–Ùom¤³+ƒÏUùW”á±7îw²{“İàá¯Vˆ„,å7?–{ÊÉ¿‰	É{$pW&h—Ï×Ğ½¹ŠÔş3 ­4æ]àû¾îş¬t¡¹¸]Ôşış¿ìoo~dgñXsp˜x/â:p36û¢ŒÜ&)Md*(Ì*÷Î1GÔEÆ³êïdı¤_¢k–ÿ`Y¯Ë›fL$•ƒÉk;Ğ¿:6½Ôû`g-Y•Íz.]îÃë©¯9ÜC–³¿·Là4şİMúÈ½CØŠÊí5£–$_’…¨dwÃÌ˜¸ybyÙŠºz bg®‡úB“İêU/æŒ½^•?s‡6q%ŞÎ2«r´.ß`a‘-ìô@mÍàSzq?_Ø±¹‚ŒÜFAòÎ9?ç3J§RMÑ}ÁQºâ5w
-İ2¸UÑÈ_*P_RÒš;§)
-P))ÎORGÒ­„¬#ÿŞ-€í+Û¼ŒÄË›??N;C'‚Ó´3Cú[ä<ºó'ƒ¹u<©„¸~óÎá­Øƒ†vR0i@!®ÎgÍ$”EëŸ Òåª	_/á×rÄ¿°c´ÊàZâ“]•á5§Y9^­lï°HÒeŞò~ï‹4æÅZ!k¡H~,&Lhf*a§€©$?å,ÔúMöÙÚ[]]eÇ{Go÷wöñâ3˜-%t~k'˜™mÜCwéhÂDU,®Ù=òí{[L>üw-*•oö]1>=‰OT}~¢#ş¸ dÉ“ZV|À8Ã¯¿=ú€ıÚv¤Òüd{bœ¼Eqaµ	£y÷~;z÷ŞüÌÈ¼ÙpRĞ™ËttúC#ÇN¿g}Âõ_!¨æ/]ë*Át)†GÑ¶¾Iìù-¦êÛbëüV'»Æ×ˆÅöƒaf9¯*ÌÓõÔ>ã¹àÊŞÙYÒY¹ôŒE÷ìåªõÇ>Ãïa.ß“üZn©°¦Cš¢,\MB¼V—2ôe7É$´y£û$OŸbÄÕ.ä'D0Ÿ_ÃGRau 5ÿ‡…ú,âaÑÍFÑ÷âÂÒ7ë¯^hv²67åPXˆÎêg³Ùì4±î%•zC`Ú`ïìÁ¿ç å0â¹şŞákZô1æÒ‰I°tÒ@&le®äå×jè<ƒÈ˜ÚÛÍÚQÿoÁºÁxhí©¦Uş‚)kÇ£v—aÉ®‰Z»A‘õ’f’çYÕöàÃÿFã¸—ş€umxŒIµ…u¬e“
-oŞ˜ãP@ZO»ÑP#~O§ÖäxÖ=cCØXiÂ‰"-„iƒ8ä÷îFaOô3½¯ËóĞ¿&Û!äcê28'G=6õaÈÛÂ:9˜#Q`ì¸÷x±gøˆ,ZGÇ ÀÚÍÆ* :H(Ów\ÌÎÉ¢DÛ¨à€³_'†á8†±\İóWÄ"[DåJÆíã¿zv[˜0Äß-¿u”]ÂÊáB‹°ÚF’›b<ŒOAà•k<ä«Vo¦ ıÈHTÃm¦I.’í:«¦ÏÍtbßbïL}ÿ0vÑíÃ¨õã`YÍ<h;-kn{#6¬&á•­Ğbšo!GD7Ôİ©‘øFä	©lÅ\÷­
-ÌÚ¦šÖåÏ¦áó'úÉ¨›!X†é•¹5N?ƒWøOÒ—‰x¾¤£>šÖ›¼ÊN?àµ L2|ÜzríëlÔÍ³K…-Ô!tßÇ *‰<@Íí±©¶Ç¨‹şŠ¬"¥–¬ÀÕãÔ,w:HÀ*x†•‡T0Œ-ŸSh‰‘nÉú‰ä±¥(*ãj­4Í<¦ÖX>¶0^ú+U“b±Ñ„fÆº+qk1<{˜Ùv‹[Åúñ:¾`«åøgìÅ\·ZÍ`
-ı!·¯)\RKÎÃ«©†ÙÆk<™Æ‘g‚²L@Y†¡!‘ÌcœôTq2@ĞqP¨ PõI8f†|³5Æ+Âİ¬“ŒÚË°¨İLí¾¬]û€ûc?“ŞØê„”¯^¿TZd`¦Š%˜›Á¢üÄQs_¤q‚Jáˆ´üØáØ#Çıà4Öc8İˆ‚¥caFZ…¼Qª/Ò	×3İ¥1„êç“ˆ†²®ì/³60ñcšUTVŸÕP\ê§ƒ´?î¿ÀsP£İô<ÅLg›ô
->Áh­îğÄ¾4g‚©Ùnr‘tªª*};@(r6b›èø¡îä1‚&8÷ÃÀ£Zåğ¹ø€A·íÖ×Êc¦­»ëO$Óš¼Q‚Š
-ZÏãÎyÂÔ¼d‚q˜©â¹˜Á­–5å€ÜR>–_Æù@0Sı5XîÃZ1n‡2K<—4VíL¨B†‘öÀ268ƒøâßn«c‚Ú%}Ö—Ãµ°À‡Ò^ŸâõÍoş9+ƒUë|ƒD
-²h\‡ô“×ØQ2JQ¸%È‰‹Ì@
-ZÀ0V˜'>‰ÈX´YîJ²]MæL†yğ; (
-Ë¯ğÀÑ´Î³<öLjÒô½ ÿ	fLÅèß<Ä¥G£0´,Q¾æ>O…lG%3ÖóæEEçÔõŒWJü–º«¿áaÕnæ$íñÿæA»ıÕÙº¬¢£oUÏ»ë^Ş~ÿå$B6¼«O·	ç~H‰ú­–'…¹?'œ*w k¹ã[wQ8áÆâP‚_ÃHjİ<lÓƒ»É–LËæÃ`…~g!øä’¬ „^Å9ºÈ½º¨TC°ÂU‘¿
-„´Y8l°®pâ±Õ¼ÿşÿüßj&˜C¦ÄèÏØ˜“l[ÒÊ_º÷dZËÉ¬ÌQú‘Ex»¡0¡nmu†İĞ.±´–1Aß»ÁÏGÁ5¿†B×ÔpW¸¬ Æ>’É$<—€ªBñîş¶ÃC+}¸ÆZ8ÕKõ´ŸÏÁAò½s·dÕ+h››gşP˜Hƒµåá¸ÒI”cûBá†½g¡_d5l}ûÏ½&áM¶9ÿZÙÓùÉWlf
-_‘÷k5§$mÿlxİDGñYÌZù¨^ºÀvê¹I	ªê³<wŸ|’<m¿„×0ï³@)¼‚¾†¥ÁQ˜W¬0èâå –&šÒÁíW¸öp`J1‹Ã×ùÍèVwÚgs@5şcj?F•çÓ‰Ô(9³A«Ó1pÛTiŒò±íeçŠÃô^¯Hq _\–åŒW­±3W-PÊ-¨ZQul^¶^ßü·Ö£Zld»ùo —³W­×oZ/g”³1k³=òÌÎ3|e¨Fâ¬bh¡và³¹>•ávu±9¿Şé3æªueÜÊ(»ÖU â)lw®¬ö†yŞ^Ÿ´Bíªû,ûV6Ğ²h§0¨«
-ì¸|¤g’Ê!)äĞ,QbÙÂµÏ,ğˆù ê½iøõE[k½å¶ïÇ5uW76n6âÍû÷ï‡K‰:W«”.Œ@Z$ıÔMw  \â=ËÚã"°"äİWï–‘
-ˆ®œÆéU¼²ıÿy²ÆŸÍõ¡,æòšş]èÓ¸7‚.[ğß…>Ãº`m,òç¦\coø½ªv@æ%Äš×Ş’$íîï±½ù¯H™$éTáÓŠí)#ÿ—.¬}’?]Ùûİ{Şzızïˆí¿:<Ú;>>`¿ÛxÅö_~sóßWFpK‡~+’fMõmëåÁ;98i½±âsà¸£ë!"i*ıkÍıâÙÔú;I0!MêDûzÙ4óÙİc{ã»Û;Ş“Cİä\3t‹ÏÓ7gÜÕlƒKºXiFúâöåÃ’ËŒò‹fßŸ¾c…Ú5TœQˆvÓí—ñàæqb¤¸WVÎö¸Ñ¾lf¥™íe¶œÙìˆ#
-Hû(ÿ÷„³•m9Øº6¦Ú¹kÿõ[ŒU<úòî‚›\bÅJß0CL*»–tRò-H¸å~Ä1°€/> ¦±7¯÷wØ¸Àü­£•¿ƒŒí£]!ÈèNwN’¼Ÿxã”K«ıa@Èyœ£e>'ß‰•ôäà|Èû[Á¯wß¦}‹)l©~9w¯ÈD‚ZÜqXs<ÍÖzÙ9²“BÓvZâ†ås%·5.¢7¤TŞ`¢:ç>.ñ.¢E‡¼Ù „üå-À@J"ÖCñİ–pr¹ÈĞPÎÌV¶Øşà½6òk¼Îoü[j¾-ğß#S—Ìr=ä’şp„¹ç ÑÃ8¥À³­Æ·aRÜÊ½)j”Ùµ#Á:‡7ÉqZĞn)ÚkÇí”u<ÊÚß‘	VN]PÃèsÈİ.Ö±ñb¤¯Ò‚‡œoaz§¯•ı©ƒğdK‡LM fz±X;ÙBÂ/_¡Ù)£>zh³J@·>+ôËSu	Èp>Îã£¬—©1_ Áğµä½é"^{OÂ°ŞÔrXN‡ñ™PyB?ƒ>ƒŸUzâqD³}Lfc °ªïkŞš²-qSPÙÍÑõ¨ Qt´*²˜­Èå„Sô^jV»Yö]±–\uc½HV;É°øŒ»½Éİbtğ}C¬.wşR\QôYÎC}ŒØ Ï.)¦&ª‘]wù ë£3	ézš˜Á@@„M%L8Œùùİw
-ƒé~T7Az1ÌûĞ1R‡§Ûc¤äNÕÁ>³1$ƒî¸{2#…=SˆÍ	bhÜã_@˜àB*azÉHtõ‚(áƒ†ÛPÎÖôÈ¹g¾ÿÅìÛºW—w˜'gé†FGºe±­©<‡	\²ÅíÖ´köÚ»ÿ³µúñê7ÿ´zóÿ½_<­ÕŒ†÷Ôoª	³Ş¯9¿ŸOÄ˜¦«ŸO„)Y‡j×µÃô£ò<şÌšR|Mµƒ“u|ÁğR€®ÌŒS9slà„ÖxE‘¿ èì—9QT/â¥áî4ğƒë{¦#ù˜#+FŞËŠnº/súû¡à4W¿oĞeç ĞŞë’j;¯¦Åß¡IiÂM¦Å± èÆûœÈS¤£ó>’ö)Ñv}\äPI|¯‰ğH$å7€dñ„P‡â£}Á tá{“qøËkqõ‘q×ÿÄà3ú  ïzà|èCNŒHw¡ÙS C1>/Ùã~g<
-K<îC_09õÁúÜo¦ªUpIÄ“8UÒ"î`*ÜJËIÅ’£;)wbÄ¯7“ï#n{7úAGğrF1,ìQº0ÒÅcco^Pêw›"8,¬¹ƒ	X5»§øW†\,Tm
-Q3ò<àò\È3á
-^L^Ì‡<àò\»ñ)öûñ5*õÏ²”³BÔƒßrN¼Å>ŸÀ§Ïš}2J[;£M’ºI=â¦ÕPÏ$÷®-|Î¸M_Bíˆg-]mº£H?¤Ò|bKGµ½İı“ÖÛ?Ù{Å£Ì[»­ã“£Tì¿>~ó
-ê‡G»oNjÊaj^Múíuè‹¨ªÂzsœš¯Å êïóh.˜¥ºà¼×VE8B*&ŒëL ¶ºÂ?üZ£ß¹ùï»û_Ãèá,yôú€EÇ÷¦¾bëĞv“ô*ÁZ“§pRls‰ì<Á³8‰r7?¢,°€4°ÄÔ¹áhj<-L™úİ[«…2âÎĞ¼ï´Nö¾>8ÚoyŠw©rª³7o¥Î.Q`à-ä(æ3Á­2äX)cÈüü6YcW¶åO½ÌñÚ[ày½µÃx˜ôêeše§5 ¨Ó>Á°jÏ	Ì5/æü„†S±²İR¿Y´ßëŞüK±ö6Ééó¤CÅÿ²be{Wü
-R‹û»îçÀ×7¯÷w[»{¿HlEa~1Lå§e±´¿²ı*Á2M/aL@º¢ş¼xŒRb)÷Ä/Öø¦¥F×Ü2€¥ÅEãAI¿ó¡‘E¼öĞ,‚G-í¼9>9ğTëüpøtåèó•‡ ¥HµR<-¡Yõ’Ù½İ{½ÛZdRê¸Ä¤İÚ-&õsoı“ıC.[Tò‹ÜÿòDºĞjËeé€¼W¶…*zÎ=Ü6™§h¦}%~Íù¡(¼QåÛº+›óc<¨ÂŞÔ³¤¨o¼ó—ÆÂ(GğÁK8:ìeûí›½g>6—8KjF×OaKPqß7Ò	ÿ<A|øEÈ
-WN#:uGx§$cÂÊg$]µÎyVE®9463<ìÌôd*=ì§ã´_šXèÎ¡ÃúS‚çé-Áƒçô0|vÇ_Â–â™QñÈ*ÎÛa;Ê6p}R\ñÕ¬IL_ûy¤­”`ÉBäÓowßÒ­…a±?ˆË¡Q¶gŒ;“9(—@ÆËˆkËš‚¹0Ø­—³<SL;À2R³eŞ½Á¹|B¯nş¯×û¯XÔz¹wtÒšéu#KÌK[©?ùœşËï`N³¦bY–˜cöşD“zy°Óz¹ÿ-òrso{W[ì0ÂÒKÒN›ş$kÉS´,0³Tnnò';÷ßDÛBñ ÎáÓß¬YQıDªËc¨ ¿‰«”´¬Œyzo}ıËÀ A²<X{Õ:Ù;ÚG¿»~¼k¸3Í cí›{íq/3õœ,1.ú£dbûà:°ˆÍõĞÚi3Ô2kgúXÜrÎ¬#Éƒ<ˆŸ\æñ0äÖ63h«<#àıu_`yÉgZ in<(¶ÜØ+…‚ï Î í¬Ø¼ÿ›÷”Yè²¬HDUW*qvZ¶øtğùy·µŒ—e•HçKİŠ‘>TÅ÷:Àê9üç+ê4›"†]Î'1qkÆB?ôcvübƒaàAv|\VçÆë‡°¢4‹ªŸÇ?ìJäÆûZZ\PU·OE
-Øak÷ˆœ›[ìùÁóı×-Eƒ¸ç^Áú¨³,ØEÒGº24J«šíÀ¦€¾<@Ê¢NŞSM­¼Gõ
-µî«-Ó¸¿BK(­—¦qÎH<–æ,à/Œ«ÍàeÜÍZ	yGŸsìighª»ùcÌú7ÀîlWMr¸RlÏl `Œ›Ÿ—m®7qc»`ø8,ÁÌ,çÀ;bf3–v!°ßáœõO±}#¶Áãy‚mÅy‚›ı²x:ÙœtµË¨i3ÜŸ¥«ey‚‘%z[ËÛÓñ/¢¾5ÜwfxíÕs/ñµ¿•›½ôk¨v©—]èb½Üuêup÷şõA/úé¶î›côt2XÜBç*œ³V}»oşxó¿^kAÜÇ×(¬;okMŒÃ½^ø»[>àÊ·<siıróyò—>¦7·Xk8|ƒŸ”d5mÇƒWñ >OTçĞí½{~üu8½"Fó1Ö4H:-Ê¯SÀ˜ 7ªùÕêVÚR•yÂRüey0[Ë~ÆSôf’NË/ùoËkYy×~ò©¥¾Ö[;]…Úé‘áÔÎ_uÛéfµs;ÿÎtp§;“»¸7¯£»h4äìş™J¹Æ…‹bA¡:U/ëË&|×j¿‚ß´ã£B—@ÅE›§TŠNî e8µMJÓ­Å ésígVG3øè±_7|nšjá|du<JEv®éI†ÙxDVq‡ãŞÃ_ò.÷íÁ»øKİUDOÄ•|Ê‘Ÿ˜ş¿’P2å¬»R8Ãû“ÀêéÓïW¾¦Ñ_Q~¾ò±t åÜ«_˜*s_^ùÃŠRJi„å•£NHä—bİø\yşİ|=„çp±=}ÿ^ë€ŠŸ˜NµÀ>„@æ>Á@*”=Î@¬èè!82=‚ípk·é>¶ë¨êğ;Û)ÙnÓ~lÑÒŒÑÜôù!ÍàêR>·„Z|Ãt¶Gd>	ŒgŠöm‹©tÈşfşLúo†c[|Š&Y«!b`X$[b:MñD°Õ6I~EM†^4³•¹ƒùA>Eb–\ğ„”¿Â4”ínÒ‘ OAnÁ<”(4i
-]`r°À@U7Èh Ö§ÊWºªÊâœ’àæI?»HvÄÀÅ°Øæ9¤ßõã´ÀX9LO¼ò•qÃâ—Š‘‘‰‹d·èğ#s²©ÁğÃ£ÙOİØgÂ’Ïx‚>Ô ÊtJ[ÔV€!µ§ä‘çH[@^Î;OTÒlš…¹)÷u‹S€€±·»‘™%Nû}GM†÷6÷jö?`j($^GAğG¡Û”o’ıšQkM™u˜ßÖßSõ{êÌ¹ğ õ¿OÙÁé· ´&f‰NAö“½éd/œ%¾Ãµokş^0Gæ>À,æúãDâ(qá”Ş?m/®²Ø¸4?ÒABFêWa"9éÏıXm{ëµyÒ¨S¤¸p]+”ÁœëƒaouÆ0–(n·,¥9ÀO½ l©e)«ó5hĞ:èMfœEö;´ËöÌ;Ö6ã(düíHá¬lŠğàúüš7eŞ¡6ìb¸@TÉ ±—~ˆ6è7ÖHËjÛM*ãˆ)ÀìrÀ¬|‰cj91ÉO?à*×*%>G½†Á˜qOÆº§ÇeİæC¬3á7·D‹?“˜-ìÀwÏÅ› Æìƒ .êÅhåĞh°É¥¼µKâ¼İÅ`ekıÔ]ë`S«™˜„M')b“ÕáåWÀl˜ ™MáÉ&÷ƒûpß|{	'Cáƒ¯åqüL‡~ˆÆñŸæ(J‰$¤:$°æ´¥Ï˜¼-x7VÜ[àu#”nÖ'F¸‡BL¹Ül6qôï…Œq™ò síHÔrqÒu@®ó&]Z§*ÇêzÈ"S°ªk˜Ë_Óä›F!ÑwÎà Ü¨>ì9
-Dû¹]ñİ1Gvl¢èÅ¹©º ñ/÷Fó¶[ˆE1!‚#ŒgfOC©+»ÏZkb
-j§a©C$Ò¤?zÊß¶ÅS›f˜3æ´£åW[[Hç—©~ê%Ó®ï¼KÒŒ’¬ôQ90
-ü„ÜÔÍ.w²ÁYš÷£{W°OÒœ­|>Q‚ÅtåÛ+Š˜‰pT@HÕÃ„Mu–¤£¸ÉÑ+#–ÉÉ…Rƒ âK²ŒÑ[]ØY7ÿ‹5?‚(ñ2Y@…ÀÅ¸Èä³l©Œğî@|YÂ'Şd'”ßAÍœ¡ê"ù3HÈ1|ŞÄíB¯!3üÒJ­Áâã~8÷¹Hìë/_eŠ_R²ÂÌè°°=zc£Lo(ïaQAâÂ¤êS×ì\eæ¶-Úódp….¤^„§o_Û©9]Z©E”Í‚ğ›iåù­ÔMÛl&–çY¼+3ôiÒÍc„GÌK{Ùñjjò·£N“µFT†$¡}9ğİ*Á,ğ»aÈW@PaO€À	ÍÉ"ìbÌ=¿?ttœá©n)ÖÅEŸIiÛ_|ÁĞ&İIóvOUµ@vïpjJÑE}u8îñÀ`>Z'û»ä=Æ‚ ıÂ¤”"¦<i~ÕŒ¨Nn_Ÿ~,«G •e³2Ò‹Ü/!$°>Ó©â©ô;Çêš>BfÂ`L­~²ÿö€>ØÍ—"3Ï»oæÍo	³‰1Ìt”½#Şh>ô3ø†JK¾Œx¥3Xâİ8·ö5¯ßk8‰Øö(•å^Ş{`f•vPÛO“A;íYõjKSİ†3Lkşí³š™cWµîåÀUÅ»æ¯òIİÍÊ!{{çıüiVüªXsæØpÓiXñ´s%Ò¸“óæÎX,mÆ|3æM–1_ŒŸ13Æ2ù'~©Ù4¬LV'IÅ~ÇLS-"ËÎ“›š×Ê;7§ÄB½9‰$t«æ¼J³GğÖËµé³6ÙÇ"KkŸŠŒ<b·Ìv»ÌadÔˆš‘!ã§JƒáWŞ¥Å~½¤é}__WšÑÏÒOH|”œÁ{G˜·«	oÃå“oN^½¤g{½MWJWéw×Eš\V|ï~µ5?5_?Ê.…÷{wŠ«ô	&EG.k´"oùÊ7õí 9'ÛéfH—ñÛ×Ö-[ïÊÂ¤cüI`íXqÏöpgrÜ%4"÷vYv7“Së¹h~l‰uã.L{¸ıÅóÔ¿g¼åÂ„×Å³æ»õ÷úÈ}ozÉãä*Ë–Æ»8Ÿì'‰6ÖŒó<¾~N4‘á¯£›¼<Œó"!ŸÅïzÅUÄÛ±’á»V¹e“\›
-ƒMæ¼¸ù±‡•ÃAÒ£¤˜*~9ìÁÉ£×›Œ¯IŒ
-˜” ğÔLà‹iêÄ¨mh ›vbrT¼ùlã›ÿ=@Çúv aÙiÇ¤Éš55pfARÓèªÓ-*l¡qDÀDšj¾c£«Îâ[Ó\D“ÒÍL fzåi€Bjši‘âüûqz‘Y€pÂŠ5¯`ååz)óÿ˜øhó'Ä“ÄI1®ÎBw¥«&0©0™mó+È14(87xõfØïQB²Ïå–§
-Cc^*´æ¶{Â‹‘Ûä›^8á‚“ã:ó¾Ó•@ëfÅÎçã¢3˜·B0s¡HõŠõÆ)³NVšs­• ¾b;âœ’ ²æ	ËiöĞ§r˜¥ğ)Üzõ•­Ğ®?›\¥Åˆ
-Ñ/ä–„U~èØA"HÍ!:Ğ%´ˆªúWñPÙˆù¿Û.‚Opó|cv-ÅÃ™X"°¢¡c:*ˆº“üQ~5àƒ‚ÏlóYÈü#7ôW× AûŞj°¡VÅÊW±·º„½É-ÅÖ«FåOy~Ìã}YS.H½C®÷îıcï%…9è>©¥=V…ÒĞÁú KÖt¾—XvF[ÊÏ6'€k)*¯ô[À¢®tgOâ7ÿwpsj˜Ÿs˜×¹9Œ:åÏ	ÎçÎug5ŒVë–×Ëæp\tEyrãÒïN3	3W7ƒãÅÓ¬¥zÜUargÅğ†´ éˆî²^8wY7‰uLé»zÙ(yÌC ğ'ï ©>Áj×½t€å­Ä/ E˜’u˜g¹b8Ëú¤yF¯n(ñ §}kø§ÈÓp©6××-TÃÑ§4Pøç‰.˜àı_?Õmø¨H\äQßrçˆ´ßºh´Ä‘Zvğæ´ª+Í—FNÈÉTá†¿õx_ÖKÎÈÉ›loÑ9ØH'g![ª|ãúñó‰µWÊ¿ÛG%jô¹m¨(ÖÚ7ÿ‚Û¯6­ãaL6(dêä%ÿ
-PæÃi`Ox`Â=(¶‚ËÚ¥¡™«P†5Í¥ŞÉ‚+)…ÁÉÜØ&´¦VUh_.s|¼Bğß.ûa*´6SZ¢˜€PàªC6Æ45O›¿ü~ğùÄêj*I¶õO°–q_HkØÈ–ñòoÚX¯7¿ÍÒATûı VŸ:Âø7¨Œîï Ï±„¡¯s_Z…—xEÜšYo†&oŒ9è²
-èé
-ˆ†6ˆìÑõb*uZ°òÜ¹çT˜ÈÏï$eh@8§E¤1È†¹Ó˜}î¬,‹Ø]ıêQ ÈÜ·˜ıìZ\j«È8äIÑİ¹4‘v±b˜lƒÙìÖdÄŠ®ÏğÙœÕ¿T67hù,îĞ¿?dYş]ıê!ëŒó˜bk±£²„¦–É³”Òo¤mrš§ÉèÌ¬âßó,DdÈĞ©6<µ"¢¸6º›eìŠC?±„¤i¶ÖVrn×†ìQzŞÅáæî™æXÀ!4€èèÂ°=­CÍæ¦çgÀãŞ…9¹µî¦5ÙÒ@>9_+0#ù´‡@ELßÈ+üµÃÕ¢	Kš8òŒnş”§ñê!ÎE/²vÆT=kàÃÅ¢ßB6Ã’0ıI jŒ))EæÉÙÓ‰©˜ŠàQ¼·‚. Épôt…”ü¯eºë¦N20Ë.¹Ú¹PR‚’8}mg(qıĞc‘‘Øxí½üÂ‹“wrv(Ô2µ`³i»éBa¥¼öwQ L½rÍlÂÆ.W¿b@3§Œ¤/‰÷,°˜q½ÒgX«Ç©ñ)!¼%=>üXğ@ş‡7C2tê²š¶»…¹X]İö]×[
-ç
-r¢{«1F”U¶'ä,0\´Tªœ‘¡j)~ŞèµÖ°ì©©aHµ¨©a9u•O¶¿tÃ4‘¦ÚGdZwÓü¥a•	pgEw³Ëƒ;NT°óQ3 ›‚˜ótrØSw©'e6¹¿k\Ø—’M§Û¯Q§ˆ…B›\Åû–È5ó$`·¸ßîÄyÇM÷náâÃ‰âô•‡À›z1%'C\ÄªÂ«‚ßT%İ‹OAäƒ<3Ê†«ë,G)ş½\İ| [eó¹Aä¶¡ üÕ~éRW‘ùoò¬ò]P ×ÓêÆCóé'ÚÙµh¸±n¡áÑ¡dgVóv³©˜2R‰X%$'/².–wp‘<>˜÷ d¤ßê 8$,õ3v„dÒ º²=	Å©”zŸÁş¢mG¦ˆQƒ¢ÂâƒÊ
-K—ÀÜŸ7]»ãU½?¯œ’ó€æ7Ã lÀ‡"S+>à[	Ó `ºÄdìR™˜¼ÀŒÙ³›V•í(Ø¢ÿ}ØPÜ3
-¤ƒ%äEágœÂ¦Ó»]<0´ªJ°åÏ;…–õe`•Ÿñ‰Z¦$U©—d¢äğ(–FL5\5èØÉáñ\üñ ™l9T±nL›0ê&jº<÷ÖŠ6İ]l¬8+º°Y¿ï÷&}#nzUÖI0“+&…òÁègŞÖv\É6ànsµ!ß­7×7ßW))K­;êÏÖ>½…ÚA›V/a#¹NN­öÔyÒ .üğ(§N.ÆM¡}•úÜ%Ô”,K9'AĞUa¼˜‘Š´?^WTUÚdÙÂ&ÜjiMÜ+³ØXJ_cÅ¸EÁLãå"x¸ú2µ™ç~Y¶ şÍº(_=WEk”A‹ne)iÌÊ¥o·.uß€IéÌnÛĞOŸµzgñéÍŸ¨ˆtDöç’ãNm¥+ÚFIõ&Âî]–µÜ©ÓÀW­¢ÙÙc¶)Ö«¢eá6/‹«†Úôs¬Ï£ÕQºAßş& Çj®çË—ÀŒqäT( RÜ÷r<Ãºt“‡Õå98=yôş#k›÷¯V1Ë¦‰æ›®l,ÚñwÑŸ‡K2sË¤¼˜Ù·<n‚Œ=jbÒeQf!Às†Íã³|¶­»èkE0ü0	¸‹?î3×Şîn.)Ou æ„†ñ—{d,CZ/	+‡²¹bµ\5´¬ÅNó$şnõ¦[  ¢BøÊE”b¹hıl)QEöQºewvû°+¿s3ò×‰ÅšO\šG@qåJ@yÈ‹šzŒA(Ì­Ä®n'°zÕ1]^ftïÄºTWúÿ  ÿÿ „ F„xœì½ÛrG– ø®¯pbÔ…ÌêÌ,	À… HÂ4A¢	Pİ=.ÈğD†˜‘Šˆ@¡aÖû3OkûĞµıPVmVOekkÖƒ?é/Ùs_ÂİÃã’ (Qµ•&
-™~÷ãçæç’óé`8OSçÇy2|wÃ®£Íã(¿Ù\ÉfA¼ıó~DA³2ÛÜbz:bñäŸÿ™­vÙo~Ã6w&<Íw£t8á,‹~â[××nØpdÙ‹`Ê·–r~•÷ƒéOûWWYGÓ çıÙ|’ñ%¶²}ãÇæJ]xG¸‰c/µÿæáÃÙÕ[6Jâ¼6	`„ôørÃfÙ8âwıU–M7.ûkô—^§Ñù8_Ú~õ¹œtLøQù O'CøuœCÕóÎò,ïõj¹[·t›_á9gAq¾%ZŒ²a]pöŒ-góágÙ2Û`ËÉ<ŸD1_.¯Ô›/q"jÈKÛåvvN¾{I­¼ßaXÔ¹w\×Ã >âàœÄ°¥Iú7®ãßşMXwsL£	¿bçÁ¬ÿĞSä@í³y'1KâİI4|·uİé²­m–Ìx¼FùL… ©{Ãò(Ÿ@ûø8H—Ì.¡¯Ác–&ó8äarÎÎÎû³ &}´òpUl®zö jœ\ğtÃ)¸Cİ<âñ0š(Ğ\¿ˆÛ\Ã\xã '|OxÎ}s¹NæQódÒ$ãÖLè5]„æp’Ùxm‘9TŸŸnù¼ù
-—ŸušÖÛÍ•op¾»An&Ÿ]GÙÁt–¤ùQÊ/"~ù € N,äµni˜ÄYÎ2>İMÂè<a[,2ë½J.³Á(šä<í¤XóA:&!ï&<>ÏÇO††Éô?à¨47•*$wš	,(­h/åù<­c²y˜„Á„EÎfË7Å‚Ø;1ÏÊÅ:£ _8¢@pû‡ÛKXÈÙ>èÇ9`GÚñ¥iè9÷Nò> }éhº%´'®<fgIòTş‘O ¨®]MØ¬ÿˆ©¶×|Ç~sV¿D<ŸÍx:2n ä•u€üŞrí_F!Ï ï¤?Îaß6WfízÊ¦²›dšè>OçñHâNZØ¯£	Çz7M;ktF!Ãÿõ‡É$ë¯ú[g@ÖÔjåö²•×½h¹ÉøÖî‹vk·´}”&á<O2ÿŒ*; üã%‘z©Ì³"NXÅ¢±:ó'~Ì§l÷öÏˆ+>|î‚+Äó×(è›°ÄL¡µŸµ¢60i]Şy»½ÏåCç©§?¶ÍVıìˆuiªèb/ƒ\V"°uÿ!õ¬ÙUæ"j—ì?ÿÏeûWQ„ŸÍä!DªÃ¸Ü§XÍ½dø{üÄÓgU«Z…É²ipÕ÷×1d	F“äĞÎ¡§i?¦Édr¤L2À«Qğ<®fÔ¬}È€ÃáÕ{ÒLƒY§“öXDÄ«‚E‹ö¿x³}bÄ­œ¹æmô’.a‹ô*¶º¶»¾Å3TOH8)ïmq°ƒã°ÌQæm¢ÏĞYXT<©âŸ½ôSTñ3›À:À˜HÜÚ'¸GËS,x
-bˆÑÃõ0îP/ 3ã¾AÀüMÈğây|Ö–z·F_lkk‹©ş@è0OŸuè¬®št¤’2Q0Æ<Z]êŞlRì»`’¤Š«çÏÛ/½àg\/Ñ\.CQõÔ#½hÙEá/±,ºp»	s)®İ,HößxZ¿lë}G­Èéñ“fä¤šü=L‡ÆFë«­ĞLâ¢Ò¹Cñ,ë9ÁØ0´hô¾ÆóKÒJ6»BÖî=IiÆú›ÕGØ‹úlv”	 [Ò³^SÓ$rÏ†‚@HD¨’YÎV†‚7Z^°u:ZOR êOJB ·9	„^›ôtoÊXÁ“&TfõâÿJ¦ÀújŠ#‹à/	'3V“:TöÒ‡^nĞÉº>záç„¼dBA(ÃBæğœÍ¯TÊ¦¥óq"”#ÖHŸÛ»A<ä“ İ\ùª
-q¨Â(Î&<D©PÏ(J§ º‰¦oŠn‡â•êR°G7g"F*´'1÷Ÿ5O÷¨“t&°o¤“¥ ™Âõ²ˆªfïÄÒ£ÍR	´á¦Û)Ğè¦\Š¯“tJtùB—@ÏI‡ _:º„k±Ÿº ÜÇ§øÕh¸"€ğÂN<ŸLàùMÑ/Şo]s³0,¡ÉÁ(ŠÃN„E€‘ Y»ˆa°eX^ücó8¸@ØPãœ$A¨•X;ë´æŠXG½Ê°˜7O?ûle…õû}vôêåŞëİ“ƒ—/ğ'>İM“8™ò<%¥ÉîË';ßì²@aÀ±Ø ­Ç Æg‡	üç¿üO6Ï‚0aqÀ¾&Õ›Dxğ3ı~”>øLè’öEµ“h
-Xa‹u`ıó Hn¸“3`wŸğõÄ°ëJ»%šx'—=bL’Ë·ĞÆ<ãÇ9 »TƒíÁ×ét	nàíşhÄ‡¹¥%-Eˆ›.‚	4‚P u
-ÎZ1šë±‡««J¥TYTv8áAªë«f©äM½yKßDŸa4søfĞía"_!q¦ï@÷“´ÓÆü’¦ÓÑ‹Òœó†ÃVÄxŒÆá ÏqÕ·ÌÆÌWØ“U£|¦bú(„eäKD“(ÙÀÄàç€dJµ¾Cw0Âcwg­Ç–Wa„7L•’={Je’	8ıŒ_>ãU`%@
-í|ÂI¢¸›L¡îûn{* Ê~³Áä&ÎİS*¹Ávf³×XEÆÌ °	èÂM¨Û„¶Ş¼İîX›Åã`ı§"“µôïæÊxÒa¨âsñİ‚s`~¸Y>ÊvÂPc°Àhæ#«¶DpÆqâ—/àÄ‹#%¾[–—Ò'|Âaçuõ»¾Öa‚bˆª#~•kè*°ÁSñ6}†75!BÏ3ØO¤¸È BÿÃ”CMõ1«úÒ}‚øÅn »vDKS‚™#h<Ê²zz6J :åUˆ‘ı½ĞÊ©näÕı°1f€Û3²÷ñ•‘Ï5ƒ<Ø ) F	…/ƒå|œh4¥É´³Œ°'·ÜdĞ#`³åßÂ÷(î,nÈçÙ2 ™åà|¤!Rlø¹Ì§§0ì8l4cùmw@Œ@gû ˜:•XJAñkèKÇçjÕ$¦“@ßÑ…’ ëÎeœüÀï2ş£1åâğÀ«s„5bòƒ¯Æú6™›ÌÓ±©ü¯ÛäÉÁñK‰vº¥E0š´– ØP½úwhæ2'Õ8_7~„ÀÑ±Öp8â˜-RË&‰•ë‹•ëãÃsÁÒ$°û3`QÏS ^õ§Á‘K ~í·ğ+ù¶fy6?~äÈtn0k;Lá`çg hFg¼ã#t×ÅàR>AuWQ9EõlÄûÖ<âÎo'Œ†pƒÔ{J¢ë<¸i »7E’ı“Kºï,ïEç(ãE0 ò$ ‘ÈaÃp¨±<}¯ïÇÈò4MÒ¶ĞÅöiÜ±‰¾N±ïf³W*•KI%¾”¥XÔšr¤²OV–‡6Ó<úúmù o0ã¸XCÕºÑÜ6n ­Q—åãú¡Ş–ˆŒøò½$&„ØRa>STFÀ@²©ó ÓÕ[Wlş÷û0ÀˆäZ³Ûe¸wìókhP>Ï²à\Èò8ÀÙÀÀ˜#X­›ïU·úÄZ0Š”…Š15`õƒÁk>qO®‹u°w‰_ar
-üĞ†¤‹¨òĞÄÀ£Q…£°Õ6¶_êûYM…CÍõ±Ev]³œQŒ»µ4ø’GÀù©ÕÂ(Bv¢àæí·á<†ARÃ‘cı¾‡Ízğ¦—O³AË§YQ¬æ³\ÔÁùåpLN%ß½¡f\{xÈ8æÓ„ WDušÎ#ÑÜ†T\t–Uu×#a<[î…‘tƒši±‡‚ÿë”9ô9Ã¸±¾2™áG±ïBİm rƒæÓ47â £!ØZ`^†Ó¿œ6«À‡=Ø"œ#´É…İŞÆ9”†bŞ^>‡TÆrÉ”‡ó!Hü “Ñ¾ìoÙò{p4«î‚°jËA”¤’¥m7DƒÁ TÔix4Í£¤iMó$&ÇêÔÅs¼§ÿ¹’…4c–Âz…­+[5Pr÷‰Ôß0Ò©@¹j€Ò:¨M«D÷¿|BZv¡j&ÿ€ü)T¬†ê×P9zÌ×=fB¼¶º¤tWT·µ©ÊÊ£Õâriiû»dxûï,F# º^’ş¤;‰vû{òÆe©¡—Z-¡Ï»öÊU¯[ÍréÅÙ|ÅGÀÅw/Í6”Yg6ƒ·Ìó¯Ëcªö>cõ£R7G_h“Qhy„ô÷§$™Âßş—™:ÃÔÑvhØP17è;÷ZH,Qi,g­BÌ#¥¤>+]ÒÍÎúLr•Åãµ²©†¾¢½‚ß~5‚cƒ©ÍVa8Å½dyó|WÎ›»¼ÁqÇ`ØQJ‹³ëµµ¢ñãQ“-¯Œ×¬©z®]ÄµªšíUæœƒâ|¦0¶‰›ÒuˆRÜdƒ,0×á©áêœ–‰eZàèñ¯;„i„îi½¥Ééºæ)êN$D¶u}4™g7Ş‹Kâ EØÍv!Gë)ß>è‹.ûæ¨ÁJí!5»Fk4j#MÛ<õq)Û½Ú÷í+Àa;çI8Æ›ãG¥¾ª„€„ë‚)Ì—ÆÌ6LS?•8!°<¼ı#r¤¡éŞq5øÖs’\MÒ;Óıu¬Ë!²9
-H>h]´e_yU^ªÅ²Ø‡ğÚbn+MØªH™m‚¶9^¯f|gn¶ïtCƒy­›}9GVÉEÙ¬Â°§¢UƒU…`¢ÎÎõà|æyæ»5Ëâfvuæ3ÎóQp4‹¢éõAhÏv)§
-S/æ·{¬¦c¶AÓ R¡)¯¡$Cùşı¿Ào¾W…L¥‰*º#Ÿ1|öy¹ÔöŒÛo‘i]gê[:¹ÏeíD‰Ğt/š©¤ìÕ5T‚°–—„¶fñ{\h]Œt¸ØÖª.ïk‘ÒŠT:3—ö-ñÂGXÙÇx¬ßÁ»ã¡k]ûD—K4âŸÅª8s@Û–5ËÚÅcó´çÒ>¿ayèò».wÙ^ìY·Ä<Ï§ZÅQÌÌÅıö&¢$k¬BJ»3BÓV)+OÇ×VÅ¡^Ü†›g	)ÁdÒàÌÑ€èîÍı,H®Ô¯Ï¼æCQTµóÚàqµûÚ µ;6ùqœÔŞw”Fdñ¤%ŠÓój¾Ö3©ót“*ÈbL6c¸ö¡mÊÿIöSòt{TçéÖ„â]tQ%W¹N]¦Øæ÷çò\%iW®BÀÛ-îxPĞSÎ\ÙÔQøhàGzß<ˆgóœM‚3>ÙZz!oeK, ë²á<J;™Ãpå-M€®[a¼¸¼0®¼ø Ô9ÏTs'¯5ïjîÀšÙGlóhLCùê•Œº(cdFsŸt—Œaœh<aåÂÒ„;n¥n­É‹K8«·ĞZ>ôÇStÃÜ`¯x¥°	3¬R%éíÁûæèDcõË$oıì…*ñÎ‹sú@¯Áóp•sn¨2|İ:‡Ïñ5Œ&=Æ~;û‚ñ<˜Âø,šqô•FÍÎ1O/¢Û? ¥R0ç”Œú†A°ù4`°ëôe˜Læ1©‰ ±„ª‹Pé MûÑRğôå«½ıWl‹½Y`ršò!?‹„IJÁZœ"½¡Gğ÷”OOaãñE2¹ĞVéYš\à}>'Û`ù¾)kè
-yr
-ÅR~>çËoaQÌA?ßùjÿù1Bøæ¿)NQO¦m˜ªÊùl°å#z‚µÔ	BƒİS®˜1–…7¨aÛs×z÷-†Ó<=&¹=¦	‡‰_ÕóbÁ°¶±zvjùì.^‹ê®©ê'OØ¾Zæ‚¾]´ Z¢Yøª(ÓµzÙwYŒ>_ĞÁçhG“2pN"`Tğñ‹$HkºsÆÓ<Á>8µ@eXä¥ÆN+»ÀÈ¥ )v<ƒ¨ÄšiPØ4&Øï¸Êd(ŞâÉ ÿqáiÀÂ$_Ác½rvˆ&8…rSME[xGH²£›@øB—¶XìiÀ´&ósxƒljàÔÀÇİ—Ï_¾*ƒã5@áø§„aŠ_gç…Ál%ÄÊ–5Ï\ZQKËÊZ§çØfQ–XÇh*ä€#ºÑ´Ö9M‹çvÓ:†…ÑtÕù0ºˆbtÈğô!_ØÈ‡•(Î“ÑÅlÎ&¾’/ì.äC«‹âÍ¾ŠèiV¾°›•í‘'Øhxø>ˆ=ÍÒc»QzTµÅÁ7Ú~Ï'èTn]¾°Û—Ëka¡£yCç´o¿Q˜ª/Ù iÒœç|7™$éËŞ¿ÒïÛHÀ<eod·ÈÜ›/Îé˜l_P@OxÊA†ß`G’*à"…rĞ4ĞDÆ÷w"Ü1Èe—(tœGçA&îº"»ˆ:yùjwçpÿÅÉËS4Éµ_¨ãï• gŠÆ½D’Nˆt˜&š,¦5ï¥É,L.%³†ºh™	ü„şÎC,w’œŸOø1=¶ÕïøûgÄØ=•Ím°ã`Â±Ãôi©åÖ)•´gVÕÚ¢‹$
-Ÿ#nÎ’dÂƒø©“ùÌ¼qC°Á’Y7yˆ 0'ÁÙşz•$Å²V>&¡Hå£YLâAH&>¯x0Ì âf´vvf3ùµûà©ÑIÃ8ÎĞ*¾G$ŒÇ<Í¤Cá¨'´£$öÅF$¨½48?'¬.m¥Ñïæl¢Ì†p–bQA–Æ<Â÷šåïgH•‘¦"½¼Ê,#]6ÌÍşLYÿ©“ô¬ë¯‹Ám°İããÁ	şD’ r²BP%ºæø¥LùF:å£­ëbú7¢/x„nØ5ÈÅš‰ßzİ\¿Sc‰±¥Ÿ )ç\
-Ì;î":Í)Y_DhÚ®é‚¿X48u kĞÑËmZ™VŠUÚ/2ß]¶ŠìÉÜÿÒyšÌg(ÃZúçº¼ğu—ÊÛI1æºRdŒ©ÿæá`õ‹·òÑOÉI¾ptÉƒ×Ò´1½²=ctÅšá.çi–@¯	¹ÂĞ~ÈGçipëoÎ`İ<íqô¤ZBÃYãŸ`º$Y-6¢î­Æm‘Å¯ªÄJ=\},Ú*_+Jdc%Ü;n[šuöv88Ë@ÂB÷ÖcCQ$-ø„—áŸÜöF«¥EÕ®§?ÁĞ­°×·Ş¯úqáHmio-È[[]2š/œµ&ĞzîùğÒF­–íÿm;™«|2n\WjŸws&õI×òL
-¿j¾V´Ë_“!94–¼Jáp§WåŠ„(Ô–$KÛÿåZ}é€İÒµ5A€Ùg9ö$I;¦Ñ9ôØÃGİ’*¸2<JÅuÙ«fD§/ĞUØ%Æ1O¬·g)Şõ/ßœu¸Ö(!VzMˆ›á‰FÌİÁ	:³€°NVîË’*ÄÙòM­•‰l½Ğ±'üZÜóYÇÎõ_‹bT}Àdu³ıæwÕÑ	êã¤ç‹w¨Ÿ½ï¯ÊÛÚdÛ÷v5½PÏÜë,ñ¯	6:)Â2…áÊá!ûöÛét¹kŸÛ¼æ˜hL¾]³\äÅ®1Ó„rš-¡¨•5ÖÏ7€T\Òë±¢ÖBRƒ>y§dbÖ=‹_×S%^•ÜÂæ1%]Rw ÂCI[(ĞŒµR)Ùºa[ÿÄGbĞ{ÀÄÚZL>€ã9;78'S¹N×­«X‹kyT¦×¾Še»£xzG«j1ø)<Ïje—0 äRlß¸ÿ¤tƒ×îl²Ùõî)P1/2îØF¨iß1	:ä£òáa6Qp³°:Ã(G«;“9GË¼
-}06“±°â–3¼QäÜuš+‚>°†:ñM¾ä%Ú±ÇĞuO,íB¥j×1 qÕ»)ë4ÖşÕ(ß*	 k+ñ„™+ô¹¿wĞëÄ‘y[	†™!ó½yûñeC=<>æ¹Ôm·İb0EQ2SEzÕË“Z¦‹²—h^,7œïLHnLt,÷Å•×hï–{ª Ô7¥2Ô#f46¼'ü6Ë)Ü1¤ROû¦ï;3qùQ¬Õ`dŠ)-¬ˆ%{å˜…Ë;ázsá’YÀC$Ÿ«Ë îºÍ„¬+o\í3ìL-m¬’å2Â´&b	œ[`y©W=»€+¹ºY²«Ô°ùğœºNDr½ ’‹³õ”Õs{)ƒÊÇ`ö™{kìÜ)_—‡áJ_. 0ÏÕµÙ¿—}©äI´ı‚ÃˆÈ³çc3|æIo~7x\mŸiZ%•,–üÂƒMH”ŠòÆ±@”Ñ‘ëB‘
-Bªèâc‹Y%¡²u¾
-Š²¡Ù&Xğ]ÒUõ´PtèI¼Y¬®¿UpoÇ ÄIxñùŒûo­
-ÛxŠªõøaçáêêÅ¸¿¶šòi÷m‹€…Şcˆp‘9JÂîx¤Úè!„êÀ1ú­S$l*MŸT)ŠMÚºö£,T¡¥ HçÀ­`³&ü<ÊrlàêX¾´s»)¡,Û®–´ÇÄiÙöF¢gõè¦DÚ·®İ'7Å²XPM’¶®ËÄI+ÒnT˜¿±À6KtVµ$Jf¶é_½
-g©½cZ	>Ñ±dèÇ6Ÿïyš)_‘/\Ù¦B÷a<÷Üú?§+Ö!zàRa˜ ˜*6ÅËÈ%„`‰îú=ƒÿä" £šºnÍÈÔ#äw£Ñ¬¸Ä	VDaÿ‰-¿J.ÿzÑğ³^4„Q€Ü O%òÌ.¤ü†=EjÖ7ƒ)±†t•ı–=Ñÿ[{ÔíÊĞUÅ8@6Ê?8Rm°i9lûØRy>5=~q«3Ut[õiqÚ¡Â
-–,¢± #;f±F¨ˆ{Ö¨;6º5×ŠÌI¤¥±Xµª¼ASürswgm^ùcêÂUx&Üã	[ÅÛÄ  ouršc!×¬W¦–°9êÅÑQ‡‹o¥G´ˆ*Ü3¶’V|m­¤o¸²V)~Ï
-m{+[¨³}òu6ö½ÚoÈ±%>•µ}B4F·ƒ—-’Ë¡ÃÕyiR¢{Uäui1ùµ,ç2C7 “W;Ç;{/—­ƒeéÎ«O–Òœ{à[hĞ×>Aı¹G}şAÚó;)Àıw£úÛÒ~?BAù‹Euß“sÔ}?Aİ÷ZE4ùŸCùmšVªï©ù¶Tk%½w0c…$CÓ!6^²MğÇr˜G­#'6¾[ñö‡FmÄ¸4ÊRVtxl>©Ù˜a+H‡cªú²ø]…QÔ‚uüê½Q‹~SqkªËRÊ[fú /o{‚¨f¦*N0·×q¤€…§\NËé,MN©ßS>’S Ş|Ù.'Û Ğ5º×6Ë 7ô#ŠÍáå^”ÚÓ„yÙæˆaˆîg†a”VOPtgMz6§†eÜyÙû… ±Á|›TÄ5v÷·s¨ĞšEÖ´O=v¡bú•‡ë©Æa-¢gjé.dio„ùšğàõ‰¬Åko¥A´8íÛ26rÑ2™Jû'x äÇy¦	Í¬7é)Gî^pÕ £{·`FÄz(ÆdB’¬ì&5_µƒ5“,öÓZ¤Åö’&YŞLê«¸Av÷‡Mİî”™»Zª¥üXÿ¬Ç«Öå§®G¿m:P\,n“:tÌHÌo¢ì«ùäÆæ6‚òšêeÇÁ4¯jÈì‡õMœA©¯#>‘SùJÿ´ª	ÀµX»Ò–è·Dş7ÊÌZ5+!-˜xE#ÒÜ¾Ñ,Ô2tnü1İìİèÌ@F4³Ş‰¶bT”‹(¸#XÈ
-c‡ïI›Œ·|TZEp#ÅÇ˜¯ô4ÃOJ|%£ÓAŞVV˜q5x"¯©•ót>KPë'­?˜Ú(H0uC$:D?ø!J )VïÅ£Šõú†¬B·|WÔ÷´nÆ½ó¡.¦Õ]²`"­•ÕK…@¬ß†cYLhæ¬ÆZíƒ—´v/z‹zeÎÅÁåêßiÙ#~Qğ_¤"$[ìb#iaİkd°stÜ`_Ğ]|Ïièïøû³$HÃ¢¥a¨/Šáx}ÃóÃ‹gòÖA•İÕ%2hñ3»«-™ÏÆøÑÕ±&AJƒÌu–ÅB«0ÊÅ/¶0É÷‘‡Ë:Z²ãÔ&T´x§C£3”#ğï;Ò«ä²[_<j²ê uğä™–úzM>0t²lGEM–Cú™ƒ'_à.£ø_@Iëk±èv’Ï)ê‡ äèd7N0PbóKûÊ£)ï’›¡™·‹„·Jsò}á.(|ƒí;KbY´rb»ƒYÏ%FzHpH²ÆfÖµö¿1òªŞù"Ò®èå4+ucÆB5ÔşŸ)""c¡ñM_`<ÁQ1€©ìöO ‰\×T¹úÉø§Iª ÊH§š†¼·súÚm«gèîS6¹à¨+…m9Ÿc>á'ÄF85v‚40–Q @ìSèa”z Ê4@İn¬ªß­ªˆò±Œ›zgøRùcEÚº*eışÆ(˜Íç•Zi(cùF„o\úÜV<èÁ¼½Yzö½±gŠAØ1^Ë×Z$İX‰¾ˆJÈÅ)V)°€Öà%¨ã7Êvï_V åb|ØM¯%çeâi›-´åibcš‘ÚnÓÖªE•«õŞ,¼v¢º[€²3>ö‡£O/Æ±	0¸"Ÿ ãÓ©'Æ{UĞßïwfòÈÅc—Énÿpûÿˆ¸‹Ÿ_»¥L:Àšd…İüê–6ĞåÊ‹µÔ¹,‚÷H&J½€ÌÈU÷¦€Óšeìªv6ê‚*kÑæ›C1×ş KœºöÆ J&¢€w°ˆıO¨Ñ©*/T­ÆepyBî¾ëù¨§À,"·i?¢l5;€æŞÌnl'%EoQº ‡$RkÈxÎ™æ¡ºÕ›nF¿7ˆÄu™È‚ÉÒˆ2\N W/Ñpà¾’ˆ#%J"T¼‰V+dä£x8™ƒ˜"ÍDo3søò"œ9QsıËAmuøâYÍ9 0“œ BÛÌ~oôg¡ÄZ(ï¸§ãüÄ!E1f¸¢NÌË%ÙÇ?X;ıù5Bß3eKíá
-JÛ9½(.AüÂ€«Ù|;<ø¾U›æw¶&‚Ùš-
-^¢ç0‰˜d€õ³}ü­b¥˜Š6Qr ”qÈÀiu@·Ôú~:mÃ“¢e[¬-öÈ>.UÓ²Æ 5zN± U6!aİ¦m‰)1›ÍŠê™˜Šòv“(ï'“œ‚áb24[Ø‚ûS0’w•w—%s³t2GØ9à6ÎB2y]cè8¥ci
-¾eY)$±w@B(€vå»ºµµºÏZ\ú«eo­Û_G²²Ócµ`
-Ôğgfy7gÀÇ
-Ô}Ÿ‘ºMĞÌ^j»-ö1§¼}RùgîA ³å"À†-’µèJÅŠC|šu-ÕuÔDÒÂÌHŠgf©›ÉhÏå<u^Ã1‡nPÛ›[l­ØJı9*¡Â®\x8ÅnÜŒÉ¬9ƒ<y\*ÃãlS•®Û‡V‰ÜqH¹-`Â³²$²ì4\GÑ®Åµ dmY†#Æ3,Gê[µõ
-Å‘Â¨NäJ¡ÎÉÈPğê‰ydŞ¹um¢”ìPœÙ¦zj«O«ëéB­B-õu)q£‘™ö%¨1VÔ…Îª
-9 —XYúrî™èuƒõñ¯	UcòÁ½= _	k+[ÅÊ1W\…µ¦p‚tş²É²iu² x÷	J>¬0ïn'@ØS›!°ì99É>rz€Ò+ñBIC(ƒQ¸dzĞUpÑfQtå$Y]¨	ÇQ–ßş9†”Q`6á¹„Ö2ÙÎqlM@ÓeÌZµë—ÜdjÍx\÷4ñ¹~ã>aLxö©«Ô®ş^=Àô`8Ào0ÙÀMÉkK·"na‹F0Œ»|&ÚnÙz]+â·hå¹ü-G¿ğÂÊÓÂ[/*’Ä{îÄ‡ì†.Ğ5Ä÷¶€Qİ)w.$ŸŠ’·n½SøT¹’MİdôhÖMÃF3IÛ}Ë1¾’`³Zmvm}.ô;`ã¡õ®©Ì'©}ŒçÎ!†×F„b_×¾õ,Gf‡Ï&Œ
- Ã0JTTŠ 0ÂPbjŠ¥°´NV†¾*äl)½/ˆq›À¢¤`ıŒ`·&—nÙ`®WÛ`ZöÀKå íl3Âà©åIJS9ƒ	õ,¼iã¨aÀUŠ‰ZnÁ
-ÍúÕ<Cí&:æP"L@Ä’µÇ°¬åÊ¶ìÃ.û×Dˆ¨6KU§²]£1¼Û´úN¥9¸ª= ã	áìñ¿îÚVow¶¦
-Y9+¼Øâ
-õ-Fíå,.—ÖŸb­–¹_ª6üüo€şÓî Ôª8›å2–hào·8zIS™î˜¶iJö[çI·ÒVK'Šêê»)Ïˆ1L’‚ğ\$^e€¥I—šŞãC§Šîø«(WdUõ|‚ÁFà«töy´°U¯Û&pœÉåëÙ? Ñ}àw…Ò×‰$mÈ˜¥¢L)”{‹MrwcÙ%M>Öà,ûŞ£i©Ş^/¯Ó˜ˆ\Ä ÊÁâJ&äÌ‹5Ô2Ï‚ÁŒ\‡Å¸(¨³Ó8=8³/‰Ûÿòş_ÿƒ&h¤ƒa‰õ+Ú¾—Ãù¯À‹
-Z3ÉZm¦é”ö¬Æ“ÎÆeÈ×$ıñ}*ßAÚ7Ul•
-D®ãà—œÜh×ˆß$Ú÷ĞKİHæñËi‡uĞÍ›ô_Š/ğwÊñZ¬¼ùê•’Ï¨÷¶¤æŠÅª$>@Â"g´ê(µàÿ}ªÂÛ{VÒÏ¦o:L^‹•NGÅZ{Pa±Î"‰_©N3yÓ\ÒÏ¼À.ºt†îAòó<şqâ›MÅ
-³ÑÒjûv¡[åê$T³ÄLmØmgSÛ‹CXBZK"Â /7¨Ô™DlçœLç€
-aÊ,ß¥¸1¯E€ùã¦¸òSÏá«u¨².®ÙY¡şªøùEç“ÈÕ 2§“
-¦ä‹ôUœUÚBÒiÈ6Ê°*_Ô”JY½CßöX÷6w9]ÚUu±Xîª~£Ö¶Ë3lŠr„-Zã’®Ã¶`n*¿3™¸UÈèÙ­ç"('Æš›É!#¸L‚÷ì””êÏ<QPTÔ·°/şIıvo²í{õÁ-§WsN¾ôãh•FÑ9AµYŸtäœ«ŠÈ9p"İ„,õgòºŒÿ¥éà<Î‹K{;6Òãi©['¶ù©Qy6àü”i ëäÒ©>Ó´ -”Ÿ†÷w5ÑôESâ»«´¥”¹?æÆ4êCk"2x¨÷ãÕ’˜ÛJ]êÕ—ú¦¬"TW98¹›Q¹ÜP\F¼­^›U*Ü‘×ªÔÆzÚÖ¢`Lôk:Zn/óS©°e]÷ÜÜØëUVÈù#ú}ğqv©[#°ò;GÓCj:oÀõ‘ï‰¶D‰¡­ºÔ°ïœ“RÖ‰·`s­À‰´Îù`Î®…rv¯±É¹ÅLR¼2múÈ\\æsÖŒ…¢­5[s¸·òíHŠ?âòÖEkó B•)"ªÆBÜ ÏVGp“½YqÜ­zÖÇ{cQóšdo•ŸôÿmÅğ9F
-å-ª\jU¸·_5à:P[^Hû Ğ€M€ÕUejÎÆ|m;);pãæğ4‹úsxzÌ”uOGƒçÍÜY#”rw2¯Å‹mâœÎ¶t'¡ärÓüÁ_ğ/U$8$ôÈHâóRs*åo‡ÈæŠ¨»í(l7ÈÆ¥Dü)ì½e‰y4# JƒÇé]âÀ¬ì}‘Kµ‰\úpuÉÍñ¡†MV m¬wœ{"?s­nÚ)86 nä0Î’«%FßÔÌğÆ{kù[ÛMŞq¿²Ş;äd¥/„å€ÈÉÊR±«ì-Á§ïµöÌÚ©P' `ÿ;':,®p±#‰³Ò@Ñí÷]İBûé®œˆï"^ä|½·‡_fşÛúûÛ^é8ç\ùß¸ÂùñeMx¸z—ĞQW*j”…ÑîÉ~B|ª`¯m†s—?f²ãã‘ä ¼– ªV¹’­07ß;Ö-9ı¥!]{‚wÀ¹ëªs&­ ~¿"ŒûŠ3‡úú^ğ®L5h·Â>M|Ä¾†Ò­³ONƒHÂ‹¢KnŸ÷‡¡ †O?(Vöh5
-ó=k!˜´J¢ÎØByÔ}ìCu£‡³J(N¨iáFQºqLßvn-µ€Æ'Çè³‡h^‰'…yƒ3ù÷¥M¬X”òe•«0’½kàğÄï÷ûìxÿääàÅ7ÇøÃ£xÌsÌUQìa–´M(Å§TrƒíÌf¯±JU€ÅÀŠx®#hÛA¿Áô¾Ë¦ŸË›Ir¼N'2º"}·êØ£{6å¥§ÖS»¡çèÇ¡›¢_‹„Ã&ö‚ôn,Ò@F …5E1ıÓ;7Á‰¨zĞÁrUszFˆó_ñ‘1~n~{røœŞíO8Æhñ¶€sX¸Ïdğ«,KxÆĞ$3±¿ÅCÒ6pEI9u†y6\‚!¯f[&§QÌf	b\´µœ9ÌÉ Âì8¬Ì€õÈZ5Ø}›SïÇs†ˆ€
-í)ãa4ƒo9åjgG{ßõ(csÃ y>ìR”12ÒdŒ®/”·]äkg˜Áì	õ8÷_¼>=8Ù?<>İÛÿzçõóôä¤“)]1Â Sô'ÃcO?S.²ğ0Å¾ÇÑ„í¾:t‹É° ™Qö£Æœc¤i§,©7ÜIö¾cß¤·¿Ç(uk1ÌÍâjyJEE@–ìTÄ0kÈ7ˆ÷ÅKw@:2“Q­ä÷äÖJ“³ä§('§i02;<€ŞÎU…ò”¦©5'|æ+IÔhkf5üÖ8Ïp&æ¤³Ñ_õO2UÚ/‘í"Ê"
-&%3K°Û2‰ØY$‰¦˜è¹¨.ãoY±‹ñA2‡‹#¬C{šÇÎÃŠh„şH^äŠ$ãÙ Êvğ 9qUì0½ç|<6î`Ógz*^.‹¨MCAN)vÇ2BH?Hs¬3ŞŸñcòıjó10)D­k!àØDø£yd¶EØ/ş¥"f‰.q’]ÃÊĞÒ7AŠÑ›¤>2˜NE6Œ;Dá2Ly=X‡“ã ˆ!,ˆb
-…>u1BÀ]çÁôj†ºıCq±¦‚’N.È¹Ü!:14ƒæS§¹(ÌU‹Ê$Rt!L;ˆ)˜± UM€Œœ¬v·<(SİÀ?ĞjJÍµ=E·ìwĞ·^´‡Ò…Í[]A0S2¦`½±€ÔˆYÈ¢}o€$Ïa)	jaæù,ÃX#…‡¾üî•†±ãÌ@Xòµƒş6
-·eôp?8~)s¼ËÀ‡7=Š/…ÕíÍjUGÎŒ0Ušò…Èi	ÇŒ"eı"ÊÊÁ¤dGjvûûó(´³j@1¿a,ÛáÙv`+0¬NôRÂˆ¢®¡ÙšvNx
-0R Ãûp‚¯= €yÇ¸Çä•@ßËtH!ó
-Z= ‰M‘ÆBñ«ád."‘+2*x’)†	E†ùŒ$‚C]!è&Q q‚X<«0¾Ó“¯*yŠƒdP;{*.y«‰5¾-Ü|SÁ.%²ÊÅ*µäº°ÔİÃ`ÈøÁ&)VœA©l¢—Ôb( Ê§>‡VÜatR§ÃÕ˜ÃÇg·
-«ù"Cäá fáEqP0­…ˆ@ï>]˜Ÿp·ı.Ü„56ƒ¡8*?_œ§°1Ø
-ëù/ÁYÀ¬O?2wátQÁa8¥
-.ÃyQÁiø¨¿Ûñ/Ç”àóãĞÿÒAú8l€ÕM='`ıÙ™ 6Xÿ|l¾À^€Ÿ“5 B.I¶æ‚ì®¬Áİ°Øæ)ægD5FPt¯Lh4ü9äK\NV~„Š(<¼ï Û†p×è„g=$BA²Üí±Ë1Oyg9Ê^ñ‹ä'üµµÿKoµ8³ùÆRŠã`K—w~ì±N?,T¦‚m‹^püPb&CBã”†tJá¤…DA°T7Ê{Z9Š«Æ¦äÖG­¢R	câ¡bIğ6ƒÂßõU\?dL×Zhë™ŠGŒ‘pawÆ mACÎP·èÄ¬^ªÏ€½zyôê`‡z(-¬ì”‚µ³d2&¬…l¿ˆ0ó³ĞûîZ+ÔudqiIÑ†aÄ0IÛPA~S.2k²ŒT ë%lé¹+òçS]Ò`ŠR Ú¯!<Y›S¶M3[¢ùVx ¦íï4–¦ l68bFhÕc”&A–sïä”yÕ¬Ql‡=ÚÄ‘Q¾0ì—t	á†¥2b$ÙŸùï›Q—ìò§¼î»¤3ìˆÑ¨¸q¾pİt
-:­	À^„P€` û(€\õ_Zƒª¨µËTÁ–ĞŞ!
-Î;<c;l†GãFhÙ€ÊSXtÊ˜˜˜  +'jm¾×‡Xt-ğü^2ì„øÏÂ=¦'ĞE$¯qˆıı€c‘!ö–¹»T'õhÜPûJ\şL¡rRà#r—…Æ|H‰ÆTxÌ"âœ³#ŠÀCêø&JÛÌ¦İÅÊ©p”†ğş›£cq´`‹`L€
-Ğ|Ó4`#—T4Œš’ ÉD# ¦ ’*K¨Voÿ€³‹’ĞbBç<9BaJÂši“æÃëKÑ6µåˆRÆRa
-‚\`aàŞÔÔ:B¾@|³3›òì
-Õs´ªÎ`üdëFÍKn;å€€²œî†­‹îP1“©ïÍŒ¼€~ÙŠj¢ìWõ^TêŞ¼NdË²/ŒÂVÃÌèâ{<Æ‰@~8ã5 	€*ƒ;¡T>)–#¸.™+ş£rQißzìáã)§ÇÏÅ¨ë¡ ôr³mSQTÉXxïtJ·\§s¼Û£ßx×…?“¸D¯ïô¤˜e÷‚+lDÕ5ğşË¬ †á”—1qIš2PÈö‹DêR¡ÀTLFa¯®ÊI¡[¿¿œ¢‡+÷u4áÂÊ£ ¾!oÅ
-õ[¾Fì)³ŠSf]v–€l_[{àïìÙàÍê[#¢'>´)>Æ§" Â6ûbUğ%k|çvy‡ES8†SŒ…=Œ€è¢é&L¿ııpbXıï¾Ğİ7Ú"Ğq>O!¯‰"‚"¹v¬I3Š¤uåÛ‘KàÁt2Ú$Àäët¢Ğ§>cˆÀR¼Áâàf²d‚A“Sş-ëŒL`€w¬BZÇM{EŠ³Ãd HyäŒÈÆ;ò-ü¾Ô
-÷\ª/¤×-9œRü³“íáÌ^=§ı)än‡u’C64%×I9:´<c¡  6yê ª¬EkÆŞˆ!¿İP[W¼j/M·•§-q9cúa¾õ¬\·Œ(a *ó’‹éU‰úÙÁ8cÔsgyéğ(2¶=nÇÆ2Eâ/nqäj‚âSU}”¼´Ï8H&–şŒYIæ€µ\&l¾ß-G<+çôTÆ<â½•N<*'ÛÔª|	E°GÿÈ:ÇÌ ‘(¦ILZäß@ÂŸ‰àüE:–7³èêï¸ÈÒyD_kÒzŠ²'ïgÜ(?ms’álDøuÏ~iş@jĞ·&5‚SK?‚	İÅä†Æ§Ç¯xÌGÑ0
-R=JãQıhw£\WÂïvécL'Ä¨Ôc¿Ó]Á÷š>¤n9º25ÊÑUm¾¼çÏOvşépÿÅÉéáşÉ·/÷İK„i@¿¥\;Fë2<Ô#÷~ °FœS`s³Â.¼À#RÅnzûGzë¯ò³Êª{·<óÔ$SåO9ˆ:Öu|~ûïôÂ©u–`ĞV£øWâAÉdæ‚Ò–9$|vû{|X¾õà1Ùéï‘hò|œÈd…û¾7¡„¬ÜsõËËë,Ú[¸”‡qìyQŸtQtˆnœ_s™Öw×zä^á`ú¬	©ª0Õ|zÆÓ§lÄ9ÈŒCâşÄ3qC«m$?Ù†”şìáŒÎiE]¥v³šØß²‡=«åUÔ“&İ¹åøiyäXeAšÄ^ù¹µ«åõ´áØzä]C9ÑÎh%Â»U¡ôãWÑ%Ãdù
-Ø²³/OÕ¥Ğ¢x
-·¬°ÒØ’`8Â~Ñ$wNYß‡ûûWĞxÈ$+ÍœşaäY0›‰İ²ŸÕ Yû —$ú©Y]?l®ÿu0ägIòÎ¬®5×ŞGnV¥ÍõaiÌjø»Eoz¥å³Ft,Ë›à TAÃ/"“şönr§ºÕ3¯Ş4-–yÑÕé;şŞ0IuŠ!É¶Š¢¡>•wÈ°YÑ º¢òYñà4–Ù
-\óXõÜ3$È¢!tG¥B6E¶::\ù~ùZõbóç®S„Ó™(y:E‹;ÏŠfØ‡gµ%A>ø zQìµgğ¢î)æo94kŒÚ}SqU«@÷ìıAºuÒ0Az’˜yÃÄÇß“Ê¾ÚIeÉüVoF“Tài
-:a¦^•ûiS´Î½${XTà-{öL*c7&py(Sç­‘ØÚ@½"§3Q¤‹pºjƒ©ƒúå®Š‡§—ò)ÖÛ}yx´óâŸNw_¾8ÙÙ=¨wŞæ4)°Û‹Ôc_ƒú¥·EEìGò©¯=õÎÛQ»-’|Ño+H@ìFˆúzÚÀçşHJâŒE>õG¾+´B€ÅêCyeìlbO»†¨à˜|€öÏ"8}¥æûÕ)kÓŠø
-–—˜¿.©·Ÿ8X9étœ(ì~§g¦¡È”n/#JÕF¹“  &î{[JvfØjXıUæµôŠ(V(¯qGWNË€.é¿fÁ¹ä]ÇšíåA´Ó:«dØ”‡?ƒª«‚Èn0¿d÷‹éÁî¢¶¢İÊ¬íº‹«úÊÙUÓæÆ`±r¦Ãå#{1Ò>z/åá/›; ˜·È¼Í#³;JÑ<êÖ?»ëz[)=À_Ü]îjƒ9â¾.ég:6˜O¼ş$N…s•Y4òàJœŒ¡P8UŸ‹F£­»ùtà£îà˜dœ6zÑÕ/pRÜ`Rì¾ Q½%°.áJTÊTÚ£ 1Ş’ZÖê:Qu¯¿>@Õ; ì2şñ. ª}o¬†î~ÒÚ®)FIÊq v¥§õDëÜJEµì£Ë¶Ra%Øè²Z›V*J¢‹.'ôf¥B(›è2¤#+·#e¢)¥ûÅÎ‡Å‰ p ç"IÔ¨
-`Î°ÿzû{Œ€—Üzà¢ÁäíŸ¯È¦2%õjÆĞ±D{M,ÌÏaT1¦_špÈSâ?|++Œ\ÙƒM­!e¡×D“Àƒß‘Nóµúe©ø¥C|énd®h:G¥ßKŸŠc÷YŸPÔà7:«Ú7{WÄî@òk÷y½¬	Ì›—*ÅoßË^vS<Äèº%ñ³Fë+ê
-êıâwc­£ Ë.“44*ªGu_õğ§}J~İtÕy7a¹¼öÌñd«_Ã º
-èzFñ0I…m
-Ï¢ó˜‹	ú4«7Â¿8HèÒT7UİIp–£ÃŸU÷Zo=ë^8È'´±CâfòÉmˆ…]£ÙZéÕnéívçú¦¸ı¡4©òÜQüAçÈE™(B/1ĞHOÄqÖ_ÒNÆ48¿(~×@—¬U ôãAs=¤_ØÏškk ~Qüş%¡ú³ZÇ[ITë%M3º©ñ®*<:¤FTY–Ék(˜‰w¯’K¥N.|¼Š-ÿP)&ò?gÆ¡İÁ"¦˜%5Q%â„}¥\}¨¨Xegì"º Oovlê'İD"': ÊÜlå„…ÅÔ2Ö4å)YæiëPM§È	Êê<4¬–å:4ûš-\öø‘¨5háObå.î$rŠ»š|ÇØkct¨ =6çúA÷‰jƒ@¦°Oe”ÀH›`^1ÌJïØÎ3{Cq¿<àûZt‚ğëŸa¡Ÿ¶f¶°²ZÍ¦n*÷¦¤Ök¤ôÓÖ ıÊjzèh«-¸ê`¦±aEÁªRÿ[‹ÊZ™¥4ÑB97Ù§k±AÅ8rå4WGoÀ8Ó™pïQÂƒO¹kÈªÈn¾Ÿ©²ù}Føú*^¾àÏ]¹4Ã|?Hó‰\ÄÎ5rTüãÙ™ËÆ,.²37o[l^Ş™·N%~ŞÏäWëîÙb ¡P
-¤Ë™¸R·™4Éˆ.#\Ãq€ì\
-ND&0"6Åßèa>ì L¡à‹—Œ®)"Ãöı×şó_ş§j=»ı³p'û$°Û?J’ÑIæ¨kF¯5€]l;&wáéŸóI€ñ“.x	GDz	Ğ>°g‰ÃƒYšƒ…YÂé±„¿ä"ˆÔ‡Ä.ÈÆŞXÑ‰dô!3ºŒd†òÄş±CúXAwŠ˜:oe¯½×·İÔv¹X)ù€­‚`80¢˜Áì`V(+T@	à­;Éwƒ‘h0r‘€g‹)±Ö‹$çÂ.!>†a"Ö
-ÅJÉÇ‚ŞU‹Ä;! BöNëct[G	:V«z‡€2Ÿó ´ÊaVî]ÊëÃS4Ô–eññN{1&í¿|Jæƒ„²wæa”°*M·ÄúÃÄ§î3œû9Şê‚ù$÷U!vNpÍMñÙFû•˜Ş—«Ñ<©aŠ‚è9Y§>2©|²ìDúÙ1YC„“([ì¡.\IDwÕcv×õ`L¨yQİx'µ_¦Ln¼FªcŞt­£ğªª§_âõHmf¸+ª	+Æ;)©"$Å–‹ÈÓ¨;”ân¹ <)ª ’i‚ÄÓ$ŸÒnÀÚ¶×M,û@ĞLZON„?Œ³ù”½~}°‡6ÄåEM~Ì¶ùÆv2ƒ½Ô^¾èú­Æ¨3“^Ì xZ¸)Ú'ÂÕ@4¢c±ÙGÂx7š†‰Ä©Œ—ÈG¬	Ğ—~¢†ÈOtNÖëx”%X…òh–°%„ÍşÃ'_ÊÏRÉ¢X}=è=@ìcVAë8Xz*¢ëeğÊe¬a-T_ˆÛ#††D®™€ïõÂAƒ–‡„1Tf†˜¬ö3`âS…‹+²×s<¶lå³Úÿ2èŞ^qÓ×ßµøşpíæó•h k•;è@±¬6Ñà†Azëµ+eê%íd„À™|ÅÃù„6·)åç¦@«WÌYœ%$—ólÉì ÃÙ$ åA¡“V@©M˜ğ..,NNş¥ĞÑr1‚ÙCFŞ³"0Ù”¯dkNI†IRˆd¢í@Ïğ6!‡v1Ï‚1qra¶:‚Â?V§+À‘|m‹Ñ©}æìÖ4ÄÑ‹1—v2Ã5– ]ì7ÊÉFbÁÜ-ûtô+,“®Mày­±÷ÈàÈlÍ~ÍªîWŒ]¥û<4»&£e¯Âëø©ÀŞ´QmP7u
-™Ô}µÈm†øÜ)nìUyj”+á\ü˜Âö†Yy—ğSO\{XoöSß–»FŞwE±¸à*/yÅj"òpmıÑã'Ë=sa	Ü¶¥V üÜ±$ öS}ïc?}ê¬ì¥õemAA
-?s°ä,x/m¬,F”f¾7qš7ó#§)'oÅ‘œ,‰`vÑDq£ªpYŸnT3v‘nZ+q¬¨"­¨‡+jy˜old((§Ïd¹ñ*ÙPI,'Ì@%Bjloíí§—Üe`túåÀJ÷²Ò]îf±}fÿ5m‰Qá³ÈXä)eÄ+Ìf"Åtw¼ë½¬„DTÕ\ÅVW2G}÷È¦Ä&dX©PªÔŒëìäy1ãµÆ< ğX.'ÊÂñxÑ­Øä:Ì²ñD”)vFDf\Ô8Çò©U‘¸@¬ürF
-¢-öFá¨âêæ­]'Ò0)*¶œ®5¨¡ÇP} W¥˜|ô%”UˆC›g¸ »¯{Èİ,€U/
-Auİè†;ŞÂ×˜p×ÄÇĞé””GI}ä_x¥—ÙÒj™ûUÌ´WÍÜ—r†1å7CLñ'!oFP!µ¦bË³¢İ
-Qyy‚¹Œ£Jh*»eö. ·NÑ8Fúqã'Qü0	ª}Ús½œEj Ô]by6°‰kWëke|0’Q±y!bœªbûPˆd€*¼–Ñt6†Ø ®–@x<5ôÉ\!2š‡‘† Wc´/˜K±HJ„)	0:
-„Ì¯°e‰,‚F›È¡	ò~YëF¶Úe©«wâ©ò–Lµ¡ö0Ó‹3Ò‹0Ñšm^œÛP£û¼µ¹@ú•d­MB7 8˜çö¸Ït—nÂëMÍW×­®..XkÓÖ X@ÍY—(œËZcQŠ²æ
-’6ÇmP³r‘‚áşèêørçš…·ñ~QĞÇÁ×i«MY´‚²e(
-¹l¾]Â‘‡šKl±M^ş‰÷÷/0ö¼fD5V&fïÍç×tŞ¼¥X„81L¬ÛÅÿÿ÷x¿/@VW! ½ùïH"ñÌëç>¸¼Áv câ¦µ˜ÿLœb§{„[¡ùÛß½À*DP G˜ŸÉòĞü:î¾7ÖeÃ]—Ÿw%öQeAZ‡$ˆ§’Åâ~E1ÚtOÔbàe/zÂÇä¯gb
-%ƒ)Ë’9FQåeÏq;ë}¥ïf½oéB¶|ÿº¸ƒJÂ´@š%»êSNYj0pù=I0{ y®ã½Çƒ;oº@r]ŒnÿhÄ
-¼–ª$:‘€ÀT]5)$jek2ÊeèÁwÉğößYŒã XTıdA<CMp]<Æ8§pÚ Wã	Ä°”x¯=i‰/æ÷ûz¢zï–>¿F7À€âw¢‘7]Oƒ‹nN±}º0—‘õØeÄÌò`ğ}]€L%ïic•{½=˜›ªÁÀ™ù¸ö<FH°Ø1t,s[³Ò¤¾6 &¡`H“…œ@$,$%rXöâF£C7@èHgrØ"¶&İj%LÓx&vÇ+7aH&ø^†õ˜3…òX·
-âº@ÉX@xYDì:°Â4(tj¿ù,Zn!Í¾bgULIscª4åZ…T}G	4N%Š¡{˜dqÇ¨Mğ:â%!¼˜™%‘u×gİ«|µ˜¡€%ï­ôÜ
-ó~sGl®°Éø¼Tå1øáË½×Ï÷1ıÁ‹ƒ“ƒ—/J! Êá5sòP ¹ËÌÌV˜õbï»Iéõ!Ù·¥HE†ŠE“‘İ-ŸW£ñ`’¾_.¥ù°$^í…±Î+U®Û"˜c]WDµÒ@ÒËË™­/j<=R,&1šp“!œ„|P'é5.GòÄàòï”nEXA9C{3lQ>€Q×”±•"ŞULÄG.¦Ø:xİ˜Lz ¶/’“K‰í(O¦&anøkc]àå,BMÙ¹ÃI€ôf}©Ên§ÛıY±(C}”ˆHÉ$7´=ÓYêi‘CYL$šî!C/Â"·Eìˆw<¥NE½@ö¨R5ŠÌ¥8o™ã¥™ùı†È,r’HP0­º¥„GBt¹€D7 ·Š£iÄë‘€÷™&‡Ò‚”d_)®)$)v8œ›Fh™|PBãö
-Ê³r;™;Øé2:åüJyÆ‘c$+Ê“qE»?.’¤ĞX…ôöÿrJSeä†R®xr\; WÃá‚µ§	ÅHZsáEè?¶à!È£¸:iãúVF¾`I¡[¦X<’ÅEèİ?‡ó‰ıpçU½kŒ/p$v:Jñ¸›‹„*Ø
-Ãîœ–ğ«°½šg"gCLÆ‰p_„MòŒÁÒóÛË kœØÈXõ+äRÌû—á}K˜Yh'¦ØôÑD#ãÒ±7¯
-|™PIlù$Hù(ğc7‘¦ªñé cBsâ™Ğ¦³Œ£÷-º}cQœò1¹ÃpøÈåx›¶Cm8œSŒx¨ÃnøzN™„KTşŒn™ùÔ Q3	XÅòcrWÌ"l4EEÂQh¥)dV•{Ìº­)H¢"±Ê)|O‹L:/²SÇ(Â±ÈT3ªb¸üWAªïï`Å%3"3Mxes#yÍÑ×=öêÄûäÛŒÓ5!²böÕ“…jNàíŸÂ(ÈVv ß™ûp(Ó¯¤?Î£á…ÌeÄG ¯3g¯¸]NxÓaŠVôìöÿÀ—>L$Û¦˜Aãö÷¹Ì²w‘ü$‡èc›ÀŠ€º+¡OƒHı÷Ş—ßZLÄw‚Gñà,Ra—[s-î¶†t‚ê…YzÄ	ÄK“$´”_Qiš,"åÆa»äX„Èœƒb=qT*Ñ!¬0eÆ’F9‰d$„—È¦@PG‚;1‘£Ô›¦*ıŸçpê"s™UrZ£‹Q–t¾Bµ¢•»sàaRŠ½)±+jbz,øaN§µĞ~)&†.5ÏÕ„\,‹˜*?&Øf]˜Yï³Püşûş -GSLlœÉ(éïOI2…¿ı/³p%ÒáşãÕÕ%•~óX8ã}+‚¼kÙ=ò	´íú};?[*
-eó3Yng'ø>L2•¶Ì#µå¥ÉÖõ¦HfÏ °ã­k$Æ7hA3‰†ï¶®ƒü›ícaHr2“ÍQi[i9VôŒœå9O£áÿú€³şC69ß(~>bçÁ¬ÿ°Xhà¬ŒÔØlfÖ_e€¦ÓÑ$¹ì£P÷GQÎÎÈW¯9†í^yl4„@ôF&¥ïuÓ‘iñ%}.âoÀÒ ı àE·M.[¸üZª*·–4øê«`øn>[~KŞ~#EàDs0«3±ÈöSÆŞñ÷[×Pç¦ôFoö ©N‚3êäÆ­P¬Öõ0î¸o[ºìğò‘aÂG9›õŸˆ_o®Î®Ş²`†şÙæÃæ3~„Ê'¤Ôï€_í_Fp¶ôzŸ9Ï(FuDL&K½Ò„ÈÑHY“`ÏØÒÙyŸ’2¤ïñdˆñdL¡ÿ%¶Á–è‘èæÑ*#l@-Õ±xPZr;v—j»42ÚgÃVÄY…»FS›+P›€@ ½˜"î¯3„w¦°|­`{É$4£rÓ…¯*¬´TmUÙ'²X|¼n–¦…¾šH`I&!+–¾ –0À½ Ã0-m;aNv[Ğ³Í•ñº õ(epˆo¢¢6å.4cké;É) ¦<XrIİLæĞú—ƒGƒ5¶¢À%ŒV&Â!®´êâ`[ß™×å6üO‡ıGÖúG¯^î-Üô´}ƒEÛŸ"{ëıÚ;ó¦eÓ»/şkS{˜‚ ª½ÍØ%¬y—Ÿu;fV†zuÿŠA³]›Wî³rŸ³àÒ6
-Ç 
-sà‰ùESPŠV	UáíÛqãl¤ÔÖ`&4L!Šb;C!Æ¸oì’#T *8`»F"âPw Â‘bG8Q*ÁæÊì.§ù!Ë¦îá®Ø••ß2ZØ]š÷oWJd±aç×+›öoE-©,öèñªK8% ˆqvhUåÎt«–Ê?òÑ„_xñiÖ'WnZ¡GuÓğ4rÙ_û(ø_šÌ1¦H [’¢5õ5ß€œ,
-Ë†BÆùÏhô^ıœaçŠŒÃZdã4ŠßõWF‰:Qém€9ğp1¥‰EÓs–¥Ã­¢â&ùÖ-7‡%{æÄÅŸä3õI·ÅK•È²ø`´Ú6ã:Àcp 3Ìaµu½öÅM	˜ÔŠ¶ê·
-²e~ükñ 7yÖš7g3"’‘ò‘±ÜDF^ñÑÃ°†Ğl4ª‡|»@Ø`å·Öş}	Y\
-F<.'&×—¬Ã{:ıQ513Æ($“æ’ù•  Ùgh‰s,„ôz†®õBEß·®3ñÈLèÔ¢	G(-û@Ri ÏX®Ó 'ô©@jLj`»Æ%jÜ8âşµÀ´`¤óÌ8('˜ÔÓYš6¯–Kzû—¸Æ±\_5½AÇ^|#„ ¤hF³á)*/P.®Ãä¬ù˜Ö¾—/›Há¾ ßŸ>-”•Ä8Œ¿XZ(˜Äé ¦r»Äz&İ'KŸ°¾ú«¥ƒ¸Ş?96ÿ‚¨ MènDĞ\ó¿ H+ñk!¯³€n‹È³£½¯W„ä×€ÂÙıÁöoª;X`ÜŸ]iD]Å“ÿ’úƒTéz+ÖÙDdşëŞ]™ğ•	ÈÚä\9MBa´‚¹ÛÄÅâ°O1(Š¸JK0S=›iµİÆÏ#èKz%Ğ¤+
-UĞ²Râó>tn­¬Ú¤^×Ÿ%T«+Nbİä$l¹¡ˆ×†šË’´?KÈ–×MO¹{÷±äF{°–‚B[XeI!…!¡–½ÎWQ8Îõ’˜tRƒÒYveMhá]ÆÇlõò	Ì!Êß÷§TôêÁC ë•£­\ğ»1vÆóK«µ8?`·‡ YËË†“‚ÏY+ó9¸¢Úq9›xY`ª`²¤áğÛÙtiû0qÖ	ë ‘ä€}JfxIâÂÕo~|Fó‚‹W9KÛ;h1Ä_o×P­FZà;:t
-$4ÃP;	®x¸´-£ñ4F•,æŒ†h&†Öxdº†Ë„±’8%üvF7æÑd÷Ò„+5™Ì¼%ú¥Ğ–ÒŒüeá-­ğ .I.­{ÂÅp˜–7
-$öĞ¾zÄ|óEhlóx^‡ÏÌMDöˆÑJhÌ½Xuç€ÔHıõ1°š„ºO ­‰™#À—ğÙdbyÕÃY|û'¼#c\¡JÌwÁ…­ŸJØÆ¡cIÍ¶Cjí'V¥šjÅeRl¶´)g+ì¥%>i‰?ğºÜ;í|ê‡"6a
-\õìödØKë”Ì¿ñvŞ&‘=
-ƒ‚éNĞ¿P$LÆ€ç<%ã/™9M¢22Îef;³ìÓ°Ä²WkÛ6ÆIÌIFÿê•ºgV†ÒKj‘.™íÌ27¦:äÂÊ=èÉõyQ§q®å•=ö
-/C>ÀàéÖÒşÕ†6”â™rUH2w€º¾5B^ägõååƒ<HÏy> ¶ÚVY‘ßq¬ªzóPuRÒ»TøI{Æ)sÅüo€‹¸¸ñFÏïÁYêV8V7Tø-ßu˜tJ:¥¤âq7›j.%V½ó¢*û]Ïøv.xŒØş0@ç¿øößz,ş_ÿÁÖ¾øûÏùL$}¾ıã”~í”V[¦=j±à*¯ki† „ M›ÖªØ€•MšÒc„¨Ø(© ¾®®QÖ¨(mÌ¤ÖMñÂ1 4Åk…‘ßŒzÈiúºªØw{¨ş##KCı'.ªdÃx'U­ ¼[ËprkéŞ¬‹û$èæˆ?„Š³iŞh*ËÈéIqòxÁ~&¢Ã¨†uĞ5E¸@í}×ÓNz@¾óa—qEëÉC9õÛI¿†=åX"R?å®b¾®È¸ 2–¼ÿ&©qêëÀÀßş¹¯€òÌçKì†9ÿ8«îŒ6ı§£
-”j.h®qÂjZ˜ãâZ¢|eåñ|d¸ ‘¢ïpÿÅëÓƒ“ıÃct*Şyıüd0ŠâP¦-VAhŸœˆ‡şV³céóÅt-qš´/XM–õyÅ—ª^ #CcÙwÃ%B˜ççˆDë‹%ñ$_"C1q¨7 ß„µJŠÖ^‚œ­¯Á8e„l'ãô4^ë`ÉL×¯Ùmù)÷P³òCÑ.¦Î,Ñc½ôÌ„+LEİÇZBÛ·y*LF28¯ ÒdÂí8< tÕ™Q’`zîh[Ì\w‘'-:hq:Š.ª8TQVTöC¿Õ
-R§Œ5<†2¿øÛª¾Á¤4”äd3 ,\³Ç¶›šY—&Ôc«=FM·k@ÎÛi.Ó¢Mß)5Â’V·İpüZkéS¥•b†i¿àºJ6JI	,ÁìªÿˆÍ$ˆ]gÒÑ`Ãxt†Ñ÷\…¦!ÖhÔM*…à#¡]lnğU¾ˆ²°«ÙÂcÙB}õø¯I·ùMÍ¾ã)ªÀ'R«÷ğI•Qâºa´Ù¬İ+)÷á½¶ÀÆ/ûk˜k ĞìoÙÃ›6Z=Ÿ.Q˜p(í¡QÄN€º?Œ…èEQÃ–}Šz6W ñZ1µIıË0cëÍ—º7-l„õIÔ!n†c>|w–\µ0ì€CŒ…Q|2Aµ…9…)y3nU±dÿâ§:¿½—Î¨„ö³“ƒŞ`Zp•“¢h|³nëK4¼3†hÌ€eˆ{-–´Y3^u|„9F“uİ#:>&Œ-“×¡Ùq0ú÷ê—Ë/‡Àü$Ëİ¶Ga…ÎBm±&x5±¹©ØŸš}.Œ®" €(¯{£ñºÒ×Àm¨F^·Ääªù|UwwØ¤9gS@"~õ¹ª^¹ü÷*_ïœ	wwn+ÅkêôElCPÆ|pØë8I£ŸÈf‘İ•¿¹twÖÎÅß‰P	…wOyûö´vÄq#Ø@¯ˆB eÑcøöO!=–¾ôİê”:8½ƒD;/
-ˆû:I§"ØÂºœì|õ¡bí¯K$=2Wğ/Y*•'Š|ïñ]eÓ#?¢ˆê÷_¥ÔRÕ¿`)Õwpÿ*¨z>'ü¯²ªÕöÿeÕF9Õ1àj6údÅPŸ4YMµş*TÖ•-DÆ¿d‰Ñ‚¯Ğh—h­Â5¢£!O5J¾w{·Rl“/}Íè8¿â;LÇáäCpİ5ğˆ×ª2IåÌkİïîu¹îñºe å£™ˆº¥Ã+.æxÙÒYîz4c>ÉÅ<q‘Jı4ØKË‰£f¹Ñg:}L	hxø5­3j!.Ê2Á–f€áË^¥†	õ¢¬2Ææøé€$“çØ°HvT=zä¯Tbc‹N4=)^zØL§š–µ™ˆÙàïñEs½äå€zDø›Fg´zsW=•º¹ÜÑ_••±¦5ş›õ5<ò>)ã1k‡GJ>Ï Œû†ŒBĞy^Øt¯¬IhÑO}›ÌÒÿ[0SÖä«õN¬æÓãG~À0Éòˆy…¡ÜT˜l¶£cD&€ø-†{K
-Ë’yöIB‘Ş"fª¸˜Xzû{¦2@ÙFFªŠ¡ÅJ—ÈĞÍ:Š(zÌR¸FÌÎPgÂíÙñY¨èn eàYØY× C˜`‡OQİ-5T0ÄÙ|‚1´Ö
-^µ‰Ò©	³¹ÄLõP¸$ò$EN«‘Yıø§‹¿²B.À}=ôEX”ıjåIRc^F;kˆvÖ\´óæ¿¬¯ƒğ-¢Æ˜
-:T•Z¼÷÷)ÙÀK´ó¨Î·	Q×â£ûõ@ĞQ?ÿä€ƒ¬½WiiÁRñg”O„İĞK@‡–öĞ*m­sÈ‚‡€İ;mÇ­£iÁiCçYtõwü}}ó(›5[¦ÖLƒâõ0Y‡ä=•­,™c(ñ4~ä])5®ò|×BnI‡³÷ÿdÕ_p6I†ï€>E"-­[³X¾)¸Í:äm-ûÉûY½š¦aW°~igêÚó…4yøpaİìºíy&Nê(Î³dO¢˜ÛoñÈa¬ëu6õJ„‚óËE\ÎFK?h8ÁLn®ˆ
-5Ï~¨k€ü.ÍráøQÙ®ğ¹KËêÀÕ4~"‹Ü¥y:µ	ÚêE¡ó½£Ïw‹~€¹ ³RSÄ8$‚¸«™úèºÓzm¸Á£´òR„Ñ9 G¯@@X0¢ûø1¦ñb…m:ù£å˜wJd»ò4ù¤$Eh`2+Ïf=1õ5MØW<æ£hQœe›«pÔê±ºQğÎ®7_ñĞçvób~ÄïzŒŞÓpÓ ‹&ƒÁÀ*”i#”¸óàvÉïCæ4½˜ŠìFyÃ*a‰Ö#hV¡VÜ§-…¾…¦´¢NI]Q¦xqjdêÜªÊ?›+O%B7F]ëÈã0w‹+y+ãÀİÍÛvQ¡àƒ¥‚öb!Q¶©°V°İÜM1= Eën!4(%$„ûğ+ ö‘J·¢Y÷ZQ¡¬ °~œ£eU2+y,Ë¶˜gE÷ßÉ
-!•-`˜ó©6"T†ioIUŠ	n‰šÔ×;ÏŸŸíüÓáş‹“ÓÃı“o_î“ÎzÚdÚ¢<|öcÈ{‹qñí(xërÈóqfƒ(Næ auÍMÚWµÔ““š¼…y•«%Ï“óó	·f ç×ic5µ¨¶|É¯%‡]¤Oæ°µ'_\g/¬M/6®¤>_yXÒ kj¢¬7èĞ®:W2R‰n–©"3Å§a½›CoØ‡…×Ñ¦aÿÔ²OCgÕëô¼½ºuó,Z9€Lº•­;».zÂ¸»xé®B<!IŒ«•ºørašãƒ°;)'mÑ›Ê+9œGâæZİœ·¹›ø÷â0uškÍÙµªõé°tÖpk¸;]ş+{WÍŞì±oG5š»`‚¬AÈÿµ1v'Á•‚Ÿt,–d­vÓÛ?«šTzTƒiÃŞí”ŒY¯X½±ÎßtAşŸ¢çy $™P0T`|™øö?€ŸN¯Gc¢ŒÀFaÒ¬/ş8üİº<ò‘Íî=id÷†šóÿšóvÖ	4"ew€^&Ê™wã ©Ô8vÊ`V­niÏU¡v'sÕÆR«´;*Ü[ÛÈÉF©$şUª¶¢Bk'„F­U<_adÏQÖÂ‚.Ëùlk	:lQš­ëÕcj˜Ñ`Äùì,i»àÆ¶Å¢H;¿kÂhÇŞ§³8B›ˆóVêªp\Ï‚A‘µ6ıK;Ôç“Õ&Ğœ£F}ÍR•_ÌBAâkJ°@’÷£kŸ;£Î²d2Ç`ş8.”$’YÿáÊë“HA³OLæ¯"TòÒößÜGtºú÷UûY—$à„§æÇã	,”vLÖ~ÿ¥ª{+ l°Aªòÿîİşñ‚{áNªØ€ç”B91´<À ÑU÷›ğOƒ«ş%œ·'xàÚƒ×G#Ä‡«Ö»ÚH„ïJ‚?^ˆü¶'¾-I¯$¼!?Ó³-ıõùì•Ûé|‚û—@n›ˆí'@j0y#ºM‰ÅÏµÖ”4•ÿdt$j 5Ú-ÜJ:vgÕHãCÇ¦®dTW•Î×w¿PÂgåyİË\#Àb½Îà@W„c[À™‚ÊWd–Ÿ6ÆË6òûÅ0…Çeğ«r1³P’¶El¦qSøV«RÆÜ[
-¨KîkğæNš&—Ï) ¹ö4\Ùfß%4  Ëö€M"¿D.{ Î	…ÀãY ×F…÷òÒú’#›nĞw~¯ŞÂø²-úÔ5Í¡º‰\ÔáY—¶wd‚uã4Õó¦m¬«i,S83ó©ÖZ¡F
-½Ğp+àddÚøR4ïDÄ‚ğ+í•]—¦æTDNîdYµ¹MFÖÍ·yíò”r½S>:ÃDST”òà ì˜ËÑèŸ“Ë	OóÎ÷¢Š=["e”ÏË«ûàûÚ6k=·[à`„/kS’,\W´¤hQG‹
-¨P¬ÄA¦Àê¤FäX2§ı…~jù™ı÷ÜFUbùS†.š´ö9T¹j°k¸]º+g´¹ïºHüÃĞ?¡¥Í/YŒaVê	ÏK1„5b—7^¦~_¿ÿÀ`×Ú;„yœ¾=‘¬íÎ?0†5ÇÙ¹@
-iÎ@`í/âêÆ¢Ê4ØAï`|W½“Qï…“ç?i¥Åó" ÑìFX!oWŸÏ,w2Ã‰Û¶ñ<O„++Ù_5ÚÒú¹Š·böª¿Jê\Ô+Mòöuåö†ÏeÁÑÊèÔ 1®]	ÇDƒ$Zv	¦Q+2:æÃ­¡{a.š+aFn6¼u9ç”•uiûñ…}œG³¶Âîxr‡¢±õñ€]´°lví°1µĞÒöK [ŠŸL‚fêí}×]¸¹´³´ıüÆö¯rLv´pSpj¢ó­öä7[`á¶9={¢R?£#·è²%ÈP	:Æk	®#9¿,t·ÿÊ€ÔqÂ²0 kÚd²ml!7ª±4Øk7dw±­µkı~Øm.É8ğ½0sq††l÷Õá€í$˜?Ÿ¢Õö FÈÖÙyÌÆÑ0Ã=sÄ!~îƒa”ò\fó[Jx6¨Æõƒ{60 ²ÊYÆqd$ã÷Ğ™1N.
-eåââØ¨] ÑópÓãU=º5Ú^‘ƒš\—5Ìù=ÜŠhûäI(,š;~·­}Ş³9	Ùï¶¬Ùó~R;•„£ËşïØş¹–9ÜcG„W\´:§ñÊ¦ˆ¤ó°Õ-Y+-ÛX¸×Ÿûo[
-¾A
-µÎõ‹É/Ò,›ğŞş9œOš‡å˜š¯^lwWØÌb®€˜Haıç{…í¢ó0üEvA|Á°„}J  vîø¸iXY+Ô¶bk…
-Š‡‡	¬7—Û ˜<ëœs¯ü®@×Ê÷…½êL 7´U†hé¸¬
-¿2F×L]ıÂ’`½}çÆl#-U˜’è‡˜™ÜÉ•vëvùÎB`étW}Dçu*ÕÜF¶¡²õq$UppÕoŒC§µÅ]]>æAØpò´é$C3w¼ï+Ç`Ñ0ñpi[#“|üËÁ6Lı§ŸÊP×}*ƒ÷“ÀúÍÃµ-4œÍü,	ß×ws}ørïõó}({ğâàäàåá8Ñ™&a«x§ÂÖdŠ¾~¤ÿDá[ô»–‘_n°Q0ÉxI¸AÿÄô_ıİ4ÅœTaCÑ÷ÆÒE|n Í_2bbL»é<,ÆÕ2k1[$xªÌt/ãšş<Sô.,ÓĞË…ââÉÁôØZ«·ì|$´k{e…“^	ˆ'Ò²¥ïÈÇ@=`ù¨Ús²„ƒ†ıª£r4@¥˜*+\0Eèä
-¨†ÚéÅrÅ1
-Á—„ºrŠ|ÒmÕV-Ë@¬9¬-ìSı‡W~*vA?oÑS›ƒÒ}HÄ-é1$zûZìJsˆÖÆFZ92áh°tU¢ú-jß¬V×kc}í…VäÅ†;‹#h.­5AGrÕÈØñ¹î¼ÔcËğî>şû½ü–™8N]ax, °14š19a†ŒõÌµ"¿ÒdµËír$ïKjÒ)NºO£uôOúÜ!(}tĞDH´Ò*Ö&}
-s
-1ıöaÇ6é¤·oÑĞã¾rbÛk	ÔM«­f£SQ¯­ÏdÙ8ÉQ›\ò°í2·‰&Êˆchu
-ÚX7q'ÔN=‚©ònÒÔ3/P ×í#ß}}t]R³ÆèÓĞõ¬5ÇŞjTô|,-E\%¶kR¤c¥CiRô,¬å9RÌj!\«Én£áÊî…CŒúÙÃ;	%•"¸!îÛ½#l
-Ó49/]ãÖÅ ¼†óö’ÔñÂá¦“ÌòFZ¹WïŒ¦E„“àÌğ©†–~n¯jÑe¢k­ÿbšnàYX½2íXU-ŠàúÙA°GŞôvr¢iD'åª¶ˆÕÃ8
-wÁÍ¬ŠNß¶é´‰?½o/uÛN«ĞS™ŞëëFŒWÛ4Ä´dÊZ›i…Ù8
-C»JÁ6ìêh´Xü…|ÜE$ú6Í
-xmì‚–[Õ‘dyà®–Œ ?²Wüu±rM±—èSmÇŒöËëÒšy]öÑ¯e­¼.³9®'É@]¨\Ô0)ãjº•Ä^ÎÅØŞCİÓwµÙ6¦wbh> üÂ$˜¢Å–
- *Í©w@éÃŸÁ=¾†ƒ¼#÷wí#NË³$[îÖÙ=3?ö5á<M¸Í9ŠGÎ8®ò—„v´p1Xfï˜ìL$·Œ
-(‰÷ªş?ömáıFì¡Ïõ›&$Ï¢p~\“å0¤ƒßöb-³›&:+ÛÃ¢&¸¦F[ÅB³ß°3æAÖ¾E.¶ÆhOn[aGiÎódÖ2Lf7„Es:¿]ûV’T˜`XíÉñÚ·4TIôŒ†tb½‰î<B«™")ßÃ‘ÉûÌÑ¨GM¼m/³à§Jn9
-/]ğÓ^—Ú.[HŒÁÏ"¢~gğs‘?…Q«XŞû“lğ³€tS;˜»9Ô››6…MbÁ¼ÉÏ|ØòûÌ
-¿¶ $ä¨:Mö´‘™m“6ƒ²RË”â’ÁÜÒ’~ÈÚK,êóËÈKøi¡™muÏQÈ-4½-Òk°ÓöŞUçåº	ê*Õâú™ñGŸ°×´ÕC'	´rCÍ1£~e®ôI“œ¹ì‘3ÔèdŒYœĞh21_cà¡ùæØü7¿âÃ9™|šİFU.ºÓ&±¥Í…GwÖæîECš+‚Æ~n…®èòW«Ğ•Kèå||ç#ö#étİAè÷ÓUë
-ô‡1¹€ş{Òï~ú\Š;ò¨t?²×Ö´y·+ã¶'ƒ¨Æ\EóŠÅƒÍª½m4Õq!õÆPm\àfnÎÖƒ—¬¢Ç;şQ˜·®)^R£.ºMPÕV
-»:µvƒ o‡ˆgmö¢úlê«¤ÉÆ[k²[-Û§¦î®ôu„|ò‹óÉõ¡,ÚRß6á,ªûpæÌÑ8g3¡L)¢3æ^É@_Ğ_ 6vƒ£w¦•0ĞàpÏ›SÆÁm1Œbï´7&ŞÔûS•øòcøû„Sù€‘‡“²Åö®òtW¼è¥Y$2MUáë9¹}¡” \€YFŸkşÄ—†?ó:ù3?iŸ	³I@-GF©PB÷U$\lÈšKƒø‡h):üE9Ğ¹ÛK‚KÑÓëÈGøœd«	Ïóq'öÚN°ÑµÕ/&ÿıœOQîÅÜ—è¸KB‚ó$ĞÊÅç	;8ê‰“1ú…I%×7‘&%˜¥ÉUDÁ	1’Õ$Æ,¸ÀiO“\xŒbp6†QöA’4Óá¢œµ#ÛÙÕŠ°Mµ+TR"Ì(äÁçÓ@‡LA‘}{3vû“<šÂd2¢oš21UZc\wKáì[ø³–&ËEÜäÌµínöŒ%½X«€x„n”ôèÿ  ÿÿì]ÍrÔF¾óEÕ®«Ø]ÛØ;³N€*l\¸P© İ/
-Zi‘´6àò#$—< Ç§s/Ä#¤{~´#i$µÖ²MQÌÉ^ıÍOÏLO÷×ıéàZt<ßMĞı“NyœvúÖñ·­ $F]\$÷Sqé7ò
-êTúáÁÃŸ±ÿşÅ¿FüØÖû<…³QÄäÃ"nüw]‚Éq2Â±ÁEW*	KS¿Ÿ?üõ‡Y‘Z Ã²áráÔ‡¶áô€N#†zc³­3IDÈmÁòùÃŸÿ°M§Î#Œ½
-ùÑÖéËWq<6z½“““î8ÆÇ=˜ÑÑö›­›ùÀöŸİ²^ğÇg/éˆwQd~“­¿îå¿¦Çˆb?¦3Tø´ˆ‡!)İ·YŒ1Á#D@’-¨w•jÚ,µÆ±ç¢z¾ÖHnöœZ:máÌwbIûnëì4r¸ ªˆÛùaUAB;1†¬Œz{{ìÁƒÉ¤U#¸¡,AC®ÔšcÌ
-rıƒJõmbé±*Ş…Éù(¥ŒÜ?8”¹80Ä9ÄNuDr€”aÿÂzÀ`‡¼‚>ØÇïºCíäÈt@t‰= ÷€]î»Òj••‹­Ëêì„£À…ÆG‘ÌJPq²ú+êº¬’ãú#7š*‰¡$Jo)KÚâVŞÄ’øÃsÄ6‰QTÊ'*æ:/‰A)Û‰1Ú‡aìúóU¢÷J²TÛB£`’·’Ü¨«†»’ØG¹uåòCÇßè’1WI»Èşf³I/ÊíˆB»f–yà[(_‡Tı6RÑÄˆıÑ¥Fl{½Ş]O%¿Èy+ri4rÖE‹}[·Ñ ¬Ğwí:;éæ3=p}}&_)ã°”ŠqÀ´Ép\6²&£‚ÚyJ2"å*KD]èB–­ºòm•î]x€WGÊºòİˆ$†AÄSb(~X3e0¹¥Ú×¢]&vµ£Ğ&›-õF•º´Òî«Šê¬zK)~‡¸G‰ıöÓGc»…qb˜Ôxşéï€ííô’ĞZä3KÂy}ÂˆÀÇ‰†·<Ü¢jŒ»,;ÇÎP-Ptœc>–É»ì vqu;lòŞxöéã„	 õ{Ö*’ æ‹hëÄÀ³tv÷c¤uÓ¹¥ã¾Êì<@™¾œdÓ³¡ìñÉ ”°Øñ\‰¦³ÖJ‘8rèr‘”Ä@»‘;p=%*é4O`?Ó$€táÜÑåÿzõE6‚½`äxáøÜC‘ê•êi©Ìµ|åş—ˆ{G
-¿‚,ş3ªgb.‘«o¥Ó0ïŒÜ!T¦½Î½¬23Š’0“<7¤‰MÁt	üb±½W8l¢G°IH×¬·$á\*Ù@F	“œÌºêÄ>okÓùö6»[ì™V/’è¡Ü‹ªÈ|×ÊrÕË\¤Äñ"ñ"L=Ş¦·[¬%ÓnøØ6ÿÅò¯KİßAÚ-ø=š¢ãöò-¶ºÔƒg(”}Êv‰c]ÃÚ’dêğÑ(X]èy3ÔóàìÔ¾½
-GqQ<&Áğu‡¢ãZ%Ÿ-¼@€Æ	é)İÏ…É~&Lö¥÷ÕàÜ@ÔóùÅêw¸Ç'´Ã‰û® ğ¼P@mz¿Ëîi)ÏÂÚr%†Çãí3O4Ÿâ/[ÏCvÖY
-UU¥U–ª\¡QfU	'ØòğÖeŞšnavi§,Ë.ï/ÄHgìÖ"1ğRoL8Á*ß™p{VBlª8Zn-›YXÙ(2UŞ8tF¾Ô‰ƒÎ dGa0Iï¹Aòïe*™}¶ZGsûÕØ8CO«»S½H7)³ù7W5É`Òíz)ş9@éÍ"½fš9„üIuy%ÁDëâ\°kTKhÕÄ³ê•?9£q*_g…-gÍ
-jDKq¾“ÄeïŠÎ M¨~ÒIzG$Î…½µ5§’©d³'EŠx™Qp,™×Ûº¬Øè :Ë09\@O1&A´»‡”ñ‰2‡) Èb8¹'‹'²çË"KĞA’á"—;Ôô^z³´22ÙR†*Ì«ˆG®s	-{•¨Öâ¥P$‹0•ÿ3<ßÇâÆ ¯_dÿªÿqà¿Ğ>6ÎE¢aéPF‡¡ÅõgUAÎªÛ‹$­!Ú—ë…#gM"¨!(X ‚g„Õ+<­Ô¦ÔûÎˆ‰Øƒ93ğ~Sïæ>‹1Ãy“J&º6M£WÕÁ>ä1z6¢UmY«†,öÿÈÅ°¸*ó7Õì})²CˆÊ«Í(QşâÙ9©š@şú,y¬© ¤?3¢o°›Zó,'U“…!Î™º–—]"ŞTƒp­JX+'TV†•!¯zc7ö Mš$Mú,[CrœNã@z¤ò¼p¯•º¤¢¦³"ûñÎ™øAyüDÆYòrK’ES•¶yì2úõ
-`"‚š³C›‡«%Í†Nôjµ(ÖˆË?ŸÛ¯ê†Â•«(Z©v4ƒÅ1¶)!6c¡{dëÔÍzL¬VPu¯RO‹Hîmwµ(¡èK¦$X™ö‘8)qø{Â§È,æ²ÈŠµjiPhX;á5x<÷Y*ú&Éå„ÌOŠVJñ¡æÇ
-›‘ƒ^Ô_à*æNâŒ‹w|îÈy³HÀˆ˜‹Î7G??&èÕ•l‹\Q*B)|]±´„(ıÂı9Õ4ÏáÏo7ØÍb‡®wì$„Š>?y¦ÚV6ÅıùdfÇ*VÉTÍ&X«¹ Ps¬›­[	íä¾qÇ‚µ+`œ*úÈLeUBMÙæĞ­+«·×Öï,e«]NR¹Ÿ¾‰\y’¯ìªi'QŸ%0ÉF((U§.ÈA¹?ºÊõ¯Š„’µŸ±ãÕçhüFFùŒ²12JcŠ_¥ØêË-kpRÚwx	€*óÁ*&Ëëˆ£m$†æy.hª—Ö³_.Ó_^,×d:d¾^uyĞ …Uköíšòv3•qÀË×¾î0x98»ê÷FÑWÅc0w÷6ã9ê,46u†›=!óÙ–»Íy¾Ù»Ã ]Â…b<‘ü	ÇÚ³ï¯]û  ÿÿ 0ªè
+// Re-export modular components
+export { POSModule } from './POSModule';
+export { ContactsModule } from './ContactsModule';
+export { ClientesEsperaModule } from './ClientesEsperaModule';
+export { ServicesModule } from './ServicesModule';
+export { ProductionModule } from './ProductionModule';
+export { InventoryModule } from './InventoryModule';
+export { SettingsModule } from './SettingsModule';
