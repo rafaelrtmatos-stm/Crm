@@ -19,6 +19,9 @@ export interface ReceiptRenderInput {
   responsavel?: string;
   logoDarkUrl?: string | null;
   companyContact?: Partial<CompanyContactInfo>;
+  isOrcamento?: boolean;
+  documentTitle?: string;
+  numeroDocumento?: string;
 }
 
 export function loadImage(src: string): Promise<HTMLImageElement> {
@@ -299,7 +302,7 @@ export function drawCard(ctx: CanvasRenderingContext2D, x: number, y: number, w:
 
 // Desenha o recibo/OS em um canvas (usado para exportar PNG, PDF e impressão)
 // Estilo SaaS premium claro (Stripe/Linear/Notion), com barra de status e total em destaque.
-export async function renderReceiptCanvas({ order, companyName, customerPhone, customerCpf, customerAddress, responsavel, logoDarkUrl, companyContact }: ReceiptRenderInput): Promise<HTMLCanvasElement> {
+export async function renderReceiptCanvas({ order, companyName, customerPhone, customerCpf, customerAddress, responsavel, logoDarkUrl, companyContact, isOrcamento, documentTitle, numeroDocumento }: ReceiptRenderInput): Promise<HTMLCanvasElement> {
   const CONTACT: CompanyContactInfo = { ...COMPANY_CONTACT, ...(companyContact || {}) };
 
   let qrImg: HTMLImageElement | null = null;
@@ -409,12 +412,14 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
   ctx.textAlign = 'right';
   ctx.fillStyle = ACCENT;
   ctx.font = `900 15px ${FONT}`;
-  ctx.fillText('ORDEM DE SERVIÇO', width - marginX, y + 8);
+  const docTitle = documentTitle || (isOrcamento ? 'ORÇAMENTO' : 'ORDEM DE SERVIÇO');
+  ctx.fillText(docTitle, width - marginX, y + 8);
   // Numero do pedido + data numa linha propria, mais abaixo — evita colidir com o final da tagline
   // da esquerda (antes ficavam na mesma linha e o texto comprido caia em cima da palavra "BANNERS")
   ctx.fillStyle = TEXT_FAINT;
   ctx.font = `700 9px ${FONT}`;
-  ctx.fillText(`#${order.id.slice(-8).toUpperCase()}  ·  ${new Date(order.createdAt).toLocaleString('pt-BR')}`, width - marginX, y + 40);
+  const docNum = numeroDocumento ? `Nº ${numeroDocumento}` : `#${order.id.slice(-8).toUpperCase()}`;
+  ctx.fillText(`${docNum}  ·  ${new Date(order.createdAt).toLocaleString('pt-BR')}`, width - marginX, y + 40);
 
   y += headerH;
 
@@ -740,7 +745,7 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
   ctx.fillStyle = '#FFFFFF';
   ctx.font = `700 8px ${FONT}`;
   ctx.textAlign = 'center';
-  ctx.fillText('Documento válido como comprovante de serviço. Guarde para sua segurança.', width / 2, barY + 16);
+  ctx.fillText(isOrcamento ? 'Este documento é um orçamento e não substitui a Ordem de Serviço após aprovação.' : 'Documento válido como comprovante de serviço. Guarde para sua segurança.', width / 2, barY + 16);
 
   return canvas;
 }

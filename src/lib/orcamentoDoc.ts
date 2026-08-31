@@ -480,3 +480,46 @@ export async function renderOrcamentoCanvas({ orcamento: o, companyName, logoDar
 
   return canvas;
 }
+
+export async function renderOrcamentoSimplesCanvas({ orcamento: o, companyName, logoDarkUrl, companyContact }: OrcamentoRenderInput): Promise<HTMLCanvasElement> {
+  // Converte o orcamento para a estrutura SaleOrder esperada pelo renderReceiptCanvas
+  // marcando como 'orcamento_simples'
+  const pseudoOrder: any = {
+    id: o.id || 'ORC-' + (o.numero || '0001'),
+    companyId: '',
+    customerId: o.clienteId,
+    customerName: o.customerName || 'Cliente',
+    customerPhone: o.phone,
+    items: o.items || [],
+    total: o.total || 0,
+    subtotal: (o.items || []).reduce((acc, i) => acc + (i.area ? i.price * i.area : i.price) * i.quantity, 0),
+    discountValue: o.desconto || 0,
+    downPayment: o.entradaValor || 0,
+    paymentMethod: o.formaPagamentoTexto || 'A Combinar',
+    paymentStatus: 'pending',
+    status: 'pending',
+    serviceStatus: 'pedido_recebido',
+    statusHistory: [],
+    createdAt: o.createdAt || new Date().toISOString(),
+    observacoes: o.observacoes,
+    isOrcamento: true,
+    documentTitle: 'ORÇAMENTO',
+    validade: o.validade,
+  };
+
+  const { renderReceiptCanvas } = await import('./receipt');
+  return renderReceiptCanvas({
+    order: pseudoOrder,
+    companyName: companyName || 'Rafa Arts Graphics',
+    customerPhone: o.phone,
+    customerCpf: o.cpfCnpj,
+    customerAddress: o.address,
+    responsavel: o.responsavel,
+    logoDarkUrl,
+    companyContact,
+    isOrcamento: true,
+    documentTitle: 'ORÇAMENTO',
+    numeroDocumento: o.numero,
+  });
+}
+

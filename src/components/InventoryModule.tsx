@@ -9,6 +9,7 @@ import { supabase } from '../supabase';
 import { showAlert } from '../lib/notify';
 import { Badge, Button, Modal } from './SharedUI';
 import { fetchMateriasPrimas } from '../lib/materiasPrimasStorage';
+import { MateriaPrimaFormModal } from './MateriasPrimasModule';
 import * as XLSX from 'xlsx';
 
 interface InventoryModuleProps {
@@ -53,6 +54,11 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
   const [calcLarguraCm, setCalcLarguraCm] = useState<number>(0);
   const [calcAlturaCm, setCalcAlturaCm] = useState<number>(0);
   const [calcModoAvulso, setCalcModoAvulso] = useState<boolean>(true);
+  const [autoSyncCost, setAutoSyncCost] = useState<boolean>(true);
+
+  // Quick Raw Material Modal (Add/Edit on the fly)
+  const [isMpModalOpen, setIsMpModalOpen] = useState<boolean>(false);
+  const [editingMpItem, setEditingMpItem] = useState<MateriaPrima | null>(null);
 
   useEffect(() => {
     fetchProducts();
@@ -164,6 +170,59 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
     setIsModalOpen(true);
   };
 
+  const handleOpenCreateMp = () => {
+    setEditingMpItem(null);
+    setIsMpModalOpen(true);
+  };
+
+  const handleOpenEditMp = () => {
+    if (!selectedMateriaPrimaId) {
+      showAlert('Selecione uma matéria-prima na lista para editar.');
+      return;
+    }
+    const mp = materiasPrimasList.find(m => m.id === selectedMateriaPrimaId);
+    if (!mp) return;
+    setEditingMpItem(mp);
+    setIsMpModalOpen(true);
+  };
+
+  const handleSavedMp = (saved: MateriaPrima) => {
+    setMateriasPrimasList(prev => {
+      const idx = prev.findIndex(m => m.id === saved.id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = saved;
+        return next;
+      }
+      return [saved, ...prev];
+    });
+
+    setSelectedMateriaPrimaId(saved.id);
+
+    // If this raw material is already used in the product, update its costPrice and recalculate
+    if (formData.materias_primas.some(m => m.materiaPrimaId === saved.id)) {
+      const updatedMaterials = formData.materias_primas.map(item => {
+        if (item.materiaPrimaId === saved.id) {
+          return {
+            ...item,
+            name: saved.name,
+            unit: saved.unit,
+            costPrice: saved.costPrice
+          };
+        }
+        return item;
+      });
+
+      const nextTotalCost = updatedMaterials.reduce((acc, item) => acc + ((item.costPrice || 0) * (item.quantity || 0)), 0);
+
+      setFormData(prev => ({
+        ...prev,
+        materias_primas: updatedMaterials,
+        cost_price: autoSyncCost ? Number(nextTotalCost.toFixed(2)) : prev.cost_price
+      }));
+    }
+  };
+
   const handleAddMateriaPrimaToProduct = () => {
     if (!selectedMateriaPrimaId) {
       showAlert('Selecione uma matéria-prima.');
@@ -177,12 +236,12 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
       return;
     }
 
+    let updatedMaterials: MateriaPrimaConsumo[] = [];
     const existsIndex = formData.materias_primas.findIndex(item => item.materiaPrimaId === mp.id);
     if (existsIndex >= 0) {
-      const updated = [...formData.materias_primas];
-      updated[existsIndex].quantity = rawMaterialConsumedQty;
-      updated[existsIndex].costPrice = mp.costPrice;
-      setFormData({ ...formData, materias_primas: updated });
+      updatedMaterials = [...formData.materias_primas];
+      updatedMaterials[existsIndex].quantity = rawMaterialConsumedQty;
+      updatedMaterials[existsIndex].costPrice = mp.costPrice;
     } else {
       const newItem: MateriaPrimaConsumo = {
         materiaPrimaId: mp.id,
@@ -191,19 +250,29 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
         quantity: rawMaterialConsumedQty,
         costPrice: mp.costPrice
       };
-      setFormData({
-        ...formData,
-        materias_primas: [...formData.materias_primas, newItem]
-      });
+      updatedMaterials = [...formData.materias_primas, newItem];
     }
+
+    const nextTotalCost = updatedMaterials.reduce((acc, item) => acc + ((item.costPrice || 0) * (item.quantity || 0)), 0);
+
+    setFormData({
+      ...formData,
+      materias_primas: updatedMaterials,
+      cost_price: autoSyncCost ? Number(nextTotalCost.toFixed(2)) : formData.cost_price
+    });
+
     setSelectedMateriaPrimaId('');
     setRawMaterialConsumedQty(1);
   };
 
   const handleRemoveMateriaPrima = (index: number) => {
+    const nextMaterials = formData.materias_primas.filter((_, i) => i !== index);
+    const nextTotalCost = nextMaterials.reduce((acc, item) => acc + ((item.costPrice || 0) * (item.quantity || 0)), 0);
+
     setFormData({
       ...formData,
-      materias_primas: formData.materias_primas.filter((_, i) => i !== index)
+      materias_primas: nextMaterials,
+      cost_price: autoSyncCost ? Number(nextTotalCost.toFixed(2)) : formData.cost_price
     });
   };
 
@@ -674,7 +743,7 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
 
             {/* Matérias-Primas & Insumos Utilizados (Composição) */}
             <div className="sm:col-span-2 p-4 rounded-xl bg-white/[0.03] border border-white/10 space-y-3">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <Layers size={16} className="text-primary-400" />
                   <span className="text-xs font-black uppercase tracking-wider text-white">
@@ -684,60 +753,102 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
                     {formData.materias_primas?.length || 0} vinculada{formData.materias_primas?.length === 1 ? '' : 's'}
                   </span>
                 </div>
-                {formData.materias_primas && formData.materias_primas.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={handleApplyMateriasPrimasCost}
-                    className="text-[11px] font-bold text-primary-400 hover:text-primary-300 underline flex items-center gap-1"
-                  >
-                    <Calculator size={12} />
-                    Usar Custo Total (R$ {calculateTotalMateriasPrimasCost().toFixed(2)})
-                  </button>
-                )}
+
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-1.5 cursor-pointer text-[11px] font-bold text-white/70 hover:text-white">
+                    <input
+                      type="checkbox"
+                      checked={autoSyncCost}
+                      onChange={e => setAutoSyncCost(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded accent-primary-500 cursor-pointer"
+                    />
+                    <span>Calcular Custo Auto</span>
+                  </label>
+
+                  {formData.materias_primas && formData.materias_primas.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleApplyMateriasPrimasCost}
+                      className="text-[11px] font-bold text-primary-400 hover:text-primary-300 underline flex items-center gap-1"
+                    >
+                      <Calculator size={12} />
+                      Fixar Custo (R$ {calculateTotalMateriasPrimasCost().toFixed(2)})
+                    </button>
+                  )}
+                </div>
               </div>
 
               <p className="text-xs text-white/50">
-                Selecione as matérias-primas cadastradas e informe o consumo necessário por unidade deste produto/serviço.
+                Selecione as matérias-primas cadastradas por bobina, metro ou unidade para calcular automaticamente o custo do produto.
               </p>
 
-              {/* Selector to add new materia prima */}
-              <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 pt-1">
-                <div className="sm:col-span-7">
-                  <select
-                    value={selectedMateriaPrimaId}
-                    onChange={e => setSelectedMateriaPrimaId(e.target.value)}
-                    className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-primary-500/50"
-                  >
-                    <option value="">-- Selecione a Matéria-Prima --</option>
-                    {materiasPrimasList.map(mp => (
-                      <option key={mp.id} value={mp.id}>
-                        {mp.name} (R$ {mp.costPrice.toFixed(2)} / {mp.unit}) {mp.larguraMaterial ? `[${mp.larguraMaterial}m larg.]` : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="sm:col-span-3 flex items-center gap-1">
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0.001"
-                    placeholder="Qtd consumida"
-                    value={rawMaterialConsumedQty}
-                    onChange={e => setRawMaterialConsumedQty(Number(e.target.value))}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono outline-none focus:border-primary-500/50"
-                  />
-                  <span className="text-[11px] text-white/50 whitespace-nowrap">
-                    {materiasPrimasList.find(m => m.id === selectedMateriaPrimaId)?.unit || 'un'}
-                  </span>
-                </div>
-                <div className="sm:col-span-2">
-                  <button
-                    type="button"
-                    onClick={handleAddMateriaPrimaToProduct}
-                    className="w-full h-full py-2 bg-primary-500/20 hover:bg-primary-500/30 text-primary-300 hover:text-primary-200 border border-primary-500/30 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1"
-                  >
-                    <Plus size={14} /> Adicionar
-                  </button>
+              {/* Selector to add or edit materia prima */}
+              <div className="space-y-2 pt-1">
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                  <div className="sm:col-span-6">
+                    <select
+                      value={selectedMateriaPrimaId}
+                      onChange={e => setSelectedMateriaPrimaId(e.target.value)}
+                      className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-primary-500/50"
+                    >
+                      <option value="">-- Selecione a Matéria-Prima --</option>
+                      {materiasPrimasList.map(mp => {
+                        const custoM2 = mp.custoPorM2 || (mp.larguraMaterial && mp.larguraMaterial > 0 ? mp.costPrice / mp.larguraMaterial : mp.costPrice);
+                        return (
+                          <option key={mp.id} value={mp.id}>
+                            {mp.name} — R$ {mp.costPrice.toFixed(2)}/{mp.unit} {mp.larguraMaterial ? `(R$ ${custoM2.toFixed(2)}/m²)` : ''}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+
+                  <div className="sm:col-span-3 flex items-center gap-1">
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0.001"
+                      placeholder="Qtd consumida"
+                      value={rawMaterialConsumedQty}
+                      onChange={e => setRawMaterialConsumedQty(Number(e.target.value))}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono outline-none focus:border-primary-500/50"
+                    />
+                    <span className="text-[11px] text-white/50 whitespace-nowrap">
+                      {materiasPrimasList.find(m => m.id === selectedMateriaPrimaId)?.unit || 'un'}
+                    </span>
+                  </div>
+
+                  <div className="sm:col-span-3 flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={handleAddMateriaPrimaToProduct}
+                      className="flex-1 py-2 bg-primary-500/20 hover:bg-primary-500/30 text-primary-300 hover:text-primary-200 border border-primary-500/30 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1"
+                    >
+                      <Plus size={14} /> Vincular
+                    </button>
+
+                    {selectedMateriaPrimaId ? (
+                      <button
+                        type="button"
+                        onClick={handleOpenEditMp}
+                        title="Editar matéria-prima selecionada (bobina/metro/custo)"
+                        className="px-2.5 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-white/80 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1"
+                      >
+                        <Edit2 size={13} className="text-primary-400" />
+                        <span className="hidden sm:inline">Editar</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleOpenCreateMp}
+                        title="Cadastrar nova matéria-prima por bobina ou metro"
+                        className="px-2.5 py-2 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-300 hover:text-emerald-200 rounded-xl text-xs font-bold transition-all flex items-center gap-1"
+                      >
+                        <Plus size={13} />
+                        <span className="hidden sm:inline">Nova</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -838,11 +949,11 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
                         <div className="flex items-center gap-2">
                           <span className="font-semibold">{item.name}</span>
                           <span className="text-white/40">
-                            → {item.quantity} {item.unit}
+                            → {item.quantity} {item.unit} (R$ {(item.costPrice || 0).toFixed(2)}/{item.unit})
                           </span>
                         </div>
                         <div className="flex items-center gap-3">
-                          <span className="font-mono text-emerald-400">
+                          <span className="font-mono text-emerald-400 font-bold">
                             R$ {lineCost.toFixed(2)}
                           </span>
                           <button
@@ -857,12 +968,43 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
                       </div>
                     );
                   })}
-                  <div className="flex justify-between items-center px-2 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs">
-                    <span className="font-bold text-white/80">Custo Total de Matérias-Primas:</span>
-                    <span className="font-mono font-black text-emerald-400 text-sm">
-                      R$ {calculateTotalMateriasPrimasCost().toFixed(2)}
-                    </span>
-                  </div>
+
+                  {/* Resumo do Custo e Margem */}
+                  {(() => {
+                    const custoTotal = calculateTotalMateriasPrimasCost();
+                    const precoVenda = Number(formData.price) || 0;
+                    const lucroBruto = precoVenda - custoTotal;
+                    const margemPercentual = precoVenda > 0 ? (lucroBruto / precoVenda) * 100 : 0;
+                    const markupPercentual = custoTotal > 0 ? (lucroBruto / custoTotal) * 100 : 0;
+
+                    return (
+                      <div className="p-3 rounded-xl bg-emerald-950/20 border border-emerald-500/30 space-y-2">
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="font-bold text-white/90">Custo Total de Matérias-Primas:</span>
+                          <span className="font-mono font-black text-emerald-400 text-sm">
+                            R$ {custoTotal.toFixed(2)}
+                          </span>
+                        </div>
+
+                        {precoVenda > 0 && (
+                          <div className="grid grid-cols-2 gap-2 pt-2 border-t border-emerald-500/20 text-[11px]">
+                            <div>
+                              <span className="text-white/50 block">Lucro Bruto Estimado:</span>
+                              <span className={`font-mono font-bold ${lucroBruto >= 0 ? 'text-emerald-300' : 'text-rose-400'}`}>
+                                R$ {lucroBruto.toFixed(2)} ({margemPercentual.toFixed(1)}% margem)
+                              </span>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-white/50 block">Markup sobre Insumos:</span>
+                              <span className="font-mono font-bold text-sky-300">
+                                {markupPercentual.toFixed(1)}%
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               ) : (
                 <div className="text-center py-3 text-xs text-white/30 border border-dashed border-white/10 rounded-lg">
@@ -890,6 +1032,15 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
           </div>
         </form>
       </Modal>
+
+      {/* Quick Raw Material Modal (Add/Edit on the fly) */}
+      <MateriaPrimaFormModal
+        isOpen={isMpModalOpen}
+        onClose={() => setIsMpModalOpen(false)}
+        editingItem={editingMpItem}
+        onSaved={handleSavedMp}
+        companyId={currentCompany?.id}
+      />
     </div>
   );
 };

@@ -39,6 +39,7 @@ import { showAlert, showConfirm } from '../lib/notify';
 import { Badge, Button, Modal } from './SharedUI';
 import { useApp } from '../AppContext';
 import { fetchMaquinas } from '../lib/maquinasStorage';
+import { fetchMateriasPrimas } from '../lib/materiasPrimasStorage';
 import { MaquinasModule } from './MaquinasModule';
 
 interface PrecificacaoModuleProps {
@@ -193,7 +194,7 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
       try {
         setLoadingDados(true);
 
-        // 1. Carrega produtos e materiais
+        // 1. Carrega produtos, materiais e matérias-primas cadastradas
         let queryProd = supabase.from('produtos').select('*').order('name', { ascending: true });
         if (currentCompany?.id) {
           queryProd = queryProd.or(`company_id.eq.${currentCompany.id},company_id.is.null`);
@@ -203,25 +204,44 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
           const fallback = await supabase.from('produtos').select('*');
           prodData = fallback.data;
         }
-        if (prodData) {
-          const mappedProd: Product[] = prodData.map((p: any) => ({
-            id: p.id,
-            name: p.name || p.nome || 'Produto',
-            code: p.code || p.codigo || '',
-            price: Number(p.sale_price ?? p.preco ?? p.price ?? 0),
-            costPrice: Number(p.cost_price ?? p.preco_custo ?? 0),
-            stock: Number(p.current_stock ?? p.estoque ?? p.stock ?? 0),
-            unitType: p.unit || p.unidade || p.unit_type || 'unit',
-            tipoItem: p.tipo_item || 'produto',
-            larguraRolo: p.largura_rolo ? Number(p.largura_rolo) : undefined,
-          } as any));
-          setProdutos(mappedProd);
 
-          // Se não houver material selecionado, seleciona o primeiro material/produto
-          if (!materialId && mappedProd.length > 0) {
-            const defaultMat = mappedProd.find(p => p.tipoItem === 'material' || p.name.toLowerCase().includes('lona') || p.name.toLowerCase().includes('adesivo')) || mappedProd[0];
-            setMaterialId(defaultMat.id);
-          }
+        const rawMateriasPrimas = await fetchMateriasPrimas(currentCompany?.id);
+        const activeMPs = (rawMateriasPrimas || []).filter(m => m.isActive);
+
+        const mappedFromMPs: Product[] = activeMPs.map(mp => {
+          const custoM2 = mp.custoPorM2 || (mp.larguraMaterial && mp.larguraMaterial > 0 ? mp.costPrice / mp.larguraMaterial : mp.costPrice);
+          return {
+            id: `mp_${mp.id}`,
+            name: `[Matéria-Prima] ${mp.name}`,
+            code: mp.id.slice(0, 8),
+            price: Number(mp.costPrice),
+            costPrice: mp.unit === 'm' ? custoM2 : Number(mp.costPrice),
+            stock: Number(mp.quantidadeEstoque || 0),
+            unitType: mp.unit === 'm' ? 'm2' : mp.unit,
+            tipoItem: 'material',
+            larguraRolo: mp.larguraMaterial,
+          } as any;
+        });
+
+        const mappedProd: Product[] = (prodData || []).map((p: any) => ({
+          id: p.id,
+          name: p.name || p.nome || 'Produto',
+          code: p.code || p.codigo || '',
+          price: Number(p.sale_price ?? p.preco ?? p.price ?? 0),
+          costPrice: Number(p.cost_price ?? p.preco_custo ?? 0),
+          stock: Number(p.current_stock ?? p.estoque ?? p.stock ?? 0),
+          unitType: p.unit || p.unidade || p.unit_type || 'unit',
+          tipoItem: p.tipo_item || 'produto',
+          larguraRolo: p.largura_rolo ? Number(p.largura_rolo) : undefined,
+        } as any));
+
+        const allAvailableMaterials = [...mappedFromMPs, ...mappedProd];
+        setProdutos(allAvailableMaterials);
+
+        // Se não houver material selecionado, seleciona o primeiro material/produto
+        if (!materialId && allAvailableMaterials.length > 0) {
+          const defaultMat = allAvailableMaterials.find(p => p.tipoItem === 'material' || p.name.toLowerCase().includes('lona') || p.name.toLowerCase().includes('adesivo')) || allAvailableMaterials[0];
+          setMaterialId(defaultMat.id);
         }
 
         // 2. Carrega colaboradores para custo de mão de obra e comissão

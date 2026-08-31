@@ -5,10 +5,13 @@ export interface MateriaPrima {
   companyId?: string;
   name: string;
   unit: string; // 'm' | 'un' | 'etiqueta' | string
-  costPrice: number;
+  costPrice: number; // Custo unitário por metro linear ou por unidade (R$)
+  valorBobina?: number; // Valor total pago pela bobina ou pacote (R$)
+  tipoCalculoCusto?: 'bobina' | 'metro' | 'unidade'; // Modo de cálculo ('bobina' = valor da bobina / metros; 'metro' = direto por metro; 'unidade' = pacote / un)
   larguraMaterial?: number; // Largura do adesivo/rolo em metros (ex: 1.06, 1.22, 1.52m)
   comprimentoBobina?: number; // Metros lineares da bobina/rolo (ex: 50m, 100m)
   quantidadeEstoque?: number; // Quantidade de bobinas/unidades em estoque
+  custoPorM2?: number; // Custo calculado por metro quadrado (R$/m²)
   notes?: string;
   isActive: boolean;
   createdAt?: string;
@@ -576,6 +579,7 @@ export interface Orcamento {
   id: string;
   numero: string;
   documentType?: 'orcamento' | 'contrato';
+  tipoOrcamento?: 'simples' | 'detalhado';
   clienteId?: string;
   customerName?: string;
   cpfCnpj?: string;

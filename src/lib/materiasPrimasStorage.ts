@@ -44,20 +44,31 @@ export async function fetchMateriasPrimas(companyId?: string): Promise<MateriaPr
       return seeded;
     }
 
-    const mapped: MateriaPrima[] = data.map((item: any) => ({
-      id: item.id,
-      companyId: item.company_id,
-      name: item.name || item.nome || 'Matéria-Prima',
-      unit: item.unit || item.unidade || 'un',
-      costPrice: Number(item.cost_price ?? item.preco_custo ?? item.custo ?? 0),
-      larguraMaterial: item.largura_material ? Number(item.largura_material) : item.larguraMaterial ? Number(item.larguraMaterial) : undefined,
-      comprimentoBobina: item.comprimento_bobina ? Number(item.comprimento_bobina) : item.comprimentoBobina ? Number(item.comprimentoBobina) : undefined,
-      quantidadeEstoque: item.quantidade_estoque ? Number(item.quantidade_estoque) : item.quantidadeEstoque ? Number(item.quantidadeEstoque) : undefined,
-      notes: item.notes || item.observacao || '',
-      isActive: item.is_active !== undefined ? Boolean(item.is_active) : true,
-      createdAt: item.created_at,
-      updatedAt: item.updated_at
-    }));
+    const mapped: MateriaPrima[] = data.map((item: any) => {
+      const costPrice = Number(item.cost_price ?? item.preco_custo ?? item.custo ?? 0);
+      const largura = item.largura_material ? Number(item.largura_material) : item.larguraMaterial ? Number(item.larguraMaterial) : undefined;
+      const comprimento = item.comprimento_bobina ? Number(item.comprimento_bobina) : item.comprimentoBobina ? Number(item.comprimentoBobina) : undefined;
+      const valorBobina = item.valor_bobina ? Number(item.valor_bobina) : item.valorBobina ? Number(item.valorBobina) : (comprimento && costPrice ? Number((comprimento * costPrice).toFixed(2)) : undefined);
+      const custoPorM2 = item.custo_por_m2 ? Number(item.custo_por_m2) : item.custoPorM2 ? Number(item.custoPorM2) : (largura && largura > 0 && costPrice > 0 ? Number((costPrice / largura).toFixed(4)) : undefined);
+
+      return {
+        id: item.id,
+        companyId: item.company_id,
+        name: item.name || item.nome || 'Matéria-Prima',
+        unit: item.unit || item.unidade || 'm',
+        costPrice,
+        valorBobina,
+        tipoCalculoCusto: item.tipo_calculo_custo || item.tipoCalculoCusto || (item.unit === 'm' ? 'bobina' : 'unidade'),
+        larguraMaterial: largura,
+        comprimentoBobina: comprimento,
+        quantidadeEstoque: item.quantidade_estoque ? Number(item.quantidade_estoque) : item.quantidadeEstoque ? Number(item.quantidadeEstoque) : undefined,
+        custoPorM2,
+        notes: item.notes || item.observacao || '',
+        isActive: item.is_active !== undefined ? Boolean(item.is_active) : true,
+        createdAt: item.created_at,
+        updatedAt: item.updated_at
+      };
+    });
 
     saveLocalCache(mapped);
     return mapped;
@@ -71,12 +82,18 @@ export async function saveMateriaPrima(
   data: Partial<MateriaPrima> & { name: string; unit: string; costPrice: number },
   companyId?: string
 ): Promise<MateriaPrima> {
+  const costPrice = Number(data.costPrice) || 0;
+  const largura = data.larguraMaterial ? Number(data.larguraMaterial) : undefined;
+  const comprimento = data.comprimentoBobina ? Number(data.comprimentoBobina) : undefined;
+  const valorBobina = data.valorBobina ? Number(data.valorBobina) : (comprimento && costPrice ? Number((comprimento * costPrice).toFixed(2)) : undefined);
+  const custoPorM2 = data.custoPorM2 ? Number(data.custoPorM2) : (largura && largura > 0 && costPrice > 0 ? Number((costPrice / largura).toFixed(4)) : undefined);
+
   const payload: any = {
     name: data.name.trim(),
     unit: data.unit.trim(),
-    cost_price: Number(data.costPrice) || 0,
-    largura_material: data.larguraMaterial ? Number(data.larguraMaterial) : null,
-    comprimento_bobina: data.comprimentoBobina ? Number(data.comprimentoBobina) : null,
+    cost_price: costPrice,
+    largura_material: largura || null,
+    comprimento_bobina: comprimento || null,
     quantidade_estoque: data.quantidadeEstoque !== undefined ? Number(data.quantidadeEstoque) : null,
     notes: data.notes?.trim() || null,
     is_active: data.isActive !== undefined ? Boolean(data.isActive) : true,
@@ -107,9 +124,12 @@ export async function saveMateriaPrima(
         name: updated.name,
         unit: updated.unit,
         costPrice: Number(updated.cost_price),
+        valorBobina: valorBobina,
+        tipoCalculoCusto: data.tipoCalculoCusto,
         larguraMaterial: data.larguraMaterial,
         comprimentoBobina: data.comprimentoBobina,
         quantidadeEstoque: data.quantidadeEstoque,
+        custoPorM2: custoPorM2,
         notes: updated.notes || '',
         isActive: updated.is_active,
         createdAt: updated.created_at,
@@ -139,9 +159,12 @@ export async function saveMateriaPrima(
         name: created.name,
         unit: created.unit,
         costPrice: Number(created.cost_price),
+        valorBobina: valorBobina,
+        tipoCalculoCusto: data.tipoCalculoCusto,
         larguraMaterial: data.larguraMaterial,
         comprimentoBobina: data.comprimentoBobina,
         quantidadeEstoque: data.quantidadeEstoque,
+        custoPorM2: custoPorM2,
         notes: created.notes || '',
         isActive: created.is_active,
         createdAt: created.created_at,
@@ -158,10 +181,13 @@ export async function saveMateriaPrima(
       companyId: companyId || 'rafa-arts',
       name: data.name.trim(),
       unit: data.unit.trim(),
-      costPrice: Number(data.costPrice) || 0,
+      costPrice: costPrice,
+      valorBobina: valorBobina,
+      tipoCalculoCusto: data.tipoCalculoCusto,
       larguraMaterial: data.larguraMaterial,
       comprimentoBobina: data.comprimentoBobina,
       quantidadeEstoque: data.quantidadeEstoque,
+      custoPorM2: custoPorM2,
       notes: data.notes || '',
       isActive: data.isActive !== undefined ? Boolean(data.isActive) : true,
       updatedAt: new Date().toISOString(),
