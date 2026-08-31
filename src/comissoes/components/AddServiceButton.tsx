@@ -26,7 +26,7 @@ export const AddServiceButton: React.FC<AddServiceButtonProps> = ({
       <div className="flex items-center justify-center w-6 h-6 rounded-lg bg-white/20 text-white group-hover:scale-110 transition-transform">
         <Plus className="w-4 h-4 stroke-[3]" />
       </div>
-      <span className="tracking-wide uppercase font-extrabold text-sm">+ ADICIONAR SERVIÇO</span>
+      <span className="tracking-wide uppercase font-extrabold text-sm">ADICIONAR SERVIÇO</span>
     </button>
   );
 };

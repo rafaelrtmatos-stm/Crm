@@ -4,10 +4,11 @@ import {
   Layers, Calculator, Download, Upload, RefreshCw, Check, X,
   DollarSign, PackageCheck, Wrench, Sparkles, Sliders
 } from 'lucide-react';
-import { Company, AppUser, Product } from '../types';
+import { Company, AppUser, Product, MateriaPrima, MateriaPrimaConsumo } from '../types';
 import { supabase } from '../supabase';
 import { showAlert } from '../lib/notify';
 import { Badge, Button, Modal } from './SharedUI';
+import { fetchMateriasPrimas } from '../lib/materiasPrimasStorage';
 import * as XLSX from 'xlsx';
 
 interface InventoryModuleProps {
@@ -17,6 +18,7 @@ interface InventoryModuleProps {
 
 export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany, user }) => {
   const [products, setProducts] = useState<any[]>([]);
+  const [materiasPrimasList, setMateriasPrimasList] = useState<MateriaPrima[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [selectedType, setSelectedType] = useState<string>('all');
@@ -41,44 +43,60 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
     valor_minimo: 0,
     controla_estoque: true,
     category: 'Geral',
-    provider: ''
+    provider: '',
+    materias_primas: [] as MateriaPrimaConsumo[]
   });
+
+  // Selected materia prima to add in modal
+  const [selectedMateriaPrimaId, setSelectedMateriaPrimaId] = useState<string>('');
+  const [rawMaterialConsumedQty, setRawMaterialConsumedQty] = useState<number>(1);
 
   useEffect(() => {
     fetchProducts();
+    loadAvailableMateriasPrimas();
   }, [currentCompany]);
+
+  const loadAvailableMateriasPrimas = async () => {
+    try {
+      const data = await fetchMateriasPrimas(currentCompany?.id);
+      setMateriasPrimasList(data.filter(m => m.isActive));
+    } catch (e) {
+      console.warn('Erro ao carregar matérias-primas:', e);
+    }
+  };
 
   const fetchProducts = async () => {
     try {
       setLoading(true);
-      let query = supabase.from('produtos').select('*').order('nome', { ascending: true });
+      let query = supabase.from('produtos').select('*').order('name', { ascending: true });
       if (currentCompany?.id) {
         query = query.or(`company_id.eq.${currentCompany.id},company_id.is.null`);
       }
-      const { data, error } = await query;
+      let { data, error } = await query;
       if (error) {
-        console.warn('Fallback produtos query:', error.message);
-        setProducts([]);
-      } else {
-        const mapped = (data || []).map((p: any) => ({
-          id: p.id,
-          name: p.nome || p.name || 'Produto',
-          code: p.codigo || p.code || '',
-          price: Number(p.preco || p.price || 0),
-          costPrice: Number(p.preco_custo || p.cost_price || 0),
-          stock: Number(p.estoque ?? p.stock ?? 0),
-          minStock: Number(p.estoque_minimo || p.min_stock || 0),
-          unitType: p.unidade || p.unit_type || 'unit',
-          tipoItem: p.tipo_item || 'produto',
-          larguraRolo: p.largura_rolo ? Number(p.largura_rolo) : undefined,
-          comprimentoRolo: p.comprimento_rolo ? Number(p.comprimento_rolo) : undefined,
-          valorMinimo: p.valor_minimo ? Number(p.valor_minimo) : undefined,
-          controlaEstoque: p.controla_estoque ?? true,
-          category: p.categoria || p.category || 'Geral',
-          provider: p.fornecedor || p.provider || ''
-        }));
-        setProducts(mapped);
+        // Fallback without order
+        const fallback = await supabase.from('produtos').select('*');
+        data = fallback.data;
       }
+      const mapped = (data || []).map((p: any) => ({
+        id: p.id,
+        name: p.name || p.nome || 'Produto',
+        code: p.code || p.codigo || '',
+        price: Number(p.sale_price ?? p.preco ?? p.price ?? 0),
+        costPrice: Number(p.cost_price ?? p.preco_custo ?? 0),
+        stock: Number(p.current_stock ?? p.estoque ?? p.stock ?? 0),
+        minStock: Number(p.min_stock ?? p.estoque_minimo ?? 0),
+        unitType: p.unit || p.unidade || p.unit_type || 'unit',
+        tipoItem: p.tipo_item || 'produto',
+        larguraRolo: p.largura_rolo ? Number(p.largura_rolo) : undefined,
+        comprimentoRolo: p.comprimento_rolo ? Number(p.comprimento_rolo) : undefined,
+        valorMinimo: p.valor_minimo ? Number(p.valor_minimo) : undefined,
+        controlaEstoque: p.controla_estoque ?? true,
+        category: p.category || p.categoria || 'Geral',
+        provider: p.provider || p.fornecedor || '',
+        materiasPrimas: p.materias_primas || p.materiasPrimas || []
+      }));
+      setProducts(mapped);
     } catch (err) {
       console.error('Erro ao buscar produtos:', err);
       setProducts([]);
@@ -88,6 +106,9 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
   };
 
   const handleOpenAddModal = (prod?: any) => {
+    loadAvailableMateriasPrimas();
+    setSelectedMateriaPrimaId('');
+    setRawMaterialConsumedQty(1);
     if (prod) {
       setEditingProduct(prod);
       setFormData({
@@ -104,7 +125,8 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
         valor_minimo: prod.valorMinimo || 0,
         controla_estoque: prod.controlaEstoque ?? true,
         category: prod.category || 'Geral',
-        provider: prod.provider || ''
+        provider: prod.provider || '',
+        materias_primas: Array.isArray(prod.materiasPrimas) ? [...prod.materiasPrimas] : []
       });
     } else {
       setEditingProduct(null);
@@ -122,10 +144,66 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
         valor_minimo: 0,
         controla_estoque: true,
         category: 'Geral',
-        provider: ''
+        provider: '',
+        materias_primas: []
       });
     }
     setIsModalOpen(true);
+  };
+
+  const handleAddMateriaPrimaToProduct = () => {
+    if (!selectedMateriaPrimaId) {
+      showAlert('Selecione uma matéria-prima.');
+      return;
+    }
+    const mp = materiasPrimasList.find(m => m.id === selectedMateriaPrimaId);
+    if (!mp) return;
+
+    if (rawMaterialConsumedQty <= 0) {
+      showAlert('Informe uma quantidade válida.');
+      return;
+    }
+
+    const existsIndex = formData.materias_primas.findIndex(item => item.materiaPrimaId === mp.id);
+    if (existsIndex >= 0) {
+      const updated = [...formData.materias_primas];
+      updated[existsIndex].quantity = rawMaterialConsumedQty;
+      updated[existsIndex].costPrice = mp.costPrice;
+      setFormData({ ...formData, materias_primas: updated });
+    } else {
+      const newItem: MateriaPrimaConsumo = {
+        materiaPrimaId: mp.id,
+        name: mp.name,
+        unit: mp.unit,
+        quantity: rawMaterialConsumedQty,
+        costPrice: mp.costPrice
+      };
+      setFormData({
+        ...formData,
+        materias_primas: [...formData.materias_primas, newItem]
+      });
+    }
+    setSelectedMateriaPrimaId('');
+    setRawMaterialConsumedQty(1);
+  };
+
+  const handleRemoveMateriaPrima = (index: number) => {
+    setFormData({
+      ...formData,
+      materias_primas: formData.materias_primas.filter((_, i) => i !== index)
+    });
+  };
+
+  const calculateTotalMateriasPrimasCost = () => {
+    return formData.materias_primas.reduce((acc, item) => {
+      return acc + ((item.costPrice || 0) * (item.quantity || 0));
+    }, 0);
+  };
+
+  const handleApplyMateriasPrimasCost = () => {
+    const totalCost = calculateTotalMateriasPrimasCost();
+    setFormData({ ...formData, cost_price: Number(totalCost.toFixed(2)) });
+    showAlert(`Preço de custo atualizado para R$ ${totalCost.toFixed(2)}.`);
   };
 
   const handleSaveProduct = async (e: React.FormEvent) => {
@@ -153,22 +231,38 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
         categoria: formData.category || 'Geral',
         fornecedor: formData.provider || null,
         company_id: currentCompany?.id || null,
+        materias_primas: formData.materias_primas || [],
         updated_at: new Date().toISOString()
       };
 
       if (editingProduct) {
-        const { error } = await supabase
+        let { error } = await supabase
           .from('produtos')
           .update(payload)
           .eq('id', editingProduct.id);
-        if (error) throw error;
+        
+        if (error && error.message?.includes('materias_primas')) {
+          // If column doesn't exist yet, retry without it
+          const { materias_primas, ...restPayload } = payload;
+          const fallbackRes = await supabase.from('produtos').update(restPayload).eq('id', editingProduct.id);
+          if (fallbackRes.error) throw fallbackRes.error;
+        } else if (error) {
+          throw error;
+        }
         showAlert('Item atualizado com sucesso!');
       } else {
         payload.created_at = new Date().toISOString();
-        const { error } = await supabase
+        let { error } = await supabase
           .from('produtos')
           .insert([payload]);
-        if (error) throw error;
+        
+        if (error && error.message?.includes('materias_primas')) {
+          const { materias_primas, ...restPayload } = payload;
+          const fallbackRes = await supabase.from('produtos').insert([restPayload]);
+          if (fallbackRes.error) throw fallbackRes.error;
+        } else if (error) {
+          throw error;
+        }
         showAlert('Item cadastrado com sucesso!');
       }
 
@@ -380,6 +474,12 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
                           Custo: R$ {product.costPrice.toFixed(2)}
                         </p>
                       )}
+                      {product.materiasPrimas && product.materiasPrimas.length > 0 && (
+                        <span className="inline-flex items-center gap-1 text-[9px] text-primary-400 font-bold bg-primary-500/10 px-1.5 py-0.5 rounded border border-primary-500/20 mt-0.5">
+                          <Layers size={9} />
+                          {product.materiasPrimas.length} Matéria{product.materiasPrimas.length > 1 ? 's' : ''}-Prima
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -525,10 +625,9 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
                 onChange={e => setFormData({ ...formData, unit_type: e.target.value as any })}
                 className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-primary-500/50"
               >
-                <option value="unit">Unidade (un)</option>
-                <option value="m2">Metro Quadrado (m²)</option>
                 <option value="metro">Metro Linear (m)</option>
                 <option value="etiqueta">Etiqueta Adesiva</option>
+                <option value="unit">Unidade (un)</option>
               </select>
             </div>
 
@@ -574,6 +673,121 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
                 </div>
               </div>
             )}
+
+            {/* Matérias-Primas & Insumos Utilizados (Composição) */}
+            <div className="sm:col-span-2 p-4 rounded-xl bg-white/[0.03] border border-white/10 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Layers size={16} className="text-primary-400" />
+                  <span className="text-xs font-black uppercase tracking-wider text-white">
+                    Matérias-Primas & Insumos do Produto
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/10 text-white/70">
+                    {formData.materias_primas?.length || 0} vinculada{formData.materias_primas?.length === 1 ? '' : 's'}
+                  </span>
+                </div>
+                {formData.materias_primas && formData.materias_primas.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleApplyMateriasPrimasCost}
+                    className="text-[11px] font-bold text-primary-400 hover:text-primary-300 underline flex items-center gap-1"
+                  >
+                    <Calculator size={12} />
+                    Usar Custo Total (R$ {calculateTotalMateriasPrimasCost().toFixed(2)})
+                  </button>
+                )}
+              </div>
+
+              <p className="text-xs text-white/50">
+                Selecione as matérias-primas cadastradas e informe o consumo necessário por unidade deste produto/serviço.
+              </p>
+
+              {/* Selector to add new materia prima */}
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 pt-1">
+                <div className="sm:col-span-7">
+                  <select
+                    value={selectedMateriaPrimaId}
+                    onChange={e => setSelectedMateriaPrimaId(e.target.value)}
+                    className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-primary-500/50"
+                  >
+                    <option value="">-- Selecione a Matéria-Prima --</option>
+                    {materiasPrimasList.map(mp => (
+                      <option key={mp.id} value={mp.id}>
+                        {mp.name} (R$ {mp.costPrice.toFixed(2)} / {mp.unit})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="sm:col-span-3 flex items-center gap-1">
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.001"
+                    placeholder="Qtd consumida"
+                    value={rawMaterialConsumedQty}
+                    onChange={e => setRawMaterialConsumedQty(Number(e.target.value))}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono outline-none focus:border-primary-500/50"
+                  />
+                  <span className="text-[11px] text-white/50 whitespace-nowrap">
+                    {materiasPrimasList.find(m => m.id === selectedMateriaPrimaId)?.unit || 'un'}
+                  </span>
+                </div>
+                <div className="sm:col-span-2">
+                  <button
+                    type="button"
+                    onClick={handleAddMateriaPrimaToProduct}
+                    className="w-full h-full py-2 bg-primary-500/20 hover:bg-primary-500/30 text-primary-300 hover:text-primary-200 border border-primary-500/30 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1"
+                  >
+                    <Plus size={14} /> Adicionar
+                  </button>
+                </div>
+              </div>
+
+              {/* List of configured raw materials */}
+              {formData.materias_primas && formData.materias_primas.length > 0 ? (
+                <div className="space-y-1.5 pt-2">
+                  {formData.materias_primas.map((item, idx) => {
+                    const lineCost = (item.costPrice || 0) * (item.quantity || 0);
+                    return (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between p-2.5 rounded-lg bg-white/5 border border-white/5 text-xs text-white"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold">{item.name}</span>
+                          <span className="text-white/40">
+                            → {item.quantity} {item.unit}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="font-mono text-emerald-400">
+                            R$ {lineCost.toFixed(2)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveMateriaPrima(idx)}
+                            className="text-white/30 hover:text-rose-400 transition-colors p-1"
+                            title="Remover matéria-prima"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div className="flex justify-between items-center px-2 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs">
+                    <span className="font-bold text-white/80">Custo Total de Matérias-Primas:</span>
+                    <span className="font-mono font-black text-emerald-400 text-sm">
+                      R$ {calculateTotalMateriasPrimasCost().toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-3 text-xs text-white/30 border border-dashed border-white/10 rounded-lg">
+                  Nenhuma matéria-prima vinculada a este produto/serviço ainda.
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="flex justify-end gap-3 pt-4 border-t border-white/5">

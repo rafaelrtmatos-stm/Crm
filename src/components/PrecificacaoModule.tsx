@@ -278,20 +278,24 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
         setLoadingDados(true);
 
         // 1. Carrega produtos e materiais
-        let queryProd = supabase.from('produtos').select('*').order('nome', { ascending: true });
+        let queryProd = supabase.from('produtos').select('*').order('name', { ascending: true });
         if (currentCompany?.id) {
           queryProd = queryProd.or(`company_id.eq.${currentCompany.id},company_id.is.null`);
         }
-        const { data: prodData } = await queryProd;
+        let { data: prodData, error: prodErr } = await queryProd;
+        if (prodErr) {
+          const fallback = await supabase.from('produtos').select('*');
+          prodData = fallback.data;
+        }
         if (prodData) {
           const mappedProd: Product[] = prodData.map((p: any) => ({
             id: p.id,
-            name: p.nome || p.name || 'Produto',
-            code: p.codigo || p.code || '',
-            price: Number(p.preco || p.price || 0),
-            costPrice: Number(p.preco_custo || p.cost_price || 0),
-            stock: Number(p.estoque ?? p.stock ?? 0),
-            unitType: p.unidade || p.unit_type || 'unit',
+            name: p.name || p.nome || 'Produto',
+            code: p.code || p.codigo || '',
+            price: Number(p.sale_price ?? p.preco ?? p.price ?? 0),
+            costPrice: Number(p.cost_price ?? p.preco_custo ?? 0),
+            stock: Number(p.current_stock ?? p.estoque ?? p.stock ?? 0),
+            unitType: p.unit || p.unidade || p.unit_type || 'unit',
             tipoItem: p.tipo_item || 'produto',
             larguraRolo: p.largura_rolo ? Number(p.largura_rolo) : undefined,
           } as any));
@@ -1715,19 +1719,43 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
                     />
                   </div>
                   
-                  <label className="flex items-center gap-1.5 text-xs text-white/70 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={maq.ativa}
-                      onChange={(e) => {
-                        const newMaq = [...maquinas];
-                        newMaq[index].ativa = e.target.checked;
-                        setMaquinas(newMaq);
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-1.5 text-xs text-white/70 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={maq.ativa}
+                        onChange={(e) => {
+                          const newMaq = [...maquinas];
+                          newMaq[index].ativa = e.target.checked;
+                          setMaquinas(newMaq);
+                        }}
+                        className="rounded bg-slate-700 text-cyan-500"
+                      />
+                      <span>Ativa</span>
+                    </label>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (maquinas.length <= 1) {
+                          showAlert('Você deve manter pelo menos uma máquina cadastrada.');
+                          return;
+                        }
+                        if (window.confirm(`Tem certeza que deseja excluir a máquina "${maq.nome}"?`)) {
+                          const updated = maquinas.filter(m => m.id !== maq.id);
+                          setMaquinas(updated);
+                          if (maquinaId === maq.id) {
+                            setMaquinaId(updated[0]?.id || '');
+                          }
+                          showAlert(`Máquina "${maq.nome}" excluída com sucesso!`);
+                        }
                       }}
-                      className="rounded bg-slate-700 text-cyan-500"
-                    />
-                    <span>Ativa</span>
-                  </label>
+                      className="p-1 text-white/40 hover:text-rose-400 transition-colors rounded-lg hover:bg-rose-500/10"
+                      title="Excluir máquina"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">

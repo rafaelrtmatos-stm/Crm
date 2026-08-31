@@ -62,13 +62,18 @@ export const ContactsModule: React.FC<ContactsModuleProps> = ({
   const fetchClients = async () => {
     try {
       setLoading(true);
-      let query = supabase.from('clientes').select('*').is('deleted_at', null).order('nome', { ascending: true });
+      let query = supabase.from('clientes').select('*');
       if (currentCompany?.id) {
         query = query.or(`company_id.eq.${currentCompany.id},company_id.is.null`);
       }
       const { data, error } = await query;
       if (error) throw error;
-      setClients(data || []);
+      const normalized = (data || []).map((c: any) => ({
+        ...c,
+        nome: c.nome || c.full_name || c.name || 'Sem Nome',
+        telefone: c.telefone || c.phone || '',
+      })).sort((a: any, b: any) => (a.nome || '').localeCompare(b.nome || ''));
+      setClients(normalized);
     } catch (err: any) {
       console.error('Erro ao carregar clientes:', err);
       // Fallback local mock if offline

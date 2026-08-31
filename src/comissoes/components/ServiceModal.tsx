@@ -60,11 +60,34 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
     if (!buscandoProduto) return;
     const t = setTimeout(async () => {
       setCarregandoBusca(true);
-      let query = supabase.from('produtos').select('id, name, sale_price, unit').eq('is_active', true).order('name', { ascending: true }).limit(30);
-      if (termoBusca.trim()) query = query.ilike('name', `%${termoBusca.trim()}%`);
-      const { data } = await query;
-      setResultadosBusca(data || []);
-      setCarregandoBusca(false);
+      try {
+        let query = supabase.from('produtos').select('*').limit(30);
+        if (termoBusca.trim()) {
+          query = query.or(`nome.ilike.%${termoBusca.trim()}%,name.ilike.%${termoBusca.trim()}%`);
+        }
+        const { data, error } = await query;
+        if (error) {
+          const fallback = await supabase.from('produtos').select('*').limit(30);
+          setResultadosBusca((fallback.data || []).map((p: any) => ({
+            id: p.id,
+            name: p.nome || p.name || 'Produto',
+            sale_price: Number(p.preco ?? p.sale_price ?? 0),
+            unit: p.unidade || p.unit || 'unidade'
+          })));
+        } else {
+          setResultadosBusca((data || []).map((p: any) => ({
+            id: p.id,
+            name: p.nome || p.name || 'Produto',
+            sale_price: Number(p.preco ?? p.sale_price ?? 0),
+            unit: p.unidade || p.unit || 'unidade'
+          })));
+        }
+      } catch (err) {
+        console.warn('Erro ao buscar produtos:', err);
+        setResultadosBusca([]);
+      } finally {
+        setCarregandoBusca(false);
+      }
     }, 300);
     return () => clearTimeout(t);
   }, [buscandoProduto, termoBusca]);

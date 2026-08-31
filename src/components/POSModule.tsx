@@ -201,33 +201,53 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
   // Load Products
   const loadProducts = async () => {
     try {
-      const { data, error } = await supabase.from('produtos').select('*').order('name', { ascending: true });
-      if (error) throw error;
+      let query = supabase.from('produtos').select('*').order('name', { ascending: true });
+      let { data, error } = await query;
+      if (error) {
+        // Fallback without order
+        const fallback = await supabase.from('produtos').select('*');
+        data = fallback.data;
+      }
       setProducts((data || []).map((p: any) => ({
         id: p.id,
-        name: p.name,
-        code: p.code || '',
-        price: Number(p.sale_price) || 0,
-        stock: Number(p.current_stock) || 0,
-        unitType: p.unit === 'm2' ? 'm2' : p.unit === 'etiqueta' ? 'etiqueta' : p.unit === 'm' ? 'metro' : 'unit',
+        name: p.name || p.nome || 'Produto',
+        code: p.code || p.codigo || '',
+        price: Number(p.sale_price ?? p.preco ?? p.price ?? 0),
+        costPrice: Number(p.cost_price ?? p.preco_custo ?? 0),
+        stock: Number(p.current_stock ?? p.estoque ?? p.stock ?? 0),
+        unitType: (p.unit === 'm2' || p.unidade === 'm2') ? 'm2' : (p.unit === 'etiqueta' || p.unidade === 'etiqueta') ? 'etiqueta' : (p.unit === 'm' || p.unidade === 'm' || p.unit === 'metro') ? 'metro' : 'unit',
         tipoItem: p.tipo_item || 'produto',
         larguraRolo: p.largura_rolo ? Number(p.largura_rolo) : undefined,
-        category: p.category || 'Geral'
+        category: p.category || p.categoria || 'Geral',
+        materiasPrimas: p.materias_primas || p.materiasPrimas || []
       })));
       setSyncedAt(new Date());
     } catch (err) {
-      console.error('Erro ao carregar produtos:', err);
+      console.warn('Erro ao carregar produtos:', err);
     }
   };
 
   // Load Customers
   const loadCustomers = async () => {
     try {
-      const { data, error } = await supabase.from('clientes').select('*').order('name', { ascending: true });
-      if (error) throw error;
-      setCustomers(data || []);
+      let query = supabase.from('clientes').select('*').order('full_name', { ascending: true });
+      let { data, error } = await query;
+      if (error) {
+        // Fallback without order or filter
+        const fallback = await supabase.from('clientes').select('*');
+        data = fallback.data;
+      }
+      setCustomers((data || []).map((c: any) => ({
+        id: c.id,
+        name: c.full_name || c.nome || c.name || 'Cliente',
+        phone: c.phone || c.telefone || '',
+        email: c.email || '',
+        cpf_cnpj: c.cpf_cnpj || '',
+        saldo_credito: Number(c.saldo_credito) || 0
+      })));
     } catch (err) {
-      console.error('Erro ao carregar clientes:', err);
+      console.warn('Erro ao carregar clientes:', err);
+      setCustomers([]);
     }
   };
 
@@ -239,7 +259,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
       const mapped = (data || []).map((v: any) => ({
         id: v.id,
         companyId: v.company_id || 'rafa-arts',
-        customerId: v.cliente_id,
+        customerId: v.cliente_id || v.customer_id,
         customerName: v.customer_name || 'Cliente de Balcão',
         customerPhone: v.customer_phone || '',
         items: v.items || [],
@@ -257,18 +277,54 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
       }));
       setAllSalesHistory(mapped);
     } catch (err) {
-      console.error('Erro ao carregar histórico de vendas:', err);
+      console.warn('Erro ao carregar histórico de vendas:', err);
     }
   };
 
   // Load Services (OS)
   const loadServices = async () => {
     try {
-      const { data, error } = await supabase.from('servicos').select('*').order('created_at', { ascending: false });
-      if (error) throw error;
-      setServicesList(data || []);
+      // First try comissoes_servicos (commissioned/scheduled services table)
+      const { data: comissoesData, error: comissoesError } = await supabase
+        .from('comissoes_servicos')
+        .select('*')
+        .is('deleted_at', null)
+        .order('data', { ascending: false });
+
+      if (!comissoesError && comissoesData && comissoesData.length > 0) {
+        setServicesList(comissoesData.map((s: any) => ({
+          id: s.id,
+          title: s.servico_nome || 'Serviço',
+          service_name: s.servico_nome || 'Serviço',
+          customer_name: s.cliente_nome || 'Cliente Balcão',
+          status: s.status || 'pedido_recebido',
+          value: Number(s.valor_servico) || 0,
+          created_at: s.data || s.created_at
+        })));
+        return;
+      }
+
+      // Fallback to vendas
+      const { data: vendasData } = await supabase
+        .from('vendas')
+        .select('*')
+        .is('deleted_at', null)
+        .order('created_at', { ascending: false });
+
+      if (vendasData) {
+        setServicesList(vendasData.map((v: any) => ({
+          id: v.id,
+          title: v.items?.[0]?.name ? `${v.items[0].name}${v.items.length > 1 ? ` (+${v.items.length - 1})` : ''}` : 'Ordem de Serviço',
+          service_name: v.items?.[0]?.name || 'Serviço',
+          customer_name: v.customer_name || 'Cliente Balcão',
+          status: v.service_status || (v.status === 'completed' ? 'entregue' : 'pedido_recebido'),
+          value: Number(v.total) || 0,
+          created_at: v.created_at
+        })));
+      }
     } catch (err) {
-      console.error('Erro ao carregar serviços:', err);
+      console.warn('Serviços carregados com fallback:', err);
+      setServicesList([]);
     }
   };
 
@@ -276,10 +332,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
   const loadOrcamentos = async () => {
     try {
       const { data, error } = await supabase.from('orcamentos').select('*').order('created_at', { ascending: false });
-      if (error) throw error;
+      if (error) {
+        setOrcamentosList([]);
+        return;
+      }
       setOrcamentosList(data || []);
-    } catch (err) {
-      console.error('Erro ao carregar orçamentos:', err);
+    } catch {
+      setOrcamentosList([]);
     }
   };
 
@@ -287,10 +346,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
   const loadContratos = async () => {
     try {
       const { data, error } = await supabase.from('contratos').select('*').order('created_at', { ascending: false });
-      if (error) throw error;
+      if (error) {
+        setContratosList([]);
+        return;
+      }
       setContratosList(data || []);
-    } catch (err) {
-      console.error('Erro ao carregar contratos:', err);
+    } catch {
+      setContratosList([]);
     }
   };
 
@@ -307,6 +369,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vendas' }, loadSalesHistory)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'produtos' }, loadProducts)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'clientes' }, loadCustomers)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'comissoes_servicos' }, loadServices)
       .subscribe();
 
     return () => {
@@ -342,11 +405,34 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
       return;
     }
 
+    const itemConsumo = (product.materiasPrimas && product.materiasPrimas.length > 0)
+      ? product.materiasPrimas.map((mp: any) => ({
+          materiaPrimaId: mp.materiaPrimaId,
+          name: mp.name,
+          unit: mp.unit,
+          quantity: Number((mp.quantity * 1).toFixed(4)),
+          costPrice: mp.costPrice || 0,
+          totalCost: Number(((mp.quantity * 1) * (mp.costPrice || 0)).toFixed(2))
+        }))
+      : undefined;
+
     setCart(prev => {
       const existing = prev.find(item => item.productId === product.id && !item.dimensions);
       if (existing) {
+        const nextQty = existing.quantity + 1;
+        const nextConsumo = (product.materiasPrimas && product.materiasPrimas.length > 0)
+          ? product.materiasPrimas.map((mp: any) => ({
+              materiaPrimaId: mp.materiaPrimaId,
+              name: mp.name,
+              unit: mp.unit,
+              quantity: Number((mp.quantity * nextQty).toFixed(4)),
+              costPrice: mp.costPrice || 0,
+              totalCost: Number(((mp.quantity * nextQty) * (mp.costPrice || 0)).toFixed(2))
+            }))
+          : undefined;
+
         return prev.map(item =>
-          item === existing ? { ...item, quantity: item.quantity + 1 } : item
+          item === existing ? { ...item, quantity: nextQty, materiasPrimasConsumidas: nextConsumo } : item
         );
       }
       return [
@@ -356,6 +442,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
           name: product.name,
           price: product.price,
           quantity: 1,
+          materiasPrimasConsumidas: itemConsumo
         }
       ];
     });
@@ -374,6 +461,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
 
     const area = dimensionModalProduct.unitType === 'm2' ? w * h : w;
     const dimText = dimensionModalProduct.unitType === 'm2' ? `${w.toFixed(2)}m x ${h.toFixed(2)}m (${area.toFixed(2)}m²)` : `${w.toFixed(2)}m`;
+    const multiplier = (area && area > 0) ? area * q : q;
+
+    const itemConsumo = (dimensionModalProduct.materiasPrimas && dimensionModalProduct.materiasPrimas.length > 0)
+      ? dimensionModalProduct.materiasPrimas.map((mp: any) => ({
+          materiaPrimaId: mp.materiaPrimaId,
+          name: mp.name,
+          unit: mp.unit,
+          quantity: Number((mp.quantity * multiplier).toFixed(4)),
+          costPrice: mp.costPrice || 0,
+          totalCost: Number(((mp.quantity * multiplier) * (mp.costPrice || 0)).toFixed(2))
+        }))
+      : undefined;
 
     setCart(prev => [
       ...prev,
@@ -385,6 +484,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
         area: area,
         consumoEstoque: area,
         dimensions: dimText,
+        materiasPrimasConsumidas: itemConsumo
       }
     ]);
 
@@ -396,7 +496,23 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
       removeFromCart(index);
       return;
     }
-    setCart(prev => prev.map((item, idx) => (idx === index ? { ...item, quantity: newQty } : item)));
+    setCart(prev => prev.map((item, idx) => {
+      if (idx !== index) return item;
+      const prod = products.find(p => p.id === item.productId);
+      let nextConsumo = item.materiasPrimasConsumidas;
+      if (prod && prod.materiasPrimas && prod.materiasPrimas.length > 0) {
+        const multiplier = (item.area && item.area > 0) ? item.area * newQty : newQty;
+        nextConsumo = prod.materiasPrimas.map((mp: any) => ({
+          materiaPrimaId: mp.materiaPrimaId,
+          name: mp.name,
+          unit: mp.unit,
+          quantity: Number((mp.quantity * multiplier).toFixed(4)),
+          costPrice: mp.costPrice || 0,
+          totalCost: Number(((mp.quantity * multiplier) * (mp.costPrice || 0)).toFixed(2))
+        }));
+      }
+      return { ...item, quantity: newQty, materiasPrimasConsumidas: nextConsumo };
+    }));
   };
 
   const removeFromCart = (index: number) => {
@@ -421,24 +537,49 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
     }
     const price = parseFloat(quickProductPrice.replace(',', '.')) || 0;
     try {
-      const { data, error } = await supabase.from('produtos').insert({
-        name: quickProductName.trim(),
-        sale_price: price,
-        unit: quickProductUnit,
-        category: quickProductCategory.trim() || 'Geral',
-        current_stock: 100,
-        is_active: true
-      }).select().single();
+      const payload: any = {
+        nome: quickProductName.trim(),
+        preco: price,
+        unidade: quickProductUnit,
+        categoria: quickProductCategory.trim() || 'Geral',
+        estoque: 100,
+        company_id: currentCompany?.id || null,
+        created_at: new Date().toISOString()
+      };
 
-      if (error) throw error;
-      await loadProducts();
-      if (data) {
+      const { data, error } = await supabase.from('produtos').insert([payload]).select().single();
+
+      if (error) {
+        // Fallback with english columns
+        const fallback = await supabase.from('produtos').insert([{
+          name: quickProductName.trim(),
+          sale_price: price,
+          unit: quickProductUnit,
+          category: quickProductCategory.trim() || 'Geral',
+          current_stock: 100,
+          is_active: true
+        }]).select().single();
+
+        if (fallback.error) throw fallback.error;
+        if (fallback.data) {
+          await loadProducts();
+          handleAddProductToCart({
+            id: fallback.data.id,
+            name: fallback.data.name || quickProductName.trim(),
+            price: Number(fallback.data.sale_price) || price,
+            stock: 100,
+            unitType: quickProductUnit === 'm2' ? 'm2' : quickProductUnit === 'metro' ? 'metro' : 'unit',
+            tipoItem: 'produto'
+          });
+        }
+      } else if (data) {
+        await loadProducts();
         handleAddProductToCart({
           id: data.id,
-          name: data.name,
-          price: Number(data.sale_price) || 0,
-          stock: Number(data.current_stock) || 0,
-          unitType: data.unit === 'm2' ? 'm2' : data.unit === 'metro' ? 'metro' : 'unit',
+          name: data.nome || quickProductName.trim(),
+          price: Number(data.preco) || price,
+          stock: Number(data.estoque) || 100,
+          unitType: data.unidade === 'm2' ? 'm2' : data.unidade === 'metro' ? 'metro' : 'unit',
           tipoItem: 'produto'
         });
       }
@@ -447,7 +588,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
       setQuickProductPrice('');
       showAlert('Produto cadastrado com sucesso!');
     } catch (err: any) {
-      console.error(err);
+      console.warn(err);
       showAlert(`Não foi possível salvar produto: ${err?.message || 'erro'}`);
     }
   };
@@ -466,7 +607,30 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
     setIsSavingSale(true);
     try {
       const saleId = `venda_${Date.now()}`;
-      const payload = {
+
+      // Consolidate raw materials consumption for this sale
+      const totalConsumoMateriasPrimas: Record<string, { name: string; unit: string; quantity: number; costPrice: number; totalCost: number }> = {};
+      cart.forEach(item => {
+        if (item.materiasPrimasConsumidas && Array.isArray(item.materiasPrimasConsumidas)) {
+          item.materiasPrimasConsumidas.forEach((mp: any) => {
+            const key = mp.name || mp.materiaPrimaId || 'Insumo';
+            if (!totalConsumoMateriasPrimas[key]) {
+              totalConsumoMateriasPrimas[key] = {
+                name: mp.name,
+                unit: mp.unit,
+                quantity: 0,
+                costPrice: mp.costPrice || 0,
+                totalCost: 0
+              };
+            }
+            totalConsumoMateriasPrimas[key].quantity += (mp.quantity || 0);
+            totalConsumoMateriasPrimas[key].totalCost += (mp.totalCost || ((mp.quantity || 0) * (mp.costPrice || 0)));
+          });
+        }
+      });
+      const consumoMateriasPrimas = Object.values(totalConsumoMateriasPrimas);
+
+      const payload: any = {
         id: saleId,
         company_id: currentCompany?.id || 'rafa-arts',
         cliente_id: selectedCustomer?.id || null,
@@ -482,6 +646,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
         status: isPending ? 'pending' : 'completed',
         scheduled_for: scheduledFor ? new Date(scheduledFor).toISOString() : null,
         observacoes: orderObservacoes || null,
+        consumo_materias_primas: consumoMateriasPrimas.length > 0 ? consumoMateriasPrimas : null,
         payments: finalDownPayment > 0 ? [{
           method: paymentMethod,
           value: finalDownPayment,
@@ -489,8 +654,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
         }] : []
       };
 
-      const { data, error } = await supabase.from('vendas').insert(payload).select().single();
-      if (error) throw error;
+      let insertRes = await supabase.from('vendas').insert(payload).select().single();
+      if (insertRes.error && insertRes.error.message?.includes('consumo_materias_primas')) {
+        const { consumo_materias_primas, ...restPayload } = payload;
+        insertRes = await supabase.from('vendas').insert(restPayload).select().single();
+      }
+      if (insertRes.error) throw insertRes.error;
+      const data = insertRes.data;
 
       // Update customer credit if applied
       if (selectedCustomer?.id && saleCreditApplied > 0) {
@@ -510,7 +680,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
               ? item.consumoEstoque * (item.quantity || 1)
               : (item.area ? item.area * item.quantity : item.quantity);
             const newStock = Math.max(0, prod.stock - consumed);
-            await supabase.from('produtos').update({ current_stock: newStock }).eq('id', item.productId);
+            try {
+              const { error: stockErr } = await supabase.from('produtos').update({ estoque: newStock }).eq('id', item.productId);
+              if (stockErr) {
+                await supabase.from('produtos').update({ current_stock: newStock }).eq('id', item.productId);
+              }
+            } catch {
+              // Ignore stock update error if column differs
+            }
           }
         }
       }
@@ -779,6 +956,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
                         <div className="text-[10px] text-slate-600 font-mono mt-0.5">
                           {item.quantity}x R$ {item.price.toFixed(2)} = <strong className="text-slate-900">R$ {((item.area ? item.price * item.area * item.quantity : item.price * item.quantity) - (item.discountValue || 0)).toFixed(2)}</strong>
                         </div>
+                        {item.materiasPrimasConsumidas && item.materiasPrimasConsumidas.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {item.materiasPrimasConsumidas.map((mp, mpIdx) => (
+                              <span key={mpIdx} className="inline-flex items-center gap-0.5 text-[9px] bg-primary-500/10 text-primary-800 font-medium px-1.5 py-0.2 rounded border border-primary-500/20">
+                                <Layers size={8} className="text-primary-600" />
+                                {mp.name}: {mp.quantity} {mp.unit}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
                         <button
@@ -1462,13 +1649,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
             <div>
               <label className="text-[10px] font-black uppercase text-white/50 block mb-1">Unidade</label>
               <select
-                value={quickProductUnit || 'un'}
+                value={quickProductUnit || 'metro'}
                 onChange={e => setQuickProductUnit(e.target.value as any)}
                 className="w-full h-10 bg-white/5 border border-white/10 rounded-xl px-3 text-xs text-white outline-none focus:border-primary-500"
               >
-                <option value="un" className="bg-slate-900">Unidade (un)</option>
-                <option value="m2" className="bg-slate-900">Metro Quadrado (m²)</option>
                 <option value="metro" className="bg-slate-900">Metro Linear (m)</option>
+                <option value="etiqueta" className="bg-slate-900">Etiqueta Adesiva</option>
+                <option value="un" className="bg-slate-900">Unidade (un)</option>
               </select>
             </div>
           </div>

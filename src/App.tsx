@@ -124,6 +124,7 @@ import { IntegracoesModule } from './components/IntegracoesModule';
 import { AssistantChatWidget } from './components/AssistantChatWidget';
 import { ModuleErrorBoundary } from './components/SharedUI';
 import { PrecificacaoModule } from './components/PrecificacaoModule';
+import { MateriasPrimasModule } from './components/MateriasPrimasModule';
 
 export { AppContext, useApp, type MainTab, type AppContextType };
 
@@ -170,10 +171,10 @@ const SidebarItem = ({
 
 // Aba "Financeiro": três sub-abas internas --
 // 1. Funcionários (colaboradores e comissões)
-// 2. Produtos e Serviços (Estoque de Insumos: matéria-prima, produtos e acabamentos)
+// 2. Matérias-Primas (Cadastro de insumos e matérias-primas: custo por unidade, unidade de medida, observação)
 // 3. Precificação (Motor de Precificação Inteligente com formação automática de preços baseada em insumos, máquinas, energia, aluguel, equipe e comissões).
 const FinanceiroModule = ({ currentCompany, user }: { currentCompany: Company | null; user: AppUser | null }) => {
-  const [subTab, setSubTab] = useState<'funcionarios' | 'produtos_servicos' | 'precificacao'>('funcionarios');
+  const [subTab, setSubTab] = useState<'funcionarios' | 'materias_primas' | 'precificacao'>('funcionarios');
   return (
     <div className="h-full flex flex-col min-h-0">
       <div className="flex flex-wrap items-center gap-2 mb-4 shrink-0">
@@ -189,15 +190,15 @@ const FinanceiroModule = ({ currentCompany, user }: { currentCompany: Company | 
           <Users size={14} /> Funcionários
         </button>
         <button
-          onClick={() => setSubTab('produtos_servicos')}
+          onClick={() => setSubTab('materias_primas')}
           className={cn(
             "flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors border",
-            subTab === 'produtos_servicos'
+            subTab === 'materias_primas'
               ? "bg-primary-500 text-white border-white/20 shadow-lg shadow-primary-500/20"
               : "bg-white/5 text-white/50 border-white/10 hover:bg-white/10 hover:text-white"
           )}
         >
-          <Package size={14} /> Produtos e Serviços
+          <Layers size={14} /> Matérias-Primas
         </button>
         <button
           onClick={() => setSubTab('precificacao')}
@@ -216,10 +217,10 @@ const FinanceiroModule = ({ currentCompany, user }: { currentCompany: Company | 
           <Suspense fallback={<div className="h-64 flex items-center justify-center text-white/40 text-sm">Carregando...</div>}>
             <ComissoesEmbedded />
           </Suspense>
-        ) : subTab === 'produtos_servicos' ? (
-          <ModuleErrorBoundary label="Produtos e Serviços">
+        ) : subTab === 'materias_primas' ? (
+          <ModuleErrorBoundary label="Matérias-Primas">
             <div className="overflow-y-auto custom-scrollbar h-full">
-              <InventoryModule currentCompany={currentCompany} user={user} />
+              <MateriasPrimasModule currentCompany={currentCompany} user={user} />
             </div>
           </ModuleErrorBoundary>
         ) : (

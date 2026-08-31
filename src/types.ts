@@ -1,17 +1,41 @@
 import { Timestamp } from 'firebase/firestore';
 
+export interface MateriaPrima {
+  id: string;
+  companyId?: string;
+  name: string;
+  unit: string; // 'm' | 'm2' | 'un' | 'cm' | 'mm' | 'kg' | 'g' | 'l' | 'ml' | 'rolo' | 'pacote' | string
+  costPrice: number;
+  notes?: string;
+  isActive: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface MateriaPrimaConsumo {
+  materiaPrimaId: string;
+  name: string;
+  unit: string;
+  quantity: number; // quantidade consumida por unidade do produto/serviço
+  costPrice: number; // custo unitário da matéria-prima
+  totalCost?: number; // quantity * costPrice
+}
+
 export interface Product {
   id: string;
   name: string;
   code?: string;
   price: number;
+  costPrice?: number;
   stock?: number;
   category?: string;
   unitType?: 'unit' | 'm2' | 'etiqueta' | 'metro';
   tipoItem?: 'produto' | 'material' | 'servico' | 'acabamento' | 'composto';
   larguraRolo?: number;
+  comprimentoRolo?: number;
   controlaEstoque?: boolean;
   valorMinimo?: number;
+  materiasPrimas?: MateriaPrimaConsumo[];
 }
 
 export interface SaleOrderItem {
@@ -26,6 +50,8 @@ export interface SaleOrderItem {
   discountValue?: number;
   precoOriginal?: number; // preco antes do desconto, guardado para auditoria/exibicao
   observacao?: string; // observacao livre por item do carrinho
+  materiasPrimasConsumidas?: MateriaPrimaConsumo[]; // calculo de consumo por item do pedido
+  custoTotalMateriasPrimas?: number; // custo total das matérias-primas utilizadas
 }
 
 export type CartItem = SaleOrderItem;
