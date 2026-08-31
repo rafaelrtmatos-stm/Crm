@@ -21,18 +21,9 @@ interface MateriasPrimasModuleProps {
 }
 
 const COMMON_UNITS = [
-  { value: 'm²', label: 'Metro Quadrado (m²)' },
   { value: 'm', label: 'Metro Linear (m)' },
+  { value: 'etiqueta', label: 'Etiqueta Adesiva' },
   { value: 'un', label: 'Unidade (un)' },
-  { value: 'cm', label: 'Centímetro (cm)' },
-  { value: 'mm', label: 'Milímetro (mm)' },
-  { value: 'kg', label: 'Quilograma (kg)' },
-  { value: 'g', label: 'Grama (g)' },
-  { value: 'l', label: 'Litro (l)' },
-  { value: 'ml', label: 'Mililitro (ml)' },
-  { value: 'rolo', label: 'Rolo (rolo)' },
-  { value: 'pacote', label: 'Pacote (pct)' },
-  { value: 'folha', label: 'Folha (fl)' },
 ];
 
 export const MateriasPrimasModule: React.FC<MateriasPrimasModuleProps> = ({ currentCompany, user }) => {
@@ -50,7 +41,7 @@ export const MateriasPrimasModule: React.FC<MateriasPrimasModuleProps> = ({ curr
   // Form State
   const [formData, setFormData] = useState({
     name: '',
-    unit: 'm²',
+    unit: 'm',
     costPrice: 0,
     notes: '',
     isActive: true,
@@ -76,7 +67,7 @@ export const MateriasPrimasModule: React.FC<MateriasPrimasModuleProps> = ({ curr
     setEditingItem(null);
     setFormData({
       name: '',
-      unit: 'm²',
+      unit: 'm',
       costPrice: 0,
       notes: '',
       isActive: true,

@@ -487,9 +487,9 @@ export const MerchandiseModule: React.FC<MerchandiseModuleProps> = ({ onAttachIt
                     onChange={e => setFormUnit(e.target.value as any)}
                     className="w-full h-11 bg-zinc-900 border border-zinc-800 focus:border-red-500 rounded-xl px-3 text-xs text-white outline-none"
                   >
+                    <option value="m">Metro Linear (m)</option>
+                    <option value="etiqueta">Etiqueta Adesiva</option>
                     <option value="un">Unidade (un)</option>
-                    <option value="m">Metro (m)</option>
-                    <option value="m2">Metro ² (m²)</option>
                   </select>
                 </div>
 

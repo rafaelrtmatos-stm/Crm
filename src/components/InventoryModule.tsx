@@ -111,6 +111,12 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
     setRawMaterialConsumedQty(1);
     if (prod) {
       setEditingProduct(prod);
+      const normalizedUnit = (prod.unitType === 'etiqueta' || prod.unit === 'etiqueta') 
+        ? 'etiqueta' 
+        : (prod.unitType === 'metro' || prod.unitType === 'm' || prod.unitType === 'm2' || prod.unit === 'm' || prod.unit === 'm2')
+        ? 'metro'
+        : 'unit';
+
       setFormData({
         name: prod.name || '',
         code: prod.code || '',
@@ -118,7 +124,7 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
         cost_price: prod.costPrice || 0,
         stock: prod.stock || 0,
         min_stock: prod.minStock || 5,
-        unit_type: prod.unitType || 'unit',
+        unit_type: normalizedUnit,
         tipo_item: prod.tipoItem || 'produto',
         largura_rolo: prod.larguraRolo || 0,
         comprimento_rolo: prod.comprimentoRolo || 0,
@@ -643,7 +649,7 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
               />
             </div>
 
-            {formData.unit_type === 'm2' && (
+            {(formData.unit_type === 'metro' || formData.unit_type === 'etiqueta') && (
               <div className="grid grid-cols-2 gap-2 sm:col-span-2">
                 <div className="space-y-1">
                   <label className="text-[10px] font-black uppercase tracking-wider text-white/50">

@@ -32,7 +32,7 @@ import {
 } from 'lucide-react';
 import { Company, AppUser, Product } from '../types';
 import { supabase } from '../supabase';
-import { showAlert } from '../lib/notify';
+import { showAlert, showConfirm } from '../lib/notify';
 import { Badge, Button, Modal } from './SharedUI';
 import { useApp } from '../AppContext';
 
@@ -1736,19 +1736,22 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
 
                     <button
                       type="button"
-                      onClick={() => {
+                      onClick={async () => {
                         if (maquinas.length <= 1) {
                           showAlert('Você deve manter pelo menos uma máquina cadastrada.');
                           return;
                         }
-                        if (window.confirm(`Tem certeza que deseja excluir a máquina "${maq.nome}"?`)) {
-                          const updated = maquinas.filter(m => m.id !== maq.id);
-                          setMaquinas(updated);
-                          if (maquinaId === maq.id) {
-                            setMaquinaId(updated[0]?.id || '');
-                          }
-                          showAlert(`Máquina "${maq.nome}" excluída com sucesso!`);
+                        const confirmed = await showConfirm(`Deseja realmente excluir a máquina "${maq.nome}"?`);
+                        if (!confirmed) return;
+                        const updated = maquinas.filter(m => m.id !== maq.id);
+                        setMaquinas(updated);
+                        try {
+                          localStorage.setItem(STORAGE_KEY_MAQUINAS, JSON.stringify(updated));
+                        } catch (e) {}
+                        if (maquinaId === maq.id) {
+                          setMaquinaId(updated[0]?.id || '');
                         }
+                        showAlert(`Máquina "${maq.nome}" excluída com sucesso!`);
                       }}
                       className="p-1 text-white/40 hover:text-rose-400 transition-colors rounded-lg hover:bg-rose-500/10"
                       title="Excluir máquina"
