@@ -565,11 +565,11 @@ export default function ComissoesAdminPanel() {
           <div className="flex items-center gap-2">
             <button
               onClick={() => openEditForm(selected)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[var(--bg-card-sec)] hover:bg-[var(--border-color)] text-xs font-bold text-[var(--text-main)] border border-[var(--border-color)] transition-all cursor-pointer"
-              title="Editar configurações do colaborador"
+              className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 text-xs font-black uppercase tracking-wider border border-amber-500/40 shadow-sm transition-all cursor-pointer active:scale-95"
+              title="Editar configurações e dados do colaborador"
             >
-              <Edit3 className="w-3.5 h-3.5 text-primary-400" />
-              <span className="hidden md:inline">Editar Dados</span>
+              <Edit3 className="w-4 h-4 text-amber-400" />
+              <span>Editar Dados</span>
             </button>
           </div>
         </div>
@@ -1050,18 +1050,30 @@ export default function ComissoesAdminPanel() {
                         </div>
                       </div>
 
-                      {/* Status Badge */}
-                      <button
-                        onClick={() => handleToggleAtivo(c)}
-                        className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-full border transition-all shrink-0 cursor-pointer ${
-                          c.ativo
-                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20'
-                            : 'bg-rose-500/10 text-rose-400 border-rose-500/20 hover:bg-rose-500/20'
-                        }`}
-                        title={c.ativo ? 'Clique para desativar' : 'Clique para ativar'}
-                      >
-                        {c.ativo ? 'Ativo' : 'Inativo'}
-                      </button>
+                      {/* Ações Rápidas no Topo */}
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => openEditForm(c)}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 border border-amber-500/40 text-[11px] font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm active:scale-95"
+                          title="Editar dados e comissões do funcionário"
+                        >
+                          <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Editar</span>
+                        </button>
+
+                        {/* Status Badge */}
+                        <button
+                          onClick={() => handleToggleAtivo(c)}
+                          className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-xl border transition-all shrink-0 cursor-pointer ${
+                            c.ativo
+                              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20'
+                              : 'bg-rose-500/10 text-rose-400 border-rose-500/20 hover:bg-rose-500/20'
+                          }`}
+                          title={c.ativo ? 'Clique para desativar' : 'Clique para ativar'}
+                        >
+                          {c.ativo ? 'Ativo' : 'Inativo'}
+                        </button>
+                      </div>
                     </div>
 
                     {/* ========================================================= */}
@@ -1146,27 +1158,29 @@ export default function ComissoesAdminPanel() {
                   </div>
 
                   {/* Rodapé de Ações */}
-                  <div className="px-5 py-3.5 bg-[var(--bg-card-sec)]/60 border-t border-[var(--border-color)] flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1">
+                  <div className="px-5 py-3.5 bg-[var(--bg-card-sec)]/80 border-t border-[var(--border-color)] flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2">
                       <button
-                        onClick={() => handleCopyAccess(c)}
-                        className="p-2 rounded-xl text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--border-color)] transition-all cursor-pointer"
-                        title="Copiar dados de acesso (login e senha)"
+                        onClick={() => openEditForm(c)}
+                        className="flex items-center gap-1.5 h-9 px-3.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 border border-amber-500/40 text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm active:scale-95"
+                        title="Editar funcionário"
                       >
-                        {copiedId === c.id ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                        <Edit3 className="w-4 h-4 text-amber-400" />
+                        <span>Editar</span>
                       </button>
 
                       <button
-                        onClick={() => openEditForm(c)}
-                        className="p-2 rounded-xl text-[var(--text-muted)] hover:text-primary-400 hover:bg-[var(--border-color)] transition-all cursor-pointer"
-                        title="Editar funcionário"
+                        onClick={() => handleCopyAccess(c)}
+                        className="h-9 px-2.5 rounded-xl bg-[var(--bg-card)] hover:bg-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-main)] transition-all cursor-pointer border border-[var(--border-color)] flex items-center gap-1.5 text-xs font-bold"
+                        title="Copiar dados de acesso (login e senha)"
                       >
-                        <Edit3 className="w-4 h-4" />
+                        {copiedId === c.id ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                        <span className="hidden sm:inline">Acesso</span>
                       </button>
 
                       <button
                         onClick={() => handleDelete(c)}
-                        className="p-2 rounded-xl text-[var(--text-muted)] hover:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer"
+                        className="h-9 w-9 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 transition-all cursor-pointer flex items-center justify-center"
                         title="Excluir funcionário"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -1304,34 +1318,36 @@ export default function ComissoesAdminPanel() {
                         </td>
 
                         <td className="py-3.5 px-5 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
+                          <div className="flex items-center justify-end gap-2">
                             <button
-                              onClick={() => handleCopyAccess(c)}
-                              className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--border-color)]"
-                              title="Copiar dados de acesso"
+                              onClick={() => openEditForm(c)}
+                              className="flex items-center gap-1.5 h-8 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 border border-amber-500/40 text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm active:scale-95"
+                              title="Editar funcionário"
                             >
-                              {copiedId === c.id ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                              <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+                              <span>Editar</span>
                             </button>
 
                             <button
-                              onClick={() => openEditForm(c)}
-                              className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-primary-400 hover:bg-[var(--border-color)]"
-                              title="Editar"
+                              onClick={() => handleCopyAccess(c)}
+                              className="h-8 px-2.5 rounded-xl bg-[var(--bg-card-sec)] hover:bg-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-main)] border border-[var(--border-color)] transition-all flex items-center gap-1 text-[11px] font-bold"
+                              title="Copiar dados de acesso"
                             >
-                              <Edit3 className="w-4 h-4" />
+                              {copiedId === c.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                              <span className="hidden lg:inline">Acesso</span>
                             </button>
 
                             <button
                               onClick={() => handleDelete(c)}
-                              className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-rose-400 hover:bg-rose-500/10"
+                              className="h-8 w-8 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 flex items-center justify-center transition-all"
                               title="Excluir"
                             >
-                              <Trash2 className="w-4 h-4" />
+                              <Trash2 className="w-3.5 h-3.5" />
                             </button>
 
                             <button
                               onClick={() => setSelected(c)}
-                              className="ml-1 flex items-center gap-1 h-8 px-3 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 text-white text-[11px] font-black uppercase tracking-wider shadow-sm hover:opacity-90"
+                              className="ml-1 flex items-center gap-1 h-8 px-3.5 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 text-white text-xs font-black uppercase tracking-wider shadow-sm hover:opacity-90 active:scale-95"
                             >
                               Painel
                             </button>

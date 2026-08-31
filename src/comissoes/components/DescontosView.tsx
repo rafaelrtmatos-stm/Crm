@@ -553,10 +553,10 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
                   <span className="font-mono font-black text-rose-400 text-xs shrink-0">-{formatCurrency(p.valor)}</span>
                   {isAdmin && (
                     <>
-                      <button onClick={() => handleStartEditPagamento(p)} className="p-1 rounded text-[var(--text-muted)] hover:text-primary-400 shrink-0" title="Editar">
+                      <button onClick={() => handleStartEditPagamento(p)} className="p-1.5 rounded-lg bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 border border-amber-500/30 shrink-0 transition-all" title="Editar Pagamento">
                         <Pencil size={12} />
                       </button>
-                      <button onClick={() => handleDeletePagamento(p)} className="p-1 rounded text-[var(--text-muted)] hover:text-rose-400 shrink-0" title="Excluir">
+                      <button onClick={() => handleDeletePagamento(p)} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/20 shrink-0 transition-all" title="Excluir Pagamento">
                         <Trash2 size={12} />
                       </button>
                     </>
@@ -752,17 +752,17 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
                 <div className="font-mono font-black text-rose-400 text-sm shrink-0">-{formatCurrency(d.valor)}</div>
                 {isAdmin && (
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <button onClick={() => openEditForm(d)} className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20" title="Editar">
+                    <button onClick={() => openEditForm(d)} className="p-1.5 rounded-lg bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 border border-amber-500/30 transition-all" title="Editar Desconto">
                       <Pencil size={13} />
                     </button>
                     <button
                       onClick={() => handleToggleAtivo(d)}
-                      className={`p-1.5 rounded-lg ${d.ativo ? 'bg-amber-500/10 text-amber-400 hover:bg-amber-500/20' : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20'}`}
+                      className={`p-1.5 rounded-lg border transition-all ${d.ativo ? 'bg-amber-500/10 text-amber-400 border-amber-500/20 hover:bg-amber-500/20' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20'}`}
                       title={d.ativo ? 'Desativar' : 'Ativar'}
                     >
                       {d.ativo ? <Ban size={13} /> : <CheckCircle2 size={13} />}
                     </button>
-                    <button onClick={() => handleDelete(d)} className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-rose-400" title="Excluir">
+                    <button onClick={() => handleDelete(d)} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/20 transition-all" title="Excluir Desconto">
                       <Trash2 size={13} />
                     </button>
                   </div>
