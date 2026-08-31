@@ -42,7 +42,8 @@ import {
   AlertCircle,
   ShieldCheck,
   Key,
-  Bot
+  Bot,
+  Calculator
 } from 'lucide-react';
 import { ChevronRight } from 'lucide-react';
 
@@ -122,6 +123,7 @@ import { RobozinhoRafaModule } from './components/RobozinhoRafaModule';
 import { IntegracoesModule } from './components/IntegracoesModule';
 import { AssistantChatWidget } from './components/AssistantChatWidget';
 import { ModuleErrorBoundary } from './components/SharedUI';
+import { PrecificacaoModule } from './components/PrecificacaoModule';
 
 export { AppContext, useApp, type MainTab, type AppContextType };
 
@@ -166,14 +168,15 @@ const SidebarItem = ({
   </button>
 );
 
-// Aba "Financeiro": duas sub-abas internas -- Funcionários (colaboradores/comissões, o
-// que já existia) e Produtos e Serviços (Estoque de Insumos: materia-prima, produtos,
-// materiais, acabamentos e serviços cadastrados, reaproveitando o InventoryModule).
+// Aba "Financeiro": três sub-abas internas --
+// 1. Funcionários (colaboradores e comissões)
+// 2. Produtos e Serviços (Estoque de Insumos: matéria-prima, produtos e acabamentos)
+// 3. Precificação (Motor de Precificação Inteligente com formação automática de preços baseada em insumos, máquinas, energia, aluguel, equipe e comissões).
 const FinanceiroModule = ({ currentCompany, user }: { currentCompany: Company | null; user: AppUser | null }) => {
-  const [subTab, setSubTab] = useState<'funcionarios' | 'produtos_servicos'>('funcionarios');
+  const [subTab, setSubTab] = useState<'funcionarios' | 'produtos_servicos' | 'precificacao'>('funcionarios');
   return (
     <div className="h-full flex flex-col min-h-0">
-      <div className="flex items-center gap-2 mb-4 shrink-0">
+      <div className="flex flex-wrap items-center gap-2 mb-4 shrink-0">
         <button
           onClick={() => setSubTab('funcionarios')}
           className={cn(
@@ -196,16 +199,33 @@ const FinanceiroModule = ({ currentCompany, user }: { currentCompany: Company | 
         >
           <Package size={14} /> Produtos e Serviços
         </button>
+        <button
+          onClick={() => setSubTab('precificacao')}
+          className={cn(
+            "flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors border",
+            subTab === 'precificacao'
+              ? "bg-primary-500 text-white border-white/20 shadow-lg shadow-primary-500/20"
+              : "bg-white/5 text-white/50 border-white/10 hover:bg-white/10 hover:text-white"
+          )}
+        >
+          <Calculator size={14} className={subTab === 'precificacao' ? 'text-white' : 'text-emerald-400'} /> Precificação
+        </button>
       </div>
       <div className="flex-1 min-h-0">
         {subTab === 'funcionarios' ? (
           <Suspense fallback={<div className="h-64 flex items-center justify-center text-white/40 text-sm">Carregando...</div>}>
             <ComissoesEmbedded />
           </Suspense>
-        ) : (
+        ) : subTab === 'produtos_servicos' ? (
           <ModuleErrorBoundary label="Produtos e Serviços">
             <div className="overflow-y-auto custom-scrollbar h-full">
               <InventoryModule currentCompany={currentCompany} user={user} />
+            </div>
+          </ModuleErrorBoundary>
+        ) : (
+          <ModuleErrorBoundary label="Precificação">
+            <div className="overflow-y-auto custom-scrollbar h-full pr-1">
+              <PrecificacaoModule currentCompany={currentCompany} user={user} />
             </div>
           </ModuleErrorBoundary>
         )}

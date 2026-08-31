@@ -4,7 +4,7 @@ import {
   RotateCcw, CheckSquare, Square, X, CheckCircle2, Search, Copy, Check
 } from 'lucide-react';
 import { supabase } from '../../supabase';
-import { showConfirm } from '../../lib/notify';
+import { showConfirm, showAlert } from '../../lib/notify';
 import { formatCurrency, formatDateBR, formatTimeBR } from '../utils/storage';
 import {
   getItensJaAdicionadosDeNotas,
@@ -466,14 +466,22 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
       'Tirar esse serviço da nota? Ele some da sua planilha de comissões e o item volta a ficar disponível.'
     ))) return;
 
-    const ok = await excluirServicoPorOrigem(notaId, idx);
-    if (!ok) return;
+    const ok = await excluirServicoPorOrigem(notaId, idx, colaboradorId);
+    if (!ok) {
+      // Tenta fallback sem colaboradorId caso id seja global
+      const okFallback = await excluirServicoPorOrigem(notaId, idx);
+      if (!okFallback) {
+        showAlert('Não foi possível remover o serviço.');
+        return;
+      }
+    }
 
     setItensAdicionadosPorNota(prev => {
       const atual = new Set(prev[notaId] || []);
       atual.delete(idx);
       return { ...prev, [notaId]: atual };
     });
+    showAlert('Serviço removido e disponível novamente.');
   };
 
   const handleExcluirNota = async (e: React.MouseEvent, vendaId: string) => {

@@ -148,20 +148,48 @@ export async function getItensJaAdicionadosDeNotas(notaIds: string[], colaborado
 // Remove (soft-delete) o serviço já lançado a partir de um item específico de uma nota —
 // usado quando o colaborador se engana e quer "tirar" um serviço que puxou da nota.
 export async function excluirServicoPorOrigem(notaId: string, itemIndex: number, colaboradorId?: string): Promise<boolean> {
-  let query = supabase
-    .from('comissoes_servicos')
-    .select('id')
-    .eq('origem_nota_id', notaId)
-    .eq('origem_item_index', itemIndex)
-    .is('deleted_at', null);
+  try {
+    let query = supabase
+      .from('comissoes_servicos')
+      .select('id')
+      .eq('origem_nota_id', notaId)
+      .is('deleted_at', null);
 
-  if (colaboradorId) {
-    query = query.eq('colaborador_id', colaboradorId);
+    if (itemIndex !== undefined && itemIndex !== null && !isNaN(itemIndex)) {
+      query = query.eq('origem_item_index', itemIndex);
+    }
+    if (colaboradorId) {
+      query = query.eq('colaborador_id', colaboradorId);
+    }
+
+    const { data, error } = await query;
+    if (error || !data || data.length === 0) {
+      // Tenta buscar sem filtro deleted_at se necessário
+      const { data: fallbackData } = await supabase
+        .from('comissoes_servicos')
+        .select('id')
+        .eq('origem_nota_id', notaId)
+        .eq('origem_item_index', itemIndex);
+      
+      if (fallbackData && fallbackData.length > 0) {
+        for (const row of fallbackData) {
+          await deleteServiceFromSupabase(row.id);
+        }
+        return true;
+      }
+      return false;
+    }
+
+    let success = true;
+    for (const row of data) {
+      const ok = await deleteServiceFromSupabase(row.id);
+      if (!ok) success = false;
+    }
+    return success;
+  } catch (err) {
+    console.error('Erro ao excluirServicoPorOrigem:', err);
+    return false;
   }
-
-  const { data, error } = await query.maybeSingle();
-  if (error || !data) return false;
-  return deleteServiceFromSupabase(data.id);
 }
 
 // Adiciona vários serviços de uma vez a partir de itens de uma nota (usado pelo botão
@@ -311,28 +339,42 @@ export async function deleteServiceFromSupabase(id: string): Promise<boolean> {
 
     const { error } = await supabase
       .from('comissoes_servicos')
-      .update({ deleted_at: new Date().toISOString() })
+      .update({ deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
       .eq('id', id);
 
-    if (error) return false;
+    if (error) {
+      console.warn('Soft-delete falhou no Supabase, tentando exclusão direta:', error);
+      const { error: delErr } = await supabase
+        .from('comissoes_servicos')
+        .delete()
+        .eq('id', id);
+      if (delErr) {
+        console.error('Falha ao excluir serviço do Supabase:', delErr);
+        return false;
+      }
+    }
 
     if (servico && servico.origem_nota_id) {
-      let colabNome = '';
-      if (servico.colaborador_id) {
-        const { data: colab } = await supabase
-          .from('colaboradores')
-          .select('nome')
-          .eq('id', servico.colaborador_id)
-          .maybeSingle();
-        colabNome = colab?.nome || '';
+      try {
+        let colabNome = '';
+        if (servico.colaborador_id) {
+          const { data: colab } = await supabase
+            .from('colaboradores')
+            .select('nome')
+            .eq('id', servico.colaborador_id)
+            .maybeSingle();
+          colabNome = colab?.nome || '';
+        }
+        await removerComissaoDeCustoDaNota(
+          servico.origem_nota_id,
+          servico.colaborador_id,
+          servico.origem_item_index !== null && servico.origem_item_index !== undefined ? Number(servico.origem_item_index) : undefined,
+          colabNome,
+          servico.tipo_servico
+        );
+      } catch (syncErr) {
+        console.warn('Aviso ao sincronizar custo da nota após exclusão:', syncErr);
       }
-      await removerComissaoDeCustoDaNota(
-        servico.origem_nota_id,
-        servico.colaborador_id,
-        servico.origem_item_index !== null && servico.origem_item_index !== undefined ? Number(servico.origem_item_index) : undefined,
-        colabNome,
-        servico.tipo_servico
-      );
     }
 
     return true;

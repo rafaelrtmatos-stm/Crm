@@ -158,23 +158,28 @@ export default function ComissoesApp() {
 
   const handleDeleteService = async (id: string) => {
     const item = services.find((s) => s.id === id);
-    // Serviço puxado de uma nota (tem origemNotaId): não vai pra Lixeira, volta a ficar
-    // disponível no card da própria nota lá na aba Serviços — agrupado automaticamente
-    // porque a nota já é 1 registro só com todos os itens dentro.
-    if (item?.origemNotaId && item.origemItemIndex !== undefined) {
-      if (!confirm('Tirar esse serviço da planilha? Ele volta a ficar disponível na nota, na aba Serviços.')) return;
-      const ok = await excluirServicoPorOrigem(item.origemNotaId, item.origemItemIndex);
-      if (!ok) { showToast('Não foi possível excluir.'); return; }
-      setServices((prev) => prev.filter((s) => s.id !== id));
-      showToast('Serviço removido da planilha. Disponível de novo na aba Serviços.');
+    const msg = item?.origemNotaId
+      ? 'Tirar esse serviço da planilha? Ele voltará a ficar disponível na nota, na aba Serviços.'
+      : 'Deseja realmente excluir este serviço da planilha? Ele fica disponível na Lixeira por 30 dias.';
+
+    if (!confirm(msg)) return;
+
+    const ok = await deleteServiceFromSupabase(id);
+    if (!ok) {
+      // Tenta fallback por origem se aplicável
+      if (item?.origemNotaId && item?.origemItemIndex !== undefined && colaborador) {
+        const okOrigem = await excluirServicoPorOrigem(item.origemNotaId, item.origemItemIndex, colaborador.id);
+        if (okOrigem) {
+          setServices((prev) => prev.filter((s) => s.id !== id));
+          showToast('Serviço removido da planilha.');
+          return;
+        }
+      }
+      showToast('Não foi possível excluir o serviço.');
       return;
     }
-
-    if (!confirm('Deseja realmente excluir este serviço da planilha? Ele fica disponível na Lixeira por 30 dias.')) return;
-    const ok = await deleteServiceFromSupabase(id);
-    if (!ok) { showToast('Não foi possível excluir.'); return; }
     setServices((prev) => prev.filter((s) => s.id !== id));
-    showToast('Serviço movido para a Lixeira.');
+    showToast(item?.origemNotaId ? 'Serviço removido da planilha. Disponível de novo na aba Serviços.' : 'Serviço movido para a Lixeira.');
   };
 
   const handleEditService = (service: ServiceItem) => {
