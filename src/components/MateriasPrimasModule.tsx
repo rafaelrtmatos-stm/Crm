@@ -43,6 +43,9 @@ export const MateriasPrimasModule: React.FC<MateriasPrimasModuleProps> = ({ curr
     name: '',
     unit: 'm',
     costPrice: 0,
+    larguraMaterial: 1.52,
+    comprimentoBobina: 50,
+    quantidadeEstoque: 1,
     notes: '',
     isActive: true,
   });
@@ -69,6 +72,9 @@ export const MateriasPrimasModule: React.FC<MateriasPrimasModuleProps> = ({ curr
       name: '',
       unit: 'm',
       costPrice: 0,
+      larguraMaterial: 1.52,
+      comprimentoBobina: 50,
+      quantidadeEstoque: 1,
       notes: '',
       isActive: true,
     });
@@ -81,6 +87,9 @@ export const MateriasPrimasModule: React.FC<MateriasPrimasModuleProps> = ({ curr
       name: item.name,
       unit: item.unit,
       costPrice: item.costPrice,
+      larguraMaterial: item.larguraMaterial !== undefined ? item.larguraMaterial : (item.unit === 'm' ? 1.52 : 0),
+      comprimentoBobina: item.comprimentoBobina !== undefined ? item.comprimentoBobina : (item.unit === 'm' ? 50 : 0),
+      quantidadeEstoque: item.quantidadeEstoque !== undefined ? item.quantidadeEstoque : 1,
       notes: item.notes || '',
       isActive: item.isActive,
     });
@@ -105,6 +114,9 @@ export const MateriasPrimasModule: React.FC<MateriasPrimasModuleProps> = ({ curr
         name: formData.name,
         unit: formData.unit,
         costPrice: formData.costPrice,
+        larguraMaterial: (formData.unit === 'm' || formData.larguraMaterial > 0) ? Number(formData.larguraMaterial) : undefined,
+        comprimentoBobina: (formData.unit === 'm' || formData.comprimentoBobina > 0) ? Number(formData.comprimentoBobina) : undefined,
+        quantidadeEstoque: Number(formData.quantidadeEstoque) || 0,
         notes: formData.notes,
         isActive: formData.isActive,
       }, currentCompany?.id);
@@ -370,6 +382,8 @@ export const MateriasPrimasModule: React.FC<MateriasPrimasModuleProps> = ({ curr
                 <tr className="border-b border-white/10 bg-white/[0.02] text-[10px] font-black uppercase tracking-wider text-white/50">
                   <th className="py-3.5 px-4">Nome da Matéria-Prima</th>
                   <th className="py-3.5 px-4 text-center">Unidade</th>
+                  <th className="py-3.5 px-4 text-center">Largura / Bobina</th>
+                  <th className="py-3.5 px-4 text-center">Qtd. Estoque</th>
                   <th className="py-3.5 px-4 text-right">Custo por Unidade</th>
                   <th className="py-3.5 px-4">Observação</th>
                   <th className="py-3.5 px-4 text-center">Status</th>
@@ -401,6 +415,35 @@ export const MateriasPrimasModule: React.FC<MateriasPrimasModuleProps> = ({ curr
                     <td className="py-3.5 px-4 text-center">
                       <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-mono font-bold bg-white/5 border border-white/10 text-white/90">
                         {item.unit}
+                      </span>
+                    </td>
+
+                    {/* Bobina / Largura */}
+                    <td className="py-3.5 px-4 text-center">
+                      {item.larguraMaterial ? (
+                        <div className="inline-flex flex-col items-center">
+                          <span className="text-xs font-bold text-primary-400 font-mono">
+                            {item.larguraMaterial}m larg.
+                          </span>
+                          {item.comprimentoBobina ? (
+                            <span className="text-[10px] text-white/40 font-mono">
+                              Bobina {item.comprimentoBobina}m
+                            </span>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <span className="text-white/20 text-xs italic">—</span>
+                      )}
+                    </td>
+
+                    {/* Quantidade em Estoque */}
+                    <td className="py-3.5 px-4 text-center">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-mono font-bold ${
+                        (item.quantidadeEstoque ?? 0) <= 0 
+                          ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' 
+                          : 'bg-white/5 text-white/90 border border-white/10'
+                      }`}>
+                        {item.quantidadeEstoque ?? 0} {item.unit === 'm' ? 'bobina(s)' : item.unit}
                       </span>
                     </td>
 
@@ -534,6 +577,97 @@ export const MateriasPrimasModule: React.FC<MateriasPrimasModuleProps> = ({ curr
                   placeholder="0,00"
                   className="w-full bg-black/40 border border-white/10 rounded-xl pl-10 pr-3 py-2.5 text-sm text-white font-mono outline-none focus:border-emerald-500/50 transition-colors"
                 />
+              </div>
+            </div>
+          </div>
+
+          {/* Configuração de Bobina / Metro / Largura / Quantidade */}
+          <div className="p-3 bg-white/[0.03] border border-white/10 rounded-xl space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-black uppercase tracking-wider text-primary-400">
+                Dimensões da Bobina & Estoque
+              </span>
+              <span className="text-[10px] text-white/40">
+                {formData.unit === 'm' ? 'Adesivo / Lona / Rolo' : 'Quantidade e Medidas'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* Largura do Material */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-white/70">
+                  Largura (m)
+                </label>
+                <input
+                  type="number"
+                  step="any"
+                  min="0"
+                  value={formData.larguraMaterial || ''}
+                  onChange={e => setFormData({ ...formData, larguraMaterial: parseFloat(e.target.value) || 0 })}
+                  placeholder="Ex: 1.52"
+                  className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white font-mono outline-none focus:border-primary-500/50"
+                />
+                <div className="flex items-center gap-1 mt-1">
+                  {[1.06, 1.22, 1.52, 1.60].map(w => (
+                    <button
+                      key={w}
+                      type="button"
+                      onClick={() => setFormData({ ...formData, larguraMaterial: w })}
+                      className="text-[9px] px-1.5 py-0.5 rounded bg-white/5 hover:bg-white/10 text-white/60 hover:text-white"
+                    >
+                      {w}m
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Comprimento da Bobina */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-white/70">
+                  Metros por Bobina
+                </label>
+                <input
+                  type="number"
+                  step="any"
+                  min="0"
+                  value={formData.comprimentoBobina || ''}
+                  onChange={e => setFormData({ ...formData, comprimentoBobina: parseFloat(e.target.value) || 0 })}
+                  placeholder="Ex: 50"
+                  className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white font-mono outline-none focus:border-primary-500/50"
+                />
+                <div className="flex items-center gap-1 mt-1">
+                  {[25, 50, 100].map(len => (
+                    <button
+                      key={len}
+                      type="button"
+                      onClick={() => setFormData({ ...formData, comprimentoBobina: len })}
+                      className="text-[9px] px-1.5 py-0.5 rounded bg-white/5 hover:bg-white/10 text-white/60 hover:text-white"
+                    >
+                      {len}m
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Quantidade em Estoque */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-white/70">
+                  Qtd. em Estoque ({formData.unit === 'm' ? 'bobinas' : formData.unit})
+                </label>
+                <input
+                  type="number"
+                  step="any"
+                  min="0"
+                  value={formData.quantidadeEstoque !== undefined ? formData.quantidadeEstoque : ''}
+                  onChange={e => setFormData({ ...formData, quantidadeEstoque: parseFloat(e.target.value) || 0 })}
+                  placeholder="Ex: 2"
+                  className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white font-mono outline-none focus:border-primary-500/50"
+                />
+                {formData.unit === 'm' && formData.larguraMaterial > 0 && formData.comprimentoBobina > 0 && (
+                  <p className="text-[9px] text-white/40 mt-1">
+                    Total: {((formData.quantidadeEstoque || 0) * (formData.comprimentoBobina || 0)).toFixed(0)}m lineares
+                  </p>
+                )}
               </div>
             </div>
           </div>

@@ -5,18 +5,18 @@ const LOCAL_STORAGE_KEY = 'rpro_materias_primas_cache';
 
 // Mock/Initial raw materials for graphics shop if table is empty
 const DEFAULT_MATERIAS_PRIMAS: Omit<MateriaPrima, 'id'>[] = [
-  { name: 'Adesivo Vinil Branco Brilho', unit: 'm²', costPrice: 14.50, notes: 'Bobina 1.52m / impressão solvente', isActive: true },
-  { name: 'Adesivo Vinil Fosco', unit: 'm²', costPrice: 15.20, notes: 'Bobina 1.52m / alta aderência', isActive: true },
-  { name: 'Película Transparente / Laminação', unit: 'm²', costPrice: 8.90, notes: 'Proteção UV e abrasão', isActive: true },
-  { name: 'Adesivo Transparente', unit: 'm²', costPrice: 16.00, notes: 'Para vitrines e vidros', isActive: true },
-  { name: 'Lona Frontlight 440g', unit: 'm²', costPrice: 18.00, notes: 'Lona reforçada para banners e fachadas', isActive: true },
-  { name: 'Lona Backlight 440g', unit: 'm²', costPrice: 24.00, notes: 'Translúcida para painéis iluminados', isActive: true },
-  { name: 'Chapa ACM 3mm', unit: 'm²', costPrice: 110.00, notes: 'Painel de alumínio composto', isActive: true },
-  { name: 'Chapa PS 2mm Branco', unit: 'm²', costPrice: 38.00, notes: 'Poliestireno para placas', isActive: true },
-  { name: 'Tinta Solvente / Litro', unit: 'l', costPrice: 120.00, notes: 'Consumo médio 12ml por m²', isActive: true },
-  { name: 'Ilhós Metálico N° 5', unit: 'un', costPrice: 0.15, notes: 'Acabamento de borda em lonas', isActive: true },
-  { name: 'Bastão de Madeira c/ Ponteira', unit: 'm', costPrice: 4.50, notes: 'Montagem de banner', isActive: true },
-  { name: 'Fita Dupla Face Alta Fixação', unit: 'm', costPrice: 2.80, notes: 'Fixação de placas e totens', isActive: true }
+  { name: 'Adesivo Vinil Branco Brilho', unit: 'm', costPrice: 14.50, larguraMaterial: 1.52, comprimentoBobina: 50, quantidadeEstoque: 2, notes: 'Bobina 1.52m x 50m / impressão solvente', isActive: true },
+  { name: 'Adesivo Vinil Fosco', unit: 'm', costPrice: 15.20, larguraMaterial: 1.52, comprimentoBobina: 50, quantidadeEstoque: 1, notes: 'Bobina 1.52m x 50m / alta aderência', isActive: true },
+  { name: 'Adesivo Transparente', unit: 'm', costPrice: 16.00, larguraMaterial: 1.22, comprimentoBobina: 50, quantidadeEstoque: 1, notes: 'Bobina 1.22m x 50m / vitrines e vidros', isActive: true },
+  { name: 'Película Transparente / Laminação', unit: 'm', costPrice: 8.90, larguraMaterial: 1.52, comprimentoBobina: 50, quantidadeEstoque: 3, notes: 'Bobina 1.52m x 50m / proteção UV e abrasão', isActive: true },
+  { name: 'Lona Frontlight 440g', unit: 'm', costPrice: 18.00, larguraMaterial: 1.60, comprimentoBobina: 50, quantidadeEstoque: 2, notes: 'Bobina 1.60m x 50m / banners e fachadas', isActive: true },
+  { name: 'Lona Backlight 440g', unit: 'm', costPrice: 24.00, larguraMaterial: 1.60, comprimentoBobina: 50, quantidadeEstoque: 1, notes: 'Bobina 1.60m x 50m / translúcida para painéis iluminados', isActive: true },
+  { name: 'Chapa ACM 3mm', unit: 'un', costPrice: 180.00, larguraMaterial: 1.22, comprimentoBobina: 2.44, quantidadeEstoque: 10, notes: 'Chapa 1.22m x 2.44m / painel de alumínio composto', isActive: true },
+  { name: 'Chapa PS 2mm Branco', unit: 'un', costPrice: 65.00, larguraMaterial: 1.00, comprimentoBobina: 2.00, quantidadeEstoque: 15, notes: 'Chapa 1.00m x 2.00m / poliestireno para placas', isActive: true },
+  { name: 'Tinta Solvente / Litro', unit: 'un', costPrice: 120.00, quantidadeEstoque: 8, notes: 'Consumo médio para impressoras solventes', isActive: true },
+  { name: 'Ilhós Metálico N° 5', unit: 'un', costPrice: 0.15, quantidadeEstoque: 1000, notes: 'Acabamento de borda em lonas', isActive: true },
+  { name: 'Bastão de Madeira c/ Ponteira', unit: 'm', costPrice: 4.50, quantidadeEstoque: 40, notes: 'Montagem de banner', isActive: true },
+  { name: 'Fita Dupla Face Alta Fixação', unit: 'm', costPrice: 2.80, comprimentoBobina: 20, quantidadeEstoque: 5, notes: 'Rolo 20m / fixação de placas e totens', isActive: true }
 ];
 
 export async function fetchMateriasPrimas(companyId?: string): Promise<MateriaPrima[]> {
@@ -50,6 +50,9 @@ export async function fetchMateriasPrimas(companyId?: string): Promise<MateriaPr
       name: item.name || item.nome || 'Matéria-Prima',
       unit: item.unit || item.unidade || 'un',
       costPrice: Number(item.cost_price ?? item.preco_custo ?? item.custo ?? 0),
+      larguraMaterial: item.largura_material ? Number(item.largura_material) : item.larguraMaterial ? Number(item.larguraMaterial) : undefined,
+      comprimentoBobina: item.comprimento_bobina ? Number(item.comprimento_bobina) : item.comprimentoBobina ? Number(item.comprimentoBobina) : undefined,
+      quantidadeEstoque: item.quantidade_estoque ? Number(item.quantidade_estoque) : item.quantidadeEstoque ? Number(item.quantidadeEstoque) : undefined,
       notes: item.notes || item.observacao || '',
       isActive: item.is_active !== undefined ? Boolean(item.is_active) : true,
       createdAt: item.created_at,
@@ -72,6 +75,9 @@ export async function saveMateriaPrima(
     name: data.name.trim(),
     unit: data.unit.trim(),
     cost_price: Number(data.costPrice) || 0,
+    largura_material: data.larguraMaterial ? Number(data.larguraMaterial) : null,
+    comprimento_bobina: data.comprimentoBobina ? Number(data.comprimentoBobina) : null,
+    quantidade_estoque: data.quantidadeEstoque !== undefined ? Number(data.quantidadeEstoque) : null,
     notes: data.notes?.trim() || null,
     is_active: data.isActive !== undefined ? Boolean(data.isActive) : true,
     company_id: companyId || 'rafa-arts',
@@ -80,12 +86,19 @@ export async function saveMateriaPrima(
 
   try {
     if (data.id) {
-      const { data: updated, error } = await supabase
+      let { data: updated, error } = await supabase
         .from('materias_primas')
         .update(payload)
         .eq('id', data.id)
         .select()
         .single();
+
+      if (error && (error.message?.includes('largura_material') || error.message?.includes('comprimento_bobina') || error.message?.includes('quantidade_estoque'))) {
+        const { largura_material, comprimento_bobina, quantidade_estoque, ...restPayload } = payload;
+        const res = await supabase.from('materias_primas').update(restPayload).eq('id', data.id).select().single();
+        updated = res.data;
+        error = res.error;
+      }
 
       if (error) throw error;
       const result: MateriaPrima = {
@@ -94,6 +107,9 @@ export async function saveMateriaPrima(
         name: updated.name,
         unit: updated.unit,
         costPrice: Number(updated.cost_price),
+        larguraMaterial: data.larguraMaterial,
+        comprimentoBobina: data.comprimentoBobina,
+        quantidadeEstoque: data.quantidadeEstoque,
         notes: updated.notes || '',
         isActive: updated.is_active,
         createdAt: updated.created_at,
@@ -103,11 +119,18 @@ export async function saveMateriaPrima(
       return result;
     } else {
       payload.created_at = new Date().toISOString();
-      const { data: created, error } = await supabase
+      let { data: created, error } = await supabase
         .from('materias_primas')
         .insert([payload])
         .select()
         .single();
+
+      if (error && (error.message?.includes('largura_material') || error.message?.includes('comprimento_bobina') || error.message?.includes('quantidade_estoque'))) {
+        const { largura_material, comprimento_bobina, quantidade_estoque, ...restPayload } = payload;
+        const res = await supabase.from('materias_primas').insert([restPayload]).select().single();
+        created = res.data;
+        error = res.error;
+      }
 
       if (error) throw error;
       const result: MateriaPrima = {
@@ -116,6 +139,9 @@ export async function saveMateriaPrima(
         name: created.name,
         unit: created.unit,
         costPrice: Number(created.cost_price),
+        larguraMaterial: data.larguraMaterial,
+        comprimentoBobina: data.comprimentoBobina,
+        quantidadeEstoque: data.quantidadeEstoque,
         notes: created.notes || '',
         isActive: created.is_active,
         createdAt: created.created_at,
@@ -133,6 +159,9 @@ export async function saveMateriaPrima(
       name: data.name.trim(),
       unit: data.unit.trim(),
       costPrice: Number(data.costPrice) || 0,
+      larguraMaterial: data.larguraMaterial,
+      comprimentoBobina: data.comprimentoBobina,
+      quantidadeEstoque: data.quantidadeEstoque,
       notes: data.notes || '',
       isActive: data.isActive !== undefined ? Boolean(data.isActive) : true,
       updatedAt: new Date().toISOString(),

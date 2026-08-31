@@ -4,8 +4,11 @@ export interface MateriaPrima {
   id: string;
   companyId?: string;
   name: string;
-  unit: string; // 'm' | 'm2' | 'un' | 'cm' | 'mm' | 'kg' | 'g' | 'l' | 'ml' | 'rolo' | 'pacote' | string
+  unit: string; // 'm' | 'un' | 'etiqueta' | string
   costPrice: number;
+  larguraMaterial?: number; // Largura do adesivo/rolo em metros (ex: 1.06, 1.22, 1.52m)
+  comprimentoBobina?: number; // Metros lineares da bobina/rolo (ex: 50m, 100m)
+  quantidadeEstoque?: number; // Quantidade de bobinas/unidades em estoque
   notes?: string;
   isActive: boolean;
   createdAt?: string;
@@ -18,6 +21,7 @@ export interface MateriaPrimaConsumo {
   unit: string;
   quantity: number; // quantidade consumida por unidade do produto/serviço
   costPrice: number; // custo unitário da matéria-prima
+  larguraMaterial?: number; // Largura específica utilizada
   totalCost?: number; // quantity * costPrice
 }
 

@@ -50,6 +50,9 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
   // Selected materia prima to add in modal
   const [selectedMateriaPrimaId, setSelectedMateriaPrimaId] = useState<string>('');
   const [rawMaterialConsumedQty, setRawMaterialConsumedQty] = useState<number>(1);
+  const [calcLarguraCm, setCalcLarguraCm] = useState<number>(0);
+  const [calcAlturaCm, setCalcAlturaCm] = useState<number>(0);
+  const [calcModoAvulso, setCalcModoAvulso] = useState<boolean>(true);
 
   useEffect(() => {
     fetchProducts();
@@ -78,24 +81,28 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
         const fallback = await supabase.from('produtos').select('*');
         data = fallback.data;
       }
-      const mapped = (data || []).map((p: any) => ({
-        id: p.id,
-        name: p.name || p.nome || 'Produto',
-        code: p.code || p.codigo || '',
-        price: Number(p.sale_price ?? p.preco ?? p.price ?? 0),
-        costPrice: Number(p.cost_price ?? p.preco_custo ?? 0),
-        stock: Number(p.current_stock ?? p.estoque ?? p.stock ?? 0),
-        minStock: Number(p.min_stock ?? p.estoque_minimo ?? 0),
-        unitType: p.unit || p.unidade || p.unit_type || 'unit',
-        tipoItem: p.tipo_item || 'produto',
-        larguraRolo: p.largura_rolo ? Number(p.largura_rolo) : undefined,
-        comprimentoRolo: p.comprimento_rolo ? Number(p.comprimento_rolo) : undefined,
-        valorMinimo: p.valor_minimo ? Number(p.valor_minimo) : undefined,
-        controlaEstoque: p.controla_estoque ?? true,
-        category: p.category || p.categoria || 'Geral',
-        provider: p.provider || p.fornecedor || '',
-        materiasPrimas: p.materias_primas || p.materiasPrimas || []
-      }));
+      const mapped = (data || []).map((p: any) => {
+        const rawUnit = p.unit || p.unidade || p.unit_type || 'unit';
+        const normalizedUnit = (rawUnit === 'm2' || rawUnit === 'metro' || rawUnit === 'm') ? 'metro' : rawUnit;
+        return {
+          id: p.id,
+          name: p.name || p.nome || 'Produto',
+          code: p.code || p.codigo || '',
+          price: Number(p.sale_price ?? p.preco ?? p.price ?? 0),
+          costPrice: Number(p.cost_price ?? p.preco_custo ?? 0),
+          stock: Number(p.current_stock ?? p.estoque ?? p.stock ?? 0),
+          minStock: Number(p.min_stock ?? p.estoque_minimo ?? 0),
+          unitType: normalizedUnit,
+          tipoItem: p.tipo_item || 'produto',
+          larguraRolo: p.largura_rolo ? Number(p.largura_rolo) : undefined,
+          comprimentoRolo: p.comprimento_rolo ? Number(p.comprimento_rolo) : undefined,
+          valorMinimo: p.valor_minimo ? Number(p.valor_minimo) : undefined,
+          controlaEstoque: p.controla_estoque ?? true,
+          category: p.category || p.categoria || 'Geral',
+          provider: p.provider || p.fornecedor || '',
+          materiasPrimas: p.materias_primas || p.materiasPrimas || []
+        };
+      });
       setProducts(mapped);
     } catch (err) {
       console.error('Erro ao buscar produtos:', err);
@@ -719,7 +726,7 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
                     <option value="">-- Selecione a Matéria-Prima --</option>
                     {materiasPrimasList.map(mp => (
                       <option key={mp.id} value={mp.id}>
-                        {mp.name} (R$ {mp.costPrice.toFixed(2)} / {mp.unit})
+                        {mp.name} (R$ {mp.costPrice.toFixed(2)} / {mp.unit}) {mp.larguraMaterial ? `[${mp.larguraMaterial}m larg.]` : ''}
                       </option>
                     ))}
                   </select>
@@ -748,6 +755,90 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
                   </button>
                 </div>
               </div>
+
+              {/* Calculador de consumo para itens com dimensões (Ex: 50cm x 40cm) */}
+              {(() => {
+                const selectedMp = materiasPrimasList.find(m => m.id === selectedMateriaPrimaId);
+                if (selectedMp && selectedMp.unit === 'm') {
+                  const largBobina = selectedMp.larguraMaterial || 1.06;
+                  const altM = (calcAlturaCm || 0) / 100;
+                  const largM = (calcLarguraCm || 0) / 100;
+                  const pecasNaLargura = Math.max(1, Math.floor(largBobina / (largM || 1)));
+                  const consumoAvulso = altM; // puxa a altura toda da bobina
+                  const consumoLote = pecasNaLargura > 0 && altM > 0 ? Number((altM / pecasNaLargura).toFixed(2)) : altM;
+
+                  return (
+                    <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/10 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-primary-400">
+                          Calculadora de Peça (cm ➔ Metros Lineares)
+                        </span>
+                        <span className="text-[10px] text-white/40 font-mono">
+                          Bobina: {largBobina}m
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="number"
+                            placeholder="Largura"
+                            value={calcLarguraCm || ''}
+                            onChange={e => setCalcLarguraCm(parseFloat(e.target.value) || 0)}
+                            className="w-16 bg-black/40 border border-white/10 rounded px-2 py-1 text-white font-mono text-xs"
+                          />
+                          <span className="text-white/50 text-[10px]">cm ×</span>
+                          <input
+                            type="number"
+                            placeholder="Altura"
+                            value={calcAlturaCm || ''}
+                            onChange={e => setCalcAlturaCm(parseFloat(e.target.value) || 0)}
+                            className="w-16 bg-black/40 border border-white/10 rounded px-2 py-1 text-white font-mono text-xs"
+                          />
+                          <span className="text-white/50 text-[10px]">cm</span>
+                        </div>
+
+                        {calcLarguraCm > 0 && calcAlturaCm > 0 && (
+                          <div className="flex items-center gap-1.5 ml-auto">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCalcModoAvulso(true);
+                                setRawMaterialConsumedQty(consumoAvulso);
+                              }}
+                              className={`px-2 py-1 rounded text-[10px] font-bold border transition-all ${
+                                calcModoAvulso 
+                                  ? 'bg-amber-500/20 border-amber-500/40 text-amber-300' 
+                                  : 'bg-white/5 border-white/10 text-white/60 hover:text-white'
+                              }`}
+                              title="Puxa os 40cm da bobina para produzir 1 peça avulsa (com retalho)"
+                            >
+                              Avulsa: {consumoAvulso.toFixed(2)}m
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCalcModoAvulso(false);
+                                setRawMaterialConsumedQty(consumoLote);
+                              }}
+                              className={`px-2 py-1 rounded text-[10px] font-bold border transition-all ${
+                                !calcModoAvulso 
+                                  ? 'bg-primary-500/20 border-primary-500/40 text-primary-300' 
+                                  : 'bg-white/5 border-white/10 text-white/60 hover:text-white'
+                              }`}
+                              title={`Cabem ${pecasNaLargura} peças na largura da bobina. Consumo rateado.`}
+                            >
+                              Em Lote / Par: {consumoLote.toFixed(2)}m
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
 
               {/* List of configured raw materials */}
               {formData.materias_primas && formData.materias_primas.length > 0 ? (
