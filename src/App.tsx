@@ -47,10 +47,8 @@ import {
 } from 'lucide-react';
 import { ChevronRight } from 'lucide-react';
 
-// Painel de Comissões, aberto direto pelo menu lateral: mostra a lista de colaboradores
-// e entra direto no painel de cada um, sem pedir login (o admin já está autenticado no CRM).
-const ComissoesEmbedded = React.lazy(() => import('./comissoes/ComissoesAdminPanel'));
 import { NotifyHost, showAlert } from './lib/notify';
+import ComissoesAdminPanel from './comissoes/ComissoesAdminPanel';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   BarChart, 
@@ -234,9 +232,11 @@ const FinanceiroModule = ({ currentCompany, user }: { currentCompany: Company | 
       </div>
       <div className="flex-1 min-h-0">
         {subTab === 'funcionarios' ? (
-          <Suspense fallback={<div className="h-64 flex items-center justify-center text-white/40 text-sm">Carregando...</div>}>
-            <ComissoesEmbedded />
-          </Suspense>
+          <ModuleErrorBoundary label="Funcionários">
+            <div className="overflow-y-auto custom-scrollbar h-full">
+              <ComissoesAdminPanel />
+            </div>
+          </ModuleErrorBoundary>
         ) : subTab === 'materias_primas' ? (
           <ModuleErrorBoundary label="Matérias-Primas">
             <div className="overflow-y-auto custom-scrollbar h-full">

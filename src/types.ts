@@ -411,6 +411,7 @@ export interface InventoryItem extends BaseEntity {
   localizacao?: string;
   descricao?: string;
   valorMinimo?: number;
+  materiasPrimas?: MateriaPrimaConsumo[];
 }
 
 export interface PrintingService extends BaseEntity {
