@@ -1028,52 +1028,38 @@ export default function ComissoesAdminPanel() {
                   <div className="p-5 sm:p-6 space-y-4">
                     <div className="flex items-start justify-between gap-3">
                       {/* Avatar e Nome */}
-                      <div className="flex items-center gap-3.5 min-w-0">
+                      <div className="flex items-center gap-3.5 min-w-0 flex-1">
                         <div
-                          className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${getAvatarGradient(
+                          className={`w-11 h-11 rounded-2xl bg-gradient-to-br ${getAvatarGradient(
                             c.nome
-                          )} flex items-center justify-center text-white font-black text-base shadow-md shrink-0`}
+                          )} flex items-center justify-center text-white font-black text-sm shadow-md shrink-0`}
                         >
                           {getInitials(c.nome)}
                         </div>
 
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <h3 className="font-bold text-base text-[var(--text-main)] truncate" title={c.nome}>
-                              {c.nome}
-                            </h3>
-                          </div>
+                          <h3 className="font-bold text-base text-[var(--text-main)] truncate" title={c.nome}>
+                            {c.nome}
+                          </h3>
                           <p className="text-xs text-[var(--text-muted)] font-medium flex items-center gap-1.5 mt-0.5 truncate">
                             <Briefcase className="w-3 h-3 text-[var(--text-muted)] shrink-0" />
-                            <span>{c.cargo || 'Cargo não especificado'}</span>
+                            <span className="truncate">{c.cargo || 'Cargo não especificado'}</span>
                           </p>
                         </div>
                       </div>
 
-                      {/* Ações Rápidas no Topo */}
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          onClick={() => openEditForm(c)}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 border border-amber-500/40 text-[11px] font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm active:scale-95"
-                          title="Editar dados e comissões do funcionário"
-                        >
-                          <Edit3 className="w-3.5 h-3.5 text-amber-400" />
-                          <span>Editar</span>
-                        </button>
-
-                        {/* Status Badge */}
-                        <button
-                          onClick={() => handleToggleAtivo(c)}
-                          className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-xl border transition-all shrink-0 cursor-pointer ${
-                            c.ativo
-                              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20'
-                              : 'bg-rose-500/10 text-rose-400 border-rose-500/20 hover:bg-rose-500/20'
-                          }`}
-                          title={c.ativo ? 'Clique para desativar' : 'Clique para ativar'}
-                        >
-                          {c.ativo ? 'Ativo' : 'Inativo'}
-                        </button>
-                      </div>
+                      {/* Status Badge */}
+                      <button
+                        onClick={() => handleToggleAtivo(c)}
+                        className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-full border transition-all shrink-0 cursor-pointer ${
+                          c.ativo
+                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20'
+                            : 'bg-rose-500/10 text-rose-400 border-rose-500/20 hover:bg-rose-500/20'
+                        }`}
+                        title={c.ativo ? 'Clique para desativar' : 'Clique para ativar'}
+                      >
+                        {c.ativo ? 'Ativo' : 'Inativo'}
+                      </button>
                     </div>
 
                     {/* ========================================================= */}
@@ -1101,15 +1087,15 @@ export default function ComissoesAdminPanel() {
                       <div className="pt-2 border-t border-[var(--border-color)]/60 grid grid-cols-3 gap-1 text-[10px] text-center">
                         <div className="space-y-0.5">
                           <span className="text-[9px] font-semibold text-[var(--text-muted)] block">Salário Base</span>
-                          <span className="font-bold text-[var(--text-main)]">{formatCurrencyBR(stats.salarioBase)}</span>
+                          <span className="font-bold text-[var(--text-main)] truncate block">{formatCurrencyBR(stats.salarioBase)}</span>
                         </div>
                         <div className="space-y-0.5 border-x border-[var(--border-color)]/60">
                           <span className="text-[9px] font-semibold text-emerald-400 block">+ Comissões</span>
-                          <span className="font-bold text-emerald-400">+{formatCurrencyBR(stats.totalComissao)}</span>
+                          <span className="font-bold text-emerald-400 truncate block">+{formatCurrencyBR(stats.totalComissao)}</span>
                         </div>
                         <div className="space-y-0.5">
                           <span className="text-[9px] font-semibold text-rose-400 block">- Descontos</span>
-                          <span className="font-bold text-rose-400">-{formatCurrencyBR(stats.totalDescontos)}</span>
+                          <span className="font-bold text-rose-400 truncate block">-{formatCurrencyBR(stats.totalDescontos)}</span>
                         </div>
                       </div>
                     </div>
@@ -1117,12 +1103,12 @@ export default function ComissoesAdminPanel() {
                     {/* Barra de Progresso da Meta Semanal */}
                     {stats.metaSemanal > 0 && (
                       <div className="space-y-1.5 bg-[var(--bg-card-sec)] p-3 rounded-2xl border border-[var(--border-color)]">
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider flex items-center gap-1">
+                        <div className="flex items-center justify-between text-xs gap-2">
+                          <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider flex items-center gap-1 shrink-0">
                             <Target className="w-3 h-3 text-amber-400" />
-                            Meta de Produção
+                            Meta
                           </span>
-                          <span className="font-black text-amber-400 text-xs">
+                          <span className="font-black text-amber-400 text-xs truncate">
                             {formatCurrencyBR(stats.totalProducao)} / {formatCurrencyBR(stats.metaSemanal)} ({stats.percentualMeta.toFixed(0)}%)
                           </span>
                         </div>
@@ -1158,40 +1144,39 @@ export default function ComissoesAdminPanel() {
                   </div>
 
                   {/* Rodapé de Ações */}
-                  <div className="px-5 py-3.5 bg-[var(--bg-card-sec)]/80 border-t border-[var(--border-color)] flex items-center justify-between gap-2 flex-wrap">
-                    <div className="flex items-center gap-2">
+                  <div className="px-5 py-3.5 bg-[var(--bg-card-sec)]/80 border-t border-[var(--border-color)] flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => openEditForm(c)}
-                        className="flex items-center gap-1.5 h-9 px-3.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 border border-amber-500/40 text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm active:scale-95"
+                        className="flex items-center gap-1.5 h-8 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 border border-amber-500/40 text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm active:scale-95 shrink-0"
                         title="Editar funcionário"
                       >
-                        <Edit3 className="w-4 h-4 text-amber-400" />
+                        <Edit3 className="w-3.5 h-3.5 text-amber-400" />
                         <span>Editar</span>
                       </button>
 
                       <button
                         onClick={() => handleCopyAccess(c)}
-                        className="h-9 px-2.5 rounded-xl bg-[var(--bg-card)] hover:bg-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-main)] transition-all cursor-pointer border border-[var(--border-color)] flex items-center gap-1.5 text-xs font-bold"
+                        className="h-8 w-8 rounded-xl bg-[var(--bg-card)] hover:bg-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-main)] transition-all cursor-pointer border border-[var(--border-color)] flex items-center justify-center shrink-0"
                         title="Copiar dados de acesso (login e senha)"
                       >
-                        {copiedId === c.id ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-                        <span className="hidden sm:inline">Acesso</span>
+                        {copiedId === c.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                       </button>
 
                       <button
                         onClick={() => handleDelete(c)}
-                        className="h-9 w-9 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 transition-all cursor-pointer flex items-center justify-center"
+                        className="h-8 w-8 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 transition-all cursor-pointer flex items-center justify-center shrink-0"
                         title="Excluir funcionário"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
 
                     <button
                       onClick={() => setSelected(c)}
-                      className="flex items-center gap-1.5 h-9 px-3.5 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white text-xs font-black uppercase tracking-wider shadow-md shadow-red-600/20 transition-all cursor-pointer active:scale-95 group-hover:shadow-red-600/40"
+                      className="flex items-center gap-1.5 h-8 px-3.5 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white text-xs font-black uppercase tracking-wider shadow-md shadow-red-600/20 transition-all cursor-pointer active:scale-95 shrink-0"
                     >
-                      <span>Ver Painel</span>
+                      <span>Painel</span>
                       <ChevronRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
