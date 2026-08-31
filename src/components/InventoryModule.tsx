@@ -803,7 +803,14 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
                   <div className="sm:col-span-6">
                     <select
                       value={selectedMateriaPrimaId}
-                      onChange={e => setSelectedMateriaPrimaId(e.target.value)}
+                      onChange={e => {
+                        const newId = e.target.value;
+                        setSelectedMateriaPrimaId(newId);
+                        const chosenMp = materiasPrimasList.find(m => m.id === newId);
+                        if (chosenMp && (formData.unit === 'metro' || formData.unit === 'm')) {
+                          setRawMaterialConsumedQty(1);
+                        }
+                      }}
                       className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-primary-500/50"
                     >
                       <option value="">-- Selecione a Matéria-Prima --</option>
@@ -867,27 +874,87 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
                 </div>
               </div>
 
-              {/* Calculador de consumo para itens com dimensões (Ex: 50cm x 40cm) */}
+              {/* Calculador de consumo / Orientação de Consumo Linear e Peças */}
               {(() => {
                 const selectedMp = materiasPrimasList.find(m => m.id === selectedMateriaPrimaId);
-                if (selectedMp && selectedMp.unit === 'm') {
-                  const largBobina = selectedMp.larguraMaterial || 1.06;
+                const isLinearProduct = formData.unit === 'metro' || formData.unit === 'm';
+                const isEtiquetaProduct = formData.unit === 'etiqueta';
+
+                if (selectedMp && (selectedMp.unit === 'm' || selectedMp.larguraMaterial)) {
+                  const largBobina = selectedMp.larguraMaterial || 1.00;
+
+                  if (isLinearProduct) {
+                    return (
+                      <div className="p-3 rounded-xl bg-primary-500/10 border border-primary-500/30 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-primary-300 flex items-center gap-1.5">
+                            <span>📏</span>
+                            <span>Produto por Metro Linear (Consumo 1:1 Direto da Bobina)</span>
+                          </span>
+                          <span className="text-[11px] text-white/50 font-mono">
+                            Bobina: {largBobina}m de largura
+                          </span>
+                        </div>
+                        <p className="text-xs text-white/70 leading-relaxed">
+                          Como este produto é vendido por metro linear, <strong className="text-white">não é necessário calcular tamanho de peça</strong>.
+                          A cada 1 metro vendido na nota/PDV, o sistema consome exatamente 1 metro linear da bobina.
+                        </p>
+                        <div className="flex items-center justify-between pt-1 border-t border-white/5">
+                          <span className="text-[11px] text-white/60">
+                            Consumo padrão da bobina: <strong className="text-primary-300 font-mono">1.00 m</strong> por metro vendido
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setRawMaterialConsumedQty(1)}
+                            className="px-3 py-1 bg-primary-500 hover:bg-primary-400 text-slate-950 font-bold rounded-lg text-xs transition-all shadow-sm"
+                          >
+                            Definir 1.00 m linear
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  if (isEtiquetaProduct) {
+                    return (
+                      <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                            <span>🏷️</span>
+                            <span>Produto por Etiqueta (Consumo Fracionado do Rolo)</span>
+                          </span>
+                          <span className="text-[11px] text-white/50 font-mono">
+                            Bobina: {largBobina}m
+                          </span>
+                        </div>
+                        <p className="text-xs text-white/70 leading-relaxed">
+                          Informe a metragem linear consumida por 1 etiqueta (ou por milheiro). Na venda, o sistema multiplicará automaticamente pela quantidade de etiquetas vendidas.
+                        </p>
+                      </div>
+                    );
+                  }
+
+                  // Para produtos vendidos por Unidade (Peça de tamanho fixo ex: placa 100x100)
                   const altM = (calcAlturaCm || 0) / 100;
                   const largM = (calcLarguraCm || 0) / 100;
                   const pecasNaLargura = Math.max(1, Math.floor(largBobina / (largM || 1)));
-                  const consumoAvulso = altM; // puxa a altura toda da bobina
-                  const consumoLote = pecasNaLargura > 0 && altM > 0 ? Number((altM / pecasNaLargura).toFixed(2)) : altM;
+                  const consumoAvulso = altM;
+                  const consumoLote = pecasNaLargura > 0 && altM > 0 ? Number((altM / pecasNaLargura).toFixed(3)) : altM;
 
                   return (
-                    <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/10 space-y-2">
+                    <div className="p-3 rounded-xl bg-white/[0.03] border border-white/10 space-y-2.5">
                       <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-black uppercase tracking-wider text-primary-400">
-                          Calculadora de Peça (cm ➔ Metros Lineares)
+                        <span className="text-[11px] font-bold text-primary-400 flex items-center gap-1.5">
+                          <span>📐</span>
+                          <span>Calculadora de Peça Fixa (cm ➔ Metros Lineares da Bobina)</span>
                         </span>
-                        <span className="text-[10px] text-white/40 font-mono">
-                          Bobina: {largBobina}m
+                        <span className="text-[11px] text-white/50 font-mono">
+                          Bobina: {largBobina}m ({Math.round(largBobina * 100)}cm)
                         </span>
                       </div>
+                      <p className="text-[11px] text-white/50 leading-tight">
+                        Use para produtos vendidos por unidade (peça fixa) para calcular quantos metros lineares a peça consome.
+                      </p>
 
                       <div className="flex flex-wrap items-center gap-2 text-xs">
                         <div className="flex items-center gap-1">
@@ -896,17 +963,17 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
                             placeholder="Largura"
                             value={calcLarguraCm || ''}
                             onChange={e => setCalcLarguraCm(parseFloat(e.target.value) || 0)}
-                            className="w-16 bg-black/40 border border-white/10 rounded px-2 py-1 text-white font-mono text-xs"
+                            className="w-20 bg-black/40 border border-white/10 rounded-lg px-2.5 py-1.5 text-white font-mono text-xs outline-none focus:border-primary-500"
                           />
-                          <span className="text-white/50 text-[10px]">cm ×</span>
+                          <span className="text-white/50 text-xs">cm ×</span>
                           <input
                             type="number"
                             placeholder="Altura"
                             value={calcAlturaCm || ''}
                             onChange={e => setCalcAlturaCm(parseFloat(e.target.value) || 0)}
-                            className="w-16 bg-black/40 border border-white/10 rounded px-2 py-1 text-white font-mono text-xs"
+                            className="w-20 bg-black/40 border border-white/10 rounded-lg px-2.5 py-1.5 text-white font-mono text-xs outline-none focus:border-primary-500"
                           />
-                          <span className="text-white/50 text-[10px]">cm</span>
+                          <span className="text-white/50 text-xs">cm</span>
                         </div>
 
                         {calcLarguraCm > 0 && calcAlturaCm > 0 && (
@@ -917,14 +984,10 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
                                 setCalcModoAvulso(true);
                                 setRawMaterialConsumedQty(consumoAvulso);
                               }}
-                              className={`px-2 py-1 rounded text-[10px] font-bold border transition-all ${
-                                calcModoAvulso 
-                                  ? 'bg-amber-500/20 border-amber-500/40 text-amber-300' 
-                                  : 'bg-white/5 border-white/10 text-white/60 hover:text-white'
-                              }`}
-                              title="Puxa os 40cm da bobina para produzir 1 peça avulsa (com retalho)"
+                              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-all ${calcModoAvulso ? 'bg-amber-500/20 border-amber-500/40 text-amber-300' : 'bg-white/5 border-white/10 text-white/60 hover:text-white'}`}
+                              title="Puxa a altura total da bobina para produzir 1 peça avulsa"
                             >
-                              Avulsa: {consumoAvulso.toFixed(2)}m
+                              Avulsa: {consumoAvulso.toFixed(3)}m
                             </button>
 
                             <button
@@ -933,14 +996,10 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
                                 setCalcModoAvulso(false);
                                 setRawMaterialConsumedQty(consumoLote);
                               }}
-                              className={`px-2 py-1 rounded text-[10px] font-bold border transition-all ${
-                                !calcModoAvulso 
-                                  ? 'bg-primary-500/20 border-primary-500/40 text-primary-300' 
-                                  : 'bg-white/5 border-white/10 text-white/60 hover:text-white'
-                              }`}
+                              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-all ${!calcModoAvulso ? 'bg-primary-500/20 border-primary-500/40 text-primary-300' : 'bg-white/5 border-white/10 text-white/60 hover:text-white'}`}
                               title={`Cabem ${pecasNaLargura} peças na largura da bobina. Consumo rateado.`}
                             >
-                              Em Lote / Par: {consumoLote.toFixed(2)}m
+                              Em Lote ({pecasNaLargura} lado a lado): {consumoLote.toFixed(3)}m
                             </button>
                           </div>
                         )}
@@ -950,7 +1009,6 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
                 }
                 return null;
               })()}
-
               {/* List of configured raw materials */}
               {formData.materias_primas && formData.materias_primas.length > 0 ? (
                 <div className="space-y-1.5 pt-2">

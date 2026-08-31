@@ -1660,31 +1660,52 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
       <Modal
         isOpen={!!dimensionModalProduct}
         onClose={() => setDimensionModalProduct(null)}
-        title={`Medidas: ${dimensionModalProduct?.name}`}
+        title={dimensionModalProduct?.unitType === 'metro' ? `📏 Venda por Metro Linear: ${dimensionModalProduct?.name}` : `📐 Medidas do Item: ${dimensionModalProduct?.name}`}
       >
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-[10px] font-black uppercase text-white/50 block mb-1">Largura (m)</label>
-              <Input
-                placeholder="Ex: 1.50"
-                value={dimWidth}
-                onChange={e => setDimWidth(e.target.value)}
-              />
-            </div>
-            {dimensionModalProduct?.unitType === 'm2' && (
+          {dimensionModalProduct?.unitType === 'metro' ? (
+            <div className="p-3 bg-primary-500/10 border border-primary-500/30 rounded-xl space-y-3">
               <div>
-                <label className="text-[10px] font-black uppercase text-white/50 block mb-1">Altura (m)</label>
+                <label className="text-[10px] font-black uppercase text-primary-300 block mb-1">
+                  Metros Lineares Desejados (m)
+                </label>
                 <Input
-                  placeholder="Ex: 2.00"
-                  value={dimHeight}
-                  onChange={e => setDimHeight(e.target.value)}
+                  placeholder="Ex: 2.50 metros"
+                  value={dimWidth}
+                  onChange={e => setDimWidth(e.target.value)}
                 />
               </div>
-            )}
-          </div>
+              <div className="flex items-center justify-between text-xs text-white/70">
+                <span>Consumo da Bobina:</span>
+                <span className="font-bold text-primary-300 font-mono">
+                  {((parseFloat(dimWidth.replace(',', '.')) || 0) * (dimQuantity || 1)).toFixed(2)} m linear
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[10px] font-black uppercase text-white/50 block mb-1">Largura (m)</label>
+                <Input
+                  placeholder="Ex: 1.50"
+                  value={dimWidth}
+                  onChange={e => setDimWidth(e.target.value)}
+                />
+              </div>
+              {dimensionModalProduct?.unitType === 'm2' && (
+                <div>
+                  <label className="text-[10px] font-black uppercase text-white/50 block mb-1">Altura (m)</label>
+                  <Input
+                    placeholder="Ex: 2.00"
+                    value={dimHeight}
+                    onChange={e => setDimHeight(e.target.value)}
+                  />
+                </div>
+              )}
+            </div>
+          )}
           <div>
-            <label className="text-[10px] font-black uppercase text-white/50 block mb-1">Quantidade de Peças</label>
+            <label className="text-[10px] font-black uppercase text-white/50 block mb-1">Quantidade de Peças / Pedidos</label>
             <Input
               type="number"
               value={dimQuantity}
