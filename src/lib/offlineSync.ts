@@ -51,7 +51,7 @@ export function useOnlineStatus(): boolean {
 
 export interface QueuedOp {
   id: string;
-  type: 'insert' | 'update';
+  type: 'insert' | 'update' | 'delete';
   table: string;
   payload: Record<string, any>;
   match?: { column: string; value: any };
@@ -114,9 +114,13 @@ export async function flushOfflineQueue(
       if (op.type === 'insert') {
         const { error } = await supabase.from(op.table).insert(op.payload);
         if (error) throw error;
-      } else {
+      } else if (op.type === 'update') {
         if (!op.match) throw new Error('Operação de update sem filtro (match).');
         const { error } = await supabase.from(op.table).update(op.payload).eq(op.match.column, op.match.value);
+        if (error) throw error;
+      } else {
+        if (!op.match) throw new Error('Operação de delete sem filtro (match).');
+        const { error } = await supabase.from(op.table).delete().eq(op.match.column, op.match.value);
         if (error) throw error;
       }
       processed++;

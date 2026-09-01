@@ -318,16 +318,42 @@ export async function saveMaquina(
 }
 
 export async function deleteMaquina(id: string): Promise<boolean> {
-  try {
-    await supabase
-      .from('maquinas')
-      .delete()
-      .eq('id', id);
-  } catch (e) {
-    console.error('Erro na deleção de máquina:', e);
+  // Ids que nunca chegaram a ser gravados no servidor (default/seed/offline) —
+  // não há o que excluir remotamente, só limpa do cache local.
+  const isLocalOnly = id.startsWith('default-') || id.startsWith('seed-') || id.startsWith('maq-');
+  if (isLocalOnly) {
+    removeLocalItem(id);
+    return true;
   }
-  removeLocalItem(id);
-  return true;
+
+  try {
+    const { error } = await supabase.from('maquinas').delete().eq('id', id);
+    if (error) throw error;
+    // Exclusão confirmada no servidor: agora sim é seguro remover do cache local.
+    removeLocalItem(id);
+    return true;
+  } catch (err: any) {
+    const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+
+    if (!isOffline) {
+      // Online e o Supabase recusou (RLS, permissão, etc.) — não mascarar como sucesso,
+      // senão a máquina some só localmente e "reaparece" em outros PCs.
+      console.error('Erro ao excluir máquina no Supabase (online):', err);
+      throw new Error(err?.message || 'Não foi possível excluir no servidor. Tente novamente.');
+    }
+
+    // Realmente offline: remove localmente e enfileira a exclusão para quando a internet voltar.
+    console.warn('Sem conexão — excluindo máquina localmente e enfileirando sincronização:', err?.message);
+    removeLocalItem(id);
+    enqueueOp({
+      type: 'delete',
+      table: 'maquinas',
+      payload: {},
+      match: { column: 'id', value: id },
+      description: `Excluir máquina (id: ${id})`
+    });
+    return true;
+  }
 }
 
 export async function toggleMaquinaStatus(id: string, currentStatus: boolean): Promise<boolean> {
