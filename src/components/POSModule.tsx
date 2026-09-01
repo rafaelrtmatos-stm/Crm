@@ -30,7 +30,10 @@ import {
   Share2,
   Download,
   Receipt,
-  ArrowUpDown
+  ArrowUpDown,
+  Wifi,
+  WifiOff,
+  CloudUpload
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { showAlert, showConfirm } from '../lib/notify';
@@ -40,6 +43,17 @@ import { InventoryModule } from './InventoryModule';
 import { useApp } from '../AppContext';
 import { renderOrcamentoCanvas, renderOrcamentoSimplesCanvas } from '../lib/orcamentoDoc';
 import { downloadCanvasAsPdf, downloadCanvasAsPng } from '../lib/receipt';
+import { getCache, setCache, useOnlineStatus, enqueueOp, getQueue, flushOfflineQueue } from '../lib/offlineSync';
+
+// Chaves de cache local usadas para carregar o PDV instantaneamente offline
+const CACHE_KEYS = {
+  products: 'pos_products_cache',
+  customers: 'pos_customers_cache',
+  sales: 'pos_sales_cache',
+  services: 'pos_services_cache',
+  orcamentos: 'pos_orcamentos_cache',
+  contratos: 'pos_contratos_cache',
+} as const;
 
 function cn(...classes: (string | boolean | undefined | null)[]) {
   return classes.filter(Boolean).join(' ');
@@ -116,31 +130,39 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
   const [dimHeight, setDimHeight] = useState('');
   const [dimQuantity, setDimQuantity] = useState(1);
 
-  // Products and Insumos Data
-  const [products, setProducts] = useState<Product[]>([]);
+  // Products and Insumos Data — inicia direto do cache local para funcionar offline desde o primeiro render
+  const [products, setProducts] = useState<Product[]>(() => getCache(CACHE_KEYS.products, [] as Product[]));
   const [productSearch, setProductSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [isSyncing, setIsSyncing] = useState(false);
-  const [syncedAt, setSyncedAt] = useState<Date>(new Date());
+  const [syncedAt, setSyncedAt] = useState<Date>(() => {
+    const cached = getCache<string | null>('pos_last_synced_at', null);
+    return cached ? new Date(cached) : new Date();
+  });
+
+  // Conexão e fila de sincronização offline
+  const isOnline = useOnlineStatus();
+  const [pendingSyncCount, setPendingSyncCount] = useState(() => getQueue().length);
+  const [isFlushingQueue, setIsFlushingQueue] = useState(false);
 
   // Customers Data
-  const [customers, setCustomers] = useState<any[]>([]);
+  const [customers, setCustomers] = useState<any[]>(() => getCache(CACHE_KEYS.customers, [] as any[]));
   const [customerSearch, setCustomerSearch] = useState('');
 
   // Sales History Data
-  const [allSalesHistory, setAllSalesHistory] = useState<SaleOrder[]>([]);
+  const [allSalesHistory, setAllSalesHistory] = useState<SaleOrder[]>(() => getCache(CACHE_KEYS.sales, [] as SaleOrder[]));
   const [historySearch, setHistorySearch] = useState('');
   const [historyStatusFilter, setHistoryStatusFilter] = useState<string>('all');
   const [historyDateFrom, setHistoryDateFrom] = useState('');
   const [historyDateTo, setHistoryDateTo] = useState('');
 
   // Services / OS Data
-  const [servicesList, setServicesList] = useState<any[]>([]);
+  const [servicesList, setServicesList] = useState<any[]>(() => getCache(CACHE_KEYS.services, [] as any[]));
   const [serviceStatusFilter, setServiceStatusFilter] = useState('all');
 
   // Orcamentos & Contratos
-  const [orcamentosList, setOrcamentosList] = useState<any[]>([]);
-  const [contratosList, setContratosList] = useState<any[]>([]);
+  const [orcamentosList, setOrcamentosList] = useState<any[]>(() => getCache(CACHE_KEYS.orcamentos, [] as any[]));
+  const [contratosList, setContratosList] = useState<any[]>(() => getCache(CACHE_KEYS.contratos, [] as any[]));
 
   // Viewing Orcamento on POS
   const [viewingOrcamentoPos, setViewingOrcamentoPos] = useState<any | null>(null);
@@ -269,6 +291,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
 
   // Load Products
   const loadProducts = async () => {
+    if (!isOnline) return; // já está exibindo o cache local; não tenta rede
     try {
       let query = supabase.from('produtos').select('*').order('name', { ascending: true });
       let { data, error } = await query;
@@ -292,25 +315,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
       }));
       if (mapped.length > 0) {
         setProducts(mapped);
-        try { localStorage.setItem('pos_products_cache', JSON.stringify(mapped)); } catch (_) {}
-      } else {
-        const cached = localStorage.getItem('pos_products_cache') || localStorage.getItem('inventory_items_cache');
-        if (cached) {
-          try { setProducts(JSON.parse(cached)); } catch (_) {}
-        }
+        setCache(CACHE_KEYS.products, mapped);
       }
-      setSyncedAt(new Date());
+      const now = new Date();
+      setSyncedAt(now);
+      setCache('pos_last_synced_at', now.toISOString());
     } catch (err) {
-      console.warn('Erro ao carregar produtos:', err);
-      const cached = localStorage.getItem('pos_products_cache') || localStorage.getItem('inventory_items_cache');
-      if (cached) {
-        try { setProducts(JSON.parse(cached)); } catch (_) {}
-      }
+      console.warn('Erro ao carregar produtos (mantendo cache local):', err);
     }
   };
 
   // Load Customers
   const loadCustomers = async () => {
+    if (!isOnline) return;
     try {
       let query = supabase.from('clientes').select('*').order('full_name', { ascending: true });
       let { data, error } = await query;
@@ -329,26 +346,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
       }));
       if (mapped.length > 0) {
         setCustomers(mapped);
-        try { localStorage.setItem('pos_customers_cache', JSON.stringify(mapped)); } catch (_) {}
-      } else {
-        const cached = localStorage.getItem('pos_customers_cache') || localStorage.getItem('crm_contacts_cache');
-        if (cached) {
-          try { setCustomers(JSON.parse(cached)); } catch (_) {}
-        }
+        setCache(CACHE_KEYS.customers, mapped);
       }
     } catch (err) {
-      console.warn('Erro ao carregar clientes:', err);
-      const cached = localStorage.getItem('pos_customers_cache') || localStorage.getItem('crm_contacts_cache');
-      if (cached) {
-        try { setCustomers(JSON.parse(cached)); } catch (_) {}
-      } else {
-        setCustomers([]);
-      }
+      console.warn('Erro ao carregar clientes (mantendo cache local):', err);
     }
   };
 
   // Load Sales History
   const loadSalesHistory = async () => {
+    if (!isOnline) return;
     try {
       const { data, error } = await supabase.from('vendas').select('*').order('created_at', { ascending: false });
       if (error) throw error;
@@ -369,16 +376,23 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
         scheduledFor: v.scheduled_for,
         observacoes: v.observacoes,
         createdAt: v.created_at,
-        updatedAt: v.updated_at
+        updatedAt: v.updated_at,
+        // vendas ainda não confirmadas no servidor (feitas offline) continuam marcadas até o próximo fetch bem-sucedido
+        _pendingSync: false
       }));
-      setAllSalesHistory(mapped);
+      // Preserva no topo as vendas feitas offline que ainda não foram enviadas
+      const stillPending = allSalesHistory.filter((s: any) => s._pendingSync && !mapped.some((m: any) => m.id === s.id));
+      const merged = [...stillPending, ...mapped];
+      setAllSalesHistory(merged);
+      setCache(CACHE_KEYS.sales, merged);
     } catch (err) {
-      console.warn('Erro ao carregar histórico de vendas:', err);
+      console.warn('Erro ao carregar histórico de vendas (mantendo cache local):', err);
     }
   };
 
   // Load Services (OS)
   const loadServices = async () => {
+    if (!isOnline) return;
     try {
       // First try comissoes_servicos (commissioned/scheduled services table)
       const { data: comissoesData, error: comissoesError } = await supabase
@@ -388,7 +402,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
         .order('data', { ascending: false });
 
       if (!comissoesError && comissoesData && comissoesData.length > 0) {
-        setServicesList(comissoesData.map((s: any) => ({
+        const mapped = comissoesData.map((s: any) => ({
           id: s.id,
           title: s.servico_nome || 'Serviço',
           service_name: s.servico_nome || 'Serviço',
@@ -396,7 +410,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
           status: s.status || 'pedido_recebido',
           value: Number(s.valor_servico) || 0,
           created_at: s.data || s.created_at
-        })));
+        }));
+        setServicesList(mapped);
+        setCache(CACHE_KEYS.services, mapped);
         return;
       }
 
@@ -408,7 +424,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
         .order('created_at', { ascending: false });
 
       if (vendasData) {
-        setServicesList(vendasData.map((v: any) => ({
+        const mapped = vendasData.map((v: any) => ({
           id: v.id,
           title: v.items?.[0]?.name ? `${v.items[0].name}${v.items.length > 1 ? ` (+${v.items.length - 1})` : ''}` : 'Ordem de Serviço',
           service_name: v.items?.[0]?.name || 'Serviço',
@@ -416,39 +432,38 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
           status: v.service_status || (v.status === 'completed' ? 'entregue' : 'pedido_recebido'),
           value: Number(v.total) || 0,
           created_at: v.created_at
-        })));
+        }));
+        setServicesList(mapped);
+        setCache(CACHE_KEYS.services, mapped);
       }
     } catch (err) {
-      console.warn('Serviços carregados com fallback:', err);
-      setServicesList([]);
+      console.warn('Erro ao carregar serviços (mantendo cache local):', err);
     }
   };
 
   // Load Orcamentos
   const loadOrcamentos = async () => {
+    if (!isOnline) return;
     try {
       const { data, error } = await supabase.from('orcamentos').select('*').order('created_at', { ascending: false });
-      if (error) {
-        setOrcamentosList([]);
-        return;
-      }
+      if (error) return;
       setOrcamentosList(data || []);
+      setCache(CACHE_KEYS.orcamentos, data || []);
     } catch {
-      setOrcamentosList([]);
+      // mantém cache local
     }
   };
 
   // Load Contratos
   const loadContratos = async () => {
+    if (!isOnline) return;
     try {
       const { data, error } = await supabase.from('contratos').select('*').order('created_at', { ascending: false });
-      if (error) {
-        setContratosList([]);
-        return;
-      }
+      if (error) return;
       setContratosList(data || []);
+      setCache(CACHE_KEYS.contratos, data || []);
     } catch {
-      setContratosList([]);
+      // mantém cache local
     }
   };
 

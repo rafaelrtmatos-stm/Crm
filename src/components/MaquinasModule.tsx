@@ -11,7 +11,8 @@ import {
   fetchMaquinas,
   saveMaquina,
   deleteMaquina,
-  toggleMaquinaStatus
+  toggleMaquinaStatus,
+  subscribeToMaquinas
 } from '../lib/maquinasStorage';
 import * as XLSX from 'xlsx';
 
@@ -66,6 +67,12 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
 
   useEffect(() => {
     loadData();
+
+    // Atualiza automaticamente quando outra máquina (ou outro PC) muda os dados no Supabase
+    const unsubscribe = subscribeToMaquinas(() => {
+      loadData();
+    });
+    return () => unsubscribe();
   }, [currentCompany?.id]);
 
   const loadData = async () => {

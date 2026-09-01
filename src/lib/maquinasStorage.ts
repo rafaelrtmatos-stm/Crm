@@ -1,5 +1,6 @@
 import { supabase } from '../supabase';
 import { Maquina } from '../types';
+import { enqueueOp } from './offlineSync';
 
 const LOCAL_STORAGE_KEY = 'rpro_maquinas_cache';
 
@@ -259,8 +260,19 @@ export async function saveMaquina(
       return result;
     }
   } catch (err: any) {
-    console.warn('Erro ao salvar no Supabase, salvando localmente:', err.message);
+    const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+
+    if (!isOffline) {
+      // Estamos online e o Supabase recusou a operação (permissão, coluna, RLS, etc.)
+      // — isso NÃO deve ser mascarado como sucesso, senão a máquina "some" para outros PCs.
+      console.error('Erro ao salvar máquina no Supabase (online):', err);
+      throw new Error(err?.message || 'Não foi possível salvar no servidor. Tente novamente.');
+    }
+
+    // Realmente offline: guarda localmente e enfileira para sincronizar quando a internet voltar.
+    console.warn('Sem conexão — salvando máquina localmente e enfileirando sincronização:', err.message);
     const mockId = data.id || `maq-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+    const isUpdate = !!(data.id && !data.id.startsWith('default-') && !data.id.startsWith('seed-') && !data.id.startsWith('maq-'));
     const fallbackItem: Maquina = {
       id: mockId,
       companyId: companyId || 'rafa-arts',
@@ -283,10 +295,23 @@ export async function saveMaquina(
       updatedAt: new Date().toISOString(),
       createdAt: data.createdAt || new Date().toISOString()
     };
-    if (data.id) {
+    if (isUpdate) {
       updateLocalItem(fallbackItem);
+      enqueueOp({
+        type: 'update',
+        table: 'maquinas',
+        payload,
+        match: { column: 'id', value: data.id },
+        description: `Atualizar máquina "${fallbackItem.nome}"`
+      });
     } else {
       addLocalItem(fallbackItem);
+      enqueueOp({
+        type: 'insert',
+        table: 'maquinas',
+        payload: { ...payload, created_at: new Date().toISOString() },
+        description: `Cadastrar máquina "${fallbackItem.nome}"`
+      });
     }
     return fallbackItem;
   }
@@ -411,4 +436,20 @@ async function seedDefaultMaquinas(companyId?: string): Promise<Maquina[]> {
 
   saveLocalCache(list);
   return list;
+}
+
+/**
+ * Escuta mudanças em tempo real na tabela `maquinas` (inserts/updates/deletes
+ * feitos em qualquer PC) e chama `onChange` para que a tela recarregue a lista.
+ * Retorna uma função de "unsubscribe" para ser usada na limpeza do useEffect.
+ */
+export function subscribeToMaquinas(onChange: () => void): () => void {
+  const channel = supabase
+    .channel('maquinas-realtime-updates')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'maquinas' }, onChange)
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
 }
