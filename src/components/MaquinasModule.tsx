@@ -22,6 +22,32 @@ interface MaquinasModuleProps {
   onSelectMaquinaForPrecificacao?: (maquinaId: string) => void;
 }
 
+// Aceita tanto vírgula quanto ponto como separador decimal (padrão BR: 1,85 / 1,05 / 1,27)
+// e evita que o input trave/zere ao digitar números com casas decimais.
+const parseDecimal = (value: string): number => {
+  if (value === '' || value === undefined || value === null) return NaN;
+  let str = String(value).trim();
+  const lastComma = str.lastIndexOf(',');
+  const lastDot = str.lastIndexOf('.');
+  if (lastComma > -1 && lastComma > lastDot) {
+    // vírgula é o separador decimal: remove pontos de milhar e troca vírgula por ponto
+    str = str.replace(/\./g, '').replace(',', '.');
+  } else {
+    // ponto é o separador decimal (ou não há separador): remove vírgulas de milhar
+    str = str.replace(/,/g, '');
+  }
+  return parseFloat(str);
+};
+
+// Modos de impressão de referência: tempo para produzir 1,3 m²
+const MODOS_IMPRESSAO_PRESET = {
+  highSpeed: { label: 'High Speed', areaM2: 1.3, minutos: 14 },
+  standard: { label: 'Standard', areaM2: 1.3, minutos: 27 }
+};
+
+const calcularVelocidadeM2H = (areaM2: number, minutos: number) =>
+  Number(((areaM2 / minutos) * 60).toFixed(2));
+
 const TIPO_MAQUINA_LABELS: Record<string, string> = {
   impressao: 'Impressão Digital / Plotter',
   corte: 'Recorte Eletrônico / Vinil',
@@ -892,7 +918,7 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
                 </label>
                 <input
                   type="number"
-                  step="0.5"
+                  step="0.01"
                   min="0.1"
                   required
                   placeholder="Ex: 12"
@@ -900,6 +926,22 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
                   onChange={(e) => setFormData({ ...formData, velocidadeProducaoM2H: parseFloat(e.target.value) || 1 })}
                   className="w-full bg-slate-900 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500"
                 />
+                <div className="flex gap-1.5 mt-1.5">
+                  {(Object.entries(MODOS_IMPRESSAO_PRESET) as [keyof typeof MODOS_IMPRESSAO_PRESET, typeof MODOS_IMPRESSAO_PRESET['highSpeed']][]).map(([key, modo]) => {
+                    const velocidade = calcularVelocidadeM2H(modo.areaM2, modo.minutos);
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, velocidadeProducaoM2H: velocidade })}
+                        title={`${modo.label}: ${modo.areaM2}m² em ${modo.minutos}min`}
+                        className="flex-1 text-[9px] font-bold uppercase bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 rounded-lg px-2 py-1 transition-colors"
+                      >
+                        {modo.label} ({velocidade} m²/h)
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               <div>
@@ -907,12 +949,16 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
                   Tarifa de Energia (R$/kWh)
                 </label>
                 <input
-                  type="number"
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
                   min="0.1"
-                  placeholder="Ex: 0.98"
+                  placeholder="Ex: 1,27"
                   value={formData.tarifaKwh}
-                  onChange={(e) => setFormData({ ...formData, tarifaKwh: parseFloat(e.target.value) || 0.98 })}
+                  onChange={(e) => {
+                    const raw = e.target.value.replace(/[^0-9.,]/g, '');
+                    const parsed = parseDecimal(raw);
+                    setFormData({ ...formData, tarifaKwh: raw === '' ? 0 : (isNaN(parsed) ? formData.tarifaKwh : parsed) });
+                  }}
                   className="w-full bg-slate-900 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500"
                 />
               </div>
@@ -947,12 +993,15 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
                   Valor do Frasco/Galão (R$)
                 </label>
                 <input
-                  type="number"
-                  step="10"
-                  min="0"
-                  placeholder="Ex: 180"
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="Ex: 1,85"
                   value={formData.tintaValor}
-                  onChange={(e) => setFormData({ ...formData, tintaValor: parseFloat(e.target.value) || 0 })}
+                  onChange={(e) => {
+                    const raw = e.target.value.replace(/[^0-9.,]/g, '');
+                    const parsed = parseDecimal(raw);
+                    setFormData({ ...formData, tintaValor: raw === '' ? 0 : (isNaN(parsed) ? formData.tintaValor : parsed) });
+                  }}
                   className="w-full bg-slate-900 border border-white/15 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
                 />
               </div>
@@ -962,12 +1011,15 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
                   Consumo Médio de Tinta (ml/m²)
                 </label>
                 <input
-                  type="number"
-                  step="1"
-                  min="0"
-                  placeholder="Ex: 15"
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="Ex: 1,05"
                   value={formData.tintaConsumoMlM2}
-                  onChange={(e) => setFormData({ ...formData, tintaConsumoMlM2: parseFloat(e.target.value) || 0 })}
+                  onChange={(e) => {
+                    const raw = e.target.value.replace(/[^0-9.,]/g, '');
+                    const parsed = parseDecimal(raw);
+                    setFormData({ ...formData, tintaConsumoMlM2: raw === '' ? 0 : (isNaN(parsed) ? formData.tintaConsumoMlM2 : parsed) });
+                  }}
                   className="w-full bg-slate-900 border border-white/15 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
                 />
               </div>
