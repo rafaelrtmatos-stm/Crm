@@ -982,7 +982,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   const [showLinhaFaturamento, setShowLinhaFaturamento] = useState(true);
   const [showLinhaLucro, setShowLinhaLucro] = useState(true);
   const [revenueDataPoint, setRevenueDataPoint] = useState<any>(null);
-  const [revenueChartType, setRevenueChartType] = useState<'area' | 'bar'>('area');
+  const [revenueChartType, setRevenueChartType] = useState<'line' | 'bar'>('line');
    const [realSales, setRealSales] = useState<SaleOrder[]>([]);
   const [services, setServices] = useState<any[]>([]);
   const [inventory, setInventory] = useState<any[]>([]);
@@ -1794,8 +1794,8 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
 
       <div className={cn("grid gap-8", user?.isAdmin ? "grid-cols-1 lg:grid-cols-3" : "grid-cols-1")}>
         {user?.isAdmin && (
-          <GlassCard className="lg:col-span-2 p-8 border-white/5 bg-white/[0.02] space-y-6">
-             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <GlassCard className="lg:col-span-2 p-6 sm:p-8 border-white/5 bg-white/[0.02] space-y-6">
+             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                 <div>
                    <div className="flex items-center gap-2">
                       <h3 className="text-xl font-black text-white italic tracking-tighter uppercase">Análise de Performance</h3>
@@ -1803,17 +1803,35 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                          {period}
                       </span>
                    </div>
-                   <p className="text-xs text-white/30 font-bold tracking-widest uppercase">Evolução do Faturamento por Período</p>
+                   <p className="text-xs text-white/40 font-bold tracking-widest uppercase">Evolução do Faturamento por Período</p>
                 </div>
-                <div className="flex items-center gap-2">
+                
+                <div className="flex flex-wrap items-center gap-2">
+                   {/* Filtros de Período integrados diretamente no Card */}
+                   <div className="flex bg-white/5 p-1 rounded-xl border border-white/5">
+                      {['Hoje', 'Ontem', '7 dias', '30 dias', 'Personalizado'].map(p => (
+                         <button 
+                            key={p}
+                            onClick={() => setPeriod(p)}
+                            className={cn(
+                               "px-2.5 py-1 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer",
+                               (period === p || (p === '7 dias' && period === 'Semana')) ? "bg-primary-500 text-slate-900 shadow-md font-extrabold" : "text-white/40 hover:text-white"
+                            )}
+                         >
+                            {p}
+                         </button>
+                      ))}
+                   </div>
+
+                   {/* Toggle Linha / Barras */}
                    <div className="flex items-center bg-white/5 p-1 rounded-xl border border-white/5">
                       <button
-                         onClick={() => setRevenueChartType('area')}
+                         onClick={() => setRevenueChartType('line')}
                          className={cn(
                             "px-2.5 py-1 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all flex items-center gap-1 cursor-pointer",
-                            revenueChartType === 'area' ? "bg-primary-500 text-slate-900 shadow-md" : "text-white/40 hover:text-white"
+                            revenueChartType === 'line' ? "bg-primary-500 text-slate-900 shadow-md font-extrabold" : "text-white/40 hover:text-white"
                          )}
-                         title="Gráfico de Linha / Área"
+                         title="Gráfico de Linha"
                       >
                          <LineChartIcon size={13} />
                          <span>Linha</span>
@@ -1822,7 +1840,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                          onClick={() => setRevenueChartType('bar')}
                          className={cn(
                             "px-2.5 py-1 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all flex items-center gap-1 cursor-pointer",
-                            revenueChartType === 'bar' ? "bg-primary-500 text-slate-900 shadow-md" : "text-white/40 hover:text-white"
+                            revenueChartType === 'bar' ? "bg-primary-500 text-slate-900 shadow-md font-extrabold" : "text-white/40 hover:text-white"
                          )}
                          title="Gráfico de Barras"
                       >
@@ -1831,6 +1849,46 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                       </button>
                    </div>
                    <Button variant="ghost" icon={Maximize2} onClick={() => setIsRevenueModalOpen(true)} title="Expandir análise detalhada" />
+                </div>
+             </div>
+
+             {/* Seletor de data para período personalizado */}
+             {period === 'Personalizado' && (
+                <div className="flex flex-wrap gap-2 items-center bg-white/5 p-2 rounded-xl border border-white/5 animate-in slide-in-from-top-1">
+                   <span className="text-[9px] font-black uppercase text-white/40">Início:</span>
+                   <input 
+                     type="date" 
+                     className="bg-transparent text-[10px] font-bold text-white outline-none px-2 py-1 rounded bg-white/5 border border-white/10" 
+                     value={customRange.start}
+                     onChange={(e) => setCustomRange(prev => ({ ...prev, start: e.target.value }))}
+                   />
+                   <span className="text-[9px] font-black uppercase text-white/40">Fim:</span>
+                   <input 
+                     type="date" 
+                     className="bg-transparent text-[10px] font-bold text-white outline-none px-2 py-1 rounded bg-white/5 border border-white/10" 
+                     value={customRange.end}
+                     onChange={(e) => setCustomRange(prev => ({ ...prev, end: e.target.value }))}
+                   />
+                </div>
+             )}
+
+             {/* Métricas rápidas do Card */}
+             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="p-3 bg-white/[0.03] border border-white/5 rounded-xl">
+                   <p className="text-[8px] font-black uppercase text-white/40 tracking-wider">Faturamento Período</p>
+                   <p className="text-base font-black text-emerald-400">R$ {totalRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                </div>
+                <div className="p-3 bg-white/[0.03] border border-white/5 rounded-xl">
+                   <p className="text-[8px] font-black uppercase text-white/40 tracking-wider">Total de Pedidos</p>
+                   <p className="text-base font-black text-white">{filteredOrders.length}</p>
+                </div>
+                <div className="p-3 bg-white/[0.03] border border-white/5 rounded-xl">
+                   <p className="text-[8px] font-black uppercase text-white/40 tracking-wider">Média Diária</p>
+                   <p className="text-base font-black text-primary-300">R$ {(chartData.length > 0 ? (totalRevenue / chartData.length) : 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                </div>
+                <div className="p-3 bg-white/[0.03] border border-white/5 rounded-xl">
+                   <p className="text-[8px] font-black uppercase text-white/40 tracking-wider">Exibição Ativa</p>
+                   <p className="text-base font-black text-white capitalize">{revenueChartType === 'bar' ? 'Gráfico de Barras' : 'Gráfico de Linha'}</p>
                 </div>
              </div>
 
@@ -1885,12 +1943,19 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                 </div>
              )}
              
-             <div className="h-[350px] w-full">
+             <div className="w-full min-w-0 h-[340px] relative">
                 <ChartErrorBoundary>
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer 
+                   width="100%" 
+                   height={340} 
+                   minWidth={100} 
+                   minHeight={340}
+                   initialDimension={{ width: 700, height: 340 }}
+                >
                    {revenueChartType === 'bar' ? (
                       <BarChart 
                         data={chartData}
+                        margin={{ top: 12, right: 15, left: -10, bottom: 0 }}
                         onClick={(data: any) => {
                            if (data?.activePayload?.[0]?.payload) {
                               setRevenueDataPoint(data.activePayload[0].payload);
@@ -1898,13 +1963,24 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                         }}
                       >
                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGridColor} />
-                         <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: chartTextColor, fontWeight: 800 }} />
-                         <YAxis hide domain={[0, (dataMax: number) => Math.max(Number(dataMax) || 0, 100)]} />
+                         <XAxis 
+                            dataKey="day" 
+                            axisLine={false} 
+                            tickLine={false} 
+                            tick={{ fontSize: 10, fill: chartTextColor, fontWeight: 700 }} 
+                         />
+                         <YAxis 
+                            stroke={chartTextColor} 
+                            fontSize={10} 
+                            tickLine={false} 
+                            axisLine={false} 
+                            tickFormatter={(val) => Number(val) >= 1000 ? `R$ ${(Number(val)/1000).toFixed(1)}k` : `R$ ${val}`} 
+                         />
                          <Tooltip 
                             cursor={{ fill: 'rgba(255,255,255,0.04)' }}
                             content={({ active, payload }: any) => {
                                if (active && payload && payload.length) {
-                                  const data = payload[0].payload;
+                                  const data = payload[0]?.payload;
                                   if (!data) return null;
                                   return (
                                      <div className="p-3 bg-slate-900/95 border border-white/10 rounded-2xl shadow-2xl backdrop-blur-md space-y-1.5 min-w-[190px]">
@@ -1939,15 +2015,16 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                          />
                          <Bar 
                             dataKey="total" 
-                            fill="#4cc9f0" 
+                            fill="#38bdf8" 
+                            minPointSize={5}
                             radius={[6, 6, 0, 0]}
                             cursor="pointer"
                          >
                             {chartData.map((entry, index) => (
                                <Cell 
                                   key={`cell-${index}`} 
-                                  fill={revenueDataPoint?.day === entry.day ? '#38bdf8' : '#4cc9f0'}
-                                  opacity={revenueDataPoint && revenueDataPoint.day !== entry.day ? 0.45 : 0.85}
+                                  fill={revenueDataPoint?.day === entry.day ? '#0ea5e9' : '#38bdf8'}
+                                  opacity={revenueDataPoint && revenueDataPoint.day !== entry.day ? 0.45 : (entry.total > 0 ? 0.95 : 0.35)}
                                />
                             ))}
                          </Bar>
@@ -1955,6 +2032,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                    ) : (
                       <AreaChart 
                         data={chartData}
+                        margin={{ top: 12, right: 15, left: -10, bottom: 0 }}
                         onClick={(data: any) => {
                            if (data?.activePayload?.[0]?.payload) {
                               setRevenueDataPoint(data.activePayload[0].payload);
@@ -1963,18 +2041,29 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                       >
                          <defs>
                             <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                               <stop offset="5%" stopColor="#4cc9f0" stopOpacity={0.35}/>
-                               <stop offset="95%" stopColor="#4cc9f0" stopOpacity={0.02}/>
+                               <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.4}/>
+                               <stop offset="95%" stopColor="#38bdf8" stopOpacity={0.02}/>
                             </linearGradient>
                          </defs>
                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGridColor} />
-                         <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: chartTextColor, fontWeight: 800 }} />
-                         <YAxis hide domain={[0, (dataMax: number) => Math.max(Number(dataMax) || 0, 100)]} />
+                         <XAxis 
+                            dataKey="day" 
+                            axisLine={false} 
+                            tickLine={false} 
+                            tick={{ fontSize: 10, fill: chartTextColor, fontWeight: 700 }} 
+                         />
+                         <YAxis 
+                            stroke={chartTextColor} 
+                            fontSize={10} 
+                            tickLine={false} 
+                            axisLine={false} 
+                            tickFormatter={(val) => Number(val) >= 1000 ? `R$ ${(Number(val)/1000).toFixed(1)}k` : `R$ ${val}`} 
+                         />
                          <Tooltip 
-                            cursor={{ stroke: '#4cc9f0', strokeWidth: 1, strokeDasharray: '5 5' }}
+                            cursor={{ stroke: '#38bdf8', strokeWidth: 1, strokeDasharray: '4 4' }}
                             content={({ active, payload }: any) => {
                                if (active && payload && payload.length) {
-                                  const data = payload[0].payload;
+                                  const data = payload[0]?.payload;
                                   if (!data) return null;
                                   return (
                                      <div className="p-3 bg-slate-900/95 border border-white/10 rounded-2xl shadow-2xl backdrop-blur-md space-y-1.5 min-w-[190px]">
@@ -2008,14 +2097,15 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                             }}
                          />
                          <Area 
-                           type="monotone" 
-                           dataKey="total" 
-                           stroke="#4cc9f0" 
-                           strokeWidth={3} 
-                           fillOpacity={1} 
-                           fill="url(#colorRevenue)"
-                           dot={{ r: 3.5, fill: '#4cc9f0', stroke: '#0f172a', strokeWidth: 1.5 }}
-                           activeDot={{ r: 6, fill: '#38bdf8', stroke: '#ffffff', strokeWidth: 2 }}
+                            type="monotone" 
+                            dataKey="total" 
+                            stroke="#38bdf8" 
+                            strokeWidth={3} 
+                            fillOpacity={1} 
+                            fill="url(#colorRevenue)"
+                            dot={{ r: 4, fill: '#38bdf8', stroke: '#0f172a', strokeWidth: 1.5 }}
+                            activeDot={{ r: 7, fill: '#38bdf8', stroke: '#ffffff', strokeWidth: 2 }}
+                            cursor="pointer"
                          />
                       </AreaChart>
                    )}
