@@ -31,9 +31,10 @@ import {
   ShoppingCart,
   Droplet,
   Cpu,
-  Gauge
+  Gauge,
+  PackagePlus
 } from 'lucide-react';
-import { Company, AppUser, Product, Maquina, MaquinaCalculos, calcularCustosMaquina, calcularTempoProducaoMinutos, VELOCIDADE_CABECA_MIN_MMS, VELOCIDADE_CABECA_MAX_MMS } from '../types';
+import { Company, AppUser, Product, Maquina, MaquinaCalculos, MateriaPrima, calcularCustosMaquina, calcularTempoProducaoMinutos, VELOCIDADE_CABECA_MIN_MMS, VELOCIDADE_CABECA_MAX_MMS } from '../types';
 import { supabase } from '../supabase';
 import { showAlert, showConfirm } from '../lib/notify';
 import { Badge, Button, Modal } from './SharedUI';
@@ -105,6 +106,7 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
 
   // Lista de máquinas dinâmicas cadastradas
   const [maquinas, setMaquinas] = useState<Maquina[]>([]);
+  const [materiasPrimasList, setMateriasPrimasList] = useState<MateriaPrima[]>([]);
 
   const [custosEmpresa, setCustosEmpresa] = useState<CustosFixosEmpresa>(() => {
     try {
@@ -209,6 +211,7 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
 
         const rawMateriasPrimas = await fetchMateriasPrimas(currentCompany?.id);
         const activeMPs = (rawMateriasPrimas || []).filter(m => m.isActive);
+        setMateriasPrimasList(activeMPs);
 
         const mappedFromMPs: Product[] = activeMPs.map(mp => {
           const custoM2 = mp.custoPorM2 || (mp.larguraMaterial && mp.larguraMaterial > 0 ? mp.costPrice / mp.larguraMaterial : mp.costPrice);
@@ -552,18 +555,33 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
   };
 
   // Adicionar Insumo Extra
-  const handleAddInsumoExtra = () => {
-    if (!novoInsumoNome.trim() || Number(novoInsumoValor) <= 0) return;
+  const handleAddInsumoExtra = (customNome?: string, customValor?: number) => {
+    const nomeFinal = (customNome !== undefined ? customNome : novoInsumoNome).trim();
+    const valorFinal = Number(customValor !== undefined ? customValor : novoInsumoValor);
+
+    if (!nomeFinal || valorFinal <= 0) return;
+
     setInsumosExtras(prev => [
       ...prev,
       {
-        id: 'insumo-' + Date.now(),
-        nome: novoInsumoNome.trim(),
-        valor: Number(novoInsumoValor)
+        id: 'insumo-' + Date.now() + '-' + Math.random().toString(36).substring(2, 5),
+        nome: nomeFinal,
+        valor: valorFinal
       }
     ]);
-    setNovoInsumoNome('');
-    setNovoInsumoValor('');
+    if (customNome === undefined) {
+      setNovoInsumoNome('');
+      setNovoInsumoValor('');
+    }
+  };
+
+  const handleSelectMateriaPrimaAsInsumo = (mpId: string) => {
+    if (!mpId) return;
+    const mp = materiasPrimasList.find(m => m.id === mpId);
+    if (!mp) return;
+    const preco = Number(mp.costPrice) || 1;
+    setNovoInsumoNome(`${mp.name} (${mp.unit || 'un'})`);
+    setNovoInsumoValor(preco);
   };
 
   const handleRemoveInsumoExtra = (id: string) => {
@@ -678,17 +696,17 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-28 lg:pb-6">
       {/* Header Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900/60 p-4 sm:p-6 rounded-2xl sm:rounded-3xl border border-white/10 shadow-xl">
         <div>
           <div className="flex items-center gap-2.5 mb-1.5">
-            <div className="w-10 h-10 rounded-xl bg-primary-500/10 border border-primary-500/20 flex items-center justify-center text-primary-400">
+            <div className="w-10 h-10 rounded-xl bg-primary-500/10 border border-primary-500/20 flex items-center justify-center text-primary-400 shrink-0">
               <Calculator size={22} />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-xl sm:text-2xl font-black text-white italic tracking-tight uppercase">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-lg sm:text-2xl font-black text-white italic tracking-tight uppercase">
                   Motor de Precificação Inteligente
                 </h2>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
@@ -702,33 +720,33 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
           </div>
         </div>
 
-        {/* Action Buttons Header */}
-        <div className="flex items-center gap-2 flex-wrap">
+        {/* Action Buttons Header - Fully Responsive on Mobile */}
+        <div className="grid grid-cols-3 sm:flex sm:items-center gap-1.5 sm:gap-2 w-full sm:w-auto">
           <button
             onClick={() => setIsConfigModalOpen(true)}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold bg-white/5 hover:bg-white/10 text-white border border-white/10 transition-colors shadow-sm"
+            className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 px-2.5 sm:px-3.5 py-2 rounded-xl text-[11px] sm:text-xs font-bold bg-white/5 hover:bg-white/10 text-white border border-white/10 transition-colors shadow-sm text-center"
             title="Parâmetros de Custos Fixos da Empresa"
           >
-            <Settings size={14} className="text-primary-400" />
-            <span>Custos Fixos</span>
+            <Settings size={14} className="text-primary-400 shrink-0" />
+            <span className="truncate">Custos Fixos</span>
           </button>
 
           <button
             onClick={() => setIsMaquinasModalOpen(true)}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold bg-white/5 hover:bg-white/10 text-white border border-white/10 transition-colors shadow-sm"
+            className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 px-2.5 sm:px-3.5 py-2 rounded-xl text-[11px] sm:text-xs font-bold bg-white/5 hover:bg-white/10 text-white border border-white/10 transition-colors shadow-sm text-center"
             title="Gerenciar Máquinas e Custos Operacionais"
           >
-            <Wrench size={14} className="text-cyan-400" />
-            <span>Máquinas ({maquinas.filter(m => m.ativa).length})</span>
+            <Wrench size={14} className="text-cyan-400 shrink-0" />
+            <span className="truncate">Máquinas ({maquinas.filter(m => m.ativa).length})</span>
           </button>
 
           <button
             onClick={() => setIsHistoricoModalOpen(true)}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold bg-white/5 hover:bg-white/10 text-white border border-white/10 transition-colors shadow-sm"
+            className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 px-2.5 sm:px-3.5 py-2 rounded-xl text-[11px] sm:text-xs font-bold bg-white/5 hover:bg-white/10 text-white border border-white/10 transition-colors shadow-sm text-center"
             title="Ver Histórico de Precificações Salvas"
           >
-            <FileText size={14} className="text-indigo-400" />
-            <span>Histórico ({historico.length})</span>
+            <FileText size={14} className="text-indigo-400 shrink-0" />
+            <span className="truncate">Histórico ({historico.length})</span>
           </button>
         </div>
       </div>
@@ -816,15 +834,15 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
 
             {/* Modo de Cálculo & Dimensões */}
             <div className="space-y-3 pt-1">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <label className="block text-xs font-bold text-white/70 uppercase">
                   Dimensões & Formato de Cálculo
                 </label>
-                <div className="flex bg-slate-800 p-1 rounded-xl border border-white/10 text-xs">
+                <div className="grid grid-cols-3 sm:flex bg-slate-800 p-1 rounded-xl border border-white/10 text-xs w-full sm:w-auto">
                   <button
                     type="button"
                     onClick={() => setModoCalculo('m2')}
-                    className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
+                    className={`px-2 sm:px-2.5 py-1.5 sm:py-1 rounded-lg font-bold text-center transition-all ${
                       modoCalculo === 'm2' ? 'bg-primary-500 text-white shadow-md' : 'text-white/50 hover:text-white'
                     }`}
                   >
@@ -833,7 +851,7 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
                   <button
                     type="button"
                     onClick={() => setModoCalculo('metro')}
-                    className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
+                    className={`px-2 sm:px-2.5 py-1.5 sm:py-1 rounded-lg font-bold text-center transition-all ${
                       modoCalculo === 'metro' ? 'bg-primary-500 text-white shadow-md' : 'text-white/50 hover:text-white'
                     }`}
                   >
@@ -842,7 +860,7 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
                   <button
                     type="button"
                     onClick={() => setModoCalculo('unit')}
-                    className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
+                    className={`px-2 sm:px-2.5 py-1.5 sm:py-1 rounded-lg font-bold text-center transition-all ${
                       modoCalculo === 'unit' ? 'bg-primary-500 text-white shadow-md' : 'text-white/50 hover:text-white'
                     }`}
                   >
@@ -966,59 +984,147 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
             </div>
 
             {/* Insumos & Acabamentos Extras Opcionais */}
-            <div className="pt-2 border-t border-white/10 space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-[11px] font-bold text-white/60 uppercase">
-                  + Insumos Adicionais & Acabamentos (Ilhós, Bastão, Dupla Face, etc.)
-                </label>
-                {custoTotalInsumosExtras > 0 && (
-                  <span className="text-[11px] text-primary-400 font-bold">
+            <div className="pt-3 border-t border-white/10 space-y-3 bg-slate-950/40 p-3 sm:p-4 rounded-2xl border border-white/5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                <div className="flex items-center gap-2">
+                  <PackagePlus size={16} className="text-primary-400 shrink-0" />
+                  <label className="text-xs font-black text-white uppercase tracking-wider">
+                    Insumos Adicionais & Acabamentos
+                  </label>
+                </div>
+                {custoTotalInsumosExtras > 0 ? (
+                  <span className="text-xs text-primary-300 font-bold bg-primary-500/20 px-2.5 py-0.5 rounded-full border border-primary-500/30 w-fit">
                     Total Insumos: R$ {custoTotalInsumosExtras.toFixed(2)}
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-white/40 italic">
+                    Opcional (ilhós, bastão, dupla face, corte...)
                   </span>
                 )}
               </div>
 
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="Ex: Ilhós a cada 20cm, Bastão e Ponteira..."
-                  value={novoInsumoNome}
-                  onChange={(e) => setNovoInsumoNome(e.target.value)}
-                  className="flex-1 bg-slate-800 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none"
-                />
-                <input
-                  type="number"
-                  placeholder="R$ Custo"
-                  value={novoInsumoValor}
-                  onChange={(e) => setNovoInsumoValor(e.target.value === '' ? '' : parseFloat(e.target.value))}
-                  className="w-24 bg-slate-800 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={handleAddInsumoExtra}
-                  className="px-3 py-1.5 bg-primary-600 hover:bg-primary-500 text-white rounded-xl text-xs font-bold transition-colors"
-                >
-                  <Plus size={14} />
-                </button>
+              {/* Botões rápidos de acabamentos comuns */}
+              <div className="space-y-1.5">
+                <span className="text-[10px] uppercase font-bold text-white/40 block">
+                  Sugestões Rápidas:
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { nome: 'Ilhós Metálico', valor: 5.00 },
+                    { nome: 'Fita Dupla Face', valor: 8.00 },
+                    { nome: 'Bastão e Ponteira', valor: 12.00 },
+                    { nome: 'Bainha e Solda Térmica', valor: 6.00 },
+                    { nome: 'Refile / Corte Especial', valor: 5.00 },
+                    { nome: 'Verniz / Laminação', valor: 15.00 },
+                  ].map(sug => (
+                    <button
+                      key={sug.nome}
+                      type="button"
+                      onClick={() => handleAddInsumoExtra(sug.nome, sug.valor)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white/5 hover:bg-white/15 text-white/80 hover:text-white border border-white/10 transition-colors active:scale-95"
+                    >
+                      <Plus size={11} className="text-primary-400" />
+                      <span>{sug.nome} (+R$ {sug.valor.toFixed(0)})</span>
+                    </button>
+                  ))}
+                </div>
               </div>
 
+              {/* Seletor rápido de Matéria-Prima cadastrada (se houver) */}
+              {materiasPrimasList.length > 0 && (
+                <div className="space-y-1">
+                  <span className="text-[10px] uppercase font-bold text-white/40 block">
+                    Puxar de Matéria-Prima Cadastrada no Estoque:
+                  </span>
+                  <select
+                    onChange={(e) => {
+                      handleSelectMateriaPrimaAsInsumo(e.target.value);
+                      e.target.value = '';
+                    }}
+                    defaultValue=""
+                    className="w-full bg-slate-800/90 border border-white/15 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-2 focus:ring-primary-500/50"
+                  >
+                    <option value="" disabled>-- Selecione uma Matéria-Prima cadastrada --</option>
+                    {materiasPrimasList.map(mp => (
+                      <option key={mp.id} value={mp.id}>
+                        {mp.name} — Custo R$ {Number(mp.costPrice || 0).toFixed(2)} / {mp.unit || 'un'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Formulário de Inclusão Manual com Botão de Destaque */}
+              <div className="space-y-2 pt-1">
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <div className="flex-1 min-w-0">
+                    <input
+                      type="text"
+                      placeholder="Descrição do insumo (ex: Tubo de Alumínio, Madeira...)"
+                      value={novoInsumoNome}
+                      onChange={(e) => setNovoInsumoNome(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddInsumoExtra();
+                        }
+                      }}
+                      className="w-full bg-slate-800 border border-white/15 rounded-xl px-3.5 py-2 text-xs text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-primary-500/50"
+                    />
+                  </div>
+                  <div className="w-full sm:w-32">
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="R$ Custo"
+                      value={novoInsumoValor}
+                      onChange={(e) => setNovoInsumoValor(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddInsumoExtra();
+                        }
+                      }}
+                      className="w-full bg-slate-800 border border-white/15 rounded-xl px-3.5 py-2 text-xs text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-primary-500/50"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleAddInsumoExtra()}
+                    disabled={!novoInsumoNome.trim() || Number(novoInsumoValor) <= 0}
+                    className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-4 py-2 bg-primary-600 hover:bg-primary-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-md shadow-primary-600/20 transition-all active:scale-95 shrink-0"
+                  >
+                    <Plus size={15} />
+                    <span>Adicionar Insumo</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Lista de Insumos Adicionados */}
               {insumosExtras.length > 0 && (
-                <div className="flex flex-wrap gap-2 pt-1">
-                  {insumosExtras.map(item => (
-                    <span
-                      key={item.id}
-                      className="inline-flex items-center gap-1.5 bg-white/5 border border-white/10 px-2.5 py-1 rounded-lg text-xs text-white/80"
-                    >
-                      {item.nome}: <strong>R$ {Number(item.valor).toFixed(2)}</strong>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveInsumoExtra(item.id)}
-                        className="text-rose-400 hover:text-rose-300 ml-1"
+                <div className="space-y-1.5 pt-2 border-t border-white/10">
+                  <span className="text-[10px] font-bold text-white/50 uppercase block">
+                    Insumos Inclusos nesta Precificação ({insumosExtras.length}):
+                  </span>
+                  <div className="flex flex-wrap gap-2">
+                    {insumosExtras.map(item => (
+                      <span
+                        key={item.id}
+                        className="inline-flex items-center gap-2 bg-primary-950/60 border border-primary-500/30 px-3 py-1.5 rounded-xl text-xs text-white shadow-sm"
                       >
-                        <Trash2 size={12} />
-                      </button>
-                    </span>
-                  ))}
+                        <span className="font-medium text-white/90">{item.nome}</span>
+                        <span className="font-black text-emerald-400">+ R$ {Number(item.valor).toFixed(2)}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveInsumoExtra(item.id)}
+                          className="text-white/40 hover:text-rose-400 p-0.5 rounded transition-colors ml-0.5"
+                          title="Remover insumo"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -1586,6 +1692,48 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
 
         </div>
 
+      </div>
+
+      {/* ========================================================================= */}
+      {/* BARRA FLUTUANTE INFERIOR NO MOBILE (PREÇO + AÇÕES RÁPIDAS SEMPRE VISÍVEIS) */}
+      {/* ========================================================================= */}
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-slate-950/95 backdrop-blur-lg border-t border-primary-500/30 p-3 shadow-2xl shadow-black/80">
+        <div className="flex items-center justify-between gap-2 max-w-7xl mx-auto">
+          {/* Valor sugerido */}
+          <div className="min-w-0">
+            <span className="text-[10px] uppercase font-bold text-white/50 block leading-tight">
+              Preço Sugerido ({margemAlvoDesejada}%)
+            </span>
+            <span className="text-lg font-black text-white truncate block">
+              R$ {precoRecomendado.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+          </div>
+
+          {/* Botões de Ação Direta */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              onClick={handleCopiarPropostaComercial}
+              className="p-2.5 bg-primary-600 active:bg-primary-500 text-white rounded-xl font-black text-xs shadow-md transition-colors"
+              title="Copiar Proposta WhatsApp"
+            >
+              {copiedNotification ? <Check size={16} /> : <Share2 size={16} />}
+            </button>
+            <button
+              onClick={handleSalvarPrecificacao}
+              className="p-2.5 bg-slate-800 active:bg-slate-700 text-white border border-white/15 rounded-xl font-bold text-xs transition-colors"
+              title="Salvar Orçamento"
+            >
+              <Save size={16} />
+            </button>
+            <button
+              onClick={handleEnviarParaPDV}
+              className="flex items-center gap-1.5 py-2.5 px-3.5 bg-emerald-600 active:bg-emerald-500 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-md transition-colors"
+            >
+              <ShoppingCart size={15} />
+              <span>PDV</span>
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* ========================================================================= */}

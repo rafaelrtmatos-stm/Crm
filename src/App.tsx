@@ -200,11 +200,12 @@ const FinanceiroModule = ({ currentCompany, user }: { currentCompany: Company | 
 
   return (
     <div className="h-full flex flex-col min-h-0">
-      <div className="flex flex-wrap items-center gap-2 mb-4 shrink-0">
+      {/* Navegação de Sub-Abas do Módulo Financeiro / Operacional */}
+      <div className="flex items-center gap-1.5 sm:gap-2 mb-3 sm:mb-4 shrink-0 overflow-x-auto no-scrollbar pb-1 -mx-2 px-2 sm:mx-0 sm:px-0">
         <button
           onClick={() => setSubTab('funcionarios')}
           className={cn(
-            "flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors border",
+            "flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors border shrink-0 whitespace-nowrap",
             subTab === 'funcionarios'
               ? "bg-primary-500 text-white border-white/20 shadow-lg shadow-primary-500/20"
               : "bg-white/5 text-white/50 border-white/10 hover:bg-white/10 hover:text-white"
@@ -215,7 +216,7 @@ const FinanceiroModule = ({ currentCompany, user }: { currentCompany: Company | 
         <button
           onClick={() => setSubTab('materias_primas')}
           className={cn(
-            "flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors border",
+            "flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors border shrink-0 whitespace-nowrap",
             subTab === 'materias_primas'
               ? "bg-primary-500 text-white border-white/20 shadow-lg shadow-primary-500/20"
               : "bg-white/5 text-white/50 border-white/10 hover:bg-white/10 hover:text-white"
@@ -226,7 +227,7 @@ const FinanceiroModule = ({ currentCompany, user }: { currentCompany: Company | 
         <button
           onClick={() => setSubTab('maquinas')}
           className={cn(
-            "flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors border",
+            "flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors border shrink-0 whitespace-nowrap",
             subTab === 'maquinas'
               ? "bg-cyan-600 text-white border-white/20 shadow-lg shadow-cyan-600/20"
               : "bg-white/5 text-white/50 border-white/10 hover:bg-white/10 hover:text-white"
@@ -237,9 +238,9 @@ const FinanceiroModule = ({ currentCompany, user }: { currentCompany: Company | 
         <button
           onClick={() => setSubTab('precificacao')}
           className={cn(
-            "flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors border",
+            "flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors border shrink-0 whitespace-nowrap",
             subTab === 'precificacao'
-              ? "bg-primary-500 text-white border-white/20 shadow-lg shadow-primary-500/20"
+              ? "bg-emerald-600 text-white border-white/20 shadow-lg shadow-emerald-600/20"
               : "bg-white/5 text-white/50 border-white/10 hover:bg-white/10 hover:text-white"
           )}
         >
