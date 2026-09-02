@@ -331,7 +331,7 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
   const descontoPedido = order.discountValue || 0;
   const tableRows = Math.max(items.length, 3);
   const rowHeights = Array.from({ length: tableRows }, (_, i) =>
-    rowHeight + (items[i]?.observacao ? obsRowExtra : 0) + (items[i]?.dimensions ? dimRowExtra : 0)
+    rowHeight + (items[i]?.observacao ? obsRowExtra : 0) + ((items[i]?.dimensions || (!items[i]?.area && items[i]?.consumoEstoque)) ? dimRowExtra : 0)
   );
   const totalRowsHeight = rowHeights.reduce((a, b) => a + b, 0);
   const marginX = 28;
@@ -544,11 +544,16 @@ export async function renderReceiptCanvas({ order, companyName, customerPhone, c
       ctx.font = `800 10.5px ${FONT}`;
       ctx.fillText(`R$ ${subtotal.toFixed(2).replace('.', ',')}`, width - marginX - 16, rowY + 21);
       let extraLineY = rowY + 33;
-      if (item.dimensions) {
+      const dimStr = item.dimensions || '';
+      const linearSuffix = (!dimStr.toLowerCase().includes('linear') && !item.area && item.consumoEstoque)
+        ? ` (${Number(item.consumoEstoque).toFixed(2).replace('.', ',')}m linear)`
+        : '';
+      const fullDim = dimStr ? `${dimStr}${linearSuffix}` : (linearSuffix ? linearSuffix.trim() : '');
+      if (fullDim) {
         ctx.textAlign = 'left';
         ctx.fillStyle = ACCENT;
         ctx.font = `700 8.5px ${FONT}`;
-        ctx.fillText(`Medida: ${item.dimensions}`, marginX + 74, extraLineY);
+        ctx.fillText(`Medida: ${fullDim}`, marginX + 74, extraLineY);
         extraLineY += 12;
       }
       if (item.observacao) {

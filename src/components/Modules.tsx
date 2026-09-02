@@ -975,13 +975,14 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   }, [user?.isAdmin]);
   const [widgets, setWidgets] = useState<DashboardWidget[]>(DEFAULT_WIDGETS);
   const [selectedWidget, setSelectedWidget] = useState<DashboardWidget | null>(null);
-  const [period, setPeriod] = useState('Semana');
+  const [period, setPeriod] = useState('7 dias');
   const [customRange, setCustomRange] = useState({ start: '', end: '' });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isRevenueModalOpen, setIsRevenueModalOpen] = useState(false);
   const [showLinhaFaturamento, setShowLinhaFaturamento] = useState(true);
   const [showLinhaLucro, setShowLinhaLucro] = useState(true);
   const [revenueDataPoint, setRevenueDataPoint] = useState<any>(null);
+  const [revenueChartType, setRevenueChartType] = useState<'line' | 'bar'>('line');
    const [realSales, setRealSales] = useState<SaleOrder[]>([]);
   const [services, setServices] = useState<any[]>([]);
   const [inventory, setInventory] = useState<any[]>([]);
@@ -1096,7 +1097,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       const end = new Date(start); end.setHours(23, 59, 59, 999);
       return { start, end };
     }
-    if (period === 'Semana') {
+    if (period === 'Semana' || period === '7 dias') {
       const dayOfWeek = now.getDay(); // 0=domingo, 1=segunda, ..., 6=sabado
       const start = new Date(now); start.setDate(now.getDate() - dayOfWeek); start.setHours(0, 0, 0, 0);
       const end = new Date(start); end.setDate(start.getDate() + 6); end.setHours(23, 59, 59, 999);
@@ -1125,7 +1126,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         yesterday.setDate(now.getDate() - 1);
         return orderDate.toDateString() === yesterday.toDateString();
       }
-      if (period === 'Semana') {
+      if (period === 'Semana' || period === '7 dias') {
         // Semana comeca no domingo
         const dayOfWeek = now.getDay(); // 0=domingo, 1=segunda, ..., 6=sabado
         const startOfWeek = new Date(now);
@@ -1207,35 +1208,106 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   const chartGridColor = isLightTheme ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.05)';
 
   const chartData = useMemo(() => {
-    const groups: Record<string, any> = {};
     const isValidDate = (d: Date) => d instanceof Date && !isNaN(d.getTime());
     const { start: rangeStart, end: rangeEnd } = getPeriodRange();
+    const DIA_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+    // Inicializa os pontos do gráfico de forma contínua para que sempre exista uma linha desenhada
+    const points: { day: string; key: string; total: number; sales: number; svcs: number; entries: number }[] = [];
+    const indexByKey: Record<string, number> = {};
+
+    if (period === 'Hoje' || period === 'Ontem') {
+      const horas = ['08h', '10h', '12h', '14h', '16h', '18h', '20h'];
+      horas.forEach((h, idx) => {
+        points.push({ day: h, key: h, total: 0, sales: 0, svcs: 0, entries: 0 });
+        indexByKey[h] = idx;
+      });
+    } else if (period === 'Semana' || period === '7 dias') {
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(rangeStart);
+        d.setDate(rangeStart.getDate() + i);
+        const k = format(d, 'dd/MM');
+        const dayLabel = `${DIA_SEMANA[d.getDay()]} (${k})`;
+        indexByKey[k] = points.length;
+        points.push({ day: dayLabel, key: k, total: 0, sales: 0, svcs: 0, entries: 0 });
+      }
+    } else if (period === '30 dias') {
+      for (let i = 0; i <= 30; i++) {
+        const d = new Date(rangeStart);
+        d.setDate(rangeStart.getDate() + i);
+        if (d > rangeEnd) break;
+        const k = format(d, 'dd/MM');
+        indexByKey[k] = points.length;
+        points.push({ day: k, key: k, total: 0, sales: 0, svcs: 0, entries: 0 });
+      }
+    } else { // Personalizado
+      const diffDays = Math.max(1, Math.round((rangeEnd.getTime() - rangeStart.getTime()) / 86400000));
+      if (diffDays <= 60) {
+        for (let i = 0; i <= diffDays; i++) {
+          const d = new Date(rangeStart);
+          d.setDate(rangeStart.getDate() + i);
+          if (d > rangeEnd) break;
+          const k = format(d, 'dd/MM');
+          indexByKey[k] = points.length;
+          points.push({ day: k, key: k, total: 0, sales: 0, svcs: 0, entries: 0 });
+        }
+      } else {
+        const curr = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), 1);
+        const endMonth = new Date(rangeEnd.getFullYear(), rangeEnd.getMonth(), 1);
+        while (curr <= endMonth) {
+          const k = format(curr, 'MM/yyyy');
+          const label = format(curr, 'MM/yy');
+          indexByKey[k] = points.length;
+          points.push({ day: label, key: k, total: 0, sales: 0, svcs: 0, entries: 0 });
+          curr.setMonth(curr.getMonth() + 1);
+        }
+      }
+    }
+
+    const getKeyForDate = (dateObj: Date): string => {
+      if (period === 'Hoje' || period === 'Ontem') {
+        const h = dateObj.getHours();
+        const clampedH = Math.min(20, Math.max(8, Math.floor(h / 2) * 2));
+        return `${String(clampedH).padStart(2, '0')}h`;
+      }
+      const diffDays = Math.max(1, Math.round((rangeEnd.getTime() - rangeStart.getTime()) / 86400000));
+      if (period === 'Personalizado' && diffDays > 60) {
+        return format(dateObj, 'MM/yyyy');
+      }
+      return format(dateObj, 'dd/MM');
+    };
+
     // Faturamento por data de CADA pagamento (nao criacao da nota), dentro do intervalo real
-    // do periodo selecionado — mesma logica ja usada nos cards do topo
     realSales.filter(o => o.status !== 'canceled').flatMap(getRevenueEventsForSale).forEach(ev => {
       const dateObj = new Date(ev.date);
       if (!isValidDate(dateObj) || dateObj < rangeStart || dateObj > rangeEnd) return;
-      const day = format(dateObj, 'dd/MM');
-      if (!groups[day]) groups[day] = { day, total: 0, sales: 0, svcs: 0, entries: 0 };
-      groups[day].total += ev.value;
+      const k = getKeyForDate(dateObj);
+      if (indexByKey[k] !== undefined) {
+        points[indexByKey[k]].total += ev.value;
+      }
     });
+
     // Contagem de vendas/entradas continua pela data de CRIACAO (quantos pedidos nasceram no periodo)
     filteredOrders.forEach(o => {
       const dateObj = new Date(o.createdAt);
       if (!isValidDate(dateObj)) return;
-      const day = format(dateObj, 'dd/MM');
-      if (!groups[day]) groups[day] = { day, total: 0, sales: 0, svcs: 0, entries: 0 };
-      groups[day].sales += 1;
-      if (o.status === 'pending') groups[day].entries += 1;
+      const k = getKeyForDate(dateObj);
+      if (indexByKey[k] !== undefined) {
+        points[indexByKey[k]].sales += 1;
+        if (o.status === 'pending') points[indexByKey[k]].entries += 1;
+      }
     });
+
     services.forEach(s => {
       const date = s.createdAt instanceof Timestamp ? s.createdAt.toDate() : new Date(s.createdAt);
       if (!isValidDate(date) || date < rangeStart || date > rangeEnd) return;
-      const day = format(date, 'dd/MM');
-      if (groups[day]) groups[day].svcs += 1;
-      else groups[day] = { day, total: 0, sales: 0, svcs: 1, entries: 0 };
+      const k = getKeyForDate(date);
+      if (indexByKey[k] !== undefined) {
+        points[indexByKey[k]].svcs += 1;
+      }
     });
-    return Object.values(groups).sort((a, b) => a.day.localeCompare(b.day));
+
+    return points;
   }, [filteredOrders, services, realSales, period, customRange]);
   const IconMap: Record<string, any> = {
     TrendingUp, Target, Clock, MessageSquare, ShoppingBag, Users, FileText, BarChart2, PieChartIcon, Trophy, Activity, Timer, CalendarDays, Wrench, Home
@@ -1467,7 +1539,9 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       eventos.forEach(ev => {
         const d = new Date(ev.date);
         if (isNaN(d.getTime()) || d < inicioPeriodo || d > fimPeriodo) return;
-        const key = (analisePeriodo === 'ano' || diasNoPeriodo > 60) ? format(d, 'MM/yyyy') : format(d, 'dd/MM');
+        const key = analisePeriodo === 'hoje'
+          ? `${String(Math.min(20, Math.max(8, Math.floor(d.getHours() / 2) * 2))).padStart(2, '0')}h`
+          : (analisePeriodo === 'ano' || diasNoPeriodo > 60) ? format(d, 'MM/yyyy') : format(d, 'dd/MM');
         if (!porBucket[key]) porBucket[key] = { faturamento: 0, custo: 0 };
         porBucket[key].faturamento += ev.value;
         const fatiaCusto = totalRecebidoPedido > 0 ? custoPedido * (ev.value / totalRecebidoPedido) : 0;
@@ -1478,13 +1552,21 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     comissoesLancadas.filter(c => !c.origemNotaId).forEach(c => {
       const d = new Date(`${c.data}T00:00:00`);
       if (isNaN(d.getTime()) || d < inicioPeriodo || d > fimPeriodo) return;
-      const key = (analisePeriodo === 'ano' || diasNoPeriodo > 60) ? format(d, 'MM/yyyy') : format(d, 'dd/MM');
+      const key = analisePeriodo === 'hoje'
+        ? `${String(Math.min(20, Math.max(8, Math.floor(d.getHours() / 2) * 2))).padStart(2, '0')}h`
+        : (analisePeriodo === 'ano' || diasNoPeriodo > 60) ? format(d, 'MM/yyyy') : format(d, 'dd/MM');
       if (!porBucket[key]) porBucket[key] = { faturamento: 0, custo: 0 };
       porBucket[key].custo += c.valor;
     });
 
     const linhaGrafico: { day: string; faturamento: number; lucro: number }[] = [];
-    if (analisePeriodo === 'ano' || diasNoPeriodo > 60) {
+    if (analisePeriodo === 'hoje') {
+      const horas = ['08h', '10h', '12h', '14h', '16h', '18h', '20h'];
+      horas.forEach(h => {
+        const v = porBucket[h] || { faturamento: 0, custo: 0 };
+        linhaGrafico.push({ day: h, faturamento: v.faturamento, lucro: Math.max(0, v.faturamento - v.custo) });
+      });
+    } else if (analisePeriodo === 'ano' || diasNoPeriodo > 60) {
       const curr = new Date(inicioPeriodo.getFullYear(), inicioPeriodo.getMonth(), 1);
       const endMonth = new Date(fimPeriodo.getFullYear(), fimPeriodo.getMonth(), 1);
       while (curr <= endMonth) {
@@ -1586,13 +1668,13 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
 
             <div className="flex flex-col gap-2 items-end">
               <div className="flex bg-white/5 p-1 rounded-xl border border-white/5">
-                {['Hoje', 'Ontem', 'Semana', '30 dias', 'Personalizado'].map(p => (
+                {['Hoje', 'Ontem', '7 dias', '30 dias', 'Personalizado'].map(p => (
                   <button 
                     key={p}
                     onClick={() => setPeriod(p)}
                     className={cn(
                       "px-4 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all",
-                      period === p ? "bg-primary-500 text-slate-900 shadow-lg" : "text-white/40 hover:text-white"
+                      (period === p || (p === '7 dias' && period === 'Semana')) ? "bg-primary-500 text-slate-900 shadow-lg" : "text-white/40 hover:text-white"
                     )}
                   >
                     {p}
@@ -1719,44 +1801,321 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
 
       <div className={cn("grid gap-8", user?.isAdmin ? "grid-cols-1 lg:grid-cols-3" : "grid-cols-1")}>
         {user?.isAdmin && (
-          <GlassCard className="lg:col-span-2 p-8 border-white/5 bg-white/[0.02]">
-             <div className="flex items-center justify-between mb-8">
+          <GlassCard className="lg:col-span-2 p-6 sm:p-8 border-white/5 bg-white/[0.02] space-y-6">
+             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                 <div>
-                   <h3 className="text-xl font-black text-white italic tracking-tighter uppercase">Análise de Performance</h3>
-                   <p className="text-xs text-white/30 font-bold tracking-widest uppercase">Evolução do Faturamento por Período</p>
+                   <div className="flex items-center gap-2">
+                      <h3 className="text-xl font-black text-white italic tracking-tighter uppercase">Análise de Performance</h3>
+                      <span className="px-2 py-0.5 rounded-md text-[9px] font-black uppercase bg-primary-500/10 text-primary-400 border border-primary-500/20">
+                         {period}
+                      </span>
+                   </div>
+                   <p className="text-xs text-white/40 font-bold tracking-widest uppercase">Evolução do Faturamento por Período</p>
                 </div>
-                <Button variant="ghost" icon={Maximize2} onClick={() => setIsRevenueModalOpen(true)} />
+                
+                <div className="flex flex-wrap items-center gap-2">
+                   {/* Filtros de Período integrados diretamente no Card */}
+                   <div className="flex bg-white/5 p-1 rounded-xl border border-white/5">
+                      {['Hoje', 'Ontem', '7 dias', '30 dias', 'Personalizado'].map(p => (
+                         <button 
+                            key={p}
+                            onClick={() => setPeriod(p)}
+                            className={cn(
+                               "px-2.5 py-1 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer",
+                               (period === p || (p === '7 dias' && period === 'Semana')) ? "bg-primary-500 text-slate-900 shadow-md font-extrabold" : "text-white/40 hover:text-white"
+                            )}
+                         >
+                            {p}
+                         </button>
+                      ))}
+                   </div>
+
+                   {/* Toggle Linha / Barras */}
+                   <div className="flex items-center bg-white/5 p-1 rounded-xl border border-white/5">
+                      <button
+                         onClick={() => setRevenueChartType('line')}
+                         className={cn(
+                            "px-2.5 py-1 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all flex items-center gap-1 cursor-pointer",
+                            revenueChartType === 'line' ? "bg-primary-500 text-slate-900 shadow-md font-extrabold" : "text-white/40 hover:text-white"
+                         )}
+                         title="Gráfico de Linha"
+                      >
+                         <LineChartIcon size={13} />
+                         <span>Linha</span>
+                      </button>
+                      <button
+                         onClick={() => setRevenueChartType('bar')}
+                         className={cn(
+                            "px-2.5 py-1 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all flex items-center gap-1 cursor-pointer",
+                            revenueChartType === 'bar' ? "bg-primary-500 text-slate-900 shadow-md font-extrabold" : "text-white/40 hover:text-white"
+                         )}
+                         title="Gráfico de Barras"
+                      >
+                         <BarChartIcon size={13} />
+                         <span>Barras</span>
+                      </button>
+                   </div>
+                   <Button variant="ghost" icon={Maximize2} onClick={() => setIsRevenueModalOpen(true)} title="Expandir análise detalhada" />
+                </div>
              </div>
+
+             {/* Seletor de data para período personalizado */}
+             {period === 'Personalizado' && (
+                <div className="flex flex-wrap gap-2 items-center bg-white/5 p-2 rounded-xl border border-white/5 animate-in slide-in-from-top-1">
+                   <span className="text-[9px] font-black uppercase text-white/40">Início:</span>
+                   <input 
+                     type="date" 
+                     className="bg-transparent text-[10px] font-bold text-white outline-none px-2 py-1 rounded bg-white/5 border border-white/10" 
+                     value={customRange.start}
+                     onChange={(e) => setCustomRange(prev => ({ ...prev, start: e.target.value }))}
+                   />
+                   <span className="text-[9px] font-black uppercase text-white/40">Fim:</span>
+                   <input 
+                     type="date" 
+                     className="bg-transparent text-[10px] font-bold text-white outline-none px-2 py-1 rounded bg-white/5 border border-white/10" 
+                     value={customRange.end}
+                     onChange={(e) => setCustomRange(prev => ({ ...prev, end: e.target.value }))}
+                   />
+                </div>
+             )}
+
+             {/* Métricas rápidas do Card */}
+             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="p-3 bg-white/[0.03] border border-white/5 rounded-xl">
+                   <p className="text-[8px] font-black uppercase text-white/40 tracking-wider">Faturamento Período</p>
+                   <p className="text-base font-black text-emerald-400">R$ {totalRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                </div>
+                <div className="p-3 bg-white/[0.03] border border-white/5 rounded-xl">
+                   <p className="text-[8px] font-black uppercase text-white/40 tracking-wider">Total de Pedidos</p>
+                   <p className="text-base font-black text-white">{filteredOrders.length}</p>
+                </div>
+                <div className="p-3 bg-white/[0.03] border border-white/5 rounded-xl">
+                   <p className="text-[8px] font-black uppercase text-white/40 tracking-wider">Média Diária</p>
+                   <p className="text-base font-black text-primary-300">R$ {(chartData.length > 0 ? (totalRevenue / chartData.length) : 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                </div>
+                <div className="p-3 bg-white/[0.03] border border-white/5 rounded-xl">
+                   <p className="text-[8px] font-black uppercase text-white/40 tracking-wider">Exibição Ativa</p>
+                   <p className="text-base font-black text-white capitalize">{revenueChartType === 'bar' ? 'Gráfico de Barras' : 'Gráfico de Linha'}</p>
+                </div>
+             </div>
+
+             {/* Painel Granular do Ponto Selecionado ao Clicar no Gráfico */}
+             {revenueDataPoint && (
+                <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-primary-500/10 border border-primary-500/20 rounded-2xl animate-in fade-in slide-in-from-top-2">
+                   <div className="flex items-center gap-3">
+                      <div className="p-2 bg-primary-500/20 rounded-xl text-primary-400">
+                         <CalendarDays size={18} />
+                      </div>
+                      <div>
+                         <div className="flex items-center gap-2">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-primary-300">Ponto Selecionado</p>
+                            <span className="text-xs font-black text-white">{revenueDataPoint.day}</span>
+                         </div>
+                         <p className="text-[11px] font-bold text-white/60">
+                            Faturamento Diário: <span className="text-emerald-400 font-black">R$ {Number(revenueDataPoint.total || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                         </p>
+                      </div>
+                   </div>
+                   <div className="flex items-center gap-3 text-xs font-bold text-white/80 flex-wrap">
+                      <div className="text-center px-2.5 py-1 bg-white/5 rounded-lg border border-white/5">
+                         <span className="block text-[8px] font-black uppercase text-white/40">Vendas</span>
+                         <span className="text-white font-black">{revenueDataPoint.sales || 0}</span>
+                      </div>
+                      <div className="text-center px-2.5 py-1 bg-white/5 rounded-lg border border-white/5">
+                         <span className="block text-[8px] font-black uppercase text-white/40">Serviços</span>
+                         <span className="text-primary-300 font-black">{revenueDataPoint.svcs || 0}</span>
+                      </div>
+                      <div className="text-center px-2.5 py-1 bg-white/5 rounded-lg border border-white/5">
+                         <span className="block text-[8px] font-black uppercase text-white/40">Entradas</span>
+                         <span className="text-amber-400 font-black">{revenueDataPoint.entries || 0}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 ml-1">
+                         <Button 
+                            size="sm" 
+                            variant="outline" 
+                            className="text-[9px] h-7 px-2.5 uppercase font-black"
+                            onClick={() => setIsRevenueModalOpen(true)}
+                         >
+                            Ver Análise
+                         </Button>
+                         <button 
+                            onClick={() => setRevenueDataPoint(null)}
+                            className="text-white/40 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-all text-xs font-bold cursor-pointer"
+                            title="Fechar seleção"
+                         >
+                            ✕
+                         </button>
+                      </div>
+                   </div>
+                </div>
+             )}
              
-             <div className="h-[350px] w-full">
+             <div className="w-full min-w-0 h-[340px] relative">
                 <ChartErrorBoundary>
-                <ResponsiveContainer width="100%" height="100%">
-                   <AreaChart 
-                     data={chartData.length > 0 ? chartData : [
-                       { day: 'Seg', total: 400 }, { day: 'Ter', total: 600 }, { day: 'Qua', total: 300 }
-                     ]}
-                     onClick={(data: any) => {
-                        if (data?.activePayload) {
-                           setRevenueDataPoint(data.activePayload[0].payload);
-                           setIsRevenueModalOpen(true);
-                        }
-                     }}
-                   >
-                      <defs>
-                         <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#4cc9f0" stopOpacity={0.3}/>
-                            <stop offset="95%" stopColor="#4cc9f0" stopOpacity={0}/>
-                         </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGridColor} />
-                      <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: chartTextColor, fontWeight: 800 }} />
-                      <YAxis hide />
-                      <Tooltip 
-                         cursor={{ stroke: '#4cc9f0', strokeWidth: 1, strokeDasharray: '5 5' }}
-                         contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', backdropFilter: 'blur(10px)' }}
-                      />
-                      <Area type="monotone" dataKey="total" stroke="#4cc9f0" strokeWidth={3} fillOpacity={1} fill="url(#colorRevenue)" />
-                   </AreaChart>
+                <ResponsiveContainer 
+                   width="100%" 
+                   height={340} 
+                   minWidth={100} 
+                   minHeight={340}
+                   initialDimension={{ width: 700, height: 340 }}
+                >
+                   {revenueChartType === 'bar' ? (
+                      <BarChart 
+                        data={chartData}
+                        margin={{ top: 12, right: 15, left: -10, bottom: 0 }}
+                        onClick={(data: any) => {
+                           if (data?.activePayload?.[0]?.payload) {
+                              setRevenueDataPoint(data.activePayload[0].payload);
+                           }
+                        }}
+                      >
+                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGridColor} />
+                         <XAxis 
+                            dataKey="day" 
+                            axisLine={false} 
+                            tickLine={false} 
+                            tick={{ fontSize: 10, fill: chartTextColor, fontWeight: 700 }} 
+                         />
+                         <YAxis 
+                            stroke={chartTextColor} 
+                            fontSize={10} 
+                            tickLine={false} 
+                            axisLine={false} 
+                            tickFormatter={(val) => Number(val) >= 1000 ? `R$ ${(Number(val)/1000).toFixed(1)}k` : `R$ ${val}`} 
+                         />
+                         <Tooltip 
+                            cursor={{ fill: 'rgba(255,255,255,0.04)' }}
+                            content={({ active, payload }: any) => {
+                               if (active && payload && payload.length) {
+                                  const data = payload[0]?.payload;
+                                  if (!data) return null;
+                                  return (
+                                     <div className="p-3 bg-slate-900/95 border border-white/10 rounded-2xl shadow-2xl backdrop-blur-md space-y-1.5 min-w-[190px]">
+                                        <div className="flex items-center justify-between border-b border-white/10 pb-1">
+                                           <p className="text-[10px] font-black uppercase tracking-widest text-primary-300 truncate">{data.day}</p>
+                                           <span className="text-[8px] font-bold text-white/40 uppercase">Barras</span>
+                                        </div>
+                                        <div className="space-y-1 text-xs">
+                                           <div className="flex justify-between items-center gap-3">
+                                              <span className="text-white/60 font-medium text-[11px]">Faturamento:</span>
+                                              <span className="text-emerald-400 font-black">R$ {Number(data.total || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                           </div>
+                                           <div className="flex justify-between items-center gap-3">
+                                              <span className="text-white/60 font-medium text-[11px]">Qtd. Vendas:</span>
+                                              <span className="text-white font-bold">{data.sales || 0}</span>
+                                           </div>
+                                           <div className="flex justify-between items-center gap-3">
+                                              <span className="text-white/60 font-medium text-[11px]">Qtd. Serviços:</span>
+                                              <span className="text-primary-300 font-bold">{data.svcs || 0}</span>
+                                           </div>
+                                           <div className="flex justify-between items-center gap-3">
+                                              <span className="text-white/60 font-medium text-[11px]">Qtd. Entradas:</span>
+                                              <span className="text-amber-400 font-bold">{data.entries || 0}</span>
+                                           </div>
+                                        </div>
+                                        <p className="text-[8px] text-white/30 italic pt-1 border-t border-white/5">Clique no ponto para fixar detalhes</p>
+                                     </div>
+                                  );
+                               }
+                               return null;
+                            }}
+                         />
+                         <Bar 
+                            dataKey="total" 
+                            fill="#38bdf8" 
+                            minPointSize={5}
+                            radius={[6, 6, 0, 0]}
+                            cursor="pointer"
+                         >
+                            {chartData.map((entry, index) => (
+                               <Cell 
+                                  key={`cell-${index}`} 
+                                  fill={revenueDataPoint?.day === entry.day ? '#0ea5e9' : '#38bdf8'}
+                                  opacity={revenueDataPoint && revenueDataPoint.day !== entry.day ? 0.45 : (entry.total > 0 ? 0.95 : 0.35)}
+                               />
+                            ))}
+                         </Bar>
+                      </BarChart>
+                   ) : (
+                      <AreaChart 
+                        data={chartData}
+                        margin={{ top: 12, right: 15, left: -10, bottom: 0 }}
+                        onClick={(data: any) => {
+                           if (data?.activePayload?.[0]?.payload) {
+                              setRevenueDataPoint(data.activePayload[0].payload);
+                           }
+                        }}
+                      >
+                         <defs>
+                            <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                               <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.4}/>
+                               <stop offset="95%" stopColor="#38bdf8" stopOpacity={0.02}/>
+                            </linearGradient>
+                         </defs>
+                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGridColor} />
+                         <XAxis 
+                            dataKey="day" 
+                            axisLine={false} 
+                            tickLine={false} 
+                            tick={{ fontSize: 10, fill: chartTextColor, fontWeight: 700 }} 
+                         />
+                         <YAxis 
+                            stroke={chartTextColor} 
+                            fontSize={10} 
+                            tickLine={false} 
+                            axisLine={false} 
+                            tickFormatter={(val) => Number(val) >= 1000 ? `R$ ${(Number(val)/1000).toFixed(1)}k` : `R$ ${val}`} 
+                         />
+                         <Tooltip 
+                            cursor={{ stroke: '#38bdf8', strokeWidth: 1, strokeDasharray: '4 4' }}
+                            content={({ active, payload }: any) => {
+                               if (active && payload && payload.length) {
+                                  const data = payload[0]?.payload;
+                                  if (!data) return null;
+                                  return (
+                                     <div className="p-3 bg-slate-900/95 border border-white/10 rounded-2xl shadow-2xl backdrop-blur-md space-y-1.5 min-w-[190px]">
+                                        <div className="flex items-center justify-between border-b border-white/10 pb-1">
+                                           <p className="text-[10px] font-black uppercase tracking-widest text-primary-300 truncate">{data.day}</p>
+                                           <span className="text-[8px] font-bold text-white/40 uppercase">Linha</span>
+                                        </div>
+                                        <div className="space-y-1 text-xs">
+                                           <div className="flex justify-between items-center gap-3">
+                                              <span className="text-white/60 font-medium text-[11px]">Faturamento:</span>
+                                              <span className="text-emerald-400 font-black">R$ {Number(data.total || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                           </div>
+                                           <div className="flex justify-between items-center gap-3">
+                                              <span className="text-white/60 font-medium text-[11px]">Qtd. Vendas:</span>
+                                              <span className="text-white font-bold">{data.sales || 0}</span>
+                                           </div>
+                                           <div className="flex justify-between items-center gap-3">
+                                              <span className="text-white/60 font-medium text-[11px]">Qtd. Serviços:</span>
+                                              <span className="text-primary-300 font-bold">{data.svcs || 0}</span>
+                                           </div>
+                                           <div className="flex justify-between items-center gap-3">
+                                              <span className="text-white/60 font-medium text-[11px]">Qtd. Entradas:</span>
+                                              <span className="text-amber-400 font-bold">{data.entries || 0}</span>
+                                           </div>
+                                        </div>
+                                        <p className="text-[8px] text-white/30 italic pt-1 border-t border-white/5">Clique no ponto para fixar detalhes</p>
+                                     </div>
+                                  );
+                               }
+                               return null;
+                            }}
+                         />
+                         <Area 
+                            type="monotone" 
+                            dataKey="total" 
+                            stroke="#38bdf8" 
+                            strokeWidth={3} 
+                            fillOpacity={1} 
+                            fill="url(#colorRevenue)"
+                            dot={{ r: 4, fill: '#38bdf8', stroke: '#0f172a', strokeWidth: 1.5 }}
+                            activeDot={{ r: 7, fill: '#38bdf8', stroke: '#ffffff', strokeWidth: 2 }}
+                            cursor="pointer"
+                         />
+                      </AreaChart>
+                   )}
                 </ResponsiveContainer>
                 </ChartErrorBoundary>
              </div>
@@ -2167,7 +2526,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                                <LineChart data={analiseDetalhada.linhaGrafico}>
                                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGridColor} />
                                   <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 8, fill: chartTextColor, fontWeight: 800 }} interval="preserveStartEnd" />
-                                  <YAxis hide />
+                                  <YAxis hide domain={[0, (dataMax: number) => Math.max(Number(dataMax) || 0, 100)]} />
                                   <Tooltip
                                      cursor={{ stroke: 'rgba(255,255,255,0.2)', strokeWidth: 1 }}
                                      contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.95)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', backdropFilter: 'blur(10px)' }}
@@ -9579,7 +9938,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       setDimValorFoiEditado(false);
       return;
     }
-    if (product.unitType === 'etiqueta') {
+    if (product.unitType === 'etiqueta' || (product.name && /etiqueta/i.test(product.name) && (/adesiv/i.test(product.name) || !product.unitType || product.unitType === 'unit'))) {
       setEtiquetaModalProduct(product);
       setEtiquetaForm({ ...emptyEtiquetaForm, larguraMaterial: product.larguraRolo || 1.02 });
       setEtiquetaInputMode('quantidade');
@@ -9660,7 +10019,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const calc = calcularEtiquetas(etiquetaModalProduct);
     if (!calc) { showAlert('Preencha as dimensões, a largura do material e a quantidade/metros/valor desejado.'); return; }
     const { largura, altura, larguraMaterial } = etiquetaForm;
-    const dimensoesLabel = `${calc.quantidade}un ${largura}x${altura}cm`;
+    const metrosLinearStr = `${calc.metrosLineares.toFixed(2).replace('.', ',')}m linear`;
+    const dimensoesLabel = `${calc.quantidade}un ${largura}x${altura}cm (${metrosLinearStr})`;
     setCart(prev => [...prev, {
       productId: etiquetaModalProduct.id,
       name: etiquetaModalProduct.name,
@@ -9756,7 +10116,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       name: insulfilmModalProduct.name,
       price: valorFinal,
       quantity: 1,
-      dimensions: `${pecasLabel} (${calc.cortes.length} corte${calc.cortes.length > 1 ? 's' : ''})`,
+      dimensions: `${pecasLabel} (${calc.cortes.length} corte${calc.cortes.length > 1 ? 's' : ''} • ${calc.metrosLineares.toFixed(2).replace('.', ',')}m linear)`,
       area: calc.areaUtilizada,
       consumoEstoque: calc.metrosLineares,
     }]);
@@ -10192,11 +10552,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       setCustomPaymentDate('');
     }
 
-    // Play money sound
-    try {
-      const audio = new Audio('/sounds/sale-complete.mp3');
-      audio.play().catch(() => {});
-    } catch (e) {}
+    // Som do caixa toca exclusivamente quando houver valor financeiro sendo recebido agora (valor > 0)
+    if (effectivePaymentEntriesTotal > 0) {
+      try {
+        const audio = new Audio('/sounds/sale-complete.mp3');
+        audio.play().catch(() => {});
+      } catch (e) {}
+    }
 
     // Edicao completa de uma nota ja existente (itens do carrinho alterados): atualiza a mesma
     // linha no banco (itens + total) em vez de criar uma venda nova, e ajusta o estoque so pela
@@ -10739,8 +11101,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               onClick={() => setActiveTab(tab.id as any)}
               title={tab.label}
               className={cn(
-                "flex items-center justify-center gap-1 flex-1 sm:flex-initial px-1 sm:px-2.5 py-1 sm:py-1.5 rounded-md sm:rounded-lg text-[9px] font-black uppercase tracking-tight sm:tracking-wider transition-all whitespace-nowrap",
-                activeTab === tab.id ? "bg-primary-500 text-slate-900 shadow-xl" : "text-white/40 hover:bg-white/5 hover:text-white"
+                "flex items-center justify-center gap-1 flex-1 sm:flex-initial px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-tight sm:tracking-wider transition-all whitespace-nowrap cursor-pointer active:scale-95",
+                activeTab === tab.id ? "bg-primary-500/20 text-primary-300 border border-primary-500/40 shadow-xs" : "text-white/50 hover:bg-white/5 hover:text-white border border-transparent"
               )}
             >
               <tab.icon size={18} className="sm:hidden shrink-0" />
@@ -11117,7 +11479,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                setIsCustomerModalOpen(true);
                             }
                          }}
-                         className="flex-1 h-full bg-primary-500 border-2 border-primary-600 text-slate-900 rounded-2xl sm:rounded-[28px] flex flex-col items-center justify-center gap-0.5 sm:gap-1 shadow-xl shadow-primary-500/20 hover:bg-primary-400 transition-all disabled:opacity-50 disabled:grayscale active:scale-95"
+                         className="flex-1 h-full bg-primary-500 hover:bg-primary-400 border border-primary-400/60 text-slate-900 rounded-2xl sm:rounded-[24px] flex flex-col items-center justify-center gap-0.5 sm:gap-1 shadow-md shadow-primary-500/15 transition-all disabled:opacity-50 disabled:grayscale cursor-pointer active:scale-98"
                        >
                           <div className="flex items-center gap-1.5 sm:gap-3">
                              <ShoppingBag size={16} className="sm:hidden" />
@@ -13723,9 +14085,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                        <Percent size={11} className="text-primary-300" /> Desconto na Nota
                     </span>
                     <div className="flex bg-white/5 p-0.5 rounded-lg border border-white/10 gap-0.5">
-                       <button onClick={() => { setSaleDiscountMode('percentual'); setSaleDiscountInput(''); }} className={cn("px-2 py-0.5 rounded text-[8px] font-black uppercase transition-all cursor-pointer", saleDiscountMode === 'percentual' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Desc. %</button>
-                       <button onClick={() => { setSaleDiscountMode('valor'); setSaleDiscountInput(''); }} className={cn("px-2 py-0.5 rounded text-[8px] font-black uppercase transition-all cursor-pointer", saleDiscountMode === 'valor' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Desc. R$</button>
-                       <button onClick={() => { setSaleDiscountMode('final'); setSaleDiscountInput(''); }} className={cn("px-2 py-0.5 rounded text-[8px] font-black uppercase transition-all cursor-pointer", saleDiscountMode === 'final' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Valor Final</button>
+                       <button onClick={() => { setSaleDiscountMode('percentual'); setSaleDiscountInput(''); }} className={cn("px-2 py-0.5 rounded text-[8px] font-bold uppercase transition-all cursor-pointer", saleDiscountMode === 'percentual' ? "bg-primary-500/20 text-primary-300 border border-primary-500/30 shadow-xs" : "text-white/40 hover:text-white border border-transparent")}>Desc. %</button>
+                       <button onClick={() => { setSaleDiscountMode('valor'); setSaleDiscountInput(''); }} className={cn("px-2 py-0.5 rounded text-[8px] font-bold uppercase transition-all cursor-pointer", saleDiscountMode === 'valor' ? "bg-primary-500/20 text-primary-300 border border-primary-500/30 shadow-xs" : "text-white/40 hover:text-white border border-transparent")}>Desc. R$</button>
+                       <button onClick={() => { setSaleDiscountMode('final'); setSaleDiscountInput(''); }} className={cn("px-2 py-0.5 rounded text-[8px] font-bold uppercase transition-all cursor-pointer", saleDiscountMode === 'final' ? "bg-primary-500/20 text-primary-300 border border-primary-500/30 shadow-xs" : "text-white/40 hover:text-white border border-transparent")}>Valor Final</button>
                     </div>
                  </div>
 
@@ -13927,25 +14289,69 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     {/* Formulario de pagamento — sempre visivel */}
                     {paymentModalRemaining > 0 ? (
                       <div className="flex-1 min-h-0 flex flex-col gap-1.5 bg-white/5 rounded-xl border border-white/5 p-2 overflow-hidden">
-                         <div className="grid grid-cols-4 gap-1 shrink-0">
-                            {PAYMENT_METHOD_OPTIONS.filter(m => enabledPaymentMethods.includes(m.id)).map(m => (
-                              <button
-                                key={m.id}
-                                onClick={() => setNewPaymentMethod(m.id)}
-                                className={cn(
-                                  "p-1 rounded-lg border-2 flex flex-col items-center justify-center gap-0.5 transition-all active:scale-95 min-h-[36px]",
-                                  newPaymentMethod === m.id ? "bg-primary-500 border-primary-600 text-slate-900" : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10"
-                                )}
-                              >
-                                 <m.icon size={12} />
-                                 <span className="text-[6.5px] font-black uppercase truncate w-full text-center">{m.label}</span>
-                              </button>
-                            ))}
+                         <div className="grid grid-cols-4 gap-1.5 shrink-0">
+                            {PAYMENT_METHOD_OPTIONS.filter(m => enabledPaymentMethods.includes(m.id)).map(m => {
+                              const isSelected = newPaymentMethod === m.id;
+                              return (
+                                <button
+                                  key={m.id}
+                                  type="button"
+                                  onClick={() => setNewPaymentMethod(m.id)}
+                                  className={cn(
+                                    "py-1 px-1.5 rounded-lg border flex flex-col items-center justify-center gap-0.5 transition-all duration-150 active:scale-95 min-h-[35px] cursor-pointer",
+                                    isSelected 
+                                      ? "bg-primary-500/20 text-primary-300 border-primary-500/50 shadow-xs" 
+                                      : "bg-white/[0.03] text-white/40 border-white/10 hover:bg-white/[0.08] hover:text-white/80"
+                                  )}
+                                >
+                                   <m.icon size={13} className={isSelected ? "text-primary-300" : "text-white/40"} />
+                                   <span className="text-[7px] sm:text-[7.5px] font-bold uppercase tracking-wider truncate w-full text-center">{m.label}</span>
+                                </button>
+                              );
+                            })}
+                         </div>
+
+                         {/* Abas leves de atalho de valor (100% Quitado, 50% Entrada, Sem Entrada) */}
+                         <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setNewPaymentMode('valor');
+                                setNewPaymentInput(Number(paymentModalRemaining.toFixed(2)));
+                              }}
+                              className="flex-1 py-1 px-1.5 rounded-lg text-[7.5px] sm:text-[8px] font-bold uppercase tracking-wider bg-white/[0.04] hover:bg-white/[0.08] text-white/60 hover:text-white border border-white/10 transition-all cursor-pointer text-center truncate active:scale-95"
+                              title="Preencher com o total restante"
+                            >
+                              Total ({paymentModalRemaining.toFixed(2).replace('.', ',')})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setNewPaymentMode('valor');
+                                const metade = Number((paymentModalRemaining / 2).toFixed(2));
+                                setNewPaymentInput(metade > 0 ? metade : '');
+                              }}
+                              className="flex-1 py-1 px-1.5 rounded-lg text-[7.5px] sm:text-[8px] font-bold uppercase tracking-wider bg-white/[0.04] hover:bg-white/[0.08] text-white/60 hover:text-white border border-white/10 transition-all cursor-pointer text-center truncate active:scale-95"
+                              title="Preencher com 50% de entrada"
+                            >
+                              50% ({(paymentModalRemaining / 2).toFixed(2).replace('.', ',')})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setNewPaymentMode('valor');
+                                setNewPaymentInput(0);
+                              }}
+                              className="py-1 px-2 rounded-lg text-[7.5px] sm:text-[8px] font-bold uppercase tracking-wider bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 transition-all cursor-pointer text-center truncate active:scale-95"
+                              title="Definir entrada R$ 0,00 para nota a prazo"
+                            >
+                              Sem Entrada (R$ 0)
+                            </button>
                          </div>
 
                          <div className="flex items-center gap-1.5 shrink-0">
                             <div className="flex-1 space-y-0.5">
-                               <label className="text-[7px] font-black text-white/40 uppercase tracking-widest block">
+                               <label className="text-[7px] font-bold text-white/40 uppercase tracking-widest block">
                                  {newPaymentMode === 'valor' ? 'Valor (R$)' : 'Porcentagem (%)'}
                                </label>
                                <Input
@@ -13957,23 +14363,29 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                  onChange={(e: any) => setNewPaymentInput(e.target.value === '' ? '' : Number(e.target.value))}
                                />
                             </div>
-                            <div className="flex bg-white/5 p-0.5 rounded-lg border border-white/10 shrink-0 mt-3.5">
+                            <div className="flex bg-white/5 p-0.5 rounded-lg border border-white/10 shrink-0 mt-3.5 gap-0.5">
                                <button
+                                 type="button"
                                  onClick={() => setNewPaymentMode('valor')}
-                                 className={cn("px-2 h-7 rounded-md text-[9px] font-black uppercase transition-all", newPaymentMode === 'valor' ? "bg-primary-500 text-slate-900" : "text-white/40")}
+                                 className={cn("px-2 h-7 rounded-md text-[9px] font-bold uppercase transition-all cursor-pointer", newPaymentMode === 'valor' ? "bg-primary-500/20 text-primary-300 border border-primary-500/30 shadow-xs" : "text-white/40 hover:text-white border border-transparent")}
                                >
                                  R$
                                </button>
                                <button
+                                 type="button"
                                  onClick={() => setNewPaymentMode('percentual')}
-                                 className={cn("px-2 h-7 rounded-md text-[9px] font-black uppercase transition-all", newPaymentMode === 'percentual' ? "bg-primary-500 text-slate-900" : "text-white/40")}
+                                 className={cn("px-2 h-7 rounded-md text-[9px] font-bold uppercase transition-all cursor-pointer", newPaymentMode === 'percentual' ? "bg-primary-500/20 text-primary-300 border border-primary-500/30 shadow-xs" : "text-white/40 hover:text-white border border-transparent")}
                                >
                                  %
                                </button>
                             </div>
-                            <Button className="h-8 text-[9px] bg-primary-500 text-slate-900 border-none shrink-0 mt-3.5 px-3" onClick={confirmAddPayment}>
+                            <button
+                              type="button"
+                              className="h-8 text-[9px] font-bold bg-primary-500/20 hover:bg-primary-500 text-primary-300 hover:text-slate-900 border border-primary-500/40 rounded-lg shrink-0 mt-3.5 px-3 flex items-center justify-center transition-all cursor-pointer active:scale-95 shadow-xs"
+                              onClick={confirmAddPayment}
+                            >
                               <Plus size={12} className="mr-1" /> Adicionar
-                            </Button>
+                            </button>
                          </div>
 
                          {!useCustomPaymentDate ? (
@@ -14204,10 +14616,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
            </div>
 
            {/* Bottom Action Bar (ALWAYS VISIBLE - NO SCROLL) */}
-           <div className="flex gap-2 pt-1 border-t border-white/5 shrink-0">
-              <Button
-                variant="secondary"
-                className="flex-1 h-9 sm:h-11 text-[8px] sm:text-[9px] uppercase font-black tracking-wider bg-emerald-500 hover:bg-emerald-400 text-slate-900 border-none shadow-lg shadow-emerald-500/20"
+           <div className="flex gap-2 pt-1.5 border-t border-white/5 shrink-0">
+              <button
+                type="button"
+                className="flex-1 h-9 sm:h-10 text-[8.5px] sm:text-[9px] uppercase font-bold tracking-wider bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 rounded-xl transition-all cursor-pointer active:scale-98 flex items-center justify-center"
                 onClick={() => {
                   setIsPaymentModalOpen(false);
                   if (settlingOrder) {
@@ -14222,23 +14634,32 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 }}
               >
                 Orçamento
-              </Button>
+              </button>
               {paymentModalRemaining > 0 ? (
-                <Button 
-                  className="flex-[2] h-9 sm:h-11 bg-amber-500 hover:bg-amber-400 text-slate-900 border-none shadow-lg shadow-amber-500/20 text-[9px] sm:text-[10px] font-black uppercase tracking-wider gap-2 cursor-pointer"
+                <button 
+                  type="button"
+                  className="flex-[2] h-9 sm:h-10 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-xl text-[9px] sm:text-[9.5px] font-bold uppercase tracking-wider gap-2 cursor-pointer transition-all active:scale-98 flex items-center justify-center shadow-xs"
                   onClick={() => handleFinalize(true)}
                 >
-                   <Clock size={16} />
-                   <span>{settlingOrder ? `REGISTRAR PAGAMENTO (R$ ${paymentEntriesTotal.toFixed(2).replace('.', ',')})` : `LANÇAR ENTRADA (R$ ${(downPayment === '' ? 0 : Number(downPayment)).toFixed(2).replace('.', ',')})`}</span>
-                </Button>
+                   <Clock size={15} />
+                   <span>
+                     {settlingOrder 
+                       ? `REGISTRAR PAGAMENTO (R$ ${paymentEntriesTotal.toFixed(2).replace('.', ',')})` 
+                       : (downPayment === '' || Number(downPayment) === 0)
+                         ? 'SALVAR NOTA A PRAZO (SEM ENTRADA)'
+                         : `LANÇAR ENTRADA (R$ ${Number(downPayment).toFixed(2).replace('.', ',')})`
+                     }
+                   </span>
+                </button>
               ) : (
-                <Button 
-                  className="flex-[2] h-9 sm:h-11 bg-primary-500 hover:bg-primary-400 text-slate-900 border-none shadow-lg shadow-primary-500/20 text-[8.5px] sm:text-[10px] font-black uppercase tracking-wider gap-1.5 cursor-pointer"
+                <button 
+                  type="button"
+                  className="flex-[2] h-9 sm:h-10 bg-primary-500/25 hover:bg-primary-500/35 text-primary-300 border border-primary-500/40 rounded-xl text-[9px] sm:text-[9.5px] font-bold uppercase tracking-wider gap-1.5 cursor-pointer transition-all active:scale-98 flex items-center justify-center shadow-xs"
                   onClick={() => handleFinalize(false)}
                 >
-                   <CheckCircle2 size={16} />
+                   <CheckCircle2 size={15} />
                    <span>{settlingOrder ? 'QUITAR DÉBITO (TOTAL PAGO)' : 'FINALIZAR VENDA (TOTAL QUITADO)'}</span>
-                </Button>
+                </button>
               )}
            </div>
         </div>
