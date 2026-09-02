@@ -198,7 +198,8 @@ import {
   PieChart,
   Pie,
   LineChart,
-  Line
+  Line,
+  LabelList
 } from 'recharts';
 import { 
   SectionHeader, 
@@ -2027,6 +2028,17 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                             radius={[6, 6, 0, 0]}
                             cursor="pointer"
                          >
+                            {chartData.length <= 15 && (
+                               <LabelList
+                                  dataKey="total"
+                                  position="top"
+                                  offset={8}
+                                  fontSize={10}
+                                  fontWeight={800}
+                                  fill="#e2e8f0"
+                                  formatter={(val: any) => `R$ ${Number(val).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                               />
+                            )}
                             {chartData.map((entry, index) => (
                                <Cell 
                                   key={`cell-${index}`} 
@@ -2113,7 +2125,19 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                             dot={{ r: 4, fill: '#38bdf8', stroke: '#0f172a', strokeWidth: 1.5 }}
                             activeDot={{ r: 7, fill: '#38bdf8', stroke: '#ffffff', strokeWidth: 2 }}
                             cursor="pointer"
-                         />
+                         >
+                            {chartData.length <= 15 && (
+                               <LabelList
+                                  dataKey="total"
+                                  position="top"
+                                  offset={10}
+                                  fontSize={10}
+                                  fontWeight={800}
+                                  fill="#38bdf8"
+                                  formatter={(val: any) => `R$ ${Number(val).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                               />
+                            )}
+                         </Area>
                       </AreaChart>
                    )}
                 </ResponsiveContainer>
