@@ -106,7 +106,7 @@ export async function renderOrcamentoCanvas({ orcamento: o, companyName, logoDar
   const descontoOrcamento = o.desconto || 0;
   const tableRows = Math.max(items.length, 1);
   const rowHeights = Array.from({ length: tableRows }, (_, i) =>
-    rowHeight + (items[i]?.observacao ? obsRowExtra : 0) + (items[i]?.dimensions ? dimRowExtra : 0)
+    rowHeight + (items[i]?.observacao ? obsRowExtra : 0) + ((items[i]?.dimensions || (!items[i]?.area && items[i]?.consumoEstoque)) ? dimRowExtra : 0)
   );
   const totalRowsHeight = rowHeights.reduce((a, b) => a + b, 0);
   const tableHeaderH = 30;
@@ -261,11 +261,16 @@ export async function renderOrcamentoCanvas({ orcamento: o, companyName, logoDar
       ctx.font = `800 10px ${FONT}`;
       ctx.fillText(`R$ ${subtotal.toFixed(2).replace('.', ',')}`, width - marginX - 16, rowY + 20);
       let extraLineY = rowY + 32;
-      if (item.dimensions) {
+      const dimStr = item.dimensions || '';
+      const linearSuffix = (!dimStr.toLowerCase().includes('linear') && !item.area && item.consumoEstoque)
+        ? ` (${Number(item.consumoEstoque).toFixed(2).replace('.', ',')}m linear)`
+        : '';
+      const fullDim = dimStr ? `${dimStr}${linearSuffix}` : (linearSuffix ? linearSuffix.trim() : '');
+      if (fullDim) {
         ctx.textAlign = 'left';
         ctx.fillStyle = ACCENT;
         ctx.font = `700 8px ${FONT}`;
-        ctx.fillText(`Medida: ${item.dimensions}`, marginX + 60, extraLineY);
+        ctx.fillText(`Medida: ${fullDim}`, marginX + 60, extraLineY);
         extraLineY += 12;
       }
       if (item.observacao) {

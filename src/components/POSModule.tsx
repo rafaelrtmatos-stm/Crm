@@ -580,7 +580,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
     }
 
     const area = dimensionModalProduct.unitType === 'm2' ? w * h : w;
-    const dimText = dimensionModalProduct.unitType === 'm2' ? `${w.toFixed(2)}m x ${h.toFixed(2)}m (${area.toFixed(2)}m²)` : `${w.toFixed(2)}m`;
+    const dimText = dimensionModalProduct.unitType === 'm2' ? `${w.toFixed(2)}m x ${h.toFixed(2)}m (${area.toFixed(2)}m²)` : `${w.toFixed(2)}m linear`;
     const multiplier = (area && area > 0) ? area * q : q;
 
     const itemConsumo = (dimensionModalProduct.materiasPrimas && dimensionModalProduct.materiasPrimas.length > 0)

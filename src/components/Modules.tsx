@@ -9572,7 +9572,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       setDimValorFoiEditado(false);
       return;
     }
-    if (product.unitType === 'etiqueta') {
+    if (product.unitType === 'etiqueta' || (product.name && /etiqueta/i.test(product.name) && (/adesiv/i.test(product.name) || !product.unitType || product.unitType === 'unit'))) {
       setEtiquetaModalProduct(product);
       setEtiquetaForm({ ...emptyEtiquetaForm, larguraMaterial: product.larguraRolo || 1.02 });
       setEtiquetaInputMode('quantidade');
@@ -9653,7 +9653,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const calc = calcularEtiquetas(etiquetaModalProduct);
     if (!calc) { showAlert('Preencha as dimensões, a largura do material e a quantidade/metros/valor desejado.'); return; }
     const { largura, altura, larguraMaterial } = etiquetaForm;
-    const dimensoesLabel = `${calc.quantidade}un ${largura}x${altura}cm`;
+    const metrosLinearStr = `${calc.metrosLineares.toFixed(2).replace('.', ',')}m linear`;
+    const dimensoesLabel = `${calc.quantidade}un ${largura}x${altura}cm (${metrosLinearStr})`;
     setCart(prev => [...prev, {
       productId: etiquetaModalProduct.id,
       name: etiquetaModalProduct.name,
@@ -9749,7 +9750,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       name: insulfilmModalProduct.name,
       price: valorFinal,
       quantity: 1,
-      dimensions: `${pecasLabel} (${calc.cortes.length} corte${calc.cortes.length > 1 ? 's' : ''})`,
+      dimensions: `${pecasLabel} (${calc.cortes.length} corte${calc.cortes.length > 1 ? 's' : ''} • ${calc.metrosLineares.toFixed(2).replace('.', ',')}m linear)`,
       area: calc.areaUtilizada,
       consumoEstoque: calc.metrosLineares,
     }]);
