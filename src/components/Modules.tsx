@@ -1200,35 +1200,106 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   const chartGridColor = isLightTheme ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.05)';
 
   const chartData = useMemo(() => {
-    const groups: Record<string, any> = {};
     const isValidDate = (d: Date) => d instanceof Date && !isNaN(d.getTime());
     const { start: rangeStart, end: rangeEnd } = getPeriodRange();
+    const DIA_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+    // Inicializa os pontos do gráfico de forma contínua para que sempre exista uma linha desenhada
+    const points: { day: string; key: string; total: number; sales: number; svcs: number; entries: number }[] = [];
+    const indexByKey: Record<string, number> = {};
+
+    if (period === 'Hoje' || period === 'Ontem') {
+      const horas = ['08h', '10h', '12h', '14h', '16h', '18h', '20h'];
+      horas.forEach((h, idx) => {
+        points.push({ day: h, key: h, total: 0, sales: 0, svcs: 0, entries: 0 });
+        indexByKey[h] = idx;
+      });
+    } else if (period === 'Semana') {
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(rangeStart);
+        d.setDate(rangeStart.getDate() + i);
+        const k = format(d, 'dd/MM');
+        const dayLabel = `${DIA_SEMANA[d.getDay()]} (${k})`;
+        indexByKey[k] = points.length;
+        points.push({ day: dayLabel, key: k, total: 0, sales: 0, svcs: 0, entries: 0 });
+      }
+    } else if (period === '30 dias') {
+      for (let i = 0; i <= 30; i++) {
+        const d = new Date(rangeStart);
+        d.setDate(rangeStart.getDate() + i);
+        if (d > rangeEnd) break;
+        const k = format(d, 'dd/MM');
+        indexByKey[k] = points.length;
+        points.push({ day: k, key: k, total: 0, sales: 0, svcs: 0, entries: 0 });
+      }
+    } else { // Personalizado
+      const diffDays = Math.max(1, Math.round((rangeEnd.getTime() - rangeStart.getTime()) / 86400000));
+      if (diffDays <= 60) {
+        for (let i = 0; i <= diffDays; i++) {
+          const d = new Date(rangeStart);
+          d.setDate(rangeStart.getDate() + i);
+          if (d > rangeEnd) break;
+          const k = format(d, 'dd/MM');
+          indexByKey[k] = points.length;
+          points.push({ day: k, key: k, total: 0, sales: 0, svcs: 0, entries: 0 });
+        }
+      } else {
+        const curr = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), 1);
+        const endMonth = new Date(rangeEnd.getFullYear(), rangeEnd.getMonth(), 1);
+        while (curr <= endMonth) {
+          const k = format(curr, 'MM/yyyy');
+          const label = format(curr, 'MM/yy');
+          indexByKey[k] = points.length;
+          points.push({ day: label, key: k, total: 0, sales: 0, svcs: 0, entries: 0 });
+          curr.setMonth(curr.getMonth() + 1);
+        }
+      }
+    }
+
+    const getKeyForDate = (dateObj: Date): string => {
+      if (period === 'Hoje' || period === 'Ontem') {
+        const h = dateObj.getHours();
+        const clampedH = Math.min(20, Math.max(8, Math.floor(h / 2) * 2));
+        return `${String(clampedH).padStart(2, '0')}h`;
+      }
+      const diffDays = Math.max(1, Math.round((rangeEnd.getTime() - rangeStart.getTime()) / 86400000));
+      if (period === 'Personalizado' && diffDays > 60) {
+        return format(dateObj, 'MM/yyyy');
+      }
+      return format(dateObj, 'dd/MM');
+    };
+
     // Faturamento por data de CADA pagamento (nao criacao da nota), dentro do intervalo real
-    // do periodo selecionado — mesma logica ja usada nos cards do topo
     realSales.filter(o => o.status !== 'canceled').flatMap(getRevenueEventsForSale).forEach(ev => {
       const dateObj = new Date(ev.date);
       if (!isValidDate(dateObj) || dateObj < rangeStart || dateObj > rangeEnd) return;
-      const day = format(dateObj, 'dd/MM');
-      if (!groups[day]) groups[day] = { day, total: 0, sales: 0, svcs: 0, entries: 0 };
-      groups[day].total += ev.value;
+      const k = getKeyForDate(dateObj);
+      if (indexByKey[k] !== undefined) {
+        points[indexByKey[k]].total += ev.value;
+      }
     });
+
     // Contagem de vendas/entradas continua pela data de CRIACAO (quantos pedidos nasceram no periodo)
     filteredOrders.forEach(o => {
       const dateObj = new Date(o.createdAt);
       if (!isValidDate(dateObj)) return;
-      const day = format(dateObj, 'dd/MM');
-      if (!groups[day]) groups[day] = { day, total: 0, sales: 0, svcs: 0, entries: 0 };
-      groups[day].sales += 1;
-      if (o.status === 'pending') groups[day].entries += 1;
+      const k = getKeyForDate(dateObj);
+      if (indexByKey[k] !== undefined) {
+        points[indexByKey[k]].sales += 1;
+        if (o.status === 'pending') points[indexByKey[k]].entries += 1;
+      }
     });
+
     services.forEach(s => {
       const date = s.createdAt instanceof Timestamp ? s.createdAt.toDate() : new Date(s.createdAt);
       if (!isValidDate(date) || date < rangeStart || date > rangeEnd) return;
-      const day = format(date, 'dd/MM');
-      if (groups[day]) groups[day].svcs += 1;
-      else groups[day] = { day, total: 0, sales: 0, svcs: 1, entries: 0 };
+      const k = getKeyForDate(date);
+      if (indexByKey[k] !== undefined) {
+        points[indexByKey[k]].svcs += 1;
+      }
     });
-    return Object.values(groups).sort((a, b) => a.day.localeCompare(b.day));
+
+    return points;
   }, [filteredOrders, services, realSales, period, customRange]);
   const IconMap: Record<string, any> = {
     TrendingUp, Target, Clock, MessageSquare, ShoppingBag, Users, FileText, BarChart2, PieChartIcon, Trophy, Activity, Timer, CalendarDays, Wrench, Home
@@ -1460,7 +1531,9 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       eventos.forEach(ev => {
         const d = new Date(ev.date);
         if (isNaN(d.getTime()) || d < inicioPeriodo || d > fimPeriodo) return;
-        const key = (analisePeriodo === 'ano' || diasNoPeriodo > 60) ? format(d, 'MM/yyyy') : format(d, 'dd/MM');
+        const key = analisePeriodo === 'hoje'
+          ? `${String(Math.min(20, Math.max(8, Math.floor(d.getHours() / 2) * 2))).padStart(2, '0')}h`
+          : (analisePeriodo === 'ano' || diasNoPeriodo > 60) ? format(d, 'MM/yyyy') : format(d, 'dd/MM');
         if (!porBucket[key]) porBucket[key] = { faturamento: 0, custo: 0 };
         porBucket[key].faturamento += ev.value;
         const fatiaCusto = totalRecebidoPedido > 0 ? custoPedido * (ev.value / totalRecebidoPedido) : 0;
@@ -1471,13 +1544,21 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     comissoesLancadas.filter(c => !c.origemNotaId).forEach(c => {
       const d = new Date(`${c.data}T00:00:00`);
       if (isNaN(d.getTime()) || d < inicioPeriodo || d > fimPeriodo) return;
-      const key = (analisePeriodo === 'ano' || diasNoPeriodo > 60) ? format(d, 'MM/yyyy') : format(d, 'dd/MM');
+      const key = analisePeriodo === 'hoje'
+        ? `${String(Math.min(20, Math.max(8, Math.floor(d.getHours() / 2) * 2))).padStart(2, '0')}h`
+        : (analisePeriodo === 'ano' || diasNoPeriodo > 60) ? format(d, 'MM/yyyy') : format(d, 'dd/MM');
       if (!porBucket[key]) porBucket[key] = { faturamento: 0, custo: 0 };
       porBucket[key].custo += c.valor;
     });
 
     const linhaGrafico: { day: string; faturamento: number; lucro: number }[] = [];
-    if (analisePeriodo === 'ano' || diasNoPeriodo > 60) {
+    if (analisePeriodo === 'hoje') {
+      const horas = ['08h', '10h', '12h', '14h', '16h', '18h', '20h'];
+      horas.forEach(h => {
+        const v = porBucket[h] || { faturamento: 0, custo: 0 };
+        linhaGrafico.push({ day: h, faturamento: v.faturamento, lucro: Math.max(0, v.faturamento - v.custo) });
+      });
+    } else if (analisePeriodo === 'ano' || diasNoPeriodo > 60) {
       const curr = new Date(inicioPeriodo.getFullYear(), inicioPeriodo.getMonth(), 1);
       const endMonth = new Date(fimPeriodo.getFullYear(), fimPeriodo.getMonth(), 1);
       while (curr <= endMonth) {
@@ -1725,9 +1806,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                 <ChartErrorBoundary>
                 <ResponsiveContainer width="100%" height="100%">
                    <AreaChart 
-                     data={chartData.length > 0 ? chartData : [
-                       { day: 'Seg', total: 400 }, { day: 'Ter', total: 600 }, { day: 'Qua', total: 300 }
-                     ]}
+                     data={chartData}
                      onClick={(data: any) => {
                         if (data?.activePayload) {
                            setRevenueDataPoint(data.activePayload[0].payload);
@@ -1743,12 +1822,23 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGridColor} />
                       <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: chartTextColor, fontWeight: 800 }} />
-                      <YAxis hide />
+                      <YAxis hide domain={[0, (dataMax: number) => Math.max(Number(dataMax) || 0, 100)]} />
                       <Tooltip 
                          cursor={{ stroke: '#4cc9f0', strokeWidth: 1, strokeDasharray: '5 5' }}
                          contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', backdropFilter: 'blur(10px)' }}
+                         formatter={(value: any) => [`R$ ${Number(value || 0).toFixed(2).replace('.', ',')}`, 'Faturamento']}
+                         labelFormatter={(label: any) => `Período: ${label}`}
                       />
-                      <Area type="monotone" dataKey="total" stroke="#4cc9f0" strokeWidth={3} fillOpacity={1} fill="url(#colorRevenue)" />
+                      <Area 
+                        type="monotone" 
+                        dataKey="total" 
+                        stroke="#4cc9f0" 
+                        strokeWidth={3} 
+                        fillOpacity={1} 
+                        fill="url(#colorRevenue)"
+                        dot={{ r: 3.5, fill: '#4cc9f0', stroke: '#0f172a', strokeWidth: 1.5 }}
+                        activeDot={{ r: 6, fill: '#4cc9f0', stroke: '#ffffff', strokeWidth: 2 }}
+                      />
                    </AreaChart>
                 </ResponsiveContainer>
                 </ChartErrorBoundary>
@@ -2160,7 +2250,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                                <LineChart data={analiseDetalhada.linhaGrafico}>
                                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGridColor} />
                                   <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 8, fill: chartTextColor, fontWeight: 800 }} interval="preserveStartEnd" />
-                                  <YAxis hide />
+                                  <YAxis hide domain={[0, (dataMax: number) => Math.max(Number(dataMax) || 0, 100)]} />
                                   <Tooltip
                                      cursor={{ stroke: 'rgba(255,255,255,0.2)', strokeWidth: 1 }}
                                      contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.95)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', backdropFilter: 'blur(10px)' }}
