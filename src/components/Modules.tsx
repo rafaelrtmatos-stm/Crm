@@ -975,13 +975,14 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   }, [user?.isAdmin]);
   const [widgets, setWidgets] = useState<DashboardWidget[]>(DEFAULT_WIDGETS);
   const [selectedWidget, setSelectedWidget] = useState<DashboardWidget | null>(null);
-  const [period, setPeriod] = useState('Semana');
+  const [period, setPeriod] = useState('7 dias');
   const [customRange, setCustomRange] = useState({ start: '', end: '' });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isRevenueModalOpen, setIsRevenueModalOpen] = useState(false);
   const [showLinhaFaturamento, setShowLinhaFaturamento] = useState(true);
   const [showLinhaLucro, setShowLinhaLucro] = useState(true);
   const [revenueDataPoint, setRevenueDataPoint] = useState<any>(null);
+  const [revenueChartType, setRevenueChartType] = useState<'area' | 'bar'>('area');
    const [realSales, setRealSales] = useState<SaleOrder[]>([]);
   const [services, setServices] = useState<any[]>([]);
   const [inventory, setInventory] = useState<any[]>([]);
@@ -1089,7 +1090,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       const end = new Date(start); end.setHours(23, 59, 59, 999);
       return { start, end };
     }
-    if (period === 'Semana') {
+    if (period === 'Semana' || period === '7 dias') {
       const dayOfWeek = now.getDay(); // 0=domingo, 1=segunda, ..., 6=sabado
       const start = new Date(now); start.setDate(now.getDate() - dayOfWeek); start.setHours(0, 0, 0, 0);
       const end = new Date(start); end.setDate(start.getDate() + 6); end.setHours(23, 59, 59, 999);
@@ -1118,7 +1119,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         yesterday.setDate(now.getDate() - 1);
         return orderDate.toDateString() === yesterday.toDateString();
       }
-      if (period === 'Semana') {
+      if (period === 'Semana' || period === '7 dias') {
         // Semana comeca no domingo
         const dayOfWeek = now.getDay(); // 0=domingo, 1=segunda, ..., 6=sabado
         const startOfWeek = new Date(now);
@@ -1214,7 +1215,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         points.push({ day: h, key: h, total: 0, sales: 0, svcs: 0, entries: 0 });
         indexByKey[h] = idx;
       });
-    } else if (period === 'Semana') {
+    } else if (period === 'Semana' || period === '7 dias') {
       for (let i = 0; i < 7; i++) {
         const d = new Date(rangeStart);
         d.setDate(rangeStart.getDate() + i);
@@ -1660,13 +1661,13 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
 
             <div className="flex flex-col gap-2 items-end">
               <div className="flex bg-white/5 p-1 rounded-xl border border-white/5">
-                {['Hoje', 'Ontem', 'Semana', '30 dias', 'Personalizado'].map(p => (
+                {['Hoje', 'Ontem', '7 dias', '30 dias', 'Personalizado'].map(p => (
                   <button 
                     key={p}
                     onClick={() => setPeriod(p)}
                     className={cn(
                       "px-4 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all",
-                      period === p ? "bg-primary-500 text-slate-900 shadow-lg" : "text-white/40 hover:text-white"
+                      (period === p || (p === '7 dias' && period === 'Semana')) ? "bg-primary-500 text-slate-900 shadow-lg" : "text-white/40 hover:text-white"
                     )}
                   >
                     {p}
@@ -1793,53 +1794,231 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
 
       <div className={cn("grid gap-8", user?.isAdmin ? "grid-cols-1 lg:grid-cols-3" : "grid-cols-1")}>
         {user?.isAdmin && (
-          <GlassCard className="lg:col-span-2 p-8 border-white/5 bg-white/[0.02]">
-             <div className="flex items-center justify-between mb-8">
+          <GlassCard className="lg:col-span-2 p-8 border-white/5 bg-white/[0.02] space-y-6">
+             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                   <h3 className="text-xl font-black text-white italic tracking-tighter uppercase">Análise de Performance</h3>
+                   <div className="flex items-center gap-2">
+                      <h3 className="text-xl font-black text-white italic tracking-tighter uppercase">Análise de Performance</h3>
+                      <span className="px-2 py-0.5 rounded-md text-[9px] font-black uppercase bg-primary-500/10 text-primary-400 border border-primary-500/20">
+                         {period}
+                      </span>
+                   </div>
                    <p className="text-xs text-white/30 font-bold tracking-widest uppercase">Evolução do Faturamento por Período</p>
                 </div>
-                <Button variant="ghost" icon={Maximize2} onClick={() => setIsRevenueModalOpen(true)} />
+                <div className="flex items-center gap-2">
+                   <div className="flex items-center bg-white/5 p-1 rounded-xl border border-white/5">
+                      <button
+                         onClick={() => setRevenueChartType('area')}
+                         className={cn(
+                            "px-2.5 py-1 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all flex items-center gap-1 cursor-pointer",
+                            revenueChartType === 'area' ? "bg-primary-500 text-slate-900 shadow-md" : "text-white/40 hover:text-white"
+                         )}
+                         title="Gráfico de Linha / Área"
+                      >
+                         <LineChartIcon size={13} />
+                         <span>Linha</span>
+                      </button>
+                      <button
+                         onClick={() => setRevenueChartType('bar')}
+                         className={cn(
+                            "px-2.5 py-1 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all flex items-center gap-1 cursor-pointer",
+                            revenueChartType === 'bar' ? "bg-primary-500 text-slate-900 shadow-md" : "text-white/40 hover:text-white"
+                         )}
+                         title="Gráfico de Barras"
+                      >
+                         <BarChartIcon size={13} />
+                         <span>Barras</span>
+                      </button>
+                   </div>
+                   <Button variant="ghost" icon={Maximize2} onClick={() => setIsRevenueModalOpen(true)} title="Expandir análise detalhada" />
+                </div>
              </div>
+
+             {/* Painel Granular do Ponto Selecionado ao Clicar no Gráfico */}
+             {revenueDataPoint && (
+                <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-primary-500/10 border border-primary-500/20 rounded-2xl animate-in fade-in slide-in-from-top-2">
+                   <div className="flex items-center gap-3">
+                      <div className="p-2 bg-primary-500/20 rounded-xl text-primary-400">
+                         <CalendarDays size={18} />
+                      </div>
+                      <div>
+                         <div className="flex items-center gap-2">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-primary-300">Ponto Selecionado</p>
+                            <span className="text-xs font-black text-white">{revenueDataPoint.day}</span>
+                         </div>
+                         <p className="text-[11px] font-bold text-white/60">
+                            Faturamento Diário: <span className="text-emerald-400 font-black">R$ {Number(revenueDataPoint.total || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                         </p>
+                      </div>
+                   </div>
+                   <div className="flex items-center gap-3 text-xs font-bold text-white/80 flex-wrap">
+                      <div className="text-center px-2.5 py-1 bg-white/5 rounded-lg border border-white/5">
+                         <span className="block text-[8px] font-black uppercase text-white/40">Vendas</span>
+                         <span className="text-white font-black">{revenueDataPoint.sales || 0}</span>
+                      </div>
+                      <div className="text-center px-2.5 py-1 bg-white/5 rounded-lg border border-white/5">
+                         <span className="block text-[8px] font-black uppercase text-white/40">Serviços</span>
+                         <span className="text-primary-300 font-black">{revenueDataPoint.svcs || 0}</span>
+                      </div>
+                      <div className="text-center px-2.5 py-1 bg-white/5 rounded-lg border border-white/5">
+                         <span className="block text-[8px] font-black uppercase text-white/40">Entradas</span>
+                         <span className="text-amber-400 font-black">{revenueDataPoint.entries || 0}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 ml-1">
+                         <Button 
+                            size="sm" 
+                            variant="outline" 
+                            className="text-[9px] h-7 px-2.5 uppercase font-black"
+                            onClick={() => setIsRevenueModalOpen(true)}
+                         >
+                            Ver Análise
+                         </Button>
+                         <button 
+                            onClick={() => setRevenueDataPoint(null)}
+                            className="text-white/40 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-all text-xs font-bold cursor-pointer"
+                            title="Fechar seleção"
+                         >
+                            ✕
+                         </button>
+                      </div>
+                   </div>
+                </div>
+             )}
              
              <div className="h-[350px] w-full">
                 <ChartErrorBoundary>
                 <ResponsiveContainer width="100%" height="100%">
-                   <AreaChart 
-                     data={chartData}
-                     onClick={(data: any) => {
-                        if (data?.activePayload) {
-                           setRevenueDataPoint(data.activePayload[0].payload);
-                           setIsRevenueModalOpen(true);
-                        }
-                     }}
-                   >
-                      <defs>
-                         <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#4cc9f0" stopOpacity={0.3}/>
-                            <stop offset="95%" stopColor="#4cc9f0" stopOpacity={0}/>
-                         </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGridColor} />
-                      <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: chartTextColor, fontWeight: 800 }} />
-                      <YAxis hide domain={[0, (dataMax: number) => Math.max(Number(dataMax) || 0, 100)]} />
-                      <Tooltip 
-                         cursor={{ stroke: '#4cc9f0', strokeWidth: 1, strokeDasharray: '5 5' }}
-                         contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', backdropFilter: 'blur(10px)' }}
-                         formatter={(value: any) => [`R$ ${Number(value || 0).toFixed(2).replace('.', ',')}`, 'Faturamento']}
-                         labelFormatter={(label: any) => `Período: ${label}`}
-                      />
-                      <Area 
-                        type="monotone" 
-                        dataKey="total" 
-                        stroke="#4cc9f0" 
-                        strokeWidth={3} 
-                        fillOpacity={1} 
-                        fill="url(#colorRevenue)"
-                        dot={{ r: 3.5, fill: '#4cc9f0', stroke: '#0f172a', strokeWidth: 1.5 }}
-                        activeDot={{ r: 6, fill: '#4cc9f0', stroke: '#ffffff', strokeWidth: 2 }}
-                      />
-                   </AreaChart>
+                   {revenueChartType === 'bar' ? (
+                      <BarChart 
+                        data={chartData}
+                        onClick={(data: any) => {
+                           if (data?.activePayload?.[0]?.payload) {
+                              setRevenueDataPoint(data.activePayload[0].payload);
+                           }
+                        }}
+                      >
+                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGridColor} />
+                         <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: chartTextColor, fontWeight: 800 }} />
+                         <YAxis hide domain={[0, (dataMax: number) => Math.max(Number(dataMax) || 0, 100)]} />
+                         <Tooltip 
+                            cursor={{ fill: 'rgba(255,255,255,0.04)' }}
+                            content={({ active, payload }: any) => {
+                               if (active && payload && payload.length) {
+                                  const data = payload[0].payload;
+                                  if (!data) return null;
+                                  return (
+                                     <div className="p-3 bg-slate-900/95 border border-white/10 rounded-2xl shadow-2xl backdrop-blur-md space-y-1.5 min-w-[190px]">
+                                        <div className="flex items-center justify-between border-b border-white/10 pb-1">
+                                           <p className="text-[10px] font-black uppercase tracking-widest text-primary-300 truncate">{data.day}</p>
+                                           <span className="text-[8px] font-bold text-white/40 uppercase">Barras</span>
+                                        </div>
+                                        <div className="space-y-1 text-xs">
+                                           <div className="flex justify-between items-center gap-3">
+                                              <span className="text-white/60 font-medium text-[11px]">Faturamento:</span>
+                                              <span className="text-emerald-400 font-black">R$ {Number(data.total || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                           </div>
+                                           <div className="flex justify-between items-center gap-3">
+                                              <span className="text-white/60 font-medium text-[11px]">Qtd. Vendas:</span>
+                                              <span className="text-white font-bold">{data.sales || 0}</span>
+                                           </div>
+                                           <div className="flex justify-between items-center gap-3">
+                                              <span className="text-white/60 font-medium text-[11px]">Qtd. Serviços:</span>
+                                              <span className="text-primary-300 font-bold">{data.svcs || 0}</span>
+                                           </div>
+                                           <div className="flex justify-between items-center gap-3">
+                                              <span className="text-white/60 font-medium text-[11px]">Qtd. Entradas:</span>
+                                              <span className="text-amber-400 font-bold">{data.entries || 0}</span>
+                                           </div>
+                                        </div>
+                                        <p className="text-[8px] text-white/30 italic pt-1 border-t border-white/5">Clique no ponto para fixar detalhes</p>
+                                     </div>
+                                  );
+                               }
+                               return null;
+                            }}
+                         />
+                         <Bar 
+                            dataKey="total" 
+                            fill="#4cc9f0" 
+                            radius={[6, 6, 0, 0]}
+                            cursor="pointer"
+                         >
+                            {chartData.map((entry, index) => (
+                               <Cell 
+                                  key={`cell-${index}`} 
+                                  fill={revenueDataPoint?.day === entry.day ? '#38bdf8' : '#4cc9f0'}
+                                  opacity={revenueDataPoint && revenueDataPoint.day !== entry.day ? 0.45 : 0.85}
+                               />
+                            ))}
+                         </Bar>
+                      </BarChart>
+                   ) : (
+                      <AreaChart 
+                        data={chartData}
+                        onClick={(data: any) => {
+                           if (data?.activePayload?.[0]?.payload) {
+                              setRevenueDataPoint(data.activePayload[0].payload);
+                           }
+                        }}
+                      >
+                         <defs>
+                            <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                               <stop offset="5%" stopColor="#4cc9f0" stopOpacity={0.35}/>
+                               <stop offset="95%" stopColor="#4cc9f0" stopOpacity={0.02}/>
+                            </linearGradient>
+                         </defs>
+                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGridColor} />
+                         <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: chartTextColor, fontWeight: 800 }} />
+                         <YAxis hide domain={[0, (dataMax: number) => Math.max(Number(dataMax) || 0, 100)]} />
+                         <Tooltip 
+                            cursor={{ stroke: '#4cc9f0', strokeWidth: 1, strokeDasharray: '5 5' }}
+                            content={({ active, payload }: any) => {
+                               if (active && payload && payload.length) {
+                                  const data = payload[0].payload;
+                                  if (!data) return null;
+                                  return (
+                                     <div className="p-3 bg-slate-900/95 border border-white/10 rounded-2xl shadow-2xl backdrop-blur-md space-y-1.5 min-w-[190px]">
+                                        <div className="flex items-center justify-between border-b border-white/10 pb-1">
+                                           <p className="text-[10px] font-black uppercase tracking-widest text-primary-300 truncate">{data.day}</p>
+                                           <span className="text-[8px] font-bold text-white/40 uppercase">Linha</span>
+                                        </div>
+                                        <div className="space-y-1 text-xs">
+                                           <div className="flex justify-between items-center gap-3">
+                                              <span className="text-white/60 font-medium text-[11px]">Faturamento:</span>
+                                              <span className="text-emerald-400 font-black">R$ {Number(data.total || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                           </div>
+                                           <div className="flex justify-between items-center gap-3">
+                                              <span className="text-white/60 font-medium text-[11px]">Qtd. Vendas:</span>
+                                              <span className="text-white font-bold">{data.sales || 0}</span>
+                                           </div>
+                                           <div className="flex justify-between items-center gap-3">
+                                              <span className="text-white/60 font-medium text-[11px]">Qtd. Serviços:</span>
+                                              <span className="text-primary-300 font-bold">{data.svcs || 0}</span>
+                                           </div>
+                                           <div className="flex justify-between items-center gap-3">
+                                              <span className="text-white/60 font-medium text-[11px]">Qtd. Entradas:</span>
+                                              <span className="text-amber-400 font-bold">{data.entries || 0}</span>
+                                           </div>
+                                        </div>
+                                        <p className="text-[8px] text-white/30 italic pt-1 border-t border-white/5">Clique no ponto para fixar detalhes</p>
+                                     </div>
+                                  );
+                               }
+                               return null;
+                            }}
+                         />
+                         <Area 
+                           type="monotone" 
+                           dataKey="total" 
+                           stroke="#4cc9f0" 
+                           strokeWidth={3} 
+                           fillOpacity={1} 
+                           fill="url(#colorRevenue)"
+                           dot={{ r: 3.5, fill: '#4cc9f0', stroke: '#0f172a', strokeWidth: 1.5 }}
+                           activeDot={{ r: 6, fill: '#38bdf8', stroke: '#ffffff', strokeWidth: 2 }}
+                         />
+                      </AreaChart>
+                   )}
                 </ResponsiveContainer>
                 </ChartErrorBoundary>
              </div>
