@@ -2522,7 +2522,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                          </div>
                          <div className="h-[210px] w-full">
                             <ChartErrorBoundary>
-                            <ResponsiveContainer width="100%" height="100%">
+                            <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={100} initialDimension={{ width: 500, height: 210 }}>
                                <LineChart data={analiseDetalhada.linhaGrafico}>
                                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGridColor} />
                                   <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 8, fill: chartTextColor, fontWeight: 800 }} interval="preserveStartEnd" />
@@ -6681,7 +6681,7 @@ export const MetaAdsModule = ({ currentCompany }: { currentCompany: Company | nu
                <h5 className="text-[10px] font-black uppercase tracking-[2px] text-white/50">Gasto vs Leads (7D)</h5>
             </div>
             <ChartErrorBoundary>
-            <ResponsiveContainer width="100%" height="80%">
+            <ResponsiveContainer width="100%" height="80%" minWidth={100} minHeight={80} initialDimension={{ width: 500, height: 240 }}>
                <AreaChart data={[
                  { day: '01', spend: 400, leads: 12 }, { day: '02', spend: 350, leads: 15 },
                  { day: '03', spend: 600, leads: 22 }, { day: '04', spend: 450, leads: 18 },

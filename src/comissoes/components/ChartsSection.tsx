@@ -84,7 +84,7 @@ export const ChartsSection: React.FC<ChartsSectionProps> = ({ services }) => {
         </div>
 
         <div className="h-64 w-full">
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={100} initialDimension={{ width: 500, height: 256 }}>
             <BarChart data={dailyChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#303030" opacity={0.5} vertical={false} />
               <XAxis dataKey="displayDate" stroke="#AFAFAF" fontSize={11} tickLine={false} />
