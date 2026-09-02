@@ -814,7 +814,7 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
                 </label>
                 <input
                   type="number"
-                  step="100"
+                  step="0.01"
                   min="0"
                   required
                   placeholder="Ex: 65000"
@@ -846,7 +846,7 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
                 </label>
                 <input
                   type="number"
-                  step="5"
+                  step="1"
                   min="1"
                   required
                   placeholder="Ex: 120"
@@ -862,7 +862,7 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
                 </label>
                 <input
                   type="number"
-                  step="50"
+                  step="0.01"
                   min="0"
                   placeholder="Ex: 6000"
                   value={formData.manutencaoAnual}
@@ -877,7 +877,7 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
                 </label>
                 <input
                   type="number"
-                  step="0.1"
+                  step="0.01"
                   min="0"
                   placeholder="Ex: 2.2"
                   value={formData.potenciaKw}
@@ -892,7 +892,7 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
                 </label>
                 <input
                   type="number"
-                  step="0.5"
+                  step="0.01"
                   min="0.1"
                   required
                   placeholder="Ex: 12"
@@ -933,7 +933,7 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
                 </label>
                 <input
                   type="number"
-                  step="50"
+                  step="1"
                   min="0"
                   placeholder="Ex: 1000"
                   value={formData.tintaQuantidadeMl}
@@ -948,7 +948,7 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
                 </label>
                 <input
                   type="number"
-                  step="10"
+                  step="0.01"
                   min="0"
                   placeholder="Ex: 180"
                   value={formData.tintaValor}
@@ -963,7 +963,7 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
                 </label>
                 <input
                   type="number"
-                  step="1"
+                  step="0.01"
                   min="0"
                   placeholder="Ex: 15"
                   value={formData.tintaConsumoMlM2}
@@ -991,7 +991,7 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
                 </label>
                 <input
                   type="number"
-                  step="100"
+                  step="0.01"
                   min="0"
                   placeholder="Ex: 8500"
                   value={formData.cabecaValor}
@@ -1006,7 +1006,7 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
                 </label>
                 <input
                   type="number"
-                  step="100"
+                  step="1"
                   min="0"
                   placeholder="Ex: 2500"
                   value={formData.cabecaVidaUtilHoras}
