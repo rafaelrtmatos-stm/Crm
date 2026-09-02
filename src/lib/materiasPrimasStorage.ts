@@ -9,21 +9,8 @@ export function isValidUUID(str?: string | null): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 }
 
-// Mock/Initial raw materials for graphics shop if table is empty
-const DEFAULT_MATERIAS_PRIMAS: Omit<MateriaPrima, 'id'>[] = [
-  { name: 'Adesivo Vinil Branco Brilho', unit: 'm', costPrice: 14.50, larguraMaterial: 1.52, comprimentoBobina: 50, quantidadeEstoque: 2, notes: 'Bobina 1.52m x 50m / impressão solvente', isActive: true },
-  { name: 'Adesivo Vinil Fosco', unit: 'm', costPrice: 15.20, larguraMaterial: 1.52, comprimentoBobina: 50, quantidadeEstoque: 1, notes: 'Bobina 1.52m x 50m / alta aderência', isActive: true },
-  { name: 'Adesivo Transparente', unit: 'm', costPrice: 16.00, larguraMaterial: 1.22, comprimentoBobina: 50, quantidadeEstoque: 1, notes: 'Bobina 1.22m x 50m / vitrines e vidros', isActive: true },
-  { name: 'Película Transparente / Laminação', unit: 'm', costPrice: 8.90, larguraMaterial: 1.52, comprimentoBobina: 50, quantidadeEstoque: 3, notes: 'Bobina 1.52m x 50m / proteção UV e abrasão', isActive: true },
-  { name: 'Lona Frontlight 440g', unit: 'm', costPrice: 18.00, larguraMaterial: 1.60, comprimentoBobina: 50, quantidadeEstoque: 2, notes: 'Bobina 1.60m x 50m / banners e fachadas', isActive: true },
-  { name: 'Lona Backlight 440g', unit: 'm', costPrice: 24.00, larguraMaterial: 1.60, comprimentoBobina: 50, quantidadeEstoque: 1, notes: 'Bobina 1.60m x 50m / translúcida para painéis iluminados', isActive: true },
-  { name: 'Chapa ACM 3mm', unit: 'un', costPrice: 180.00, larguraMaterial: 1.22, comprimentoBobina: 2.44, quantidadeEstoque: 10, notes: 'Chapa 1.22m x 2.44m / painel de alumínio composto', isActive: true },
-  { name: 'Chapa PS 2mm Branco', unit: 'un', costPrice: 65.00, larguraMaterial: 1.00, comprimentoBobina: 2.00, quantidadeEstoque: 15, notes: 'Chapa 1.00m x 2.00m / poliestireno para placas', isActive: true },
-  { name: 'Tinta Solvente / Litro', unit: 'un', costPrice: 120.00, quantidadeEstoque: 8, notes: 'Consumo médio para impressoras solventes', isActive: true },
-  { name: 'Ilhós Metálico N° 5', unit: 'un', costPrice: 0.15, quantidadeEstoque: 1000, notes: 'Acabamento de borda em lonas', isActive: true },
-  { name: 'Bastão de Madeira c/ Ponteira', unit: 'm', costPrice: 4.50, quantidadeEstoque: 40, notes: 'Montagem de banner', isActive: true },
-  { name: 'Fita Dupla Face Alta Fixação', unit: 'm', costPrice: 2.80, comprimentoBobina: 20, quantidadeEstoque: 5, notes: 'Rolo 20m / fixação de placas e totens', isActive: true }
-];
+// Fallback empty when offline or cache is empty
+const DEFAULT_MATERIAS_PRIMAS: Omit<MateriaPrima, 'id'>[] = [];
 
 export async function fetchMateriasPrimas(companyId?: string): Promise<MateriaPrima[]> {
   try {
@@ -36,18 +23,14 @@ export async function fetchMateriasPrimas(companyId?: string): Promise<MateriaPr
 
     if (error) {
       console.warn('Fallback materias_primas do supabase:', error.message);
-      // Try local storage or default
+      // Try local storage
       return getCachedMateriasPrimas(companyId);
     }
 
     if (!data || data.length === 0) {
-      // Check if we have cached or if we should seed default
-      const cached = getCachedMateriasPrimas(companyId);
-      if (cached.length > 0) return cached;
-
-      // Try seeding defaults in background
-      const seeded = await seedDefaultMateriasPrimas(companyId);
-      return seeded;
+      // Se não há dados no Supabase, salva lista vazia no cache para não reter itens antigos
+      saveLocalCache([]);
+      return [];
     }
 
     const mapped: MateriaPrima[] = data.map((item: any) => {
@@ -345,18 +328,12 @@ function getCachedMateriasPrimas(companyId?: string): MateriaPrima[] {
   try {
     const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
     if (!raw) {
-      const seeded = DEFAULT_MATERIAS_PRIMAS.map((item, idx) => ({
-        ...item,
-        id: `default-mp-${idx + 1}`,
-        companyId: companyId || 'rafa-arts',
-        createdAt: new Date().toISOString()
-      }));
-      saveLocalCache(seeded);
-      return seeded;
+      return [];
     }
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length > 0) {
-      return parsed;
+    if (Array.isArray(parsed)) {
+      // Ignora itens ficticios antigos de seed
+      return parsed.filter(p => !p.id?.startsWith('seed-mp-') && !p.id?.startsWith('default-mp-'));
     }
   } catch (e) {
     console.error('Erro ao ler cache local de matérias-primas:', e);
