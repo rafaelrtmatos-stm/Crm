@@ -124,6 +124,9 @@ import {
   LogOut,
   PlusSquare,
   ShieldCheck,
+  Shield,
+  Kanban,
+  Unlock,
   Lock,
   Loader2,
   Wallet,
@@ -308,6 +311,8 @@ function getDefaultModulePermissions(role: string): ModulePermissions {
       empty.messages = viewCreateEdit();
       empty.clientes_espera = viewEdit();
       empty.contacts = viewCreateEdit();
+      empty.crm = viewCreateEdit();
+      empty.production = viewOnly();
       empty.robozinho_rafa = viewCreateEdit();
       return empty;
     case 'operador': // Producao
@@ -321,6 +326,7 @@ function getDefaultModulePermissions(role: string): ModulePermissions {
       empty.messages = viewCreateEdit();
       empty.clientes_espera = viewEdit();
       empty.crm = viewCreateEdit();
+      empty.pos = viewCreateEdit();
       return empty;
     case 'designer':
       empty.dashboard = viewOnly();
@@ -330,10 +336,87 @@ function getDefaultModulePermissions(role: string): ModulePermissions {
     case 'caixa':
       empty.dashboard = viewOnly();
       empty.pos = fullAccess();
+      empty.contacts = viewCreateEdit();
+      empty.clientes_espera = viewEdit();
+      return empty;
+    case 'comissao':
+      empty.comissoes = viewCreateEdit();
       return empty;
     default:
       empty.dashboard = viewOnly();
       return empty;
+  }
+}
+
+function getDefaultPdvTabs(role: string): string[] {
+  switch (role) {
+    case 'admin':
+      return ['venda', 'historico', 'estoque', 'servicos', 'orcamentos', 'contratos', 'excluidos', 'clientes'];
+    case 'gerente':
+      return ['venda', 'historico', 'estoque', 'servicos', 'orcamentos', 'contratos', 'clientes'];
+    case 'caixa':
+    case 'atendente':
+      return ['venda', 'historico', 'servicos', 'orcamentos', 'clientes'];
+    case 'vendedor':
+      return ['venda', 'servicos', 'orcamentos', 'clientes'];
+    case 'designer':
+    case 'operador':
+      return ['servicos'];
+    case 'comissao':
+      return [];
+    default:
+      return ['venda', 'servicos', 'orcamentos', 'clientes'];
+  }
+}
+
+function getDefaultActions(role: string): string[] {
+  switch (role) {
+    case 'admin':
+      return [
+        'canStartNote', 'canSendSavedMessage', 'canTranscribeAudio', 'canViewAttachments',
+        'canCreateCard', 'canMoveLead', 'canAddTask',
+        'canStartPosSale', 'canManageContracts', 'canManageSaleHistory', 'canCloseCashRegister',
+        'canAddProduct', 'canManageInventory',
+        'canViewCustomerData'
+      ];
+    case 'gerente':
+      return [
+        'canStartNote', 'canSendSavedMessage', 'canTranscribeAudio', 'canViewAttachments',
+        'canCreateCard', 'canMoveLead', 'canAddTask',
+        'canStartPosSale', 'canManageContracts', 'canManageSaleHistory', 'canCloseCashRegister',
+        'canAddProduct', 'canManageInventory',
+        'canViewCustomerData'
+      ];
+    case 'atendente':
+      return [
+        'canStartNote', 'canSendSavedMessage', 'canTranscribeAudio', 'canViewAttachments',
+        'canCreateCard', 'canMoveLead', 'canAddTask',
+        'canStartPosSale', 'canManageContracts',
+        'canViewCustomerData'
+      ];
+    case 'caixa':
+      return [
+        'canStartPosSale', 'canCloseCashRegister', 'canManageContracts',
+        'canViewCustomerData'
+      ];
+    case 'vendedor':
+      return [
+        'canStartNote', 'canSendSavedMessage', 'canTranscribeAudio', 'canViewAttachments',
+        'canCreateCard', 'canMoveLead', 'canAddTask',
+        'canViewCustomerData'
+      ];
+    case 'designer':
+      return [
+        'canStartNote', 'canViewAttachments', 'canTranscribeAudio'
+      ];
+    case 'operador':
+      return [
+        'canViewAttachments'
+      ];
+    case 'comissao':
+      return [];
+    default:
+      return ['canStartNote', 'canSendSavedMessage', 'canViewAttachments'];
   }
 }
 
@@ -19770,24 +19853,30 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     setEditedName(u.name);
     setEditedEmail(u.email);
     setEditedPassword(u.password || '');
-    setEditedRole(u.role as any || 'atendente');
-    // Se o usuario nao tem allowedTabs definido ainda, o padrao NAO inclui Configuracoes —
-    // só quem já é admin (ou for promovido nessa mesma tela) deveria ver essa aba.
-    setEditedTabs(u.allowedTabs || (u.isAdmin || u.role === 'admin'
-      ? ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'clientes_espera', 'production', 'comissoes', 'settings']
-      : ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'clientes_espera', 'production', 'comissoes']));
-    setEditedPdvTabs(u.allowedPdvTabs || ['venda', 'historico', 'estoque', 'servicos', 'orcamentos', 'contratos', 'excluidos', 'clientes']);
-    setEditedActions(u.allowedActions || [
-      'canStartNote', 'canSendSavedMessage', 'canCreateCard', 'canAddTask',
-      'canStartPosSale', 'canMoveLead',
-      'canViewCustomerData', 'canViewAttachments', 'canTranscribeAudio'
-    ]);
-    setEditedModulePermissions(u.modulePermissions || getDefaultModulePermissions(u.role || 'atendente'));
+    const userRole = (u.role as any) || (u.isAdmin ? 'admin' : 'atendente');
+    setEditedRole(userRole);
+
+    const initialPerms = u.modulePermissions || getDefaultModulePermissions(userRole);
+    setEditedModulePermissions(initialPerms);
+
+    const activeTabs = u.allowedTabs && u.allowedTabs.length > 0
+      ? u.allowedTabs
+      : (Object.entries(initialPerms) as [string, ModuleCrudPermission][]).filter(([_, p]) => p?.view).map(([id]) => id);
+    setEditedTabs(activeTabs);
+
+    setEditedPdvTabs(u.allowedPdvTabs || getDefaultPdvTabs(userRole));
+    setEditedActions(u.allowedActions || getDefaultActions(userRole));
   };
 
   const handleSaveUserPermissions = async () => {
     if (!editingUser) return;
     try {
+      // Sincroniza abas permitidas garantindo que todos os módulos com 'view: true' fiquem visíveis
+      const syncedTabs = Array.from(new Set([
+        ...(Object.entries(editedModulePermissions) as [string, ModuleCrudPermission][]).filter(([_, p]) => p?.view).map(([id]) => id),
+        ...editedTabs.filter(tabId => editedModulePermissions[tabId]?.view !== false)
+      ]));
+
       if (editingUser.id === 'admin-rafael') {
         // Admin master continua no Firebase
         await updateDoc(doc(db, 'users', editingUser.id), {
@@ -19795,23 +19884,15 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
           email: editedEmail,
           ...(editedPassword ? { password: editedPassword } : {}),
           role: editedRole,
-          allowedTabs: editedTabs,
+          allowedTabs: syncedTabs,
           allowedPdvTabs: editedPdvTabs,
           allowedActions: editedActions,
+          modulePermissions: editedModulePermissions,
           updatedAt: Timestamp.now()
         });
       } else {
-        // Usuarios comuns vivem no Supabase. Se o id atual ja e um UUID valido (usuario ja
-        // existe no Supabase), atualiza por id normalmente — assim funciona certo mesmo trocando
-        // o e-mail. Se nao for um UUID (usuario antigo, criado antes da migracao, id do Firebase
-        // tipo "user-1699999999"), o update por id nao acharia nada — nesse caso faz upsert por
-        // e-mail, que migra ele pro Supabase na hora com os dados ja editados.
         const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(editingUser.id);
 
-        // Usuario com cargo "Comissao" precisa estar vinculado a um registro em "colaboradores"
-        // (e la que ficam os servicos/comissoes dele). Se ele ja tinha um colaborador vinculado,
-        // so mantem nome/senha sincronizados; se ainda nao tinha (acabou de virar "Comissao" agora,
-        // ou nunca teve), cria o colaborador na hora e guarda o id no proprio usuario.
         let colaboradorId = editingUser.colaboradorId || null;
         if (editedRole === 'comissao') {
           if (colaboradorId) {
@@ -19838,7 +19919,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
           ...(editedPassword ? { password: editedPassword } : {}),
           role: editedRole,
           is_admin: editedRole === 'admin',
-          allowed_tabs: editedTabs,
+          allowed_tabs: syncedTabs,
           allowed_pdv_tabs: editedPdvTabs,
           allowed_actions: editedActions,
           module_permissions: editedModulePermissions,
@@ -19853,7 +19934,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
           if (error) throw error;
         }
       }
-      showAlert('Dados e senha do usuário atualizados!');
+      showAlert('Dados, permissões e acessos do usuário atualizados com sucesso!');
       setEditingUser(null);
     } catch (err: any) {
       console.error('Erro ao salvar permissões:', err);
@@ -19868,23 +19949,11 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     }
     try {
       const isComissaoRole = newUserRole === 'comissao';
-      const cargosComOpcoes = ['admin', 'gerente'];
-      const defaultTabs = isComissaoRole
-        ? ['comissoes'] // usuario de Comissao nao usa o CRM, so a area de Comissoes
-        : cargosComOpcoes.includes(newUserRole)
-        ? ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'clientes_espera', 'production', 'settings']
-        : ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'clientes_espera', 'production'];
-      const defaultActions = [
-        'canStartNote', 'canSendSavedMessage', 'canCreateCard', 'canAddTask',
-        'canStartPosSale', 'canMoveLead',
-        'canViewCustomerData', 'canViewAttachments', 'canTranscribeAudio'
-      ];
+      const defaultModulePerms = getDefaultModulePermissions(newUserRole);
+      const defaultTabs = (Object.entries(defaultModulePerms) as [string, ModuleCrudPermission][]).filter(([_, p]) => p?.view).map(([id]) => id);
+      const defaultPdvTabs = getDefaultPdvTabs(newUserRole);
+      const defaultActions = getDefaultActions(newUserRole);
 
-      // Usuario "Comissao" precisa de um registro em "colaboradores" (e quem guarda os
-      // servicos/comissoes dele na area separada de Comissoes). Cria o colaborador primeiro
-      // pra poder linkar o id dele na conta de usuario logo abaixo (usuarios.colaborador_id) —
-      // e esse link que faz o login em pro.rafaartsgraphics.com reconhecer o usuario e mandar
-      // ele direto pra /comissoes.
       let colaboradorId: string | null = null;
       if (isComissaoRole) {
         const { data: colaboradorCriado, error: colaboradorErr } = await supabase
@@ -19904,9 +19973,9 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
         is_admin: newUserRole === 'admin',
         is_active: true,
         allowed_tabs: defaultTabs,
-        allowed_pdv_tabs: ['venda', 'historico', 'estoque', 'servicos', 'orcamentos', 'contratos', 'excluidos', 'clientes'],
+        allowed_pdv_tabs: defaultPdvTabs,
         allowed_actions: defaultActions,
-        module_permissions: getDefaultModulePermissions(newUserRole),
+        module_permissions: defaultModulePerms,
         ...(colaboradorId ? { colaborador_id: colaboradorId } : {}),
       });
       if (error) throw error;
@@ -19942,14 +20011,10 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
       if (isSupabaseUuid) {
         const { error } = await supabase.from('usuarios').delete().eq('id', u.id);
         if (error) throw error;
-        // Se era um usuario de "Comissao", so desativa o colaborador vinculado (nao apaga) —
-        // assim o historico de servicos/comissoes dele fica preservado no painel do admin,
-        // e ele so perde o acesso de login.
         if (u.role === 'comissao' && u.colaboradorId) {
           await supabase.from('colaboradores').update({ ativo: false }).eq('id', u.colaboradorId);
         }
       } else {
-        // Usuario legado que ainda so existe no Firebase (nunca logou depois da migracao pro Supabase)
         await deleteDoc(doc(db, 'users', u.id));
       }
     } catch (err: any) {
@@ -19958,74 +20023,181 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     }
   };
 
-  const MODULE_DEFINITIONS = [
-    { id: 'dashboard', label: 'Dashboard' },
-    { id: 'pos', label: 'Ordens de Serviço / PDV' },
-    { id: 'messages', label: 'Mensagens' },
-    { id: 'clientes_espera', label: 'Clientes em Espera' },
-    { id: 'contacts', label: 'Clientes' },
-    { id: 'crm', label: 'Funil CRM' },
-    { id: 'production', label: 'Ordem de Serviço' },
-    { id: 'inventory', label: 'Estoque' },
-    { id: 'comissoes', label: 'Comissões' },
-    { id: 'robozinho_rafa', label: 'Integrações (Robozinho)' },
-    { id: 'settings', label: 'Configurações' },
+  const MODULE_DEFINITIONS: {
+    id: string;
+    label: string;
+    badge: string;
+    desc: string;
+    icon: any;
+  }[] = [
+    { id: 'dashboard', label: 'Dashboard Principal', badge: 'Visão Geral', desc: 'Métricas diárias, faturamento consolidado, gráficos de desempenho e atalhos rápidos', icon: LayoutDashboard },
+    { id: 'pos', label: 'PDV & Terminal de Venda', badge: 'Vendas / Balcão', desc: 'Abertura/fechamento de caixa, registro de faturamento, emissão de recibos e vendas balcão', icon: ShoppingCart },
+    { id: 'messages', label: 'Mensagens & WhatsApp', badge: 'Atendimento', desc: 'Central de conversas unificada, integração multicanal com WhatsApp e chat de clientes', icon: MessageSquare },
+    { id: 'clientes_espera', label: 'Fila de Clientes em Espera', badge: 'Recepção', desc: 'Painel de triagem em tempo real e cronômetro de tempo de atendimento presencial', icon: Clock },
+    { id: 'contacts', label: 'Clientes & Contatos', badge: 'Cadastros', desc: 'Base de dados de clientes cadastrados, histórico de compras, limites e documentos', icon: Users },
+    { id: 'crm', label: 'Funil Comercial CRM', badge: 'Vendas & Leads', desc: 'Pipeline visual de oportunidades, colunas do funil, agendamento de tarefas e status', icon: Kanban },
+    { id: 'production', label: 'Fila de Produção Gráfica', badge: 'O.S. / Fábrica', desc: 'Ordens de serviço em fabricação, fila de impressão, corte, acabamento e expedição', icon: Layers },
+    { id: 'inventory', label: 'Estoque & Materiais', badge: 'Almoxarifado', desc: 'Controle de matérias-primas e insumos, estoque atual, limite mínimo e movimentações', icon: Package },
+    { id: 'comissoes', label: 'Painel de Comissões', badge: 'Colaboradores', desc: 'Extrato individual de produção, serviços realizados e cálculo mensal de comissão', icon: DollarSign },
+    { id: 'robozinho_rafa', label: 'Robozinho IA & Integrações', badge: 'Automação', desc: 'Assistente virtual de IA, webhooks e conexões com WhatsApp/Instagram/Facebook', icon: Bot },
+    { id: 'settings', label: 'Configurações Globais', badge: 'Administração', desc: 'Identidade da empresa, taxas de máquinas de cartão, regras de sistema e backups', icon: Settings },
   ];
 
-  const tabOptions = [
-    { id: 'dashboard', label: 'Dashboard', desc: 'Painel de controle e faturamento consolidado' },
-    { id: 'crm', label: 'Funil CRM', desc: 'Criação e movimentação de Leads / Contatos comerciais' },
-    { id: 'messages', label: 'Mensagens / Chats', desc: 'Canal de atendimento direto integrado' },
-    { id: 'pos', label: 'PDV Gráfica', desc: 'Faturamento rápido, caixa e vendas' },
-    { id: 'contacts', label: 'Contatos', desc: 'Gestão de clientes e histórico de compras' },
-    { id: 'clientes_espera', label: 'Clientes em Espera', desc: 'Fila de atendimento com tempo de espera em tempo real' },
-    { id: 'production', label: 'Ordem de Serviço', desc: 'Fila de producao com todos os pedidos e etapa atual de cada um' },
-    { id: 'inventory', label: 'Estoque', desc: 'Controle de produtos, com estoque atual e mínimo' },
-    { id: 'comissoes', label: 'Comissões', desc: 'Painel de comissões do colaborador (login próprio, separado do CRM)' },
-    { id: 'robozinho_rafa', label: 'Integrações', desc: 'Robozinho Rafa (assistente de IA) e conexões de WhatsApp/Facebook/Instagram' },
-    { id: 'settings', label: 'Opções', desc: 'Parâmetro de configurações do Rafa Arts Graphics' },
+  const ACTION_GROUPS = [
+    {
+      id: 'chat',
+      title: 'Mensagens & Atendimento',
+      desc: 'Comunicação direta com clientes e ferramentas de suporte',
+      icon: MessageSquare,
+      actions: [
+        { id: 'canStartNote', label: 'Criar Notas Internas', desc: 'Habilita o registro de notas privadas no chat do cliente' },
+        { id: 'canSendSavedMessage', label: 'Enviar Mensagens Prontas', desc: 'Permite responder rapidamente usando respostas pré-definidas' },
+        { id: 'canTranscribeAudio', label: 'Transcrever Áudios com IA', desc: 'Habilita conversão automática de áudio recebido em texto via IA' },
+        { id: 'canViewAttachments', label: 'Visualizar Mídias & Anexos', desc: 'Permite abrir e baixar arquivos, imagens e PDFs de clientes' },
+      ]
+    },
+    {
+      id: 'crm',
+      title: 'Funil Comercial & CRM',
+      desc: 'Gestão de pipeline de vendas, oportunidades e agendamentos',
+      icon: Kanban,
+      actions: [
+        { id: 'canCreateCard', label: 'Criar Novos Leads no CRM', desc: 'Permite adicionar novos cards de clientes no funil comercial' },
+        { id: 'canMoveLead', label: 'Movimentar Leads entre Etapas', desc: 'Permite arrastar e mover cards entre as colunas do funil' },
+        { id: 'canAddTask', label: 'Criar Tarefas & Lembretes', desc: 'Permite criar tarefas na agenda comercial dos clientes' },
+      ]
+    },
+    {
+      id: 'pos',
+      title: 'PDV, Vendas & Caixa',
+      desc: 'Operações financeiras e autorizações do caixa',
+      icon: ShoppingCart,
+      actions: [
+        { id: 'canStartPosSale', label: 'Iniciar Venda no PDV', desc: 'Permite registrar itens e faturar vendas no balcão' },
+        { id: 'canCloseCashRegister', label: 'Fechar Caixa Diário', desc: 'Permite realizar o fechamento e conferência do caixa' },
+        { id: 'canManageSaleHistory', label: 'Gerenciar Histórico de Vendas', desc: 'Permite reabrir, editar ou cancelar vendas no histórico' },
+        { id: 'canManageContracts', label: 'Gerenciar Contratos & Orçamentos', desc: 'Permite criar, editar e aprovar propostas e contratos' },
+      ]
+    },
+    {
+      id: 'security',
+      title: 'Segurança & Estoque',
+      desc: 'Acesso a dados confidenciais e controle de produtos',
+      icon: Shield,
+      actions: [
+        { id: 'canViewCustomerData', label: 'Ver Dados Sensíveis (CPF/Endereço)', desc: 'Exibe CPF, RG e endereços completos nos cadastros' },
+        { id: 'canAddProduct', label: 'Cadastrar Produto no PDV', desc: 'Permite cadastrar produtos rápidos direto no balcão' },
+        { id: 'canManageInventory', label: 'Ajustar Saldo de Estoque', desc: 'Permite dar entrada/saída manual e editar itens no estoque' },
+      ]
+    },
   ];
 
-  const actionOptions = [
-    { id: 'canStartNote', label: 'Criar Notas Internas', desc: 'Habilita o registro de notas internas no módulo de conversas' },
-    { id: 'canSendSavedMessage', label: 'Enviar Mensagens Prontas', desc: 'Permite responder rapidamente usando atalhos de chat' },
-    { id: 'canCreateCard', label: 'Criar Leads no CRM', desc: 'Permite criar novos cards de clientes no funil comercial' },
-    { id: 'canAddTask', label: 'Pode Criar Tarefas', desc: 'Gestão de agenda, lembretes e agendamentos de leads' },
-    { id: 'canStartPosSale', label: 'Iniciar Venda no PDV', desc: 'Permite registrar faturamento e receber pagamentos' },
-    { id: 'canManageContracts', label: 'Gerenciar Contratos e Orçamentos', desc: 'Permite criar e aprovar contratos de prestação de serviços' },
-    { id: 'canMoveLead', label: 'Movimentar Leads', desc: 'Permite arrastar leads entre as colunas do funil CRM' },
-    { id: 'canViewCustomerData', label: 'Ver Dados do Cliente', desc: 'Habilita visualização de CPF, RG e endereços de clientes' },
-    { id: 'canViewAttachments', label: 'Visualizar Mídias/Anexos', desc: 'Mostra arquivos recebidos e PDFs dentro de conversas' },
-    { id: 'canTranscribeAudio', label: 'Transcrever Áudios', desc: 'Habilita conversão automática de voz para texto via IA' },
-    { id: 'canManageSaleHistory', label: 'Gerenciar Histórico de Vendas', desc: 'Permite reabrir, editar ou excluir vendas já registradas no PDV' },
-    { id: 'canCloseCashRegister', label: 'Fechar Caixa', desc: 'Permite fechar o caixa do PDV (abrir continua restrito ao admin)' },
-    { id: 'canAddProduct', label: 'Cadastrar Produto', desc: 'Permite cadastrar um novo produto direto pelo Terminal de Venda' },
-    { id: 'canManageInventory', label: 'Gerenciar Estoque', desc: 'Permite editar, ajustar e excluir produtos na aba Estoque do PDV' },
-  ];
+  const handleApplyRolePreset = (role: string) => {
+    const perms = getDefaultModulePermissions(role);
+    setEditedModulePermissions(perms);
+    const tabs = Object.entries(perms).filter(([_, p]) => p?.view).map(([id]) => id);
+    setEditedTabs(tabs);
+    setEditedPdvTabs(getDefaultPdvTabs(role));
+    setEditedActions(getDefaultActions(role));
+  };
+
+  const handleSetAllModules = (type: 'full' | 'view' | 'none') => {
+    const updated: ModulePermissions = {};
+    ALL_MODULE_IDS.forEach(m => {
+      if (type === 'full') updated[m] = { view: true, create: true, edit: true, delete: true };
+      else if (type === 'view') updated[m] = { view: true, create: false, edit: false, delete: false };
+      else updated[m] = { view: false, create: false, edit: false, delete: false };
+    });
+    setEditedModulePermissions(updated);
+    if (type === 'none') {
+      setEditedTabs([]);
+    } else {
+      setEditedTabs([...ALL_MODULE_IDS]);
+    }
+  };
+
+  const handleToggleModuleAccess = (modId: string, enabled: boolean) => {
+    setEditedModulePermissions(prev => {
+      const current = prev[modId] || { view: false, create: false, edit: false, delete: false };
+      const updated = enabled
+        ? { view: true, create: current.create || true, edit: current.edit || true, delete: current.delete || false }
+        : { view: false, create: false, edit: false, delete: false };
+      return { ...prev, [modId]: updated };
+    });
+    setEditedTabs(prev => {
+      if (enabled) {
+        return prev.includes(modId) ? prev : [...prev, modId];
+      } else {
+        return prev.filter(t => t !== modId);
+      }
+    });
+  };
+
+  const handleSetModuleCrud = (modId: string, field: keyof ModuleCrudPermission, val: boolean) => {
+    setEditedModulePermissions(prev => {
+      const current = prev[modId] || { view: false, create: false, edit: false, delete: false };
+      const updated = { ...current, [field]: val };
+      // Se desmarcar 'view', desmarca tudo e remove das abas
+      if (field === 'view' && !val) {
+        updated.create = false;
+        updated.edit = false;
+        updated.delete = false;
+      }
+      return { ...prev, [modId]: updated };
+    });
+    if (field === 'view') {
+      setEditedTabs(prev => {
+        if (val) {
+          return prev.includes(modId) ? prev : [...prev, modId];
+        } else {
+          return prev.filter(t => t !== modId);
+        }
+      });
+    }
+  };
+
+  const handleSetAllPdvTabs = (enable: boolean) => {
+    const allPdv = ['venda', 'historico', 'estoque', 'servicos', 'orcamentos', 'contratos', 'excluidos', 'clientes'];
+    setEditedPdvTabs(enable ? allPdv : []);
+  };
+
+  const handleSetActionGroup = (actionIds: string[], enable: boolean) => {
+    setEditedActions(prev => {
+      if (enable) {
+        return Array.from(new Set([...prev, ...actionIds]));
+      } else {
+        return prev.filter(a => !actionIds.includes(a));
+      }
+    });
+  };
 
   return (
-    <div className="space-y-8 animate-in fade-in zoom-in-95 duration-500">
+    <div className="space-y-6 sm:space-y-8 animate-in fade-in zoom-in-95 duration-500 pb-16 lg:pb-8">
       <SectionHeader 
         title="Configurações Hub" 
         subtitle="Ajustes do ecossistema Rafa Arts Graphics" 
         actions={<Button icon={Save} onClick={handleSave}>Salvar Tudo</Button>}
       />
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-10">
-        <GlassCard className="p-0 overflow-hidden h-fit border-white/5">
-           {['Geral', 'Identidade', 'Menu Lateral', 'CRM / Funis', 'Integrações', 'Usuários e Permissões', 'Backup'].map((tab) => (
-             <button 
-               key={tab} 
-               onClick={() => setActiveTab(tab)}
-               className={cn(
-                 "w-full text-left p-6 text-[10px] font-black uppercase tracking-widest border-b border-white/5 transition-all", 
-                 activeTab === tab ? "bg-primary-500 text-slate-900" : "text-white/40 hover:bg-white/5 hover:text-white"
-               )}
-             >
-                {tab}
-             </button>
-           ))}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 sm:gap-6 lg:gap-8">
+        <GlassCard className="p-1 sm:p-2 lg:p-0 overflow-x-auto lg:overflow-hidden h-fit border-white/5 no-scrollbar scrollbar-none">
+           <div className="flex flex-row lg:flex-col gap-1 lg:gap-0">
+             {['Geral', 'Identidade', 'Menu Lateral', 'CRM / Funis', 'Integrações', 'Usuários e Permissões', 'Backup'].map((tab) => (
+               <button 
+                 key={tab} 
+                 onClick={() => setActiveTab(tab)}
+                 className={cn(
+                   "shrink-0 whitespace-nowrap text-left px-4 py-3 sm:px-5 sm:py-3.5 lg:p-5 text-[10px] sm:text-xs font-black uppercase tracking-widest rounded-xl lg:rounded-none border-b-0 lg:border-b border-white/5 transition-all cursor-pointer", 
+                   activeTab === tab 
+                     ? "bg-primary-500 text-slate-900 shadow-md font-black" 
+                     : "text-white/40 hover:bg-white/5 hover:text-white"
+                 )}
+               >
+                  {tab}
+               </button>
+             ))}
+           </div>
         </GlassCard>
-        <GlassCard className="lg:col-span-3 p-10 space-y-10 border-white/5">
+        <GlassCard className="lg:col-span-3 p-4 sm:p-6 lg:p-10 space-y-6 sm:space-y-8 lg:space-y-10 border-white/5">
            {activeTab === 'Geral' && (
              <div className="space-y-8">
                 <div className="space-y-6">
@@ -20545,214 +20717,335 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                       )}
                     </div>
 
+                    {/* SEÇÃO 1: MÓDULOS E ABAS DO SISTEMA (UNIFICADO) */}
                     <div className="space-y-6 pt-6 border-t border-white/5">
-                      <div className="flex items-center justify-between flex-wrap gap-3">
-                         <div className="flex items-center gap-3">
-                            <span className="w-7 h-7 rounded-full bg-primary-500/15 text-primary-400 text-xs font-black flex items-center justify-center shrink-0">1</span>
-                            <div>
-                               <h4 className="text-lg font-bold text-white uppercase italic tracking-tight font-black">Permissões por Módulo</h4>
-                               <p className="text-xs text-white/30 font-medium">Controle fino de Visualizar / Criar / Editar / Excluir em cada área do sistema</p>
-                            </div>
-                         </div>
-                         <button
-                           type="button"
-                           onClick={() => setEditedModulePermissions(getDefaultModulePermissions(editedRole))}
-                           className="text-[10px] font-black uppercase text-primary-400 hover:text-primary-300 bg-primary-500/10 px-3 py-2 rounded-lg border-0 cursor-pointer"
-                         >
-                           Aplicar padrão do cargo ({editedRole})
-                         </button>
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div className="flex items-start sm:items-center gap-3">
+                          <span className="w-8 h-8 rounded-full bg-primary-500/15 text-primary-400 text-xs font-black flex items-center justify-center shrink-0 mt-0.5 sm:mt-0">1</span>
+                          <div>
+                            <h4 className="text-base sm:text-lg font-bold text-white uppercase italic tracking-tight font-black flex items-center gap-2">
+                              <LayoutGrid size={18} className="text-primary-400 shrink-0" />
+                              Módulos & Abas do Sistema
+                            </h4>
+                            <p className="text-xs text-white/40 font-medium">
+                              Controle de visibilidade no menu e permissões (Ver, Criar, Editar, Excluir)
+                            </p>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 sm:flex sm:items-center gap-1.5 sm:gap-2 w-full sm:w-auto">
+                          <button
+                            type="button"
+                            onClick={() => handleSetAllModules('full')}
+                            className="text-[9px] sm:text-[10px] font-black uppercase text-emerald-300 hover:text-emerald-200 bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 py-2 rounded-xl border border-emerald-500/20 transition-all cursor-pointer flex items-center justify-center gap-1"
+                            title="Conceder acesso total a todos os módulos"
+                          >
+                            <Unlock size={11} className="shrink-0" /> <span className="truncate">Acesso Total</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSetAllModules('view')}
+                            className="text-[9px] sm:text-[10px] font-black uppercase text-sky-300 hover:text-sky-200 bg-sky-500/10 hover:bg-sky-500/20 px-2.5 py-2 rounded-xl border border-sky-500/20 transition-all cursor-pointer flex items-center justify-center gap-1"
+                            title="Habilitar apenas visualização em todos os módulos"
+                          >
+                            <Eye size={11} className="shrink-0" /> <span className="truncate">Só Leitura</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSetAllModules('none')}
+                            className="text-[9px] sm:text-[10px] font-black uppercase text-rose-300 hover:text-rose-200 bg-rose-500/10 hover:bg-rose-500/20 px-2.5 py-2 rounded-xl border border-rose-500/20 transition-all cursor-pointer flex items-center justify-center gap-1"
+                            title="Bloquear todos os módulos"
+                          >
+                            <Ban size={11} className="shrink-0" /> <span className="truncate">Bloquear</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleApplyRolePreset(editedRole)}
+                            className="text-[9px] sm:text-[10px] font-black uppercase text-primary-300 hover:text-primary-200 bg-primary-500/10 hover:bg-primary-500/20 px-2.5 py-2 rounded-xl border border-primary-500/30 transition-all cursor-pointer flex items-center justify-center gap-1"
+                            title={`Restaurar permissões padrão para o cargo ${editedRole}`}
+                          >
+                            <RefreshCw size={11} className="shrink-0" /> <span className="truncate">Padrão ({editedRole})</span>
+                          </button>
+                        </div>
                       </div>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left border-separate border-spacing-y-1.5">
-                          <thead>
-                            <tr>
-                              <th className="text-[9px] font-black uppercase text-white/30 tracking-widest px-3 py-1">Módulo</th>
-                              <th className="text-[9px] font-black uppercase text-white/30 tracking-widest px-3 py-1 text-center">Ver</th>
-                              <th className="text-[9px] font-black uppercase text-white/30 tracking-widest px-3 py-1 text-center">Criar</th>
-                              <th className="text-[9px] font-black uppercase text-white/30 tracking-widest px-3 py-1 text-center">Editar</th>
-                              <th className="text-[9px] font-black uppercase text-white/30 tracking-widest px-3 py-1 text-center">Excluir</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {MODULE_DEFINITIONS.map((mod) => {
-                              const perm = editedModulePermissions[mod.id] || { view: false, create: false, edit: false, delete: false };
-                              const toggle = (field: keyof ModuleCrudPermission) => {
-                                setEditedModulePermissions(prev => {
-                                  const current = prev[mod.id] || { view: false, create: false, edit: false, delete: false };
-                                  const updated = { ...current, [field]: !current[field] };
-                                  // Se desmarcar "Ver", desmarca tudo junto (nao faz sentido criar/editar sem ver)
-                                  if (field === 'view' && !updated.view) {
-                                    updated.create = false; updated.edit = false; updated.delete = false;
-                                  }
-                                  return { ...prev, [mod.id]: updated };
-                                });
-                              };
-                              return (
-                                <tr key={mod.id} className="bg-white/[0.03]">
-                                  <td className="px-3 py-2.5 text-xs font-bold text-white rounded-l-xl">{mod.label}</td>
-                                  {(['view', 'create', 'edit', 'delete'] as const).map(field => (
-                                    <td key={field} className={cn("px-3 py-2.5 text-center", field === 'delete' && "rounded-r-xl")}>
-                                      <input
-                                        type="checkbox"
-                                        checked={!!perm[field]}
-                                        disabled={field !== 'view' && !perm.view}
-                                        onChange={() => toggle(field)}
-                                        className="w-4 h-4 accent-primary-500 cursor-pointer disabled:opacity-20 disabled:cursor-not-allowed"
-                                      />
-                                    </td>
-                                  ))}
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
 
-                    <div className="space-y-6 pt-6 border-t border-white/5">
-                      <div className="flex items-center gap-3">
-                         <span className="w-7 h-7 rounded-full bg-primary-500/15 text-primary-400 text-xs font-black flex items-center justify-center shrink-0">2</span>
-                         <div>
-                            <h4 className="text-lg font-bold text-white uppercase italic tracking-tight font-black">Abas Permitidas no Sistema</h4>
-                            <p className="text-xs text-white/30 font-medium">Marque quais abas estarão visíveis no painel lateral do usuário</p>
-                         </div>
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {tabOptions.map((opt) => {
-                          const isAllowed = editedTabs.includes(opt.id);
+                      <div className="grid grid-cols-1 gap-3">
+                        {MODULE_DEFINITIONS.map((mod) => {
+                          const perm = editedModulePermissions[mod.id] || { view: false, create: false, edit: false, delete: false };
+                          const isEnabled = !!perm.view;
+                          const ModIcon = mod.icon || LayoutDashboard;
+
                           return (
-                            <button
-                              key={opt.id}
-                              type="button"
-                              onClick={() => {
-                                if (isAllowed) {
-                                  setEditedTabs(prev => prev.filter(t => t !== opt.id));
-                                } else {
-                                  setEditedTabs(prev => [...prev, opt.id]);
-                                }
-                              }}
+                            <div
+                              key={mod.id}
                               className={cn(
-                                "flex flex-col text-left p-4 rounded-3xl border transition-all duration-300 relative overflow-hidden cursor-pointer",
-                                isAllowed 
-                                  ? "bg-primary-500/10 border-primary-500 text-white" 
-                                  : "bg-slate-950/40 border-white/5 text-white/40 hover:border-white/10 hover:text-white"
+                                "p-3.5 sm:p-5 rounded-2xl border transition-all duration-300 flex flex-col md:flex-row md:items-center justify-between gap-3.5 sm:gap-4",
+                                isEnabled
+                                  ? "bg-slate-900/70 border-primary-500/30 shadow-lg shadow-primary-950/10"
+                                  : "bg-slate-950/30 border-white/5 opacity-60 hover:opacity-90"
                               )}
                             >
-                              {isAllowed && (
-                                <span className="absolute top-3 right-3 w-2 h-2 rounded-full bg-primary-500 animate-pulse" />
-                              )}
-                              <span className="font-bold uppercase tracking-wide text-[11px] md:text-xs">{opt.label}</span>
-                              <span className="text-[10px] text-white/30 mt-1 lines-clamp-2 leading-tight">{opt.desc}</span>
-                            </button>
+                              {/* Lado Esquerdo: Identificação do Módulo */}
+                              <div className="flex items-start sm:items-center gap-3 min-w-0 flex-1">
+                                <div className={cn(
+                                  "w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center shrink-0 transition-all",
+                                  isEnabled ? "bg-primary-500/15 text-primary-400 border border-primary-500/30" : "bg-white/5 text-white/30"
+                                )}>
+                                  <ModIcon size={18} />
+                                </div>
+                                <div className="min-w-0 flex-1 space-y-0.5">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <h5 className="font-bold text-white text-xs sm:text-sm leading-tight">{mod.label}</h5>
+                                    <span className="text-[8px] sm:text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-white/5 text-white/50 border border-white/10">
+                                      {mod.badge}
+                                    </span>
+                                  </div>
+                                  <p className="text-[10px] sm:text-[11px] text-white/40 leading-snug break-words sm:truncate max-w-xl">{mod.desc}</p>
+                                </div>
+                              </div>
+
+                              {/* Lado Direito: Acesso e Controles CRUD */}
+                              <div className="w-full md:w-auto flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 pt-2 md:pt-0 border-t md:border-t-0 border-white/5">
+                                {/* Toggle Principal do Módulo */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleModuleAccess(mod.id, !isEnabled)}
+                                  className={cn(
+                                    "flex items-center justify-center gap-2 px-3 py-2 rounded-xl font-bold text-xs uppercase tracking-wider border transition-all cursor-pointer shrink-0",
+                                    isEnabled
+                                      ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/25"
+                                      : "bg-white/5 text-white/40 border-white/10 hover:bg-white/10 hover:text-white"
+                                  )}
+                                >
+                                  {isEnabled ? <Check size={14} className="text-emerald-400" /> : <Square size={14} />}
+                                  <span>{isEnabled ? 'Ativo na Barra' : 'Oculto'}</span>
+                                </button>
+
+                                {/* CRUD Checkboxes */}
+                                <div className={cn(
+                                  "grid grid-cols-4 sm:flex items-center gap-1 sm:gap-1.5 bg-slate-950/80 p-1 sm:p-1.5 rounded-xl border border-white/5 transition-all",
+                                  !isEnabled && "opacity-30 pointer-events-none"
+                                )}>
+                                  {(['view', 'create', 'edit', 'delete'] as const).map(field => {
+                                    const fieldLabels: Record<string, string> = {
+                                      view: 'Ver',
+                                      create: 'Criar',
+                                      edit: 'Editar',
+                                      delete: 'Excluir',
+                                    };
+                                    const isChecked = !!perm[field];
+                                    return (
+                                      <label
+                                        key={field}
+                                        className={cn(
+                                          "flex items-center justify-center gap-1 sm:gap-1.5 px-2 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all select-none min-h-[32px]",
+                                          isChecked
+                                            ? field === 'delete'
+                                              ? "bg-rose-500/20 text-rose-300 font-black"
+                                              : "bg-primary-500/20 text-primary-300 font-black"
+                                            : "text-white/30 hover:text-white/70"
+                                        )}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={isChecked}
+                                          disabled={!isEnabled && field !== 'view'}
+                                          onChange={(e) => handleSetModuleCrud(mod.id, field, e.target.checked)}
+                                          className="sr-only"
+                                        />
+                                        <span className={cn(
+                                          "w-3.5 h-3.5 rounded border flex items-center justify-center text-[9px] shrink-0",
+                                          isChecked
+                                            ? field === 'delete' ? "bg-rose-500 border-rose-500 text-white" : "bg-primary-500 border-primary-500 text-slate-950"
+                                            : "border-white/20"
+                                        )}>
+                                          {isChecked && <Check size={10} strokeWidth={4} />}
+                                        </span>
+                                        <span className="text-[10px] sm:text-[11px]">{fieldLabels[field]}</span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </div>
                           );
                         })}
                       </div>
                     </div>
 
+                    {/* SEÇÃO 2: ABAS INTERNAS DO PDV (CONDICIONAL) */}
                     {editedTabs.includes('pos') && (
                       <div className="space-y-6 pt-6 border-t border-white/5">
-                         <div className="flex items-center gap-3">
-                            <span className="w-7 h-7 rounded-full bg-purple-500/15 text-purple-400 text-xs font-black flex items-center justify-center shrink-0">3</span>
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="flex items-start sm:items-center gap-3">
+                            <span className="w-8 h-8 rounded-full bg-purple-500/15 text-purple-400 text-xs font-black flex items-center justify-center shrink-0 mt-0.5 sm:mt-0">2</span>
                             <div>
-                               <h4 className="text-lg font-bold text-white uppercase italic tracking-tight font-black">Abas do PDV</h4>
-                               <p className="text-xs text-white/30 font-medium">Marque quais abas de dentro do PDV (Terminal Venda, Histórico, Estoque, etc) esse usuário pode ver</p>
+                              <h4 className="text-base sm:text-lg font-bold text-white uppercase italic tracking-tight font-black flex items-center gap-2">
+                                <ShoppingCart size={18} className="text-purple-400 shrink-0" />
+                                Telas Internas do PDV / Balcão
+                              </h4>
+                              <p className="text-xs text-white/40 font-medium">Selecione quais seções internas do terminal de vendas estarão liberadas</p>
                             </div>
-                         </div>
-                         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                            {[
-                              { id: 'venda', label: 'Terminal Venda' },
-                              { id: 'historico', label: 'Histórico & Abertas' },
-                              { id: 'estoque', label: 'Estoque / Produtos' },
-                              { id: 'servicos', label: 'Serviços' },
-                              { id: 'orcamentos', label: 'Orçamentos' },
-                              { id: 'contratos', label: 'Contratos' },
-                              { id: 'excluidos', label: 'Excluídos' },
-                              { id: 'clientes', label: 'Clientes' },
-                            ].map((opt) => {
-                              const isAllowed = editedPdvTabs.includes(opt.id);
-                              return (
-                                <button
-                                  key={opt.id}
-                                  type="button"
-                                  onClick={() => {
-                                    if (isAllowed) {
-                                      setEditedPdvTabs(prev => prev.filter(t => t !== opt.id));
-                                    } else {
-                                      setEditedPdvTabs(prev => [...prev, opt.id]);
-                                    }
-                                  }}
-                                  className={cn(
-                                    "flex items-center justify-center text-center p-3 rounded-2xl border transition-all duration-300 relative cursor-pointer text-[11px] font-bold uppercase tracking-wide",
-                                    isAllowed
-                                      ? "bg-purple-500/10 border-purple-500 text-white"
-                                      : "bg-slate-950/40 border-white/5 text-white/40 hover:border-white/10 hover:text-white"
-                                  )}
-                                >
-                                  {opt.label}
-                                </button>
-                              );
-                            })}
-                         </div>
+                          </div>
+                          <div className="flex items-center gap-2 self-start sm:self-auto">
+                            <button
+                              type="button"
+                              onClick={() => handleSetAllPdvTabs(true)}
+                              className="text-[10px] font-black uppercase text-purple-300 hover:text-purple-200 bg-purple-500/10 hover:bg-purple-500/20 px-3 py-1.5 rounded-xl border border-purple-500/30 transition-all cursor-pointer"
+                            >
+                              Marcar Todas
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSetAllPdvTabs(false)}
+                              className="text-[10px] font-black uppercase text-white/40 hover:text-white bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-xl border border-white/10 transition-all cursor-pointer"
+                            >
+                              Desmarcar Todas
+                            </button>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+                          {[
+                            { id: 'venda', label: 'Terminal Venda', desc: 'Faturamento rápido e PDV' },
+                            { id: 'historico', label: 'Histórico & Abertas', desc: 'Vendas realizadas' },
+                            { id: 'estoque', label: 'Estoque / Produtos', desc: 'Catálogo de itens' },
+                            { id: 'servicos', label: 'Serviços', desc: 'Ordens de serviço' },
+                            { id: 'orcamentos', label: 'Orçamentos', desc: 'Propostas comerciais' },
+                            { id: 'contratos', label: 'Contratos', desc: 'Contratos gerados' },
+                            { id: 'excluidos', label: 'Excluídos', desc: 'Lixeira de vendas' },
+                            { id: 'clientes', label: 'Clientes', desc: 'Gestão no balcão' },
+                          ].map((opt) => {
+                            const isAllowed = editedPdvTabs.includes(opt.id);
+                            return (
+                              <button
+                                key={opt.id}
+                                type="button"
+                                onClick={() => {
+                                  if (isAllowed) {
+                                    setEditedPdvTabs(prev => prev.filter(t => t !== opt.id));
+                                  } else {
+                                    setEditedPdvTabs(prev => [...prev, opt.id]);
+                                  }
+                                }}
+                                className={cn(
+                                  "flex flex-col text-left p-3 sm:p-3.5 rounded-2xl border transition-all duration-300 relative cursor-pointer",
+                                  isAllowed
+                                    ? "bg-purple-500/10 border-purple-500/50 text-white shadow-sm"
+                                    : "bg-slate-950/40 border-white/5 text-white/40 hover:border-white/10 hover:text-white"
+                                )}
+                              >
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className="font-bold uppercase tracking-wide text-xs">{opt.label}</span>
+                                  <div className={cn(
+                                    "w-4 h-4 rounded-md border flex items-center justify-center transition-all shrink-0 ml-2",
+                                    isAllowed ? "bg-purple-500 border-purple-500 text-slate-950" : "border-white/20"
+                                  )}>
+                                    {isAllowed && <Check size={10} strokeWidth={4} />}
+                                  </div>
+                                </div>
+                                <span className="text-[10px] text-white/30 leading-tight">{opt.desc}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
                     )}
 
+                    {/* SEÇÃO 3: AÇÕES ESPECÍFICAS CATEGORIZADAS */}
                     <div className="space-y-6 pt-6 border-t border-white/5">
-                      <div className="flex items-center gap-3">
-                         <span className="w-7 h-7 rounded-full bg-primary-500/15 text-primary-400 text-xs font-black flex items-center justify-center shrink-0">4</span>
-                         <div>
-                            <h4 className="text-lg font-bold text-white uppercase italic tracking-tight font-black">Permissões de Ações Detalhadas</h4>
-                            <p className="text-xs text-white/30 font-medium">Defina quais ações e flows internos de segurança este usuário pode executar</p>
-                         </div>
+                      <div className="flex items-start sm:items-center gap-3">
+                        <span className="w-8 h-8 rounded-full bg-primary-500/15 text-primary-400 text-xs font-black flex items-center justify-center shrink-0 mt-0.5 sm:mt-0">
+                          {editedTabs.includes('pos') ? '3' : '2'}
+                        </span>
+                        <div>
+                          <h4 className="text-base sm:text-lg font-bold text-white uppercase italic tracking-tight font-black flex items-center gap-2">
+                            <Shield size={18} className="text-primary-400 shrink-0" />
+                            Permissões de Ações Detalhadas & Segurança
+                          </h4>
+                          <p className="text-xs text-white/40 font-medium">Controle de autorizações de fluxos internos, IA, atendimento e proteção de dados</p>
+                        </div>
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {actionOptions.map((act) => {
-                          const isAllowed = editedActions.includes(act.id);
+
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
+                        {ACTION_GROUPS.map((group) => {
+                          const GroupIcon = group.icon || Shield;
+                          const groupActionIds = group.actions.map(a => a.id);
+                          const activeInGroup = groupActionIds.filter(id => editedActions.includes(id)).length;
+                          const allActive = activeInGroup === groupActionIds.length;
+
                           return (
-                            <button
-                              key={act.id}
-                              type="button"
-                              onClick={() => {
-                                if (isAllowed) {
-                                  setEditedActions(prev => prev.filter(a => a !== act.id));
-                                } else {
-                                  setEditedActions(prev => [...prev, act.id]);
-                                }
-                              }}
-                              className={cn(
-                                "flex items-start gap-4 text-left p-4 rounded-3xl border transition-all duration-300 relative cursor-pointer",
-                                isAllowed 
-                                  ? "bg-primary-500/10 border-primary-500/40 text-white" 
-                                  : "bg-slate-950/40 border-white/5 text-white/40 hover:border-white/10"
-                              )}
-                            >
-                              <div className={cn(
-                                "w-5 h-5 rounded-md border flex items-center justify-center shrink-0 mt-0.5 transition-all",
-                                isAllowed ? "bg-primary-500 border-primary-500 text-slate-950" : "border-white/20"
-                              )}>
-                                {isAllowed && <Check size={12} strokeWidth={4} />}
+                            <div key={group.id} className="p-4 sm:p-5 rounded-2xl bg-slate-950/40 border border-white/5 space-y-3.5 sm:space-y-4">
+                              <div className="flex items-center justify-between gap-3 pb-3 border-b border-white/5">
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <div className="w-8 h-8 rounded-xl bg-primary-500/10 text-primary-400 flex items-center justify-center shrink-0">
+                                    <GroupIcon size={16} />
+                                  </div>
+                                  <div className="min-w-0">
+                                    <h5 className="font-bold text-white text-xs uppercase tracking-wide truncate">{group.title}</h5>
+                                    <span className="text-[10px] text-white/30 block">{activeInGroup} de {groupActionIds.length} liberadas</span>
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSetActionGroup(groupActionIds, !allActive)}
+                                  className="text-[9px] font-black uppercase text-primary-400 hover:text-primary-300 bg-primary-500/10 hover:bg-primary-500/20 px-2.5 py-1 rounded-lg border-0 transition-all cursor-pointer shrink-0"
+                                >
+                                  {allActive ? 'Desmarcar' : 'Marcar Todas'}
+                                </button>
                               </div>
-                              <div>
-                                <span className="font-bold text-xs uppercase tracking-wide block">{act.label}</span>
-                                <span className="text-[10px] text-white/30 mt-0.5 block leading-tight">{act.desc}</span>
+
+                              <div className="space-y-2">
+                                {group.actions.map((act) => {
+                                  const isAllowed = editedActions.includes(act.id);
+                                  return (
+                                    <button
+                                      key={act.id}
+                                      type="button"
+                                      onClick={() => {
+                                        if (isAllowed) {
+                                          setEditedActions(prev => prev.filter(a => a !== act.id));
+                                        } else {
+                                          setEditedActions(prev => [...prev, act.id]);
+                                        }
+                                      }}
+                                      className={cn(
+                                        "w-full flex items-start gap-2.5 sm:gap-3 text-left p-2.5 sm:p-3 rounded-xl border transition-all duration-200 cursor-pointer",
+                                        isAllowed
+                                          ? "bg-primary-500/10 border-primary-500/40 text-white"
+                                          : "bg-slate-900/30 border-white/5 text-white/40 hover:border-white/10 hover:text-white/80"
+                                      )}
+                                    >
+                                      <div className={cn(
+                                        "w-4 h-4 rounded border flex items-center justify-center shrink-0 mt-0.5 transition-all",
+                                        isAllowed ? "bg-primary-500 border-primary-500 text-slate-950" : "border-white/20"
+                                      )}>
+                                        {isAllowed && <Check size={10} strokeWidth={4} />}
+                                      </div>
+                                      <div className="min-w-0 flex-1">
+                                        <span className="font-bold text-xs uppercase tracking-wide block leading-tight">{act.label}</span>
+                                        <span className="text-[10px] text-white/35 mt-0.5 block leading-snug break-words">{act.desc}</span>
+                                      </div>
+                                    </button>
+                                  );
+                                })}
                               </div>
-                            </button>
+                            </div>
                           );
                         })}
                       </div>
                     </div>
 
-                    <div className="flex gap-4 pt-8 border-t border-white/5">
+                    <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 pt-6 sm:pt-8 border-t border-white/5">
                       <button 
                         type="button"
                         onClick={() => setEditingUser(null)} 
-                        className="flex-1 py-4 bg-white/5 hover:bg-white/10 text-white font-black text-xs uppercase tracking-wider rounded-2xl transition-all font-bold border-0 cursor-pointer"
+                        className="w-full sm:flex-1 py-3.5 sm:py-4 bg-white/5 hover:bg-white/10 text-white font-black text-xs uppercase tracking-wider rounded-2xl transition-all font-bold border-0 cursor-pointer"
                       >
                         Cancelar
                       </button>
                       <button 
                         type="button"
                         onClick={handleSaveUserPermissions} 
-                        className="flex-1 py-4 bg-primary-500 hover:bg-primary-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-2xl transition-all shadow-lg font-bold border-0 cursor-pointer"
+                        className="w-full sm:flex-1 py-3.5 sm:py-4 bg-primary-500 hover:bg-primary-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-2xl transition-all shadow-lg font-bold border-0 cursor-pointer"
                       >
                         Salvar Alterações
                       </button>
@@ -20761,22 +21054,22 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                 ) : (
                   <div className="space-y-6">
                     {user?.isAdmin && (
-                      <div className="bg-white/[0.02] border border-white/10 rounded-3xl p-6 space-y-4">
+                      <div className="bg-white/[0.02] border border-white/10 rounded-2xl sm:rounded-3xl p-4 sm:p-6 space-y-4">
                          <div>
-                            <h3 className="text-lg font-bold text-white tracking-tight italic uppercase flex items-center gap-2">
-                               <Wifi size={18} className="text-primary-400" /> Sessões Ativas ({activeSessions.length})
+                            <h3 className="text-base sm:text-lg font-bold text-white tracking-tight italic uppercase flex items-center gap-2">
+                               <Wifi size={18} className="text-primary-400 shrink-0" /> Sessões Ativas ({activeSessions.length})
                             </h3>
-                            <p className="text-[11px] text-white/30 font-medium">Quem está acessando agora, de qual IP, aparelho e localização aproximada — desconecte remotamente se precisar</p>
+                            <p className="text-[10px] sm:text-[11px] text-white/30 font-medium">Quem está acessando agora, aparelho e localização aproximada</p>
                          </div>
                          {activeSessions.length === 0 ? (
                             <p className="text-xs text-white/30 py-2">Nenhuma sessão ativa nos últimos 30 minutos.</p>
                          ) : (
                             <div className="space-y-2">
                                {activeSessions.map(s => (
-                                 <div key={s.id} className="flex items-center justify-between gap-3 bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 flex-wrap">
-                                    <div className="min-w-0">
+                                 <div key={s.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900/60 border border-white/5 rounded-xl p-3 sm:px-4 sm:py-2.5">
+                                    <div className="min-w-0 space-y-0.5">
                                        <p className="text-xs font-bold text-white">{s.userName}</p>
-                                       <p className="text-[10px] text-white/40">IP: {s.ip} · {s.device}</p>
+                                       <p className="text-[10px] text-white/40 truncate">IP: {s.ip} · {s.device}</p>
                                        {s.location && s.location !== 'desconhecida' && (
                                          <p className="text-[10px] text-white/40">📍 {s.location}</p>
                                        )}
@@ -20800,24 +21093,24 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                                          <p className="text-[9px] text-amber-400/70">Notificações não autorizadas por este usuário</p>
                                        )}
                                        {s.locationDenied && s.geoPermission === 'granted' && (
-                                         <p className="text-[9px] text-amber-400/70">Não foi possível obter a localização agora (GPS indisponível no aparelho)</p>
+                                         <p className="text-[9px] text-amber-400/70">GPS indisponível no aparelho</p>
                                        )}
                                        <p className="text-[9px] text-white/20">Visto por último: {safeFormat(s.lastSeenAt || s.loginAt, 'dd/MM/yyyy HH:mm')}</p>
                                     </div>
-                                    <div className="flex items-center gap-2 shrink-0">
+                                    <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
                                       {s.geoPermission === 'granted' && (
                                         <button
                                           onClick={() => handleRequestLocation(s.id)}
                                           disabled={requestingLocationFor === s.id}
-                                          className="text-[9px] font-black uppercase px-3 py-1.5 rounded-lg bg-primary-500/10 text-primary-300 hover:bg-primary-500/20 disabled:opacity-50 flex items-center gap-1"
+                                          className="text-[9px] font-black uppercase px-2.5 py-1.5 rounded-lg bg-primary-500/10 text-primary-300 hover:bg-primary-500/20 disabled:opacity-50 flex items-center gap-1"
                                         >
                                           <MapPin size={11} />
-                                          {requestingLocationFor === s.id ? 'Pedindo...' : 'Ver Localização'}
+                                          {requestingLocationFor === s.id ? 'Pedindo...' : 'Localização'}
                                         </button>
                                       )}
                                       <button
                                         onClick={() => handleDisconnectSession(s.id)}
-                                        className="text-[9px] font-black uppercase px-3 py-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20"
+                                        className="text-[9px] font-black uppercase px-2.5 py-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20"
                                       >
                                         Desconectar
                                       </button>
@@ -20826,25 +21119,25 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                                ))}
                             </div>
                          )}
-                         <p className="text-[9px] text-white/20">Não é possível ver o endereço MAC do aparelho — nenhum sistema web consegue, é bloqueado por privacidade dos navegadores. Pra bloquear alguém de vez (não só desconectar essa sessão), inative o usuário na lista abaixo.</p>
+                         <p className="text-[9px] text-white/20">Endereço MAC físico é bloqueado por privacidade dos navegadores. Para bloquear um colaborador de vez, edite ou desative o acesso na lista abaixo.</p>
                       </div>
                     )}
 
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                       <div>
-                        <h3 className="text-xl font-bold text-white tracking-tight italic uppercase">Membros de Equipe</h3>
-                        <p className="text-xs text-white/30 font-medium">Gerencie permissões de visibilidade de abas e ações permitidas</p>
+                        <h3 className="text-lg sm:text-xl font-bold text-white tracking-tight italic uppercase">Membros de Equipe & Acessos</h3>
+                        <p className="text-xs text-white/30 font-medium">Gerencie contas de login, níveis de acesso, abas visíveis e permissões por módulo</p>
                       </div>
                       <button 
                         type="button"
                         onClick={() => setIsCreateModalOpen(true)} 
-                        className="flex items-center gap-2 px-6 py-3 bg-primary-500 hover:bg-primary-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-2xl transition-all shadow-lg self-start sm:self-center text-slate-950 border-0 cursor-pointer"
+                        className="flex items-center justify-center gap-2 px-5 sm:px-6 py-3 bg-primary-500 hover:bg-primary-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-2xl transition-all shadow-lg w-full sm:w-auto border-0 cursor-pointer"
                       >
-                        <Plus size={16} /> Adicionar Usuário Simulado
+                        <Plus size={16} /> Cadastrar Novo Usuário
                       </button>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 pt-2">
                       {usersList.map((u) => {
                         const allowedCount = u.allowedTabs?.length ?? 7;
                         const actionsCount = u.allowedActions?.length ?? 10;
@@ -20855,7 +21148,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                           <div 
                             key={u.id} 
                             className={cn(
-                              "p-6 rounded-[28px] border-2 space-y-4 hover:border-white/10 transition-all duration-300 relative overflow-hidden flex flex-col justify-between bg-slate-900/40",
+                              "p-4 sm:p-6 rounded-2xl sm:rounded-[28px] border-2 space-y-4 hover:border-white/10 transition-all duration-300 relative overflow-hidden flex flex-col justify-between bg-slate-900/40",
                               isSimulated ? "border-amber-500 bg-amber-500/5" : "border-white/5 bg-slate-950/20"
                             )}
                           >
@@ -20865,19 +21158,19 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                               </span>
                             )}
                             
-                            <div className="flex items-start gap-4">
-                              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center text-slate-950 font-black tracking-wider text-sm shadow-lg shrink-0 uppercase">
+                            <div className="flex items-start gap-3 sm:gap-4">
+                              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center text-slate-950 font-black tracking-wider text-xs sm:text-sm shadow-lg shrink-0 uppercase">
                                 {initials}
                               </div>
-                              <div className="space-y-1">
-                                <h4 className="font-bold text-white text-base leading-tight">{u.name}</h4>
-                                <p className="text-[10px] text-white/40 leading-none">{u.email}</p>
-                                <div className="flex items-center gap-2 pt-1.5">
-                                  <Badge className="bg-primary-500/10 text-primary-400 border-primary-500/20 text-[9px] px-2 py-0.5 uppercase font-black">
+                              <div className="min-w-0 flex-1 space-y-1">
+                                <h4 className="font-bold text-white text-sm sm:text-base leading-tight truncate">{u.name}</h4>
+                                <p className="text-[10px] sm:text-xs text-white/40 truncate">{u.email}</p>
+                                <div className="flex items-center gap-1.5 pt-1 flex-wrap">
+                                  <Badge className="bg-primary-500/10 text-primary-400 border-primary-500/20 text-[8px] sm:text-[9px] px-2 py-0.5 uppercase font-black">
                                     {u.role || 'membro'}
                                   </Badge>
                                   {u.isAdmin && (
-                                    <Badge className="bg-rose-500/10 text-rose-400 border-rose-500/20 text-[9px] px-2 py-0.5 uppercase font-black">
+                                    <Badge className="bg-rose-500/10 text-rose-400 border-rose-500/20 text-[8px] sm:text-[9px] px-2 py-0.5 uppercase font-black">
                                       Admin
                                     </Badge>
                                   )}
@@ -20885,24 +21178,25 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                               </div>
                             </div>
 
-                            <div className="border-t border-white/5 pt-4 grid grid-cols-2 gap-3 text-xs">
-                              <div className="space-y-1">
-                                <span className="text-[9px] uppercase font-black text-white/30 tracking-widest block">Abas Visíveis</span>
-                                <span className="block font-bold text-white text-xs">{allowedCount} de 9 abas</span>
+                            <div className="border-t border-white/5 pt-3 sm:pt-4 grid grid-cols-2 gap-2 sm:gap-3 text-xs">
+                              <div className="space-y-0.5 sm:space-y-1">
+                                <span className="text-[8px] sm:text-[9px] uppercase font-black text-white/30 tracking-widest block truncate">Módulos</span>
+                                <span className="block font-bold text-white text-xs sm:text-xs">{allowedCount} de 11</span>
                               </div>
-                              <div className="space-y-1">
-                                <span className="text-[9px] uppercase font-black text-white/30 tracking-widest block">Ações Permitidas</span>
-                                <span className="block font-bold text-white text-xs">{actionsCount} de 10 ações</span>
+                              <div className="space-y-0.5 sm:space-y-1">
+                                <span className="text-[8px] sm:text-[9px] uppercase font-black text-white/30 tracking-widest block truncate">Ações</span>
+                                <span className="block font-bold text-white text-xs sm:text-xs">{actionsCount} de 14</span>
                               </div>
                             </div>
 
-                            <div className="flex items-center gap-3 pt-3 border-t border-white/5">
+                            <div className="flex items-center gap-2 pt-3 border-t border-white/5">
                               <button
                                 type="button"
                                 onClick={() => startEditUser(u)}
-                                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-primary-500/20 hover:bg-primary-500/30 border border-primary-500/40 text-primary-300 hover:text-white transition-all font-black text-xs uppercase tracking-wider cursor-pointer active:scale-95 shadow-sm"
+                                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 sm:py-3 rounded-xl bg-primary-500/20 hover:bg-primary-500/30 border border-primary-500/40 text-primary-300 hover:text-white transition-all font-black text-xs uppercase tracking-wider cursor-pointer active:scale-95 shadow-sm min-h-[40px]"
                               >
-                                <Settings2 size={15} className="text-primary-400" /> Editar / Configurar
+                                <Settings2 size={14} className="text-primary-400 shrink-0" /> 
+                                <span className="truncate">Editar Permissões</span>
                               </button>
                               <button
                                 type="button"
@@ -20910,19 +21204,19 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                                   setSimulatedUserId(u.id);
                                   showAlert(`Alternando visualização para: ${u.name}`);
                                 }}
-                                className="px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white hover:text-amber-400 transition-all font-bold text-xs flex items-center justify-center cursor-pointer border-0"
+                                className="px-3 sm:px-4 py-2.5 sm:py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white hover:text-amber-400 transition-all font-bold text-xs flex items-center justify-center cursor-pointer border-0 min-h-[40px] shrink-0"
                                 title="Simular Sessão"
                               >
-                                <Eye size={16} />
+                                <Eye size={15} />
                               </button>
                               {user?.isAdmin && u.id !== 'admin-rafael' && u.id !== user?.id && (
                                 <button
                                   type="button"
                                   onClick={() => handleDeleteUser(u)}
-                                  className="px-4 py-3 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition-all font-bold text-xs flex items-center justify-center cursor-pointer border-0"
+                                  className="px-3 sm:px-4 py-2.5 sm:py-3 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition-all font-bold text-xs flex items-center justify-center cursor-pointer border-0 min-h-[40px] shrink-0"
                                   title="Excluir Usuário"
                                 >
-                                  <Trash2 size={16} />
+                                  <Trash2 size={15} />
                                 </button>
                               )}
                             </div>
@@ -20936,16 +21230,16 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                 <Modal 
                   isOpen={isCreateModalOpen} 
                   onClose={() => setIsCreateModalOpen(false)} 
-                  title="Cadastrar Novo Usuário no Repositório"
+                  title="Cadastrar Novo Usuário / Colaborador"
                 >
                   <div className="space-y-6">
-                    <p className="text-xs text-white/40 -mt-2">O usuário criado será salvo diretamente no banco de dados Firestore e poderá fazer login imediatamente com o e-mail e senha cadastrados.</p>
+                    <p className="text-xs text-white/40 -mt-2">O novo usuário poderá acessar o sistema imediatamente com o e-mail e senha informados, de acordo com o perfil e permissões atribuídas.</p>
                     <Input label="Nome Completo do Colaborador" placeholder="Ex: Maria Silva" value={newUserName} onChange={(e) => setNewUserName(e.target.value)} />
                     <Input label="E-mail de Acesso" placeholder="maria@empresa.com" value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)} />
                     <Input label="Senha de Acesso" type="password" placeholder="Defina a senha (ex: 123456)" value={newUserPassword} onChange={(e) => setNewUserPassword(e.target.value)} />
                     
                     <div className="space-y-2">
-                      <label className="text-xs uppercase tracking-widest text-white/50 font-black">Cargo / Função do Usuário</label>
+                      <label className="text-xs uppercase tracking-widest text-white/50 font-black">Cargo / Perfil de Acesso</label>
                       <select 
                         value={newUserRole}
                         onChange={(e: any) => setNewUserRole(e.target.value)}
@@ -20981,7 +21275,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                         onClick={handleCreateUser} 
                         className="flex-1 py-3 bg-primary-500 hover:bg-primary-400 text-slate-950 font-black text-xs uppercase rounded-xl transition-all shadow-lg border-0 cursor-pointer"
                       >
-                        Salvar no Repositório
+                        Cadastrar Usuário
                       </button>
                     </div>
                   </div>

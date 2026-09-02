@@ -693,12 +693,27 @@ export interface Contrato {
   deletedAt?: string;
 }
 
+export interface ModoImpressaoConfig {
+  id: string;
+  nome: string;
+  resolucaoDpi?: string; // ex: 720x720, 1440x1440
+  passes?: number; // ex: 4, 6, 8, 12 passes
+  velocidadeM2H: number; // m²/h
+  consumoTintaMlM2?: number; // ml/m²
+  descricao?: string;
+}
+
 export interface Maquina {
   id: string;
   companyId?: string;
   nome: string;
   ativa: boolean;
   tipo?: 'impressao' | 'corte' | 'laser' | 'router' | 'prensa' | 'acabamento' | 'outra';
+
+  // DIMENSÕES FÍSICAS & ÁREA ÚTIL
+  larguraMaximaM?: number; // Largura máxima / Boca da máquina em metros (ex: 1.60m, 3.20m, 1.80m)
+  alturaMaximaM?: number; // Altura / Comprimento máximo da mesa em metros (ex: 2.50m, 3.00m ou 0 para rolo)
+  areaMesaM2?: number; // Área útil da mesa em m²
 
   // DADOS DA MÁQUINA
   valorMaquina: number; // R$
@@ -707,10 +722,12 @@ export interface Maquina {
   manutencaoAnual: number; // R$ Manutenção anual
   potenciaKw: number; // Potência em kW
   velocidadeProducaoM2H: number; // Velocidade de produção em m²/h (calculada a partir do modo/velocidade de cabeça, quando informados)
+  tempoSetupMin?: number; // Tempo fixo padrão de setup / aquecimento / RIP (minutos)
 
   // MODO DE IMPRESSÃO (RIP) — opcional, usado para calcular velocidadeProducaoM2H automaticamente
-  modoImpressao?: 'standard' | 'highspeed'; // Standard (varia com a velocidade de cabeça) ou High Speed (velocidade própria fixa)
+  modoImpressao?: 'standard' | 'highspeed' | 'qualidade' | 'rascunho' | 'personalizado'; // Standard ou High Speed ou modo selecionado
   velocidadeCabecaMmS?: number; // Velocidade de cabeça em mm/s, de 250 a 761 — só afeta o tempo no modo Standard
+  modosImpressaoList?: ModoImpressaoConfig[]; // Modos de impressão configurados para a máquina
 
   // CALIBRAÇÃO REAL (opcional, por máquina) — medida com jobs reais no RIP.
   // Modelo Standard: tempo(min) para uma área de REFERENCIA_AREA_CALIBRACAO_M2 = calibSetupMin + calibKMms / velocidadeCabecaMmS

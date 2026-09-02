@@ -32,7 +32,8 @@ import {
   Droplet,
   Cpu,
   Gauge,
-  PackagePlus
+  PackagePlus,
+  Maximize2
 } from 'lucide-react';
 import { Company, AppUser, Product, Maquina, MaquinaCalculos, MateriaPrima, calcularCustosMaquina, calcularTempoProducaoMinutos, VELOCIDADE_CABECA_MIN_MMS, VELOCIDADE_CABECA_MAX_MMS } from '../types';
 import { supabase } from '../supabase';
@@ -159,9 +160,11 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
   const [taxaCartaoDesejada, setTaxaCartaoDesejada] = useState<number>(custosEmpresa.taxaCartaoPct);
 
   // Insumos e acabamentos adicionais (ex: ilhós, fita dupla face, bastão)
-  const [insumosExtras, setInsumosExtras] = useState<Array<{ id: string; nome: string; valor: number }>>([]);
+  const [insumosExtras, setInsumosExtras] = useState<Array<{ id: string; nome: string; quantidade: number; valorUnitario: number; valor: number }>>([]);
   const [novoInsumoNome, setNovoInsumoNome] = useState('');
+  const [novoInsumoQtd, setNovoInsumoQtd] = useState<number | ''>(1);
   const [novoInsumoValor, setNovoInsumoValor] = useState<number | ''>('');
+  const [modoCustomizadoId, setModoCustomizadoId] = useState<string>('');
 
   // Modais de Gestão
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
@@ -352,13 +355,27 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
     return qtdNum;
   }, [modoCalculo, areaUnitariaM2, qtdNum, larguraEmMetros]);
 
+  // Modo de impressão personalizado selecionado da máquina (se houver)
+  const modoCustomizadoSelecionado = useMemo(() => {
+    if (!maquinaSelecionada?.modosImpressaoList || !modoCustomizadoId) return null;
+    return maquinaSelecionada.modosImpressaoList.find(m => m.id === modoCustomizadoId) || null;
+  }, [maquinaSelecionada, modoCustomizadoId]);
+
   // Tempo sugerido de produção calculado automaticamente pela velocidade/calibração da máquina,
-  // considerando o modo de impressão (Standard/High Speed) e a velocidade de cabeça selecionados
+  // considerando o modo de impressão (Standard/High Speed/Modos Customizados) e a velocidade de cabeça selecionados
   const tempoSugeridoMinutos = useMemo(() => {
     if (!maquinaSelecionada || areaTotalM2 <= 0) return 0;
+
+    if (modoCustomizadoSelecionado) {
+      const vel = Math.max(0.1, modoCustomizadoSelecionado.velocidadeM2H);
+      const tempoBaseMin = (areaTotalM2 / vel) * 60;
+      const setupMin = Number(maquinaSelecionada.tempoSetupMin ?? maquinaSelecionada.calibSetupMin ?? 10);
+      return Math.max(5, Math.ceil(tempoBaseMin + setupMin));
+    }
+
     const minutos = calcularTempoProducaoMinutos(maquinaSelecionada, areaTotalM2, modoImpressaoSelecionado, velocidadeCabecaSelecionada);
     return minutos > 0 ? Math.max(5, Math.ceil(minutos)) : 0;
-  }, [areaTotalM2, maquinaSelecionada, modoImpressaoSelecionado, velocidadeCabecaSelecionada]);
+  }, [areaTotalM2, maquinaSelecionada, modoImpressaoSelecionado, velocidadeCabecaSelecionada, modoCustomizadoSelecionado]);
 
   // ==========================================
   // CÁLCULOS AUTOMÁTICOS DE CUSTOS (PUXADOS DO SISTEMA E DAS MÁQUINAS)
@@ -555,23 +572,27 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
   };
 
   // Adicionar Insumo Extra
-  const handleAddInsumoExtra = (customNome?: string, customValor?: number) => {
+  const handleAddInsumoExtra = (customNome?: string, customValor?: number, customQtd?: number) => {
     const nomeFinal = (customNome !== undefined ? customNome : novoInsumoNome).trim();
-    const valorFinal = Number(customValor !== undefined ? customValor : novoInsumoValor);
+    const valorUnit = Number(customValor !== undefined ? customValor : novoInsumoValor);
+    const qtd = Number(customQtd !== undefined ? customQtd : novoInsumoQtd) || 1;
 
-    if (!nomeFinal || valorFinal <= 0) return;
+    if (!nomeFinal || valorUnit <= 0) return;
 
     setInsumosExtras(prev => [
       ...prev,
       {
         id: 'insumo-' + Date.now() + '-' + Math.random().toString(36).substring(2, 5),
         nome: nomeFinal,
-        valor: valorFinal
+        quantidade: qtd,
+        valorUnitario: valorUnit,
+        valor: qtd * valorUnit
       }
     ]);
     if (customNome === undefined) {
       setNovoInsumoNome('');
       setNovoInsumoValor('');
+      setNovoInsumoQtd(1);
     }
   };
 
@@ -582,6 +603,7 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
     const preco = Number(mp.costPrice) || 1;
     setNovoInsumoNome(`${mp.name} (${mp.unit || 'un'})`);
     setNovoInsumoValor(preco);
+    setNovoInsumoQtd(1);
   };
 
   const handleRemoveInsumoExtra = (id: string) => {
@@ -696,7 +718,7 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
   };
 
   return (
-    <div className="space-y-6 pb-28 lg:pb-6">
+    <div className="space-y-6 pb-36 sm:pb-36 lg:pb-8">
       {/* Header Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900/60 p-4 sm:p-6 rounded-2xl sm:rounded-3xl border border-white/10 shadow-xl">
         <div>
@@ -974,11 +996,44 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
                 </div>
               )}
 
-              {/* Resumo visual da área total */}
+              {/* Resumo visual da área total e compatibilidade com a máquina */}
               {modoCalculo === 'm2' && (
-                <div className="flex items-center justify-between text-xs bg-slate-800/60 p-2.5 rounded-xl border border-white/5">
-                  <span className="text-white/60">Área unitária: <strong className="text-white">{areaUnitariaM2.toFixed(3)} m²</strong></span>
-                  <span className="text-white/60">Área total calculada: <strong className="text-emerald-400">{areaTotalM2.toFixed(3)} m²</strong></span>
+                <div className="space-y-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs bg-slate-800/60 p-2.5 rounded-xl border border-white/5 gap-1.5">
+                    <span className="text-white/60">
+                      Dimensões: <strong className="text-white">{larguraEmMetros.toFixed(2)}m × {alturaEmMetros.toFixed(2)}m</strong> • Unitário: <strong className="text-white">{areaUnitariaM2.toFixed(3)} m²</strong>
+                    </span>
+                    <span className="text-white/60">
+                      Área total ({qtdNum} un): <strong className="text-emerald-400 font-bold">{areaTotalM2.toFixed(3)} m²</strong>
+                    </span>
+                  </div>
+
+                  {/* Verificador de boca/dimensões da máquina */}
+                  {maquinaSelecionada && (
+                    <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-950/50 border border-white/10 text-xs">
+                      <div className="flex items-center gap-1.5">
+                        <Maximize2 size={14} className="text-cyan-400 shrink-0" />
+                        <span className="text-white/70">
+                          Boca da Máquina: <strong className="text-cyan-300">{maquinaSelecionada.larguraMaximaM || 1.60}m</strong>
+                        </span>
+                      </div>
+                      <div>
+                        {larguraEmMetros <= (Number(maquinaSelecionada.larguraMaximaM) || 1.60) ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                            ✅ Cabe na boca ({larguraEmMetros.toFixed(2)}m ≤ {maquinaSelecionada.larguraMaximaM || 1.60}m)
+                          </span>
+                        ) : alturaEmMetros <= (Number(maquinaSelecionada.larguraMaximaM) || 1.60) ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                            🔄 Cabe rotacionado ({alturaEmMetros.toFixed(2)}m na boca de {maquinaSelecionada.larguraMaximaM || 1.60}m)
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                            ⚠️ Excede boca ({larguraEmMetros.toFixed(2)}m × {alturaEmMetros.toFixed(2)}m &gt; {maquinaSelecionada.larguraMaximaM || 1.60}m — necessitará emenda)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1010,7 +1065,7 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
                 </span>
                 <div className="flex flex-wrap gap-1.5">
                   {[
-                    { nome: 'Ilhós Metálico', valor: 5.00 },
+                    { nome: 'Ilhós Metálico (4 un)', valor: 5.00 },
                     { nome: 'Fita Dupla Face', valor: 8.00 },
                     { nome: 'Bastão e Ponteira', valor: 12.00 },
                     { nome: 'Bainha e Solda Térmica', valor: 6.00 },
@@ -1020,7 +1075,7 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
                     <button
                       key={sug.nome}
                       type="button"
-                      onClick={() => handleAddInsumoExtra(sug.nome, sug.valor)}
+                      onClick={() => handleAddInsumoExtra(sug.nome, sug.valor, 1)}
                       className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white/5 hover:bg-white/15 text-white/80 hover:text-white border border-white/10 transition-colors active:scale-95"
                     >
                       <Plus size={11} className="text-primary-400" />
@@ -1055,12 +1110,16 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
               )}
 
               {/* Formulário de Inclusão Manual com Botão de Destaque */}
-              <div className="space-y-2 pt-1">
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <div className="flex-1 min-w-0">
+              <div className="bg-slate-900/80 p-3 rounded-2xl border border-white/10 space-y-2">
+                <span className="text-[10px] uppercase font-bold text-white/60 block">
+                  Adicionar Insumo Manual:
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                  <div className="sm:col-span-6">
+                    <label className="block text-[9px] font-bold text-white/50 uppercase mb-0.5">Descrição do Insumo</label>
                     <input
                       type="text"
-                      placeholder="Descrição do insumo (ex: Tubo de Alumínio, Madeira...)"
+                      placeholder="Ex: Tubo de Alumínio, Madeira, Ventosa..."
                       value={novoInsumoNome}
                       onChange={(e) => setNovoInsumoNome(e.target.value)}
                       onKeyDown={(e) => {
@@ -1069,14 +1128,28 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
                           handleAddInsumoExtra();
                         }
                       }}
-                      className="w-full bg-slate-800 border border-white/15 rounded-xl px-3.5 py-2 text-xs text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-primary-500/50"
+                      className="w-full bg-slate-800 border border-white/15 rounded-xl px-3 py-2 text-xs text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-primary-500/50"
                     />
                   </div>
-                  <div className="w-full sm:w-32">
+                  <div className="sm:col-span-2">
+                    <label className="block text-[9px] font-bold text-white/50 uppercase mb-0.5">Qtd</label>
+                    <input
+                      type="number"
+                      step="1"
+                      min="1"
+                      placeholder="1"
+                      value={novoInsumoQtd}
+                      onChange={(e) => setNovoInsumoQtd(e.target.value === '' ? '' : parseInt(e.target.value) || 1)}
+                      className="w-full bg-slate-800 border border-white/15 rounded-xl px-2.5 py-2 text-xs text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-primary-500/50"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-[9px] font-bold text-white/50 uppercase mb-0.5">Valor Unit (R$)</label>
                     <input
                       type="number"
                       step="0.01"
-                      placeholder="R$ Custo"
+                      min="0.01"
+                      placeholder="0.00"
                       value={novoInsumoValor}
                       onChange={(e) => setNovoInsumoValor(e.target.value === '' ? '' : parseFloat(e.target.value))}
                       onKeyDown={(e) => {
@@ -1085,18 +1158,19 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
                           handleAddInsumoExtra();
                         }
                       }}
-                      className="w-full bg-slate-800 border border-white/15 rounded-xl px-3.5 py-2 text-xs text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-primary-500/50"
+                      className="w-full bg-slate-800 border border-white/15 rounded-xl px-2.5 py-2 text-xs text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-primary-500/50"
                     />
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleAddInsumoExtra()}
-                    disabled={!novoInsumoNome.trim() || Number(novoInsumoValor) <= 0}
-                    className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-4 py-2 bg-primary-600 hover:bg-primary-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-md shadow-primary-600/20 transition-all active:scale-95 shrink-0"
-                  >
-                    <Plus size={15} />
-                    <span>Adicionar Insumo</span>
-                  </button>
+                  <div className="sm:col-span-2 flex items-end">
+                    <button
+                      type="button"
+                      onClick={() => handleAddInsumoExtra()}
+                      className="w-full h-[36px] flex items-center justify-center gap-1.5 px-3 bg-primary-600 hover:bg-primary-500 active:bg-primary-700 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-md shadow-primary-600/30 transition-all active:scale-95"
+                    >
+                      <Plus size={14} />
+                      <span>Adicionar</span>
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -1112,7 +1186,9 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
                         key={item.id}
                         className="inline-flex items-center gap-2 bg-primary-950/60 border border-primary-500/30 px-3 py-1.5 rounded-xl text-xs text-white shadow-sm"
                       >
-                        <span className="font-medium text-white/90">{item.nome}</span>
+                        <span className="font-medium text-white/90">
+                          {item.nome} {item.quantidade && item.quantidade > 1 ? `(${item.quantidade}x R$ ${Number(item.valorUnitario || item.valor).toFixed(2)})` : ''}
+                        </span>
                         <span className="font-black text-emerald-400">+ R$ {Number(item.valor).toFixed(2)}</span>
                         <button
                           type="button"
@@ -1171,7 +1247,7 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
                     const c = calcularCustosMaquina(m, custosEmpresa.tarifaKwh);
                     return (
                       <option key={m.id} value={m.id}>
-                        {m.nome} (Total: R$ {c.custoTotalMaquinaHora.toFixed(2)}/h • R$ {c.custoTotalMaquinaM2.toFixed(2)}/m²)
+                        {m.nome} (Boca: {m.larguraMaximaM || 1.60}m • R$ {c.custoTotalMaquinaHora.toFixed(2)}/h • R$ {c.custoTotalMaquinaM2.toFixed(2)}/m²)
                       </option>
                     );
                   })}
@@ -1197,7 +1273,7 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
                     placeholder="Minutos"
                     value={tempoProducaoMinutos}
                     onChange={(e) => setTempoProducaoMinutos(e.target.value === '' ? '' : parseInt(e.target.value))}
-                    className="flex-1 bg-slate-800/90 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500"
+                    className="flex-1 bg-slate-800/90 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
                   />
                   {/* Botões de tempo rápido */}
                   <div className="flex gap-1">
@@ -1220,59 +1296,115 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
               </div>
             </div>
 
-            {/* Painel com Detalhes e Sugestão Automática da Máquina Selecionada */}
+            {/* Painel com Detalhes, Dimensões e Modos de Impressão da Máquina */}
             {maquinaSelecionada && (
-              <div className="bg-slate-800/50 p-3.5 rounded-2xl border border-cyan-500/20 space-y-2.5">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+              <div className="bg-slate-800/50 p-4 rounded-2xl border border-cyan-500/20 space-y-3.5">
+                {/* Header da Máquina com Boca e Velocidade */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs border-b border-white/10 pb-2">
                   <div className="flex items-center gap-2">
-                    <Gauge size={14} className="text-cyan-400" />
+                    <Gauge size={15} className="text-cyan-400 shrink-0" />
                     <span className="text-white/80 font-bold">
-                      Custo Máquina Calculado: <strong className="text-cyan-300">R$ {maquinaCalculos.custoTotalMaquinaHora.toFixed(2)}/h</strong> • <strong className="text-emerald-400">R$ {maquinaCalculos.custoTotalMaquinaM2.toFixed(2)}/m²</strong>
+                      Custo Máquina: <strong className="text-cyan-300">R$ {maquinaCalculos.custoTotalMaquinaHora.toFixed(2)}/h</strong> • <strong className="text-emerald-400">R$ {maquinaCalculos.custoTotalMaquinaM2.toFixed(2)}/m²</strong>
                     </span>
                   </div>
-                  <span className="text-[10px] text-white/40">
-                    Velocidade: {maquinaSelecionada.velocidadeProducaoM2H.toFixed(2)} m²/h
-                  </span>
+                  <div className="flex items-center gap-3 text-[11px] text-white/60">
+                    <span className="flex items-center gap-1">
+                      <Maximize2 size={12} className="text-cyan-400" /> Boca: <strong>{maquinaSelecionada.larguraMaximaM || 1.60}m</strong>
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Clock size={12} className="text-emerald-400" /> Setup: <strong>{maquinaSelecionada.tempoSetupMin || 10} min</strong>
+                    </span>
+                  </div>
                 </div>
 
-                {/* Modo de Impressão + Velocidade de Cabeça, usados para calcular o Tempo de Produção sugerido */}
-                {modoCalculo === 'm2' && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-[10px] font-bold text-white/50 uppercase mb-1">
-                        Modo de Impressão
-                      </label>
-                      <select
-                        value={modoImpressaoSelecionado}
-                        onChange={(e) => setModoImpressaoSelecionado(e.target.value as NonNullable<Maquina['modoImpressao']>)}
-                        className="w-full bg-slate-900 border border-white/15 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
-                      >
-                        <option value="standard">Standard</option>
-                        <option value="highspeed">High Speed</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-white/50 uppercase mb-1">
-                        Velocidade de Cabeça (mm/s)
-                      </label>
-                      <input
-                        type="number"
-                        step="1"
-                        min={VELOCIDADE_CABECA_MIN_MMS}
-                        max={VELOCIDADE_CABECA_MAX_MMS}
-                        disabled={modoImpressaoSelecionado === 'highspeed'}
-                        value={velocidadeCabecaSelecionada}
-                        onChange={(e) => {
-                          const raw = parseInt(e.target.value, 10);
-                          const clamped = Number.isFinite(raw)
-                            ? Math.min(Math.max(raw, VELOCIDADE_CABECA_MIN_MMS), VELOCIDADE_CABECA_MAX_MMS)
-                            : velocidadeCabecaSelecionada;
-                          setVelocidadeCabecaSelecionada(clamped);
-                        }}
-                        className="w-full bg-slate-900 border border-white/15 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 disabled:opacity-40"
-                      />
+                {/* Modos de Impressão Configurados da Máquina */}
+                {maquinaSelecionada.modosImpressaoList && maquinaSelecionada.modosImpressaoList.length > 0 ? (
+                  <div className="space-y-1.5">
+                    <span className="text-[10px] font-bold text-white/60 uppercase block">
+                      Selecione o Modo de Impressão desta Máquina:
+                    </span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {maquinaSelecionada.modosImpressaoList.map((m) => {
+                        const isSelected = modoCustomizadoId === m.id;
+                        const tempoModoMin = areaTotalM2 > 0
+                          ? Math.ceil(((areaTotalM2 / Math.max(0.1, m.velocidadeM2H)) * 60) + (maquinaSelecionada.tempoSetupMin || 10))
+                          : 0;
+                        return (
+                          <button
+                            key={m.id}
+                            type="button"
+                            onClick={() => {
+                              setModoCustomizadoId(m.id);
+                              if (tempoModoMin > 0) {
+                                setTempoProducaoMinutos(tempoModoMin);
+                              }
+                            }}
+                            className={`p-2.5 rounded-xl border text-left transition-all ${
+                              isSelected
+                                ? 'bg-cyan-500/20 border-cyan-400 text-white shadow-md'
+                                : 'bg-slate-900/70 border-white/10 hover:border-cyan-500/30 text-white/70'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-bold text-white">{m.nome}</span>
+                              <span className="text-[10px] font-mono text-cyan-300 font-bold">{m.velocidadeM2H} m²/h</span>
+                            </div>
+                            <div className="flex items-center justify-between text-[10px] text-white/50 mt-1">
+                              <span>{m.resolucaoDpi || '720 DPI'} {m.passes ? `• ${m.passes}p` : ''}</span>
+                              {tempoModoMin > 0 && (
+                                <strong className="text-emerald-400 font-bold">⏱️ ~{tempoModoMin} min</strong>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
+                ) : (
+                  /* Seleção genérica Standard / High Speed */
+                  modoCalculo === 'm2' && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10px] font-bold text-white/50 uppercase mb-1">
+                          Modo de Impressão
+                        </label>
+                        <select
+                          value={modoImpressaoSelecionado}
+                          onChange={(e) => {
+                            setModoImpressaoSelecionado(e.target.value as NonNullable<Maquina['modoImpressao']>);
+                            setModoCustomizadoId('');
+                          }}
+                          className="w-full bg-slate-900 border border-white/15 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
+                        >
+                          <option value="standard">Standard (Velocidade Normal)</option>
+                          <option value="highspeed">High Speed (Modo Rápido)</option>
+                          <option value="rascunho">Rascunho / Draft</option>
+                          <option value="qualidade">Alta Qualidade / Foto</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-white/50 uppercase mb-1">
+                          Velocidade de Cabeça (mm/s)
+                        </label>
+                        <input
+                          type="number"
+                          step="1"
+                          min={VELOCIDADE_CABECA_MIN_MMS}
+                          max={VELOCIDADE_CABECA_MAX_MMS}
+                          disabled={modoImpressaoSelecionado === 'highspeed'}
+                          value={velocidadeCabecaSelecionada}
+                          onChange={(e) => {
+                            const raw = parseInt(e.target.value, 10);
+                            const clamped = Number.isFinite(raw)
+                              ? Math.min(Math.max(raw, VELOCIDADE_CABECA_MIN_MMS), VELOCIDADE_CABECA_MAX_MMS)
+                              : velocidadeCabecaSelecionada;
+                            setVelocidadeCabecaSelecionada(clamped);
+                          }}
+                          className="w-full bg-slate-900 border border-white/15 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 disabled:opacity-40"
+                        />
+                      </div>
+                    </div>
+                  )
                 )}
 
                 {/* Sub-custos da máquina calculados automaticamente */}
@@ -1291,15 +1423,17 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
                   </div>
                 </div>
 
-                {/* Botão de aplicação de tempo automático estimado pelo modo/velocidade de cabeça selecionados */}
-                {tempoSugeridoMinutos > 0 && modoCalculo === 'm2' && (
+                {/* Botão de aplicação de tempo automático estimado pelo modo/velocidade selecionados */}
+                {tempoSugeridoMinutos > 0 && (
                   <button
                     type="button"
                     onClick={() => setTempoProducaoMinutos(tempoSugeridoMinutos)}
-                    className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 rounded-xl text-xs font-bold transition-all"
+                    className="w-full flex items-center justify-center gap-1.5 py-2 px-3 bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-200 border border-cyan-500/30 rounded-xl text-xs font-bold transition-all shadow-sm"
                   >
-                    <Zap size={13} />
-                    <span>⚡ Aplicar tempo calculado ({modoImpressaoSelecionado === 'highspeed' ? 'High Speed' : `Standard, ${velocidadeCabecaSelecionada}mm/s`}): <strong>{tempoSugeridoMinutos} min</strong></span>
+                    <Zap size={13} className="text-cyan-400" />
+                    <span>
+                      ⚡ Aplicar tempo calculado para {areaTotalM2.toFixed(2)}m² (+{maquinaSelecionada.tempoSetupMin || 10}m setup): <strong>{tempoSugeridoMinutos} min</strong>
+                    </span>
                   </button>
                 )}
               </div>
@@ -1697,37 +1831,38 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
       {/* ========================================================================= */}
       {/* BARRA FLUTUANTE INFERIOR NO MOBILE (PREÇO + AÇÕES RÁPIDAS SEMPRE VISÍVEIS) */}
       {/* ========================================================================= */}
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-slate-950/95 backdrop-blur-lg border-t border-primary-500/30 p-3 shadow-2xl shadow-black/80">
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-slate-950/95 backdrop-blur-xl border-t border-primary-500/40 p-3 shadow-2xl shadow-black">
         <div className="flex items-center justify-between gap-2 max-w-7xl mx-auto">
           {/* Valor sugerido */}
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <span className="text-[10px] uppercase font-bold text-white/50 block leading-tight">
-              Preço Sugerido ({margemAlvoDesejada}%)
+              Preço ({margemAlvoDesejada}%)
             </span>
-            <span className="text-lg font-black text-white truncate block">
+            <span className="text-base sm:text-lg font-black text-emerald-400 truncate block">
               R$ {precoRecomendado.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
           </div>
 
-          {/* Botões de Ação Direta */}
+          {/* Botões de Ação Direta com toques acessíveis */}
           <div className="flex items-center gap-1.5 shrink-0">
             <button
               onClick={handleCopiarPropostaComercial}
-              className="p-2.5 bg-primary-600 active:bg-primary-500 text-white rounded-xl font-black text-xs shadow-md transition-colors"
+              className="flex items-center gap-1 py-2.5 px-3 bg-primary-600 active:bg-primary-500 text-white rounded-xl font-black text-xs shadow-md transition-colors min-h-[40px]"
               title="Copiar Proposta WhatsApp"
             >
-              {copiedNotification ? <Check size={16} /> : <Share2 size={16} />}
+              {copiedNotification ? <Check size={15} /> : <Share2 size={15} />}
+              <span className="hidden sm:inline">WhatsApp</span>
             </button>
             <button
               onClick={handleSalvarPrecificacao}
-              className="p-2.5 bg-slate-800 active:bg-slate-700 text-white border border-white/15 rounded-xl font-bold text-xs transition-colors"
+              className="p-2.5 bg-slate-800 active:bg-slate-700 text-white border border-white/15 rounded-xl font-bold text-xs transition-colors min-h-[40px] min-w-[40px] flex items-center justify-center"
               title="Salvar Orçamento"
             >
               <Save size={16} />
             </button>
             <button
               onClick={handleEnviarParaPDV}
-              className="flex items-center gap-1.5 py-2.5 px-3.5 bg-emerald-600 active:bg-emerald-500 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-md transition-colors"
+              className="flex items-center gap-1.5 py-2.5 px-3.5 bg-emerald-600 active:bg-emerald-500 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-md transition-colors min-h-[40px]"
             >
               <ShoppingCart size={15} />
               <span>PDV</span>
