@@ -774,9 +774,12 @@ function formatNamePreview(fullName: string, maxTotalChars: number = 16): string
 // (so tem o campo down_payment/total) caem no formato antigo: tudo na data de criacao.
 function getRevenueEventsForSale(o: SaleOrder): { date: string; value: number; method?: string }[] {
   if (o.payments && o.payments.length > 0) {
-    return o.payments.filter(p => p.value > 0).map(p => ({ date: p.date || o.createdAt, value: p.value, method: p.method }));
+    return o.payments.filter(p => Number(p.value) > 0).map(p => ({ date: p.date || o.createdAt, value: Number(p.value), method: p.method }));
   }
-  const valor = o.status === 'pending' ? (o.downPayment || 0) : (o.total || 0);
+  // Se a nota foi lançada com zero de entrada (ou sem pagamentos efetivos), não gera evento de receita no caixa
+  const valor = o.status === 'pending'
+    ? Number(o.receivedValue ?? o.downPayment ?? 0)
+    : (o.downPayment !== undefined && o.downPayment !== null ? Number(o.downPayment) : Number(o.receivedValue ?? o.total ?? 0));
   if (valor <= 0) return [];
   return [{ date: o.createdAt, value: valor, method: o.paymentMethod }];
 }
@@ -8470,6 +8473,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       return next;
     });
   };
+
+  const [copiedHistoryField, setCopiedHistoryField] = useState<{ id: string; field: 'cliente' | 'nota' } | null>(null);
+  const handleCopyHistoryField = (text: string, id: string, field: 'cliente' | 'nota') => {
+    navigator.clipboard.writeText(text);
+    setCopiedHistoryField({ id, field });
+    setTimeout(() => setCopiedHistoryField(null), 1500);
+  };
   const [viewingReceiptSale, setViewingReceiptSale] = useState<SaleOrder | null>(null);
   const [viewingReceiptEmail, setViewingReceiptEmail] = useState<string | undefined>(undefined);
   const handleDuplicateSale = async (sale: SaleOrder) => {
@@ -10240,6 +10250,55 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           ));
         }
 
+        // Sincroniza serviços de comissões (10% padrão ou configurado) vinculados a esta nota
+        try {
+          const { data: servicosVinculados } = await supabase
+            .from('comissoes_servicos')
+            .select('*')
+            .eq('origem_nota_id', editingFullOrder.id)
+            .is('deleted_at', null);
+
+          if (servicosVinculados && servicosVinculados.length > 0) {
+            const novosCustosExtras = editingFullOrder.extraCosts ? [...editingFullOrder.extraCosts] : [];
+            const subtotalBruto = cart.reduce((acc, it) => acc + (it.price || 0) * (it.quantity || 1), 0);
+
+            for (const s of servicosVinculados) {
+              const itemIdx = typeof s.origem_item_index === 'number' ? s.origem_item_index : 0;
+              const itemCart = cart[itemIdx] || cart[0];
+              if (itemCart) {
+                const itemTotal = (itemCart.price || 0) * (itemCart.quantity || 1);
+                const descProp = subtotalBruto > 0 ? (itemTotal / subtotalBruto) * (saleDiscountValue || 0) : 0;
+                const novoValorProd = Math.max(0, Number((itemTotal - descProp).toFixed(2)));
+                const pct = Number(s.comissao_percentual) || 10;
+                const novaComissao = Number(((novoValorProd * pct) / 100).toFixed(2));
+
+                await supabase.from('comissoes_servicos').update({
+                  valor_producao: novoValorProd,
+                  comissao_valor: novaComissao,
+                  updated_at: new Date().toISOString()
+                }).eq('id', s.id);
+
+                // Atualiza também no custos_extras da nota
+                const cIdx = novosCustosExtras.findIndex(c => c.colaboradorId === s.colaborador_id && (c.itemIndex === itemIdx || c.origemItemIndex === itemIdx));
+                if (cIdx >= 0) {
+                  novosCustosExtras[cIdx] = {
+                    ...novosCustosExtras[cIdx],
+                    amount: novaComissao,
+                    valor: novaComissao,
+                    descricao: `Comissão — ${itemCart.name || s.tipo_servico} (${pct}%)`
+                  };
+                }
+              }
+            }
+
+            // Atualiza custos_extras na tabela vendas
+            await supabase.from('vendas').update({ custos_extras: novosCustosExtras }).eq('id', editingFullOrder.id);
+            editingFullOrder.extraCosts = novosCustosExtras;
+          }
+        } catch (errComissao) {
+          console.warn('Aviso: erro ao sincronizar comissões da nota editada:', errComissao);
+        }
+
         const updatedOrder: SaleOrder = {
           ...editingFullOrder,
           customerId: selectedCustomer?.id || editingFullOrder.customerId,
@@ -11523,7 +11582,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
                           {/* Nome */}
                           <div className="min-w-0 overflow-hidden" style={colFlex('nome')}>
-                            <span className="text-[11px] font-black text-white block truncate">{(sale.customerName || 'Cliente de Balcão').toUpperCase()}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyHistoryField(sale.customerName || 'Cliente de Balcão', sale.id, 'cliente')}
+                              title="Clique para copiar o nome do cliente"
+                              className="text-[11px] font-black text-white hover:text-primary-300 block truncate text-left transition-colors cursor-pointer group w-full"
+                            >
+                              <span className="truncate">{(sale.customerName || 'Cliente de Balcão').toUpperCase()}</span>
+                              {copiedHistoryField?.id === sale.id && copiedHistoryField?.field === 'cliente' && (
+                                <span className="ml-1 text-[8px] font-bold text-emerald-400 bg-emerald-500/20 px-1 py-0.2 rounded">Copiado!</span>
+                              )}
+                            </button>
                             {sale.observacoes && (
                               <span className="text-[9px] text-amber-300/70 italic block truncate" title={sale.observacoes}>"{sale.observacoes}"</span>
                             )}
@@ -11558,7 +11627,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
                           {/* Código */}
                           <div className="min-w-0 overflow-hidden hidden sm:block" style={colFlex('codigo')}>
-                            <span className="text-[9px] text-white/30 font-mono truncate block">#{sale.id.slice(-8).toUpperCase()}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyHistoryField(sale.id, sale.id, 'nota')}
+                              title="Clique para copiar o código da nota"
+                              className="text-[9px] text-white/30 hover:text-primary-300 font-mono truncate block text-left transition-colors cursor-pointer w-full"
+                            >
+                              <span>#{sale.id.slice(-8).toUpperCase()}</span>
+                              {copiedHistoryField?.id === sale.id && copiedHistoryField?.field === 'nota' && (
+                                <span className="ml-1 text-[8px] font-bold text-emerald-400 bg-emerald-500/20 px-1 py-0.2 rounded">Copiado!</span>
+                              )}
+                            </button>
                           </div>
 
                           {/* Data */}
@@ -11711,13 +11790,33 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             </Badge>
                           </div>
                           <div>
-                            <p className="text-[10px] font-black text-white uppercase truncate">{sale.customerName || 'Cliente de Balcão'}</p>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyHistoryField(sale.customerName || 'Cliente de Balcão', sale.id, 'cliente')}
+                              title="Clique para copiar o nome do cliente"
+                              className="text-[10px] font-black text-white hover:text-primary-300 uppercase truncate block text-left transition-colors cursor-pointer w-full"
+                            >
+                              <span className="truncate">{sale.customerName || 'Cliente de Balcão'}</span>
+                              {copiedHistoryField?.id === sale.id && copiedHistoryField?.field === 'cliente' && (
+                                <span className="ml-1 text-[7px] font-bold text-emerald-400 bg-emerald-500/20 px-1 py-0.2 rounded">Copiado!</span>
+                              )}
+                            </button>
                             {sale.items && sale.items.length > 0 && (
                               <p className="text-[8px] text-white/40 italic truncate" title={sale.items[sale.items.length - 1].name}>
                                 {sale.items[sale.items.length - 1].name}{sale.items.length > 1 ? ` (+${sale.items.length - 1})` : ''}
                               </p>
                             )}
-                            <p className="text-[8px] text-white/30 font-mono">#{sale.id.slice(-8).toUpperCase()}</p>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyHistoryField(sale.id, sale.id, 'nota')}
+                              title="Clique para copiar o código da nota"
+                              className="text-[8px] text-white/30 hover:text-primary-300 font-mono block text-left transition-colors cursor-pointer"
+                            >
+                              <span>#{sale.id.slice(-8).toUpperCase()}</span>
+                              {copiedHistoryField?.id === sale.id && copiedHistoryField?.field === 'nota' && (
+                                <span className="ml-1 text-[7px] font-bold text-emerald-400 bg-emerald-500/20 px-1 py-0.2 rounded">Copiado!</span>
+                              )}
+                            </button>
                           </div>
                           {/* Etiquetas de origem (Contrato/Orçamento) -- as duas podem aparecer juntas,
                               com quebra de linha (flex-wrap) pra nunca cortar nem esconder nada no celular. */}
@@ -11782,7 +11881,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             )}
                             <div>
                               <div className="flex items-center gap-2">
-                                <h4 className="text-sm font-black text-white uppercase">{sale.customerName || 'Cliente de Balcão'}</h4>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyHistoryField(sale.customerName || 'Cliente de Balcão', sale.id, 'cliente')}
+                                  title="Clique para copiar o nome do cliente"
+                                  className="text-sm font-black text-white hover:text-primary-300 uppercase text-left transition-colors cursor-pointer group inline-flex items-center gap-1.5"
+                                >
+                                  <span>{sale.customerName || 'Cliente de Balcão'}</span>
+                                  {copiedHistoryField?.id === sale.id && copiedHistoryField?.field === 'cliente' ? (
+                                    <span className="text-[8px] font-bold text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded">Copiado!</span>
+                                  ) : (
+                                    <Copy size={11} className="opacity-0 group-hover:opacity-100 text-white/40 group-hover:text-primary-300 transition-opacity" />
+                                  )}
+                                </button>
                                 <Badge 
                                   className={cn(
                                     "text-[8px] font-black uppercase px-2 py-0.5 border-none",
@@ -11792,12 +11903,26 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                   {isPartial ? `FALTA R$ ${balance.toFixed(2).replace('.', ',')}` : 'PAGO'}
                                 </Badge>
                               </div>
-                              <p className="text-[9px] text-white/30 font-mono mt-0.5">
-                                #{sale.id.slice(-8).toUpperCase()} • Criada {safeFormat(sale.createdAt, 'dd/MM/yyyy HH:mm')}
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyHistoryField(sale.id, sale.id, 'nota')}
+                                  title="Clique para copiar o código da nota"
+                                  className="text-[9px] text-white/30 hover:text-primary-300 font-mono transition-colors cursor-pointer inline-flex items-center gap-1 group"
+                                >
+                                  <span>#{sale.id.slice(-8).toUpperCase()}</span>
+                                  {copiedHistoryField?.id === sale.id && copiedHistoryField?.field === 'nota' ? (
+                                    <span className="text-[7px] font-bold text-emerald-400 bg-emerald-500/20 px-1 py-0.2 rounded">Copiado!</span>
+                                  ) : (
+                                    <Copy size={9} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                                  )}
+                                </button>
+                                <span className="text-[9px] text-white/30 font-mono">• Criada {safeFormat(sale.createdAt, 'dd/MM/yyyy HH:mm')}</span>
                                 {sale.updatedAt && Math.abs(new Date(sale.updatedAt).getTime() - new Date(sale.createdAt).getTime()) > 60000 && (
-                                  <span className="text-primary-400"> • Ajustada {safeFormat(sale.updatedAt, 'dd/MM/yyyy HH:mm')}</span>
+                                  <span className="text-[9px] text-primary-400 font-mono"> • Ajustada {safeFormat(sale.updatedAt, 'dd/MM/yyyy HH:mm')}</span>
                                 )}
-                              </p>
+                              </div>
+                            </div>
                               {/* Etiquetas de origem (Contrato/Orçamento) -- as duas podem aparecer juntas,
                                   com quebra de linha (flex-wrap) pra nunca cortar nem esconder nada no celular. */}
                               {(sale.contratoId || sale.orcamentoId) && (
@@ -11823,7 +11948,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                 </div>
                               )}
                             </div>
-                          </div>
                           
                           <div className="flex flex-col items-end gap-1.5 shrink-0">
                             <select

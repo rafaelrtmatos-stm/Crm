@@ -296,27 +296,48 @@ export async function deductMateriasPrimasStock(
         (item.name && mp.name.trim().toLowerCase() === item.name.trim().toLowerCase())
       );
 
-      if (found && found.quantidadeEstoque !== undefined && found.quantidadeEstoque !== null) {
-        const currentQty = Number(found.quantidadeEstoque) || 0;
+      if (found) {
+        const currentQty = (found.quantidadeEstoque !== undefined && found.quantidadeEstoque !== null)
+          ? Number(found.quantidadeEstoque)
+          : 0;
         const newQty = Math.max(0, Number((currentQty - item.quantity).toFixed(4)));
 
         found.quantidadeEstoque = newQty;
         updateLocalItem(found);
 
-        if (isValidUUID(found.id)) {
-          const { error } = await supabase
-            .from('materias_primas')
-            .update({
-              quantidade_estoque: newQty,
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', found.id);
+        try {
+          if (found.id) {
+            let { error } = await supabase
+              .from('materias_primas')
+              .update({
+                quantidade_estoque: newQty,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', found.id);
 
-          if (error) {
-            console.warn(`Erro ao atualizar estoque da matéria-prima ${found.name}:`, error.message);
+            if (error && (error.message?.includes('quantidade_estoque') || error.message?.includes('column'))) {
+              const res = await supabase
+                .from('materias_primas')
+                .update({
+                  estoque: newQty,
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', found.id);
+              error = res.error;
+            }
+
+            if (error) {
+              console.warn(`Erro ao atualizar estoque da matéria-prima ${found.name} no Supabase:`, error.message);
+            }
           }
+        } catch (e: any) {
+          console.warn(`Erro ao persistir estoque de ${found.name}:`, e?.message);
         }
       }
+    }
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('materias_primas_updated'));
     }
   } catch (err) {
     console.warn('Erro ao abater estoque de matérias-primas:', err);

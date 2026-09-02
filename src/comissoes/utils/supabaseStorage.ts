@@ -270,7 +270,26 @@ export async function saveServiceToSupabase(colaboradorId: string, item: Service
   }
   const { data, error } = await supabase.from('comissoes_servicos').update(payload).eq('id', item.id).select().single();
   if (error || !data) { console.error('Erro ao atualizar serviço:', error); return null; }
-  return mapServiceRow(data);
+  const mapped = mapServiceRow(data);
+
+  // Sincroniza a comissão como custo extra na nota de origem caso o serviço seja vinculado
+  if (mapped.origemNotaId && mapped.commissionValue !== undefined) {
+    try {
+      const { data: colab } = await supabase.from('colaboradores').select('nome').eq('id', colaboradorId).maybeSingle();
+      await lancarComissoesComoCustoDaNota(mapped.origemNotaId, [{
+        colaboradorId,
+        colaboradorNome: colab?.nome || 'Colaborador',
+        itemIndex: mapped.origemItemIndex,
+        descricao: `Comissão ${colab?.nome || 'Colaborador'} — ${mapped.serviceType} (${mapped.commissionPercent}%)`,
+        valor: mapped.commissionValue,
+        data: mapped.date,
+      }]);
+    } catch (errSync) {
+      console.warn('Erro ao sincronizar comissão na nota de origem:', errSync);
+    }
+  }
+
+  return mapped;
 }
 
 // "Excluir" um serviço não apaga de vez — só marca deleted_at (soft-delete), pra ele

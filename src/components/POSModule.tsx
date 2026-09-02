@@ -33,7 +33,8 @@ import {
   ArrowUpDown,
   Wifi,
   WifiOff,
-  CloudUpload
+  CloudUpload,
+  Copy
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { showAlert, showConfirm } from '../lib/notify';
@@ -134,6 +135,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
   // Products and Insumos Data — inicia direto do cache local para funcionar offline desde o primeiro render
   const [products, setProducts] = useState<Product[]>(() => getCache(CACHE_KEYS.products, [] as Product[]));
   const [productSearch, setProductSearch] = useState('');
+  const [copiedSaleField, setCopiedSaleField] = useState<{ id: string; field: 'cliente' | 'nota' } | null>(null);
+
+  const handleCopyField = (text: string, id: string, field: 'cliente' | 'nota') => {
+    navigator.clipboard.writeText(text);
+    setCopiedSaleField({ id, field });
+    setTimeout(() => setCopiedSaleField(null), 1500);
+  };
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncedAt, setSyncedAt] = useState<Date>(() => {
@@ -804,9 +812,43 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
         }
       }
 
-      // Deduct raw materials (matérias-primas) stock if present in items
+      // Deduct raw materials (matérias-primas) stock if present in items or product recipes
+      const allMateriasPrimasToDeduct: { materiaPrimaId?: string; name?: string; quantity: number }[] = [];
       if (consumoMateriasPrimas.length > 0) {
-        await deductMateriasPrimasStock(consumoMateriasPrimas as any, currentCompany?.id);
+        consumoMateriasPrimas.forEach((mp: any) => {
+          allMateriasPrimasToDeduct.push({
+            materiaPrimaId: mp.materiaPrimaId || mp.id,
+            name: mp.name,
+            quantity: mp.quantity
+          });
+        });
+      }
+
+      for (const item of cart) {
+        if (item.productId && item.productId !== 'manual') {
+          const prod = products.find(p => p.id === item.productId);
+          const rawMaterials = prod?.materiasPrimas || (prod as any)?.materias_primas;
+          if (Array.isArray(rawMaterials) && rawMaterials.length > 0 && (!item.materiasPrimasConsumidas || item.materiasPrimasConsumidas.length === 0)) {
+            const qtdBaixa = item.consumoEstoque !== undefined
+              ? item.consumoEstoque * (item.quantity || 1)
+              : (item.area ? item.area * item.quantity : item.quantity);
+            rawMaterials.forEach((mp: any) => {
+              const mpQty = Number(mp.quantity) || 1;
+              const consumed = Number((mpQty * qtdBaixa).toFixed(4));
+              if (consumed > 0) {
+                allMateriasPrimasToDeduct.push({
+                  materiaPrimaId: mp.materiaPrimaId || mp.id,
+                  name: mp.name,
+                  quantity: consumed
+                });
+              }
+            });
+          }
+        }
+      }
+
+      if (allMateriasPrimasToDeduct.length > 0) {
+        await deductMateriasPrimasStock(allMateriasPrimasToDeduct, currentCompany?.id);
       }
 
       const finalizedOrder: SaleOrder = {
@@ -1302,10 +1344,33 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
                   return (
                     <tr key={sale.id} className="hover:bg-white/5 transition-colors">
                       <td className="p-3 text-white/60 font-mono text-[11px]">
-                        {new Date(sale.createdAt).toLocaleDateString('pt-BR')} {new Date(sale.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                        <div>{new Date(sale.createdAt).toLocaleDateString('pt-BR')} {new Date(sale.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
+                        <button
+                          onClick={() => handleCopyField(sale.id, sale.id, 'nota')}
+                          title="Clique para copiar o código da nota/pedido"
+                          className="inline-flex items-center gap-1 text-[9px] text-white/40 hover:text-primary-300 font-mono mt-0.5 transition-colors group cursor-pointer"
+                        >
+                          <span>#{sale.id.slice(-8).toUpperCase()}</span>
+                          {copiedSaleField?.id === sale.id && copiedSaleField?.field === 'nota' ? (
+                            <span className="text-[8px] font-bold text-emerald-400 bg-emerald-500/20 px-1 py-0.2 rounded">Copiado!</span>
+                          ) : (
+                            <Copy size={9} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                          )}
+                        </button>
                       </td>
                       <td className="p-3 font-bold text-white">
-                        {sale.customerName || 'Cliente de Balcão'}
+                        <button
+                          onClick={() => handleCopyField(sale.customerName || 'Cliente de Balcão', sale.id, 'cliente')}
+                          title="Clique para copiar o nome do cliente"
+                          className="inline-flex items-center gap-1.5 text-left font-bold text-white hover:text-primary-300 transition-colors group cursor-pointer"
+                        >
+                          <span className="truncate max-w-[180px]">{sale.customerName || 'Cliente de Balcão'}</span>
+                          {copiedSaleField?.id === sale.id && copiedSaleField?.field === 'cliente' ? (
+                            <span className="text-[8px] font-bold text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded">Copiado!</span>
+                          ) : (
+                            <Copy size={11} className="opacity-0 group-hover:opacity-100 text-white/40 group-hover:text-primary-300 transition-opacity" />
+                          )}
+                        </button>
                       </td>
                       <td className="p-3 text-white/70 max-w-[200px] truncate">
                         {sale.items.map(i => `${i.quantity}x ${i.name}`).join(', ')}

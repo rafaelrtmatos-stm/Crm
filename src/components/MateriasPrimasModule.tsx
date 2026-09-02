@@ -791,7 +791,16 @@ export const MateriasPrimasModule: React.FC<MateriasPrimasModuleProps> = ({ curr
     const unsubscribe = subscribeToMateriasPrimas(() => {
       loadData();
     });
-    return () => unsubscribe();
+
+    const onMateriasPrimasUpdated = () => {
+      loadData();
+    };
+    window.addEventListener('materias_primas_updated', onMateriasPrimasUpdated);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener('materias_primas_updated', onMateriasPrimasUpdated);
+    };
   }, [currentCompany?.id]);
 
   const loadData = async () => {
