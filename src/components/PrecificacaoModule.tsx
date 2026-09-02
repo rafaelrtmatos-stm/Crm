@@ -33,7 +33,7 @@ import {
   Cpu,
   Gauge
 } from 'lucide-react';
-import { Company, AppUser, Product, Maquina, MaquinaCalculos, calcularCustosMaquina } from '../types';
+import { Company, AppUser, Product, Maquina, MaquinaCalculos, calcularCustosMaquina, calcularTempoProducaoMinutos, VELOCIDADE_CABECA_MIN_MMS, VELOCIDADE_CABECA_MAX_MMS } from '../types';
 import { supabase } from '../supabase';
 import { showAlert, showConfirm } from '../lib/notify';
 import { Badge, Button, Modal } from './SharedUI';
@@ -143,6 +143,8 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
   // Tempo de produção e máquina
   const [tempoProducaoMinutos, setTempoProducaoMinutos] = useState<number | ''>(30);
   const [maquinaId, setMaquinaId] = useState<string>(initialMaquinaId || '');
+  const [modoImpressaoSelecionado, setModoImpressaoSelecionado] = useState<NonNullable<Maquina['modoImpressao']>>('standard');
+  const [velocidadeCabecaSelecionada, setVelocidadeCabecaSelecionada] = useState<number>(400);
   const [colaboradorId, setColaboradorId] = useState('media'); // 'media' ou id de um colaborador
 
   // Prazo de entrega
@@ -284,6 +286,14 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
     return maquinas.find(m => m.id === maquinaId) || maquinas[0] || null;
   }, [maquinas, maquinaId]);
 
+  // Sempre que trocar de máquina, parte do modo/velocidade de cabeça configurados como padrão dela
+  useEffect(() => {
+    if (maquinaSelecionada) {
+      setModoImpressaoSelecionado(maquinaSelecionada.modoImpressao || 'standard');
+      setVelocidadeCabecaSelecionada(maquinaSelecionada.velocidadeCabecaMmS || 400);
+    }
+  }, [maquinaSelecionada?.id]);
+
   // Cálculos dinâmicos e automáticos da máquina selecionada
   const maquinaCalculos = useMemo<MaquinaCalculos>(() => {
     if (!maquinaSelecionada) {
@@ -339,11 +349,13 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
     return qtdNum;
   }, [modoCalculo, areaUnitariaM2, qtdNum, larguraEmMetros]);
 
-  // Tempo sugerido de produção calculado automaticamente pela velocidade da máquina
+  // Tempo sugerido de produção calculado automaticamente pela velocidade/calibração da máquina,
+  // considerando o modo de impressão (Standard/High Speed) e a velocidade de cabeça selecionados
   const tempoSugeridoMinutos = useMemo(() => {
-    if (!maquinaCalculos.tempoProduzir1M2Minutos || areaTotalM2 <= 0) return 0;
-    return Math.max(5, Math.ceil(areaTotalM2 * maquinaCalculos.tempoProduzir1M2Minutos));
-  }, [areaTotalM2, maquinaCalculos]);
+    if (!maquinaSelecionada || areaTotalM2 <= 0) return 0;
+    const minutos = calcularTempoProducaoMinutos(maquinaSelecionada, areaTotalM2, modoImpressaoSelecionado, velocidadeCabecaSelecionada);
+    return minutos > 0 ? Math.max(5, Math.ceil(minutos)) : 0;
+  }, [areaTotalM2, maquinaSelecionada, modoImpressaoSelecionado, velocidadeCabecaSelecionada]);
 
   // ==========================================
   // CÁLCULOS AUTOMÁTICOS DE CUSTOS (PUXADOS DO SISTEMA E DAS MÁQUINAS)
@@ -1113,9 +1125,49 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
                     </span>
                   </div>
                   <span className="text-[10px] text-white/40">
-                    Velocidade: {maquinaSelecionada.velocidadeProducaoM2H} m²/h ({maquinaCalculos.tempoProduzir1M2Minutos.toFixed(1)} min/m²)
+                    Velocidade: {maquinaSelecionada.velocidadeProducaoM2H.toFixed(2)} m²/h
                   </span>
                 </div>
+
+                {/* Modo de Impressão + Velocidade de Cabeça, usados para calcular o Tempo de Produção sugerido */}
+                {modoCalculo === 'm2' && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-bold text-white/50 uppercase mb-1">
+                        Modo de Impressão
+                      </label>
+                      <select
+                        value={modoImpressaoSelecionado}
+                        onChange={(e) => setModoImpressaoSelecionado(e.target.value as NonNullable<Maquina['modoImpressao']>)}
+                        className="w-full bg-slate-900 border border-white/15 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
+                      >
+                        <option value="standard">Standard</option>
+                        <option value="highspeed">High Speed</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-white/50 uppercase mb-1">
+                        Velocidade de Cabeça (mm/s)
+                      </label>
+                      <input
+                        type="number"
+                        step="1"
+                        min={VELOCIDADE_CABECA_MIN_MMS}
+                        max={VELOCIDADE_CABECA_MAX_MMS}
+                        disabled={modoImpressaoSelecionado === 'highspeed'}
+                        value={velocidadeCabecaSelecionada}
+                        onChange={(e) => {
+                          const raw = parseInt(e.target.value, 10);
+                          const clamped = Number.isFinite(raw)
+                            ? Math.min(Math.max(raw, VELOCIDADE_CABECA_MIN_MMS), VELOCIDADE_CABECA_MAX_MMS)
+                            : velocidadeCabecaSelecionada;
+                          setVelocidadeCabecaSelecionada(clamped);
+                        }}
+                        className="w-full bg-slate-900 border border-white/15 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 disabled:opacity-40"
+                      />
+                    </div>
+                  </div>
+                )}
 
                 {/* Sub-custos da máquina calculados automaticamente */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[10px] text-white/60">
@@ -1133,7 +1185,7 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
                   </div>
                 </div>
 
-                {/* Botão de aplicação de tempo automático estimado pela velocidade da máquina */}
+                {/* Botão de aplicação de tempo automático estimado pelo modo/velocidade de cabeça selecionados */}
                 {tempoSugeridoMinutos > 0 && modoCalculo === 'm2' && (
                   <button
                     type="button"
@@ -1141,7 +1193,7 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
                     className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 rounded-xl text-xs font-bold transition-all"
                   >
                     <Zap size={13} />
-                    <span>⚡ Aplicar tempo calculado pela velocidade da máquina: <strong>{tempoSugeridoMinutos} min</strong></span>
+                    <span>⚡ Aplicar tempo calculado ({modoImpressaoSelecionado === 'highspeed' ? 'High Speed' : `Standard, ${velocidadeCabecaSelecionada}mm/s`}): <strong>{tempoSugeridoMinutos} min</strong></span>
                   </button>
                 )}
               </div>

@@ -4,7 +4,7 @@ import {
   Download, RefreshCw, AlertCircle, FileText, Check, X, Tag, DollarSign,
   Zap, Clock, Gauge, Droplet, Cpu, Settings, Copy, Info, ArrowUpDown, Filter, ChevronRight
 } from 'lucide-react';
-import { Company, AppUser, Maquina, calcularCustosMaquina } from '../types';
+import { Company, AppUser, Maquina, calcularCustosMaquina, calcularVelocidadeMarginalM2H, VELOCIDADE_CABECA_MIN_MMS, VELOCIDADE_CABECA_MAX_MMS } from '../types';
 import { showAlert, showConfirm } from '../lib/notify';
 import { Badge, Button, Modal } from './SharedUI';
 import {
@@ -56,6 +56,11 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
     manutencaoAnual: 6000,
     potenciaKw: 2.2,
     velocidadeProducaoM2H: 12,
+    modoImpressao: 'standard' as NonNullable<Maquina['modoImpressao']>,
+    velocidadeCabecaMmS: 400,
+    calibSetupMin: '' as number | '',
+    calibKMms: '' as number | '',
+    velocidadeHispeedM2H: '' as number | '',
     tintaQuantidadeMl: 1000,
     tintaValor: 180,
     tintaConsumoMlM2: 15,
@@ -64,6 +69,18 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
     tarifaKwh: 0.98,
     observacoes: '',
   });
+
+  // Recalcula a velocidade de produção (m²/h) sob demanda, quando o usuário clica no botão de cálculo automático
+  // (não usamos useEffect aqui de propósito: um campo que impacta custo/m² não deve mudar sozinho ao só abrir o formulário)
+  const aplicarVelocidadeCalculada = () => {
+    const velocidadeCalculada = calcularVelocidadeMarginalM2H(
+      formData.modoImpressao,
+      formData.velocidadeCabecaMmS,
+      formData.calibKMms,
+      formData.velocidadeHispeedM2H
+    );
+    setFormData(prev => ({ ...prev, velocidadeProducaoM2H: velocidadeCalculada }));
+  };
 
   useEffect(() => {
     loadData();
@@ -99,6 +116,11 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
       manutencaoAnual: 4800,
       potenciaKw: 2.0,
       velocidadeProducaoM2H: 10,
+      modoImpressao: 'standard',
+      velocidadeCabecaMmS: 400,
+      calibSetupMin: '',
+      calibKMms: '',
+      velocidadeHispeedM2H: '',
       tintaQuantidadeMl: 1000,
       tintaValor: 180,
       tintaConsumoMlM2: 15,
@@ -122,6 +144,11 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
       manutencaoAnual: item.manutencaoAnual,
       potenciaKw: item.potenciaKw,
       velocidadeProducaoM2H: item.velocidadeProducaoM2H,
+      modoImpressao: item.modoImpressao || 'standard',
+      velocidadeCabecaMmS: item.velocidadeCabecaMmS || 400,
+      calibSetupMin: item.calibSetupMin ?? '',
+      calibKMms: item.calibKMms ?? '',
+      velocidadeHispeedM2H: item.velocidadeHispeedM2H ?? '',
       tintaQuantidadeMl: item.tintaQuantidadeMl,
       tintaValor: item.tintaValor,
       tintaConsumoMlM2: item.tintaConsumoMlM2,
@@ -145,6 +172,11 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
       manutencaoAnual: item.manutencaoAnual,
       potenciaKw: item.potenciaKw,
       velocidadeProducaoM2H: item.velocidadeProducaoM2H,
+      modoImpressao: item.modoImpressao || 'standard',
+      velocidadeCabecaMmS: item.velocidadeCabecaMmS || 400,
+      calibSetupMin: item.calibSetupMin ?? '',
+      calibKMms: item.calibKMms ?? '',
+      velocidadeHispeedM2H: item.velocidadeHispeedM2H ?? '',
       tintaQuantidadeMl: item.tintaQuantidadeMl,
       tintaValor: item.tintaValor,
       tintaConsumoMlM2: item.tintaConsumoMlM2,
@@ -180,6 +212,11 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
         manutencaoAnual: Number(formData.manutencaoAnual) || 0,
         potenciaKw: Number(formData.potenciaKw) || 0,
         velocidadeProducaoM2H: Number(formData.velocidadeProducaoM2H) || 0,
+        modoImpressao: formData.modoImpressao,
+        velocidadeCabecaMmS: Number(formData.velocidadeCabecaMmS) || 400,
+        calibSetupMin: formData.calibSetupMin === '' ? undefined : Number(formData.calibSetupMin),
+        calibKMms: formData.calibKMms === '' ? undefined : Number(formData.calibKMms),
+        velocidadeHispeedM2H: formData.velocidadeHispeedM2H === '' ? undefined : Number(formData.velocidadeHispeedM2H),
         tintaQuantidadeMl: Number(formData.tintaQuantidadeMl) || 0,
         tintaValor: Number(formData.tintaValor) || 0,
         tintaConsumoMlM2: Number(formData.tintaConsumoMlM2) || 0,
@@ -888,8 +925,58 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
 
               <div>
                 <label className="block text-[11px] font-bold text-white/70 uppercase mb-1">
-                  Velocidade de Produção (m²/h) *
+                  Modo de Impressão
                 </label>
+                <select
+                  value={formData.modoImpressao}
+                  onChange={(e) => setFormData({ ...formData, modoImpressao: e.target.value as Maquina['modoImpressao'] as NonNullable<Maquina['modoImpressao']> })}
+                  className="w-full bg-slate-900 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500"
+                >
+                  <option value="standard">Standard</option>
+                  <option value="highspeed">High Speed</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-white/70 uppercase mb-1">
+                  Velocidade de Cabeça (mm/s)
+                </label>
+                <input
+                  type="number"
+                  step="1"
+                  min={VELOCIDADE_CABECA_MIN_MMS}
+                  max={VELOCIDADE_CABECA_MAX_MMS}
+                  disabled={formData.modoImpressao === 'highspeed'}
+                  placeholder={`${VELOCIDADE_CABECA_MIN_MMS} a ${VELOCIDADE_CABECA_MAX_MMS}`}
+                  value={formData.velocidadeCabecaMmS}
+                  onChange={(e) => {
+                    const raw = parseInt(e.target.value, 10);
+                    const clamped = Number.isFinite(raw)
+                      ? Math.min(Math.max(raw, VELOCIDADE_CABECA_MIN_MMS), VELOCIDADE_CABECA_MAX_MMS)
+                      : formData.velocidadeCabecaMmS;
+                    setFormData({ ...formData, velocidadeCabecaMmS: clamped });
+                  }}
+                  className="w-full bg-slate-900 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500 disabled:opacity-40"
+                />
+                {formData.modoImpressao === 'highspeed' && (
+                  <p className="text-[10px] text-white/40 mt-1">No modo High Speed a velocidade de cabeça não altera o tempo — a impressora roda em velocidade própria fixa.</p>
+                )}
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[11px] font-bold text-white/70 uppercase">
+                    Velocidade de Produção (m²/h) *
+                  </label>
+                  <button
+                    type="button"
+                    onClick={aplicarVelocidadeCalculada}
+                    className="text-[10px] text-cyan-400 hover:underline font-bold flex items-center gap-1"
+                    title="Calcula a partir do modo/velocidade de cabeça (e da calibração real, se preenchida) e aplica neste campo"
+                  >
+                    <Zap size={11} /> Calcular
+                  </button>
+                </div>
                 <input
                   type="number"
                   step="0.01"
@@ -915,6 +1002,61 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
                   onChange={(e) => setFormData({ ...formData, tarifaKwh: parseFloat(e.target.value) || 0.98 })}
                   className="w-full bg-slate-900 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500"
                 />
+              </div>
+            </div>
+
+            {/* CALIBRAÇÃO REAL (opcional) — medida com jobs reais no RIP da própria máquina */}
+            <div className="mt-4 bg-slate-800/40 p-4 rounded-2xl border border-white/10 space-y-3">
+              <div className="flex items-center gap-2">
+                <Gauge size={14} className="text-emerald-400" />
+                <span className="text-[11px] font-bold text-white/70 uppercase">Calibração Real (opcional)</span>
+              </div>
+              <p className="text-[10px] text-white/40 -mt-1">
+                Preencha medindo tempos reais de impressão nessa máquina para um cálculo mais preciso (com tempo de setup). Deixe em branco para usar a estimativa genérica.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-white/60 uppercase mb-1">
+                    Setup / Overhead (min)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    placeholder="Ex: 20.2"
+                    value={formData.calibSetupMin}
+                    onChange={(e) => setFormData({ ...formData, calibSetupMin: e.target.value === '' ? '' : parseFloat(e.target.value) })}
+                    className="w-full bg-slate-900 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-white/60 uppercase mb-1">
+                    Constante k (Standard)
+                  </label>
+                  <input
+                    type="number"
+                    step="1"
+                    min="0"
+                    placeholder="Ex: 98335"
+                    value={formData.calibKMms}
+                    onChange={(e) => setFormData({ ...formData, calibKMms: e.target.value === '' ? '' : parseFloat(e.target.value) })}
+                    className="w-full bg-slate-900 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-white/60 uppercase mb-1">
+                    Velocidade High Speed (m²/h)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="Ex: 4.55"
+                    value={formData.velocidadeHispeedM2H}
+                    onChange={(e) => setFormData({ ...formData, velocidadeHispeedM2H: e.target.value === '' ? '' : parseFloat(e.target.value) })}
+                    className="w-full bg-slate-900 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
               </div>
             </div>
           </div>
