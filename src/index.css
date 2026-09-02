@@ -95,10 +95,25 @@ html.scrollable-route body {
 * {
   box-sizing: border-box;
 }
+
+/* Proteção global de layout responsivo: impede estouro de largura e quebra palavras longas se necessário */
+*,
+*::before,
+*::after {
+  max-width: 100%;
+}
+
+/* Evita que textos longos, links, telefones ou descrições esturem a largura de cards ou da tela */
+p, span, div, h1, h2, h3, h4, h5, h6, th, td, label {
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
 img,
 canvas,
 svg {
   max-width: 100%;
+  height: auto;
 }
 
 

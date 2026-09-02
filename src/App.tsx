@@ -174,7 +174,23 @@ const SidebarItem = ({
 // 3. Máquinas (Cadastro e custos operacionais com cálculo automático de depreciação, manutenção, cabeça, energia e tinta)
 // 4. Precificação (Motor de Precificação Inteligente com formação automática de preços baseada em insumos, máquinas, energia, aluguel, equipe e comissões).
 const FinanceiroModule = ({ currentCompany, user }: { currentCompany: Company | null; user: AppUser | null }) => {
-  const [subTab, setSubTab] = useState<'funcionarios' | 'materias_primas' | 'maquinas' | 'precificacao'>('funcionarios');
+  const [subTab, setSubTabState] = useState<'funcionarios' | 'materias_primas' | 'maquinas' | 'precificacao'>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('rpro_financeiro_subtab');
+      if (saved && ['funcionarios', 'materias_primas', 'maquinas', 'precificacao'].includes(saved)) {
+        return saved as 'funcionarios' | 'materias_primas' | 'maquinas' | 'precificacao';
+      }
+    }
+    return 'funcionarios';
+  });
+
+  const setSubTab = (tab: 'funcionarios' | 'materias_primas' | 'maquinas' | 'precificacao') => {
+    setSubTabState(tab);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('rpro_financeiro_subtab', tab);
+    }
+  };
+
   const [selectedMaquinaForPrec, setSelectedMaquinaForPrec] = useState<string | null>(null);
 
   const handleGoToPrecificacaoWithMaquina = (maqId: string) => {

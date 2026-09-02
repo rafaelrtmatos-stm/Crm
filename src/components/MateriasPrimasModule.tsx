@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   Layers, Plus, Search, Edit2, Trash2, CheckCircle2, XCircle,
   Download, RefreshCw, AlertCircle, FileText, Check, X, Tag, DollarSign,
-  ShieldCheck, ArrowUpDown, Filter, Calculator, Sparkles, Box, Ruler, CheckCircle
+  ShieldCheck, ArrowUpDown, Filter, Calculator, Sparkles, Box, Ruler, CheckCircle, Copy
 } from 'lucide-react';
 import { Company, AppUser, MateriaPrima } from '../types';
 import { showAlert, showConfirm } from '../lib/notify';
@@ -737,6 +737,16 @@ export const MateriasPrimasModule: React.FC<MateriasPrimasModuleProps> = ({ curr
     setIsModalOpen(true);
   };
 
+  const handleDuplicate = (item: MateriaPrima) => {
+    const duplicated: MateriaPrima = {
+      ...item,
+      id: '',
+      name: `${item.name} (Cópia)`
+    };
+    setEditingItem(duplicated);
+    setIsModalOpen(true);
+  };
+
   const handleSavedItem = (saved: MateriaPrima) => {
     if (editingItem) {
       setMateriasPrimas(prev => prev.map(m => m.id === saved.id ? saved : m));
@@ -991,165 +1001,277 @@ export const MateriasPrimasModule: React.FC<MateriasPrimasModuleProps> = ({ curr
             </Button>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-white/10 bg-white/[0.02] text-[10px] font-black uppercase tracking-wider text-white/50">
-                  <th className="py-3.5 px-4">Nome da Matéria-Prima</th>
-                  <th className="py-3.5 px-4 text-center">Tipo / Unidade</th>
-                  <th className="py-3.5 px-4 text-center">Largura / Bobina</th>
-                  <th className="py-3.5 px-4 text-right">Valor Bobina / Lote</th>
-                  <th className="py-3.5 px-4 text-right">Custo p/ Metro Linear</th>
-                  <th className="py-3.5 px-4 text-right">Custo p/ m²</th>
-                  <th className="py-3.5 px-4 text-center">Estoque</th>
-                  <th className="py-3.5 px-4 text-center">Status</th>
-                  <th className="py-3.5 px-4 text-right">Ações</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/5 text-sm">
-                {filteredList.map((item) => {
-                  const custoM2 = item.custoPorM2 || (item.larguraMaterial && item.larguraMaterial > 0 ? item.costPrice / item.larguraMaterial : item.costPrice);
-                  const valorBob = item.valorBobina || (item.comprimentoBobina ? item.comprimentoBobina * item.costPrice : undefined);
+          <div>
+            {/* Cards para Telas Mobile / Celular */}
+            <div className="md:hidden divide-y divide-white/10">
+              {filteredList.map((item) => {
+                const custoM2 = item.custoPorM2 || (item.larguraMaterial && item.larguraMaterial > 0 ? item.costPrice / item.larguraMaterial : item.costPrice);
+                const valorBob = item.valorBobina || (item.comprimentoBobina ? item.comprimentoBobina * item.costPrice : undefined);
 
-                  return (
-                    <tr
-                      key={item.id}
-                      className="hover:bg-white/[0.03] transition-colors group"
-                    >
-                      {/* Name */}
-                      <td className="py-3.5 px-4 font-bold text-white">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-primary-400 shrink-0">
-                            <Layers size={16} />
-                          </div>
-                          <div>
-                            <p className="leading-tight text-sm">{item.name}</p>
-                            {item.notes ? (
-                              <p className="text-[11px] text-white/40 line-clamp-1">{item.notes}</p>
-                            ) : (
-                              <span className="text-[10px] text-white/30 font-mono">
-                                ID: {item.id.slice(0, 8)}
+                return (
+                  <div key={item.id} className="p-4 flex flex-col gap-3.5 bg-black/20">
+                    {/* Header do Card */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3 min-w-0">
+                        <div className="w-10 h-10 rounded-xl bg-primary-500/10 border border-primary-500/20 flex items-center justify-center text-primary-400 shrink-0 mt-0.5">
+                          <Layers size={20} />
+                        </div>
+                        <div className="min-w-0">
+                          <h4 className="font-black text-white text-base leading-tight break-words">{item.name}</h4>
+                          <div className="flex items-center gap-2 mt-1 flex-wrap">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-white/10 text-white/90">
+                              {item.unit === 'm' ? 'Metro Linear (m)' : item.unit.toUpperCase()}
+                            </span>
+                            {item.larguraMaterial && (
+                              <span className="text-[11px] font-mono text-primary-300 font-bold">
+                                {item.larguraMaterial}m larg.
                               </span>
                             )}
                           </div>
                         </div>
-                      </td>
+                      </div>
 
-                      {/* Unit / Tipo */}
-                      <td className="py-3.5 px-4 text-center">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-mono font-bold bg-white/5 border border-white/10 text-white/80">
-                          {item.unit === 'm' ? 'Metro Linear (m)' : item.unit}
+                      {/* Status Tag */}
+                      <button
+                        onClick={() => handleToggleStatus(item)}
+                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border shrink-0 transition-transform active:scale-95 ${
+                          item.isActive
+                            ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                            : 'bg-zinc-500/15 text-zinc-400 border-zinc-500/30'
+                        }`}
+                      >
+                        {item.isActive ? <CheckCircle2 size={13} /> : <XCircle size={13} />}
+                        <span>{item.isActive ? 'Ativa' : 'Inativa'}</span>
+                      </button>
+                    </div>
+
+                    {/* Bloco de Valores e Métricas */}
+                    <div className="grid grid-cols-2 gap-2 bg-black/40 border border-white/5 rounded-xl p-3 text-xs">
+                      <div>
+                        <span className="text-white/40 block text-[10px] uppercase font-bold tracking-wider">Custo / Metro</span>
+                        <span className="font-mono font-black text-emerald-400 text-sm">
+                          R$ {Number(item.costPrice).toFixed(2)}
+                          <span className="text-[10px] font-normal text-white/40">/{item.unit}</span>
                         </span>
-                      </td>
-
-                      {/* Largura / Bobina */}
-                      <td className="py-3.5 px-4 text-center">
-                        {item.larguraMaterial ? (
-                          <div className="inline-flex flex-col items-center">
-                            <span className="text-xs font-bold text-primary-400 font-mono">
-                              {item.larguraMaterial}m larg.
-                            </span>
-                            {item.comprimentoBobina ? (
-                              <span className="text-[10px] text-white/50 font-mono">
-                                Bobina {item.comprimentoBobina}m ({Number((item.larguraMaterial * item.comprimentoBobina).toFixed(1))}m²)
-                              </span>
-                            ) : null}
-                          </div>
-                        ) : (
-                          <span className="text-white/20 text-xs italic">—</span>
-                        )}
-                      </td>
-
-                      {/* Valor Pago na Bobina */}
-                      <td className="py-3.5 px-4 text-right font-mono text-white/70 text-xs">
-                        {valorBob ? (
-                          <span className="font-bold text-amber-300">
-                            R$ {valorBob.toFixed(2)}
-                          </span>
-                        ) : (
-                          <span className="text-white/30">—</span>
-                        )}
-                      </td>
-
-                      {/* Custo por Metro Linear */}
-                      <td className="py-3.5 px-4 text-right font-mono font-bold text-emerald-400">
-                        R$ {Number(item.costPrice).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        <span className="text-[10px] text-white/40 font-normal ml-1">/{item.unit}</span>
-                      </td>
-
-                      {/* Custo por m² */}
-                      <td className="py-3.5 px-4 text-right font-mono font-bold text-sky-400">
-                        {item.unit === 'm' ? (
-                          <>
-                            R$ {custoM2.toFixed(2)}
-                            <span className="text-[10px] text-white/40 font-normal ml-1">/m²</span>
-                          </>
-                        ) : (
-                          <span className="text-white/30 text-xs">—</span>
-                        )}
-                      </td>
-
-                      {/* Quantidade em Estoque */}
-                      <td className="py-3.5 px-4 text-center">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-mono font-bold ${
-                          (item.quantidadeEstoque ?? 0) <= 0 
-                            ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' 
-                            : 'bg-white/5 text-white/90 border border-white/10'
-                        }`}>
+                      </div>
+                      <div>
+                        <span className="text-white/40 block text-[10px] uppercase font-bold tracking-wider">Custo Real / m²</span>
+                        <span className="font-mono font-black text-sky-400 text-sm">
+                          {item.unit === 'm' ? `R$ ${custoM2.toFixed(2)}/m²` : '—'}
+                        </span>
+                      </div>
+                      {valorBob ? (
+                        <div className="col-span-2 pt-1.5 border-t border-white/5 flex items-center justify-between">
+                          <span className="text-white/50 text-[11px]">Valor Bobina / Lote:</span>
+                          <span className="font-mono font-bold text-amber-300">R$ {valorBob.toFixed(2)}</span>
+                        </div>
+                      ) : null}
+                      <div className="col-span-2 pt-1 border-t border-white/5 flex items-center justify-between">
+                        <span className="text-white/50 text-[11px]">Estoque Atual:</span>
+                        <span className="font-mono font-bold text-white">
                           {item.tipoCalculoCusto === 'bobina' ? `${item.quantidadeEstoque ?? 0} bobina(s)` : `${item.quantidadeEstoque ?? 0} ${item.unit || 'm'}`}
                         </span>
-                      </td>
+                      </div>
+                    </div>
 
-                      {/* Active / Inactive Status */}
-                      <td className="py-3.5 px-4 text-center">
-                        <button
-                          onClick={() => handleToggleStatus(item)}
-                          title="Clique para alternar o status"
-                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold cursor-pointer transition-transform active:scale-95 ${
-                            item.isActive
-                              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25'
-                              : 'bg-zinc-500/15 text-zinc-400 border border-zinc-500/30 hover:bg-zinc-500/25'
-                          }`}
-                        >
-                          {item.isActive ? (
+                    {/* Observações */}
+                    {item.notes && (
+                      <p className="text-xs text-white/50 bg-white/[0.02] p-2 rounded-lg border border-white/5">
+                        {item.notes}
+                      </p>
+                    )}
+
+                    {/* Barra de Ações - Totalmente Visível e Fácil de Clicar no Celular */}
+                    <div className="flex items-center gap-2 pt-1">
+                      <button
+                        onClick={() => handleOpenEdit(item)}
+                        className="flex-1 py-2.5 px-3 bg-primary-500 hover:bg-primary-400 text-slate-950 font-black rounded-xl text-xs flex items-center justify-center gap-2 shadow-lg shadow-primary-500/20 active:scale-95 transition-all"
+                      >
+                        <Edit2 size={16} />
+                        <span>Editar Matéria-Prima</span>
+                      </button>
+                      <button
+                        onClick={() => handleDuplicate(item)}
+                        title="Duplicar"
+                        className="p-2.5 bg-white/10 hover:bg-white/15 text-white rounded-xl border border-white/10 active:scale-95 transition-all flex items-center justify-center"
+                      >
+                        <Copy size={16} />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(item)}
+                        title="Excluir"
+                        className="py-2.5 px-3.5 bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 rounded-xl text-xs font-bold active:scale-95 transition-all flex items-center justify-center gap-1.5"
+                      >
+                        <Trash2 size={16} />
+                        <span>Excluir</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Tabela para Desktop */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-white/10 bg-white/[0.02] text-[10px] font-black uppercase tracking-wider text-white/50">
+                    <th className="py-3.5 px-4">Nome da Matéria-Prima</th>
+                    <th className="py-3.5 px-4 text-center">Tipo / Unidade</th>
+                    <th className="py-3.5 px-4 text-center">Largura / Bobina</th>
+                    <th className="py-3.5 px-4 text-right">Valor Bobina / Lote</th>
+                    <th className="py-3.5 px-4 text-right">Custo p/ Metro Linear</th>
+                    <th className="py-3.5 px-4 text-right">Custo p/ m²</th>
+                    <th className="py-3.5 px-4 text-center">Estoque</th>
+                    <th className="py-3.5 px-4 text-center">Status</th>
+                    <th className="py-3.5 px-4 text-right">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5 text-sm">
+                  {filteredList.map((item) => {
+                    const custoM2 = item.custoPorM2 || (item.larguraMaterial && item.larguraMaterial > 0 ? item.costPrice / item.larguraMaterial : item.costPrice);
+                    const valorBob = item.valorBobina || (item.comprimentoBobina ? item.comprimentoBobina * item.costPrice : undefined);
+
+                    return (
+                      <tr
+                        key={item.id}
+                        className="hover:bg-white/[0.03] transition-colors group"
+                      >
+                        {/* Name */}
+                        <td className="py-3.5 px-4 font-bold text-white">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-primary-400 shrink-0">
+                              <Layers size={16} />
+                            </div>
+                            <div>
+                              <p className="leading-tight text-sm">{item.name}</p>
+                              {item.notes ? (
+                                <p className="text-[11px] text-white/40 line-clamp-1">{item.notes}</p>
+                              ) : (
+                                <span className="text-[10px] text-white/30 font-mono">
+                                  ID: {item.id.slice(0, 8)}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Unit / Tipo */}
+                        <td className="py-3.5 px-4 text-center">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-mono font-bold bg-white/5 border border-white/10 text-white/80">
+                            {item.unit === 'm' ? 'Metro Linear (m)' : item.unit}
+                          </span>
+                        </td>
+
+                        {/* Largura / Bobina */}
+                        <td className="py-3.5 px-4 text-center">
+                          {item.larguraMaterial ? (
+                            <div className="inline-flex flex-col items-center">
+                              <span className="text-xs font-bold text-primary-400 font-mono">
+                                {item.larguraMaterial}m larg.
+                              </span>
+                              {item.comprimentoBobina ? (
+                                <span className="text-[10px] text-white/50 font-mono">
+                                  Bobina {item.comprimentoBobina}m ({Number((item.larguraMaterial * item.comprimentoBobina).toFixed(1))}m²)
+                                </span>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <span className="text-white/20 text-xs italic">—</span>
+                          )}
+                        </td>
+
+                        {/* Valor Pago na Bobina */}
+                        <td className="py-3.5 px-4 text-right font-mono text-white/70 text-xs">
+                          {valorBob ? (
+                            <span className="font-bold text-amber-300">
+                              R$ {valorBob.toFixed(2)}
+                            </span>
+                          ) : (
+                            <span className="text-white/30">—</span>
+                          )}
+                        </td>
+
+                        {/* Custo por Metro Linear */}
+                        <td className="py-3.5 px-4 text-right font-mono font-bold text-emerald-400">
+                          R$ {Number(item.costPrice).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          <span className="text-[10px] text-white/40 font-normal ml-1">/{item.unit}</span>
+                        </td>
+
+                        {/* Custo por m² */}
+                        <td className="py-3.5 px-4 text-right font-mono font-bold text-sky-400">
+                          {item.unit === 'm' ? (
                             <>
-                              <CheckCircle2 size={12} />
-                              <span>Ativa</span>
+                              R$ {custoM2.toFixed(2)}
+                              <span className="text-[10px] text-white/40 font-normal ml-1">/m²</span>
                             </>
                           ) : (
-                            <>
-                              <XCircle size={12} />
-                              <span>Inativa</span>
-                            </>
+                            <span className="text-white/30 text-xs">—</span>
                           )}
-                        </button>
-                      </td>
+                        </td>
 
-                      {/* Action buttons */}
-                      <td className="py-3.5 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
+                        {/* Quantidade em Estoque */}
+                        <td className="py-3.5 px-4 text-center">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-mono font-bold ${
+                            (item.quantidadeEstoque ?? 0) <= 0 
+                              ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' 
+                              : 'bg-white/5 text-white/90 border border-white/10'
+                          }`}>
+                            {item.tipoCalculoCusto === 'bobina' ? `${item.quantidadeEstoque ?? 0} bobina(s)` : `${item.quantidadeEstoque ?? 0} ${item.unit || 'm'}`}
+                          </span>
+                        </td>
+
+                        {/* Active / Inactive Status */}
+                        <td className="py-3.5 px-4 text-center">
                           <button
-                            onClick={() => handleOpenEdit(item)}
-                            title="Editar matéria-prima"
-                            className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold"
+                            onClick={() => handleToggleStatus(item)}
+                            title="Clique para alternar o status"
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold cursor-pointer transition-transform active:scale-95 ${
+                              item.isActive
+                                ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25'
+                                : 'bg-zinc-500/15 text-zinc-400 border border-zinc-500/30 hover:bg-zinc-500/25'
+                            }`}
                           >
-                            <Edit2 size={14} className="text-primary-400" />
-                            <span className="hidden sm:inline">Editar</span>
+                            {item.isActive ? (
+                              <>
+                                <CheckCircle2 size={12} />
+                                <span>Ativa</span>
+                              </>
+                            ) : (
+                              <>
+                                <XCircle size={12} />
+                                <span>Inativa</span>
+                              </>
+                            )}
                           </button>
-                          <button
-                            onClick={() => handleDelete(item)}
-                            title="Excluir matéria-prima"
-                            className="p-2 text-rose-400/70 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
-                          >
-                            <Trash2 size={15} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                        </td>
+
+                        {/* Action buttons */}
+                        <td className="py-3.5 px-4 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => handleOpenEdit(item)}
+                              title="Editar matéria-prima"
+                              className="px-3 py-2 text-white/80 hover:text-white hover:bg-white/10 rounded-xl transition-all flex items-center gap-1.5 text-xs font-bold border border-white/10 active:scale-95"
+                            >
+                              <Edit2 size={16} className="text-primary-400" />
+                              <span className="hidden sm:inline">Editar</span>
+                            </button>
+                            <button
+                              onClick={() => handleDelete(item)}
+                              title="Excluir matéria-prima"
+                              className="p-2.5 text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 rounded-xl transition-all active:scale-95 flex items-center justify-center"
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>

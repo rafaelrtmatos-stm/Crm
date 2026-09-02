@@ -675,18 +675,18 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
                     <button
                       type="button"
                       onClick={() => handleDuplicate(maquina)}
-                      className="p-2 rounded-xl text-white/60 hover:text-white hover:bg-white/10 transition-colors"
+                      className="p-2.5 rounded-xl text-white/60 hover:text-white hover:bg-white/10 transition-colors"
                       title="Duplicar configuração"
                     >
-                      <Copy size={15} />
+                      <Copy size={17} />
                     </button>
                     <button
                       type="button"
                       onClick={() => handleDelete(maquina)}
-                      className="p-2 rounded-xl text-rose-400/70 hover:text-rose-300 hover:bg-rose-500/10 transition-colors"
+                      className="p-2.5 rounded-xl text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 transition-all active:scale-95 flex items-center justify-center"
                       title="Excluir máquina"
                     >
-                      <Trash2 size={15} />
+                      <Trash2 size={18} />
                     </button>
                   </div>
 
@@ -750,20 +750,20 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
                       <td className="p-4 font-black text-cyan-300 bg-cyan-500/5">R$ {c.custoTotalMaquinaHora.toFixed(2)}/h</td>
                       <td className="p-4 font-black text-emerald-400 bg-emerald-500/5">R$ {c.custoTotalMaquinaM2.toFixed(2)}/m²</td>
                       <td className="p-4 text-right">
-                        <div className="flex items-center justify-end gap-1">
+                        <div className="flex items-center justify-end gap-1.5">
                           <button
                             onClick={() => handleOpenEdit(maquina)}
-                            className="p-1.5 rounded-lg text-cyan-400 hover:bg-cyan-500/10"
+                            className="p-2 rounded-xl text-cyan-400 hover:bg-cyan-500/10 border border-cyan-500/20 transition-all active:scale-95"
                             title="Editar"
                           >
-                            <Edit2 size={14} />
+                            <Edit2 size={16} />
                           </button>
                           <button
                             onClick={() => handleDelete(maquina)}
-                            className="p-1.5 rounded-lg text-rose-400 hover:bg-rose-500/10"
+                            className="p-2 rounded-xl text-rose-400 hover:bg-rose-500/20 bg-rose-500/10 border border-rose-500/20 transition-all active:scale-95"
                             title="Excluir"
                           >
-                            <Trash2 size={14} />
+                            <Trash2 size={18} />
                           </button>
                         </div>
                       </td>
