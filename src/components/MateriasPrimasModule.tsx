@@ -12,7 +12,8 @@ import {
   saveMateriaPrima,
   deleteMateriaPrima,
   toggleMateriaPrimaStatus,
-  subscribeToMateriasPrimas
+  subscribeToMateriasPrimas,
+  recalcAllProductCosts
 } from '../lib/materiasPrimasStorage';
 import * as XLSX from 'xlsx';
 
@@ -192,9 +193,32 @@ export const MateriaPrimaFormModal: React.FC<MateriaPrimaFormModalProps> = ({
         isActive: isActive,
       }, companyId);
 
-      showAlert(`Matéria-prima "${saved.name}" salva com custo de R$ ${saved.costPrice.toFixed(2)}/${saved.unit}!`);
       onSaved(saved);
       onClose();
+
+      // Se o custo desta matéria-prima mudou (edição), propaga automaticamente
+      // o novo custo para todos os produtos do Estoque que a utilizam — evita
+      // que produtos fiquem com "Custo Interno" desatualizado (preço congelado).
+      if (editingItem) {
+        showAlert(`Matéria-prima "${saved.name}" salva com custo de R$ ${saved.costPrice.toFixed(2)}/${saved.unit}! Recalculando custos dos produtos vinculados...`);
+        try {
+          const affected = await recalcAllProductCosts(companyId);
+          if (affected.length > 0) {
+            const belowCost = affected.filter(p => p.salePrice > 0 && p.salePrice < p.newCost);
+            let msg = `Custo interno atualizado em ${affected.length} produto${affected.length > 1 ? 's' : ''} vinculado${affected.length > 1 ? 's' : ''} a "${saved.name}":\n\n` +
+              affected.map(p => `• ${p.name}: R$ ${p.oldCost.toFixed(2)} → R$ ${p.newCost.toFixed(2)}`).join('\n');
+            if (belowCost.length > 0) {
+              msg += `\n\n⚠️ Atenção: ${belowCost.length} produto${belowCost.length > 1 ? 's estão' : ' está'} sendo vendido${belowCost.length > 1 ? 's' : ''} abaixo do novo custo — revise o preço de venda:\n` +
+                belowCost.map(p => `• ${p.name}: venda R$ ${p.salePrice.toFixed(2)} < custo R$ ${p.newCost.toFixed(2)}`).join('\n');
+            }
+            showAlert(msg);
+          }
+        } catch (syncErr) {
+          console.warn('Erro ao recalcular custos automaticamente:', syncErr);
+        }
+      } else {
+        showAlert(`Matéria-prima "${saved.name}" salva com custo de R$ ${saved.costPrice.toFixed(2)}/${saved.unit}!`);
+      }
     } catch (err: any) {
       console.error('Erro ao salvar matéria-prima:', err);
       showAlert(`Erro ao salvar: ${err.message || 'Falha na operação'}`);

@@ -1054,7 +1054,14 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     const unsubSvc = onSnapshot(qSvc, (snap) => setServices(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
     const loadSales = async () => {
-      const { data } = await supabase.from('vendas').select('*').is('deleted_at', null).order('created_at', { ascending: false });
+      const { data, error } = await supabase.from('vendas').select('*').is('deleted_at', null).order('created_at', { ascending: false });
+      if (error) {
+        // Antes esse erro era engolido silenciosamente (so o "data" era lido) — se a query
+        // falhar (RLS, coluna inexistente, etc.) o Dashboard ficava com realSales = [] sem
+        // nenhum aviso, e o grafico "Evolucao do Faturamento" sumia (cai no fallback vazio)
+        // sem pista nenhuma no console do porque.
+        console.error('Erro ao carregar vendas para o Dashboard/Analise de Performance:', error.message, error);
+      }
       setRealSales((data || []).map(mapVendaRow));
     };
     loadSales();

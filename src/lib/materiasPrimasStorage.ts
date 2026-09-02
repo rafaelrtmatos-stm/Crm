@@ -222,6 +222,118 @@ export async function saveMateriaPrima(
   }
 }
 
+export interface ProductCostSyncResult {
+  id: string;
+  name: string;
+  oldCost: number;
+  newCost: number;
+  salePrice: number;
+  unit: string;
+}
+
+/**
+ * Varre todos os produtos do Estoque que usam matérias-primas cadastradas e
+ * recalcula o "Custo Interno" (cost_price) de cada um com base no custo ATUAL
+ * de cada matéria-prima vinculada (custoPrice x quantidade consumida).
+ *
+ * Isso resolve o problema de custo desatualizado quando o preço de uma
+ * matéria-prima (ex: "Transparente Linear") muda mas os produtos que a usam
+ * (ex: "Adesivo Transparente") continuam com o custo antigo "congelado".
+ *
+ * Importante: esta função NUNCA altera o preço de VENDA (sale_price/preco) do
+ * produto — apenas o custo interno. Ajustar o preço de venda é uma decisão de
+ * margem que cabe ao usuário; produtos cujo custo passou a ficar maior que o
+ * preço de venda são retornados para que a interface avise o usuário.
+ */
+export async function recalcAllProductCosts(companyId?: string): Promise<ProductCostSyncResult[]> {
+  try {
+    const materiasPrimas = await fetchMateriasPrimas(companyId);
+    if (materiasPrimas.length === 0) return [];
+    const mpMap = new Map(materiasPrimas.map(mp => [mp.id, mp]));
+
+    let query = supabase.from('produtos').select('*');
+    if (companyId) {
+      query = query.or(`company_id.eq.${companyId},company_id.is.null`);
+    }
+    const { data, error } = await query;
+    if (error || !data) {
+      console.warn('Erro ao buscar produtos para recalcular custos:', error?.message);
+      return [];
+    }
+
+    const results: ProductCostSyncResult[] = [];
+
+    for (const p of data) {
+      const materiaisRaw = p.materias_primas || p.materiasPrimas;
+      if (!Array.isArray(materiaisRaw) || materiaisRaw.length === 0) continue;
+
+      let changed = false;
+      const updatedMateriais = materiaisRaw.map((item: any) => {
+        const mp = mpMap.get(item.materiaPrimaId);
+        if (mp && Number(item.costPrice) !== Number(mp.costPrice)) {
+          changed = true;
+          return { ...item, name: mp.name, unit: mp.unit, costPrice: mp.costPrice };
+        }
+        return item;
+      });
+
+      if (!changed) continue;
+
+      const newTotalCost = updatedMateriais.reduce(
+        (acc: number, item: any) => acc + ((Number(item.costPrice) || 0) * (Number(item.quantity) || 0)),
+        0
+      );
+      const oldCost = Number(p.cost_price ?? p.preco_custo ?? 0);
+      const salePrice = Number(p.sale_price ?? p.preco ?? p.price ?? 0);
+      const roundedCost = Number(newTotalCost.toFixed(2));
+
+      // Tenta primeiro com nomes de coluna em português (padrão usado pelo InventoryModule),
+      // com fallback para nomes em inglês caso o schema real use sale_price/cost_price.
+      let updError: any = null;
+      {
+        const { error: e1 } = await supabase
+          .from('produtos')
+          .update({
+            preco_custo: roundedCost,
+            materias_primas: updatedMateriais,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', p.id);
+        updError = e1;
+      }
+      if (updError) {
+        const { error: e2 } = await supabase
+          .from('produtos')
+          .update({
+            cost_price: roundedCost,
+            materias_primas: updatedMateriais,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', p.id);
+        updError = e2;
+      }
+
+      if (!updError) {
+        results.push({
+          id: p.id,
+          name: p.name || p.nome || 'Produto',
+          oldCost,
+          newCost: roundedCost,
+          salePrice,
+          unit: p.unit || p.unidade || 'un'
+        });
+      } else {
+        console.warn(`Erro ao atualizar custo do produto ${p.id}:`, updError.message);
+      }
+    }
+
+    return results;
+  } catch (err) {
+    console.error('Erro ao recalcular custos dos produtos:', err);
+    return [];
+  }
+}
+
 export async function deleteMateriaPrima(id: string): Promise<boolean> {
   if (isValidUUID(id)) {
     try {

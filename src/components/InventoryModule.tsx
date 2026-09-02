@@ -8,7 +8,7 @@ import { Company, AppUser, Product, MateriaPrima, MateriaPrimaConsumo } from '..
 import { supabase } from '../supabase';
 import { showAlert } from '../lib/notify';
 import { Badge, Button, Modal } from './SharedUI';
-import { fetchMateriasPrimas, subscribeToMateriasPrimas } from '../lib/materiasPrimasStorage';
+import { fetchMateriasPrimas, subscribeToMateriasPrimas, recalcAllProductCosts } from '../lib/materiasPrimasStorage';
 import { MateriaPrimaFormModal } from './MateriasPrimasModule';
 import * as XLSX from 'xlsx';
 
@@ -28,6 +28,7 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<any | null>(null);
   const [saving, setSaving] = useState(false);
+  const [recalculating, setRecalculating] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -432,6 +433,34 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
     XLSX.writeFile(wb, `Estoque_${currentCompany?.shortName || 'RafaArts'}_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
+  const handleRecalculateCosts = async () => {
+    try {
+      setRecalculating(true);
+      const affected = await recalcAllProductCosts(currentCompany?.id);
+      if (affected.length === 0) {
+        showAlert('Todos os custos já estão atualizados. Nenhum produto precisou de ajuste.');
+        return;
+      }
+
+      const belowCost = affected.filter(p => p.salePrice > 0 && p.salePrice < p.newCost);
+      let msg = `Custo interno recalculado em ${affected.length} produto${affected.length > 1 ? 's' : ''} a partir do custo atual das matérias-primas:\n\n` +
+        affected.map(p => `• ${p.name}: R$ ${p.oldCost.toFixed(2)} → R$ ${p.newCost.toFixed(2)}`).join('\n');
+
+      if (belowCost.length > 0) {
+        msg += `\n\n⚠️ ${belowCost.length} produto${belowCost.length > 1 ? 's estão' : ' está'} sendo vendido${belowCost.length > 1 ? 's' : ''} abaixo do novo custo (preço de venda NÃO foi alterado — revise manualmente):\n` +
+          belowCost.map(p => `• ${p.name}: venda R$ ${p.salePrice.toFixed(2)} < custo R$ ${p.newCost.toFixed(2)}`).join('\n');
+      }
+
+      showAlert(msg);
+      await fetchProducts();
+    } catch (err) {
+      console.error('Erro ao recalcular custos:', err);
+      showAlert('Erro ao recalcular custos. Tente novamente.');
+    } finally {
+      setRecalculating(false);
+    }
+  };
+
   const filteredProducts = products.filter(p => {
     const matchType = selectedType === 'all' || p.tipoItem === selectedType;
     const term = search.toLowerCase();
@@ -468,6 +497,17 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
           >
             <Download size={14} />
             <span className="hidden sm:inline">Exportar Excel</span>
+          </Button>
+
+          <Button
+            variant="secondary"
+            onClick={handleRecalculateCosts}
+            disabled={recalculating}
+            className="text-[10px] py-2 px-3 sm:px-4"
+            title="Atualiza o Custo Interno de todos os produtos com base no custo atual das matérias-primas vinculadas"
+          >
+            <RefreshCw size={14} className={recalculating ? 'animate-spin' : ''} />
+            <span className="hidden sm:inline">{recalculating ? 'Recalculando...' : 'Recalcular Custos'}</span>
           </Button>
 
           <Button
@@ -545,6 +585,7 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredProducts.map(product => {
             const isLowStock = product.stock <= product.minStock;
+            const isBelowCost = product.costPrice > 0 && product.price > 0 && product.price < product.costPrice;
 
             return (
               <div
@@ -572,9 +613,15 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
                         R$ {product.price.toFixed(2)}
                       </p>
                       {product.costPrice > 0 && (
-                        <p className="text-[9px] text-white/40 font-mono italic">
+                        <p className={`text-[9px] font-mono italic ${isBelowCost ? 'text-red-400 font-bold not-italic' : 'text-white/40'}`}>
                           Custo: R$ {product.costPrice.toFixed(2)}
                         </p>
+                      )}
+                      {isBelowCost && (
+                        <span className="inline-flex items-center gap-1 text-[9px] text-red-300 font-bold bg-red-500/10 px-1.5 py-0.5 rounded border border-red-500/30 mt-0.5">
+                          <AlertTriangle size={9} />
+                          Abaixo do custo
+                        </span>
                       )}
                       {product.materiasPrimas && product.materiasPrimas.length > 0 && (
                         <span className="inline-flex items-center gap-1 text-[9px] text-primary-400 font-bold bg-primary-500/10 px-1.5 py-0.5 rounded border border-primary-500/20 mt-0.5">
