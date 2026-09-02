@@ -4,6 +4,11 @@ import { enqueueOp } from './offlineSync';
 
 const LOCAL_STORAGE_KEY = 'rpro_materias_primas_cache';
 
+export function isValidUUID(str?: string | null): boolean {
+  if (!str) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+}
+
 // Mock/Initial raw materials for graphics shop if table is empty
 const DEFAULT_MATERIAS_PRIMAS: Omit<MateriaPrima, 'id'>[] = [
   { name: 'Adesivo Vinil Branco Brilho', unit: 'm', costPrice: 14.50, larguraMaterial: 1.52, comprimentoBobina: 50, quantidadeEstoque: 2, notes: 'Bobina 1.52m x 50m / impressão solvente', isActive: true },
@@ -102,8 +107,10 @@ export async function saveMateriaPrima(
     updated_at: new Date().toISOString()
   };
 
+  const isRealUUID = isValidUUID(data.id);
+
   try {
-    if (data.id) {
+    if (isRealUUID && data.id) {
       let { data: updated, error } = await supabase
         .from('materias_primas')
         .update(payload)
@@ -171,6 +178,11 @@ export async function saveMateriaPrima(
         createdAt: created.created_at,
         updatedAt: created.updated_at
       };
+      
+      // If we had a temporary non-UUID ID (e.g. default-mp-1), remove it from cache
+      if (data.id && data.id !== result.id) {
+        removeLocalItem(data.id);
+      }
       addLocalItem(result);
       return result;
     }
@@ -184,7 +196,7 @@ export async function saveMateriaPrima(
 
     console.warn('Sem conexão — salvando matéria-prima localmente e enfileirando sincronização:', err.message);
     const mockId = data.id || `mp-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-    const isUpdate = !!(data.id && !data.id.startsWith('default-') && !data.id.startsWith('seed-') && !data.id.startsWith('mp-'));
+    const isUpdate = isRealUUID;
     const fallbackItem: MateriaPrima = {
       id: mockId,
       companyId: companyId || 'rafa-arts',
@@ -212,6 +224,9 @@ export async function saveMateriaPrima(
         description: `Atualizar matéria-prima "${fallbackItem.name}"`
       });
     } else {
+      if (data.id && data.id !== mockId) {
+        removeLocalItem(data.id);
+      }
       addLocalItem(fallbackItem);
       enqueueOp({
         type: 'insert',
@@ -225,17 +240,19 @@ export async function saveMateriaPrima(
 }
 
 export async function deleteMateriaPrima(id: string): Promise<boolean> {
-  try {
-    const { error } = await supabase
-      .from('materias_primas')
-      .delete()
-      .eq('id', id);
+  if (isValidUUID(id)) {
+    try {
+      const { error } = await supabase
+        .from('materias_primas')
+        .delete()
+        .eq('id', id);
 
-    if (error) {
-      console.warn('Erro ao deletar no Supabase:', error.message);
+      if (error) {
+        console.warn('Erro ao deletar no Supabase:', error.message);
+      }
+    } catch (e) {
+      console.error('Erro na deleção:', e);
     }
-  } catch (e) {
-    console.error('Erro na deleção:', e);
   }
   removeLocalItem(id);
   return true;
@@ -243,13 +260,15 @@ export async function deleteMateriaPrima(id: string): Promise<boolean> {
 
 export async function toggleMateriaPrimaStatus(id: string, currentStatus: boolean): Promise<boolean> {
   const newStatus = !currentStatus;
-  try {
-    await supabase
-      .from('materias_primas')
-      .update({ is_active: newStatus, updated_at: new Date().toISOString() })
-      .eq('id', id);
-  } catch (e) {
-    console.warn('Erro ao alterar status no Supabase:', e);
+  if (isValidUUID(id)) {
+    try {
+      await supabase
+        .from('materias_primas')
+        .update({ is_active: newStatus, updated_at: new Date().toISOString() })
+        .eq('id', id);
+    } catch (e) {
+      console.warn('Erro ao alterar status no Supabase:', e);
+    }
   }
 
   const cached = getCachedMateriasPrimas();

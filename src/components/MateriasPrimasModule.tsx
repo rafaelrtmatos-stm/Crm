@@ -48,6 +48,7 @@ export const MateriaPrimaFormModal: React.FC<MateriaPrimaFormModalProps> = ({
   const [valorBobina, setValorBobina] = useState<number | ''>(750);
   const [comprimentoBobina, setComprimentoBobina] = useState<number | ''>(50);
   const [larguraMaterial, setLarguraMaterial] = useState<number | ''>(1.52);
+  const [bobinaStockInputMode, setBobinaStockInputMode] = useState<'bobinas' | 'metros'>('bobinas');
   const [quantidadeEstoque, setQuantidadeEstoque] = useState<number | ''>(1);
   const [costPriceDirect, setCostPriceDirect] = useState<number | ''>('');
   const [metrosComprados, setMetrosComprados] = useState<number | ''>(10);
@@ -65,6 +66,7 @@ export const MateriaPrimaFormModal: React.FC<MateriaPrimaFormModalProps> = ({
       setUnit(editingItem.unit || 'm');
       const modo = editingItem.tipoCalculoCusto || (editingItem.unit === 'm' ? (editingItem.comprimentoBobina ? 'bobina' : 'metro') : 'unidade');
       setCalcMode(modo);
+      setBobinaStockInputMode('bobinas');
       setLarguraMaterial(editingItem.larguraMaterial !== undefined ? editingItem.larguraMaterial : 1.52);
       setComprimentoBobina(editingItem.comprimentoBobina !== undefined ? editingItem.comprimentoBobina : 50);
       setQuantidadeEstoque(editingItem.quantidadeEstoque !== undefined ? editingItem.quantidadeEstoque : 1);
@@ -88,6 +90,7 @@ export const MateriaPrimaFormModal: React.FC<MateriaPrimaFormModalProps> = ({
       setName('');
       setUnit('m');
       setCalcMode('bobina');
+      setBobinaStockInputMode('bobinas');
       setValorBobina(750);
       setComprimentoBobina(50);
       setLarguraMaterial(1.52);
@@ -110,17 +113,26 @@ export const MateriaPrimaFormModal: React.FC<MateriaPrimaFormModalProps> = ({
     let areaTotalBobina = 0;
     let valorTotalEstoque = 0;
     let totalMetrosEstoque = 0;
+    let totalBobinasEstoque = 0;
 
     if (calcMode === 'bobina') {
       const valBobina = typeof valorBobina === 'number' ? valorBobina : 0;
-      const compBobina = typeof comprimentoBobina === 'number' && comprimentoBobina > 0 ? comprimentoBobina : 1;
-      const qtdBobinas = typeof quantidadeEstoque === 'number' ? quantidadeEstoque : 1;
+      const compBobina = typeof comprimentoBobina === 'number' && comprimentoBobina > 0 ? comprimentoBobina : 50;
+      const rawEstoque = typeof quantidadeEstoque === 'number' ? quantidadeEstoque : 0;
 
       costPerUnit = compBobina > 0 ? valBobina / compBobina : 0; // Custo por metro linear
       areaTotalBobina = larg * compBobina; // m² por bobina
       costPerM2 = areaTotalBobina > 0 ? valBobina / areaTotalBobina : 0;
-      valorTotalEstoque = valBobina * qtdBobinas;
-      totalMetrosEstoque = compBobina * qtdBobinas;
+
+      if (bobinaStockInputMode === 'metros') {
+        totalMetrosEstoque = rawEstoque;
+        totalBobinasEstoque = compBobina > 0 ? rawEstoque / compBobina : 0;
+        valorTotalEstoque = costPerUnit * rawEstoque;
+      } else {
+        totalBobinasEstoque = rawEstoque;
+        totalMetrosEstoque = compBobina * rawEstoque;
+        valorTotalEstoque = valBobina * rawEstoque;
+      }
     } else if (calcMode === 'metro') {
       const metros = typeof metrosComprados === 'number' && metrosComprados > 0 ? metrosComprados : 1;
       const valMetros = typeof valorTotalMetros === 'number' ? valorTotalMetros : 0;
@@ -147,9 +159,10 @@ export const MateriaPrimaFormModal: React.FC<MateriaPrimaFormModalProps> = ({
       costPerM2: Number(costPerM2.toFixed(4)),
       areaTotalBobina: Number(areaTotalBobina.toFixed(2)),
       valorTotalEstoque: Number(valorTotalEstoque.toFixed(2)),
-      totalMetrosEstoque: Number(totalMetrosEstoque.toFixed(2))
+      totalMetrosEstoque: Number(totalMetrosEstoque.toFixed(2)),
+      totalBobinasEstoque: Number(totalBobinasEstoque.toFixed(2))
     };
-  }, [calcMode, valorBobina, comprimentoBobina, larguraMaterial, quantidadeEstoque, costPriceDirect, metrosComprados, valorTotalMetros, qtdPacoteUnidades, valorPacoteUnidades]);
+  }, [calcMode, valorBobina, comprimentoBobina, larguraMaterial, quantidadeEstoque, bobinaStockInputMode, costPriceDirect, metrosComprados, valorTotalMetros, qtdPacoteUnidades, valorPacoteUnidades]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -385,28 +398,88 @@ export const MateriaPrimaFormModal: React.FC<MateriaPrimaFormModalProps> = ({
               </div>
             </div>
 
-            {/* Quantidade de Bobinas em Estoque */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 border-t border-white/5">
-              <div className="space-y-1">
-                <label className="text-[10px] font-black uppercase tracking-wider text-white/70">
-                  Quantidade de Bobinas Compradas / em Estoque
+            {/* Quantidade em Estoque (Opção de Bobinas ou Metros Lineares) */}
+            <div className="pt-2 border-t border-white/10 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-black uppercase tracking-wider text-white/80">
+                  Como deseja informar a Quantidade em Estoque?
                 </label>
-                <input
-                  type="number"
-                  step="any"
-                  min="0"
-                  value={quantidadeEstoque}
-                  onChange={e => setQuantidadeEstoque(e.target.value === '' ? '' : parseFloat(e.target.value))}
-                  placeholder="Ex: 2 bobinas"
-                  className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono outline-none focus:border-primary-400"
-                />
+                <div className="flex items-center bg-black/60 p-0.5 rounded-lg border border-white/10">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (bobinaStockInputMode === 'metros' && typeof quantidadeEstoque === 'number' && Number(comprimentoBobina) > 0) {
+                        setQuantidadeEstoque(Number((quantidadeEstoque / Number(comprimentoBobina)).toFixed(2)));
+                      }
+                      setBobinaStockInputMode('bobinas');
+                    }}
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all ${
+                      bobinaStockInputMode === 'bobinas'
+                        ? 'bg-primary-500 text-slate-950 shadow'
+                        : 'text-white/50 hover:text-white'
+                    }`}
+                  >
+                    Em Bobinas
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (bobinaStockInputMode === 'bobinas' && typeof quantidadeEstoque === 'number' && Number(comprimentoBobina) > 0) {
+                        setQuantidadeEstoque(Number((quantidadeEstoque * Number(comprimentoBobina)).toFixed(2)));
+                      }
+                      setBobinaStockInputMode('metros');
+                    }}
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all ${
+                      bobinaStockInputMode === 'metros'
+                        ? 'bg-primary-500 text-slate-950 shadow'
+                        : 'text-white/50 hover:text-white'
+                    }`}
+                  >
+                    Em Metros Lineares
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center justify-end">
-                <p className="text-[11px] text-white/50 text-right leading-tight">
-                  Total em Metros Lineares: <strong className="text-white font-mono">{calculations.totalMetrosEstoque} metros</strong>
-                  <br />
-                  Valor Total do Estoque: <strong className="text-emerald-400 font-mono">R$ {calculations.valorTotalEstoque.toFixed(2)}</strong>
-                </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase tracking-wider text-white/70 flex items-center justify-between">
+                    <span>
+                      {bobinaStockInputMode === 'bobinas'
+                        ? 'Quantidade de Bobinas em Estoque'
+                        : 'Quantidade de Metros Lineares em Estoque'}
+                    </span>
+                    <span className="text-primary-400 font-mono text-[10px] lowercase">
+                      ({bobinaStockInputMode === 'bobinas' ? 'bobinas inteiras/fracionadas' : 'metros corridos'})
+                    </span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      value={quantidadeEstoque}
+                      onChange={e => setQuantidadeEstoque(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                      placeholder={bobinaStockInputMode === 'bobinas' ? 'Ex: 1 bobina' : `Ex: ${comprimentoBobina || 50} metros`}
+                      className="w-full bg-black/50 border border-primary-500/30 rounded-xl px-3 py-2 text-sm text-white font-mono font-bold outline-none focus:border-primary-400"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-primary-400/70 font-mono font-bold">
+                      {bobinaStockInputMode === 'bobinas' ? 'bobina(s)' : 'metros'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="bg-black/30 border border-white/5 rounded-xl p-2.5">
+                  <p className="text-[11px] text-white/70 leading-relaxed">
+                    Total em Metros: <strong className="text-emerald-400 font-mono font-bold">{calculations.totalMetrosEstoque} m</strong>
+                    {bobinaStockInputMode === 'metros' && (
+                      <span className="text-white/40 font-mono text-[10px] ml-1">
+                        (~{calculations.totalBobinasEstoque} bobina{calculations.totalBobinasEstoque !== 1 ? 's' : ''})
+                      </span>
+                    )}
+                    <br />
+                    Valor Total do Estoque: <strong className="text-amber-300 font-mono font-bold">R$ {calculations.valorTotalEstoque.toFixed(2)}</strong>
+                  </p>
+                </div>
               </div>
             </div>
           </div>
@@ -635,7 +708,13 @@ export const MateriaPrimaFormModal: React.FC<MateriaPrimaFormModalProps> = ({
               <span className="text-base sm:text-lg font-black font-mono text-amber-400">
                 R$ {calculations.valorTotalEstoque.toFixed(2)}
               </span>
-              <span className="text-[9px] text-white/40 block">{quantidadeEstoque} {calcMode === 'bobina' ? 'bobina(s)' : (calcMode === 'metro' ? 'metros' : unit)}</span>
+              <span className="text-[9px] text-white/60 block font-mono">
+                {calcMode === 'bobina' 
+                  ? (bobinaStockInputMode === 'metros'
+                      ? `${calculations.totalMetrosEstoque} m (${calculations.totalBobinasEstoque} bob.)`
+                      : `${calculations.totalBobinasEstoque} bob. (${calculations.totalMetrosEstoque} m)`)
+                  : (calcMode === 'metro' ? `${calculations.totalMetrosEstoque} m` : `${quantidadeEstoque} ${unit}`)}
+              </span>
             </div>
           </div>
         </div>
@@ -749,9 +828,16 @@ export const MateriasPrimasModule: React.FC<MateriasPrimasModuleProps> = ({ curr
 
   const handleSavedItem = (saved: MateriaPrima) => {
     if (editingItem) {
-      setMateriasPrimas(prev => prev.map(m => m.id === saved.id ? saved : m));
+      setMateriasPrimas(prev => {
+        const hasSavedId = prev.some(m => m.id === saved.id);
+        if (hasSavedId) {
+          return prev.map(m => m.id === saved.id ? saved : m);
+        } else {
+          return prev.map(m => (m.id === editingItem.id ? saved : m));
+        }
+      });
     } else {
-      setMateriasPrimas(prev => [saved, ...prev]);
+      setMateriasPrimas(prev => [saved, ...prev.filter(m => m.id !== saved.id)]);
     }
   };
 
@@ -1068,8 +1154,19 @@ export const MateriasPrimasModule: React.FC<MateriasPrimasModuleProps> = ({ curr
                       ) : null}
                       <div className="col-span-2 pt-1 border-t border-white/5 flex items-center justify-between">
                         <span className="text-white/50 text-[11px]">Estoque Atual:</span>
-                        <span className="font-mono font-bold text-white">
-                          {item.tipoCalculoCusto === 'bobina' ? `${item.quantidadeEstoque ?? 0} bobina(s)` : `${item.quantidadeEstoque ?? 0} ${item.unit || 'm'}`}
+                        <span className="font-mono font-bold text-white text-right">
+                          {item.tipoCalculoCusto === 'bobina' ? (
+                            <span>
+                              {item.quantidadeEstoque ?? 0} bobina(s)
+                              {item.comprimentoBobina ? (
+                                <span className="text-primary-400 text-[11px] font-normal block">
+                                  ({Number(((item.quantidadeEstoque ?? 0) * item.comprimentoBobina).toFixed(1))} metros)
+                                </span>
+                              ) : null}
+                            </span>
+                          ) : (
+                            `${item.quantidadeEstoque ?? 0} ${item.unit || 'm'}`
+                          )}
                         </span>
                       </div>
                     </div>
@@ -1212,13 +1309,20 @@ export const MateriasPrimasModule: React.FC<MateriasPrimasModuleProps> = ({ curr
 
                         {/* Quantidade em Estoque */}
                         <td className="py-3.5 px-4 text-center">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-mono font-bold ${
-                            (item.quantidadeEstoque ?? 0) <= 0 
-                              ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' 
-                              : 'bg-white/5 text-white/90 border border-white/10'
-                          }`}>
-                            {item.tipoCalculoCusto === 'bobina' ? `${item.quantidadeEstoque ?? 0} bobina(s)` : `${item.quantidadeEstoque ?? 0} ${item.unit || 'm'}`}
-                          </span>
+                          <div className="inline-flex flex-col items-center">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-mono font-bold ${
+                              (item.quantidadeEstoque ?? 0) <= 0 
+                                ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' 
+                                : 'bg-white/5 text-white/90 border border-white/10'
+                            }`}>
+                              {item.tipoCalculoCusto === 'bobina' ? `${item.quantidadeEstoque ?? 0} bobina(s)` : `${item.quantidadeEstoque ?? 0} ${item.unit || 'm'}`}
+                            </span>
+                            {item.tipoCalculoCusto === 'bobina' && item.comprimentoBobina ? (
+                              <span className="text-[10px] text-primary-400 font-mono mt-0.5">
+                                {Number(((item.quantidadeEstoque ?? 0) * item.comprimentoBobina).toFixed(1))}m
+                              </span>
+                            ) : null}
+                          </div>
                         </td>
 
                         {/* Active / Inactive Status */}
