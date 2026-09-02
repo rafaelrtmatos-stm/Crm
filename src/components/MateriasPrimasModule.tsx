@@ -633,7 +633,7 @@ export const MateriaPrimaFormModal: React.FC<MateriaPrimaFormModalProps> = ({
                   Unidade de Medida
                 </label>
                 <select
-                  value={unit}
+                  value={unit || 'un'}
                   onChange={e => setUnit(e.target.value)}
                   className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-primary-500"
                 >

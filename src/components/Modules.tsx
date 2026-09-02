@@ -1560,7 +1560,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                     <Building2 size={16} />
                  </div>
                  <select 
-                   value={currentCompany?.id}
+                   value={currentCompany?.id || ''}
                    onChange={(e) => {
                      const comp = companies.find(c => c.id === e.target.value);
                      if (comp) setCurrentCompany(comp);
@@ -2690,7 +2690,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                     <p className="text-[10px] font-bold text-white/40 uppercase">Coleção de Dados</p>
                     <select 
                       className="w-full h-12 bg-white/5 border border-white/10 rounded-xl px-4 text-sm text-white focus:outline-none focus:ring-1 focus:ring-primary-500"
-                      value={selectedWidget.dataSource.collection}
+                      value={selectedWidget.dataSource.collection || 'leads'}
                       onChange={(e) => updateWidget({ dataSource: { ...selectedWidget.dataSource, collection: e.target.value } })}
                     >
                       <option value="leads">Leads (CRM)</option>
@@ -6103,7 +6103,7 @@ export const MetaAdsModule = ({ currentCompany }: { currentCompany: Company | nu
                         <p className="text-[10px] font-black uppercase text-white/30">Status</p>
                         <select 
                           className="w-full h-12 bg-white/5 border border-white/10 rounded-xl px-4 text-white text-xs outline-none focus:border-primary-500 transition-all font-bold"
-                          value={formData.status}
+                          value={formData.status || 'ACTIVE'}
                           onChange={(e) => setFormData({ ...formData, status: e.target.value })}
                         >
                           <option value="ACTIVE" className="bg-slate-900">ATIVO</option>
@@ -6115,7 +6115,7 @@ export const MetaAdsModule = ({ currentCompany }: { currentCompany: Company | nu
                         <p className="text-[10px] font-black uppercase text-white/30">Objetivo</p>
                         <select 
                           className="w-full h-12 bg-white/5 border border-white/10 rounded-xl px-4 text-white text-xs outline-none focus:border-primary-500 transition-all font-bold"
-                          value={formData.objective}
+                          value={formData.objective || 'LEADS'}
                           onChange={(e) => setFormData({ ...formData, objective: e.target.value })}
                         >
                           <option value="LEADS" className="bg-slate-900">GERAR LEADS</option>
@@ -12067,7 +12067,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <select
-                  value={servicosSortBy}
+                  value={servicosSortBy || 'data'}
                   onChange={(e) => setServicosSortBy(e.target.value as any)}
                   className="h-8 bg-white/5 border border-white/10 rounded-lg px-2 text-[10px] font-black uppercase text-white/70 focus:outline-none focus:border-primary-500 cursor-pointer"
                 >
@@ -12300,7 +12300,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   />
                 </div>
                 <select
-                  value={orcamentoSortBy}
+                  value={orcamentoSortBy || 'recentes'}
                   onChange={(e) => setOrcamentoSortBy(e.target.value as any)}
                   className="h-9 bg-white/5 border border-white/10 rounded-lg px-2.5 text-[9px] font-black uppercase text-white/60 focus:outline-none focus:border-primary-500 cursor-pointer shrink-0"
                 >
@@ -12373,7 +12373,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       <div className="flex flex-wrap gap-1.5 pt-2 border-t border-white/5 items-center">
                          <button onClick={() => openEditOrcamento(o)} className="text-[8px] font-black uppercase px-2 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10">Editar</button>
                          <select
-                           value={o.status}
+                           value={o.status || 'rascunho'}
                            onChange={async (e) => {
                               const novoStatus = e.target.value as Orcamento['status'];
                               if (novoStatus === o.status) return;
@@ -12563,7 +12563,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                        />
                     </div>
                     <select
-                      value={contratoSortBy}
+                      value={contratoSortBy || 'recentes'}
                       onChange={(e) => setContratoSortBy(e.target.value as any)}
                       className="h-9 bg-white/5 border border-white/10 rounded-lg px-2.5 text-[9px] font-black uppercase text-white/60 focus:outline-none focus:border-primary-500 cursor-pointer shrink-0"
                     >
@@ -12970,7 +12970,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                      className="flex-1"
                    />
                    <select
-                     value={customerSortBy}
+                     value={customerSortBy || 'recentes'}
                      onChange={(e) => setCustomerSortBy(e.target.value as any)}
                      className="h-11 bg-white/5 border border-white/10 rounded-xl px-3 text-[10px] font-black uppercase text-white/70 focus:outline-none focus:border-primary-500 cursor-pointer shrink-0"
                    >
@@ -17943,7 +17943,7 @@ export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved }: {
           <Input label="CÓDIGO INTERNO (SKU)" placeholder="Deixe em branco pra gerar automático" value={formData.code} onChange={(e: any) => setFormData({ ...formData, code: e.target.value })} />
           <div className="space-y-2">
             <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">CATEGORIA</p>
-            <select className="w-full h-12 bg-[#1a2333] border border-white/10 rounded-xl px-4 text-xs text-white outline-none" value={formData.category} onChange={(e) => setFormData({ ...formData, category: e.target.value as any })}>
+            <select className="w-full h-12 bg-[#1a2333] border border-white/10 rounded-xl px-4 text-xs text-white outline-none" value={formData.category || 'substrato'} onChange={(e) => setFormData({ ...formData, category: e.target.value as any })}>
               <option value="substrato">Substrato (Lona/Vinil/Papel)</option>
               <option value="tinta">Tintas / Toners</option>
               <option value="acabamento">Acabamento (Ilhós/Verniz)</option>
@@ -17952,7 +17952,7 @@ export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved }: {
           </div>
           <div className="space-y-2">
             <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">UNIDADE</p>
-            <select className="w-full h-12 bg-[#1a2333] border border-white/10 rounded-xl px-4 text-xs text-white outline-none" value={formData.unit} onChange={(e) => setFormData({ ...formData, unit: e.target.value as any })}>
+            <select className="w-full h-12 bg-[#1a2333] border border-white/10 rounded-xl px-4 text-xs text-white outline-none" value={formData.unit || 'un'} onChange={(e) => setFormData({ ...formData, unit: e.target.value as any })}>
               <option value="un">Unidade (un)</option>
               <option value="kg">Quilograma (kg)</option>
               <option value="m">Metro Linear (m)</option>
@@ -17967,7 +17967,7 @@ export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved }: {
 
           <div className="space-y-2">
             <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">TIPO DE ITEM</p>
-            <select className="w-full h-12 bg-[#1a2333] border border-white/10 rounded-xl px-4 text-xs text-white outline-none" value={formData.tipoItem} onChange={(e) => setFormData({ ...formData, tipoItem: e.target.value as any })}>
+            <select className="w-full h-12 bg-[#1a2333] border border-white/10 rounded-xl px-4 text-xs text-white outline-none" value={formData.tipoItem || 'produto'} onChange={(e) => setFormData({ ...formData, tipoItem: e.target.value as any })}>
               <option value="produto">Produto</option>
               <option value="material">Material</option>
               <option value="servico">Serviço</option>
@@ -18067,7 +18067,7 @@ export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved }: {
             <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 pt-1">
               <div className="sm:col-span-6">
                 <select
-                  value={selectedMateriaPrimaId}
+                  value={selectedMateriaPrimaId || ''}
                   onChange={e => setSelectedMateriaPrimaId(e.target.value)}
                   className="w-full bg-[#1a2333] border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white outline-none focus:border-primary-500/50"
                 >
@@ -20719,7 +20719,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                     <div className="space-y-2">
                       <label className="text-xs uppercase tracking-widest text-white/50 font-black">Cargo / Função</label>
                       <select 
-                        value={editedRole}
+                        value={editedRole || 'atendente'}
                         onChange={(e: any) => setEditedRole(e.target.value)}
                         className="w-full bg-slate-900 border border-white/10 rounded-2xl p-4 text-white hover:border-primary-500 font-bold focus:outline-none transition-all"
                       >
@@ -21264,7 +21264,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                     <div className="space-y-2">
                       <label className="text-xs uppercase tracking-widest text-white/50 font-black">Cargo / Perfil de Acesso</label>
                       <select 
-                        value={newUserRole}
+                        value={newUserRole || 'atendente'}
                         onChange={(e: any) => setNewUserRole(e.target.value)}
                         className="w-full bg-slate-950 border border-white/10 rounded-2xl p-4 text-white hover:border-primary-500 font-bold focus:outline-none transition-all"
                       >

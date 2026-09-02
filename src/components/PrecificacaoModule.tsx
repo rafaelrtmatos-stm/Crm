@@ -801,7 +801,7 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {/* Selecionar existente */}
                 <select
-                  value={servicoSelecionadoId}
+                  value={servicoSelecionadoId || ''}
                   onChange={(e) => handleSelectServico(e.target.value)}
                   className="w-full bg-slate-800/90 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-primary-500"
                 >
@@ -841,7 +841,7 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
               </div>
 
               <select
-                value={materialId}
+                value={materialId || ''}
                 onChange={(e) => handleSelectMaterial(e.target.value)}
                 className="w-full bg-slate-800/90 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-primary-500"
               >
@@ -940,7 +940,7 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
                       Unidade de Medida
                     </label>
                     <select
-                      value={unidadeMedida}
+                      value={unidadeMedida || 'metros'}
                       onChange={(e) => setUnidadeMedida(e.target.value as any)}
                       className="w-full bg-slate-800 border border-white/15 rounded-xl px-2 py-2 text-xs text-white focus:outline-none focus:border-primary-500"
                     >
@@ -1239,7 +1239,7 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
                 </div>
 
                 <select
-                  value={maquinaId}
+                  value={maquinaId || ''}
                   onChange={(e) => setMaquinaId(e.target.value)}
                   className="w-full bg-slate-800/90 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500"
                 >
@@ -1369,7 +1369,7 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
                           Modo de Impressão
                         </label>
                         <select
-                          value={modoImpressaoSelecionado}
+                          value={modoImpressaoSelecionado || 'standard'}
                           onChange={(e) => {
                             setModoImpressaoSelecionado(e.target.value as NonNullable<Maquina['modoImpressao']>);
                             setModoCustomizadoId('');
@@ -1452,7 +1452,7 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
                 </div>
 
                 <select
-                  value={colaboradorId}
+                  value={colaboradorId || 'media'}
                   onChange={(e) => setColaboradorId(e.target.value)}
                   className="w-full bg-slate-800/90 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-primary-500"
                 >
@@ -1482,7 +1482,7 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
                   />
                   <select
                     onChange={(e) => setPrazoEntrega(e.target.value)}
-                    value={prazoEntrega}
+                    value={prazoEntrega || ''}
                     className="bg-slate-800 border border-white/15 rounded-xl px-2 py-2 text-xs text-white/70 focus:outline-none"
                   >
                     <option value="Mesmo dia (Urgente)">Mesmo dia</option>

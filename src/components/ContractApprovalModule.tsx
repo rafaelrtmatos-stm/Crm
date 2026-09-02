@@ -751,7 +751,7 @@ export const ContractApprovalModule = ({ currentCompany, onContractApproved }: C
 
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
                   <select
-                    value={cepSearchUf}
+                    value={cepSearchUf || ''}
                     onChange={e => setCepSearchUf(e.target.value)}
                     className="h-11 bg-slate-900/60 border border-white/10 rounded-xl px-3 text-xs font-semibold text-white focus:border-primary-500 outline-none"
                   >

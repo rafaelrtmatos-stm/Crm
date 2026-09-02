@@ -951,7 +951,7 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
                   Tipo de Equipamento
                 </label>
                 <select
-                  value={formData.tipo}
+                  value={formData.tipo || 'impressao'}
                   onChange={(e) => setFormData({ ...formData, tipo: e.target.value as any })}
                   className="w-full bg-slate-900 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500"
                 >
@@ -1154,7 +1154,7 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
                   Modo Padrão da Máquina
                 </label>
                 <select
-                  value={formData.modoImpressao}
+                  value={formData.modoImpressao || 'standard'}
                   onChange={(e) => setFormData({ ...formData, modoImpressao: e.target.value as Maquina['modoImpressao'] as NonNullable<Maquina['modoImpressao']> })}
                   className="w-full bg-slate-900 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
                 >

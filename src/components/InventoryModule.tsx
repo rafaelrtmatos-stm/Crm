@@ -680,7 +680,7 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
                 Tipo do Item
               </label>
               <select
-                value={formData.tipo_item}
+                value={formData.tipo_item || 'produto'}
                 onChange={e => setFormData({ ...formData, tipo_item: e.target.value as any })}
                 className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-primary-500/50"
               >
@@ -723,7 +723,7 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
                 Unidade de Medida
               </label>
               <select
-                value={formData.unit_type}
+                value={formData.unit_type || 'unit'}
                 onChange={e => setFormData({ ...formData, unit_type: e.target.value as any })}
                 className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-primary-500/50"
               >
@@ -807,7 +807,7 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
                 <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
                   <div className="sm:col-span-6">
                     <select
-                      value={selectedMateriaPrimaId}
+                      value={selectedMateriaPrimaId || ''}
                       onChange={e => {
                         const newId = e.target.value;
                         setSelectedMateriaPrimaId(newId);
