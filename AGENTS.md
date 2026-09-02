@@ -15,3 +15,6 @@
 ## Point of Sale (PDV)
 - **Persistence**: The register (caixa) status is persistent across module navigation. It remains open until explicitly closed by the user.
 - **Flexible Flow**: Customer identification is preferred before payment. Scheduling is optional with a clear "Skip" path.
+
+## Code Maintenance & Safety
+- **No Full Rewrites of Modules.tsx**: NEVER rewrite `src/components/Modules.tsx` (or large files) completely. Always make surgical, pinpoint edits (`edit_file` / `multi_edit_file`) on specific lines to preserve all existing functionality and avoid truncation or corruption.

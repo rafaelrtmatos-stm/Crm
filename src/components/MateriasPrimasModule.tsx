@@ -11,7 +11,8 @@ import {
   fetchMateriasPrimas,
   saveMateriaPrima,
   deleteMateriaPrima,
-  toggleMateriaPrimaStatus
+  toggleMateriaPrimaStatus,
+  subscribeToMateriasPrimas
 } from '../lib/materiasPrimasStorage';
 import * as XLSX from 'xlsx';
 
@@ -706,6 +707,12 @@ export const MateriasPrimasModule: React.FC<MateriasPrimasModuleProps> = ({ curr
 
   useEffect(() => {
     loadData();
+
+    // Sincroniza em tempo real caso outro usuário/computador crie, altere ou exclua matérias-primas
+    const unsubscribe = subscribeToMateriasPrimas(() => {
+      loadData();
+    });
+    return () => unsubscribe();
   }, [currentCompany?.id]);
 
   const loadData = async () => {

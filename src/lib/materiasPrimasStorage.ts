@@ -1,5 +1,6 @@
 import { supabase } from '../supabase';
 import { MateriaPrima } from '../types';
+import { enqueueOp } from './offlineSync';
 
 const LOCAL_STORAGE_KEY = 'rpro_materias_primas_cache';
 
@@ -174,8 +175,16 @@ export async function saveMateriaPrima(
       return result;
     }
   } catch (err: any) {
-    console.warn('Erro ao salvar no Supabase, salvando localmente:', err.message);
+    const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+
+    if (!isOffline) {
+      console.error('Erro ao salvar matéria-prima no Supabase (online):', err);
+      throw new Error(err?.message || 'Não foi possível salvar no servidor. Tente novamente.');
+    }
+
+    console.warn('Sem conexão — salvando matéria-prima localmente e enfileirando sincronização:', err.message);
     const mockId = data.id || `mp-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+    const isUpdate = !!(data.id && !data.id.startsWith('default-') && !data.id.startsWith('seed-') && !data.id.startsWith('mp-'));
     const fallbackItem: MateriaPrima = {
       id: mockId,
       companyId: companyId || 'rafa-arts',
@@ -193,10 +202,23 @@ export async function saveMateriaPrima(
       updatedAt: new Date().toISOString(),
       createdAt: data.createdAt || new Date().toISOString()
     };
-    if (data.id) {
+    if (isUpdate) {
       updateLocalItem(fallbackItem);
+      enqueueOp({
+        type: 'update',
+        table: 'materias_primas',
+        payload,
+        match: { column: 'id', value: data.id },
+        description: `Atualizar matéria-prima "${fallbackItem.name}"`
+      });
     } else {
       addLocalItem(fallbackItem);
+      enqueueOp({
+        type: 'insert',
+        table: 'materias_primas',
+        payload: { ...payload, created_at: new Date().toISOString() },
+        description: `Cadastrar matéria-prima "${fallbackItem.name}"`
+      });
     }
     return fallbackItem;
   }
@@ -234,6 +256,21 @@ export async function toggleMateriaPrimaStatus(id: string, currentStatus: boolea
   const updated = cached.map(item => item.id === id ? { ...item, isActive: newStatus } : item);
   saveLocalCache(updated);
   return newStatus;
+}
+
+/**
+ * Escuta mudanças em tempo real na tabela `materias_primas` (inserts/updates/deletes
+ * feitos em qualquer computador) e chama `onChange` para atualizar a tela automaticamente.
+ */
+export function subscribeToMateriasPrimas(onChange: () => void): () => void {
+  const channel = supabase
+    .channel('materias-primas-realtime-updates')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'materias_primas' }, onChange)
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
 }
 
 // Local cache utilities
