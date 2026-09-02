@@ -10185,11 +10185,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       setCustomPaymentDate('');
     }
 
-    // Play money sound
-    try {
-      const audio = new Audio('/sounds/sale-complete.mp3');
-      audio.play().catch(() => {});
-    } catch (e) {}
+    // Som do caixa toca exclusivamente quando houver valor financeiro sendo recebido agora (valor > 0)
+    if (effectivePaymentEntriesTotal > 0) {
+      try {
+        const audio = new Audio('/sounds/sale-complete.mp3');
+        audio.play().catch(() => {});
+      } catch (e) {}
+    }
 
     // Edicao completa de uma nota ja existente (itens do carrinho alterados): atualiza a mesma
     // linha no banco (itens + total) em vez de criar uma venda nova, e ajusta o estoque so pela
@@ -10732,8 +10734,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               onClick={() => setActiveTab(tab.id as any)}
               title={tab.label}
               className={cn(
-                "flex items-center justify-center gap-1 flex-1 sm:flex-initial px-1 sm:px-2.5 py-1 sm:py-1.5 rounded-md sm:rounded-lg text-[9px] font-black uppercase tracking-tight sm:tracking-wider transition-all whitespace-nowrap",
-                activeTab === tab.id ? "bg-primary-500 text-slate-900 shadow-xl" : "text-white/40 hover:bg-white/5 hover:text-white"
+                "flex items-center justify-center gap-1 flex-1 sm:flex-initial px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-tight sm:tracking-wider transition-all whitespace-nowrap cursor-pointer active:scale-95",
+                activeTab === tab.id ? "bg-primary-500/20 text-primary-300 border border-primary-500/40 shadow-xs" : "text-white/50 hover:bg-white/5 hover:text-white border border-transparent"
               )}
             >
               <tab.icon size={18} className="sm:hidden shrink-0" />
@@ -11110,7 +11112,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                setIsCustomerModalOpen(true);
                             }
                          }}
-                         className="flex-1 h-full bg-primary-500 border-2 border-primary-600 text-slate-900 rounded-2xl sm:rounded-[28px] flex flex-col items-center justify-center gap-0.5 sm:gap-1 shadow-xl shadow-primary-500/20 hover:bg-primary-400 transition-all disabled:opacity-50 disabled:grayscale active:scale-95"
+                         className="flex-1 h-full bg-primary-500 hover:bg-primary-400 border border-primary-400/60 text-slate-900 rounded-2xl sm:rounded-[24px] flex flex-col items-center justify-center gap-0.5 sm:gap-1 shadow-md shadow-primary-500/15 transition-all disabled:opacity-50 disabled:grayscale cursor-pointer active:scale-98"
                        >
                           <div className="flex items-center gap-1.5 sm:gap-3">
                              <ShoppingBag size={16} className="sm:hidden" />
@@ -13716,9 +13718,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                        <Percent size={11} className="text-primary-300" /> Desconto na Nota
                     </span>
                     <div className="flex bg-white/5 p-0.5 rounded-lg border border-white/10 gap-0.5">
-                       <button onClick={() => { setSaleDiscountMode('percentual'); setSaleDiscountInput(''); }} className={cn("px-2 py-0.5 rounded text-[8px] font-black uppercase transition-all cursor-pointer", saleDiscountMode === 'percentual' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Desc. %</button>
-                       <button onClick={() => { setSaleDiscountMode('valor'); setSaleDiscountInput(''); }} className={cn("px-2 py-0.5 rounded text-[8px] font-black uppercase transition-all cursor-pointer", saleDiscountMode === 'valor' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Desc. R$</button>
-                       <button onClick={() => { setSaleDiscountMode('final'); setSaleDiscountInput(''); }} className={cn("px-2 py-0.5 rounded text-[8px] font-black uppercase transition-all cursor-pointer", saleDiscountMode === 'final' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Valor Final</button>
+                       <button onClick={() => { setSaleDiscountMode('percentual'); setSaleDiscountInput(''); }} className={cn("px-2 py-0.5 rounded text-[8px] font-bold uppercase transition-all cursor-pointer", saleDiscountMode === 'percentual' ? "bg-primary-500/20 text-primary-300 border border-primary-500/30 shadow-xs" : "text-white/40 hover:text-white border border-transparent")}>Desc. %</button>
+                       <button onClick={() => { setSaleDiscountMode('valor'); setSaleDiscountInput(''); }} className={cn("px-2 py-0.5 rounded text-[8px] font-bold uppercase transition-all cursor-pointer", saleDiscountMode === 'valor' ? "bg-primary-500/20 text-primary-300 border border-primary-500/30 shadow-xs" : "text-white/40 hover:text-white border border-transparent")}>Desc. R$</button>
+                       <button onClick={() => { setSaleDiscountMode('final'); setSaleDiscountInput(''); }} className={cn("px-2 py-0.5 rounded text-[8px] font-bold uppercase transition-all cursor-pointer", saleDiscountMode === 'final' ? "bg-primary-500/20 text-primary-300 border border-primary-500/30 shadow-xs" : "text-white/40 hover:text-white border border-transparent")}>Valor Final</button>
                     </div>
                  </div>
 
@@ -13920,25 +13922,69 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     {/* Formulario de pagamento — sempre visivel */}
                     {paymentModalRemaining > 0 ? (
                       <div className="flex-1 min-h-0 flex flex-col gap-1.5 bg-white/5 rounded-xl border border-white/5 p-2 overflow-hidden">
-                         <div className="grid grid-cols-4 gap-1 shrink-0">
-                            {PAYMENT_METHOD_OPTIONS.filter(m => enabledPaymentMethods.includes(m.id)).map(m => (
-                              <button
-                                key={m.id}
-                                onClick={() => setNewPaymentMethod(m.id)}
-                                className={cn(
-                                  "p-1 rounded-lg border-2 flex flex-col items-center justify-center gap-0.5 transition-all active:scale-95 min-h-[36px]",
-                                  newPaymentMethod === m.id ? "bg-primary-500 border-primary-600 text-slate-900" : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10"
-                                )}
-                              >
-                                 <m.icon size={12} />
-                                 <span className="text-[6.5px] font-black uppercase truncate w-full text-center">{m.label}</span>
-                              </button>
-                            ))}
+                         <div className="grid grid-cols-4 gap-1.5 shrink-0">
+                            {PAYMENT_METHOD_OPTIONS.filter(m => enabledPaymentMethods.includes(m.id)).map(m => {
+                              const isSelected = newPaymentMethod === m.id;
+                              return (
+                                <button
+                                  key={m.id}
+                                  type="button"
+                                  onClick={() => setNewPaymentMethod(m.id)}
+                                  className={cn(
+                                    "py-1 px-1.5 rounded-lg border flex flex-col items-center justify-center gap-0.5 transition-all duration-150 active:scale-95 min-h-[35px] cursor-pointer",
+                                    isSelected 
+                                      ? "bg-primary-500/20 text-primary-300 border-primary-500/50 shadow-xs" 
+                                      : "bg-white/[0.03] text-white/40 border-white/10 hover:bg-white/[0.08] hover:text-white/80"
+                                  )}
+                                >
+                                   <m.icon size={13} className={isSelected ? "text-primary-300" : "text-white/40"} />
+                                   <span className="text-[7px] sm:text-[7.5px] font-bold uppercase tracking-wider truncate w-full text-center">{m.label}</span>
+                                </button>
+                              );
+                            })}
+                         </div>
+
+                         {/* Abas leves de atalho de valor (100% Quitado, 50% Entrada, Sem Entrada) */}
+                         <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setNewPaymentMode('valor');
+                                setNewPaymentInput(Number(paymentModalRemaining.toFixed(2)));
+                              }}
+                              className="flex-1 py-1 px-1.5 rounded-lg text-[7.5px] sm:text-[8px] font-bold uppercase tracking-wider bg-white/[0.04] hover:bg-white/[0.08] text-white/60 hover:text-white border border-white/10 transition-all cursor-pointer text-center truncate active:scale-95"
+                              title="Preencher com o total restante"
+                            >
+                              Total ({paymentModalRemaining.toFixed(2).replace('.', ',')})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setNewPaymentMode('valor');
+                                const metade = Number((paymentModalRemaining / 2).toFixed(2));
+                                setNewPaymentInput(metade > 0 ? metade : '');
+                              }}
+                              className="flex-1 py-1 px-1.5 rounded-lg text-[7.5px] sm:text-[8px] font-bold uppercase tracking-wider bg-white/[0.04] hover:bg-white/[0.08] text-white/60 hover:text-white border border-white/10 transition-all cursor-pointer text-center truncate active:scale-95"
+                              title="Preencher com 50% de entrada"
+                            >
+                              50% ({(paymentModalRemaining / 2).toFixed(2).replace('.', ',')})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setNewPaymentMode('valor');
+                                setNewPaymentInput(0);
+                              }}
+                              className="py-1 px-2 rounded-lg text-[7.5px] sm:text-[8px] font-bold uppercase tracking-wider bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 transition-all cursor-pointer text-center truncate active:scale-95"
+                              title="Definir entrada R$ 0,00 para nota a prazo"
+                            >
+                              Sem Entrada (R$ 0)
+                            </button>
                          </div>
 
                          <div className="flex items-center gap-1.5 shrink-0">
                             <div className="flex-1 space-y-0.5">
-                               <label className="text-[7px] font-black text-white/40 uppercase tracking-widest block">
+                               <label className="text-[7px] font-bold text-white/40 uppercase tracking-widest block">
                                  {newPaymentMode === 'valor' ? 'Valor (R$)' : 'Porcentagem (%)'}
                                </label>
                                <Input
@@ -13950,23 +13996,29 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                  onChange={(e: any) => setNewPaymentInput(e.target.value === '' ? '' : Number(e.target.value))}
                                />
                             </div>
-                            <div className="flex bg-white/5 p-0.5 rounded-lg border border-white/10 shrink-0 mt-3.5">
+                            <div className="flex bg-white/5 p-0.5 rounded-lg border border-white/10 shrink-0 mt-3.5 gap-0.5">
                                <button
+                                 type="button"
                                  onClick={() => setNewPaymentMode('valor')}
-                                 className={cn("px-2 h-7 rounded-md text-[9px] font-black uppercase transition-all", newPaymentMode === 'valor' ? "bg-primary-500 text-slate-900" : "text-white/40")}
+                                 className={cn("px-2 h-7 rounded-md text-[9px] font-bold uppercase transition-all cursor-pointer", newPaymentMode === 'valor' ? "bg-primary-500/20 text-primary-300 border border-primary-500/30 shadow-xs" : "text-white/40 hover:text-white border border-transparent")}
                                >
                                  R$
                                </button>
                                <button
+                                 type="button"
                                  onClick={() => setNewPaymentMode('percentual')}
-                                 className={cn("px-2 h-7 rounded-md text-[9px] font-black uppercase transition-all", newPaymentMode === 'percentual' ? "bg-primary-500 text-slate-900" : "text-white/40")}
+                                 className={cn("px-2 h-7 rounded-md text-[9px] font-bold uppercase transition-all cursor-pointer", newPaymentMode === 'percentual' ? "bg-primary-500/20 text-primary-300 border border-primary-500/30 shadow-xs" : "text-white/40 hover:text-white border border-transparent")}
                                >
                                  %
                                </button>
                             </div>
-                            <Button className="h-8 text-[9px] bg-primary-500 text-slate-900 border-none shrink-0 mt-3.5 px-3" onClick={confirmAddPayment}>
+                            <button
+                              type="button"
+                              className="h-8 text-[9px] font-bold bg-primary-500/20 hover:bg-primary-500 text-primary-300 hover:text-slate-900 border border-primary-500/40 rounded-lg shrink-0 mt-3.5 px-3 flex items-center justify-center transition-all cursor-pointer active:scale-95 shadow-xs"
+                              onClick={confirmAddPayment}
+                            >
                               <Plus size={12} className="mr-1" /> Adicionar
-                            </Button>
+                            </button>
                          </div>
 
                          {!useCustomPaymentDate ? (
@@ -14197,10 +14249,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
            </div>
 
            {/* Bottom Action Bar (ALWAYS VISIBLE - NO SCROLL) */}
-           <div className="flex gap-2 pt-1 border-t border-white/5 shrink-0">
-              <Button
-                variant="secondary"
-                className="flex-1 h-9 sm:h-11 text-[8px] sm:text-[9px] uppercase font-black tracking-wider bg-emerald-500 hover:bg-emerald-400 text-slate-900 border-none shadow-lg shadow-emerald-500/20"
+           <div className="flex gap-2 pt-1.5 border-t border-white/5 shrink-0">
+              <button
+                type="button"
+                className="flex-1 h-9 sm:h-10 text-[8.5px] sm:text-[9px] uppercase font-bold tracking-wider bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 rounded-xl transition-all cursor-pointer active:scale-98 flex items-center justify-center"
                 onClick={() => {
                   setIsPaymentModalOpen(false);
                   if (settlingOrder) {
@@ -14215,23 +14267,32 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 }}
               >
                 Orçamento
-              </Button>
+              </button>
               {paymentModalRemaining > 0 ? (
-                <Button 
-                  className="flex-[2] h-9 sm:h-11 bg-amber-500 hover:bg-amber-400 text-slate-900 border-none shadow-lg shadow-amber-500/20 text-[9px] sm:text-[10px] font-black uppercase tracking-wider gap-2 cursor-pointer"
+                <button 
+                  type="button"
+                  className="flex-[2] h-9 sm:h-10 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-xl text-[9px] sm:text-[9.5px] font-bold uppercase tracking-wider gap-2 cursor-pointer transition-all active:scale-98 flex items-center justify-center shadow-xs"
                   onClick={() => handleFinalize(true)}
                 >
-                   <Clock size={16} />
-                   <span>{settlingOrder ? `REGISTRAR PAGAMENTO (R$ ${paymentEntriesTotal.toFixed(2).replace('.', ',')})` : `LANÇAR ENTRADA (R$ ${(downPayment === '' ? 0 : Number(downPayment)).toFixed(2).replace('.', ',')})`}</span>
-                </Button>
+                   <Clock size={15} />
+                   <span>
+                     {settlingOrder 
+                       ? `REGISTRAR PAGAMENTO (R$ ${paymentEntriesTotal.toFixed(2).replace('.', ',')})` 
+                       : (downPayment === '' || Number(downPayment) === 0)
+                         ? 'SALVAR NOTA A PRAZO (SEM ENTRADA)'
+                         : `LANÇAR ENTRADA (R$ ${Number(downPayment).toFixed(2).replace('.', ',')})`
+                     }
+                   </span>
+                </button>
               ) : (
-                <Button 
-                  className="flex-[2] h-9 sm:h-11 bg-primary-500 hover:bg-primary-400 text-slate-900 border-none shadow-lg shadow-primary-500/20 text-[8.5px] sm:text-[10px] font-black uppercase tracking-wider gap-1.5 cursor-pointer"
+                <button 
+                  type="button"
+                  className="flex-[2] h-9 sm:h-10 bg-primary-500/25 hover:bg-primary-500/35 text-primary-300 border border-primary-500/40 rounded-xl text-[9px] sm:text-[9.5px] font-bold uppercase tracking-wider gap-1.5 cursor-pointer transition-all active:scale-98 flex items-center justify-center shadow-xs"
                   onClick={() => handleFinalize(false)}
                 >
-                   <CheckCircle2 size={16} />
+                   <CheckCircle2 size={15} />
                    <span>{settlingOrder ? 'QUITAR DÉBITO (TOTAL PAGO)' : 'FINALIZAR VENDA (TOTAL QUITADO)'}</span>
-                </Button>
+                </button>
               )}
            </div>
         </div>
