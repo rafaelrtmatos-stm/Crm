@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { showAlert, showConfirm } from '../lib/notify';
+import { deductMateriasPrimasStock } from '../lib/materiasPrimasStorage';
 import { Company, Product, SaleOrder, CartItem, PaymentEntry, AppUser } from '../types';
 import { Badge, Button, Input, Modal, GlassCard, ModuleErrorBoundary } from './SharedUI';
 import { InventoryModule } from './InventoryModule';
@@ -801,6 +802,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
             }
           }
         }
+      }
+
+      // Deduct raw materials (matérias-primas) stock if present in items
+      if (consumoMateriasPrimas.length > 0) {
+        await deductMateriasPrimasStock(consumoMateriasPrimas as any, currentCompany?.id);
       }
 
       const finalizedOrder: SaleOrder = {

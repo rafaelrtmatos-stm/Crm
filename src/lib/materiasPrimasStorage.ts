@@ -292,6 +292,54 @@ export function subscribeToMateriasPrimas(onChange: () => void): () => void {
   };
 }
 
+/**
+ * Dá baixa automática no saldo de estoque das matérias-primas utilizadas
+ * quando uma venda/ordem de serviço com produtos compostos é finalizada.
+ */
+export async function deductMateriasPrimasStock(
+  consumptions: { materiaPrimaId?: string; name?: string; quantity: number }[],
+  companyId?: string
+): Promise<void> {
+  if (!consumptions || consumptions.length === 0) return;
+
+  try {
+    const currentList = await fetchMateriasPrimas(companyId);
+
+    for (const item of consumptions) {
+      if (!item.quantity || item.quantity <= 0) continue;
+
+      const found = currentList.find(mp => 
+        (item.materiaPrimaId && mp.id === item.materiaPrimaId) ||
+        (item.name && mp.name.trim().toLowerCase() === item.name.trim().toLowerCase())
+      );
+
+      if (found && found.quantidadeEstoque !== undefined && found.quantidadeEstoque !== null) {
+        const currentQty = Number(found.quantidadeEstoque) || 0;
+        const newQty = Math.max(0, Number((currentQty - item.quantity).toFixed(4)));
+
+        found.quantidadeEstoque = newQty;
+        updateLocalItem(found);
+
+        if (isValidUUID(found.id)) {
+          const { error } = await supabase
+            .from('materias_primas')
+            .update({
+              quantidade_estoque: newQty,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', found.id);
+
+          if (error) {
+            console.warn(`Erro ao atualizar estoque da matéria-prima ${found.name}:`, error.message);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Erro ao abater estoque de matérias-primas:', err);
+  }
+}
+
 // Local cache utilities
 function getCachedMateriasPrimas(companyId?: string): MateriaPrima[] {
   try {

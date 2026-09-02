@@ -183,7 +183,7 @@ import {
   MateriaPrima,
   MateriaPrimaConsumo
 } from '../types';
-import { fetchMateriasPrimas } from '../lib/materiasPrimasStorage';
+import { fetchMateriasPrimas, deductMateriasPrimasStock } from '../lib/materiasPrimasStorage';
 import { 
   AreaChart, 
   Area, 
@@ -10393,11 +10393,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
       // Baixa automatica de estoque para cada item vendido (produtos do catalogo real, ignora itens livres/manuais)
       // Roda em paralelo (Promise.all) em vez de um item de cada vez, pra nao deixar o fechamento lento
+      const materiasPrimasToDeduct: { materiaPrimaId?: string; name?: string; quantity: number }[] = [];
+
       await Promise.all(cart.filter(item => item.productId && item.productId !== 'manual').map(async (item) => {
         const qtdBaixa = item.consumoEstoque !== undefined
           ? item.consumoEstoque * item.quantity
           : (item.area ? item.area * item.quantity : item.quantity);
-        const { data: prodAtual } = await supabase.from('produtos').select('current_stock, controla_estoque, unit').eq('id', item.productId).maybeSingle();
+        const { data: prodAtual } = await supabase.from('produtos').select('current_stock, controla_estoque, unit, materias_primas').eq('id', item.productId).maybeSingle();
         if (prodAtual && prodAtual.controla_estoque !== false) {
           const estoqueAnterior = Number(prodAtual.current_stock) || 0;
           const novoEstoque = Math.max(0, estoqueAnterior - qtdBaixa);
@@ -10415,8 +10417,29 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               quantidade_posterior: novoEstoque,
             }),
           ]);
+
+          // Coleta matérias-primas vinculadas à ficha técnica deste produto para dar baixa
+          const rawMaterials = (prodAtual as any)?.materias_primas || (prodAtual as any)?.materiasPrimas;
+          if (Array.isArray(rawMaterials) && rawMaterials.length > 0) {
+            rawMaterials.forEach((mp: any) => {
+              const mpQty = Number(mp.quantity) || 1;
+              const consumed = Number((mpQty * qtdBaixa).toFixed(4));
+              if (consumed > 0) {
+                materiasPrimasToDeduct.push({
+                  materiaPrimaId: mp.materiaPrimaId || mp.id,
+                  name: mp.name,
+                  quantity: consumed
+                });
+              }
+            });
+          }
         }
       }));
+
+      // Baixa automática no estoque das matérias-primas (insumos/bobinas/chapas)
+      if (materiasPrimasToDeduct.length > 0) {
+        await deductMateriasPrimasStock(materiasPrimasToDeduct, currentCompany?.id);
+      }
 
       // Se essa venda veio de um orçamento, marca o orçamento como Concluído — Venda Gerada
       if (linkedOrcamentoId && insertedVenda) {

@@ -8,7 +8,7 @@ import { Company, AppUser, Product, MateriaPrima, MateriaPrimaConsumo } from '..
 import { supabase } from '../supabase';
 import { showAlert } from '../lib/notify';
 import { Badge, Button, Modal } from './SharedUI';
-import { fetchMateriasPrimas } from '../lib/materiasPrimasStorage';
+import { fetchMateriasPrimas, subscribeToMateriasPrimas } from '../lib/materiasPrimasStorage';
 import { MateriaPrimaFormModal } from './MateriasPrimasModule';
 import * as XLSX from 'xlsx';
 
@@ -63,6 +63,11 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
   useEffect(() => {
     fetchProducts();
     loadAvailableMateriasPrimas();
+
+    const unsubscribe = subscribeToMateriasPrimas(() => {
+      loadAvailableMateriasPrimas();
+    });
+    return () => unsubscribe();
   }, [currentCompany]);
 
   const loadAvailableMateriasPrimas = async () => {
