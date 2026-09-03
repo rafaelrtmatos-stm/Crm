@@ -770,6 +770,31 @@ function formatNamePreview(fullName: string, maxTotalChars: number = 16): string
 }
 
 // Quebra uma venda em "eventos de receita" com a data REAL de cada pagamento — se a venda foi
+// Resume TODOS os itens de um pedido/nota (nao so o ultimo) pra exibir em Historico e
+// Notas em Aberto do PDV, incluindo a medida/consumo linear de cada item (mesmo texto
+// usado no recibo). Sem isso, itens como "0,55m linear" ficavam escondidos atras do "+N"
+// e so apareciam ao baixar/gerar o recibo.
+function summarizeSaleItems(items: SaleOrderItem[] | undefined, maxVisible: number = 2): { text: string; title: string } {
+  if (!items || items.length === 0) return { text: '', title: '' };
+
+  const describe = (it: SaleOrderItem): string => {
+    const dimStr = it.dimensions || '';
+    const linearSuffix = (!dimStr.toLowerCase().includes('linear') && !it.area && it.consumoEstoque)
+      ? ` (${Number(it.consumoEstoque).toFixed(2).replace('.', ',')}m linear)`
+      : '';
+    const medida = dimStr ? ` (${dimStr})` : linearSuffix;
+    const qtd = it.quantity && it.quantity > 1 ? `${it.quantity}x ` : '';
+    return `${qtd}${it.name}${medida}`;
+  };
+
+  const full = items.map(describe);
+  const visible = full.slice(0, maxVisible).join(' • ');
+  const resto = full.length - maxVisible;
+  const text = resto > 0 ? `${visible} (+${resto})` : visible;
+  const title = full.join(' • ');
+  return { text, title };
+}
+
 // paga em partes (ex: R$100 dia 7, R$100 dia 14), o faturamento conta em cada dia separado, nao
 // tudo de uma vez na data de criacao da nota. Vendas antigas sem lista detalhada de pagamentos
 // (so tem o campo down_payment/total) caem no formato antigo: tudo na data de criacao.
@@ -12000,11 +12025,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
                           {/* Itens / Descrição + etiquetas de origem (Contrato/Orçamento) */}
                           <div className="min-w-0 flex items-center gap-1.5 overflow-hidden" style={colFlex('itens')}>
-                            {sale.items && sale.items.length > 0 && (
-                              <span className="text-[9px] text-white/40 italic truncate" title={sale.items[sale.items.length - 1].name}>
-                                {sale.items[sale.items.length - 1].name}{sale.items.length > 1 ? ` (+${sale.items.length - 1})` : ''}
-                              </span>
-                            )}
+                            {sale.items && sale.items.length > 0 && (() => {
+                              const summary = summarizeSaleItems(sale.items);
+                              return (
+                                <span className="text-[9px] text-white/40 italic truncate" title={summary.title}>
+                                  {summary.text}
+                                </span>
+                              );
+                            })()}
                             {sale.contratoId && (
                               <button
                                 onClick={() => { setActiveTab('contratos'); setHighlightContratoId(sale.contratoId!); setTimeout(() => setHighlightContratoId(null), 4000); }}
@@ -12201,11 +12229,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                 <span className="ml-1 text-[7px] font-bold text-emerald-400 bg-emerald-500/20 px-1 py-0.2 rounded">Copiado!</span>
                               )}
                             </button>
-                            {sale.items && sale.items.length > 0 && (
-                              <p className="text-[8px] text-white/40 italic truncate" title={sale.items[sale.items.length - 1].name}>
-                                {sale.items[sale.items.length - 1].name}{sale.items.length > 1 ? ` (+${sale.items.length - 1})` : ''}
-                              </p>
-                            )}
+                            {sale.items && sale.items.length > 0 && (() => {
+                              const summary = summarizeSaleItems(sale.items);
+                              return (
+                                <p className="text-[8px] text-white/40 italic truncate" title={summary.title}>
+                                  {summary.text}
+                                </p>
+                              );
+                            })()}
                             <button
                               type="button"
                               onClick={() => handleCopyHistoryField(sale.id, sale.id, 'nota')}
@@ -12678,12 +12709,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                         <div className="flex items-start gap-1.5 text-[10px] text-white/40">
                           <Package size={11} className="shrink-0 mt-0.5 text-white/25" />
                           <div className="min-w-0 space-y-0.5">
-                            {sale.items && sale.items.length > 0 && (
-                              <p className="truncate" title={sale.items[sale.items.length - 1].name}>
-                                {sale.items[sale.items.length - 1].name}
-                                {sale.items.length > 1 && <span className="text-white/25"> +{sale.items.length - 1} item(ns)</span>}
-                              </p>
-                            )}
+                            {sale.items && sale.items.length > 0 && (() => {
+                              const summary = summarizeSaleItems(sale.items);
+                              return (
+                                <p className="truncate" title={summary.title}>
+                                  {summary.text}
+                                </p>
+                              );
+                            })()}
                             {sale.observacoes && (
                               <p className="italic text-amber-300/70 truncate" title={sale.observacoes}>"{sale.observacoes}"</p>
                             )}
