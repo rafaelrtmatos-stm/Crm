@@ -10077,6 +10077,20 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const { largura, altura, larguraMaterial } = etiquetaForm;
     const metrosLinearStr = `${calc.metrosLineares.toFixed(2).replace('.', ',')}m linear`;
     const dimensoesLabel = `${calc.quantidade}un ${largura}x${altura}cm (${metrosLinearStr})`;
+    // Consumo de materia-prima da etiqueta = receita do produto (mp.quantity por metro linear)
+    // multiplicada pelo metro linear REAL calculado (calc.metrosLineares), igual ao que ja
+    // acontece no fluxo m2/metro (confirmAddDimensionItem) -- sem isso o custo de materia-prima
+    // ficava de fora da nota mesmo com a receita cadastrada certinha no produto.
+    const itemConsumo = (etiquetaModalProduct.materiasPrimas && etiquetaModalProduct.materiasPrimas.length > 0)
+      ? etiquetaModalProduct.materiasPrimas.map((mp: any) => ({
+          materiaPrimaId: mp.materiaPrimaId,
+          name: mp.name,
+          unit: mp.unit,
+          quantity: Number((mp.quantity * calc.metrosLineares).toFixed(4)),
+          costPrice: mp.costPrice || 0,
+          totalCost: Number(((mp.quantity * calc.metrosLineares) * (mp.costPrice || 0)).toFixed(2))
+        }))
+      : undefined;
     setCart(prev => [...prev, {
       productId: etiquetaModalProduct.id,
       name: etiquetaModalProduct.name,
@@ -10084,6 +10098,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       quantity: 1,
       dimensions: dimensoesLabel,
       consumoEstoque: calc.metrosLineares,
+      materiasPrimasConsumidas: itemConsumo,
     }]);
     // Se a largura do material foi mudada, salva como novo padrao pra proxima vez
     if (larguraMaterial && larguraMaterial !== etiquetaModalProduct.larguraRolo) {
