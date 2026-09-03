@@ -8887,9 +8887,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       setPendingPaymentMethod('');
       setIsPaymentModalOpen(true);
     } else {
-      // Pedido avulso (sem cliente cadastrado) — precisa escolher/criar o cliente antes de finalizar
+      // Pedido avulso (sem cliente cadastrado) — precisa escolher/criar o cliente antes de finalizar.
+      // Mesmo sem customerId, a venda original guarda o nome digitado — reaproveita ele pra não obrigar
+      // o usuário a redigitar: pré-preenche tanto a busca quanto o formulário de cadastro rápido.
       setSelectedCustomer(null);
-      showAlert(`Pedido de ${sale.customerName || 'cliente avulso'} duplicado! Os itens já estão no carrinho, mas esse pedido não tinha cliente cadastrado — selecione um cliente antes de finalizar.`);
+      const nomeDuplicado = sale.customerName || '';
+      setCustomerSearchTerm(nomeDuplicado);
+      setNewCustomerForm({ ...emptyCustomerForm, full_name: nomeDuplicado });
+      setCustomerModalMode('search');
+      setIsCustomerModalOpen(true);
+      showAlert(`Pedido de ${nomeDuplicado || 'cliente avulso'} duplicado! Os itens já estão no carrinho — confirme ou cadastre "${nomeDuplicado}" como cliente pra continuar.`);
     }
   };
 
