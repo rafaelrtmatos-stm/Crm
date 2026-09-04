@@ -1,25 +1,79 @@
-// Calculo de Lucro Liquido de uma venda -- usado em Historico de Vendas (POSModule) e no
-// Dashboard/Analise Detalhada (DashboardModule), pra garantir que os dois lugares mostrem
-// exatamente o mesmo numero.
+// Calculo de Lucro Liquido de uma venda.
 //
-// Regra: o custo real considera primeiro o consumo de materias-primas gravado no item da
-// venda. Para vendas antigas sem esse snapshot, mantem o fallback pelo custo interno do
-// produto. Servicos de categoria "substrato" tambem recebem automaticamente o custo de
-// maquina por metro linear.
+// O calculo aceita tanto vendas novas (com snapshot de materias-primas) quanto
+// vendas antigas. Para vendas antigas, quando o snapshot nao existe, o sistema
+// pode usar os dados atuais do produto e das materias-primas vinculadas.
 //
 // Lucro = Valor Recebido - (Custo de Material + Custo de Maquina + Custos Extras Manuais)
 
-export interface LucroMaterialConsumption { quantity: number; costPrice: number; totalCost?: number; name?: string; unit?: string; }
-export interface LucroSaleItem {
-  productId?: string; name?: string; quantity: number; area?: number; consumoEstoque?: number;
-  dimensions?: string; category?: string; categoria?: string; tipoItem?: string; unitType?: string;
-  materiasPrimasConsumidas?: LucroMaterialConsumption[]; custoMaquinaPorMetro?: number;
+export interface LucroMaterialConsumption {
+  quantity: number;
+  costPrice: number;
+  totalCost?: number;
+  name?: string;
+  unit?: string;
 }
+
+export interface LucroCurrentMaterial {
+  id?: string;
+  name?: string;
+  unit?: string;
+  costPrice?: number;
+}
+
+export interface LucroCurrentProduct {
+  id?: string;
+  name?: string;
+  category?: string;
+  categoria?: string;
+  tipoItem?: string;
+  unitType?: string;
+  custoMaquinaPorMetro?: number;
+  materiasPrimas?: Array<{
+    materiaPrimaId?: string;
+    name?: string;
+    unit?: string;
+    quantity?: number;
+    costPrice?: number;
+  }>;
+}
+
+export interface LucroSaleItem {
+  productId?: string;
+  name?: string;
+  quantity: number;
+  area?: number;
+  consumoEstoque?: number;
+  dimensions?: string;
+  category?: string;
+  categoria?: string;
+  tipoItem?: string;
+  unitType?: string;
+  materiasPrimasConsumidas?: LucroMaterialConsumption[];
+  custoMaquinaPorMetro?: number;
+  // Compatibilidade com itens antigos que tenham recebido um snapshot do produto.
+  materiasPrimas?: Array<{
+    materiaPrimaId?: string;
+    name?: string;
+    unit?: string;
+    quantity?: number;
+    costPrice?: number;
+  }>;
+}
+
 export interface LucroExtraCost { amount: number; date?: string; description?: string; }
-export interface LucroNotaBreakdown { material: number; maquina: number; extras: number; custoTotal: number; valorRecebido: number; lucro: number; }
+export interface LucroNotaBreakdown {
+  material: number;
+  maquina: number;
+  extras: number;
+  custoTotal: number;
+  valorRecebido: number;
+  lucro: number;
+}
 
 const REGEX_MATERIAL_LONA_ADESIVO = /lona|adesivo/i;
 const REGEX_SUBSTRATO = /substrato/i;
+const REGEX_ETIQUETA = /etiqueta/i;
 const CUSTO_MAQUINA_SUBSTRATO_POR_METRO = 5.98;
 
 export function isMaterialLonaAdesivo(nomeProduto: string | undefined | null): boolean {
@@ -30,71 +84,192 @@ export function obterConsumoItem(item: LucroSaleItem): number {
   const qtd = item.quantity || 1;
   if (typeof item.consumoEstoque === 'number' && item.consumoEstoque > 0) return item.consumoEstoque;
   if (typeof item.area === 'number' && item.area > 0) return item.area * qtd;
+
   if (item.dimensions) {
     const linearMatch = item.dimensions.match(/\(?([0-9.,]+)\s*m\s*linear\)?/i);
-    if (linearMatch) { const val = parseFloat(linearMatch[1].replace(',', '.')); if (val > 0) return val * qtd; }
+    if (linearMatch) {
+      const val = parseFloat(linearMatch[1].replace(',', '.'));
+      if (val > 0) return val * qtd;
+    }
+
     const m2Match = item.dimensions.match(/\(?([0-9.,]+)\s*m²\)?/i);
-    if (m2Match) { const val = parseFloat(m2Match[1].replace(',', '.')); if (val > 0) return val * qtd; }
+    if (m2Match) {
+      const val = parseFloat(m2Match[1].replace(',', '.'));
+      if (val > 0) return val * qtd;
+    }
+
     const singleMeterMatch = item.dimensions.match(/^([0-9.,]+)\s*m$/i);
-    if (singleMeterMatch) { const val = parseFloat(singleMeterMatch[1].replace(',', '.')); if (val > 0) return val * qtd; }
+    if (singleMeterMatch) {
+      const val = parseFloat(singleMeterMatch[1].replace(',', '.'));
+      if (val > 0) return val * qtd;
+    }
+
     const whMatch = item.dimensions.match(/^([0-9.,]+)\s*x\s*([0-9.,]+)/i);
     if (whMatch) {
-      const w = parseFloat(whMatch[1].replace(',', '.')); const h = parseFloat(whMatch[2].replace(',', '.'));
-      if (w > 0 && h > 0) return (w * h) * qtd; if (w > 0) return w * qtd;
+      const w = parseFloat(whMatch[1].replace(',', '.'));
+      const h = parseFloat(whMatch[2].replace(',', '.'));
+      if (w > 0 && h > 0) return (w * h) * qtd;
+      if (w > 0) return w * qtd;
     }
   }
+
   return qtd;
 }
 
-export function custoMaterialRealItem(item: LucroSaleItem, custoPorId: Record<string, number>, nomePorId?: Record<string, string>): number {
+function calcularMateriaisDoProdutoAtual(
+  item: LucroSaleItem,
+  produtoAtual: LucroCurrentProduct | undefined,
+  materiasPrimasAtuais?: Record<string, LucroCurrentMaterial>
+): number {
+  const materiais = produtoAtual?.materiasPrimas || item.materiasPrimas || [];
+  if (!Array.isArray(materiais) || materiais.length === 0) return 0;
+
+  const consumo = obterConsumoItem(item);
+  return materiais.reduce((sum, mp) => {
+    const materialAtual = mp.materiaPrimaId && materiasPrimasAtuais
+      ? materiasPrimasAtuais[mp.materiaPrimaId]
+      : undefined;
+    const custo = Number(materialAtual?.costPrice ?? mp.costPrice ?? 0);
+    const quantidadePorUnidade = Number(mp.quantity ?? 0);
+    return sum + (quantidadePorUnidade * consumo * custo);
+  }, 0);
+}
+
+export function custoMaterialRealItem(
+  item: LucroSaleItem,
+  custoPorId: Record<string, number>,
+  nomePorId?: Record<string, string>,
+  produtoPorId?: Record<string, LucroCurrentProduct>,
+  materiasPrimasAtuais?: Record<string, LucroCurrentMaterial>
+): number {
+  // Vendas novas: usa o snapshot gravado no momento da venda.
   const consumos = Array.isArray(item.materiasPrimasConsumidas) ? item.materiasPrimasConsumidas : [];
   if (consumos.length > 0) {
     return consumos.reduce((sum, mp) => {
       const total = Number(mp.totalCost);
-      return sum + (Number.isFinite(total) && total >= 0 ? total : (Number(mp.quantity) || 0) * (Number(mp.costPrice) || 0));
+      return sum + (Number.isFinite(total) && total >= 0
+        ? total
+        : (Number(mp.quantity) || 0) * (Number(mp.costPrice) || 0));
     }, 0);
   }
-  const nome = item.name || (item.productId && nomePorId ? nomePorId[item.productId] : '') || '';
+
+  // Vendas antigas: primeiro tenta reconstruir o custo com o produto atual
+  // e o custo atual das materias-primas vinculadas.
+  const produtoAtual = item.productId && produtoPorId ? produtoPorId[item.productId] : undefined;
+  const custoProdutoAtual = calcularMateriaisDoProdutoAtual(item, produtoAtual, materiasPrimasAtuais);
+  if (custoProdutoAtual > 0) return custoProdutoAtual;
+
+  // Fallback legado para produtos que nao possuem materias-primas cadastradas.
+  const nome = item.name || produtoAtual?.name || (item.productId && nomePorId ? nomePorId[item.productId] : '') || '';
   if (!isMaterialLonaAdesivo(nome)) return 0;
   const custoUnit = (item.productId && custoPorId[item.productId]) || 0;
   return custoUnit * obterConsumoItem(item);
 }
 
-export function custoMaterialLonaAdesivo(items: LucroSaleItem[] | undefined | null, custoPorId: Record<string, number>, nomePorId?: Record<string, string>): number {
-  return (items || []).reduce((total, item) => total + custoMaterialRealItem(item, custoPorId, nomePorId), 0);
+export function custoMaterialLonaAdesivo(
+  items: LucroSaleItem[] | undefined | null,
+  custoPorId: Record<string, number>,
+  nomePorId?: Record<string, string>,
+  produtoPorId?: Record<string, LucroCurrentProduct>,
+  materiasPrimasAtuais?: Record<string, LucroCurrentMaterial>
+): number {
+  return (items || []).reduce(
+    (total, item) => total + custoMaterialRealItem(item, custoPorId, nomePorId, produtoPorId, materiasPrimasAtuais),
+    0
+  );
 }
 
-export function custoMaquinaItem(item: LucroSaleItem): number {
-  const categoria = item.category || item.categoria || '';
-  if (!REGEX_SUBSTRATO.test(categoria)) return 0;
+export function custoMaquinaItem(item: LucroSaleItem, produtoAtual?: LucroCurrentProduct): number {
+  const categoria = item.category || item.categoria || produtoAtual?.category || produtoAtual?.categoria || '';
+  const tipo = item.tipoItem || produtoAtual?.tipoItem || '';
+  const unidade = item.unitType || produtoAtual?.unitType || '';
+  const nome = item.name || produtoAtual?.name || '';
+
+  // Em notas antigas a categoria pode nao ter sido salva no item. Etiqueta de
+  // servico/metro continua sendo reconhecida como substrato para o custo da maquina.
+  const isSubstrato = REGEX_SUBSTRATO.test(categoria)
+    || (REGEX_ETIQUETA.test(nome) && (/metro|etiqueta/i.test(unidade) || /servi/i.test(tipo)));
+
+  if (!isSubstrato) return 0;
+
   const metros = obterConsumoItem(item);
-  const custoPorMetro = Number(item.custoMaquinaPorMetro);
-  const rate = Number.isFinite(custoPorMetro) && custoPorMetro >= 0 ? custoPorMetro : CUSTO_MAQUINA_SUBSTRATO_POR_METRO;
+  const custoPorMetro = Number(item.custoMaquinaPorMetro ?? produtoAtual?.custoMaquinaPorMetro);
+  const rate = Number.isFinite(custoPorMetro) && custoPorMetro >= 0
+    ? custoPorMetro
+    : CUSTO_MAQUINA_SUBSTRATO_POR_METRO;
   return metros * rate;
 }
 
-export function custoMaquinaTotal(items: LucroSaleItem[] | undefined | null): number {
-  return (items || []).reduce((total, item) => total + custoMaquinaItem(item), 0);
+export function custoMaquinaTotal(
+  items: LucroSaleItem[] | undefined | null,
+  produtoPorId?: Record<string, LucroCurrentProduct>
+): number {
+  return (items || []).reduce((total, item) => {
+    const produtoAtual = item.productId && produtoPorId ? produtoPorId[item.productId] : undefined;
+    return total + custoMaquinaItem(item, produtoAtual);
+  }, 0);
 }
 
 export function somaCustosExtras(extraCosts?: LucroExtraCost[] | null): number {
   return (extraCosts || []).reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
 }
 
-export function detalharCustoDaNota(params: { items: LucroSaleItem[] | undefined | null; custoPorId: Record<string, number>; nomePorId?: Record<string, string>; extraCosts?: LucroExtraCost[] | null; proporcao?: number; valorRecebido?: number; }): LucroNotaBreakdown {
-  const custoMaterial = custoMaterialLonaAdesivo(params.items, params.custoPorId, params.nomePorId);
-  const custoMaquina = custoMaquinaTotal(params.items);
+export function detalharCustoDaNota(params: {
+  items: LucroSaleItem[] | undefined | null;
+  custoPorId: Record<string, number>;
+  nomePorId?: Record<string, string>;
+  produtoPorId?: Record<string, LucroCurrentProduct>;
+  materiasPrimasAtuais?: Record<string, LucroCurrentMaterial>;
+  extraCosts?: LucroExtraCost[] | null;
+  proporcao?: number;
+  valorRecebido?: number;
+}): LucroNotaBreakdown {
+  const custoMaterial = custoMaterialLonaAdesivo(
+    params.items,
+    params.custoPorId,
+    params.nomePorId,
+    params.produtoPorId,
+    params.materiasPrimasAtuais
+  );
+  const custoMaquina = custoMaquinaTotal(params.items, params.produtoPorId);
   const custoExtras = somaCustosExtras(params.extraCosts);
-  const proporcao = typeof params.proporcao === 'number' && Number.isFinite(params.proporcao) ? params.proporcao : 1;
+  const proporcao = typeof params.proporcao === 'number' && Number.isFinite(params.proporcao)
+    ? params.proporcao
+    : 1;
   const custoTotal = (custoMaterial + custoMaquina + custoExtras) * proporcao;
   const valorRecebido = Number(params.valorRecebido) || 0;
-  return { material: custoMaterial * proporcao, maquina: custoMaquina * proporcao, extras: custoExtras * proporcao, custoTotal, valorRecebido, lucro: valorRecebido - custoTotal };
+
+  return {
+    material: custoMaterial * proporcao,
+    maquina: custoMaquina * proporcao,
+    extras: custoExtras * proporcao,
+    custoTotal,
+    valorRecebido,
+    lucro: valorRecebido - custoTotal,
+  };
 }
 
-export function custoTotalDaNota(params: { items: LucroSaleItem[] | undefined | null; custoPorId: Record<string, number>; nomePorId?: Record<string, string>; extraCosts?: LucroExtraCost[] | null; proporcao?: number; }): number {
+export function custoTotalDaNota(params: {
+  items: LucroSaleItem[] | undefined | null;
+  custoPorId: Record<string, number>;
+  nomePorId?: Record<string, string>;
+  produtoPorId?: Record<string, LucroCurrentProduct>;
+  materiasPrimasAtuais?: Record<string, LucroCurrentMaterial>;
+  extraCosts?: LucroExtraCost[] | null;
+  proporcao?: number;
+}): number {
   return detalharCustoDaNota(params).custoTotal;
 }
 
-export function calcularLucroLiquido(params: { valorRecebido: number; items: LucroSaleItem[] | undefined | null; custoPorId: Record<string, number>; nomePorId?: Record<string, string>; extraCosts?: LucroExtraCost[] | null; proporcao?: number; }): number {
+export function calcularLucroLiquido(params: {
+  valorRecebido: number;
+  items: LucroSaleItem[] | undefined | null;
+  custoPorId: Record<string, number>;
+  nomePorId?: Record<string, string>;
+  produtoPorId?: Record<string, LucroCurrentProduct>;
+  materiasPrimasAtuais?: Record<string, LucroCurrentMaterial>;
+  extraCosts?: LucroExtraCost[] | null;
+  proporcao?: number;
+}): number {
   return detalharCustoDaNota(params).lucro;
 }
