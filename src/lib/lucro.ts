@@ -9,13 +9,14 @@
 //
 // Lucro = Valor Recebido - (Custo de Material + Custo de Maquina + Custos Extras Manuais)
 
-export interface LucroMaterialConsumption { quantity: number; costPrice: number; totalCost?: number; }
+export interface LucroMaterialConsumption { quantity: number; costPrice: number; totalCost?: number; name?: string; unit?: string; }
 export interface LucroSaleItem {
   productId?: string; name?: string; quantity: number; area?: number; consumoEstoque?: number;
   dimensions?: string; category?: string; categoria?: string; tipoItem?: string; unitType?: string;
   materiasPrimasConsumidas?: LucroMaterialConsumption[]; custoMaquinaPorMetro?: number;
 }
 export interface LucroExtraCost { amount: number; date?: string; description?: string; }
+export interface LucroNotaBreakdown { material: number; maquina: number; extras: number; custoTotal: number; valorRecebido: number; lucro: number; }
 
 const REGEX_MATERIAL_LONA_ADESIVO = /lona|adesivo/i;
 const REGEX_SUBSTRATO = /substrato/i;
@@ -80,16 +81,20 @@ export function somaCustosExtras(extraCosts?: LucroExtraCost[] | null): number {
   return (extraCosts || []).reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
 }
 
-export function custoTotalDaNota(params: { items: LucroSaleItem[] | undefined | null; custoPorId: Record<string, number>; nomePorId?: Record<string, string>; extraCosts?: LucroExtraCost[] | null; proporcao?: number; }): number {
+export function detalharCustoDaNota(params: { items: LucroSaleItem[] | undefined | null; custoPorId: Record<string, number>; nomePorId?: Record<string, string>; extraCosts?: LucroExtraCost[] | null; proporcao?: number; valorRecebido?: number; }): LucroNotaBreakdown {
   const custoMaterial = custoMaterialLonaAdesivo(params.items, params.custoPorId, params.nomePorId);
   const custoMaquina = custoMaquinaTotal(params.items);
   const custoExtras = somaCustosExtras(params.extraCosts);
-  let total = custoMaterial + custoMaquina + custoExtras;
-  if (typeof params.proporcao === 'number' && Number.isFinite(params.proporcao)) total *= params.proporcao;
-  return total;
+  const proporcao = typeof params.proporcao === 'number' && Number.isFinite(params.proporcao) ? params.proporcao : 1;
+  const custoTotal = (custoMaterial + custoMaquina + custoExtras) * proporcao;
+  const valorRecebido = Number(params.valorRecebido) || 0;
+  return { material: custoMaterial * proporcao, maquina: custoMaquina * proporcao, extras: custoExtras * proporcao, custoTotal, valorRecebido, lucro: valorRecebido - custoTotal };
+}
+
+export function custoTotalDaNota(params: { items: LucroSaleItem[] | undefined | null; custoPorId: Record<string, number>; nomePorId?: Record<string, string>; extraCosts?: LucroExtraCost[] | null; proporcao?: number; }): number {
+  return detalharCustoDaNota(params).custoTotal;
 }
 
 export function calcularLucroLiquido(params: { valorRecebido: number; items: LucroSaleItem[] | undefined | null; custoPorId: Record<string, number>; nomePorId?: Record<string, string>; extraCosts?: LucroExtraCost[] | null; proporcao?: number; }): number {
-  const custo = custoTotalDaNota(params);
-  return params.valorRecebido - custo;
+  return detalharCustoDaNota(params).lucro;
 }
