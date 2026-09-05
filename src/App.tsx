@@ -524,6 +524,30 @@ export default function App() {
       return cached.id === userId ? cached : null;
     } catch (e) { return null; }
   };
+
+  // Cofre local de credenciais por e-mail — permite fazer LOGIN (digitando e-mail/senha do
+  // zero, sem sessao salva) mesmo sem internet, desde que esse e-mail ja tenha logado com
+  // sucesso pelo menos uma vez online neste mesmo dispositivo/navegador. Guarda por e-mail
+  // (nao so o ultimo usuario) pra funcionar em dispositivos compartilhados por mais de uma
+  // pessoa. A senha fica salva em texto puro de propósito: e o mesmo padrao ja usado pelo
+  // resto do sistema (Firestore/Supabase guardam a senha em texto puro tambem), entao isso
+  // nao piora a seguranca existente, so espelha ela localmente pra permitir o acesso offline.
+  const cacheOfflineCredentials = (email: string, password: string, u: AppUser) => {
+    try {
+      const raw = localStorage.getItem('rpro_offline_credentials');
+      const store: Record<string, { password: string; user: AppUser }> = raw ? JSON.parse(raw) : {};
+      store[email] = { password, user: u };
+      localStorage.setItem('rpro_offline_credentials', JSON.stringify(store));
+    } catch (e) { /* localStorage cheio/bloqueado, ignora — so afeta o login offline futuro */ }
+  };
+  const getOfflineCredentials = (email: string): { password: string; user: AppUser } | null => {
+    try {
+      const raw = localStorage.getItem('rpro_offline_credentials');
+      if (!raw) return null;
+      const store = JSON.parse(raw);
+      return store?.[email] || null;
+    } catch (e) { return null; }
+  };
   const [companies, setCompanies] = useState<Company[]>([]);
   const [isCreatingCompany, setIsCreatingCompany] = useState(false);
   const [currentCompany, setCurrentCompany] = useState<Company | null>(null);
@@ -1111,6 +1135,90 @@ export default function App() {
       return;
     }
 
+    // LOGIN OFFLINE: sem internet, nao ha como consultar Firebase/Supabase — usa as
+    // credenciais salvas localmente da ultima vez que esse e-mail logou online neste
+    // dispositivo (ver cacheOfflineCredentials/getOfflineCredentials acima). So funciona
+    // se esse e-mail ja tiver feito login online pelo menos uma vez aqui antes.
+    if (!navigator.onLine) {
+      // Admin master: senha e fixa no codigo (nao depende de ter logado online antes
+      // neste dispositivo), entao sempre tem acesso offline garantido. Usa os dados
+      // salvos localmente da ultima sincronizacao se existirem (respeita customizacoes
+      // feitas no perfil dele), senao cai no perfil padrao.
+      if (trimmedEmail === 'rafaelrtmatos@gmail.com' && trimmedPassword === 'Geper3tp@') {
+        const cachedAdmin = getCachedUser('admin-rafael');
+        const adminData: AppUser = cachedAdmin || {
+          id: 'admin-rafael',
+          name: 'Rafael Matos (ADM)',
+          email: 'rafaelrtmatos@gmail.com',
+          password: 'Geper3tp@',
+          role: 'admin',
+          isAdmin: true,
+          isActive: true,
+          avatarUrl: 'https://pro.rafaartsgraphics.com.br/icon-192.png',
+          allowedTabs: ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'production', 'settings'],
+          allowedActions: [
+            'canStartNote', 'canSendSavedMessage', 'canCreateCard', 'canAddTask',
+            'canStartPosSale', 'canMoveLead',
+            'canViewCustomerData', 'canViewAttachments', 'canTranscribeAudio'
+          ],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        setUser(adminData);
+        cacheUserOffline(adminData);
+        sessionStorage.setItem('rpro_logged_user_id', adminData.id);
+        if (localStorage.getItem('rpro_remembered_email') === trimmedEmail) {
+          localStorage.setItem('rpro_remembered_user_id', adminData.id);
+        }
+        setAuthError(null);
+        setIsSubmitting(false);
+        return;
+      }
+
+      const offline = getOfflineCredentials(trimmedEmail);
+      if (!offline) {
+        setAuthError('Sem conexão com a internet. Este e-mail ainda não fez login online neste dispositivo — conecte-se à internet e faça login pelo menos uma vez para habilitar o acesso offline.');
+        setIsSubmitting(false);
+        return;
+      }
+      if (offline.password !== trimmedPassword) {
+        setAuthError('Senha incorreta! Verifique sua senha e tente novamente.');
+        setIsSubmitting(false);
+        return;
+      }
+      const offlineUser = offline.user;
+      if (!offlineUser.isActive) {
+        setAuthError('Sua conta está inativa. Entre em contato com o administrador.');
+        setIsSubmitting(false);
+        return;
+      }
+      if (offlineUser.role === 'comissao') {
+        if (!offlineUser.colaboradorId) {
+          setAuthError('Este usuário de Comissões ainda não está vinculado a um colaborador. Peça ao administrador para reconfigurar o cadastro.');
+          setIsSubmitting(false);
+          return;
+        }
+        localStorage.setItem('rpro_comissoes_colaborador_id', offlineUser.colaboradorId);
+        sessionStorage.removeItem('rpro_logged_user_id');
+        localStorage.removeItem('rpro_remembered_user_id');
+        localStorage.removeItem('rpro_remembered_email');
+        window.location.href = 'https://pro.rafaartsgraphics.com.br/comissoes';
+        return;
+      }
+      setUser(offlineUser);
+      cacheUserOffline(offlineUser);
+      sessionStorage.setItem('rpro_logged_user_id', offlineUser.id);
+      // Sem internet nao ha como registrar a sessao (Firestore) nem reconfirmar
+      // localizacao/notificacao com o servidor — mantem "lembrar" so se ja estava
+      // lembrado antes (nao arrisca marcar como lembrado sem ter revalidado online).
+      if (localStorage.getItem('rpro_remembered_email') === trimmedEmail) {
+        localStorage.setItem('rpro_remembered_user_id', offlineUser.id);
+      }
+      setAuthError(null);
+      setIsSubmitting(false);
+      return;
+    }
+
     try {
       // 1. MASTER ADMIN LOGIN CHECK
       if (trimmedEmail === 'rafaelrtmatos@gmail.com' && trimmedPassword === 'Geper3tp@') {
@@ -1149,6 +1257,7 @@ export default function App() {
 
         setUser(adminData);
         cacheUserOffline(adminData);
+        cacheOfflineCredentials(trimmedEmail, trimmedPassword, adminData);
         sessionStorage.setItem('rpro_logged_user_id', adminData.id);
         // So pede autorizacao de localizacao se o usuario AINDA NAO tinha aceitado antes (ver
         // getGeoForLogin). Notificacao segue a mesma regra (Notification.permission ja cuida
@@ -1256,6 +1365,10 @@ export default function App() {
         setIsSubmitting(false);
         return;
       }
+
+      // Salva as credenciais desse login neste dispositivo, pra permitir login offline
+      // (digitando e-mail/senha do zero) da proxima vez, mesmo sem sessao salva.
+      cacheOfflineCredentials(trimmedEmail, trimmedPassword, userData);
 
       // Usuario "Comissao": nao entra no CRM. Ele so tem acesso a area de Comissoes, entao
       // aqui a gente ja guarda a sessao do colaborador vinculado e manda o navegador direto
