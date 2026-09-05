@@ -1667,7 +1667,7 @@ export default function App() {
         <div className="absolute bottom-8 left-8 w-32 h-32 opacity-10 bg-[radial-gradient(#ffffff_1.5px,transparent_1.5px)] [background-size:12px_12px]" />
       </div>
 
-      <div className="max-w-md w-full space-y-4 sm:space-y-5 my-auto animate-in fade-in zoom-in-95 duration-500 relative z-10">
+      <div className="max-w-sm w-full space-y-4 my-auto animate-in fade-in zoom-in-95 duration-500 relative z-10">
         {/* Header Badge & Title with Separated Rafa Arts Graphics Logo */}
         <div className="flex flex-col items-center text-center space-y-2">
           <div className="px-5 py-3 sm:px-6 sm:py-4 rounded-3xl bg-[#0c0c12]/90 border border-slate-800 shadow-2xl shadow-red-950/60 backdrop-blur-xl">
@@ -1684,7 +1684,7 @@ export default function App() {
         </div>
 
         {/* Login Form Card - e-mail e senha, sem lista de usuarios */}
-        <form onSubmit={handlePasswordLogin} className="bg-[#0e0e13]/95 backdrop-blur-3xl p-5 sm:p-7 rounded-[28px] border border-white/10 shadow-2xl space-y-4">
+        <form onSubmit={handlePasswordLogin} className="bg-[#0e0e13]/95 backdrop-blur-3xl p-5 sm:p-6 rounded-[28px] border border-white/10 shadow-2xl space-y-4">
           <div className="space-y-3.5">
             {/* E-mail Field */}
             <div>

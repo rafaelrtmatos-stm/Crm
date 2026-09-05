@@ -1197,7 +1197,7 @@ export const ContractApprovalModule = ({ currentCompany, onContractApproved }: C
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-white/5 border border-white/10 rounded-[32px] p-8 backdrop-blur-2xl space-y-8"
+          className="bg-white/5 border border-white/10 rounded-[32px] p-6 sm:p-8 backdrop-blur-2xl max-w-3xl mx-auto space-y-8"
         >
           <div className="text-center space-y-2">
             <span className="px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-black uppercase tracking-widest">
