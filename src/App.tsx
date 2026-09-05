@@ -548,7 +548,16 @@ export default function App() {
       return store?.[email] || null;
     } catch (e) { return null; }
   };
-  const [companies, setCompanies] = useState<Company[]>([]);
+  const [companies, setCompanies] = useState<Company[]>(() => {
+    // Enquanto o Firestore (com cache offline habilitado em firebase.ts) ainda nao
+    // devolveu o primeiro snapshot, comeca ja com a ultima lista conhecida salva
+    // localmente — evita cair na tela de "Nenhuma empresa encontrada" por um instante
+    // (ou de vez, se estiver offline e o cache do Firestore falhar por algum motivo).
+    try {
+      const raw = localStorage.getItem('rpro_cached_companies');
+      return raw ? (JSON.parse(raw) as Company[]) : [];
+    } catch (e) { return []; }
+  });
   const [isCreatingCompany, setIsCreatingCompany] = useState(false);
   const [currentCompany, setCurrentCompany] = useState<Company | null>(null);
   const [menuConfig, setMenuConfig] = useState<{ id: string; visible: boolean }[] | null>(null);
@@ -572,11 +581,22 @@ export default function App() {
   const [isMessagePopupOpen, setIsMessagePopupOpen] = useState(false);
   const [preselectedLeadIdForMessages, setPreselectedLeadIdForMessages] = useState<string | undefined>();
   const [pendingOrders, setPendingOrders] = useState<SaleOrder[]>([]);
-  const [isRegisterOpen, setIsRegisterOpenLocal] = useState(false);
+  const [isRegisterOpen, setIsRegisterOpenLocal] = useState(() => {
+    // Mesma ideia das empresas: comeca com o ultimo status conhecido do caixa
+    // enquanto a consulta ao Supabase nao volta (ou pra sempre, se estiver offline).
+    try { return localStorage.getItem('rpro_cached_caixa_aberto') === '1'; } catch (e) { return false; }
+  });
   useEffect(() => {
     const load = async () => {
-      const { data } = await supabase.from('configuracoes').select('caixa_aberto').eq('company_id', 'rafa-arts').maybeSingle();
-      setIsRegisterOpenLocal(!!data?.caixa_aberto);
+      try {
+        const { data, error } = await supabase.from('configuracoes').select('caixa_aberto').eq('company_id', 'rafa-arts').maybeSingle();
+        if (error) throw error;
+        setIsRegisterOpenLocal(!!data?.caixa_aberto);
+        try { localStorage.setItem('rpro_cached_caixa_aberto', data?.caixa_aberto ? '1' : '0'); } catch (e) { /* ignora */ }
+      } catch (e) {
+        // Sem internet (ou erro de rede) — mantem o ultimo status conhecido em vez de
+        // resetar o caixa pra "fechado" e pedir pra abrir de novo sem necessidade.
+      }
     };
     load();
     const channel = supabase
@@ -595,6 +615,7 @@ export default function App() {
 
   const setIsRegisterOpen = async (open: boolean) => {
     setIsRegisterOpenLocal(open); // resposta imediata na UI
+    try { localStorage.setItem('rpro_cached_caixa_aberto', open ? '1' : '0'); } catch (e) { /* ignora */ }
     try {
       await supabase.from('configuracoes').upsert({
         company_id: 'rafa-arts',
@@ -602,7 +623,10 @@ export default function App() {
         caixa_aberto_em: open ? new Date().toISOString() : null,
       }, { onConflict: 'company_id' });
     } catch (err) {
-      console.error('Erro ao sincronizar status do caixa:', err);
+      // Sem internet: fica registrado so localmente por enquanto (o status ja foi
+      // atualizado na UI e no cache acima) — sincroniza com o Supabase quando a
+      // conexao voltar, na proxima vez que essa tela recarregar 'load()'.
+      console.error('Erro ao sincronizar status do caixa (provavelmente offline):', err);
     }
   };
   const [lastMessageId, setLastMessageId] = useState<string | null>(null);
@@ -1429,6 +1453,7 @@ export default function App() {
       companiesUnsub = onSnapshot(companiesQuery, (snapshot) => {
         const comps = snapshot.docs.map(d => ({ id: d.id, ...d.data() }) as Company);
         setCompanies(comps);
+        try { localStorage.setItem('rpro_cached_companies', JSON.stringify(comps)); } catch (e) { /* ignora */ }
         if (comps.length > 0) {
           setCurrentCompany(prev => prev || comps[0]);
         }
