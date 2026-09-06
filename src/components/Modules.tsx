@@ -181,9 +181,12 @@ import {
   ModulePermissions,
   ExtraCost,
   MateriaPrima,
-  MateriaPrimaConsumo
+  MateriaPrimaConsumo,
+  Maquina,
+  calcularCustosMaquina
 } from '../types';
 import { fetchMateriasPrimas, deductMateriasPrimasStock } from '../lib/materiasPrimasStorage';
+import { fetchMaquinas } from '../lib/maquinasStorage';
 import { 
   AreaChart, 
   Area, 
@@ -8708,15 +8711,47 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const [produtosCostMap, setProdutosCostMap] = useState<Record<string, number>>({});
+  const [produtoPorIdMap, setProdutoPorIdMap] = useState<Record<string, any>>({});
+  const [custoMaquinaM2PorCategoria, setCustoMaquinaM2PorCategoria] = useState<Record<string, number>>({});
   useEffect(() => {
     const loadCosts = async () => {
-      const { data } = await supabase.from('produtos').select('id, cost_price');
+      const { data } = await supabase.from('produtos').select('id, cost_price, categoria, largura_rolo, materias_primas');
       const map: Record<string, number> = {};
-      (data || []).forEach((p: any) => { map[p.id] = Number(p.cost_price) || 0; });
+      const produtoMap: Record<string, any> = {};
+      (data || []).forEach((p: any) => {
+        map[p.id] = Number(p.cost_price) || 0;
+        produtoMap[p.id] = {
+          id: p.id,
+          categoria: p.categoria || '',
+          larguraRolo: p.largura_rolo ? Number(p.largura_rolo) : undefined,
+          materiasPrimas: Array.isArray(p.materias_primas) ? p.materias_primas : []
+        };
+      });
       setProdutosCostMap(map);
+      setProdutoPorIdMap(produtoMap);
     };
     loadCosts();
   }, []);
+
+  // Custo real de maquina por m2, por categoria de produto atendida (cadastro de Maquinas) --
+  // usado para o custo de maquina de produtos SUBSTRATO (ver src/lib/lucro.ts). Uma maquina
+  // ativa por categoria; se houver mais de uma cadastrada para a mesma categoria, usa a primeira.
+  useEffect(() => {
+    const loadMaquinasCusto = async () => {
+      const maquinas = await fetchMaquinas(currentCompany?.id);
+      const map: Record<string, number> = {};
+      maquinas
+        .filter(m => m.ativa && m.categoriaProduto && m.categoriaProduto.trim())
+        .forEach(m => {
+          const chave = m.categoriaProduto!.trim().toUpperCase();
+          if (map[chave] === undefined) {
+            map[chave] = calcularCustosMaquina(m, m.tarifaKwh).custoTotalMaquinaM2;
+          }
+        });
+      setCustoMaquinaM2PorCategoria(map);
+    };
+    loadMaquinasCusto();
+  }, [currentCompany?.id]);
 
   // Lucro liquido de uma venda (valor recebido - custo Lona/Adesivo - custos extras manuais),
   // so pro Admin ver na coluna de valor do modo lista -- ver src/lib/lucro.ts pra regra completa.
@@ -8730,6 +8765,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       valorRecebido: down,
       items: sale.items,
       custoPorId: produtosCostMap,
+      produtoPorId: produtoPorIdMap,
+      custoMaquinaM2PorCategoria,
       extraCosts: sale.extraCosts,
       proporcao,
     });
@@ -9301,6 +9338,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       custoTotal += custoTotalDaNota({
         items: sale.items,
         custoPorId: produtosCostMap,
+        produtoPorId: produtoPorIdMap,
+        custoMaquinaM2PorCategoria,
         extraCosts: sale.extraCosts,
         proporcao,
       });
@@ -9320,7 +9359,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       temCustoRegistrado: custoTotal > 0,
       comEntrada, emAberto,
     };
-  }, [allSalesHistory, historyDateFrom, historyDateTo, produtosCostMap]);
+  }, [allSalesHistory, historyDateFrom, historyDateTo, produtosCostMap, produtoPorIdMap, custoMaquinaM2PorCategoria]);
 
   const handleToggleSelectAll = () => {
     setSelectedSaleIds(prev => {

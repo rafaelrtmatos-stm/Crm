@@ -709,6 +709,8 @@ export interface Maquina {
   nome: string;
   ativa: boolean;
   tipo?: 'impressao' | 'corte' | 'laser' | 'router' | 'prensa' | 'acabamento' | 'outra';
+  categoriaProduto?: string; // Categoria de produto atendida por esta maquina (ex: "SUBSTRATO"), usada para
+                              // derivar automaticamente o custo de maquina por metro linear no calculo de lucro (src/lib/lucro.ts)
 
   // DIMENSÕES FÍSICAS & ÁREA ÚTIL
   larguraMaximaM?: number; // Largura máxima / Boca da máquina em metros (ex: 1.60m, 3.20m, 1.80m)

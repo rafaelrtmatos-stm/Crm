@@ -62,6 +62,7 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
     nome: '',
     ativa: true,
     tipo: 'impressao' as Maquina['tipo'],
+    categoriaProduto: '' as string,
     // Dimensões & Mesa
     larguraMaximaM: 1.60 as number | '',
     alturaMaximaM: '' as number | '',
@@ -135,10 +136,7 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
       nome: '',
       ativa: true,
       tipo: 'impressao',
-      larguraMaximaM: 1.60,
-      alturaMaximaM: '',
-      areaMesaM2: '',
-      valorMaquina: 50000,
+      categoriaProduto: '',
       vidaUtilAnos: 5,
       horasUsoMes: 100,
       manutencaoAnual: 4800,
@@ -168,6 +166,7 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
       nome: item.nome,
       ativa: item.ativa,
       tipo: item.tipo || 'impressao',
+      categoriaProduto: item.categoriaProduto || '',
       larguraMaximaM: item.larguraMaximaM ?? 1.60,
       alturaMaximaM: item.alturaMaximaM ?? '',
       areaMesaM2: item.areaMesaM2 ?? '',
@@ -201,6 +200,7 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
       nome: `${item.nome} (Cópia)`,
       ativa: true,
       tipo: item.tipo || 'impressao',
+      categoriaProduto: item.categoriaProduto || '',
       larguraMaximaM: item.larguraMaximaM ?? 1.60,
       alturaMaximaM: item.alturaMaximaM ?? '',
       areaMesaM2: item.areaMesaM2 ?? '',
@@ -294,6 +294,7 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
         nome: formData.nome.trim(),
         ativa: formData.ativa,
         tipo: formData.tipo,
+        categoriaProduto: formData.categoriaProduto?.trim() || undefined,
         larguraMaximaM: formData.larguraMaximaM === '' ? undefined : Number(formData.larguraMaximaM),
         alturaMaximaM: formData.alturaMaximaM === '' ? undefined : Number(formData.alturaMaximaM),
         areaMesaM2: formData.areaMesaM2 === '' ? undefined : Number(formData.areaMesaM2),
@@ -963,6 +964,23 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
                   <option value="acabamento">Laminadora / Acabamento</option>
                   <option value="outra">Outro Equipamento</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-white/70 uppercase mb-1">
+                  Categoria de Produto Atendida
+                </label>
+                <input
+                  type="text"
+                  value={formData.categoriaProduto}
+                  onChange={(e) => setFormData({ ...formData, categoriaProduto: e.target.value })}
+                  placeholder="Ex: SUBSTRATO"
+                  className="w-full bg-slate-900 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500"
+                />
+                <p className="text-[10px] text-white/40 mt-1">
+                  Deve ser exatamente igual à categoria cadastrada no produto (aba Estoque). O custo de máquina por metro
+                  linear dos produtos dessa categoria passa a ser calculado automaticamente a partir desta máquina.
+                </p>
               </div>
 
               <div>
