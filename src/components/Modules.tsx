@@ -236,7 +236,7 @@ import { transcribeAudioMessage } from '../lib/audioTranscription';
 import { generateSuggestion, type KnowledgeProduct } from '../lib/robozinhoRafa';
 import { validateCpfCnpj } from '../lib/validators';
 import { buscarClienteDuplicado, montarPayloadMesclagem } from '../lib/clienteDedupe';
-import { custoTotalDaNota, calcularLucroLiquido, somaCustosExtras, isMaterialLonaAdesivo } from '../lib/lucro';
+import { custoTotalDaNota, calcularLucroLiquido, detalharCustoDaNota, custoMaterialRealItem, custoMaquinaItem, somaCustosExtras, isMaterialLonaAdesivo } from '../lib/lucro';
 import { format } from 'date-fns';
 
 // Formata uma data com fallback seguro — evita "RangeError: Invalid time value"
@@ -13829,14 +13829,30 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           const isFullyPaid = custosNotaSale.status === 'completed' || down >= totalVenda;
           const proporcao = (!isFullyPaid && totalVenda > 0) ? down / totalVenda : undefined;
           
-          // Custo de Material (Lona / Adesivo / Insumos)
-          const custoMaterialBruto = (custosNotaSale.items || []).reduce((acc, item) => {
-            if (!isMaterialLonaAdesivo(item.name)) return acc;
-            const custoUnit = (item.productId && produtosCostMap[item.productId]) || 0;
-            const qtd = item.area ? item.area * item.quantity : item.quantity;
-            return acc + custoUnit * qtd;
-          }, 0);
-          const custoMaterial = proporcao ? custoMaterialBruto * proporcao : custoMaterialBruto;
+          // Custo automatico (Material/Substrato + Maquina) -- usa o mesmo motor de calculo
+          // ja corrigido nas outras telas (src/lib/lucro.ts). Baseado em CATEGORIA do produto
+          // e MATERIA-PRIMA vinculada no cadastro -- nunca em busca de palavra no nome.
+          const custoAutomatico = detalharCustoDaNota({
+            items: custosNotaSale.items,
+            custoPorId: produtosCostMap,
+            produtoPorId: produtoPorIdMap,
+            custoMaquinaM2PorCategoria,
+            proporcao,
+          });
+          const custoMaterial = custoAutomatico.material;
+          const custoMaquina = custoAutomatico.maquina;
+          const custoAutomaticoTotal = custoMaterial + custoMaquina;
+
+          // Itens que entram no card "Automatico" -- qualquer item com custo de material
+          // e/ou maquina > 0 (categoria SUBSTRATO e/ou materia-prima vinculada no cadastro).
+          const itensComCustoAutomatico = (custosNotaSale.items || [])
+            .map(item => {
+              const produtoAtual = item.productId ? produtoPorIdMap[item.productId] : undefined;
+              const custoMat = custoMaterialRealItem(item, produtosCostMap, undefined, produtoPorIdMap);
+              const custoMaq = custoMaquinaItem(item, produtoAtual, custoMaquinaM2PorCategoria);
+              return { item, custoItem: custoMat + custoMaq };
+            })
+            .filter(({ custoItem }) => custoItem > 0);
 
           // Separar comissões/mão de obra de custos extras manuais
           const custosComissoes = custosNotaDraft.filter(c => c.description.toLowerCase().startsWith('comissão') || c.description.toLowerCase().startsWith('mao de obra') || c.description.toLowerCase().startsWith('mão de obra'));
@@ -13845,7 +13861,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           const totalComissoes = custosComissoes.reduce((s, c) => s + (Number(c.amount) || 0), 0);
           const totalOutros = outrosCustos.reduce((s, c) => s + (Number(c.amount) || 0), 0);
           const totalExtras = totalComissoes + totalOutros;
-          const totalCustosNota = custoMaterial + totalExtras;
+          const totalCustosNota = custoAutomaticoTotal + totalExtras;
           const lucroLiquidoReal = down - totalCustosNota;
           const margemLucro = down > 0 ? (lucroLiquidoReal / down) * 100 : 0;
 
@@ -13872,31 +13888,26 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 </div>
               </div>
 
-              {/* 1. Materiais / Insumos */}
+              {/* 1. Materiais / Insumos + Maquina (automatico, por categoria e materia-prima vinculada) */}
               <div className="bg-slate-900/60 border border-white/5 rounded-xl p-3 space-y-2">
                 <div className="flex items-center justify-between border-b border-white/5 pb-1.5">
                   <span className="text-[10px] font-black text-white/80 uppercase tracking-wider flex items-center gap-1.5">
-                    <Layers size={13} className="text-amber-400" /> 1. Matéria-Prima & Insumos (Automático)
+                    <Layers size={13} className="text-amber-400" /> 1. Matéria-Prima, Substrato & Máquina (Automático)
                   </span>
                   <span className="text-[10px] font-bold text-amber-300">
-                    R$ {custoMaterial.toFixed(2).replace('.', ',')}
+                    R$ {custoAutomaticoTotal.toFixed(2).replace('.', ',')}
                   </span>
                 </div>
                 <div className="space-y-1">
-                  {(custosNotaSale.items || []).filter(item => isMaterialLonaAdesivo(item.name)).length === 0 ? (
-                    <p className="text-[9px] text-white/30 italic">Nenhum insumo de metragem (Lona/Adesivo) cadastrado nesta nota.</p>
+                  {itensComCustoAutomatico.length === 0 ? (
+                    <p className="text-[9px] text-white/30 italic">Nenhum item com custo de matéria-prima ou máquina cadastrado nesta nota (verifique categoria do produto e vínculo de matéria-prima no cadastro).</p>
                   ) : (
-                    (custosNotaSale.items || []).filter(item => isMaterialLonaAdesivo(item.name)).map((item, idx) => {
-                      const custoUnit = (item.productId && produtosCostMap[item.productId]) || 0;
-                      const qtd = item.area ? item.area * item.quantity : item.quantity;
-                      const custoItem = custoUnit * qtd;
-                      return (
-                        <div key={idx} className="flex justify-between items-center text-[9.5px] text-white/60">
-                          <span className="truncate max-w-[240px]">{item.quantity}x {item.name}</span>
-                          <span className="font-mono text-white/80">R$ {custoItem.toFixed(2).replace('.', ',')}</span>
-                        </div>
-                      );
-                    })
+                    itensComCustoAutomatico.map(({ item, custoItem }, idx) => (
+                      <div key={idx} className="flex justify-between items-center text-[9.5px] text-white/60">
+                        <span className="truncate max-w-[240px]">{item.quantity}x {item.name}</span>
+                        <span className="font-mono text-white/80">R$ {custoItem.toFixed(2).replace('.', ',')}</span>
+                      </div>
+                    ))
                   )}
                 </div>
               </div>
@@ -13961,8 +13972,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               {/* Resumo Final de Custos */}
               <div className="grid grid-cols-3 gap-2 bg-slate-950/80 border border-white/10 rounded-xl p-2.5 text-center">
                 <div>
-                  <span className="text-[7.5px] uppercase font-bold text-white/40 block">Total Matéria-Prima</span>
-                  <span className="text-[10px] font-bold text-amber-300">R$ {custoMaterial.toFixed(2).replace('.', ',')}</span>
+                  <span className="text-[7.5px] uppercase font-bold text-white/40 block">Matéria-Prima & Máquina</span>
+                  <span className="text-[10px] font-bold text-amber-300">R$ {custoAutomaticoTotal.toFixed(2).replace('.', ',')}</span>
                 </div>
                 <div>
                   <span className="text-[7.5px] uppercase font-bold text-white/40 block">Comissões & Extras</span>
