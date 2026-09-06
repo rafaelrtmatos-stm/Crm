@@ -20,6 +20,89 @@ import {
   subscribeToMaquinas
 } from '../lib/maquinasStorage';
 import * as XLSX from 'xlsx';
+import { PrintSimulatorWidget } from './PrintSimulatorWidget';
+
+// Componente rápido de simulação embutido em cada card individual de máquina
+const MachineCardQuickSimulator: React.FC<{
+  maquina: Maquina;
+  onOpenFullSim: () => void;
+}> = ({ maquina, onOpenFullSim }) => {
+  const [area, setArea] = useState<number>(5);
+  const [modoId, setModoId] = useState<string>(maquina.modosImpressaoList?.[0]?.id || 'standard');
+
+  const modos = maquina.modosImpressaoList && maquina.modosImpressaoList.length > 0
+    ? maquina.modosImpressaoList
+    : [
+        { id: 'standard', nome: 'Padrão', velocidadeM2H: maquina.velocidadeProducaoM2H || 12, consumoTintaMlM2: maquina.tintaConsumoMlM2 || 15 },
+        { id: 'highspeed', nome: 'Rápido', velocidadeM2H: maquina.velocidadeHispeedM2H || 15, consumoTintaMlM2: 12 }
+      ];
+
+  const modo = modos.find(m => m.id === modoId) || modos[0];
+  const vel = modo.velocidadeM2H || 12;
+  const tempoSetup = maquina.tempoSetupMin || 0;
+  const tempoMinutos = (area / vel) * 60 + tempoSetup;
+  const horas = Math.floor(tempoMinutos / 60);
+  const mins = Math.round(tempoMinutos % 60);
+  const tempoFmt = horas > 0 ? `${horas}h ${mins > 0 ? `${mins}min` : ''}`.trim() : `${Math.max(1, mins)} min`;
+
+  const custos = calcularCustosMaquina(maquina);
+  const custoPorMl = maquina.tintaQuantidadeMl > 0 ? maquina.tintaValor / maquina.tintaQuantidadeMl : 0;
+  const custoJob = (custos.custoTotalMaquinaHora * (tempoMinutos / 60)) + (area * (modo.consumoTintaMlM2 || 15) * custoPorMl);
+
+  return (
+    <div className="mx-4 mb-3 p-3 bg-gradient-to-br from-cyan-950/40 via-slate-900 to-slate-950 rounded-2xl border border-cyan-500/30 space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-black text-cyan-300 uppercase tracking-wider flex items-center gap-1.5">
+          <Sparkles size={12} className="text-cyan-400" />
+          <span>Simulação Rápida</span>
+        </span>
+        <button
+          type="button"
+          onClick={onOpenFullSim}
+          className="text-[10px] text-cyan-400 hover:text-cyan-300 hover:underline font-bold"
+        >
+          Abrir Completo ↗
+        </button>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <div className="flex items-center bg-black/50 rounded-xl border border-white/10 px-2 py-1 flex-1">
+          <input
+            type="number"
+            min="0.1"
+            step="0.5"
+            value={area}
+            onChange={e => setArea(Math.max(0.1, parseFloat(e.target.value) || 1))}
+            className="w-14 bg-transparent text-xs font-bold text-white font-mono outline-none"
+          />
+          <span className="text-[10px] text-white/40 uppercase font-mono">m²</span>
+        </div>
+
+        <select
+          value={modoId}
+          onChange={e => setModoId(e.target.value)}
+          className="bg-black/50 border border-white/10 rounded-xl px-2 py-1 text-[11px] text-white font-bold outline-none flex-1 truncate"
+        >
+          {modos.map(m => (
+            <option key={m.id} value={m.id}>
+              {m.nome.split('(')[0].trim()} ({m.velocidadeM2H}m²/h)
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="flex items-center justify-between pt-1 border-t border-white/10 text-[11px]">
+        <div className="flex items-center gap-1 text-cyan-300 font-bold">
+          <Clock size={12} />
+          <span>Tempo: <strong className="text-white">{tempoFmt}</strong></span>
+        </div>
+        <div className="text-emerald-400 font-bold font-mono">
+          Custo: R$ {custoJob.toFixed(2)}
+        </div>
+      </div>
+    </div>
+  );
+};
 
 interface MaquinasModuleProps {
   currentCompany?: Company | null;
@@ -56,6 +139,10 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<Maquina | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Standalone Simulator State (fora do modal de edição)
+  const [showSimulator, setShowSimulator] = useState(true);
+  const [selectedSimMaquinaId, setSelectedSimMaquinaId] = useState<string>('');
 
   // Form State
   const [formData, setFormData] = useState({
@@ -489,6 +576,20 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
           </Button>
 
           <Button
+            variant="secondary"
+            onClick={() => setShowSimulator(!showSimulator)}
+            className={`text-xs py-2 px-3 sm:px-4 font-black uppercase tracking-wider transition-all border ${
+              showSimulator
+                ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-lg shadow-cyan-500/10'
+                : 'bg-white/5 hover:bg-white/10 text-white/80 border-white/10'
+            }`}
+          >
+            <Clock size={14} className="text-cyan-400" />
+            <span className="hidden sm:inline">{showSimulator ? 'Ocultar Simulador' : '⚡ Simulador de Tempo'}</span>
+            <span className="sm:hidden">⚡ Simulador</span>
+          </Button>
+
+          <Button
             variant="primary"
             onClick={handleOpenAdd}
             className="text-xs py-2 px-4 bg-cyan-600 hover:bg-cyan-500 text-white font-black uppercase tracking-wider shadow-lg shadow-cyan-600/20"
@@ -545,6 +646,14 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
           </div>
         </div>
       </div>
+
+      {/* Standalone Simulator Widget (Fora do Modal de Edição) */}
+      {showSimulator && maquinas.length > 0 && (
+        <PrintSimulatorWidget
+          maquinas={maquinas}
+          initialMaquinaId={selectedSimMaquinaId}
+        />
+      )}
 
       {/* Filter and Search Bar */}
       <div className="bg-slate-900/50 p-4 rounded-2xl border border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3">
@@ -789,6 +898,16 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
                     </div>
                   )}
                 </div>
+
+                {/* Simulação Rápida Direto no Card (Sem precisar entrar em Editar) */}
+                <MachineCardQuickSimulator
+                  maquina={maquina}
+                  onOpenFullSim={() => {
+                    setSelectedSimMaquinaId(maquina.id);
+                    setShowSimulator(true);
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                />
 
                 {/* Card Action Buttons */}
                 <div className="p-4 bg-slate-950/60 border-t border-white/10 flex items-center justify-between gap-2">

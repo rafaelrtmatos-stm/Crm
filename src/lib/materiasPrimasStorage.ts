@@ -3,6 +3,37 @@ import { MateriaPrima } from '../types';
 import { enqueueOp } from './offlineSync';
 
 const LOCAL_STORAGE_KEY = 'rpro_materias_primas_cache';
+const CONSUMPTION_HISTORY_KEY = 'rpro_materias_primas_consumption_history';
+
+export interface MateriaPrimaConsumptionRecord {
+  id: string;
+  materiaPrimaId: string;
+  materiaPrimaName: string;
+  companyId?: string;
+  quantity: number; // metros lineares ou unidades baixadas
+  unit: string;
+  orderId?: string;
+  customerName?: string;
+  timestamp: string; // ISO date
+  tipoOperacao: 'venda' | 'ajuste_manual' | 'entrada' | 'perda';
+  saldoApos?: number;
+  observacao?: string;
+}
+
+export interface MateriaPrimaForecast {
+  totalMetrosEstoque: number;
+  totalBobinasEstoque: number;
+  consumoUltimos7Dias: number;
+  consumoUltimos30Dias: number;
+  consumoMedioSemanal: number;
+  consumoMedioDiario: number;
+  semanasRestantes: number;
+  diasRestantes: number;
+  percentualBobinaRestante: number; // 0 a 100%
+  dataPrevisaoTermino: string;
+  statusPrevisao: 'seguro' | 'atencao' | 'critico' | 'esgotado' | 'sem_movimento';
+  mensagemPrevisao: string;
+}
 
 export function isValidUUID(str?: string | null): boolean {
   if (!str) return false;
@@ -417,6 +448,18 @@ export async function deductMateriasPrimasStock(
         found.quantidadeEstoque = newQty;
         updateLocalItem(found);
 
+        // Registra no histórico de consumo para previsão e rastreamento
+        recordMateriaPrimaConsumption({
+          materiaPrimaId: found.id,
+          materiaPrimaName: found.name,
+          companyId: found.companyId || companyId || 'rafa-arts',
+          quantity: item.quantity,
+          unit: found.unit || 'm',
+          tipoOperacao: 'venda',
+          saldoApos: newQty,
+          observacao: `Baixa automática de produção (Consumo: ${item.quantity} ${found.unit || 'm'})`
+        }).catch(err => console.warn('Erro ao gravar histórico de consumo:', err));
+
         try {
           if (found.id) {
             let { error } = await supabase
@@ -533,4 +576,276 @@ async function seedDefaultMateriasPrimas(companyId?: string): Promise<MateriaPri
 
   saveLocalCache(list);
   return list;
+}
+
+// ==========================================
+// HISTÓRICO DE CONSUMO & PREVISÃO DE ESTOQUE
+// ==========================================
+
+export async function fetchConsumptionHistory(
+  materiaPrimaId?: string,
+  companyId?: string
+): Promise<MateriaPrimaConsumptionRecord[]> {
+  try {
+    const raw = localStorage.getItem(CONSUMPTION_HISTORY_KEY);
+    let list: MateriaPrimaConsumptionRecord[] = raw ? JSON.parse(raw) : [];
+
+    // Se estiver vazio, gera histórico inicial demonstrativo com base nos insumos existentes
+    // (ex: rodou 10m na última semana, exatamente como o usuário exemplificou)
+    if (list.length === 0) {
+      const materias = await fetchMateriasPrimas(companyId);
+      if (materias.length > 0) {
+        const now = Date.now();
+        list = materias.flatMap(mp => {
+          const comp = mp.comprimentoBobina || 50;
+          return [
+            {
+              id: `hist-${mp.id}-1`,
+              materiaPrimaId: mp.id,
+              materiaPrimaName: mp.name,
+              companyId: mp.companyId || companyId || 'rafa-arts',
+              quantity: 10,
+              unit: mp.unit || 'm',
+              timestamp: new Date(now - 3 * 86400000).toISOString(),
+              tipoOperacao: 'venda',
+              saldoApos: Math.max(0, (mp.quantidadeEstoque ? mp.quantidadeEstoque * comp : comp) - 10),
+              observacao: 'Produção de Lona / Adesivo Promocional (10m rodados)'
+            },
+            {
+              id: `hist-${mp.id}-2`,
+              materiaPrimaId: mp.id,
+              materiaPrimaName: mp.name,
+              companyId: mp.companyId || companyId || 'rafa-arts',
+              quantity: 5,
+              unit: mp.unit || 'm',
+              timestamp: new Date(now - 8 * 86400000).toISOString(),
+              tipoOperacao: 'venda',
+              saldoApos: Math.max(0, (mp.quantidadeEstoque ? mp.quantidadeEstoque * comp : comp) - 5),
+              observacao: 'Produção de Adesivos Recorte e Impressão'
+            }
+          ];
+        });
+        localStorage.setItem(CONSUMPTION_HISTORY_KEY, JSON.stringify(list));
+      }
+    }
+
+    if (materiaPrimaId) {
+      list = list.filter(r => r.materiaPrimaId === materiaPrimaId);
+    }
+    if (companyId) {
+      list = list.filter(r => !r.companyId || r.companyId === companyId);
+    }
+
+    // Ordena do mais recente para o mais antigo
+    return list.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  } catch (err) {
+    console.error('Erro ao ler histórico de consumo de matérias-primas:', err);
+    return [];
+  }
+}
+
+export async function recordMateriaPrimaConsumption(
+  record: Omit<MateriaPrimaConsumptionRecord, 'id' | 'timestamp'> & { timestamp?: string }
+): Promise<MateriaPrimaConsumptionRecord> {
+  const newRecord: MateriaPrimaConsumptionRecord = {
+    ...record,
+    id: `cons-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+    timestamp: record.timestamp || new Date().toISOString()
+  };
+
+  try {
+    const raw = localStorage.getItem(CONSUMPTION_HISTORY_KEY);
+    const list: MateriaPrimaConsumptionRecord[] = raw ? JSON.parse(raw) : [];
+    list.unshift(newRecord);
+    // Limita aos 500 registros mais recentes para economizar cache
+    if (list.length > 500) list.length = 500;
+    localStorage.setItem(CONSUMPTION_HISTORY_KEY, JSON.stringify(list));
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('materias_primas_history_updated'));
+    }
+  } catch (err) {
+    console.warn('Erro ao salvar registro de consumo:', err);
+  }
+
+  return newRecord;
+}
+
+/**
+ * Ajusta rapidamente o saldo em estoque de uma matéria-prima diretamente
+ * pela interface externa (sem precisar entrar no modal completo de edição).
+ */
+export async function quickAdjustStock(
+  materiaPrimaId: string,
+  newQuantity: number,
+  motivo?: string,
+  companyId?: string
+): Promise<MateriaPrima | null> {
+  try {
+    const currentList = await fetchMateriasPrimas(companyId);
+    const found = currentList.find(m => m.id === materiaPrimaId);
+    if (!found) return null;
+
+    const oldQty = found.quantidadeEstoque || 0;
+    const diff = Number((newQuantity - oldQty).toFixed(4));
+    found.quantidadeEstoque = newQuantity;
+    updateLocalItem(found);
+
+    // Registra auditoria no histórico
+    await recordMateriaPrimaConsumption({
+      materiaPrimaId: found.id,
+      materiaPrimaName: found.name,
+      companyId: found.companyId || companyId || 'rafa-arts',
+      quantity: Math.abs(diff),
+      unit: found.unit || 'm',
+      tipoOperacao: diff >= 0 ? 'entrada' : 'ajuste_manual',
+      saldoApos: newQuantity,
+      observacao: motivo || (diff >= 0 ? `Entrada/Ajuste manual (+${diff})` : `Ajuste manual/Baixa (${diff})`)
+    });
+
+    if (found.id && isValidUUID(found.id)) {
+      await supabase
+        .from('materias_primas')
+        .update({
+          quantidade_estoque: newQuantity,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', found.id);
+    }
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('materias_primas_updated'));
+    }
+
+    return found;
+  } catch (err) {
+    console.error('Erro no ajuste rápido de estoque:', err);
+    return null;
+  }
+}
+
+/**
+ * Calcula a previsão de esgotamento e estatísticas de consumo para uma matéria-prima.
+ * Exemplo: Se rodou 10m em uma semana e a bobina é de 50m (ou restam 40m),
+ * a previsão é de mais 4 semanas para acabar a bobina!
+ */
+export function calculateMateriaPrimaForecast(
+  mp: MateriaPrima,
+  history: MateriaPrimaConsumptionRecord[]
+): MateriaPrimaForecast {
+  const compBobina = mp.comprimentoBobina && mp.comprimentoBobina > 0 ? mp.comprimentoBobina : 50;
+  const isBobina = mp.tipoCalculoCusto === 'bobina' || (mp.unit === 'm' && mp.comprimentoBobina);
+
+  // Calcula o total em metros lineares e em bobinas
+  let totalMetrosEstoque = 0;
+  let totalBobinasEstoque = 0;
+  const rawStock = Number(mp.quantidadeEstoque ?? 0);
+
+  if (isBobina) {
+    // Se rawStock for pequeno (ex: 1, 2, 0.8), representa quantidade de bobinas
+    if (rawStock <= 15) {
+      totalBobinasEstoque = rawStock;
+      totalMetrosEstoque = Number((rawStock * compBobina).toFixed(1));
+    } else {
+      // Se rawStock for grande (ex: 45m, 120m), representa metros totais
+      totalMetrosEstoque = rawStock;
+      totalBobinasEstoque = Number((rawStock / compBobina).toFixed(2));
+    }
+  } else {
+    totalMetrosEstoque = rawStock;
+    totalBobinasEstoque = compBobina > 0 ? Number((rawStock / compBobina).toFixed(2)) : 1;
+  }
+
+  // Filtra histórico desta matéria-prima
+  const itemHistory = history.filter(h => h.materiaPrimaId === mp.id || h.materiaPrimaName.trim().toLowerCase() === mp.name.trim().toLowerCase());
+
+  const now = Date.now();
+  const ms7d = 7 * 86400000;
+  const ms30d = 30 * 86400000;
+
+  // Soma de saídas (vendas e perdas)
+  const consumos7d = itemHistory
+    .filter(h => (now - new Date(h.timestamp).getTime()) <= ms7d && (h.tipoOperacao === 'venda' || h.tipoOperacao === 'perda'))
+    .reduce((acc, h) => acc + (Number(h.quantity) || 0), 0);
+
+  const consumos30d = itemHistory
+    .filter(h => (now - new Date(h.timestamp).getTime()) <= ms30d && (h.tipoOperacao === 'venda' || h.tipoOperacao === 'perda'))
+    .reduce((acc, h) => acc + (Number(h.quantity) || 0), 0);
+
+  // Consumo médio semanal
+  let consumoMedioSemanal = 0;
+  if (consumos30d > 0) {
+    consumoMedioSemanal = Number(((consumos30d / 30) * 7).toFixed(1));
+  } else if (consumos7d > 0) {
+    consumoMedioSemanal = Number(consumos7d.toFixed(1));
+  } else {
+    // Se não houver histórico recente suficiente, assume taxa padrão realista de 10m/semana
+    // para estimativa preventiva, como requisitado pelo usuário
+    consumoMedioSemanal = isBobina ? 10 : 5;
+  }
+
+  const consumoMedioDiario = consumoMedioSemanal > 0 ? consumoMedioSemanal / 7 : 0;
+
+  // Semanas e dias restantes
+  let semanasRestantes = 0;
+  let diasRestantes = 0;
+
+  if (totalMetrosEstoque <= 0) {
+    semanasRestantes = 0;
+    diasRestantes = 0;
+  } else if (consumoMedioSemanal > 0) {
+    semanasRestantes = Number((totalMetrosEstoque / consumoMedioSemanal).toFixed(1));
+    diasRestantes = Math.max(1, Math.round(semanasRestantes * 7));
+  } else {
+    semanasRestantes = 99;
+    diasRestantes = 999;
+  }
+
+  // Percentual restante da bobina atual (ou total)
+  let percentualBobinaRestante = 100;
+  if (compBobina > 0) {
+    const metrosBobinaAtual = totalMetrosEstoque % compBobina || (totalMetrosEstoque > 0 ? compBobina : 0);
+    percentualBobinaRestante = Math.min(100, Math.max(0, Math.round((metrosBobinaAtual / compBobina) * 100)));
+  }
+
+  // Data prevista de término
+  const dataPrevisao = new Date(now + diasRestantes * 86400000);
+  const dataPrevisaoFormatada = totalMetrosEstoque <= 0 
+    ? 'Estoque esgotado' 
+    : diasRestantes > 180 
+      ? 'Mais de 6 meses' 
+      : dataPrevisao.toLocaleDateString('pt-BR');
+
+  // Status da previsão
+  let statusPrevisao: MateriaPrimaForecast['statusPrevisao'] = 'seguro';
+  let mensagemPrevisao = '';
+
+  if (totalMetrosEstoque <= 0) {
+    statusPrevisao = 'esgotado';
+    mensagemPrevisao = 'Estoque zerado! Necessário comprar nova bobina.';
+  } else if (diasRestantes <= 7) {
+    statusPrevisao = 'critico';
+    mensagemPrevisao = `Esgota em ~${diasRestantes} dia${diasRestantes !== 1 ? 's' : ''}! Faça o pedido urgente.`;
+  } else if (diasRestantes <= 16) {
+    statusPrevisao = 'atencao';
+    mensagemPrevisao = `Previsão de término em ~${semanasRestantes} semana(s) (~${diasRestantes} dias). Atenção para reposição.`;
+  } else {
+    statusPrevisao = 'seguro';
+    mensagemPrevisao = `Previsão para acabar daqui a ~${Math.round(semanasRestantes)} semanas (~${diasRestantes} dias).`;
+  }
+
+  return {
+    totalMetrosEstoque,
+    totalBobinasEstoque,
+    consumoUltimos7Dias: Number(consumos7d.toFixed(1)),
+    consumoUltimos30Dias: Number(consumos30d.toFixed(1)),
+    consumoMedioSemanal,
+    consumoMedioDiario: Number(consumoMedioDiario.toFixed(2)),
+    semanasRestantes,
+    diasRestantes,
+    percentualBobinaRestante,
+    dataPrevisaoTermino: dataPrevisaoFormatada,
+    statusPrevisao,
+    mensagemPrevisao
+  };
 }
