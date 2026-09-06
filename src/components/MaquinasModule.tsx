@@ -970,15 +970,19 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
                 <label className="block text-[11px] font-bold text-white/70 uppercase mb-1">
                   Categoria de Produto Atendida
                 </label>
-                <input
-                  type="text"
+                <select
                   value={formData.categoriaProduto}
                   onChange={(e) => setFormData({ ...formData, categoriaProduto: e.target.value })}
-                  placeholder="Ex: SUBSTRATO"
                   className="w-full bg-slate-900 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500"
-                />
+                >
+                  <option value="">Nenhuma (não usar custo de máquina por categoria)</option>
+                  <option value="substrato">Substrato (Lona/Vinil/Papel)</option>
+                  <option value="tinta">Tintas / Toners</option>
+                  <option value="acabamento">Acabamento (Ilhós/Verniz)</option>
+                  <option value="diversos">Diversos</option>
+                </select>
                 <p className="text-[10px] text-white/40 mt-1">
-                  Deve ser exatamente igual à categoria cadastrada no produto (aba Estoque). O custo de máquina por metro
+                  Mesmas categorias do cadastro de produto (aba Estoque). O custo de máquina por metro
                   linear dos produtos dessa categoria passa a ser calculado automaticamente a partir desta máquina.
                 </p>
               </div>

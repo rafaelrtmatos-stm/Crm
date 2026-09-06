@@ -8715,14 +8715,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [custoMaquinaM2PorCategoria, setCustoMaquinaM2PorCategoria] = useState<Record<string, number>>({});
   useEffect(() => {
     const loadCosts = async () => {
-      const { data } = await supabase.from('produtos').select('id, cost_price, categoria, largura_rolo, materias_primas');
+      const { data, error } = await supabase.from('produtos').select('id, cost_price, category, largura_rolo, materias_primas');
+      if (error) console.error('Erro ao carregar custos de produtos:', error);
       const map: Record<string, number> = {};
       const produtoMap: Record<string, any> = {};
       (data || []).forEach((p: any) => {
         map[p.id] = Number(p.cost_price) || 0;
         produtoMap[p.id] = {
           id: p.id,
-          categoria: p.categoria || '',
+          categoria: p.category || '',
           larguraRolo: p.largura_rolo ? Number(p.largura_rolo) : undefined,
           materiasPrimas: Array.isArray(p.materias_primas) ? p.materias_primas : []
         };
