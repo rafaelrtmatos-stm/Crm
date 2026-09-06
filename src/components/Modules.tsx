@@ -9944,11 +9944,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       code: p.code || '',
       price: Number(p.sale_price) || 0,
       stock: Number(p.current_stock) || 0,
+      category: p.categoria || p.category || '',
       unitType: p.unit === 'm2' ? 'm2' : p.unit === 'etiqueta' ? 'etiqueta' : p.unit === 'm' ? 'metro' : 'unit',
       tipoItem: p.tipo_item || 'produto',
       larguraRolo: p.largura_rolo ? Number(p.largura_rolo) : undefined,
       controlaEstoque: p.controla_estoque !== false,
       valorMinimo: p.valor_minimo ? Number(p.valor_minimo) : undefined,
+      materiasPrimas: Array.isArray(p.materias_primas) ? p.materias_primas : [],
     })));
   };
   useEffect(() => {
@@ -10035,7 +10037,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     }
     if (product.unitType === 'etiqueta' || (product.name && /etiqueta/i.test(product.name) && (/adesiv/i.test(product.name) || !product.unitType || product.unitType === 'unit'))) {
       setEtiquetaModalProduct(product);
-      setEtiquetaForm({ ...emptyEtiquetaForm, larguraMaterial: product.larguraRolo || 1.02 });
+      setEtiquetaForm({ ...emptyEtiquetaForm, larguraMaterial: product.larguraRolo || 0 });
       setEtiquetaInputMode('quantidade');
       return;
     }
@@ -10059,7 +10061,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const calcularEtiquetas = (product: Product) => {
     const { largura, altura, larguraMaterial } = etiquetaForm;
-    const larguraRoloCm = (larguraMaterial || product.larguraRolo || 1) * 100;
+    const larguraRoloCm = (larguraMaterial || product.larguraRolo || 0) * 100;
     if (largura <= 0 || altura <= 0 || larguraRoloCm <= 0) return null;
 
     // Quantas etiquetas cabem por metro linear do material, testando as duas orientacoes
@@ -10251,8 +10253,22 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     return area / larguraRolo; // nenhuma orientacao cabe — fallback, tela avisa o usuario nesse caso
   };
 
+  // Produto com materia-prima vinculada (ex: Adesivo Vinil) OU categoria SUBSTRATO precisa de
+  // largura de rolo pra calcular o consumo em metro linear -- nunca em m2. Sem largura definida,
+  // a venda fica bloqueada ate o usuario informar (digitando ou escolhendo uma largura comum).
+  const precisaLarguraRoloObrigatoria = (product: Product | null | undefined): boolean => {
+    if (!product) return false;
+    const temMateriaPrima = Array.isArray((product as any).materiasPrimas) && (product as any).materiasPrimas.length > 0;
+    const isSubstrato = /substrato/i.test((product as any).category || (product as any).categoria || '');
+    return temMateriaPrima || isSubstrato;
+  };
+
   const confirmAddDimensionedItem = async () => {
     if (!dimensionModalProduct) return;
+    if (precisaLarguraRoloObrigatoria(dimensionModalProduct) && (!dimLarguraMaterial || Number(dimLarguraMaterial) <= 0)) {
+      showAlert('Esse produto tem matéria-prima vinculada — informe a largura do material (metro linear) antes de adicionar ao carrinho.');
+      return;
+    }
     const w = dimWidth === '' ? 0 : Number(dimWidth);
     const h = dimHeight === '' ? 0 : Number(dimHeight);
     if (w <= 0 || h <= 0) {
@@ -15533,7 +15549,26 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 value={etiquetaForm.larguraMaterial}
                 onChange={(e: any) => setEtiquetaForm({ ...etiquetaForm, larguraMaterial: (e.target.value === '' ? '' : Number(e.target.value)) })}
               />
-              <p className="text-[9px] text-white/30 -mt-2">Vem pré-preenchida com a largura cadastrada do material — pode editar aqui, e o novo valor fica salvo pra próxima vez.</p>
+              {(!etiquetaForm.larguraMaterial || Number(etiquetaForm.larguraMaterial) <= 0) && (
+                <div className="flex items-center gap-1.5 -mt-2 flex-wrap">
+                  <span className="text-[9px] text-white/40">Larguras comuns:</span>
+                  {[1.06, 1.10, 1.37].map(w => (
+                    <button
+                      key={w}
+                      type="button"
+                      onClick={() => setEtiquetaForm({ ...etiquetaForm, larguraMaterial: w })}
+                      className="px-2 py-0.5 rounded-md bg-white/10 hover:bg-primary-500/30 text-[9px] font-bold text-white/70 hover:text-white transition-all"
+                    >
+                      {w.toString().replace('.', ',')}m
+                    </button>
+                  ))}
+                </div>
+              )}
+              <p className="text-[9px] text-white/30 -mt-2">
+                {(!etiquetaForm.larguraMaterial || Number(etiquetaForm.larguraMaterial) <= 0)
+                  ? 'Obrigatório — o consumo de matéria-prima é sempre calculado em metro linear. Digite ou escolha uma largura comum acima; o valor fica salvo pra próxima vez.'
+                  : 'Vem pré-preenchida com a largura cadastrada do material — pode editar aqui, e o novo valor fica salvo pra próxima vez.'}
+              </p>
 
               <div className="space-y-1.5">
                  <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">O cliente informou...</label>
@@ -15654,7 +15689,26 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
              value={dimLarguraMaterial}
              onChange={(e: any) => setDimLarguraMaterial((e.target.value === '' ? '' : Number(e.target.value)))}
            />
-           <p className="text-[9px] text-white/30 -mt-3">Vem pré-preenchida com a largura cadastrada do material — pode editar aqui, e o novo valor fica salvo pra próxima vez.</p>
+           {(!dimLarguraMaterial || Number(dimLarguraMaterial) <= 0) && (
+             <div className="flex items-center gap-1.5 -mt-2 flex-wrap">
+               <span className="text-[9px] text-white/40">Larguras comuns:</span>
+               {[1.06, 1.10, 1.37].map(w => (
+                 <button
+                   key={w}
+                   type="button"
+                   onClick={() => setDimLarguraMaterial(w)}
+                   className="px-2 py-0.5 rounded-md bg-white/10 hover:bg-primary-500/30 text-[9px] font-bold text-white/70 hover:text-white transition-all"
+                 >
+                   {w.toString().replace('.', ',')}m
+                 </button>
+               ))}
+             </div>
+           )}
+           <p className="text-[9px] text-white/30 -mt-3">
+             {precisaLarguraRoloObrigatoria(dimensionModalProduct)
+               ? 'Obrigatório para esse produto (tem matéria-prima vinculada) — o consumo de matéria-prima é sempre calculado em metro linear. Digite ou escolha uma largura comum acima; o valor fica salvo pra próxima vez.'
+               : 'Vem pré-preenchida com a largura cadastrada do material — pode editar aqui, e o novo valor fica salvo pra próxima vez.'}
+           </p>
 
            {dimWidth !== '' && dimHeight !== '' && Number(dimWidth) > 0 && Number(dimHeight) > 0 && (() => {
               const w = Number(dimWidth);
@@ -15769,7 +15823,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
            <div className="flex justify-end gap-3 pt-1">
              <Button variant="ghost" onClick={() => setDimensionModalProduct(null)}>Cancelar</Button>
-             <Button className="bg-primary-500 hover:bg-primary-400 text-slate-900 font-black gap-2" onClick={confirmAddDimensionedItem}>
+             <Button
+               disabled={precisaLarguraRoloObrigatoria(dimensionModalProduct) && (!dimLarguraMaterial || Number(dimLarguraMaterial) <= 0)}
+               className="bg-primary-500 hover:bg-primary-400 text-slate-900 font-black gap-2"
+               onClick={confirmAddDimensionedItem}
+             >
                <Plus size={16} />
                <span>Adicionar ao Carrinho</span>
              </Button>
