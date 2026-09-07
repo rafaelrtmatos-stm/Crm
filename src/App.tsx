@@ -1650,123 +1650,158 @@ export default function App() {
   };
 
   if (!user) return (
-    <div className="h-[100dvh] min-h-screen w-full flex items-center justify-center bg-[#050508] p-3 sm:p-6 relative overflow-y-auto select-none">
-      {/* Background Red Glow & Diagonal Accents */}
-      <div className="absolute top-0 left-0 w-full h-full pointer-events-none overflow-hidden">
-        {/* Top-left red glow */}
-        <div className="absolute -top-32 -left-32 w-[500px] h-[500px] bg-red-600/15 rounded-full blur-[140px]" />
-        {/* Bottom-right red glow */}
-        <div className="absolute -bottom-32 -right-32 w-[500px] h-[500px] bg-red-700/15 rounded-full blur-[140px]" />
-        
-        {/* Decorative corner diagonal lines */}
-        <div className="absolute top-0 left-0 w-80 h-80 opacity-20 bg-[linear-gradient(135deg,transparent_40%,#ff0033_50%,transparent_60%)]" />
-        <div className="absolute bottom-0 right-0 w-80 h-80 opacity-20 bg-[linear-gradient(135deg,transparent_40%,#ff0033_50%,transparent_60%)]" />
+    <div className="min-h-screen w-full flex flex-col items-center justify-center bg-[#060608] p-4 relative overflow-hidden select-none">
+      {/* Dynamic Ambient Background with Soft Red Radiant Halos */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        {/* Ambient Crimson Orbs */}
+        <div className="absolute -top-32 left-1/2 -translate-x-1/2 w-[500px] h-[500px] bg-red-600/[0.10] rounded-full blur-[140px]" />
+        <div className="absolute -bottom-32 right-1/4 w-[450px] h-[450px] bg-red-700/[0.08] rounded-full blur-[150px]" />
 
-        {/* Subtle dot pattern grids in corners */}
-        <div className="absolute top-8 right-8 w-32 h-32 opacity-10 bg-[radial-gradient(#ffffff_1.5px,transparent_1.5px)] [background-size:12px_12px]" />
-        <div className="absolute bottom-8 left-8 w-32 h-32 opacity-10 bg-[radial-gradient(#ffffff_1.5px,transparent_1.5px)] [background-size:12px_12px]" />
+        {/* Micro-dot Matrix Texture */}
+        <div className="absolute inset-0 bg-[radial-gradient(rgba(255,255,255,0.05)_1px,transparent_1px)] [background-size:20px_20px]" />
+
+        {/* Fine Horizon Lines */}
+        <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-red-500/20 to-transparent" />
+        <div className="absolute bottom-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-red-500/20 to-transparent" />
       </div>
 
-      <div className="max-w-sm w-full space-y-4 my-auto animate-in fade-in zoom-in-95 duration-500 relative z-10">
-        {/* Header Badge & Title with Separated Rafa Arts Graphics Logo */}
-        <div className="flex flex-col items-center text-center space-y-2">
-          <div className="px-5 py-3 sm:px-6 sm:py-4 rounded-3xl bg-[#0c0c12]/90 border border-slate-800 shadow-2xl shadow-red-950/60 backdrop-blur-xl">
-            {logosReady ? (
-              <BrandLogo imageUrl={logoLightUrl || logoDarkUrl} size="xl" widthPx={210} layout="stacked" />
-            ) : (
-              <div style={{ width: 210, height: 128 }} />
-            )}
-          </div>
-          
-          <p className="text-xs sm:text-sm font-semibold text-slate-300 tracking-wide max-w-sm">
-            Acesso ao Sistema de Gestão
-          </p>
+      <div className="w-full max-w-sm mx-auto my-auto relative z-10 flex flex-col items-center" style={{ maxWidth: '384px', width: '100%' }}>
+        {/* Logo Livre - Sem card, sem borda de fundo */}
+        <div className="mb-6 flex flex-col items-center justify-center text-center">
+          {logosReady ? (
+            <BrandLogo imageUrl={logoLightUrl || logoDarkUrl} size="md" widthPx={200} layout="stacked" />
+          ) : (
+            <div style={{ width: 200, height: 100 }} className="animate-pulse bg-white/5 rounded-lg" />
+          )}
         </div>
 
-        {/* Login Form Card - e-mail e senha, sem lista de usuarios */}
-        <form onSubmit={handlePasswordLogin} className="bg-[#0e0e13]/95 backdrop-blur-3xl p-5 sm:p-6 rounded-[28px] border border-white/10 shadow-2xl space-y-4">
-          <div className="space-y-3.5">
+        {/* Card de Entrada em Tamanho Padrão */}
+        <div 
+          className="w-full max-w-sm mx-auto bg-[#0b0c12]/90 backdrop-blur-xl border border-white/[0.08] rounded-2xl p-5 sm:p-6 shadow-[0_20px_60px_rgba(0,0,0,0.85),0_0_30px_rgba(220,38,38,0.06)] relative overflow-hidden"
+          style={{ maxWidth: '384px', width: '100%' }}
+        >
+          {/* Top highlight bar */}
+          <div className="absolute top-0 inset-x-6 h-[2px] bg-gradient-to-r from-transparent via-red-500/80 to-transparent" />
+
+          {/* Form Header */}
+          <div className="mb-4 text-center">
+            <h1 className="text-base font-bold text-white tracking-tight">
+              Acesso ao Sistema
+            </h1>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              Digite seu e-mail e senha para entrar
+            </p>
+          </div>
+
+          {/* Form */}
+          <form onSubmit={handlePasswordLogin} className="space-y-3.5">
             {/* E-mail Field */}
-            <div>
-              <label className="text-[11px] font-bold uppercase text-white tracking-wider mb-2 flex items-center gap-2 block">
-                <Mail size={14} className="text-red-500" /> E-MAIL DE ACESSO
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                <Mail size={12} className="text-red-500" />
+                <span>E-mail</span>
               </label>
-              <div className="relative">
-                <Mail size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-red-500 pointer-events-none" />
+              <div className="relative group">
+                <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-red-500 transition-colors pointer-events-none">
+                  <Mail size={15} />
+                </div>
                 <input
                   type="email"
                   required
                   value={loginEmail}
                   onChange={(e) => setLoginEmail(e.target.value)}
-                  placeholder="Digite seu e-mail"
-                  className="w-full bg-[#07070a] border border-white/20 focus:border-red-500 focus:ring-1 focus:ring-red-500 rounded-xl pl-11 pr-4 py-3 text-white font-medium focus:outline-none transition-all text-sm placeholder:text-white/50"
+                  placeholder="seu.email@empresa.com"
+                  className="w-full h-10 bg-[#06060a] hover:bg-[#08080f] focus:bg-[#090912] border border-white/10 hover:border-white/20 focus:border-red-500 focus:ring-1 focus:ring-red-500/20 rounded-xl pl-10 pr-3 text-xs text-white font-medium focus:outline-none transition-all placeholder:text-slate-600"
                 />
               </div>
             </div>
 
             {/* Password Field */}
-            <div>
-              <label className="text-[11px] font-bold uppercase text-white tracking-wider mb-2 flex items-center gap-2 block">
-                <Lock size={14} className="text-red-500" /> SENHA DE ACESSO
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                <Lock size={12} className="text-red-500" />
+                <span>Senha</span>
               </label>
-              <div className="relative">
-                <Lock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-red-500 pointer-events-none" />
+              <div className="relative group">
+                <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-red-500 transition-colors pointer-events-none">
+                  <Lock size={15} />
+                </div>
                 <input
                   type={showPassword ? 'text' : 'password'}
                   required
                   value={loginPassword}
                   onChange={(e) => setLoginPassword(e.target.value)}
-                  placeholder="Digite sua senha"
-                  className="w-full bg-[#07070a] border border-white/20 focus:border-red-500 focus:ring-1 focus:ring-red-500 rounded-xl pl-11 pr-12 py-3 text-white font-medium focus:outline-none transition-all text-sm placeholder:text-white/50"
+                  placeholder="••••••••"
+                  className="w-full h-10 bg-[#06060a] hover:bg-[#08080f] focus:bg-[#090912] border border-white/10 hover:border-white/20 focus:border-red-500 focus:ring-1 focus:ring-red-500/20 rounded-xl pl-10 pr-10 text-xs text-white font-medium focus:outline-none transition-all placeholder:text-slate-600"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/70 hover:text-red-500 transition-colors cursor-pointer p-1"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-400 transition-colors cursor-pointer p-1.5 rounded-lg hover:bg-white/5"
+                  title={showPassword ? "Ocultar senha" : "Ver senha"}
                 >
-                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
                 </button>
               </div>
             </div>
 
-            {/* Lembrar minha senha (so pre-preenche o e-mail; manter logado depende da localizacao abaixo) */}
-            <label className="flex items-center gap-2.5 cursor-pointer select-none pt-0.5">
-              <input
-                type="checkbox"
-                checked={rememberMe}
-                onChange={(e) => setRememberMe(e.target.checked)}
-                className="w-4 h-4 rounded accent-red-600 cursor-pointer"
-              />
-              <span className="text-xs font-semibold text-white/70">Lembrar minha senha</span>
-            </label>
-          </div>
+            {/* Options Row (Remember Me) */}
+            <div className="flex items-center justify-between pt-0.5">
+              <label className="flex items-center gap-2 cursor-pointer select-none group">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="w-3.5 h-3.5 rounded border-white/20 bg-[#06060a] accent-red-600 cursor-pointer"
+                />
+                <span className="text-[11px] font-medium text-slate-300 group-hover:text-white transition-colors">
+                  Lembrar acesso
+                </span>
+              </label>
 
-          {authError && (
-            <div className="p-3.5 rounded-xl bg-red-950/40 border border-red-600/50 text-white text-xs font-semibold flex items-start gap-2.5 animate-in fade-in duration-200">
-              <AlertCircle size={18} className="shrink-0 text-red-500 mt-0.5" />
-              <span>{authError}</span>
+              <div className="flex items-center gap-1 text-[10px] font-medium text-slate-400">
+                <ShieldCheck size={12} className="text-emerald-500/80" />
+                <span>Seguro</span>
+              </div>
             </div>
-          )}
 
-          {/* Submit Button */}
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="w-full py-3.5 bg-red-600 hover:bg-red-500 active:bg-red-700 disabled:opacity-50 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-red-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer border-0 active:scale-[0.99] mt-1"
-          >
-            <Lock size={18} />
-            {isSubmitting ? 'Autenticando...' : 'ENTRAR NO SISTEMA'}
-          </button>
-        </form>
+            {/* Auth Error Banner */}
+            {authError && (
+              <div className="p-3 rounded-xl bg-red-950/40 border border-red-600/40 text-red-200 text-xs font-medium flex items-start gap-2 animate-in fade-in slide-in-from-top-1 duration-200 shadow-lg shadow-red-950/30">
+                <AlertCircle size={15} className="shrink-0 text-red-500 mt-0.5" />
+                <span className="leading-relaxed text-[11px]">{authError}</span>
+              </div>
+            )}
 
-        {/* Footer */}
-        <div className="text-center space-y-1">
-          <p className="text-xs text-white font-bold flex items-center justify-center gap-1.5">
-            <ShieldCheck size={14} className="text-red-500 shrink-0" />
-            © 2026 RAFA ARTS GRAPHICS
-          </p>
-          <p className="text-[10px] uppercase tracking-widest text-white font-semibold">
-            SISTEMA DE GESTÃO RAFA ARTS GRAPHICS
+            {/* Submit Button */}
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="w-full h-10 bg-gradient-to-r from-red-600 via-red-500 to-red-600 hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-md shadow-red-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer border border-red-400/20 mt-1"
+            >
+              {isSubmitting ? (
+                <>
+                  <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <span>Autenticando...</span>
+                </>
+              ) : (
+                <>
+                  <span>Entrar</span>
+                  <ArrowRight size={14} className="text-white/80" />
+                </>
+              )}
+            </button>
+          </form>
+        </div>
+
+        {/* Security & System Footer */}
+        <div className="text-center mt-5 space-y-1">
+          <div className="flex items-center justify-center gap-1.5 text-[11px] text-slate-400 font-medium">
+            <ShieldCheck size={13} className="text-red-500/90 shrink-0" />
+            <span>Conexão criptografada de ponta a ponta</span>
+          </div>
+          <p className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">
+            © 2026 RAFA ARTS GRAPHICS • SISTEMA RPRO
           </p>
         </div>
       </div>

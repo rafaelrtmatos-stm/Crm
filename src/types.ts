@@ -57,6 +57,8 @@ export interface SaleOrderItem {
   discountValue?: number;
   precoOriginal?: number; // preco antes do desconto, guardado para auditoria/exibicao
   observacao?: string; // observacao livre por item do carrinho
+  category?: string; // categoria do produto/item (ex.: 'substrato')
+  custoMaquinaPorMetro?: number; // custo operacional de máquina por metro linear (ex.: 5.98)
   materiasPrimasConsumidas?: MateriaPrimaConsumo[]; // calculo de consumo por item do pedido
   custoTotalMateriasPrimas?: number; // custo total das matérias-primas utilizadas
 }

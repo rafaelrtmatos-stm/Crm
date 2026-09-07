@@ -562,6 +562,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
           name: product.name,
           price: product.price,
           quantity: 1,
+          category: product.category,
           materiasPrimasConsumidas: itemConsumo
         }
       ];
@@ -604,6 +605,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
         area: area,
         consumoEstoque: area,
         dimensions: dimText,
+        category: dimensionModalProduct.category,
         materiasPrimasConsumidas: itemConsumo
       }
     ]);
