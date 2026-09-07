@@ -815,13 +815,25 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
       }
 
       // Deduct raw materials (matérias-primas) stock if present in items or product recipes
-      const allMateriasPrimasToDeduct: { materiaPrimaId?: string; name?: string; quantity: number }[] = [];
+      const allMateriasPrimasToDeduct: {
+        materiaPrimaId?: string;
+        name?: string;
+        quantity: number;
+        orderId?: string;
+        customerName?: string;
+        productName?: string;
+        observacao?: string;
+      }[] = [];
       if (consumoMateriasPrimas.length > 0) {
         consumoMateriasPrimas.forEach((mp: any) => {
           allMateriasPrimasToDeduct.push({
             materiaPrimaId: mp.materiaPrimaId || mp.id,
             name: mp.name,
-            quantity: mp.quantity
+            quantity: mp.quantity,
+            orderId: saleId,
+            customerName: selectedCustomer?.name || 'Cliente de Balcão',
+            productName: mp.name,
+            observacao: `Venda #${saleId.slice(-8).toUpperCase()} - ${mp.name} (${selectedCustomer?.name || 'Cliente de Balcão'})`
           });
         });
       }
@@ -841,7 +853,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
                 allMateriasPrimasToDeduct.push({
                   materiaPrimaId: mp.materiaPrimaId || mp.id,
                   name: mp.name,
-                  quantity: consumed
+                  quantity: consumed,
+                  orderId: saleId,
+                  customerName: selectedCustomer?.name || 'Cliente de Balcão',
+                  productName: item.name,
+                  observacao: `Venda #${saleId.slice(-8).toUpperCase()} - ${item.name} (${selectedCustomer?.name || 'Cliente de Balcão'})`
                 });
               }
             });

@@ -14,6 +14,8 @@ export interface MateriaPrimaConsumptionRecord {
   unit: string;
   orderId?: string;
   customerName?: string;
+  productName?: string;
+  totalVenda?: number;
   timestamp: string; // ISO date
   tipoOperacao: 'venda' | 'ajuste_manual' | 'entrada' | 'perda';
   saldoApos?: number;
@@ -423,7 +425,15 @@ export function subscribeToMateriasPrimas(onChange: () => void): () => void {
  * quando uma venda/ordem de serviço com produtos compostos é finalizada.
  */
 export async function deductMateriasPrimasStock(
-  consumptions: { materiaPrimaId?: string; name?: string; quantity: number }[],
+  consumptions: { 
+    materiaPrimaId?: string; 
+    name?: string; 
+    quantity: number;
+    orderId?: string;
+    customerName?: string;
+    productName?: string;
+    observacao?: string;
+  }[],
   companyId?: string
 ): Promise<void> {
   if (!consumptions || consumptions.length === 0) return;
@@ -455,9 +465,12 @@ export async function deductMateriasPrimasStock(
           companyId: found.companyId || companyId || 'rafa-arts',
           quantity: item.quantity,
           unit: found.unit || 'm',
+          orderId: item.orderId,
+          customerName: item.customerName,
+          productName: item.productName,
           tipoOperacao: 'venda',
           saldoApos: newQty,
-          observacao: `Baixa automática de produção (Consumo: ${item.quantity} ${found.unit || 'm'})`
+          observacao: item.observacao || `Baixa automática de produção (Consumo: ${item.quantity} ${found.unit || 'm'})`
         }).catch(err => console.warn('Erro ao gravar histórico de consumo:', err));
 
         try {
@@ -582,62 +595,126 @@ async function seedDefaultMateriasPrimas(companyId?: string): Promise<MateriaPri
 // HISTÓRICO DE CONSUMO & PREVISÃO DE ESTOQUE
 // ==========================================
 
+// Data inicial de contagem de consumo solicitada pelo usuário (31 de agosto de 2026)
+export const CONSUMPTION_START_DATE = '2026-08-31T00:00:00';
+
 export async function fetchConsumptionHistory(
   materiaPrimaId?: string,
-  companyId?: string
+  companyId?: string,
+  startDate?: string,
+  endDate?: string
 ): Promise<MateriaPrimaConsumptionRecord[]> {
   try {
-    const raw = localStorage.getItem(CONSUMPTION_HISTORY_KEY);
-    let list: MateriaPrimaConsumptionRecord[] = raw ? JSON.parse(raw) : [];
+    // 1. Carrega todas as matérias-primas e produtos com fichas técnicas para associar insumos
+    const materias = await fetchMateriasPrimas(companyId);
+    const mpMap = new Map<string, MateriaPrima>((materias || []).map(m => [m.id, m]));
 
-    // Se estiver vazio, gera histórico inicial demonstrativo com base nos insumos existentes
-    // (ex: rodou 10m na última semana, exatamente como o usuário exemplificou)
-    if (list.length === 0) {
-      const materias = await fetchMateriasPrimas(companyId);
-      if (materias.length > 0) {
-        const now = Date.now();
-        list = materias.flatMap(mp => {
-          const comp = mp.comprimentoBobina || 50;
-          return [
-            {
-              id: `hist-${mp.id}-1`,
-              materiaPrimaId: mp.id,
-              materiaPrimaName: mp.name,
-              companyId: mp.companyId || companyId || 'rafa-arts',
-              quantity: 10,
-              unit: mp.unit || 'm',
-              timestamp: new Date(now - 3 * 86400000).toISOString(),
-              tipoOperacao: 'venda',
-              saldoApos: Math.max(0, (mp.quantidadeEstoque ? mp.quantidadeEstoque * comp : comp) - 10),
-              observacao: 'Produção de Lona / Adesivo Promocional (10m rodados)'
-            },
-            {
-              id: `hist-${mp.id}-2`,
-              materiaPrimaId: mp.id,
-              materiaPrimaName: mp.name,
-              companyId: mp.companyId || companyId || 'rafa-arts',
-              quantity: 5,
-              unit: mp.unit || 'm',
-              timestamp: new Date(now - 8 * 86400000).toISOString(),
-              tipoOperacao: 'venda',
-              saldoApos: Math.max(0, (mp.quantidadeEstoque ? mp.quantidadeEstoque * comp : comp) - 5),
-              observacao: 'Produção de Adesivos Recorte e Impressão'
-            }
-          ];
-        });
-        localStorage.setItem(CONSUMPTION_HISTORY_KEY, JSON.stringify(list));
+    let prodMap = new Map<string, any>();
+    try {
+      const { data: prods } = await supabase.from('produtos').select('id, name, unit, materias_primas');
+      if (prods && prods.length > 0) {
+        prodMap = new Map(prods.map(p => [p.id, p]));
       }
+    } catch (e) {
+      console.warn('Não foi possível carregar fichas de produtos para o histórico:', e);
     }
 
-    if (materiaPrimaId) {
-      list = list.filter(r => r.materiaPrimaId === materiaPrimaId);
+    // 2. Busca todas as vendas reais finalizadas/registradas no Supabase
+    const salesRecords: MateriaPrimaConsumptionRecord[] = [];
+    try {
+      let query = supabase
+        .from('vendas')
+        .select('id, company_id, customer_name, customer_phone, total, items, created_at, status, deleted_at')
+        .is('deleted_at', null)
+        .order('created_at', { ascending: false });
+
+      if (startDate) {
+        query = query.gte('created_at', startDate);
+      }
+      if (endDate) {
+        query = query.lte('created_at', endDate);
+      }
+
+      const { data: vendas, error: vendasErr } = await query;
+
+      if (vendasErr) {
+        console.warn('Erro ao buscar vendas para histórico de consumo:', vendasErr.message);
+      } else if (vendas && vendas.length > 0) {
+        for (const v of vendas) {
+          if (v.status === 'canceled') continue;
+          const items = Array.isArray(v.items) ? v.items : [];
+          
+          items.forEach((item: any, itemIdx: number) => {
+            const prod = prodMap.get(item.productId);
+            const rawMaterials = (Array.isArray(item.materiasPrimasConsumidas) && item.materiasPrimasConsumidas.length > 0)
+              ? item.materiasPrimasConsumidas
+              : (Array.isArray(prod?.materias_primas) ? prod.materias_primas : []);
+
+            if (!rawMaterials || rawMaterials.length === 0) return;
+
+            const multiplier = Number(item.consumoEstoque ?? item.area ?? (typeof item.quantity === 'number' ? item.quantity : 1));
+
+            rawMaterials.forEach((mp: any, mpIdx: number) => {
+              const mpId = mp.materiaPrimaId || mp.id;
+              const mpObj = mpMap.get(mpId) || materias.find(m => m.name?.trim().toLowerCase() === (mp.name || '').trim().toLowerCase());
+              const finalMpId = mpObj ? mpObj.id : mpId;
+              const finalMpName = mpObj ? mpObj.name : (mp.name || 'Matéria-Prima');
+              const finalUnit = mpObj?.unit || mp.unit || 'm';
+
+              const consumedQty = (item.materiasPrimasConsumidas && typeof mp.quantity === 'number' && mp.quantity > 0)
+                ? Number(mp.quantity.toFixed(4))
+                : Number(((Number(mp.quantity) || 1) * multiplier).toFixed(4));
+
+              if (consumedQty > 0) {
+                salesRecords.push({
+                  id: `venda-${v.id}-${itemIdx}-${mpIdx}`,
+                  materiaPrimaId: finalMpId,
+                  materiaPrimaName: finalMpName,
+                  companyId: v.company_id || companyId || 'rafa-arts',
+                  quantity: consumedQty,
+                  unit: finalUnit,
+                  orderId: v.id,
+                  customerName: v.customer_name || 'Cliente de Balcão',
+                  productName: item.name,
+                  totalVenda: v.total,
+                  timestamp: v.created_at,
+                  tipoOperacao: 'venda',
+                  observacao: `Venda #${v.id.slice(-8).toUpperCase()} - ${item.name} (${v.customer_name || 'Cliente de Balcão'})`
+                });
+              }
+            });
+          });
+        }
+      }
+    } catch (supaErr) {
+      console.warn('Erro ao processar consumo das vendas reais:', supaErr);
+    }
+
+    // 3. Lê ajustes manuais (entradas, perdas, ajustes manuais) armazenados localmente
+    const raw = localStorage.getItem(CONSUMPTION_HISTORY_KEY);
+    let localList: MateriaPrimaConsumptionRecord[] = raw ? JSON.parse(raw) : [];
+    
+    // Filtra pelo intervalo de datas
+    const startTime = startDate ? new Date(startDate).getTime() : 0;
+    const endTime = endDate ? new Date(endDate).getTime() : Infinity;
+    const manualRecords = localList.filter(r => {
+      if (r.tipoOperacao === 'venda') return false; // vendas vêm fidedignas do banco
+      if (!r.timestamp) return true;
+      const t = new Date(r.timestamp).getTime();
+      return t >= startTime && t <= endTime;
+    });
+
+    let combined = [...salesRecords, ...manualRecords];
+
+    if (materiaPrimaId && materiaPrimaId !== 'all') {
+      combined = combined.filter(r => r.materiaPrimaId === materiaPrimaId);
     }
     if (companyId) {
-      list = list.filter(r => !r.companyId || r.companyId === companyId);
+      combined = combined.filter(r => !r.companyId || r.companyId === companyId);
     }
 
     // Ordena do mais recente para o mais antigo
-    return list.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    return combined.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   } catch (err) {
     console.error('Erro ao ler histórico de consumo de matérias-primas:', err);
     return [];
