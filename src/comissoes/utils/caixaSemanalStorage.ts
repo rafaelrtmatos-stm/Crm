@@ -69,17 +69,25 @@ export const addDaysISO = (dateStr: string, days: number): string => {
 
 const getTodayISO = (): string => formatISO(new Date());
 
-/** Domingo a sábado da semana atual (offsetWeeks negativo/positivo desloca por semanas inteiras). */
+/**
+ * Ciclo de Comissão Semanal: Sábado a Sexta-feira.
+ * No Sábado de manhã (dia de pagamento), o ciclo exibido para conferência/pagamento
+ * é o que fechou na Sexta-feira (Sábado anterior até ontem, Sexta-feira).
+ * No Domingo até Sexta-feira, o ciclo ativo é o que começou no último Sábado e vai até a Sexta-feira.
+ * Serviços lançados no próprio Sábado atual não somam no pagamento que fechou na sexta (ficam para o próximo ciclo).
+ */
 export const getWorkWeekBounds = (offsetWeeks = 0): { start: string; end: string } => {
   const now = new Date();
-  const dayOfWeek = now.getDay(); // 0 = domingo ... 6 = sábado
-  const distanceToSun = -dayOfWeek;
-  const sun = new Date(now);
-  sun.setDate(now.getDate() + distanceToSun + offsetWeeks * 7);
-  return { start: formatISO(sun), end: addDaysISO(formatISO(sun), 6) };
+  const day = now.getDay(); // 0 = domingo ... 6 = sábado
+  const diffToSaturday = -(day + 1);
+  const sat = new Date(now);
+  sat.setDate(now.getDate() + diffToSaturday + offsetWeeks * 7);
+  const start = formatISO(sat);
+  const end = addDaysISO(start, 6); // Sexta-feira (7 dias: Sáb, Dom, Seg, Ter, Qua, Qui, Sex)
+  return { start, end };
 };
 
-/** Domingo da semana seguinte à semana que termina em semanaFim (sábado). */
+/** Sábado da semana seguinte à semana que termina em semanaFim (sexta-feira). */
 const getProximaSemanaInicio = (semanaFim: string): string => addDaysISO(semanaFim, 1);
 
 /** Primeiro e último dia do mês (offsetMonths desloca por meses inteiros). */
@@ -144,7 +152,24 @@ export async function getOrCreateCaixaAberto(colaboradorId: string): Promise<Wee
     .maybeSingle();
 
   if (fetchError) { console.error('Erro ao buscar caixa aberto:', fetchError); return null; }
-  if (aberto) return mapCaixaRow(aberto);
+  if (aberto) {
+    const caixaMapped = mapCaixaRow(aberto);
+    const fimDate = new Date(`${caixaMapped.semanaFim}T12:00:00`);
+    // Se o caixa aberto atual ainda estiver no padrão antigo (terminando em sábado),
+    // ajusta para terminar na sexta-feira (ciclo sábado a sexta).
+    if (fimDate.getDay() === 6) {
+      const novaSexta = addDaysISO(caixaMapped.semanaFim, -1);
+      const novoInicio = addDaysISO(novaSexta, -6);
+      supabase
+        .from('comissoes_caixas_semanais')
+        .update({ semana_inicio: novoInicio, semana_fim: novaSexta })
+        .eq('id', caixaMapped.id)
+        .then(() => {});
+      caixaMapped.semanaInicio = novoInicio;
+      caixaMapped.semanaFim = novaSexta;
+    }
+    return caixaMapped;
+  }
 
   const { start, end } = getWorkWeekBounds();
   const { data: created, error: insertError } = await supabase
@@ -252,12 +277,14 @@ function contarSemanasSalario(dataInicio: string, start: string, end: string): n
   if (inicioEfetivo > end) return 0;
 
   const d = new Date(`${inicioEfetivo}T00:00:00`);
-  const domingo = new Date(d);
-  domingo.setDate(d.getDate() - d.getDay());
+  const day = d.getDay(); // 0 = Dom ... 6 = Sáb
+  const diffToSaturday = -(day + 1);
+  const sabado = new Date(d);
+  sabado.setDate(d.getDate() + diffToSaturday);
 
   const fim = new Date(`${end}T00:00:00`);
   let count = 0;
-  const cursor = new Date(domingo);
+  const cursor = new Date(sabado);
   while (cursor <= fim) {
     count++;
     cursor.setDate(cursor.getDate() + 7);
@@ -317,8 +344,10 @@ export function calcularResumoNoIntervalo(
     .filter((s) => s.date >= inicio && s.date <= fim && s.status !== 'CANCELADO')
     .reduce((acc, s) => acc + (s.commissionValue || 0), 0);
   const totalDescontos = calculateDescontosNoPeriodo(descontos, inicio, fim);
+  // Pagamentos da semana podem ter sido efetuados no sábado de pagamento (fim + 1 dia)
+  const pagamentosFimLimite = addDaysISO(fim, 1);
   const totalPago = pagamentos
-    .filter((p) => p.data >= inicio && p.data <= fim)
+    .filter((p) => p.data >= inicio && p.data <= pagamentosFimLimite)
     .reduce((acc, p) => acc + p.valor, 0);
   const qtdSemanas = contarSemanasSalario(dataInicioReal, inicio, fim);
   const salarioBaseNoIntervalo = salarioBase * qtdSemanas;
@@ -402,7 +431,10 @@ export async function avancarCaixaSeNecessario(
   const hoje = getTodayISO();
   let guard = 0;
 
-  while (caixa.status === 'aberto' && caixa.semanaFim < hoje && guard < 260) {
+  // Fecha semanas passadas quando já passou o sábado de pagamento (ou seja, a partir de domingo).
+  // Se semanaFim é Sexta-feira, addDaysISO(caixa.semanaFim, 1) é o Sábado de pagamento.
+  // O caixa só deve fechar automaticamente quando hoje for estritamente maior que esse sábado de pagamento.
+  while (caixa.status === 'aberto' && addDaysISO(caixa.semanaFim, 1) < hoje && guard < 260) {
     guard++;
     const pagamentosDaSemana = await getPagamentosDoCaixa(caixa.id);
     const resumo = calcularResumoCaixa(caixa, salarioBase, services, descontos, pagamentosDaSemana);

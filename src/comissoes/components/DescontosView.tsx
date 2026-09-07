@@ -33,6 +33,7 @@ import {
   calcularResumoCaixa,
   calcularResumoPorPeriodo,
   PeriodoVisualizacao,
+  getWorkWeekBounds,
 } from '../utils/caixaSemanalStorage';
 import { formatDateBR } from '../utils/storage';
 import { showAlert, showConfirm } from '../../lib/notify';
@@ -82,19 +83,13 @@ const DESCONTOS_PERIODO_LABELS: Record<DescontosPeriodo, string> = {
 const format = (d: Date) => toLocalISO(d);
 
 // Calcula início/fim do período selecionado, aplicando o offset (0 = atual,
-// -1 = anterior, 1 = seguinte...). Semana sempre domingo a sábado.
+// -1 = anterior, 1 = seguinte...). Semana de sábado a sexta.
 const getDescontosPeriodoBounds = (periodo: DescontosPeriodo, offset: number) => {
-  const now = new Date();
-
   if (periodo === 'semana') {
-    const day = now.getDay(); // 0 = domingo ... 6 = sábado
-    const start = new Date(now);
-    start.setDate(now.getDate() - day + offset * 7);
-    const end = new Date(start);
-    end.setDate(start.getDate() + 6);
-    return { start: format(start), end: format(end) };
+    return getWorkWeekBounds(offset);
   }
 
+  const now = new Date();
   if (periodo === 'mes') {
     const y = now.getFullYear();
     const m = now.getMonth() + offset;

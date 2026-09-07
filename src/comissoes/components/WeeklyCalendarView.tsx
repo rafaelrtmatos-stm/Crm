@@ -114,7 +114,10 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
       const prod = list.reduce((sum, s) => sum + s.productionValue, 0);
       const comm = list.reduce((sum, s) => sum + s.commissionValue, 0);
       totalProd += prod;
-      totalComm += comm;
+      // Regra de comissão: fecha na sexta (sábado não soma nesta semana, conta no próximo ciclo)
+      if (day.key !== 'sat') {
+        totalComm += comm;
+      }
       totalCount += list.length;
       if (prod > max && list.length) {
         max = prod;
@@ -254,8 +257,10 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
           ) : groups.map(renderNoteCard)}
         </div>
 
-        <div className="px-3 py-2 border-t border-[var(--border-color)] bg-[var(--bg-card-sec)] flex justify-between">
-          <span className="text-[10px] font-black uppercase text-[var(--text-muted)]">Comissão</span>
+        <div className="px-3 py-2 border-t border-[var(--border-color)] bg-[var(--bg-card-sec)] flex justify-between items-center">
+          <span className="text-[10px] font-black uppercase text-[var(--text-muted)] flex items-center gap-1">
+            Comissão {day.key === 'sat' && <span className="text-[9px] text-amber-500 font-semibold lowercase tracking-normal">(próx. ciclo)</span>}
+          </span>
           <span className="text-xs font-mono font-black text-[var(--accent-red)]">{formatCurrency(comm)}</span>
         </div>
         <div className="p-2">
@@ -329,6 +334,7 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
         <div className="p-4 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)]">
           <span className="text-[10px] font-bold text-[var(--text-muted)] block">COMISSÃO DA SEMANA</span>
           <span className="text-2xl font-black font-mono text-[var(--accent-red)]">{formatCurrency(weeklyStats.totalComm)}</span>
+          <span className="text-[10px] text-[var(--text-muted)] block mt-0.5">Fechamento na sexta (sáb. no próx. ciclo)</span>
         </div>
         <div className="p-4 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)]">
           <span className="text-[10px] font-bold text-[var(--text-muted)] block">TOTAL DE SERVIÇOS</span>

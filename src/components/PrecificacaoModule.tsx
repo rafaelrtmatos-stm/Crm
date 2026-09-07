@@ -35,7 +35,7 @@ import {
   PackagePlus,
   Maximize2
 } from 'lucide-react';
-import { Company, AppUser, Product, Maquina, MaquinaCalculos, MateriaPrima, calcularCustosMaquina, calcularTempoProducaoMinutos, VELOCIDADE_CABECA_MIN_MMS, VELOCIDADE_CABECA_MAX_MMS } from '../types';
+import { Company, AppUser, Product, Maquina, MaquinaCalculos, MateriaPrima, calcularCustosMaquina, calcularTempoProducaoMinutos, calcularVelocidadeMarginalM2H, VELOCIDADE_CABECA_MIN_MMS, VELOCIDADE_CABECA_MAX_MMS } from '../types';
 import { supabase } from '../supabase';
 import { showAlert, showConfirm } from '../lib/notify';
 import { Badge, Button, Modal } from './SharedUI';
@@ -148,6 +148,7 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
   const [maquinaId, setMaquinaId] = useState<string>(initialMaquinaId || '');
   const [modoImpressaoSelecionado, setModoImpressaoSelecionado] = useState<NonNullable<Maquina['modoImpressao']>>('standard');
   const [velocidadeCabecaSelecionada, setVelocidadeCabecaSelecionada] = useState<number>(400);
+  const [usarVelocidadeCabecaPadrao, setUsarVelocidadeCabecaPadrao] = useState<boolean>(true);
   const [colaboradorId, setColaboradorId] = useState('media'); // 'media' ou id de um colaborador
 
   // Prazo de entrega
@@ -376,6 +377,24 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
     const minutos = calcularTempoProducaoMinutos(maquinaSelecionada, areaTotalM2, modoImpressaoSelecionado, velocidadeCabecaSelecionada);
     return minutos > 0 ? Math.max(5, Math.ceil(minutos)) : 0;
   }, [areaTotalM2, maquinaSelecionada, modoImpressaoSelecionado, velocidadeCabecaSelecionada, modoCustomizadoSelecionado]);
+
+  // Velocidade marginal calculada (m²/h) em tempo real conforme modo e velocidade da cabeça
+  const velocidadeAtualM2H = useMemo(() => {
+    if (!maquinaSelecionada) return 0;
+    return calcularVelocidadeMarginalM2H(
+      modoImpressaoSelecionado,
+      velocidadeCabecaSelecionada,
+      maquinaSelecionada.calibKMms,
+      maquinaSelecionada.velocidadeHispeedM2H
+    );
+  }, [maquinaSelecionada, modoImpressaoSelecionado, velocidadeCabecaSelecionada]);
+
+  // Recalcula o tempo de produção automaticamente quando o modo ou a velocidade de cabeça forem alterados
+  useEffect(() => {
+    if (tempoSugeridoMinutos > 0) {
+      setTempoProducaoMinutos(tempoSugeridoMinutos);
+    }
+  }, [tempoSugeridoMinutos]);
 
   // ==========================================
   // CÁLCULOS AUTOMÁTICOS DE CUSTOS (PUXADOS DO SISTEMA E DAS MÁQUINAS)
@@ -1317,95 +1336,191 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
                   </div>
                 </div>
 
-                {/* Modos de Impressão Configurados da Máquina */}
-                {maquinaSelecionada.modosImpressaoList && maquinaSelecionada.modosImpressaoList.length > 0 ? (
-                  <div className="space-y-1.5">
-                    <span className="text-[10px] font-bold text-white/60 uppercase block">
-                      Selecione o Modo de Impressão desta Máquina:
-                    </span>
+                {/* Modos de Produção Principais: Standard e High Speed */}
+                <div className="space-y-3">
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="block text-[11px] font-bold text-white/70 uppercase flex items-center gap-1.5">
+                        <Gauge size={13} className="text-cyan-400" /> Modo de Produção
+                      </label>
+                      <span className="text-[10px] text-white/40">
+                        {modoImpressaoSelecionado === 'highspeed' ? 'Velocidade rápida fixa' : 'Velocidade ajustável por cabeça (mm/s)'}
+                      </span>
+                    </div>
+
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {maquinaSelecionada.modosImpressaoList.map((m) => {
-                        const isSelected = modoCustomizadoId === m.id;
-                        const tempoModoMin = areaTotalM2 > 0
-                          ? Math.ceil(((areaTotalM2 / Math.max(0.1, m.velocidadeM2H)) * 60) + (maquinaSelecionada.tempoSetupMin || 10))
-                          : 0;
-                        return (
-                          <button
-                            key={m.id}
-                            type="button"
-                            onClick={() => {
-                              setModoCustomizadoId(m.id);
-                              if (tempoModoMin > 0) {
-                                setTempoProducaoMinutos(tempoModoMin);
-                              }
-                            }}
-                            className={`p-2.5 rounded-xl border text-left transition-all ${
-                              isSelected
-                                ? 'bg-cyan-500/20 border-cyan-400 text-white shadow-md'
-                                : 'bg-slate-900/70 border-white/10 hover:border-cyan-500/30 text-white/70'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs font-bold text-white">{m.nome}</span>
-                              <span className="text-[10px] font-mono text-cyan-300 font-bold">{m.velocidadeM2H} m²/h</span>
-                            </div>
-                            <div className="flex items-center justify-between text-[10px] text-white/50 mt-1">
-                              <span>{m.resolucaoDpi || '720 DPI'} {m.passes ? `• ${m.passes}p` : ''}</span>
-                              {tempoModoMin > 0 && (
-                                <strong className="text-emerald-400 font-bold">⏱️ ~{tempoModoMin} min</strong>
-                              )}
-                            </div>
-                          </button>
-                        );
-                      })}
+                      {/* Botão Standard */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setModoImpressaoSelecionado('standard');
+                          setModoCustomizadoId('');
+                        }}
+                        className={`p-3 rounded-2xl border text-left transition-all relative ${
+                          modoImpressaoSelecionado === 'standard' && !modoCustomizadoId
+                            ? 'bg-cyan-500/20 border-cyan-400 text-white shadow-lg shadow-cyan-500/10 ring-1 ring-cyan-400'
+                            : 'bg-slate-900/80 border-white/10 text-white/70 hover:bg-slate-800/80 hover:border-white/20'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-black uppercase text-white flex items-center gap-1.5">
+                            Standard
+                          </span>
+                          {modoImpressaoSelecionado === 'standard' && !modoCustomizadoId && (
+                            <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-cyan-400 text-slate-950">Ativo</span>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-white/60 leading-tight">
+                          Modo padrão calibrado • Varia com a velocidade da cabeça (mm/s)
+                        </p>
+                      </button>
+
+                      {/* Botão High Speed */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setModoImpressaoSelecionado('highspeed');
+                          setModoCustomizadoId('');
+                        }}
+                        className={`p-3 rounded-2xl border text-left transition-all relative ${
+                          modoImpressaoSelecionado === 'highspeed' && !modoCustomizadoId
+                            ? 'bg-amber-500/20 border-amber-400 text-white shadow-lg shadow-amber-500/10 ring-1 ring-amber-400'
+                            : 'bg-slate-900/80 border-white/10 text-white/70 hover:bg-slate-800/80 hover:border-white/20'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-black uppercase text-white flex items-center gap-1.5">
+                            High Speed
+                          </span>
+                          {modoImpressaoSelecionado === 'highspeed' && !modoCustomizadoId && (
+                            <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-400 text-slate-950">Ativo</span>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-white/60 leading-tight">
+                          Modo rápido contínuo • Velocidade fixa (~4.55 m²/h)
+                        </p>
+                      </button>
                     </div>
                   </div>
-                ) : (
-                  /* Seleção genérica Standard / High Speed */
-                  modoCalculo === 'm2' && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-[10px] font-bold text-white/50 uppercase mb-1">
-                          Modo de Impressão
+
+                  {/* Abaixo do modo de produção: Controle da Velocidade da Cabeça */}
+                  {modoImpressaoSelecionado === 'standard' && !modoCustomizadoId ? (
+                    <div className="bg-slate-900/90 border border-cyan-500/30 rounded-2xl p-3.5 space-y-3">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-white/10">
+                        <label className="flex items-center gap-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={usarVelocidadeCabecaPadrao}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setUsarVelocidadeCabecaPadrao(checked);
+                              if (checked) {
+                                setVelocidadeCabecaSelecionada(400);
+                              }
+                            }}
+                            className="w-4 h-4 rounded border-white/20 text-cyan-500 focus:ring-cyan-400 focus:ring-offset-0 bg-slate-950 cursor-pointer"
+                          />
+                          <span className="text-xs font-bold text-white">
+                            Velocidade da cabeça padrão (400 mm/s)
+                          </span>
                         </label>
-                        <select
-                          value={modoImpressaoSelecionado || 'standard'}
-                          onChange={(e) => {
-                            setModoImpressaoSelecionado(e.target.value as NonNullable<Maquina['modoImpressao']>);
-                            setModoCustomizadoId('');
-                          }}
-                          className="w-full bg-slate-900 border border-white/15 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
-                        >
-                          <option value="standard">Standard (Velocidade Normal)</option>
-                          <option value="highspeed">High Speed (Modo Rápido)</option>
-                          <option value="rascunho">Rascunho / Draft</option>
-                          <option value="qualidade">Alta Qualidade / Foto</option>
-                        </select>
+
+                        <div className="flex items-center gap-2 text-[11px] font-mono">
+                          <span className="text-white/40">Produção:</span>
+                          <span className="text-cyan-300 font-bold">~{velocidadeAtualM2H.toFixed(2)} m²/h</span>
+                        </div>
                       </div>
+
+                      {/* Se a caixinha estiver desmarcada: permite alterar livremente obedecendo os limites */}
+                      {!usarVelocidadeCabecaPadrao ? (
+                        <div className="space-y-2.5">
+                          <div className="flex items-center justify-between text-[10px] text-white/60">
+                            <span className="font-bold text-cyan-300 uppercase">
+                              Alterar velocidade da cabeça (mm/s):
+                            </span>
+                            <span className="text-white/40 font-mono">
+                              Faixa do RIP: {VELOCIDADE_CABECA_MIN_MMS} a {VELOCIDADE_CABECA_MAX_MMS} mm/s
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center">
+                            <div className="sm:col-span-4 relative">
+                              <input
+                                type="number"
+                                step="1"
+                                min={VELOCIDADE_CABECA_MIN_MMS}
+                                max={VELOCIDADE_CABECA_MAX_MMS}
+                                value={velocidadeCabecaSelecionada}
+                                onChange={(e) => {
+                                  const raw = parseInt(e.target.value, 10);
+                                  if (Number.isFinite(raw)) {
+                                    const clamped = Math.min(Math.max(raw, VELOCIDADE_CABECA_MIN_MMS), VELOCIDADE_CABECA_MAX_MMS);
+                                    setVelocidadeCabecaSelecionada(clamped);
+                                  } else {
+                                    setVelocidadeCabecaSelecionada(VELOCIDADE_CABECA_MIN_MMS);
+                                  }
+                                }}
+                                className="w-full bg-slate-950 border border-cyan-500/50 rounded-xl px-3 py-2 text-sm font-black font-mono text-white focus:outline-none focus:border-cyan-400 shadow-inner"
+                              />
+                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/40 font-mono">
+                                mm/s
+                              </span>
+                            </div>
+
+                            {/* Botões rápidos das velocidades registradas */}
+                            <div className="sm:col-span-8 flex flex-wrap gap-1">
+                              {[
+                                { label: '250 (Mín)', val: 250 },
+                                { label: '350', val: 350 },
+                                { label: '400 (Padrão)', val: 400 },
+                                { label: '500', val: 500 },
+                                { label: '600', val: 600 },
+                                { label: '761 (Máx)', val: 761 },
+                              ].map(({ label, val }) => (
+                                <button
+                                  key={val}
+                                  type="button"
+                                  onClick={() => setVelocidadeCabecaSelecionada(val)}
+                                  className={`px-2 py-1 rounded-lg text-[10px] font-mono font-bold border transition-all ${
+                                    velocidadeCabecaSelecionada === val
+                                      ? 'bg-cyan-500/30 text-cyan-200 border-cyan-400 shadow'
+                                      : 'bg-black/30 text-white/60 border-white/10 hover:bg-white/10 hover:text-white'
+                                  }`}
+                                >
+                                  {label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between text-[11px] bg-black/40 px-3 py-1.5 rounded-xl border border-white/5">
+                            <span className="text-white/60">Velocidade selecionada: <strong className="text-white">{velocidadeCabecaSelecionada} mm/s</strong></span>
+                            <span className="text-emerald-400 font-bold flex items-center gap-1">
+                              <Zap size={12} /> Tempo recalculado automaticamente
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between text-[11px] text-white/60 bg-black/20 px-3 py-1.5 rounded-xl border border-white/5">
+                          <span className="flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                            Velocidade padrão ativa (400 mm/s).
+                          </span>
+                          <span className="text-[10px] text-cyan-300">
+                            Desmarque a caixa para personalizar
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  ) : modoImpressaoSelecionado === 'highspeed' && !modoCustomizadoId ? (
+                    <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3 text-xs text-amber-200/90 flex items-center gap-2.5">
+                      <Sparkles size={16} className="text-amber-400 shrink-0" />
                       <div>
-                        <label className="block text-[10px] font-bold text-white/50 uppercase mb-1">
-                          Velocidade de Cabeça (mm/s)
-                        </label>
-                        <input
-                          type="number"
-                          step="1"
-                          min={VELOCIDADE_CABECA_MIN_MMS}
-                          max={VELOCIDADE_CABECA_MAX_MMS}
-                          disabled={modoImpressaoSelecionado === 'highspeed'}
-                          value={velocidadeCabecaSelecionada}
-                          onChange={(e) => {
-                            const raw = parseInt(e.target.value, 10);
-                            const clamped = Number.isFinite(raw)
-                              ? Math.min(Math.max(raw, VELOCIDADE_CABECA_MIN_MMS), VELOCIDADE_CABECA_MAX_MMS)
-                              : velocidadeCabecaSelecionada;
-                            setVelocidadeCabecaSelecionada(clamped);
-                          }}
-                          className="w-full bg-slate-900 border border-white/15 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 disabled:opacity-40"
-                        />
+                        <strong>Modo High Speed selecionado:</strong> A impressora roda na velocidade rápida contínua fixa (~4.55 m²/h), sem sofrer variação pela velocidade da cabeça de impressão (mm/s).
                       </div>
                     </div>
-                  )
-                )}
+                  ) : null}
+                </div>
 
                 {/* Sub-custos da máquina calculados automaticamente */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[10px] text-white/60">
