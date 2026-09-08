@@ -16,10 +16,22 @@ function apiDevMiddleware(): Plugin {
         try {
           const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
           const routeName = parsedUrl.pathname.replace(/^\/api\//, '').replace(/\/$/, '');
-          const filePath = path.resolve(__dirname, 'api', `${routeName}.js`);
+          let filePath = path.resolve(__dirname, 'api', `${routeName}.js`);
 
           if (!fs.existsSync(filePath)) {
-            return next();
+            // Check dynamic route like assinar/[id].js
+            const parts = routeName.split('/');
+            if (parts.length === 2) {
+              const dynPath = path.resolve(__dirname, 'api', parts[0], '[id].js');
+              if (fs.existsSync(dynPath)) {
+                filePath = dynPath;
+                (req as any).query = { ...(req as any).query, id: parts[1] };
+              } else {
+                return next();
+              }
+            } else {
+              return next();
+            }
           }
 
           // Helpers para compatibilidade com handlers da Vercel
@@ -92,6 +104,7 @@ export default defineConfig(({mode}) => {
       hmr: false,
       host: '0.0.0.0',
       port: 3000,
+      allowedHosts: true,
     },
   };
 });
