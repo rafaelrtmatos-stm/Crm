@@ -228,16 +228,8 @@ export function obterAreaImpressaoM2(
       if (val > 0) return Number((val * qtd).toFixed(4));
     }
 
-    // Formato: "0,80m linear" ou "(1,20m linear)"
-    const linearMatch = dim.match(/\(?([0-9.,]+)\s*m\s*linear\)?/i);
-    if (linearMatch) {
-      const metros = parseFloat(linearMatch[1].replace(',', '.'));
-      if (metros > 0) {
-        return Number((metros * larguraRolo * qtd).toFixed(4));
-      }
-    }
-
-    // Formato AxB ou AxBcm ou AxBm, suportando formatos compostos ou texto adjacente (ex: "1,20x0,80 (1,20m linear)" ou "1.2x0.8 + 0.5x0.5")
+    // Formato AxB ou AxBcm ou AxBm, suportando formatos compostos ou texto adjacente (ex: "9,1x1 (9,10m linear)" ou "1.2x0.8 + 0.5x0.5")
+    // Deve ser verificado antes do fallback puramente linear, pois o corte físico (largura x altura) determina a área real de impressão
     const partes = dim.split('+');
     let somaAreaMultiplas = 0;
     let encontrouValido = false;
@@ -259,6 +251,15 @@ export function obterAreaImpressaoM2(
     }
     if (encontrouValido && somaAreaMultiplas > 0) {
       return Number((somaAreaMultiplas * qtd).toFixed(4));
+    }
+
+    // Formato: "0,80m linear" ou "(1,20m linear)" caso não haja medidas AxB explícitas
+    const linearMatch = dim.match(/\(?([0-9.,]+)\s*m\s*linear\)?/i);
+    if (linearMatch) {
+      const metros = parseFloat(linearMatch[1].replace(',', '.'));
+      if (metros > 0) {
+        return Number((metros * larguraRolo * qtd).toFixed(4));
+      }
     }
   }
 
@@ -437,16 +438,18 @@ export function custoTintaItem(
   item: LucroSaleItem,
   produtoAtual?: LucroCurrentProduct,
   custoTintaM2PorCategoria?: Record<string, number>,
-  maquinaObj?: Maquina
+  maquinaObj?: Maquina,
+  consumoTintaMlM2PorCategoria?: Record<string, number>
 ): number {
-  return custoTintaItemDetalhado(item, produtoAtual, custoTintaM2PorCategoria, maquinaObj).custo;
+  return custoTintaItemDetalhado(item, produtoAtual, custoTintaM2PorCategoria, maquinaObj, consumoTintaMlM2PorCategoria).custo;
 }
 
 export function custoTintaItemDetalhado(
   item: LucroSaleItem,
   produtoAtual?: LucroCurrentProduct,
   custoTintaM2PorCategoria?: Record<string, number>,
-  maquinaObj?: Maquina
+  maquinaObj?: Maquina,
+  consumoTintaMlM2PorCategoria?: Record<string, number>
 ): { custo: number; ml: number; custoPorM2: number } {
   const isImpresso = isItemImpressoOuSubstrato(item, produtoAtual);
   if (!isImpresso) return { custo: 0, ml: 0, custoPorM2: 0 };
@@ -471,7 +474,11 @@ export function custoTintaItemDetalhado(
     ? custoTintaM2PorCategoria[categoria]
     : (custoTintaM2PorCategoria?.['SUBSTRATO'] ?? 2.70);
 
-  const ml = Number((areaM2 * 15).toFixed(1));
+  const consumoMlM2 = (categoria && consumoTintaMlM2PorCategoria && consumoTintaMlM2PorCategoria[categoria] !== undefined && consumoTintaMlM2PorCategoria[categoria] > 0)
+    ? consumoTintaMlM2PorCategoria[categoria]
+    : (consumoTintaMlM2PorCategoria?.['SUBSTRATO'] ?? consumoTintaMlM2PorCategoria?.['PADRAO'] ?? 15);
+
+  const ml = Number((areaM2 * consumoMlM2).toFixed(1));
   const custo = Number((areaM2 * custoM2Tinta).toFixed(2));
   return { custo, ml, custoPorM2: custoM2Tinta };
 }
@@ -533,6 +540,7 @@ export function detalharCustosItem(params: {
   custoMaquinaOperacionalM2PorCategoria?: Record<string, number>;
   custoTintaM2PorCategoria?: Record<string, number>;
   custoMaquinaM2PorCategoria?: Record<string, number>;
+  consumoTintaMlM2PorCategoria?: Record<string, number>;
   maquinas?: Maquina[];
   maquinaPadrao?: Maquina;
   maquinasPorId?: Record<string, Maquina>;
@@ -553,7 +561,13 @@ export function detalharCustosItem(params: {
   const custoOutrasMateriasPrimas = custoMateriaPrimaItem(params.item, params.produtoPorId, params.materiasPrimasAtuais, custoSubstrato);
   // Matéria-Prima unificada: substratos (lonas, vinis, papéis, etc.) são uma categoria de matéria-prima
   const custoMateriaPrima = Number((custoSubstrato + custoOutrasMateriasPrimas).toFixed(2));
-  const tintaDetalhe = custoTintaItemDetalhado(params.item, produtoAtual, params.custoTintaM2PorCategoria, maquina);
+  const tintaDetalhe = custoTintaItemDetalhado(
+    params.item,
+    produtoAtual,
+    params.custoTintaM2PorCategoria,
+    maquina,
+    params.consumoTintaMlM2PorCategoria
+  );
   const custoMaquina = custoMaquinaOperacionalItem(
     params.item,
     produtoAtual,
@@ -663,6 +677,7 @@ export function detalharCustoDaNota(params: {
   custoMaquinaM2PorCategoria?: Record<string, number>;
   custoMaquinaOperacionalM2PorCategoria?: Record<string, number>;
   custoTintaM2PorCategoria?: Record<string, number>;
+  consumoTintaMlM2PorCategoria?: Record<string, number>;
   maquinas?: Maquina[];
   maquinaPadrao?: Maquina;
   maquinasPorId?: Record<string, Maquina>;
@@ -689,6 +704,7 @@ export function detalharCustoDaNota(params: {
       custoMaquinaOperacionalM2PorCategoria: params.custoMaquinaOperacionalM2PorCategoria,
       custoTintaM2PorCategoria: params.custoTintaM2PorCategoria,
       custoMaquinaM2PorCategoria: params.custoMaquinaM2PorCategoria,
+      consumoTintaMlM2PorCategoria: params.consumoTintaMlM2PorCategoria,
       maquinas: params.maquinas,
       maquinaPadrao: params.maquinaPadrao,
       maquinasPorId: params.maquinasPorId,

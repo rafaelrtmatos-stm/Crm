@@ -191,6 +191,15 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
 
   useEffect(() => {
     loadMaquinasData();
+    const handleMaquinasChanged = () => {
+      loadMaquinasData();
+    };
+    window.addEventListener('maquinas_updated', handleMaquinasChanged);
+    window.addEventListener('rpro_maquinas_changed', handleMaquinasChanged);
+    return () => {
+      window.removeEventListener('maquinas_updated', handleMaquinasChanged);
+      window.removeEventListener('rpro_maquinas_changed', handleMaquinasChanged);
+    };
   }, [currentCompany?.id]);
 
   useEffect(() => {

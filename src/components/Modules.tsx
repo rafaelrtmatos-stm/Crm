@@ -1,5 +1,5 @@
 import { AppContext } from '../AppContext';
-import React, { useState, useEffect, useMemo, useRef, Suspense } from 'react';
+import React, { useState, useEffect, useMemo, useRef, Suspense, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { ContractApprovalModule } from './ContractApprovalModule';
 import { ContractSignatureOtpPanel } from './ContractSignatureOtpPanel';
@@ -8715,6 +8715,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [custoMaquinaM2PorCategoria, setCustoMaquinaM2PorCategoria] = useState<Record<string, number>>({});
   const [custoMaquinaOperacionalM2PorCategoria, setCustoMaquinaOperacionalM2PorCategoria] = useState<Record<string, number>>({});
   const [custoTintaM2PorCategoria, setCustoTintaM2PorCategoria] = useState<Record<string, number>>({});
+  const [consumoTintaMlM2PorCategoria, setConsumoTintaMlM2PorCategoria] = useState<Record<string, number>>({});
+  const [maquinasCadastradas, setMaquinasCadastradas] = useState<Maquina[]>([]);
+  const [maquinasPorIdMap, setMaquinasPorIdMap] = useState<Record<string, Maquina>>({});
+  const [maquinasPorCategoriaMap, setMaquinasPorCategoriaMap] = useState<Record<string, Maquina>>({});
   useEffect(() => {
     const loadCosts = async () => {
       const { data, error } = await supabase.from('produtos').select('id, cost_price, category, largura_rolo, materias_primas');
@@ -8737,14 +8741,44 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   }, []);
 
   // Custo real de maquina por m2 (total, operacional e tinta), por categoria de produto atendida (cadastro de Maquinas) --
-  // usado para o custo de maquina de produtos SUBSTRATO (ver src/lib/lucro.ts). Uma maquina
-  // ativa por categoria; se houver mais de uma cadastrada para a mesma categoria, usa a primeira.
-  useEffect(() => {
-    const loadMaquinasCusto = async () => {
+  // usado para o custo de maquina de produtos SUBSTRATO (ver src/lib/lucro.ts). Atualiza imediatamente ao alterar qualquer máquina.
+  const loadMaquinasCusto = useCallback(async () => {
+    try {
       const maquinas = await fetchMaquinas(currentCompany?.id);
+      setMaquinasCadastradas(maquinas);
       const mapTotal: Record<string, number> = {};
       const mapOperacional: Record<string, number> = {};
       const mapTinta: Record<string, number> = {};
+      const mapConsumoMl: Record<string, number> = {};
+      const mapPorId: Record<string, Maquina> = {};
+      const mapPorCategoria: Record<string, Maquina> = {};
+
+      maquinas.forEach(m => {
+        mapPorId[m.id] = m;
+        if (m.ativa && m.categoriaProduto && m.categoriaProduto.trim()) {
+          const chave = m.categoriaProduto.trim().toUpperCase();
+          if (!mapPorCategoria[chave]) {
+            mapPorCategoria[chave] = m;
+          }
+        }
+      });
+
+      // Máquina padrão de impressão (para fallback inteligente quando categoria não for exata)
+      const maquinaPadraoImpressao = maquinas.find(m => m.ativa && m.tipo === 'impressao') || maquinas.find(m => m.ativa) || maquinas[0];
+      if (maquinaPadraoImpressao) {
+        const calcPadrao = calcularCustosMaquina(maquinaPadraoImpressao, maquinaPadraoImpressao.tarifaKwh);
+        const consumoPadrao = Number(maquinaPadraoImpressao.tintaConsumoMlM2) > 0 ? Number(maquinaPadraoImpressao.tintaConsumoMlM2) : 15;
+        mapTotal['PADRAO'] = calcPadrao.custoTotalMaquinaM2;
+        mapOperacional['PADRAO'] = calcPadrao.custoOperacionalM2;
+        mapTinta['PADRAO'] = calcPadrao.custoTintaM2;
+        mapConsumoMl['PADRAO'] = consumoPadrao;
+
+        mapTotal['SUBSTRATO'] = calcPadrao.custoTotalMaquinaM2;
+        mapOperacional['SUBSTRATO'] = calcPadrao.custoOperacionalM2;
+        mapTinta['SUBSTRATO'] = calcPadrao.custoTintaM2;
+        mapConsumoMl['SUBSTRATO'] = consumoPadrao;
+      }
+
       maquinas
         .filter(m => m.ativa && m.categoriaProduto && m.categoriaProduto.trim())
         .forEach(m => {
@@ -8754,14 +8788,33 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             mapTotal[chave] = calculos.custoTotalMaquinaM2;
             mapOperacional[chave] = calculos.custoOperacionalM2;
             mapTinta[chave] = calculos.custoTintaM2;
+            mapConsumoMl[chave] = Number(m.tintaConsumoMlM2) > 0 ? Number(m.tintaConsumoMlM2) : 15;
           }
         });
+
       setCustoMaquinaM2PorCategoria(mapTotal);
       setCustoMaquinaOperacionalM2PorCategoria(mapOperacional);
       setCustoTintaM2PorCategoria(mapTinta);
-    };
-    loadMaquinasCusto();
+      setConsumoTintaMlM2PorCategoria(mapConsumoMl);
+      setMaquinasPorIdMap(mapPorId);
+      setMaquinasPorCategoriaMap(mapPorCategoria);
+    } catch (e) {
+      console.error('Erro ao carregar custos de máquinas:', e);
+    }
   }, [currentCompany?.id]);
+
+  useEffect(() => {
+    loadMaquinasCusto();
+    const handleMaquinasChanged = () => {
+      loadMaquinasCusto();
+    };
+    window.addEventListener('maquinas_updated', handleMaquinasChanged);
+    window.addEventListener('rpro_maquinas_changed', handleMaquinasChanged);
+    return () => {
+      window.removeEventListener('maquinas_updated', handleMaquinasChanged);
+      window.removeEventListener('rpro_maquinas_changed', handleMaquinasChanged);
+    };
+  }, [loadMaquinasCusto]);
 
   // Lucro liquido de uma venda (valor recebido - custo Lona/Adesivo - custos extras manuais),
   // so pro Admin ver na coluna de valor do modo lista -- ver src/lib/lucro.ts pra regra completa.
@@ -8804,6 +8857,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       custoMaquinaM2PorCategoria,
       custoMaquinaOperacionalM2PorCategoria,
       custoTintaM2PorCategoria,
+      consumoTintaMlM2PorCategoria,
+      maquinas: maquinasCadastradas,
+      maquinaPadrao: maquinasCadastradas.find(m => m.ativa && m.tipo === 'impressao') || maquinasCadastradas.find(m => m.ativa),
+      maquinasPorId: maquinasPorIdMap,
+      maquinasPorCategoria: maquinasPorCategoriaMap,
       extraCosts: sale.extraCosts,
     });
     const custoCheio = breakdown.custoTotal;
@@ -8888,6 +8946,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const openCustosDaNota = (sale: SaleOrder) => {
+    loadMaquinasCusto();
     setCustosNotaSale(sale);
     setCustosNotaDraft(sale.extraCosts ? [...sale.extraCosts] : []);
     setNovoCustoDesc('');
@@ -14010,6 +14069,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             custoMaquinaM2PorCategoria,
             custoMaquinaOperacionalM2PorCategoria,
             custoTintaM2PorCategoria,
+            consumoTintaMlM2PorCategoria,
+            maquinas: maquinasCadastradas,
+            maquinaPadrao: maquinasCadastradas.find(m => m.ativa && m.tipo === 'impressao') || maquinasCadastradas.find(m => m.ativa),
+            maquinasPorId: maquinasPorIdMap,
+            maquinasPorCategoria: maquinasPorCategoriaMap,
             proporcao,
           });
           const custoMateriaPrima = custoAutomatico.materiaPrima;
@@ -14027,13 +14091,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 custoMaquinaOperacionalM2PorCategoria,
                 custoTintaM2PorCategoria,
                 custoMaquinaM2PorCategoria,
+                consumoTintaMlM2PorCategoria,
+                maquinas: maquinasCadastradas,
+                maquinaPadrao: maquinasCadastradas.find(m => m.ativa && m.tipo === 'impressao') || maquinasCadastradas.find(m => m.ativa),
+                maquinasPorId: maquinasPorIdMap,
+                maquinasPorCategoria: maquinasPorCategoriaMap,
               });
               return { item, detalhe, custoItem: detalhe.custoTotal };
             })
             .filter(({ custoItem, detalhe }) => custoItem > 0 || (typeof detalhe.tintaMl === 'number' && detalhe.tintaMl > 0));
 
-          // Consumo total de tinta da nota (em ml)
+          // Consumo total de tinta da nota (em ml) e área total calculada (em m²)
           const totalTintaMlPedido = itensComCustoAutomatico.reduce((s, i) => s + (Number(i.detalhe.tintaMl) || 0), 0) || (custoAutomatico.tintaMlTotal || 0);
+          const totalAreaM2Pedido = itensComCustoAutomatico.reduce((s, i) => s + (Number(i.detalhe.areaM2) || 0), 0) || (custoAutomatico.areaM2Total || 0);
 
           // Separar comissões/mão de obra de custos extras manuais
           const custosComissoes = custosNotaDraft.filter(c => c.description.toLowerCase().startsWith('comissão') || c.description.toLowerCase().startsWith('mao de obra') || c.description.toLowerCase().startsWith('mão de obra'));
@@ -14092,9 +14162,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               {/* 1. Custos de Produção Automáticos com Valores Separados */}
               <div className="bg-slate-900/60 border border-white/5 rounded-xl p-3 space-y-3">
                 <div className="flex items-center justify-between border-b border-white/5 pb-2">
-                  <span className="text-[10px] font-black text-white/80 uppercase tracking-wider flex items-center gap-1.5">
-                    <Layers size={13} className="text-amber-400" /> 1. Matéria-Prima, Tinta & Máquina
-                  </span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] font-black text-white/80 uppercase tracking-wider flex items-center gap-1.5">
+                      <Layers size={13} className="text-amber-400" /> 1. Matéria-Prima, Tinta & Máquina
+                    </span>
+                    {totalAreaM2Pedido > 0 && (
+                      <span className="text-[8.5px] font-mono font-bold text-emerald-300 bg-emerald-950/60 border border-emerald-500/30 rounded px-1.5 py-0.5 whitespace-nowrap">
+                        {totalAreaM2Pedido.toFixed(2).replace('.', ',')} m² total
+                      </span>
+                    )}
+                  </div>
                   <div className="text-right">
                     <span className="text-[8px] text-white/40 uppercase block">Subtotal Produção</span>
                     <span className="text-xs font-black font-mono text-amber-300">
@@ -14153,17 +14230,41 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
                 {/* Lista por item com separação detalhada */}
                 <div className="space-y-1.5 pt-1 border-t border-white/5">
-                  <span className="text-[8.5px] font-bold text-white/40 uppercase block">Detalhamento por Item:</span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[8.5px] font-bold text-white/40 uppercase block">Detalhamento por Item:</span>
+                    {totalAreaM2Pedido > 0 && (
+                      <span className="text-[8px] font-mono text-emerald-400/80 font-bold">
+                        Área total: {totalAreaM2Pedido.toFixed(2).replace('.', ',')} m²
+                      </span>
+                    )}
+                  </div>
                   {itensComCustoAutomatico.length === 0 ? (
                     <p className="text-[9px] text-white/30 italic">Nenhum item com custo de matéria-prima ou máquina cadastrado nesta nota (verifique categoria do produto e vínculo de matéria-prima no cadastro).</p>
                   ) : (
                     itensComCustoAutomatico.map(({ item, detalhe, custoItem }, idx) => (
                       <div key={idx} className="bg-slate-950/40 border border-white/5 rounded-lg p-2 space-y-1">
-                        <div className="flex justify-between items-center text-[10px]">
-                          <span className="font-bold text-white truncate max-w-[240px]">{item.quantity}x {item.name}</span>
-                          <span className="font-mono font-bold text-amber-300">R$ {custoItem.toFixed(2).replace('.', ',')}</span>
+                        <div className="flex justify-between items-center text-[10px] gap-2">
+                          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                            <span className="font-bold text-white truncate max-w-[200px] sm:max-w-[280px]">{item.quantity}x {item.name}</span>
+                            {item.dimensions && (
+                              <span className="text-[8.5px] font-mono text-white/60 bg-white/5 px-1.5 py-0.5 rounded border border-white/10 shrink-0">
+                                {item.dimensions}
+                              </span>
+                            )}
+                            {typeof detalhe.areaM2 === 'number' && detalhe.areaM2 > 0 && (
+                              <span className="text-[8.5px] font-mono font-bold text-emerald-300 bg-emerald-950/70 border border-emerald-500/30 px-1.5 py-0.5 rounded shrink-0">
+                                {detalhe.areaM2.toFixed(2).replace('.', ',')} m²
+                              </span>
+                            )}
+                          </div>
+                          <span className="font-mono font-bold text-amber-300 shrink-0">R$ {custoItem.toFixed(2).replace('.', ',')}</span>
                         </div>
-                        <div className="flex flex-wrap gap-2 text-[8.5px] font-mono text-white/50">
+                        <div className="flex flex-wrap items-center gap-2 text-[8.5px] font-mono text-white/50">
+                          {typeof detalhe.areaM2 === 'number' && detalhe.areaM2 > 0 && (
+                            <span className="text-emerald-300 font-bold bg-emerald-950/40 border border-emerald-500/20 px-1.5 py-0.5 rounded">
+                              📐 Área: {detalhe.areaM2.toFixed(2).replace('.', ',')} m²{item.quantity > 1 ? ` (${(detalhe.areaM2 / item.quantity).toFixed(2).replace('.', ',')} m²/un)` : ''}
+                            </span>
+                          )}
                           {detalhe.custoMateriaPrima > 0 && (
                             <span className="text-purple-300">Mat. Prima: R$ {detalhe.custoMateriaPrima.toFixed(2).replace('.', ',')}</span>
                           )}
@@ -14179,6 +14280,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           )}
                           {detalhe.custoMaquina > 0 && (
                             <span className="text-teal-300">Máquina: R$ {detalhe.custoMaquina.toFixed(2).replace('.', ',')}</span>
+                          )}
+                          {detalhe.maquinaNome && (
+                            <span className="text-white/40">({detalhe.maquinaNome})</span>
                           )}
                         </div>
                       </div>

@@ -590,6 +590,10 @@ function getCachedMaquinas(companyId?: string): Maquina[] {
 function saveLocalCache(items: Maquina[]) {
   try {
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(items));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('maquinas_updated', { detail: items }));
+      window.dispatchEvent(new CustomEvent('rpro_maquinas_changed', { detail: items }));
+    }
   } catch (e) {}
 }
 
