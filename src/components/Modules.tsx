@@ -14030,7 +14030,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               });
               return { item, detalhe, custoItem: detalhe.custoTotal };
             })
-            .filter(({ custoItem }) => custoItem > 0);
+            .filter(({ custoItem, detalhe }) => custoItem > 0 || (typeof detalhe.tintaMl === 'number' && detalhe.tintaMl > 0));
+
+          // Consumo total de tinta da nota (em ml)
+          const totalTintaMlPedido = itensComCustoAutomatico.reduce((s, i) => s + (Number(i.detalhe.tintaMl) || 0), 0) || (custoAutomatico.tintaMlTotal || 0);
 
           // Separar comissões/mão de obra de custos extras manuais
           const custosComissoes = custosNotaDraft.filter(c => c.description.toLowerCase().startsWith('comissão') || c.description.toLowerCase().startsWith('mao de obra') || c.description.toLowerCase().startsWith('mão de obra'));
@@ -14116,14 +14119,23 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
                   {/* Tinta */}
                   <div className="bg-slate-950/60 border border-cyan-500/20 rounded-lg p-2">
-                    <div className="flex items-center gap-1.5 mb-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
-                      <span className="text-[8.5px] uppercase font-bold text-white/50 tracking-wider">Tinta</span>
+                    <div className="flex items-center justify-between gap-1 mb-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
+                        <span className="text-[8.5px] uppercase font-bold text-white/50 tracking-wider">Tinta</span>
+                      </div>
+                      {totalTintaMlPedido > 0 && (
+                        <span className="text-[8.5px] font-mono font-bold text-cyan-300 bg-cyan-950/70 border border-cyan-500/30 rounded px-1.5 py-0.5 whitespace-nowrap">
+                          {totalTintaMlPedido.toFixed(1).replace('.', ',')} ml
+                        </span>
+                      )}
                     </div>
                     <span className="text-xs font-black font-mono text-cyan-300 block">
                       R$ {custoTinta.toFixed(2).replace('.', ',')}
                     </span>
-                    <span className="text-[7.5px] text-white/30 block mt-0.5">Consumo ml/m²</span>
+                    <span className="text-[7.5px] text-white/40 block mt-0.5">
+                      {totalTintaMlPedido > 0 ? `Consumo: ${totalTintaMlPedido.toFixed(1).replace('.', ',')} ml` : 'Consumo ml/m²'}
+                    </span>
                   </div>
 
                   {/* Máquina */}
@@ -14155,8 +14167,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           {detalhe.custoMateriaPrima > 0 && (
                             <span className="text-purple-300">Mat. Prima: R$ {detalhe.custoMateriaPrima.toFixed(2).replace('.', ',')}</span>
                           )}
-                          {detalhe.custoTinta > 0 && (
-                            <span className="text-cyan-300">Tinta: R$ {detalhe.custoTinta.toFixed(2).replace('.', ',')}</span>
+                          {(detalhe.custoTinta > 0 || (typeof detalhe.tintaMl === 'number' && detalhe.tintaMl > 0)) && (
+                            <span className="text-cyan-300">
+                              Tinta: R$ {detalhe.custoTinta.toFixed(2).replace('.', ',')}
+                              {typeof detalhe.tintaMl === 'number' && detalhe.tintaMl > 0 && (
+                                <span className="text-cyan-400 font-bold ml-1">
+                                  ({detalhe.tintaMl.toFixed(1).replace('.', ',')} ml)
+                                </span>
+                              )}
+                            </span>
                           )}
                           {detalhe.custoMaquina > 0 && (
                             <span className="text-teal-300">Máquina: R$ {detalhe.custoMaquina.toFixed(2).replace('.', ',')}</span>
