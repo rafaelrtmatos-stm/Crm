@@ -8773,6 +8773,41 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     });
   };
 
+  // Retorna a rentabilidade completa da venda (visível exclusivamente para o Admin):
+  // - custoTotal: custo total de materiais, máquinas e extras da nota (ex: R$ 300,00)
+  // - lucroPrevisto: lucro total esperado quando a nota for 100% quitada (ex: R$ 2.000 - R$ 300 = R$ 1.700,00)
+  // - lucroRealizadoCaixa: dinheiro apurado no caixa com o que já entrou menos os custos de produção (ex: R$ 1.000 - R$ 300 = R$ 700,00)
+  // - isParcial: se ainda resta saldo a receber
+  const obterRentabilidadeVenda = (sale: SaleOrder) => {
+    const total = Number(sale.total) || 0;
+    const isCompleted = sale.status === 'completed';
+    const down = isCompleted ? total : (Number(sale.downPayment) || 0);
+    const pendente = Math.max(0, total - down);
+    const isParcial = !isCompleted && pendente > 0.01;
+
+    const custoCheio = custoTotalDaNota({
+      items: sale.items,
+      custoPorId: produtosCostMap,
+      produtoPorId: produtoPorIdMap,
+      custoMaquinaM2PorCategoria,
+      extraCosts: sale.extraCosts,
+    });
+
+    const lucroPrevisto = total - custoCheio;
+    const lucroRealizadoCaixa = down - custoCheio;
+
+    return {
+      custoTotal: custoCheio,
+      lucroPrevisto,
+      lucroRealizadoCaixa,
+      valorPago: down,
+      saldoPendente: pendente,
+      isParcial,
+      margemPrevista: total > 0 ? (lucroPrevisto / total) * 100 : 0,
+      temCustosExtras: Boolean(sale.extraCosts && sale.extraCosts.length > 0)
+    };
+  };
+
   // Painel "Custos da Nota" (Admin) -- custos extras/diretos daquela producao especifica
   // (mao de obra, frete, aluguel de andaime, insumo aplicado fora do estoque padrao), SEPARADOS
   // do Estoque de Insumos (materia-prima, controlado na aba lateral "Estoque de Insumos").
@@ -12072,7 +12107,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       const balance = sale.total - down;
                       const isPartial = balance > 0 || sale.status === 'pending';
                       const composicaoPagamento = composicaoPagamentoDaVenda(sale);
-                      const lucro = user?.isAdmin ? calcularLucroDaVenda(sale) : null;
+                      const rentabilidade = user?.isAdmin ? obterRentabilidadeVenda(sale) : null;
                       const isRowMenuOpen = openSaleRowActionsId === sale.id;
                       return (
                         <div key={sale.id} className="flex items-center gap-2 bg-slate-900/60 hover:bg-slate-900 border border-white/5 rounded-xl px-3 py-2 transition-all">
@@ -12201,13 +12236,31 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               pedido (Admin) continua aqui embaixo do total. */}
                           <div className="min-w-0 text-right overflow-hidden" style={colFlex('valor')}>
                             <span className="text-[11px] font-black text-white block truncate">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
-                            {lucro !== null && (
+                            {rentabilidade !== null && (
                               <button
+                                type="button"
                                 onClick={(e) => { e.stopPropagation(); openCustosDaNota(sale); }}
-                                title="Lançar custos extras dessa nota (mão de obra, frete, andaime...)"
-                                className={cn("text-[8px] font-bold block truncate w-full text-right hover:underline", lucro >= 0 ? "text-emerald-400/80" : "text-rose-400/80")}
+                                title={rentabilidade.isParcial
+                                  ? `Caixa Hoje: R$ ${rentabilidade.lucroRealizadoCaixa.toFixed(2).replace('.', ',')} (Entrada R$ ${rentabilidade.valorPago.toFixed(2).replace('.', ',')} - Custo R$ ${rentabilidade.custoTotal.toFixed(2).replace('.', ',')}) • Lucro Total Previsto: R$ ${rentabilidade.lucroPrevisto.toFixed(2).replace('.', ',')} (Clique para ver Custos da Nota)`
+                                  : `Lucro Líquido: R$ ${rentabilidade.lucroPrevisto.toFixed(2).replace('.', ',')} (Clique para ver Custos da Nota)`}
+                                className="text-[8px] font-bold block truncate w-full text-right hover:underline"
                               >
-                                Lucro: R$ {lucro.toFixed(2).replace('.', ',')}{(sale.extraCosts && sale.extraCosts.length > 0) ? ' •' : ''}
+                                {rentabilidade.isParcial ? (
+                                  <span className="inline-flex items-center gap-1 justify-end flex-wrap">
+                                    <span className={cn(rentabilidade.lucroRealizadoCaixa >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                                      Cx: R$ {rentabilidade.lucroRealizadoCaixa.toFixed(2).replace('.', ',')}
+                                    </span>
+                                    <span className="text-white/30">•</span>
+                                    <span className="text-cyan-300">
+                                      Prev: R$ {rentabilidade.lucroPrevisto.toFixed(2).replace('.', ',')}
+                                    </span>
+                                    {rentabilidade.temCustosExtras && <span className="text-amber-300" title="Possui custos extras">•</span>}
+                                  </span>
+                                ) : (
+                                  <span className={cn(rentabilidade.lucroPrevisto >= 0 ? "text-emerald-400/80" : "text-rose-400/80")}>
+                                    Lucro: R$ {rentabilidade.lucroPrevisto.toFixed(2).replace('.', ',')}{rentabilidade.temCustosExtras ? ' •' : ''}
+                                  </span>
+                                )}
                               </button>
                             )}
                           </div>
@@ -12349,6 +12402,43 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             </div>
                           )}
                           <p className="text-sm font-black text-white">R$ {sale.total.toFixed(2).replace('.', ',')}</p>
+                          {user?.isAdmin && (() => {
+                            const r = obterRentabilidadeVenda(sale);
+                            return (
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); openCustosDaNota(sale); }}
+                                title={r.isParcial
+                                  ? `Caixa Hoje: R$ ${r.lucroRealizadoCaixa.toFixed(2).replace('.', ',')} • Lucro Previsto: R$ ${r.lucroPrevisto.toFixed(2).replace('.', ',')} (Clique para ver Custos da Nota)`
+                                  : `Lucro Líquido: R$ ${r.lucroPrevisto.toFixed(2).replace('.', ',')} (Clique para ver Custos da Nota)`}
+                                className="w-full text-left bg-slate-950/60 hover:bg-slate-950 border border-white/5 hover:border-emerald-500/30 rounded-lg px-2 py-1 transition-colors group cursor-pointer"
+                              >
+                                {r.isParcial ? (
+                                  <div className="flex flex-col gap-0.5 text-[8px] font-mono leading-tight">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-white/40">Caixa Hoje:</span>
+                                      <span className={cn("font-black", r.lucroRealizadoCaixa >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                                        R$ {r.lucroRealizadoCaixa.toFixed(2).replace('.', ',')}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-cyan-400/80">Previsto:</span>
+                                      <span className="font-black text-cyan-300">
+                                        R$ {r.lucroPrevisto.toFixed(2).replace('.', ',')}
+                                      </span>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center justify-between text-[8px] font-mono leading-tight">
+                                    <span className="text-white/40">Lucro:</span>
+                                    <span className={cn("font-black", r.lucroPrevisto >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                                      R$ {r.lucroPrevisto.toFixed(2).replace('.', ',')}{r.temCustosExtras ? ' •' : ''}
+                                    </span>
+                                  </div>
+                                )}
+                              </button>
+                            );
+                          })()}
                           <div className="flex flex-wrap gap-1 pt-1">
                             {isPartial && <button onClick={async () => { if (!(await showConfirm('Abrir a tela de pagamento deste pedido?'))) return; openSettlePayment(sale); }} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar Débito"><CheckCircle2 size={12} /></button>}
                             <button onClick={async () => { if (!(await showConfirm('Abrir o recibo deste pedido?'))) return; openReceiptDetail(sale); }} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={12} /></button>
@@ -12506,6 +12596,52 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             </span>
                           </div>
                         </div>
+
+                        {/* Rentabilidade Exclusiva Admin (Caixa Hoje vs Lucro Previsto) */}
+                        {user?.isAdmin && (() => {
+                          const r = obterRentabilidadeVenda(sale);
+                          return (
+                            <div
+                              onClick={() => openCustosDaNota(sale)}
+                              className="bg-slate-950/40 hover:bg-slate-950/70 border border-emerald-500/20 hover:border-emerald-500/40 rounded-xl px-3 py-2 cursor-pointer transition-colors group flex flex-col sm:flex-row sm:items-center justify-between gap-1.5"
+                              title="Clique para abrir os Custos da Nota (mão de obra, frete, materiais e extras)"
+                            >
+                              <div className="flex items-center gap-1.5 text-white/50 text-[9px] font-bold uppercase tracking-wider">
+                                <Calculator size={12} className="text-emerald-400" />
+                                <span className="group-hover:text-emerald-300 transition-colors">Rentabilidade (Admin):</span>
+                                {r.temCustosExtras && (
+                                  <span className="text-amber-400 text-[8px] bg-amber-400/10 px-1 py-0.2 rounded font-mono">Extras</span>
+                                )}
+                              </div>
+                              {r.isParcial ? (
+                                <div className="flex items-center gap-2 sm:gap-3 text-right justify-between sm:justify-end flex-wrap text-[10px]">
+                                  <div className="flex items-baseline gap-1">
+                                    <span className="text-[8.5px] text-white/40 uppercase">Caixa Hoje:</span>
+                                    <span className={cn("font-mono font-black", r.lucroRealizadoCaixa >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                                      R$ {r.lucroRealizadoCaixa.toFixed(2).replace('.', ',')}
+                                    </span>
+                                  </div>
+                                  <span className="text-white/20 hidden sm:inline">•</span>
+                                  <div className="flex items-baseline gap-1">
+                                    <span className="text-[8.5px] text-cyan-400/80 uppercase">Lucro Previsto:</span>
+                                    <strong className="font-mono font-black text-cyan-300">
+                                      R$ {r.lucroPrevisto.toFixed(2).replace('.', ',')}
+                                    </strong>
+                                    <span className="text-[8px] text-white/30 font-mono">({r.margemPrevista.toFixed(0)}%)</span>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="flex items-baseline gap-1.5 justify-end text-[10px]">
+                                  <span className="text-[8.5px] text-white/40 uppercase">Lucro Líquido:</span>
+                                  <span className={cn("font-mono font-black", r.lucroPrevisto >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                                    R$ {r.lucroPrevisto.toFixed(2).replace('.', ',')}
+                                  </span>
+                                  <span className="text-[8.5px] text-emerald-400/70 font-mono">({r.margemPrevista.toFixed(0)}% margem)</span>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
 
                         {/* Actions */}
                         <div className="flex gap-2 justify-end pt-1 flex-wrap">
@@ -13883,8 +14019,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           const totalOutros = outrosCustos.reduce((s, c) => s + (Number(c.amount) || 0), 0);
           const totalExtras = totalComissoes + totalOutros;
           const totalCustosNota = custoAutomaticoTotal + totalExtras;
-          const lucroLiquidoReal = down - totalCustosNota;
-          const margemLucro = down > 0 ? (lucroLiquidoReal / down) * 100 : 0;
+          const lucroPrevistoNota = totalVenda - totalCustosNota;
+          const margemPrevista = totalVenda > 0 ? (lucroPrevistoNota / totalVenda) * 100 : 0;
+          const lucroCaixaHoje = down - totalCustosNota;
+          const margemCaixaHoje = down > 0 ? (lucroCaixaHoje / down) * 100 : 0;
 
           return (
             <div className="space-y-4">
@@ -13898,15 +14036,33 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     </Badge>
                   </div>
                   <p className="text-[9px] text-white/40 mt-0.5">
-                    Total do Pedido: <b className="text-white/80">R$ {totalVenda.toFixed(2).replace('.', ',')}</b> • Recebido: <b className="text-emerald-400">R$ {down.toFixed(2).replace('.', ',')}</b> {!isFullyPaid && '(Parcial)'}
+                    Total do Pedido: <b className="text-white/80">R$ {totalVenda.toFixed(2).replace('.', ',')}</b> • Entrada Recebida: <b className="text-emerald-400">R$ {down.toFixed(2).replace('.', ',')}</b> {!isFullyPaid && <span className="text-rose-400 font-bold ml-1">(Falta R$ {(totalVenda - down).toFixed(2).replace('.', ',')})</span>}
                   </p>
                 </div>
-                <div className="text-right">
-                  <span className="text-[8px] uppercase font-bold text-white/40 block">Lucro Líquido Real</span>
-                  <span className={cn("text-sm font-black", lucroLiquidoReal >= 0 ? "text-emerald-400" : "text-rose-400")}>
-                    R$ {lucroLiquidoReal.toFixed(2).replace('.', ',')} ({margemLucro.toFixed(0)}%)
-                  </span>
-                </div>
+                {!isFullyPaid ? (
+                  <div className="flex items-center gap-3 text-right">
+                    <div>
+                      <span className="text-[7.5px] uppercase font-bold text-white/40 block">Caixa Hoje</span>
+                      <span className={cn("text-xs font-black font-mono", lucroCaixaHoje >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                        R$ {lucroCaixaHoje.toFixed(2).replace('.', ',')}
+                      </span>
+                    </div>
+                    <div className="border-l border-white/10 pl-3">
+                      <span className="text-[7.5px] uppercase font-bold text-cyan-400/80 block">Lucro Previsto</span>
+                      <span className="text-sm font-black font-mono text-cyan-300">
+                        R$ {lucroPrevistoNota.toFixed(2).replace('.', ',')}
+                      </span>
+                      <span className="text-[7.5px] text-white/30 block font-mono">({margemPrevista.toFixed(0)}% margem)</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-right">
+                    <span className="text-[8px] uppercase font-bold text-white/40 block">Lucro Líquido Real</span>
+                    <span className={cn("text-sm font-black font-mono", lucroPrevistoNota >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                      R$ {lucroPrevistoNota.toFixed(2).replace('.', ',')} ({margemPrevista.toFixed(0)}%)
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* 1. Materiais / Insumos + Maquina (automatico, por categoria e materia-prima vinculada) */}
@@ -13991,7 +14147,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               </div>
 
               {/* Resumo Final de Custos */}
-              <div className="grid grid-cols-3 gap-2 bg-slate-950/80 border border-white/10 rounded-xl p-2.5 text-center">
+              <div className={cn("grid gap-2 bg-slate-950/80 border border-white/10 rounded-xl p-2.5 text-center", !isFullyPaid ? "grid-cols-4" : "grid-cols-3")}>
                 <div>
                   <span className="text-[7.5px] uppercase font-bold text-white/40 block">Matéria-Prima & Máquina</span>
                   <span className="text-[10px] font-bold text-amber-300">R$ {custoAutomaticoTotal.toFixed(2).replace('.', ',')}</span>
@@ -14000,10 +14156,27 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   <span className="text-[7.5px] uppercase font-bold text-white/40 block">Comissões & Extras</span>
                   <span className="text-[10px] font-bold text-rose-300">R$ {totalExtras.toFixed(2).replace('.', ',')}</span>
                 </div>
-                <div>
-                  <span className="text-[7.5px] uppercase font-bold text-emerald-400/80 block">Lucro Líquido</span>
-                  <span className="text-[10px] font-black text-emerald-400">R$ {lucroLiquidoReal.toFixed(2).replace('.', ',')}</span>
-                </div>
+                {!isFullyPaid ? (
+                  <>
+                    <div>
+                      <span className="text-[7.5px] uppercase font-bold text-emerald-400/80 block">Caixa Hoje</span>
+                      <span className={cn("text-[10px] font-black font-mono", lucroCaixaHoje >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                        R$ {lucroCaixaHoje.toFixed(2).replace('.', ',')}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[7.5px] uppercase font-bold text-cyan-400/80 block">Lucro Previsto</span>
+                      <span className="text-[10px] font-black font-mono text-cyan-300">
+                        R$ {lucroPrevistoNota.toFixed(2).replace('.', ',')}
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <div>
+                    <span className="text-[7.5px] uppercase font-bold text-emerald-400/80 block">Lucro Líquido</span>
+                    <span className="text-[10px] font-black font-mono text-emerald-400">R$ {lucroPrevistoNota.toFixed(2).replace('.', ',')}</span>
+                  </div>
+                )}
               </div>
 
               <div className="flex gap-3 pt-1">
