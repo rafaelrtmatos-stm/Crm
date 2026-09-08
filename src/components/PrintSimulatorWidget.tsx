@@ -9,6 +9,8 @@ import {
   calcularVelocidadeMarginalM2H,
   VELOCIDADE_CABECA_MIN_MMS, VELOCIDADE_CABECA_MAX_MMS
 } from '../types';
+import { CardVelocidadeCabeca } from './CardVelocidadeCabeca';
+import { PerfilImpressao, normalizarPerfilImpressao } from '../lib/calculoTempoImpressao';
 
 interface PrintSimulatorWidgetProps {
   maquinas: Maquina[];
@@ -35,14 +37,14 @@ export const PrintSimulatorWidget: React.FC<PrintSimulatorWidgetProps> = ({
     return maquinas.find(m => m.id === selectedMaquinaId) || activeMaquinas[0] || maquinas[0] || null;
   }, [maquinas, selectedMaquinaId, activeMaquinas]);
 
-  // Input Mode: m2 direto ou largura x altura
-  const [inputMode, setInputMode] = useState<'m2' | 'dimensoes'>('m2');
-  const [areaM2Direct, setAreaM2Direct] = useState<number | ''>(5);
-  const [larguraM, setLarguraM] = useState<number | ''>(1.20);
-  const [alturaM, setAlturaM] = useState<number | ''>(2.50);
+  // Input Mode padrão: largura x altura sempre por padrão, campos zerados
+  const [inputMode, setInputMode] = useState<'m2' | 'dimensoes'>('dimensoes');
+  const [areaM2Direct, setAreaM2Direct] = useState<number | ''>(0);
+  const [larguraM, setLarguraM] = useState<number | ''>(0);
+  const [alturaM, setAlturaM] = useState<number | ''>(0);
 
-  // Modo / Perfil de impressão selecionado (Standard ou High Speed)
-  const [selectedModoId, setSelectedModoId] = useState<'standard' | 'highspeed'>('standard');
+  // Modo / Perfil de impressão selecionado (High Quality, Standard, High Speed)
+  const [selectedModoId, setSelectedModoId] = useState<PerfilImpressao>('standard');
   const [usarVelocidadeCabecaPadrao, setUsarVelocidadeCabecaPadrao] = useState<boolean>(true);
   const [velocidadeCabeca, setVelocidadeCabeca] = useState<number>(400);
 
@@ -83,27 +85,18 @@ export const PrintSimulatorWidget: React.FC<PrintSimulatorWidgetProps> = ({
       };
     }
 
-    const velocidade = selectedModoId === 'highspeed'
-      ? (Number(selectedMaquina.velocidadeHispeedM2H) > 0 ? Number(selectedMaquina.velocidadeHispeedM2H) : 4.55)
-      : (velocidadeCalculadaM2H > 0 ? velocidadeCalculadaM2H : (selectedMaquina.velocidadeProducaoM2H || 10));
-
     const consumoTintaMlM2 = selectedMaquina.tintaConsumoMlM2 ?? 15;
 
     // Tempo fixo de setup / aquecimento
     const tempoSetup = Number(selectedMaquina.tempoSetupMin) || 0;
 
-    // Tempo de impressão por m²
-    let tempoMinutos = 0;
-    if (selectedModoId === 'highspeed') {
-      tempoMinutos = calcularTempoProducaoMinutos(selectedMaquina, areaFinalM2, 'highspeed');
-    } else {
-      tempoMinutos = calcularTempoProducaoMinutos(
-        selectedMaquina,
-        areaFinalM2,
-        'standard',
-        velocidadeCabeca
-      );
-    }
+    // Tempo de impressão calculado pela regra oficial de 10 m² e velocidade
+    const tempoMinutos = calcularTempoProducaoMinutos(
+      selectedMaquina,
+      areaFinalM2,
+      selectedModoId,
+      velocidadeCabeca
+    );
 
     const tempoMinutosTotal = tempoMinutos + tempoSetup;
 
@@ -116,6 +109,10 @@ export const PrintSimulatorWidget: React.FC<PrintSimulatorWidgetProps> = ({
     } else {
       tempoFormatado = `${Math.max(1, Math.round(tempoMinutosTotal))} min`;
     }
+
+    const velocidade = areaFinalM2 > 0 && tempoMinutos > 0
+      ? (areaFinalM2 / (tempoMinutos / 60))
+      : (velocidadeCalculadaM2H || 10);
 
     // Custos operacionais da máquina
     const c = calcularCustosMaquina(selectedMaquina);
@@ -228,11 +225,11 @@ export const PrintSimulatorWidget: React.FC<PrintSimulatorWidgetProps> = ({
                 <div className="relative">
                   <input
                     type="number"
-                    step="0.1"
-                    min="0.01"
-                    value={areaM2Direct}
+                    step="0.01"
+                    min="0"
+                    value={areaM2Direct === 0 ? '' : areaM2Direct}
                     onChange={(e) => setAreaM2Direct(e.target.value === '' ? '' : parseFloat(e.target.value))}
-                    placeholder="Ex: 5"
+                    placeholder="0.00"
                     className="w-full bg-slate-950/80 border border-white/15 rounded-2xl px-4 py-3 text-lg font-black text-white font-mono outline-none focus:border-cyan-400 pr-16"
                   />
                   <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-cyan-400 uppercase">
@@ -270,10 +267,10 @@ export const PrintSimulatorWidget: React.FC<PrintSimulatorWidgetProps> = ({
                       <input
                         type="number"
                         step="0.01"
-                        min="0.1"
-                        value={larguraM}
+                        min="0"
+                        value={larguraM === 0 ? '' : larguraM}
                         onChange={(e) => setLarguraM(e.target.value === '' ? '' : parseFloat(e.target.value))}
-                        placeholder="1.20"
+                        placeholder="0.00"
                         className="w-full bg-slate-950/80 border border-white/15 rounded-xl px-3 py-2 text-sm font-black text-white font-mono outline-none focus:border-cyan-400"
                       />
                       <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/40">m</span>
@@ -288,10 +285,10 @@ export const PrintSimulatorWidget: React.FC<PrintSimulatorWidgetProps> = ({
                       <input
                         type="number"
                         step="0.01"
-                        min="0.1"
-                        value={alturaM}
+                        min="0"
+                        value={alturaM === 0 ? '' : alturaM}
                         onChange={(e) => setAlturaM(e.target.value === '' ? '' : parseFloat(e.target.value))}
-                        placeholder="2.50"
+                        placeholder="0.00"
                         className="w-full bg-slate-950/80 border border-white/15 rounded-xl px-3 py-2 text-sm font-black text-white font-mono outline-none focus:border-cyan-400"
                       />
                       <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/40">m</span>
@@ -301,186 +298,26 @@ export const PrintSimulatorWidget: React.FC<PrintSimulatorWidgetProps> = ({
 
                 <div className="flex items-center justify-between text-xs bg-black/30 px-3 py-1.5 rounded-xl border border-white/5 text-white/70">
                   <span>Área Total Calculada:</span>
-                  <strong className="text-cyan-400 font-mono text-sm">{areaFinalM2} m²</strong>
+                  <strong className="text-cyan-400 font-mono text-sm">{areaFinalM2.toFixed(2)} m²</strong>
                 </div>
               </div>
             )}
           </div>
 
-          {/* Seletor de Perfil / Modo de Impressão: Standard e High Speed */}
-          <div className="space-y-3 pt-2 border-t border-white/10">
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-[11px] font-black text-white/70 uppercase tracking-wider flex items-center gap-1.5">
-                  <Gauge size={13} className="text-cyan-400" />
-                  <span>2. Modo de Impressão</span>
-                </label>
-                <span className="text-[10px] text-white/40">
-                  {selectedModoId === 'highspeed' ? 'Velocidade fixa contínua' : 'Velocidade calibrada por mm/s'}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {/* Standard */}
-                <button
-                  type="button"
-                  onClick={() => setSelectedModoId('standard')}
-                  className={`p-3 rounded-2xl border text-left transition-all ${
-                    selectedModoId === 'standard'
-                      ? 'bg-cyan-500/20 border-cyan-400 text-white shadow-lg shadow-cyan-500/10 ring-1 ring-cyan-400'
-                      : 'bg-black/30 border-white/10 text-white/70 hover:bg-white/5 hover:border-white/20'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-bold text-xs leading-tight">Standard</span>
-                    {selectedModoId === 'standard' && <Check size={14} className="text-cyan-400" />}
-                  </div>
-                  <div className="flex items-center gap-2 text-[10px] text-white/60 font-mono">
-                    <span className="text-cyan-300 font-bold">~{velocidadeCalculadaM2H.toFixed(2)} m²/h</span>
-                    <span>• Varia c/ cabeça</span>
-                  </div>
-                </button>
-
-                {/* High Speed */}
-                <button
-                  type="button"
-                  onClick={() => setSelectedModoId('highspeed')}
-                  className={`p-3 rounded-2xl border text-left transition-all ${
-                    selectedModoId === 'highspeed'
-                      ? 'bg-amber-500/20 border-amber-400 text-white shadow-lg shadow-amber-500/10 ring-1 ring-amber-400'
-                      : 'bg-black/30 border-white/10 text-white/70 hover:bg-white/5 hover:border-white/20'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-bold text-xs leading-tight">High Speed</span>
-                    {selectedModoId === 'highspeed' && <Check size={14} className="text-amber-400" />}
-                  </div>
-                  <div className="flex items-center gap-2 text-[10px] text-white/60 font-mono">
-                    <span className="text-amber-300 font-bold">
-                      {Number(selectedMaquina.velocidadeHispeedM2H) > 0 ? Number(selectedMaquina.velocidadeHispeedM2H).toFixed(2) : '4.55'} m²/h
-                    </span>
-                    <span>• Velocidade rápida</span>
-                  </div>
-                </button>
-              </div>
-            </div>
-
-            {/* Abaixo do modo de produção: Controle da Velocidade da Cabeça */}
-            {selectedModoId === 'standard' ? (
-              <div className="bg-slate-950/80 border border-cyan-500/30 rounded-2xl p-3.5 space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-white/10">
-                  <label className="flex items-center gap-2 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={usarVelocidadeCabecaPadrao}
-                      onChange={(e) => {
-                        const checked = e.target.checked;
-                        setUsarVelocidadeCabecaPadrao(checked);
-                        if (checked) {
-                          setVelocidadeCabeca(400);
-                        }
-                      }}
-                      className="w-4 h-4 rounded border-white/20 text-cyan-500 focus:ring-cyan-400 focus:ring-offset-0 bg-slate-900 cursor-pointer"
-                    />
-                    <span className="text-xs font-bold text-white">
-                      Velocidade da cabeça padrão (400 mm/s)
-                    </span>
-                  </label>
-
-                  <div className="text-[11px] font-mono text-cyan-300 font-bold">
-                    ~{velocidadeCalculadaM2H.toFixed(2)} m²/h calculada
-                  </div>
-                </div>
-
-                {/* Se a caixinha estiver desmarcada: permite alterar livremente */}
-                {!usarVelocidadeCabecaPadrao ? (
-                  <div className="space-y-2.5">
-                    <div className="flex items-center justify-between text-[10px] text-white/60">
-                      <span className="font-bold text-cyan-300 uppercase">
-                        Alterar velocidade da cabeça (mm/s):
-                      </span>
-                      <span className="text-white/40 font-mono">
-                        Limites: {VELOCIDADE_CABECA_MIN_MMS} a {VELOCIDADE_CABECA_MAX_MMS} mm/s
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center">
-                      <div className="sm:col-span-4 relative">
-                        <input
-                          type="number"
-                          step="1"
-                          min={VELOCIDADE_CABECA_MIN_MMS}
-                          max={VELOCIDADE_CABECA_MAX_MMS}
-                          value={velocidadeCabeca}
-                          onChange={(e) => {
-                            const raw = parseInt(e.target.value, 10);
-                            if (Number.isFinite(raw)) {
-                              const clamped = Math.min(Math.max(raw, VELOCIDADE_CABECA_MIN_MMS), VELOCIDADE_CABECA_MAX_MMS);
-                              setVelocidadeCabeca(clamped);
-                            } else {
-                              setVelocidadeCabeca(VELOCIDADE_CABECA_MIN_MMS);
-                            }
-                          }}
-                          className="w-full bg-slate-900 border border-cyan-500/50 rounded-xl px-3 py-2 text-sm font-black font-mono text-white focus:outline-none focus:border-cyan-400 shadow-inner"
-                        />
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/40 font-mono">
-                          mm/s
-                        </span>
-                      </div>
-
-                      {/* Botões rápidos das velocidades registradas no RIP */}
-                      <div className="sm:col-span-8 flex flex-wrap gap-1">
-                        {[
-                          { label: '250 (Mín)', val: 250 },
-                          { label: '350', val: 350 },
-                          { label: '400 (Padrão)', val: 400 },
-                          { label: '500', val: 500 },
-                          { label: '600', val: 600 },
-                          { label: '761 (Máx)', val: 761 },
-                        ].map(({ label, val }) => (
-                          <button
-                            key={val}
-                            type="button"
-                            onClick={() => setVelocidadeCabeca(val)}
-                            className={`px-2 py-1 rounded-lg text-[10px] font-mono font-bold border transition-all ${
-                              velocidadeCabeca === val
-                                ? 'bg-cyan-500/30 text-cyan-200 border-cyan-400 shadow'
-                                : 'bg-black/40 text-white/60 border-white/10 hover:bg-white/10 hover:text-white'
-                            }`}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between text-[11px] bg-black/40 px-3 py-1.5 rounded-xl border border-white/5">
-                      <span className="text-white/60">Cabeça: <strong className="text-white">{velocidadeCabeca} mm/s</strong></span>
-                      <span className="text-emerald-400 font-bold flex items-center gap-1">
-                        <Zap size={12} /> Tempo recalculado ao vivo
-                      </span>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-between text-[11px] text-white/60 bg-black/20 px-3 py-1.5 rounded-xl border border-white/5">
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                      Velocidade padrão ativa (400 mm/s).
-                    </span>
-                    <span className="text-[10px] text-cyan-300">
-                      Desmarque para alterar
-                    </span>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3 text-xs text-amber-200/90 flex items-center gap-2.5">
-                <Sparkles size={16} className="text-amber-400 shrink-0" />
-                <div>
-                  <strong>Modo High Speed:</strong> Impressão rápida contínua (~4.55 m²/h), sem alteração pela velocidade da cabeça (mm/s).
-                </div>
-              </div>
-            )}
+          {/* Card Oficial de Configuração de Cabeça & Perfil RIP */}
+          <div className="pt-2 border-t border-white/10">
+            <CardVelocidadeCabeca
+              perfil={selectedModoId}
+              onPerfilChange={(novoPerfil) => setSelectedModoId(novoPerfil)}
+              velocidadeCabeca={velocidadeCabeca}
+              onVelocidadeChange={(novaVel) => setVelocidadeCabeca(novaVel)}
+              ignorarPredefinicoes={!usarVelocidadeCabecaPadrao}
+              onIgnorarPredefinicoesChange={(ignorar) => setUsarVelocidadeCabecaPadrao(!ignorar)}
+              areaM2={areaFinalM2}
+              larguraM={inputMode === 'dimensoes' && typeof larguraM === 'number' ? larguraM : undefined}
+              alturaM={inputMode === 'dimensoes' && typeof alturaM === 'number' ? alturaM : undefined}
+              mostrarCalculoArea={false}
+            />
           </div>
         </div>
 

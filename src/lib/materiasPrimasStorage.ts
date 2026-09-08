@@ -5,6 +5,8 @@ import { enqueueOp } from './offlineSync';
 const LOCAL_STORAGE_KEY = 'rpro_materias_primas_cache';
 const CONSUMPTION_HISTORY_KEY = 'rpro_materias_primas_consumption_history';
 
+export const CONSUMPTION_START_DATE = '2026-09-01';
+
 export interface MateriaPrimaConsumptionRecord {
   id: string;
   materiaPrimaId: string;
@@ -14,8 +16,6 @@ export interface MateriaPrimaConsumptionRecord {
   unit: string;
   orderId?: string;
   customerName?: string;
-  productName?: string;
-  totalVenda?: number;
   timestamp: string; // ISO date
   tipoOperacao: 'venda' | 'ajuste_manual' | 'entrada' | 'perda';
   saldoApos?: number;
@@ -45,6 +45,32 @@ export function isValidUUID(str?: string | null): boolean {
 // Fallback empty when offline or cache is empty
 const DEFAULT_MATERIAS_PRIMAS: Omit<MateriaPrima, 'id'>[] = [];
 
+export function mapMateriaPrimaRow(item: any): MateriaPrima {
+  const costPrice = Number(item.cost_price ?? item.preco_custo ?? item.custo ?? 0);
+  const largura = item.largura_material ? Number(item.largura_material) : item.larguraMaterial ? Number(item.larguraMaterial) : undefined;
+  const comprimento = item.comprimento_bobina ? Number(item.comprimento_bobina) : item.comprimentoBobina ? Number(item.comprimentoBobina) : undefined;
+  const valorBobina = item.valor_bobina ? Number(item.valor_bobina) : item.valorBobina ? Number(item.valorBobina) : (comprimento && costPrice ? Number((comprimento * costPrice).toFixed(2)) : undefined);
+  const custoPorM2 = item.custo_por_m2 ? Number(item.custo_por_m2) : item.custoPorM2 ? Number(item.custoPorM2) : (largura && largura > 0 && costPrice > 0 ? Number((costPrice / largura).toFixed(4)) : undefined);
+
+  return {
+    id: item.id,
+    companyId: item.company_id,
+    name: item.name || item.nome || 'Matéria-Prima',
+    unit: item.unit || item.unidade || 'm',
+    costPrice,
+    valorBobina,
+    tipoCalculoCusto: item.tipo_calculo_custo || item.tipoCalculoCusto || (item.unit === 'm' ? 'bobina' : 'unidade'),
+    larguraMaterial: largura,
+    comprimentoBobina: comprimento,
+    quantidadeEstoque: item.quantidade_estoque ? Number(item.quantidade_estoque) : item.quantidadeEstoque ? Number(item.quantidadeEstoque) : undefined,
+    custoPorM2,
+    notes: item.notes || item.observacao || '',
+    isActive: item.is_active !== undefined ? Boolean(item.is_active) : true,
+    createdAt: item.created_at,
+    updatedAt: item.updated_at
+  };
+}
+
 export async function fetchMateriasPrimas(companyId?: string): Promise<MateriaPrima[]> {
   try {
     let query = supabase.from('materias_primas').select('*').order('name', { ascending: true });
@@ -52,7 +78,16 @@ export async function fetchMateriasPrimas(companyId?: string): Promise<MateriaPr
       query = query.or(`company_id.eq.${companyId},company_id.is.null`);
     }
 
-    const { data, error } = await query;
+    let { data, error } = await query;
+
+    // Se passou companyId mas a consulta filtrou para vazio, faz fallback buscando todas
+    // (evita que matérias-primas fiquem invisíveis caso haja divergência entre 'rafa-arts' e o id de cadastro)
+    if (!error && (!data || data.length === 0) && companyId) {
+      const fallbackRes = await supabase.from('materias_primas').select('*').order('name', { ascending: true });
+      if (fallbackRes.data && fallbackRes.data.length > 0) {
+        data = fallbackRes.data;
+      }
+    }
 
     if (error) {
       console.warn('Fallback materias_primas do supabase:', error.message);
@@ -66,31 +101,7 @@ export async function fetchMateriasPrimas(companyId?: string): Promise<MateriaPr
       return [];
     }
 
-    const mapped: MateriaPrima[] = data.map((item: any) => {
-      const costPrice = Number(item.cost_price ?? item.preco_custo ?? item.custo ?? 0);
-      const largura = item.largura_material ? Number(item.largura_material) : item.larguraMaterial ? Number(item.larguraMaterial) : undefined;
-      const comprimento = item.comprimento_bobina ? Number(item.comprimento_bobina) : item.comprimentoBobina ? Number(item.comprimentoBobina) : undefined;
-      const valorBobina = item.valor_bobina ? Number(item.valor_bobina) : item.valorBobina ? Number(item.valorBobina) : (comprimento && costPrice ? Number((comprimento * costPrice).toFixed(2)) : undefined);
-      const custoPorM2 = item.custo_por_m2 ? Number(item.custo_por_m2) : item.custoPorM2 ? Number(item.custoPorM2) : (largura && largura > 0 && costPrice > 0 ? Number((costPrice / largura).toFixed(4)) : undefined);
-
-      return {
-        id: item.id,
-        companyId: item.company_id,
-        name: item.name || item.nome || 'Matéria-Prima',
-        unit: item.unit || item.unidade || 'm',
-        costPrice,
-        valorBobina,
-        tipoCalculoCusto: item.tipo_calculo_custo || item.tipoCalculoCusto || (item.unit === 'm' ? 'bobina' : 'unidade'),
-        larguraMaterial: largura,
-        comprimentoBobina: comprimento,
-        quantidadeEstoque: item.quantidade_estoque ? Number(item.quantidade_estoque) : item.quantidadeEstoque ? Number(item.quantidadeEstoque) : undefined,
-        custoPorM2,
-        notes: item.notes || item.observacao || '',
-        isActive: item.is_active !== undefined ? Boolean(item.is_active) : true,
-        createdAt: item.created_at,
-        updatedAt: item.updated_at
-      };
-    });
+    const mapped: MateriaPrima[] = data.map(mapMateriaPrimaRow);
 
     saveLocalCache(mapped);
     return mapped;
@@ -425,35 +436,56 @@ export function subscribeToMateriasPrimas(onChange: () => void): () => void {
  * quando uma venda/ordem de serviço com produtos compostos é finalizada.
  */
 export async function deductMateriasPrimasStock(
-  consumptions: { 
-    materiaPrimaId?: string; 
-    name?: string; 
-    quantity: number;
-    orderId?: string;
-    customerName?: string;
-    productName?: string;
-    observacao?: string;
-  }[],
+  consumptions: { materiaPrimaId?: string; name?: string; quantity: number }[],
   companyId?: string
 ): Promise<void> {
   if (!consumptions || consumptions.length === 0) return;
 
   try {
-    const currentList = await fetchMateriasPrimas(companyId);
+    let currentList = await fetchMateriasPrimas(companyId);
+    if (currentList.length === 0) {
+      currentList = await fetchMateriasPrimas();
+    }
 
     for (const item of consumptions) {
       if (!item.quantity || item.quantity <= 0) continue;
 
-      const found = currentList.find(mp => 
+      let found = currentList.find(mp => 
         (item.materiaPrimaId && mp.id === item.materiaPrimaId) ||
         (item.name && mp.name.trim().toLowerCase() === item.name.trim().toLowerCase())
       );
+
+      // Fallback: busca direta por ID no Supabase caso não esteja na lista inicial
+      if (!found && item.materiaPrimaId) {
+        try {
+          const { data: directMp } = await supabase.from('materias_primas').select('*').eq('id', item.materiaPrimaId).maybeSingle();
+          if (directMp) {
+            found = mapMateriaPrimaRow(directMp);
+          }
+        } catch (e) {}
+      }
 
       if (found) {
         const currentQty = (found.quantidadeEstoque !== undefined && found.quantidadeEstoque !== null)
           ? Number(found.quantidadeEstoque)
           : 0;
-        const newQty = Math.max(0, Number((currentQty - item.quantity).toFixed(4)));
+
+        const compBobina = found.comprimentoBobina && found.comprimentoBobina > 0 ? found.comprimentoBobina : 50;
+        const isBobina = found.tipoCalculoCusto === 'bobina' || (found.unit === 'm' && found.comprimentoBobina);
+
+        let newQty: number;
+        let saldoAposMetros: number;
+
+        if (isBobina) {
+          // Bobinas no banco armazenam fração de bobina (ex: 1.0 = 50m). O consumo vem em metros lineares.
+          const currentMetros = currentQty * compBobina;
+          const newMetros = Math.max(0, currentMetros - item.quantity);
+          saldoAposMetros = Number(newMetros.toFixed(2));
+          newQty = Number((newMetros / compBobina).toFixed(4));
+        } else {
+          newQty = Math.max(0, Number((currentQty - item.quantity).toFixed(4)));
+          saldoAposMetros = newQty;
+        }
 
         found.quantidadeEstoque = newQty;
         updateLocalItem(found);
@@ -465,12 +497,9 @@ export async function deductMateriasPrimasStock(
           companyId: found.companyId || companyId || 'rafa-arts',
           quantity: item.quantity,
           unit: found.unit || 'm',
-          orderId: item.orderId,
-          customerName: item.customerName,
-          productName: item.productName,
           tipoOperacao: 'venda',
-          saldoApos: newQty,
-          observacao: item.observacao || `Baixa automática de produção (Consumo: ${item.quantity} ${found.unit || 'm'})`
+          saldoApos: saldoAposMetros,
+          observacao: `Baixa de venda/produção (Consumo: ${item.quantity} ${found.unit || 'm'})`
         }).catch(err => console.warn('Erro ao gravar histórico de consumo:', err));
 
         try {
@@ -595,126 +624,109 @@ async function seedDefaultMateriasPrimas(companyId?: string): Promise<MateriaPri
 // HISTÓRICO DE CONSUMO & PREVISÃO DE ESTOQUE
 // ==========================================
 
-// Data inicial de contagem de consumo solicitada pelo usuário (31 de agosto de 2026)
-export const CONSUMPTION_START_DATE = '2026-08-31T00:00:00';
-
 export async function fetchConsumptionHistory(
   materiaPrimaId?: string,
   companyId?: string,
-  startDate?: string,
-  endDate?: string
+  dateStart?: string,
+  dateEnd?: string
 ): Promise<MateriaPrimaConsumptionRecord[]> {
   try {
-    // 1. Carrega todas as matérias-primas e produtos com fichas técnicas para associar insumos
-    const materias = await fetchMateriasPrimas(companyId);
-    const mpMap = new Map<string, MateriaPrima>((materias || []).map(m => [m.id, m]));
-
-    let prodMap = new Map<string, any>();
-    try {
-      const { data: prods } = await supabase.from('produtos').select('id, name, unit, materias_primas');
-      if (prods && prods.length > 0) {
-        prodMap = new Map(prods.map(p => [p.id, p]));
-      }
-    } catch (e) {
-      console.warn('Não foi possível carregar fichas de produtos para o histórico:', e);
-    }
-
-    // 2. Busca todas as vendas reais finalizadas/registradas no Supabase
-    const salesRecords: MateriaPrimaConsumptionRecord[] = [];
-    try {
-      let query = supabase
-        .from('vendas')
-        .select('id, company_id, customer_name, customer_phone, total, items, created_at, status, deleted_at')
-        .is('deleted_at', null)
-        .order('created_at', { ascending: false });
-
-      if (startDate) {
-        query = query.gte('created_at', startDate);
-      }
-      if (endDate) {
-        query = query.lte('created_at', endDate);
-      }
-
-      const { data: vendas, error: vendasErr } = await query;
-
-      if (vendasErr) {
-        console.warn('Erro ao buscar vendas para histórico de consumo:', vendasErr.message);
-      } else if (vendas && vendas.length > 0) {
-        for (const v of vendas) {
-          if (v.status === 'canceled') continue;
-          const items = Array.isArray(v.items) ? v.items : [];
-          
-          items.forEach((item: any, itemIdx: number) => {
-            const prod = prodMap.get(item.productId);
-            const rawMaterials = (Array.isArray(item.materiasPrimasConsumidas) && item.materiasPrimasConsumidas.length > 0)
-              ? item.materiasPrimasConsumidas
-              : (Array.isArray(prod?.materias_primas) ? prod.materias_primas : []);
-
-            if (!rawMaterials || rawMaterials.length === 0) return;
-
-            const multiplier = Number(item.consumoEstoque ?? item.area ?? (typeof item.quantity === 'number' ? item.quantity : 1));
-
-            rawMaterials.forEach((mp: any, mpIdx: number) => {
-              const mpId = mp.materiaPrimaId || mp.id;
-              const mpObj = mpMap.get(mpId) || materias.find(m => m.name?.trim().toLowerCase() === (mp.name || '').trim().toLowerCase());
-              const finalMpId = mpObj ? mpObj.id : mpId;
-              const finalMpName = mpObj ? mpObj.name : (mp.name || 'Matéria-Prima');
-              const finalUnit = mpObj?.unit || mp.unit || 'm';
-
-              const consumedQty = (item.materiasPrimasConsumidas && typeof mp.quantity === 'number' && mp.quantity > 0)
-                ? Number(mp.quantity.toFixed(4))
-                : Number(((Number(mp.quantity) || 1) * multiplier).toFixed(4));
-
-              if (consumedQty > 0) {
-                salesRecords.push({
-                  id: `venda-${v.id}-${itemIdx}-${mpIdx}`,
-                  materiaPrimaId: finalMpId,
-                  materiaPrimaName: finalMpName,
-                  companyId: v.company_id || companyId || 'rafa-arts',
-                  quantity: consumedQty,
-                  unit: finalUnit,
-                  orderId: v.id,
-                  customerName: v.customer_name || 'Cliente de Balcão',
-                  productName: item.name,
-                  totalVenda: v.total,
-                  timestamp: v.created_at,
-                  tipoOperacao: 'venda',
-                  observacao: `Venda #${v.id.slice(-8).toUpperCase()} - ${item.name} (${v.customer_name || 'Cliente de Balcão'})`
-                });
-              }
-            });
-          });
-        }
-      }
-    } catch (supaErr) {
-      console.warn('Erro ao processar consumo das vendas reais:', supaErr);
-    }
-
-    // 3. Lê ajustes manuais (entradas, perdas, ajustes manuais) armazenados localmente
     const raw = localStorage.getItem(CONSUMPTION_HISTORY_KEY);
     let localList: MateriaPrimaConsumptionRecord[] = raw ? JSON.parse(raw) : [];
-    
-    // Filtra pelo intervalo de datas
-    const startTime = startDate ? new Date(startDate).getTime() : 0;
-    const endTime = endDate ? new Date(endDate).getTime() : Infinity;
-    const manualRecords = localList.filter(r => {
-      if (r.tipoOperacao === 'venda') return false; // vendas vêm fidedignas do banco
-      if (!r.timestamp) return true;
-      const t = new Date(r.timestamp).getTime();
-      return t >= startTime && t <= endTime;
-    });
 
-    let combined = [...salesRecords, ...manualRecords];
+    // Busca vendas reais do Supabase para refletir o consumo verídico das notas emitidas
+    let salesRecords: MateriaPrimaConsumptionRecord[] = [];
+    try {
+      const { data: vendas } = await supabase
+        .from('vendas')
+        .select('id, created_at, customer_name, company_id, items, consumo_materias_primas, status')
+        .neq('status', 'canceled')
+        .order('created_at', { ascending: false })
+        .limit(100);
 
-    if (materiaPrimaId && materiaPrimaId !== 'all') {
-      combined = combined.filter(r => r.materiaPrimaId === materiaPrimaId);
+      if (vendas && vendas.length > 0) {
+        for (const v of vendas) {
+          // 1. Verifica no array consumo_materias_primas
+          if (Array.isArray(v.consumo_materias_primas) && v.consumo_materias_primas.length > 0) {
+            for (const cm of v.consumo_materias_primas) {
+              const mpId = cm.materiaPrimaId || cm.id;
+              salesRecords.push({
+                id: `venda-${v.id}-${mpId || cm.name}`,
+                materiaPrimaId: mpId || '',
+                materiaPrimaName: cm.name || 'Matéria-Prima',
+                companyId: v.company_id || 'rafa-arts',
+                quantity: Number(cm.quantity) || 0,
+                unit: cm.unit || 'm',
+                timestamp: v.created_at,
+                tipoOperacao: 'venda',
+                observacao: `Nota #${v.id.slice(-8).toUpperCase()} - ${v.customer_name || 'Cliente de Balcão'}`
+              });
+            }
+          }
+          // 2. Verifica dentro dos items da venda (materiasPrimasConsumidas)
+          if (Array.isArray(v.items) && v.items.length > 0) {
+            for (const it of v.items) {
+              if (Array.isArray(it.materiasPrimasConsumidas) && it.materiasPrimasConsumidas.length > 0) {
+                for (const mpc of it.materiasPrimasConsumidas) {
+                  const mpId = mpc.materiaPrimaId || mpc.id;
+                  const recId = `venda-${v.id}-${mpId || mpc.name}-${it.productId || it.name}`;
+                  salesRecords.push({
+                    id: recId,
+                    materiaPrimaId: mpId || '',
+                    materiaPrimaName: mpc.name || 'Matéria-Prima',
+                    companyId: v.company_id || 'rafa-arts',
+                    quantity: Number(mpc.quantity) || 0,
+                    unit: mpc.unit || 'm',
+                    timestamp: v.created_at,
+                    tipoOperacao: 'venda',
+                    observacao: `Nota #${v.id.slice(-8).toUpperCase()} - ${v.customer_name || 'Cliente'} (${it.name}${it.dimensions ? ` - ${it.dimensions}` : ''})`
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Erro ao consultar histórico de vendas para insumos:', e);
     }
-    if (companyId) {
-      combined = combined.filter(r => !r.companyId || r.companyId === companyId);
+
+    // Mescla registros locais com vendas reais
+    const mergedMap = new Map<string, MateriaPrimaConsumptionRecord>();
+    for (const r of salesRecords) {
+      mergedMap.set(r.id, r);
+    }
+    for (const r of localList) {
+      // Ignora dados fictícios de seed inicial se houver vendas reais
+      if (salesRecords.length > 0 && r.id?.startsWith('hist-')) continue;
+      if (!mergedMap.has(r.id)) {
+        mergedMap.set(r.id, r);
+      }
+    }
+
+    let list = Array.from(mergedMap.values());
+
+    if (materiaPrimaId) {
+      list = list.filter(r => r.materiaPrimaId === materiaPrimaId || !r.materiaPrimaId);
+    }
+    if (companyId && companyId !== 'rafa-arts') {
+      list = list.filter(r => !r.companyId || r.companyId === companyId || r.companyId === 'rafa-arts');
+    }
+    if (dateStart) {
+      list = list.filter(r => {
+        const d = r.timestamp.slice(0, 10);
+        return d >= dateStart;
+      });
+    }
+    if (dateEnd) {
+      list = list.filter(r => {
+        const d = r.timestamp.slice(0, 10);
+        return d <= dateEnd;
+      });
     }
 
     // Ordena do mais recente para o mais antigo
-    return combined.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    return list.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   } catch (err) {
     console.error('Erro ao ler histórico de consumo de matérias-primas:', err);
     return [];

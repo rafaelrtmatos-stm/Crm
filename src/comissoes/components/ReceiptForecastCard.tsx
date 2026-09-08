@@ -12,6 +12,7 @@ interface ReceiptForecastCardProps {
   totalPaid?: number;
   // Saldo do caixa acumulado fora do período (dívida ou crédito).
   previousBalance?: number;
+  cycleDates?: string;
   onOpenAddModal?: () => void;
   onOpenDescontos?: () => void;
 }
@@ -22,6 +23,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
   totalDiscounts = 0,
   totalPaid = 0,
   previousBalance = 0,
+  cycleDates,
   onOpenDescontos,
 }) => {
   const forecastTotal = baseSalary + totalCommission - totalDiscounts - totalPaid + previousBalance;
@@ -78,7 +80,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
               Composição do Valor
             </span>
             <span className="text-[10px] text-white/70 font-mono font-normal whitespace-nowrap">
-              Ciclo Atual
+              {cycleDates || 'Ciclo Atual'}
             </span>
           </div>
 

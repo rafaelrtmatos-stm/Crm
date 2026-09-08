@@ -580,6 +580,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             totalDiscounts={period === 'semana' && resumoPeriodoAtivo ? resumoPeriodoAtivo.totalDescontos : (resumoSemanaAtual?.totalDescontos ?? 0)}
             totalPaid={period === 'semana' && resumoPeriodoAtivo ? resumoPeriodoAtivo.totalPago : (resumoSemanaAtual?.totalPago ?? 0)}
             previousBalance={saldoAnteriorAoPeriodo}
+            cycleDates={`${formatDateBR(weeklyBounds.start)} a ${formatDateBR(weeklyBounds.end)}`}
             onOpenDescontos={onGoToDescontos}
           />
         </div>
@@ -712,11 +713,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
       {/* Bottom Weekly Summary Section */}
       <div className="pt-6 border-t border-[var(--border-color)] space-y-4">
-        <div className="flex items-center gap-2">
-          <Sparkles className="w-5 h-5 text-[var(--accent-red)]" />
-          <h3 className="font-black text-sm uppercase tracking-wider text-[var(--text-main)]">
-            Resumo e Indicadores da Semana
-          </h3>
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-[var(--accent-red)]" />
+            <h3 className="font-black text-sm uppercase tracking-wider text-[var(--text-main)]">
+              Resumo e Indicadores da Semana
+            </h3>
+          </div>
+          <span className="text-xs font-mono font-bold text-[var(--accent-red)] bg-red-950/30 px-2.5 py-1 rounded-lg border border-red-800/30">
+            {formatDateBR(weeklyBounds.start)} a {formatDateBR(weeklyBounds.end)}
+          </span>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

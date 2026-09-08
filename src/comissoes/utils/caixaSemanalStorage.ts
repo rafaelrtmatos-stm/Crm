@@ -71,19 +71,32 @@ const getTodayISO = (): string => formatISO(new Date());
 
 /**
  * Ciclo de Comissão Semanal: Sábado a Sexta-feira.
- * No Sábado de manhã (dia de pagamento), o ciclo exibido para conferência/pagamento
- * é o que fechou na Sexta-feira (Sábado anterior até ontem, Sexta-feira).
- * No Domingo até Sexta-feira, o ciclo ativo é o que começou no último Sábado e vai até a Sexta-feira.
- * Serviços lançados no próprio Sábado atual não somam no pagamento que fechou na sexta (ficam para o próximo ciclo).
+ * Regra implementada em 07/09/2026:
+ * - Ciclo padrão de comissão: Sábado de uma semana até Sexta-feira da próxima semana.
+ * - Exceção inaugural (semana atual de 07/09 a 11/09): como a regra iniciou na segunda 07/09,
+ *   não soma o sábado 05/09 (que pertenceu ao fechamento anterior). O ciclo atual apura de 07/09 a 11/09.
+ * - Ciclos seguintes: Sábado a Sexta (ex: 12/09 a 18/09, 19/09 a 25/09, sucessivamente).
  */
 export const getWorkWeekBounds = (offsetWeeks = 0): { start: string; end: string } => {
   const now = new Date();
   const day = now.getDay(); // 0 = domingo ... 6 = sábado
-  const diffToSaturday = -(day + 1);
+  // No ciclo sábado a sexta:
+  // Se for sábado (6), é o primeiro dia do ciclo da semana (diff = 0)
+  // Se for domingo (0), o ciclo começou ontem sábado (diff = -1)
+  // Se for segunda (1), o ciclo começou sábado anteontem (diff = -2), etc.
+  const diffToSaturday = -((day + 1) % 7);
   const sat = new Date(now);
   sat.setDate(now.getDate() + diffToSaturday + offsetWeeks * 7);
-  const start = formatISO(sat);
-  const end = addDaysISO(start, 6); // Sexta-feira (7 dias: Sáb, Dom, Seg, Ter, Qua, Qui, Sex)
+  let start = formatISO(sat);
+  const end = addDaysISO(start, 6); // Sexta-feira (7 dias de sábado a sexta)
+
+  // Exceção inaugural da regra em 07/09/2026:
+  // Apenas nesta primeira semana (05/09 a 11/09), não conta o sábado 05/09,
+  // iniciando na segunda-feira 07/09 até sexta 11/09.
+  if (start === '2026-09-05' && end === '2026-09-11') {
+    start = '2026-09-07';
+  }
+
   return { start, end };
 };
 
@@ -167,6 +180,16 @@ export async function getOrCreateCaixaAberto(colaboradorId: string): Promise<Wee
         .then(() => {});
       caixaMapped.semanaInicio = novoInicio;
       caixaMapped.semanaFim = novaSexta;
+    }
+
+    // Regra de início em 07/09/2026: se o caixa aberto ainda estiver marcado com início 05/09/2026
+    if (caixaMapped.semanaInicio === '2026-09-05' && caixaMapped.semanaFim === '2026-09-11') {
+      supabase
+        .from('comissoes_caixas_semanais')
+        .update({ semana_inicio: '2026-09-07' })
+        .eq('id', caixaMapped.id)
+        .then(() => {});
+      caixaMapped.semanaInicio = '2026-09-07';
     }
     return caixaMapped;
   }

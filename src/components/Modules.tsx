@@ -10956,6 +10956,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           : (item.area ? item.area * item.quantity : item.quantity);
         const { data: prodAtual } = await supabase.from('produtos').select('current_stock, controla_estoque, unit, materias_primas').eq('id', item.productId).maybeSingle();
         if (prodAtual) {
+          // 1. Atualiza estoque do produto final se controla_estoque estiver ativo
           if (prodAtual.controla_estoque !== false) {
             const estoqueAnterior = Number(prodAtual.current_stock) || 0;
             const novoEstoque = Math.max(0, estoqueAnterior - qtdBaixa);
@@ -10975,7 +10976,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             ]);
           }
 
-          // Coleta matérias-primas vinculadas à ficha técnica deste produto para dar baixa (mesmo se produto final for sob demanda com controlaEstoque=false)
+          // 2. Coleta matérias-primas vinculadas à ficha técnica deste produto para dar baixa
+          // (ocorre mesmo se controla_estoque do produto final for falso, pois o insumo/bobina possui estoque próprio)
           const rawMaterials = (prodAtual as any)?.materias_primas || (prodAtual as any)?.materiasPrimas;
           if (Array.isArray(rawMaterials) && rawMaterials.length > 0) {
             rawMaterials.forEach((mp: any) => {

@@ -754,66 +754,57 @@ export interface Maquina {
   updatedAt?: string;
 }
 
-// Faixa válida da velocidade de cabeça (mm/s)
-export const VELOCIDADE_CABECA_MIN_MMS = 250;
-export const VELOCIDADE_CABECA_MAX_MMS = 761;
+import {
+  PerfilImpressao,
+  VELOCIDADE_CABECA_MIN_MMS,
+  VELOCIDADE_CABECA_MAX_MMS,
+  VELOCIDADE_CABECA_PADRAO_MMS,
+  AREA_REFERENCIA_M2,
+  obterTempo10M2PorVelocidade,
+  calcularTempoImpressao,
+  normalizarPerfilImpressao
+} from './lib/calculoTempoImpressao';
 
-// Coeficientes obtidos por regressão linear sobre o log real de produção da RIP (VersaWorks, 14–29/08):
-// no modo Standard, a velocidade de produção (m²/h) cresce quase linearmente com a velocidade de cabeça (mm/s).
-// v(m²/h) = STANDARD_SLOPE * velocidadeCabeca(mm/s) + STANDARD_INTERCEPT
-const STANDARD_SLOPE_M2H_POR_MMS = 0.004959;
-const STANDARD_INTERCEPT_M2H = 0.237;
+export {
+  VELOCIDADE_CABECA_MIN_MMS,
+  VELOCIDADE_CABECA_MAX_MMS,
+  VELOCIDADE_CABECA_PADRAO_MMS,
+  AREA_REFERENCIA_M2
+};
 
-// No modo High Speed a impressora roda numa velocidade própria fixa, que não muda com a velocidade de cabeça informada
-// (medido no log: 10 m² em 132 min = 4,55 m²/h, constante nas 3 velocidades de cabeça testadas).
-const HIGH_SPEED_M2H = 4.55;
-
-// Área do job usado para calibrar calibSetupMin/calibKMms de cada máquina (job de teste real: 10m x 1m)
-export const REFERENCIA_AREA_CALIBRACAO_M2 = 10;
+export const REFERENCIA_AREA_CALIBRACAO_M2 = AREA_REFERENCIA_M2;
 
 // Calcula a velocidade de produção (m²/h) a partir do modo de impressão e da velocidade de cabeça (mm/s)
+// Baseado no tempo para 10 m²: v(m²/h) = 10 / (tempo10m2 / 60)
 export function calcularVelocidadeProducaoM2H(
   modoImpressao: Maquina['modoImpressao'],
   velocidadeCabecaMmS?: number
 ): number {
-  if (modoImpressao === 'highspeed') return HIGH_SPEED_M2H;
-
-  const s = Math.min(
-    Math.max(Number(velocidadeCabecaMmS) || 400, VELOCIDADE_CABECA_MIN_MMS),
+  const p = normalizarPerfilImpressao(modoImpressao);
+  const vel = Math.min(
+    Math.max(Number(velocidadeCabecaMmS) || VELOCIDADE_CABECA_PADRAO_MMS, VELOCIDADE_CABECA_MIN_MMS),
     VELOCIDADE_CABECA_MAX_MMS
   );
-  const v = STANDARD_SLOPE_M2H_POR_MMS * s + STANDARD_INTERCEPT_M2H;
-  return Math.max(v, 0.1);
+  const tempo10m2 = obterTempo10M2PorVelocidade(p, vel);
+  if (tempo10m2 <= 0) return 10;
+  return Math.max(0.1, Math.round((10 / (tempo10m2 / 60)) * 100) / 100);
 }
 
 // Velocidade marginal de produção (m²/h), ignorando o setup fixo — usada para custo/m² (Máquinas).
-// Usa a calibração real da máquina (calibKMms) quando disponível; senão cai na estimativa genérica.
 export function calcularVelocidadeMarginalM2H(
   modoImpressao: Maquina['modoImpressao'],
   velocidadeCabecaMmS: number | undefined,
   calibKMms?: number | '' | null,
   velocidadeHispeedM2H?: number | '' | null
 ): number {
-  if (modoImpressao === 'highspeed') {
-    const vhs = Number(velocidadeHispeedM2H);
-    return vhs > 0 ? vhs : HIGH_SPEED_M2H;
+  if (modoImpressao === 'highspeed' && Number(velocidadeHispeedM2H) > 0) {
+    return Number(velocidadeHispeedM2H);
   }
-
-  const k = Number(calibKMms);
-  const s = Math.min(
-    Math.max(Number(velocidadeCabecaMmS) || 400, VELOCIDADE_CABECA_MIN_MMS),
-    VELOCIDADE_CABECA_MAX_MMS
-  );
-  if (k > 0) {
-    return (REFERENCIA_AREA_CALIBRACAO_M2 * 60 * s) / k;
-  }
-  return calcularVelocidadeProducaoM2H(modoImpressao, s);
+  return calcularVelocidadeProducaoM2H(modoImpressao, velocidadeCabecaMmS);
 }
 
 // Calcula o tempo de produção (minutos) para uma área (m²), no modo e velocidade de cabeça informados.
-// Se a máquina tiver calibração real (calibSetupMin + calibKMms, medidos com jobs reais no RIP), usa o
-// modelo calibrado — que inclui o tempo fixo de setup/overhead e é mais preciso, principalmente em jobs pequenos.
-// Sem calibração, cai na estimativa genérica (calcularVelocidadeProducaoM2H), sem setup separado.
+// Aplica a regra oficial: TEMPO FINAL = TEMPO PARA 10 M² × (ÁREA DO SERVIÇO ÷ 10)
 export function calcularTempoProducaoMinutos(
   maquina: Partial<Maquina> | null | undefined,
   areaM2: number,
@@ -822,24 +813,14 @@ export function calcularTempoProducaoMinutos(
 ): number {
   if (!maquina || areaM2 <= 0) return 0;
 
-  if (modoImpressao === 'highspeed') {
-    const v = Number(maquina.velocidadeHispeedM2H) > 0 ? Number(maquina.velocidadeHispeedM2H) : HIGH_SPEED_M2H;
-    return (areaM2 / v) * 60;
-  }
+  const perfil = normalizarPerfilImpressao(modoImpressao);
+  const vel = Math.min(
+    Math.max(Number(velocidadeCabecaMmS) || VELOCIDADE_CABECA_PADRAO_MMS, VELOCIDADE_CABECA_MIN_MMS),
+    VELOCIDADE_CABECA_MAX_MMS
+  );
 
-  const calibSetupMin = Number(maquina.calibSetupMin);
-  const calibKMms = Number(maquina.calibKMms);
-  if (calibSetupMin >= 0 && calibKMms > 0) {
-    const s = Math.min(
-      Math.max(Number(velocidadeCabecaMmS) || 400, VELOCIDADE_CABECA_MIN_MMS),
-      VELOCIDADE_CABECA_MAX_MMS
-    );
-    // tempo = setup fixo + (parte variável, calibrada para REFERENCIA_AREA_CALIBRACAO_M2) * (área / referência)
-    return calibSetupMin + (calibKMms * areaM2) / (REFERENCIA_AREA_CALIBRACAO_M2 * s);
-  }
-
-  const v = calcularVelocidadeProducaoM2H(modoImpressao, velocidadeCabecaMmS);
-  return (areaM2 / v) * 60;
+  const res = calcularTempoImpressao(areaM2, vel, perfil);
+  return res.tempoFinalMinutos;
 }
 
 export interface MaquinaCalculos {

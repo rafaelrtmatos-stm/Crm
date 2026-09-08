@@ -731,13 +731,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
       const saleId = `venda_${Date.now()}`;
 
       // Consolidate raw materials consumption for this sale
-      const totalConsumoMateriasPrimas: Record<string, { name: string; unit: string; quantity: number; costPrice: number; totalCost: number }> = {};
+      const totalConsumoMateriasPrimas: Record<string, { materiaPrimaId?: string; name: string; unit: string; quantity: number; costPrice: number; totalCost: number }> = {};
       cart.forEach(item => {
         if (item.materiasPrimasConsumidas && Array.isArray(item.materiasPrimasConsumidas)) {
           item.materiasPrimasConsumidas.forEach((mp: any) => {
-            const key = mp.name || mp.materiaPrimaId || 'Insumo';
+            const key = mp.materiaPrimaId || mp.id || mp.name || 'Insumo';
             if (!totalConsumoMateriasPrimas[key]) {
               totalConsumoMateriasPrimas[key] = {
+                materiaPrimaId: mp.materiaPrimaId || mp.id,
                 name: mp.name,
                 unit: mp.unit,
                 quantity: 0,
