@@ -550,7 +550,9 @@ export function detalharCustosItem(params: {
   );
 
   const custoSubstrato = custoSubstratoItem(params.item, params.custoPorId, params.nomePorId, params.produtoPorId);
-  const custoMateriaPrima = custoMateriaPrimaItem(params.item, params.produtoPorId, params.materiasPrimasAtuais, custoSubstrato);
+  const custoOutrasMateriasPrimas = custoMateriaPrimaItem(params.item, params.produtoPorId, params.materiasPrimasAtuais, custoSubstrato);
+  // Matéria-Prima unificada: substratos (lonas, vinis, papéis, etc.) são uma categoria de matéria-prima
+  const custoMateriaPrima = Number((custoSubstrato + custoOutrasMateriasPrimas).toFixed(2));
   const tintaDetalhe = custoTintaItemDetalhado(params.item, produtoAtual, params.custoTintaM2PorCategoria, maquina);
   const custoMaquina = custoMaquinaOperacionalItem(
     params.item,
@@ -563,10 +565,10 @@ export function detalharCustosItem(params: {
 
   return {
     custoSubstrato: Number(custoSubstrato.toFixed(2)),
-    custoMateriaPrima: Number(custoMateriaPrima.toFixed(2)),
+    custoMateriaPrima,
     custoTinta: Number(tintaDetalhe.custo.toFixed(2)),
     custoMaquina: Number(custoMaquina.toFixed(2)),
-    custoTotal: Number((custoSubstrato + custoMateriaPrima + tintaDetalhe.custo + custoMaquina).toFixed(2)),
+    custoTotal: Number((custoMateriaPrima + tintaDetalhe.custo + custoMaquina).toFixed(2)),
     tintaMl: tintaDetalhe.ml,
     areaM2,
     maquinaNome: maquina?.nome
@@ -710,9 +712,9 @@ export function detalharCustoDaNota(params: {
   const materiaPrima = Number((totalMateriaPrima * proporcao).toFixed(2));
   const tinta = Number((totalTinta * proporcao).toFixed(2));
   const maquina = Number((totalMaquina * proporcao).toFixed(2));
-  const material = Number((substrato + materiaPrima).toFixed(2));
+  const material = materiaPrima;
   const extras = Number((custoExtras * proporcao).toFixed(2));
-  const custoTotal = Number((substrato + materiaPrima + tinta + maquina + extras).toFixed(2));
+  const custoTotal = Number((materiaPrima + tinta + maquina + extras).toFixed(2));
   const valorRecebido = Number(params.valorRecebido) || 0;
 
   return {

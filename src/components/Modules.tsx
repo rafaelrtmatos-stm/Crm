@@ -14002,7 +14002,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           const isFullyPaid = custosNotaSale.status === 'completed' || down >= totalVenda;
           const proporcao = (!isFullyPaid && totalVenda > 0) ? down / totalVenda : undefined;
           
-          // Custo automatico (Substrato, Matéria-Prima, Tinta e Máquina separados)
+          // Custo automatico (Matéria-Prima, Tinta e Máquina)
           const custoAutomatico = detalharCustoDaNota({
             items: custosNotaSale.items,
             custoPorId: produtosCostMap,
@@ -14012,11 +14012,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             custoTintaM2PorCategoria,
             proporcao,
           });
-          const custoSubstrato = custoAutomatico.substrato;
           const custoMateriaPrima = custoAutomatico.materiaPrima;
           const custoTinta = custoAutomatico.tinta;
           const custoMaquina = custoAutomatico.maquina;
-          const custoAutomaticoTotal = custoSubstrato + custoMateriaPrima + custoTinta + custoMaquina;
+          const custoAutomaticoTotal = custoMateriaPrima + custoTinta + custoMaquina;
 
           // Itens que entram no card "Automatico" com detalhamento individual separado
           const itensComCustoAutomatico = (custosNotaSale.items || [])
@@ -14091,7 +14090,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               <div className="bg-slate-900/60 border border-white/5 rounded-xl p-3 space-y-3">
                 <div className="flex items-center justify-between border-b border-white/5 pb-2">
                   <span className="text-[10px] font-black text-white/80 uppercase tracking-wider flex items-center gap-1.5">
-                    <Layers size={13} className="text-amber-400" /> 1. Matéria-Prima, Substrato, Tinta & Máquina
+                    <Layers size={13} className="text-amber-400" /> 1. Matéria-Prima, Tinta & Máquina
                   </span>
                   <div className="text-right">
                     <span className="text-[8px] text-white/40 uppercase block">Subtotal Produção</span>
@@ -14101,20 +14100,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   </div>
                 </div>
 
-                {/* 4 Cards com os valores SEPARADOS */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {/* Substrato */}
-                  <div className="bg-slate-950/60 border border-blue-500/20 rounded-lg p-2">
-                    <div className="flex items-center gap-1.5 mb-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
-                      <span className="text-[8.5px] uppercase font-bold text-white/50 tracking-wider">Substrato</span>
-                    </div>
-                    <span className="text-xs font-black font-mono text-blue-300 block">
-                      R$ {custoSubstrato.toFixed(2).replace('.', ',')}
-                    </span>
-                    <span className="text-[7.5px] text-white/30 block mt-0.5">Lona / Vinil / Rolo</span>
-                  </div>
-
+                {/* 3 Cards com os valores SEPARADOS: Matéria-Prima, Tinta e Máquina */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   {/* Matéria-Prima */}
                   <div className="bg-slate-950/60 border border-purple-500/20 rounded-lg p-2">
                     <div className="flex items-center gap-1.5 mb-1">
@@ -14124,7 +14111,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     <span className="text-xs font-black font-mono text-purple-300 block">
                       R$ {custoMateriaPrima.toFixed(2).replace('.', ',')}
                     </span>
-                    <span className="text-[7.5px] text-white/30 block mt-0.5">Insumos vinculados</span>
+                    <span className="text-[7.5px] text-white/30 block mt-0.5">Insumos e Bobinas</span>
                   </div>
 
                   {/* Tinta */}
@@ -14165,9 +14152,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           <span className="font-mono font-bold text-amber-300">R$ {custoItem.toFixed(2).replace('.', ',')}</span>
                         </div>
                         <div className="flex flex-wrap gap-2 text-[8.5px] font-mono text-white/50">
-                          {detalhe.custoSubstrato > 0 && (
-                            <span className="text-blue-300">Substrato: R$ {detalhe.custoSubstrato.toFixed(2).replace('.', ',')}</span>
-                          )}
                           {detalhe.custoMateriaPrima > 0 && (
                             <span className="text-purple-300">Mat. Prima: R$ {detalhe.custoMateriaPrima.toFixed(2).replace('.', ',')}</span>
                           )}
