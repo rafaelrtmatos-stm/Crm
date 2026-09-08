@@ -703,6 +703,12 @@ export interface ModoImpressaoConfig {
   velocidadeM2H: number; // m²/h
   consumoTintaMlM2?: number; // ml/m²
   descricao?: string;
+  // Cálculo de velocidade da cabeça salvo no modo de impressão
+  velocidadeCabecaMmS?: number; // ex: 301, 330, 400 mm/s
+  tempo10m2Minutos?: number; // Tempo calculado para 10 m² em minutos
+  tempo10m2Formatado?: string; // ex: "04h25min"
+  perfilTipo?: 'standard' | 'high_quality' | 'high_speed';
+  ignorarPredefinicoes?: boolean;
 }
 
 export interface Maquina {

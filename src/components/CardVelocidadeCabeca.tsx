@@ -29,6 +29,15 @@ interface CardVelocidadeCabecaProps {
   mostrarCalculoArea?: boolean;
   className?: string;
   modoCompacto?: boolean;
+  onSalvarModoNaMaquina?: (dadosModo: {
+    perfil: PerfilImpressao;
+    velocidadeCabeca: number;
+    tempo10m2Minutos: number;
+    tempo10m2Formatado: string;
+    velocidadeM2H: number;
+    ignorarPredefinicoes: boolean;
+  }) => void;
+  salvarModoBotaoTexto?: string;
 }
 
 export const CardVelocidadeCabeca: React.FC<CardVelocidadeCabecaProps> = ({
@@ -45,7 +54,9 @@ export const CardVelocidadeCabeca: React.FC<CardVelocidadeCabecaProps> = ({
   onTempoCalculado,
   mostrarCalculoArea = true,
   className = '',
-  modoCompacto = false
+  modoCompacto = false,
+  onSalvarModoNaMaquina,
+  salvarModoBotaoTexto
 }) => {
   // Controle interno de "Ignorar predefinições" se não fornecido via prop
   const [internalIgnorar, setInternalIgnorar] = useState(false);
@@ -338,6 +349,35 @@ export const CardVelocidadeCabeca: React.FC<CardVelocidadeCabecaProps> = ({
               <p className="text-[11px] text-white/40 italic">
                 A velocidade padrão ({VELOCIDADE_CABECA_PADRAO_MMS} mm/seg.) está ativa. Marque a caixa acima para personalizar livremente ({VELOCIDADE_CABECA_MIN_MMS} a {VELOCIDADE_CABECA_MAX_MMS} mm/s).
               </p>
+            )}
+
+            {/* Ação de salvar este cálculo como modo na máquina */}
+            {onSalvarModoNaMaquina && (
+              <div className="pt-2 border-t border-white/10 flex items-center justify-between gap-2">
+                <div className="text-[10px] font-mono text-white/60">
+                  <span>Ref: </span>
+                  <strong className="text-amber-300">{resultado.tempo10M2Minutos} min p/ 10m²</strong>
+                  <span className="text-white/40"> ({resultado.tempoFormatadoHoras})</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSalvarModoNaMaquina({
+                      perfil: perfilAtual,
+                      velocidadeCabeca: velAtual,
+                      tempo10m2Minutos: resultado.tempo10M2Minutos,
+                      tempo10m2Formatado: resultado.tempoFormatadoHoras,
+                      velocidadeM2H: Number(resultado.velocidadeEfetivaM2H.toFixed(2)),
+                      ignorarPredefinicoes: !!ignorarPredefinicoes
+                    });
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/30 text-[10px] font-bold flex items-center gap-1.5 transition-colors shadow-sm"
+                  title="Salva este cálculo como predefinição na tabela de modos da máquina"
+                >
+                  <Zap size={11} className="text-cyan-400" />
+                  <span>{salvarModoBotaoTexto || `Salvar Modo (${velAtual} mm/s) na Máquina`}</span>
+                </button>
+              </div>
             )}
           </div>
         </div>

@@ -206,3 +206,33 @@ export function calcularTempoImpressao(
     detalhesCalculo: detalhes,
   };
 }
+
+/**
+ * Gera os dados calculados de velocidade de cabeça para armazenar em um ModoImpressaoConfig
+ */
+export function calcularDadosModoImpressao(
+  perfil: PerfilImpressao | string = 'standard',
+  velocidadeCabecaMmS: number = VELOCIDADE_CABECA_PADRAO_MMS,
+  tabelaPersonalizada?: Partial<TabelaCalibracaoPerfis> | null
+): {
+  perfilTipo: PerfilImpressao;
+  velocidadeCabecaMmS: number;
+  tempo10m2Minutos: number;
+  tempo10m2Formatado: string;
+  velocidadeM2H: number;
+} {
+  const perfilKey = normalizarPerfilImpressao(perfil);
+  const vel = normalizarVelocidadeCabeca(velocidadeCabecaMmS);
+  const tempo10m2 = obterTempo10M2PorVelocidade(perfilKey, vel, tabelaPersonalizada);
+  const horas10m2 = tempo10m2 / 60;
+  const velM2H = horas10m2 > 0 ? Math.round((10 / horas10m2) * 10) / 10 : 12;
+
+  return {
+    perfilTipo: perfilKey,
+    velocidadeCabecaMmS: vel,
+    tempo10m2Minutos: tempo10m2,
+    tempo10m2Formatado: formatarMinutosEmHoras(tempo10m2),
+    velocidadeM2H: velM2H
+  };
+}
+

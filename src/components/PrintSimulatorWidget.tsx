@@ -11,6 +11,8 @@ import {
 } from '../types';
 import { CardVelocidadeCabeca } from './CardVelocidadeCabeca';
 import { PerfilImpressao, normalizarPerfilImpressao } from '../lib/calculoTempoImpressao';
+import { saveMaquina } from '../lib/maquinasStorage';
+import { showAlert } from '../lib/notify';
 
 interface PrintSimulatorWidgetProps {
   maquinas: Maquina[];
@@ -142,6 +144,58 @@ export const PrintSimulatorWidget: React.FC<PrintSimulatorWidgetProps> = ({
 
   // Quick preset area buttons
   const presetAreas = [1, 2.5, 5, 10, 25, 50];
+
+  const handleAplicarModoSalvo = (modo: ModoImpressaoConfig) => {
+    if (modo.perfilTipo) {
+      setSelectedModoId(modo.perfilTipo);
+    }
+    if (modo.velocidadeCabecaMmS) {
+      setVelocidadeCabeca(modo.velocidadeCabecaMmS);
+      setUsarVelocidadeCabecaPadrao(modo.velocidadeCabecaMmS === 400);
+    }
+    showAlert(`Modo "${modo.nome}" carregado no simulador (${modo.velocidadeCabecaMmS || 400} mm/s • ${modo.velocidadeM2H} m²/h).`);
+  };
+
+  const handleSalvarCalculoComoModoNaMaquina = async (dados: {
+    perfil: PerfilImpressao;
+    velocidadeCabeca: number;
+    tempo10m2Minutos: number;
+    tempo10m2Formatado: string;
+    velocidadeM2H: number;
+    ignorarPredefinicoes: boolean;
+  }) => {
+    if (!selectedMaquina) return;
+    const nomeModo = `Modo ${dados.velocidadeCabeca} mm/s (${dados.perfil === 'high_speed' ? 'Rápido' : dados.perfil === 'high_quality' ? 'Foto' : 'Standard'})`;
+
+    const novoModo: ModoImpressaoConfig = {
+      id: 'mode_' + Date.now(),
+      nome: nomeModo,
+      resolucaoDpi: '720x720',
+      passes: 6,
+      velocidadeM2H: dados.velocidadeM2H,
+      consumoTintaMlM2: selectedMaquina.tintaConsumoMlM2 || 15,
+      perfilTipo: dados.perfil,
+      velocidadeCabecaMmS: dados.velocidadeCabeca,
+      tempo10m2Minutos: dados.tempo10m2Minutos,
+      tempo10m2Formatado: dados.tempo10m2Formatado,
+      ignorarPredefinicoes: dados.ignorarPredefinicoes
+    };
+
+    const novaLista = [...(selectedMaquina.modosImpressaoList || []), novoModo];
+    const maquinaAtualizada: Maquina = {
+      ...selectedMaquina,
+      modosImpressaoList: novaLista,
+      velocidadeCabecaMmS: dados.velocidadeCabeca,
+      modoImpressao: dados.perfil as any
+    };
+
+    try {
+      await saveMaquina(maquinaAtualizada, selectedMaquina.companyId || 'rafa-arts');
+      showAlert(`Modo "${nomeModo}" salvo com sucesso na tabela de modos de ${selectedMaquina.nome}!`);
+    } catch (err: any) {
+      showAlert(`Erro ao salvar modo na máquina: ${err.message || 'Tente novamente'}`);
+    }
+  };
 
   if (!selectedMaquina) {
     return null;
@@ -304,6 +358,44 @@ export const PrintSimulatorWidget: React.FC<PrintSimulatorWidgetProps> = ({
             )}
           </div>
 
+          {/* Lista de Modos de Impressão Salvos na Máquina */}
+          {selectedMaquina.modosImpressaoList && selectedMaquina.modosImpressaoList.length > 0 && (
+            <div className="pt-2 border-t border-white/10 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-white/60 uppercase flex items-center gap-1">
+                  <Layers size={11} className="text-cyan-400" /> Modos Salvos na Máquina:
+                </span>
+                <span className="text-[9px] text-white/40">Clique para carregar velocidade e perfil</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {selectedMaquina.modosImpressaoList.map((m) => {
+                  const isModoAtivo = m.velocidadeCabecaMmS === velocidadeCabeca && (!m.perfilTipo || m.perfilTipo === selectedModoId);
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => handleAplicarModoSalvo(m)}
+                      className={`px-2 py-1 rounded-lg text-[10px] font-medium border transition-all flex items-center gap-1.5 ${
+                        isModoAtivo
+                          ? 'bg-cyan-500/20 text-cyan-200 border-cyan-400 shadow-sm ring-1 ring-cyan-400/30'
+                          : 'bg-black/30 text-white/70 border-white/10 hover:bg-white/10 hover:text-white'
+                      }`}
+                      title={m.tempo10m2Formatado ? `Referência: ${m.tempo10m2Formatado} para 10m²` : undefined}
+                    >
+                      <span className="font-bold">{m.nome.split('(')[0].trim()}</span>
+                      {m.velocidadeCabecaMmS && (
+                        <span className="font-mono text-[9px] text-cyan-300 bg-cyan-950/80 px-1 rounded">
+                          {m.velocidadeCabecaMmS} mm/s
+                        </span>
+                      )}
+                      <span className="text-white/40 text-[9px]">({m.velocidadeM2H} m²/h)</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Card Oficial de Configuração de Cabeça & Perfil RIP */}
           <div className="pt-2 border-t border-white/10">
             <CardVelocidadeCabeca
@@ -317,6 +409,8 @@ export const PrintSimulatorWidget: React.FC<PrintSimulatorWidgetProps> = ({
               larguraM={inputMode === 'dimensoes' && typeof larguraM === 'number' ? larguraM : undefined}
               alturaM={inputMode === 'dimensoes' && typeof alturaM === 'number' ? alturaM : undefined}
               mostrarCalculoArea={false}
+              onSalvarModoNaMaquina={handleSalvarCalculoComoModoNaMaquina}
+              salvarModoBotaoTexto={`Salvar cálculo (${velocidadeCabeca} mm/s) na tabela de modos`}
             />
           </div>
         </div>

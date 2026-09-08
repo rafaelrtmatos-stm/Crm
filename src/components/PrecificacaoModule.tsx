@@ -42,7 +42,7 @@ import { supabase } from '../supabase';
 import { showAlert, showConfirm } from '../lib/notify';
 import { Badge, Button, Modal } from './SharedUI';
 import { useApp } from '../AppContext';
-import { fetchMaquinas } from '../lib/maquinasStorage';
+import { fetchMaquinas, saveMaquina } from '../lib/maquinasStorage';
 import { fetchMateriasPrimas } from '../lib/materiasPrimasStorage';
 import { MaquinasModule } from './MaquinasModule';
 
@@ -1342,6 +1342,54 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
                   </div>
                 </div>
 
+                {/* Modos Salvos na Máquina Selecionada */}
+                {maquinaSelecionada.modosImpressaoList && maquinaSelecionada.modosImpressaoList.length > 0 && (
+                  <div className="pt-1 border-t border-white/10 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-white/60 uppercase flex items-center gap-1">
+                        <Layers size={11} className="text-cyan-400" /> Modos Salvos da Máquina:
+                      </span>
+                      <span className="text-[9px] text-white/40">Clique para carregar velocidade e resolução</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {maquinaSelecionada.modosImpressaoList.map((m) => {
+                        const isAtivo = modoCustomizadoId === m.id || (m.velocidadeCabecaMmS === velocidadeCabecaSelecionada && (!m.perfilTipo || m.perfilTipo === modoImpressaoSelecionado));
+                        return (
+                          <button
+                            key={m.id}
+                            type="button"
+                            onClick={() => {
+                              setModoCustomizadoId(m.id);
+                              if (m.perfilTipo) {
+                                setModoImpressaoSelecionado(m.perfilTipo as any);
+                              }
+                              if (m.velocidadeCabecaMmS) {
+                                setVelocidadeCabecaSelecionada(m.velocidadeCabecaMmS);
+                                setUsarVelocidadeCabecaPadrao(m.velocidadeCabecaMmS === 400);
+                              }
+                              showAlert(`Modo "${m.nome}" carregado (${m.velocidadeCabecaMmS || 400} mm/s • ${m.velocidadeM2H} m²/h).`);
+                            }}
+                            className={`px-2 py-1 rounded-lg text-[10px] font-medium border transition-all flex items-center gap-1.5 ${
+                              isAtivo
+                                ? 'bg-cyan-500/20 text-cyan-200 border-cyan-400 shadow-sm ring-1 ring-cyan-400/30'
+                                : 'bg-black/30 text-white/70 border-white/10 hover:bg-white/10 hover:text-white'
+                            }`}
+                            title={m.tempo10m2Formatado ? `Referência: ${m.tempo10m2Formatado} para 10m²` : undefined}
+                          >
+                            <span className="font-bold">{m.nome.split('(')[0].trim()}</span>
+                            {m.velocidadeCabecaMmS && (
+                              <span className="font-mono text-[9px] text-cyan-300 bg-cyan-950/80 px-1 rounded">
+                                {m.velocidadeCabecaMmS} mm/s
+                              </span>
+                            )}
+                            <span className="text-white/40 text-[9px]">({m.velocidadeM2H} m²/h)</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 {/* Card de Configuração de Cabeça & Perfil RIP conforme regra e design oficial */}
                 <div className="space-y-3">
                   <CardVelocidadeCabeca
@@ -1362,6 +1410,37 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
                         setTempoProducaoMinutos(Math.round(res.tempoFinalMinutos));
                       }
                     }}
+                    onSalvarModoNaMaquina={async (dados) => {
+                      if (!maquinaSelecionada) return;
+                      const nomeModo = `Modo ${dados.velocidadeCabeca} mm/s (${dados.perfil === 'high_speed' ? 'Rápido' : dados.perfil === 'high_quality' ? 'Foto' : 'Standard'})`;
+                      const novoModo = {
+                        id: 'mode_' + Date.now(),
+                        nome: nomeModo,
+                        resolucaoDpi: '720x720',
+                        passes: 6,
+                        velocidadeM2H: dados.velocidadeM2H,
+                        consumoTintaMlM2: maquinaSelecionada.tintaConsumoMlM2 || 15,
+                        perfilTipo: dados.perfil,
+                        velocidadeCabecaMmS: dados.velocidadeCabeca,
+                        tempo10m2Minutos: dados.tempo10m2Minutos,
+                        tempo10m2Formatado: dados.tempo10m2Formatado,
+                        ignorarPredefinicoes: dados.ignorarPredefinicoes
+                      };
+                      const novaLista = [...(maquinaSelecionada.modosImpressaoList || []), novoModo];
+                      const maquinaAtualizada = {
+                        ...maquinaSelecionada,
+                        modosImpressaoList: novaLista,
+                        velocidadeCabecaMmS: dados.velocidadeCabeca
+                      };
+                      try {
+                        await saveMaquina(maquinaAtualizada, maquinaSelecionada.companyId || 'rafa-arts');
+                        setModoCustomizadoId(novoModo.id);
+                        showAlert(`Modo "${nomeModo}" salvo na tabela de modos de ${maquinaSelecionada.nome}!`);
+                      } catch (e: any) {
+                        showAlert(`Erro ao salvar: ${e.message || 'Tente novamente'}`);
+                      }
+                    }}
+                    salvarModoBotaoTexto={`Salvar cálculo (${velocidadeCabecaSelecionada} mm/s) na tabela de modos`}
                   />
                 </div>
 

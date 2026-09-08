@@ -1,8 +1,164 @@
 import { supabase } from '../supabase';
-import { Maquina } from '../types';
+import { Maquina, ModoImpressaoConfig } from '../types';
 import { enqueueOp } from './offlineSync';
 
 const LOCAL_STORAGE_KEY = 'rpro_maquinas_cache';
+
+export const DEFAULT_MODOS_IMPRESSAO_PADRAO: ModoImpressaoConfig[] = [
+  {
+    id: 'draft',
+    nome: 'Rascunho / Draft (360x720 dpi)',
+    resolucaoDpi: '360x720',
+    passes: 4,
+    velocidadeM2H: 18,
+    consumoTintaMlM2: 10,
+    descricao: 'Alta velocidade para materiais promocionais e faixas',
+    perfilTipo: 'high_speed',
+    velocidadeCabecaMmS: 400,
+    tempo10m2Minutos: 132,
+    tempo10m2Formatado: '02h12min',
+    ignorarPredefinicoes: false
+  },
+  {
+    id: 'standard',
+    nome: 'Padrão / Standard (720x720 dpi)',
+    resolucaoDpi: '720x720',
+    passes: 6,
+    velocidadeM2H: 12,
+    consumoTintaMlM2: 15,
+    descricao: 'Equilíbrio ideal entre velocidade e qualidade para lonas e adesivos',
+    perfilTipo: 'standard',
+    velocidadeCabecaMmS: 400,
+    tempo10m2Minutos: 265,
+    tempo10m2Formatado: '04h25min',
+    ignorarPredefinicoes: false
+  },
+  {
+    id: 'photo',
+    nome: 'Alta Qualidade / Foto (1440x720 dpi)',
+    resolucaoDpi: '1440x720',
+    passes: 8,
+    velocidadeM2H: 6,
+    consumoTintaMlM2: 20,
+    descricao: 'Para quadros, vitrines e alta definição',
+    perfilTipo: 'high_quality',
+    velocidadeCabecaMmS: 400,
+    tempo10m2Minutos: 527,
+    tempo10m2Formatado: '08h47min',
+    ignorarPredefinicoes: false
+  },
+  {
+    id: 'fineart',
+    nome: 'Máxima / Fine Art (1440x1440 dpi)',
+    resolucaoDpi: '1440x1440',
+    passes: 12,
+    velocidadeM2H: 3.5,
+    consumoTintaMlM2: 25,
+    descricao: 'Definição fotográfica máxima e gradientes suaves',
+    perfilTipo: 'high_quality',
+    velocidadeCabecaMmS: 300,
+    tempo10m2Minutos: 716,
+    tempo10m2Formatado: '11h56min',
+    ignorarPredefinicoes: true
+  },
+];
+
+// Helper para desserializar dados estendidos (modos de impressão e dimensões) das observações ou localStorage
+export function extrairMetadadosMaquina(observacoesRaw?: string | null, maquinaId?: string): {
+  modos: ModoImpressaoConfig[];
+  observacoesLimpas: string;
+  larguraMaximaM?: number;
+  alturaMaximaM?: number;
+  areaMesaM2?: number;
+  tempoSetupMin?: number;
+} {
+  let modos: ModoImpressaoConfig[] = [];
+  let larguraMaximaM: number | undefined;
+  let alturaMaximaM: number | undefined;
+  let areaMesaM2: number | undefined;
+  let tempoSetupMin: number | undefined;
+  let observacoesLimpas = observacoesRaw || '';
+
+  // 1. Tenta extrair do bloco JSON dentro das observações
+  if (observacoesRaw && observacoesRaw.includes('RPRO_MODOS_JSON:')) {
+    const match = observacoesRaw.match(/<!--\s*RPRO_MODOS_JSON:(.*?)\s*-->/s);
+    if (match && match[1]) {
+      try {
+        const parsed = JSON.parse(match[1]);
+        if (Array.isArray(parsed)) {
+          modos = parsed;
+        } else if (parsed && typeof parsed === 'object') {
+          if (Array.isArray(parsed.modos)) modos = parsed.modos;
+          if (parsed.larguraMaximaM != null) larguraMaximaM = Number(parsed.larguraMaximaM);
+          if (parsed.alturaMaximaM != null) alturaMaximaM = Number(parsed.alturaMaximaM);
+          if (parsed.areaMesaM2 != null) areaMesaM2 = Number(parsed.areaMesaM2);
+          if (parsed.tempoSetupMin != null) tempoSetupMin = Number(parsed.tempoSetupMin);
+        }
+      } catch (e) {
+        console.warn('Erro ao parsear metadados da máquina:', e);
+      }
+      observacoesLimpas = observacoesRaw.replace(/<!--\s*RPRO_MODOS_JSON:.*?\s*-->/gs, '').trim();
+    }
+  }
+
+  // 2. Se não achou na observação, tenta pegar do localStorage
+  if (maquinaId && modos.length === 0 && typeof window !== 'undefined') {
+    try {
+      const saved = localStorage.getItem(`rpro_maquina_modos_${maquinaId}`);
+      if (saved) {
+        const parsedLocal = JSON.parse(saved);
+        if (Array.isArray(parsedLocal)) modos = parsedLocal;
+      }
+    } catch (e) {}
+  }
+
+  // 3. Fallback para modos padrão
+  if (modos.length === 0) {
+    modos = DEFAULT_MODOS_IMPRESSAO_PADRAO;
+  }
+
+  return {
+    modos,
+    observacoesLimpas,
+    larguraMaximaM,
+    alturaMaximaM,
+    areaMesaM2,
+    tempoSetupMin
+  };
+}
+
+// Helper para embutir modos e dimensões de volta no texto de observações
+export function embutirMetadadosNasObservacoes(
+  observacoes: string | undefined,
+  modos?: ModoImpressaoConfig[],
+  dimensoes?: {
+    larguraMaximaM?: number;
+    alturaMaximaM?: number;
+    areaMesaM2?: number;
+    tempoSetupMin?: number;
+  },
+  maquinaId?: string
+): string {
+  const clean = (observacoes || '').replace(/<!--\s*RPRO_MODOS_JSON:.*?\s*-->/gs, '').trim();
+  const payload = {
+    modos: modos && modos.length > 0 ? modos : DEFAULT_MODOS_IMPRESSAO_PADRAO,
+    larguraMaximaM: dimensoes?.larguraMaximaM,
+    alturaMaximaM: dimensoes?.alturaMaximaM,
+    areaMesaM2: dimensoes?.areaMesaM2,
+    tempoSetupMin: dimensoes?.tempoSetupMin,
+  };
+
+  // Salva também no localStorage imediatamente para resposta instantânea
+  if (maquinaId && typeof window !== 'undefined') {
+    try {
+      localStorage.setItem(`rpro_maquina_modos_${maquinaId}`, JSON.stringify(payload.modos));
+    } catch (e) {}
+  }
+
+  const jsonStr = JSON.stringify(payload);
+  const tag = `<!-- RPRO_MODOS_JSON:${jsonStr} -->`;
+  return clean ? `${clean}\n${tag}` : tag;
+}
 
 export const DEFAULT_MAQUINAS_LIST: Omit<Maquina, 'id'>[] = [
   {
@@ -135,34 +291,42 @@ export async function fetchMaquinas(companyId?: string): Promise<Maquina[]> {
       return seedDefaultMaquinas(companyId);
     }
 
-    const mapped: Maquina[] = data.map((item: any) => ({
-      id: item.id,
-      companyId: item.company_id,
-      nome: item.nome || item.name || 'Máquina',
-      ativa: item.ativa !== undefined ? Boolean(item.ativa) : item.is_active !== undefined ? Boolean(item.is_active) : true,
-      tipo: item.tipo || 'impressao',
-      categoriaProduto: item.categoria_produto || item.categoriaProduto || '',
-      valorMaquina: Number(item.valor_maquina ?? item.valorMaquina ?? 0),
-      vidaUtilAnos: Number(item.vida_util_anos ?? item.vidaUtilAnos ?? 5),
-      horasUsoMes: Number(item.horas_uso_mes ?? item.horasUsoMes ?? 100),
-      manutencaoAnual: Number(item.manutencao_anual ?? item.manutencaoAnual ?? 0),
-      potenciaKw: Number(item.potencia_kw ?? item.potenciaKw ?? 0),
-      velocidadeProducaoM2H: Number(item.velocidade_producao_m2h ?? item.velocidadeProducaoM2H ?? 10),
-      modoImpressao: (item.modo_impressao ?? item.modoImpressao ?? 'standard') as Maquina['modoImpressao'],
-      velocidadeCabecaMmS: Number(item.velocidade_cabeca_mms ?? item.velocidadeCabecaMmS ?? 400),
-      calibSetupMin: item.calib_setup_min != null ? Number(item.calib_setup_min) : undefined,
-      calibKMms: item.calib_k_mms != null ? Number(item.calib_k_mms) : undefined,
-      velocidadeHispeedM2H: item.velocidade_hispeed_m2h != null ? Number(item.velocidade_hispeed_m2h) : undefined,
-      tintaQuantidadeMl: Number(item.tinta_quantidade_ml ?? item.tintaQuantidadeMl ?? 0),
-      tintaValor: Number(item.tinta_valor ?? item.tintaValor ?? 0),
-      tintaConsumoMlM2: Number(item.tinta_consumo_ml_m2 ?? item.tintaConsumoMlM2 ?? 0),
-      cabecaValor: Number(item.cabeca_valor ?? item.cabecaValor ?? 0),
-      cabecaVidaUtilHoras: Number(item.cabeca_vida_util_horas ?? item.cabecaVidaUtilHoras ?? 0),
-      tarifaKwh: Number(item.tarifa_kwh ?? item.tarifaKwh ?? 0.98),
-      observacoes: item.observacoes || item.notes || '',
-      createdAt: item.created_at,
-      updatedAt: item.updated_at
-    }));
+    const mapped: Maquina[] = data.map((item: any) => {
+      const meta = extrairMetadadosMaquina(item.observacoes || item.notes, item.id);
+      return {
+        id: item.id,
+        companyId: item.company_id,
+        nome: item.nome || item.name || 'Máquina',
+        ativa: item.ativa !== undefined ? Boolean(item.ativa) : item.is_active !== undefined ? Boolean(item.is_active) : true,
+        tipo: item.tipo || 'impressao',
+        categoriaProduto: item.categoria_produto || item.categoriaProduto || '',
+        larguraMaximaM: meta.larguraMaximaM ?? (item.largura_maxima_m != null ? Number(item.largura_maxima_m) : 1.60),
+        alturaMaximaM: meta.alturaMaximaM ?? (item.altura_maxima_m != null ? Number(item.altura_maxima_m) : undefined),
+        areaMesaM2: meta.areaMesaM2 ?? (item.area_mesa_m2 != null ? Number(item.area_mesa_m2) : undefined),
+        tempoSetupMin: meta.tempoSetupMin ?? (item.tempo_setup_min != null ? Number(item.tempo_setup_min) : 10),
+        valorMaquina: Number(item.valor_maquina ?? item.valorMaquina ?? 0),
+        vidaUtilAnos: Number(item.vida_util_anos ?? item.vidaUtilAnos ?? 5),
+        horasUsoMes: Number(item.horas_uso_mes ?? item.horasUsoMes ?? 100),
+        manutencaoAnual: Number(item.manutencao_anual ?? item.manutencaoAnual ?? 0),
+        potenciaKw: Number(item.potencia_kw ?? item.potenciaKw ?? 0),
+        velocidadeProducaoM2H: Number(item.velocidade_producao_m2h ?? item.velocidadeProducaoM2H ?? 10),
+        modoImpressao: (item.modo_impressao ?? item.modoImpressao ?? 'standard') as Maquina['modoImpressao'],
+        velocidadeCabecaMmS: Number(item.velocidade_cabeca_mms ?? item.velocidadeCabecaMmS ?? 400),
+        modosImpressaoList: meta.modos,
+        calibSetupMin: item.calib_setup_min != null ? Number(item.calib_setup_min) : undefined,
+        calibKMms: item.calib_k_mms != null ? Number(item.calib_k_mms) : undefined,
+        velocidadeHispeedM2H: item.velocidade_hispeed_m2h != null ? Number(item.velocidade_hispeed_m2h) : undefined,
+        tintaQuantidadeMl: Number(item.tinta_quantidade_ml ?? item.tintaQuantidadeMl ?? 0),
+        tintaValor: Number(item.tinta_valor ?? item.tintaValor ?? 0),
+        tintaConsumoMlM2: Number(item.tinta_consumo_ml_m2 ?? item.tintaConsumoMlM2 ?? 0),
+        cabecaValor: Number(item.cabeca_valor ?? item.cabecaValor ?? 0),
+        cabecaVidaUtilHoras: Number(item.cabeca_vida_util_horas ?? item.cabecaVidaUtilHoras ?? 0),
+        tarifaKwh: Number(item.tarifa_kwh ?? item.tarifaKwh ?? 0.98),
+        observacoes: meta.observacoesLimpas,
+        createdAt: item.created_at,
+        updatedAt: item.updated_at
+      };
+    });
 
     saveLocalCache(mapped);
     return mapped;
@@ -176,6 +340,18 @@ export async function saveMaquina(
   data: Partial<Maquina> & { nome: string },
   companyId?: string
 ): Promise<Maquina> {
+  const obsComMetadados = embutirMetadadosNasObservacoes(
+    data.observacoes,
+    data.modosImpressaoList,
+    {
+      larguraMaximaM: data.larguraMaximaM,
+      alturaMaximaM: data.alturaMaximaM,
+      areaMesaM2: data.areaMesaM2,
+      tempoSetupMin: data.tempoSetupMin,
+    },
+    data.id
+  );
+
   const payload: any = {
     nome: data.nome.trim(),
     ativa: data.ativa !== undefined ? Boolean(data.ativa) : true,
@@ -197,7 +373,7 @@ export async function saveMaquina(
     cabeca_valor: Number(data.cabecaValor) || 0,
     cabeca_vida_util_horas: Number(data.cabecaVidaUtilHoras) || 0,
     tarifa_kwh: Number(data.tarifaKwh) || 0.98,
-    observacoes: data.observacoes?.trim() || null,
+    observacoes: obsComMetadados,
     company_id: companyId || 'rafa-arts',
     updated_at: new Date().toISOString()
   };
@@ -212,6 +388,7 @@ export async function saveMaquina(
         .single();
 
       if (error) throw error;
+      const meta = extrairMetadadosMaquina(updated.observacoes, updated.id);
       const result: Maquina = {
         id: updated.id,
         companyId: updated.company_id,
@@ -219,6 +396,10 @@ export async function saveMaquina(
         ativa: updated.ativa,
         tipo: updated.tipo,
         categoriaProduto: updated.categoria_produto || '',
+        larguraMaximaM: data.larguraMaximaM ?? meta.larguraMaximaM ?? 1.60,
+        alturaMaximaM: data.alturaMaximaM ?? meta.alturaMaximaM,
+        areaMesaM2: data.areaMesaM2 ?? meta.areaMesaM2,
+        tempoSetupMin: data.tempoSetupMin ?? meta.tempoSetupMin ?? 10,
         valorMaquina: Number(updated.valor_maquina),
         vidaUtilAnos: Number(updated.vida_util_anos),
         horasUsoMes: Number(updated.horas_uso_mes),
@@ -227,6 +408,7 @@ export async function saveMaquina(
         velocidadeProducaoM2H: Number(updated.velocidade_producao_m2h),
         modoImpressao: (updated.modo_impressao || 'standard') as Maquina['modoImpressao'],
         velocidadeCabecaMmS: Number(updated.velocidade_cabeca_mms ?? 400),
+        modosImpressaoList: data.modosImpressaoList || meta.modos,
         calibSetupMin: updated.calib_setup_min != null ? Number(updated.calib_setup_min) : undefined,
         calibKMms: updated.calib_k_mms != null ? Number(updated.calib_k_mms) : undefined,
         velocidadeHispeedM2H: updated.velocidade_hispeed_m2h != null ? Number(updated.velocidade_hispeed_m2h) : undefined,
@@ -236,7 +418,7 @@ export async function saveMaquina(
         cabecaValor: Number(updated.cabeca_valor),
         cabecaVidaUtilHoras: Number(updated.cabeca_vida_util_horas),
         tarifaKwh: Number(updated.tarifa_kwh),
-        observacoes: updated.observacoes || '',
+        observacoes: meta.observacoesLimpas,
         createdAt: updated.created_at,
         updatedAt: updated.updated_at
       };
@@ -251,6 +433,7 @@ export async function saveMaquina(
         .single();
 
       if (error) throw error;
+      const meta = extrairMetadadosMaquina(created.observacoes, created.id);
       const result: Maquina = {
         id: created.id,
         companyId: created.company_id,
@@ -258,6 +441,10 @@ export async function saveMaquina(
         ativa: created.ativa,
         tipo: created.tipo,
         categoriaProduto: created.categoria_produto || '',
+        larguraMaximaM: data.larguraMaximaM ?? meta.larguraMaximaM ?? 1.60,
+        alturaMaximaM: data.alturaMaximaM ?? meta.alturaMaximaM,
+        areaMesaM2: data.areaMesaM2 ?? meta.areaMesaM2,
+        tempoSetupMin: data.tempoSetupMin ?? meta.tempoSetupMin ?? 10,
         valorMaquina: Number(created.valor_maquina),
         vidaUtilAnos: Number(created.vida_util_anos),
         horasUsoMes: Number(created.horas_uso_mes),
@@ -266,6 +453,7 @@ export async function saveMaquina(
         velocidadeProducaoM2H: Number(created.velocidade_producao_m2h),
         modoImpressao: (created.modo_impressao || 'standard') as Maquina['modoImpressao'],
         velocidadeCabecaMmS: Number(created.velocidade_cabeca_mms ?? 400),
+        modosImpressaoList: data.modosImpressaoList || meta.modos,
         calibSetupMin: created.calib_setup_min != null ? Number(created.calib_setup_min) : undefined,
         calibKMms: created.calib_k_mms != null ? Number(created.calib_k_mms) : undefined,
         velocidadeHispeedM2H: created.velocidade_hispeed_m2h != null ? Number(created.velocidade_hispeed_m2h) : undefined,
@@ -275,7 +463,7 @@ export async function saveMaquina(
         cabecaValor: Number(created.cabeca_valor),
         cabecaVidaUtilHoras: Number(created.cabeca_vida_util_horas),
         tarifaKwh: Number(created.tarifa_kwh),
-        observacoes: created.observacoes || '',
+        observacoes: meta.observacoesLimpas,
         createdAt: created.created_at,
         updatedAt: created.updated_at
       };

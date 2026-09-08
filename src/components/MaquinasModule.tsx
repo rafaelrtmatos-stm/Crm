@@ -10,6 +10,11 @@ import {
   calcularCustosMaquina, calcularVelocidadeMarginalM2H,
   VELOCIDADE_CABECA_MIN_MMS, VELOCIDADE_CABECA_MAX_MMS
 } from '../types';
+import {
+  calcularDadosModoImpressao,
+  normalizarPerfilImpressao,
+  PerfilImpressao
+} from '../lib/calculoTempoImpressao';
 import { showAlert, showConfirm } from '../lib/notify';
 import { Badge, Button, Modal } from './SharedUI';
 import {
@@ -179,10 +184,21 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
 
   // Novo modo de impressão customizado no form
   const [novoModoNome, setNovoModoNome] = useState('');
+  const [novoModoPerfil, setNovoModoPerfil] = useState<PerfilImpressao>('standard');
+  const [novoModoVelocidadeCabeca, setNovoModoVelocidadeCabeca] = useState<number | ''>(400);
   const [novoModoVelocidade, setNovoModoVelocidade] = useState<number | ''>('');
-  const [novoModoDpi, setNovoModoDpi] = useState('');
-  const [novoModoPasses, setNovoModoPasses] = useState<number | ''>('');
-  const [novoModoTinta, setNovoModoTinta] = useState<number | ''>('');
+  const [novoModoDpi, setNovoModoDpi] = useState('720x720');
+  const [novoModoPasses, setNovoModoPasses] = useState<number | ''>(6);
+  const [novoModoTinta, setNovoModoTinta] = useState<number | ''>(15);
+  const [novoModoIgnorar, setNovoModoIgnorar] = useState(false);
+
+  // Cálculo ao vivo do tempo e m²/h para o novo modo sendo configurado
+  const novoModoCalculado = useMemo(() => {
+    const velMmS = typeof novoModoVelocidadeCabeca === 'number' && novoModoVelocidadeCabeca > 0
+      ? novoModoVelocidadeCabeca
+      : (formData.velocidadeCabecaMmS || 400);
+    return calcularDadosModoImpressao(novoModoPerfil, velMmS);
+  }, [novoModoPerfil, novoModoVelocidadeCabeca, formData.velocidadeCabecaMmS]);
 
   // Recalcula a velocidade de produção (m²/h) sob demanda
   const aplicarVelocidadeCalculada = () => {
@@ -320,19 +336,26 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
       showAlert('Informe o nome do modo de impressão.');
       return;
     }
-    const vel = Number(novoModoVelocidade);
-    if (!vel || vel <= 0) {
-      showAlert('Informe uma velocidade válida em m²/h.');
-      return;
-    }
+
+    const velMmS = typeof novoModoVelocidadeCabeca === 'number' && novoModoVelocidadeCabeca > 0
+      ? novoModoVelocidadeCabeca
+      : (formData.velocidadeCabecaMmS || 400);
+
+    const calc = calcularDadosModoImpressao(novoModoPerfil, velMmS);
+    const velM2H = Number(novoModoVelocidade) > 0 ? Number(novoModoVelocidade) : calc.velocidadeM2H;
 
     const novo: ModoImpressaoConfig = {
       id: 'mode_' + Date.now(),
       nome: novoModoNome.trim(),
       resolucaoDpi: novoModoDpi.trim() || undefined,
       passes: Number(novoModoPasses) > 0 ? Number(novoModoPasses) : undefined,
-      velocidadeM2H: vel,
+      velocidadeM2H: velM2H,
       consumoTintaMlM2: Number(novoModoTinta) > 0 ? Number(novoModoTinta) : undefined,
+      perfilTipo: novoModoPerfil,
+      velocidadeCabecaMmS: velMmS,
+      tempo10m2Minutos: calc.tempo10m2Minutos,
+      tempo10m2Formatado: calc.tempo10m2Formatado,
+      ignorarPredefinicoes: novoModoIgnorar || velMmS !== 400,
     };
 
     setFormData(prev => ({
@@ -340,11 +363,42 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
       modosImpressaoList: [...(prev.modosImpressaoList || []), novo]
     }));
 
+    showAlert(`Modo "${novo.nome}" adicionado com velocidade de cabeça de ${velMmS} mm/s (${calc.tempo10m2Formatado} p/ 10m²).`);
+
     setNovoModoNome('');
     setNovoModoVelocidade('');
-    setNovoModoDpi('');
-    setNovoModoPasses('');
-    setNovoModoTinta('');
+    setNovoModoDpi('720x720');
+    setNovoModoPasses(6);
+    setNovoModoTinta(15);
+  };
+
+  const handleSalvarVelocidadeAtualComoModo = () => {
+    const velMmS = formData.velocidadeCabecaMmS || 400;
+    const perfil = normalizarPerfilImpressao(formData.modoImpressao);
+    const calc = calcularDadosModoImpressao(perfil, velMmS);
+
+    const nomeModo = `Modo ${velMmS} mm/s (${calc.perfilTipo === 'high_speed' ? 'Rápido' : calc.perfilTipo === 'high_quality' ? 'Foto' : 'Standard'})`;
+
+    const novo: ModoImpressaoConfig = {
+      id: 'mode_' + Date.now(),
+      nome: nomeModo,
+      resolucaoDpi: '720x720',
+      passes: 6,
+      velocidadeM2H: formData.velocidadeProducaoM2H || calc.velocidadeM2H,
+      consumoTintaMlM2: formData.tintaConsumoMlM2 || 15,
+      perfilTipo: perfil,
+      velocidadeCabecaMmS: velMmS,
+      tempo10m2Minutos: calc.tempo10m2Minutos,
+      tempo10m2Formatado: calc.tempo10m2Formatado,
+      ignorarPredefinicoes: velMmS !== 400,
+    };
+
+    setFormData(prev => ({
+      ...prev,
+      modosImpressaoList: [...(prev.modosImpressaoList || []), novo]
+    }));
+
+    showAlert(`Cálculo atual (${velMmS} mm/s • ${calc.tempo10m2Formatado} p/ 10m²) salvo na tabela de modos!`);
   };
 
   const handleRemoveModoImpressao = (id: string) => {
@@ -359,8 +413,11 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
       ...prev,
       velocidadeProducaoM2H: modo.velocidadeM2H,
       tintaConsumoMlM2: modo.consumoTintaMlM2 ?? prev.tintaConsumoMlM2,
+      velocidadeCabecaMmS: modo.velocidadeCabecaMmS ?? prev.velocidadeCabecaMmS,
+      modoImpressao: (modo.perfilTipo || prev.modoImpressao || 'standard') as any
     }));
-    showAlert(`Velocidade aplicada da predefinição "${modo.nome}": ${modo.velocidadeM2H} m²/h.`);
+    const extraInfo = modo.velocidadeCabecaMmS ? ` • Cabeça: ${modo.velocidadeCabecaMmS} mm/s (${modo.tempo10m2Formatado || ''} p/ 10m²)` : '';
+    showAlert(`Modo "${modo.nome}" aplicado: ${modo.velocidadeM2H} m²/h${extraInfo}.`);
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -876,10 +933,20 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
                   {maquina.modosImpressaoList && maquina.modosImpressaoList.length > 0 && (
                     <div className="pt-1">
                       <span className="text-[10px] text-white/40 uppercase font-bold block mb-1">Modos Configurados:</span>
-                      <div className="flex flex-wrap gap-1">
+                      <div className="flex flex-wrap gap-1.5">
                         {maquina.modosImpressaoList.map((m) => (
-                          <span key={m.id} className="text-[10px] px-2 py-0.5 rounded-md bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 font-medium">
-                            {m.nome.split('(')[0].trim()}: <strong>{m.velocidadeM2H} m²/h</strong>
+                          <span
+                            key={m.id}
+                            className="text-[10px] px-2 py-0.5 rounded-md bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 font-medium flex items-center gap-1"
+                            title={m.tempo10m2Formatado ? `Referência: ${m.tempo10m2Formatado} para 10m²` : undefined}
+                          >
+                            <span>{m.nome.split('(')[0].trim()}:</span>
+                            <strong className="text-white">{m.velocidadeM2H} m²/h</strong>
+                            {m.velocidadeCabecaMmS && (
+                              <span className="text-cyan-400/90 font-mono text-[9px] bg-cyan-950/60 px-1 rounded">
+                                {m.velocidadeCabecaMmS} mm/s
+                              </span>
+                            )}
                           </span>
                         ))}
                       </div>
@@ -1335,98 +1402,188 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
 
             {/* Modos de Impressão Registrados para esta máquina */}
             <div className="mt-3 pt-3 border-t border-white/10 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-white/80 uppercase flex items-center gap-1.5">
-                  <Layers size={13} className="text-cyan-400" /> Tabela de Modos de Impressão (Resoluções & Passes)
-                </span>
-                <span className="text-[10px] text-white/40">Clique em um modo para carregar sua velocidade na máquina</span>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <span className="text-[11px] font-bold text-white/90 uppercase flex items-center gap-1.5">
+                    <Layers size={13} className="text-cyan-400" /> Tabela de Modos de Impressão (Resoluções, Passes & Velocidades de Cabeça)
+                  </span>
+                  <span className="text-[10px] text-white/40 block">Cada modo armazena a velocidade da cabeça calculada (mm/s) e o tempo para 10 m²</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSalvarVelocidadeAtualComoModo}
+                  className="px-2.5 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/30 text-[11px] font-bold flex items-center gap-1.5 self-start sm:self-auto transition-colors shadow-sm"
+                  title="Captura a velocidade de cabeça atual e salva como novo modo na tabela"
+                >
+                  <Sparkles size={12} /> Salvar Velocidade Atual ({formData.velocidadeCabecaMmS || 400} mm/s) na Tabela
+                </button>
               </div>
 
               {/* Lista dos modos cadastrados */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 {(formData.modosImpressaoList || []).map((modo) => (
                   <div
                     key={modo.id}
-                    className="bg-slate-900/90 p-3 rounded-xl border border-white/10 flex items-center justify-between gap-2 hover:border-cyan-500/40 transition-colors"
+                    className="bg-slate-900/90 p-3 rounded-xl border border-white/10 flex flex-col justify-between gap-2.5 hover:border-cyan-500/40 transition-colors"
                   >
-                    <div className="space-y-0.5">
-                      <div className="flex items-center gap-2">
-                        <strong className="text-xs text-white font-bold">{modo.nome}</strong>
-                        {modo.resolucaoDpi && (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/10 text-white/70 font-mono">
-                            {modo.resolucaoDpi}
-                          </span>
-                        )}
-                        {modo.passes && (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-mono">
-                            {modo.passes}p
-                          </span>
-                        )}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <strong className="text-xs text-white font-bold">{modo.nome}</strong>
+                          {modo.resolucaoDpi && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/10 text-white/70 font-mono">
+                              {modo.resolucaoDpi}
+                            </span>
+                          )}
+                          {modo.passes && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-mono font-bold">
+                              {modo.passes}p
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono font-bold">
+                          {modo.perfilTipo === 'high_speed' ? 'High Speed' : modo.perfilTipo === 'high_quality' ? 'High Quality' : 'Standard'}
+                        </span>
                       </div>
-                      <div className="text-[10px] text-white/50 flex items-center gap-3">
-                        <span className="text-emerald-400 font-bold">⚡ {modo.velocidadeM2H} m²/h</span>
-                        {modo.consumoTintaMlM2 && (
-                          <span className="text-amber-300 font-medium">💧 {modo.consumoTintaMlM2} ml/m²</span>
-                        )}
-                        <span>⏳ {(60 / Math.max(0.1, modo.velocidadeM2H)).toFixed(1)} min/m²</span>
+
+                      {/* Dados de Cálculo de Cabeça Salvos */}
+                      <div className="grid grid-cols-2 gap-1.5 bg-black/40 p-2 rounded-lg border border-white/5 text-[10px]">
+                        <div className="flex items-center gap-1 text-cyan-300 font-mono font-bold">
+                          <Zap size={11} className="text-cyan-400 shrink-0" />
+                          <span>Cabeça: {modo.velocidadeCabecaMmS || 400} mm/s</span>
+                        </div>
+                        <div className="flex items-center gap-1 text-amber-300 font-mono font-bold justify-end">
+                          <Clock size={11} className="text-amber-400 shrink-0" />
+                          <span>10 m²: {modo.tempo10m2Formatado || '04h25min'}</span>
+                        </div>
+                        <div className="flex items-center gap-1 text-emerald-300 font-mono font-bold">
+                          <Gauge size={11} className="text-emerald-400 shrink-0" />
+                          <span>Prod: {modo.velocidadeM2H} m²/h</span>
+                        </div>
+                        <div className="flex items-center gap-1 text-white/50 font-mono justify-end">
+                          <span>💧 {modo.consumoTintaMlM2 || 15} ml/m²</span>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => handleSelectModoComoPrincipal(modo)}
-                        className="px-2 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 text-[10px] font-bold"
-                        title="Aplicar velocidade como principal da máquina"
-                      >
-                        Aplicar
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveModoImpressao(modo.id)}
-                        className="p-1 text-rose-400 hover:bg-rose-500/20 rounded-lg"
-                        title="Remover modo"
-                      >
-                        <Trash2 size={13} />
-                      </button>
+                    <div className="flex items-center justify-between pt-1 border-t border-white/5">
+                      <span className="text-[10px] text-white/40 font-mono">
+                        ⏳ {(60 / Math.max(0.1, modo.velocidadeM2H)).toFixed(1)} min/m²
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleSelectModoComoPrincipal(modo)}
+                          className="px-2.5 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 text-[10px] font-bold transition-colors"
+                          title="Carrega a velocidade de cabeça e produção deste modo na máquina"
+                        >
+                          Aplicar na Máquina
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveModoImpressao(modo.id)}
+                          className="p-1 text-rose-400 hover:bg-rose-500/20 rounded-lg transition-colors"
+                          title="Remover modo"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
               </div>
 
-              {/* Form para adicionar novo modo */}
-              <div className="bg-slate-900/60 p-3 rounded-xl border border-dashed border-white/15 space-y-2">
-                <span className="text-[10px] font-bold text-white/60 uppercase block">+ Adicionar Novo Modo de Impressão</span>
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                  <input
-                    type="text"
-                    placeholder="Nome do Modo (ex: Alta Foto)"
-                    value={novoModoNome}
-                    onChange={(e) => setNovoModoNome(e.target.value)}
-                    className="sm:col-span-2 bg-slate-950 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500"
-                  />
-                  <input
-                    type="number"
-                    step="0.1"
-                    placeholder="Velocidade (m²/h)"
-                    value={novoModoVelocidade}
-                    onChange={(e) => setNovoModoVelocidade(e.target.value === '' ? '' : parseFloat(e.target.value))}
-                    className="bg-slate-950 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500"
-                  />
-                  <input
-                    type="text"
-                    placeholder="DPI (ex: 720x720)"
-                    value={novoModoDpi}
-                    onChange={(e) => setNovoModoDpi(e.target.value)}
-                    className="bg-slate-950 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleAddModoImpressao}
-                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1 shadow"
-                  >
-                    <Plus size={13} /> Adicionar
-                  </button>
+              {/* Form para adicionar novo modo com cálculo de velocidade da cabeça */}
+              <div className="bg-slate-900/80 p-3.5 rounded-2xl border border-dashed border-cyan-500/30 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-cyan-300 uppercase flex items-center gap-1.5">
+                    <Plus size={13} /> Adicionar Novo Modo com Cálculo de Cabeça
+                  </span>
+                  <span className="text-[10px] text-white/50 font-mono">
+                    Digitação livre de velocidade de cabeça (ex: 301, 330, 400 mm/s)
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
+                  <div className="sm:col-span-2">
+                    <label className="block text-[10px] font-bold text-white/60 uppercase mb-1">Nome do Modo</label>
+                    <input
+                      type="text"
+                      placeholder="Ex: Lona 301 mm/s ou Adesivo Standard"
+                      value={novoModoNome}
+                      onChange={(e) => setNovoModoNome(e.target.value)}
+                      className="w-full bg-slate-950 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500 font-medium"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-white/60 uppercase mb-1">Perfil Base</label>
+                    <select
+                      value={novoModoPerfil}
+                      onChange={(e) => setNovoModoPerfil(e.target.value as PerfilImpressao)}
+                      className="w-full bg-slate-950 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500"
+                    >
+                      <option value="standard">Standard (Equilíbrio)</option>
+                      <option value="high_speed">High Speed (Rápido)</option>
+                      <option value="high_quality">High Quality (Foto)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-cyan-300 uppercase mb-1 flex items-center justify-between">
+                      <span>Vel. Cabeça (mm/s)</span>
+                      <button
+                        type="button"
+                        onClick={() => setNovoModoVelocidadeCabeca(formData.velocidadeCabecaMmS || 400)}
+                        className="text-[9px] text-white/50 hover:text-cyan-300 underline"
+                        title="Usar velocidade atual da máquina"
+                      >
+                        Atual
+                      </button>
+                    </label>
+                    <input
+                      type="number"
+                      step="1"
+                      min="250"
+                      max="761"
+                      placeholder="Ex: 301, 330, 400"
+                      value={novoModoVelocidadeCabeca}
+                      onChange={(e) => setNovoModoVelocidadeCabeca(e.target.value === '' ? '' : parseInt(e.target.value, 10))}
+                      className="w-full bg-slate-950 border border-cyan-500/40 rounded-lg px-2.5 py-1.5 text-xs text-cyan-200 font-mono font-bold focus:outline-none focus:border-cyan-400"
+                    />
+                  </div>
+                </div>
+
+                {/* Linha de pré-visualização ao vivo do cálculo */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-black/50 p-2.5 rounded-xl border border-cyan-500/20">
+                  <div className="flex items-center gap-4 text-xs font-mono">
+                    <span className="text-white/70">
+                      ⏱️ 10 m²: <strong className="text-amber-300">{novoModoCalculado.tempo10m2Formatado}</strong>
+                    </span>
+                    <span className="text-white/70">
+                      ⚡ Produção: <strong className="text-emerald-400">{novoModoCalculado.velocidadeM2H} m²/h</strong>
+                    </span>
+                    <span className="text-white/50 text-[10px]">
+                      (~{(60 / Math.max(0.1, novoModoCalculado.velocidadeM2H)).toFixed(1)} min/m²)
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      placeholder="DPI (720x720)"
+                      value={novoModoDpi}
+                      onChange={(e) => setNovoModoDpi(e.target.value)}
+                      className="w-20 bg-slate-950 border border-white/10 rounded-lg px-2 py-1 text-[11px] text-white font-mono text-center focus:outline-none focus:border-cyan-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddModoImpressao}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1 shadow transition-colors"
+                    >
+                      <Plus size={13} /> Salvar Modo na Tabela
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
