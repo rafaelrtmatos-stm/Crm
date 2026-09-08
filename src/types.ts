@@ -43,6 +43,7 @@ export interface Product {
   controlaEstoque?: boolean;
   valorMinimo?: number;
   materiasPrimas?: MateriaPrimaConsumo[];
+  maquinaId?: string;
 }
 
 export interface SaleOrderItem {
@@ -61,6 +62,7 @@ export interface SaleOrderItem {
   custoMaquinaPorMetro?: number; // custo operacional de máquina por metro linear (ex.: 5.98)
   materiasPrimasConsumidas?: MateriaPrimaConsumo[]; // calculo de consumo por item do pedido
   custoTotalMateriasPrimas?: number; // custo total das matérias-primas utilizadas
+  maquinaId?: string;
 }
 
 export type CartItem = SaleOrderItem;
@@ -417,6 +419,7 @@ export interface InventoryItem extends BaseEntity {
   descricao?: string;
   valorMinimo?: number;
   materiasPrimas?: MateriaPrimaConsumo[];
+  maquinaId?: string;
 }
 
 export interface PrintingService extends BaseEntity {
@@ -835,8 +838,9 @@ export interface MaquinaCalculos {
   cabecaHora: number;
   energiaHora: number;
   custoTintaM2: number;
+  custoOperacionalM2: number; // Custo Operacional da Máquina por m² (SEPARADO da tinta: Deprec.+Manut.+Cabeça+Energia)
   custoTotalMaquinaHora: number;
-  custoTotalMaquinaM2: number;
+  custoTotalMaquinaM2: number; // Total incluindo a tinta por m²
   tempoProduzir1M2Minutos: number;
   tempoProduzir1M2Horas: number;
 }
@@ -892,6 +896,7 @@ export function calcularCustosMaquina(maquina: Partial<Maquina>, tarifaKwh = 0.9
     cabecaHora,
     energiaHora,
     custoTintaM2,
+    custoOperacionalM2,
     custoTotalMaquinaHora,
     custoTotalMaquinaM2,
     tempoProduzir1M2Minutos,

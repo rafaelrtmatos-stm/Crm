@@ -1,3 +1,5 @@
+import { Maquina, calcularCustosMaquina } from '../types';
+
 // Calculo de Lucro Liquido de uma venda.
 //
 // O calculo aceita tanto vendas novas (com snapshot de materias-primas) quanto
@@ -28,6 +30,8 @@ export interface LucroCurrentProduct {
   categoria?: string;
   tipoItem?: string;
   unitType?: string;
+  costPrice?: number;
+  maquinaId?: string;
   custoMaquinaPorMetro?: number;
   larguraRolo?: number; // Largura do rolo/bobina do produto (m) — usada para converter o custo
                          // de maquina, calculado por m2 no cadastro de Maquinas, para metro linear.
@@ -51,6 +55,7 @@ export interface LucroSaleItem {
   categoria?: string;
   tipoItem?: string;
   unitType?: string;
+  maquinaId?: string;
   materiasPrimasConsumidas?: LucroMaterialConsumption[];
   custoMaquinaPorMetro?: number;
   larguraRolo?: number;
@@ -66,12 +71,28 @@ export interface LucroSaleItem {
 
 export interface LucroExtraCost { amount: number; date?: string; description?: string; }
 export interface LucroNotaBreakdown {
-  material: number;
+  substrato: number;
+  materiaPrima: number;
+  tinta: number;
   maquina: number;
+  material: number; // mantido para compatibilidade: substrato + materiaPrima
   extras: number;
   custoTotal: number;
   valorRecebido: number;
   lucro: number;
+  tintaMlTotal?: number;
+  areaM2Total?: number;
+}
+
+export interface LucroItemBreakdown {
+  custoSubstrato: number;
+  custoMateriaPrima: number;
+  custoTinta: number;
+  custoMaquina: number;
+  custoTotal: number;
+  tintaMl?: number;
+  areaM2?: number;
+  maquinaNome?: string;
 }
 
 const REGEX_MATERIAL_LONA_ADESIVO = /lona|adesivo/i;
@@ -138,6 +159,420 @@ function calcularMateriaisDoProdutoAtual(
   }, 0);
 }
 
+export function isItemImpressoOuSubstrato(
+  item: LucroSaleItem,
+  produtoAtual?: LucroCurrentProduct
+): boolean {
+  const categoria = (item.category || item.categoria || produtoAtual?.category || produtoAtual?.categoria || '').trim().toLowerCase();
+  const nome = (item.name || produtoAtual?.name || '').trim().toLowerCase();
+  const tipo = (item.tipoItem || produtoAtual?.tipoItem || '').trim().toLowerCase();
+  const unidade = (item.unitType || produtoAtual?.unitType || '').trim().toLowerCase();
+
+  // 1. Categoria ou nome indicam substrato / produto impresso
+  if (/substrato|lona|adesivo|vinil|banner|faixa|placa|impress|etiqueta|canvas|papel|perfurado|blackout|frontlight|backlight/i.test(categoria)) {
+    return true;
+  }
+  if (/lona|adesivo|vinil|banner|faixa|placa|impress|etiqueta|canvas|perfurado|blackout|frontlight|backlight/i.test(nome)) {
+    return true;
+  }
+  // 2. Se tem dimensões informadas (ex: 60x90, 1.2x0.8, 100un 8x8cm)
+  if (item.dimensions && item.dimensions.trim().length > 0) {
+    return true;
+  }
+  // 3. Se tem área calculada maior que zero
+  if (typeof item.area === 'number' && item.area > 0) {
+    return true;
+  }
+  // 4. Se tem máquina vinculada
+  if (item.maquinaId || produtoAtual?.maquinaId) {
+    return true;
+  }
+  // 5. Unidade m2 ou metro
+  if (unidade === 'm2' || unidade === 'm' || unidade === 'rolo') {
+    return true;
+  }
+  return false;
+}
+
+export function obterAreaImpressaoM2(
+  item: LucroSaleItem,
+  produtoAtual?: LucroCurrentProduct
+): number {
+  const qtd = item.quantity || 1;
+  const larguraRolo = Number(produtoAtual?.larguraRolo ?? item.larguraRolo) || 1.06;
+
+  // 1. Se tem area explícita no item
+  if (typeof item.area === 'number' && item.area > 0) {
+    return Number((item.area * qtd).toFixed(4));
+  }
+
+  // 2. Extrair das dimensions
+  if (item.dimensions) {
+    const dim = item.dimensions.trim();
+
+    // Formato: "100un 8x8cm" ou "50 un 10x15 cm"
+    const etiquetaMatch = dim.match(/(\d+)\s*un.*?(\d+(?:[.,]\d+)?)\s*x\s*(\d+(?:[.,]\d+)?)\s*cm/i);
+    if (etiquetaMatch) {
+      const qEtiquetas = parseFloat(etiquetaMatch[1]);
+      const wCm = parseFloat(etiquetaMatch[2].replace(',', '.'));
+      const hCm = parseFloat(etiquetaMatch[3].replace(',', '.'));
+      if (qEtiquetas > 0 && wCm > 0 && hCm > 0) {
+        return Number(((qEtiquetas * (wCm / 100) * (hCm / 100)) * qtd).toFixed(4));
+      }
+    }
+
+    // Formato m² explícito: "(1,50 m²)" ou "1.5m²"
+    const m2Match = dim.match(/\(?([0-9.,]+)\s*m²\)?/i);
+    if (m2Match) {
+      const val = parseFloat(m2Match[1].replace(',', '.'));
+      if (val > 0) return Number((val * qtd).toFixed(4));
+    }
+
+    // Formato: "0,80m linear" ou "(1,20m linear)"
+    const linearMatch = dim.match(/\(?([0-9.,]+)\s*m\s*linear\)?/i);
+    if (linearMatch) {
+      const metros = parseFloat(linearMatch[1].replace(',', '.'));
+      if (metros > 0) {
+        return Number((metros * larguraRolo * qtd).toFixed(4));
+      }
+    }
+
+    // Formato AxB ou AxBcm ou AxBm, suportando formatos compostos ou texto adjacente (ex: "1,20x0,80 (1,20m linear)" ou "1.2x0.8 + 0.5x0.5")
+    const partes = dim.split('+');
+    let somaAreaMultiplas = 0;
+    let encontrouValido = false;
+    for (const p of partes) {
+      const m = p.match(/([0-9]+(?:[.,][0-9]+)?)\s*(cm|m)?\s*x\s*([0-9]+(?:[.,][0-9]+)?)\s*(cm|m)?/i);
+      if (m) {
+        const rawW = parseFloat(m[1].replace(',', '.'));
+        const unitW = (m[2] || '').toLowerCase();
+        const rawH = parseFloat(m[3].replace(',', '.'));
+        const unitH = (m[4] || '').toLowerCase();
+        if (rawW > 0 && rawH > 0) {
+          const isCm = unitW === 'cm' || unitH === 'cm' || dim.toLowerCase().includes('cm') || (rawW > 10 && rawH > 10 && !dim.toLowerCase().includes('m'));
+          const w = isCm ? rawW / 100 : rawW;
+          const h = isCm ? rawH / 100 : rawH;
+          somaAreaMultiplas += (w * h);
+          encontrouValido = true;
+        }
+      }
+    }
+    if (encontrouValido && somaAreaMultiplas > 0) {
+      return Number((somaAreaMultiplas * qtd).toFixed(4));
+    }
+  }
+
+  // 3. Se tem consumoEstoque
+  if (typeof item.consumoEstoque === 'number' && item.consumoEstoque > 0) {
+    const unidade = item.unitType || produtoAtual?.unitType || '';
+    if (unidade === 'm2') {
+      return Number(item.consumoEstoque.toFixed(4));
+    }
+    return Number((item.consumoEstoque * larguraRolo).toFixed(4));
+  }
+
+  // 4. Se a unidade do produto for m2
+  const unidadeProd = item.unitType || produtoAtual?.unitType || '';
+  if (unidadeProd === 'm2') {
+    return Number(qtd.toFixed(4));
+  }
+
+  return Number(qtd.toFixed(4));
+}
+
+export function obterMaquinaDoItem(
+  item: LucroSaleItem,
+  produtoAtual?: LucroCurrentProduct,
+  maquinas?: Maquina[],
+  maquinaPadrao?: Maquina,
+  maquinasPorId?: Record<string, Maquina>,
+  maquinasPorCategoria?: Record<string, Maquina>,
+  produtoPorId?: Record<string, LucroCurrentProduct>
+): Maquina | undefined {
+  const mId = item.maquinaId || produtoAtual?.maquinaId;
+  if (mId && maquinasPorId && maquinasPorId[mId]) {
+    return maquinasPorId[mId];
+  }
+  if (mId && maquinas) {
+    const found = maquinas.find(m => m.id === mId);
+    if (found) return found;
+  }
+
+  // Se não achou na máquina do produto direto, verifica se tem máquina cadastrada nas matérias-primas vinculadas (substrato)
+  if (!mId && (produtoAtual?.materiasPrimas || item.materiasPrimasConsumidas)) {
+    const list = produtoAtual?.materiasPrimas || [];
+    for (const mp of list) {
+      if (mp.materiaPrimaId && produtoPorId && produtoPorId[mp.materiaPrimaId]) {
+        const matProd = produtoPorId[mp.materiaPrimaId];
+        if (matProd?.maquinaId) {
+          const found = (maquinasPorId && maquinasPorId[matProd.maquinaId]) || (maquinas && maquinas.find(m => m.id === matProd.maquinaId));
+          if (found) return found;
+        }
+      }
+    }
+  }
+
+  const categoria = (item.category || item.categoria || produtoAtual?.category || produtoAtual?.categoria || '').trim().toUpperCase();
+  if (categoria && maquinasPorCategoria && maquinasPorCategoria[categoria]) {
+    return maquinasPorCategoria[categoria];
+  }
+
+  if (maquinaPadrao) return maquinaPadrao;
+
+  if (maquinas && maquinas.length > 0) {
+    const porCatSubstrato = maquinas.find(m => m.ativa && m.categoriaProduto && /substrato/i.test(m.categoriaProduto));
+    if (porCatSubstrato) return porCatSubstrato;
+
+    const impressaoAtiva = maquinas.find(m => m.ativa && m.tipo === 'impressao');
+    if (impressaoAtiva) return impressaoAtiva;
+
+    const qualquerAtiva = maquinas.find(m => m.ativa);
+    if (qualquerAtiva) return qualquerAtiva;
+
+    return maquinas[0];
+  }
+
+  return undefined;
+}
+
+export function custoSubstratoItem(
+  item: LucroSaleItem,
+  custoPorId: Record<string, number>,
+  nomePorId?: Record<string, string>,
+  produtoPorId?: Record<string, LucroCurrentProduct>
+): number {
+  const produtoAtual = item.productId && produtoPorId ? produtoPorId[item.productId] : undefined;
+  const isImpresso = isItemImpressoOuSubstrato(item, produtoAtual);
+  const consumo = obterConsumoItem(item);
+
+  // 1. Se for item impresso/substrato e o próprio produto tem custo de compra/custo unitário
+  const custoUnitProprio = (item.productId && custoPorId[item.productId]) || Number(produtoAtual?.costPrice) || 0;
+  if (custoUnitProprio > 0 && isImpresso) {
+    return custoUnitProprio * consumo;
+  }
+
+  // 2. Se o produto tem matérias-primas e uma delas é o substrato/bobina (unidade 'm', 'rolo', ou nome com lona/adesivo/vinil/papel)
+  const consumos = Array.isArray(item.materiasPrimasConsumidas) ? item.materiasPrimasConsumidas : [];
+  if (consumos.length > 0) {
+    const mpSubstrato = consumos.find(c => /m|rolo/i.test(c.unit || '') || /lona|adesivo|vinil|papel|banner|frontlight|backlight/i.test(c.name || ''));
+    if (mpSubstrato) {
+      const total = Number(mpSubstrato.totalCost);
+      return Number.isFinite(total) && total >= 0 ? total : (Number(mpSubstrato.quantity) || 0) * (Number(mpSubstrato.costPrice) || 0);
+    }
+  }
+
+  const materiaisProd = produtoAtual?.materiasPrimas || item.materiasPrimas || [];
+  if (materiaisProd.length > 0) {
+    const mpSubstrato = materiaisProd.find(m => /m|rolo/i.test(m.unit || '') || /lona|adesivo|vinil|papel|banner|frontlight|backlight/i.test(m.name || ''));
+    if (mpSubstrato) {
+      const custo = Number(mpSubstrato.costPrice ?? 0);
+      const qtdUnitaria = Number(mpSubstrato.quantity ?? 0);
+      return qtdUnitaria * consumo * custo;
+    }
+  }
+
+  // 3. Se for reconhecido como produto impresso sem custo preenchido, mas tem nome reconhecido
+  const nome = item.name || produtoAtual?.name || (item.productId && nomePorId ? nomePorId[item.productId] : '') || '';
+  if (isMaterialLonaAdesivo(nome)) {
+    const custoUnit = (item.productId && custoPorId[item.productId]) || 0;
+    return custoUnit * consumo;
+  }
+
+  return 0;
+}
+
+export function custoMateriaPrimaItem(
+  item: LucroSaleItem,
+  produtoPorId?: Record<string, LucroCurrentProduct>,
+  materiasPrimasAtuais?: Record<string, LucroCurrentMaterial>,
+  custoSubstratoJaCalculado = 0
+): number {
+  const produtoAtual = item.productId && produtoPorId ? produtoPorId[item.productId] : undefined;
+  const consumos = Array.isArray(item.materiasPrimasConsumidas) ? item.materiasPrimasConsumidas : [];
+
+  if (consumos.length > 0) {
+    const deduzirSubstrato = custoSubstratoJaCalculado > 0;
+
+    return consumos.reduce((sum, mp) => {
+      if (deduzirSubstrato && (/m|rolo/i.test(mp.unit || '') || /lona|adesivo|vinil|papel|banner/i.test(mp.name || ''))) {
+        return sum;
+      }
+      const total = Number(mp.totalCost);
+      return sum + (Number.isFinite(total) && total >= 0
+        ? total
+        : (Number(mp.quantity) || 0) * (Number(mp.costPrice) || 0));
+    }, 0);
+  }
+
+  const materiais = produtoAtual?.materiasPrimas || item.materiasPrimas || [];
+  const consumo = obterConsumoItem(item);
+
+  if (Array.isArray(materiais) && materiais.length > 0) {
+    const deduzirSubstrato = custoSubstratoJaCalculado > 0;
+
+    return materiais.reduce((sum, mp) => {
+      if (deduzirSubstrato && (/m|rolo/i.test(mp.unit || '') || /lona|adesivo|vinil|papel|banner/i.test(mp.name || ''))) {
+        return sum;
+      }
+      const materialAtual = mp.materiaPrimaId && materiasPrimasAtuais
+        ? materiasPrimasAtuais[mp.materiaPrimaId]
+        : undefined;
+      const custo = Number(materialAtual?.costPrice ?? mp.costPrice ?? 0);
+      const quantidadePorUnidade = Number(mp.quantity ?? 0);
+      return sum + (quantidadePorUnidade * consumo * custo);
+    }, 0);
+  }
+
+  // Se o item não tem matérias-primas vinculadas e não teve custo de substrato alocado,
+  // mas possui custo unitário cadastrado (ex: produto acabado, insumo direto), conta aqui como matéria-prima
+  const custoUnitProprio = Number(produtoAtual?.costPrice ?? (item as any)?.costPrice ?? 0);
+  if (custoSubstratoJaCalculado === 0 && custoUnitProprio > 0) {
+    return custoUnitProprio * consumo;
+  }
+
+  return 0;
+}
+
+export function custoTintaItem(
+  item: LucroSaleItem,
+  produtoAtual?: LucroCurrentProduct,
+  custoTintaM2PorCategoria?: Record<string, number>,
+  maquinaObj?: Maquina
+): number {
+  return custoTintaItemDetalhado(item, produtoAtual, custoTintaM2PorCategoria, maquinaObj).custo;
+}
+
+export function custoTintaItemDetalhado(
+  item: LucroSaleItem,
+  produtoAtual?: LucroCurrentProduct,
+  custoTintaM2PorCategoria?: Record<string, number>,
+  maquinaObj?: Maquina
+): { custo: number; ml: number; custoPorM2: number } {
+  const isImpresso = isItemImpressoOuSubstrato(item, produtoAtual);
+  if (!isImpresso) return { custo: 0, ml: 0, custoPorM2: 0 };
+
+  const areaM2 = obterAreaImpressaoM2(item, produtoAtual);
+  if (areaM2 <= 0) return { custo: 0, ml: 0, custoPorM2: 0 };
+
+  if (maquinaObj) {
+    const calculos = calcularCustosMaquina(maquinaObj, maquinaObj.tarifaKwh);
+    const consumoMlM2 = Number(maquinaObj.tintaConsumoMlM2) > 0 ? Number(maquinaObj.tintaConsumoMlM2) : 15;
+    const custoPorMl = (Number(maquinaObj.tintaQuantidadeMl) > 0 && Number(maquinaObj.tintaValor) > 0)
+      ? Number(maquinaObj.tintaValor) / Number(maquinaObj.tintaQuantidadeMl)
+      : 0.18;
+    const custoTintaM2 = calculos.custoTintaM2 > 0 ? calculos.custoTintaM2 : (consumoMlM2 * custoPorMl);
+    const ml = Number((areaM2 * consumoMlM2).toFixed(1));
+    const custo = Number((areaM2 * custoTintaM2).toFixed(2));
+    return { custo, ml, custoPorM2: custoTintaM2 };
+  }
+
+  const categoria = (item.category || item.categoria || produtoAtual?.category || produtoAtual?.categoria || '').trim().toUpperCase();
+  const custoM2Tinta = (categoria && custoTintaM2PorCategoria && custoTintaM2PorCategoria[categoria] !== undefined && custoTintaM2PorCategoria[categoria] > 0)
+    ? custoTintaM2PorCategoria[categoria]
+    : (custoTintaM2PorCategoria?.['SUBSTRATO'] ?? 2.70);
+
+  const ml = Number((areaM2 * 15).toFixed(1));
+  const custo = Number((areaM2 * custoM2Tinta).toFixed(2));
+  return { custo, ml, custoPorM2: custoM2Tinta };
+}
+
+export function custoMaquinaOperacionalItem(
+  item: LucroSaleItem,
+  produtoAtual?: LucroCurrentProduct,
+  custoMaquinaOperacionalM2PorCategoria?: Record<string, number>,
+  custoMaquinaM2PorCategoria?: Record<string, number>,
+  maquinaObj?: Maquina
+): number {
+  const isImpresso = isItemImpressoOuSubstrato(item, produtoAtual);
+  if (!isImpresso) return 0;
+
+  const areaM2 = obterAreaImpressaoM2(item, produtoAtual);
+  if (areaM2 <= 0) return 0;
+
+  if (maquinaObj) {
+    const calculos = calcularCustosMaquina(maquinaObj, maquinaObj.tarifaKwh);
+    const custoM2 = calculos.custoOperacionalM2 > 0
+      ? calculos.custoOperacionalM2
+      : (calculos.custoTotalMaquinaM2 > calculos.custoTintaM2
+          ? calculos.custoTotalMaquinaM2 - calculos.custoTintaM2
+          : 4.50);
+    return Number((areaM2 * custoM2).toFixed(2));
+  }
+
+  const categoria = (item.category || item.categoria || produtoAtual?.category || produtoAtual?.categoria || '').trim().toUpperCase();
+  const custoM2Op = (categoria && custoMaquinaOperacionalM2PorCategoria && custoMaquinaOperacionalM2PorCategoria[categoria] !== undefined && custoMaquinaOperacionalM2PorCategoria[categoria] > 0)
+    ? custoMaquinaOperacionalM2PorCategoria[categoria]
+    : (custoMaquinaOperacionalM2PorCategoria?.['SUBSTRATO']);
+
+  if (Number.isFinite(custoM2Op) && (custoM2Op as number) > 0) {
+    return Number((areaM2 * (custoM2Op as number)).toFixed(2));
+  }
+
+  const custoM2Tot = (categoria && custoMaquinaM2PorCategoria && custoMaquinaM2PorCategoria[categoria] !== undefined && custoMaquinaM2PorCategoria[categoria] > 0)
+    ? custoMaquinaM2PorCategoria[categoria]
+    : (custoMaquinaM2PorCategoria?.['SUBSTRATO']);
+  if (Number.isFinite(custoM2Tot) && (custoM2Tot as number) > 0) {
+    const custoM2Estimado = Math.max(1, (custoM2Tot as number) - 2.70);
+    return Number((areaM2 * custoM2Estimado).toFixed(2));
+  }
+
+  const larguraRolo = Number(produtoAtual?.larguraRolo ?? item.larguraRolo) || 1.06;
+  const custoPorMetro = Number(item.custoMaquinaPorMetro ?? produtoAtual?.custoMaquinaPorMetro);
+  const rateM2 = Number.isFinite(custoPorMetro) && custoPorMetro > 0
+    ? custoPorMetro / larguraRolo
+    : (CUSTO_MAQUINA_SUBSTRATO_POR_METRO / larguraRolo);
+  return Number((areaM2 * rateM2).toFixed(2));
+}
+
+export function detalharCustosItem(params: {
+  item: LucroSaleItem;
+  custoPorId: Record<string, number>;
+  nomePorId?: Record<string, string>;
+  produtoPorId?: Record<string, LucroCurrentProduct>;
+  materiasPrimasAtuais?: Record<string, LucroCurrentMaterial>;
+  custoMaquinaOperacionalM2PorCategoria?: Record<string, number>;
+  custoTintaM2PorCategoria?: Record<string, number>;
+  custoMaquinaM2PorCategoria?: Record<string, number>;
+  maquinas?: Maquina[];
+  maquinaPadrao?: Maquina;
+  maquinasPorId?: Record<string, Maquina>;
+  maquinasPorCategoria?: Record<string, Maquina>;
+}): LucroItemBreakdown {
+  const produtoAtual = params.item.productId && params.produtoPorId ? params.produtoPorId[params.item.productId] : undefined;
+  const maquina = obterMaquinaDoItem(
+    params.item,
+    produtoAtual,
+    params.maquinas,
+    params.maquinaPadrao,
+    params.maquinasPorId,
+    params.maquinasPorCategoria,
+    params.produtoPorId
+  );
+
+  const custoSubstrato = custoSubstratoItem(params.item, params.custoPorId, params.nomePorId, params.produtoPorId);
+  const custoMateriaPrima = custoMateriaPrimaItem(params.item, params.produtoPorId, params.materiasPrimasAtuais, custoSubstrato);
+  const tintaDetalhe = custoTintaItemDetalhado(params.item, produtoAtual, params.custoTintaM2PorCategoria, maquina);
+  const custoMaquina = custoMaquinaOperacionalItem(
+    params.item,
+    produtoAtual,
+    params.custoMaquinaOperacionalM2PorCategoria,
+    params.custoMaquinaM2PorCategoria,
+    maquina
+  );
+  const areaM2 = obterAreaImpressaoM2(params.item, produtoAtual);
+
+  return {
+    custoSubstrato: Number(custoSubstrato.toFixed(2)),
+    custoMateriaPrima: Number(custoMateriaPrima.toFixed(2)),
+    custoTinta: Number(tintaDetalhe.custo.toFixed(2)),
+    custoMaquina: Number(custoMaquina.toFixed(2)),
+    custoTotal: Number((custoSubstrato + custoMateriaPrima + tintaDetalhe.custo + custoMaquina).toFixed(2)),
+    tintaMl: tintaDetalhe.ml,
+    areaM2,
+    maquinaNome: maquina?.nome
+  };
+}
+
 export function custoMaterialRealItem(
   item: LucroSaleItem,
   custoPorId: Record<string, number>,
@@ -145,39 +580,8 @@ export function custoMaterialRealItem(
   produtoPorId?: Record<string, LucroCurrentProduct>,
   materiasPrimasAtuais?: Record<string, LucroCurrentMaterial>
 ): number {
-  const produtoAtual = item.productId && produtoPorId ? produtoPorId[item.productId] : undefined;
-  const categoria = item.category || item.categoria || produtoAtual?.category || produtoAtual?.categoria || '';
-  const isSubstrato = REGEX_SUBSTRATO.test(categoria);
-
-  // Custo de materia-prima agregada (ex: Adesivo Vinil): vendas novas usam o snapshot gravado
-  // no momento da venda; vendas antigas (sem snapshot) recalculam com os dados atuais do produto.
-  const consumos = Array.isArray(item.materiasPrimasConsumidas) ? item.materiasPrimasConsumidas : [];
-  const custoMateriaPrima = consumos.length > 0
-    ? consumos.reduce((sum, mp) => {
-        const total = Number(mp.totalCost);
-        return sum + (Number.isFinite(total) && total >= 0
-          ? total
-          : (Number(mp.quantity) || 0) * (Number(mp.costPrice) || 0));
-      }, 0)
-    : calcularMateriaisDoProdutoAtual(item, produtoAtual, materiasPrimasAtuais);
-
-  // Regra de SUBSTRATO (lona/vinil/papel): o custo de compra do proprio produto (preco de custo
-  // cadastrado, por metro linear) sempre entra na conta, somado ao custo de materia-prima agregada
-  // — nao e mais "um ou outro". Ver detalhamento acordado com o usuario em conversa de suporte.
-  if (isSubstrato) {
-    const custoUnitProprio = (item.productId && custoPorId[item.productId]) || 0;
-    const custoCompraSubstrato = custoUnitProprio * obterConsumoItem(item);
-    return custoCompraSubstrato + custoMateriaPrima;
-  }
-
-  // Demais categorias: mantem o comportamento anterior (matéria-prima vinculada tem prioridade;
-  // sem matéria-prima vinculada, cai no fallback legado por nome "lona/adesivo").
-  if (custoMateriaPrima > 0) return custoMateriaPrima;
-
-  const nome = item.name || produtoAtual?.name || (item.productId && nomePorId ? nomePorId[item.productId] : '') || '';
-  if (!isMaterialLonaAdesivo(nome)) return 0;
-  const custoUnit = (item.productId && custoPorId[item.productId]) || 0;
-  return custoUnit * obterConsumoItem(item);
+  return custoSubstratoItem(item, custoPorId, nomePorId, produtoPorId) +
+    custoMateriaPrimaItem(item, produtoPorId, materiasPrimasAtuais);
 }
 
 export function custoMaterialLonaAdesivo(
@@ -255,32 +659,74 @@ export function detalharCustoDaNota(params: {
   produtoPorId?: Record<string, LucroCurrentProduct>;
   materiasPrimasAtuais?: Record<string, LucroCurrentMaterial>;
   custoMaquinaM2PorCategoria?: Record<string, number>;
+  custoMaquinaOperacionalM2PorCategoria?: Record<string, number>;
+  custoTintaM2PorCategoria?: Record<string, number>;
+  maquinas?: Maquina[];
+  maquinaPadrao?: Maquina;
+  maquinasPorId?: Record<string, Maquina>;
+  maquinasPorCategoria?: Record<string, Maquina>;
   extraCosts?: LucroExtraCost[] | null;
   proporcao?: number;
   valorRecebido?: number;
 }): LucroNotaBreakdown {
-  const custoMaterial = custoMaterialLonaAdesivo(
-    params.items,
-    params.custoPorId,
-    params.nomePorId,
-    params.produtoPorId,
-    params.materiasPrimasAtuais
-  );
-  const custoMaquina = custoMaquinaTotal(params.items, params.produtoPorId, params.custoMaquinaM2PorCategoria);
+  const items = params.items || [];
+  let totalSubstrato = 0;
+  let totalMateriaPrima = 0;
+  let totalTinta = 0;
+  let totalMaquina = 0;
+  let totalTintaMl = 0;
+  let totalAreaM2 = 0;
+
+  for (const item of items) {
+    const itemBreakdown = detalharCustosItem({
+      item,
+      custoPorId: params.custoPorId,
+      nomePorId: params.nomePorId,
+      produtoPorId: params.produtoPorId,
+      materiasPrimasAtuais: params.materiasPrimasAtuais,
+      custoMaquinaOperacionalM2PorCategoria: params.custoMaquinaOperacionalM2PorCategoria,
+      custoTintaM2PorCategoria: params.custoTintaM2PorCategoria,
+      custoMaquinaM2PorCategoria: params.custoMaquinaM2PorCategoria,
+      maquinas: params.maquinas,
+      maquinaPadrao: params.maquinaPadrao,
+      maquinasPorId: params.maquinasPorId,
+      maquinasPorCategoria: params.maquinasPorCategoria
+    });
+
+    totalSubstrato += itemBreakdown.custoSubstrato;
+    totalMateriaPrima += itemBreakdown.custoMateriaPrima;
+    totalTinta += itemBreakdown.custoTinta;
+    totalMaquina += itemBreakdown.custoMaquina;
+    totalTintaMl += itemBreakdown.tintaMl || 0;
+    totalAreaM2 += itemBreakdown.areaM2 || 0;
+  }
+
   const custoExtras = somaCustosExtras(params.extraCosts);
   const proporcao = typeof params.proporcao === 'number' && Number.isFinite(params.proporcao)
     ? params.proporcao
     : 1;
-  const custoTotal = (custoMaterial + custoMaquina + custoExtras) * proporcao;
+
+  const substrato = Number((totalSubstrato * proporcao).toFixed(2));
+  const materiaPrima = Number((totalMateriaPrima * proporcao).toFixed(2));
+  const tinta = Number((totalTinta * proporcao).toFixed(2));
+  const maquina = Number((totalMaquina * proporcao).toFixed(2));
+  const material = Number((substrato + materiaPrima).toFixed(2));
+  const extras = Number((custoExtras * proporcao).toFixed(2));
+  const custoTotal = Number((substrato + materiaPrima + tinta + maquina + extras).toFixed(2));
   const valorRecebido = Number(params.valorRecebido) || 0;
 
   return {
-    material: custoMaterial * proporcao,
-    maquina: custoMaquina * proporcao,
-    extras: custoExtras * proporcao,
+    substrato,
+    materiaPrima,
+    tinta,
+    maquina,
+    material,
+    extras,
     custoTotal,
     valorRecebido,
-    lucro: valorRecebido - custoTotal,
+    lucro: Number((valorRecebido - custoTotal).toFixed(2)),
+    tintaMlTotal: Number((totalTintaMl * proporcao).toFixed(1)),
+    areaM2Total: Number((totalAreaM2 * proporcao).toFixed(2))
   };
 }
 
@@ -291,6 +737,12 @@ export function custoTotalDaNota(params: {
   produtoPorId?: Record<string, LucroCurrentProduct>;
   materiasPrimasAtuais?: Record<string, LucroCurrentMaterial>;
   custoMaquinaM2PorCategoria?: Record<string, number>;
+  custoMaquinaOperacionalM2PorCategoria?: Record<string, number>;
+  custoTintaM2PorCategoria?: Record<string, number>;
+  maquinas?: Maquina[];
+  maquinaPadrao?: Maquina;
+  maquinasPorId?: Record<string, Maquina>;
+  maquinasPorCategoria?: Record<string, Maquina>;
   extraCosts?: LucroExtraCost[] | null;
   proporcao?: number;
 }): number {
@@ -305,6 +757,12 @@ export function calcularLucroLiquido(params: {
   produtoPorId?: Record<string, LucroCurrentProduct>;
   materiasPrimasAtuais?: Record<string, LucroCurrentMaterial>;
   custoMaquinaM2PorCategoria?: Record<string, number>;
+  custoMaquinaOperacionalM2PorCategoria?: Record<string, number>;
+  custoTintaM2PorCategoria?: Record<string, number>;
+  maquinas?: Maquina[];
+  maquinaPadrao?: Maquina;
+  maquinasPorId?: Record<string, Maquina>;
+  maquinasPorCategoria?: Record<string, Maquina>;
   extraCosts?: LucroExtraCost[] | null;
   proporcao?: number;
 }): number {

@@ -33,7 +33,8 @@ import {
   Cpu,
   Gauge,
   PackagePlus,
-  Maximize2
+  Maximize2,
+  Printer
 } from 'lucide-react';
 import { Company, AppUser, Product, Maquina, MaquinaCalculos, MateriaPrima, calcularCustosMaquina, calcularTempoProducaoMinutos, calcularVelocidadeMarginalM2H, VELOCIDADE_CABECA_MIN_MMS, VELOCIDADE_CABECA_MAX_MMS } from '../types';
 import { CardVelocidadeCabeca } from './CardVelocidadeCabeca';
@@ -231,6 +232,8 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
             unitType: mp.unit === 'm' ? 'm2' : mp.unit,
             tipoItem: 'material',
             larguraRolo: mp.larguraMaterial,
+            maquinaId: (mp as any).maquinaId || (mp as any).maquina_id || undefined,
+            category: (mp as any).category || (mp as any).categoria || 'SUBSTRATO',
           } as any;
         });
 
@@ -244,6 +247,9 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
           unitType: p.unit || p.unidade || p.unit_type || 'unit',
           tipoItem: p.tipo_item || 'produto',
           larguraRolo: p.largura_rolo ? Number(p.largura_rolo) : undefined,
+          maquinaId: p.maquina_id || p.maquinaId || undefined,
+          category: p.category || p.categoria || '',
+          materiasPrimas: Array.isArray(p.materias_primas) ? p.materias_primas : [],
         } as any));
 
         const allAvailableMaterials = [...mappedFromMPs, ...mappedProd];
@@ -253,6 +259,9 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
         if (!materialId && allAvailableMaterials.length > 0) {
           const defaultMat = allAvailableMaterials.find(p => p.tipoItem === 'material' || p.name.toLowerCase().includes('lona') || p.name.toLowerCase().includes('adesivo')) || allAvailableMaterials[0];
           setMaterialId(defaultMat.id);
+          if (defaultMat.maquinaId && !maquinaId) {
+            setMaquinaId(defaultMat.maquinaId);
+          }
         }
 
         // 2. Carrega colaboradores para custo de mão de obra e comissão
@@ -290,10 +299,30 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
     return produtos.find(p => p.id === materialId) || null;
   }, [produtos, materialId]);
 
-  // Máquina selecionada
+  // Se o material selecionado (substrato) tem uma máquina vinculada no cadastro, auto-seleciona ela
+  useEffect(() => {
+    if (materialSelecionado?.maquinaId) {
+      const maquinaDoSubstrato = maquinas.find(m => m.id === materialSelecionado.maquinaId);
+      if (maquinaDoSubstrato) {
+        setMaquinaId(maquinaDoSubstrato.id);
+      }
+    }
+  }, [materialSelecionado?.id, materialSelecionado?.maquinaId, maquinas]);
+
+  // Máquina selecionada (prioriza máquina selecionada ou a cadastrada no substrato)
   const maquinaSelecionada = useMemo(() => {
-    return maquinas.find(m => m.id === maquinaId) || maquinas[0] || null;
-  }, [maquinas, maquinaId]);
+    if (maquinaId) {
+      const found = maquinas.find(m => m.id === maquinaId);
+      if (found) return found;
+    }
+    if (materialSelecionado?.maquinaId) {
+      const found = maquinas.find(m => m.id === materialSelecionado.maquinaId);
+      if (found) return found;
+    }
+    const ativaImpressao = maquinas.find(m => m.ativa && m.tipo === 'impressao');
+    if (ativaImpressao) return ativaImpressao;
+    return maquinas.find(m => m.ativa) || maquinas[0] || null;
+  }, [maquinas, maquinaId, materialSelecionado]);
 
   // Sempre que trocar de máquina, parte do modo/velocidade de cabeça configurados como padrão dela
   useEffect(() => {
@@ -374,11 +403,17 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
       const vel = Math.max(0.1, modoCustomizadoSelecionado.velocidadeM2H);
       const tempoBaseMin = (areaTotalM2 / vel) * 60;
       const setupMin = Number(maquinaSelecionada.tempoSetupMin ?? maquinaSelecionada.calibSetupMin ?? 10);
-      return Math.max(5, Math.ceil(tempoBaseMin + setupMin));
+      return Math.max(1, Math.ceil(tempoBaseMin + setupMin));
     }
 
     const minutos = calcularTempoProducaoMinutos(maquinaSelecionada, areaTotalM2, modoImpressaoSelecionado, velocidadeCabecaSelecionada);
-    return minutos > 0 ? Math.max(5, Math.ceil(minutos)) : 0;
+    if (minutos > 0) return Math.max(1, Math.ceil(minutos));
+
+    // Fallback garantido usando a velocidade média da máquina ou 10 m²/h
+    const velPadrao = Number(maquinaSelecionada.velocidadeProducaoM2H) > 0 ? Number(maquinaSelecionada.velocidadeProducaoM2H) : 10;
+    const baseMin = (areaTotalM2 / velPadrao) * 60;
+    const setupMin = Number(maquinaSelecionada.tempoSetupMin ?? 5);
+    return Math.max(1, Math.ceil(baseMin + setupMin));
   }, [areaTotalM2, maquinaSelecionada, modoImpressaoSelecionado, velocidadeCabecaSelecionada, modoCustomizadoSelecionado]);
 
   // Velocidade marginal calculada (m²/h) em tempo real conforme modo e velocidade da cabeça
@@ -403,7 +438,7 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
   // CÁLCULOS AUTOMÁTICOS DE CUSTOS (PUXADOS DO SISTEMA E DAS MÁQUINAS)
   // ==========================================
 
-  // 1. Custo de Material (Estoque)
+  // 1. Custo Total de Material do Estoque
   const custoUnitarioMaterialEstoque = (materialSelecionado as any)?.costPrice || 0;
   const custoTotalMaterial = useMemo(() => {
     if (modoCalculo === 'm2') {
@@ -419,20 +454,57 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
     return insumosExtras.reduce((acc, item) => acc + (Number(item.valor) || 0), 0);
   }, [insumosExtras]);
 
-  // 2. Custo da Tinta (da Máquina / Material)
-  const custoTintaPorM2 = maquinaCalculos.custoTintaM2;
-  const custoTotalTinta = useMemo(() => {
-    if (maquinaSelecionada?.tintaConsumoMlM2 && maquinaSelecionada.tintaConsumoMlM2 > 0) {
-      return areaTotalM2 * custoTintaPorM2;
-    }
-    return 0;
-  }, [maquinaSelecionada, areaTotalM2, custoTintaPorM2]);
+  // Total de Matéria-Prima (Material Principal do Estoque + Insumos Extras Adicionados)
+  const custoTotalMateriaPrima = useMemo(() => {
+    return Number((custoTotalMaterial + custoTotalInsumosExtras).toFixed(2));
+  }, [custoTotalMaterial, custoTotalInsumosExtras]);
 
-  // 3. Custo Operacional da Máquina (Depreciação + Manutenção + Cabeça + Energia)
+  // 2. Custo da Tinta (calculado a partir do tamanho em m² e consumo em ml, igual à aba Calcular Tempo de Impressão)
+  const consumoMlM2 = useMemo(() => {
+    const val = Number(maquinaSelecionada?.tintaConsumoMlM2);
+    return val > 0 ? val : 15; // padrão de mercado: 15ml por m²
+  }, [maquinaSelecionada?.tintaConsumoMlM2]);
+
+  const custoPorMlTinta = useMemo(() => {
+    if (maquinaSelecionada && Number(maquinaSelecionada.tintaQuantidadeMl) > 0 && Number(maquinaSelecionada.tintaValor) > 0) {
+      return Number(maquinaSelecionada.tintaValor) / Number(maquinaSelecionada.tintaQuantidadeMl);
+    }
+    return 0.18; // padrão: R$ 0,18 por ml
+  }, [maquinaSelecionada]);
+
+  const custoTintaPorM2 = useMemo(() => {
+    if (maquinaCalculos.custoTintaM2 > 0) {
+      return maquinaCalculos.custoTintaM2;
+    }
+    return Number((consumoMlM2 * custoPorMlTinta).toFixed(2));
+  }, [maquinaCalculos.custoTintaM2, consumoMlM2, custoPorMlTinta]);
+
+  const consumoTotalTintaMl = useMemo(() => {
+    if (areaTotalM2 <= 0) return 0;
+    return Number((areaTotalM2 * consumoMlM2).toFixed(1));
+  }, [areaTotalM2, consumoMlM2]);
+
+  const custoTotalTinta = useMemo(() => {
+    if (areaTotalM2 <= 0) return 0;
+    return Number((areaTotalM2 * custoTintaPorM2).toFixed(2));
+  }, [areaTotalM2, custoTintaPorM2]);
+
+  // 3. Custo Operacional da Máquina (Depreciação + Manutenção + Cabeça + Energia da máquina cadastrada no substrato)
   const custoHoraMaquina = maquinaCalculos.custoTotalMaquinaHora;
   const custoTotalMaquina = useMemo(() => {
-    return tempoHorasNum * custoHoraMaquina;
-  }, [tempoHorasNum, custoHoraMaquina]);
+    if (tempoHorasNum > 0 && custoHoraMaquina > 0) {
+      return Number((tempoHorasNum * custoHoraMaquina).toFixed(2));
+    }
+    if (areaTotalM2 > 0) {
+      const taxaM2 = maquinaCalculos.custoOperacionalM2 > 0
+        ? maquinaCalculos.custoOperacionalM2
+        : (custoHoraMaquina > 0 && Number(maquinaSelecionada?.velocidadeProducaoM2H) > 0
+            ? custoHoraMaquina / Number(maquinaSelecionada!.velocidadeProducaoM2H)
+            : 4.50);
+      return Number((areaTotalM2 * taxaM2).toFixed(2));
+    }
+    return 0;
+  }, [tempoHorasNum, custoHoraMaquina, areaTotalM2, maquinaCalculos.custoOperacionalM2, maquinaSelecionada]);
 
   // 4. Manutenção e Depreciação da Máquina (para detalhamento de Raio-X)
   const manutencaoHora = maquinaCalculos.manutencaoHora;
@@ -483,22 +555,27 @@ export const PrecificacaoModule: React.FC<PrecificacaoModuleProps> = ({ currentC
     return tempoHorasNum * custoHoraFuncionario;
   }, [tempoHorasNum, custoHoraFuncionario]);
 
+  // Custo Direto de Produção (Matéria-Prima + Tinta + Máquina)
+  const custoProducaoDireto = useMemo(() => {
+    return Number((custoTotalMateriaPrima + custoTotalTinta + custoTotalMaquina).toFixed(2));
+  }, [custoTotalMateriaPrima, custoTotalTinta, custoTotalMaquina]);
+
   // Custo Direto + Indireto (sem comissão)
   const subtotalCustosProducao = useMemo(() => {
     return (
-      custoTotalMaterial +
-      custoTotalInsumosExtras +
+      custoTotalMateriaPrima +
       custoTotalTinta +
       custoTotalMaquina +
       custoTotalEstrutura +
+      custoTotalEnergia +
       custoTotalMaoDeObra
     );
   }, [
-    custoTotalMaterial,
-    custoTotalInsumosExtras,
+    custoTotalMateriaPrima,
     custoTotalTinta,
     custoTotalMaquina,
     custoTotalEstrutura,
+    custoTotalEnergia,
     custoTotalMaoDeObra
   ]);
 
@@ -694,19 +771,21 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
     const nomeFinal = servicoNome.trim() || materialSelecionado?.name || 'Serviço';
     const texto = `*FICHA TÉCNICA DE PRODUÇÃO* 🛠️
 *Serviço:* ${nomeFinal}
-*Material:* ${materialSelecionado?.name || 'Geral'}
+*Material Base:* ${materialSelecionado?.name || 'Geral'}
 *Medidas:* ${larguraEmMetros}m x ${alturaEmMetros}m (Área Total: ${areaTotalM2.toFixed(2)} m²)
 *Quantidade:* ${qtdNum}
 *Máquina:* ${maquinaSelecionada?.nome || 'Manual'}
 *Tempo Estimado:* ${tempoMinutosNum} minutos (${tempoHorasNum.toFixed(2)}h)
 *Prazo:* ${prazoEntrega}
 ---------------------------------------
-*Composição de Custos:*
-- Material: R$ ${custoTotalMaterial.toFixed(2)}
-- Tinta: R$ ${custoTotalTinta.toFixed(2)}
-- Máquina (Deprec/Manut/Cabeça/Energia): R$ ${custoTotalMaquina.toFixed(2)}
+*Custos Diretos de Produção:*
+- Matéria-Prima: R$ ${custoTotalMateriaPrima.toFixed(2)}
+- Tinta da Impressão (${consumoTotalTintaMl} ml): R$ ${custoTotalTinta.toFixed(2)}
+- Máquina Operacional (${maquinaSelecionada?.nome || 'Máquina'}): R$ ${custoTotalMaquina.toFixed(2)}
+---------------------------------------
+*Custos Indiretos & Formação:*
 - Mão de Obra: R$ ${custoTotalMaoDeObra.toFixed(2)}
-- Estrutura + Energia Fixa: R$ ${(custoTotalEstrutura + custoTotalEnergia).toFixed(2)}
+- Estrutura + Energia Fábrica: R$ ${(custoTotalEstrutura + custoTotalEnergia).toFixed(2)}
 - Comissão (${comissaoDesejada}%): R$ ${valorComissaoRecomendada.toFixed(2)}
 *Custo Real Total:* R$ ${custoReal.toFixed(2)}
 *Preço Recomendado:* R$ ${precoRecomendado.toFixed(2)}`;
@@ -849,16 +928,23 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
               </div>
             </div>
 
-            {/* Material Principal / Insumo */}
+            {/* Material Principal / Matéria-Prima */}
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-1">
                 <label className="block text-xs font-bold text-white/70 uppercase">
                   Matéria-Prima Principal (Estoque)
                 </label>
                 {materialSelecionado && (
-                  <span className="text-[11px] text-emerald-400 font-bold">
-                    Custo Estoque: R$ {((materialSelecionado as any).costPrice || 0).toFixed(2)} / {materialSelecionado.unitType || 'un'}
-                  </span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[11px] text-emerald-400 font-bold">
+                      Custo Estoque: R$ {((materialSelecionado as any).costPrice || 0).toFixed(2)} / {materialSelecionado.unitType || 'un'}
+                    </span>
+                    {materialSelecionado.maquinaId && (
+                      <span className="text-[10px] bg-teal-500/20 text-teal-300 border border-teal-500/30 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+                        <Printer size={11} /> Máquina Vinculada: {maquinas.find(m => m.id === materialSelecionado.maquinaId)?.nome || 'Cadastrada'}
+                      </span>
+                    )}
+                  </div>
                 )}
               </div>
 
@@ -868,11 +954,14 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
                 className="w-full bg-slate-800/90 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-primary-500"
               >
                 <option value="">-- Selecionar Matéria-Prima --</option>
-                {produtos.map(p => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} • Custo: R$ {Number((p as any).costPrice || 0).toFixed(2)} ({p.unitType || 'un'})
-                  </option>
-                ))}
+                {produtos.map(p => {
+                  const maquinaVinculada = p.maquinaId ? maquinas.find(m => m.id === p.maquinaId) : null;
+                  return (
+                    <option key={p.id} value={p.id}>
+                      {p.name} • Custo: R$ {Number((p as any).costPrice || 0).toFixed(2)} ({p.unitType || 'un'}){maquinaVinculada ? ` [Máquina: ${maquinaVinculada.nome}]` : ''}
+                    </option>
+                  );
+                })}
               </select>
             </div>
 
@@ -1061,6 +1150,71 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
                   )}
                 </div>
               )}
+            </div>
+
+            {/* PAINEL DE VALORES SEPARADOS: SUBSTRATO, MATÉRIA-PRIMA, TINTA & MÁQUINA */}
+            <div className="p-3.5 sm:p-4 rounded-2xl bg-slate-950/80 border border-emerald-500/20 shadow-lg space-y-3">
+              <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                <div className="flex items-center gap-2">
+                  <Layers size={16} className="text-emerald-400" />
+                  <span className="text-xs font-black text-white uppercase tracking-wider">
+                    Custos de Produção Separados
+                  </span>
+                </div>
+                <span className="text-[11px] font-bold text-emerald-400">
+                  Subtotal: R$ {custoProducaoDireto.toFixed(2)}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                {/* 1. Matéria-Prima */}
+                <div className="bg-slate-900/90 p-3 rounded-xl border border-indigo-500/30">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-indigo-400">
+                      1. Matéria-Prima
+                    </span>
+                    <span className="w-2 h-2 rounded-full bg-indigo-400" />
+                  </div>
+                  <div className="text-base font-black text-white">
+                    R$ {custoTotalMateriaPrima.toFixed(2)}
+                  </div>
+                  <span className="text-[10px] text-white/60 block truncate mt-0.5" title={materialSelecionado?.name || 'Matéria-Prima'}>
+                    {materialSelecionado?.name ? `${materialSelecionado.name}${custoTotalInsumosExtras > 0 ? ` + ${insumosExtras.length} insumo(s)` : ''}` : 'Não selecionado'}
+                  </span>
+                </div>
+
+                {/* 2. Tinta */}
+                <div className="bg-slate-900/90 p-3 rounded-xl border border-cyan-500/30">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-cyan-400">
+                      2. Tinta
+                    </span>
+                    <span className="w-2 h-2 rounded-full bg-cyan-400" />
+                  </div>
+                  <div className="text-base font-black text-white">
+                    R$ {custoTotalTinta.toFixed(2)}
+                  </div>
+                  <span className="text-[10px] text-cyan-300/80 block truncate mt-0.5">
+                    {consumoTotalTintaMl} ml ({areaTotalM2.toFixed(2)} m²)
+                  </span>
+                </div>
+
+                {/* 3. Máquina */}
+                <div className="bg-slate-900/90 p-3 rounded-xl border border-teal-500/30">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-teal-400">
+                      3. Máquina
+                    </span>
+                    <span className="w-2 h-2 rounded-full bg-teal-400" />
+                  </div>
+                  <div className="text-base font-black text-white">
+                    R$ {custoTotalMaquina.toFixed(2)}
+                  </div>
+                  <span className="text-[10px] text-teal-300/80 block truncate mt-0.5" title={maquinaSelecionada?.nome || 'Máquina'}>
+                    {maquinaSelecionada ? maquinaSelecionada.nome : 'Máquina Padrão'}
+                  </span>
+                </div>
+              </div>
             </div>
 
             {/* Insumos & Acabamentos Extras Opcionais */}
@@ -1258,7 +1412,7 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
                   </label>
                   {maquinaSelecionada && (
                     <span className="text-[10px] text-cyan-400 font-semibold">
-                      {maquinaCalculos.custoTintaM2 > 0 ? `Tinta: R$ ${maquinaCalculos.custoTintaM2.toFixed(2)}/m²` : 'Sem consumo tinta'}
+                      Tinta: R$ {custoTintaPorM2.toFixed(2)}/m² ({consumoMlM2}ml/m²) • R$ {custoHoraMaquina.toFixed(2)}/h
                     </span>
                   )}
                 </div>
@@ -1779,40 +1933,35 @@ ${qtdNum > 1 ? `🏷️ *Valor Unitário:* R$ ${precoUnitario.toLocaleString('pt
 
             {/* Lista dos pilares do custo puxados automaticamente */}
             <div className="space-y-2 text-xs">
-              {/* 1. Material */}
-              <div className="flex items-center justify-between p-2 rounded-xl bg-slate-800/40 border border-white/5">
+              {/* 1. Matéria-Prima */}
+              <div className="flex items-center justify-between p-2 rounded-xl bg-slate-800/40 border border-indigo-500/20">
                 <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-blue-500" />
-                  <span className="text-white/80 font-medium">Material (Estoque):</span>
+                  <span className="w-2 h-2 rounded-full bg-indigo-400" />
+                  <span className="text-white/80 font-medium">
+                    Matéria-Prima {materialSelecionado ? `(${materialSelecionado.name}${custoTotalInsumosExtras > 0 ? ` + insumos` : ''})` : ''}:
+                  </span>
                 </div>
-                <strong className="text-white">R$ {custoTotalMaterial.toFixed(2)}</strong>
+                <strong className="text-white">R$ {custoTotalMateriaPrima.toFixed(2)}</strong>
               </div>
 
-              {/* Insumos extras se houver */}
-              {custoTotalInsumosExtras > 0 && (
-                <div className="flex items-center justify-between p-2 rounded-xl bg-slate-800/40 border border-white/5">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-indigo-400" />
-                    <span className="text-white/80 font-medium">Insumos Extras:</span>
-                  </div>
-                  <strong className="text-white">R$ {custoTotalInsumosExtras.toFixed(2)}</strong>
-                </div>
-              )}
-
               {/* 2. Tinta */}
-              <div className="flex items-center justify-between p-2 rounded-xl bg-slate-800/40 border border-white/5">
+              <div className="flex items-center justify-between p-2 rounded-xl bg-slate-800/40 border border-cyan-500/20">
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-cyan-400" />
-                  <span className="text-white/80 font-medium">Tinta da Máquina ({custoTintaPorM2 > 0 ? `R$ ${custoTintaPorM2.toFixed(2)}/m²` : 'Sem tinta'}):</span>
+                  <span className="text-white/80 font-medium">
+                    Tinta da Impressão {consumoTotalTintaMl > 0 ? `(${consumoTotalTintaMl} ml • R$ ${custoTintaPorM2.toFixed(2)}/m²)` : ''}:
+                  </span>
                 </div>
                 <strong className="text-white">R$ {custoTotalTinta.toFixed(2)}</strong>
               </div>
 
-              {/* 3. Máquina (Depreciação + Manutenção + Cabeça + Energia) */}
-              <div className="flex items-center justify-between p-2 rounded-xl bg-slate-800/40 border border-white/5">
+              {/* 3. Máquina */}
+              <div className="flex items-center justify-between p-2 rounded-xl bg-slate-800/40 border border-teal-500/20">
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-teal-400" />
-                  <span className="text-white/80 font-medium">Máquina (Deprec.+Manut.+Cabeça+Energia):</span>
+                  <span className="text-white/80 font-medium">
+                    Máquina ({maquinaSelecionada?.nome || 'Operacional'} • R$ {custoHoraMaquina.toFixed(2)}/h):
+                  </span>
                 </div>
                 <strong className="text-white">R$ {custoTotalMaquina.toFixed(2)}</strong>
               </div>

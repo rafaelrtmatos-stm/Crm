@@ -236,7 +236,7 @@ import { transcribeAudioMessage } from '../lib/audioTranscription';
 import { generateSuggestion, type KnowledgeProduct } from '../lib/robozinhoRafa';
 import { validateCpfCnpj } from '../lib/validators';
 import { buscarClienteDuplicado, montarPayloadMesclagem } from '../lib/clienteDedupe';
-import { custoTotalDaNota, calcularLucroLiquido, detalharCustoDaNota, custoMaterialRealItem, custoMaquinaItem, somaCustosExtras, isMaterialLonaAdesivo } from '../lib/lucro';
+import { custoTotalDaNota, calcularLucroLiquido, detalharCustoDaNota, detalharCustosItem, custoMaterialRealItem, custoMaquinaItem, somaCustosExtras, isMaterialLonaAdesivo } from '../lib/lucro';
 import { format } from 'date-fns';
 
 // Formata uma data com fallback seguro — evita "RangeError: Invalid time value"
@@ -8713,6 +8713,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [produtosCostMap, setProdutosCostMap] = useState<Record<string, number>>({});
   const [produtoPorIdMap, setProdutoPorIdMap] = useState<Record<string, any>>({});
   const [custoMaquinaM2PorCategoria, setCustoMaquinaM2PorCategoria] = useState<Record<string, number>>({});
+  const [custoMaquinaOperacionalM2PorCategoria, setCustoMaquinaOperacionalM2PorCategoria] = useState<Record<string, number>>({});
+  const [custoTintaM2PorCategoria, setCustoTintaM2PorCategoria] = useState<Record<string, number>>({});
   useEffect(() => {
     const loadCosts = async () => {
       const { data, error } = await supabase.from('produtos').select('id, cost_price, category, largura_rolo, materias_primas');
@@ -8734,22 +8736,29 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     loadCosts();
   }, []);
 
-  // Custo real de maquina por m2, por categoria de produto atendida (cadastro de Maquinas) --
+  // Custo real de maquina por m2 (total, operacional e tinta), por categoria de produto atendida (cadastro de Maquinas) --
   // usado para o custo de maquina de produtos SUBSTRATO (ver src/lib/lucro.ts). Uma maquina
   // ativa por categoria; se houver mais de uma cadastrada para a mesma categoria, usa a primeira.
   useEffect(() => {
     const loadMaquinasCusto = async () => {
       const maquinas = await fetchMaquinas(currentCompany?.id);
-      const map: Record<string, number> = {};
+      const mapTotal: Record<string, number> = {};
+      const mapOperacional: Record<string, number> = {};
+      const mapTinta: Record<string, number> = {};
       maquinas
         .filter(m => m.ativa && m.categoriaProduto && m.categoriaProduto.trim())
         .forEach(m => {
           const chave = m.categoriaProduto!.trim().toUpperCase();
-          if (map[chave] === undefined) {
-            map[chave] = calcularCustosMaquina(m, m.tarifaKwh).custoTotalMaquinaM2;
+          if (mapTotal[chave] === undefined) {
+            const calculos = calcularCustosMaquina(m, m.tarifaKwh);
+            mapTotal[chave] = calculos.custoTotalMaquinaM2;
+            mapOperacional[chave] = calculos.custoOperacionalM2;
+            mapTinta[chave] = calculos.custoTintaM2;
           }
         });
-      setCustoMaquinaM2PorCategoria(map);
+      setCustoMaquinaM2PorCategoria(mapTotal);
+      setCustoMaquinaOperacionalM2PorCategoria(mapOperacional);
+      setCustoTintaM2PorCategoria(mapTinta);
     };
     loadMaquinasCusto();
   }, [currentCompany?.id]);
@@ -8768,6 +8777,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       custoPorId: produtosCostMap,
       produtoPorId: produtoPorIdMap,
       custoMaquinaM2PorCategoria,
+      custoMaquinaOperacionalM2PorCategoria,
+      custoTintaM2PorCategoria,
       extraCosts: sale.extraCosts,
       proporcao,
     });
@@ -8778,6 +8789,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   // - lucroPrevisto: lucro total esperado quando a nota for 100% quitada (ex: R$ 2.000 - R$ 300 = R$ 1.700,00)
   // - lucroRealizadoCaixa: dinheiro apurado no caixa com o que já entrou menos os custos de produção (ex: R$ 1.000 - R$ 300 = R$ 700,00)
   // - isParcial: se ainda resta saldo a receber
+  // - breakdown: detalhamento separado (substrato, matéria-prima, tinta, máquina e extras)
   const obterRentabilidadeVenda = (sale: SaleOrder) => {
     const total = Number(sale.total) || 0;
     const isCompleted = sale.status === 'completed';
@@ -8785,13 +8797,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const pendente = Math.max(0, total - down);
     const isParcial = !isCompleted && pendente > 0.01;
 
-    const custoCheio = custoTotalDaNota({
+    const breakdown = detalharCustoDaNota({
       items: sale.items,
       custoPorId: produtosCostMap,
       produtoPorId: produtoPorIdMap,
       custoMaquinaM2PorCategoria,
+      custoMaquinaOperacionalM2PorCategoria,
+      custoTintaM2PorCategoria,
       extraCosts: sale.extraCosts,
     });
+    const custoCheio = breakdown.custoTotal;
 
     const lucroPrevisto = total - custoCheio;
     const lucroRealizadoCaixa = down - custoCheio;
@@ -8804,7 +8819,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       saldoPendente: pendente,
       isParcial,
       margemPrevista: total > 0 ? (lucroPrevisto / total) * 100 : 0,
-      temCustosExtras: Boolean(sale.extraCosts && sale.extraCosts.length > 0)
+      temCustosExtras: Boolean(sale.extraCosts && sale.extraCosts.length > 0),
+      breakdown,
     };
   };
 
@@ -13986,28 +14002,34 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           const isFullyPaid = custosNotaSale.status === 'completed' || down >= totalVenda;
           const proporcao = (!isFullyPaid && totalVenda > 0) ? down / totalVenda : undefined;
           
-          // Custo automatico (Material/Substrato + Maquina) -- usa o mesmo motor de calculo
-          // ja corrigido nas outras telas (src/lib/lucro.ts). Baseado em CATEGORIA do produto
-          // e MATERIA-PRIMA vinculada no cadastro -- nunca em busca de palavra no nome.
+          // Custo automatico (Substrato, Matéria-Prima, Tinta e Máquina separados)
           const custoAutomatico = detalharCustoDaNota({
             items: custosNotaSale.items,
             custoPorId: produtosCostMap,
             produtoPorId: produtoPorIdMap,
             custoMaquinaM2PorCategoria,
+            custoMaquinaOperacionalM2PorCategoria,
+            custoTintaM2PorCategoria,
             proporcao,
           });
-          const custoMaterial = custoAutomatico.material;
+          const custoSubstrato = custoAutomatico.substrato;
+          const custoMateriaPrima = custoAutomatico.materiaPrima;
+          const custoTinta = custoAutomatico.tinta;
           const custoMaquina = custoAutomatico.maquina;
-          const custoAutomaticoTotal = custoMaterial + custoMaquina;
+          const custoAutomaticoTotal = custoSubstrato + custoMateriaPrima + custoTinta + custoMaquina;
 
-          // Itens que entram no card "Automatico" -- qualquer item com custo de material
-          // e/ou maquina > 0 (categoria SUBSTRATO e/ou materia-prima vinculada no cadastro).
+          // Itens que entram no card "Automatico" com detalhamento individual separado
           const itensComCustoAutomatico = (custosNotaSale.items || [])
             .map(item => {
-              const produtoAtual = item.productId ? produtoPorIdMap[item.productId] : undefined;
-              const custoMat = custoMaterialRealItem(item, produtosCostMap, undefined, produtoPorIdMap);
-              const custoMaq = custoMaquinaItem(item, produtoAtual, custoMaquinaM2PorCategoria);
-              return { item, custoItem: custoMat + custoMaq };
+              const detalhe = detalharCustosItem({
+                item,
+                custoPorId: produtosCostMap,
+                produtoPorId: produtoPorIdMap,
+                custoMaquinaOperacionalM2PorCategoria,
+                custoTintaM2PorCategoria,
+                custoMaquinaM2PorCategoria,
+              });
+              return { item, detalhe, custoItem: detalhe.custoTotal };
             })
             .filter(({ custoItem }) => custoItem > 0);
 
@@ -14065,24 +14087,97 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 )}
               </div>
 
-              {/* 1. Materiais / Insumos + Maquina (automatico, por categoria e materia-prima vinculada) */}
-              <div className="bg-slate-900/60 border border-white/5 rounded-xl p-3 space-y-2">
-                <div className="flex items-center justify-between border-b border-white/5 pb-1.5">
+              {/* 1. Custos de Produção Automáticos com Valores Separados */}
+              <div className="bg-slate-900/60 border border-white/5 rounded-xl p-3 space-y-3">
+                <div className="flex items-center justify-between border-b border-white/5 pb-2">
                   <span className="text-[10px] font-black text-white/80 uppercase tracking-wider flex items-center gap-1.5">
-                    <Layers size={13} className="text-amber-400" /> 1. Matéria-Prima, Substrato & Máquina (Automático)
+                    <Layers size={13} className="text-amber-400" /> 1. Matéria-Prima, Substrato, Tinta & Máquina
                   </span>
-                  <span className="text-[10px] font-bold text-amber-300">
-                    R$ {custoAutomaticoTotal.toFixed(2).replace('.', ',')}
-                  </span>
+                  <div className="text-right">
+                    <span className="text-[8px] text-white/40 uppercase block">Subtotal Produção</span>
+                    <span className="text-xs font-black font-mono text-amber-300">
+                      R$ {custoAutomaticoTotal.toFixed(2).replace('.', ',')}
+                    </span>
+                  </div>
                 </div>
-                <div className="space-y-1">
+
+                {/* 4 Cards com os valores SEPARADOS */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {/* Substrato */}
+                  <div className="bg-slate-950/60 border border-blue-500/20 rounded-lg p-2">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+                      <span className="text-[8.5px] uppercase font-bold text-white/50 tracking-wider">Substrato</span>
+                    </div>
+                    <span className="text-xs font-black font-mono text-blue-300 block">
+                      R$ {custoSubstrato.toFixed(2).replace('.', ',')}
+                    </span>
+                    <span className="text-[7.5px] text-white/30 block mt-0.5">Lona / Vinil / Rolo</span>
+                  </div>
+
+                  {/* Matéria-Prima */}
+                  <div className="bg-slate-950/60 border border-purple-500/20 rounded-lg p-2">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-purple-400" />
+                      <span className="text-[8.5px] uppercase font-bold text-white/50 tracking-wider">Matéria-Prima</span>
+                    </div>
+                    <span className="text-xs font-black font-mono text-purple-300 block">
+                      R$ {custoMateriaPrima.toFixed(2).replace('.', ',')}
+                    </span>
+                    <span className="text-[7.5px] text-white/30 block mt-0.5">Insumos vinculados</span>
+                  </div>
+
+                  {/* Tinta */}
+                  <div className="bg-slate-950/60 border border-cyan-500/20 rounded-lg p-2">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
+                      <span className="text-[8.5px] uppercase font-bold text-white/50 tracking-wider">Tinta</span>
+                    </div>
+                    <span className="text-xs font-black font-mono text-cyan-300 block">
+                      R$ {custoTinta.toFixed(2).replace('.', ',')}
+                    </span>
+                    <span className="text-[7.5px] text-white/30 block mt-0.5">Consumo ml/m²</span>
+                  </div>
+
+                  {/* Máquina */}
+                  <div className="bg-slate-950/60 border border-teal-500/20 rounded-lg p-2">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-teal-400" />
+                      <span className="text-[8.5px] uppercase font-bold text-white/50 tracking-wider">Máquina</span>
+                    </div>
+                    <span className="text-xs font-black font-mono text-teal-300 block">
+                      R$ {custoMaquina.toFixed(2).replace('.', ',')}
+                    </span>
+                    <span className="text-[7.5px] text-white/30 block mt-0.5">Deprec./Manut./Energ.</span>
+                  </div>
+                </div>
+
+                {/* Lista por item com separação detalhada */}
+                <div className="space-y-1.5 pt-1 border-t border-white/5">
+                  <span className="text-[8.5px] font-bold text-white/40 uppercase block">Detalhamento por Item:</span>
                   {itensComCustoAutomatico.length === 0 ? (
                     <p className="text-[9px] text-white/30 italic">Nenhum item com custo de matéria-prima ou máquina cadastrado nesta nota (verifique categoria do produto e vínculo de matéria-prima no cadastro).</p>
                   ) : (
-                    itensComCustoAutomatico.map(({ item, custoItem }, idx) => (
-                      <div key={idx} className="flex justify-between items-center text-[9.5px] text-white/60">
-                        <span className="truncate max-w-[240px]">{item.quantity}x {item.name}</span>
-                        <span className="font-mono text-white/80">R$ {custoItem.toFixed(2).replace('.', ',')}</span>
+                    itensComCustoAutomatico.map(({ item, detalhe, custoItem }, idx) => (
+                      <div key={idx} className="bg-slate-950/40 border border-white/5 rounded-lg p-2 space-y-1">
+                        <div className="flex justify-between items-center text-[10px]">
+                          <span className="font-bold text-white truncate max-w-[240px]">{item.quantity}x {item.name}</span>
+                          <span className="font-mono font-bold text-amber-300">R$ {custoItem.toFixed(2).replace('.', ',')}</span>
+                        </div>
+                        <div className="flex flex-wrap gap-2 text-[8.5px] font-mono text-white/50">
+                          {detalhe.custoSubstrato > 0 && (
+                            <span className="text-blue-300">Substrato: R$ {detalhe.custoSubstrato.toFixed(2).replace('.', ',')}</span>
+                          )}
+                          {detalhe.custoMateriaPrima > 0 && (
+                            <span className="text-purple-300">Mat. Prima: R$ {detalhe.custoMateriaPrima.toFixed(2).replace('.', ',')}</span>
+                          )}
+                          {detalhe.custoTinta > 0 && (
+                            <span className="text-cyan-300">Tinta: R$ {detalhe.custoTinta.toFixed(2).replace('.', ',')}</span>
+                          )}
+                          {detalhe.custoMaquina > 0 && (
+                            <span className="text-teal-300">Máquina: R$ {detalhe.custoMaquina.toFixed(2).replace('.', ',')}</span>
+                          )}
+                        </div>
                       </div>
                     ))
                   )}
