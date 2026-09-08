@@ -20,6 +20,24 @@ export interface MateriaPrimaConsumptionRecord {
   tipoOperacao: 'venda' | 'ajuste_manual' | 'entrada' | 'perda';
   saldoApos?: number;
   observacao?: string;
+  valorTotal?: number;
+  valorUnitario?: number;
+  fornecedor?: string;
+  notaFiscal?: string;
+}
+
+export interface ReabastecimentoInput {
+  materiaPrimaId: string;
+  modo: 'bobinas' | 'metros' | 'unidades';
+  quantidadeAdicionada: number; // ex: 1 bobina ou 50 metros
+  valorTotalPago?: number; // ex: R$ 820,00
+  valorUnitarioPago?: number; // ex: R$ 820 por bobina ou R$ 16,40 por metro
+  atualizarPrecoCusto: boolean; // se true, atualiza costPrice, valorBobina, custoPorM2 no cadastro
+  dataHoraCompra: string; // ISO string ou YYYY-MM-DDTHH:mm
+  fornecedor?: string;
+  notaFiscal?: string;
+  observacao?: string;
+  companyId?: string;
 }
 
 export interface MateriaPrimaForecast {
@@ -478,7 +496,8 @@ export async function deductMateriasPrimasStock(
 
         if (isBobina) {
           // Bobinas no banco armazenam fração de bobina (ex: 1.0 = 50m). O consumo vem em metros lineares.
-          const currentMetros = currentQty * compBobina;
+          // Se currentQty > 15, foi salvo acidentalmente em metros totais; trata adequadamente.
+          const currentMetros = currentQty > 15 ? currentQty : currentQty * compBobina;
           const newMetros = Math.max(0, currentMetros - item.quantity);
           saldoAposMetros = Number(newMetros.toFixed(2));
           newQty = Number((newMetros / compBobina).toFixed(4));
@@ -543,6 +562,7 @@ export async function deductMateriasPrimasStock(
 
 // Local cache utilities
 function getCachedMateriasPrimas(companyId?: string): MateriaPrima[] {
+  if (typeof window === 'undefined') return [];
   try {
     const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
     if (!raw) {
@@ -560,6 +580,7 @@ function getCachedMateriasPrimas(companyId?: string): MateriaPrima[] {
 }
 
 function saveLocalCache(items: MateriaPrima[]) {
+  if (typeof window === 'undefined') return;
   try {
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(items));
   } catch (e) {
@@ -631,45 +652,33 @@ export async function fetchConsumptionHistory(
   dateEnd?: string
 ): Promise<MateriaPrimaConsumptionRecord[]> {
   try {
-    const raw = localStorage.getItem(CONSUMPTION_HISTORY_KEY);
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(CONSUMPTION_HISTORY_KEY) : null;
     let localList: MateriaPrimaConsumptionRecord[] = raw ? JSON.parse(raw) : [];
 
     // Busca vendas reais do Supabase para refletir o consumo verídico das notas emitidas
     let salesRecords: MateriaPrimaConsumptionRecord[] = [];
     try {
-      const { data: vendas } = await supabase
+      let query = supabase
         .from('vendas')
         .select('id, created_at, customer_name, company_id, items, consumo_materias_primas, status')
         .neq('status', 'canceled')
         .order('created_at', { ascending: false })
-        .limit(100);
+        .limit(1000);
+
+      const { data: vendas } = await query;
 
       if (vendas && vendas.length > 0) {
         for (const v of vendas) {
-          // 1. Verifica no array consumo_materias_primas
-          if (Array.isArray(v.consumo_materias_primas) && v.consumo_materias_primas.length > 0) {
-            for (const cm of v.consumo_materias_primas) {
-              const mpId = cm.materiaPrimaId || cm.id;
-              salesRecords.push({
-                id: `venda-${v.id}-${mpId || cm.name}`,
-                materiaPrimaId: mpId || '',
-                materiaPrimaName: cm.name || 'Matéria-Prima',
-                companyId: v.company_id || 'rafa-arts',
-                quantity: Number(cm.quantity) || 0,
-                unit: cm.unit || 'm',
-                timestamp: v.created_at,
-                tipoOperacao: 'venda',
-                observacao: `Nota #${v.id.slice(-8).toUpperCase()} - ${v.customer_name || 'Cliente de Balcão'}`
-              });
-            }
-          }
-          // 2. Verifica dentro dos items da venda (materiasPrimasConsumidas)
+          let hasItemConsumptions = false;
+
+          // 1. Tenta extrair detalhadamente de cada item vendido (produto, medidas, etc.)
           if (Array.isArray(v.items) && v.items.length > 0) {
-            for (const it of v.items) {
+            v.items.forEach((it: any, itIdx: number) => {
               if (Array.isArray(it.materiasPrimasConsumidas) && it.materiasPrimasConsumidas.length > 0) {
-                for (const mpc of it.materiasPrimasConsumidas) {
+                it.materiasPrimasConsumidas.forEach((mpc: any, mpcIdx: number) => {
+                  hasItemConsumptions = true;
                   const mpId = mpc.materiaPrimaId || mpc.id;
-                  const recId = `venda-${v.id}-${mpId || mpc.name}-${it.productId || it.name}`;
+                  const recId = `venda-${v.id}-${mpId || mpc.name}-${itIdx}-${mpcIdx}`;
                   salesRecords.push({
                     id: recId,
                     materiaPrimaId: mpId || '',
@@ -677,13 +686,35 @@ export async function fetchConsumptionHistory(
                     companyId: v.company_id || 'rafa-arts',
                     quantity: Number(mpc.quantity) || 0,
                     unit: mpc.unit || 'm',
+                    orderId: v.id,
+                    customerName: v.customer_name || 'Cliente de Balcão',
                     timestamp: v.created_at,
                     tipoOperacao: 'venda',
-                    observacao: `Nota #${v.id.slice(-8).toUpperCase()} - ${v.customer_name || 'Cliente'} (${it.name}${it.dimensions ? ` - ${it.dimensions}` : ''})`
+                    observacao: `Nota #${v.id.slice(-8).toUpperCase()} - ${v.customer_name || 'Cliente'} (${it.name || 'Produto'}${it.dimensions ? ` - ${it.dimensions}` : ''})`
                   });
-                }
+                });
               }
-            }
+            });
+          }
+
+          // 2. Se a venda NÃO tinha itens detalhados com matérias-primas, usa o consolidado consumo_materias_primas (sem duplicar)
+          if (!hasItemConsumptions && Array.isArray(v.consumo_materias_primas) && v.consumo_materias_primas.length > 0) {
+            v.consumo_materias_primas.forEach((cm: any, cmIdx: number) => {
+              const mpId = cm.materiaPrimaId || cm.id;
+              salesRecords.push({
+                id: `venda-${v.id}-${mpId || cm.name}-${cmIdx}`,
+                materiaPrimaId: mpId || '',
+                materiaPrimaName: cm.name || 'Matéria-Prima',
+                companyId: v.company_id || 'rafa-arts',
+                quantity: Number(cm.quantity) || 0,
+                unit: cm.unit || 'm',
+                orderId: v.id,
+                customerName: v.customer_name || 'Cliente de Balcão',
+                timestamp: v.created_at,
+                tipoOperacao: 'venda',
+                observacao: `Nota #${v.id.slice(-8).toUpperCase()} - ${v.customer_name || 'Cliente de Balcão'}`
+              });
+            });
           }
         }
       }
@@ -938,3 +969,263 @@ export function calculateMateriaPrimaForecast(
     mensagemPrevisao
   };
 }
+
+/**
+ * Sincroniza o estoque físico de uma matéria-prima a partir do histórico real de vendas.
+ * Deduz todas as saídas auditadas da bobina/quantidade inicial para garantir 100% de precisão.
+ */
+export async function syncMateriaPrimaStockFromHistory(
+  materiaPrimaId: string,
+  initialMeters?: number,
+  companyId?: string
+): Promise<{
+  success: boolean;
+  mpName: string;
+  initialMetros: number;
+  totalConsumoMetros: number;
+  saldoRestanteMetros: number;
+  saldoRestanteBobinas: number;
+  message: string;
+}> {
+  try {
+    const list = await fetchMateriasPrimas(companyId);
+    const mp = list.find(m => m.id === materiaPrimaId);
+    if (!mp) {
+      throw new Error('Matéria-prima não encontrada.');
+    }
+
+    const compBobina = mp.comprimentoBobina && mp.comprimentoBobina > 0 ? mp.comprimentoBobina : 50;
+    const isBobina = mp.tipoCalculoCusto === 'bobina' || (mp.unit === 'm' && mp.comprimentoBobina);
+
+    // Metragem inicial (ex: 50m para 1 bobina cadastrada)
+    const baseMetros = initialMeters !== undefined && initialMeters > 0 
+      ? initialMeters 
+      : compBobina;
+
+    // Busca histórico verídico completo de saídas reais de vendas e perdas
+    const history = await fetchConsumptionHistory(mp.id, companyId);
+    const totalSaidas = history
+      .filter(h => h.tipoOperacao === 'venda' || h.tipoOperacao === 'perda')
+      .reduce((acc, h) => acc + (Number(h.quantity) || 0), 0);
+
+    const totalEntradas = history
+      .filter(h => h.tipoOperacao === 'entrada')
+      .reduce((acc, h) => acc + (Number(h.quantity) || 0), 0);
+
+    const saldoMetros = Math.max(0, Number((baseMetros + totalEntradas - totalSaidas).toFixed(2)));
+    const saldoBobinas = isBobina ? Number((saldoMetros / compBobina).toFixed(4)) : saldoMetros;
+
+    // Persiste o novo saldo auditado no Supabase e no cache local
+    mp.quantidadeEstoque = saldoBobinas;
+    updateLocalItem(mp);
+
+    if (isValidUUID(mp.id)) {
+      await supabase
+        .from('materias_primas')
+        .update({
+          quantidade_estoque: saldoBobinas,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', mp.id);
+    }
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('materias_primas_updated'));
+      window.dispatchEvent(new CustomEvent('materias_primas_history_updated'));
+    }
+
+    return {
+      success: true,
+      mpName: mp.name,
+      initialMetros: baseMetros,
+      totalConsumoMetros: Number(totalSaidas.toFixed(2)),
+      saldoRestanteMetros: saldoMetros,
+      saldoRestanteBobinas: isBobina ? Number((saldoMetros / compBobina).toFixed(2)) : 0,
+      message: `Estoque de "${mp.name}" sincronizado com sucesso! Bobina inicial: ${baseMetros}m - Saídas em vendas: ${totalSaidas.toFixed(2)}m = Saldo real: ${saldoMetros}m (~${(saldoMetros / compBobina).toFixed(2)} bobina).`
+    };
+  } catch (err: any) {
+    console.error('Erro ao sincronizar estoque pelo histórico:', err);
+    return {
+      success: false,
+      mpName: '',
+      initialMetros: 0,
+      totalConsumoMetros: 0,
+      saldoRestanteMetros: 0,
+      saldoRestanteBobinas: 0,
+      message: err.message || 'Falha ao sincronizar estoque.'
+    };
+  }
+}
+
+/**
+ * Registra a compra / reabastecimento de uma nova bobina ou metros de matéria-prima.
+ * Permite cadastrar a data e hora da compra, preço pago (bobina ou metro),
+ * fornecedor, documento fiscal e atualizar o preço de custo no cadastro.
+ */
+export async function reabastecerMateriaPrima(input: ReabastecimentoInput): Promise<{
+  success: boolean;
+  materiaPrima: MateriaPrima;
+  novoSaldoMetros: number;
+  novoSaldoBobinas: number;
+  message: string;
+}> {
+  const currentList = await fetchMateriasPrimas(input.companyId);
+  const found = currentList.find(m => m.id === input.materiaPrimaId);
+  if (!found) {
+    throw new Error('Matéria-prima não encontrada para reabastecimento.');
+  }
+
+  const compBobina = found.comprimentoBobina && found.comprimentoBobina > 0 ? found.comprimentoBobina : 50;
+  const isBobina = found.tipoCalculoCusto === 'bobina' || (found.unit === 'm' && found.comprimentoBobina);
+
+  // Calcula o saldo atual em metros e em bobinas
+  const rawCurrent = Number(found.quantidadeEstoque ?? 0);
+  let currentMetros = 0;
+  let currentBobinas = 0;
+
+  if (isBobina) {
+    if (rawCurrent <= 15) {
+      currentBobinas = rawCurrent;
+      currentMetros = Number((rawCurrent * compBobina).toFixed(2));
+    } else {
+      currentMetros = rawCurrent;
+      currentBobinas = Number((rawCurrent / compBobina).toFixed(4));
+    }
+  } else {
+    currentMetros = rawCurrent;
+    currentBobinas = compBobina > 0 ? Number((rawCurrent / compBobina).toFixed(4)) : 1;
+  }
+
+  // Quantidade a adicionar
+  let metrosAdicionados = 0;
+  let bobinasAdicionadas = 0;
+
+  if (input.modo === 'bobinas') {
+    bobinasAdicionadas = Number(input.quantidadeAdicionada) || 0;
+    metrosAdicionados = Number((bobinasAdicionadas * compBobina).toFixed(2));
+  } else if (input.modo === 'metros') {
+    metrosAdicionados = Number(input.quantidadeAdicionada) || 0;
+    bobinasAdicionadas = compBobina > 0 ? Number((metrosAdicionados / compBobina).toFixed(4)) : 0;
+  } else {
+    metrosAdicionados = Number(input.quantidadeAdicionada) || 0;
+    bobinasAdicionadas = 0;
+  }
+
+  const novoTotalMetros = Math.max(0, Number((currentMetros + metrosAdicionados).toFixed(2)));
+  const novoTotalBobinas = isBobina 
+    ? (compBobina > 0 ? Number((novoTotalMetros / compBobina).toFixed(4)) : novoTotalMetros) 
+    : novoTotalMetros;
+
+  // Atualiza a quantidade armazenada
+  found.quantidadeEstoque = isBobina ? novoTotalBobinas : novoTotalMetros;
+
+  // Atualiza preço de custo caso solicitado
+  if (input.atualizarPrecoCusto) {
+    if (input.modo === 'bobinas') {
+      const precoBobina = input.valorUnitarioPago || (input.valorTotalPago && bobinasAdicionadas > 0 ? input.valorTotalPago / bobinasAdicionadas : found.valorBobina);
+      if (precoBobina && precoBobina > 0) {
+        found.valorBobina = Number(precoBobina.toFixed(2));
+        found.costPrice = Number((precoBobina / compBobina).toFixed(2));
+        if (found.larguraMaterial && found.larguraMaterial > 0) {
+          found.custoPorM2 = Number((found.costPrice / found.larguraMaterial).toFixed(4));
+        }
+      }
+    } else if (input.modo === 'metros') {
+      const precoPorMetro = input.valorUnitarioPago || (input.valorTotalPago && metrosAdicionados > 0 ? input.valorTotalPago / metrosAdicionados : found.costPrice);
+      if (precoPorMetro && precoPorMetro > 0) {
+        found.costPrice = Number(precoPorMetro.toFixed(2));
+        found.valorBobina = Number((precoPorMetro * compBobina).toFixed(2));
+        if (found.larguraMaterial && found.larguraMaterial > 0) {
+          found.custoPorM2 = Number((found.costPrice / found.larguraMaterial).toFixed(4));
+        }
+      }
+    } else {
+      if (input.valorUnitarioPago && input.valorUnitarioPago > 0) {
+        found.costPrice = Number(input.valorUnitarioPago.toFixed(2));
+      }
+    }
+  }
+
+  // Descrições formatadas para o extrato de movimentação
+  const descQuantidade = isBobina
+    ? (input.modo === 'bobinas'
+        ? `+${bobinasAdicionadas} bobina(s) (${metrosAdicionados.toFixed(2)}m)`
+        : `+${metrosAdicionados.toFixed(2)}m (~${bobinasAdicionadas.toFixed(2)} bob.)`)
+    : `+${metrosAdicionados.toFixed(2)} ${found.unit}`;
+
+  const descPreco = input.valorTotalPago
+    ? ` • Total: R$ ${input.valorTotalPago.toFixed(2)}${input.valorUnitarioPago ? ` (R$ ${input.valorUnitarioPago.toFixed(2)}/${input.modo === 'bobinas' ? 'bobina' : 'm'})` : ''}`
+    : '';
+  const descFornecedor = input.fornecedor ? ` • Fornecedor: ${input.fornecedor}` : '';
+  const descNF = input.notaFiscal ? ` • NF: ${input.notaFiscal}` : '';
+  const descObs = input.observacao ? ` • Obs: ${input.observacao}` : '';
+
+  // Registra no histórico de movimentações com data/hora escolhida
+  const timestampIso = input.dataHoraCompra 
+    ? (input.dataHoraCompra.includes('T') ? new Date(input.dataHoraCompra).toISOString() : new Date(`${input.dataHoraCompra}T12:00:00`).toISOString())
+    : new Date().toISOString();
+
+  await recordMateriaPrimaConsumption({
+    materiaPrimaId: found.id,
+    materiaPrimaName: found.name,
+    companyId: found.companyId || input.companyId || 'rafa-arts',
+    quantity: metrosAdicionados,
+    unit: found.unit || 'm',
+    tipoOperacao: 'entrada',
+    saldoApos: novoTotalMetros,
+    timestamp: timestampIso,
+    valorTotal: input.valorTotalPago,
+    valorUnitario: input.valorUnitarioPago,
+    fornecedor: input.fornecedor,
+    notaFiscal: input.notaFiscal,
+    observacao: `Reabastecimento / Compra: ${descQuantidade}${descPreco}${descFornecedor}${descNF}${descObs}`
+  });
+
+  // Salva no cache local
+  updateLocalItem(found);
+
+  // Persiste no Supabase
+  if (isValidUUID(found.id)) {
+    const updatePayload: any = {
+      quantidade_estoque: found.quantidadeEstoque,
+      updated_at: new Date().toISOString()
+    };
+    if (input.atualizarPrecoCusto) {
+      updatePayload.cost_price = found.costPrice;
+      if (found.valorBobina !== undefined) updatePayload.valor_bobina = found.valorBobina;
+      if (found.custoPorM2 !== undefined) updatePayload.custo_por_m2 = found.custoPorM2;
+    }
+
+    try {
+      await supabase
+        .from('materias_primas')
+        .update(updatePayload)
+        .eq('id', found.id);
+    } catch (e: any) {
+      console.warn('Erro ao atualizar matéria-prima no Supabase após reabastecimento:', e?.message);
+    }
+  }
+
+  // Recalcula custos dos produtos se o preço de custo foi atualizado
+  if (input.atualizarPrecoCusto) {
+    try {
+      await recalcAllProductCosts(input.companyId);
+    } catch (e) {
+      console.warn('Erro ao recalcular custos de produtos após reabastecer:', e);
+    }
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('materias_primas_updated'));
+    window.dispatchEvent(new CustomEvent('materias_primas_history_updated'));
+  }
+
+  return {
+    success: true,
+    materiaPrima: found,
+    novoSaldoMetros: novoTotalMetros,
+    novoSaldoBobinas: isBobina ? Number((novoTotalMetros / compBobina).toFixed(2)) : 0,
+    message: `Reabastecimento registrado com sucesso! Entrada: ${descQuantidade}. Novo saldo em estoque: ${novoTotalMetros.toFixed(2)}m${isBobina ? ` (~${(novoTotalMetros / compBobina).toFixed(2)} bobina)` : ''}.`
+  };
+}
+

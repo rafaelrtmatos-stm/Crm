@@ -901,12 +901,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
         addPendingOrder(finalizedOrder);
       }
 
-      await loadSalesHistory();
-      await loadProducts();
+      // Optimistically update local history immediately
+      setAllSalesHistory(prev => [finalizedOrder, ...prev]);
 
       clearCart();
       setIsPaymentModalOpen(false);
       setIsSuccessModalOpen(true);
+
+      // Reload in background without blocking the UI
+      loadSalesHistory().catch(() => {});
+      loadProducts().catch(() => {});
     } catch (err: any) {
       console.error('Erro ao finalizar venda:', err);
       showAlert(`Erro ao salvar venda: ${err?.message || 'erro desconhecido'}`);
@@ -1645,6 +1649,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
 
             {customers
               .filter(c => !customerSearch || c.name.toLowerCase().includes(customerSearch.toLowerCase()) || (c.phone && c.phone.includes(customerSearch)))
+              .slice(0, 50)
               .map(c => (
                 <div
                   key={c.id}

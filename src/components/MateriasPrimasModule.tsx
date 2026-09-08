@@ -3,7 +3,7 @@ import {
   Layers, Plus, Search, Edit2, Trash2, CheckCircle2, XCircle,
   Download, RefreshCw, AlertCircle, FileText, Check, X, Tag, DollarSign,
   ShieldCheck, ArrowUpDown, Filter, Calculator, Sparkles, Box, Ruler, CheckCircle, Copy,
-  History, Clock, TrendingDown, PackageCheck, AlertTriangle, Calendar, Sliders
+  History, Clock, TrendingDown, PackageCheck, AlertTriangle, Calendar, Sliders, ShoppingBag
 } from 'lucide-react';
 import { Company, AppUser, MateriaPrima } from '../types';
 import { showAlert, showConfirm } from '../lib/notify';
@@ -23,6 +23,7 @@ import {
 } from '../lib/materiasPrimasStorage';
 import { MateriaPrimaHistoryModal } from './MateriaPrimaHistoryModal';
 import { QuickAdjustStockModal } from './QuickAdjustStockModal';
+import { ReabastecerMateriaPrimaModal } from './ReabastecerMateriaPrimaModal';
 import * as XLSX from 'xlsx';
 
 interface MateriasPrimasModuleProps {
@@ -76,9 +77,12 @@ export const MateriaPrimaFormModal: React.FC<MateriaPrimaFormModalProps> = ({
       const modo = editingItem.tipoCalculoCusto || (editingItem.unit === 'm' ? (editingItem.comprimentoBobina ? 'bobina' : 'metro') : 'unidade');
       setCalcMode(modo);
       setBobinaStockInputMode('bobinas');
+      const comp = editingItem.comprimentoBobina !== undefined ? editingItem.comprimentoBobina : 50;
       setLarguraMaterial(editingItem.larguraMaterial !== undefined ? editingItem.larguraMaterial : 1.52);
-      setComprimentoBobina(editingItem.comprimentoBobina !== undefined ? editingItem.comprimentoBobina : 50);
-      setQuantidadeEstoque(editingItem.quantidadeEstoque !== undefined ? editingItem.quantidadeEstoque : 1);
+      setComprimentoBobina(comp);
+      const rawEst = editingItem.quantidadeEstoque !== undefined ? editingItem.quantidadeEstoque : 1;
+      const bobinasVal = (modo === 'bobina' && rawEst > 15 && comp > 0) ? Number((rawEst / comp).toFixed(4)) : rawEst;
+      setQuantidadeEstoque(bobinasVal);
       setNotes(editingItem.notes || '');
       setIsActive(editingItem.isActive !== undefined ? editingItem.isActive : true);
 
@@ -184,6 +188,13 @@ export const MateriaPrimaFormModal: React.FC<MateriaPrimaFormModalProps> = ({
     const finalCostPrice = calculations.costPerUnit;
     const finalValorBobina = calcMode === 'bobina' ? Number(valorBobina) || (finalCostPrice * (Number(comprimentoBobina) || 50)) : undefined;
 
+    // Normaliza o estoque: se for bobina e o usuário preencheu em metros, converte para fração de bobina
+    const finalEstoque = calcMode === 'bobina'
+      ? (bobinaStockInputMode === 'metros'
+          ? (Number(comprimentoBobina) > 0 ? Number((Number(quantidadeEstoque) / Number(comprimentoBobina)).toFixed(4)) : Number(quantidadeEstoque))
+          : Number(quantidadeEstoque))
+      : Number(quantidadeEstoque);
+
     try {
       setSaving(true);
       const saved = await saveMateriaPrima({
@@ -195,7 +206,7 @@ export const MateriaPrimaFormModal: React.FC<MateriaPrimaFormModalProps> = ({
         tipoCalculoCusto: calcMode,
         larguraMaterial: (finalUnit === 'm' || (typeof larguraMaterial === 'number' && larguraMaterial > 0)) ? Number(larguraMaterial) : undefined,
         comprimentoBobina: calcMode === 'bobina' ? Number(comprimentoBobina) : undefined,
-        quantidadeEstoque: Number(quantidadeEstoque) || 0,
+        quantidadeEstoque: Number(finalEstoque) || 0,
         custoPorM2: calculations.costPerM2,
         notes: notes.trim(),
         isActive: isActive,
@@ -826,6 +837,15 @@ export const MateriasPrimasModule: React.FC<MateriasPrimasModuleProps> = ({ curr
   const [isQuickAdjustModalOpen, setIsQuickAdjustModalOpen] = useState(false);
   const [adjustTargetMp, setAdjustTargetMp] = useState<MateriaPrima | null>(null);
 
+  // Modal de Reabastecimento / Compra de Bobina
+  const [isReabastecerModalOpen, setIsReabastecerModalOpen] = useState(false);
+  const [reabastecerTargetMp, setReabastecerTargetMp] = useState<MateriaPrima | null>(null);
+
+  const handleOpenReabastecer = (item: MateriaPrima | null) => {
+    setReabastecerTargetMp(item);
+    setIsReabastecerModalOpen(true);
+  };
+
   useEffect(() => {
     loadData();
 
@@ -1049,6 +1069,15 @@ export const MateriasPrimasModule: React.FC<MateriasPrimasModuleProps> = ({ curr
           >
             <Download size={14} />
             <span className="hidden sm:inline">Exportar Excel</span>
+          </Button>
+
+          <Button
+            onClick={() => handleOpenReabastecer(null)}
+            className="text-xs py-2.5 px-3 sm:px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black shadow-lg shadow-emerald-500/20 flex items-center gap-1.5"
+            title="Comprar nova bobina ou adicionar metros de matéria-prima"
+          >
+            <ShoppingBag size={15} />
+            <span>+ Reabastecer Estoque</span>
           </Button>
 
           <Button
@@ -1425,14 +1454,23 @@ export const MateriasPrimasModule: React.FC<MateriasPrimasModuleProps> = ({ curr
                       {/* BARRA DE AÇÕES EXTERNAS */}
                       <div className="pt-3 mt-3 border-t border-white/10 flex items-center gap-1.5 flex-wrap">
                         <button
+                          onClick={() => handleOpenReabastecer(item)}
+                          className="flex-1 py-2 px-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-500/20 active:scale-95 transition-all"
+                          title="Comprar nova bobina ou adicionar metros ao estoque com data, hora e preço"
+                        >
+                          <ShoppingBag size={14} />
+                          <span>+ Comprar</span>
+                        </button>
+
+                        <button
                           onClick={() => {
                             setAdjustTargetMp(item);
                             setIsQuickAdjustModalOpen(true);
                           }}
-                          className="flex-1 py-2 px-2.5 bg-primary-500 hover:bg-primary-400 text-slate-950 font-black rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-md shadow-primary-500/20 active:scale-95 transition-all"
+                          className="py-2 px-2.5 bg-white/5 hover:bg-white/10 text-white/80 border border-white/10 rounded-xl text-xs font-bold flex items-center justify-center gap-1 active:scale-95 transition-all"
                           title="Ajustar metros ou bobinas diretamente"
                         >
-                          <Sliders size={14} />
+                          <Sliders size={14} className="text-primary-400" />
                           <span>Ajustar</span>
                         </button>
 
@@ -1635,6 +1673,14 @@ export const MateriasPrimasModule: React.FC<MateriasPrimasModuleProps> = ({ curr
                           <td className="py-3.5 px-4 text-right">
                             <div className="flex items-center justify-end gap-1.5">
                               <button
+                                onClick={() => handleOpenReabastecer(item)}
+                                title="Comprar bobina ou reabastecer metros"
+                                className="p-2 text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 rounded-xl transition-all"
+                              >
+                                <ShoppingBag size={14} />
+                              </button>
+
+                              <button
                                 onClick={() => {
                                   setAdjustTargetMp(item);
                                   setIsQuickAdjustModalOpen(true);
@@ -1700,6 +1746,18 @@ export const MateriasPrimasModule: React.FC<MateriasPrimasModuleProps> = ({ curr
         onClose={() => setIsQuickAdjustModalOpen(false)}
         materiaPrima={adjustTargetMp}
         onStockSaved={loadData}
+        companyId={currentCompany?.id}
+      />
+
+      {/* Modal de Reabastecimento / Compra de Bobina */}
+      <ReabastecerMateriaPrimaModal
+        isOpen={isReabastecerModalOpen}
+        onClose={() => setIsReabastecerModalOpen(false)}
+        materiaPrima={reabastecerTargetMp}
+        materiasPrimas={materiasPrimas}
+        onSuccess={() => {
+          loadData();
+        }}
         companyId={currentCompany?.id}
       />
 

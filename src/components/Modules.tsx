@@ -596,18 +596,28 @@ const mapCrmMessageRow = (row: any): any => ({
   createdAt: row.created_at,
 });
 
-function deduplicateExtraCosts(costs: any[]): Array<{ id: string; description: string; amount: number; colaboradorId?: string; origemItemIndex?: number }> {
+function deduplicateExtraCosts(costs: any[]): Array<{ id: string; description: string; amount: number; colaboradorId?: string; origemItemIndex?: number; date?: string }> {
   if (!Array.isArray(costs) || costs.length === 0) return [];
   const seen = new Set<string>();
-  return costs.filter((c) => {
-    const desc = (c.description || '').trim().toLowerCase();
-    if (desc.startsWith('comissão') || desc.startsWith('comissao') || c.colaboradorId) {
-      const key = `${c.colaboradorId || ''}_${c.origemItemIndex ?? ''}_${desc}_${Number(c.amount || 0).toFixed(2)}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-    }
-    return true;
-  });
+  return costs
+    .filter(Boolean)
+    .map((c, idx) => ({
+      id: String(c.id || `extra-${idx}-${Date.now()}`),
+      description: String(c.description || c.descricao || 'Despesa adicional'),
+      amount: Number(c.amount ?? c.valor ?? c.value) || 0,
+      colaboradorId: c.colaboradorId || c.colaborador_id,
+      origemItemIndex: c.origemItemIndex ?? c.origem_item_index ?? c.itemIndex,
+      date: c.date || c.data,
+    }))
+    .filter((c) => {
+      const desc = (c.description || '').trim().toLowerCase();
+      if (desc.startsWith('comissão') || desc.startsWith('comissao') || c.colaboradorId) {
+        const key = `${c.colaboradorId || ''}_${c.origemItemIndex ?? ''}_${desc}_${c.amount.toFixed(2)}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+      }
+      return true;
+    });
 }
 
 const mapVendaRow = (row: any): SaleOrder => ({
@@ -7197,6 +7207,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         ({ data, error } = await supabase.from('clientes').insert(payload).select().single());
       }
       if (error) throw error;
+      if (data) {
+        setAllCustomers(prev => {
+          const exists = prev.some(c => c.id === data.id);
+          if (exists) return prev.map(c => c.id === data.id ? { ...c, ...data } : c);
+          return [data, ...prev];
+        });
+      }
       setSelectedCustomer({ id: data.id, name: data.full_name, phone: data.phone || '' });
       setNewCustomerForm({ ...emptyCustomerForm });
       setIsMoreOptionsOpen(false);
@@ -7204,9 +7221,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       setCustomerModalMode('search');
       if (!editingCustomerId) {
         proceedAfterCustomerStep(data);
-      } else {
-        loadAllCustomers();
       }
+      // Atualiza lista em segundo plano sem travar
+      loadAllCustomers().catch(() => {});
     } catch (err) {
       console.error('Erro ao salvar cliente:', err);
       showAlert('Não foi possível salvar o cliente.');
@@ -7277,6 +7294,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setIsAddPaymentOpen(true);
   };
   const [isVerifying, setIsVerifying] = useState(false);
+  const [isFinalizingSale, setIsFinalizingSale] = useState(false);
+  const salesHistoryDebounceRef = React.useRef<any>(null);
   const [salesToday, setSalesToday] = useState<SaleOrder[]>([]);
   const [allSalesHistory, setAllSalesHistory] = useState<SaleOrder[]>([]);
 
@@ -8945,12 +8964,24 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setCalculadoraExpr('');
   };
 
-  const openCustosDaNota = (sale: SaleOrder) => {
+  const openCustosDaNota = async (sale: SaleOrder) => {
     loadMaquinasCusto();
+    const initialCosts = deduplicateExtraCosts(sale.extraCosts || []);
     setCustosNotaSale(sale);
-    setCustosNotaDraft(sale.extraCosts ? [...sale.extraCosts] : []);
+    setCustosNotaDraft(initialCosts);
     setNovoCustoDesc('');
     setNovoCustoValor('');
+
+    try {
+      const { data } = await supabase.from('vendas').select('custos_extras').eq('id', sale.id).maybeSingle();
+      if (data && Array.isArray(data.custos_extras)) {
+        const freshCosts = deduplicateExtraCosts(data.custos_extras);
+        setCustosNotaDraft(freshCosts);
+        setCustosNotaSale(prev => prev && prev.id === sale.id ? { ...prev, extraCosts: freshCosts } : prev);
+      }
+    } catch (err) {
+      console.warn('Erro ao atualizar custos extras da nota:', err);
+    }
   };
 
   const adicionarCustoNota = () => {
@@ -8966,11 +8997,20 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     if (!custosNotaSale) return;
     setCustosNotaSaving(true);
     try {
-      const { error } = await supabase.from('vendas').update({ custos_extras: custosNotaDraft }).eq('id', custosNotaSale.id);
+      let finalDraft = [...custosNotaDraft];
+      if (novoCustoValor !== '' && Number(novoCustoValor) > 0) {
+        const desc = novoCustoDesc.trim() || 'Despesa adicional';
+        finalDraft.push({ id: `${Date.now()}`, description: desc, amount: Number(novoCustoValor) });
+      }
+      finalDraft = deduplicateExtraCosts(finalDraft);
+      const { error } = await supabase.from('vendas').update({ custos_extras: finalDraft }).eq('id', custosNotaSale.id);
       if (error) throw error;
-      const atualizarLista = (list: SaleOrder[]) => list.map(s => s.id === custosNotaSale.id ? { ...s, extraCosts: custosNotaDraft } : s);
+      const atualizarLista = (list: SaleOrder[]) => list.map(s => s.id === custosNotaSale.id ? { ...s, extraCosts: finalDraft } : s);
       setAllSalesHistory(atualizarLista);
+      setSalesToday(atualizarLista);
       setCustosNotaSale(null);
+      setNovoCustoDesc('');
+      setNovoCustoValor('');
     } catch (e) {
       console.error('Erro ao salvar custos da nota:', e);
       await showAlert('Não foi possível salvar os custos extras. Tente novamente.');
@@ -9960,8 +10000,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   useEffect(() => {
     if (!currentCompany) return;
     loadSalesHistory();
-    const channel = supabase.channel('pos-vendas').on('postgres_changes', { event: '*', schema: 'public', table: 'vendas' }, loadSalesHistory).subscribe();
-    return () => { supabase.removeChannel(channel); };
+    const handleRealtimeChange = () => {
+      if (salesHistoryDebounceRef.current) clearTimeout(salesHistoryDebounceRef.current);
+      salesHistoryDebounceRef.current = setTimeout(() => {
+        loadSalesHistory();
+      }, 1500);
+    };
+    const channel = supabase.channel('pos-vendas').on('postgres_changes', { event: '*', schema: 'public', table: 'vendas' }, handleRealtimeChange).subscribe();
+    return () => {
+      if (salesHistoryDebounceRef.current) clearTimeout(salesHistoryDebounceRef.current);
+      supabase.removeChannel(channel);
+    };
   }, [currentCompany]);
 
   useEffect(() => {
@@ -10072,6 +10121,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, []);
+
+  const filteredTerminalProducts = useMemo(() => {
+    const q = search.trim().toUpperCase();
+    if (!q) return products;
+    return products.filter(p => (p.name && p.name.toUpperCase().includes(q)) || (p.code && p.code.toUpperCase().includes(q)));
+  }, [products, search]);
 
   // Cadastro rapido de produto direto pelo Terminal de Venda (mesma tabela do Estoque)
   const [isQuickProductOpen, setIsQuickProductOpen] = useState(false);
@@ -10774,413 +10829,422 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   }, [allSalesHistory]);
 
   const handleFinalize = async (isPending: boolean = false, forceZeroPayment: boolean = false) => {
-    // Protecao de UX: se o usuario digitou um valor no campo de pagamento mas esqueceu de
-    // clicar em "+ Adicionar", inclui esse valor automaticamente na lista antes de processar —
-    // evita registrar/quitar um pagamento de R$ 0,00 por engano so porque o valor ficou
-    // digitado no campo e nunca foi confirmado na lista.
-    const pendingEntry = forceZeroPayment ? null : buildPaymentEntryFromInput();
-    const effectivePaymentEntries = pendingEntry ? [...paymentEntries, pendingEntry] : paymentEntries;
-    const effectivePaymentEntriesTotal = effectivePaymentEntries.reduce((sum, p) => sum + (p.value || 0), 0);
-    if (pendingEntry) {
-      setPaymentEntries(effectivePaymentEntries);
-      setNewPaymentMode('valor');
-      setNewPaymentInstallments(1);
-      setUseCustomPaymentDate(false);
-      setCustomPaymentDate('');
-    }
+    if (isFinalizingSale) return;
+    setIsFinalizingSale(true);
+    try {
+      // Protecao de UX: se o usuario digitou um valor no campo de pagamento mas esqueceu de
+      // clicar em "+ Adicionar", inclui esse valor automaticamente na lista antes de processar —
+      // evita registrar/quitar um pagamento de R$ 0,00 por engano so porque o valor ficou
+      // digitado no campo e nunca foi confirmado na lista.
+      const pendingEntry = forceZeroPayment ? null : buildPaymentEntryFromInput();
+      const effectivePaymentEntries = pendingEntry ? [...paymentEntries, pendingEntry] : paymentEntries;
+      const effectivePaymentEntriesTotal = effectivePaymentEntries.reduce((sum, p) => sum + (p.value || 0), 0);
+      if (pendingEntry) {
+        setPaymentEntries(effectivePaymentEntries);
+        setNewPaymentMode('valor');
+        setNewPaymentInstallments(1);
+        setUseCustomPaymentDate(false);
+        setCustomPaymentDate('');
+      }
 
-    // Som do caixa toca exclusivamente quando houver valor financeiro sendo recebido agora (valor > 0)
-    if (effectivePaymentEntriesTotal > 0) {
-      try {
-        const audio = new Audio('/sounds/sale-complete.mp3');
-        audio.play().catch(() => {});
-      } catch (e) {}
-    }
-
-    // Edicao completa de uma nota ja existente (itens do carrinho alterados): atualiza a mesma
-    // linha no banco (itens + total) em vez de criar uma venda nova, e ajusta o estoque so pela
-    // DIFERENCA entre o que tinha antes e o que ficou agora (nao deduz tudo de novo).
-    if (editingFullOrder) {
-      // Recalcula o total pago a partir da lista EDITADA de pagamentos (editingPaymentsList),
-      // nao do downPayment travado da nota original. Usar o downPayment antigo aqui somava o
-      // valor anterior com o novo mesmo quando um pagamento existente foi removido/substituido
-      // na edicao (ex: 50 excluido + 60 lancado virava 50 + 60 = 110 em vez de 60). Assim o
-      // total pago fica sempre igual a soma real do array que vai ser salvo (idempotente).
-      const totalPagoAnteriorEditado = editingPaymentsList.reduce((sum, p) => sum + (p.value || 0), 0);
-      const totalPago = totalPagoAnteriorEditado + effectivePaymentEntriesTotal;
-      const novoSaldo = Math.max(0, total - totalPago);
-      try {
-        // Ajusta estoque so pela diferenca de consumo entre os itens antigos e os novos
-        const consumoItem = (i: any) => i.consumoEstoque !== undefined ? i.consumoEstoque * i.quantity : (i.area ? i.area * i.quantity : i.quantity);
-        const consumoAntigo: Record<string, number> = {};
-        (editingFullOrder.items || []).forEach((i: any) => { if (i.productId && i.productId !== 'manual') consumoAntigo[i.productId] = (consumoAntigo[i.productId] || 0) + consumoItem(i); });
-        const consumoNovo: Record<string, number> = {};
-        cart.forEach((i: any) => { if (i.productId && i.productId !== 'manual') consumoNovo[i.productId] = (consumoNovo[i.productId] || 0) + consumoItem(i); });
-        const todosIds = new Set([...Object.keys(consumoAntigo), ...Object.keys(consumoNovo)]);
-        await Promise.all(Array.from(todosIds).map(async (pid) => {
-          const delta = (consumoNovo[pid] || 0) - (consumoAntigo[pid] || 0);
-          if (delta === 0) return;
-          const { data: prodAtual } = await supabase.from('produtos').select('current_stock, controla_estoque').eq('id', pid).maybeSingle();
-          if (prodAtual && prodAtual.controla_estoque !== false) {
-            const novoEstoque = Math.max(0, (Number(prodAtual.current_stock) || 0) - delta);
-            await supabase.from('produtos').update({ current_stock: novoEstoque }).eq('id', pid);
-          }
-        }));
-
-        const pagamentosFinaisEdicao = [...editingPaymentsList, ...effectivePaymentEntries];
-        const { data, error } = await supabase.from('vendas').update({
-          cliente_id: selectedCustomer?.id || null,
-          customer_name: selectedCustomer?.name || editingFullOrder.customerName,
-          customer_phone: selectedCustomer?.phone || editingFullOrder.customerPhone,
-          items: cart,
-          total,
-          discount_value: saleDiscountValue || null,
-          down_payment: totalPago,
-          received_value: totalPago,
-          payments: pagamentosFinaisEdicao,
-          status: novoSaldo <= 0 ? 'completed' : 'pending',
-          observacoes: orderObservacoes || null,
-          scheduled_for: localDatetimeToIso(scheduledFor) || editingFullOrder.scheduledFor || null,
-          created_at: editingCreatedAt ? new Date(editingCreatedAt).toISOString() : editingFullOrder.createdAt,
-          updated_at: new Date().toISOString(),
-        }).eq('id', editingFullOrder.id).select();
-        if (error) throw error;
-        if (!data || data.length === 0) throw new Error('O pedido não foi encontrado pra atualizar — pode ter sido removido ou alterado por outra pessoa.');
-
-        // Se essa nota tem Orcamento e/ou Contrato vinculados, mantem os itens/valor deles
-        // em sincronia com o que foi editado aqui na nota
-        const idsVinculados = [editingFullOrder.orcamentoId, editingFullOrder.contratoId].filter(Boolean) as string[];
-        if (idsVinculados.length > 0) {
-          await Promise.all(idsVinculados.map(id =>
-            supabase.from('orcamentos').update({ items: cart, total, desconto: saleDiscountValue || 0 }).eq('id', id)
-          ));
-        }
-
-        // Sincroniza serviços de comissões (10% padrão ou configurado) vinculados a esta nota
+      // Som do caixa toca exclusivamente quando houver valor financeiro sendo recebido agora (valor > 0)
+      if (effectivePaymentEntriesTotal > 0) {
         try {
-          const { data: servicosVinculados } = await supabase
-            .from('comissoes_servicos')
-            .select('*')
-            .eq('origem_nota_id', editingFullOrder.id)
-            .is('deleted_at', null);
+          const audio = new Audio('/sounds/sale-complete.mp3');
+          audio.play().catch(() => {});
+        } catch (e) {}
+      }
 
-          if (servicosVinculados && servicosVinculados.length > 0) {
-            const novosCustosExtras = editingFullOrder.extraCosts ? [...editingFullOrder.extraCosts] : [];
-            const subtotalBruto = cart.reduce((acc, it) => acc + (it.price || 0) * (it.quantity || 1), 0);
+      // 1. Edicao completa de uma nota ja existente (itens do carrinho alterados): atualiza a mesma
+      // linha no banco (itens + total) em vez de criar uma venda nova
+      if (editingFullOrder) {
+        const totalPagoAnteriorEditado = editingPaymentsList.reduce((sum, p) => sum + (p.value || 0), 0);
+        const totalPago = totalPagoAnteriorEditado + effectivePaymentEntriesTotal;
+        const novoSaldo = Math.max(0, total - totalPago);
+        try {
+          const pagamentosFinaisEdicao = [...editingPaymentsList, ...effectivePaymentEntries];
+          const { data, error } = await supabase.from('vendas').update({
+            cliente_id: selectedCustomer?.id || null,
+            customer_name: selectedCustomer?.name || editingFullOrder.customerName,
+            customer_phone: selectedCustomer?.phone || editingFullOrder.customerPhone,
+            items: cart,
+            total,
+            discount_value: saleDiscountValue || null,
+            down_payment: totalPago,
+            received_value: totalPago,
+            payments: pagamentosFinaisEdicao,
+            status: novoSaldo <= 0 ? 'completed' : 'pending',
+            observacoes: orderObservacoes || null,
+            scheduled_for: localDatetimeToIso(scheduledFor) || editingFullOrder.scheduledFor || null,
+            created_at: editingCreatedAt ? new Date(editingCreatedAt).toISOString() : editingFullOrder.createdAt,
+            updated_at: new Date().toISOString(),
+          }).eq('id', editingFullOrder.id).select();
+          if (error) throw error;
+          if (!data || data.length === 0) throw new Error('O pedido não foi encontrado pra atualizar — pode ter sido removido ou alterado por outra pessoa.');
 
-            for (const s of servicosVinculados) {
-              const itemIdx = typeof s.origem_item_index === 'number' ? s.origem_item_index : 0;
-              const itemCart = cart[itemIdx] || cart[0];
-              if (itemCart) {
-                const itemTotal = (itemCart.price || 0) * (itemCart.quantity || 1);
-                const descProp = subtotalBruto > 0 ? (itemTotal / subtotalBruto) * (saleDiscountValue || 0) : 0;
-                const novoValorProd = Math.max(0, Number((itemTotal - descProp).toFixed(2)));
-                const pct = Number(s.comissao_percentual) || 10;
-                const novaComissao = Number(((novoValorProd * pct) / 100).toFixed(2));
+          const updatedOrder: SaleOrder = {
+            ...editingFullOrder,
+            customerId: selectedCustomer?.id || editingFullOrder.customerId,
+            customerName: selectedCustomer?.name || editingFullOrder.customerName,
+            customerPhone: selectedCustomer?.phone || editingFullOrder.customerPhone,
+            items: [...cart],
+            total,
+            discountValue: saleDiscountValue || undefined,
+            downPayment: totalPago,
+            receivedValue: totalPago,
+            payments: pagamentosFinaisEdicao,
+            status: novoSaldo <= 0 ? 'completed' : 'pending',
+            observacoes: orderObservacoes || undefined,
+            scheduledFor: localDatetimeToIso(scheduledFor) || editingFullOrder.scheduledFor || undefined,
+            createdAt: editingCreatedAt ? new Date(editingCreatedAt).toISOString() : editingFullOrder.createdAt,
+            updatedAt: new Date().toISOString(),
+          };
+          setLastFinalizedOrder(updatedOrder);
+          setAllSalesHistory(prev => prev.map(s => s.id === editingFullOrder.id ? updatedOrder : s).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+          setSalesToday(prev => prev.map(s => s.id === editingFullOrder.id ? updatedOrder : s));
+          setIsSuccessModalOpen(true);
+          setIsPaymentModalOpen(false);
 
-                await supabase.from('comissoes_servicos').update({
-                  valor_producao: novoValorProd,
-                  comissao_valor: novaComissao,
-                  updated_at: new Date().toISOString()
-                }).eq('id', s.id);
+          // Salva referências locais antes de resetar o formulário
+          const currentCart = [...cart];
+          const oldItems = editingFullOrder.items ? [...editingFullOrder.items] : [];
+          const oldExtraCosts = editingFullOrder.extraCosts ? [...editingFullOrder.extraCosts] : [];
+          const orderId = editingFullOrder.id;
+          const orcamentoId = editingFullOrder.orcamentoId;
+          const contratoId = editingFullOrder.contratoId;
+          const discountVal = saleDiscountValue || 0;
 
-                // Atualiza também no custos_extras da nota
-                const cIdx = novosCustosExtras.findIndex(c => c.colaboradorId === s.colaborador_id && (c.itemIndex === itemIdx || c.origemItemIndex === itemIdx));
-                if (cIdx >= 0) {
-                  novosCustosExtras[cIdx] = {
-                    ...novosCustosExtras[cIdx],
-                    amount: novaComissao,
-                    valor: novaComissao,
-                    descricao: `Comissão — ${itemCart.name || s.tipo_servico} (${pct}%)`
-                  };
+          setEditingFullOrder(null);
+          setCart([]);
+          setSelectedCustomer(null);
+          setPaymentEntries([]);
+          setDownPayment(0);
+          setScheduledFor('');
+          setOrderObservacoes('');
+          setSaleDiscountValue(0);
+          setSaleDiscountInput('');
+          setSaleCreditApplied(0);
+          setEditingCreatedAt('');
+
+          // Processamento assíncrono em segundo plano (estoque, orçamentos e comissões)
+          (async () => {
+            try {
+              // Ajusta estoque so pela diferenca de consumo entre os itens antigos e os novos
+              const consumoItem = (i: any) => i.consumoEstoque !== undefined ? i.consumoEstoque * i.quantity : (i.area ? i.area * i.quantity : i.quantity);
+              const consumoAntigo: Record<string, number> = {};
+              oldItems.forEach((i: any) => { if (i.productId && i.productId !== 'manual') consumoAntigo[i.productId] = (consumoAntigo[i.productId] || 0) + consumoItem(i); });
+              const consumoNovo: Record<string, number> = {};
+              currentCart.forEach((i: any) => { if (i.productId && i.productId !== 'manual') consumoNovo[i.productId] = (consumoNovo[i.productId] || 0) + consumoItem(i); });
+              const todosIds = new Set([...Object.keys(consumoAntigo), ...Object.keys(consumoNovo)]);
+              await Promise.all(Array.from(todosIds).map(async (pid) => {
+                const delta = (consumoNovo[pid] || 0) - (consumoAntigo[pid] || 0);
+                if (delta === 0) return;
+                const { data: prodAtual } = await supabase.from('produtos').select('current_stock, controla_estoque').eq('id', pid).maybeSingle();
+                if (prodAtual && prodAtual.controla_estoque !== false) {
+                  const novoEstoque = Math.max(0, (Number(prodAtual.current_stock) || 0) - delta);
+                  await supabase.from('produtos').update({ current_stock: novoEstoque }).eq('id', pid);
+                }
+              }));
+
+              // Se essa nota tem Orcamento e/ou Contrato vinculados, mantem os itens/valor em sincronia
+              const idsVinculados = [orcamentoId, contratoId].filter(Boolean) as string[];
+              if (idsVinculados.length > 0) {
+                await Promise.all(idsVinculados.map(id =>
+                  supabase.from('orcamentos').update({ items: currentCart, total, desconto: discountVal }).eq('id', id)
+                ));
+              }
+
+              // Sincroniza serviços de comissões vinculados a esta nota
+              const { data: servicosVinculados } = await supabase
+                .from('comissoes_servicos')
+                .select('*')
+                .eq('origem_nota_id', orderId)
+                .is('deleted_at', null);
+
+              if (servicosVinculados && servicosVinculados.length > 0) {
+                const novosCustosExtras = [...oldExtraCosts];
+                const subtotalBruto = currentCart.reduce((acc, it) => acc + (it.price || 0) * (it.quantity || 1), 0);
+
+                for (const s of servicosVinculados) {
+                  const itemIdx = typeof s.origem_item_index === 'number' ? s.origem_item_index : 0;
+                  const itemCart = currentCart[itemIdx] || currentCart[0];
+                  if (itemCart) {
+                    const itemTotal = (itemCart.price || 0) * (itemCart.quantity || 1);
+                    const descProp = subtotalBruto > 0 ? (itemTotal / subtotalBruto) * discountVal : 0;
+                    const novoValorProd = Math.max(0, Number((itemTotal - descProp).toFixed(2)));
+                    const pct = Number(s.comissao_percentual) || 10;
+                    const novaComissao = Number(((novoValorProd * pct) / 100).toFixed(2));
+
+                    await supabase.from('comissoes_servicos').update({
+                      valor_producao: novoValorProd,
+                      comissao_valor: novaComissao,
+                      updated_at: new Date().toISOString()
+                    }).eq('id', s.id);
+
+                    const cIdx = novosCustosExtras.findIndex(c => c.colaboradorId === s.colaborador_id && (c.itemIndex === itemIdx || c.origemItemIndex === itemIdx));
+                    if (cIdx >= 0) {
+                      novosCustosExtras[cIdx] = {
+                        ...novosCustosExtras[cIdx],
+                        amount: novaComissao,
+                        valor: novaComissao,
+                        descricao: `Comissão — ${itemCart.name || s.tipo_servico} (${pct}%)`
+                      };
+                    }
+                  }
+                }
+
+                await supabase.from('vendas').update({ custos_extras: novosCustosExtras }).eq('id', orderId);
+              }
+            } catch (bgErr) {
+              console.warn('Aviso ao sincronizar dados secundários da nota editada:', bgErr);
+            }
+          })();
+        } catch (err: any) {
+          console.error('Erro ao salvar edição da nota:', err);
+          showAlert(`Não foi possível salvar as alterações: ${err?.message || 'erro desconhecido'}`);
+        }
+        return;
+      }
+
+      // 2. Quitar Debito: atualiza a venda ja existente em vez de criar uma nova
+      if (settlingOrder) {
+        const novoTotalPago = alreadyPaidForSettle + effectivePaymentEntriesTotal;
+        const novoSaldo = Math.max(0, paymentModalTotal - novoTotalPago);
+        const pagamentosFinais = [...editingPaymentsList, ...effectivePaymentEntries];
+        try {
+          const { data, error } = await supabase.from('vendas').update({
+            total: paymentModalTotal,
+            discount_value: saleDiscountValue || null,
+            down_payment: novoTotalPago,
+            received_value: novoTotalPago,
+            payments: pagamentosFinais,
+            status: novoSaldo <= 0 ? 'completed' : 'pending',
+            pending_payment_method: novoSaldo > 0 ? (pendingPaymentMethod || null) : null,
+            scheduled_for: localDatetimeToIso(scheduledFor) || settlingOrder.scheduledFor || null,
+            updated_at: new Date().toISOString(),
+          }).eq('id', settlingOrder.id).select();
+          if (error) throw error;
+          if (!data || data.length === 0) throw new Error('O pedido não foi encontrado pra atualizar — pode ter sido removido ou alterado por outra pessoa.');
+
+          const updatedOrder: SaleOrder = { 
+            ...settlingOrder, 
+            total: paymentModalTotal,
+            discountValue: saleDiscountValue || undefined,
+            downPayment: novoTotalPago, 
+            receivedValue: novoTotalPago, 
+            status: novoSaldo <= 0 ? 'completed' : 'pending', 
+            payments: pagamentosFinais, 
+            scheduledFor: localDatetimeToIso(scheduledFor) || settlingOrder.scheduledFor || undefined, 
+            updatedAt: new Date().toISOString() 
+          };
+          setLastFinalizedOrder(updatedOrder);
+          setAllSalesHistory(prev => prev.map(s => s.id === settlingOrder.id ? updatedOrder : s).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+          setSalesToday(prev => prev.map(s => s.id === settlingOrder.id ? updatedOrder : s));
+          setIsSuccessModalOpen(true);
+          setIsPaymentModalOpen(false);
+          setSettlingOrder(null);
+          setSelectedCustomer(null);
+          setPaymentEntries([]);
+          setDownPayment(0);
+          setScheduledFor('');
+          setOrderObservacoes('');
+          setPendingPaymentMethod('');
+          setSaleDiscountValue(0);
+          setSaleDiscountInput('');
+          setSaleCreditApplied(0);
+        } catch (err: any) {
+          console.error('Erro ao quitar débito:', err);
+          showAlert(`Não foi possível registrar o pagamento: ${err?.message || 'erro desconhecido'}`);
+        }
+        return;
+      }
+
+      // 3. Nova Venda / Lançar Entrada
+      const finalDownPayment = forceZeroPayment ? 0 : (downPayment === '' || typeof downPayment === 'string' ? 0 : Number(downPayment));
+      const currentRemaining = Math.max(0, total - finalDownPayment);
+      const paymentsToSave = forceZeroPayment ? [] : effectivePaymentEntries;
+      const deliveryDate = localDatetimeToIso(scheduledFor) || undefined;
+      const isPartialSale = currentRemaining > 0 || isPending;
+
+      const order: SaleOrder = {
+        id: `ord_${Date.now()}`,
+        companyId: currentCompany?.id || 'default',
+        customerId: selectedCustomer?.id,
+        customerName: selectedCustomer?.name || 'Cliente de Balcão',
+        items: [...cart],
+        total,
+        discountValue: saleDiscountValue || undefined,
+        downPayment: finalDownPayment,
+        receivedValue: finalDownPayment,
+        paymentMethod,
+        payments: paymentsToSave,
+        pendingPaymentMethod: currentRemaining > 0 ? (pendingPaymentMethod || undefined) : undefined,
+        status: isPartialSale ? 'pending' : 'completed',
+        createdAt: new Date().toISOString(),
+        scheduledFor: deliveryDate || undefined,
+        observacoes: orderObservacoes || undefined
+      };
+
+      // Gravação principal da venda no Supabase
+      let insertedVenda: any = null;
+      try {
+        const { data: insertedVendaResult, error } = await supabase.from('vendas').insert({
+          customer_name: order.customerName,
+          customer_phone: selectedCustomer?.phone,
+          items: order.items,
+          total: order.total,
+          down_payment: order.downPayment,
+          received_value: order.receivedValue,
+          payment_method: order.paymentMethod,
+          payments: paymentsToSave,
+          pending_payment_method: currentRemaining > 0 ? (pendingPaymentMethod || null) : null,
+          status: order.status,
+          scheduled_for: order.scheduledFor || null,
+          observacoes: orderObservacoes || null,
+          orcamento_id: linkedOrcamentoId || null,
+          discount_value: saleDiscountValue || null,
+        }).select().single();
+        if (error) throw error;
+        insertedVenda = insertedVendaResult;
+
+        // Atualiza a tela IMEDIATAMENTE após a inserção confirmada no banco
+        let novaVendaMapeada: SaleOrder = order;
+        if (insertedVenda) {
+          novaVendaMapeada = mapVendaRow(insertedVenda);
+          setAllSalesHistory(prev => [novaVendaMapeada, ...prev]);
+          const inicioHoje = new Date();
+          inicioHoje.setHours(0, 0, 0, 0);
+          if (new Date(novaVendaMapeada.createdAt) >= inicioHoje) {
+            setSalesToday(prev => [novaVendaMapeada, ...prev]);
+          }
+        }
+        setLastFinalizedOrder(novaVendaMapeada);
+        if (isPartialSale) {
+          addPendingOrder(novaVendaMapeada);
+        }
+        setIsSuccessModalOpen(true);
+        setIsPaymentModalOpen(false);
+
+        // Salva dados locais antes de resetar o formulário
+        const currentCart = [...cart];
+        const customerId = selectedCustomer?.id;
+        const appliedCredit = saleCreditApplied;
+        const customerPhone = selectedCustomer?.phone || '';
+        const orderIdReal = novaVendaMapeada.id;
+        const currentCompId = currentCompany?.id;
+        const orcamentoIdLinked = linkedOrcamentoId;
+
+        // Limpa o carrinho e formulário de imediato
+        setCart([]);
+        setDownPayment(0);
+        setOrderObservacoes('');
+        setScheduledFor('');
+        setSaleDiscountValue(0); 
+        setSaleDiscountInput(''); 
+        setSaleCreditApplied(0);
+        resetPaymentEntries();
+
+        // Processa tarefas secundárias em segundo plano assíncrono (baixas de estoque, insumos, crédito e OS)
+        // para que a tela de venda responda INSTANTANEAMENTE sem travar o PDV
+        (async () => {
+          try {
+            // Baixa automatica de estoque para cada item vendido
+            const materiasPrimasToDeduct: { materiaPrimaId?: string; name?: string; quantity: number }[] = [];
+
+            await Promise.all(currentCart.filter(item => item.productId && item.productId !== 'manual').map(async (item) => {
+              const qtdBaixa = item.consumoEstoque !== undefined
+                ? item.consumoEstoque * item.quantity
+                : (item.area ? item.area * item.quantity : item.quantity);
+              const { data: prodAtual } = await supabase.from('produtos').select('current_stock, controla_estoque, unit, materias_primas').eq('id', item.productId).maybeSingle();
+              if (prodAtual) {
+                if (prodAtual.controla_estoque !== false) {
+                  const estoqueAnterior = Number(prodAtual.current_stock) || 0;
+                  const novoEstoque = Math.max(0, estoqueAnterior - qtdBaixa);
+                  await Promise.all([
+                    supabase.from('produtos').update({ current_stock: novoEstoque }).eq('id', item.productId),
+                    supabase.from('movimentacoes_estoque').insert({
+                      produto_id: item.productId,
+                      produto_nome: item.name,
+                      tipo: 'saida',
+                      quantidade: qtdBaixa,
+                      unidade: prodAtual.unit || (item.consumoEstoque !== undefined ? 'metro linear' : (item.area ? 'm²' : 'un')),
+                      motivo: 'venda',
+                      referencia: `Pedido #${orderIdReal.slice(-8).toUpperCase()}`,
+                      quantidade_anterior: estoqueAnterior,
+                      quantidade_posterior: novoEstoque,
+                    }),
+                  ]);
+                  setProducts(prev => prev.map(p => p.id === item.productId ? { ...p, stock: novoEstoque } : p));
+                }
+
+                const rawMaterials = (prodAtual as any)?.materias_primas || (prodAtual as any)?.materiasPrimas;
+                if (Array.isArray(rawMaterials) && rawMaterials.length > 0) {
+                  rawMaterials.forEach((mp: any) => {
+                    const mpQty = Number(mp.quantity) || 1;
+                    const consumed = Number((mpQty * qtdBaixa).toFixed(4));
+                    if (consumed > 0) {
+                      materiasPrimasToDeduct.push({
+                        materiaPrimaId: mp.materiaPrimaId || mp.id,
+                        name: mp.name,
+                        quantity: consumed
+                      });
+                    }
+                  });
                 }
               }
+            }));
+
+            // Baixa automática no estoque das matérias-primas
+            if (materiasPrimasToDeduct.length > 0) {
+              await deductMateriasPrimasStock(materiasPrimasToDeduct, currentCompId);
             }
 
-            // Atualiza custos_extras na tabela vendas
-            await supabase.from('vendas').update({ custos_extras: novosCustosExtras }).eq('id', editingFullOrder.id);
-            editingFullOrder.extraCosts = novosCustosExtras;
-          }
-        } catch (errComissao) {
-          console.warn('Aviso: erro ao sincronizar comissões da nota editada:', errComissao);
-        }
+            // Se essa venda veio de um orçamento, marca como Concluído
+            if (orcamentoIdLinked && insertedVenda) {
+              await supabase.from('orcamentos').update({ status: 'concluido', venda_id: insertedVenda.id }).eq('id', orcamentoIdLinked);
+              setLinkedOrcamentoId(null);
+            }
 
-        const updatedOrder: SaleOrder = {
-          ...editingFullOrder,
-          customerId: selectedCustomer?.id || editingFullOrder.customerId,
-          customerName: selectedCustomer?.name || editingFullOrder.customerName,
-          customerPhone: selectedCustomer?.phone || editingFullOrder.customerPhone,
-          items: [...cart],
-          total,
-          discountValue: saleDiscountValue || undefined,
-          downPayment: totalPago,
-          receivedValue: totalPago,
-          payments: pagamentosFinaisEdicao,
-          status: novoSaldo <= 0 ? 'completed' : 'pending',
-          observacoes: orderObservacoes || undefined,
-          scheduledFor: localDatetimeToIso(scheduledFor) || editingFullOrder.scheduledFor || undefined,
-          createdAt: editingCreatedAt ? new Date(editingCreatedAt).toISOString() : editingFullOrder.createdAt,
-          updatedAt: new Date().toISOString(),
-        };
-        setLastFinalizedOrder(updatedOrder);
-        // Reordena pela data/hora real da transacao (createdAt) — editar uma nota nao deve
-        // mudar sua posicao cronologica no historico.
-        setAllSalesHistory(prev => prev.map(s => s.id === editingFullOrder.id ? updatedOrder : s).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
-        setSalesToday(prev => prev.map(s => s.id === editingFullOrder.id ? updatedOrder : s));
-        setIsSuccessModalOpen(true);
-        setIsPaymentModalOpen(false);
-        setEditingFullOrder(null);
-        setCart([]);
-        setSelectedCustomer(null);
-        setPaymentEntries([]);
-        setDownPayment(0);
-        setScheduledFor('');
-        setOrderObservacoes('');
-        setSaleDiscountValue(0);
-        setSaleDiscountInput('');
-        setSaleCreditApplied(0);
-        setEditingCreatedAt('');
+            // Se o cliente teve credito aplicado nessa venda, abate do saldo
+            if (customerId && appliedCredit > 0) {
+              const saldoAtual = allCustomers.find((c: any) => c.id === customerId)?.saldo_credito || 0;
+              await supabase.from('clientes').update({ saldo_credito: Math.max(0, saldoAtual - appliedCredit) }).eq('id', customerId);
+              loadAllCustomers();
+            }
+            
+            // Cria Ordem de Serviço/OS se necessário
+            const hasServiceItems = currentCart.some(item => 
+              item.name.toLowerCase().includes('banner') || 
+              item.name.toLowerCase().includes('adesivo') ||
+              item.name.toLowerCase().includes('serviço')
+            );
+
+            if (hasServiceItems || currentRemaining > 0 || isPending) {
+              await addDoc(collection(db, 'services'), {
+                companyId: currentCompId,
+                orderId: orderIdReal,
+                client: order.customerName,
+                phone: customerPhone,
+                service: currentCart.map(i => `${i.quantity}x ${i.name}`).join(', '),
+                status: currentRemaining > 0 ? 'pendente' : 'concluido',
+                priority: 'normal',
+                total: order.total,
+                balance: currentRemaining,
+                scheduledFor: deliveryDate || null,
+                createdAt: Timestamp.now()
+              });
+            }
+          } catch (bgErr) {
+            console.warn('Aviso ao processar rotinas secundárias da venda:', bgErr);
+          }
+        })();
       } catch (err: any) {
-        console.error('Erro ao salvar edição da nota:', err);
-        showAlert(`Não foi possível salvar as alterações: ${err?.message || 'erro desconhecido'}`);
+        console.error('Erro ao salvar venda:', err);
+        showAlert(`Erro ao salvar venda: ${err?.message || 'erro desconhecido'}`);
       }
-      return;
+    } finally {
+      setIsFinalizingSale(false);
     }
-
-    // Quitar Debito: atualiza a venda ja existente em vez de criar uma nova
-    if (settlingOrder) {
-      const novoTotalPago = alreadyPaidForSettle + effectivePaymentEntriesTotal;
-      const novoSaldo = Math.max(0, paymentModalTotal - novoTotalPago);
-      // Usa a lista EDITADA (pode ter pagamento excluido ou data alterada), nao a original travada
-      const pagamentosFinais = [...editingPaymentsList, ...effectivePaymentEntries];
-      try {
-        const { data, error } = await supabase.from('vendas').update({
-          total: paymentModalTotal,
-          discount_value: saleDiscountValue || null,
-          down_payment: novoTotalPago,
-          received_value: novoTotalPago,
-          payments: pagamentosFinais,
-          status: novoSaldo <= 0 ? 'completed' : 'pending',
-          pending_payment_method: novoSaldo > 0 ? (pendingPaymentMethod || null) : null,
-          scheduled_for: localDatetimeToIso(scheduledFor) || settlingOrder.scheduledFor || null,
-          updated_at: new Date().toISOString(),
-        }).eq('id', settlingOrder.id).select();
-        if (error) throw error;
-        if (!data || data.length === 0) throw new Error('O pedido não foi encontrado pra atualizar — pode ter sido removido ou alterado por outra pessoa.');
-
-        const updatedOrder: SaleOrder = { 
-          ...settlingOrder, 
-          total: paymentModalTotal,
-          discountValue: saleDiscountValue || undefined,
-          downPayment: novoTotalPago, 
-          receivedValue: novoTotalPago, 
-          status: novoSaldo <= 0 ? 'completed' : 'pending', 
-          payments: pagamentosFinais, 
-          scheduledFor: localDatetimeToIso(scheduledFor) || settlingOrder.scheduledFor || undefined, 
-          updatedAt: new Date().toISOString() 
-        };
-        setLastFinalizedOrder(updatedOrder);
-        // Atualiza so essa venda localmente (nao recarrega a tabela inteira, que fica lenta com muitas vendas)
-        // Reordena pela data/hora real da transacao (createdAt) — quitar debito nao deve
-        // mudar a posicao cronologica da nota no historico.
-        setAllSalesHistory(prev => prev.map(s => s.id === settlingOrder.id ? updatedOrder : s).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
-        setSalesToday(prev => prev.map(s => s.id === settlingOrder.id ? updatedOrder : s));
-        setIsSuccessModalOpen(true);
-        setIsPaymentModalOpen(false);
-        setSettlingOrder(null);
-        setSelectedCustomer(null);
-        setPaymentEntries([]);
-        setDownPayment(0);
-        setScheduledFor('');
-        setOrderObservacoes('');
-        setPendingPaymentMethod('');
-        setSaleDiscountValue(0);
-        setSaleDiscountInput('');
-        setSaleCreditApplied(0);
-      } catch (err: any) {
-        console.error('Erro ao quitar débito:', err);
-        showAlert(`Não foi possível registrar o pagamento: ${err?.message || 'erro desconhecido'}`);
-      }
-      return;
-    }
-    const finalDownPayment = forceZeroPayment ? 0 : (downPayment === '' || typeof downPayment === 'string' ? 0 : Number(downPayment));
-    const currentRemaining = Math.max(0, total - finalDownPayment);
-    const paymentsToSave = forceZeroPayment ? [] : effectivePaymentEntries;
-
-    // So salva agendamento de entrega se o usuario escolheu uma data/hora manualmente
-    // (campo scheduledFor). Antes, toda venda com pagamento parcial ("entrada") sem data
-    // escolhida ganhava um agendamento automatico pra 2 dias depois as 17h, sem o usuario
-    // pedir nem saber -- removido.
-    const deliveryDate = localDatetimeToIso(scheduledFor) || undefined;
-
-    const isPartialSale = currentRemaining > 0 || isPending;
-
-    const order: SaleOrder = {
-      id: `ord_${Date.now()}`,
-      companyId: currentCompany?.id || 'default',
-      customerId: selectedCustomer?.id,
-      customerName: selectedCustomer?.name || 'Cliente de Balcão',
-      items: [...cart],
-      total,
-      discountValue: saleDiscountValue || undefined,
-      downPayment: finalDownPayment,
-      receivedValue: finalDownPayment,
-      paymentMethod,
-      payments: paymentsToSave,
-      pendingPaymentMethod: currentRemaining > 0 ? (pendingPaymentMethod || undefined) : undefined,
-      status: isPartialSale ? 'pending' : 'completed',
-      createdAt: new Date().toISOString(),
-      scheduledFor: deliveryDate || undefined,
-      observacoes: orderObservacoes || undefined
-    };
-
-    // Save to Supabase
-    let insertedVenda: any = null;
-    try {
-      const { data: insertedVendaResult, error } = await supabase.from('vendas').insert({
-        customer_name: order.customerName,
-        customer_phone: selectedCustomer?.phone,
-        items: order.items,
-        total: order.total,
-        down_payment: order.downPayment,
-        received_value: order.receivedValue,
-        payment_method: order.paymentMethod,
-        payments: paymentsToSave,
-        pending_payment_method: currentRemaining > 0 ? (pendingPaymentMethod || null) : null,
-        status: order.status,
-        scheduled_for: order.scheduledFor || null,
-        observacoes: orderObservacoes || null,
-        orcamento_id: linkedOrcamentoId || null,
-        discount_value: saleDiscountValue || null,
-      }).select().single();
-      if (error) throw error;
-      insertedVenda = insertedVendaResult;
-
-      // Baixa automatica de estoque para cada item vendido (produtos do catalogo real, ignora itens livres/manuais)
-      // Roda em paralelo (Promise.all) em vez de um item de cada vez, pra nao deixar o fechamento lento
-      const materiasPrimasToDeduct: { materiaPrimaId?: string; name?: string; quantity: number }[] = [];
-
-      await Promise.all(cart.filter(item => item.productId && item.productId !== 'manual').map(async (item) => {
-        const qtdBaixa = item.consumoEstoque !== undefined
-          ? item.consumoEstoque * item.quantity
-          : (item.area ? item.area * item.quantity : item.quantity);
-        const { data: prodAtual } = await supabase.from('produtos').select('current_stock, controla_estoque, unit, materias_primas').eq('id', item.productId).maybeSingle();
-        if (prodAtual) {
-          // 1. Atualiza estoque do produto final se controla_estoque estiver ativo
-          if (prodAtual.controla_estoque !== false) {
-            const estoqueAnterior = Number(prodAtual.current_stock) || 0;
-            const novoEstoque = Math.max(0, estoqueAnterior - qtdBaixa);
-            await Promise.all([
-              supabase.from('produtos').update({ current_stock: novoEstoque }).eq('id', item.productId),
-              supabase.from('movimentacoes_estoque').insert({
-                produto_id: item.productId,
-                produto_nome: item.name,
-                tipo: 'saida',
-                quantidade: qtdBaixa,
-                unidade: prodAtual.unit || (item.consumoEstoque !== undefined ? 'metro linear' : (item.area ? 'm²' : 'un')),
-                motivo: 'venda',
-                referencia: `Pedido #${order.id.slice(-8).toUpperCase()}`,
-                quantidade_anterior: estoqueAnterior,
-                quantidade_posterior: novoEstoque,
-              }),
-            ]);
-          }
-
-          // 2. Coleta matérias-primas vinculadas à ficha técnica deste produto para dar baixa
-          // (ocorre mesmo se controla_estoque do produto final for falso, pois o insumo/bobina possui estoque próprio)
-          const rawMaterials = (prodAtual as any)?.materias_primas || (prodAtual as any)?.materiasPrimas;
-          if (Array.isArray(rawMaterials) && rawMaterials.length > 0) {
-            rawMaterials.forEach((mp: any) => {
-              const mpQty = Number(mp.quantity) || 1;
-              const consumed = Number((mpQty * qtdBaixa).toFixed(4));
-              if (consumed > 0) {
-                materiasPrimasToDeduct.push({
-                  materiaPrimaId: mp.materiaPrimaId || mp.id,
-                  name: mp.name,
-                  quantity: consumed
-                });
-              }
-            });
-          }
-        }
-      }));
-
-      // Baixa automática no estoque das matérias-primas (insumos/bobinas/chapas)
-      if (materiasPrimasToDeduct.length > 0) {
-        await deductMateriasPrimasStock(materiasPrimasToDeduct, currentCompany?.id);
-      }
-
-      // Se essa venda veio de um orçamento, marca o orçamento como Concluído — Venda Gerada
-      if (linkedOrcamentoId && insertedVenda) {
-        await supabase.from('orcamentos').update({ status: 'concluido', venda_id: insertedVenda.id }).eq('id', linkedOrcamentoId);
-        setLinkedOrcamentoId(null);
-      }
-
-      // Se o cliente teve credito aplicado nessa venda (ex: troco de outra compra), abate do
-      // saldo dele agora que a venda foi confirmada
-      if (selectedCustomer?.id && saleCreditApplied > 0) {
-        const saldoAtual = allCustomers.find((c: any) => c.id === selectedCustomer.id)?.saldo_credito || 0;
-        await supabase.from('clientes').update({ saldo_credito: Math.max(0, saldoAtual - saleCreditApplied) }).eq('id', selectedCustomer.id);
-        loadAllCustomers();
-      }
-      
-      // RULE: Always create Service/OS if pending or has balance OR specific items
-      const hasServiceItems = cart.some(item => 
-        item.name.toLowerCase().includes('banner') || 
-        item.name.toLowerCase().includes('adesivo') ||
-        item.name.toLowerCase().includes('serviço')
-      );
-
-      if (hasServiceItems || currentRemaining > 0 || isPending) {
-        await addDoc(collection(db, 'services'), {
-          companyId: currentCompany?.id,
-          orderId: order.id,
-          client: order.customerName,
-          phone: selectedCustomer?.phone || '',
-          service: cart.map(i => `${i.quantity}x ${i.name}`).join(', '),
-          status: currentRemaining > 0 ? 'pendente' : 'concluido',
-          priority: 'normal',
-          total: order.total,
-          balance: currentRemaining,
-          scheduledFor: deliveryDate || null,
-          createdAt: Timestamp.now()
-        });
-        console.log('Ordem de Serviço gerada.');
-      }
-    } catch (err) {
-      console.error('Erro ao salvar venda:', err);
-    }
-
-    if (isPartialSale) {
-      addPendingOrder(order);
-    }
-    
-    // Adiciona a venda recem criada localmente (usa o id/dados reais vindos do banco)
-    // em vez de recarregar a tabela inteira, que fica lenta conforme o historico cresce
-    let novaVendaMapeada: SaleOrder = order;
-    if (insertedVenda) {
-      novaVendaMapeada = mapVendaRow(insertedVenda);
-      setAllSalesHistory(prev => [novaVendaMapeada, ...prev]);
-      const inicioHoje = new Date();
-      inicioHoje.setHours(0, 0, 0, 0);
-      if (new Date(novaVendaMapeada.createdAt) >= inicioHoje) {
-        setSalesToday(prev => [novaVendaMapeada, ...prev]);
-      }
-    }
-    // Usa a venda com o id REAL do banco (nao o id local temporario "ord_..."), senao
-    // qualquer acao feita a partir da tela de sucesso (ex: mudar Etapa Atual) falha
-    // tentando usar um id que nao existe de verdade no banco.
-    setLastFinalizedOrder(novaVendaMapeada);
-    setIsSuccessModalOpen(true);
-    setIsPaymentModalOpen(false);
-    
-    // Reset cart but keep customer for the success modal
-    setCart([]);
-    setDownPayment(0);
-    setOrderObservacoes('');
-    setScheduledFor('');
-    setSaleDiscountValue(0); setSaleDiscountInput(''); setSaleCreditApplied(0);
-    resetPaymentEntries();
   };
 
   const [isImportingVendas, setIsImportingVendas] = useState(false);
@@ -11420,6 +11484,32 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               Crédito: -R$ {saleCreditApplied.toFixed(2).replace('.', ',')}
                            </span>
                         )}
+                        {user?.isAdmin && cart.length > 0 && (() => {
+                           const breakdownNota = detalharCustoDaNota({
+                              items: cart,
+                              custoPorId: produtosCostMap,
+                              produtoPorId: produtoPorIdMap,
+                              custoMaquinaM2PorCategoria,
+                              custoMaquinaOperacionalM2PorCategoria,
+                              custoTintaM2PorCategoria,
+                              consumoTintaMlM2PorCategoria,
+                              maquinas: maquinasCadastradas,
+                              maquinaPadrao: maquinasCadastradas.find(m => m.ativa && m.tipo === 'impressao') || maquinasCadastradas.find(m => m.ativa),
+                              maquinasPorId: maquinasPorIdMap,
+                              maquinasPorCategoria: maquinasPorCategoriaMap,
+                           });
+                           const custoTotal = breakdownNota.custoTotal;
+                           const lucro = total - custoTotal;
+                           const margem = total > 0 ? (lucro / total) * 100 : 0;
+                           return (
+                              <span className={cn(
+                                 "text-[7px] sm:text-[8.5px] font-black px-1.5 py-0.5 rounded border flex items-center gap-1",
+                                 lucro >= 0 ? "text-emerald-700 bg-emerald-500/15 border-emerald-500/30" : "text-rose-700 bg-rose-500/15 border-rose-500/30"
+                              )} title={`Custo estimado: R$ ${custoTotal.toFixed(2).replace('.', ',')}`}>
+                                 <TrendingUp size={10} /> Lucro Previsto: R$ {lucro.toFixed(2).replace('.', ',')} ({margem.toFixed(0)}%)
+                              </span>
+                           );
+                        })()}
                      </div>
                      <h1 className="text-base sm:text-3xl md:text-4xl font-black text-slate-900 tracking-tighter italic truncate">
                         R$ {total.toFixed(2).replace('.', ',')}
@@ -11651,14 +11741,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                      />
                   </div>
                   <p className="text-[9px] font-bold text-slate-400 px-1">
-                     {products.filter(p => p.name.toUpperCase().includes(search.toUpperCase())).length} de {products.length} produto(s) — role a lista pra ver todos
+                     {filteredTerminalProducts.length} de {products.length} produto(s) — role a lista pra ver todos
                   </p>
                </div>
 
                 {/* COMPACT PRODUCT LIST */}
                 <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-white">
                    <div className="divide-y divide-slate-50">
-                      {products.filter(p => p.name.toUpperCase().includes(search.toUpperCase())).map(product => (
+                      {filteredTerminalProducts.slice(0, 80).map(product => (
                         <div 
                           key={product.id} 
                           onClick={() => addToCart(product)}
@@ -13835,7 +13925,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    {!isLoadingCustomers && !customerLoadError && filteredSortedCustomers.length === 0 && (
                      <p className="text-center text-xs text-white/30 py-10">Nenhum cliente encontrado ({allCustomers.length} no total). Tente Cadastrar.</p>
                    )}
-                   {!isLoadingCustomers && filteredSortedCustomers.map(c => {
+                   {!isLoadingCustomers && filteredSortedCustomers.slice(0, 60).map(c => {
                      const stats = c._stats;
                      const pendingBalance = stats?.pendingBalance || 0;
                      const hasPending = pendingBalance > 0;
@@ -13930,6 +14020,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                        </div>
                      );
                    })}
+                   {filteredSortedCustomers.length > 60 && (
+                     <p className="text-center text-[10px] text-white/40 py-2">
+                       Mostrando 60 de {filteredSortedCustomers.length} clientes. Digite para refinar a busca.
+                     </p>
+                   )}
                 </div>
              </div>
            ) : (
@@ -14061,7 +14156,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           const isFullyPaid = custosNotaSale.status === 'completed' || down >= totalVenda;
           const proporcao = (!isFullyPaid && totalVenda > 0) ? down / totalVenda : undefined;
           
-          // Custo automatico (Matéria-Prima, Tinta e Máquina)
+          // Custo automatico CHEIO da nota (Matéria-Prima, Tinta e Máquina)
           const custoAutomatico = detalharCustoDaNota({
             items: custosNotaSale.items,
             custoPorId: produtosCostMap,
@@ -14074,7 +14169,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             maquinaPadrao: maquinasCadastradas.find(m => m.ativa && m.tipo === 'impressao') || maquinasCadastradas.find(m => m.ativa),
             maquinasPorId: maquinasPorIdMap,
             maquinasPorCategoria: maquinasPorCategoriaMap,
-            proporcao,
           });
           const custoMateriaPrima = custoAutomatico.materiaPrima;
           const custoTinta = custoAutomatico.tinta;
@@ -14106,11 +14200,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           const totalAreaM2Pedido = itensComCustoAutomatico.reduce((s, i) => s + (Number(i.detalhe.areaM2) || 0), 0) || (custoAutomatico.areaM2Total || 0);
 
           // Separar comissões/mão de obra de custos extras manuais
-          const custosComissoes = custosNotaDraft.filter(c => c.description.toLowerCase().startsWith('comissão') || c.description.toLowerCase().startsWith('mao de obra') || c.description.toLowerCase().startsWith('mão de obra'));
-          const outrosCustos = custosNotaDraft.filter(c => !c.description.toLowerCase().startsWith('comissão') && !c.description.toLowerCase().startsWith('mao de obra') && !c.description.toLowerCase().startsWith('mão de obra'));
+          const custosComissoes = custosNotaDraft.filter(c => {
+            const d = (c.description || '').toLowerCase();
+            return d.startsWith('comissão') || d.startsWith('comissao') || d.startsWith('mao de obra') || d.startsWith('mão de obra');
+          });
+          const outrosCustos = custosNotaDraft.filter(c => {
+            const d = (c.description || '').toLowerCase();
+            return !d.startsWith('comissão') && !d.startsWith('comissao') && !d.startsWith('mao de obra') && !d.startsWith('mão de obra');
+          });
           
           const totalComissoes = custosComissoes.reduce((s, c) => s + (Number(c.amount) || 0), 0);
-          const totalOutros = outrosCustos.reduce((s, c) => s + (Number(c.amount) || 0), 0);
+          const totalOutrosSalvos = outrosCustos.reduce((s, c) => s + (Number(c.amount) || 0), 0);
+          const pendenteDigitado = (novoCustoValor !== '' && Number(novoCustoValor) > 0) ? Number(novoCustoValor) : 0;
+          const totalOutros = totalOutrosSalvos + pendenteDigitado;
           const totalExtras = totalComissoes + totalOutros;
           const totalCustosNota = custoAutomaticoTotal + totalExtras;
           const lucroPrevistoNota = totalVenda - totalCustosNota;
@@ -14299,6 +14401,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   </span>
                   <span className="text-[10px] font-bold text-rose-300">
                     R$ {totalExtras.toFixed(2).replace('.', ',')}
+                    {pendenteDigitado > 0 && <span className="text-[8px] text-cyan-300 font-normal ml-1">(+ R$ {pendenteDigitado.toFixed(2).replace('.', ',')} digitado)</span>}
                   </span>
                 </div>
 
@@ -14357,6 +14460,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 <div>
                   <span className="text-[7.5px] uppercase font-bold text-white/40 block">Comissões & Extras</span>
                   <span className="text-[10px] font-bold text-rose-300">R$ {totalExtras.toFixed(2).replace('.', ',')}</span>
+                  {pendenteDigitado > 0 && <span className="text-[7px] text-cyan-300 block font-normal">(R$ {pendenteDigitado.toFixed(2).replace('.', ',')} no campo)</span>}
                 </div>
                 {!isFullyPaid ? (
                   <>
@@ -14371,12 +14475,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       <span className="text-[10px] font-black font-mono text-cyan-300">
                         R$ {lucroPrevistoNota.toFixed(2).replace('.', ',')}
                       </span>
+                      {pendenteDigitado > 0 && <span className="text-[7px] text-cyan-400 block font-mono">atualizado ao digitar</span>}
                     </div>
                   </>
                 ) : (
                   <div>
                     <span className="text-[7.5px] uppercase font-bold text-emerald-400/80 block">Lucro Líquido</span>
                     <span className="text-[10px] font-black font-mono text-emerald-400">R$ {lucroPrevistoNota.toFixed(2).replace('.', ',')}</span>
+                    {pendenteDigitado > 0 && <span className="text-[7px] text-cyan-400 block font-mono">atualizado ao digitar</span>}
                   </div>
                 )}
               </div>
@@ -14587,6 +14693,44 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     </div>
                     <Badge variant="primary" className="bg-emerald-500/10 text-emerald-400 border-none font-black text-[8px] sm:text-[9px] tracking-widest uppercase py-0.5 px-2">Conferido</Badge>
                  </div>
+
+                 {user?.isAdmin && (() => {
+                    const itemsNota = settlingOrder ? settlingOrder.items : cart;
+                    const extrasNota = settlingOrder ? settlingOrder.extraCosts : (editingFullOrder ? editingFullOrder.extraCosts : []);
+                    const breakdownNota = detalharCustoDaNota({
+                       items: itemsNota,
+                       custoPorId: produtosCostMap,
+                       produtoPorId: produtoPorIdMap,
+                       custoMaquinaM2PorCategoria,
+                       custoMaquinaOperacionalM2PorCategoria,
+                       custoTintaM2PorCategoria,
+                       consumoTintaMlM2PorCategoria,
+                       maquinas: maquinasCadastradas,
+                       maquinaPadrao: maquinasCadastradas.find(m => m.ativa && m.tipo === 'impressao') || maquinasCadastradas.find(m => m.ativa),
+                       maquinasPorId: maquinasPorIdMap,
+                       maquinasPorCategoria: maquinasPorCategoriaMap,
+                       extraCosts: extrasNota,
+                    });
+                    const custoTotal = breakdownNota.custoTotal;
+                    const lucroPrevisto = paymentModalTotal - custoTotal;
+                    const margem = paymentModalTotal > 0 ? (lucroPrevisto / paymentModalTotal) * 100 : 0;
+                    return (
+                       <div className="p-2 sm:p-2.5 bg-slate-900/90 rounded-xl border border-cyan-500/20 flex justify-between items-center px-3 sm:px-4">
+                          <div>
+                             <p className="text-[7px] sm:text-[8px] font-black text-cyan-400/80 uppercase tracking-widest leading-none mb-0.5 flex items-center gap-1">
+                                <TrendingUp size={10} className="text-cyan-400" /> Lucro Previsto (Admin)
+                             </p>
+                             <p className={cn("text-xs sm:text-sm font-black font-mono tracking-tight leading-none", lucroPrevisto >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                                R$ {lucroPrevisto.toFixed(2).replace('.', ',')} <span className="text-[9px] text-white/40 font-normal">({margem.toFixed(0)}% margem)</span>
+                             </p>
+                          </div>
+                          <div className="text-right">
+                             <span className="text-[7px] font-bold text-white/30 uppercase block">Custo Estimado</span>
+                             <span className="text-[10px] font-mono font-bold text-amber-300">R$ {custoTotal.toFixed(2).replace('.', ',')}</span>
+                          </div>
+                       </div>
+                    );
+                 })()}
               </div>
 
               {!settlingOrder && selectedCustomerCredit > 0 && (
@@ -15163,12 +15307,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               {paymentModalRemaining > 0 ? (
                 <button 
                   type="button"
-                  className="flex-[2] h-9 sm:h-10 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-xl text-[9px] sm:text-[9.5px] font-bold uppercase tracking-wider gap-2 cursor-pointer transition-all active:scale-98 flex items-center justify-center shadow-xs"
+                  disabled={isFinalizingSale}
+                  className={`flex-[2] h-9 sm:h-10 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-xl text-[9px] sm:text-[9.5px] font-bold uppercase tracking-wider gap-2 cursor-pointer transition-all active:scale-98 flex items-center justify-center shadow-xs ${isFinalizingSale ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
                   onClick={() => handleFinalize(true)}
                 >
-                   <Clock size={15} />
+                   {isFinalizingSale ? <Loader2 size={15} className="animate-spin" /> : <Clock size={15} />}
                    <span>
-                     {settlingOrder 
+                     {isFinalizingSale ? 'SALVANDO NOTA...' : settlingOrder 
                        ? `REGISTRAR PAGAMENTO (R$ ${paymentEntriesTotal.toFixed(2).replace('.', ',')})` 
                        : (downPayment === '' || Number(downPayment) === 0)
                          ? 'SALVAR NOTA A PRAZO (SEM ENTRADA)'
@@ -15179,11 +15324,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               ) : (
                 <button 
                   type="button"
-                  className="flex-[2] h-9 sm:h-10 bg-primary-500/25 hover:bg-primary-500/35 text-primary-300 border border-primary-500/40 rounded-xl text-[9px] sm:text-[9.5px] font-bold uppercase tracking-wider gap-1.5 cursor-pointer transition-all active:scale-98 flex items-center justify-center shadow-xs"
+                  disabled={isFinalizingSale}
+                  className={`flex-[2] h-9 sm:h-10 bg-primary-500/25 hover:bg-primary-500/35 text-primary-300 border border-primary-500/40 rounded-xl text-[9px] sm:text-[9.5px] font-bold uppercase tracking-wider gap-1.5 cursor-pointer transition-all active:scale-98 flex items-center justify-center shadow-xs ${isFinalizingSale ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
                   onClick={() => handleFinalize(false)}
                 >
-                   <CheckCircle2 size={15} />
-                   <span>{settlingOrder ? 'QUITAR DÉBITO (TOTAL PAGO)' : 'FINALIZAR VENDA (TOTAL QUITADO)'}</span>
+                   {isFinalizingSale ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
+                   <span>
+                     {isFinalizingSale ? 'SALVANDO NOTA...' : (settlingOrder ? 'QUITAR DÉBITO (TOTAL PAGO)' : (editingFullOrder ? 'SALVAR ALTERAÇÕES' : 'FINALIZAR VENDA (TOTAL QUITADO)'))}
+                   </span>
                 </button>
               )}
            </div>
@@ -17709,6 +17857,36 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                        <span className="font-bold uppercase">{sale.paymentMethod || '-'}</span>
                      </div>
                    )}
+
+                   {user?.isAdmin && (() => {
+                     const rentabilidade = obterRentabilidadeVenda(sale);
+                     return (
+                       <div className="pt-2.5 mt-2 border-t border-white/10 bg-slate-950/50 -mx-2 px-3 py-2 rounded-xl space-y-1">
+                         <div className="flex items-center justify-between">
+                           <span className="text-[8px] font-black uppercase text-cyan-300 tracking-wider flex items-center gap-1">
+                             <TrendingUp size={11} /> Lucro Previsto (Admin)
+                           </span>
+                           <button
+                             type="button"
+                             onClick={() => { setViewingReceiptSale(null); openCustosDaNota(sale); }}
+                             className="text-[8px] font-bold text-primary-300 hover:text-primary-200 underline cursor-pointer bg-transparent border-0 p-0"
+                           >
+                             Ver / Editar Custos da Nota
+                           </button>
+                         </div>
+                         <div className="flex justify-between text-xs text-white/50">
+                           <span>Custo Total (Materiais + Extras)</span>
+                           <span className="font-mono font-bold text-amber-300">R$ {rentabilidade.custoTotal.toFixed(2).replace('.', ',')}</span>
+                         </div>
+                         <div className="flex justify-between text-xs text-white/80 font-bold">
+                           <span>Lucro Líquido Previsto</span>
+                           <span className={cn("font-mono font-black", rentabilidade.lucroPrevisto >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                             R$ {rentabilidade.lucroPrevisto.toFixed(2).replace('.', ',')} ({rentabilidade.margemPrevista.toFixed(0)}%)
+                           </span>
+                         </div>
+                       </div>
+                     );
+                   })()}
                  </div>
                </div>
              </div>

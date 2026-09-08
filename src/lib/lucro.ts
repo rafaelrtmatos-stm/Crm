@@ -665,7 +665,7 @@ export function custoMaquinaTotal(
 }
 
 export function somaCustosExtras(extraCosts?: LucroExtraCost[] | null): number {
-  return (extraCosts || []).reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
+  return (extraCosts || []).reduce((sum, c: any) => sum + (Number(c?.amount ?? c?.valor ?? c?.value) || 0), 0);
 }
 
 export function detalharCustoDaNota(params: {

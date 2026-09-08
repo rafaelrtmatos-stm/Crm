@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   History, Clock, Plus, ArrowDownRight, ArrowUpRight, AlertTriangle,
   FileText, Calendar, Filter, X, Check, Search, Layers, RefreshCw,
-  ExternalLink, Copy, Phone, ShoppingBag, DollarSign, CheckCircle2, User
+  ExternalLink, Copy, Phone, ShoppingBag, DollarSign, CheckCircle2, User,
+  Sparkles
 } from 'lucide-react';
 import { MateriaPrima } from '../types';
 import { supabase } from '../supabase';
@@ -11,10 +12,12 @@ import {
   fetchConsumptionHistory,
   recordMateriaPrimaConsumption,
   quickAdjustStock,
+  syncMateriaPrimaStockFromHistory,
   CONSUMPTION_START_DATE
 } from '../lib/materiasPrimasStorage';
 import { Button, Modal } from './SharedUI';
 import { showAlert } from '../lib/notify';
+import { ReabastecerMateriaPrimaModal } from './ReabastecerMateriaPrimaModal';
 
 interface MateriaPrimaHistoryModalProps {
   isOpen: boolean;
@@ -60,12 +63,14 @@ export const MateriaPrimaHistoryModal: React.FC<MateriaPrimaHistoryModalProps> =
 
   // Novo lançamento manual
   const [showAddForm, setShowAddForm] = useState(false);
+  const [isReabastecerModalOpen, setIsReabastecerModalOpen] = useState(false);
   const [targetMpId, setTargetMpId] = useState<string>(selectedMateriaPrima?.id || materiasPrimas[0]?.id || '');
   const [tipoOperacao, setTipoOperacao] = useState<'entrada' | 'ajuste_manual' | 'perda'>('entrada');
   const [quantidade, setQuantidade] = useState<number | ''>('');
   const [unidadeModo, setUnidadeModo] = useState<'metros' | 'bobinas'>('metros');
   const [observacao, setObservacao] = useState('');
   const [savingManual, setSavingManual] = useState(false);
+  const [syncingStock, setSyncingStock] = useState(false);
 
   // Cálculo das datas com base na classificação padrão
   const { dateStart, dateEnd, labelPeriodo } = useMemo(() => {
@@ -301,6 +306,50 @@ export const MateriaPrimaHistoryModal: React.FC<MateriaPrimaHistoryModalProps> =
       .reduce((acc, item) => acc + (Number(item.quantity) || 0), 0);
   }, [filteredHistory]);
 
+  const currentMp = useMemo(() => {
+    if (filterMpId && filterMpId !== 'all') {
+      return materiasPrimas.find(m => m.id === filterMpId) || selectedMateriaPrima;
+    }
+    return selectedMateriaPrima || null;
+  }, [filterMpId, materiasPrimas, selectedMateriaPrima]);
+
+  const compBobina = currentMp?.comprimentoBobina || 50;
+  const isBobina = currentMp?.tipoCalculoCusto === 'bobina' || (currentMp?.unit === 'm' && currentMp?.comprimentoBobina);
+  const rawEstoque = currentMp?.quantidadeEstoque ?? 0;
+  const currentSaldoMetros = isBobina
+    ? (rawEstoque <= 15 ? Number((rawEstoque * compBobina).toFixed(1)) : rawEstoque)
+    : rawEstoque;
+
+  // Saídas reais acumuladas em notas de todo o histórico para a matéria-prima selecionada
+  const totalSaidasGeral = useMemo(() => {
+    if (!currentMp) return 0;
+    return history
+      .filter(item => (item.materiaPrimaId === currentMp.id || item.materiaPrimaName.toLowerCase().includes(currentMp.name.toLowerCase())) && (item.tipoOperacao === 'venda' || item.tipoOperacao === 'perda'))
+      .reduce((acc, item) => acc + (Number(item.quantity) || 0), 0);
+  }, [history, currentMp]);
+
+  const saldoTeoricoMetros = Math.max(0, Number((compBobina - totalSaidasGeral).toFixed(2)));
+  const hasDivergencia = Boolean(currentMp && Math.abs(currentSaldoMetros - saldoTeoricoMetros) > 0.3);
+
+  const handleSyncStock = async () => {
+    if (!currentMp) return;
+    try {
+      setSyncingStock(true);
+      const res = await syncMateriaPrimaStockFromHistory(currentMp.id, compBobina, companyId);
+      if (res.success) {
+        showAlert(res.message);
+        onStockUpdated();
+        await loadHistory();
+      } else {
+        showAlert(res.message || 'Erro ao sincronizar estoque.');
+      }
+    } catch (e: any) {
+      showAlert('Erro ao sincronizar estoque: ' + (e?.message || 'Tente novamente'));
+    } finally {
+      setSyncingStock(false);
+    }
+  };
+
   return (
     <>
       <Modal
@@ -402,14 +451,26 @@ export const MateriaPrimaHistoryModal: React.FC<MateriaPrimaHistoryModalProps> =
               </Button>
             </div>
 
-            <Button
-              variant="primary"
-              onClick={() => setShowAddForm(!showAddForm)}
-              className="text-xs py-1.5 px-3 bg-primary-500 hover:bg-primary-400 text-slate-950 font-black rounded-xl"
-            >
-              <Plus size={14} />
-              <span>{showAddForm ? 'Fechar Lançamento' : '+ Lançamento Manual'}</span>
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="primary"
+                onClick={() => setIsReabastecerModalOpen(true)}
+                className="text-xs py-1.5 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl flex items-center gap-1.5 shadow-md shadow-emerald-500/20"
+                title="Registrar nova compra de bobina ou metros deste insumo"
+              >
+                <ShoppingBag size={14} />
+                <span>+ Comprar / Reabastecer</span>
+              </Button>
+
+              <Button
+                variant="secondary"
+                onClick={() => setShowAddForm(!showAddForm)}
+                className="text-xs py-1.5 px-3 bg-white/5 hover:bg-white/10 text-white/80 border border-white/10 rounded-xl"
+              >
+                <Plus size={14} />
+                <span>{showAddForm ? 'Fechar Lançamento' : '+ Ajuste Manual'}</span>
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -430,6 +491,76 @@ export const MateriaPrimaHistoryModal: React.FC<MateriaPrimaHistoryModalProps> =
             )}
           </div>
         </div>
+
+        {/* Card de Auditoria & Sincronização de Estoque Físico vs Vendas Reais */}
+        {currentMp && (
+          <div className="p-3.5 bg-gradient-to-r from-slate-900 via-primary-950/20 to-slate-900 border border-primary-500/20 rounded-2xl space-y-2.5">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 border border-primary-500/20">
+                  <Layers size={16} />
+                </div>
+                <div>
+                  <h4 className="text-xs font-black text-white flex items-center gap-1.5">
+                    <span>Auditoria de Saldo & Consumo: {currentMp.name}</span>
+                    {hasDivergencia ? (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold flex items-center gap-1">
+                        <AlertTriangle size={11} />
+                        Divergência Detectada
+                      </span>
+                    ) : (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold flex items-center gap-1">
+                        <Check size={11} />
+                        Estoque 100% Sincronizado
+                      </span>
+                    )}
+                  </h4>
+                  <p className="text-[10px] text-white/50">
+                    Bobina padrão: <strong className="text-white/80">{compBobina}m</strong> • Saídas acumuladas em notas: <strong className="text-cyan-400 font-mono">{totalSaidasGeral.toFixed(2)}m</strong>
+                  </p>
+                </div>
+              </div>
+
+              {hasDivergencia && (
+                <Button
+                  variant="primary"
+                  onClick={handleSyncStock}
+                  disabled={syncingStock}
+                  className="text-xs py-1.5 px-3 bg-primary-500 hover:bg-primary-400 text-slate-950 font-black rounded-xl shadow-lg shadow-primary-500/20 whitespace-nowrap self-stretch sm:self-auto flex items-center gap-1.5"
+                >
+                  <Sparkles size={13} className={syncingStock ? 'animate-spin' : ''} />
+                  <span>{syncingStock ? 'Sincronizando...' : `Sincronizar Saldo Real (${saldoTeoricoMetros.toFixed(2)}m)`}</span>
+                </Button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-white/5 text-center">
+              <div className="bg-black/40 p-2 rounded-xl border border-white/5">
+                <span className="text-[9px] uppercase font-bold text-white/40 block">Bobina Inicial</span>
+                <strong className="text-xs font-black text-white font-mono">{compBobina}m</strong>
+              </div>
+              <div className="bg-black/40 p-2 rounded-xl border border-white/5">
+                <span className="text-[9px] uppercase font-bold text-cyan-400 block">Total Saídas Notas</span>
+                <strong className="text-xs font-black text-cyan-400 font-mono">-{totalSaidasGeral.toFixed(2)}m</strong>
+              </div>
+              <div className="bg-black/40 p-2 rounded-xl border border-white/5">
+                <span className="text-[9px] uppercase font-bold text-emerald-400 block">Saldo Real Auditado</span>
+                <strong className="text-xs font-black text-emerald-400 font-mono">
+                  {saldoTeoricoMetros.toFixed(2)}m
+                  <span className="text-[9px] text-white/40 font-normal ml-1">(~{(saldoTeoricoMetros / compBobina).toFixed(2)} bob.)</span>
+                </strong>
+              </div>
+              <div className={`p-2 rounded-xl border ${hasDivergencia ? 'bg-amber-500/10 border-amber-500/30' : 'bg-black/40 border-white/5'}`}>
+                <span className={`text-[9px] uppercase font-bold block ${hasDivergencia ? 'text-amber-400' : 'text-white/40'}`}>
+                  Saldo Apontado no Card
+                </span>
+                <strong className={`text-xs font-black font-mono ${hasDivergencia ? 'text-amber-300' : 'text-white'}`}>
+                  {currentSaldoMetros.toFixed(1)}m
+                </strong>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Formulário Retrátil de Lançamento Manual */}
         {showAddForm && (
@@ -873,6 +1004,19 @@ export const MateriaPrimaHistoryModal: React.FC<MateriaPrimaHistoryModalProps> =
         </Modal>
       );
     })()}
+
+    {/* Modal de Reabastecimento / Compra de Bobina */}
+    <ReabastecerMateriaPrimaModal
+      isOpen={isReabastecerModalOpen}
+      onClose={() => setIsReabastecerModalOpen(false)}
+      materiaPrima={currentMp}
+      materiasPrimas={materiasPrimas}
+      onSuccess={async () => {
+        await loadHistory();
+        onStockUpdated();
+      }}
+      companyId={companyId}
+    />
   </>
   );
 };
