@@ -171,6 +171,32 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
     }
   };
 
+  const handleRemoverDaProducao = async (sale: SaleOrder) => {
+    if (lancandoProducaoId) return;
+    const confirma = await showConfirm(
+      `Desmarcar o lançamento do pedido #${sale.id.slice(-8).toUpperCase()} da esteira de Serviços/Produção?\n\nEle não aparecerá mais para os funcionários até que seja lançado novamente.`
+    );
+    if (!confirma) return;
+    setLancandoProducaoId(sale.id);
+    try {
+      const { error } = await supabase
+        .from('vendas')
+        .update({ service_status: null, updated_at: new Date().toISOString() })
+        .eq('id', sale.id);
+      if (error) throw error;
+
+      const applyLocalUpdate = (list: SaleOrder[]) =>
+        list.map(s => (s.id === sale.id ? { ...s, serviceStatus: undefined } : s));
+      setAllSalesHistory(applyLocalUpdate);
+      showAlert('Lançamento desmarcado com sucesso.');
+    } catch (err: any) {
+      console.error('Erro ao desmarcar produção:', err);
+      showAlert(`Erro ao desmarcar produção: ${err?.message || 'Falha na conexão'}`);
+    } finally {
+      setLancandoProducaoId(null);
+    }
+  };
+
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncedAt, setSyncedAt] = useState<Date>(() => {
@@ -413,7 +439,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
         paymentMethod: v.payment_method || 'pix',
         payments: v.payments || [],
         status: v.status || 'completed',
-        serviceStatus: v.service_status || 'pedido_recebido',
+        serviceStatus: v.service_status || undefined,
         scheduledFor: v.scheduled_for,
         observacoes: v.observacoes,
         createdAt: v.created_at,
@@ -457,23 +483,27 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
         return;
       }
 
-      // Fallback to vendas
+      // Fallback to vendas - apenas notas explicitamente lançadas para produção
       const { data: vendasData } = await supabase
         .from('vendas')
         .select('*')
         .is('deleted_at', null)
+        .not('service_status', 'is', null)
+        .neq('service_status', 'produto_entregue')
         .order('created_at', { ascending: false });
 
       if (vendasData) {
-        const mapped = vendasData.map((v: any) => ({
-          id: v.id,
-          title: v.items?.[0]?.name ? `${v.items[0].name}${v.items.length > 1 ? ` (+${v.items.length - 1})` : ''}` : 'Ordem de Serviço',
-          service_name: v.items?.[0]?.name || 'Serviço',
-          customer_name: v.customer_name || 'Cliente Balcão',
-          status: v.service_status || (v.status === 'completed' ? 'entregue' : 'pedido_recebido'),
-          value: Number(v.total) || 0,
-          created_at: v.created_at
-        }));
+        const mapped = vendasData
+          .filter((v: any) => Boolean(v.service_status && v.service_status.trim() !== '') && v.service_status !== 'produto_entregue')
+          .map((v: any) => ({
+            id: v.id,
+            title: v.items?.[0]?.name ? `${v.items[0].name}${v.items.length > 1 ? ` (+${v.items.length - 1})` : ''}` : 'Ordem de Serviço',
+            service_name: v.items?.[0]?.name || 'Serviço',
+            customer_name: v.customer_name || 'Cliente Balcão',
+            status: v.service_status,
+            value: Number(v.total) || 0,
+            created_at: v.created_at
+          }));
         setServicesList(mapped);
         setCache(CACHE_KEYS.services, mapped);
       }
@@ -1470,7 +1500,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
                               Quitar
                             </button>
                           )}
-                          {PRE_PRODUCAO_STATUSES.includes(sale.serviceStatus || 'pedido_recebido') && (
+                          {!sale.serviceStatus || PRE_PRODUCAO_STATUSES.includes(sale.serviceStatus) ? (
                             <button
                               onClick={() => handleLancarProducao(sale)}
                               disabled={lancandoProducaoId === sale.id}
@@ -1478,6 +1508,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
                               title="Enviar esta venda direto para a esteira de Produção"
                             >
                               {lancandoProducaoId === sale.id ? 'Enviando...' : '🏭 Lançar Produção'}
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleRemoverDaProducao(sale)}
+                              disabled={lancandoProducaoId === sale.id}
+                              className="px-2.5 py-1 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all disabled:opacity-50 disabled:cursor-wait whitespace-nowrap"
+                              title="Desmarcar lançamento e remover da esteira de Produção"
+                            >
+                              {lancandoProducaoId === sale.id ? 'Removendo...' : '❌ Desmarcar'}
                             </button>
                           )}
                           <button

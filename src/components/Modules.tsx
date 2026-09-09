@@ -9940,7 +9940,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const handleRemoverDaProducao = async (sale: SaleOrder) => {
     if (!sale.serviceStatus) return;
     const confirma = await showConfirm(
-      `Remover o pedido #${sale.id.slice(-8).toUpperCase()} da esteira de Serviços/Produção?\n\nEle não aparecerá mais na lista de Serviços até que seja lançado novamente.`
+      `Desmarcar o lançamento do pedido #${sale.id.slice(-8).toUpperCase()} da esteira de Serviços/Produção?\n\nEle não aparecerá mais para os funcionários na esteira de Serviços até que seja lançado novamente.`
     );
     if (!confirma) return;
     try {
@@ -9950,9 +9950,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       const atualizado = { ...sale, serviceStatus: undefined, updatedAt: nowIso };
       setAllSalesHistory(prev => prev.map(s => s.id === sale.id ? atualizado : s));
       setSalesToday(prev => prev.map(s => s.id === sale.id ? atualizado : s));
-      showAlert('Pedido removido da esteira de produção.');
+      showAlert('Lançamento desmarcado. O pedido foi removido da esteira de produção.');
     } catch (err: any) {
-      showAlert(`Erro ao remover da produção: ${err?.message || 'Falha na conexão'}`);
+      showAlert(`Erro ao desmarcar produção: ${err?.message || 'Falha na conexão'}`);
     }
   };
 
@@ -12528,19 +12528,37 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                 <span>{lancandoProducaoId === sale.id ? 'Lançando...' : 'Lançar Produção'}</span>
                               </button>
                             ) : (
-                              <div className="relative flex items-center justify-center gap-1 w-full max-w-[130px]">
+                              <div className="relative flex items-center justify-center gap-1 w-full max-w-[135px]">
                                 <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 shrink-0 animate-pulse" title="Em Produção" />
                                 <select
                                   value={sale.serviceStatus}
-                                  onChange={(e) => handleUpdateServiceStatus(sale.id, e.target.value)}
+                                  onChange={(e) => {
+                                    if (e.target.value === '__remover__') {
+                                      handleRemoverDaProducao(sale);
+                                    } else {
+                                      handleUpdateServiceStatus(sale.id, e.target.value);
+                                    }
+                                  }}
                                   onClick={(e) => e.stopPropagation()}
-                                  title="Em Produção — Clique para mudar de etapa"
+                                  title="Em Produção — Clique para mudar de etapa ou desmarcar"
                                   className="h-6 w-full bg-indigo-500/20 border border-indigo-500/35 rounded-full pl-2 pr-1 text-[8px] font-black uppercase text-indigo-300 focus:outline-none focus:border-primary-500 cursor-pointer truncate"
                                 >
                                   {STAGE_ORDER.map(id => (
                                     <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
                                   ))}
+                                  <option value="__remover__" className="bg-slate-900 text-rose-300 font-bold">❌ Desmarcar Produção</option>
                                 </select>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRemoverDaProducao(sale);
+                                  }}
+                                  title="Desmarcar / Remover da Produção"
+                                  className="h-5 w-5 rounded-full bg-white/5 hover:bg-rose-500/20 border border-white/10 hover:border-rose-500/30 text-white/40 hover:text-rose-300 flex items-center justify-center shrink-0 transition-colors"
+                                >
+                                  <X size={10} />
+                                </button>
                               </div>
                             )}
                           </div>
@@ -12652,7 +12670,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                   )}
                                   <button onClick={() => { setOpenSaleRowActionsId(null); openCustosDaNota(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-emerald-400 hover:bg-white/5 text-left"><Calculator size={13} /> Custos da Nota</button>
                                   {sale.serviceStatus ? (
-                                    <button onClick={() => { setOpenSaleRowActionsId(null); handleRemoverDaProducao(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-amber-400/80 hover:bg-white/5 text-left"><Factory size={13} /> Remover da Produção</button>
+                                    <button onClick={() => { setOpenSaleRowActionsId(null); handleRemoverDaProducao(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-amber-400 hover:bg-white/5 text-left"><Factory size={13} /> Desmarcar Produção</button>
                                   ) : (
                                     <button onClick={() => { setOpenSaleRowActionsId(null); handleLancarProducao(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-indigo-300 hover:bg-white/5 text-left"><Factory size={13} /> Lançar Produção</button>
                                   )}
@@ -12952,15 +12970,33 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                 <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse shrink-0" title="Em Produção" />
                                 <select
                                   value={sale.serviceStatus}
-                                  onChange={(e) => handleUpdateServiceStatus(sale.id, e.target.value)}
+                                  onChange={(e) => {
+                                    if (e.target.value === '__remover__') {
+                                      handleRemoverDaProducao(sale);
+                                    } else {
+                                      handleUpdateServiceStatus(sale.id, e.target.value);
+                                    }
+                                  }}
                                   onClick={(e) => e.stopPropagation()}
-                                  title="Em Produção — Clique para alterar etapa"
+                                  title="Em Produção — Clique para alterar etapa ou desmarcar"
                                   className="h-7 bg-indigo-500/20 border border-indigo-500/40 rounded-full pl-2.5 pr-2 text-[9px] font-black uppercase text-indigo-200 focus:outline-none focus:border-primary-500 cursor-pointer max-w-[150px]"
                                 >
                                   {STAGE_ORDER.map(id => (
                                     <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
                                   ))}
+                                  <option value="__remover__" className="bg-slate-900 text-rose-300 font-bold">❌ Desmarcar Produção</option>
                                 </select>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRemoverDaProducao(sale);
+                                  }}
+                                  title="Desmarcar / Remover da Produção"
+                                  className="h-7 w-7 rounded-full bg-white/5 hover:bg-rose-500/20 border border-white/10 hover:border-rose-500/30 text-white/40 hover:text-rose-300 flex items-center justify-center shrink-0 transition-colors"
+                                >
+                                  <X size={12} />
+                                </button>
                               </div>
                             )}
                             {sale.scheduledFor && (
@@ -13063,16 +13099,28 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               {lancandoProducaoId === sale.id ? 'Lançando...' : 'Lançar Produção'}
                             </Button>
                           ) : (
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              className="text-[9px] font-black uppercase tracking-wider px-3.5 h-9 border-indigo-500/30 text-indigo-300 hover:bg-indigo-500/15"
-                              onClick={() => setActiveTab('servicos')}
-                              title={`Em Produção: ${STAGE_LABELS[sale.serviceStatus] || sale.serviceStatus} — Clique para ver na aba Serviços`}
-                            >
-                              <Factory size={13} className="mr-1.5 text-indigo-400" />
-                              Em Produção ({STAGE_LABELS[sale.serviceStatus] || sale.serviceStatus})
-                            </Button>
+                            <>
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                className="text-[9px] font-black uppercase tracking-wider px-3.5 h-9 border-indigo-500/30 text-indigo-300 hover:bg-indigo-500/15"
+                                onClick={() => setActiveTab('servicos')}
+                                title={`Em Produção: ${STAGE_LABELS[sale.serviceStatus] || sale.serviceStatus} — Clique para ver na aba Serviços`}
+                              >
+                                <Factory size={13} className="mr-1.5 text-indigo-400" />
+                                Em Produção ({STAGE_LABELS[sale.serviceStatus] || sale.serviceStatus})
+                              </Button>
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                className="text-[9px] font-black uppercase tracking-wider px-2.5 h-9 border-rose-500/30 text-rose-300 hover:bg-rose-500/15"
+                                onClick={() => handleRemoverDaProducao(sale)}
+                                title="Desmarcar lançamento e remover da esteira de Produção"
+                              >
+                                <X size={13} className="mr-1 text-rose-400" />
+                                Desmarcar
+                              </Button>
+                            </>
                           )}
                           {isPartial && (
                             <Button

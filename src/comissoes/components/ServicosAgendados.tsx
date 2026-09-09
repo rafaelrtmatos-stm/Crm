@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CalendarClock, Bell, ChevronRight, ChevronDown, Trash2, ArrowLeft,
-  RotateCcw, CheckSquare, Square, X, CheckCircle2, Search, Copy, Check
+  RotateCcw, CheckSquare, Square, X, CheckCircle2, Search, Copy, Check,
+  Factory
 } from 'lucide-react';
 import { supabase } from '../../supabase';
 import { showConfirm, showAlert } from '../../lib/notify';
@@ -26,6 +27,7 @@ interface NotaAgendada {
   items: (NotaDetalheItem & { productId?: string | null })[];
   observacoes: string | null;
   created_at?: string;
+  service_status?: string | null;
 }
 
 interface ServicosAgendadosProps {
@@ -166,33 +168,37 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
       .select('id, customer_name, total, discount_value, scheduled_for, items, observacoes, service_status, created_at')
       .neq('status', 'canceled')
       .is('deleted_at', null)
-      .or('service_status.is.null,service_status.neq.produto_entregue')
+      .not('service_status', 'is', null)
+      .neq('service_status', 'produto_entregue')
       .order('scheduled_for', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: false });
 
-    const todasVendas = (vendasData || []) as NotaAgendada[];
+    // Regra de Produção: apenas notas e pedidos explicitamente lançados para produção aparecem para o funcionário em Serviços
+    const todasVendas = ((vendasData || []) as NotaAgendada[]).filter(v =>
+      Boolean(v.service_status && String(v.service_status).trim() !== '') && v.service_status !== 'produto_entregue'
+    );
     const todasVendasIds = new Set(todasVendas.map(v => v.id));
 
-    // Carrega também orçamentos que já foram recebidos / aprovados / em produção
-    // sem precisar reabrir no terminal de vendas
+    // Carrega também orçamentos apenas se aprovados ou já em produção (e que não viraram venda já carregada)
     let orcamentosNotas: NotaAgendada[] = [];
     try {
       const { data: orcData } = await supabase
         .from('orcamentos')
-        .select('id, numero, customer_name, total, desconto, prazo_data_prevista, items, observacoes, status, down_payment, valor_pago, pagamentos, created_at, venda_id')
+        .select('id, numero, customer_name, total, desconto, prazo_data_prevista, items, observacoes, status, down_payment, valor_pago, pagamentos, created_at, venda_id, service_status')
         .is('deleted_at', null)
         .neq('status', 'recusado')
         .neq('status', 'cancelado')
         .order('created_at', { ascending: false });
 
       orcamentosNotas = (orcData || [])
-        .filter((o: any) => !o.venda_id || !todasVendasIds.has(o.venda_id))
+        .filter((o: any) => !o.venda_id && (o.status === 'em_producao' || (o.service_status && o.service_status !== 'produto_entregue')))
         .map((o: any) => ({
           id: o.id,
           customer_name: o.customer_name ? `${o.customer_name} [Orçamento #${o.numero || ''}]` : `Orçamento #${o.numero || ''}`,
           total: Number(o.total) || 0,
           discount_value: Number(o.desconto) || 0,
           scheduled_for: o.prazo_data_prevista || o.created_at,
+          service_status: o.service_status || 'producao',
           items: (o.items || []).map((i: any) => ({
             name: i.description || i.name || 'Serviço',
             quantity: Number(i.quantity) || 1,
@@ -562,6 +568,34 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
     setServicosExcluidos(prev => prev.filter(s => s.id !== id));
   };
 
+  // Desmarca da produção (remove da lista de serviços dos funcionários)
+  const handleDesmarcarProducao = async (e: React.MouseEvent, nota: NotaAgendada) => {
+    e.stopPropagation();
+    const confirma = await showConfirm(
+      `Desmarcar o pedido #${nota.id.slice(-6).toUpperCase()} da esteira de Serviços/Produção?\n\nEle não aparecerá mais nesta lista até que seja lançado novamente no PDV.`
+    );
+    if (!confirma) return;
+
+    try {
+      const nowIso = new Date().toISOString();
+      if (nota.id.startsWith('orc_')) {
+        await supabase
+          .from('orcamentos')
+          .update({ service_status: null, updated_at: nowIso })
+          .eq('id', nota.id);
+      } else {
+        await supabase
+          .from('vendas')
+          .update({ service_status: null, updated_at: nowIso })
+          .eq('id', nota.id);
+      }
+      setNotas(prev => prev.filter(n => n.id !== nota.id));
+      showAlert('Pedido desmarcado da produção com sucesso.');
+    } catch (err: any) {
+      showAlert(`Erro ao desmarcar produção: ${err?.message || 'Falha de comunicação'}`);
+    }
+  };
+
   const renderNotaCard = (nota: NotaAgendada) => {
     const totalItens = nota.items?.length || 0;
     const adicionados = itensAdicionadosPorNota[nota.id]?.size || 0;
@@ -641,8 +675,21 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
                       })
                     : 'Sem agendamento'}
               </span>
+              <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                Em Produção
+              </span>
             </div>
           </div>
+
+          {!modoSelecao && (
+            <button
+              onClick={e => handleDesmarcarProducao(e, nota)}
+              className="p-2 rounded-lg text-amber-400/70 hover:text-amber-300 hover:bg-amber-500/15 shrink-0 transition-colors"
+              title="Desmarcar da Produção (remove da lista de serviços)"
+            >
+              <Factory className="w-4 h-4" />
+            </button>
+          )}
 
           {colaboradorId && !modoSelecao && (
             <button
