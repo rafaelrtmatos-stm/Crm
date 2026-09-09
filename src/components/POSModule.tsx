@@ -61,6 +61,11 @@ function cn(...classes: (string | boolean | undefined | null)[]) {
   return classes.filter(Boolean).join(' ');
 }
 
+// Etapas do fluxo de OS anteriores à Produção — enquanto a venda estiver
+// em uma delas, o botão de atalho "🏭 Lançar Produção" fica disponível
+// no Histórico de Vendas para pular direto para a esteira de produção.
+const PRE_PRODUCAO_STATUSES = ['pedido_recebido', 'aguardando_arte', 'arte_em_desenvolvimento', 'aguardando_aprovacao'];
+
 interface POSModuleProps {
   currentCompany: Company | null;
   addPendingOrder?: (order: SaleOrder) => void;
@@ -142,6 +147,30 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
     setCopiedSaleField({ id, field });
     setTimeout(() => setCopiedSaleField(null), 1500);
   };
+
+  // Envio rápido de uma venda para a esteira de Produção (etapa "producao")
+  const [lancandoProducaoId, setLancandoProducaoId] = useState<string | null>(null);
+  const handleLancarProducao = async (sale: SaleOrder) => {
+    if (lancandoProducaoId) return;
+    setLancandoProducaoId(sale.id);
+    try {
+      const { error } = await supabase
+        .from('vendas')
+        .update({ service_status: 'producao', updated_at: new Date().toISOString() })
+        .eq('id', sale.id);
+      if (error) throw error;
+
+      const applyLocalUpdate = (list: SaleOrder[]) =>
+        list.map(s => (s.id === sale.id ? { ...s, serviceStatus: 'producao' as const } : s));
+      setAllSalesHistory(applyLocalUpdate);
+    } catch (err) {
+      console.error('Erro ao lançar produção:', err);
+      showAlert('Não foi possível enviar a venda para produção. Tente novamente.');
+    } finally {
+      setLancandoProducaoId(null);
+    }
+  };
+
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncedAt, setSyncedAt] = useState<Date>(() => {
@@ -384,6 +413,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
         paymentMethod: v.payment_method || 'pix',
         payments: v.payments || [],
         status: v.status || 'completed',
+        serviceStatus: v.service_status || 'pedido_recebido',
         scheduledFor: v.scheduled_for,
         observacoes: v.observacoes,
         createdAt: v.created_at,
@@ -1438,6 +1468,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
                               className="px-2.5 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all"
                             >
                               Quitar
+                            </button>
+                          )}
+                          {PRE_PRODUCAO_STATUSES.includes(sale.serviceStatus || 'pedido_recebido') && (
+                            <button
+                              onClick={() => handleLancarProducao(sale)}
+                              disabled={lancandoProducaoId === sale.id}
+                              className="px-2.5 py-1 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all disabled:opacity-50 disabled:cursor-wait whitespace-nowrap"
+                              title="Enviar esta venda direto para a esteira de Produção"
+                            >
+                              {lancandoProducaoId === sale.id ? 'Enviando...' : '🏭 Lançar Produção'}
                             </button>
                           )}
                           <button
