@@ -7026,7 +7026,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const [customerLoadError, setCustomerLoadError] = useState<string>('');
+  const isLoadingCustomersRef = React.useRef(false);
   const loadAllCustomers = async () => {
+    if (isLoadingCustomersRef.current) return;
+    isLoadingCustomersRef.current = true;
     setIsLoadingCustomers(true);
     setCustomerLoadError('');
     try {
@@ -7039,10 +7042,24 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       }
       console.log('Clientes carregados:', data?.length, 'count total:', count);
       setAllCustomers(data || []);
-      // Agrega estatisticas de vendas por cliente (busca leve, so campos necessarios)
-      const { data: vendasData } = await supabase.from('vendas').select('cliente_id, total, status, down_payment, created_at');
+
+      // Agrega estatisticas de vendas por cliente: aproveita allSalesHistory da memória se disponível
+      let vendasParaStats: any[] = [];
+      if (allSalesHistory && allSalesHistory.length > 0) {
+        vendasParaStats = allSalesHistory.map(v => ({
+          cliente_id: v.customerId,
+          total: v.total,
+          status: v.status,
+          down_payment: v.downPayment,
+          created_at: v.createdAt,
+        }));
+      } else {
+        const { data: vendasData } = await supabase.from('vendas').select('cliente_id, total, status, down_payment, created_at').limit(1000);
+        vendasParaStats = vendasData || [];
+      }
+
       const stats: Record<string, { total: number; count: number; lastDate: string | null; hasPending: boolean; pendingBalance: number }> = {};
-      (vendasData || []).forEach((v: any) => {
+      vendasParaStats.forEach((v: any) => {
         if (!v.cliente_id) return;
         if (!stats[v.cliente_id]) stats[v.cliente_id] = { total: 0, count: 0, lastDate: null, hasPending: false, pendingBalance: 0 };
         stats[v.cliente_id].total += Number(v.total) || 0;
@@ -7063,6 +7080,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       console.error('Erro ao carregar clientes:', err);
     } finally {
       setIsLoadingCustomers(false);
+      isLoadingCustomersRef.current = false;
     }
   };
 
@@ -7099,14 +7117,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         return withStats.sort((a, b) => {
           const da = a._stats?.lastDate ? new Date(a._stats.lastDate).getTime() : 0;
           const db = b._stats?.lastDate ? new Date(b._stats.lastDate).getTime() : 0;
-          return db - da;
+          return (isNaN(db) ? 0 : db) - (isNaN(da) ? 0 : da);
         });
       case 'maior_valor':
         return withStats.sort((a, b) => (b._stats?.total || 0) - (a._stats?.total || 0));
       case 'frequentes':
         return withStats.sort((a, b) => (b._stats?.count || 0) - (a._stats?.count || 0));
       default:
-        return withStats.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        return withStats.sort((a, b) => {
+          const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+          const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+          return (isNaN(tb) ? 0 : tb) - (isNaN(ta) ? 0 : ta);
+        });
     }
   }, [allCustomers, customerSearchTerm, customerSortBy, customerSalesStats]);
 
@@ -7211,23 +7233,36 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         ({ data, error } = await supabase.from('clientes').insert(payload).select().single());
       }
       if (error) throw error;
-      if (data) {
-        setAllCustomers(prev => {
-          const exists = prev.some(c => c.id === data.id);
-          if (exists) return prev.map(c => c.id === data.id ? { ...c, ...data } : c);
-          return [data, ...prev];
-        });
+
+      const clienteSalvo = data || {
+        id: editingCustomerId || idParaMesclar || `cli_${Date.now()}`,
+        ...payload,
+        created_at: new Date().toISOString()
+      };
+      if (!clienteSalvo.created_at) {
+        clienteSalvo.created_at = new Date().toISOString();
       }
-      setSelectedCustomer({ id: data.id, name: data.full_name, phone: data.phone || '' });
+
+      setAllCustomers(prev => {
+        const exists = prev.some(c => c.id === clienteSalvo.id);
+        if (exists) return prev.map(c => c.id === clienteSalvo.id ? { ...c, ...clienteSalvo } : c);
+        return [clienteSalvo, ...prev];
+      });
+
+      setSelectedCustomer({ id: clienteSalvo.id, name: clienteSalvo.full_name, phone: clienteSalvo.phone || '' });
       setNewCustomerForm({ ...emptyCustomerForm });
       setIsMoreOptionsOpen(false);
       setEditingCustomerId(null);
+      setIsCustomerModalOpen(false);
       setCustomerModalMode('search');
+
       if (!editingCustomerId) {
-        proceedAfterCustomerStep(data);
+        proceedAfterCustomerStep(clienteSalvo);
       }
       // Atualiza lista em segundo plano sem travar
-      loadAllCustomers().catch(() => {});
+      setTimeout(() => {
+        loadAllCustomers().catch(() => {});
+      }, 300);
     } catch (err) {
       console.error('Erro ao salvar cliente:', err);
       showAlert('Não foi possível salvar o cliente.');
@@ -8697,6 +8732,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [historyClienteIdFilter, setHistoryClienteIdFilter] = useState<string | null>(null);
   const [historyDateFrom, setHistoryDateFrom] = useState('');
   const [historyDateTo, setHistoryDateTo] = useState('');
+  const [historyPageSize, setHistoryPageSize] = useState<number>(40);
   // Abas de filtro no topo do Historico: Visao Geral (todos os pedidos, com os filtros normais),
   // Vendas do Dia (so pedidos CRIADOS hoje) e Entradas de Caixa (cada RECEBIMENTO individual,
   // nao pedido -- uma nota paga em 2 partes aparece como 2 linhas, cada uma na sua data/hora real).
@@ -9339,20 +9375,21 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const matchesHistorySearch = (sale: SaleOrder): boolean => {
+    if (!sale) return false;
     // Filtro preciso por cliente_id (evita confundir clientes com nomes iguais) — tem prioridade sobre o texto
     if (historyClienteIdFilter) {
       if (sale.customerId) return sale.customerId === historyClienteIdFilter;
       // Venda orfa (sem cliente_id vinculado ainda) — casa pelo nome como reserva,
       // mesma logica usada na Ficha do Cliente pra reconhecer vendas antigas/importadas
-      const nomeFiltro = historySearch.toLowerCase().trim();
+      const nomeFiltro = (historySearch || '').toLowerCase().trim();
       return !!nomeFiltro && (sale.customerName || '').toLowerCase().trim() === nomeFiltro;
     }
     if (!historySearch.trim()) return true;
     const term = historySearch.toLowerCase().trim();
     const termDigits = term.replace(/\D/g, '');
     const nameMatch = (sale.customerName || '').toLowerCase().includes(term);
-    const idMatch = sale.id.toLowerCase().includes(term);
-    const itemMatch = sale.items?.some(i => i.name.toLowerCase().includes(term));
+    const idMatch = (sale.id || '').toLowerCase().includes(term);
+    const itemMatch = sale.items?.some(i => (i?.name || '').toLowerCase().includes(term));
     const phoneMatch = termDigits.length >= 3 && (sale.customerPhone || '').replace(/\D/g, '').includes(termDigits);
     return nameMatch || idMatch || !!itemMatch || phoneMatch;
   };
@@ -9378,7 +9415,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const pendingOrScheduledSales = useMemo(() => {
     const filtered = allSalesHistory.filter(sale => {
       const down = sale.downPayment || 0;
-      const balance = sale.total - down;
+      const balance = (sale.total || 0) - down;
       const isPartial = balance > 0 || sale.status === 'pending';
       return isPartial || !!sale.scheduledFor;
     });
@@ -9388,7 +9425,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         if (!a.scheduledFor && !b.scheduledFor) return 0;
         if (!a.scheduledFor) return 1;
         if (!b.scheduledFor) return -1;
-        const cmp = new Date(a.scheduledFor).getTime() - new Date(b.scheduledFor).getTime();
+        const ta = new Date(a.scheduledFor).getTime();
+        const tb = new Date(b.scheduledFor).getTime();
+        const cmp = (isNaN(ta) ? 0 : ta) - (isNaN(tb) ? 0 : tb);
         return historySortOrder === 'desc' ? -cmp : cmp;
       }
       let cmp = 0;
@@ -9402,8 +9441,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         case 'status':
           cmp = (a.status || '').localeCompare(b.status || '');
           break;
-        default:
-          cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+        default: {
+          const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          cmp = (isNaN(ta) ? 0 : ta) - (isNaN(tb) ? 0 : tb);
+        }
       }
       return historySortOrder === 'desc' ? -cmp : cmp;
     });
@@ -9413,28 +9455,37 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const fromDate = historyDateFrom ? new Date(historyDateFrom + 'T00:00:00') : null;
     const toDate = historyDateTo ? new Date(historyDateTo + 'T23:59:59') : null;
     const filtered = allSalesHistory.filter(sale => {
+      if (!sale) return false;
       if (!matchesOrderStatusGroup(sale, selectedOrderStatusFilters)) return false;
       if (!matchesPaymentGroup(sale, selectedPaymentFilters)) return false;
       if (!matchesHistorySearch(sale)) return false;
       if (fromDate || toDate) {
-        const saleDate = new Date(sale.createdAt);
-        if (isNaN(saleDate.getTime())) return false;
+        const saleDate = sale.createdAt ? new Date(sale.createdAt) : null;
+        if (!saleDate || isNaN(saleDate.getTime())) return false;
         if (fromDate && saleDate < fromDate) return false;
         if (toDate && saleDate > toDate) return false;
       }
       return true;
     });
-    // Ordena pela data/hora do pagamento/transacao MAIS RECENTE de cada pedido (nao pela
-    // criacao da nota) -- um pagamento lancado as 12:00 fica posicionado exatamente entre
-    // um das 11:00 e um das 13:00. Pedidos sem nenhum pagamento lancado (ex: em aberto sem
-    // entrada) caem de volta na data de criacao, que e o unico marco temporal que tem.
-    const chronoKey = (s: SaleOrder) => {
-      const eventos = getRevenueEventsForSale(s);
-      if (eventos.length === 0) return new Date(s.createdAt).getTime();
-      return Math.max(...eventos.map(ev => new Date(ev.date).getTime()));
+
+    const getSafeTime = (val: any): number => {
+      if (!val) return 0;
+      const t = new Date(val).getTime();
+      return isNaN(t) ? 0 : t;
     };
+
+    const chronoKey = (s: SaleOrder): number => {
+      const eventos = getRevenueEventsForSale(s);
+      if (!eventos || eventos.length === 0) return getSafeTime(s?.createdAt);
+      const times = eventos.map(ev => getSafeTime(ev?.date));
+      return Math.max(0, ...times);
+    };
+
     return filtered.sort((a, b) => {
-      const diff = chronoKey(b) - chronoKey(a);
+      const ka = chronoKey(a);
+      const kb = chronoKey(b);
+      const diff = kb - ka;
+      if (isNaN(diff)) return 0;
       return historySortOrder === 'desc' ? diff : -diff;
     });
   }, [allSalesHistory, selectedOrderStatusFilters, selectedPaymentFilters, historySearch, historyClienteIdFilter, historySortOrder, historyDateFrom, historyDateTo]);
@@ -12251,6 +12302,36 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               }
 
               const filteredSales = historyViewTab === 'vendas_dia' ? historyVendasDoDia : filteredSalesHistory;
+              const visibleSales = filteredSales.slice(0, historyPageSize);
+
+              const renderPaginationControls = () => {
+                if (filteredSales.length <= historyPageSize) return null;
+                return (
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-4 bg-slate-900/80 rounded-2xl border border-white/10 mt-4 shadow-lg">
+                    <span className="text-xs text-white/60 font-medium">
+                      Mostrando <strong className="text-white font-bold">{Math.min(historyPageSize, filteredSales.length)}</strong> de <strong className="text-white font-bold">{filteredSales.length}</strong> pedidos
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setHistoryPageSize(prev => prev + 40)}
+                        className="text-xs font-bold bg-white/10 hover:bg-white/20 text-white"
+                      >
+                        Carregar Mais 40 Pedidos
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setHistoryPageSize(filteredSales.length)}
+                        className="text-xs text-white/50 hover:text-white"
+                      >
+                        Mostrar Todos ({filteredSales.length})
+                      </Button>
+                    </div>
+                  </div>
+                );
+              };
 
               if (filteredSales.length === 0) {
                 return (
@@ -12298,7 +12379,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       <div className="shrink-0 w-8 text-center">Ações</div>
                     </div>
 
-                    {filteredSales.map(sale => {
+                    {visibleSales.map(sale => {
                       const down = sale.downPayment || 0;
                       const balance = sale.total - down;
                       const isPartial = balance > 0 || sale.status === 'pending';
@@ -12519,6 +12600,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                         </div>
                       );
                     })}
+                    {renderPaginationControls()}
                   </div>
                 );
               }
@@ -12526,8 +12608,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               // --- MODO MINIATURA ---
               if (historyViewMode === 'miniatura') {
                 return (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-                    {filteredSales.map(sale => {
+                  <div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                      {visibleSales.map(sale => {
                       const down = sale.downPayment || 0;
                       const balance = sale.total - down;
                       const isPartial = balance > 0 || sale.status === 'pending';
@@ -12653,13 +12736,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       );
                     })}
                   </div>
-                );
-              }
+                  {renderPaginationControls()}
+                </div>
+              );
+            }
 
-              // --- MODO NORMAL (padrão) ---
-              return (
+            // --- MODO NORMAL (padrão) ---
+            return (
+              <div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {filteredSales.map(sale => {
+                  {visibleSales.map(sale => {
                     const down = sale.downPayment || 0;
                     const balance = sale.total - down;
                     const isPartial = balance > 0 || sale.status === 'pending';
@@ -12932,8 +13018,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     );
                   })}
                 </div>
-              );
-            })()}
+                {renderPaginationControls()}
+              </div>
+            );
+          })()}
           </div>
         )}
 
