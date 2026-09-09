@@ -224,6 +224,7 @@ import { collection, query, where, onSnapshot, orderBy, Timestamp, addDoc, doc, 
 import { db } from '../firebase';
 import { supabase } from '../supabase';
 import { showAlert, showConfirm, showPrompt } from '../lib/notify';
+import { confirmarRetiradaProducao } from '../comissoes/utils/supabaseStorage';
 import { buildPixPayload } from '../lib/pix';
 import { renderReceiptCanvas, downloadCanvasAsPng, downloadCanvasAsPdf, COMPANY_CONTACT, CompanyContactInfo } from '../lib/receipt';
 import { renderOrcamentoCanvas, renderOrcamentoSimplesCanvas } from '../lib/orcamentoDoc';
@@ -9939,9 +9940,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const handleRemoverDaProducao = async (sale: SaleOrder) => {
     if (!sale.serviceStatus) return;
-    const confirma = await showConfirm(
-      `Desmarcar o lançamento do pedido #${sale.id.slice(-8).toUpperCase()} da esteira de Serviços/Produção?\n\nEle não aparecerá mais para os funcionários na esteira de Serviços até que seja lançado novamente.`
-    );
+    const confirma = await confirmarRetiradaProducao(sale.id, sale.id.slice(-8).toUpperCase());
     if (!confirma) return;
     try {
       const nowIso = new Date().toISOString();
@@ -9950,7 +9949,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       const atualizado = { ...sale, serviceStatus: undefined, updatedAt: nowIso };
       setAllSalesHistory(prev => prev.map(s => s.id === sale.id ? atualizado : s));
       setSalesToday(prev => prev.map(s => s.id === sale.id ? atualizado : s));
-      showAlert('Lançamento desmarcado. O pedido foi removido da esteira de produção.');
+      showAlert('Lançamento desmarcado com sucesso. (Os itens já adicionados à comissão continuam seguros)');
     } catch (err: any) {
       showAlert(`Erro ao desmarcar produção: ${err?.message || 'Falha na conexão'}`);
     }

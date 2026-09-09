@@ -38,6 +38,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { showAlert, showConfirm } from '../lib/notify';
+import { confirmarRetiradaProducao } from '../comissoes/utils/supabaseStorage';
 import { deductMateriasPrimasStock } from '../lib/materiasPrimasStorage';
 import { Company, Product, SaleOrder, CartItem, PaymentEntry, AppUser } from '../types';
 import { Badge, Button, Input, Modal, GlassCard, ModuleErrorBoundary } from './SharedUI';
@@ -173,9 +174,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
 
   const handleRemoverDaProducao = async (sale: SaleOrder) => {
     if (lancandoProducaoId) return;
-    const confirma = await showConfirm(
-      `Desmarcar o lançamento do pedido #${sale.id.slice(-8).toUpperCase()} da esteira de Serviços/Produção?\n\nEle não aparecerá mais para os funcionários até que seja lançado novamente.`
-    );
+    const confirma = await confirmarRetiradaProducao(sale.id, sale.id.slice(-8).toUpperCase());
     if (!confirma) return;
     setLancandoProducaoId(sale.id);
     try {
@@ -188,7 +187,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
       const applyLocalUpdate = (list: SaleOrder[]) =>
         list.map(s => (s.id === sale.id ? { ...s, serviceStatus: undefined } : s));
       setAllSalesHistory(applyLocalUpdate);
-      showAlert('Lançamento desmarcado com sucesso.');
+      showAlert('Lançamento desmarcado com sucesso. (Os itens já puxados na comissão permanecem intactos)');
     } catch (err: any) {
       console.error('Erro ao desmarcar produção:', err);
       showAlert(`Erro ao desmarcar produção: ${err?.message || 'Falha na conexão'}`);

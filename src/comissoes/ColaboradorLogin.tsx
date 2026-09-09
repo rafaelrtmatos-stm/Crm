@@ -3,8 +3,9 @@ import { User, Lock } from 'lucide-react';
 import { loginColaborador, Colaborador } from './utils/supabaseStorage';
 
 export const ColaboradorLogin = ({ onLoginSuccess, embedded }: { onLoginSuccess: (colaborador: Colaborador) => void; embedded?: boolean }) => {
-  const [nome, setNome] = useState('');
-  const [senha, setSenha] = useState('');
+  const [nome, setNome] = useState(() => localStorage.getItem('rpro_colab_remember_nome') || '');
+  const [senha, setSenha] = useState(() => localStorage.getItem('rpro_colab_remember_senha') || '');
+  const [lembrar, setLembrar] = useState(() => localStorage.getItem('rpro_colab_remember_me') === 'true' || !!localStorage.getItem('rpro_colab_remember_nome'));
   const [erro, setErro] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -16,6 +17,17 @@ export const ColaboradorLogin = ({ onLoginSuccess, embedded }: { onLoginSuccess:
     const colaborador = await loginColaborador(nome, senha);
     setLoading(false);
     if (!colaborador) { setErro('Nome ou senha incorretos.'); return; }
+
+    if (lembrar) {
+      localStorage.setItem('rpro_colab_remember_me', 'true');
+      localStorage.setItem('rpro_colab_remember_nome', nome.trim());
+      localStorage.setItem('rpro_colab_remember_senha', senha.trim());
+    } else {
+      localStorage.removeItem('rpro_colab_remember_me');
+      localStorage.removeItem('rpro_colab_remember_nome');
+      localStorage.removeItem('rpro_colab_remember_senha');
+    }
+
     onLoginSuccess(colaborador);
   };
 
@@ -50,6 +62,29 @@ export const ColaboradorLogin = ({ onLoginSuccess, embedded }: { onLoginSuccess:
               placeholder="Sua senha"
               className="w-full h-11 bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl pl-10 pr-3.5 text-xs text-[var(--text-main)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-red)]"
             />
+          </div>
+
+          <div className="flex items-center justify-between pt-0.5">
+            <label className="flex items-center gap-2 cursor-pointer select-none group">
+              <input
+                type="checkbox"
+                checked={lembrar}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setLembrar(checked);
+                  if (!checked) {
+                    localStorage.removeItem('rpro_colab_remember_me');
+                    localStorage.removeItem('rpro_colab_remember_nome');
+                    localStorage.removeItem('rpro_colab_remember_senha');
+                  }
+                }}
+                className="w-3.5 h-3.5 rounded border-white/20 bg-[var(--bg-card-sec)] accent-red-600 cursor-pointer"
+              />
+              <span className="text-[11px] font-medium text-[var(--text-muted)] group-hover:text-[var(--text-main)] transition-colors">
+                Lembrar login e senha
+              </span>
+            </label>
+            <span className="text-[10px] text-[var(--text-muted)]">Neste aparelho</span>
           </div>
 
           {erro && <p className="text-xs text-[var(--accent-red)] font-bold text-center">{erro}</p>}

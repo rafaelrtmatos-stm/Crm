@@ -894,11 +894,19 @@ export default function App() {
   const [showPassword, setShowPassword] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [rememberMe, setRememberMe] = useState(() => !!localStorage.getItem('rpro_remembered_email'));
+  const [rememberMe, setRememberMe] = useState(() => {
+    return localStorage.getItem('rpro_remember_me') === 'true' || !!localStorage.getItem('rpro_remembered_email');
+  });
 
   useEffect(() => {
-    const rememberedEmail = localStorage.getItem('rpro_remembered_email');
-    if (rememberedEmail) setLoginEmail(rememberedEmail);
+    const isRemembered = localStorage.getItem('rpro_remember_me') === 'true' || !!localStorage.getItem('rpro_remembered_email');
+    if (isRemembered) {
+      setRememberMe(true);
+      const rememberedEmail = localStorage.getItem('rpro_remembered_email');
+      const rememberedPassword = localStorage.getItem('rpro_remembered_password');
+      if (rememberedEmail) setLoginEmail(rememberedEmail);
+      if (rememberedPassword) setLoginPassword(rememberedPassword);
+    }
   }, []);
 
   // Identifica o dispositivo/navegador a partir do user agent (nao existe forma de ler o MAC —
@@ -1147,6 +1155,21 @@ export default function App() {
     }
   };
 
+  // Gerencia o salvamento persistente de credenciais de acordo com a opção "Lembrar login e senha"
+  const salvarCredenciaisLembradas = (uid: string, email: string, password: string, remember: boolean) => {
+    if (remember) {
+      localStorage.setItem('rpro_remember_me', 'true');
+      localStorage.setItem('rpro_remembered_user_id', uid);
+      localStorage.setItem('rpro_remembered_email', email);
+      localStorage.setItem('rpro_remembered_password', password);
+    } else {
+      localStorage.removeItem('rpro_remember_me');
+      localStorage.removeItem('rpro_remembered_user_id');
+      localStorage.removeItem('rpro_remembered_email');
+      localStorage.removeItem('rpro_remembered_password');
+    }
+  };
+
   const handlePasswordLogin = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setAuthError(null);
@@ -1193,9 +1216,7 @@ export default function App() {
         setUser(adminData);
         cacheUserOffline(adminData);
         sessionStorage.setItem('rpro_logged_user_id', adminData.id);
-        if (localStorage.getItem('rpro_remembered_email') === trimmedEmail) {
-          localStorage.setItem('rpro_remembered_user_id', adminData.id);
-        }
+        salvarCredenciaisLembradas(adminData.id, trimmedEmail, trimmedPassword, rememberMe);
         setAuthError(null);
         setIsSubmitting(false);
         return;
@@ -1225,21 +1246,24 @@ export default function App() {
           return;
         }
         localStorage.setItem('rpro_comissoes_colaborador_id', offlineUser.colaboradorId);
+        if (rememberMe) {
+          localStorage.setItem('rpro_remember_me', 'true');
+          localStorage.setItem('rpro_remembered_email', trimmedEmail);
+          localStorage.setItem('rpro_remembered_password', trimmedPassword);
+        } else {
+          localStorage.removeItem('rpro_remember_me');
+          localStorage.removeItem('rpro_remembered_email');
+          localStorage.removeItem('rpro_remembered_password');
+        }
         sessionStorage.removeItem('rpro_logged_user_id');
         localStorage.removeItem('rpro_remembered_user_id');
-        localStorage.removeItem('rpro_remembered_email');
         window.location.href = 'https://pro.rafaartsgraphics.com.br/comissoes';
         return;
       }
       setUser(offlineUser);
       cacheUserOffline(offlineUser);
       sessionStorage.setItem('rpro_logged_user_id', offlineUser.id);
-      // Sem internet nao ha como registrar a sessao (Firestore) nem reconfirmar
-      // localizacao/notificacao com o servidor — mantem "lembrar" so se ja estava
-      // lembrado antes (nao arrisca marcar como lembrado sem ter revalidado online).
-      if (localStorage.getItem('rpro_remembered_email') === trimmedEmail) {
-        localStorage.setItem('rpro_remembered_user_id', offlineUser.id);
-      }
+      salvarCredenciaisLembradas(offlineUser.id, trimmedEmail, trimmedPassword, rememberMe);
       setAuthError(null);
       setIsSubmitting(false);
       return;
@@ -1285,22 +1309,12 @@ export default function App() {
         cacheUserOffline(adminData);
         cacheOfflineCredentials(trimmedEmail, trimmedPassword, adminData);
         sessionStorage.setItem('rpro_logged_user_id', adminData.id);
-        // So pede autorizacao de localizacao se o usuario AINDA NAO tinha aceitado antes (ver
-        // getGeoForLogin). Notificacao segue a mesma regra (Notification.permission ja cuida
-        // disso sozinho). So libera ficar logado sem precisar digitar senha de novo se as duas
-        // estiverem aceitas; recusando qualquer uma, sempre vai pedir login.
         const { coords: geoAdmin, permission: geoPermissionAdmin } = await getGeoForLogin();
         const notifAdmin = await requestNotificationPermission();
         localStorage.setItem('rpro_geo_permission', geoPermissionAdmin);
         localStorage.setItem('rpro_notif_permission', notifAdmin ? 'granted' : 'denied');
         registerSession(adminData.id, adminData.name, geoAdmin, geoPermissionAdmin, notifAdmin ? 'granted' : 'denied');
-        if (geoPermissionAdmin === 'granted' && notifAdmin) {
-          localStorage.setItem('rpro_remembered_user_id', adminData.id);
-          localStorage.setItem('rpro_remembered_email', trimmedEmail);
-        } else {
-          localStorage.removeItem('rpro_remembered_user_id');
-          localStorage.removeItem('rpro_remembered_email');
-        }
+        salvarCredenciaisLembradas(adminData.id, trimmedEmail, trimmedPassword, rememberMe);
         setIsSubmitting(false);
         return;
       }
@@ -1407,13 +1421,18 @@ export default function App() {
           return;
         }
         localStorage.setItem('rpro_comissoes_colaborador_id', userData.colaboradorId);
-        // IMPORTANTE: nunca gravar rpro_remembered_user_id/rpro_logged_user_id aqui — sao as chaves
-        // que o CRM principal (initAuth, mais abaixo) usa pra autologar no dashboard. Se um usuario
-        // de Comissao ficasse salvo nelas, ao abrir pro.rafaartsgraphics.com.br de novo o initAuth
-        // logava ele direto no dashboard do CRM em vez de mandar pra /comissoes (bug do autologin).
+        // Lembra e-mail e senha para acesso rápido caso precise relogar
+        if (rememberMe) {
+          localStorage.setItem('rpro_remember_me', 'true');
+          localStorage.setItem('rpro_remembered_email', trimmedEmail);
+          localStorage.setItem('rpro_remembered_password', trimmedPassword);
+        } else {
+          localStorage.removeItem('rpro_remember_me');
+          localStorage.removeItem('rpro_remembered_email');
+          localStorage.removeItem('rpro_remembered_password');
+        }
         sessionStorage.removeItem('rpro_logged_user_id');
         localStorage.removeItem('rpro_remembered_user_id');
-        localStorage.removeItem('rpro_remembered_email');
         window.location.href = 'https://pro.rafaartsgraphics.com.br/comissoes';
         return;
       }
@@ -1421,22 +1440,12 @@ export default function App() {
       setUser(userData);
       cacheUserOffline(userData);
       sessionStorage.setItem('rpro_logged_user_id', userData.id);
-      // So pede autorizacao de localizacao se o usuario AINDA NAO tinha aceitado antes (ver
-      // getGeoForLogin). Notificacao segue a mesma regra (Notification.permission ja cuida
-      // disso sozinho). So libera ficar logado sem precisar digitar senha de novo se as duas
-      // estiverem aceitas; recusando qualquer uma, sempre vai pedir login.
       const { coords: geoUser, permission: geoPermissionUser } = await getGeoForLogin();
       const notifUser = await requestNotificationPermission();
       localStorage.setItem('rpro_geo_permission', geoPermissionUser);
       localStorage.setItem('rpro_notif_permission', notifUser ? 'granted' : 'denied');
       registerSession(userData.id, userData.name, geoUser, geoPermissionUser, notifUser ? 'granted' : 'denied');
-      if (geoPermissionUser === 'granted' && notifUser) {
-        localStorage.setItem('rpro_remembered_user_id', userData.id);
-        localStorage.setItem('rpro_remembered_email', trimmedEmail);
-      } else {
-        localStorage.removeItem('rpro_remembered_user_id');
-        localStorage.removeItem('rpro_remembered_email');
-      }
+      salvarCredenciaisLembradas(userData.id, trimmedEmail, trimmedPassword, rememberMe);
     } catch (err) {
       console.error('Erro na autenticação:', err);
       setAuthError('Erro de conexão ao verificar credenciais. Tente novamente.');
@@ -1554,9 +1563,11 @@ export default function App() {
                 })
                 .subscribe();
               userUnsub = () => { supabase.removeChannel(channel); };
+              sessionStorage.setItem('rpro_logged_user_id', uData.id);
               reregisterAutoSession(uData.id, uData.name);
             } else {
               sessionStorage.removeItem('rpro_logged_user_id');
+              localStorage.removeItem('rpro_remembered_user_id');
             }
           }
         } catch (e) {
@@ -1757,17 +1768,26 @@ export default function App() {
                 <input
                   type="checkbox"
                   checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setRememberMe(checked);
+                    if (!checked) {
+                      localStorage.removeItem('rpro_remember_me');
+                      localStorage.removeItem('rpro_remembered_user_id');
+                      localStorage.removeItem('rpro_remembered_email');
+                      localStorage.removeItem('rpro_remembered_password');
+                    }
+                  }}
                   className="w-3.5 h-3.5 rounded border-white/20 bg-[#06060a] accent-red-600 cursor-pointer"
                 />
                 <span className="text-[11px] font-medium text-slate-300 group-hover:text-white transition-colors">
-                  Lembrar acesso
+                  Lembrar login e senha
                 </span>
               </label>
 
               <div className="flex items-center gap-1 text-[10px] font-medium text-slate-400">
                 <ShieldCheck size={12} className="text-emerald-500/80" />
-                <span>Seguro</span>
+                <span>Salvar neste aparelho</span>
               </div>
             </div>
 

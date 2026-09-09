@@ -1,4 +1,5 @@
 import { supabase } from '../../supabase';
+import { showConfirm } from '../../lib/notify';
 import { ServiceItem, UserSettings, SummaryStats, ThemeMode } from '../types';
 
 // 'livre' = colaborador pode usar lançamento manual E puxar de nota;
@@ -722,3 +723,85 @@ export const applyComissoesTheme = (theme: ThemeMode, wrapperEl: HTMLElement | n
     wrapperEl.setAttribute('data-theme', theme);
   }
 };
+
+export interface ServicoPuxadoResumo {
+  id: string;
+  colaboradorId: string;
+  colaboradorNome: string;
+  tipoServico: string;
+  valorProducao: number;
+  comissaoValor: number;
+}
+
+// Verifica se colaboradores já puxaram itens de uma nota/pedido para suas comissões
+export async function checkServicosPuxadosDaNota(notaId: string): Promise<ServicoPuxadoResumo[]> {
+  try {
+    const { data, error } = await supabase
+      .from('comissoes_servicos')
+      .select('id, colaborador_id, tipo_servico, valor_producao, comissao_valor')
+      .eq('origem_nota_id', notaId)
+      .is('deleted_at', null);
+
+    if (error || !data || data.length === 0) return [];
+
+    const colabIds = Array.from(new Set(data.map((d: any) => d.colaborador_id).filter(Boolean)));
+    const colabMap: Record<string, string> = {};
+    if (colabIds.length > 0) {
+      const { data: colabs } = await supabase
+        .from('colaboradores')
+        .select('id, nome')
+        .in('id', colabIds);
+      (colabs || []).forEach((c: any) => {
+        if (c.id && c.nome) colabMap[c.id] = c.nome;
+      });
+    }
+
+    return data.map((d: any) => ({
+      id: d.id,
+      colaboradorId: d.colaborador_id,
+      colaboradorNome: colabMap[d.colaborador_id] || 'Funcionário',
+      tipoServico: d.tipo_servico || 'Serviço',
+      valorProducao: Number(d.valor_producao) || 0,
+      comissaoValor: Number(d.comissao_valor) || 0,
+    }));
+  } catch (err) {
+    console.warn('Erro ao verificar serviços puxados da nota:', err);
+    return [];
+  }
+}
+
+// Modal de confirmação inteligente ao retirar/desmarcar da produção:
+// Avisa se um ou mais colaboradores já puxaram itens dessa nota, garantindo que
+// os serviços já lançados NÃO serão apagados da comissão deles.
+export async function confirmarRetiradaProducao(notaId: string, codigoPedido?: string): Promise<boolean> {
+  const codigo = codigoPedido || (notaId ? notaId.slice(-8).toUpperCase() : '');
+  const puxados = await checkServicosPuxadosDaNota(notaId);
+
+  if (puxados.length > 0) {
+    const porColab: Record<string, number> = {};
+    puxados.forEach(p => {
+      porColab[p.colaboradorNome] = (porColab[p.colaboradorNome] || 0) + 1;
+    });
+
+    const listaColabs = Object.entries(porColab)
+      .map(([nome, qtd]) => `• ${nome}: ${qtd} ${qtd === 1 ? 'item puxado' : 'itens puxados'}`)
+      .join('\n');
+
+    const totalItens = puxados.length;
+
+    const mensagem =
+      `⚠️ ATENÇÃO: ${totalItens === 1 ? '1 item deste pedido já foi puxado' : `${totalItens} itens deste pedido já foram puxados`} para comissão!\n\n` +
+      `Colaborador(es) que já puxaram:\n${listaColabs}\n\n` +
+      `🛡️ REGRA DO SISTEMA:\n` +
+      `• Os serviços já lançados na planilha de comissão NÃO serão excluídos (a comissão do funcionário permanece garantida);\n` +
+      `• O pedido apenas deixará de aparecer na fila de produção para novos lançamentos.\n\n` +
+      `Deseja realmente desmarcar e retirar o pedido #${codigo} da produção?`;
+
+    return await showConfirm(mensagem);
+  }
+
+  return await showConfirm(
+    `Desmarcar o lançamento do pedido #${codigo} da esteira de Serviços/Produção?\n\nEle não aparecerá mais para os funcionários na esteira de Serviços até que seja lançado novamente.`
+  );
+}
+

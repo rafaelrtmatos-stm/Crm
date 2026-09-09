@@ -12,6 +12,7 @@ import {
   excluirServicoPorOrigem,
   getDeletedServicesFromSupabase,
   restoreServiceFromSupabase,
+  confirmarRetiradaProducao,
 } from '../utils/supabaseStorage';
 import { NotaDetalhe, NotaDetalheItem, NotaSelecionadoItem } from './NotaDetalheModal';
 import { getTodayISO, toLocalISO } from '../utils/dateHelpers';
@@ -163,19 +164,35 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
 
     const servicoIds = new Set((servicos || []).map((p: { id: string }) => p.id));
 
+    // 1. Busca IDs de notas que já têm algum serviço registrado em comissões (garante que nada puxado antes dessa regra suma da visão do funcionário)
+    let notasComItensPuxadosIds = new Set<string>();
+    try {
+      const { data: servicosExistentes } = await supabase
+        .from('comissoes_servicos')
+        .select('origem_nota_id')
+        .is('deleted_at', null)
+        .not('origem_nota_id', 'is', null);
+
+      if (servicosExistentes) {
+        notasComItensPuxadosIds = new Set(servicosExistentes.map((s: any) => s.origem_nota_id).filter(Boolean));
+      }
+    } catch (e) {
+      console.warn('Erro ao verificar notas com itens puxados:', e);
+    }
+
     const { data: vendasData } = await supabase
       .from('vendas')
       .select('id, customer_name, total, discount_value, scheduled_for, items, observacoes, service_status, created_at')
       .neq('status', 'canceled')
       .is('deleted_at', null)
-      .not('service_status', 'is', null)
       .neq('service_status', 'produto_entregue')
       .order('scheduled_for', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: false });
 
-    // Regra de Produção: apenas notas e pedidos explicitamente lançados para produção aparecem para o funcionário em Serviços
+    // Regra de Produção: aparecem apenas notas lançadas para produção OU notas onde colaboradores já puxaram itens
     const todasVendas = ((vendasData || []) as NotaAgendada[]).filter(v =>
-      Boolean(v.service_status && String(v.service_status).trim() !== '') && v.service_status !== 'produto_entregue'
+      (Boolean(v.service_status && String(v.service_status).trim() !== '') || notasComItensPuxadosIds.has(v.id)) &&
+      v.service_status !== 'produto_entregue'
     );
     const todasVendasIds = new Set(todasVendas.map(v => v.id));
 
@@ -571,9 +588,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
   // Desmarca da produção (remove da lista de serviços dos funcionários)
   const handleDesmarcarProducao = async (e: React.MouseEvent, nota: NotaAgendada) => {
     e.stopPropagation();
-    const confirma = await showConfirm(
-      `Desmarcar o pedido #${nota.id.slice(-6).toUpperCase()} da esteira de Serviços/Produção?\n\nEle não aparecerá mais nesta lista até que seja lançado novamente no PDV.`
-    );
+    const confirma = await confirmarRetiradaProducao(nota.id, nota.id.slice(-6).toUpperCase());
     if (!confirma) return;
 
     try {
@@ -590,7 +605,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
           .eq('id', nota.id);
       }
       setNotas(prev => prev.filter(n => n.id !== nota.id));
-      showAlert('Pedido desmarcado da produção com sucesso.');
+      showAlert('Pedido desmarcado da produção com sucesso. (Os itens já adicionados à comissão continuam seguros)');
     } catch (err: any) {
       showAlert(`Erro ao desmarcar produção: ${err?.message || 'Falha de comunicação'}`);
     }
