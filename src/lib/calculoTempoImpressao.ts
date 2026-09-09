@@ -14,6 +14,32 @@
 
 export type PerfilImpressao = 'high_quality' | 'standard' | 'high_speed';
 
+/**
+ * Tipo de mídia (substrato) selecionado no RIP.
+ * Reflete os presets genéricos exibidos no software (ex: Generic Vinyl, Generic Banner).
+ * Por ora é apenas informativo/organizacional na UI — não altera a fórmula de cálculo
+ * de tempo, que depende somente de PERFIL + VELOCIDADE DA CABEÇA.
+ */
+export type TipoMidiaImpressao = 'generic_vinyl' | 'generic_banner';
+
+export const TIPO_MIDIA_PADRAO: TipoMidiaImpressao = 'generic_vinyl';
+
+export const TIPOS_MIDIA_CONFIG: Array<{ key: TipoMidiaImpressao; label: string }> = [
+  { key: 'generic_vinyl', label: 'Generic Vinyl' },
+  { key: 'generic_banner', label: 'Generic Banner' },
+];
+
+/**
+ * Normaliza o tipo de mídia aceitando aliases (ex: vindos de integrações ou digitação livre)
+ */
+export function normalizarTipoMidia(tipoMidia?: string | null): TipoMidiaImpressao {
+  if (!tipoMidia) return TIPO_MIDIA_PADRAO;
+  const t = tipoMidia.toLowerCase().replace(/[-_]/g, '');
+  if (t.includes('banner')) return 'generic_banner';
+  if (t.includes('vinyl') || t.includes('vinil')) return 'generic_vinyl';
+  return TIPO_MIDIA_PADRAO;
+}
+
 export interface PontoCalibracao {
   velocidade: number; // mm/s
   tempo10m2: number;  // minutos para 10 m²

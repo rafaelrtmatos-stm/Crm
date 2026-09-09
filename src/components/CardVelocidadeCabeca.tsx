@@ -2,14 +2,17 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Gauge, Clock, ChevronUp, ChevronDown, Info, Zap, Settings2 } from 'lucide-react';
 import {
   PerfilImpressao,
+  TipoMidiaImpressao,
   VELOCIDADE_CABECA_MIN_MMS,
   VELOCIDADE_CABECA_MAX_MMS,
   VELOCIDADE_CABECA_PADRAO_MMS,
+  TIPOS_MIDIA_CONFIG,
   TabelaCalibracaoPerfis,
   obterTempo10M2PorVelocidade,
   calcularTempoImpressao,
   ResultadoCalculoTempo,
   normalizarPerfilImpressao,
+  normalizarTipoMidia,
   normalizarVelocidadeCabeca,
   formatarMinutosEmHoras
 } from '../lib/calculoTempoImpressao';
@@ -17,6 +20,8 @@ import {
 interface CardVelocidadeCabecaProps {
   perfil: PerfilImpressao | string;
   onPerfilChange: (perfil: PerfilImpressao) => void;
+  tipoMidia?: TipoMidiaImpressao | string;
+  onTipoMidiaChange?: (tipoMidia: TipoMidiaImpressao) => void;
   velocidadeCabeca: number;
   onVelocidadeChange: (velocidade: number) => void;
   ignorarPredefinicoes?: boolean;
@@ -43,6 +48,8 @@ interface CardVelocidadeCabecaProps {
 export const CardVelocidadeCabeca: React.FC<CardVelocidadeCabecaProps> = ({
   perfil,
   onPerfilChange,
+  tipoMidia: propTipoMidia,
+  onTipoMidiaChange,
   velocidadeCabeca,
   onVelocidadeChange,
   ignorarPredefinicoes: propIgnorarPredefinicoes,
@@ -61,6 +68,18 @@ export const CardVelocidadeCabeca: React.FC<CardVelocidadeCabecaProps> = ({
   // Controle interno de "Ignorar predefinições" se não fornecido via prop
   const [internalIgnorar, setInternalIgnorar] = useState(false);
   const ignorarPredefinicoes = propIgnorarPredefinicoes !== undefined ? propIgnorarPredefinicoes : internalIgnorar;
+
+  // Controle interno do tipo de mídia (Generic Vinyl / Generic Banner) se não fornecido via prop
+  const [internalTipoMidia, setInternalTipoMidia] = useState<TipoMidiaImpressao>(normalizarTipoMidia(propTipoMidia));
+  const tipoMidiaAtual = normalizarTipoMidia(propTipoMidia !== undefined ? propTipoMidia : internalTipoMidia);
+
+  const handleTipoMidiaChange = (tipo: TipoMidiaImpressao) => {
+    if (onTipoMidiaChange) {
+      onTipoMidiaChange(tipo);
+    } else {
+      setInternalTipoMidia(tipo);
+    }
+  };
 
   // Ref do input para foco automático ao ativar checkbox
   const inputRef = useRef<HTMLInputElement>(null);
@@ -182,6 +201,33 @@ export const CardVelocidadeCabeca: React.FC<CardVelocidadeCabecaProps> = ({
 
       {/* BLOCO ESTILO DO SOFTWARE (como na imagem enviada) */}
       <div className="bg-slate-950/80 border border-white/15 rounded-xl p-3.5 space-y-3 shadow-inner">
+        {/* 0. SELEÇÃO DE TIPO DE MÍDIA (SUBSTRATO) */}
+        <div className="space-y-1.5 pb-2 border-b border-white/10">
+          <span className="text-xs font-semibold text-white/80 select-none">
+            Tipo de mídia :
+          </span>
+          <div className="flex flex-wrap items-center gap-1.5 pl-2 sm:pl-4">
+            {TIPOS_MIDIA_CONFIG.map(({ key, label }) => {
+              const isSelected = tipoMidiaAtual === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => handleTipoMidiaChange(key)}
+                  title={`Perfil de mídia RIP: ${label}`}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-all select-none ${
+                    isSelected
+                      ? 'bg-cyan-500/15 border-cyan-400/50 text-white font-bold shadow-sm'
+                      : 'border-white/10 text-white/60 hover:bg-white/5 hover:text-white'
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {/* 1. SELEÇÃO DE QUALIDADE DE IMPRESSÃO */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
