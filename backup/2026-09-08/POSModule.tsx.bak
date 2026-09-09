@@ -164,8 +164,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
   const [historyStatusFilter, setHistoryStatusFilter] = useState<string>('all');
   const [historyDateFrom, setHistoryDateFrom] = useState('');
   const [historyDateTo, setHistoryDateTo] = useState('');
-  // Carregamento leve: exibe 15 inicialmente, expansível sob demanda
-  const [historyDisplayLimit, setHistoryDisplayLimit] = useState(15);
 
   // Services / OS Data
   const [servicesList, setServicesList] = useState<any[]>(() => getCache(CACHE_KEYS.services, [] as any[]));
@@ -1010,14 +1008,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
     });
   }, [allSalesHistory, historySearch, historyStatusFilter, historyDateFrom, historyDateTo]);
 
-  // Carregamento ultraleve sob demanda: renderiza apenas os primeiros N itens (15 padrão)
-  const visibleSalesHistory = useMemo(() => {
-    if (historySearch.trim().length >= 2) {
-      return filteredSalesHistory.slice(0, Math.max(historyDisplayLimit, 50));
-    }
-    return filteredSalesHistory.slice(0, historyDisplayLimit);
-  }, [filteredSalesHistory, historyDisplayLimit, historySearch]);
-
   return (
     <div className="h-full min-h-[500px] flex flex-col bg-slate-900/60 rounded-2xl shadow-2xl border border-white/10 overflow-hidden">
       {/* Top Header Navigation */}
@@ -1376,7 +1366,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
-                {visibleSalesHistory.map(sale => {
+                {filteredSalesHistory.map(sale => {
                   const down = sale.downPayment ?? sale.receivedValue ?? 0;
                   const balance = Math.max(0, sale.total - down);
                   const isPending = balance > 0 || sale.status === 'pending';
@@ -1457,43 +1447,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
                 })}
               </tbody>
             </table>
-
-            {/* Controles de Carregamento Sob Demanda */}
-            {filteredSalesHistory.length > 0 && (
-              <div className="p-3 bg-slate-950/80 border-t border-white/10 flex flex-wrap items-center justify-between gap-2 text-xs">
-                <span className="text-white/50 text-[11px]">
-                  Mostrando <strong className="text-white">{visibleSalesHistory.length}</strong> de <strong className="text-white">{filteredSalesHistory.length}</strong> vendas
-                </span>
-                <div className="flex items-center gap-2">
-                  {visibleSalesHistory.length < filteredSalesHistory.length ? (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => setHistoryDisplayLimit(prev => prev + 20)}
-                        className="px-3 py-1.5 rounded-lg bg-primary-600 hover:bg-primary-500 text-white font-bold text-[11px] transition-colors"
-                      >
-                        + Carregar mais 20
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setHistoryDisplayLimit(filteredSalesHistory.length)}
-                        className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white/80 hover:text-white text-[11px] transition-colors border border-white/10"
-                      >
-                        Carregar Todas ({filteredSalesHistory.length})
-                      </button>
-                    </>
-                  ) : filteredSalesHistory.length > 15 ? (
-                    <button
-                      type="button"
-                      onClick={() => setHistoryDisplayLimit(15)}
-                      className="px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-white/60 hover:text-white text-[10px] transition-colors"
-                    >
-                      Voltar ao Modo Leve (15)
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            )}
           </div>
         </div>
       )}
