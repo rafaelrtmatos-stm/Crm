@@ -132,7 +132,8 @@ import {
   Wallet,
   ClipboardCheck,
   DollarSign,
-  Receipt
+  Receipt,
+  Factory
 } from 'lucide-react';
 import { 
   DndContext, 
@@ -9414,10 +9415,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const pendingOrScheduledSales = useMemo(() => {
     const filtered = allSalesHistory.filter(sale => {
-      const down = sale.downPayment || 0;
-      const balance = (sale.total || 0) - down;
-      const isPartial = balance > 0 || sale.status === 'pending';
-      return isPartial || !!sale.scheduledFor;
+      if (sale.status === 'canceled') return false;
+      // Regra de Produção: apenas pedidos explicitamente lançados para produção entram na esteira de Serviços
+      return !!sale.serviceStatus;
     });
     return filtered.sort((a, b) => {
       if (servicosSortBy === 'agendamento') {
@@ -9538,6 +9538,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const toDate = historyDateTo ? new Date(historyDateTo + 'T23:59:59') : null;
     const noPeriodo = allSalesHistory.filter(sale => {
       if (sale.status === 'canceled') return false;
+      if (!sale.serviceStatus) return false;
       const saleDate = new Date(sale.createdAt);
       if (isNaN(saleDate.getTime())) return false;
       if (fromDate && saleDate < fromDate) return false;
@@ -9899,6 +9900,60 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const idx = STAGE_ORDER.indexOf(currentStage);
     const nextIdx = idx >= 0 && idx < STAGE_ORDER.length - 1 ? idx + 1 : 0;
     handleUpdateServiceStatus(saleId, STAGE_ORDER[nextIdx]);
+  };
+
+  const [lancandoProducaoId, setLancandoProducaoId] = useState<string | null>(null);
+
+  const handleLancarProducao = async (sale: SaleOrder) => {
+    if (lancandoProducaoId) return;
+    if (sale.serviceStatus) {
+      const etapaNome = STAGE_LABELS[sale.serviceStatus] || sale.serviceStatus;
+      const vaiPraServicos = await showConfirm(
+        `Este pedido já está na esteira de produção (Etapa: ${etapaNome}).\n\nDeseja abrir a aba de Serviços agora?`
+      );
+      if (vaiPraServicos) {
+        setActiveTab('servicos');
+      }
+      return;
+    }
+
+    const confirma = await showConfirm(
+      `Lançar o pedido de "${(sale.customerName || 'Cliente Balcão').toUpperCase()}" (#${sale.id.slice(-8).toUpperCase()}) para a esteira de Produção?`
+    );
+    if (!confirma) return;
+
+    setLancandoProducaoId(sale.id);
+    try {
+      await syncServiceStatus('venda', sale.id, 'producao');
+      const nowIso = new Date().toISOString();
+      const atualizado = { ...sale, serviceStatus: 'producao' as any, updatedAt: nowIso };
+      setAllSalesHistory(prev => prev.map(s => s.id === sale.id ? atualizado : s));
+      setSalesToday(prev => prev.map(s => s.id === sale.id ? atualizado : s));
+      showAlert(`Pedido #${sale.id.slice(-8).toUpperCase()} lançado para Produção com sucesso!`);
+    } catch (err: any) {
+      showAlert(`Erro ao lançar para produção: ${err?.message || 'Falha na conexão'}`);
+    } finally {
+      setLancandoProducaoId(null);
+    }
+  };
+
+  const handleRemoverDaProducao = async (sale: SaleOrder) => {
+    if (!sale.serviceStatus) return;
+    const confirma = await showConfirm(
+      `Remover o pedido #${sale.id.slice(-8).toUpperCase()} da esteira de Serviços/Produção?\n\nEle não aparecerá mais na lista de Serviços até que seja lançado novamente.`
+    );
+    if (!confirma) return;
+    try {
+      const nowIso = new Date().toISOString();
+      const { error } = await supabase.from('vendas').update({ service_status: null, updated_at: nowIso }).eq('id', sale.id);
+      if (error) throw error;
+      const atualizado = { ...sale, serviceStatus: undefined, updatedAt: nowIso };
+      setAllSalesHistory(prev => prev.map(s => s.id === sale.id ? atualizado : s));
+      setSalesToday(prev => prev.map(s => s.id === sale.id ? atualizado : s));
+      showAlert('Pedido removido da esteira de produção.');
+    } catch (err: any) {
+      showAlert(`Erro ao remover da produção: ${err?.message || 'Falha na conexão'}`);
+    }
   };
 
   const handleDeleteSale = async (sale: SaleOrder) => {
@@ -12460,20 +12515,34 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             <span className="text-[9px] text-white/30 truncate block">{safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
                           </div>
 
-                          {/* Etapa -- mesmo select do modo normal (Pedido Recebido ate Produto
-                              Entregue), so que aqui encaixado como coluna do modo lista. */}
+                          {/* Etapa / Produção -- se ainda não foi lançado para produção, exibe botão com ícone de fábrica para lançar com 1 clique. Se já está em produção, exibe o select com estilo destacado e indicador visual. */}
                           <div className="min-w-0 hidden sm:flex justify-center" style={colFlex('etapa')}>
-                            <select
-                              value={sale.serviceStatus || 'pedido_recebido'}
-                              onChange={(e) => handleUpdateServiceStatus(sale.id, e.target.value)}
-                              onClick={(e) => e.stopPropagation()}
-                              title="Etapa Atual"
-                              className="h-6 w-full max-w-[130px] bg-blue-500/15 border border-blue-500/20 rounded-full pl-2 pr-1 text-[8px] font-black uppercase text-blue-300 focus:outline-none focus:border-primary-500 cursor-pointer truncate"
-                            >
-                              {STAGE_ORDER.map(id => (
-                                <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
-                              ))}
-                            </select>
+                            {!sale.serviceStatus ? (
+                              <button
+                                onClick={() => handleLancarProducao(sale)}
+                                disabled={lancandoProducaoId === sale.id}
+                                title="Lançar este pedido para a esteira de Produção / Serviços"
+                                className="h-6 w-full max-w-[130px] flex items-center justify-center gap-1 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 rounded-full px-2 text-[8px] font-black uppercase tracking-wide transition-all cursor-pointer disabled:opacity-50"
+                              >
+                                <Factory size={11} className={cn(lancandoProducaoId === sale.id && "animate-spin")} />
+                                <span>{lancandoProducaoId === sale.id ? 'Lançando...' : 'Lançar Produção'}</span>
+                              </button>
+                            ) : (
+                              <div className="relative flex items-center justify-center gap-1 w-full max-w-[130px]">
+                                <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 shrink-0 animate-pulse" title="Em Produção" />
+                                <select
+                                  value={sale.serviceStatus}
+                                  onChange={(e) => handleUpdateServiceStatus(sale.id, e.target.value)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  title="Em Produção — Clique para mudar de etapa"
+                                  className="h-6 w-full bg-indigo-500/20 border border-indigo-500/35 rounded-full pl-2 pr-1 text-[8px] font-black uppercase text-indigo-300 focus:outline-none focus:border-primary-500 cursor-pointer truncate"
+                                >
+                                  {STAGE_ORDER.map(id => (
+                                    <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
                           </div>
 
                           {/* Botao de Pagamento -- quadrado de cantos arredondados, verde quando
@@ -12582,7 +12651,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                     <button onClick={async () => { setOpenSaleRowActionsId(null); if (!(await showConfirm('Gerar um contrato a partir desta nota?'))) return; handleCreateContratoFromNota(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-purple-300 hover:bg-white/5 text-left"><FileSignature size={13} /> Gerar Contrato</button>
                                   )}
                                   <button onClick={() => { setOpenSaleRowActionsId(null); openCustosDaNota(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-emerald-400 hover:bg-white/5 text-left"><Calculator size={13} /> Custos da Nota</button>
-                                   <button onClick={() => { setOpenSaleRowActionsId(null); handleDuplicateSale(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left"><Copy size={13} /> Clonar</button>
+                                  {sale.serviceStatus ? (
+                                    <button onClick={() => { setOpenSaleRowActionsId(null); handleRemoverDaProducao(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-amber-400/80 hover:bg-white/5 text-left"><Factory size={13} /> Remover da Produção</button>
+                                  ) : (
+                                    <button onClick={() => { setOpenSaleRowActionsId(null); handleLancarProducao(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-indigo-300 hover:bg-white/5 text-left"><Factory size={13} /> Lançar Produção</button>
+                                  )}
+                                  <button onClick={() => { setOpenSaleRowActionsId(null); handleDuplicateSale(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left"><Copy size={13} /> Clonar</button>
                                   {canManageHistory && (
                                     <>
                                       <div className="h-px bg-white/10 my-1.5" />
@@ -12620,9 +12694,31 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             {canManageHistory && (
                               <input type="checkbox" checked={selectedSaleIds.has(sale.id)} onChange={() => toggleSaleSelection(sale.id)} className="w-3.5 h-3.5 mt-0.5 shrink-0 accent-primary-500" />
                             )}
-                            <Badge className={cn("text-[6.5px] font-black uppercase px-1.5 py-0.5 border-none ml-auto", isPartial ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300")}>
-                              {isPartial ? `FALTA R$ ${balance.toFixed(2).replace('.', ',')}` : 'PAGO'}
-                            </Badge>
+                            <div className="flex items-center gap-1 ml-auto flex-wrap justify-end">
+                              {!sale.serviceStatus ? (
+                                <button
+                                  onClick={() => handleLancarProducao(sale)}
+                                  disabled={lancandoProducaoId === sale.id}
+                                  title="Lançar para Produção"
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[7.5px] font-black uppercase tracking-wider transition-colors disabled:opacity-50 cursor-pointer"
+                                >
+                                  <Factory size={9} className={cn(lancandoProducaoId === sale.id && "animate-spin")} />
+                                  <span>{lancandoProducaoId === sale.id ? '...' : 'Lançar'}</span>
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => handleLancarProducao(sale)}
+                                  title={`Em Produção: ${STAGE_LABELS[sale.serviceStatus] || sale.serviceStatus} (clique para ver em Serviços)`}
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/40 text-indigo-300 text-[7px] font-black uppercase tracking-wider transition-colors cursor-pointer"
+                                >
+                                  <Factory size={9} className="text-indigo-400" />
+                                  <span className="truncate max-w-[65px]">{STAGE_LABELS[sale.serviceStatus] || sale.serviceStatus}</span>
+                                </button>
+                              )}
+                              <Badge className={cn("text-[6.5px] font-black uppercase px-1.5 py-0.5 border-none", isPartial ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300")}>
+                                {isPartial ? `FALTA R$ ${balance.toFixed(2).replace('.', ',')}` : 'PAGO'}
+                              </Badge>
+                            </div>
                           </div>
                           <div>
                             <button
@@ -12719,6 +12815,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             );
                           })()}
                           <div className="flex flex-wrap gap-1 pt-1">
+                            <button
+                              onClick={() => handleLancarProducao(sale)}
+                              disabled={lancandoProducaoId === sale.id}
+                              className={cn(
+                                "p-1.5 rounded-lg transition-colors cursor-pointer",
+                                sale.serviceStatus
+                                  ? "bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/30 border border-indigo-500/30"
+                                  : "bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 border border-amber-500/30"
+                              )}
+                              title={sale.serviceStatus ? `Em Produção (${STAGE_LABELS[sale.serviceStatus] || sale.serviceStatus})` : "Lançar para Produção"}
+                            >
+                              <Factory size={12} className={cn(lancandoProducaoId === sale.id && "animate-spin")} />
+                            </button>
                             {isPartial && <button onClick={async () => { if (!(await showConfirm('Abrir a tela de pagamento deste pedido?'))) return; openSettlePayment(sale); }} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar Débito"><CheckCircle2 size={12} /></button>}
                             <button onClick={async () => { if (!(await showConfirm('Abrir o recibo deste pedido?'))) return; openReceiptDetail(sale); }} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={12} /></button>
                             <button onClick={() => handleDuplicateSale(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Duplicar Pedido"><Copy size={12} /></button>
@@ -12828,17 +12937,32 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             </div>
                           
                           <div className="flex flex-col items-end gap-1.5 shrink-0">
-                            <select
-                              value={sale.serviceStatus || 'pedido_recebido'}
-                              onChange={(e) => handleUpdateServiceStatus(sale.id, e.target.value)}
-                              onClick={(e) => e.stopPropagation()}
-                              title="Etapa Atual"
-                              className="h-6 bg-blue-500/15 border border-blue-500/20 rounded-full pl-2 pr-1 text-[8px] font-black uppercase text-blue-300 focus:outline-none focus:border-primary-500 cursor-pointer max-w-[140px]"
-                            >
-                              {STAGE_ORDER.map(id => (
-                                <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
-                              ))}
-                            </select>
+                            {!sale.serviceStatus ? (
+                              <button
+                                onClick={() => handleLancarProducao(sale)}
+                                disabled={lancandoProducaoId === sale.id}
+                                title="Lançar este pedido para a esteira de Produção / Serviços"
+                                className="h-7 px-3 flex items-center gap-1.5 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 rounded-full text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer disabled:opacity-50 shadow-sm"
+                              >
+                                <Factory size={12} className={cn(lancandoProducaoId === sale.id && "animate-spin")} />
+                                <span>{lancandoProducaoId === sale.id ? 'Lançando...' : 'Lançar Produção'}</span>
+                              </button>
+                            ) : (
+                              <div className="flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse shrink-0" title="Em Produção" />
+                                <select
+                                  value={sale.serviceStatus}
+                                  onChange={(e) => handleUpdateServiceStatus(sale.id, e.target.value)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  title="Em Produção — Clique para alterar etapa"
+                                  className="h-7 bg-indigo-500/20 border border-indigo-500/40 rounded-full pl-2.5 pr-2 text-[9px] font-black uppercase text-indigo-200 focus:outline-none focus:border-primary-500 cursor-pointer max-w-[150px]"
+                                >
+                                  {STAGE_ORDER.map(id => (
+                                    <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
                             {sale.scheduledFor && (
                               <EntregaCountdown
                                 scheduledFor={sale.scheduledFor}
@@ -12927,6 +13051,29 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
                         {/* Actions */}
                         <div className="flex gap-2 justify-end pt-1 flex-wrap">
+                          {!sale.serviceStatus ? (
+                            <Button
+                              size="sm"
+                              className="bg-indigo-600 hover:bg-indigo-500 text-white text-[9px] font-black uppercase tracking-wider px-3.5 h-9 shadow-md shadow-indigo-600/20"
+                              onClick={() => handleLancarProducao(sale)}
+                              disabled={lancandoProducaoId === sale.id}
+                              title="Lançar este pedido na esteira de Produção / Serviços"
+                            >
+                              <Factory size={13} className={cn("mr-1.5", lancandoProducaoId === sale.id && "animate-spin")} />
+                              {lancandoProducaoId === sale.id ? 'Lançando...' : 'Lançar Produção'}
+                            </Button>
+                          ) : (
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              className="text-[9px] font-black uppercase tracking-wider px-3.5 h-9 border-indigo-500/30 text-indigo-300 hover:bg-indigo-500/15"
+                              onClick={() => setActiveTab('servicos')}
+                              title={`Em Produção: ${STAGE_LABELS[sale.serviceStatus] || sale.serviceStatus} — Clique para ver na aba Serviços`}
+                            >
+                              <Factory size={13} className="mr-1.5 text-indigo-400" />
+                              Em Produção ({STAGE_LABELS[sale.serviceStatus] || sale.serviceStatus})
+                            </Button>
+                          )}
                           {isPartial && (
                             <Button
                               size="sm"
@@ -13108,11 +13255,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-white/10 pb-4">
               <div>
                 <h2 className="text-xl md:text-2xl font-black text-white italic tracking-tighter uppercase flex items-center gap-2">
-                  <Wrench className="text-primary-400" size={22} />
-                  Notas em Aberto & Serviços Agendados
+                  <Factory className="text-primary-400" size={22} />
+                  Serviços Lançados para Produção
                 </h2>
                 <p className="text-[10px] md:text-xs text-white/40 font-bold uppercase tracking-widest mt-1">
-                  Vendas do PDV com saldo pendente ou entrega agendada
+                  Pedidos e serviços em andamento na esteira de produção
                 </p>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
@@ -13154,9 +13301,20 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             </div>
 
             {pendingOrScheduledSales.length === 0 ? (
-              <div className="py-16 text-center bg-white/5 rounded-3xl border border-dashed border-white/10 space-y-2">
-                <Wrench size={36} className="mx-auto text-white/20" />
-                <p className="text-sm font-bold text-white/40 uppercase">Nenhuma nota em aberto ou entrega agendada</p>
+              <div className="py-16 text-center bg-white/5 rounded-3xl border border-dashed border-white/10 space-y-3 p-6">
+                <Factory size={40} className="mx-auto text-white/20" />
+                <p className="text-sm font-bold text-white/60 uppercase">Nenhum serviço lançado para produção</p>
+                <p className="text-xs text-white/35 max-w-md mx-auto">
+                  Apenas pedidos lançados aparecem nesta esteira. No <strong>Histórico de Pedidos</strong>, clique no botão <strong>"Lançar Produção"</strong> em qualquer pedido para enviá-lo para cá.
+                </p>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setActiveTab('historico')}
+                  className="text-xs font-bold uppercase tracking-wider text-primary-400 border-primary-500/20 hover:bg-primary-500/10 mt-2"
+                >
+                  Ir para o Histórico de Pedidos
+                </Button>
               </div>
             ) : (
               <div className="flex flex-col gap-2.5">
@@ -13244,6 +13402,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             {isPartial && (
                               <button onClick={async () => { if (!(await showConfirm('Abrir a tela de pagamento deste pedido?'))) return; openSettlePayment(sale); }} className="w-7 h-7 flex items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar Débito"><CheckCircle2 size={13} /></button>
                             )}
+                            <button
+                              onClick={() => handleRemoverDaProducao(sale)}
+                              className="w-7 h-7 flex items-center justify-center rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20"
+                              title="Remover da Produção (o pedido permanece no Histórico)"
+                            >
+                              <Factory size={13} />
+                            </button>
                             <button
                               onClick={() => { setHistorySearch(sale.id); setActiveTab('historico'); handleStartFullEdit(sale); }}
                               className="w-7 h-7 flex items-center justify-center rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20"
