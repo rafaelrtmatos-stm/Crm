@@ -8738,6 +8738,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [maquinasCadastradas, setMaquinasCadastradas] = useState<Maquina[]>([]);
   const [maquinasPorIdMap, setMaquinasPorIdMap] = useState<Record<string, Maquina>>({});
   const [maquinasPorCategoriaMap, setMaquinasPorCategoriaMap] = useState<Record<string, Maquina>>({});
+  const [materiasPrimasAtuaisMap, setMateriasPrimasAtuaisMap] = useState<Record<string, any>>({});
   useEffect(() => {
     const loadCosts = async () => {
       const { data, error } = await supabase.from('produtos').select('id, cost_price, category, largura_rolo, materias_primas');
@@ -8755,6 +8756,21 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       });
       setProdutosCostMap(map);
       setProdutoPorIdMap(produtoMap);
+
+      const { data: mpData, error: mpError } = await supabase.from('materias_primas').select('id, name, unit, cost_price, largura_material, tipo_calculo_custo');
+      if (mpError) console.error('Erro ao carregar matérias-primas:', mpError);
+      const mpMap: Record<string, any> = {};
+      (mpData || []).forEach((m: any) => {
+        mpMap[m.id] = {
+          id: m.id,
+          name: m.name,
+          unit: m.unit,
+          costPrice: Number(m.cost_price) || 0,
+          larguraMaterial: m.largura_material ? Number(m.largura_material) : undefined,
+          tipoCalculoCusto: m.tipo_calculo_custo
+        };
+      });
+      setMateriasPrimasAtuaisMap(mpMap);
     };
     loadCosts();
   }, []);
@@ -8848,6 +8864,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       items: sale.items,
       custoPorId: produtosCostMap,
       produtoPorId: produtoPorIdMap,
+      materiasPrimasAtuais: materiasPrimasAtuaisMap,
       custoMaquinaM2PorCategoria,
       custoMaquinaOperacionalM2PorCategoria,
       custoTintaM2PorCategoria,
@@ -8873,6 +8890,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       items: sale.items,
       custoPorId: produtosCostMap,
       produtoPorId: produtoPorIdMap,
+      materiasPrimasAtuais: materiasPrimasAtuaisMap,
       custoMaquinaM2PorCategoria,
       custoMaquinaOperacionalM2PorCategoria,
       custoTintaM2PorCategoria,
@@ -9490,7 +9508,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         items: sale.items,
         custoPorId: produtosCostMap,
         produtoPorId: produtoPorIdMap,
+        materiasPrimasAtuais: materiasPrimasAtuaisMap,
         custoMaquinaM2PorCategoria,
+        custoMaquinaOperacionalM2PorCategoria,
+        custoTintaM2PorCategoria,
+        consumoTintaMlM2PorCategoria,
+        maquinas: maquinasCadastradas,
+        maquinaPadrao: maquinasCadastradas.find(m => m.ativa && m.tipo === 'impressao') || maquinasCadastradas.find(m => m.ativa),
+        maquinasPorId: maquinasPorIdMap,
+        maquinasPorCategoria: maquinasPorCategoriaMap,
         extraCosts: sale.extraCosts,
         proporcao,
       });
@@ -11489,6 +11515,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               items: cart,
                               custoPorId: produtosCostMap,
                               produtoPorId: produtoPorIdMap,
+                              materiasPrimasAtuais: materiasPrimasAtuaisMap,
                               custoMaquinaM2PorCategoria,
                               custoMaquinaOperacionalM2PorCategoria,
                               custoTintaM2PorCategoria,
@@ -14161,6 +14188,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             items: custosNotaSale.items,
             custoPorId: produtosCostMap,
             produtoPorId: produtoPorIdMap,
+            materiasPrimasAtuais: materiasPrimasAtuaisMap,
             custoMaquinaM2PorCategoria,
             custoMaquinaOperacionalM2PorCategoria,
             custoTintaM2PorCategoria,
@@ -14182,6 +14210,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 item,
                 custoPorId: produtosCostMap,
                 produtoPorId: produtoPorIdMap,
+                materiasPrimasAtuais: materiasPrimasAtuaisMap,
                 custoMaquinaOperacionalM2PorCategoria,
                 custoTintaM2PorCategoria,
                 custoMaquinaM2PorCategoria,
@@ -14701,6 +14730,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                        items: itemsNota,
                        custoPorId: produtosCostMap,
                        produtoPorId: produtoPorIdMap,
+                       materiasPrimasAtuais: materiasPrimasAtuaisMap,
                        custoMaquinaM2PorCategoria,
                        custoMaquinaOperacionalM2PorCategoria,
                        custoTintaM2PorCategoria,

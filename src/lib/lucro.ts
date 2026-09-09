@@ -340,25 +340,26 @@ export function custoSubstratoItem(
   item: LucroSaleItem,
   custoPorId: Record<string, number>,
   nomePorId?: Record<string, string>,
-  produtoPorId?: Record<string, LucroCurrentProduct>
+  produtoPorId?: Record<string, LucroCurrentProduct>,
+  materiasPrimasAtuais?: Record<string, LucroCurrentMaterial>
 ): number {
   const produtoAtual = item.productId && produtoPorId ? produtoPorId[item.productId] : undefined;
   const isImpresso = isItemImpressoOuSubstrato(item, produtoAtual);
   const consumo = obterConsumoItem(item);
 
-  // 1. Se for item impresso/substrato e o próprio produto tem custo de compra/custo unitário
-  const custoUnitProprio = (item.productId && custoPorId[item.productId]) || Number(produtoAtual?.costPrice) || 0;
-  if (custoUnitProprio > 0 && isImpresso) {
-    return custoUnitProprio * consumo;
-  }
-
-  // 2. Se o produto tem matérias-primas e uma delas é o substrato/bobina (unidade 'm', 'rolo', ou nome com lona/adesivo/vinil/papel)
+  // 1. Matérias-primas cadastradas têm PRIORIDADE MÁXIMA de cálculo!
+  // Se o produto ou item tem matérias-primas vinculadas (substrato/bobina),
+  // o cálculo DEVE ser: (custo da matéria prima) x consumo (ex: 2,10m linear)
   const consumos = Array.isArray(item.materiasPrimasConsumidas) ? item.materiasPrimasConsumidas : [];
   if (consumos.length > 0) {
     const mpSubstrato = consumos.find(c => /m|rolo/i.test(c.unit || '') || /lona|adesivo|vinil|papel|banner|frontlight|backlight/i.test(c.name || ''));
     if (mpSubstrato) {
+      const materialAtual = (mpSubstrato as any).materiaPrimaId && materiasPrimasAtuais
+        ? materiasPrimasAtuais[(mpSubstrato as any).materiaPrimaId]
+        : undefined;
+      const custo = Number(materialAtual?.costPrice ?? mpSubstrato.costPrice ?? 0);
       const total = Number(mpSubstrato.totalCost);
-      return Number.isFinite(total) && total >= 0 ? total : (Number(mpSubstrato.quantity) || 0) * (Number(mpSubstrato.costPrice) || 0);
+      return Number.isFinite(total) && total > 0 ? total : (Number(mpSubstrato.quantity) || 1) * consumo * custo;
     }
   }
 
@@ -366,10 +367,20 @@ export function custoSubstratoItem(
   if (materiaisProd.length > 0) {
     const mpSubstrato = materiaisProd.find(m => /m|rolo/i.test(m.unit || '') || /lona|adesivo|vinil|papel|banner|frontlight|backlight/i.test(m.name || ''));
     if (mpSubstrato) {
-      const custo = Number(mpSubstrato.costPrice ?? 0);
-      const qtdUnitaria = Number(mpSubstrato.quantity ?? 0);
+      const materialAtual = (mpSubstrato as any).materiaPrimaId && materiasPrimasAtuais
+        ? materiasPrimasAtuais[(mpSubstrato as any).materiaPrimaId]
+        : undefined;
+      const custo = Number(materialAtual?.costPrice ?? mpSubstrato.costPrice ?? 0);
+      const qtdUnitaria = Number(mpSubstrato.quantity ?? 1);
       return qtdUnitaria * consumo * custo;
     }
+  }
+
+  // 2. Fallback: Se for item impresso/substrato sem matérias-primas cadastradas,
+  // mas o próprio produto tem custo de compra/custo unitário
+  const custoUnitProprio = (item.productId && custoPorId[item.productId]) || Number(produtoAtual?.costPrice) || 0;
+  if (custoUnitProprio > 0 && isImpresso) {
+    return custoUnitProprio * consumo;
   }
 
   // 3. Se for reconhecido como produto impresso sem custo preenchido, mas tem nome reconhecido
@@ -390,6 +401,7 @@ export function custoMateriaPrimaItem(
 ): number {
   const produtoAtual = item.productId && produtoPorId ? produtoPorId[item.productId] : undefined;
   const consumos = Array.isArray(item.materiasPrimasConsumidas) ? item.materiasPrimasConsumidas : [];
+  const consumo = obterConsumoItem(item);
 
   if (consumos.length > 0) {
     const deduzirSubstrato = custoSubstratoJaCalculado > 0;
@@ -398,15 +410,18 @@ export function custoMateriaPrimaItem(
       if (deduzirSubstrato && (/m|rolo/i.test(mp.unit || '') || /lona|adesivo|vinil|papel|banner/i.test(mp.name || ''))) {
         return sum;
       }
+      const materialAtual = (mp as any).materiaPrimaId && materiasPrimasAtuais
+        ? materiasPrimasAtuais[(mp as any).materiaPrimaId]
+        : undefined;
+      const custo = Number(materialAtual?.costPrice ?? mp.costPrice ?? 0);
       const total = Number(mp.totalCost);
-      return sum + (Number.isFinite(total) && total >= 0
+      return sum + (Number.isFinite(total) && total > 0
         ? total
-        : (Number(mp.quantity) || 0) * (Number(mp.costPrice) || 0));
+        : (Number(mp.quantity) || 1) * consumo * custo);
     }, 0);
   }
 
   const materiais = produtoAtual?.materiasPrimas || item.materiasPrimas || [];
-  const consumo = obterConsumoItem(item);
 
   if (Array.isArray(materiais) && materiais.length > 0) {
     const deduzirSubstrato = custoSubstratoJaCalculado > 0;
@@ -419,7 +434,7 @@ export function custoMateriaPrimaItem(
         ? materiasPrimasAtuais[mp.materiaPrimaId]
         : undefined;
       const custo = Number(materialAtual?.costPrice ?? mp.costPrice ?? 0);
-      const quantidadePorUnidade = Number(mp.quantity ?? 0);
+      const quantidadePorUnidade = Number(mp.quantity ?? 1);
       return sum + (quantidadePorUnidade * consumo * custo);
     }, 0);
   }
@@ -557,7 +572,7 @@ export function detalharCustosItem(params: {
     params.produtoPorId
   );
 
-  const custoSubstrato = custoSubstratoItem(params.item, params.custoPorId, params.nomePorId, params.produtoPorId);
+  const custoSubstrato = custoSubstratoItem(params.item, params.custoPorId, params.nomePorId, params.produtoPorId, params.materiasPrimasAtuais);
   const custoOutrasMateriasPrimas = custoMateriaPrimaItem(params.item, params.produtoPorId, params.materiasPrimasAtuais, custoSubstrato);
   // Matéria-Prima unificada: substratos (lonas, vinis, papéis, etc.) são uma categoria de matéria-prima
   const custoMateriaPrima = Number((custoSubstrato + custoOutrasMateriasPrimas).toFixed(2));
@@ -596,7 +611,7 @@ export function custoMaterialRealItem(
   produtoPorId?: Record<string, LucroCurrentProduct>,
   materiasPrimasAtuais?: Record<string, LucroCurrentMaterial>
 ): number {
-  return custoSubstratoItem(item, custoPorId, nomePorId, produtoPorId) +
+  return custoSubstratoItem(item, custoPorId, nomePorId, produtoPorId, materiasPrimasAtuais) +
     custoMateriaPrimaItem(item, produtoPorId, materiasPrimasAtuais);
 }
 
@@ -757,6 +772,7 @@ export function custoTotalDaNota(params: {
   custoMaquinaM2PorCategoria?: Record<string, number>;
   custoMaquinaOperacionalM2PorCategoria?: Record<string, number>;
   custoTintaM2PorCategoria?: Record<string, number>;
+  consumoTintaMlM2PorCategoria?: Record<string, number>;
   maquinas?: Maquina[];
   maquinaPadrao?: Maquina;
   maquinasPorId?: Record<string, Maquina>;
@@ -777,6 +793,7 @@ export function calcularLucroLiquido(params: {
   custoMaquinaM2PorCategoria?: Record<string, number>;
   custoMaquinaOperacionalM2PorCategoria?: Record<string, number>;
   custoTintaM2PorCategoria?: Record<string, number>;
+  consumoTintaMlM2PorCategoria?: Record<string, number>;
   maquinas?: Maquina[];
   maquinaPadrao?: Maquina;
   maquinasPorId?: Record<string, Maquina>;
