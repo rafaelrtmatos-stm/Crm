@@ -79,7 +79,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
 
   const handleGoToPullFromNote = () => {
     setActiveTab('servicos');
-    showToast('Selecione uma nota para puxar os itens de serviço.');
+    showToast('Selecione uma nota para adicionar os itens de serviço.');
   };
 
   useEffect(() => {
@@ -241,7 +241,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
   const handleOpenAddModal = (dateISO?: string) => {
     if (colaborador?.modoLancamentoComissao === 'somente_nota') {
       setActiveTab('servicos');
-      showToast('Selecione uma nota para puxar os itens de serviço.');
+      showToast('Selecione uma nota para adicionar os itens de serviço.');
       return;
     }
     setEditingService(null);

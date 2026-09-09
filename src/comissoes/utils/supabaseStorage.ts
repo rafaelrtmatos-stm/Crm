@@ -784,14 +784,14 @@ export async function confirmarRetiradaProducao(notaId: string, codigoPedido?: s
     });
 
     const listaColabs = Object.entries(porColab)
-      .map(([nome, qtd]) => `• ${nome}: ${qtd} ${qtd === 1 ? 'item puxado' : 'itens puxados'}`)
+      .map(([nome, qtd]) => `• ${nome}: ${qtd} ${qtd === 1 ? 'item adicionado' : 'itens adicionados'}`)
       .join('\n');
 
     const totalItens = puxados.length;
 
     const mensagem =
-      `⚠️ ATENÇÃO: ${totalItens === 1 ? '1 item deste pedido já foi puxado' : `${totalItens} itens deste pedido já foram puxados`} para comissão!\n\n` +
-      `Colaborador(es) que já puxaram:\n${listaColabs}\n\n` +
+      `⚠️ ATENÇÃO: ${totalItens === 1 ? '1 item deste pedido já foi adicionado' : `${totalItens} itens deste pedido já foram adicionados`} para comissão!\n\n` +
+      `Colaborador(es) que já adicionaram:\n${listaColabs}\n\n` +
       `🛡️ REGRA DO SISTEMA:\n` +
       `• Os serviços já lançados na planilha de comissão NÃO serão excluídos (a comissão do funcionário permanece garantida);\n` +
       `• O pedido apenas deixará de aparecer na fila de produção para novos lançamentos.\n\n` +

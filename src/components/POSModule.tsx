@@ -187,7 +187,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
       const applyLocalUpdate = (list: SaleOrder[]) =>
         list.map(s => (s.id === sale.id ? { ...s, serviceStatus: undefined } : s));
       setAllSalesHistory(applyLocalUpdate);
-      showAlert('Lançamento desmarcado com sucesso. (Os itens já puxados na comissão permanecem intactos)');
+      showAlert('Lançamento desmarcado com sucesso. (Os itens já adicionados na comissão permanecem intactos)');
     } catch (err: any) {
       console.error('Erro ao desmarcar produção:', err);
       showAlert(`Erro ao desmarcar produção: ${err?.message || 'Falha na conexão'}`);

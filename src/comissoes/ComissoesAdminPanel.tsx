@@ -1525,7 +1525,7 @@ export default function ComissoesAdminPanel() {
                         <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400">Flexível</span>
                       </div>
                       <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
-                        Colaborador pode lançar serviços avulsos manualmente e também puxar direto das notas/pedidos do sistema.
+                        Colaborador pode lançar serviços avulsos manualmente e também adicionar direto das notas/pedidos do sistema.
                       </p>
                     </div>
 

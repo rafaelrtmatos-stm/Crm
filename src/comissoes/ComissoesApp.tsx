@@ -194,7 +194,7 @@ export default function ComissoesApp() {
   const handleOpenAddModal = (dateISO?: string) => {
     if (colaborador?.modoLancamentoComissao === 'somente_nota') {
       setActiveTab('servicos');
-      showToast('Selecione uma nota para puxar os itens de serviço.');
+      showToast('Selecione uma nota para adicionar os itens de serviço.');
       return;
     }
     setEditingService(null);
@@ -254,7 +254,7 @@ export default function ComissoesApp() {
 
   const handleGoToPullFromNote = () => {
     setActiveTab('servicos');
-    showToast('Selecione uma nota para puxar os itens de serviço.');
+    showToast('Selecione uma nota para adicionar os itens de serviço.');
   };
 
   const summaryStats = useMemo(() => calculateSummaryStats(services, userSettings.baseSalary), [services, userSettings.baseSalary]);
