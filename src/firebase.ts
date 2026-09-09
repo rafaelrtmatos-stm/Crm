@@ -22,20 +22,29 @@ const firestoreDbId = (firebaseConfig as any)?.firestoreDatabaseId;
 // mesmo navegador compartilharem esse cache em vez de brigarem pelo IndexedDB.
 function createFirestoreDb(): Firestore {
   try {
+    const firestoreSettings = {
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+      experimentalForceLongPolling: true,
+    };
     return firestoreDbId && typeof firestoreDbId === 'string' && firestoreDbId.trim() !== ''
-      ? initializeFirestore(app, {
-          localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
-        }, firestoreDbId)
-      : initializeFirestore(app, {
-          localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
-        });
+      ? initializeFirestore(app, firestoreSettings, firestoreDbId)
+      : initializeFirestore(app, firestoreSettings);
   } catch (e) {
     // Navegador sem suporte a IndexedDB (modo anonimo restrito, versao muito antiga, etc)
-    // ou Firestore ja inicializado antes com outras settings — cai pro modo normal
-    // (sem persistencia offline, mas o app continua funcionando online).
-    return firestoreDbId && typeof firestoreDbId === 'string' && firestoreDbId.trim() !== ''
-      ? getFirestore(app, firestoreDbId)
-      : getFirestore(app);
+    // ou Firestore ja inicializado antes com outras settings — tenta com long-polling simples
+    // ou cai pro modo normal (sem persistencia offline, mas o app continua funcionando online).
+    try {
+      const fallbackSettings = {
+        experimentalForceLongPolling: true,
+      };
+      return firestoreDbId && typeof firestoreDbId === 'string' && firestoreDbId.trim() !== ''
+        ? initializeFirestore(app, fallbackSettings, firestoreDbId)
+        : initializeFirestore(app, fallbackSettings);
+    } catch (err) {
+      return firestoreDbId && typeof firestoreDbId === 'string' && firestoreDbId.trim() !== ''
+        ? getFirestore(app, firestoreDbId)
+        : getFirestore(app);
+    }
   }
 }
 

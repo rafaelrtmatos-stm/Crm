@@ -1091,7 +1091,9 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     if (!currentCompany) return;
     const qSvc = query(collection(db, 'services'), where('companyId', '==', currentCompany.id), orderBy('createdAt', 'desc'));
     
-    const unsubSvc = onSnapshot(qSvc, (snap) => setServices(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+    const unsubSvc = onSnapshot(qSvc, (snap) => setServices(snap.docs.map(d => ({ id: d.id, ...d.data() }))), (err) => {
+      console.warn('Aviso Firestore services (offline/conexão):', err?.message || err);
+    });
 
     const loadSales = async () => {
       const { data, error } = await supabase.from('vendas').select('*').is('deleted_at', null).order('created_at', { ascending: false });
@@ -3557,7 +3559,9 @@ export const ChatPanel = ({
   useEffect(() => {
     if (!conversation?.id || !currentCompany) { setTasks([]); return; }
     const q = query(collection(db, 'tasks'), where('companyId', '==', currentCompany.id), where('relatedId', '==', conversation.id));
-    return onSnapshot(q, (snap) => setTasks(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+    return onSnapshot(q, (snap) => setTasks(snap.docs.map(d => ({ id: d.id, ...d.data() }))), (err) => {
+      console.warn('Aviso Firestore tasks (offline/conexão):', err?.message || err);
+    });
   }, [conversation?.id, currentCompany]);
   const handleAddTask = async () => {
     if (!newTaskTitle.trim() || !conversation?.id || !currentCompany) return;
@@ -18924,6 +18928,8 @@ export const ServicesModule = ({ currentCompany }: { currentCompany: Company | n
     );
     return onSnapshot(q, (snapshot) => {
       setServices(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => {
+      console.warn('Aviso Firestore services (offline/conexão):', err?.message || err);
     });
   }, [currentCompany]);
 
@@ -20898,6 +20904,8 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
       const recent = sessions.filter(s => s.id !== minhaSessaoId && now - new Date(s.lastSeenAt || s.loginAt).getTime() < 30 * 60 * 1000);
       recent.sort((a, b) => new Date(b.lastSeenAt || b.loginAt).getTime() - new Date(a.lastSeenAt || a.loginAt).getTime());
       setActiveSessions(recent);
+    }, (err) => {
+      console.warn('Aviso Firestore sessions (offline/conexão):', err?.message || err);
     });
     return () => unsub();
   }, [user?.isAdmin]);
@@ -21169,6 +21177,8 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     const unsubFirebase = onSnapshot(q, (snap) => {
       firebaseUsers = snap.docs.map(d => ({ id: d.id, ...d.data() } as AppUser));
       merge();
+    }, (err) => {
+      console.warn('Aviso Firestore users (offline/conexão):', err?.message || err);
     });
 
     const loadSupabaseUsers = async () => {

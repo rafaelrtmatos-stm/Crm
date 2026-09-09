@@ -1115,6 +1115,8 @@ export default function App() {
             updateDoc(doc(db, 'sessions', sessionId), { locationDenied: true }).catch(() => {});
           }
         }
+      }, (err) => {
+        console.warn('Aviso Firestore session (offline/conexão):', err?.message || err);
       });
 
       // Atualiza "visto por ultimo" a cada 2 minutos, enquanto a aba estiver aberta
@@ -1457,6 +1459,8 @@ export default function App() {
         if (comps.length > 0) {
           setCurrentCompany(prev => prev || comps[0]);
         }
+      }, (err) => {
+        console.warn('Aviso Firestore companies (offline/conexão):', err?.message || err);
       });
 
       // 2. Check saved session user (sessionStorage sempre; localStorage se "lembrar minha senha" foi marcado)
@@ -1499,6 +1503,8 @@ export default function App() {
                 setUser(fresh);
                 cacheUserOffline(fresh);
               }
+            }, (err) => {
+              console.warn('Aviso Firestore userDoc (offline/conexão):', err?.message || err);
             });
             // Auto-login (sessao lembrada porque a localizacao foi autorizada): registra a sessao
             // de novo tambem, senao ela some da lista "Sessões Ativas" do admin e o pedido de
