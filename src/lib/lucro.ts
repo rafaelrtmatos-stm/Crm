@@ -1,4 +1,4 @@
-import { Maquina, calcularCustosMaquina } from '../types';
+import { Maquina, calcularCustosMaquina, calcularVelocidadeMarginalM2H } from '../types';
 
 // Calculo de Lucro Liquido de uma venda.
 //
@@ -503,7 +503,9 @@ export function custoMaquinaOperacionalItem(
   produtoAtual?: LucroCurrentProduct,
   custoMaquinaOperacionalM2PorCategoria?: Record<string, number>,
   custoMaquinaM2PorCategoria?: Record<string, number>,
-  maquinaObj?: Maquina
+  maquinaObj?: Maquina,
+  modoImpressao?: Maquina['modoImpressao'],
+  velocidadeCabecaMmS?: number
 ): number {
   const isImpresso = isItemImpressoOuSubstrato(item, produtoAtual);
   if (!isImpresso) return 0;
@@ -512,7 +514,23 @@ export function custoMaquinaOperacionalItem(
   if (areaM2 <= 0) return 0;
 
   if (maquinaObj) {
-    const calculos = calcularCustosMaquina(maquinaObj, maquinaObj.tarifaKwh);
+    const modoEfetivo = modoImpressao || (item as any).modoImpressao || (produtoAtual as any)?.modoImpressao || maquinaObj.modoImpressao || 'standard';
+    const velCabecaEfetiva = velocidadeCabecaMmS || (item as any).velocidadeCabecaMmS || (produtoAtual as any)?.velocidadeCabecaMmS || maquinaObj.velocidadeCabecaMmS || 400;
+
+    const velEfetivaM2H = calcularVelocidadeMarginalM2H(
+      modoEfetivo,
+      velCabecaEfetiva,
+      maquinaObj.calibKMms,
+      maquinaObj.velocidadeHispeedM2H,
+      maquinaObj
+    );
+
+    const maquinaComVelocidade: Maquina = {
+      ...maquinaObj,
+      velocidadeProducaoM2H: velEfetivaM2H > 0 ? velEfetivaM2H : (maquinaObj.velocidadeProducaoM2H || 12)
+    };
+
+    const calculos = calcularCustosMaquina(maquinaComVelocidade, maquinaObj.tarifaKwh);
     const custoM2 = calculos.custoOperacionalM2 > 0
       ? calculos.custoOperacionalM2
       : (calculos.custoTotalMaquinaM2 > calculos.custoTintaM2
@@ -588,7 +606,9 @@ export function detalharCustosItem(params: {
     produtoAtual,
     params.custoMaquinaOperacionalM2PorCategoria,
     params.custoMaquinaM2PorCategoria,
-    maquina
+    maquina,
+    (params.item as any).modoImpressao,
+    (params.item as any).velocidadeCabecaMmS
   );
   const areaM2 = obterAreaImpressaoM2(params.item, produtoAtual);
 

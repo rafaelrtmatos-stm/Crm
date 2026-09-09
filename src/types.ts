@@ -737,10 +737,15 @@ export interface Maquina {
   velocidadeProducaoM2H: number; // Velocidade de produção em m²/h (calculada a partir do modo/velocidade de cabeça, quando informados)
   tempoSetupMin?: number; // Tempo fixo padrão de setup / aquecimento / RIP (minutos)
 
-  // MODO DE IMPRESSÃO (RIP) — opcional, usado para calcular velocidadeProducaoM2H automaticamente
+  // MODO DE IMPRESSÃO (RIP) — usado para calcular velocidadeProducaoM2H automaticamente
   modoImpressao?: 'standard' | 'highspeed' | 'qualidade' | 'rascunho' | 'personalizado'; // Standard ou High Speed ou modo selecionado
-  velocidadeCabecaMmS?: number; // Velocidade de cabeça em mm/s, de 250 a 761 — só afeta o tempo no modo Standard
+  velocidadeCabecaMmS?: number; // Velocidade de cabeça em mm/s, de 250 a 761 — afeta o tempo proporcionalmente
   modosImpressaoList?: ModoImpressaoConfig[]; // Modos de impressão configurados para a máquina
+
+  // TEMPOS DE REFERÊNCIA PRÉ-DEFINIDOS PARA 10 M² (High Speed, Standard, High Quality)
+  tempo10m2HighSpeed?: number; // Tempo pré-definido em minutos para 10 m² no perfil High Speed (padrão RIP: 132 min a 400 mm/s)
+  tempo10m2Standard?: number;  // Tempo pré-definido em minutos para 10 m² no perfil Standard (padrão RIP: 265 min a 400 mm/s)
+  tempo10m2HighQuality?: number; // Tempo pré-definido em minutos para 10 m² no perfil High Quality (padrão RIP: 527 min a 400 mm/s)
 
   // CALIBRAÇÃO REAL (opcional, por máquina) — medida com jobs reais no RIP.
   // Modelo Standard: tempo(min) para uma área de REFERENCIA_AREA_CALIBRACAO_M2 = calibSetupMin + calibKMms / velocidadeCabecaMmS
@@ -787,16 +792,68 @@ export const REFERENCIA_AREA_CALIBRACAO_M2 = AREA_REFERENCIA_M2;
 // Baseado no tempo para 10 m²: v(m²/h) = 10 / (tempo10m2 / 60)
 export function calcularVelocidadeProducaoM2H(
   modoImpressao: Maquina['modoImpressao'],
-  velocidadeCabecaMmS?: number
+  velocidadeCabecaMmS?: number,
+  maquina?: Partial<Maquina> | null
 ): number {
   const p = normalizarPerfilImpressao(modoImpressao);
   const vel = Math.min(
-    Math.max(Number(velocidadeCabecaMmS) || VELOCIDADE_CABECA_PADRAO_MMS, VELOCIDADE_CABECA_MIN_MMS),
+    Math.max(Number(velocidadeCabecaMmS) || Number(maquina?.velocidadeCabecaMmS) || VELOCIDADE_CABECA_PADRAO_MMS, VELOCIDADE_CABECA_MIN_MMS),
     VELOCIDADE_CABECA_MAX_MMS
   );
-  const tempo10m2 = obterTempo10M2PorVelocidade(p, vel);
+
+  let tabelaCustom: any = undefined;
+  if (maquina && (maquina.tempo10m2HighSpeed || maquina.tempo10m2Standard || maquina.tempo10m2HighQuality)) {
+    tabelaCustom = construirTabelaCalibracaoCustomizada(maquina);
+  }
+
+  const tempo10m2 = obterTempo10M2PorVelocidade(p, vel, tabelaCustom);
   if (tempo10m2 <= 0) return 10;
   return Math.max(0.1, Math.round((10 / (tempo10m2 / 60)) * 100) / 100);
+}
+
+// Constrói tabela customizada escalada proporcionalmente caso a máquina tenha tempos próprios configurados
+function construirTabelaCalibracaoCustomizada(maquina: Partial<Maquina>) {
+  const res: any = {};
+  if (Number(maquina.tempo10m2HighSpeed) > 0) {
+    const ratio = Number(maquina.tempo10m2HighSpeed) / 132;
+    res.high_speed = [
+      { velocidade: 250, tempo10m2: Math.round(217 * ratio) },
+      { velocidade: 300, tempo10m2: Math.round(179 * ratio) },
+      { velocidade: 350, tempo10m2: Math.round(153 * ratio) },
+      { velocidade: 400, tempo10m2: Math.round(132 * ratio) },
+      { velocidade: 500, tempo10m2: Math.round(100 * ratio) },
+      { velocidade: 600, tempo10m2: Math.round(85 * ratio) },
+      { velocidade: 700, tempo10m2: Math.round(74 * ratio) },
+      { velocidade: 761, tempo10m2: Math.round(69 * ratio) },
+    ];
+  }
+  if (Number(maquina.tempo10m2Standard) > 0) {
+    const ratio = Number(maquina.tempo10m2Standard) / 265;
+    res.standard = [
+      { velocidade: 250, tempo10m2: Math.round(435 * ratio) },
+      { velocidade: 300, tempo10m2: Math.round(360 * ratio) },
+      { velocidade: 350, tempo10m2: Math.round(308 * ratio) },
+      { velocidade: 400, tempo10m2: Math.round(265 * ratio) },
+      { velocidade: 500, tempo10m2: Math.round(200 * ratio) },
+      { velocidade: 600, tempo10m2: Math.round(170 * ratio) },
+      { velocidade: 700, tempo10m2: Math.round(148 * ratio) },
+      { velocidade: 761, tempo10m2: Math.round(138 * ratio) },
+    ];
+  }
+  if (Number(maquina.tempo10m2HighQuality) > 0) {
+    const ratio = Number(maquina.tempo10m2HighQuality) / 527;
+    res.high_quality = [
+      { velocidade: 250, tempo10m2: Math.round(865 * ratio) },
+      { velocidade: 300, tempo10m2: Math.round(716 * ratio) },
+      { velocidade: 350, tempo10m2: Math.round(612 * ratio) },
+      { velocidade: 400, tempo10m2: Math.round(527 * ratio) },
+      { velocidade: 500, tempo10m2: Math.round(398 * ratio) },
+      { velocidade: 600, tempo10m2: Math.round(338 * ratio) },
+      { velocidade: 700, tempo10m2: Math.round(294 * ratio) },
+      { velocidade: 761, tempo10m2: Math.round(274 * ratio) },
+    ];
+  }
+  return res;
 }
 
 // Velocidade marginal de produção (m²/h), ignorando o setup fixo — usada para custo/m² (Máquinas).
@@ -804,12 +861,13 @@ export function calcularVelocidadeMarginalM2H(
   modoImpressao: Maquina['modoImpressao'],
   velocidadeCabecaMmS: number | undefined,
   calibKMms?: number | '' | null,
-  velocidadeHispeedM2H?: number | '' | null
+  velocidadeHispeedM2H?: number | '' | null,
+  maquina?: Partial<Maquina> | null
 ): number {
   if (modoImpressao === 'highspeed' && Number(velocidadeHispeedM2H) > 0) {
     return Number(velocidadeHispeedM2H);
   }
-  return calcularVelocidadeProducaoM2H(modoImpressao, velocidadeCabecaMmS);
+  return calcularVelocidadeProducaoM2H(modoImpressao, velocidadeCabecaMmS, maquina);
 }
 
 // Calcula o tempo de produção (minutos) para uma área (m²), no modo e velocidade de cabeça informados.
@@ -824,11 +882,16 @@ export function calcularTempoProducaoMinutos(
 
   const perfil = normalizarPerfilImpressao(modoImpressao);
   const vel = Math.min(
-    Math.max(Number(velocidadeCabecaMmS) || VELOCIDADE_CABECA_PADRAO_MMS, VELOCIDADE_CABECA_MIN_MMS),
+    Math.max(Number(velocidadeCabecaMmS) || Number(maquina.velocidadeCabecaMmS) || VELOCIDADE_CABECA_PADRAO_MMS, VELOCIDADE_CABECA_MIN_MMS),
     VELOCIDADE_CABECA_MAX_MMS
   );
 
-  const res = calcularTempoImpressao(areaM2, vel, perfil);
+  let tabelaCustom: any = undefined;
+  if (maquina.tempo10m2HighSpeed || maquina.tempo10m2Standard || maquina.tempo10m2HighQuality) {
+    tabelaCustom = construirTabelaCalibracaoCustomizada(maquina);
+  }
+
+  const res = calcularTempoImpressao(areaM2, vel, perfil, tabelaCustom);
   return res.tempoFinalMinutos;
 }
 

@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import {
   Company, AppUser, Maquina, ModoImpressaoConfig,
-  calcularCustosMaquina, calcularVelocidadeMarginalM2H,
+  calcularCustosMaquina, calcularVelocidadeMarginalM2H, calcularTempoProducaoMinutos,
   VELOCIDADE_CABECA_MIN_MMS, VELOCIDADE_CABECA_MAX_MMS
 } from '../types';
 import {
@@ -33,33 +33,25 @@ const MachineCardQuickSimulator: React.FC<{
   onOpenFullSim: () => void;
 }> = ({ maquina, onOpenFullSim }) => {
   const [area, setArea] = useState<number>(5);
-  const [modoId, setModoId] = useState<string>(maquina.modosImpressaoList?.[0]?.id || 'standard');
+  const perfilPadrao: PerfilImpressao = maquina.modoImpressao === 'highspeed' ? 'high_speed' : maquina.modoImpressao === 'qualidade' ? 'high_quality' : 'standard';
+  const [perfil, setPerfil] = useState<PerfilImpressao>(perfilPadrao);
 
-  const modos = maquina.modosImpressaoList && maquina.modosImpressaoList.length > 0
-    ? maquina.modosImpressaoList
-    : [
-        { id: 'standard', nome: 'Padrão', velocidadeM2H: maquina.velocidadeProducaoM2H || 12, consumoTintaMlM2: maquina.tintaConsumoMlM2 || 15 },
-        { id: 'highspeed', nome: 'Rápido', velocidadeM2H: maquina.velocidadeHispeedM2H || 15, consumoTintaMlM2: 12 }
-      ];
-
-  const modo = modos.find(m => m.id === modoId) || modos[0];
-  const vel = modo.velocidadeM2H || 12;
-  const tempoSetup = maquina.tempoSetupMin || 0;
-  const tempoMinutos = (area / vel) * 60 + tempoSetup;
+  const tempoMinutos = calcularTempoProducaoMinutos(maquina, area, perfil, maquina.velocidadeCabecaMmS);
   const horas = Math.floor(tempoMinutos / 60);
   const mins = Math.round(tempoMinutos % 60);
   const tempoFmt = horas > 0 ? `${horas}h ${mins > 0 ? `${mins}min` : ''}`.trim() : `${Math.max(1, mins)} min`;
 
   const custos = calcularCustosMaquina(maquina);
-  const custoPorMl = maquina.tintaQuantidadeMl > 0 ? maquina.tintaValor / maquina.tintaQuantidadeMl : 0;
-  const custoJob = (custos.custoTotalMaquinaHora * (tempoMinutos / 60)) + (area * (modo.consumoTintaMlM2 || 15) * custoPorMl);
+  const vel = calcularVelocidadeMarginalM2H(perfil, maquina.velocidadeCabecaMmS, maquina.calibKMms, maquina.velocidadeHispeedM2H, maquina);
+  const custoOperacionalM2 = vel > 0 ? custos.custoTotalMaquinaHora / vel : custos.custoOperacionalM2;
+  const custoJob = (area * custoOperacionalM2) + (area * custos.custoTintaM2);
 
   return (
     <div className="mx-4 mb-3 p-3 bg-gradient-to-br from-cyan-950/40 via-slate-900 to-slate-950 rounded-2xl border border-cyan-500/30 space-y-2">
       <div className="flex items-center justify-between">
         <span className="text-[10px] font-black text-cyan-300 uppercase tracking-wider flex items-center gap-1.5">
           <Sparkles size={12} className="text-cyan-400" />
-          <span>Simulação Rápida</span>
+          <span>Simulação Rápida RIP</span>
         </span>
         <button
           type="button"
@@ -84,15 +76,13 @@ const MachineCardQuickSimulator: React.FC<{
         </div>
 
         <select
-          value={modoId}
-          onChange={e => setModoId(e.target.value)}
+          value={perfil}
+          onChange={e => setPerfil(e.target.value as PerfilImpressao)}
           className="bg-black/50 border border-white/10 rounded-xl px-2 py-1 text-[11px] text-white font-bold outline-none flex-1 truncate"
         >
-          {modos.map(m => (
-            <option key={m.id} value={m.id}>
-              {m.nome.split('(')[0].trim()} ({m.velocidadeM2H}m²/h)
-            </option>
-          ))}
+          <option value="high_speed">High Speed (~4.55 m²/h)</option>
+          <option value="standard">Standard (~2.26 m²/h)</option>
+          <option value="high_quality">High Quality (~1.14 m²/h)</option>
         </select>
       </div>
 
@@ -169,7 +159,10 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
     tempoSetupMin: 10 as number | '',
     modoImpressao: 'standard' as NonNullable<Maquina['modoImpressao']>,
     velocidadeCabecaMmS: 400,
-    modosImpressaoList: DEFAULT_MODOS_IMPRESSAO as ModoImpressaoConfig[],
+    tempo10m2HighSpeed: 132 as number | '',
+    tempo10m2Standard: 265 as number | '',
+    tempo10m2HighQuality: 527 as number | '',
+    modosImpressaoList: [] as ModoImpressaoConfig[],
     calibSetupMin: '' as number | '',
     calibKMms: '' as number | '',
     velocidadeHispeedM2H: '' as number | '',
@@ -182,31 +175,14 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
     observacoes: '',
   });
 
-  // Novo modo de impressão customizado no form
-  const [novoModoNome, setNovoModoNome] = useState('');
-  const [novoModoPerfil, setNovoModoPerfil] = useState<PerfilImpressao>('standard');
-  const [novoModoVelocidadeCabeca, setNovoModoVelocidadeCabeca] = useState<number | ''>(400);
-  const [novoModoVelocidade, setNovoModoVelocidade] = useState<number | ''>('');
-  const [novoModoDpi, setNovoModoDpi] = useState('720x720');
-  const [novoModoPasses, setNovoModoPasses] = useState<number | ''>(6);
-  const [novoModoTinta, setNovoModoTinta] = useState<number | ''>(15);
-  const [novoModoIgnorar, setNovoModoIgnorar] = useState(false);
-
-  // Cálculo ao vivo do tempo e m²/h para o novo modo sendo configurado
-  const novoModoCalculado = useMemo(() => {
-    const velMmS = typeof novoModoVelocidadeCabeca === 'number' && novoModoVelocidadeCabeca > 0
-      ? novoModoVelocidadeCabeca
-      : (formData.velocidadeCabecaMmS || 400);
-    return calcularDadosModoImpressao(novoModoPerfil, velMmS);
-  }, [novoModoPerfil, novoModoVelocidadeCabeca, formData.velocidadeCabecaMmS]);
-
   // Recalcula a velocidade de produção (m²/h) sob demanda
   const aplicarVelocidadeCalculada = () => {
     const velocidadeCalculada = calcularVelocidadeMarginalM2H(
-      formData.modoImpressao === 'personalizado' || formData.modoImpressao === 'qualidade' || formData.modoImpressao === 'rascunho' ? 'standard' : formData.modoImpressao,
+      formData.modoImpressao,
       formData.velocidadeCabecaMmS,
       formData.calibKMms,
-      formData.velocidadeHispeedM2H
+      formData.velocidadeHispeedM2H,
+      formData
     );
     setFormData(prev => ({ ...prev, velocidadeProducaoM2H: velocidadeCalculada }));
   };
@@ -248,7 +224,10 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
       tempoSetupMin: 10,
       modoImpressao: 'standard',
       velocidadeCabecaMmS: 400,
-      modosImpressaoList: DEFAULT_MODOS_IMPRESSAO,
+      tempo10m2HighSpeed: 132,
+      tempo10m2Standard: 265,
+      tempo10m2HighQuality: 527,
+      modosImpressaoList: [],
       calibSetupMin: '',
       calibKMms: '',
       velocidadeHispeedM2H: '',
@@ -282,7 +261,10 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
       tempoSetupMin: item.tempoSetupMin ?? 10,
       modoImpressao: item.modoImpressao || 'standard',
       velocidadeCabecaMmS: item.velocidadeCabecaMmS || 400,
-      modosImpressaoList: item.modosImpressaoList && item.modosImpressaoList.length > 0 ? item.modosImpressaoList : DEFAULT_MODOS_IMPRESSAO,
+      tempo10m2HighSpeed: item.tempo10m2HighSpeed ?? 132,
+      tempo10m2Standard: item.tempo10m2Standard ?? 265,
+      tempo10m2HighQuality: item.tempo10m2HighQuality ?? 527,
+      modosImpressaoList: item.modosImpressaoList || [],
       calibSetupMin: item.calibSetupMin ?? '',
       calibKMms: item.calibKMms ?? '',
       velocidadeHispeedM2H: item.velocidadeHispeedM2H ?? '',
@@ -316,7 +298,10 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
       tempoSetupMin: item.tempoSetupMin ?? 10,
       modoImpressao: item.modoImpressao || 'standard',
       velocidadeCabecaMmS: item.velocidadeCabecaMmS || 400,
-      modosImpressaoList: item.modosImpressaoList && item.modosImpressaoList.length > 0 ? item.modosImpressaoList : DEFAULT_MODOS_IMPRESSAO,
+      tempo10m2HighSpeed: item.tempo10m2HighSpeed ?? 132,
+      tempo10m2Standard: item.tempo10m2Standard ?? 265,
+      tempo10m2HighQuality: item.tempo10m2HighQuality ?? 527,
+      modosImpressaoList: item.modosImpressaoList || [],
       calibSetupMin: item.calibSetupMin ?? '',
       calibKMms: item.calibKMms ?? '',
       velocidadeHispeedM2H: item.velocidadeHispeedM2H ?? '',
@@ -329,95 +314,6 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
       observacoes: item.observacoes || '',
     });
     setIsModalOpen(true);
-  };
-
-  const handleAddModoImpressao = () => {
-    if (!novoModoNome.trim()) {
-      showAlert('Informe o nome do modo de impressão.');
-      return;
-    }
-
-    const velMmS = typeof novoModoVelocidadeCabeca === 'number' && novoModoVelocidadeCabeca > 0
-      ? novoModoVelocidadeCabeca
-      : (formData.velocidadeCabecaMmS || 400);
-
-    const calc = calcularDadosModoImpressao(novoModoPerfil, velMmS);
-    const velM2H = Number(novoModoVelocidade) > 0 ? Number(novoModoVelocidade) : calc.velocidadeM2H;
-
-    const novo: ModoImpressaoConfig = {
-      id: 'mode_' + Date.now(),
-      nome: novoModoNome.trim(),
-      resolucaoDpi: novoModoDpi.trim() || undefined,
-      passes: Number(novoModoPasses) > 0 ? Number(novoModoPasses) : undefined,
-      velocidadeM2H: velM2H,
-      consumoTintaMlM2: Number(novoModoTinta) > 0 ? Number(novoModoTinta) : undefined,
-      perfilTipo: novoModoPerfil,
-      velocidadeCabecaMmS: velMmS,
-      tempo10m2Minutos: calc.tempo10m2Minutos,
-      tempo10m2Formatado: calc.tempo10m2Formatado,
-      ignorarPredefinicoes: novoModoIgnorar || velMmS !== 400,
-    };
-
-    setFormData(prev => ({
-      ...prev,
-      modosImpressaoList: [...(prev.modosImpressaoList || []), novo]
-    }));
-
-    showAlert(`Modo "${novo.nome}" adicionado com velocidade de cabeça de ${velMmS} mm/s (${calc.tempo10m2Formatado} p/ 10m²).`);
-
-    setNovoModoNome('');
-    setNovoModoVelocidade('');
-    setNovoModoDpi('720x720');
-    setNovoModoPasses(6);
-    setNovoModoTinta(15);
-  };
-
-  const handleSalvarVelocidadeAtualComoModo = () => {
-    const velMmS = formData.velocidadeCabecaMmS || 400;
-    const perfil = normalizarPerfilImpressao(formData.modoImpressao);
-    const calc = calcularDadosModoImpressao(perfil, velMmS);
-
-    const nomeModo = `Modo ${velMmS} mm/s (${calc.perfilTipo === 'high_speed' ? 'Rápido' : calc.perfilTipo === 'high_quality' ? 'Foto' : 'Standard'})`;
-
-    const novo: ModoImpressaoConfig = {
-      id: 'mode_' + Date.now(),
-      nome: nomeModo,
-      resolucaoDpi: '720x720',
-      passes: 6,
-      velocidadeM2H: formData.velocidadeProducaoM2H || calc.velocidadeM2H,
-      consumoTintaMlM2: formData.tintaConsumoMlM2 || 15,
-      perfilTipo: perfil,
-      velocidadeCabecaMmS: velMmS,
-      tempo10m2Minutos: calc.tempo10m2Minutos,
-      tempo10m2Formatado: calc.tempo10m2Formatado,
-      ignorarPredefinicoes: velMmS !== 400,
-    };
-
-    setFormData(prev => ({
-      ...prev,
-      modosImpressaoList: [...(prev.modosImpressaoList || []), novo]
-    }));
-
-    showAlert(`Cálculo atual (${velMmS} mm/s • ${calc.tempo10m2Formatado} p/ 10m²) salvo na tabela de modos!`);
-  };
-
-  const handleRemoveModoImpressao = (id: string) => {
-    setFormData(prev => ({
-      ...prev,
-      modosImpressaoList: (prev.modosImpressaoList || []).filter(m => m.id !== id)
-    }));
-  };
-
-  const handleSelectModoComoPrincipal = (modo: ModoImpressaoConfig) => {
-    setFormData(prev => ({
-      ...prev,
-      velocidadeProducaoM2H: modo.velocidadeM2H,
-      tintaConsumoMlM2: modo.consumoTintaMlM2 ?? prev.tintaConsumoMlM2,
-      velocidadeCabecaMmS: modo.velocidadeCabecaMmS ?? prev.velocidadeCabecaMmS,
-      modoImpressao: (modo.perfilTipo || prev.modoImpressao || 'standard') as any
-    }));
-    const extraInfo = modo.velocidadeCabecaMmS ? ` • Cabeça: ${modo.velocidadeCabecaMmS} mm/s (${modo.tempo10m2Formatado || ''} p/ 10m²)` : '';
-    showAlert(`Modo "${modo.nome}" aplicado: ${modo.velocidadeM2H} m²/h${extraInfo}.`);
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -451,6 +347,9 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
         tempoSetupMin: formData.tempoSetupMin === '' ? undefined : Number(formData.tempoSetupMin),
         modoImpressao: formData.modoImpressao,
         velocidadeCabecaMmS: Number(formData.velocidadeCabecaMmS) || 400,
+        tempo10m2HighSpeed: formData.tempo10m2HighSpeed === '' ? undefined : Number(formData.tempo10m2HighSpeed),
+        tempo10m2Standard: formData.tempo10m2Standard === '' ? undefined : Number(formData.tempo10m2Standard),
+        tempo10m2HighQuality: formData.tempo10m2HighQuality === '' ? undefined : Number(formData.tempo10m2HighQuality),
         modosImpressaoList: formData.modosImpressaoList,
         calibSetupMin: formData.calibSetupMin === '' ? undefined : Number(formData.calibSetupMin),
         calibKMms: formData.calibKMms === '' ? undefined : Number(formData.calibKMms),
@@ -929,29 +828,50 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
                       {maquina.velocidadeProducaoM2H} m²/h • {maquina.tempoSetupMin ? `${maquina.tempoSetupMin} min setup` : '10 min setup'}
                     </strong>
                   </div>
-                  {/* Modos de Impressão tags */}
-                  {maquina.modosImpressaoList && maquina.modosImpressaoList.length > 0 && (
-                    <div className="pt-1">
-                      <span className="text-[10px] text-white/40 uppercase font-bold block mb-1">Modos Configurados:</span>
-                      <div className="flex flex-wrap gap-1.5">
-                        {maquina.modosImpressaoList.map((m) => (
-                          <span
-                            key={m.id}
-                            className="text-[10px] px-2 py-0.5 rounded-md bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 font-medium flex items-center gap-1"
-                            title={m.tempo10m2Formatado ? `Referência: ${m.tempo10m2Formatado} para 10m²` : undefined}
-                          >
-                            <span>{m.nome.split('(')[0].trim()}:</span>
-                            <strong className="text-white">{m.velocidadeM2H} m²/h</strong>
-                            {m.velocidadeCabecaMmS && (
-                              <span className="text-cyan-400/90 font-mono text-[9px] bg-cyan-950/60 px-1 rounded">
-                                {m.velocidadeCabecaMmS} mm/s
-                              </span>
-                            )}
-                          </span>
-                        ))}
+                  {/* Perfis RIP de Velocidade Pré-definidos */}
+                  <div className="pt-1">
+                    <span className="text-[10px] text-white/40 uppercase font-bold block mb-1">Perfis de Velocidade RIP (Ref. 10 m²):</span>
+                    <div className="grid grid-cols-3 gap-1 text-[10px]">
+                      <div className={`p-1.5 rounded-lg border text-center ${maquina.modoImpressao === 'highspeed' ? 'bg-amber-500/15 border-amber-500/40 text-amber-300' : 'bg-black/30 border-white/5 text-white/70'}`}>
+                        <div className="font-bold flex items-center justify-center gap-1 text-[9px]">
+                          <Zap size={10} className="text-amber-400" />
+                          <span>High Speed</span>
+                        </div>
+                        <div className="font-mono text-[9px] text-white font-bold mt-0.5">
+                          ~{(10 / ((maquina.tempo10m2HighSpeed || 132) / 60)).toFixed(1)} m²/h
+                        </div>
+                        <div className="text-[8px] text-white/40 font-mono">
+                          {maquina.tempo10m2HighSpeed || 132} min / 10m²
+                        </div>
+                      </div>
+
+                      <div className={`p-1.5 rounded-lg border text-center ${(!maquina.modoImpressao || maquina.modoImpressao === 'standard') ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-300' : 'bg-black/30 border-white/5 text-white/70'}`}>
+                        <div className="font-bold flex items-center justify-center gap-1 text-[9px]">
+                          <Clock size={10} className="text-cyan-400" />
+                          <span>Standard</span>
+                        </div>
+                        <div className="font-mono text-[9px] text-white font-bold mt-0.5">
+                          ~{(10 / ((maquina.tempo10m2Standard || 265) / 60)).toFixed(1)} m²/h
+                        </div>
+                        <div className="text-[8px] text-white/40 font-mono">
+                          {maquina.tempo10m2Standard || 265} min / 10m²
+                        </div>
+                      </div>
+
+                      <div className={`p-1.5 rounded-lg border text-center ${maquina.modoImpressao === 'qualidade' ? 'bg-purple-500/15 border-purple-500/40 text-purple-300' : 'bg-black/30 border-white/5 text-white/70'}`}>
+                        <div className="font-bold flex items-center justify-center gap-1 text-[9px]">
+                          <Sparkles size={10} className="text-purple-400" />
+                          <span>High Quality</span>
+                        </div>
+                        <div className="font-mono text-[9px] text-white font-bold mt-0.5">
+                          ~{(10 / ((maquina.tempo10m2HighQuality || 527) / 60)).toFixed(1)} m²/h
+                        </div>
+                        <div className="text-[8px] text-white/40 font-mono">
+                          {maquina.tempo10m2HighQuality || 527} min / 10m²
+                        </div>
                       </div>
                     </div>
-                  )}
+                  </div>
                   {maquina.tintaConsumoMlM2 > 0 && (
                     <div className="flex items-center justify-between">
                       <span className="text-white/50">Consumo Tinta:</span>
@@ -1332,18 +1252,264 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
             </div>
           </div>
 
-          {/* 3. TEMPO DE PRODUÇÃO & MODOS DE IMPRESSÃO */}
+          {/* 3. CONFIGURAÇÃO DE VELOCIDADES & PERFIS DE IMPRESSÃO (RIP) */}
           <div className="bg-slate-800/70 p-4 rounded-2xl border border-white/10 space-y-4">
             <div className="flex items-center justify-between">
               <h4 className="text-xs font-black text-emerald-400 uppercase tracking-wide flex items-center gap-1.5">
-                <Clock size={14} /> 3. Configuração de Tempo & Modos de Impressão
+                <Clock size={14} /> 3. Configurações de Velocidade & Perfis de Impressão (RIP)
               </h4>
+              <span className="text-[10px] text-cyan-300 bg-cyan-950/60 border border-cyan-500/30 px-2 py-0.5 rounded-md font-mono">
+                Regra Oficial: Tempo = (Tempo 10 m²) × (Área ÷ 10)
+              </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {/* Configuração dos 3 Perfis Oficiais (High Speed, Standard, High Quality) */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-white/80 uppercase flex items-center gap-1.5">
+                  <Layers size={13} className="text-cyan-400" />
+                  <span>Tempos de Referência Pré-definidos para 10 m² (Ajuste por Máquina)</span>
+                </span>
+                <span className="text-[10px] text-white/40">Base oficial: RIP a 400 mm/seg.</span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {/* 1. High Speed */}
+                <div className={`p-3.5 rounded-2xl border transition-all ${
+                  formData.modoImpressao === 'highspeed'
+                    ? 'bg-amber-950/30 border-amber-400 shadow-md ring-1 ring-amber-400/20'
+                    : 'bg-slate-900/90 border-white/10 hover:border-white/20'
+                }`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-1.5">
+                      <Zap size={14} className="text-amber-400" />
+                      <strong className="text-xs text-white uppercase font-bold">High Speed</strong>
+                    </div>
+                    {formData.modoImpressao === 'highspeed' ? (
+                      <span className="text-[9px] font-bold uppercase bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full border border-amber-500/30">
+                        Padrão Ativo
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFormData(prev => ({
+                            ...prev,
+                            modoImpressao: 'highspeed',
+                            velocidadeProducaoM2H: Math.round((10 / ((Number(prev.tempo10m2HighSpeed) || 132) / 60)) * 100) / 100
+                          }));
+                        }}
+                        className="text-[10px] text-white/50 hover:text-amber-300 font-bold underline"
+                      >
+                        Ativar Padrão
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <div>
+                      <label className="block text-[10px] font-bold text-white/60 uppercase mb-1">
+                        Tempo p/ 10 m² (minutos)
+                      </label>
+                      <input
+                        type="number"
+                        step="1"
+                        min="1"
+                        value={formData.tempo10m2HighSpeed}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? '' : parseInt(e.target.value, 10);
+                          setFormData(prev => ({ ...prev, tempo10m2HighSpeed: val }));
+                        }}
+                        className="w-full bg-slate-950 border border-amber-500/40 rounded-xl px-3 py-1.5 text-xs text-amber-300 font-mono font-bold focus:outline-none focus:border-amber-400"
+                      />
+                      <span className="text-[9px] text-white/40 block mt-0.5">Padrão RIP: 132 min (02h12)</span>
+                    </div>
+
+                    <div className="p-2 bg-black/40 rounded-xl border border-white/5 text-[10px] space-y-1">
+                      <div className="flex items-center justify-between text-white/70">
+                        <span>Velocidade gerada:</span>
+                        <strong className="text-emerald-400 font-mono">
+                          ~{(10 / ((Number(formData.tempo10m2HighSpeed) || 132) / 60)).toFixed(2)} m²/h
+                        </strong>
+                      </div>
+                      <div className="flex items-center justify-between text-white/50">
+                        <span>Tempo médio:</span>
+                        <span className="font-mono">~{((Number(formData.tempo10m2HighSpeed) || 132) / 10).toFixed(1)} min/m²</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Standard */}
+                <div className={`p-3.5 rounded-2xl border transition-all ${
+                  (!formData.modoImpressao || formData.modoImpressao === 'standard')
+                    ? 'bg-cyan-950/30 border-cyan-400 shadow-md ring-1 ring-cyan-400/20'
+                    : 'bg-slate-900/90 border-white/10 hover:border-white/20'
+                }`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-1.5">
+                      <Clock size={14} className="text-cyan-400" />
+                      <strong className="text-xs text-white uppercase font-bold">Standard</strong>
+                    </div>
+                    {(!formData.modoImpressao || formData.modoImpressao === 'standard') ? (
+                      <span className="text-[9px] font-bold uppercase bg-cyan-500/20 text-cyan-300 px-2 py-0.5 rounded-full border border-cyan-500/30">
+                        Padrão Ativo
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFormData(prev => ({
+                            ...prev,
+                            modoImpressao: 'standard',
+                            velocidadeProducaoM2H: Math.round((10 / ((Number(prev.tempo10m2Standard) || 265) / 60)) * 100) / 100
+                          }));
+                        }}
+                        className="text-[10px] text-white/50 hover:text-cyan-300 font-bold underline"
+                      >
+                        Ativar Padrão
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <div>
+                      <label className="block text-[10px] font-bold text-white/60 uppercase mb-1">
+                        Tempo p/ 10 m² (minutos)
+                      </label>
+                      <input
+                        type="number"
+                        step="1"
+                        min="1"
+                        value={formData.tempo10m2Standard}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? '' : parseInt(e.target.value, 10);
+                          setFormData(prev => ({ ...prev, tempo10m2Standard: val }));
+                        }}
+                        className="w-full bg-slate-950 border border-cyan-500/40 rounded-xl px-3 py-1.5 text-xs text-cyan-300 font-mono font-bold focus:outline-none focus:border-cyan-400"
+                      />
+                      <span className="text-[9px] text-white/40 block mt-0.5">Padrão RIP: 265 min (04h25)</span>
+                    </div>
+
+                    <div className="p-2 bg-black/40 rounded-xl border border-white/5 text-[10px] space-y-1">
+                      <div className="flex items-center justify-between text-white/70">
+                        <span>Velocidade gerada:</span>
+                        <strong className="text-emerald-400 font-mono">
+                          ~{(10 / ((Number(formData.tempo10m2Standard) || 265) / 60)).toFixed(2)} m²/h
+                        </strong>
+                      </div>
+                      <div className="flex items-center justify-between text-white/50">
+                        <span>Tempo médio:</span>
+                        <span className="font-mono">~{((Number(formData.tempo10m2Standard) || 265) / 10).toFixed(1)} min/m²</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. High Quality */}
+                <div className={`p-3.5 rounded-2xl border transition-all ${
+                  formData.modoImpressao === 'qualidade'
+                    ? 'bg-purple-950/30 border-purple-400 shadow-md ring-1 ring-purple-400/20'
+                    : 'bg-slate-900/90 border-white/10 hover:border-white/20'
+                }`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-1.5">
+                      <Sparkles size={14} className="text-purple-400" />
+                      <strong className="text-xs text-white uppercase font-bold">High Quality</strong>
+                    </div>
+                    {formData.modoImpressao === 'qualidade' ? (
+                      <span className="text-[9px] font-bold uppercase bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full border border-purple-500/30">
+                        Padrão Ativo
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFormData(prev => ({
+                            ...prev,
+                            modoImpressao: 'qualidade',
+                            velocidadeProducaoM2H: Math.round((10 / ((Number(prev.tempo10m2HighQuality) || 527) / 60)) * 100) / 100
+                          }));
+                        }}
+                        className="text-[10px] text-white/50 hover:text-purple-300 font-bold underline"
+                      >
+                        Ativar Padrão
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <div>
+                      <label className="block text-[10px] font-bold text-white/60 uppercase mb-1">
+                        Tempo p/ 10 m² (minutos)
+                      </label>
+                      <input
+                        type="number"
+                        step="1"
+                        min="1"
+                        value={formData.tempo10m2HighQuality}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? '' : parseInt(e.target.value, 10);
+                          setFormData(prev => ({ ...prev, tempo10m2HighQuality: val }));
+                        }}
+                        className="w-full bg-slate-950 border border-purple-500/40 rounded-xl px-3 py-1.5 text-xs text-purple-300 font-mono font-bold focus:outline-none focus:border-purple-400"
+                      />
+                      <span className="text-[9px] text-white/40 block mt-0.5">Padrão RIP: 527 min (08h47)</span>
+                    </div>
+
+                    <div className="p-2 bg-black/40 rounded-xl border border-white/5 text-[10px] space-y-1">
+                      <div className="flex items-center justify-between text-white/70">
+                        <span>Velocidade gerada:</span>
+                        <strong className="text-emerald-400 font-mono">
+                          ~{(10 / ((Number(formData.tempo10m2HighQuality) || 527) / 60)).toFixed(2)} m²/h
+                        </strong>
+                      </div>
+                      <div className="flex items-center justify-between text-white/50">
+                        <span>Tempo médio:</span>
+                        <span className="font-mono">~{((Number(formData.tempo10m2HighQuality) || 527) / 10).toFixed(1)} min/m²</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Velocidade da Cabeça, Setup & Velocidade de Produção */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-white/10">
+              <div>
+                <label className="block text-[11px] font-bold text-cyan-300 uppercase mb-1">
+                  Velocidade Padrão da Cabeça (mm/s)
+                </label>
+                <input
+                  type="number"
+                  min="250"
+                  max="761"
+                  step="1"
+                  value={formData.velocidadeCabecaMmS}
+                  onChange={(e) => setFormData({ ...formData, velocidadeCabecaMmS: parseInt(e.target.value, 10) || 400 })}
+                  className="w-full bg-slate-900 border border-cyan-500/40 rounded-xl px-3.5 py-2 text-xs text-white font-mono font-bold focus:outline-none focus:border-cyan-400"
+                />
+                <div className="flex flex-wrap gap-1 mt-1.5">
+                  {[300, 350, 400, 500, 600, 700, 761].map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => setFormData({ ...formData, velocidadeCabecaMmS: v })}
+                      className={`text-[9px] px-1.5 py-0.5 rounded font-mono ${
+                        formData.velocidadeCabecaMmS === v
+                          ? 'bg-cyan-500 text-black font-bold'
+                          : 'bg-white/10 text-white/60 hover:bg-white/20'
+                      }`}
+                    >
+                      {v}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div>
                 <label className="block text-[11px] font-bold text-white/70 uppercase mb-1">
-                  Tempo de Setup / Preparação (minutos) *
+                  Tempo de Setup / Preparação (min)
                 </label>
                 <input
                   type="number"
@@ -1351,38 +1517,22 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
                   min="0"
                   placeholder="Ex: 10"
                   value={formData.tempoSetupMin}
-                  onChange={(e) => setFormData({ ...formData, tempoSetupMin: e.target.value === '' ? '' : parseInt(e.target.value) || 0 })}
-                  className="w-full bg-slate-900 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  onChange={(e) => setFormData({ ...formData, tempoSetupMin: e.target.value === '' ? '' : parseInt(e.target.value, 10) || 0 })}
+                  className="w-full bg-slate-900 border border-white/15 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
                 />
-                <span className="text-[10px] text-white/40 mt-1 block">Tempo de aquecimento, passagem de mídia e alinhamento.</span>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-white/70 uppercase mb-1">
-                  Modo Padrão da Máquina
-                </label>
-                <select
-                  value={formData.modoImpressao || 'standard'}
-                  onChange={(e) => setFormData({ ...formData, modoImpressao: e.target.value as Maquina['modoImpressao'] as NonNullable<Maquina['modoImpressao']> })}
-                  className="w-full bg-slate-900 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
-                >
-                  <option value="standard">Standard (720x720 / 6 passes)</option>
-                  <option value="highspeed">High Speed (Modo Rápido)</option>
-                  <option value="rascunho">Rascunho / Draft (360x720)</option>
-                  <option value="qualidade">Alta Qualidade (1440x720)</option>
-                </select>
+                <span className="text-[10px] text-white/40 mt-1 block">Aquecimento, passagem de mídia e alinhamento.</span>
               </div>
 
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="block text-[11px] font-bold text-white/70 uppercase">
-                    Velocidade Padrão (m²/h) *
+                    Velocidade de Produção (m²/h) *
                   </label>
                   <button
                     type="button"
                     onClick={aplicarVelocidadeCalculada}
                     className="text-[10px] text-cyan-400 hover:underline font-bold flex items-center gap-1"
-                    title="Calcula a partir do modo/velocidade de cabeça"
+                    title="Recalcula a partir do perfil e velocidade de cabeça"
                   >
                     <Zap size={11} /> Recalcular
                   </button>
@@ -1392,200 +1542,31 @@ export const MaquinasModule: React.FC<MaquinasModuleProps> = ({ currentCompany, 
                   step="0.01"
                   min="0.1"
                   required
-                  placeholder="Ex: 12"
                   value={formData.velocidadeProducaoM2H}
                   onChange={(e) => setFormData({ ...formData, velocidadeProducaoM2H: parseFloat(e.target.value) || 1 })}
-                  className="w-full bg-slate-900 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500 font-bold"
+                  className="w-full bg-slate-900 border border-white/15 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500 font-bold"
                 />
+                <span className="text-[10px] text-white/40 mt-1 block">Usada para calcular o custo hora e custo/m² da máquina.</span>
               </div>
             </div>
 
-            {/* Modos de Impressão Registrados para esta máquina */}
-            <div className="mt-3 pt-3 border-t border-white/10 space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <div>
-                  <span className="text-[11px] font-bold text-white/90 uppercase flex items-center gap-1.5">
-                    <Layers size={13} className="text-cyan-400" /> Tabela de Modos de Impressão (Resoluções, Passes & Velocidades de Cabeça)
-                  </span>
-                  <span className="text-[10px] text-white/40 block">Cada modo armazena a velocidade da cabeça calculada (mm/s) e o tempo para 10 m²</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleSalvarVelocidadeAtualComoModo}
-                  className="px-2.5 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/30 text-[11px] font-bold flex items-center gap-1.5 self-start sm:self-auto transition-colors shadow-sm"
-                  title="Captura a velocidade de cabeça atual e salva como novo modo na tabela"
-                >
-                  <Sparkles size={12} /> Salvar Velocidade Atual ({formData.velocidadeCabecaMmS || 400} mm/s) na Tabela
-                </button>
+            {/* Painel Didático: Onde esses valores são aplicados no cálculo */}
+            <div className="bg-black/40 p-3 rounded-xl border border-white/5 space-y-1.5 text-[11px]">
+              <div className="text-cyan-300 font-bold flex items-center gap-1.5">
+                <Info size={13} className="text-cyan-400 shrink-0" />
+                <span>Como esses valores chegam ao cálculo de tempo e custo:</span>
               </div>
-
-              {/* Lista dos modos cadastrados */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {(formData.modosImpressaoList || []).map((modo) => (
-                  <div
-                    key={modo.id}
-                    className="bg-slate-900/90 p-3 rounded-xl border border-white/10 flex flex-col justify-between gap-2.5 hover:border-cyan-500/40 transition-colors"
-                  >
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <strong className="text-xs text-white font-bold">{modo.nome}</strong>
-                          {modo.resolucaoDpi && (
-                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/10 text-white/70 font-mono">
-                              {modo.resolucaoDpi}
-                            </span>
-                          )}
-                          {modo.passes && (
-                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-mono font-bold">
-                              {modo.passes}p
-                            </span>
-                          )}
-                        </div>
-                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono font-bold">
-                          {modo.perfilTipo === 'high_speed' ? 'High Speed' : modo.perfilTipo === 'high_quality' ? 'High Quality' : 'Standard'}
-                        </span>
-                      </div>
-
-                      {/* Dados de Cálculo de Cabeça Salvos */}
-                      <div className="grid grid-cols-2 gap-1.5 bg-black/40 p-2 rounded-lg border border-white/5 text-[10px]">
-                        <div className="flex items-center gap-1 text-cyan-300 font-mono font-bold">
-                          <Zap size={11} className="text-cyan-400 shrink-0" />
-                          <span>Cabeça: {modo.velocidadeCabecaMmS || 400} mm/s</span>
-                        </div>
-                        <div className="flex items-center gap-1 text-amber-300 font-mono font-bold justify-end">
-                          <Clock size={11} className="text-amber-400 shrink-0" />
-                          <span>10 m²: {modo.tempo10m2Formatado || '04h25min'}</span>
-                        </div>
-                        <div className="flex items-center gap-1 text-emerald-300 font-mono font-bold">
-                          <Gauge size={11} className="text-emerald-400 shrink-0" />
-                          <span>Prod: {modo.velocidadeM2H} m²/h</span>
-                        </div>
-                        <div className="flex items-center gap-1 text-white/50 font-mono justify-end">
-                          <span>💧 {modo.consumoTintaMlM2 || 15} ml/m²</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between pt-1 border-t border-white/5">
-                      <span className="text-[10px] text-white/40 font-mono">
-                        ⏳ {(60 / Math.max(0.1, modo.velocidadeM2H)).toFixed(1)} min/m²
-                      </span>
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => handleSelectModoComoPrincipal(modo)}
-                          className="px-2.5 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 text-[10px] font-bold transition-colors"
-                          title="Carrega a velocidade de cabeça e produção deste modo na máquina"
-                        >
-                          Aplicar na Máquina
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveModoImpressao(modo.id)}
-                          className="p-1 text-rose-400 hover:bg-rose-500/20 rounded-lg transition-colors"
-                          title="Remover modo"
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Form para adicionar novo modo com cálculo de velocidade da cabeça */}
-              <div className="bg-slate-900/80 p-3.5 rounded-2xl border border-dashed border-cyan-500/30 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold text-cyan-300 uppercase flex items-center gap-1.5">
-                    <Plus size={13} /> Adicionar Novo Modo com Cálculo de Cabeça
-                  </span>
-                  <span className="text-[10px] text-white/50 font-mono">
-                    Digitação livre de velocidade de cabeça (ex: 301, 330, 400 mm/s)
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
-                  <div className="sm:col-span-2">
-                    <label className="block text-[10px] font-bold text-white/60 uppercase mb-1">Nome do Modo</label>
-                    <input
-                      type="text"
-                      placeholder="Ex: Lona 301 mm/s ou Adesivo Standard"
-                      value={novoModoNome}
-                      onChange={(e) => setNovoModoNome(e.target.value)}
-                      className="w-full bg-slate-950 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500 font-medium"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-bold text-white/60 uppercase mb-1">Perfil Base</label>
-                    <select
-                      value={novoModoPerfil}
-                      onChange={(e) => setNovoModoPerfil(e.target.value as PerfilImpressao)}
-                      className="w-full bg-slate-950 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500"
-                    >
-                      <option value="standard">Standard (Equilíbrio)</option>
-                      <option value="high_speed">High Speed (Rápido)</option>
-                      <option value="high_quality">High Quality (Foto)</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-bold text-cyan-300 uppercase mb-1 flex items-center justify-between">
-                      <span>Vel. Cabeça (mm/s)</span>
-                      <button
-                        type="button"
-                        onClick={() => setNovoModoVelocidadeCabeca(formData.velocidadeCabecaMmS || 400)}
-                        className="text-[9px] text-white/50 hover:text-cyan-300 underline"
-                        title="Usar velocidade atual da máquina"
-                      >
-                        Atual
-                      </button>
-                    </label>
-                    <input
-                      type="number"
-                      step="1"
-                      min="250"
-                      max="761"
-                      placeholder="Ex: 301, 330, 400"
-                      value={novoModoVelocidadeCabeca}
-                      onChange={(e) => setNovoModoVelocidadeCabeca(e.target.value === '' ? '' : parseInt(e.target.value, 10))}
-                      className="w-full bg-slate-950 border border-cyan-500/40 rounded-lg px-2.5 py-1.5 text-xs text-cyan-200 font-mono font-bold focus:outline-none focus:border-cyan-400"
-                    />
-                  </div>
-                </div>
-
-                {/* Linha de pré-visualização ao vivo do cálculo */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-black/50 p-2.5 rounded-xl border border-cyan-500/20">
-                  <div className="flex items-center gap-4 text-xs font-mono">
-                    <span className="text-white/70">
-                      ⏱️ 10 m²: <strong className="text-amber-300">{novoModoCalculado.tempo10m2Formatado}</strong>
-                    </span>
-                    <span className="text-white/70">
-                      ⚡ Produção: <strong className="text-emerald-400">{novoModoCalculado.velocidadeM2H} m²/h</strong>
-                    </span>
-                    <span className="text-white/50 text-[10px]">
-                      (~{(60 / Math.max(0.1, novoModoCalculado.velocidadeM2H)).toFixed(1)} min/m²)
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      placeholder="DPI (720x720)"
-                      value={novoModoDpi}
-                      onChange={(e) => setNovoModoDpi(e.target.value)}
-                      className="w-20 bg-slate-950 border border-white/10 rounded-lg px-2 py-1 text-[11px] text-white font-mono text-center focus:outline-none focus:border-cyan-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleAddModoImpressao}
-                      className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1 shadow transition-colors"
-                    >
-                      <Plus size={13} /> Salvar Modo na Tabela
-                    </button>
-                  </div>
-                </div>
-              </div>
+              <ul className="text-white/60 space-y-1 pl-4 list-disc text-[10px]">
+                <li>
+                  <strong className="text-white">Tempo de Impressão:</strong> Calculado pela regra <code className="text-amber-300 bg-black/50 px-1 rounded">Tempo = (Tempo do Perfil para 10 m²) × (Área da Peça ÷ 10) + Setup</code>.
+                </li>
+                <li>
+                  <strong className="text-white">Velocidade Efetiva:</strong> Calculada por <code className="text-cyan-300 bg-black/50 px-1 rounded">Velocidade m²/h = 10 ÷ (Tempo 10 m² ÷ 60)</code>.
+                </li>
+                <li>
+                  <strong className="text-white">Custo Operacional por m²:</strong> Calculado por <code className="text-emerald-300 bg-black/50 px-1 rounded">Custo Hora da Máquina ÷ Velocidade m²/h</code>. No modo High Speed, a máquina imprime mais rápido e o custo/m² diminui proporcionalmente.
+                </li>
+              </ul>
             </div>
 
             {/* CALIBRAÇÃO REAL (opcional) */}

@@ -28,7 +28,7 @@ interface MateriaPrimaHistoryModalProps {
   companyId?: string;
 }
 
-type PeriodoClassificacao = 'hoje' | 'semana' | 'mes' | 'personalizado';
+type PeriodoClassificacao = 'hoje' | 'semana' | 'mes' | 'todos' | 'personalizado';
 
 export const MateriaPrimaHistoryModal: React.FC<MateriaPrimaHistoryModalProps> = ({
   isOpen,
@@ -43,17 +43,11 @@ export const MateriaPrimaHistoryModal: React.FC<MateriaPrimaHistoryModalProps> =
   const [filterMpId, setFilterMpId] = useState<string>(selectedMateriaPrima?.id || 'all');
   const [searchTerm, setSearchTerm] = useState('');
   
-  // Classificação Padrão: Hoje, Semana, Mês e Personalizado
+  // Classificação Padrão: Hoje, Semana, Mês, Todos e Personalizado
   const [periodo, setPeriodo] = useState<PeriodoClassificacao>('mes');
-  const [customRange, setCustomRange] = useState<{ start: string; end: string }>(() => {
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, '0');
-    const d = String(now.getDate()).padStart(2, '0');
-    return {
-      start: `${y}-${m}-01`,
-      end: `${y}-${m}-${d}`
-    };
+  const [customRange, setCustomRange] = useState<{ start: string; end: string }>({
+    start: '2026-08-31',
+    end: '2026-09-07'
   });
   
   // Modal de Detalhes da Nota Clicada
@@ -72,53 +66,127 @@ export const MateriaPrimaHistoryModal: React.FC<MateriaPrimaHistoryModalProps> =
   const [savingManual, setSavingManual] = useState(false);
   const [syncingStock, setSyncingStock] = useState(false);
 
-  // Cálculo das datas com base na classificação padrão
-  const { dateStart, dateEnd, labelPeriodo } = useMemo(() => {
+  // Determina a data de referência dinâmica (hoje real ou data da movimentação mais recente no banco)
+  const referenceDate = useMemo(() => {
     const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, '0');
-    const d = String(now.getDate()).padStart(2, '0');
-    const todayStr = `${y}-${m}-${d}`;
+    if (history.length === 0) return now;
+    const timestamps = history
+      .map(h => new Date(h.timestamp).getTime())
+      .filter(t => !isNaN(t));
+    if (timestamps.length === 0) return now;
+    const maxTime = Math.max(...timestamps);
+    const maxDate = new Date(maxTime);
+    // Se a data mais recente no banco for maior que now (ex: banco em 2026 e máquina do usuário em 2025), usa maxDate como âncora
+    return maxDate > now ? maxDate : now;
+  }, [history]);
+
+  // Atualiza datas do customRange quando os dados forem carregados
+  useEffect(() => {
+    if (history.length > 0) {
+      const y = referenceDate.getFullYear();
+      const m = String(referenceDate.getMonth() + 1).padStart(2, '0');
+      const d = String(referenceDate.getDate()).padStart(2, '0');
+      setCustomRange(prev => ({
+        start: prev.start || '2026-08-31',
+        end: prev.end || `${y}-${m}-${d}`
+      }));
+    }
+  }, [referenceDate, history.length]);
+
+  // Contagens para os botões do período
+  const periodCounts = useMemo(() => {
+    const endOfDay = new Date(referenceDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const startOfDay = new Date(referenceDate);
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const startOfWeek = new Date(referenceDate);
+    startOfWeek.setDate(referenceDate.getDate() - 7);
+    startOfWeek.setHours(0, 0, 0, 0);
+
+    const startOfMonth = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), 1);
+    const aug31 = new Date(2026, 7, 31, 0, 0, 0);
+    const startPeriodMonth = (startOfMonth > aug31) ? aug31 : startOfMonth;
+    startPeriodMonth.setHours(0, 0, 0, 0);
+
+    let countHoje = 0;
+    let countSemana = 0;
+    let countMes = 0;
+    let countTodos = history.length;
+
+    history.forEach(item => {
+      const d = new Date(item.timestamp);
+      if (isNaN(d.getTime())) return;
+      if (d >= startOfDay && d <= endOfDay) countHoje++;
+      if (d >= startOfWeek && d <= endOfDay) countSemana++;
+      if (d >= startPeriodMonth && d <= endOfDay) countMes++;
+    });
+
+    return { countHoje, countSemana, countMes, countTodos };
+  }, [history, referenceDate]);
+
+  // Filtro por período e busca
+  const { filteredHistory, labelPeriodo } = useMemo(() => {
+    const endOfDay = new Date(referenceDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    let label = 'Mês';
+    let records = history;
 
     if (periodo === 'hoje') {
-      return {
-        dateStart: `${todayStr}T00:00:00`,
-        dateEnd: `${todayStr}T23:59:59.999`,
-        labelPeriodo: 'Hoje'
-      };
+      label = 'Hoje';
+      const startOfDay = new Date(referenceDate);
+      startOfDay.setHours(0, 0, 0, 0);
+      records = history.filter(item => {
+        const d = new Date(item.timestamp);
+        return d >= startOfDay && d <= endOfDay;
+      });
+    } else if (periodo === 'semana') {
+      label = 'Semana';
+      const startOfWeek = new Date(referenceDate);
+      startOfWeek.setDate(referenceDate.getDate() - 7);
+      startOfWeek.setHours(0, 0, 0, 0);
+      records = history.filter(item => {
+        const d = new Date(item.timestamp);
+        return d >= startOfWeek && d <= endOfDay;
+      });
+    } else if (periodo === 'mes') {
+      label = 'Mês';
+      const startOfMonth = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), 1);
+      const aug31 = new Date(2026, 7, 31, 0, 0, 0);
+      const startPeriodMonth = (startOfMonth > aug31) ? aug31 : startOfMonth;
+      startPeriodMonth.setHours(0, 0, 0, 0);
+      records = history.filter(item => {
+        const d = new Date(item.timestamp);
+        return d >= startPeriodMonth && d <= endOfDay;
+      });
+    } else if (periodo === 'todos') {
+      label = 'Todas';
+      records = history;
+    } else if (periodo === 'personalizado') {
+      label = 'Personalizado';
+      const s = customRange.start ? new Date(`${customRange.start}T00:00:00`) : new Date(0);
+      const e = customRange.end ? new Date(`${customRange.end}T23:59:59.999`) : new Date(8640000000000000);
+      records = history.filter(item => {
+        const d = new Date(item.timestamp);
+        return d >= s && d <= e;
+      });
     }
 
-    if (periodo === 'semana') {
-      const day = now.getDay();
-      const startOfWeek = new Date(now);
-      startOfWeek.setDate(now.getDate() - day);
-      const swY = startOfWeek.getFullYear();
-      const swM = String(startOfWeek.getMonth() + 1).padStart(2, '0');
-      const swD = String(startOfWeek.getDate()).padStart(2, '0');
-      return {
-        dateStart: `${swY}-${swM}-${swD}T00:00:00`,
-        dateEnd: `${todayStr}T23:59:59.999`,
-        labelPeriodo: 'Semana'
-      };
+    // Filtro por texto digitado
+    const term = searchTerm.toLowerCase().trim();
+    if (term) {
+      records = records.filter(item =>
+        item.materiaPrimaName.toLowerCase().includes(term) ||
+        (item.observacao && item.observacao.toLowerCase().includes(term)) ||
+        (item.customerName && item.customerName.toLowerCase().includes(term)) ||
+        (item.orderId && item.orderId.toLowerCase().includes(term))
+      );
     }
 
-    if (periodo === 'mes') {
-      return {
-        dateStart: `${y}-${m}-01T00:00:00`,
-        dateEnd: `${todayStr}T23:59:59.999`,
-        labelPeriodo: 'Mês'
-      };
-    }
-
-    // Personalizado
-    const s = customRange.start || `${y}-${m}-01`;
-    const e = customRange.end || todayStr;
-    return {
-      dateStart: `${s}T00:00:00`,
-      dateEnd: `${e}T23:59:59.999`,
-      labelPeriodo: 'Personalizado'
-    };
-  }, [periodo, customRange]);
+    return { filteredHistory: records, labelPeriodo: label };
+  }, [history, periodo, customRange, searchTerm, referenceDate]);
 
   useEffect(() => {
     if (selectedMateriaPrima) {
@@ -136,16 +204,14 @@ export const MateriaPrimaHistoryModal: React.FC<MateriaPrimaHistoryModalProps> =
     if (isOpen) {
       loadHistory();
     }
-  }, [isOpen, filterMpId, companyId, dateStart, dateEnd]);
+  }, [isOpen, filterMpId, companyId]);
 
   const loadHistory = async () => {
     try {
       setLoading(true);
       const data = await fetchConsumptionHistory(
         filterMpId === 'all' ? undefined : filterMpId,
-        companyId,
-        dateStart,
-        dateEnd
+        companyId
       );
       setHistory(data);
     } catch (err) {
@@ -182,19 +248,6 @@ export const MateriaPrimaHistoryModal: React.FC<MateriaPrimaHistoryModalProps> =
     setCopiedField(label);
     setTimeout(() => setCopiedField(null), 1500);
   };
-
-  const filteredHistory = useMemo(() => {
-    return history.filter(item => {
-      const term = searchTerm.toLowerCase().trim();
-      if (!term) return true;
-      return (
-        item.materiaPrimaName.toLowerCase().includes(term) ||
-        (item.observacao && item.observacao.toLowerCase().includes(term)) ||
-        (item.customerName && item.customerName.toLowerCase().includes(term)) ||
-        (item.orderId && item.orderId.toLowerCase().includes(term))
-      );
-    });
-  }, [history, searchTerm]);
 
   const handleSaveManualRecord = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -264,9 +317,9 @@ export const MateriaPrimaHistoryModal: React.FC<MateriaPrimaHistoryModalProps> =
     switch (tipo) {
       case 'venda':
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
             <ArrowDownRight size={12} className="text-cyan-400" />
-            Consumo Produção
+            Saída / Venda
           </span>
         );
       case 'entrada':
@@ -379,13 +432,14 @@ export const MateriaPrimaHistoryModal: React.FC<MateriaPrimaHistoryModalProps> =
               </select>
             </div>
 
-            {/* Classificação Padrão: Hoje, Semana, Mês, Personalizado */}
-            <div className="flex bg-black/60 p-1 rounded-xl border border-white/10 shrink-0 self-start sm:self-auto">
-              {(['hoje', 'semana', 'mes', 'personalizado'] as const).map(p => {
+            {/* Classificação Padrão: Hoje, Semana, Mês, Todos, Personalizado */}
+            <div className="flex bg-black/60 p-1 rounded-xl border border-white/10 shrink-0 self-start sm:self-auto flex-wrap gap-1">
+              {(['hoje', 'semana', 'mes', 'todos', 'personalizado'] as const).map(p => {
                 const labels: Record<string, string> = {
-                  hoje: 'Hoje',
-                  semana: 'Semana',
-                  mes: 'Mês',
+                  hoje: `Hoje (${periodCounts.countHoje})`,
+                  semana: `Semana (${periodCounts.countSemana})`,
+                  mes: `Mês (${periodCounts.countMes})`,
+                  todos: `Todas (${periodCounts.countTodos})`,
                   personalizado: 'Personalizado'
                 };
                 const isActive = periodo === p;
@@ -394,7 +448,7 @@ export const MateriaPrimaHistoryModal: React.FC<MateriaPrimaHistoryModalProps> =
                     key={p}
                     type="button"
                     onClick={() => setPeriodo(p)}
-                    className={`px-3 py-1 text-[11px] font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer ${
+                    className={`px-2.5 sm:px-3 py-1 text-[11px] font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer ${
                       isActive
                         ? 'bg-primary-500 text-slate-950 shadow-md font-black'
                         : 'text-white/50 hover:text-white hover:bg-white/5'
