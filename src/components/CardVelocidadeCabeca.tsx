@@ -154,14 +154,30 @@ export const CardVelocidadeCabeca: React.FC<CardVelocidadeCabecaProps> = ({
               Configuração de Cabeça & Perfil (RIP)
             </span>
             <span className="text-[10px] text-white/50">
-              Cálculo baseado na área padrão de 10 m²
+              {areaM2 > 0 ? (
+                <>
+                  Cálculo baseado nas dimensões do card acima:{' '}
+                  <strong className="text-cyan-300 font-mono">
+                    {larguraM && alturaM ? `${larguraM.toFixed(2)}m × ${alturaM.toFixed(2)}m = ` : ''}
+                    {areaM2.toFixed(2)} m²
+                  </strong>
+                </>
+              ) : (
+                'Cálculo baseado na área padrão de 10 m² (informe largura e altura acima)'
+              )}
             </span>
           </div>
         </div>
 
-        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-cyan-200 border border-white/10">
-          Base: 10 m²
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span className={`text-[10px] font-mono px-2 py-0.5 rounded border font-bold ${
+            areaM2 > 0
+              ? 'bg-cyan-950/80 text-cyan-300 border-cyan-500/40 shadow-sm'
+              : 'bg-slate-800 text-white/50 border-white/10'
+          }`}>
+            Base: {areaM2 > 0 ? `${areaM2.toFixed(2)} m²` : '10 m² (Ref.)'}
+          </span>
+        </div>
       </div>
 
       {/* BLOCO ESTILO DO SOFTWARE (como na imagem enviada) */}
@@ -172,8 +188,8 @@ export const CardVelocidadeCabeca: React.FC<CardVelocidadeCabecaProps> = ({
             <span className="text-xs font-semibold text-white/80 select-none">
               Qualid. impr. :
             </span>
-            <span className="text-[10px] text-white/40 font-mono">
-              (Tempo para 10 m²)
+            <span className="text-[10px] text-cyan-300/90 font-mono font-bold">
+              {areaM2 > 0 ? `(Tempo para ${areaM2.toFixed(2)} m²)` : '(Tempo para 10 m² ref.)'}
             </span>
           </div>
 
@@ -181,6 +197,21 @@ export const CardVelocidadeCabeca: React.FC<CardVelocidadeCabecaProps> = ({
             {perfisConfig.map(({ key, label }) => {
               const isSelected = perfilAtual === key;
               const tempo10m2 = tempos10M2PorPerfil[key];
+              const tempoCalculadoMin = areaM2 > 0 ? (tempo10m2 * areaM2) / 10 : tempo10m2;
+
+              let tempoExibido = '';
+              if (tempoCalculadoMin <= 0) {
+                tempoExibido = '0 min';
+              } else if (tempoCalculadoMin < 1) {
+                tempoExibido = `${tempoCalculadoMin.toFixed(1)} min`;
+              } else {
+                const totalMin = Math.round(tempoCalculadoMin);
+                if (totalMin >= 60) {
+                  tempoExibido = `${totalMin} min (${formatarMinutosEmHoras(totalMin)})`;
+                } else {
+                  tempoExibido = `${totalMin} min`;
+                }
+              }
 
               return (
                 <label
@@ -190,6 +221,7 @@ export const CardVelocidadeCabeca: React.FC<CardVelocidadeCabecaProps> = ({
                       ? 'bg-cyan-500/15 border-cyan-400/50 text-white font-bold shadow-sm'
                       : 'border-transparent text-white/70 hover:bg-white/5 hover:text-white'
                   }`}
+                  title={areaM2 > 0 ? `Tempo para ${areaM2.toFixed(2)} m²: ${tempoExibido} • Referência 10 m²: ${tempo10m2} min` : `Referência de 10 m²: ${tempo10m2} min`}
                 >
                   <div className="flex items-center gap-2.5">
                     <input
@@ -204,10 +236,17 @@ export const CardVelocidadeCabeca: React.FC<CardVelocidadeCabecaProps> = ({
                     </span>
                   </div>
 
-                  {/* Tempo entre parênteses como na imagem enviada: (527 min), (265 min), (132 min) */}
-                  <span className={`font-mono text-xs sm:text-sm font-bold ${isSelected ? 'text-cyan-300' : 'text-white/60'}`}>
-                    ({tempo10m2} min)
-                  </span>
+                  {/* Tempo calculado baseado na área real do card superior */}
+                  <div className="text-right">
+                    <span className={`font-mono text-xs sm:text-sm font-bold ${isSelected ? 'text-cyan-300' : 'text-white/60'}`}>
+                      ({tempoExibido})
+                    </span>
+                    {areaM2 > 0 && (
+                      <span className="text-[9px] text-white/30 block font-mono">
+                        ref. 10m²: {tempo10m2}m
+                      </span>
+                    )}
+                  </div>
                 </label>
               );
             })}
