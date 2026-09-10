@@ -328,7 +328,7 @@ export async function fetchMaquinas(companyId?: string): Promise<Maquina[]> {
       };
     });
 
-    saveLocalCache(mapped);
+    cacheLocalSilently(mapped);
     return mapped;
   } catch (err) {
     console.error('Erro ao buscar máquinas:', err);
@@ -587,6 +587,16 @@ function getCachedMaquinas(companyId?: string): Maquina[] {
   return [];
 }
 
+// Salva no cache local SEM disparar eventos (usado ao ler/sincronizar do Supabase,
+// para não causar loop: fetch -> saveLocalCache -> evento -> outro componente refaz fetch -> ...)
+function cacheLocalSilently(items: Maquina[]) {
+  try {
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(items));
+  } catch (e) {}
+}
+
+// Salva no cache local E dispara eventos — usar apenas em mudanças originadas
+// localmente pelo usuário (criar/editar/excluir/alternar status), nunca dentro de fetchMaquinas.
 function saveLocalCache(items: Maquina[]) {
   try {
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(items));
