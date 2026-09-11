@@ -6958,6 +6958,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [insulfilmLarguraMaterial, setInsulfilmLarguraMaterial] = useState<number>(1.5);
   const [insulfilmPecas, setInsulfilmPecas] = useState<{ id: string; largura: number | ''; altura: number | '' }[]>([]);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [allowExtraPaymentEntry, setAllowExtraPaymentEntry] = useState(false);
   const [settlingOrder, setSettlingOrder] = useState<SaleOrder | null>(null);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [isScheduleActionsMenuOpen, setIsScheduleActionsMenuOpen] = useState(false);
@@ -9185,6 +9186,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const handleClosePaymentModal = () => {
     setIsPaymentModalOpen(false);
+    setAllowExtraPaymentEntry(false);
     if (receiptOpenedFromProduction) {
       setReceiptOpenedFromProduction(false);
       setRootActiveTab('production');
@@ -10814,6 +10816,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setSaleDiscountInput(order.discountValue ? Number(order.discountValue) : '');
     setSaleDiscountMode('valor');
     setSaleCreditApplied(0);
+    setAllowExtraPaymentEntry(false);
     setIsPaymentModalOpen(true);
   };
 
@@ -10861,7 +10864,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   // (evita perder um valor digitado e nunca clicado em Adicionar).
   const buildPaymentEntryFromInput = (): PaymentEntry | null => {
     const rawInput = newPaymentInput === '' ? 0 : Number(newPaymentInput);
-    const baseValue = newPaymentMode === 'percentual' ? Number(((total * rawInput) / 100).toFixed(2)) : rawInput;
+    const activeTotalForPayment = (settlingOrder || editingFullOrder) ? paymentModalTotal : total;
+    const baseValue = newPaymentMode === 'percentual' ? Number(((activeTotalForPayment * rawInput) / 100).toFixed(2)) : rawInput;
     if (baseValue <= 0) return null;
     let value = baseValue;
     let installments: number | undefined;
@@ -10886,6 +10890,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setNewPaymentInstallments(1);
     setUseCustomPaymentDate(false);
     setCustomPaymentDate('');
+    setAllowExtraPaymentEntry(false);
   };
 
   const removePaymentEntry = (idx: number) => {
@@ -10927,9 +10932,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabledPaymentMethods]);
 
-  // O campo de valor sempre vem preenchido com o saldo restante — ao abrir o pagamento,
-  // ao adicionar um pagamento (recalcula o que falta), ou ao trocar de forma de pagamento.
-  // Nunca mexe no modo (R$ ou %) escolhido pelo usuário.
+  // O campo de valor sempre vem preenchido com o saldo restante ao abrir o pagamento ou
+  // recalcular o saldo restante ao adicionar/remover entradas. Não sobrescreve ao apenas
+  // trocar de método de pagamento (evita perder o valor que o operador acabou de digitar).
   useEffect(() => {
     if (!isPaymentModalOpen) return;
     // Editando os itens de uma nota que já existe (ex: adicionar mais um produto): NÃO
@@ -10945,11 +10950,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     if (newPaymentMode === 'valor') {
       setNewPaymentInput(paymentModalRemaining > 0 ? Number(paymentModalRemaining.toFixed(2)) : '');
     } else if (newPaymentMode === 'percentual') {
-      const pct = paymentModalTotal > 0 ? (paymentModalRemaining / paymentModalTotal) * 100 : 0;
+      const activeTotal = (settlingOrder || editingFullOrder) ? paymentModalTotal : total;
+      const pct = activeTotal > 0 ? (paymentModalRemaining / activeTotal) * 100 : 0;
       setNewPaymentInput(pct > 0 ? Number(pct.toFixed(2)) : '');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPaymentModalOpen, paymentModalRemaining, newPaymentMethod, newPaymentMode, editingFullOrder]);
+  }, [isPaymentModalOpen, paymentModalRemaining, newPaymentMode, editingFullOrder]);
 
   // Soma por data de CADA pagamento (nao pela data de criacao da nota) — uma nota paga em
   // partes em dias diferentes conta o faturamento em cada dia certo, nao tudo de uma vez
@@ -15135,7 +15141,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               </div>
            </div>
 
-           <div className="grid grid-cols-1 md:grid-cols-12 gap-2 sm:gap-3 flex-1 min-h-0 overflow-y-auto md:overflow-hidden custom-scrollbar">
+           <div className="grid grid-cols-1 md:grid-cols-12 gap-2 sm:gap-3 flex-1 min-h-0 overflow-y-auto custom-scrollbar">
               {/* Left Side: Items & Summary Details */}
               <div className="md:col-span-5 flex flex-col justify-between min-h-0 overflow-hidden gap-1.5 sm:gap-2">
                  <div className="flex-1 flex flex-col gap-1 overflow-hidden min-h-0 bg-white/5 rounded-xl border border-white/5 p-2">
@@ -15173,13 +15179,22 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               </div>
 
               {/* Right Side: Multiple Payments */}
-              <div className="md:col-span-7 flex flex-col justify-between min-h-0 overflow-hidden gap-1.5 sm:gap-2">
-                 <div className="flex-1 min-h-0 flex flex-col gap-1.5 overflow-hidden">
-                    <p className="text-[8px] sm:text-[9px] font-black uppercase text-white/30 tracking-widest px-0.5 shrink-0">Pagamentos ({paymentEntries.length})</p>
+              <div className="md:col-span-7 flex flex-col justify-between min-h-0 overflow-y-auto custom-scrollbar gap-2 pr-1">
+                 <div className="flex flex-col gap-2">
+                    <div className="flex items-center justify-between px-0.5 shrink-0">
+                       <p className="text-[8px] sm:text-[9px] font-black uppercase text-white/40 tracking-widest">
+                          Pagamentos ({paymentEntries.length + ((settlingOrder || editingFullOrder) ? editingPaymentsList.length : 0)})
+                       </p>
+                       {(settlingOrder || editingFullOrder) && (
+                          <span className="text-[7.5px] font-bold text-white/40 uppercase">
+                             Total Nota: R$ {paymentModalTotal.toFixed(2).replace('.', ',')}
+                          </span>
+                       )}
+                    </div>
 
                     {/* Pagamentos JA EXISTENTES (lancados antes) — data editavel, pode excluir */}
                     {(settlingOrder || editingFullOrder) && editingPaymentsList.length > 0 && (
-                      <div className="space-y-1 shrink-0 max-h-24 overflow-y-auto custom-scrollbar">
+                      <div className="space-y-1 shrink-0 max-h-36 overflow-y-auto custom-scrollbar">
                          <p className="text-[7px] font-black uppercase text-white/20 tracking-widest px-0.5">Já Lançados</p>
                          {editingPaymentsList.map((p, idx) => {
                             const opt = PAYMENT_METHOD_OPTIONS.find(o => o.id === p.method);
@@ -15255,33 +15270,59 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
                     {/* Lista de pagamentos ja adicionados */}
                     {paymentEntries.length > 0 && (
-                      <div className="space-y-1 shrink-0 max-h-20 overflow-y-auto custom-scrollbar">
+                      <div className="space-y-1.5 shrink-0 max-h-40 overflow-y-auto custom-scrollbar">
                          {paymentEntries.map((p, idx) => {
                             const opt = PAYMENT_METHOD_OPTIONS.find(o => o.id === p.method);
+                            const feePct = p.feePercent || 0;
+                            const baseVal = feePct > 0 ? p.value / (1 + feePct / 100) : p.value;
+                            const acrescimoTot = Math.max(0, p.value - baseVal);
+                            const numParc = p.installments || 1;
+                            const acrescimoPorParc = numParc > 0 ? acrescimoTot / numParc : 0;
+                            const valorPorParc = numParc > 0 ? p.value / numParc : p.value;
                             return (
                               <div key={idx} className="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-white/5 border border-white/5 rounded-lg">
                                  <div className="flex items-center gap-2 min-w-0">
                                     {opt?.icon && <opt.icon size={12} className="text-primary-300 shrink-0" />}
-                                    <span className="text-[9px] font-black text-white uppercase truncate">{opt?.label || p.method}{p.installments && p.installments > 1 ? ` ${p.installments}x` : ''}</span>
-                                    <span className="text-[8px] text-white/30 shrink-0">{safeFormat(p.date, 'dd/MM HH:mm')}</span>
+                                    <div className="flex flex-col min-w-0">
+                                       <span className="text-[9px] font-black text-white uppercase truncate">
+                                         {opt?.label || p.method}{p.installments && p.installments > 1 ? ` ${p.installments}x` : ''}
+                                       </span>
+                                       <span className="text-[7.5px] text-white/40">
+                                         {safeFormat(p.date, 'dd/MM HH:mm')}
+                                         {p.installments && p.installments > 1 && (
+                                           <span className="text-white/60 ml-1 font-semibold">
+                                             • {p.installments}x de R$ {valorPorParc.toFixed(2).replace('.', ',')}
+                                             {feePct > 0 ? (
+                                               <span className="text-amber-300 font-bold ml-1">
+                                                 (+R$ {acrescimoPorParc.toFixed(2).replace('.', ',')}/parc. taxa {feePct}%)
+                                               </span>
+                                             ) : null}
+                                           </span>
+                                         )}
+                                       </span>
+                                    </div>
                                  </div>
                                  <div className="flex items-center gap-2 shrink-0">
-                                    <span className="text-[10px] font-black text-emerald-400">
-                                      R$ {p.value.toFixed(2).replace('.', ',')}
-                                      {p.installments && p.installments > 1 && (
-                                        <span className="text-[8px] text-white/30 font-normal ml-1">({p.installments}x R$ {(p.value / p.installments).toFixed(2).replace('.', ',')})</span>
-                                      )}
-                                    </span>
+                                    <div className="text-right">
+                                       <span className="text-[10px] font-black text-emerald-400 block">
+                                         R$ {p.value.toFixed(2).replace('.', ',')}
+                                       </span>
+                                       {feePct > 0 && (
+                                         <span className="text-[7px] text-amber-300 font-bold block">
+                                           taxa: +R$ {acrescimoTot.toFixed(2).replace('.', ',')}
+                                         </span>
+                                       )}
+                                    </div>
                                     {p.method === 'pix' && (
                                       <button
                                         onClick={() => { setPixQrAmount(p.value); setIsPixQrModalOpen(true); }}
                                         title="Ver QR Code"
-                                        className="text-primary-300 hover:text-primary-200 transition-colors"
+                                        className="text-primary-300 hover:text-primary-200 transition-colors cursor-pointer"
                                       >
                                         <QrCode size={13} />
                                       </button>
                                     )}
-                                    <button onClick={() => removePaymentEntry(idx)} className="text-white/30 hover:text-rose-400 transition-colors"><X size={12} /></button>
+                                    <button onClick={() => removePaymentEntry(idx)} className="text-white/30 hover:text-rose-400 transition-colors cursor-pointer"><X size={12} /></button>
                                  </div>
                               </div>
                             );
@@ -15289,9 +15330,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       </div>
                     )}
 
-                    {/* Formulario de pagamento — sempre visivel */}
-                    {paymentModalRemaining > 0 ? (
-                      <div className="flex-1 min-h-0 flex flex-col gap-1.5 bg-white/5 rounded-xl border border-white/5 p-2 overflow-hidden">
+                    {/* Formulario de pagamento */}
+                    {(paymentModalRemaining > 0 || allowExtraPaymentEntry) ? (
+                      <div className="flex flex-col gap-2 bg-white/5 rounded-xl border border-white/5 p-2.5 sm:p-3 shrink-0">
                          <div className="grid grid-cols-4 gap-1.5 shrink-0">
                             {PAYMENT_METHOD_OPTIONS.filter(m => enabledPaymentMethods.includes(m.id)).map(m => {
                               const isSelected = newPaymentMethod === m.id;
@@ -15423,11 +15464,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                          )}
 
                          {newPaymentMode === 'percentual' && newPaymentInput !== '' && (
-                            <p className="text-[9px] text-primary-300 font-bold shrink-0">= R$ {((total * Number(newPaymentInput)) / 100).toFixed(2).replace('.', ',')}</p>
+                            <p className="text-[9px] text-primary-300 font-bold shrink-0">= R$ {((((settlingOrder || editingFullOrder) ? paymentModalTotal : total) * Number(newPaymentInput)) / 100).toFixed(2).replace('.', ',')}</p>
                          )}
 
                          {/* Painel contextual pela forma escolhida */}
-                         <div className="flex-1 min-h-0 bg-black/20 rounded-lg p-2 flex flex-col items-center justify-center text-center overflow-hidden">
+                         <div className="w-full bg-black/20 rounded-lg p-2.5 flex flex-col items-center justify-center text-center">
                             {newPaymentMethod === 'pix' && !pixConfig && (
                               <p className="text-[9px] text-white/40">Nenhuma chave PIX cadastrada.</p>
                             )}
@@ -15472,46 +15513,93 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             )}
                             {newPaymentMethod === 'cartao_debito' && debitCardFeePercent > 0 && (() => {
                                const rawInput = newPaymentInput === '' ? 0 : Number(newPaymentInput);
-                               const baseValue = newPaymentMode === 'percentual' ? (total * rawInput) / 100 : rawInput;
+                               const activeTotal = (settlingOrder || editingFullOrder) ? paymentModalTotal : total;
+                               const baseValue = newPaymentMode === 'percentual' ? (activeTotal * rawInput) / 100 : rawInput;
                                const finalValue = baseValue * (1 + debitCardFeePercent / 100);
+                               const acrescimo = finalValue - baseValue;
                                return baseValue > 0 ? (
-                                 <div className="w-full max-w-xs p-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg flex justify-between items-center">
-                                    <span className="text-[7.5px] font-black text-amber-400 uppercase tracking-wider">Total Com Taxa ({debitCardFeePercent}%)</span>
-                                    <span className="text-xs font-black text-white">R$ {finalValue.toFixed(2).replace('.', ',')}</span>
+                                 <div className="w-full max-w-sm p-2 bg-amber-500/10 border border-amber-500/25 rounded-lg space-y-1 text-left">
+                                    <div className="flex justify-between items-center text-[8px] font-black uppercase text-amber-400">
+                                       <span>Acréscimo Débito ({debitCardFeePercent}%)</span>
+                                       <span className="text-amber-300 font-bold">+ R$ {acrescimo.toFixed(2).replace('.', ',')}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-[10px] font-black border-t border-amber-500/20 pt-1">
+                                       <span className="text-white/60">Total a Cobrar no Cartão:</span>
+                                       <span className="text-emerald-400 text-xs font-black">R$ {finalValue.toFixed(2).replace('.', ',')}</span>
+                                    </div>
                                  </div>
-                               ) : null;
+                                ) : null;
                             })()}
                             {newPaymentMethod === 'cartao_credito' && (() => {
                                const rawInput = newPaymentInput === '' ? 0 : Number(newPaymentInput);
-                               const baseValue = newPaymentMode === 'percentual' ? (total * rawInput) / 100 : rawInput;
+                               const activeTotal = (settlingOrder || editingFullOrder) ? paymentModalTotal : total;
+                               const baseValue = newPaymentMode === 'percentual' ? (activeTotal * rawInput) / 100 : rawInput;
                                const fee = creditCardFees.find(f => f.installments === newPaymentInstallments)?.feePercent || 0;
                                const finalValue = baseValue * (1 + fee / 100);
+                               const acrescimoTotal = Math.max(0, finalValue - baseValue);
+                               const acrescimoPorParcela = newPaymentInstallments > 0 ? acrescimoTotal / newPaymentInstallments : 0;
+                               const valorParcela = newPaymentInstallments > 0 ? finalValue / newPaymentInstallments : 0;
+                               const basePorParcela = newPaymentInstallments > 0 ? baseValue / newPaymentInstallments : 0;
                                return (
-                                 <div className="w-full max-w-xs space-y-2">
+                                 <div className="w-full max-w-sm space-y-2 text-left">
                                     <div className="flex items-center justify-between gap-2">
                                        <span className="text-[7.5px] font-black text-white/40 uppercase tracking-widest">Parcelas</span>
                                        <select
                                          value={newPaymentInstallments}
                                          onChange={(e) => setNewPaymentInstallments(Number(e.target.value))}
-                                         className="h-7 bg-slate-900/80 border border-white/10 rounded px-2 text-[10px] text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer"
+                                         className="h-7 bg-slate-900/80 border border-white/10 rounded px-2 text-[10px] text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer max-w-[240px]"
                                        >
                                          {creditCardFees.map(f => {
                                            const valorComTaxa = baseValue * (1 + f.feePercent / 100);
-                                           const valorParcela = valorComTaxa / f.installments;
+                                           const valorParc = valorComTaxa / f.installments;
+                                           const acrescimoParc = (valorComTaxa - baseValue) / f.installments;
                                            return (
-                                             <option key={f.installments} value={f.installments} className="bg-slate-900">
+                                             <option key={f.installments} value={f.installments} className="bg-slate-900 text-white">
                                                {baseValue > 0
-                                                 ? `${f.installments}x de R$ ${valorParcela.toFixed(2).replace('.', ',')}`
-                                                 : `${f.installments}x`}
+                                                 ? `${f.installments}x de R$ ${valorParc.toFixed(2).replace('.', ',')}${f.feePercent > 0 ? ` (+R$ ${acrescimoParc.toFixed(2).replace('.', ',')}/parc. taxa ${f.feePercent}%)` : ' (sem taxa)'}`
+                                                 : `${f.installments}x (${f.feePercent > 0 ? `taxa ${f.feePercent}%` : 'sem taxa'})`}
                                              </option>
                                            );
                                          })}
                                        </select>
                                     </div>
-                                    {fee > 0 && baseValue > 0 && (
-                                      <div className="p-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg flex justify-between items-center">
-                                         <span className="text-[7.5px] font-black text-amber-400 uppercase tracking-wider">Total Com Taxa ({fee}%)</span>
-                                         <span className="text-xs font-black text-white">R$ {finalValue.toFixed(2).replace('.', ',')}</span>
+                                    {baseValue > 0 && (
+                                      <div className="p-2 bg-amber-500/10 border border-amber-500/25 rounded-lg space-y-1.5">
+                                         <div className="flex items-center justify-between gap-1 text-[8px] font-black uppercase text-amber-400">
+                                            <span>Detalhamento ({newPaymentInstallments}x)</span>
+                                            <span>Taxa: {fee}%</span>
+                                         </div>
+
+                                         <div className="grid grid-cols-2 gap-1.5 pt-1 border-t border-amber-500/20">
+                                            <div className="bg-slate-900/80 p-1.5 rounded border border-white/5">
+                                               <span className="text-[7px] font-bold text-white/50 block uppercase">Acréscimo por Parcela:</span>
+                                               <span className="text-xs font-black text-amber-300">
+                                                  {acrescimoPorParcela > 0 ? `+ R$ ${acrescimoPorParcela.toFixed(2).replace('.', ',')}` : 'R$ 0,00'}
+                                               </span>
+                                               <span className="text-[7px] text-white/40 block mt-0.5">
+                                                  {acrescimoPorParcela > 0 ? `em cada parcela (${newPaymentInstallments}x)` : 'Sem acréscimo'}
+                                               </span>
+                                            </div>
+
+                                            <div className="bg-slate-900/80 p-1.5 rounded border border-white/5">
+                                               <span className="text-[7px] font-bold text-white/50 block uppercase">Valor de Cada Parcela:</span>
+                                               <span className="text-xs font-black text-emerald-400">
+                                                  R$ {valorParcela.toFixed(2).replace('.', ',')}
+                                               </span>
+                                               <span className="text-[7px] text-white/40 block mt-0.5">
+                                                  (R$ {basePorParcela.toFixed(2).replace('.', ',')} + R$ {acrescimoPorParcela.toFixed(2).replace('.', ',')})
+                                               </span>
+                                            </div>
+                                         </div>
+
+                                         <div className="flex items-center justify-between text-[8.5px] pt-1 border-t border-amber-500/20 px-0.5">
+                                            <span className="text-white/60 font-bold">
+                                               Acréscimo Total: <strong className="text-amber-300 font-black">+ R$ {acrescimoTotal.toFixed(2).replace('.', ',')}</strong>
+                                            </span>
+                                            <span className="text-white font-black">
+                                               Total no Cartão: <strong className="text-emerald-400 text-[11px] font-black">R$ {finalValue.toFixed(2).replace('.', ',')}</strong>
+                                            </span>
+                                         </div>
                                       </div>
                                     )}
                                  </div>
@@ -15529,8 +15617,21 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                          </div>
                       </div>
                     ) : (
-                      <div className="flex-1 min-h-0 flex items-center justify-center text-center p-4">
-                         <p className="text-[9px] text-emerald-400/70 uppercase tracking-wider">Saldo Restante: R$ 0,00 — Quitado ✓</p>
+                      <div className="flex flex-col items-center justify-center text-center p-3.5 bg-white/5 rounded-xl border border-white/5 gap-2 shrink-0">
+                         <div className="flex items-center gap-1.5 text-emerald-400">
+                            <CheckCircle2 size={15} />
+                            <span className="text-[10px] font-black uppercase tracking-wider">Saldo Total Quitado ✓</span>
+                         </div>
+                         <button
+                           type="button"
+                           onClick={() => {
+                             setAllowExtraPaymentEntry(true);
+                             setNewPaymentInput('');
+                           }}
+                           className="text-[8.5px] font-bold text-primary-300 hover:text-primary-200 underline cursor-pointer transition-colors"
+                         >
+                           + Adicionar outra entrada / parcela extra
+                         </button>
                       </div>
                     )}
                  </div>
