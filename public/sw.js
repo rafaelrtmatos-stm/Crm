@@ -2,7 +2,7 @@
 // para o sistema continuar abrindo mesmo sem internet.
 // Isso NÃO sincroniza dados (vendas, clientes etc) — só garante que a interface carregue offline.
 
-const CACHE_NAME = 'rafa-arts-shell-v7';
+const CACHE_NAME = 'rafa-arts-shell-v8';
 const OFFLINE_URL = '/';
 
 self.addEventListener('install', (event) => {
@@ -29,6 +29,17 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
 
   const url = new URL(request.url);
+
+  // Nunca intercepta nem cacheia módulos do Vite, desenvolvimento ou requisições internas de dev
+  if (
+    url.pathname.startsWith('/node_modules/') ||
+    url.pathname.startsWith('/@') ||
+    url.pathname.startsWith('/src/') ||
+    url.search.includes('import') ||
+    url.search.includes('v=')
+  ) {
+    return;
+  }
 
   // Nunca cacheia chamadas de API (Supabase/Firebase) — dados sempre precisam ser atuais/online.
   if (url.hostname.includes('supabase.co') || url.hostname.includes('firebaseio.com') || url.hostname.includes('googleapis.com')) {

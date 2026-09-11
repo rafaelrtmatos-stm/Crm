@@ -888,18 +888,22 @@ export default function App() {
     return () => { supabase.removeChannel(channel); };
   }, [currentCompany, user, lastMessageId]);
 
-  // Login & Authentication State (Empty by default for manual typing)
-  const [loginEmail, setLoginEmail] = useState('');
-  const [loginPassword, setLoginPassword] = useState('');
+  // Login & Authentication State (Carrega credenciais lembradas instantaneamente)
+  const [loginEmail, setLoginEmail] = useState(() => {
+    return localStorage.getItem('rpro_remembered_email') || '';
+  });
+  const [loginPassword, setLoginPassword] = useState(() => {
+    return localStorage.getItem('rpro_remembered_password') || '';
+  });
   const [showPassword, setShowPassword] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [rememberMe, setRememberMe] = useState(() => {
-    return localStorage.getItem('rpro_remember_me') === 'true' || !!localStorage.getItem('rpro_remembered_email');
+    return localStorage.getItem('rpro_remember_me') === 'true' || !!localStorage.getItem('rpro_remembered_email') || !!localStorage.getItem('rpro_remembered_password');
   });
 
   useEffect(() => {
-    const isRemembered = localStorage.getItem('rpro_remember_me') === 'true' || !!localStorage.getItem('rpro_remembered_email');
+    const isRemembered = localStorage.getItem('rpro_remember_me') === 'true' || !!localStorage.getItem('rpro_remembered_email') || !!localStorage.getItem('rpro_remembered_password');
     if (isRemembered) {
       setRememberMe(true);
       const rememberedEmail = localStorage.getItem('rpro_remembered_email');
@@ -1472,8 +1476,34 @@ export default function App() {
         console.warn('Aviso Firestore companies (offline/conexão):', err?.message || err);
       });
 
-      // 2. Check saved session user (sessionStorage sempre; localStorage se "lembrar minha senha" foi marcado)
-      const savedUserId = sessionStorage.getItem('rpro_logged_user_id') || localStorage.getItem('rpro_remembered_user_id');
+      // 2. Check saved session user (sessionStorage sempre; localStorage se "lembrar login e senha" foi marcado)
+      let savedUserId = sessionStorage.getItem('rpro_logged_user_id') || localStorage.getItem('rpro_remembered_user_id');
+      const isRememberMe = localStorage.getItem('rpro_remember_me') === 'true';
+      const remEmail = localStorage.getItem('rpro_remembered_email')?.trim().toLowerCase();
+      const remPass = localStorage.getItem('rpro_remembered_password')?.trim();
+
+      // Se "lembrar login e senha" estiver ativo mas o ID do usuário não estiver salvo, recupera automaticamente
+      if (!savedUserId && isRememberMe && remEmail && remPass) {
+        if (remEmail === 'rafaelrtmatos@gmail.com' && remPass === 'Geper3tp@') {
+          savedUserId = 'admin-rafael';
+          localStorage.setItem('rpro_remembered_user_id', 'admin-rafael');
+        } else {
+          try {
+            const { data: uRow } = await supabase
+              .from('usuarios')
+              .select('id, password')
+              .eq('email', remEmail)
+              .maybeSingle();
+            if (uRow && uRow.password === remPass) {
+              savedUserId = uRow.id;
+              localStorage.setItem('rpro_remembered_user_id', uRow.id);
+            }
+          } catch {
+            // ignora erro de rede/busca
+          }
+        }
+      }
+
       const targetUserId = simulatedUserId || savedUserId;
 
       if (targetUserId) {
@@ -1573,11 +1603,33 @@ export default function App() {
         } catch (e) {
           // Falhou por causa da rede (sem internet, instavel, etc) — tenta os dados salvos localmente
           // da ultima vez que logou online, em vez de simplesmente deslogar a pessoa.
-          const cached = getCachedUser(targetUserId);
-          if (cached && cached.role !== 'comissao') {
-            setUser(cached);
+          if (targetUserId === 'admin-rafael') {
+            const adminData = getCachedUser('admin-rafael') || {
+              id: 'admin-rafael',
+              name: 'Rafael Matos (ADM)',
+              email: 'rafaelrtmatos@gmail.com',
+              password: 'Geper3tp@',
+              role: 'admin',
+              isAdmin: true,
+              isActive: true,
+              avatarUrl: 'https://pro.rafaartsgraphics.com.br/icon-192.png',
+              allowedTabs: ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'production', 'settings'],
+              allowedActions: [
+                'canStartNote', 'canSendSavedMessage', 'canCreateCard', 'canAddTask',
+                'canStartPosSale', 'canMoveLead',
+                'canViewCustomerData', 'canViewAttachments', 'canTranscribeAudio'
+              ],
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            };
+            setUser(adminData);
           } else {
-            sessionStorage.removeItem('rpro_logged_user_id');
+            const cached = getCachedUser(targetUserId);
+            if (cached && cached.role !== 'comissao') {
+              setUser(cached);
+            } else {
+              sessionStorage.removeItem('rpro_logged_user_id');
+            }
           }
         }
       }
@@ -1726,7 +1778,13 @@ export default function App() {
                   type="email"
                   required
                   value={loginEmail}
-                  onChange={(e) => setLoginEmail(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setLoginEmail(val);
+                    if (rememberMe) {
+                      localStorage.setItem('rpro_remembered_email', val.trim().toLowerCase());
+                    }
+                  }}
                   placeholder="seu.email@empresa.com"
                   className="w-full h-10 bg-[#06060a] hover:bg-[#08080f] focus:bg-[#090912] border border-white/10 hover:border-white/20 focus:border-red-500 focus:ring-1 focus:ring-red-500/20 rounded-xl pl-10 pr-3 text-xs text-white font-medium focus:outline-none transition-all placeholder:text-slate-600"
                 />
@@ -1747,7 +1805,13 @@ export default function App() {
                   type={showPassword ? 'text' : 'password'}
                   required
                   value={loginPassword}
-                  onChange={(e) => setLoginPassword(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setLoginPassword(val);
+                    if (rememberMe) {
+                      localStorage.setItem('rpro_remembered_password', val.trim());
+                    }
+                  }}
                   placeholder="••••••••"
                   className="w-full h-10 bg-[#06060a] hover:bg-[#08080f] focus:bg-[#090912] border border-white/10 hover:border-white/20 focus:border-red-500 focus:ring-1 focus:ring-red-500/20 rounded-xl pl-10 pr-10 text-xs text-white font-medium focus:outline-none transition-all placeholder:text-slate-600"
                 />
@@ -1771,7 +1835,11 @@ export default function App() {
                   onChange={(e) => {
                     const checked = e.target.checked;
                     setRememberMe(checked);
-                    if (!checked) {
+                    if (checked) {
+                      localStorage.setItem('rpro_remember_me', 'true');
+                      if (loginEmail) localStorage.setItem('rpro_remembered_email', loginEmail.trim().toLowerCase());
+                      if (loginPassword) localStorage.setItem('rpro_remembered_password', loginPassword.trim());
+                    } else {
                       localStorage.removeItem('rpro_remember_me');
                       localStorage.removeItem('rpro_remembered_user_id');
                       localStorage.removeItem('rpro_remembered_email');

@@ -77,7 +77,6 @@ export const NotaDetalheModal: React.FC<NotaDetalheModalProps> = ({ nota, onClos
   const [selected, setSelected] = useState<Record<number, boolean>>({});
   const [values, setValues] = useState<Record<number, string>>({});
   const [dataServico, setDataServico] = useState<string>(() => getTodayISO());
-  const [globalSplit, setGlobalSplit] = useState<100 | 50 | 33>(100);
 
   const getItemGrossValue = (item: NotaDetalheItem) => {
     const qty = item.quantity ?? 1;
@@ -99,34 +98,10 @@ export const NotaDetalheModal: React.FC<NotaDetalheModalProps> = ({ nota, onClos
     return fator > 0 ? fator : 0;
   }, [nota?.id, nota?.discount_value, items]);
 
-  const applyGlobalSplit = (pct: 100 | 50 | 33) => {
-    setGlobalSplit(pct);
-    const multiplier = pct === 50 ? 0.5 : pct === 33 ? (1 / 3) : 1;
-    const newVals: Record<number, string> = {};
-    (nota?.items || []).forEach((item, idx) => {
-      const bruto = getItemGrossValue(item);
-      const liquido = bruto * fatorDesconto * multiplier;
-      newVals[idx] = liquido ? liquido.toFixed(2).replace('.', ',') : '';
-    });
-    setValues(newVals);
-  };
-
-  const applyItemSplit = (idx: number, multiplier: number) => {
-    const item = items[idx];
-    if (!item) return;
-    const bruto = getItemGrossValue(item);
-    const liquido = bruto * fatorDesconto * multiplier;
-    setValues((prev) => ({
-      ...prev,
-      [idx]: liquido ? liquido.toFixed(2).replace('.', ',') : '',
-    }));
-  };
-
   useEffect(() => {
     if (!nota) return;
     const initialSelected: Record<number, boolean> = {};
     const initialValues: Record<number, string> = {};
-    setGlobalSplit(100);
     (nota.items || []).forEach((item, idx) => {
       initialSelected[idx] = singleItem && idx === 0;
       const bruto = getItemGrossValue(item);
@@ -226,61 +201,6 @@ export const NotaDetalheModal: React.FC<NotaDetalheModalProps> = ({ nota, onClos
         </div>
 
         <div className="p-4 sm:p-5 overflow-y-auto space-y-4 flex-1">
-          {/* Seletor Global de Divisão do Serviço */}
-          <div className="bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl p-3 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-black uppercase tracking-wider text-[var(--accent-red)] flex items-center gap-1.5">
-                <Layers className="w-3.5 h-3.5" /> Divisão deste Serviço
-              </span>
-              <span className="text-[10px] text-[var(--text-muted)] font-medium">
-                Fez sozinho ou com colega?
-              </span>
-            </div>
-            <div className="grid grid-cols-3 gap-1.5">
-              <button
-                type="button"
-                onClick={() => applyGlobalSplit(100)}
-                className={`py-1.5 px-2 rounded-lg text-xs font-black transition-all flex items-center justify-center gap-1 cursor-pointer border ${
-                  globalSplit === 100
-                    ? 'bg-[var(--accent-red)] text-white border-[var(--accent-red)] shadow-sm'
-                    : 'bg-[var(--bg-card)] border-[var(--border-color)] text-[var(--text-muted)] hover:text-white'
-                }`}
-              >
-                <span>100%</span>
-                <span className="text-[9px] uppercase font-bold opacity-80">(Sozinho)</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => applyGlobalSplit(50)}
-                className={`py-1.5 px-2 rounded-lg text-xs font-black transition-all flex items-center justify-center gap-1 cursor-pointer border ${
-                  globalSplit === 50
-                    ? 'bg-amber-500 text-slate-900 border-amber-400 font-black shadow-sm ring-1 ring-amber-400'
-                    : 'bg-[var(--bg-card)] border-[var(--border-color)] text-[var(--text-muted)] hover:text-white'
-                }`}
-              >
-                <span>50%</span>
-                <span className="text-[9px] uppercase font-bold opacity-80">(Meio a meio)</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => applyGlobalSplit(33)}
-                className={`py-1.5 px-2 rounded-lg text-xs font-black transition-all flex items-center justify-center gap-1 cursor-pointer border ${
-                  globalSplit === 33
-                    ? 'bg-blue-500 text-white border-blue-400 shadow-sm'
-                    : 'bg-[var(--bg-card)] border-[var(--border-color)] text-[var(--text-muted)] hover:text-white'
-                }`}
-              >
-                <span>33%</span>
-                <span className="text-[9px] uppercase font-bold opacity-80">(3 pessoas)</span>
-              </button>
-            </div>
-            {globalSplit === 50 && (
-              <p className="text-[10px] text-amber-400 font-bold bg-amber-500/10 border border-amber-500/20 rounded-lg px-2.5 py-1 flex items-center gap-1">
-                ✓ 50% aplicado em todos os itens da nota. O valor de produção e a sua comissão serão calculados pela metade.
-              </p>
-            )}
-          </div>
-
           <div>
             <div className="flex items-center justify-between mb-2">
               <p className="text-xs font-black uppercase tracking-wider text-[var(--accent-red)] flex items-center gap-1.5">
@@ -348,24 +268,6 @@ export const NotaDetalheModal: React.FC<NotaDetalheModalProps> = ({ nota, onClos
                         </p>
                       </div>
                       <div className="shrink-0 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center gap-1 bg-black/20 rounded-lg p-0.5 border border-white/5">
-                          <button
-                            type="button"
-                            onClick={() => applyItemSplit(idx, 1)}
-                            className="px-1.5 py-0.5 rounded text-[9px] font-bold text-white/60 hover:text-white hover:bg-white/10"
-                            title="100% integral"
-                          >
-                            100%
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => applyItemSplit(idx, 0.5)}
-                            className="px-1.5 py-0.5 rounded text-[9px] font-bold text-amber-400 hover:text-amber-300 hover:bg-amber-500/20"
-                            title="50% dividido por 2"
-                          >
-                            50%
-                          </button>
-                        </div>
                         <span className="text-[11px] text-[var(--text-muted)] font-bold">R$</span>
                         <input
                           type="text"

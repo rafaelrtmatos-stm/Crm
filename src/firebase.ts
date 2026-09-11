@@ -1,54 +1,16 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import {
-  initializeFirestore,
-  getFirestore,
-  persistentLocalCache,
-  persistentMultipleTabManager,
-  Firestore,
-} from 'firebase/firestore';
+import { getFirestore, Firestore } from 'firebase/firestore';
 
 import firebaseConfig from '../firebase-applet-config.json';
 
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 const firestoreDbId = (firebaseConfig as any)?.firestoreDatabaseId;
 
-// Cache offline (IndexedDB) do Firestore — sem isso, o onSnapshot (empresas, usuarios,
-// mensagens, sessoes etc) nao tem nenhum dado pra devolver enquanto o app estiver sem
-// internet, mesmo que ja tenha sido carregado com sucesso antes. Com o cache persistente
-// habilitado, o Firestore guarda localmente o ultimo resultado conhecido de cada consulta
-// e o onSnapshot volta a disparar com esses dados na hora, offline, ate a conexao voltar
-// e ele re-sincronizar sozinho. `persistentMultipleTabManager` deixa varias abas/telas do
-// mesmo navegador compartilharem esse cache em vez de brigarem pelo IndexedDB.
-function createFirestoreDb(): Firestore {
-  try {
-    const firestoreSettings = {
-      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
-      experimentalForceLongPolling: true,
-    };
-    return firestoreDbId && typeof firestoreDbId === 'string' && firestoreDbId.trim() !== ''
-      ? initializeFirestore(app, firestoreSettings, firestoreDbId)
-      : initializeFirestore(app, firestoreSettings);
-  } catch (e) {
-    // Navegador sem suporte a IndexedDB (modo anonimo restrito, versao muito antiga, etc)
-    // ou Firestore ja inicializado antes com outras settings — tenta com long-polling simples
-    // ou cai pro modo normal (sem persistencia offline, mas o app continua funcionando online).
-    try {
-      const fallbackSettings = {
-        experimentalForceLongPolling: true,
-      };
-      return firestoreDbId && typeof firestoreDbId === 'string' && firestoreDbId.trim() !== ''
-        ? initializeFirestore(app, fallbackSettings, firestoreDbId)
-        : initializeFirestore(app, fallbackSettings);
-    } catch (err) {
-      return firestoreDbId && typeof firestoreDbId === 'string' && firestoreDbId.trim() !== ''
-        ? getFirestore(app, firestoreDbId)
-        : getFirestore(app);
-    }
-  }
-}
+export const db: Firestore = firestoreDbId && typeof firestoreDbId === 'string' && firestoreDbId.trim() !== ''
+  ? getFirestore(app, firestoreDbId)
+  : getFirestore(app);
 
-export const db: Firestore = createFirestoreDb();
 export const auth = getAuth(app);
 
 // Ping de conexão removido: ele disparava uma requisição getDocFromServer

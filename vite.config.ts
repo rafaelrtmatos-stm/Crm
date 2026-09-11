@@ -116,5 +116,8 @@ export default defineConfig(({mode}) => {
       port: 3000,
       allowedHosts: true,
     },
+    optimizeDeps: {
+      include: ['firebase/app', 'firebase/auth', 'firebase/firestore'],
+    },
   };
 });

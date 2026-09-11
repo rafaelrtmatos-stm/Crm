@@ -476,10 +476,9 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
 
   const confirmarAdicaoComData = async (data: string) => {
     if (!confirmarDataModal) return;
-    const { nota, idxs, splitPercent } = confirmarDataModal;
-    const multiplier = splitPercent === 50 ? 0.5 : splitPercent === 33 ? 1 / 3 : 1;
+    const { nota, idxs } = confirmarDataModal;
     setConfirmarDataModal(null);
-    await handleAdicionarSelecionados(nota, idxs, data, multiplier);
+    await handleAdicionarSelecionados(nota, idxs, data, 1);
   };
 
   // Tira um serviço já lançado a partir de um item da nota (o colaborador se enganou ao
@@ -1126,45 +1125,6 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
                 ? `${confirmarDataModal.idxs.length} serviços vão ser adicionados na sua planilha.`
                 : 'Esse serviço vai ser adicionado na sua planilha.'}
             </p>
-
-            {/* Opção de Divisão do Serviço */}
-            <div className="bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl p-2.5 space-y-1.5">
-              <div className="flex items-center justify-between text-[11px] font-black uppercase text-[var(--accent-red)]">
-                <span>Divisão do Serviço</span>
-                <span className="text-[9px] text-[var(--text-muted)] lowercase">fez com colega?</span>
-              </div>
-              <div className="grid grid-cols-2 gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setConfirmarDataModal(prev => prev ? { ...prev, splitPercent: 100 } : prev)}
-                  className={`py-1.5 px-2 rounded-lg text-xs font-black transition-all flex items-center justify-center gap-1 border cursor-pointer ${
-                    confirmarDataModal.splitPercent === 100
-                      ? 'bg-[var(--accent-red)] text-white border-[var(--accent-red)]'
-                      : 'bg-[var(--bg-card)] border-[var(--border-color)] text-[var(--text-muted)]'
-                  }`}
-                >
-                  <span>100%</span>
-                  <span className="text-[9px] opacity-80">(Sozinho)</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfirmarDataModal(prev => prev ? { ...prev, splitPercent: 50 } : prev)}
-                  className={`py-1.5 px-2 rounded-lg text-xs font-black transition-all flex items-center justify-center gap-1 border cursor-pointer ${
-                    confirmarDataModal.splitPercent === 50
-                      ? 'bg-amber-500 text-slate-900 border-amber-400 font-black ring-1 ring-amber-400'
-                      : 'bg-[var(--bg-card)] border-[var(--border-color)] text-[var(--text-muted)]'
-                  }`}
-                >
-                  <span>50%</span>
-                  <span className="text-[9px] opacity-80">(Dividido por 2)</span>
-                </button>
-              </div>
-              {confirmarDataModal.splitPercent === 50 && (
-                <p className="text-[10px] text-amber-400 font-bold bg-amber-500/10 border border-amber-500/20 rounded px-2 py-0.5">
-                  ✓ Metade (50%) da produção e comissão para você.
-                </p>
-              )}
-            </div>
 
             {!confirmarDataModal.alterando ? (
               <div className="space-y-2">
