@@ -2,17 +2,19 @@ import React, { useMemo, useState } from 'react';
 import {
   ChevronLeft, ChevronRight, ChevronDown, Calendar as CalendarIcon,
   Plus, Edit2, Trash2, LayoutGrid, Table as TableIcon, Columns, Trash,
-  DollarSign, Percent, CheckCircle2, TrendingUp, Clock, Sparkles, X, Copy, Check
+  DollarSign, Percent, CheckCircle2, TrendingUp, Clock, Sparkles, X, Copy, Check, Layers2
 } from 'lucide-react';
 import { ServiceItem } from '../types';
 import { formatCurrency } from '../utils/storage';
 import { getTodayISO } from '../utils/dateHelpers';
+import { SplitNoteModal, NoteGroupData } from './SplitNoteModal';
 
 interface WeeklyCalendarViewProps {
   services: ServiceItem[];
   onEditService: (service: ServiceItem) => void;
   onDeleteService: (id: string) => void;
   onOpenAddModalWithDate: (dateISO: string) => void;
+  onBatchUpdateServices?: (services: ServiceItem[]) => Promise<void> | void;
   weeklyGoal?: number;
   // Vai direto pra Lixeira (aba Serviços) já aberta — antes só dava pra acessar a Lixeira
   // trocando manualmente pra aba Serviços e clicando lá.
@@ -31,13 +33,15 @@ const WEEKDAYS = [
 const noteKey = (s: ServiceItem) => s.origemNotaId || `service:${s.id}`;
 
 export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
-  services, onEditService, onDeleteService, onOpenAddModalWithDate, weeklyGoal = 2500, onGoToTrash
+  services, onEditService, onDeleteService, onOpenAddModalWithDate, onBatchUpdateServices, weeklyGoal = 2500, onGoToTrash
 }) => {
   const [weekOffset, setWeekOffset] = useState(0);
   const [viewMode, setViewMode] = useState<'grid' | 'columns' | 'table'>('grid');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDayISO, setSelectedDayISO] = useState<string | null>(null);
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
+  const [splitModalGroup, setSplitModalGroup] = useState<NoteGroupData | null>(null);
+  const [isSplitModalOpen, setIsSplitModalOpen] = useState(false);
 
   const todayISO = useMemo(() => getTodayISO(), []);
 
@@ -151,13 +155,17 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
 
   const renderNoteCard = (group: ReturnType<typeof groupedByDayAndNote>[number]) => {
     const open = expandedNotes.has(group.key);
+    const has50 = group.items.some(s => s.serviceType.includes('50%') || (s.notes && s.notes.includes('50%')));
+    const has33 = group.items.some(s => s.serviceType.includes('33%') || (s.notes && s.notes.includes('33%')));
+    const has25 = group.items.some(s => s.serviceType.includes('25%') || (s.notes && s.notes.includes('25%')));
+
     return (
       <div key={group.key} className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card-sec)] overflow-hidden">
-        <div className="w-full p-3 flex items-center gap-3 hover:bg-[var(--bg-card)]">
+        <div className="w-full p-3 flex items-center gap-2.5 sm:gap-3 hover:bg-[var(--bg-card)] transition-colors">
           <button
             type="button"
             onClick={() => toggleNote(group.key)}
-            className="flex items-center gap-3 flex-1 min-w-0 text-left"
+            className="flex items-center gap-2.5 sm:gap-3 flex-1 min-w-0 text-left cursor-pointer"
           >
             {open ? <ChevronDown className="w-4 h-4 text-[var(--text-muted)] shrink-0" /> : <ChevronRight className="w-4 h-4 text-[var(--text-muted)] shrink-0" />}
             <div className="min-w-0 flex-1">
@@ -178,13 +186,47 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
                 {!group.noteId && (
                   <span className="text-[10px] font-mono text-[var(--text-muted)]">SERVIÇO AVULSO</span>
                 )}
+                {has50 && (
+                  <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 whitespace-nowrap">
+                    50%
+                  </span>
+                )}
+                {has33 && (
+                  <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30 whitespace-nowrap">
+                    33%
+                  </span>
+                )}
+                {has25 && (
+                  <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 whitespace-nowrap">
+                    25%
+                  </span>
+                )}
               </div>
               <span className="text-[10px] text-[var(--text-muted)]">
                 {group.items.length} {group.items.length === 1 ? 'serviço' : 'serviços'}
               </span>
             </div>
           </button>
-          <span className="font-mono font-black text-xs text-[var(--text-main)]">
+
+          {/* Botão para dividir toda a nota de uma vez */}
+          {onBatchUpdateServices && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSplitModalGroup(group);
+                setIsSplitModalOpen(true);
+              }}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[11px] font-black tracking-wide shrink-0 transition-all cursor-pointer"
+              title="Dividir produção e comissão de toda a nota"
+            >
+              <Percent className="w-3.5 h-3.5 text-amber-400" />
+              <span className="hidden sm:inline">Dividir Nota</span>
+              <span className="sm:hidden">Dividir</span>
+            </button>
+          )}
+
+          <span className="font-mono font-black text-xs text-[var(--text-main)] whitespace-nowrap">
             {formatCurrency(group.total)}
           </span>
           {group.items.length === 1 ? (
@@ -396,6 +438,21 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
           ))}
         </div>
       )}
+
+      {/* Modal de Divisão da Nota Inteira */}
+      <SplitNoteModal
+        isOpen={isSplitModalOpen}
+        onClose={() => {
+          setIsSplitModalOpen(false);
+          setSplitModalGroup(null);
+        }}
+        noteGroup={splitModalGroup}
+        onConfirmSplit={async (updatedServices) => {
+          if (onBatchUpdateServices) {
+            await onBatchUpdateServices(updatedServices);
+          }
+        }}
+      />
     </div>
   );
 };

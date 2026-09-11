@@ -333,19 +333,19 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
       <>
       {/* Desktop Spreadsheet Table View */}
       <div className="hidden md:block overflow-hidden rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] shadow-lg">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+        <div className="overflow-x-auto custom-scrollbar">
+          <table className="w-full text-left border-collapse min-w-[1000px]">
             {/* Header with Vibrant Red Gradient */}
             <thead>
               <tr className="bg-gradient-red text-white text-xs font-black uppercase tracking-wider">
-                <th className="py-4 px-4 border-r border-red-700/50">Data / Hora</th>
-                <th className="py-4 px-4 border-r border-red-700/50">Veículo / Detalhe</th>
-                <th className="py-4 px-4 border-r border-red-700/50">Serviço Realizado</th>
-                <th className="py-4 px-4 border-r border-red-700/50 text-right">Valor Produção</th>
-                <th className="py-4 px-4 border-r border-red-700/50 text-center">% Com.</th>
-                <th className="py-4 px-4 border-r border-red-700/50 text-right bg-red-900/60">Valor Comissão</th>
-                <th className="py-4 px-4 border-r border-red-700/50">Observação</th>
-                <th className="py-4 px-4 text-center">Ações</th>
+                <th className="py-4 px-4 border-r border-red-700/50 whitespace-nowrap min-w-[120px]">Data / Hora</th>
+                <th className="py-4 px-4 border-r border-red-700/50 whitespace-nowrap min-w-[140px]">Veículo / Detalhe</th>
+                <th className="py-4 px-4 border-r border-red-700/50 whitespace-nowrap min-w-[220px]">Serviço Realizado</th>
+                <th className="py-4 px-4 border-r border-red-700/50 text-right whitespace-nowrap min-w-[130px]">Valor Produção</th>
+                <th className="py-4 px-4 border-r border-red-700/50 text-center whitespace-nowrap min-w-[90px]">% Com.</th>
+                <th className="py-4 px-4 border-r border-red-700/50 text-right bg-red-900/60 whitespace-nowrap min-w-[140px]">Valor Comissão</th>
+                <th className="py-4 px-4 border-r border-red-700/50 whitespace-nowrap min-w-[160px]">Observação</th>
+                <th className="py-4 px-4 text-center whitespace-nowrap min-w-[100px]">Ações</th>
               </tr>
             </thead>
 
@@ -379,7 +379,7 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
                       {item.vehicle || '—'}
                     </td>
 
-                    <td className="py-3.5 px-4 font-semibold text-[var(--text-main)]">
+                    <td className="py-3.5 px-4 font-semibold text-[var(--text-main)] min-w-[220px]">
                       {item.serviceType}
                       {item.unit && item.quantity ? (
                         <span className="block text-[10px] text-[var(--text-muted)] font-mono font-normal">
@@ -388,19 +388,19 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
                       ) : null}
                     </td>
 
-                    <td className="py-3.5 px-4 text-right font-mono font-bold text-[var(--text-main)]">
+                    <td className="py-3.5 px-4 text-right font-mono font-bold text-[var(--text-main)] whitespace-nowrap">
                       {formatCurrency(item.productionValue)}
                     </td>
 
-                    <td className="py-3.5 px-4 text-center font-mono text-xs text-[var(--text-muted)]">
+                    <td className="py-3.5 px-4 text-center font-mono text-xs text-[var(--text-muted)] whitespace-nowrap">
                       {item.commissionPercent}%
                     </td>
 
-                    <td className="py-3.5 px-4 text-right font-mono font-black text-[var(--accent-red)] bg-red-950/10">
+                    <td className="py-3.5 px-4 text-right font-mono font-black text-[var(--accent-red)] bg-red-950/10 whitespace-nowrap">
                       {formatCurrency(item.commissionValue)}
                     </td>
 
-                    <td className="py-3.5 px-4 text-xs text-[var(--text-muted)] max-w-xs truncate">
+                    <td className="py-3.5 px-4 text-xs text-[var(--text-muted)] min-w-[160px] max-w-xs break-words">
                       {item.notes || '—'}
                     </td>
 

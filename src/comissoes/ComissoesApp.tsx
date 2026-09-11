@@ -20,6 +20,7 @@ import {
   getDescontosFromSupabase,
   lancarComissoesComoCustoDaNota,
   mapColaboradorRow,
+  batchSaveServicesToSupabase,
 } from './utils/supabaseStorage';
 import { Header } from './components/Header';
 import { Dashboard } from './components/Dashboard';
@@ -154,6 +155,21 @@ export default function ComissoesApp() {
     setServices((prev) => (exists ? prev.map((s) => (s.id === saved.id ? saved : s)) : [saved, ...prev]));
     showToast(exists ? 'Serviço atualizado com sucesso!' : 'Novo serviço adicionado!');
     setEditingService(null);
+  };
+
+  const handleBatchUpdateServices = async (updatedItems: ServiceItem[]) => {
+    if (!colaborador || updatedItems.length === 0) return;
+    try {
+      const savedList = await batchSaveServicesToSupabase(colaborador.id, updatedItems);
+      if (savedList.length > 0) {
+        const savedMap = new Map(savedList.map((s) => [s.id, s]));
+        setServices((prev) => prev.map((s) => savedMap.get(s.id) || s));
+        showToast(`${savedList.length} ${savedList.length === 1 ? 'serviço da nota atualizado' : 'serviços da nota atualizados'} com sucesso!`);
+      }
+    } catch (err) {
+      console.error('Erro ao atualizar serviços da nota em lote:', err);
+      showToast('Erro ao atualizar serviços da nota.');
+    }
   };
 
   const handleDeleteService = async (id: string) => {
@@ -327,6 +343,7 @@ export default function ComissoesApp() {
                 onEditService={handleEditService}
                 onDeleteService={handleDeleteService}
                 onOpenAddModalWithDate={(dateISO) => handleOpenAddModal(dateISO)}
+                onBatchUpdateServices={handleBatchUpdateServices}
                 weeklyGoal={userSettings.weeklyGoal}
                 onGoToTrash={() => setActiveTab('servicos')}
               />
@@ -366,7 +383,9 @@ export default function ComissoesApp() {
         isOpen={isAddModalOpen}
         onClose={() => { setIsAddModalOpen(false); setEditingService(null); setModalInitialDate(undefined); setModalHeaderOverride(undefined); }}
         onSave={handleSaveService}
+        onSaveBatch={handleBatchUpdateServices}
         editingService={editingService}
+        allServices={services}
         initialDate={modalInitialDate}
         defaultCommissionRate={userSettings.defaultCommissionRate}
         headerOverride={modalHeaderOverride}

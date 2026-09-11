@@ -222,14 +222,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ services, userSettings
             Detalhamento dos Serviços Registrados ({filteredServices.length} serviços)
           </h4>
           <div className="overflow-x-auto rounded-xl border border-[var(--border-color)]">
-            <table className="w-full text-left text-xs">
+            <table className="w-full text-left text-xs min-w-[650px]">
               <thead className="bg-[var(--bg-card-sec)] text-[var(--text-muted)] font-bold uppercase">
                 <tr>
-                  <th className="p-3">Data</th>
-                  <th className="p-3">Serviço</th>
-                  <th className="p-3 text-right">Produção (R$)</th>
-                  <th className="p-3 text-center">% Com.</th>
-                  <th className="p-3 text-right text-[var(--accent-red)]">Comissão (R$)</th>
+                  <th className="p-3 whitespace-nowrap min-w-[100px]">Data</th>
+                  <th className="p-3 whitespace-nowrap min-w-[200px]">Serviço</th>
+                  <th className="p-3 text-right whitespace-nowrap min-w-[120px]">Produção (R$)</th>
+                  <th className="p-3 text-center whitespace-nowrap min-w-[80px]">% Com.</th>
+                  <th className="p-3 text-right text-[var(--accent-red)] whitespace-nowrap min-w-[120px]">Comissão (R$)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border-color)] font-medium">

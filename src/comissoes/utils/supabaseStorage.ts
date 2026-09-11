@@ -293,6 +293,20 @@ export async function saveServiceToSupabase(colaboradorId: string, item: Service
   return mapped;
 }
 
+export async function batchSaveServicesToSupabase(
+  colaboradorId: string,
+  items: ServiceItem[]
+): Promise<ServiceItem[]> {
+  const updated: ServiceItem[] = [];
+  for (const item of items) {
+    const res = await saveServiceToSupabase(colaboradorId, item, false);
+    if (res) {
+      updated.push(res);
+    }
+  }
+  return updated;
+}
+
 // "Excluir" um serviço não apaga de vez — só marca deleted_at (soft-delete), pra ele
 // sumir da planilha mas continuar disponível na Lixeira (ver getDeletedServicesFromSupabase
 // / restoreServiceFromSupabase acima) por 30 dias antes da limpeza definitiva.

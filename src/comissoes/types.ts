@@ -19,6 +19,7 @@ export interface ServiceItem {
   unit?: ChargingUnit | string;
   quantity?: number;
   unitPrice?: number;
+  baseProductionValue?: number; // valor original 100% da produção antes de divisão
   productionValue: number;
   commissionPercent: number;
   commissionValue: number;

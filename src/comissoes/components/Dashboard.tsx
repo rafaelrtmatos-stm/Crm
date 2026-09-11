@@ -666,16 +666,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <p className="text-xs mt-1">Selecione outro período no filtro ou adicione um novo serviço.</p>
             </div>
           ) : (
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-[var(--border-color)] text-[11px] font-black uppercase text-[var(--text-muted)] tracking-wider">
-                  <th className="py-3 px-3">Data</th>
-                  <th className="py-3 px-3">Serviço</th>
-                  <th className="py-3 px-3 text-right">Produção</th>
-                  <th className="py-3 px-3 text-right">Comissão</th>
-                  <th className="py-3 px-3 text-center">Ação</th>
-                </tr>
-              </thead>
+            <div className="overflow-x-auto custom-scrollbar">
+              <table className="w-full text-left border-collapse min-w-[600px]">
+                <thead>
+                  <tr className="border-b border-[var(--border-color)] text-[11px] font-black uppercase text-[var(--text-muted)] tracking-wider">
+                    <th className="py-3 px-3 whitespace-nowrap min-w-[100px]">Data</th>
+                    <th className="py-3 px-3 whitespace-nowrap min-w-[180px]">Serviço</th>
+                    <th className="py-3 px-3 text-right whitespace-nowrap min-w-[110px]">Produção</th>
+                    <th className="py-3 px-3 text-right whitespace-nowrap min-w-[110px]">Comissão</th>
+                    <th className="py-3 px-3 text-center whitespace-nowrap min-w-[80px]">Ação</th>
+                  </tr>
+                </thead>
               <tbody className="divide-y divide-[var(--border-color)] text-xs font-medium">
                 {filteredServices.slice(0, 10).map((item) => (
                   <tr
@@ -707,6 +708,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </div>
       </div>

@@ -1190,19 +1190,19 @@ export default function ComissoesAdminPanel() {
           /* ========================================================= */
           <div className="bg-[var(--bg-card)] rounded-3xl border border-[var(--border-color)] shadow-md overflow-hidden">
             <div className="overflow-x-auto custom-scrollbar">
-              <table className="w-full text-left border-collapse text-xs">
+              <table className="w-full text-left border-collapse text-xs min-w-[1100px]">
                 <thead>
                   <tr className="bg-[var(--bg-card-sec)] border-b border-[var(--border-color)] text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">
-                    <th className="py-4 px-5">Colaborador</th>
-                    <th className="py-4 px-4">Cargo</th>
-                    <th className="py-4 px-4">Status</th>
-                    <th className="py-4 px-4 text-right">Salário Base</th>
-                    <th className="py-4 px-4 text-right">Comissão Semana</th>
-                    <th className="py-4 px-4 text-right">Descontos</th>
-                    <th className="py-4 px-4 text-right text-emerald-400 bg-emerald-500/5">💵 Total Estimado</th>
-                    <th className="py-4 px-4 text-right">Produção / Meta</th>
-                    <th className="py-4 px-4">Modo</th>
-                    <th className="py-4 px-5 text-right">Ações</th>
+                    <th className="py-4 px-5 whitespace-nowrap min-w-[200px]">Colaborador</th>
+                    <th className="py-4 px-4 whitespace-nowrap min-w-[120px]">Cargo</th>
+                    <th className="py-4 px-4 whitespace-nowrap min-w-[90px]">Status</th>
+                    <th className="py-4 px-4 text-right whitespace-nowrap min-w-[110px]">Salário Base</th>
+                    <th className="py-4 px-4 text-right whitespace-nowrap min-w-[120px]">Comissão Semana</th>
+                    <th className="py-4 px-4 text-right whitespace-nowrap min-w-[100px]">Descontos</th>
+                    <th className="py-4 px-4 text-right text-emerald-400 bg-emerald-500/5 whitespace-nowrap min-w-[130px]">💵 Total Estimado</th>
+                    <th className="py-4 px-4 text-right whitespace-nowrap min-w-[150px]">Produção / Meta</th>
+                    <th className="py-4 px-4 whitespace-nowrap min-w-[100px]">Modo</th>
+                    <th className="py-4 px-5 text-right whitespace-nowrap min-w-[250px]">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--border-color)]">
@@ -1225,7 +1225,7 @@ export default function ComissoesAdminPanel() {
                         key={c.id}
                         className="hover:bg-[var(--bg-card-sec)]/50 transition-colors group"
                       >
-                        <td className="py-3.5 px-5">
+                        <td className="py-3.5 px-5 whitespace-nowrap">
                           <div className="flex items-center gap-3">
                             <div
                               className={`w-9 h-9 rounded-xl bg-gradient-to-br ${getAvatarGradient(
@@ -1245,11 +1245,11 @@ export default function ComissoesAdminPanel() {
                           </div>
                         </td>
 
-                        <td className="py-3.5 px-4 font-medium text-[var(--text-main)]">
+                        <td className="py-3.5 px-4 font-medium text-[var(--text-main)] whitespace-nowrap">
                           {c.cargo || <span className="text-[var(--text-muted)] italic">—</span>}
                         </td>
 
-                        <td className="py-3.5 px-4">
+                        <td className="py-3.5 px-4 whitespace-nowrap">
                           <button
                             onClick={() => handleToggleAtivo(c)}
                             className={`text-[9px] font-black uppercase px-2.5 py-0.5 rounded-full border transition-all cursor-pointer ${
@@ -1262,35 +1262,35 @@ export default function ComissoesAdminPanel() {
                           </button>
                         </td>
 
-                        <td className="py-3.5 px-4 text-right font-black text-[var(--text-main)]">
+                        <td className="py-3.5 px-4 text-right font-black text-[var(--text-main)] whitespace-nowrap font-mono">
                           {formatCurrencyBR(stats.salarioBase)}
                         </td>
 
-                        <td className="py-3.5 px-4 text-right font-black text-rose-400">
+                        <td className="py-3.5 px-4 text-right font-black text-rose-400 whitespace-nowrap font-mono">
                           {formatCurrencyBR(stats.totalComissao)}
                         </td>
 
-                        <td className="py-3.5 px-4 text-right font-black text-rose-400">
+                        <td className="py-3.5 px-4 text-right font-black text-rose-400 whitespace-nowrap font-mono">
                           {stats.totalDescontos > 0 ? `-${formatCurrencyBR(stats.totalDescontos)}` : 'R$ 0,00'}
                         </td>
 
                         {/* TOTAL ESTIMADO EM DESTAQUE */}
-                        <td className="py-3.5 px-4 text-right font-black text-emerald-400 text-sm bg-emerald-500/5">
+                        <td className="py-3.5 px-4 text-right font-black text-emerald-400 text-sm bg-emerald-500/5 whitespace-nowrap font-mono">
                           {formatCurrencyBR(stats.totalEstimado)}
                         </td>
 
-                        <td className="py-3.5 px-4 text-right font-black text-amber-400">
+                        <td className="py-3.5 px-4 text-right font-black text-amber-400 whitespace-nowrap">
                           <div>
-                            <span>{formatCurrencyBR(stats.totalProducao)}</span>
+                            <span className="font-mono">{formatCurrencyBR(stats.totalProducao)}</span>
                             {stats.metaSemanal > 0 && (
-                              <span className="text-[10px] text-[var(--text-muted)] block font-normal">
+                              <span className="text-[10px] text-[var(--text-muted)] block font-normal font-sans">
                                 Meta: {formatCurrencyBR(stats.metaSemanal)} ({stats.percentualMeta.toFixed(0)}%)
                               </span>
                             )}
                           </div>
                         </td>
 
-                        <td className="py-3.5 px-4">
+                        <td className="py-3.5 px-4 whitespace-nowrap">
                           <span
                             className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded-lg border ${
                               isSomenteNota
@@ -1302,11 +1302,11 @@ export default function ComissoesAdminPanel() {
                           </span>
                         </td>
 
-                        <td className="py-3.5 px-5 text-right">
+                        <td className="py-3.5 px-5 text-right whitespace-nowrap min-w-[250px]">
                           <div className="flex items-center justify-end gap-2">
                             <button
                               onClick={() => openEditForm(c)}
-                              className="flex items-center gap-1.5 h-8 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 border border-amber-500/40 text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm active:scale-95"
+                              className="flex items-center gap-1.5 h-8 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 border border-amber-500/40 text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm active:scale-95 shrink-0"
                               title="Editar funcionário"
                             >
                               <Edit3 className="w-3.5 h-3.5 text-amber-400" />
@@ -1315,7 +1315,7 @@ export default function ComissoesAdminPanel() {
 
                             <button
                               onClick={() => handleCopyAccess(c)}
-                              className="h-8 px-2.5 rounded-xl bg-[var(--bg-card-sec)] hover:bg-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-main)] border border-[var(--border-color)] transition-all flex items-center gap-1 text-[11px] font-bold"
+                              className="h-8 px-2.5 rounded-xl bg-[var(--bg-card-sec)] hover:bg-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-main)] border border-[var(--border-color)] transition-all flex items-center gap-1 text-[11px] font-bold shrink-0"
                               title="Copiar dados de acesso"
                             >
                               {copiedId === c.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
@@ -1324,7 +1324,7 @@ export default function ComissoesAdminPanel() {
 
                             <button
                               onClick={() => handleDelete(c)}
-                              className="h-8 w-8 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 flex items-center justify-center transition-all"
+                              className="h-8 w-8 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 flex items-center justify-center transition-all shrink-0"
                               title="Excluir"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -1332,7 +1332,7 @@ export default function ComissoesAdminPanel() {
 
                             <button
                               onClick={() => setSelected(c)}
-                              className="ml-1 flex items-center gap-1 h-8 px-3.5 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 text-white text-xs font-black uppercase tracking-wider shadow-sm hover:opacity-90 active:scale-95"
+                              className="ml-1 flex items-center gap-1 h-8 px-3.5 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 text-white text-xs font-black uppercase tracking-wider shadow-sm hover:opacity-90 active:scale-95 shrink-0"
                             >
                               Painel
                             </button>

@@ -1,16 +1,19 @@
-import React, { useState, useEffect } from 'react';
-import { X, Check, Calculator, AlertCircle, Layers, Tag, Search } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { X, Check, Calculator, AlertCircle, Layers, Tag, Search, Percent, Layers2 } from 'lucide-react';
 import { ServiceItem, ServiceStatus, ChargingUnit } from '../types';
 import { CHARGING_UNITS } from '../data/mockData';
 import { formatCurrency } from '../utils/storage';
 import { getTodayISO as getTodayISOLocal } from '../utils/dateHelpers';
 import { supabase } from '../../supabase';
+import { getServiceBaseProductionValue, splitSingleService, splitAllServicesInNote } from '../utils/splitServiceHelper';
 
 interface ServiceModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (service: ServiceItem) => void;
+  onSaveBatch?: (services: ServiceItem[]) => void;
   editingService?: ServiceItem | null;
+  allServices?: ServiceItem[];
   initialDate?: string;
   defaultCommissionRate: number;
   // Usado quando o formulário é pré-preenchido a partir de uma nota do CRM (aba "Serviços
@@ -24,7 +27,9 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
   isOpen,
   onClose,
   onSave,
+  onSaveBatch,
   editingService,
+  allServices,
   initialDate,
   defaultCommissionRate,
   headerOverride,
@@ -48,6 +53,15 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
   // Divisao de servico (ex: 2 funcionarios fizeram o servico -> 50%)
   const [splitOption, setSplitOption] = useState<100 | 50 | 33 | 'custom'>(100);
   const [baseJobValue, setBaseJobValue] = useState<number | ''>('');
+  const [applyToAllInNote, setApplyToAllInNote] = useState(false);
+
+  // Demais itens vinculados à mesma nota de origem (para opção de dividir nota inteira)
+  const siblingServices = useMemo(() => {
+    if (!editingService?.origemNotaId || !allServices) return [];
+    return allServices.filter(
+      (s) => s.origemNotaId === editingService.origemNotaId && s.id !== editingService.id
+    );
+  }, [editingService, allServices]);
 
   // Busca de produtos do catalogo (mesma tabela usada no PDV) — pra nao precisar digitar o
   // servico na mao toda vez, e ja preencher o preco unitario certo direto do cadastro
@@ -120,6 +134,23 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
       setCommissionValue(editingService.commissionValue ?? '');
       setStatus(editingService.status || 'CONCLUÍDO');
       setNotes(editingService.notes || '');
+
+      const baseVal = getServiceBaseProductionValue(editingService);
+      setBaseJobValue(baseVal);
+
+      const text = `${editingService.serviceType} ${editingService.notes || ''}`.toLowerCase();
+      if (text.includes('50%')) {
+        setSplitOption(50);
+      } else if (text.includes('33%')) {
+        setSplitOption(33);
+      } else if (editingService.baseProductionValue && editingService.baseProductionValue > editingService.productionValue) {
+        const ratio = Math.round((editingService.productionValue / editingService.baseProductionValue) * 100);
+        if (ratio === 50) setSplitOption(50);
+        else if (ratio >= 32 && ratio <= 34) setSplitOption(33);
+        else setSplitOption('custom');
+      } else {
+        setSplitOption(100);
+      }
     } else {
       setDate(initialDate || getTodayISO());
       setClientName('');
@@ -133,7 +164,10 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
       setCommissionValue('');
       setStatus('CONCLUÍDO');
       setNotes('');
+      setBaseJobValue('');
+      setSplitOption(100);
     }
+    setApplyToAllInNote(false);
     setErrors({});
   }, [editingService, isOpen, defaultCommissionRate, initialDate]);
 
@@ -229,23 +263,36 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
     const prodVal = typeof productionValue === 'number' ? productionValue : 0;
     const commPct = typeof commissionPercent === 'number' ? commissionPercent : 10;
     const commVal = typeof commissionValue === 'number' ? commissionValue : (prodVal * commPct) / 100;
+    const originalProd = typeof baseJobValue === 'number' && baseJobValue > 0
+      ? baseJobValue
+      : (editingService?.baseProductionValue || prodVal);
 
     const itemToSave: ServiceItem = {
       id: editingService ? editingService.id : `srv-${Date.now()}`,
       date: date || getTodayISO(),
+      clientName: clientName.trim() || editingService?.clientName,
+      vehicle: vehicle.trim() || editingService?.vehicle,
       serviceType: serviceType.trim(),
       unit,
       quantity,
       unitPrice: typeof unitPrice === 'number' ? unitPrice : prodVal,
+      baseProductionValue: originalProd,
       productionValue: prodVal,
       commissionPercent: commPct,
       commissionValue: commVal,
       status,
       notes: notes.trim(),
       createdAt: editingService ? editingService.createdAt : Date.now(),
+      origemNotaId: editingService?.origemNotaId,
+      origemItemIndex: editingService?.origemItemIndex,
     };
 
-    onSave(itemToSave);
+    if (applyToAllInNote && siblingServices.length > 0 && onSaveBatch) {
+      const updatedSiblings = splitAllServicesInNote(siblingServices, splitOption, commPct);
+      onSaveBatch([itemToSave, ...updatedSiblings]);
+    } else {
+      onSave(itemToSave);
+    }
     onClose();
   };
 
@@ -448,6 +495,32 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
                   <p className="text-[10px] text-amber-400 font-bold bg-amber-500/10 border border-amber-500/20 rounded-lg px-2.5 py-1.5 flex items-center gap-1.5">
                     ✓ 50% selecionado: Sua parte de produção é {formatCurrency(typeof productionValue === 'number' ? productionValue : 0)} e a comissão será calculada sobre este valor.
                   </p>
+                )}
+                {splitOption === 33 && (
+                  <p className="text-[10px] text-blue-400 font-bold bg-blue-500/10 border border-blue-500/20 rounded-lg px-2.5 py-1.5 flex items-center gap-1.5">
+                    ✓ 33,3% selecionado: Sua parte de produção é {formatCurrency(typeof productionValue === 'number' ? productionValue : 0)} e a comissão será calculada sobre este valor.
+                  </p>
+                )}
+
+                {/* Opção para aplicar a divisão em toda a nota */}
+                {editingService?.origemNotaId && siblingServices.length > 0 && (
+                  <label className="flex items-start gap-2.5 mt-2 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 cursor-pointer select-none hover:bg-amber-500/15 transition-all">
+                    <input
+                      type="checkbox"
+                      checked={applyToAllInNote}
+                      onChange={(e) => setApplyToAllInNote(e.target.checked)}
+                      className="mt-0.5 rounded border-amber-500/50 text-amber-500 focus:ring-amber-400 w-4 h-4 cursor-pointer accent-amber-500 shrink-0"
+                    />
+                    <div className="text-xs">
+                      <span className="font-black block flex items-center gap-1.5">
+                        <Layers2 className="w-3.5 h-3.5 text-amber-400" />
+                        Dividir nota inteira ({siblingServices.length + 1} serviços)
+                      </span>
+                      <span className="text-[10px] text-amber-200/80 font-medium block mt-0.5">
+                        Aplicar esta mesma divisão ({splitOption === 100 ? '100% integral' : splitOption === 50 ? '50% meio a meio' : splitOption === 33 ? '33% (em 3)' : 'personalizada'}) para os outros {siblingServices.length} {siblingServices.length === 1 ? 'serviço' : 'serviços'} desta nota #{editingService.origemNotaId.slice(-6).toUpperCase()}.
+                      </span>
+                    </div>
+                  </label>
                 )}
               </div>
             </div>
