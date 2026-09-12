@@ -14571,12 +14571,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     </Badge>
                   </div>
                   <p className="text-[9px] text-white/40 mt-0.5">
-                    Total do Pedido: <b className="text-white/80">R$ {totalVenda.toFixed(2).replace('.', ',')}</b> • Entrada Recebida: <b className="text-emerald-400">R$ {down.toFixed(2).replace('.', ',')}</b> {!isFullyPaid && <span className="text-rose-400 font-bold ml-1">(Falta R$ {(totalVenda - down).toFixed(2).replace('.', ',')})</span>}
+                    Total do Pedido: <b className="text-white/80">R$ {totalVenda.toFixed(2).replace('.', ',')}</b> • Custo Total: <b className="text-rose-400">R$ {totalCustosNota.toFixed(2).replace('.', ',')}</b> • Entrada Recebida: <b className="text-emerald-400">R$ {down.toFixed(2).replace('.', ',')}</b> {!isFullyPaid && <span className="text-rose-400 font-bold ml-1">(Falta R$ {(totalVenda - down).toFixed(2).replace('.', ',')})</span>}
                   </p>
                 </div>
                 {!isFullyPaid ? (
                   <div className="flex items-center gap-3 text-right">
                     <div>
+                      <span className="text-[7.5px] uppercase font-bold text-rose-400/80 block">Custo Total</span>
+                      <span className="text-xs font-black font-mono text-rose-300">
+                        R$ {totalCustosNota.toFixed(2).replace('.', ',')}
+                      </span>
+                    </div>
+                    <div className="border-l border-white/10 pl-3">
                       <span className="text-[7.5px] uppercase font-bold text-white/40 block">Caixa Hoje</span>
                       <span className={cn("text-xs font-black font-mono", lucroCaixaHoje >= 0 ? "text-emerald-400" : "text-rose-400")}>
                         R$ {lucroCaixaHoje.toFixed(2).replace('.', ',')}
@@ -14591,11 +14597,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     </div>
                   </div>
                 ) : (
-                  <div className="text-right">
-                    <span className="text-[8px] uppercase font-bold text-white/40 block">Lucro Líquido Real</span>
-                    <span className={cn("text-sm font-black font-mono", lucroPrevistoNota >= 0 ? "text-emerald-400" : "text-rose-400")}>
-                      R$ {lucroPrevistoNota.toFixed(2).replace('.', ',')} ({margemPrevista.toFixed(0)}%)
-                    </span>
+                  <div className="flex items-center gap-3 text-right">
+                    <div>
+                      <span className="text-[7.5px] uppercase font-bold text-rose-400/80 block">Custo Total</span>
+                      <span className="text-sm font-black font-mono text-rose-300">
+                        R$ {totalCustosNota.toFixed(2).replace('.', ',')}
+                      </span>
+                    </div>
+                    <div className="border-l border-white/10 pl-3 text-right">
+                      <span className="text-[8px] uppercase font-bold text-white/40 block">Lucro Líquido Real</span>
+                      <span className={cn("text-sm font-black font-mono", lucroPrevistoNota >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                        R$ {lucroPrevistoNota.toFixed(2).replace('.', ',')} ({margemPrevista.toFixed(0)}%)
+                      </span>
+                    </div>
                   </div>
                 )}
               </div>
@@ -14791,15 +14805,22 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               </div>
 
               {/* Resumo Final de Custos */}
-              <div className={cn("grid gap-2 bg-slate-950/80 border border-white/10 rounded-xl p-2.5 text-center", !isFullyPaid ? "grid-cols-4" : "grid-cols-3")}>
+              <div className={cn("grid gap-2 bg-slate-950/80 border border-white/10 rounded-xl p-2.5 text-center", !isFullyPaid ? "grid-cols-2 sm:grid-cols-5" : "grid-cols-2 sm:grid-cols-4")}>
                 <div>
-                  <span className="text-[7.5px] uppercase font-bold text-white/40 block">Matéria-Prima & Máquina</span>
+                  <span className="text-[7.5px] uppercase font-bold text-white/40 block">1. Produção (Matéria/Máq)</span>
                   <span className="text-[10px] font-bold text-amber-300">R$ {custoAutomaticoTotal.toFixed(2).replace('.', ',')}</span>
                 </div>
                 <div>
-                  <span className="text-[7.5px] uppercase font-bold text-white/40 block">Comissões & Extras</span>
+                  <span className="text-[7.5px] uppercase font-bold text-white/40 block">2. Comissões & Extras</span>
                   <span className="text-[10px] font-bold text-rose-300">R$ {totalExtras.toFixed(2).replace('.', ',')}</span>
                   {pendenteDigitado > 0 && <span className="text-[7px] text-cyan-300 block font-normal">(R$ {pendenteDigitado.toFixed(2).replace('.', ',')} no campo)</span>}
+                </div>
+                <div className="bg-rose-950/40 border border-rose-500/30 rounded-lg py-1 px-1.5 flex flex-col justify-center">
+                  <span className="text-[7.5px] uppercase font-black text-rose-300 tracking-wider block">Custo Total da Nota</span>
+                  <span className="text-[11px] font-black font-mono text-rose-300">R$ {totalCustosNota.toFixed(2).replace('.', ',')}</span>
+                  <span className="text-[7px] text-rose-400/80 font-mono">
+                    ({totalVenda > 0 ? ((totalCustosNota / totalVenda) * 100).toFixed(0) : 0}% da venda)
+                  </span>
                 </div>
                 {!isFullyPaid ? (
                   <>
@@ -14818,9 +14839,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     </div>
                   </>
                 ) : (
-                  <div>
-                    <span className="text-[7.5px] uppercase font-bold text-emerald-400/80 block">Lucro Líquido</span>
-                    <span className="text-[10px] font-black font-mono text-emerald-400">R$ {lucroPrevistoNota.toFixed(2).replace('.', ',')}</span>
+                  <div className="bg-emerald-950/30 border border-emerald-500/20 rounded-lg py-1 px-1.5 flex flex-col justify-center">
+                    <span className="text-[7.5px] uppercase font-black text-emerald-400 block">Lucro Líquido Real</span>
+                    <span className="text-[11px] font-black font-mono text-emerald-400">R$ {lucroPrevistoNota.toFixed(2).replace('.', ',')}</span>
                     {pendenteDigitado > 0 && <span className="text-[7px] text-cyan-400 block font-mono">atualizado ao digitar</span>}
                   </div>
                 )}

@@ -28,6 +28,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
 }) => {
   const forecastTotal = baseSalary + totalCommission - totalDiscounts - totalPaid + previousBalance;
   const hasAdjustments = totalDiscounts > 0 || totalPaid > 0 || previousBalance !== 0;
+  const isHojeSabado = new Date().getDay() === 6;
 
   return (
     <div
@@ -50,7 +51,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
               <span>Previsão de Recebimento</span>
             </div>
             <span className="text-[11px] font-bold text-white/80 bg-white/10 px-2.5 py-1 rounded-lg border border-white/10 shrink-0 whitespace-nowrap">
-              Semanal
+              {isHojeSabado ? 'Fechamento (até Sexta)' : 'Semanal'}
             </span>
           </div>
 
@@ -61,7 +62,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
                 Total Estimado
               </span>
               <span className="text-[11px] text-white/70 font-medium block whitespace-nowrap truncate mt-0.5">
-                Previsão líquida da semana
+                {isHojeSabado ? 'Fechamento oficial até sexta-feira' : 'Previsão líquida da semana'}
               </span>
             </div>
             <div className="text-2xl sm:text-3xl font-black tracking-tight text-white drop-shadow-sm font-mono whitespace-nowrap text-right shrink-0">
@@ -141,6 +142,12 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
               <span className="text-white font-black uppercase text-xs tracking-wider whitespace-nowrap">= Saldo a Receber</span>
               <span className="font-black text-white font-mono text-base whitespace-nowrap">{formatCurrency(forecastTotal)}</span>
             </div>
+
+            {isHojeSabado && (
+              <div className="text-[10px] text-white/80 bg-black/25 px-2.5 py-1.5 rounded-lg border border-white/10 text-center leading-tight">
+                ℹ️ Fechamento até sexta-feira. Produções realizadas hoje (sábado) serão contabilizadas na próxima semana.
+              </div>
+            )}
           </div>
         </div>
 

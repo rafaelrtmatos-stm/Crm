@@ -71,24 +71,31 @@ const getTodayISO = (): string => formatISO(new Date());
 
 /**
  * Ciclo de Comissão Semanal: Sábado a Sexta-feira.
- * Regra implementada em 07/09/2026:
- * - Ciclo padrão de comissão: Sábado de uma semana até Sexta-feira da próxima semana.
- * - Exceção inaugural (semana atual de 07/09 a 11/09): como a regra iniciou na segunda 07/09,
- *   não soma o sábado 05/09 (que pertenceu ao fechamento anterior). O ciclo atual apura de 07/09 a 11/09.
- * - Ciclos seguintes: Sábado a Sexta (ex: 12/09 a 18/09, 19/09 a 25/09, sucessivamente).
+ * Regra oficial de fechamento:
+ * - O ciclo de produção/comissão apurado vai de Sábado até Sexta-feira.
+ * - No Sábado (dia 6), quando o usuário visualiza o modal/painel de previsão de recebimento,
+ *   a semana de acerto exibida é a semana que encerrou ontem (sexta-feira), para pagar o que foi
+ *   produzido até sexta. Os serviços realizados no próprio sábado não entram neste acerto,
+ *   entrando para o próximo ciclo semanal.
+ * - De Domingo a Sexta-feira: a semana apurada avança e acumula em tempo real do sábado anterior
+ *   até o respectivo dia.
+ * - Exceção inaugural (semana de 07/09 a 11/09): como a regra começou na segunda-feira 07/09,
+ *   não soma o sábado 05/09 (que pertenceu ao fechamento anterior).
  */
 export const getWorkWeekBounds = (offsetWeeks = 0): { start: string; end: string } => {
   const now = new Date();
   const day = now.getDay(); // 0 = domingo ... 6 = sábado
-  // No ciclo sábado a sexta:
-  // Se for sábado (6), é o primeiro dia do ciclo da semana (diff = 0)
-  // Se for domingo (0), o ciclo começou ontem sábado (diff = -1)
-  // Se for segunda (1), o ciclo começou sábado anteontem (diff = -2), etc.
-  const diffToSaturday = -((day + 1) % 7);
+
+  // No sábado (6), a semana de acerto exibida no modal/dashboard é a que fechou na sexta de ontem (-7 dias).
+  // Nos demais dias (domingo=0 até sexta=5), a semana apurada é a semana corrente.
+  const isSaturday = day === 6;
+  const baseShift = isSaturday ? -7 : 0;
+  const diffToSaturday = -((day + 1) % 7) + baseShift;
+
   const sat = new Date(now);
   sat.setDate(now.getDate() + diffToSaturday + offsetWeeks * 7);
   let start = formatISO(sat);
-  const end = addDaysISO(start, 6); // Sexta-feira (7 dias de sábado a sexta)
+  const end = addDaysISO(start, 6); // Sexta-feira (7 dias: sábado a sexta)
 
   // Exceção inaugural da regra em 07/09/2026:
   // Apenas nesta primeira semana (05/09 a 11/09), não conta o sábado 05/09,

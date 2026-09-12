@@ -108,6 +108,9 @@ export default defineConfig(({mode}) => {
         'react-dom/client',
         'react/jsx-runtime',
         'react/jsx-dev-runtime',
+        'firebase/app',
+        'firebase/auth',
+        'firebase/firestore',
       ],
     },
     server: {
@@ -115,9 +118,6 @@ export default defineConfig(({mode}) => {
       host: '0.0.0.0',
       port: 3000,
       allowedHosts: true,
-    },
-    optimizeDeps: {
-      include: ['firebase/app', 'firebase/auth', 'firebase/firestore'],
     },
   };
 });
