@@ -34,6 +34,7 @@ import {
   calcularResumoPorPeriodo,
   PeriodoVisualizacao,
   getWorkWeekBounds,
+  addDaysISO,
 } from '../utils/caixaSemanalStorage';
 import { formatDateBR } from '../utils/storage';
 import { showAlert, showConfirm } from '../../lib/notify';
@@ -72,12 +73,13 @@ const getTodayISO = () => getTodayISOLocal();
 
 // Tipo de período pro card "Descontos" (Semana / Mês / Ano), com offset pra navegar
 // entre períodos anteriores/seguintes -- mesma ideia do seletor do Caixa da Semana.
-type DescontosPeriodo = 'semana' | 'mes' | 'ano';
+type DescontosPeriodo = 'semana' | 'mes' | 'ano' | 'todos';
 
 const DESCONTOS_PERIODO_LABELS: Record<DescontosPeriodo, string> = {
   semana: 'Semana',
   mes: 'Mês',
   ano: 'Ano',
+  todos: 'Todos',
 };
 
 const format = (d: Date) => toLocalISO(d);
@@ -85,8 +87,20 @@ const format = (d: Date) => toLocalISO(d);
 // Calcula início/fim do período selecionado, aplicando o offset (0 = atual,
 // -1 = anterior, 1 = seguinte...). Semana de sábado a sexta.
 const getDescontosPeriodoBounds = (periodo: DescontosPeriodo, offset: number) => {
+  if (periodo === 'todos') {
+    return { start: '1970-01-01', end: '2099-12-31' };
+  }
+
   if (periodo === 'semana') {
-    return getWorkWeekBounds(offset);
+    const now = new Date();
+    const day = now.getDay(); // 0 Dom ... 6 Sáb
+    // A semana corrente no painel de descontos inclui HOJE (sábado a sexta)
+    const diffToSaturday = day === 6 ? 0 : -(day + 1);
+    const sat = new Date(now);
+    sat.setDate(now.getDate() + diffToSaturday + offset * 7);
+    const start = format(sat);
+    const end = addDaysISO(start, 6);
+    return { start, end };
   }
 
   const now = new Date();
@@ -101,8 +115,12 @@ const getDescontosPeriodoBounds = (periodo: DescontosPeriodo, offset: number) =>
   return { start: format(new Date(y, 0, 1)), end: format(new Date(y, 11, 31)) };
 };
 
-// Texto exibido junto ao total (ex: "01/08 - 07/08", "Agosto/2026", "2026")
+// Texto exibido junto ao total (ex: "01/08 - 07/08", "Agosto/2026", "2026", "Todos os lançamentos")
 const getDescontosPeriodoLabel = (periodo: DescontosPeriodo, offset: number, bounds: { start: string; end: string }): string => {
+  if (periodo === 'todos') {
+    return 'Todos os períodos';
+  }
+
   const now = new Date();
 
   if (periodo === 'semana') {
@@ -119,7 +137,7 @@ const getDescontosPeriodoLabel = (periodo: DescontosPeriodo, offset: number, bou
 };
 
 const emptyForm: DescontoFormInput = {
-  tipo: 'falta_meio_periodo',
+  tipo: 'outro',
   descricao: '',
   valor: 0,
   recorrencia: 'unica',
@@ -149,25 +167,25 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
     () => getDescontosPeriodoBounds(descontosPeriodo, descontosPeriodoOffset),
     [descontosPeriodo, descontosPeriodoOffset]
   );
-  const totalDescontosPeriodo = useMemo(
-    () => calculateDescontosNoPeriodo(descontos, descontosPeriodoBounds.start, descontosPeriodoBounds.end),
-    [descontos, descontosPeriodoBounds]
-  );
+  const totalDescontosPeriodo = useMemo(() => {
+    if (descontosPeriodo === 'todos') {
+      return descontos.filter((d) => d.ativo).reduce((sum, d) => sum + d.valor, 0);
+    }
+    return calculateDescontosNoPeriodo(descontos, descontosPeriodoBounds.start, descontosPeriodoBounds.end);
+  }, [descontos, descontosPeriodo, descontosPeriodoBounds]);
+
   const descontosPeriodoLabel = useMemo(
     () => getDescontosPeriodoLabel(descontosPeriodo, descontosPeriodoOffset, descontosPeriodoBounds),
     [descontosPeriodo, descontosPeriodoOffset, descontosPeriodoBounds]
   );
 
-  // ✅ Lista de descontos exibida abaixo também acompanha o seletor Semana/Mês/Ano de cima
-  // (antes mostrava sempre TODOS os descontos já lançados, de qualquer data, ignorando o
-  // período navegado -- uma falta de outra semana continuava aparecendo aqui mesmo quando
-  // não fazia parte da semana selecionada). Considera ocorrência dentro do período (inclusive
-  // recorrentes), não só a data de cadastro. ignorarAtivo=true pra continuar mostrando também
-  // os inativos (acinzentados, com botão "Ativar") -- igual já era antes dessa mudança.
-  const descontosDoPeriodo = useMemo(
-    () => descontos.filter((d) => contarOcorrenciasNoPeriodo(d, descontosPeriodoBounds.start, descontosPeriodoBounds.end, true) > 0),
-    [descontos, descontosPeriodoBounds]
-  );
+  // ✅ Lista de descontos exibida abaixo acompanha o seletor Semana/Mês/Ano/Todos
+  const descontosDoPeriodo = useMemo(() => {
+    if (descontosPeriodo === 'todos') {
+      return descontos;
+    }
+    return descontos.filter((d) => contarOcorrenciasNoPeriodo(d, descontosPeriodoBounds.start, descontosPeriodoBounds.end, true) > 0);
+  }, [descontos, descontosPeriodo, descontosPeriodoBounds]);
 
   // --- Caixa da Semana ---
   const [caixa, setCaixa] = useState<WeeklyCaixa | null>(null);
@@ -287,7 +305,9 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
     setEditingId(null);
     setForm({
       ...emptyForm,
-      valor: baseSalary > 0 ? sugerirValorFalta(emptyForm.tipo, baseSalary) : 0,
+      tipo: 'outro',
+      descricao: '',
+      valor: 0,
     });
     setShowForm(true);
   };
@@ -307,6 +327,10 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
   const handleSave = async () => {
     if (!form.valor || form.valor <= 0) { showAlert('Informe um valor de desconto maior que zero.'); return; }
     if (!form.data) { showAlert('Informe a data do desconto.'); return; }
+    if (form.tipo === 'outro' && !form.descricao?.trim()) {
+      showAlert('Por favor, informe o motivo do desconto.');
+      return;
+    }
     setSaving(true);
     const saved = await saveDescontoToSupabase(colaboradorId, { ...form, id: editingId || undefined }, !editingId);
     setSaving(false);
@@ -314,6 +338,12 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
     const updated = editingId ? descontos.map((d) => (d.id === saved.id ? saved : d)) : [saved, ...descontos];
     onChange(updated);
     closeForm();
+
+    // Se o desconto lançado estiver fora do período atualmente filtrado, muda automaticamente para 'todos'
+    // para que o usuário veja imediatamente o desconto recém adicionado
+    if (descontosPeriodo !== 'todos' && contarOcorrenciasNoPeriodo(saved, descontosPeriodoBounds.start, descontosPeriodoBounds.end, true) === 0) {
+      setDescontosPeriodo('todos');
+    }
   };
 
   const handleDelete = async (d: Desconto) => {
@@ -578,15 +608,15 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
           </div>
 
           <div className="flex items-center gap-3 flex-wrap">
-            {/* ✅ Seletor de visualização: Semana / Mês / Ano (Semana é o padrão) */}
+            {/* ✅ Seletor de visualização: Semana / Mês / Ano / Todos */}
             <div className="flex items-center gap-1 p-1 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
-              {(['semana', 'mes', 'ano'] as const).map((p) => (
+              {(['semana', 'mes', 'ano', 'todos'] as const).map((p) => (
                 <button
                   key={p}
                   onClick={() => { setDescontosPeriodo(p); setDescontosPeriodoOffset(0); }}
                   className={`px-3 py-1.5 rounded-md text-[11px] font-black uppercase tracking-wider transition-all ${
                     descontosPeriodo === p
-                      ? 'bg-primary-500 text-white'
+                      ? 'bg-primary-500 text-white shadow-sm'
                       : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'
                   }`}
                 >
@@ -607,28 +637,36 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
           </div>
         </div>
 
-        {/* ✅ Navegação entre semanas/meses/anos anteriores e seguintes */}
-        <div className="flex items-center justify-center gap-3 py-1 mt-4">
-          <button
-            onClick={() => setDescontosPeriodoOffset((o) => o - 1)}
-            className="p-1.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5 transition-all"
-            title={`${DESCONTOS_PERIODO_LABELS[descontosPeriodo]} anterior`}
-          >
-            <ChevronLeft size={16} />
-          </button>
-          <span className="text-xs font-black uppercase tracking-wider text-[var(--text-main)] min-w-[140px] text-center">
-            {descontosPeriodoLabel}
-            {descontosPeriodoOffset === 0 && <span className="text-primary-400"> · atual</span>}
-          </span>
-          <button
-            onClick={() => setDescontosPeriodoOffset((o) => Math.min(0, o + 1))}
-            disabled={descontosPeriodoOffset >= 0}
-            className="p-1.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5 transition-all disabled:opacity-30 disabled:pointer-events-none"
-            title={`${DESCONTOS_PERIODO_LABELS[descontosPeriodo]} seguinte`}
-          >
-            <ChevronRight size={16} />
-          </button>
-        </div>
+        {/* ✅ Navegação entre períodos (oculto quando "todos" está ativo) */}
+        {descontosPeriodo !== 'todos' ? (
+          <div className="flex items-center justify-center gap-3 py-1 mt-4">
+            <button
+              onClick={() => setDescontosPeriodoOffset((o) => o - 1)}
+              className="p-1.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5 transition-all cursor-pointer"
+              title={`${DESCONTOS_PERIODO_LABELS[descontosPeriodo]} anterior`}
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <span className="text-xs font-black uppercase tracking-wider text-[var(--text-main)] min-w-[140px] text-center">
+              {descontosPeriodoLabel}
+              {descontosPeriodoOffset === 0 && <span className="text-primary-400"> · atual</span>}
+            </span>
+            <button
+              onClick={() => setDescontosPeriodoOffset((o) => Math.min(1, o + 1))}
+              disabled={descontosPeriodoOffset >= 1}
+              className="p-1.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5 transition-all disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
+              title={`${DESCONTOS_PERIODO_LABELS[descontosPeriodo]} seguinte`}
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-center py-1 mt-4">
+            <span className="text-xs font-black uppercase tracking-wider text-[var(--text-muted)]">
+              Exibindo todos os descontos cadastrados ({descontos.length})
+            </span>
+          </div>
+        )}
 
         {!isAdmin && (
           <p className="text-[11px] text-[var(--text-muted)] mt-3">
@@ -645,9 +683,9 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <label className="space-y-1 block">
-              <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">Motivo</span>
+              <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">Motivo do Desconto</span>
               <select
-                value={form.tipo || 'vale'}
+                value={form.tipo || 'outro'}
                 onChange={(e) => {
                   const novoTipo = e.target.value as DescontoTipo;
                   // Ao escolher um tipo de falta (num desconto novo), sugere automaticamente
@@ -656,19 +694,45 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
                     !editingId && baseSalary > 0 ? sugerirValorFalta(novoTipo, baseSalary) : undefined;
                   setForm({ ...form, tipo: novoTipo, ...(sugestao ? { valor: sugestao } : {}) });
                 }}
-                className="w-full h-10 bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl px-3 text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)]"
+                className="w-full h-10 bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl px-3 text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)] font-medium"
               >
                 {(Object.keys(DESCONTO_TIPO_LABELS) as DescontoTipo[]).map((key) => (
                   <option key={key} value={key}>{DESCONTO_TIPO_LABELS[key]}</option>
                 ))}
               </select>
             </label>
+
+            {form.tipo === 'outro' ? (
+              <label className="space-y-1 block">
+                <span className="text-[10px] font-black uppercase text-amber-400 tracking-wider flex items-center gap-1">
+                  Qual o motivo ou descrição? <span className="text-rose-400">*</span>
+                </span>
+                <input
+                  value={form.descricao || ''}
+                  onChange={(e) => setForm({ ...form, descricao: e.target.value })}
+                  placeholder="Ex: Adiantamento, Vale transporte, Compra na loja..."
+                  className="w-full h-10 bg-[var(--bg-card-sec)] border border-amber-500/50 rounded-xl px-3 text-sm text-[var(--text-main)] focus:outline-none focus:border-amber-400 font-medium"
+                  required
+                />
+              </label>
+            ) : (
+              <label className="space-y-1 block">
+                <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">Observação (opcional)</span>
+                <input
+                  value={form.descricao || ''}
+                  onChange={(e) => setForm({ ...form, descricao: e.target.value })}
+                  placeholder="Ex: justificativa ou detalhe do desconto"
+                  className="w-full h-10 bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl px-3 text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)]"
+                />
+              </label>
+            )}
+
             <label className="space-y-1 block">
               <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">Valor (R$)</span>
               <input
                 type="number" step="0.01" value={form.valor ?? ''}
                 onChange={(e) => setForm({ ...form, valor: Number(e.target.value) || 0 })}
-                className="w-full h-10 bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl px-3 text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)]"
+                className="w-full h-10 bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl px-3 text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)] font-mono font-bold"
               />
               {baseSalary > 0 && (form.tipo === 'falta_periodo' || form.tipo === 'falta_meio_periodo') && (
                 <span className="block text-[10px] text-[var(--text-muted)]">
@@ -689,7 +753,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
                 ))}
               </select>
             </label>
-            <label className="space-y-1 block">
+            <label className="space-y-1 block sm:col-span-2">
               <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">
                 {form.recorrencia === 'unica' ? 'Data do desconto' : 'Data de início'}
               </span>
@@ -699,22 +763,13 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
                 className="w-full h-10 bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl px-3 text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)]"
               />
             </label>
-            <label className="space-y-1 block sm:col-span-2">
-              <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">Observação (opcional)</span>
-              <input
-                value={form.descricao}
-                onChange={(e) => setForm({ ...form, descricao: e.target.value })}
-                placeholder="Ex: faltou dia 10/08 sem avisar"
-                className="w-full h-10 bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl px-3 text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)]"
-              />
-            </label>
           </div>
           <div className="flex justify-end gap-2">
             <button onClick={closeForm} className="h-9 px-4 rounded-xl text-xs font-black uppercase text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors">Cancelar</button>
             <button
               disabled={saving}
               onClick={handleSave}
-              className="h-9 px-4 rounded-xl bg-gradient-red text-white text-xs font-black uppercase tracking-wide shadow-red-glow hover:opacity-90 transition-opacity disabled:opacity-50"
+              className="h-9 px-4 rounded-xl bg-gradient-red text-white text-xs font-black uppercase tracking-wide shadow-red-glow hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer"
             >
               {saving ? 'Salvando...' : (editingId ? 'Salvar Alterações' : 'Adicionar Desconto')}
             </button>
@@ -733,31 +788,38 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
               <div key={d.id} className={`flex items-center gap-3 px-4 py-3 flex-wrap ${!d.ativo ? 'opacity-50' : ''}`}>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <p className="font-bold text-[var(--text-main)] text-sm">{DESCONTO_TIPO_LABELS[d.tipo]}</p>
+                    <p className="font-bold text-[var(--text-main)] text-sm">
+                      {d.tipo === 'outro' && d.descricao ? d.descricao : (DESCONTO_TIPO_LABELS[d.tipo] || d.tipo)}
+                    </p>
                     <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-[var(--bg-card-sec)] text-[var(--text-muted)] border border-[var(--border-color)]">
                       {DESCONTO_RECORRENCIA_LABELS[d.recorrencia]}
                     </span>
+                    {d.tipo === 'outro' && d.descricao && (
+                      <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                        Outro desconto
+                      </span>
+                    )}
                     {!d.ativo && <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-400">Inativo</span>}
                   </div>
                   <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
                     {d.recorrencia === 'unica' ? formatDateBR(d.data) : `A partir de ${formatDateBR(d.data)}`}
-                    {d.descricao ? ` · ${d.descricao}` : ''}
+                    {d.tipo !== 'outro' && d.descricao ? ` · ${d.descricao}` : ''}
                   </p>
                 </div>
                 <div className="font-mono font-black text-rose-400 text-sm shrink-0">-{formatCurrency(d.valor)}</div>
                 {isAdmin && (
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <button onClick={() => openEditForm(d)} className="p-1.5 rounded-lg bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 border border-amber-500/30 transition-all" title="Editar Desconto">
+                    <button onClick={() => openEditForm(d)} className="p-1.5 rounded-lg bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 border border-amber-500/30 transition-all cursor-pointer" title="Editar Desconto">
                       <Pencil size={13} />
                     </button>
                     <button
                       onClick={() => handleToggleAtivo(d)}
-                      className={`p-1.5 rounded-lg border transition-all ${d.ativo ? 'bg-amber-500/10 text-amber-400 border-amber-500/20 hover:bg-amber-500/20' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20'}`}
+                      className={`p-1.5 rounded-lg border transition-all cursor-pointer ${d.ativo ? 'bg-amber-500/10 text-amber-400 border-amber-500/20 hover:bg-amber-500/20' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20'}`}
                       title={d.ativo ? 'Desativar' : 'Ativar'}
                     >
                       {d.ativo ? <Ban size={13} /> : <CheckCircle2 size={13} />}
                     </button>
-                    <button onClick={() => handleDelete(d)} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/20 transition-all" title="Excluir Desconto">
+                    <button onClick={() => handleDelete(d)} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/20 transition-all cursor-pointer" title="Excluir Desconto">
                       <Trash2 size={13} />
                     </button>
                   </div>

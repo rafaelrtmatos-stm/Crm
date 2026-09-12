@@ -208,24 +208,6 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
             </div>
           </button>
 
-          {/* Botão para dividir toda a nota de uma vez */}
-          {onBatchUpdateServices && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setSplitModalGroup(group);
-                setIsSplitModalOpen(true);
-              }}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[11px] font-black tracking-wide shrink-0 transition-all cursor-pointer"
-              title="Dividir produção e comissão de toda a nota"
-            >
-              <Percent className="w-3.5 h-3.5 text-amber-400" />
-              <span className="hidden sm:inline">Dividir Nota</span>
-              <span className="sm:hidden">Dividir</span>
-            </button>
-          )}
-
           <span className="font-mono font-black text-xs text-[var(--text-main)] whitespace-nowrap">
             {formatCurrency(group.total)}
           </span>
@@ -259,14 +241,31 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
                   </p>
                 </div>
                 <span className="font-mono font-black text-xs">{formatCurrency(service.productionValue)}</span>
-                <button onClick={() => onEditService(service)} className="p-1.5 rounded-lg hover:bg-[var(--accent-red)] hover:text-white">
+                <button onClick={() => onEditService(service)} className="p-1.5 rounded-lg hover:bg-[var(--accent-red)] hover:text-white" title="Editar serviço">
                   <Edit2 className="w-3.5 h-3.5" />
                 </button>
-                <button onClick={() => onDeleteService(service.id)} className="p-1.5 rounded-lg hover:bg-red-950/40 text-red-400">
+                <button onClick={() => onDeleteService(service.id)} className="p-1.5 rounded-lg hover:bg-red-950/40 text-red-400" title="Excluir serviço">
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
               </div>
             ))}
+
+            {group.items.length > 1 && onBatchUpdateServices && (
+              <div className="pt-1 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSplitModalGroup(group);
+                    setIsSplitModalOpen(true);
+                  }}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-amber-400 text-[10px] font-bold transition-all cursor-pointer"
+                  title="Dividir comissão de todos os serviços desta nota"
+                >
+                  <Percent className="w-3 h-3 text-amber-400" />
+                  <span>Dividir comissão de toda a nota</span>
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -545,7 +545,7 @@ export const calculateSummaryStats = (services: ServiceItem[], baseSalary: numbe
 // colaborador (ComissoesApp / ComissoesEmbedded sem presetColaborador) só usa as
 // funções de leitura abaixo, nunca as de escrita (isso é controlado no componente,
 // via a prop isAdmin da DescontosView -- ver comissoes_descontos no create_comissoes_descontos.sql).
-export type DescontoTipo = 'falta_meio_periodo' | 'falta_periodo' | 'outro' | 'debito_saldo_anterior' | 'divida';
+export type DescontoTipo = 'falta_meio_periodo' | 'falta_periodo' | 'vale' | 'atraso' | 'avaria' | 'uniforme' | 'outro' | 'debito_saldo_anterior' | 'divida';
 export type DescontoRecorrencia = 'unica' | 'semanal' | 'mensal';
 
 export interface Desconto {
@@ -572,6 +572,10 @@ export interface Desconto {
 export const DESCONTO_TIPO_LABELS: Record<DescontoTipo, string> = {
   falta_meio_periodo: 'Falta — meio período',
   falta_periodo: 'Falta — período completo',
+  vale: 'Vale / Adiantamento',
+  atraso: 'Atraso',
+  avaria: 'Avaria / Dano Material',
+  uniforme: 'Uniforme / EPI',
   outro: 'Outro desconto',
   debito_saldo_anterior: 'Débito do saldo anterior',
   divida: 'Dívida (parcelada)',

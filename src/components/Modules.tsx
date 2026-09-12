@@ -10890,7 +10890,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setNewPaymentInstallments(1);
     setUseCustomPaymentDate(false);
     setCustomPaymentDate('');
-    setAllowExtraPaymentEntry(false);
+    setNewPaymentInput('');
   };
 
   const removePaymentEntry = (idx: number) => {
@@ -15010,7 +15010,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         isOpen={isPaymentModalOpen} 
         onClose={handleClosePaymentModal} 
         title={settlingOrder ? `Quitar Débito — Pedido #${settlingOrder.id.slice(-8).toUpperCase()}` : editingFullOrder ? `Salvar Alterações — Pedido #${editingFullOrder.id.slice(-8).toUpperCase()}` : "Finalizar Venda / Fechar Nota"}
-        size="lg"
+        size="xl"
         className="max-h-[96vh] my-auto"
         contentClassName="min-h-0"
       >
@@ -15187,111 +15187,153 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     </div>
                  </div>
 
-                 <div className="p-2 sm:p-2.5 bg-white/3 rounded-xl border border-white/5 flex justify-between items-center shrink-0">
-                    <div>
-                       <p className="text-[7.5px] sm:text-[8px] font-black text-white/30 uppercase tracking-widest leading-none">{settlingOrder ? 'Entrada Já Recebida' : 'Pago / Entrada'}</p>
-                       <p className="text-xs font-black text-emerald-400 mt-0.5">R$ {(settlingOrder ? alreadyPaidForSettle : (downPayment === '' || typeof downPayment === 'string' ? 0 : Number(downPayment))).toFixed(2).replace('.', ',')}</p>
+                 <div className="p-2.5 bg-white/[0.04] rounded-xl border border-white/10 space-y-2 shrink-0">
+                    <div className="grid grid-cols-2 gap-2 text-left">
+                       <div>
+                          <p className="text-[7.5px] sm:text-[8px] font-black text-white/40 uppercase tracking-widest leading-none">{settlingOrder ? 'Já Pago Anteriormente' : 'Pago / Entrada'}</p>
+                          <p className="text-xs sm:text-sm font-black text-emerald-400 mt-0.5">R$ {(settlingOrder ? alreadyPaidForSettle : (downPayment === '' || typeof downPayment === 'string' ? 0 : Number(downPayment))).toFixed(2).replace('.', ',')}</p>
+                       </div>
+                       <div>
+                          <p className="text-[7.5px] sm:text-[8px] font-black text-white/40 uppercase tracking-widest leading-none">Novas Entradas ({paymentEntries.length})</p>
+                          <p className="text-xs sm:text-sm font-black text-primary-300 mt-0.5">R$ {paymentEntriesTotal.toFixed(2).replace('.', ',')}</p>
+                       </div>
                     </div>
-                    <div className="text-right">
-                       <p className="text-[7.5px] sm:text-[8px] font-black text-white/30 uppercase tracking-widest leading-none">Saldo Restante</p>
-                       <p className={cn("text-xs font-black mt-0.5", paymentModalRemaining > 0 ? "text-rose-400" : "text-white/40")}>R$ {paymentModalRemaining.toFixed(2).replace('.', ',')}</p>
+                    <div className="flex items-center justify-between pt-1.5 border-t border-white/5">
+                       <span className="text-[8px] sm:text-[8.5px] font-black uppercase text-white/50 tracking-wider">Saldo Restante a Quitar:</span>
+                       <span className={cn("text-xs sm:text-sm font-black", paymentModalRemaining > 0 ? "text-rose-400" : "text-emerald-400")}>
+                          {paymentModalRemaining > 0 ? `R$ ${paymentModalRemaining.toFixed(2).replace('.', ',')}` : 'R$ 0,00 (Quitado ✓)'}
+                       </span>
                     </div>
                  </div>
               </div>
 
               {/* Right Side: Multiple Payments */}
-              <div className="md:col-span-7 flex flex-col justify-between min-h-0 overflow-y-auto custom-scrollbar gap-2 pr-1">
+              <div className="md:col-span-7 flex flex-col gap-2.5 min-h-0 overflow-y-auto custom-scrollbar pr-1">
                  <div className="flex flex-col gap-2">
                     <div className="flex items-center justify-between px-0.5 shrink-0">
-                       <p className="text-[8px] sm:text-[9px] font-black uppercase text-white/40 tracking-widest">
-                          Pagamentos ({paymentEntries.length + ((settlingOrder || editingFullOrder) ? editingPaymentsList.length : 0)})
+                       <p className="text-[8.5px] sm:text-[9px] font-black uppercase text-white/50 tracking-widest">
+                          Entradas / Pagamentos ({paymentEntries.length + ((settlingOrder || editingFullOrder) ? editingPaymentsList.length : 0)})
                        </p>
                        {(settlingOrder || editingFullOrder) && (
-                          <span className="text-[7.5px] font-bold text-white/40 uppercase">
-                             Total Nota: R$ {paymentModalTotal.toFixed(2).replace('.', ',')}
+                          <span className="text-[8px] font-bold text-white/50 uppercase">
+                             Total da Nota: R$ {paymentModalTotal.toFixed(2).replace('.', ',')}
                           </span>
                        )}
                     </div>
 
                     {/* Pagamentos JA EXISTENTES (lancados antes) — data editavel, pode excluir */}
                     {(settlingOrder || editingFullOrder) && editingPaymentsList.length > 0 && (
-                      <div className="space-y-1 shrink-0 max-h-36 overflow-y-auto custom-scrollbar">
-                         <p className="text-[7px] font-black uppercase text-white/20 tracking-widest px-0.5">Já Lançados</p>
+                      <div className="space-y-1.5 shrink-0 max-h-48 overflow-y-auto custom-scrollbar">
+                         <p className="text-[7.5px] font-black uppercase text-white/40 tracking-widest px-0.5">Entradas Já Lançadas Anteriormente</p>
                          {editingPaymentsList.map((p, idx) => {
                             const opt = PAYMENT_METHOD_OPTIONS.find(o => o.id === p.method);
+                            const feePct = p.feePercent || 0;
+                            const baseVal = feePct > 0 ? p.value / (1 + feePct / 100) : p.value;
+                            const acrescimoTot = Math.max(0, p.value - baseVal);
+                            const numParc = p.installments || 1;
+                            const acrescimoPorParc = numParc > 0 ? acrescimoTot / numParc : 0;
+                            const valorPorParc = numParc > 0 ? p.value / numParc : p.value;
                             return (
-                              <div key={idx} className="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-white/5 border border-white/5 rounded-lg">
-                                 <div className="flex items-center gap-2 min-w-0">
-                                    {opt?.icon && <opt.icon size={12} className="text-primary-300 shrink-0" />}
-                                    <span className="text-[9px] font-black text-white uppercase truncate shrink-0">{opt?.label || p.method}</span>
-                                    <input
-                                      type="datetime-local"
-                                      value={p.date ? isoToLocalDatetimeInput(p.date) : ''}
-                                      onChange={(e) => {
-                                         const novaData = localDatetimeToIso(e.target.value) || p.date;
-                                         setEditingPaymentsList(prev => prev.map((pp, i) => i === idx ? { ...pp, date: novaData } : pp));
-                                      }}
-                                      className="h-6 bg-transparent border border-white/10 rounded px-1 text-[8px] text-white/60 focus:outline-none focus:border-primary-500 w-[112px] shrink-0"
-                                    />
+                              <div key={idx} className="p-2.5 bg-white/[0.04] hover:bg-white/[0.07] border border-white/10 rounded-xl space-y-1.5 transition-all">
+                                 <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                       {opt?.icon && <opt.icon size={13} className="text-primary-300 shrink-0" />}
+                                       <span className="text-[9.5px] font-black text-white uppercase truncate">
+                                         {opt?.label || p.method}
+                                         {p.installments && p.installments > 1 ? ` (${p.installments}x)` : ''}
+                                       </span>
+                                       <input
+                                         type="datetime-local"
+                                         value={p.date ? isoToLocalDatetimeInput(p.date) : ''}
+                                         onChange={(e) => {
+                                            const novaData = localDatetimeToIso(e.target.value) || p.date;
+                                            setEditingPaymentsList(prev => prev.map((pp, i) => i === idx ? { ...pp, date: novaData } : pp));
+                                         }}
+                                         className="h-6 bg-slate-900/70 border border-white/10 rounded px-1.5 text-[8px] text-white/70 focus:outline-none focus:border-primary-500 shrink-0"
+                                       />
+                                    </div>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                       <span className="text-xs font-black text-emerald-400">R$ {p.value.toFixed(2).replace('.', ',')}</span>
+                                       <button
+                                         onClick={async () => {
+                                            if (!(await showConfirm(`Excluir esse pagamento de R$ ${p.value.toFixed(2).replace('.', ',')} (${opt?.label || p.method})?`))) return;
+                                            const listaAnterior = editingPaymentsList;
+                                            const novaLista = listaAnterior.filter((_, i) => i !== idx);
+                                            setEditingPaymentsList(novaLista);
+                                            const orderId = settlingOrder?.id || editingFullOrder?.id;
+                                            if (!orderId) return;
+                                            const novoTotalPago = novaLista.reduce((sum, pp) => sum + (pp.value || 0), 0);
+                                            const novoSaldo = Math.max(0, paymentModalTotal - novoTotalPago);
+                                            const novoStatus: 'completed' | 'pending' = novoSaldo <= 0 ? 'completed' : 'pending';
+                                            const agoraIso = new Date().toISOString();
+                                            try {
+                                               const { data, error } = await supabase.from('vendas').update({
+                                                  payments: novaLista,
+                                                  down_payment: novoTotalPago,
+                                                  received_value: novoTotalPago,
+                                                  status: novoStatus,
+                                                  pending_payment_method: novoSaldo > 0 ? (pendingPaymentMethod || null) : null,
+                                                  updated_at: agoraIso,
+                                               }).eq('id', orderId).select();
+                                               if (error) throw error;
+                                               if (!data || data.length === 0) throw new Error('O pedido não foi encontrado — pode ter sido removido ou alterado por outra pessoa.');
+                                               const atualizarLocal = (s: SaleOrder): SaleOrder => s.id === orderId
+                                                 ? { ...s, payments: novaLista, downPayment: novoTotalPago, receivedValue: novoTotalPago, status: novoStatus, updatedAt: agoraIso }
+                                                 : s;
+                                               setAllSalesHistory(prev => prev.map(atualizarLocal));
+                                               setSalesToday(prev => prev.map(atualizarLocal));
+                                               setSettlingOrder(prev => prev && prev.id === orderId ? atualizarLocal(prev) : prev);
+                                               setEditingFullOrder(prev => prev && prev.id === orderId ? atualizarLocal(prev) : prev);
+                                            } catch (err: any) {
+                                               console.error('Erro ao excluir pagamento:', err);
+                                               setEditingPaymentsList(listaAnterior);
+                                               showAlert(`Não foi possível excluir o pagamento: ${err?.message || 'erro desconhecido'}. Nada foi alterado.`);
+                                            }
+                                         }}
+                                         className="p-1 text-white/30 hover:text-rose-400 hover:bg-rose-500/10 rounded transition-colors"
+                                         title="Excluir pagamento"
+                                       >
+                                         <Trash2 size={13} />
+                                       </button>
+                                    </div>
                                  </div>
-                                 <div className="flex items-center gap-2 shrink-0">
-                                    <span className="text-[10px] font-black text-emerald-400">R$ {p.value.toFixed(2).replace('.', ',')}</span>
-                                    <button
-                                      onClick={async () => {
-                                         if (!(await showConfirm(`Excluir esse pagamento de R$ ${p.value.toFixed(2).replace('.', ',')} (${opt?.label || p.method})?`))) return;
-                                         // Exclusao de pagamento ja lancado precisa ser persistida no banco IMEDIATAMENTE
-                                         // (nao so ao clicar em Finalizar/Quitar depois), senao o operador fecha o
-                                         // modal achando que ja excluiu e o valor volta a aparecer/computar ao reabrir
-                                         // a nota, porque a interface removeu o item so localmente.
-                                         const listaAnterior = editingPaymentsList;
-                                         const novaLista = listaAnterior.filter((_, i) => i !== idx);
-                                         setEditingPaymentsList(novaLista);
-                                         const orderId = settlingOrder?.id || editingFullOrder?.id;
-                                         if (!orderId) return;
-                                         const novoTotalPago = novaLista.reduce((sum, pp) => sum + (pp.value || 0), 0);
-                                         const novoSaldo = Math.max(0, paymentModalTotal - novoTotalPago);
-                                         const novoStatus: 'completed' | 'pending' = novoSaldo <= 0 ? 'completed' : 'pending';
-                                         const agoraIso = new Date().toISOString();
-                                         try {
-                                            const { data, error } = await supabase.from('vendas').update({
-                                               payments: novaLista,
-                                               down_payment: novoTotalPago,
-                                               received_value: novoTotalPago,
-                                               status: novoStatus,
-                                               pending_payment_method: novoSaldo > 0 ? (pendingPaymentMethod || null) : null,
-                                               updated_at: agoraIso,
-                                            }).eq('id', orderId).select();
-                                            if (error) throw error;
-                                            if (!data || data.length === 0) throw new Error('O pedido não foi encontrado — pode ter sido removido ou alterado por outra pessoa.');
-                                            const atualizarLocal = (s: SaleOrder): SaleOrder => s.id === orderId
-                                              ? { ...s, payments: novaLista, downPayment: novoTotalPago, receivedValue: novoTotalPago, status: novoStatus, updatedAt: agoraIso }
-                                              : s;
-                                            setAllSalesHistory(prev => prev.map(atualizarLocal));
-                                            setSalesToday(prev => prev.map(atualizarLocal));
-                                            setSettlingOrder(prev => prev && prev.id === orderId ? atualizarLocal(prev) : prev);
-                                            setEditingFullOrder(prev => prev && prev.id === orderId ? atualizarLocal(prev) : prev);
-                                         } catch (err: any) {
-                                            console.error('Erro ao excluir pagamento:', err);
-                                            // Reverte a remocao local, ja que nao foi possivel persistir no banco —
-                                            // evita que a nota fique com o array de pagamentos fora de sincronia.
-                                            setEditingPaymentsList(listaAnterior);
-                                            showAlert(`Não foi possível excluir o pagamento: ${err?.message || 'erro desconhecido'}. Nada foi alterado.`);
-                                         }
-                                      }}
-                                      className="text-white/30 hover:text-rose-400 transition-colors"
-                                    >
-                                      <Trash2 size={12} />
-                                    </button>
-                                 </div>
+
+                                 {(numParc > 1 || feePct > 0) && (
+                                    <div className="p-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg text-[8px] text-amber-200 space-y-1">
+                                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 font-bold">
+                                          {numParc > 1 && (
+                                             <div>
+                                                <span className="text-white/40 block text-[7px] uppercase">Parcelas:</span>
+                                                <span className="text-white font-black">{numParc}x de R$ {valorPorParc.toFixed(2).replace('.', ',')}</span>
+                                             </div>
+                                          )}
+                                          <div>
+                                             <span className="text-white/40 block text-[7px] uppercase">Acréscimo por Parcela:</span>
+                                             <span className="text-amber-300 font-black">
+                                                {acrescimoPorParc > 0 ? `+ R$ ${acrescimoPorParc.toFixed(2).replace('.', ',')} / parc.` : 'Sem acréscimo'}
+                                             </span>
+                                          </div>
+                                          <div>
+                                             <span className="text-white/40 block text-[7px] uppercase">Acréscimo Total (taxa):</span>
+                                             <span className="text-amber-300 font-black">
+                                                {acrescimoTot > 0 ? `+ R$ ${acrescimoTot.toFixed(2).replace('.', ',')} (${feePct}%)` : 'R$ 0,00'}
+                                             </span>
+                                          </div>
+                                       </div>
+                                    </div>
+                                 )}
                               </div>
                             );
                          })}
                       </div>
                     )}
 
-                    {/* Lista de pagamentos ja adicionados */}
+                    {/* Lista de pagamentos ja adicionados agora */}
                     {paymentEntries.length > 0 && (
-                      <div className="space-y-1.5 shrink-0 max-h-40 overflow-y-auto custom-scrollbar">
+                      <div className="space-y-1.5 shrink-0 max-h-56 overflow-y-auto custom-scrollbar">
+                         <p className="text-[7.5px] font-black uppercase text-primary-300/70 tracking-widest px-0.5">
+                            Novas Entradas Adicionadas Nesta Sessão ({paymentEntries.length})
+                         </p>
                          {paymentEntries.map((p, idx) => {
                             const opt = PAYMENT_METHOD_OPTIONS.find(o => o.id === p.method);
                             const feePct = p.feePercent || 0;
@@ -15301,50 +15343,72 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             const acrescimoPorParc = numParc > 0 ? acrescimoTot / numParc : 0;
                             const valorPorParc = numParc > 0 ? p.value / numParc : p.value;
                             return (
-                              <div key={idx} className="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-white/5 border border-white/5 rounded-lg">
-                                 <div className="flex items-center gap-2 min-w-0">
-                                    {opt?.icon && <opt.icon size={12} className="text-primary-300 shrink-0" />}
-                                    <div className="flex flex-col min-w-0">
-                                       <span className="text-[9px] font-black text-white uppercase truncate">
-                                         {opt?.label || p.method}{p.installments && p.installments > 1 ? ` ${p.installments}x` : ''}
+                              <div key={idx} className="p-2.5 bg-white/[0.05] hover:bg-white/[0.08] border border-white/10 rounded-xl space-y-1.5 transition-all">
+                                 <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                       {opt?.icon && <opt.icon size={13} className="text-primary-300 shrink-0" />}
+                                       <span className="text-[9.5px] font-black text-white uppercase">
+                                         {opt?.label || p.method}
+                                         {p.installments && p.installments > 1 ? ` (${p.installments}x)` : ''}
                                        </span>
-                                       <span className="text-[7.5px] text-white/40">
-                                         {safeFormat(p.date, 'dd/MM HH:mm')}
-                                         {p.installments && p.installments > 1 && (
-                                           <span className="text-white/60 ml-1 font-semibold">
-                                             • {p.installments}x de R$ {valorPorParc.toFixed(2).replace('.', ',')}
-                                             {feePct > 0 ? (
-                                               <span className="text-amber-300 font-bold ml-1">
-                                                 (+R$ {acrescimoPorParc.toFixed(2).replace('.', ',')}/parc. taxa {feePct}%)
-                                               </span>
-                                             ) : null}
-                                           </span>
-                                         )}
+                                       <span className="text-[8px] font-semibold text-white/50 bg-white/5 px-1.5 py-0.5 rounded border border-white/5 shrink-0">
+                                         {safeFormat(p.date, 'dd/MM/yyyy HH:mm')}
                                        </span>
                                     </div>
-                                 </div>
-                                 <div className="flex items-center gap-2 shrink-0">
-                                    <div className="text-right">
-                                       <span className="text-[10px] font-black text-emerald-400 block">
-                                         R$ {p.value.toFixed(2).replace('.', ',')}
-                                       </span>
-                                       {feePct > 0 && (
-                                         <span className="text-[7px] text-amber-300 font-bold block">
-                                           taxa: +R$ {acrescimoTot.toFixed(2).replace('.', ',')}
-                                         </span>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                       <div className="text-right">
+                                          <span className="text-xs font-black text-emerald-400 block">
+                                            R$ {p.value.toFixed(2).replace('.', ',')}
+                                          </span>
+                                          {feePct > 0 && (
+                                            <span className="text-[7.5px] text-amber-300 font-bold block">
+                                              taxa: +R$ {acrescimoTot.toFixed(2).replace('.', ',')}
+                                            </span>
+                                          )}
+                                       </div>
+                                       {p.method === 'pix' && (
+                                         <button
+                                           onClick={() => { setPixQrAmount(p.value); setIsPixQrModalOpen(true); }}
+                                           title="Ver QR Code PIX"
+                                           className="p-1 text-primary-300 hover:text-primary-200 hover:bg-primary-500/10 rounded transition-colors cursor-pointer"
+                                         >
+                                           <QrCode size={13} />
+                                         </button>
                                        )}
+                                       <button 
+                                         onClick={() => removePaymentEntry(idx)} 
+                                         className="p-1 text-white/30 hover:text-rose-400 hover:bg-rose-500/10 rounded transition-colors cursor-pointer"
+                                         title="Remover entrada"
+                                       >
+                                         <X size={13} />
+                                       </button>
                                     </div>
-                                    {p.method === 'pix' && (
-                                      <button
-                                        onClick={() => { setPixQrAmount(p.value); setIsPixQrModalOpen(true); }}
-                                        title="Ver QR Code"
-                                        className="text-primary-300 hover:text-primary-200 transition-colors cursor-pointer"
-                                      >
-                                        <QrCode size={13} />
-                                      </button>
-                                    )}
-                                    <button onClick={() => removePaymentEntry(idx)} className="text-white/30 hover:text-rose-400 transition-colors cursor-pointer"><X size={12} /></button>
                                  </div>
+
+                                 {(numParc > 1 || feePct > 0) && (
+                                    <div className="p-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg text-[8px] text-amber-200 space-y-1">
+                                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 font-bold">
+                                          {numParc > 1 && (
+                                             <div>
+                                                <span className="text-white/40 block text-[7px] uppercase">Parcelas:</span>
+                                                <span className="text-white font-black">{numParc}x de R$ {valorPorParc.toFixed(2).replace('.', ',')}</span>
+                                             </div>
+                                          )}
+                                          <div>
+                                             <span className="text-white/40 block text-[7px] uppercase">Acréscimo por Parcela:</span>
+                                             <span className="text-amber-300 font-black">
+                                                {acrescimoPorParc > 0 ? `+ R$ ${acrescimoPorParc.toFixed(2).replace('.', ',')} / parc.` : 'Sem acréscimo'}
+                                             </span>
+                                          </div>
+                                          <div>
+                                             <span className="text-white/40 block text-[7px] uppercase">Acréscimo Total (taxa):</span>
+                                             <span className="text-amber-300 font-black">
+                                                {acrescimoTot > 0 ? `+ R$ ${acrescimoTot.toFixed(2).replace('.', ',')} (${feePct}%)` : 'R$ 0,00'}
+                                             </span>
+                                          </div>
+                                       </div>
+                                    </div>
+                                 )}
                               </div>
                             );
                          })}

@@ -129,9 +129,14 @@ export function resumirDescontos(
             : '';
         detalhes.push(`💳 Dívida${parcInfo}: -R$ ${d.valor.toFixed(2)}`);
         break;
+      case 'vale':
+      case 'atraso':
+      case 'avaria':
+      case 'uniforme':
       case 'outro':
+      default:
         descontoOutros += d.valor;
-        detalhes.push(`${d.descricao || 'Outro desconto'}: -R$ ${d.valor.toFixed(2)}`);
+        detalhes.push(`${d.descricao || (d.tipo === 'vale' ? 'Vale / Adiantamento' : d.tipo === 'atraso' ? 'Atraso' : d.tipo === 'avaria' ? 'Avaria' : d.tipo === 'uniforme' ? 'Uniforme' : 'Outro desconto')}: -R$ ${d.valor.toFixed(2)}`);
         break;
     }
   });
