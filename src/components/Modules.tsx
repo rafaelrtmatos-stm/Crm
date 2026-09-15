@@ -11539,7 +11539,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               if (cfg && !cfg.visible) return false;
             }
             // Permissao individual desse usuario especifico (admin sempre ve tudo)
-            if (!user?.isAdmin && user?.allowedPdvTabs && !user.allowedPdvTabs.includes(tab.id)) return false;
+            if (!user?.isAdmin && user?.allowedPdvTabs && !user.allowedPdvTabs.includes(tab.id)) {
+              if (tab.id === 'estoque' && (
+                user.allowedActions?.includes('canManageInventory') ||
+                user.allowedTabs?.includes('inventory') ||
+                user.modulePermissions?.inventory?.view ||
+                user.modulePermissions?.inventory?.edit ||
+                user.modulePermissions?.inventory?.create
+              )) {
+                return true;
+              }
+              return false;
+            }
             return true;
           }).map(tab => (
             <button
@@ -20046,7 +20057,12 @@ export const ProdutoFormModal = ({ isOpen, onClose, editingItem, onSaved }: {
   );
 };
 export const InventoryModule = ({ currentCompany, user }: { currentCompany: Company | null; user: AppUser | null }) => {
-  const canManageInventory = !!(user?.isAdmin || user?.allowedActions?.includes('canManageInventory'));
+  const canManageInventory = !!(
+    user?.isAdmin || 
+    user?.allowedActions?.includes('canManageInventory') ||
+    user?.modulePermissions?.inventory?.edit ||
+    user?.modulePermissions?.inventory?.create
+  );
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -21303,6 +21319,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     { id: 'crm', label: 'Funil CRM' },
     { id: 'messages', label: 'Mensagens' },
     { id: 'pos', label: 'PDV Gráfica' },
+    { id: 'inventory', label: 'Estoque & Materiais' },
     { id: 'contacts', label: 'Contatos' },
     { id: 'clientes_espera', label: 'Clientes em Espera' },
     { id: 'production', label: 'Ordem de Serviço' },
@@ -21708,20 +21725,54 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     const activeTabs = u.allowedTabs && u.allowedTabs.length > 0
       ? u.allowedTabs
       : (Object.entries(initialPerms) as [string, ModuleCrudPermission][]).filter(([_, p]) => p?.view).map(([id]) => id);
-    setEditedTabs(activeTabs);
-
-    setEditedPdvTabs(u.allowedPdvTabs || getDefaultPdvTabs(userRole));
-    setEditedActions(u.allowedActions || getDefaultActions(userRole));
+    const initialActions = u.allowedActions || getDefaultActions(userRole);
+    const initialPdvTabs = u.allowedPdvTabs || getDefaultPdvTabs(userRole);
+    
+    // Se o usuário já tem permissão de gerenciar estoque, garante consistência inicial
+    const hasInventory = initialActions.includes('canManageInventory') || initialPerms['inventory']?.view || initialPerms['inventory']?.edit;
+    setEditedTabs(hasInventory && !activeTabs.includes('inventory') ? [...activeTabs, 'inventory'] : activeTabs);
+    setEditedPdvTabs(hasInventory && !initialPdvTabs.includes('estoque') ? [...initialPdvTabs, 'estoque'] : initialPdvTabs);
+    setEditedActions(initialActions);
   };
 
   const handleSaveUserPermissions = async () => {
     if (!editingUser) return;
     try {
       // Sincroniza abas permitidas garantindo que todos os módulos com 'view: true' fiquem visíveis
+      const hasInventoryPerm = editedActions.includes('canManageInventory') ||
+        editedModulePermissions['inventory']?.view ||
+        editedModulePermissions['inventory']?.edit ||
+        editedModulePermissions['inventory']?.create ||
+        editedTabs.includes('inventory') ||
+        editedPdvTabs.includes('estoque');
+
       const syncedTabs = Array.from(new Set([
         ...(Object.entries(editedModulePermissions) as [string, ModuleCrudPermission][]).filter(([_, p]) => p?.view).map(([id]) => id),
-        ...editedTabs.filter(tabId => editedModulePermissions[tabId]?.view !== false)
+        ...editedTabs.filter(tabId => editedModulePermissions[tabId]?.view !== false),
+        ...(hasInventoryPerm ? ['inventory'] : [])
       ]));
+
+      const syncedPdvTabs = Array.from(new Set([
+        ...editedPdvTabs,
+        ...(hasInventoryPerm ? ['estoque'] : [])
+      ]));
+
+      const syncedActions = Array.from(new Set([
+        ...editedActions,
+        ...(editedModulePermissions['inventory']?.edit || editedModulePermissions['inventory']?.create ? ['canManageInventory'] : [])
+      ]));
+
+      const syncedModulePermissions = {
+        ...editedModulePermissions,
+        ...(hasInventoryPerm ? {
+          inventory: {
+            view: true,
+            create: editedModulePermissions['inventory']?.create ?? true,
+            edit: editedModulePermissions['inventory']?.edit ?? true,
+            delete: editedModulePermissions['inventory']?.delete ?? false,
+          }
+        } : {})
+      };
 
       if (editingUser.id === 'admin-rafael') {
         // Admin master continua no Firebase
@@ -21731,9 +21782,9 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
           ...(editedPassword ? { password: editedPassword } : {}),
           role: editedRole,
           allowedTabs: syncedTabs,
-          allowedPdvTabs: editedPdvTabs,
-          allowedActions: editedActions,
-          modulePermissions: editedModulePermissions,
+          allowedPdvTabs: syncedPdvTabs,
+          allowedActions: syncedActions,
+          modulePermissions: syncedModulePermissions,
           updatedAt: Timestamp.now()
         });
       } else {
@@ -21766,9 +21817,9 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
           role: editedRole,
           is_admin: editedRole === 'admin',
           allowed_tabs: syncedTabs,
-          allowed_pdv_tabs: editedPdvTabs,
-          allowed_actions: editedActions,
-          module_permissions: editedModulePermissions,
+          allowed_pdv_tabs: syncedPdvTabs,
+          allowed_actions: syncedActions,
+          module_permissions: syncedModulePermissions,
           colaborador_id: editedRole === 'comissao' ? colaboradorId : null,
           updated_at: new Date().toISOString(),
         };

@@ -570,7 +570,7 @@ export default function App() {
   }, []);
   const [activeTab, setActiveTabState] = useState<MainTab>(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem('rpro_active_tab') : null;
-    const validTabs: MainTab[] = ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'services', 'production', 'settings', 'comissoes', 'robozinho_rafa'];
+    const validTabs: MainTab[] = ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'services', 'production', 'settings', 'comissoes', 'robozinho_rafa', 'clientes_espera', 'inventory'];
     return (saved && validTabs.includes(saved as MainTab)) ? (saved as MainTab) : 'dashboard';
   });
   const setActiveTab = (tab: MainTab) => {
@@ -1649,6 +1649,7 @@ export default function App() {
     { id: 'crm', label: 'Funil CRM', icon: Target },
     { id: 'messages', label: 'Mensagens', icon: MessageSquare },
     { id: 'pos', label: 'PDV Gráfica', icon: ShoppingBag },
+    { id: 'inventory', label: 'Estoque & Materiais', icon: Package },
     { id: 'clientes_espera', label: 'Clientes em Espera', icon: Clock },
     { id: 'production', label: 'Ordem de Serviço', icon: Layers },
     { id: 'robozinho_rafa', label: 'Integrações', icon: Bot },
@@ -1661,6 +1662,16 @@ export default function App() {
 
     // If user has specific allowedTabs, check it first
     if (user && user.allowedTabs && Array.isArray(user.allowedTabs)) {
+      if (item.id === 'inventory') {
+        return (
+          user.allowedTabs.includes('inventory') ||
+          !!user.allowedActions?.includes('canManageInventory') ||
+          !!user.modulePermissions?.inventory?.view ||
+          !!user.modulePermissions?.inventory?.edit ||
+          !!user.modulePermissions?.inventory?.create ||
+          (Array.isArray(user.allowedPdvTabs) && user.allowedPdvTabs.includes('estoque'))
+        );
+      }
       return user.allowedTabs.includes(item.id);
     }
     
@@ -2093,6 +2104,7 @@ export default function App() {
                     />
                   )}
                   {activeTab === 'clientes_espera' && <ModuleErrorBoundary label="Clientes em Espera"><ClientesEsperaModule currentCompany={currentCompany} user={user} /></ModuleErrorBoundary>}
+                  {activeTab === 'inventory' && <ModuleErrorBoundary label="Estoque & Materiais"><InventoryModule currentCompany={currentCompany} user={user} /></ModuleErrorBoundary>}
                   {activeTab === 'services' && <ServicesModule currentCompany={currentCompany} />}
                   {activeTab === 'production' && <ProductionModule currentCompany={currentCompany} />}
                   {activeTab === 'robozinho_rafa' && <ModuleErrorBoundary label="Integrações"><IntegracoesModule currentCompany={currentCompany} user={user} /></ModuleErrorBoundary>}
