@@ -40,6 +40,7 @@ import {
   Calendar,
   QrCode,
   CreditCard,
+  User,
   UserPlus,
   ArrowLeft,
   Calculator,
@@ -6973,7 +6974,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [allCustomers, setAllCustomers] = useState<any[]>([]);
   const [isLoadingCustomers, setIsLoadingCustomers] = useState(false);
   const [customerSalesStats, setCustomerSalesStats] = useState<Record<string, { total: number; count: number; lastDate: string | null; hasPending: boolean; pendingBalance: number }>>({});
-  const [customerSortBy, setCustomerSortBy] = useState<'recentes' | 'az' | 'ultima_compra' | 'maior_valor' | 'frequentes'>('recentes');
+  const [customerSortBy, setCustomerSortBy] = useState<'az' | 'recentes' | 'ultima_compra' | 'maior_valor' | 'frequentes'>('az');
   // Cliente selecionado na busca que tem nota pendente — bloqueia o fluxo ate o caixa confirmar
   // com o cliente se ja foi paga, pra nao deixar pendencia esquecida no sistema.
   const [pendingDebtCustomer, setPendingDebtCustomer] = useState<{ customer: any; pendingBalance: number } | null>(null);
@@ -7030,68 +7031,98 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const [customerLoadError, setCustomerLoadError] = useState<string>('');
   const isLoadingCustomersRef = React.useRef(false);
-  const loadAllCustomers = async () => {
-    if (isLoadingCustomersRef.current) return;
+  const loadAllCustomers = async (force: boolean = false) => {
+    if (isLoadingCustomersRef.current && !force) return;
     isLoadingCustomersRef.current = true;
     setIsLoadingCustomers(true);
     setCustomerLoadError('');
     try {
-      const { data, error, count } = await supabase.from('clientes').select('*', { count: 'exact' }).order('created_at', { ascending: false }).limit(2000);
+      // Carrega clientes da mesma forma ordenada e confiável que a aba Clientes (ContactsModule)
+      const { data, error, count } = await supabase
+        .from('clientes')
+        .select('*', { count: 'exact' })
+        .order('full_name', { ascending: true });
+
       if (error) {
-        console.error('Erro Supabase ao carregar clientes:', error);
+        console.error('Erro Supabase ao carregar clientes no PDV:', error);
         setCustomerLoadError(`Erro: ${error.message} (código: ${error.code || 's/código'})`);
         setAllCustomers([]);
+        setIsLoadingCustomers(false);
+        isLoadingCustomersRef.current = false;
         return;
       }
-      console.log('Clientes carregados:', data?.length, 'count total:', count);
+
       setAllCustomers(data || []);
+      // Libera a visualização imediata da lista de clientes para não prender o operador no spinner
+      setIsLoadingCustomers(false);
+      isLoadingCustomersRef.current = false;
 
-      // Agrega estatisticas de vendas por cliente: aproveita allSalesHistory da memória se disponível
-      let vendasParaStats: any[] = [];
-      if (allSalesHistory && allSalesHistory.length > 0) {
-        vendasParaStats = allSalesHistory.map(v => ({
-          cliente_id: v.customerId,
-          total: v.total,
-          status: v.status,
-          down_payment: v.downPayment,
-          created_at: v.createdAt,
-        }));
-      } else {
-        const { data: vendasData } = await supabase.from('vendas').select('cliente_id, total, status, down_payment, created_at').limit(1000);
-        vendasParaStats = vendasData || [];
+      // Agregação de estatísticas financeiras em background (não bloqueante)
+      try {
+        let vendasParaStats: any[] = [];
+        if (allSalesHistory && allSalesHistory.length > 0) {
+          vendasParaStats = allSalesHistory.map(v => ({
+            cliente_id: v.customerId,
+            total: v.total,
+            status: v.status,
+            down_payment: v.downPayment,
+            created_at: v.createdAt,
+          }));
+        } else {
+          const { data: vendasData } = await supabase.from('vendas').select('cliente_id, total, status, down_payment, created_at').limit(1000);
+          vendasParaStats = vendasData || [];
+        }
+
+        const stats: Record<string, { total: number; count: number; lastDate: string | null; hasPending: boolean; pendingBalance: number }> = {};
+        vendasParaStats.forEach((v: any) => {
+          if (!v.cliente_id) return;
+          if (!stats[v.cliente_id]) stats[v.cliente_id] = { total: 0, count: 0, lastDate: null, hasPending: false, pendingBalance: 0 };
+          stats[v.cliente_id].total += Number(v.total) || 0;
+          stats[v.cliente_id].count += 1;
+          if (!stats[v.cliente_id].lastDate || new Date(v.created_at) > new Date(stats[v.cliente_id].lastDate!)) {
+            stats[v.cliente_id].lastDate = v.created_at;
+          }
+          const down = Number(v.down_payment) || 0;
+          const vTotal = Number(v.total) || 0;
+          const balance = Math.max(0, vTotal - down);
+          if ((v.status === 'pending' || balance > 0) && v.status !== 'canceled') {
+            stats[v.cliente_id].hasPending = true;
+            stats[v.cliente_id].pendingBalance += balance;
+          }
+        });
+        setCustomerSalesStats(stats);
+      } catch (statsErr) {
+        console.warn('Erro secundário ao agregar histórico para stats de clientes no PDV:', statsErr);
       }
-
-      const stats: Record<string, { total: number; count: number; lastDate: string | null; hasPending: boolean; pendingBalance: number }> = {};
-      vendasParaStats.forEach((v: any) => {
-        if (!v.cliente_id) return;
-        if (!stats[v.cliente_id]) stats[v.cliente_id] = { total: 0, count: 0, lastDate: null, hasPending: false, pendingBalance: 0 };
-        stats[v.cliente_id].total += Number(v.total) || 0;
-        stats[v.cliente_id].count += 1;
-        if (!stats[v.cliente_id].lastDate || new Date(v.created_at) > new Date(stats[v.cliente_id].lastDate!)) {
-          stats[v.cliente_id].lastDate = v.created_at;
-        }
-        const down = Number(v.down_payment) || 0;
-        const vTotal = Number(v.total) || 0;
-        const balance = Math.max(0, vTotal - down);
-        if ((v.status === 'pending' || balance > 0) && v.status !== 'canceled') {
-          stats[v.cliente_id].hasPending = true;
-          stats[v.cliente_id].pendingBalance += balance;
-        }
-      });
-      setCustomerSalesStats(stats);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro ao carregar clientes:', err);
-    } finally {
+      setCustomerLoadError(`Erro: ${err?.message || 'Falha ao buscar clientes'}`);
       setIsLoadingCustomers(false);
       isLoadingCustomersRef.current = false;
     }
   };
 
+  // Pré-carrega clientes assim que o PDV é montado e escuta alterações em tempo real (mesmo padrão da aba Clientes)
+  useEffect(() => {
+    loadAllCustomers();
+    const channel = supabase
+      .channel('pdv-clientes-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'clientes' }, () => {
+        loadAllCustomers(true);
+      })
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
   useEffect(() => {
     if (isCustomerModalOpen && customerModalMode === 'search') {
-      loadAllCustomers();
+      if (allCustomers.length === 0) {
+        loadAllCustomers(true);
+      }
     }
-  }, [isCustomerModalOpen, customerModalMode]);
+  }, [isCustomerModalOpen, customerModalMode, allCustomers.length]);
 
   useEffect(() => {
     if (isCustomerModalOpen && customerModalMode === 'create') {
@@ -7101,21 +7132,38 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const filteredSortedCustomers = useMemo(() => {
     let list = allCustomers;
-    const term = customerSearchTerm.trim().toLowerCase();
+    const term = customerSearchTerm.trim();
     if (term) {
+      const normalize = (s: string) => (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+      const normTerm = normalize(term);
       const digits = term.replace(/\D/g, '');
-      list = list.filter(c =>
-        (c.full_name || '').toLowerCase().includes(term) ||
-        (c.email || '').toLowerCase().includes(term) ||
-        (c.cpf_cnpj || '').toLowerCase().includes(term) ||
-        (c.rg || '').toLowerCase().includes(term) ||
-        (digits.length >= 3 && (c.phone || '').replace(/\D/g, '').includes(digits))
-      );
+      list = list.filter(c => {
+        const cleanName = (c.full_name || '').replace(/\/r/gi, ' ');
+        const normName = normalize(cleanName);
+        const normEmail = normalize(c.email || '');
+        const normDoc = (c.cpf_cnpj || '').replace(/\D/g, '');
+        const normRg = (c.rg || '').replace(/\D/g, '');
+        const normPhone = (c.phone || '').replace(/\D/g, '');
+
+        return (
+          normName.includes(normTerm) ||
+          normEmail.includes(normTerm) ||
+          (digits.length >= 2 && (normDoc.includes(digits) || normRg.includes(digits) || normPhone.includes(digits)))
+        );
+      });
     }
-    const withStats = list.map(c => ({ ...c, _stats: customerSalesStats[c.id] }));
+    const withStats = list.map(c => ({
+      ...c,
+      _stats: customerSalesStats[c.id],
+      _cleanName: (c.full_name || '').replace(/\/r/gi, ' ').replace(/\s+/g, ' ').trim(),
+    }));
     switch (customerSortBy) {
-      case 'az':
-        return withStats.sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
+      case 'recentes':
+        return withStats.sort((a, b) => {
+          const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+          const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+          return (isNaN(tb) ? 0 : tb) - (isNaN(ta) ? 0 : ta);
+        });
       case 'ultima_compra':
         return withStats.sort((a, b) => {
           const da = a._stats?.lastDate ? new Date(a._stats.lastDate).getTime() : 0;
@@ -7126,12 +7174,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         return withStats.sort((a, b) => (b._stats?.total || 0) - (a._stats?.total || 0));
       case 'frequentes':
         return withStats.sort((a, b) => (b._stats?.count || 0) - (a._stats?.count || 0));
+      case 'az':
       default:
-        return withStats.sort((a, b) => {
-          const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
-          const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
-          return (isNaN(tb) ? 0 : tb) - (isNaN(ta) ? 0 : ta);
-        });
+        return withStats.sort((a, b) => (a._cleanName || '').localeCompare(b._cleanName || ''));
     }
   }, [allCustomers, customerSearchTerm, customerSortBy, customerSalesStats]);
 
@@ -11621,6 +11666,113 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   </div>
                </div>
 
+               {/* Barra de Identificação e Seleção de Cliente no Terminal */}
+               <div className="bg-slate-900/10 border border-slate-900/15 rounded-lg sm:rounded-xl px-2 sm:px-3 py-1.5 sm:py-2 my-1 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
+                     <div className={cn(
+                        "w-6 h-6 sm:w-8 sm:h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-black shadow-sm",
+                        selectedCustomer ? "bg-emerald-600 text-white" : "bg-slate-900/15 text-slate-800"
+                      )}>
+                        {selectedCustomer ? <UserCheck size={14} /> : <User size={13} />}
+                     </div>
+                     <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                           <span className="text-[6.5px] sm:text-[8px] font-black uppercase tracking-wider text-slate-900/50">
+                              {selectedCustomer ? 'Cliente Identificado' : 'Cliente da Venda'}
+                           </span>
+                           {selectedCustomer && (
+                              <span className="text-[6px] sm:text-[7.5px] font-black uppercase bg-emerald-600/20 text-emerald-800 border border-emerald-600/30 px-1 py-0.2 rounded">
+                                 Vinculado
+                              </span>
+                           )}
+                           {selectedCustomer && (() => {
+                              const cDet = selectedCustomer.id ? allCustomers.find(c => c.id === selectedCustomer.id) : null;
+                              const saldo = Number(cDet?.saldo_credito || 0);
+                              return saldo > 0 ? (
+                                 <span className="text-[6.5px] sm:text-[8px] font-black bg-blue-500/20 text-blue-900 border border-blue-500/30 px-1.5 py-0.2 rounded">
+                                    Crédito: R$ {saldo.toFixed(2).replace('.', ',')}
+                                 </span>
+                              ) : null;
+                           })()}
+                           {selectedCustomer && (() => {
+                              const st = selectedCustomer.id ? customerSalesStats[selectedCustomer.id] : null;
+                              return st?.hasPending ? (
+                                 <span className="text-[6.5px] sm:text-[8px] font-black bg-amber-500/20 text-amber-900 border border-amber-500/30 px-1.5 py-0.2 rounded flex items-center gap-0.5">
+                                    <AlertCircle size={9} /> Débito: R$ {st.pendingBalance.toFixed(2).replace('.', ',')}
+                                 </span>
+                              ) : null;
+                           })()}
+                        </div>
+                        <p className="text-[10px] sm:text-xs font-black text-slate-900 truncate leading-tight mt-0.5">
+                           {selectedCustomer ? (selectedCustomer.name || 'Cliente Sem Nome').toUpperCase() : 'Cliente de Balcão (Não Identificado)'}
+                        </p>
+                        {selectedCustomer?.phone && (
+                           <p className="text-[7.5px] sm:text-[9px] text-slate-900/60 font-medium truncate">
+                              {selectedCustomer.phone}
+                           </p>
+                        )}
+                     </div>
+                  </div>
+
+                  <div className="flex items-center gap-1 shrink-0">
+                     {selectedCustomer ? (
+                        <>
+                           <button
+                              onClick={() => {
+                                 setCustomerModalIntent('preselect');
+                                 setCustomerModalMode('search');
+                                 setCustomerSearchTerm('');
+                                 setIsCustomerModalOpen(true);
+                              }}
+                              className="px-2 py-1 rounded-md bg-slate-900/10 hover:bg-slate-900/20 text-slate-900 text-[8px] sm:text-[10px] font-bold uppercase transition-all flex items-center gap-1 cursor-pointer"
+                              title="Alterar ou trocar cliente da venda"
+                           >
+                              <Search size={11} />
+                              <span className="hidden xs:inline">Alterar</span>
+                           </button>
+                           <button
+                              onClick={() => {
+                                 setSelectedCustomer(null);
+                              }}
+                              className="p-1 rounded-md hover:bg-rose-500/20 text-rose-700 transition-all cursor-pointer"
+                              title="Desvincular cliente (voltar para Cliente de Balcão)"
+                           >
+                              <X size={12} />
+                           </button>
+                        </>
+                     ) : (
+                        <div className="flex items-center gap-1">
+                           <button
+                              onClick={() => {
+                                 setCustomerModalIntent('preselect');
+                                 setCustomerModalMode('search');
+                                 setCustomerSearchTerm('');
+                                 setIsCustomerModalOpen(true);
+                              }}
+                              className="px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[8px] sm:text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1 shadow-sm cursor-pointer"
+                              title="Pesquisar e selecionar cliente cadastrado"
+                           >
+                              <Search size={11} className="text-primary-400" />
+                              <span>Selecionar Cliente</span>
+                           </button>
+                           <button
+                              onClick={() => {
+                                 setCustomerModalIntent('preselect');
+                                 setCustomerModalMode('create');
+                                 setNewCustomerForm({ ...emptyCustomerForm });
+                                 setIsCustomerModalOpen(true);
+                              }}
+                              className="px-1.5 sm:px-2 py-1 sm:py-1.5 rounded-lg bg-slate-900/10 hover:bg-slate-900/20 text-slate-900 text-[8px] sm:text-[10px] font-bold uppercase transition-all hidden xs:flex items-center gap-0.5 cursor-pointer"
+                              title="Cadastrar novo cliente rapidamente"
+                           >
+                              <Plus size={11} />
+                              <span>Novo</span>
+                           </button>
+                        </div>
+                     )}
+                  </div>
+               </div>
+
                {/* Total Banner */}
                <div className="py-1.5 sm:py-3 px-2 sm:px-4 bg-slate-900/5 rounded-lg sm:rounded-2xl border border-slate-900/10 flex items-center justify-between my-0.5 sm:my-2 gap-2">
                   <div className="min-w-0 flex-1">
@@ -14251,16 +14403,24 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                      className="flex-1"
                    />
                    <select
-                     value={customerSortBy || 'recentes'}
+                     value={customerSortBy || 'az'}
                      onChange={(e) => setCustomerSortBy(e.target.value as any)}
                      className="h-11 bg-white/5 border border-white/10 rounded-xl px-3 text-[10px] font-black uppercase text-white/70 focus:outline-none focus:border-primary-500 cursor-pointer shrink-0"
                    >
-                     <option value="recentes" className="bg-slate-900">Mais Recentes</option>
                      <option value="az" className="bg-slate-900">A-Z</option>
+                     <option value="recentes" className="bg-slate-900">Mais Recentes</option>
                      <option value="ultima_compra" className="bg-slate-900">Última Compra</option>
                      <option value="maior_valor" className="bg-slate-900">Maior Valor</option>
                      <option value="frequentes" className="bg-slate-900">Frequentes</option>
                    </select>
+                   <button
+                     onClick={() => loadAllCustomers(true)}
+                     disabled={isLoadingCustomers}
+                     title="Recarregar clientes do banco de dados"
+                     className="h-11 px-3 bg-white/5 border border-white/10 rounded-xl text-white/50 hover:text-primary-400 hover:border-primary-500/30 flex items-center justify-center transition-all shrink-0 cursor-pointer"
+                   >
+                     <RefreshCw size={14} className={cn(isLoadingCustomers && "animate-spin text-primary-400")} />
+                   </button>
                 </div>
 
                 <div className="max-h-[26rem] overflow-y-auto custom-scrollbar space-y-2">
@@ -14273,13 +14433,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    {!isLoadingCustomers && !customerLoadError && filteredSortedCustomers.length === 0 && (
                      <p className="text-center text-xs text-white/30 py-10">Nenhum cliente encontrado ({allCustomers.length} no total). Tente Cadastrar.</p>
                    )}
-                   {!isLoadingCustomers && filteredSortedCustomers.slice(0, 60).map(c => {
+                   {!isLoadingCustomers && filteredSortedCustomers.slice(0, 100).map(c => {
                      const stats = c._stats;
                      const pendingBalance = stats?.pendingBalance || 0;
                      const hasPending = pendingBalance > 0;
                      const saldoCredito = Number(c.saldo_credito) || 0;
                      const selectCustomer = () => {
-                       setSelectedCustomer({ id: c.id, name: c.full_name, phone: c.phone || '' });
+                       setSelectedCustomer({ id: c.id, name: c._cleanName || c.full_name, phone: c.phone || '' });
                        if (customerModalIntent === 'orcamento') {
                          const enderecoParts = [c.logradouro, c.numero, c.distrito, c.city].filter(Boolean);
                          setOrcamentoForm(prev => ({
@@ -14328,7 +14488,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             <div className="flex items-start justify-between gap-2">
                                <div className="min-w-0">
                                   <div className="flex items-center gap-1.5 flex-wrap">
-                                     <span className="font-bold text-white truncate">{(c.full_name || '').toUpperCase()}</span>
+                                     <span className="font-bold text-white truncate">{(c._cleanName || c.full_name || '').toUpperCase()}</span>
                                   </div>
                                   <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-[10px] text-white/40">
                                      {c.phone && <span>{c.phone}</span>}
@@ -14338,7 +14498,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                   {stats && (
                                     <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-[10px]">
                                        <span className="text-emerald-400 font-bold">Total: R$ {stats.total.toFixed(2).replace('.', ',')}</span>
-                                       {stats.lastDate && <span className="text-white/30">Última compra: {format(new Date(stats.lastDate), 'dd/MM/yyyy')}</span>}
+                                       {stats.lastDate && <span className="text-white/30">Última compra: {safeFormat(stats.lastDate, 'dd/MM/yyyy')}</span>}
                                     </div>
                                   )}
                                   {saldoCredito > 0 && (
@@ -14368,9 +14528,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                        </div>
                      );
                    })}
-                   {filteredSortedCustomers.length > 60 && (
+                   {filteredSortedCustomers.length > 100 && (
                      <p className="text-center text-[10px] text-white/40 py-2">
-                       Mostrando 60 de {filteredSortedCustomers.length} clientes. Digite para refinar a busca.
+                       Mostrando 100 de {filteredSortedCustomers.length} clientes. Digite para refinar a busca.
                      </p>
                    )}
                 </div>
