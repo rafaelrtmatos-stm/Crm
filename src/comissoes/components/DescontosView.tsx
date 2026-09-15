@@ -25,6 +25,7 @@ import {
   FORMA_PAGAMENTO_LABELS,
   getOrCreateCaixaAberto,
   getPagamentosDoCaixa,
+  getPagamentosDoColaborador,
   getHistoricoCaixasFechados,
   avancarCaixaSeNecessario,
   registrarPagamento,
@@ -34,8 +35,10 @@ import {
   calcularResumoPorPeriodo,
   PeriodoVisualizacao,
   getWorkWeekBounds,
+  getDescontosValesBounds,
   addDaysISO,
 } from '../utils/caixaSemanalStorage';
+import { supabase } from '../../supabase';
 import { formatDateBR } from '../utils/storage';
 import { showAlert, showConfirm } from '../../lib/notify';
 import { ServiceItem } from '../types';
@@ -92,15 +95,8 @@ const getDescontosPeriodoBounds = (periodo: DescontosPeriodo, offset: number) =>
   }
 
   if (periodo === 'semana') {
-    const now = new Date();
-    const day = now.getDay(); // 0 Dom ... 6 Sáb
-    // A semana corrente no painel de descontos inclui HOJE (sábado a sexta)
-    const diffToSaturday = day === 6 ? 0 : -(day + 1);
-    const sat = new Date(now);
-    sat.setDate(now.getDate() + diffToSaturday + offset * 7);
-    const start = format(sat);
-    const end = addDaysISO(start, 6);
-    return { start, end };
+    const weekBounds = getWorkWeekBounds(offset);
+    return getDescontosValesBounds(weekBounds.start, weekBounds.end);
   }
 
   const now = new Date();
@@ -229,18 +225,42 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
       if (cancelled) return;
       setCaixa(atualizado);
       setLoadingCaixa(false);
-      getPagamentosDoCaixa(atualizado.id).then((list) => { if (!cancelled) setPagamentos(list); });
+      getPagamentosDoColaborador(colaboradorId).then((list) => { if (!cancelled) setPagamentos(list); });
       getHistoricoCaixasFechados(colaboradorId).then((list) => { if (!cancelled) setHistoricoCaixas(list); });
     });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [colaboradorId, reloadToken]);
 
+  // ✅ Atualização em tempo real dos pagamentos e vales na aba de descontos
+  useEffect(() => {
+    if (!colaboradorId) return;
+    const channel = supabase
+      .channel(`descontos-pagamentos-${colaboradorId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'comissoes_pagamentos', filter: `colaborador_id=eq.${colaboradorId}` },
+        () => {
+          getPagamentosDoColaborador(colaboradorId).then((list) => setPagamentos(list));
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [colaboradorId]);
+
+  // ✅ Pagamentos vinculados à semana atual aberta
+  const pagamentosCaixaAberto = useMemo(
+    () => (caixa ? pagamentos.filter((p) => p.caixaId === caixa.id) : []),
+    [caixa, pagamentos]
+  );
+
   // ✅ Resumo da semana atual (a do caixa aberto) -- alimenta o saldo acumulado
   // (dívida/crédito), que continua aparecendo sempre, independente do período visualizado.
   const resumoCaixa = useMemo(
-    () => (caixa ? calcularResumoCaixa(caixa, baseSalary, services, descontos, pagamentos) : null),
-    [caixa, baseSalary, services, descontos, pagamentos]
+    () => (caixa ? calcularResumoCaixa(caixa, baseSalary, services, descontos, pagamentosCaixaAberto) : null),
+    [caixa, baseSalary, services, descontos, pagamentosCaixaAberto]
   );
 
   // ✅ Resumo agregado conforme o período escolhido (Semana / Mês / Ano): semana atual calcula
@@ -250,13 +270,84 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
     [periodoVisualizacao, caixa, historicoCaixas, resumoCaixa, periodoOffset]
   );
 
-  // ✅ Lista de pagamentos exibida abaixo também acompanha a navegação Semana/Mês/Ano
-  // e o offset selecionados ali em cima (antes ficava sempre fixa em "todos os pagamentos
-  // do caixa aberto", sem filtrar pelo período navegado).
+  // ✅ Lista de pagamentos exibida no card do Caixa
   const pagamentosDoPeriodo = useMemo(
     () => pagamentos.filter((p) => p.data >= resumoPorPeriodo.inicio && p.data <= resumoPorPeriodo.fim),
     [pagamentos, resumoPorPeriodo.inicio, resumoPorPeriodo.fim]
   );
+
+  // ✅ Pagamentos para a aba/card de Histórico de Lançamentos
+  const pagamentosDoHistorico = useMemo(() => {
+    if (descontosPeriodo === 'todos') {
+      return pagamentos;
+    }
+    return pagamentos.filter((p) => p.data >= descontosPeriodoBounds.start && p.data <= descontosPeriodoBounds.end);
+  }, [pagamentos, descontosPeriodo, descontosPeriodoBounds]);
+
+  const totalPagamentosPeriodo = useMemo(() => {
+    return pagamentosDoHistorico.reduce((acc, p) => acc + p.valor, 0);
+  }, [pagamentosDoHistorico]);
+
+  const totalGeralAbatido = useMemo(() => {
+    return totalDescontosPeriodo + totalPagamentosPeriodo;
+  }, [totalDescontosPeriodo, totalPagamentosPeriodo]);
+
+  type TipoFiltroHistorico = 'todos' | 'descontos' | 'pagamentos';
+  const [filtroHistorico, setFiltroHistorico] = useState<TipoFiltroHistorico>('todos');
+
+  interface ItemHistorico {
+    id: string;
+    tipo: 'desconto' | 'pagamento';
+    data: string;
+    valor: number;
+    titulo: string;
+    subtitulo?: string;
+    badgeLabel: string;
+    badgeColor: 'rose' | 'emerald';
+    ativo?: boolean;
+    desconto?: Desconto;
+    pagamento?: Pagamento;
+  }
+
+  const itensHistorico = useMemo<ItemHistorico[]>(() => {
+    const lista: ItemHistorico[] = [];
+
+    if (filtroHistorico === 'todos' || filtroHistorico === 'descontos') {
+      for (const d of descontosDoPeriodo) {
+        lista.push({
+          id: `desconto-${d.id}`,
+          tipo: 'desconto',
+          data: d.data,
+          valor: d.valor,
+          titulo: d.tipo === 'outro' && d.descricao ? d.descricao : (DESCONTO_TIPO_LABELS[d.tipo] || d.tipo),
+          subtitulo: d.recorrencia === 'unica' ? formatDateBR(d.data) : `A partir de ${formatDateBR(d.data)}`,
+          badgeLabel: d.tipo === 'outro' ? 'Outro Desconto' : (DESCONTO_TIPO_LABELS[d.tipo] || 'Desconto'),
+          badgeColor: 'rose',
+          ativo: d.ativo,
+          desconto: d,
+        });
+      }
+    }
+
+    if (filtroHistorico === 'todos' || filtroHistorico === 'pagamentos') {
+      for (const p of pagamentosDoHistorico) {
+        lista.push({
+          id: `pagamento-${p.id}`,
+          tipo: 'pagamento',
+          data: p.data,
+          valor: p.valor,
+          titulo: p.descricao || `Pagamento / Vale (${FORMA_PAGAMENTO_LABELS[p.formaPagamento] || p.formaPagamento})`,
+          subtitulo: `${formatDateBR(p.data)} · ${FORMA_PAGAMENTO_LABELS[p.formaPagamento] || p.formaPagamento}`,
+          badgeLabel: `Vale / Pagamento · ${FORMA_PAGAMENTO_LABELS[p.formaPagamento] || p.formaPagamento}`,
+          badgeColor: 'emerald',
+          ativo: true,
+          pagamento: p,
+        });
+      }
+    }
+
+    return lista.sort((a, b) => b.data.localeCompare(a.data));
+  }, [filtroHistorico, descontosDoPeriodo, pagamentosDoHistorico]);
 
   const handleAddPagamento = async () => {
     if (!caixa) return;
@@ -593,28 +684,36 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
         </div>
       </div>
 
-      <div className="p-6 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] shadow-sm">
-        <div className="flex items-center justify-between flex-wrap gap-3">
+      {/* Card Principal: Histórico Unificado de Lançamentos (Descontos e Vales/Pagamentos) */}
+      <div className="p-6 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] shadow-sm space-y-4">
+        <div className="flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-3">
-            <div className="p-3 rounded-xl bg-rose-500/10 text-rose-400">
-              <MinusCircle className="w-5 h-5" />
+            <div className="p-3 rounded-xl bg-primary-500/10 text-primary-400">
+              <Wallet className="w-5 h-5" />
             </div>
             <div>
               <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                Descontos na {DESCONTOS_PERIODO_LABELS[descontosPeriodo]}
+                Lançamentos e Histórico
               </span>
-              <div className="text-2xl font-black text-rose-400 font-mono">{formatCurrency(totalDescontosPeriodo)}</div>
+              <div className="flex items-baseline gap-3 flex-wrap mt-0.5">
+                <span className="text-2xl font-black text-[var(--text-main)] font-mono">
+                  {formatCurrency(totalGeralAbatido)}
+                </span>
+                <span className="text-xs text-[var(--text-muted)]">
+                  (Descontos: <strong className="text-rose-400 font-mono">-{formatCurrency(totalDescontosPeriodo)}</strong> · Vales/Pagos: <strong className="text-emerald-400 font-mono">-{formatCurrency(totalPagamentosPeriodo)}</strong>)
+                </span>
+              </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-3 flex-wrap">
-            {/* ✅ Seletor de visualização: Semana / Mês / Ano / Todos */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Seletor de período: Semana / Mês / Ano / Todos */}
             <div className="flex items-center gap-1 p-1 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
               {(['semana', 'mes', 'ano', 'todos'] as const).map((p) => (
                 <button
                   key={p}
                   onClick={() => { setDescontosPeriodo(p); setDescontosPeriodoOffset(0); }}
-                  className={`px-3 py-1.5 rounded-md text-[11px] font-black uppercase tracking-wider transition-all ${
+                  className={`px-3 py-1.5 rounded-md text-[11px] font-black uppercase tracking-wider transition-all cursor-pointer ${
                     descontosPeriodo === p
                       ? 'bg-primary-500 text-white shadow-sm'
                       : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'
@@ -625,10 +724,26 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
               ))}
             </div>
 
+            {isAdmin && !showPagamentoForm && caixa && (
+              <button
+                onClick={() => {
+                  setShowPagamentoForm(true);
+                  setShowForm(false);
+                }}
+                className="flex items-center gap-1.5 h-9 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase tracking-wide transition-all shadow-sm cursor-pointer"
+              >
+                <Banknote className="w-4 h-4" />
+                Registrar Pagamento
+              </button>
+            )}
+
             {isAdmin && !showForm && (
               <button
-                onClick={openNewForm}
-                className="flex items-center gap-1.5 h-9 px-3 rounded-xl bg-gradient-red text-white text-xs font-black uppercase tracking-wide shadow-red-glow hover:opacity-90 transition-opacity"
+                onClick={() => {
+                  openNewForm();
+                  setShowPagamentoForm(false);
+                }}
+                className="flex items-center gap-1.5 h-9 px-3 rounded-xl bg-gradient-red text-white text-xs font-black uppercase tracking-wide shadow-red-glow hover:opacity-90 transition-opacity cursor-pointer"
               >
                 <Plus className="w-4 h-4" />
                 Novo Desconto
@@ -637,49 +752,158 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
           </div>
         </div>
 
-        {/* ✅ Navegação entre períodos (oculto quando "todos" está ativo) */}
-        {descontosPeriodo !== 'todos' ? (
-          <div className="flex items-center justify-center gap-3 py-1 mt-4">
+        {/* Filtro por tipo de lançamento (Todos / Descontos / Vales) e Navegação de Período */}
+        <div className="flex items-center justify-between flex-wrap gap-3 pt-2 border-t border-[var(--border-color)]">
+          <div className="flex items-center gap-1 p-1 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
             <button
-              onClick={() => setDescontosPeriodoOffset((o) => o - 1)}
-              className="p-1.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5 transition-all cursor-pointer"
-              title={`${DESCONTOS_PERIODO_LABELS[descontosPeriodo]} anterior`}
+              onClick={() => setFiltroHistorico('todos')}
+              className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                filtroHistorico === 'todos'
+                  ? 'bg-primary-500 text-white shadow-sm'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'
+              }`}
             >
-              <ChevronLeft size={16} />
+              Todos ({descontosDoPeriodo.length + pagamentosDoHistorico.length})
             </button>
-            <span className="text-xs font-black uppercase tracking-wider text-[var(--text-main)] min-w-[140px] text-center">
-              {descontosPeriodoLabel}
-              {descontosPeriodoOffset === 0 && <span className="text-primary-400"> · atual</span>}
-            </span>
             <button
-              onClick={() => setDescontosPeriodoOffset((o) => Math.min(1, o + 1))}
-              disabled={descontosPeriodoOffset >= 1}
-              className="p-1.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5 transition-all disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
-              title={`${DESCONTOS_PERIODO_LABELS[descontosPeriodo]} seguinte`}
+              onClick={() => setFiltroHistorico('descontos')}
+              className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                filtroHistorico === 'descontos'
+                  ? 'bg-rose-500 text-white shadow-sm'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'
+              }`}
             >
-              <ChevronRight size={16} />
+              Descontos ({descontosDoPeriodo.length})
+            </button>
+            <button
+              onClick={() => setFiltroHistorico('pagamentos')}
+              className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                filtroHistorico === 'pagamentos'
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'
+              }`}
+            >
+              Vales e Pagamentos ({pagamentosDoHistorico.length})
             </button>
           </div>
-        ) : (
-          <div className="flex items-center justify-center py-1 mt-4">
+
+          {descontosPeriodo !== 'todos' ? (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setDescontosPeriodoOffset((o) => o - 1)}
+                className="p-1.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5 transition-all cursor-pointer"
+                title={`${DESCONTOS_PERIODO_LABELS[descontosPeriodo]} anterior`}
+              >
+                <ChevronLeft size={15} />
+              </button>
+              <span className="text-xs font-black uppercase tracking-wider text-[var(--text-main)] min-w-[130px] text-center">
+                {descontosPeriodoLabel}
+                {descontosPeriodoOffset === 0 && <span className="text-primary-400"> · atual</span>}
+              </span>
+              <button
+                onClick={() => setDescontosPeriodoOffset((o) => Math.min(1, o + 1))}
+                disabled={descontosPeriodoOffset >= 1}
+                className="p-1.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5 transition-all disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
+                title={`${DESCONTOS_PERIODO_LABELS[descontosPeriodo]} seguinte`}
+              >
+                <ChevronRight size={15} />
+              </button>
+            </div>
+          ) : (
             <span className="text-xs font-black uppercase tracking-wider text-[var(--text-muted)]">
-              Exibindo todos os descontos cadastrados ({descontos.length})
+              Exibindo histórico completo
             </span>
-          </div>
-        )}
+          )}
+        </div>
 
         {!isAdmin && (
-          <p className="text-[11px] text-[var(--text-muted)] mt-3">
-            Aqui você só consulta os descontos lançados. Qualquer dúvida, fale com o administrador.
+          <p className="text-[11px] text-[var(--text-muted)]">
+            Aqui você consulta todos os descontos, vales e pagamentos registrados no seu caixa.
           </p>
         )}
       </div>
 
+      {/* Formulário de Novo Pagamento / Vale */}
+      {isAdmin && showPagamentoForm && (
+        <div className="rounded-2xl border border-emerald-500/30 bg-[var(--bg-card)] p-5 space-y-4 shadow-sm">
+          <div className="flex items-center justify-between">
+            <h4 className="text-xs font-black uppercase text-emerald-400 flex items-center gap-1.5">
+              <Banknote className="w-4 h-4" />
+              {editingPagamentoId ? 'Editando pagamento / vale' : 'Registrar pagamento ou vale'}
+            </h4>
+            <button onClick={handleCancelPagamentoForm} className="text-[var(--text-muted)] hover:text-[var(--text-main)] cursor-pointer">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+            <label className="space-y-1 block">
+              <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">Valor (R$)</span>
+              <input
+                type="number"
+                step="0.01"
+                value={pagamentoForm.valor || ''}
+                onChange={(e) => setPagamentoForm({ ...pagamentoForm, valor: Number(e.target.value) || 0 })}
+                placeholder="0,00"
+                className="w-full h-10 bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl px-3 text-sm text-[var(--text-main)] focus:outline-none focus:border-emerald-400 font-mono font-bold"
+              />
+            </label>
+            <label className="space-y-1 block">
+              <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">Data</span>
+              <input
+                type="date"
+                value={pagamentoForm.data}
+                onChange={(e) => setPagamentoForm({ ...pagamentoForm, data: e.target.value })}
+                className="w-full h-10 bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl px-3 text-sm text-[var(--text-main)] focus:outline-none focus:border-emerald-400"
+              />
+            </label>
+            <label className="space-y-1 block">
+              <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">Forma de Pagamento</span>
+              <select
+                value={pagamentoForm.formaPagamento || 'pix'}
+                onChange={(e) => setPagamentoForm({ ...pagamentoForm, formaPagamento: e.target.value as FormaPagamento })}
+                className="w-full h-10 bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl px-3 text-sm text-[var(--text-main)] focus:outline-none focus:border-emerald-400 font-medium"
+              >
+                {(Object.keys(FORMA_PAGAMENTO_LABELS) as FormaPagamento[]).map((fp) => (
+                  <option key={fp} value={fp}>{FORMA_PAGAMENTO_LABELS[fp]}</option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-1 block">
+              <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">Observação (opcional)</span>
+              <input
+                value={pagamentoForm.descricao || ''}
+                onChange={(e) => setPagamentoForm({ ...pagamentoForm, descricao: e.target.value })}
+                placeholder="Ex: Adiantamento, Vale PIX, etc."
+                className="w-full h-10 bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl px-3 text-sm text-[var(--text-main)] focus:outline-none focus:border-emerald-400"
+              />
+            </label>
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={handleCancelPagamentoForm}
+              className="h-9 px-4 rounded-xl text-xs font-black uppercase text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors cursor-pointer"
+            >
+              Cancelar
+            </button>
+            <button
+              disabled={savingPagamento}
+              onClick={handleAddPagamento}
+              className="h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase tracking-wide transition-all disabled:opacity-50 cursor-pointer"
+            >
+              {savingPagamento ? 'Salvando...' : editingPagamentoId ? 'Salvar Edição' : 'Salvar Pagamento'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Formulário de Novo Desconto */}
       {isAdmin && showForm && (
-        <div className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] p-5 space-y-4">
+        <div className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] p-5 space-y-4 shadow-sm">
           <div className="flex items-center justify-between">
             <h4 className="text-xs font-black uppercase text-[var(--accent-red)]">{editingId ? 'Editando desconto' : 'Novo desconto'}</h4>
-            <button onClick={closeForm} className="text-[var(--text-muted)] hover:text-[var(--text-main)]"><X className="w-4 h-4" /></button>
+            <button onClick={closeForm} className="text-[var(--text-muted)] hover:text-[var(--text-main)] cursor-pointer"><X className="w-4 h-4" /></button>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <label className="space-y-1 block">
@@ -688,8 +912,6 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
                 value={form.tipo || 'outro'}
                 onChange={(e) => {
                   const novoTipo = e.target.value as DescontoTipo;
-                  // Ao escolher um tipo de falta (num desconto novo), sugere automaticamente
-                  // o valor com base no salário semanal (segunda a sábado / 6 dias).
                   const sugestao =
                     !editingId && baseSalary > 0 ? sugerirValorFalta(novoTipo, baseSalary) : undefined;
                   setForm({ ...form, tipo: novoTipo, ...(sugestao ? { valor: sugestao } : {}) });
@@ -765,7 +987,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
             </label>
           </div>
           <div className="flex justify-end gap-2">
-            <button onClick={closeForm} className="h-9 px-4 rounded-xl text-xs font-black uppercase text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors">Cancelar</button>
+            <button onClick={closeForm} className="h-9 px-4 rounded-xl text-xs font-black uppercase text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors cursor-pointer">Cancelar</button>
             <button
               disabled={saving}
               onClick={handleSave}
@@ -777,51 +999,111 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
         </div>
       )}
 
-      <div className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] overflow-hidden">
-        {descontosDoPeriodo.length === 0 ? (
+      {/* Lista Unificada de Itens do Histórico */}
+      <div className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] overflow-hidden shadow-sm">
+        {itensHistorico.length === 0 ? (
           <div className="p-8 text-center text-[var(--text-muted)]">
-            <p className="font-bold text-sm">Nenhum desconto lançado em {descontosPeriodoLabel}.</p>
+            <p className="font-bold text-sm">Nenhum lançamento encontrado em {descontosPeriodoLabel}.</p>
+            <p className="text-xs text-[var(--text-muted)] mt-1">
+              Alterne o período acima (Semana, Mês, Ano ou Todos) para consultar lançamentos anteriores.
+            </p>
           </div>
         ) : (
           <div className="divide-y divide-[var(--border-color)]">
-            {descontosDoPeriodo.map((d) => (
-              <div key={d.id} className={`flex items-center gap-3 px-4 py-3 flex-wrap ${!d.ativo ? 'opacity-50' : ''}`}>
+            {itensHistorico.map((item) => (
+              <div
+                key={item.id}
+                className={`flex items-center gap-3 px-4 py-3 flex-wrap transition-colors hover:bg-white/[0.02] ${
+                  !item.ativo ? 'opacity-50' : ''
+                }`}
+              >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="font-bold text-[var(--text-main)] text-sm">
-                      {d.tipo === 'outro' && d.descricao ? d.descricao : (DESCONTO_TIPO_LABELS[d.tipo] || d.tipo)}
+                      {item.titulo}
                     </p>
-                    <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-[var(--bg-card-sec)] text-[var(--text-muted)] border border-[var(--border-color)]">
-                      {DESCONTO_RECORRENCIA_LABELS[d.recorrencia]}
-                    </span>
-                    {d.tipo === 'outro' && d.descricao && (
-                      <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                        Outro desconto
+                    {item.tipo === 'desconto' ? (
+                      <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-300 border border-rose-500/20">
+                        {item.badgeLabel}
+                      </span>
+                    ) : (
+                      <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/20 flex items-center gap-1">
+                        <Banknote size={10} />
+                        {item.badgeLabel}
                       </span>
                     )}
-                    {!d.ativo && <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-400">Inativo</span>}
+                    {item.desconto?.recorrencia && (
+                      <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-[var(--bg-card-sec)] text-[var(--text-muted)] border border-[var(--border-color)]">
+                        {DESCONTO_RECORRENCIA_LABELS[item.desconto.recorrencia]}
+                      </span>
+                    )}
+                    {!item.ativo && (
+                      <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-400">
+                        Inativo
+                      </span>
+                    )}
                   </div>
-                  <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
-                    {d.recorrencia === 'unica' ? formatDateBR(d.data) : `A partir de ${formatDateBR(d.data)}`}
-                    {d.tipo !== 'outro' && d.descricao ? ` · ${d.descricao}` : ''}
-                  </p>
+                  {item.subtitulo && (
+                    <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                      {item.subtitulo}
+                    </p>
+                  )}
                 </div>
-                <div className="font-mono font-black text-rose-400 text-sm shrink-0">-{formatCurrency(d.valor)}</div>
+
+                <div className={`font-mono font-black text-sm shrink-0 ${
+                  item.tipo === 'desconto' ? 'text-rose-400' : 'text-emerald-400'
+                }`}>
+                  -{formatCurrency(item.valor)}
+                </div>
+
                 {isAdmin && (
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <button onClick={() => openEditForm(d)} className="p-1.5 rounded-lg bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 border border-amber-500/30 transition-all cursor-pointer" title="Editar Desconto">
-                      <Pencil size={13} />
-                    </button>
-                    <button
-                      onClick={() => handleToggleAtivo(d)}
-                      className={`p-1.5 rounded-lg border transition-all cursor-pointer ${d.ativo ? 'bg-amber-500/10 text-amber-400 border-amber-500/20 hover:bg-amber-500/20' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20'}`}
-                      title={d.ativo ? 'Desativar' : 'Ativar'}
-                    >
-                      {d.ativo ? <Ban size={13} /> : <CheckCircle2 size={13} />}
-                    </button>
-                    <button onClick={() => handleDelete(d)} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/20 transition-all cursor-pointer" title="Excluir Desconto">
-                      <Trash2 size={13} />
-                    </button>
+                    {item.tipo === 'desconto' && item.desconto ? (
+                      <>
+                        <button
+                          onClick={() => openEditForm(item.desconto!)}
+                          className="p-1.5 rounded-lg bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 border border-amber-500/30 transition-all cursor-pointer"
+                          title="Editar Desconto"
+                        >
+                          <Pencil size={13} />
+                        </button>
+                        <button
+                          onClick={() => handleToggleAtivo(item.desconto!)}
+                          className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+                            item.desconto.ativo
+                              ? 'bg-amber-500/10 text-amber-400 border-amber-500/20 hover:bg-amber-500/20'
+                              : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20'
+                          }`}
+                          title={item.desconto.ativo ? 'Desativar' : 'Ativar'}
+                        >
+                          {item.desconto.ativo ? <Ban size={13} /> : <CheckCircle2 size={13} />}
+                        </button>
+                        <button
+                          onClick={() => handleDelete(item.desconto!)}
+                          className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/20 transition-all cursor-pointer"
+                          title="Excluir Desconto"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </>
+                    ) : item.tipo === 'pagamento' && item.pagamento ? (
+                      <>
+                        <button
+                          onClick={() => handleStartEditPagamento(item.pagamento!)}
+                          className="p-1.5 rounded-lg bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 border border-amber-500/30 transition-all cursor-pointer"
+                          title="Editar Pagamento / Vale"
+                        >
+                          <Pencil size={13} />
+                        </button>
+                        <button
+                          onClick={() => handleDeletePagamento(item.pagamento!)}
+                          className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/20 transition-all cursor-pointer"
+                          title="Excluir Pagamento / Vale"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </>
+                    ) : null}
                   </div>
                 )}
               </div>

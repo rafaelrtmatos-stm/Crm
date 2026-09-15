@@ -145,7 +145,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
 
             {isHojeSabado && (
               <div className="text-[10px] text-white/80 bg-black/25 px-2.5 py-1.5 rounded-lg border border-white/10 text-center leading-tight">
-                ℹ️ Fechamento até sexta-feira. Produções realizadas hoje (sábado) serão contabilizadas na próxima semana.
+                ℹ️ Fechamento até sexta-feira. Produções de hoje (sábado) contam na próxima semana; vales e descontos de hoje entram neste acerto.
               </div>
             )}
           </div>

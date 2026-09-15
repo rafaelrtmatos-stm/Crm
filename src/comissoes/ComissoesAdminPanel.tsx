@@ -41,7 +41,7 @@ import {
   ArrowUpRight
 } from 'lucide-react';
 import { Colaborador, ModoLancamentoComissao, Desconto, calculateDescontosNoPeriodo } from './utils/supabaseStorage';
-import { getWorkWeekBounds } from './utils/caixaSemanalStorage';
+import { getWorkWeekBounds, getDescontosValesBounds } from './utils/caixaSemanalStorage';
 import { useSyncWithCrmTheme } from './utils/useSyncCrmTheme';
 import { supabase } from '../supabase';
 import { showAlert, showConfirm } from '../lib/notify';
@@ -198,6 +198,7 @@ export default function ComissoesAdminPanel() {
 
       // 2. Busca dados da semana atual para cálculo do Total Estimado
       const { start, end } = weekBounds;
+      const descBounds = getDescontosValesBounds(start, end);
 
       const [servicosRes, descontosRes, pagamentosRes] = await Promise.all([
         supabase
@@ -213,8 +214,8 @@ export default function ComissoesAdminPanel() {
         supabase
           .from('comissoes_pagamentos')
           .select('colaborador_id, valor')
-          .gte('data', start)
-          .lte('data', end),
+          .gte('data', descBounds.start)
+          .lte('data', descBounds.end),
       ]);
 
       const servicos = servicosRes.data || [];
@@ -265,7 +266,7 @@ export default function ComissoesAdminPanel() {
         const metaSemanal = Number(c.meta_semanal) || 0;
         const colabServicos = servicosByColab[c.id] || { totalComissao: 0, totalProducao: 0, count: 0 };
         const colabDescontos = descontosByColab[c.id] || [];
-        const totalDescontos = calculateDescontosNoPeriodo(colabDescontos, start, end);
+        const totalDescontos = calculateDescontosNoPeriodo(colabDescontos, descBounds.start, descBounds.end);
         const totalPago = pagamentosByColab[c.id] || 0;
 
         // Fórmula: Total Estimado = Salário Base + Comissão da Semana - Descontos - Pagamentos

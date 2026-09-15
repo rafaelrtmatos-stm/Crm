@@ -17,13 +17,14 @@ import {
   WeeklyCaixa,
   Pagamento,
   getOrCreateCaixaAberto,
-  getPagamentosDoCaixa,
+  getPagamentosDoColaborador,
   avancarCaixaSeNecessario,
   getDataInicioColaborador,
   calcularResumoNoIntervalo,
   getWorkWeekBounds,
   addDaysISO,
 } from '../utils/caixaSemanalStorage';
+import { supabase } from '../../supabase';
 import { ReceiptForecastCard } from './ReceiptForecastCard';
 import { AddServiceButton } from './AddServiceButton';
 import { ChartsSection } from './ChartsSection';
@@ -210,11 +211,28 @@ export const Dashboard: React.FC<DashboardProps> = ({
       const atualizado = await avancarCaixaSeNecessario(c, userSettings.baseSalary, recentServices, descontos);
       if (cancelled) return;
       setCaixa(atualizado);
-      getPagamentosDoCaixa(atualizado.id).then((list) => { if (!cancelled) setPagamentos(list); });
+      getPagamentosDoColaborador(colaboradorId).then((list) => { if (!cancelled) setPagamentos(list); });
       getDataInicioColaborador(colaboradorId).then((d) => { if (!cancelled) setDataInicioColaborador(d); });
     });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [colaboradorId]);
+
+  useEffect(() => {
+    if (!colaboradorId) return;
+    const channel = supabase
+      .channel(`dashboard-pagamentos-${colaboradorId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'comissoes_pagamentos', filter: `colaborador_id=eq.${colaboradorId}` },
+        () => {
+          getPagamentosDoColaborador(colaboradorId).then(setPagamentos);
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [colaboradorId]);
 
 

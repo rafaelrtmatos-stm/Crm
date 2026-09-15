@@ -107,6 +107,32 @@ export const getWorkWeekBounds = (offsetWeeks = 0): { start: string; end: string
   return { start, end };
 };
 
+/**
+ * Retorna os limites de apuração de Descontos e Vales (Pagamentos) para a semana de trabalho.
+ * Regra:
+ * - O fechamento semanal é realizado no Sábado (dia seguinte à Sexta-feira de encerramento da produção).
+ * - Se o funcionário pegar um vale ou tiver um desconto no Sábado de fechamento, esse desconto/vale
+ *   VEM PARA O DIA (é abatido no acerto deste mesmo Sábado).
+ * - Apenas a comissão/produção realizada no Sábado é que fica para a semana seguinte ("agora só a comissão que é contada para o outro dia").
+ * - Portanto, para a semana que encerra a comissão na Sexta (`weekEnd`), os descontos e vales
+ *   são apurados até o SÁBADO de fechamento (`addDaysISO(weekEnd, 1)`).
+ * - E o início dos descontos e vales começa no DOMINGO (`addDaysISO(weekStart, 1)`), pois os vales
+ *   do Sábado anterior já foram abatidos no fechamento anterior (exceto na semana inaugural 07/09,
+ *   onde começou na Segunda 07/09).
+ */
+export const getDescontosValesBounds = (weekStart: string, weekEnd: string): { start: string; end: string } => {
+  // Sábado de fechamento/pagamento (sexta-feira + 1 dia)
+  const end = addDaysISO(weekEnd, 1);
+
+  const startDay = new Date(`${weekStart}T00:00:00`).getDay();
+  // Se começou no sábado (6), os descontos deste ciclo iniciam no domingo seguinte (+1 dia),
+  // já que os descontos do sábado anterior entraram no acerto daquele sábado anterior.
+  // Se for a semana inaugural de 07/09 (segunda = 1), mantém 07/09.
+  const start = startDay === 6 ? addDaysISO(weekStart, 1) : weekStart;
+
+  return { start, end };
+};
+
 /** Sábado da semana seguinte à semana que termina em semanaFim (sexta-feira). */
 const getProximaSemanaInicio = (semanaFim: string): string => addDaysISO(semanaFim, 1);
 
@@ -254,6 +280,16 @@ export async function getPagamentosDoCaixa(caixaId: string): Promise<Pagamento[]
   return data.map(mapPagamentoRow);
 }
 
+export async function getPagamentosDoColaborador(colaboradorId: string): Promise<Pagamento[]> {
+  const { data, error } = await supabase
+    .from('comissoes_pagamentos')
+    .select('*')
+    .eq('colaborador_id', colaboradorId)
+    .order('data', { ascending: false });
+  if (error || !data) return [];
+  return data.map(mapPagamentoRow);
+}
+
 export interface PagamentoFormInput {
   valor: number;
   data: string;
@@ -348,7 +384,8 @@ export function calcularResumoCaixa(
   const totalComissao = services
     .filter((s) => s.date >= caixa.semanaInicio && s.date <= caixa.semanaFim && s.status !== 'CANCELADO')
     .reduce((acc, s) => acc + (s.commissionValue || 0), 0);
-  const totalDescontos = calculateDescontosNoPeriodo(descontos, caixa.semanaInicio, caixa.semanaFim);
+  const descBounds = getDescontosValesBounds(caixa.semanaInicio, caixa.semanaFim);
+  const totalDescontos = calculateDescontosNoPeriodo(descontos, descBounds.start, descBounds.end);
   const totalPago = pagamentos.reduce((acc, p) => acc + p.valor, 0);
   const saldoSemana = salarioBase + totalComissao - totalDescontos - totalPago;
   const saldoFinal = caixa.saldoAnterior + saldoSemana;
@@ -373,11 +410,17 @@ export function calcularResumoNoIntervalo(
   const totalComissao = services
     .filter((s) => s.date >= inicio && s.date <= fim && s.status !== 'CANCELADO')
     .reduce((acc, s) => acc + (s.commissionValue || 0), 0);
-  const totalDescontos = calculateDescontosNoPeriodo(descontos, inicio, fim);
-  // Pagamentos da semana podem ter sido efetuados no sábado de pagamento (fim + 1 dia)
-  const pagamentosFimLimite = addDaysISO(fim, 1);
+
+  // Se o fim do período é uma Sexta-feira (semana de trabalho padrão), os descontos e vales
+  // estendem até o Sábado de fechamento ("o desconto vem para o dia, agora só a comissão que é contada para o outro dia")
+  const isWeekEndingFriday = new Date(`${fim}T00:00:00`).getDay() === 5;
+  const descBounds = isWeekEndingFriday
+    ? getDescontosValesBounds(inicio, fim)
+    : { start: inicio, end: fim };
+
+  const totalDescontos = calculateDescontosNoPeriodo(descontos, descBounds.start, descBounds.end);
   const totalPago = pagamentos
-    .filter((p) => p.data >= inicio && p.data <= pagamentosFimLimite)
+    .filter((p) => p.data >= descBounds.start && p.data <= descBounds.end)
     .reduce((acc, p) => acc + p.valor, 0);
   const qtdSemanas = contarSemanasSalario(dataInicioReal, inicio, fim);
   const salarioBaseNoIntervalo = salarioBase * qtdSemanas;
@@ -534,6 +577,10 @@ export function calcularResumoPorPeriodo(
     periodo === 'mes' ? getMonthBounds(offset) :
     getYearBounds(offset);
 
+  // Na visualização semanal, os descontos e vales apurados estendem até o sábado de acerto
+  const descBounds = periodo === 'semana' ? getDescontosValesBounds(start, end) : { start, end };
+  const fimEfetivo = descBounds.end;
+
   const label =
     periodo === 'semana' ? `${formatBR(start)} a ${formatBR(end)}` :
     periodo === 'mes' ? `${nomeMesPt(new Date(`${start}T00:00:00`).getMonth())}/${new Date(`${start}T00:00:00`).getFullYear()}` :
@@ -542,7 +589,7 @@ export function calcularResumoPorPeriodo(
   // Semana atual: já temos tudo calculado ao vivo.
   if (periodo === 'semana' && start === caixaAberto.semanaInicio) {
     return {
-      periodo, label, inicio: start, fim: end,
+      periodo, label, inicio: start, fim: fimEfetivo,
       salarioBase: resumoCaixaAberto.salarioBase,
       totalComissao: resumoCaixaAberto.totalComissao,
       totalDescontos: resumoCaixaAberto.totalDescontos,
@@ -557,9 +604,9 @@ export function calcularResumoPorPeriodo(
   // Semana específica no passado: usa o snapshot congelado no fechamento dela.
   if (periodo === 'semana') {
     const fechado = historico.find((c) => c.semanaInicio === start);
-    if (!fechado || fechado.saldoFinal === undefined) return zeroResumoPorPeriodo(periodo, start, end);
+    if (!fechado || fechado.saldoFinal === undefined) return zeroResumoPorPeriodo(periodo, start, fimEfetivo);
     return {
-      periodo, label, inicio: start, fim: end,
+      periodo, label, inicio: start, fim: fimEfetivo,
       salarioBase: fechado.salarioBase || 0,
       totalComissao: fechado.totalComissao || 0,
       totalDescontos: fechado.totalDescontos || 0,
