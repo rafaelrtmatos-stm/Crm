@@ -6974,7 +6974,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [allCustomers, setAllCustomers] = useState<any[]>([]);
   const [isLoadingCustomers, setIsLoadingCustomers] = useState(false);
   const [customerSalesStats, setCustomerSalesStats] = useState<Record<string, { total: number; count: number; lastDate: string | null; hasPending: boolean; pendingBalance: number }>>({});
-  const [customerSortBy, setCustomerSortBy] = useState<'az' | 'recentes' | 'ultima_compra' | 'maior_valor' | 'frequentes'>('az');
+  const [customerSortBy, setCustomerSortBy] = useState<'recentes' | 'az' | 'ultima_compra' | 'maior_valor' | 'frequentes'>('recentes');
   // Cliente selecionado na busca que tem nota pendente — bloqueia o fluxo ate o caixa confirmar
   // com o cliente se ja foi paga, pra nao deixar pendencia esquecida no sistema.
   const [pendingDebtCustomer, setPendingDebtCustomer] = useState<{ customer: any; pendingBalance: number } | null>(null);
@@ -7037,22 +7037,40 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setIsLoadingCustomers(true);
     setCustomerLoadError('');
     try {
-      // Carrega clientes da mesma forma ordenada e confiável que a aba Clientes (ContactsModule)
-      const { data, error, count } = await supabase
-        .from('clientes')
-        .select('*', { count: 'exact' })
-        .order('full_name', { ascending: true });
+      // Carrega TODOS os clientes usando paginação automática para contornar o limite de 1000 linhas do Supabase
+      const pageSize = 1000;
+      let allLoadedCustomers: any[] = [];
+      let from = 0;
+      let hasMore = true;
 
-      if (error) {
-        console.error('Erro Supabase ao carregar clientes no PDV:', error);
-        setCustomerLoadError(`Erro: ${error.message} (código: ${error.code || 's/código'})`);
-        setAllCustomers([]);
-        setIsLoadingCustomers(false);
-        isLoadingCustomersRef.current = false;
-        return;
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from('clientes')
+          .select('*')
+          .order('created_at', { ascending: false, nullsFirst: false })
+          .range(from, from + pageSize - 1);
+
+        if (error) {
+          console.error('Erro Supabase ao carregar clientes no PDV:', error);
+          setCustomerLoadError(`Erro: ${error.message} (código: ${error.code || 's/código'})`);
+          setAllCustomers([]);
+          setIsLoadingCustomers(false);
+          isLoadingCustomersRef.current = false;
+          return;
+        }
+
+        if (data && data.length > 0) {
+          allLoadedCustomers = allLoadedCustomers.concat(data);
+          from += pageSize;
+          if (data.length < pageSize) {
+            hasMore = false;
+          }
+        } else {
+          hasMore = false;
+        }
       }
 
-      setAllCustomers(data || []);
+      setAllCustomers(allLoadedCustomers);
       // Libera a visualização imediata da lista de clientes para não prender o operador no spinner
       setIsLoadingCustomers(false);
       isLoadingCustomersRef.current = false;
@@ -7061,7 +7079,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       try {
         let vendasParaStats: any[] = [];
         if (allSalesHistory && allSalesHistory.length > 0) {
-          vendasParaStats = allSalesHistory.map(v => ({
+          vendasParaStats = allSalesHistory.filter(v => !v.deletedAt).map(v => ({
             cliente_id: v.customerId,
             total: v.total,
             status: v.status,
@@ -7069,7 +7087,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             created_at: v.createdAt,
           }));
         } else {
-          const { data: vendasData } = await supabase.from('vendas').select('cliente_id, total, status, down_payment, created_at').limit(1000);
+          const { data: vendasData } = await supabase.from('vendas').select('cliente_id, total, status, down_payment, created_at').is('deleted_at', null);
           vendasParaStats = vendasData || [];
         }
 
@@ -7158,12 +7176,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       _cleanName: (c.full_name || '').replace(/\/r/gi, ' ').replace(/\s+/g, ' ').trim(),
     }));
     switch (customerSortBy) {
-      case 'recentes':
-        return withStats.sort((a, b) => {
-          const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
-          const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
-          return (isNaN(tb) ? 0 : tb) - (isNaN(ta) ? 0 : ta);
-        });
+      case 'az':
+        return withStats.sort((a, b) => (a._cleanName || '').localeCompare(b._cleanName || ''));
       case 'ultima_compra':
         return withStats.sort((a, b) => {
           const da = a._stats?.lastDate ? new Date(a._stats.lastDate).getTime() : 0;
@@ -7174,9 +7188,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         return withStats.sort((a, b) => (b._stats?.total || 0) - (a._stats?.total || 0));
       case 'frequentes':
         return withStats.sort((a, b) => (b._stats?.count || 0) - (a._stats?.count || 0));
-      case 'az':
+      case 'recentes':
       default:
-        return withStats.sort((a, b) => (a._cleanName || '').localeCompare(b._cleanName || ''));
+        return withStats.sort((a, b) => {
+          const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+          const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+          return (isNaN(tb) ? 0 : tb) - (isNaN(ta) ? 0 : ta);
+        });
     }
   }, [allCustomers, customerSearchTerm, customerSortBy, customerSalesStats]);
 
@@ -14403,12 +14421,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                      className="flex-1"
                    />
                    <select
-                     value={customerSortBy || 'az'}
+                     value={customerSortBy || 'recentes'}
                      onChange={(e) => setCustomerSortBy(e.target.value as any)}
                      className="h-11 bg-white/5 border border-white/10 rounded-xl px-3 text-[10px] font-black uppercase text-white/70 focus:outline-none focus:border-primary-500 cursor-pointer shrink-0"
                    >
-                     <option value="az" className="bg-slate-900">A-Z</option>
                      <option value="recentes" className="bg-slate-900">Mais Recentes</option>
+                     <option value="az" className="bg-slate-900">A-Z</option>
                      <option value="ultima_compra" className="bg-slate-900">Última Compra</option>
                      <option value="maior_valor" className="bg-slate-900">Maior Valor</option>
                      <option value="frequentes" className="bg-slate-900">Frequentes</option>
@@ -14423,6 +14441,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    </button>
                 </div>
 
+                <div className="flex items-center justify-between px-1 text-[10px] text-white/40 font-bold uppercase tracking-wider">
+                   <span>{filteredSortedCustomers.length} encontrado(s){customerSearchTerm ? ` para "${customerSearchTerm}"` : ''}</span>
+                   <span>Total na base: {allCustomers.length}</span>
+                </div>
+
                 <div className="max-h-[26rem] overflow-y-auto custom-scrollbar space-y-2">
                    {isLoadingCustomers && (
                      <div className="flex justify-center py-10"><RefreshCw className="animate-spin text-primary-500" size={22} /></div>
@@ -14433,7 +14456,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    {!isLoadingCustomers && !customerLoadError && filteredSortedCustomers.length === 0 && (
                      <p className="text-center text-xs text-white/30 py-10">Nenhum cliente encontrado ({allCustomers.length} no total). Tente Cadastrar.</p>
                    )}
-                   {!isLoadingCustomers && filteredSortedCustomers.slice(0, 100).map(c => {
+                   {!isLoadingCustomers && filteredSortedCustomers.slice(0, 200).map(c => {
                      const stats = c._stats;
                      const pendingBalance = stats?.pendingBalance || 0;
                      const hasPending = pendingBalance > 0;
@@ -14528,9 +14551,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                        </div>
                      );
                    })}
-                   {filteredSortedCustomers.length > 100 && (
+                   {filteredSortedCustomers.length > 200 && (
                      <p className="text-center text-[10px] text-white/40 py-2">
-                       Mostrando 100 de {filteredSortedCustomers.length} clientes. Digite para refinar a busca.
+                       Mostrando os 200 primeiros de {filteredSortedCustomers.length} clientes encontrados. Digite para refinar a busca.
                      </p>
                    )}
                 </div>
@@ -18866,11 +18889,38 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
   useEffect(() => {
     let active = true;
     const load = async () => {
-      const { data, error } = await supabase.from('clientes').select('*').order('full_name', { ascending: true });
-      if (!active) return;
-      if (error) { console.error('Erro ao carregar clientes:', error); setLoading(false); return; }
-      setClientes(data || []);
-      setLoading(false);
+      try {
+        const pageSize = 1000;
+        let all: any[] = [];
+        let from = 0;
+        let hasMore = true;
+        while (hasMore) {
+          const { data, error } = await supabase
+            .from('clientes')
+            .select('*')
+            .order('full_name', { ascending: true })
+            .range(from, from + pageSize - 1);
+          if (!active) return;
+          if (error) {
+            console.error('Erro ao carregar clientes:', error);
+            setLoading(false);
+            return;
+          }
+          if (data && data.length > 0) {
+            all = all.concat(data);
+            from += pageSize;
+            if (data.length < pageSize) hasMore = false;
+          } else {
+            hasMore = false;
+          }
+        }
+        if (!active) return;
+        setClientes(all);
+        setLoading(false);
+      } catch (e) {
+        console.error('Erro ao carregar clientes na Base de Contatos:', e);
+        if (active) setLoading(false);
+      }
     };
     load();
     const channel = supabase

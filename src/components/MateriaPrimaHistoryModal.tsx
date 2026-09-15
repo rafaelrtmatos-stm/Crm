@@ -546,7 +546,7 @@ export const MateriaPrimaHistoryModal: React.FC<MateriaPrimaHistoryModalProps> =
           </div>
         </div>
 
-        {/* Card de Auditoria & Sincronização de Estoque Físico vs Vendas Reais */}
+        {/* Card de Resumo de Estoque & Consumo */}
         {currentMp && (
           <div className="p-3.5 bg-gradient-to-r from-slate-900 via-primary-950/20 to-slate-900 border border-primary-500/20 rounded-2xl space-y-2.5">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
@@ -556,18 +556,11 @@ export const MateriaPrimaHistoryModal: React.FC<MateriaPrimaHistoryModalProps> =
                 </div>
                 <div>
                   <h4 className="text-xs font-black text-white flex items-center gap-1.5">
-                    <span>Auditoria de Saldo & Consumo: {currentMp.name}</span>
-                    {hasDivergencia ? (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold flex items-center gap-1">
-                        <AlertTriangle size={11} />
-                        Divergência Detectada
-                      </span>
-                    ) : (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold flex items-center gap-1">
-                        <Check size={11} />
-                        Estoque 100% Sincronizado
-                      </span>
-                    )}
+                    <span>Estoque & Consumo: {currentMp.name}</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold flex items-center gap-1">
+                      <Check size={11} />
+                      Estoque Ativo
+                    </span>
                   </h4>
                   <p className="text-[10px] text-white/50">
                     Bobina padrão: <strong className="text-white/80">{compBobina}m</strong> • Saídas acumuladas em notas: <strong className="text-cyan-400 font-mono">{totalSaidasGeral.toFixed(2)}m</strong>
@@ -580,36 +573,35 @@ export const MateriaPrimaHistoryModal: React.FC<MateriaPrimaHistoryModalProps> =
                   variant="primary"
                   onClick={handleSyncStock}
                   disabled={syncingStock}
-                  className="text-xs py-1.5 px-3 bg-primary-500 hover:bg-primary-400 text-slate-950 font-black rounded-xl shadow-lg shadow-primary-500/20 whitespace-nowrap self-stretch sm:self-auto flex items-center gap-1.5"
+                  className="text-xs py-1.5 px-3 bg-white/10 hover:bg-white/20 text-white font-bold rounded-xl border border-white/10 whitespace-nowrap self-stretch sm:self-auto flex items-center gap-1.5"
+                  title="Recalcula o saldo com base estrita em todas as notas fiscais"
                 >
                   <Sparkles size={13} className={syncingStock ? 'animate-spin' : ''} />
-                  <span>{syncingStock ? 'Sincronizando...' : `Sincronizar Saldo Real (${saldoTeoricoMetros.toFixed(2)}m)`}</span>
+                  <span>{syncingStock ? 'Ajustando...' : `Recalcular via Notas (${saldoTeoricoMetros.toFixed(2)}m)`}</span>
                 </Button>
               )}
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-white/5 text-center">
+            <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/5 text-center">
               <div className="bg-black/40 p-2 rounded-xl border border-white/5">
-                <span className="text-[9px] uppercase font-bold text-white/40 block">Bobina Inicial</span>
+                <span className="text-[9px] uppercase font-bold text-white/40 block">Bobina / Tamanho Padrão</span>
                 <strong className="text-xs font-black text-white font-mono">{compBobina}m</strong>
               </div>
               <div className="bg-black/40 p-2 rounded-xl border border-white/5">
-                <span className="text-[9px] uppercase font-bold text-cyan-400 block">Total Saídas Notas</span>
+                <span className="text-[9px] uppercase font-bold text-cyan-400 block">Total Saídas em Notas</span>
                 <strong className="text-xs font-black text-cyan-400 font-mono">-{totalSaidasGeral.toFixed(2)}m</strong>
               </div>
-              <div className="bg-black/40 p-2 rounded-xl border border-white/5">
-                <span className="text-[9px] uppercase font-bold text-emerald-400 block">Saldo Real Auditado</span>
-                <strong className="text-xs font-black text-emerald-400 font-mono">
-                  {saldoTeoricoMetros.toFixed(2)}m
-                  <span className="text-[9px] text-white/40 font-normal ml-1">(~{(saldoTeoricoMetros / compBobina).toFixed(2)} bob.)</span>
-                </strong>
-              </div>
-              <div className={`p-2 rounded-xl border ${hasDivergencia ? 'bg-amber-500/10 border-amber-500/30' : 'bg-black/40 border-white/5'}`}>
-                <span className={`text-[9px] uppercase font-bold block ${hasDivergencia ? 'text-amber-400' : 'text-white/40'}`}>
-                  Saldo Apontado no Card
+              <div className="p-2 rounded-xl border bg-primary-500/10 border-primary-500/30">
+                <span className="text-[9px] uppercase font-black text-primary-300 block">
+                  Saldo em Estoque (Card)
                 </span>
-                <strong className={`text-xs font-black font-mono ${hasDivergencia ? 'text-amber-300' : 'text-white'}`}>
+                <strong className="text-sm font-black font-mono text-primary-400">
                   {currentSaldoMetros.toFixed(1)}m
+                  {isBobina && (
+                    <span className="text-[9px] text-white/60 font-normal ml-1">
+                      (~{(currentSaldoMetros / compBobina).toFixed(1)} bob.)
+                    </span>
+                  )}
                 </strong>
               </div>
             </div>
