@@ -7248,6 +7248,38 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setCustomerModalMode('create');
   };
 
+  // Sincroniza retroativamente nome, telefone e CPF/CNPJ em todas as notas antigas (vendas, contratos, orçamentos) do cliente
+  const sincronizarNotasAntigasCliente = async (clienteId: string, dadosAtualizados: { full_name?: string; phone?: string | null; cpf_cnpj?: string | null }) => {
+    if (!clienteId) return;
+    const novoNome = dadosAtualizados.full_name?.trim();
+    const novoTelefone = dadosAtualizados.phone || null;
+    const novoCpfCnpj = dadosAtualizados.cpf_cnpj || null;
+
+    if (novoNome !== undefined) {
+      try {
+        const payloadVendas: any = { customer_name: novoNome };
+        if (novoTelefone !== undefined) payloadVendas.customer_phone = novoTelefone;
+        if (novoCpfCnpj !== undefined) payloadVendas.cpf_cnpj = novoCpfCnpj;
+
+        const payloadContratos: any = { customer_name: novoNome };
+        if (novoTelefone !== undefined) payloadContratos.phone = novoTelefone;
+        if (novoCpfCnpj !== undefined) payloadContratos.cpf_cnpj = novoCpfCnpj;
+
+        const payloadOrcamentos: any = { customer_name: novoNome };
+        if (novoTelefone !== undefined) payloadOrcamentos.phone = novoTelefone;
+        if (novoCpfCnpj !== undefined) payloadOrcamentos.cpf_cnpj = novoCpfCnpj;
+
+        await Promise.all([
+          supabase.from('vendas').update(payloadVendas).eq('cliente_id', clienteId),
+          supabase.from('contratos').update(payloadContratos).eq('cliente_id', clienteId),
+          supabase.from('orcamentos').update(payloadOrcamentos).eq('cliente_id', clienteId),
+        ]);
+      } catch (err) {
+        console.error('Erro ao sincronizar notas antigas do cliente:', err);
+      }
+    }
+  };
+
   const handleCreateCustomerInline = async () => {
     if (!newCustomerForm.full_name.trim()) {
       showAlert('Digite o nome do cliente.');
@@ -7314,6 +7346,28 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         if (exists) return prev.map(c => c.id === clienteSalvo.id ? { ...c, ...clienteSalvo } : c);
         return [clienteSalvo, ...prev];
       });
+
+      if (editingCustomerId || idParaMesclar) {
+        const clienteIdAtualizado = editingCustomerId || idParaMesclar;
+        if (clienteIdAtualizado) {
+          sincronizarNotasAntigasCliente(clienteIdAtualizado, {
+            full_name: payload.full_name,
+            phone: payload.phone,
+            cpf_cnpj: payload.cpf_cnpj,
+          });
+          // Atualiza também os registros carregados no estado do PDV para refletir na hora
+          setSalesToday(prev => prev.map(s => s.customerId === clienteIdAtualizado ? {
+            ...s,
+            customerName: payload.full_name,
+            customerPhone: payload.phone || s.customerPhone,
+          } : s));
+          setAllSalesHistory(prev => prev.map(s => s.customerId === clienteIdAtualizado ? {
+            ...s,
+            customerName: payload.full_name,
+            customerPhone: payload.phone || s.customerPhone,
+          } : s));
+        }
+      }
 
       setSelectedCustomer({ id: clienteSalvo.id, name: clienteSalvo.full_name, phone: clienteSalvo.phone || '' });
       setNewCustomerForm({ ...emptyCustomerForm });
@@ -9801,6 +9855,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       let customerId = selectedCustomer?.id;
       if (customerId) {
         await supabase.from('clientes').update({ phone: fullPhone }).eq('id', customerId);
+        sincronizarNotasAntigasCliente(customerId, { full_name: waFormName, phone: fullPhone });
       } else {
         const { data: inserted, error: insertErr } = await supabase.from('clientes').insert({ full_name: waFormName, phone: fullPhone }).select().single();
         if (insertErr) throw insertErr;
@@ -19010,6 +19065,38 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
     setIsModalOpen(true);
   };
 
+  // Sincroniza retroativamente nome, telefone e CPF/CNPJ em todas as notas antigas (vendas, contratos, orçamentos) do cliente
+  const sincronizarNotasAntigasCliente = async (clienteId: string, dadosAtualizados: { full_name?: string; phone?: string | null; cpf_cnpj?: string | null }) => {
+    if (!clienteId) return;
+    const novoNome = dadosAtualizados.full_name?.trim();
+    const novoTelefone = dadosAtualizados.phone || null;
+    const novoCpfCnpj = dadosAtualizados.cpf_cnpj || null;
+
+    if (novoNome !== undefined) {
+      try {
+        const payloadVendas: any = { customer_name: novoNome };
+        if (novoTelefone !== undefined) payloadVendas.customer_phone = novoTelefone;
+        if (novoCpfCnpj !== undefined) payloadVendas.cpf_cnpj = novoCpfCnpj;
+
+        const payloadContratos: any = { customer_name: novoNome };
+        if (novoTelefone !== undefined) payloadContratos.phone = novoTelefone;
+        if (novoCpfCnpj !== undefined) payloadContratos.cpf_cnpj = novoCpfCnpj;
+
+        const payloadOrcamentos: any = { customer_name: novoNome };
+        if (novoTelefone !== undefined) payloadOrcamentos.phone = novoTelefone;
+        if (novoCpfCnpj !== undefined) payloadOrcamentos.cpf_cnpj = novoCpfCnpj;
+
+        await Promise.all([
+          supabase.from('vendas').update(payloadVendas).eq('cliente_id', clienteId),
+          supabase.from('contratos').update(payloadContratos).eq('cliente_id', clienteId),
+          supabase.from('orcamentos').update(payloadOrcamentos).eq('cliente_id', clienteId),
+        ]);
+      } catch (err) {
+        console.error('Erro ao sincronizar notas antigas do cliente:', err);
+      }
+    }
+  };
+
   const handleSave = async () => {
     if (!formData.full_name.trim()) return;
     try {
@@ -19059,6 +19146,17 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
         }
         return prev;
       });
+
+      if (editingClienteId || idParaMesclar) {
+        const clienteIdAtualizado = editingClienteId || idParaMesclar;
+        if (clienteIdAtualizado) {
+          sincronizarNotasAntigasCliente(clienteIdAtualizado, {
+            full_name: payload.full_name,
+            phone: payload.phone,
+            cpf_cnpj: payload.cpf_cnpj,
+          });
+        }
+      }
 
       setIsModalOpen(false);
       setEditingClienteId(null);
