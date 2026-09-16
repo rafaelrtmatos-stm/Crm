@@ -18886,48 +18886,46 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
     }
   };
 
-  useEffect(() => {
-    let active = true;
-    const load = async () => {
-      try {
-        const pageSize = 1000;
-        let all: any[] = [];
-        let from = 0;
-        let hasMore = true;
-        while (hasMore) {
-          const { data, error } = await supabase
-            .from('clientes')
-            .select('*')
-            .order('full_name', { ascending: true })
-            .range(from, from + pageSize - 1);
-          if (!active) return;
-          if (error) {
-            console.error('Erro ao carregar clientes:', error);
-            setLoading(false);
-            return;
-          }
-          if (data && data.length > 0) {
-            all = all.concat(data);
-            from += pageSize;
-            if (data.length < pageSize) hasMore = false;
-          } else {
-            hasMore = false;
-          }
+  const loadClientes = async () => {
+    try {
+      const pageSize = 1000;
+      let all: any[] = [];
+      let from = 0;
+      let hasMore = true;
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from('clientes')
+          .select('*')
+          .order('full_name', { ascending: true })
+          .range(from, from + pageSize - 1);
+        if (error) {
+          console.error('Erro ao carregar clientes:', error);
+          setLoading(false);
+          return;
         }
-        if (!active) return;
-        setClientes(all);
-        setLoading(false);
-      } catch (e) {
-        console.error('Erro ao carregar clientes na Base de Contatos:', e);
-        if (active) setLoading(false);
+        if (data && data.length > 0) {
+          all = all.concat(data);
+          from += pageSize;
+          if (data.length < pageSize) hasMore = false;
+        } else {
+          hasMore = false;
+        }
       }
-    };
-    load();
+      setClientes(all);
+      setLoading(false);
+    } catch (e) {
+      console.error('Erro ao carregar clientes na Base de Contatos:', e);
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadClientes();
     const channel = supabase
       .channel('clientes-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'clientes' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'clientes' }, loadClientes)
       .subscribe();
-    return () => { active = false; supabase.removeChannel(channel); };
+    return () => { supabase.removeChannel(channel); };
   }, [currentCompany]);
 
   // --- Exclusão de clientes (lixeira de 30 dias, igual Vendas/Contratos) ---
@@ -18940,13 +18938,8 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
   const loadDeletedClientes = async () => {
     setIsLoadingTrash(true);
     try {
-      // Purga automatica: excluidos ha mais de 30 dias somem de vez
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - 30);
-      await supabase.from('clientes').delete().not('deleted_at', 'is', null).lt('deleted_at', cutoff.toISOString());
-
-      const { data } = await supabase.from('clientes').select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending: false });
-      setDeletedClientes(data || []);
+      // Clientes não possuem coluna deleted_at no banco
+      setDeletedClientes([]);
     } catch (err) {
       console.error('Erro ao carregar lixeira de clientes:', err);
     } finally {
@@ -18972,13 +18965,14 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
     const totalPedidos = await contarPedidosVinculados(ids);
     const quem = ids.length === 1 ? `"${clientes.find(c => c.id === ids[0])?.full_name || 'esse cliente'}"` : `${ids.length} clientes`;
     const avisoPedidos = totalPedidos > 0
-      ? `\n\nAtenção: ${totalPedidos} pedido(s)/contrato(s)/orçamento(s) estão vinculados a ${ids.length === 1 ? 'ele' : 'eles'}. Continuam intactos, só perdem o vínculo com o cadastro enquanto estiver na lixeira.`
+      ? `\n\nAtenção: ${totalPedidos} pedido(s)/contrato(s)/orçamento(s) estão vinculados a ${ids.length === 1 ? 'ele' : 'eles'}. Continuam intactos, só perdem o vínculo com o cadastro.`
       : '';
-    if (!(await showConfirm(`Excluir ${quem}? Fica${ids.length === 1 ? '' : 'm'} 30 dias na Lixeira antes de sumir de vez — dá pra restaurar dentro desse prazo.${avisoPedidos}`))) return;
+    if (!(await showConfirm(`Excluir ${quem}? Essa ação não pode ser desfeita.${avisoPedidos}`))) return;
     setIsDeletingClientes(true);
     try {
-      const { error } = await supabase.from('clientes').update({ deleted_at: new Date().toISOString() }).in('id', ids);
+      const { error } = await supabase.from('clientes').delete().in('id', ids);
       if (error) throw error;
+      setClientes(prev => prev.filter(c => !ids.includes(c.id)));
       setSelectedClienteIds(new Set());
     } catch (err) {
       console.error('Erro ao excluir cliente(s):', err);
@@ -18989,10 +18983,7 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
   };
 
   const handleRestoreCliente = async (c: any) => {
-    if (!(await showConfirm(`Restaurar o cliente "${c.full_name}"?`))) return;
-    const { error } = await supabase.from('clientes').update({ deleted_at: null }).eq('id', c.id);
-    if (error) { showAlert('Não foi possível restaurar.'); return; }
-    loadDeletedClientes();
+    showAlert('Operação não disponível.');
   };
 
   const handlePermanentDeleteCliente = async (c: any) => {
@@ -19045,6 +19036,7 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
       }
 
       let error;
+      let targetId = editingClienteId || idParaMesclar;
       if (editingClienteId) {
         ({ error } = await supabase.from('clientes').update(payload).eq('id', editingClienteId));
       } else if (idParaMesclar) {
@@ -19052,9 +19044,22 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
         const payloadMesclado = montarPayloadMesclagem(duplicadoAtual, payload);
         ({ error } = await supabase.from('clientes').update(payloadMesclado).eq('id', idParaMesclar));
       } else {
-        ({ error } = await supabase.from('clientes').insert(payload));
+        const { data: insertedData, error: insertError } = await supabase.from('clientes').insert(payload).select().single();
+        error = insertError;
+        if (insertedData) targetId = insertedData.id;
       }
       if (error) throw error;
+
+      // Atualiza estado local imediatamente para refletir na tela sem atraso
+      setClientes(prev => {
+        if (targetId) {
+          const exists = prev.some(c => c.id === targetId);
+          if (exists) return prev.map(c => c.id === targetId ? { ...c, ...payload } : c);
+          return [{ id: targetId, ...payload }, ...prev];
+        }
+        return prev;
+      });
+
       setIsModalOpen(false);
       setEditingClienteId(null);
       setFormData({ full_name: '', phone: '', email: '', cpf_cnpj: '', city: '', state: '' });
@@ -19062,6 +19067,7 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
       if (fichaCliente && editingClienteId === fichaCliente.id) {
         setFichaCliente((prev: any) => prev ? { ...prev, ...payload } : prev);
       }
+      loadClientes();
     } catch (err) {
       console.error(err);
       showAlert('Não foi possível salvar o cliente.');
