@@ -47,7 +47,7 @@ import {
 } from 'lucide-react';
 import { ChevronRight } from 'lucide-react';
 
-import { NotifyHost, showAlert } from './lib/notify';
+import { NotifyHost, showAlert, showMessageToast } from './lib/notify';
 import ComissoesAdminPanel from './comissoes/ComissoesAdminPanel';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -1045,10 +1045,28 @@ export default function App() {
 
     try {
       const emSegundoPlano = document.hidden || !document.hasFocus();
-      if (!emSegundoPlano || !('Notification' in window) || Notification.permission !== 'granted') return;
-
       const remetente = (row.sender_name || '').trim() || 'Novo contato';
       const corpo = (row.text || '').trim() || 'Nova mensagem recebida';
+
+      // Aba em foco: a notificacao nativa do navegador nao aparece (so quando esta em segundo
+      // plano), entao mostra um aviso visual no canto inferior do proprio CRM. Clicar abre a conversa.
+      if (!emSegundoPlano) {
+        showMessageToast({
+          key: `msg-${row.phone || row.id}`,
+          title: remetente,
+          body: corpo.length > 120 ? `${corpo.slice(0, 117)}...` : corpo,
+          onClick: () => {
+            if (row.phone) {
+              supabase.from('leads').select('id').eq('company_id', 'rafa-arts').eq('phone', row.phone).limit(1)
+                .then(({ data }: any) => { if (data?.[0]?.id) setPendingOpenLeadId(data[0].id); });
+            }
+            setActiveTab('messages');
+          },
+        });
+        return;
+      }
+
+      if (!('Notification' in window) || Notification.permission !== 'granted') return;
       const opcoes = {
         body: corpo.length > 120 ? `${corpo.slice(0, 117)}...` : corpo,
         icon: '/icon-192.png',
