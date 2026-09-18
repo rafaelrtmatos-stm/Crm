@@ -41,10 +41,13 @@ export default async function handler(req, res) {
         // Confere o estado real da instancia antes de considerar que falhou de verdade —
         // se ja nao esta mais "open", o numero foi desconectado apesar do erro. Espera um
         // instante antes de checar, porque a transicao de estado pode nao ser imediata.
+        // Se a Evolution API disser que a instancia nem existe mais (404), tambem trata
+        // como ja desconectado — nao ha logout pendente pra algo que nao existe.
         await new Promise((resolve) => setTimeout(resolve, 1500));
-        const stateRes = await fetch(`${EVOLUTION_API_URL}/instance/connectionState/${INSTANCE_NAME}`, { headers }).catch(() => null);
+        const instanciaNaoExiste = /does not exist/i.test(errBody);
+        const stateRes = instanciaNaoExiste ? null : await fetch(`${EVOLUTION_API_URL}/instance/connectionState/${INSTANCE_NAME}`, { headers }).catch(() => null);
         const stateData = stateRes && stateRes.ok ? await stateRes.json().catch(() => null) : null;
-        const estadoAtual = stateData?.instance?.state || stateData?.state;
+        const estadoAtual = instanciaNaoExiste ? 'close' : (stateData?.instance?.state || stateData?.state);
         if (estadoAtual && estadoAtual !== 'open') {
           await fetch(`${SUPABASE_URL}/rest/v1/robozinho_config?on_conflict=company_id`, {
             method: 'POST',
