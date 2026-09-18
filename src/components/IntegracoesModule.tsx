@@ -80,6 +80,7 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
 
   const handleDesconectar = async () => {
     if (!(await showConfirm('Desconectar esse número do WhatsApp? Você vai precisar escanear o QR Code de novo pra reconectar (com o mesmo número ou outro).'))) return;
+    setQrError(null);
     setDesconectando(true);
     try {
       const resp = await fetch('/api/whatsapp-connect', { method: 'DELETE', headers: { 'x-user-id': user?.id || '' } });
@@ -271,6 +272,9 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
                 >
                   {desconectando ? 'Desconectando...' : 'Desconectar número'}
                 </button>
+                {qrError && (
+                  <p className="text-xs text-rose-400 leading-relaxed max-w-xs mx-auto pt-1">{qrError}</p>
+                )}
               </>
             ) : qrError ? (
               <>
