@@ -39,7 +39,9 @@ export default async function handler(req, res) {
         // evolution-foundation/evolution-api#2567): o logout derruba a sessao do Baileys
         // com sucesso, mas quebra com HTTP 500 numa limpeza interna de mensagens antigas.
         // Confere o estado real da instancia antes de considerar que falhou de verdade —
-        // se ja nao esta mais "open", o numero foi desconectado apesar do erro.
+        // se ja nao esta mais "open", o numero foi desconectado apesar do erro. Espera um
+        // instante antes de checar, porque a transicao de estado pode nao ser imediata.
+        await new Promise((resolve) => setTimeout(resolve, 1500));
         const stateRes = await fetch(`${EVOLUTION_API_URL}/instance/connectionState/${INSTANCE_NAME}`, { headers }).catch(() => null);
         const stateData = stateRes && stateRes.ok ? await stateRes.json().catch(() => null) : null;
         const estadoAtual = stateData?.instance?.state || stateData?.state;
@@ -52,7 +54,10 @@ export default async function handler(req, res) {
           res.status(200).json({ ok: true, recoveredFrom: 'evolution-500' });
           return;
         }
-        res.status(502).json({ error: 'A Evolution API recusou desconectar o número.' });
+        // Nao conseguiu confirmar que desconectou de verdade — manda o motivo real (recortado)
+        // na mensagem de erro, pra dar pra diagnosticar sem precisar abrir os logs da Vercel.
+        const motivo = errBody ? errBody.slice(0, 300) : `estado atual: ${estadoAtual || 'desconhecido'}`;
+        res.status(502).json({ error: `A Evolution API recusou desconectar o número. Detalhe: ${motivo}` });
         return;
       }
       res.status(200).json({ ok: true });
