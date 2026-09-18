@@ -63,6 +63,14 @@ export default async function handler(req, res) {
         res.status(502).json({ error: `A Evolution API recusou desconectar o número. Detalhe: ${motivo}` });
         return;
       }
+      // Logout deu certo de primeira (sem cair no bug conhecido acima) — precisa salvar o
+      // status 'close' no Supabase aqui tambem, senao a tela do CRM continua "achando" que
+      // esta conectado ate o proximo evento de CONNECTION_UPDATE chegar pelo webhook.
+      await fetch(`${SUPABASE_URL}/rest/v1/robozinho_config?on_conflict=company_id`, {
+        method: 'POST',
+        headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates' },
+        body: JSON.stringify({ company_id: 'rafa-arts', whatsapp_connection_status: 'close', updated_at: new Date().toISOString() }),
+      }).catch((err) => console.error('Falha ao sincronizar status no Supabase apos logout:', err));
       res.status(200).json({ ok: true });
       return;
     }

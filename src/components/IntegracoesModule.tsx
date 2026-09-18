@@ -90,6 +90,9 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
         return;
       }
       setQrCode(null);
+      // Atualiza a tela na hora, sem esperar o round-trip do Supabase Realtime — assim fica
+      // claro de imediato que desconectou, em vez de a tela continuar "achando" que segue conectado.
+      setWhatsappStatus('close');
     } catch (err) {
       setQrError('Falha de conexão ao tentar desconectar.');
     } finally {
@@ -291,7 +294,7 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
               </div>
             ) : (
               <>
-                {qrCode && <img src={qrCode} alt="QR Code do WhatsApp" className="w-56 h-56 mx-auto rounded-xl border border-white/10" />}
+                {qrCode && <img src={qrCode} alt="QR Code do WhatsApp" className="w-56 h-56 mx-auto rounded-xl border border-white/10 grayscale contrast-125" />}
                 <p className="text-sm font-bold text-white">Escaneie com o WhatsApp</p>
                 <p className="text-xs text-white/40 leading-relaxed max-w-xs mx-auto">
                   Abra o WhatsApp no celular → Configurações → Aparelhos Conectados → Conectar um Aparelho, e escaneie esse código.
