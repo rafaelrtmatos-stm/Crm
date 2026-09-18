@@ -237,7 +237,7 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
 
       <Modal isOpen={!!canalSelecionado} onClose={() => setCanalSelecionado(null)} title={canalSelecionado ? `Conectar ${canalSelecionado.nome}` : ''} size="sm" className="max-w-sm">
         {canalSelecionado && canalSelecionado.implementado && (
-          <div className="space-y-4 text-center py-2">
+          <div className="space-y-3 text-center py-1">
             {whatsappConectado ? (
               <>
                 <div className="w-16 h-16 rounded-2xl flex items-center justify-center border border-emerald-500/20 bg-emerald-500/10 mx-auto">
@@ -295,11 +295,11 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
             ) : (
               <>
                 {qrCode && (
-                  <div className="w-44 h-44 mx-auto bg-white rounded-xl p-2.5 shadow-lg shadow-black/20">
+                  <div className="w-64 h-64 mx-auto bg-white rounded-xl p-3 shadow-lg shadow-black/20">
                     <img src={qrCode} alt="QR Code do WhatsApp" className="w-full h-full grayscale contrast-125" />
                   </div>
                 )}
-                <div className="space-y-1">
+                <div className="space-y-0.5">
                   <p className="text-sm font-bold text-white">Escaneie com o WhatsApp</p>
                   <p className="text-xs text-white/40 leading-relaxed max-w-[260px] mx-auto">
                     Abra o WhatsApp no celular → Configurações → Aparelhos Conectados → Conectar um Aparelho
