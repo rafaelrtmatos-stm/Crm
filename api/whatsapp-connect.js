@@ -35,6 +35,23 @@ export default async function handler(req, res) {
       if (!r.ok) {
         const errBody = await r.text().catch(() => '');
         console.error('Evolution API recusou o logout:', errBody);
+        // Bug conhecido da Evolution API (>= v2.3.x, sem correcao oficial ainda: ver
+        // evolution-foundation/evolution-api#2567): o logout derruba a sessao do Baileys
+        // com sucesso, mas quebra com HTTP 500 numa limpeza interna de mensagens antigas.
+        // Confere o estado real da instancia antes de considerar que falhou de verdade —
+        // se ja nao esta mais "open", o numero foi desconectado apesar do erro.
+        const stateRes = await fetch(`${EVOLUTION_API_URL}/instance/connectionState/${INSTANCE_NAME}`, { headers }).catch(() => null);
+        const stateData = stateRes && stateRes.ok ? await stateRes.json().catch(() => null) : null;
+        const estadoAtual = stateData?.instance?.state || stateData?.state;
+        if (estadoAtual && estadoAtual !== 'open') {
+          await fetch(`${SUPABASE_URL}/rest/v1/robozinho_config?on_conflict=company_id`, {
+            method: 'POST',
+            headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates' },
+            body: JSON.stringify({ company_id: 'rafa-arts', whatsapp_connection_status: estadoAtual, updated_at: new Date().toISOString() }),
+          }).catch((err) => console.error('Falha ao sincronizar status no Supabase apos logout com erro conhecido:', err));
+          res.status(200).json({ ok: true, recoveredFrom: 'evolution-500' });
+          return;
+        }
         res.status(502).json({ error: 'A Evolution API recusou desconectar o número.' });
         return;
       }
