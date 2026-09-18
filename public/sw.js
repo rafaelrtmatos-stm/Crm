@@ -2,7 +2,7 @@
 // para o sistema continuar abrindo mesmo sem internet.
 // Isso NÃO sincroniza dados (vendas, clientes etc) — só garante que a interface carregue offline.
 
-const CACHE_NAME = 'rafa-arts-shell-v8';
+const CACHE_NAME = 'rafa-arts-shell-v9';
 const OFFLINE_URL = '/';
 
 self.addEventListener('install', (event) => {
@@ -88,4 +88,23 @@ self.addEventListener('fetch', (event) => {
       })
     );
   }
+});
+
+// Clique numa notificacao de mensagem nova (mostrada via registration.showNotification pelo
+// App.tsx): foca a aba do CRM que ja esta aberta e pede pra ela abrir a conversa; se nao houver
+// nenhuma aba aberta, abre o CRM.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const phone = event.notification.data && event.notification.data.phone;
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if ('focus' in client) {
+          client.postMessage({ type: 'open-message-notification', phone });
+          return client.focus();
+        }
+      }
+      if (self.clients.openWindow) return self.clients.openWindow('/');
+    })
+  );
 });

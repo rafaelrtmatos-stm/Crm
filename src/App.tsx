@@ -629,7 +629,12 @@ export default function App() {
       console.error('Erro ao sincronizar status do caixa (provavelmente offline):', err);
     }
   };
-  const [lastMessageId, setLastMessageId] = useState<string | null>(null);
+  // Ref (e nao state) de proposito: guarda o id da ultima mensagem ja tratada sem re-disparar o
+  // useEffect do listener do Realtime. Antes era useState e estava nas dependencias do effect,
+  // entao TODA mensagem recebida derrubava e recriava o canal -- e nessa janela as mensagens
+  // seguintes podiam se perder (sem som, sem notificacao, sem lead atualizado).
+  const lastMessageIdRef = React.useRef<string | null>(null);
+  const notifAudioRef = React.useRef<HTMLAudioElement | null>(null);
   const [prefilledCustomer, setPrefilledCustomer] = useState<{ id?: string, name: string, phone: string } | null>(null);
   const [pendingWhatsAppShare, setPendingWhatsAppShare] = useState<{ leadId: string; prefillMessage: string } | null>(null);
 
@@ -866,8 +871,8 @@ export default function App() {
       { event: 'INSERT', schema: 'public', table: 'crm_messages', filter: `company_id=eq.${currentCompany.id}` },
       (payload: any) => {
         const row = payload.new;
-        if (row.direction !== 'incoming' || row.id === lastMessageId) return;
-        setLastMessageId(row.id);
+        if (row.direction !== 'incoming' || row.id === lastMessageIdRef.current) return;
+        lastMessageIdRef.current = row.id;
         processIncomingMessage({
           phone: row.phone,
           text: row.text,
@@ -883,10 +888,17 @@ export default function App() {
         // aba do CRM ou com a aba do navegador em segundo plano/minimizada.
         notifyIncomingMessage(row);
       }
-    ).subscribe();
+    ).subscribe((status: string, err?: any) => {
+      // Sem isso, se o Realtime falhar (tabela fora da publicacao, filtro invalido, queda de
+      // rede) nada aparece em lugar nenhum e a notificacao simplesmente "nao chega".
+      if (status === 'SUBSCRIBED') console.log('CRM Realtime: escutando novas mensagens (crm_messages).');
+      else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+        console.warn(`CRM Realtime: canal de mensagens em estado ${status}`, err || '');
+      }
+    });
 
     return () => { supabase.removeChannel(channel); };
-  }, [currentCompany, user, lastMessageId]);
+  }, [currentCompany, user]);
 
   // Login & Authentication State (Carrega credenciais lembradas instantaneamente)
   const [loginEmail, setLoginEmail] = useState(() => {
@@ -981,33 +993,91 @@ export default function App() {
   // ou a janela sem foco) — pra não empilhar notificação nativa em cima do que já está
   // sendo visto na tela. Fica no shell raiz (não dentro de um módulo específico) pra
   // continuar funcionando com a aba em segundo plano ou noutra tela do CRM.
-  const notifyIncomingMessage = (row: any) => {
+  // Navegadores bloqueiam audio.play() ate a pessoa interagir com a pagina ao menos uma vez
+  // (politica de autoplay) -- e o antigo .catch(() => {}) escondia essa falha. Destrava o audio
+  // no primeiro clique/toque/tecla: toca mudo e pausa; dai em diante os .play() passam.
+  useEffect(() => {
+    const destravar = () => {
+      try {
+        if (!notifAudioRef.current) notifAudioRef.current = new Audio('/sounds/mensagem-cliente.mp3');
+        const a = notifAudioRef.current;
+        a.muted = true;
+        a.play().then(() => {
+          a.pause();
+          a.currentTime = 0;
+          a.muted = false;
+          window.removeEventListener('pointerdown', destravar);
+          window.removeEventListener('keydown', destravar);
+        }).catch(() => { a.muted = false; });
+      } catch (e) { /* navegador sem suporte a Audio, ignora */ }
+    };
+    window.addEventListener('pointerdown', destravar);
+    window.addEventListener('keydown', destravar);
+    return () => {
+      window.removeEventListener('pointerdown', destravar);
+      window.removeEventListener('keydown', destravar);
+    };
+  }, []);
+
+  // Clique numa notificacao mostrada pelo service worker (public/sw.js): o SW avisa a aba
+  // aberta e aqui abrimos a conversa, igual o onclick da Notification antiga fazia.
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    const onSwMessage = (event: MessageEvent) => {
+      if (event.data?.type !== 'open-message-notification') return;
+      const phone = event.data.phone;
+      if (phone) {
+        supabase.from('leads').select('id').eq('company_id', 'rafa-arts').eq('phone', phone).limit(1)
+          .then(({ data }: any) => { if (data?.[0]?.id) setPendingOpenLeadId(data[0].id); });
+      }
+      setActiveTab('messages');
+    };
+    navigator.serviceWorker.addEventListener('message', onSwMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', onSwMessage);
+  }, []);
+
+  const notifyIncomingMessage = async (row: any) => {
     try {
-      const audio = new Audio('/sounds/mensagem-cliente.mp3');
-      audio.play().catch(() => {});
-    } catch (e) { /* navegador bloqueou o audio, ignora */ }
+      const audio = notifAudioRef.current || (notifAudioRef.current = new Audio('/sounds/mensagem-cliente.mp3'));
+      audio.currentTime = 0;
+      audio.play().catch((e) => console.warn('Som de mensagem bloqueado pelo navegador (precisa de 1 clique na pagina antes):', e));
+    } catch (e) { console.warn('Falha ao tocar som de mensagem:', e); }
 
     try {
       const emSegundoPlano = document.hidden || !document.hasFocus();
-      if (emSegundoPlano && 'Notification' in window && Notification.permission === 'granted') {
-        const remetente = (row.sender_name || '').trim() || 'Novo contato';
-        const corpo = (row.text || '').trim() || 'Nova mensagem recebida';
-        const notif = new Notification(remetente, {
-          body: corpo.length > 120 ? `${corpo.slice(0, 117)}...` : corpo,
-          icon: '/icon-192.png',
-          tag: `msg-${row.phone || row.id}`,
-        });
-        notif.onclick = () => {
-          window.focus();
-          if (row.phone) {
-            supabase.from('leads').select('id').eq('company_id', 'rafa-arts').eq('phone', row.phone).limit(1)
-              .then(({ data }: any) => { if (data?.[0]?.id) setPendingOpenLeadId(data[0].id); });
-          }
-          setActiveTab('messages');
-          notif.close();
-        };
+      if (!emSegundoPlano || !('Notification' in window) || Notification.permission !== 'granted') return;
+
+      const remetente = (row.sender_name || '').trim() || 'Novo contato';
+      const corpo = (row.text || '').trim() || 'Nova mensagem recebida';
+      const opcoes = {
+        body: corpo.length > 120 ? `${corpo.slice(0, 117)}...` : corpo,
+        icon: '/icon-192.png',
+        tag: `msg-${row.phone || row.id}`,
+        data: { phone: row.phone || null },
+      };
+
+      // Caminho principal: pelo service worker. E o UNICO que funciona no Chrome do Android
+      // (la, `new Notification(...)` lanca "Illegal constructor" e a notificacao nunca aparece).
+      if ('serviceWorker' in navigator) {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg) {
+          await reg.showNotification(remetente, opcoes);
+          return;
+        }
       }
-    } catch (e) { /* navegador sem suporte a Notification, ou permissao negada — ignora */ }
+
+      // Fallback: desktop sem service worker registrado.
+      const notif = new Notification(remetente, opcoes);
+      notif.onclick = () => {
+        window.focus();
+        if (row.phone) {
+          supabase.from('leads').select('id').eq('company_id', 'rafa-arts').eq('phone', row.phone).limit(1)
+            .then(({ data }: any) => { if (data?.[0]?.id) setPendingOpenLeadId(data[0].id); });
+        }
+        setActiveTab('messages');
+        notif.close();
+      };
+    } catch (e) { console.warn('Falha ao mostrar notificacao de mensagem:', e); }
   };
 
   // Auto-login (sessao lembrada porque localizacao + notificacoes foram autorizadas): registra
