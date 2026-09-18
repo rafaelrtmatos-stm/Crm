@@ -134,7 +134,10 @@ import {
   ClipboardCheck,
   DollarSign,
   Receipt,
-  Factory
+  Factory,
+  ArrowUpDown,
+  ArrowDown,
+  ArrowUp
 } from 'lucide-react';
 import { 
   DndContext, 
@@ -4074,7 +4077,7 @@ export const ChatPanel = ({
       )}
 
       {/* Tabs - FIXO */}
-      <div className="flex flex-wrap border-b border-white/5 bg-white/[0.01] px-2 flex-shrink-0">
+      <div className="flex flex-nowrap overflow-x-auto custom-scrollbar border-b border-white/5 bg-white/[0.01] px-2 flex-shrink-0">
         {tabs.map(tab => (
           <button
             key={tab.id}
@@ -4630,6 +4633,18 @@ export const ChatPanel = ({
 
 
 // --- CRM / FUNNEL ---
+// Opcoes do menu "Ordenar" do Funil CRM (mesmas do Kommo). defaultDir = direcao usada ao
+// escolher a opcao pela primeira vez; clicar na opcao ja ativa inverte a direcao.
+type LeadSortKey = 'ultima_mensagem' | 'ultimo_evento' | 'criacao' | 'nome' | 'venda';
+const LEAD_SORT_OPTIONS: { key: LeadSortKey; label: string; defaultDir: 'asc' | 'desc' }[] = [
+  { key: 'ultima_mensagem', label: 'Pela última mensagem', defaultDir: 'desc' },
+  { key: 'ultimo_evento', label: 'Por último evento', defaultDir: 'desc' },
+  { key: 'criacao', label: 'Por data de criação', defaultDir: 'desc' },
+  { key: 'nome', label: 'Por nome', defaultDir: 'asc' },
+  { key: 'venda', label: 'Por venda', defaultDir: 'desc' },
+];
+const LEAD_SORT_STORAGE_KEY = 'crm_lead_sort';
+
 export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | null, user: AppUser | null }) => {
   const { pendingOpenLeadId, setPendingOpenLeadId } = React.useContext(AppContext)!;
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -4760,6 +4775,55 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
 
   const currentFunnel = funnels.find(f => f.id === selectedFunnelId);
   const [funnelMenuOpen, setFunnelMenuOpen] = useState(false);
+
+  // Ordenacao dos cards do Kanban (vale pra todas as colunas). Sem escolha salva, mantem o
+  // comportamento de antes: ultimo evento (updated_at) primeiro. A escolha fica salva no
+  // navegador pra nao precisar reescolher toda vez que abre o Funil.
+  const [leadSort, setLeadSort] = useState<{ key: LeadSortKey; dir: 'asc' | 'desc' }>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(LEAD_SORT_STORAGE_KEY) || 'null');
+      if (saved && LEAD_SORT_OPTIONS.some(o => o.key === saved.key) && (saved.dir === 'asc' || saved.dir === 'desc')) {
+        return { key: saved.key, dir: saved.dir };
+      }
+    } catch { /* localStorage indisponivel ou valor corrompido: usa o padrao */ }
+    return { key: 'ultimo_evento', dir: 'desc' };
+  });
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
+
+  const handlePickSort = (key: LeadSortKey) => {
+    const opt = LEAD_SORT_OPTIONS.find(o => o.key === key)!;
+    const next: { key: LeadSortKey; dir: 'asc' | 'desc' } = leadSort.key === key
+      ? { key, dir: leadSort.dir === 'desc' ? 'asc' : 'desc' }
+      : { key, dir: opt.defaultDir };
+    setLeadSort(next);
+    try { localStorage.setItem(LEAD_SORT_STORAGE_KEY, JSON.stringify(next)); } catch { /* ignora */ }
+    setSortMenuOpen(false);
+  };
+
+  const sortedLeads = useMemo(() => {
+    const ms = (v: any) => parseMsgDate(v)?.getTime() ?? 0;
+    // "Pela última mensagem": se a última foi do cliente, usa o horário dela; se foi o
+    // atendente que mandou, o lead grava updated_at no envio, então usa ele.
+    const chave = (l: Lead): number | string => {
+      switch (leadSort.key) {
+        case 'ultima_mensagem':
+          return l.lastMessageDirection === 'outgoing' ? ms(l.updatedAt) : (ms(l.lastClientMessageAt) || ms(l.updatedAt));
+        case 'criacao': return ms(l.createdAt);
+        case 'nome': return (l.fullName || '').toLocaleLowerCase('pt-BR');
+        case 'venda': return l.estimatedValue ?? 0;
+        default: return ms(l.updatedAt);
+      }
+    };
+    const sinal = leadSort.dir === 'asc' ? 1 : -1;
+    return [...leads].sort((a, b) => {
+      const ka = chave(a), kb = chave(b);
+      const cmp = typeof ka === 'string' && typeof kb === 'string'
+        ? ka.localeCompare(kb, 'pt-BR')
+        : (ka as number) - (kb as number);
+      // Empate: o mais recentemente atualizado primeiro
+      return cmp !== 0 ? cmp * sinal : ms(b.updatedAt) - ms(a.updatedAt);
+    });
+  }, [leads, leadSort]);
 
   // Mantem o lead selecionado sincronizado com a lista ao vivo (onSnapshot) --
   // sem isso, depois de mudar a etapa (ou qualquer outro campo) pelo proprio
@@ -5095,6 +5159,36 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                   )}
                </div>
 
+               {/* Menu "Ordenar" dos cards (Pela última mensagem / último evento / criação / nome / venda) */}
+               <div className="relative">
+                  <Button variant="secondary" icon={ArrowUpDown} onClick={() => setSortMenuOpen(o => !o)}>Ordenar</Button>
+                  {sortMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setSortMenuOpen(false)} />
+                      <div className="absolute top-full mt-2 left-0 w-60 bg-slate-900 border border-white/10 rounded-xl shadow-2xl z-50 p-2">
+                        <p className="text-[9px] font-black uppercase text-white/40 tracking-widest px-3 py-1">Ordenar</p>
+                        {LEAD_SORT_OPTIONS.map(o => {
+                          const ativo = leadSort.key === o.key;
+                          const dir = ativo ? leadSort.dir : o.defaultDir;
+                          const DirIcon = dir === 'asc' ? ArrowUp : ArrowDown;
+                          return (
+                            <button
+                              key={o.key}
+                              onClick={() => handlePickSort(o.key)}
+                              className={cn(
+                                'w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-[11px] font-bold transition-all',
+                                ativo ? 'text-primary-300 bg-primary-500/10' : 'text-white/70 hover:bg-white/10'
+                              )}
+                            >
+                              <span className="truncate">{o.label}</span>
+                              <DirIcon size={13} className={cn('shrink-0', !ativo && 'opacity-40')} />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+               </div>
                <Button
                  variant={leadSelectionMode ? 'primary' : 'secondary'}
                  icon={CheckSquare}
@@ -5149,7 +5243,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                 <KanbanColumn 
                   key={stage.id} 
                   stage={stage} 
-                  leads={leads.filter(l => l.funnelStageId === stage.id || (!l.funnelStageId && (stage.isInitial || stage.order === 0)))}
+                  leads={sortedLeads.filter(l => l.funnelStageId === stage.id || (!l.funnelStageId && (stage.isInitial || stage.order === 0)))}
                   onLeadClick={(l) => { setOpenedViaJump(false); setSelectedLead(l); }}
                   selectedLeadId={selectedLead?.id}
                   selectionMode={leadSelectionMode}
