@@ -760,7 +760,7 @@ export default function App() {
       setUnrepliedLeadsCount((data || []).filter((r: any) => r.waiting_since !== null && r.waiting_since !== undefined).length);
     };
     loadCount();
-    const channel = supabase.channel('app-unreplied-count').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.${currentCompany.id}` }, loadCount).subscribe();
+    const channel = supabase.channel('app-unreplied-count').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.rafa-arts` }, loadCount).subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [currentCompany]);
 
@@ -868,7 +868,7 @@ export default function App() {
 
     const channel = supabase.channel('app-incoming-lead-automation').on(
       'postgres_changes',
-      { event: 'INSERT', schema: 'public', table: 'crm_messages', filter: `company_id=eq.${currentCompany.id}` },
+      { event: 'INSERT', schema: 'public', table: 'crm_messages', filter: `company_id=eq.rafa-arts` },
       (payload: any) => {
         const row = payload.new;
         if (row.direction !== 'incoming' || row.id === lastMessageIdRef.current) return;

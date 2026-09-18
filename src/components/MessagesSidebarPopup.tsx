@@ -121,7 +121,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
       } as any as Lead)));
     };
     loadLeads();
-    const channel = supabase.channel('sidebar-popup-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.${currentCompany.id}` }, loadLeads).subscribe();
+    const channel = supabase.channel('sidebar-popup-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.rafa-arts` }, loadLeads).subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [currentCompany, isOpen]);
 
@@ -136,7 +136,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
       setGroupPhones(phones);
     };
     loadGroupPhones();
-    const channel = supabase.channel('sidebar-popup-groups').on('postgres_changes', { event: '*', schema: 'public', table: 'whatsapp_groups', filter: `company_id=eq.${currentCompany.id}` }, loadGroupPhones).subscribe();
+    const channel = supabase.channel('sidebar-popup-groups').on('postgres_changes', { event: '*', schema: 'public', table: 'whatsapp_groups', filter: `company_id=eq.rafa-arts` }, loadGroupPhones).subscribe();
     // Fallback por polling: whatsapp_groups só recebe eventos em tempo real depois
     // que supabase/fix_realtime_whatsapp_groups.sql for rodado no projeto Supabase.
     // Enquanto isso não acontecer (ou se a conexão realtime cair), esse polling a

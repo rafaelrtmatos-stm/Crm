@@ -1003,7 +1003,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       setConversasAtivas((data || []).filter((r: any) => !!r.last_message_text).length);
     };
     loadCount();
-    const channel = supabase.channel('dash-conversas-ativas').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.${currentCompany.id}` }, loadCount).subscribe();
+    const channel = supabase.channel('dash-conversas-ativas').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.rafa-arts` }, loadCount).subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [user?.isAdmin, user?.modulePermissions, currentCompany]);
 
@@ -5783,7 +5783,7 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
       // de verdade ate a integracao real do WhatsApp comecar a trazer conversas)
     };
     loadLeads();
-    const channel = supabase.channel('messages-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.${currentCompany.id}` }, loadLeads).subscribe();
+    const channel = supabase.channel('messages-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.rafa-arts` }, loadLeads).subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [currentCompany]);
 
