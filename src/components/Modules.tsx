@@ -3422,6 +3422,20 @@ export const ChatPanel = ({
       setIsSavingPhone(false);
     }
   };
+  // "Resolvido": tira a conversa do vacuo (limpa waiting_since) sem precisar responder -- ex.:
+  // o cliente so mandou "ok"/"obrigado", ou o assunto foi resolvido por outro canal. Se o
+  // cliente mandar outra mensagem depois, o vacuo volta sozinho (ver processIncomingMessage).
+  const handleResolveWaiting = async () => {
+    if (!conversation?.id) return;
+    const { error } = await supabase.from('leads').update({ waiting_since: null }).eq('id', conversation.id);
+    if (error) {
+      console.error('Erro ao marcar conversa como resolvida:', error);
+      showAlert('Não foi possível marcar como resolvido.');
+      return;
+    }
+    onLeadPatched?.(conversation.id, { waitingSince: undefined });
+  };
+
   const handleCopyPhone = async () => {
     const valor = conversation?.phone || '';
     if (!valor) return;
@@ -3953,6 +3967,16 @@ export const ChatPanel = ({
         </div>
         
         <div className="flex items-center gap-2">
+          {conversation.waitingSince && (
+            <button
+              type="button"
+              onClick={handleResolveWaiting}
+              title="Marcar como resolvido (tira o alerta de vácuo)"
+              className="flex items-center gap-1.5 px-2.5 h-8 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-all text-[9px] font-black uppercase tracking-wider whitespace-nowrap shrink-0"
+            >
+              <CheckCircle2 size={12} /> Resolvido
+            </button>
+          )}
           <div className="flex bg-white/5 p-0.5 rounded-lg mr-1">
             {quickActions.filter(a => a.permission).slice(0, 6).map(action => (
               <Button 
@@ -5736,6 +5760,22 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
     }
   ];
 
+  // Tira do vacuo (limpa waiting_since) -- um lead ou todos os que estao aguardando.
+  const handleResolveLead = async (leadId: string) => {
+    const { error } = await supabase.from('leads').update({ waiting_since: null }).eq('id', leadId);
+    if (error) { showAlert('Não foi possível marcar como resolvido.'); return; }
+    setLeads(prev => prev.map(l => l.id === leadId ? { ...l, waitingSince: undefined } : l));
+  };
+
+  const handleResolveAll = async () => {
+    const ids = leads.filter(l => l.waitingSince).map(l => l.id);
+    if (ids.length === 0) return;
+    if (!(await showConfirm(`Marcar ${ids.length} conversa(s) como resolvida(s)?\n\nO alerta de vácuo some. Se o cliente mandar outra mensagem, ele volta.`))) return;
+    const { error } = await supabase.from('leads').update({ waiting_since: null }).in('id', ids);
+    if (error) { showAlert('Não foi possível resolver todas as conversas.'); return; }
+    setLeads(prev => prev.map(l => ids.includes(l.id) ? { ...l, waitingSince: undefined } : l));
+  };
+
   const handleSyncWhatsApp = async () => {
     if (!currentCompany) return;
     setSyncStatus('syncing');
@@ -6001,14 +6041,25 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
                    <p className="text-[8px] text-white/50">{unrepliedCount} {unrepliedCount === 1 ? 'cliente aguardando' : 'clientes aguardando'} resposta!</p>
                 </div>
              </div>
-             <Button 
-               variant="ghost" 
-               size="sm" 
-               className="text-[8px] uppercase tracking-widest font-black h-6 px-2 text-rose-400 hover:bg-rose-500/20 border-rose-500/10"
-               onClick={() => setViewFilter('unreplied')}
-             >
-                Filtrar
-             </Button>
+             <div className="flex items-center gap-1 shrink-0">
+               <Button 
+                 variant="ghost" 
+                 size="sm" 
+                 className="text-[8px] uppercase tracking-widest font-black h-6 px-2 text-rose-400 hover:bg-rose-500/20 border-rose-500/10"
+                 onClick={() => setViewFilter('unreplied')}
+               >
+                  Filtrar
+               </Button>
+               <Button 
+                 variant="ghost" 
+                 size="sm" 
+                 className="text-[8px] uppercase tracking-widest font-black h-6 px-2 text-emerald-400 hover:bg-emerald-500/20 border-emerald-500/10"
+                 onClick={handleResolveAll}
+                 title="Marcar todas como resolvidas"
+               >
+                  Resolver todas
+               </Button>
+             </div>
           </div>
         )}
 
@@ -6115,6 +6166,16 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
                        )}>
                           {slaLabel}
                        </div>
+                    )}
+                    {waitingSinceDate && (
+                       <button
+                         type="button"
+                         onClick={(e) => { e.stopPropagation(); handleResolveLead(l.id); }}
+                         title="Marcar como resolvido (tira o alerta de vácuo)"
+                         className="w-5 h-5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/25 flex items-center justify-center shrink-0 transition-all"
+                       >
+                         <Check size={11} />
+                       </button>
                     )}
                  </div>
 
