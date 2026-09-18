@@ -235,7 +235,7 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
         <RobozinhoRafaModule currentCompany={currentCompany} user={user} />
       )}
 
-      <Modal isOpen={!!canalSelecionado} onClose={() => setCanalSelecionado(null)} title={canalSelecionado ? `Conectar ${canalSelecionado.nome}` : ''} size="sm">
+      <Modal isOpen={!!canalSelecionado} onClose={() => setCanalSelecionado(null)} title={canalSelecionado ? `Conectar ${canalSelecionado.nome}` : ''} size="sm" className="max-w-sm">
         {canalSelecionado && canalSelecionado.implementado && (
           <div className="space-y-4 text-center py-2">
             {whatsappConectado ? (
@@ -294,17 +294,33 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
               </div>
             ) : (
               <>
-                {qrCode && <img src={qrCode} alt="QR Code do WhatsApp" className="w-56 h-56 mx-auto rounded-xl border border-white/10 grayscale contrast-125" />}
-                <p className="text-sm font-bold text-white">Escaneie com o WhatsApp</p>
-                <p className="text-xs text-white/40 leading-relaxed max-w-xs mx-auto">
-                  Abra o WhatsApp no celular → Configurações → Aparelhos Conectados → Conectar um Aparelho, e escaneie esse código.
-                </p>
-                <button onClick={buscarQrCode} disabled={loadingQr} className="text-[11px] font-black uppercase tracking-widest text-primary-400 hover:text-primary-300 flex items-center gap-1.5 mx-auto disabled:opacity-40">
-                  <RefreshCw size={12} className={loadingQr ? 'animate-spin' : ''} /> Deu "QR inválido"? Gerar novo
-                </button>
-                <button onClick={handleVerificarStatusAgora} disabled={verificandoStatus} className="text-[11px] font-black uppercase tracking-widest text-emerald-400 hover:text-emerald-300 flex items-center gap-1.5 mx-auto disabled:opacity-40 pt-1">
-                  <CheckCircle2 size={12} className={verificandoStatus ? 'animate-pulse' : ''} /> Já escaneei — verificar agora
-                </button>
+                {qrCode && (
+                  <div className="w-44 h-44 mx-auto bg-white rounded-xl p-2.5 shadow-lg shadow-black/20">
+                    <img src={qrCode} alt="QR Code do WhatsApp" className="w-full h-full grayscale contrast-125" />
+                  </div>
+                )}
+                <div className="space-y-1">
+                  <p className="text-sm font-bold text-white">Escaneie com o WhatsApp</p>
+                  <p className="text-xs text-white/40 leading-relaxed max-w-[260px] mx-auto">
+                    Abra o WhatsApp no celular → Configurações → Aparelhos Conectados → Conectar um Aparelho
+                  </p>
+                </div>
+                <div className="flex items-center justify-center gap-2 pt-1">
+                  <button
+                    onClick={buscarQrCode}
+                    disabled={loadingQr}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 hover:text-white text-[10px] font-bold uppercase tracking-wide transition-colors disabled:opacity-40"
+                  >
+                    <RefreshCw size={12} className={loadingQr ? 'animate-spin' : ''} /> Gerar novo QR
+                  </button>
+                  <button
+                    onClick={handleVerificarStatusAgora}
+                    disabled={verificandoStatus}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-[10px] font-bold uppercase tracking-wide transition-colors disabled:opacity-40"
+                  >
+                    <CheckCircle2 size={12} className={verificandoStatus ? 'animate-pulse' : ''} /> Já escaneei
+                  </button>
+                </div>
               </>
             )}
           </div>
