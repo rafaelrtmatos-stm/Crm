@@ -219,7 +219,8 @@ import {
   PhoneInputBR,
   CpfCnpjInput,
   RgInput,
-  cn 
+  cn,
+  AvatarPhoto
 } from './SharedUI';
 import { collection, query, where, onSnapshot, orderBy, Timestamp, addDoc, doc, updateDoc, getDocs, setDoc, limit, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -5456,13 +5457,7 @@ const KanbanCard = ({ lead, onClick, isSelected, isDragging, selectionMode, isCh
 
          <div className="mt-4 pt-4 border-t border-white/5 flex items-center justify-between">
             <div className="flex items-center gap-2">
-               <div className="w-6 h-6 rounded-full bg-slate-800 border border-white/10 flex items-center justify-center overflow-hidden">
-                  {lead.photoUrl ? (
-                    <img src={lead.photoUrl} alt={lead.fullName} className="w-full h-full object-cover" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                  ) : (
-                    <span className="text-[9px] font-black text-white/30">{(lead.fullName || '?').trim().charAt(0).toUpperCase()}</span>
-                  )}
-               </div>
+               <AvatarPhoto photoUrl={lead.photoUrl} name={lead.fullName} className="w-6 h-6 bg-slate-800 border-white/10" textClassName="text-[9px] text-white/30" />
                <p className="text-[9px] font-bold text-white/30 uppercase tracking-[2px] truncate max-w-[80px]">{lead.phone}</p>
             </div>
             <div className="flex items-center gap-2">
@@ -6001,13 +5996,7 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
               >
                  {isSelected && <div className="absolute left-0 top-0 w-1 h-full bg-primary-500" />}
                  <div className="flex items-start gap-2.5">
-                    <div className="w-9 h-9 rounded-full bg-slate-800 border border-white/10 flex items-center justify-center overflow-hidden shrink-0 mt-0.5">
-                       {l.photoUrl ? (
-                         <img src={l.photoUrl} alt={l.fullName} className="w-full h-full object-cover" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                       ) : (
-                         <span className="text-[11px] font-black text-white/40">{(l.fullName || '?').trim().charAt(0).toUpperCase()}</span>
-                       )}
-                    </div>
+                    <AvatarPhoto photoUrl={l.photoUrl} name={l.fullName} className="w-9 h-9 bg-slate-800 border-white/10 shrink-0 mt-0.5" textClassName="text-[11px] text-white/40" />
                     <div className="flex-1 min-w-0">
                  <div className="flex justify-between items-start mb-1 gap-2">
                     <div className="flex items-center gap-2 truncate">

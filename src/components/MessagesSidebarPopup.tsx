@@ -4,7 +4,7 @@ import { db } from '../firebase';
 import { supabase } from '../supabase';
 import { AppContext } from '../AppContext';
 import { Lead, Company, AppUser } from '../types';
-import { cn, Button } from './SharedUI';
+import { cn, Button, AvatarPhoto } from './SharedUI';
 import {
   Search, RefreshCw, Clock, CheckCircle2, X, Instagram, Facebook, Send, Mail, MessageCircle, Globe,
   MoreVertical, CirclePlus, VolumeX, CheckSquare, Check, Archive, Trash2, Flag, MailOpen,
@@ -647,19 +647,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                         const { icon: ChannelIcon, color, bg } = getChannelStyle(l.sourceType);
                         return (
                           <div className="relative w-8 h-8 shrink-0">
-                            <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center overflow-hidden">
-                              {l.photoUrl ? (
-                                <img
-                                  src={l.photoUrl}
-                                  alt={l.fullName}
-                                  className="w-full h-full object-cover"
-                                  referrerPolicy="no-referrer"
-                                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                                />
-                              ) : (
-                                <span className="text-[11px] font-black text-slate-400">{(l.fullName || '?').trim().charAt(0).toUpperCase()}</span>
-                              )}
-                            </div>
+                            <AvatarPhoto photoUrl={l.photoUrl} name={l.fullName} className="w-8 h-8 text-[11px]" />
                             <div
                               className={cn("absolute -bottom-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center border-2 border-white shrink-0", bg)}
                               title={l.sourceType || 'WhatsApp'}

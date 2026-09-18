@@ -10,6 +10,38 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 // --- BADGES ---
+// Avatar com foto que cai para a inicial do nome quando a imagem falha ao
+// carregar (ex.: fotos de perfil do WhatsApp cujas URLs assinadas expiram e
+// passam a retornar 403). Sem isso, o <img> some (onError) mas o círculo
+// fica vazio, pois a renderização da inicial só considerava photoUrl vazio,
+// nunca o estado de erro de carregamento.
+export const AvatarPhoto = ({ photoUrl, name, className, imgClassName, textClassName }: {
+  photoUrl?: string | null;
+  name?: string;
+  className?: string;
+  imgClassName?: string;
+  textClassName?: string;
+}) => {
+  const [failed, setFailed] = React.useState(false);
+  React.useEffect(() => { setFailed(false); }, [photoUrl]);
+  const inicial = (name || '?').trim().charAt(0).toUpperCase();
+  return (
+    <div className={cn('rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center overflow-hidden', className)}>
+      {photoUrl && !failed ? (
+        <img
+          src={photoUrl}
+          alt={name}
+          className={cn('w-full h-full object-cover', imgClassName)}
+          referrerPolicy="no-referrer"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <span className={cn('font-black text-slate-400', textClassName)}>{inicial}</span>
+      )}
+    </div>
+  );
+};
+
 export const Badge = ({ children, variant = 'default', className, ...props }: { 
   children: React.ReactNode; 
   variant?: 'default' | 'primary' | 'success' | 'warning' | 'error' | 'outline';
