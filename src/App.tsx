@@ -555,11 +555,34 @@ export default function App() {
     // (ou de vez, se estiver offline e o cache do Firestore falhar por algum motivo).
     try {
       const raw = localStorage.getItem('rpro_cached_companies');
-      return raw ? (JSON.parse(raw) as Company[]) : [];
-    } catch (e) { return []; }
+      if (raw) {
+        const parsed = JSON.parse(raw) as Company[];
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) { /* ignora */ }
+    return [{
+      id: 'rafa-arts',
+      name: 'Rafa Arts Graphics',
+      cnpj: '28.884.125/0001-40',
+      isActive: true,
+    } as Company];
   });
   const [isCreatingCompany, setIsCreatingCompany] = useState(false);
-  const [currentCompany, setCurrentCompany] = useState<Company | null>(null);
+  const [currentCompany, setCurrentCompany] = useState<Company | null>(() => {
+    try {
+      const raw = localStorage.getItem('rpro_cached_companies');
+      if (raw) {
+        const parsed = JSON.parse(raw) as Company[];
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed[0];
+      }
+    } catch (e) { /* ignora */ }
+    return {
+      id: 'rafa-arts',
+      name: 'Rafa Arts Graphics',
+      cnpj: '28.884.125/0001-40',
+      isActive: true,
+    } as Company;
+  });
   const [menuConfig, setMenuConfig] = useState<{ id: string; visible: boolean }[] | null>(null);
   useEffect(() => {
     supabase.from('configuracoes').select('menu_config').eq('company_id', 'rafa-arts').maybeSingle().then(({ data }) => {
@@ -696,7 +719,7 @@ export default function App() {
       }
 
       setPendingWhatsAppShare({ leadId, prefillMessage });
-      setActiveTab('messages');
+      setActiveTab('crm');
     } catch (err) {
       console.error('Erro ao abrir WhatsApp interno:', err);
       showAlert('Não foi possível abrir a conversa no Funil de Atendimento.');
@@ -950,7 +973,7 @@ export default function App() {
             key: 'mensagens-recuperadas',
             title: 'Mensagens recebidas enquanto você estava fora',
             body: `${aguardandoResposta} conversa${aguardandoResposta > 1 ? 's' : ''} aguardando resposta.`,
-            onClick: () => setActiveTab('messages'),
+            onClick: () => setActiveTab('crm'),
           });
         }
       } catch (e) {
@@ -1131,18 +1154,53 @@ export default function App() {
     };
   }, []);
 
+  // Abre a conversa do lead no Funil CRM imediatamente ao clicar na notificação
+  const openNotificationLead = async (phone?: string | null) => {
+    setActiveTab('crm');
+    if (!phone) return;
+
+    const findAndSelectLead = async (): Promise<boolean> => {
+      try {
+        const raw = String(phone).trim();
+        const clean = raw.replace(/\D/g, '');
+        const { data } = await supabase
+          .from('leads')
+          .select('id')
+          .eq('company_id', 'rafa-arts')
+          .or(`phone.eq.${raw},phone.eq.${clean}`)
+          .order('updated_at', { ascending: false })
+          .limit(1);
+
+        if (data?.[0]?.id) {
+          setPendingOpenLeadId(data[0].id);
+          return true;
+        }
+      } catch (err) {
+        console.warn('Erro ao localizar lead da notificação:', err);
+      }
+      return false;
+    };
+
+    const found = await findAndSelectLead();
+    if (!found) {
+      setTimeout(async () => {
+        const foundRetry = await findAndSelectLead();
+        if (!foundRetry) {
+          setTimeout(async () => {
+            await findAndSelectLead();
+          }, 800);
+        }
+      }, 350);
+    }
+  };
+
   // Clique numa notificacao mostrada pelo service worker (public/sw.js): o SW avisa a aba
   // aberta e aqui abrimos a conversa, igual o onclick da Notification antiga fazia.
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
     const onSwMessage = (event: MessageEvent) => {
       if (event.data?.type !== 'open-message-notification') return;
-      const phone = event.data.phone;
-      if (phone) {
-        supabase.from('leads').select('id').eq('company_id', 'rafa-arts').eq('phone', phone).limit(1)
-          .then(({ data }: any) => { if (data?.[0]?.id) setPendingOpenLeadId(data[0].id); });
-      }
-      setActiveTab('messages');
+      openNotificationLead(event.data.phone);
     };
     navigator.serviceWorker.addEventListener('message', onSwMessage);
     return () => navigator.serviceWorker.removeEventListener('message', onSwMessage);
@@ -1168,11 +1226,7 @@ export default function App() {
           title: remetente,
           body: corpo.length > 120 ? `${corpo.slice(0, 117)}...` : corpo,
           onClick: () => {
-            if (row.phone) {
-              supabase.from('leads').select('id').eq('company_id', 'rafa-arts').eq('phone', row.phone).limit(1)
-                .then(({ data }: any) => { if (data?.[0]?.id) setPendingOpenLeadId(data[0].id); });
-            }
-            setActiveTab('messages');
+            openNotificationLead(row.phone);
           },
         });
         return;
@@ -1200,11 +1254,7 @@ export default function App() {
       const notif = new Notification(remetente, opcoes);
       notif.onclick = () => {
         window.focus();
-        if (row.phone) {
-          supabase.from('leads').select('id').eq('company_id', 'rafa-arts').eq('phone', row.phone).limit(1)
-            .then(({ data }: any) => { if (data?.[0]?.id) setPendingOpenLeadId(data[0].id); });
-        }
-        setActiveTab('messages');
+        openNotificationLead(row.phone);
         notif.close();
       };
     } catch (e) { console.warn('Falha ao mostrar notificacao de mensagem:', e); }

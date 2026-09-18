@@ -208,7 +208,7 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
         phone: interaction.phone,
         text: finalText.trim(),
         direction: 'outgoing',
-        sender_name: user?.name || 'Sistema',
+        sender_name: user?.name ? `${user.name} (${user?.isAdmin ? 'Adm' : 'Atendente'})` : (user?.isAdmin ? 'Adm' : 'Atendente'),
         channel: interaction.channel || 'WhatsApp',
       });
       await supabase.from('leads').update({

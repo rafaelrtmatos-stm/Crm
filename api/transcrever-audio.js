@@ -11,9 +11,13 @@ import { exigirUsuarioAutorizado } from './_lib/auth.js';
 
 export const config = { maxDuration: 60 };
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-// Tenta o modelo configurado (GEMINI_MODEL) e, se ele não existir mais, cai pros seguintes.
-const MODELOS = [process.env.GEMINI_MODEL, 'gemini-3.6-flash', 'gemini-2.5-flash'].filter(Boolean);
+// Tenta o modelo configurado (GEMINI_MODEL) ou cai para os modelos ativos suportados (gemini-3.6-flash é o padrão atual do Google).
+const MODELOS = [
+  process.env.GEMINI_MODEL,
+  'gemini-3.6-flash',
+  'gemini-3.5-transcribe',
+  'gemini-flash-latest',
+].filter(Boolean);
 // Inline do Gemini aceita até 20 MB no total; base64 infla ~33%, então limita o áudio a 14 MB.
 const MAX_BYTES = 14 * 1024 * 1024;
 // Só aceita áudio que já está no bucket de mídia do próprio CRM (evita usar a função
@@ -36,19 +40,31 @@ function descobrirMime(headerContentType, url) {
   return MIME_POR_EXTENSAO[ext] || 'audio/ogg';
 }
 
-async function chamarGemini(modelo, mime, base64) {
+async function chamarGemini(modelo, mime, base64, apiKey) {
+  const isTranscribeModel = modelo.includes('transcribe');
+  const body = isTranscribeModel
+    ? {
+        contents: [{
+          parts: [
+            { text: 'Transcreva este áudio em português do Brasil.' },
+            { inline_data: { mime_type: mime, data: base64 } },
+          ],
+        }],
+      }
+    : {
+        contents: [{
+          parts: [
+            { text: 'Transcreva fielmente este áudio, no idioma em que foi falado (normalmente português do Brasil). Responda somente com o texto transcrito, sem comentários, sem marcações de tempo e sem aspas. Se não houver fala compreensível, responda apenas: [inaudível]' },
+            { inline_data: { mime_type: mime, data: base64 } },
+          ],
+        }],
+        generationConfig: { temperature: 0 },
+      };
+
   return fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`, {
     method: 'POST',
-    headers: { 'x-goog-api-key': GEMINI_API_KEY, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{
-        parts: [
-          { text: 'Transcreva fielmente este áudio, no idioma em que foi falado (normalmente português do Brasil). Responda somente com o texto transcrito, sem comentários, sem marcações de tempo e sem aspas. Se não houver fala compreensível, responda apenas: [inaudível]' },
-          { inline_data: { mime_type: mime, data: base64 } },
-        ],
-      }],
-      generationConfig: { temperature: 0 },
-    }),
+    headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   });
 }
 
@@ -58,8 +74,10 @@ export default async function handler(req, res) {
     return;
   }
 
-  if (!GEMINI_API_KEY) {
-    res.status(500).json({ error: 'Transcrição não configurada — falta GEMINI_API_KEY nas variáveis de ambiente da Vercel.' });
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GOOGLE_GENAI_API_KEY;
+
+  if (!apiKey) {
+    res.status(500).json({ error: 'Transcrição não configurada — adicione a variável GEMINI_API_KEY no painel da Vercel (Settings > Environment Variables).' });
     return;
   }
 
@@ -90,21 +108,56 @@ export default async function handler(req, res) {
     const base64 = buffer.toString('base64');
 
     let resposta = null;
+    let ultimoErro = null;
+
     for (const modelo of MODELOS) {
-      resposta = await chamarGemini(modelo, mime, base64);
-      if (resposta.status !== 404) break; // 404 = modelo não existe mais -> tenta o próximo
+      try {
+        const resp = await chamarGemini(modelo, mime, base64, apiKey);
+        if (resp.ok) {
+          resposta = resp;
+          break;
+        }
+        const textoErro = await resp.text().catch(() => '');
+        ultimoErro = { status: resp.status, body: textoErro, modelo };
+        console.warn(`[transcrever-audio] Modelo ${modelo} retornou status ${resp.status}:`, textoErro.slice(0, 300));
+      } catch (err) {
+        console.warn(`[transcrever-audio] Exceção ao chamar modelo ${modelo}:`, err);
+      }
     }
 
     if (!resposta || !resposta.ok) {
-      const corpo = resposta ? await resposta.text() : '';
-      console.error('Gemini recusou a transcrição:', resposta?.status, corpo);
-      res.status(502).json({ error: 'O serviço de transcrição recusou esse áudio.' });
+      let detalhe = 'O serviço de transcrição recusou esse áudio.';
+      if (ultimoErro?.body) {
+        try {
+          const parsed = JSON.parse(ultimoErro.body);
+          const errObj = parsed?.error || {};
+          const msg = errObj?.message || '';
+          const status = errObj?.status || '';
+          const reason = errObj?.details?.[0]?.reason || '';
+
+          if (reason === 'API_KEY_INVALID' || msg.includes('API key not valid')) {
+            detalhe = 'Chave GEMINI_API_KEY inválida na Vercel. Verifique se copiou a chave correta no Google AI Studio.';
+          } else if (status === 'RESOURCE_EXHAUSTED' || ultimoErro.status === 429) {
+            detalhe = 'Cota da API do Gemini excedida. Aguarde 1 minuto e tente novamente.';
+          } else if (status === 'PERMISSION_DENIED' || ultimoErro.status === 403) {
+            detalhe = 'Acesso negado pela API do Gemini. Verifique as permissões da chave.';
+          } else if (msg) {
+            detalhe = `Gemini: ${msg}`;
+          }
+        } catch {
+          if (ultimoErro.body && ultimoErro.body.length < 150) {
+            detalhe = `Erro do Gemini: ${ultimoErro.body}`;
+          }
+        }
+      }
+      res.status(502).json({ error: detalhe });
       return;
     }
 
     const json = await resposta.json();
-    const texto = (json?.candidates?.[0]?.content?.parts || [])
-      .map((p) => p.text || '')
+    const parts = json?.candidates?.[0]?.content?.parts || [];
+    const texto = parts
+      .map((p) => p.text || p.audioTranscription?.text || '')
       .join('')
       .trim();
 

@@ -1,15 +1,31 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore, Firestore } from 'firebase/firestore';
+import { initializeFirestore, getFirestore, Firestore, setLogLevel } from 'firebase/firestore';
 
 import firebaseConfig from '../firebase-applet-config.json';
+
+// Evita ruído no console de reconexões transitórias do Firestore enquanto o navegador sincroniza
+setLogLevel('error');
 
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 const firestoreDbId = (firebaseConfig as any)?.firestoreDatabaseId;
 
-export const db: Firestore = firestoreDbId && typeof firestoreDbId === 'string' && firestoreDbId.trim() !== ''
-  ? getFirestore(app, firestoreDbId)
-  : getFirestore(app);
+let dbInstance: Firestore;
+try {
+  const settings = {
+    experimentalAutoDetectLongPolling: true,
+    ignoreUndefinedProperties: true,
+  };
+  dbInstance = firestoreDbId && typeof firestoreDbId === 'string' && firestoreDbId.trim() !== ''
+    ? initializeFirestore(app, settings, firestoreDbId)
+    : initializeFirestore(app, settings);
+} catch {
+  dbInstance = firestoreDbId && typeof firestoreDbId === 'string' && firestoreDbId.trim() !== ''
+    ? getFirestore(app, firestoreDbId)
+    : getFirestore(app);
+}
+
+export const db: Firestore = dbInstance;
 
 export const auth = getAuth(app);
 

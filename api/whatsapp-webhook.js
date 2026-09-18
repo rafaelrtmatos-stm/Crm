@@ -485,14 +485,16 @@ export default async function handler(req, res) {
         // Nome real do contato e OBRIGATORIO pra mensagem RECEBIDA: pushName do proprio
         // evento primeiro (mais rapido e cobre 99% dos casos); se vier vazio, busca na
         // agenda/contatos da Evolution API antes de gravar — nunca grava com nome generico.
-        // Pra mensagem enviada por mim (ehMinhaMensagem), nao faz sentido, sender_name fica
-        // nulo (igual o CRM ja faz quando o atendente manda pelo botao de enviar).
+        // Para mensagem enviada por mim (ehMinhaMensagem), se veio do webhook (fora do CRM),
+        // foi enviada pelo WhatsApp no celular/aparelho móvel, então marca senderName = 'Celular'.
         let senderName = '';
         if (!ehMinhaMensagem) {
           senderName = (msg?.pushName || '').trim();
           if (!senderName && phone && evoHeaders && !phoneRaw.endsWith('@g.us')) {
             senderName = await buscarNomeContato(phone, evoHeaders);
           }
+        } else {
+          senderName = 'Celular';
         }
 
         if (phone && text) {

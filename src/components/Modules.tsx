@@ -3669,21 +3669,6 @@ export const ChatPanel = ({
 
   const { setPrefilledCustomer, activeTab: rootActiveTab, setActiveTab: setRootActiveTab, setPendingReceiptOpenId, setPendingOpenContratoId, setPendingOpenOrcamentoId, setPendingOpenLeadId, setPendingWhatsAppShare } = React.useContext(AppContext)!;
 
-  // Atalho pra alternar entre Funil CRM e Mensagens mantendo o MESMO lead selecionado --
-  // as duas telas usam esse mesmo ChatPanel, entao so precisamos trocar de aba e avisar a
-  // outra tela (via pendingOpenLeadId ou pendingWhatsAppShare) qual lead deixar selecionado.
-  const handleJumpToOtherView = () => {
-    if (!conversation?.id) return;
-    if (rootActiveTab === 'crm') {
-      setPendingWhatsAppShare({ leadId: conversation.id, prefillMessage: '' });
-      setRootActiveTab('messages');
-    } else {
-      setPendingOpenLeadId(conversation.id);
-      setRootActiveTab('crm');
-    }
-  };
-
-
   // "Iniciar Venda": se ja existe cliente cadastrado com esse telefone (clienteVinculado), manda o
   // id junto -- o PDV abre com o cadastro ja vinculado em vez de criar um novo. Aproveita e
   // completa, no cadastro existente, o nome do WhatsApp/contato se ainda estiverem vazios (sem
@@ -3789,6 +3774,8 @@ export const ChatPanel = ({
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !conversation || !currentCompany) return;
     const textoEnviado = newMessage;
+    const senderRole = user?.isAdmin ? 'Adm' : 'Atendente';
+    const senderDisplay = user?.name ? `${user.name} (${senderRole})` : senderRole;
     try {
       const { data: msgRow } = await supabase.from('crm_messages').insert({
         company_id: 'rafa-arts',
@@ -3796,7 +3783,7 @@ export const ChatPanel = ({
         phone: conversation.phone,
         text: textoEnviado,
         direction: 'outgoing',
-        sender_name: user?.name || 'Sistema',
+        sender_name: senderDisplay,
         channel: conversation.sourceType || 'WhatsApp',
       }).select('id').single();
       // Also update lead's last message
@@ -4082,24 +4069,9 @@ export const ChatPanel = ({
                 </>
               )}
             </div>
-            <button
-              onClick={handleJumpToOtherView}
-              title={rootActiveTab === 'crm' ? 'Ver Conversa em Mensagens' : 'Ver Card no Funil CRM'}
-              className="text-primary-300 hover:text-primary-200 transition-colors shrink-0"
-            >
-              <ExternalLink size={13} />
-            </button>
           </div>
         );
-      })() : (
-        <button
-          onClick={handleJumpToOtherView}
-          className="flex items-center justify-center gap-1.5 w-full py-1.5 border-b border-white/10 bg-white/[0.015] text-[9px] font-black uppercase tracking-widest text-primary-300 hover:bg-white/5 hover:text-primary-200 transition-colors flex-shrink-0"
-        >
-          <ExternalLink size={11} />
-          {rootActiveTab === 'crm' ? 'Ver Conversa em Mensagens' : 'Ver Card no Funil CRM'}
-        </button>
-      )}
+      })() : null}
 
       {/* Tabs - FIXO */}
       <div className="flex flex-nowrap overflow-x-auto custom-scrollbar border-b border-white/5 bg-white/[0.01] px-2 flex-shrink-0">
@@ -4180,6 +4152,20 @@ export const ChatPanel = ({
                     const isImage = m.mediaContentType === 'image' && !!m.mediaUrl;
                     const isVideo = m.mediaContentType === 'video' && !!m.mediaUrl;
                     const isDocument = m.mediaContentType === 'document' && !!m.mediaUrl;
+                    const senderLabel = (() => {
+                      if (!isOutgoing) return m.senderName || 'Cliente';
+                      const raw = (m.senderName || '').trim();
+                      if (!raw || raw.toLowerCase() === 'sistema' || raw.toLowerCase().includes('celular') || raw.toLowerCase().includes('whatsapp')) {
+                        return { text: 'Pelo celular', type: 'celular' };
+                      }
+                      if (/adm|admin/i.test(raw)) {
+                        return { text: raw.includes('(') ? raw : `${raw} (Adm)`, type: 'adm' };
+                      }
+                      if (/atendente/i.test(raw)) {
+                        return { text: raw.includes('(') ? raw : `${raw} (Atendente)`, type: 'atendente' };
+                      }
+                      return { text: `${raw} (Atendente)`, type: 'atendente' };
+                    })();
                     
                     return (
                       <div key={m.id || idx} className={cn("flex", isOutgoing ? "justify-end" : "justify-start")}>
@@ -4247,9 +4233,23 @@ export const ChatPanel = ({
                                 </div>
                               ) : m.text}
                            </div>
-                           <p className={cn("text-[8px] font-bold uppercase", isOutgoing ? "text-primary-300/30 mr-1" : "text-white/20 ml-1")}>
-                             {timeStr} • {isOutgoing ? 'Sistema' : m.senderName || 'Cliente'}
-                           </p>
+                           <div className={cn("text-[9px] font-bold flex items-center gap-1.5 mt-1", isOutgoing ? "justify-end mr-1" : "justify-start ml-1")}>
+                             <span className="text-white/40">{timeStr}</span>
+                             <span className="text-white/20">•</span>
+                             {isOutgoing ? (
+                               <span className={cn(
+                                 "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider border",
+                                 (senderLabel as any).type === 'adm' && "bg-amber-500/15 text-amber-300 border-amber-500/30",
+                                 (senderLabel as any).type === 'atendente' && "bg-blue-500/15 text-blue-300 border-blue-500/30",
+                                 (senderLabel as any).type === 'celular' && "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+                               )}>
+                                 {(senderLabel as any).type === 'celular' ? <Smartphone size={9} /> : (senderLabel as any).type === 'adm' ? <ShieldCheck size={9} /> : <UserCheck size={9} />}
+                                 {(senderLabel as any).text}
+                               </span>
+                             ) : (
+                               <span className="text-white/50 text-[9px] font-medium">{senderLabel as string}</span>
+                             )}
+                           </div>
                         </div>
                       </div>
                     );
@@ -4671,7 +4671,7 @@ const LEAD_SORT_OPTIONS: { key: LeadSortKey; label: string; defaultDir: 'asc' | 
 const LEAD_SORT_STORAGE_KEY = 'crm_lead_sort';
 
 export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | null, user: AppUser | null }) => {
-  const { pendingOpenLeadId, setPendingOpenLeadId } = React.useContext(AppContext)!;
+  const { pendingOpenLeadId, setPendingOpenLeadId, pendingWhatsAppShare, setPendingWhatsAppShare } = React.useContext(AppContext)!;
   const [leads, setLeads] = useState<Lead[]>([]);
   const [funnels, setFunnels] = useState<Funnel[]>([]);
   const [selectedFunnelId, setSelectedFunnelId] = useState<string>('');
@@ -4739,22 +4739,41 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     return () => { supabase.removeChannel(stagesChannel); };
   }, [selectedFunnelId]);
 
-  // Chegou aqui vindo do popup de Mensagens do menu lateral ou do botao "Ver no
-  // Funil CRM" do ChatPanel compartilhado -- acha o lead, troca pro funil dele
-  // se for diferente do selecionado, ja deixa selecionado (abre o painel) e
-  // marca openedViaJump pra o painel preencher a tela toda (sem kanban).
+  // Chegou aqui vindo do clique numa notificação de mensagem ou do popup de
+  // Mensagens do menu lateral -- acha o lead, troca pro funil dele
+  // se for diferente do selecionado, já deixa selecionado (abre a conversa) e
+  // marca openedViaJump pra o painel preencher a tela toda.
   useEffect(() => {
-    if (!pendingOpenLeadId || leads.length === 0) return;
-    const lead = leads.find(l => l.id === pendingOpenLeadId);
+    const targetLeadId = pendingOpenLeadId || (pendingWhatsAppShare ? pendingWhatsAppShare.leadId : null);
+    if (!targetLeadId) return;
+
+    const lead = leads.find(l => l.id === targetLeadId);
     if (lead) {
       if (lead.funnelId && lead.funnelId !== selectedFunnelId) {
         setSelectedFunnelId(lead.funnelId);
       }
       setSelectedLead(lead);
       setOpenedViaJump(true);
-      setPendingOpenLeadId(null);
+      if (pendingOpenLeadId === targetLeadId) setPendingOpenLeadId(null);
+    } else {
+      // Se a lista de leads local ainda não carregou ou o lead acabou de ser criado, busca direto no Supabase
+      supabase.from('leads').select('*').eq('id', targetLeadId).single().then(({ data, error }) => {
+        if (data && !error) {
+          const mapped = mapLeadRow(data);
+          setLeads(prev => {
+            const exists = prev.some(l => l.id === mapped.id);
+            return exists ? prev.map(l => l.id === mapped.id ? mapped : l) : [mapped, ...prev];
+          });
+          if (mapped.funnelId && mapped.funnelId !== selectedFunnelId) {
+            setSelectedFunnelId(mapped.funnelId);
+          }
+          setSelectedLead(mapped);
+          setOpenedViaJump(true);
+          if (pendingOpenLeadId === targetLeadId) setPendingOpenLeadId(null);
+        }
+      });
     }
-  }, [pendingOpenLeadId, leads]);
+  }, [pendingOpenLeadId, pendingWhatsAppShare, leads, selectedFunnelId]);
 
   const onDragStart = (event: DragStartEvent) => {
     setActiveDragId(event.active.id as string);
@@ -4865,18 +4884,34 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
   }, [leads, selectedLead]);
 
   const handleAddFunnel = async () => {
-    const name = await showPrompt('Nome do novo funil:');
-    if (!name || !currentCompany) return;
+    const name = await showPrompt('Nome do novo funil:', 'Novo Funil');
+    if (!name || !name.trim() || !currentCompany) return;
     try {
+      const defaultColors = ['#4cc9f0', '#4361ee', '#f72585', '#7209b7', '#3a0ca3', '#10b981', '#f59e0b', '#ec4899'];
+      const pickColor = defaultColors[funnels.length % defaultColors.length];
       const { data: newFunnel, error } = await supabase.from('funnels').insert({
         company_id: 'rafa-arts',
-        name,
+        name: name.trim(),
+        color: pickColor,
         is_active: true,
       }).select().single();
       if (error) throw error;
+
+      // Cria etapas padrão para o novo funil
+      const defaultStages = [
+        { funnel_id: newFunnel.id, name: 'ENTRADA', order: 0, color: '#4cc9f0', is_initial: true },
+        { funnel_id: newFunnel.id, name: 'CONTATO', order: 1, color: '#4361ee' },
+        { funnel_id: newFunnel.id, name: 'ORÇAMENTO', order: 2, color: '#f72585' },
+        { funnel_id: newFunnel.id, name: 'NEGOCIAÇÃO', order: 3, color: '#7209b7' },
+        { funnel_id: newFunnel.id, name: 'FECHADO', order: 4, color: '#10b981', is_final: true },
+      ];
+      await supabase.from('funnel_stages').insert(defaultStages);
+
+      const mapped = mapFunnelRow(newFunnel);
+      setFunnels(prev => [...prev, mapped]);
       setSelectedFunnelId(newFunnel.id);
       setFunnelMenuOpen(false);
-      showAlert(`Funil "${name}" criado com sucesso!`);
+      showAlert(`Funil "${name.trim()}" criado com sucesso!`);
     } catch (err) {
       console.error('Erro ao criar funil:', err);
       showAlert('Não foi possível criar o funil.');
@@ -4898,6 +4933,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
       await supabase.from('funnel_stages').delete().eq('funnel_id', funnelId);
       // Excluir o funil
       await supabase.from('funnels').delete().eq('id', funnelId);
+      setFunnels(prev => prev.filter(f => f.id !== funnelId));
       // Trocar pra outro funil
       if (selectedFunnelId === funnelId && funnels.length > 1) {
         const nextFunnel = funnels.find(f => f.id !== funnelId);
@@ -5027,9 +5063,34 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     if (!selectedFunnelId) return;
     try {
       await supabase.from('funnels').update({ color }).eq('id', selectedFunnelId);
+      setFunnels(prev => prev.map(f => f.id === selectedFunnelId ? { ...f, color } : f));
     } catch (err) {
       console.error('Erro ao definir cor do funil:', err);
       showAlert('Não foi possível salvar a cor do funil.');
+    }
+  };
+
+  const handleSetFunnelColorFor = async (funnelId: string, color: string) => {
+    try {
+      await supabase.from('funnels').update({ color }).eq('id', funnelId);
+      setFunnels(prev => prev.map(f => f.id === funnelId ? { ...f, color } : f));
+    } catch (err) {
+      console.error('Erro ao definir cor do funil:', err);
+      showAlert('Não foi possível salvar a cor do funil.');
+    }
+  };
+
+  const handleRenameFunnelPrompt = async (funnel: Funnel) => {
+    const newName = await showPrompt('Nome do funil:', funnel.name);
+    if (!newName || !newName.trim() || newName.trim() === funnel.name) return;
+    try {
+      await supabase.from('funnels').update({ name: newName.trim() }).eq('id', funnel.id);
+      setFunnels(prev => prev.map(f => f.id === funnel.id ? { ...f, name: newName.trim() } : f));
+      if (selectedFunnelId === funnel.id) setFunnelNameDraft(newName.trim());
+      showAlert(`Funil renomeado para "${newName.trim()}"!`);
+    } catch (err) {
+      console.error('Erro ao renomear funil:', err);
+      showAlert('Não foi possível renomear o funil.');
     }
   };
 
@@ -5137,6 +5198,12 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                       {/* Gerenciar Funis */}
                       <div className="space-y-1 mb-2">
                         <button
+                          onClick={() => { setFunnelMenuOpen(false); setIsConfiguringFunnel(true); }}
+                          className="w-full text-left px-3 py-2 rounded-lg text-[10px] font-bold text-white/80 hover:bg-white/10 transition-all flex items-center gap-2"
+                        >
+                          <Settings2 size={12} /> Configurações de Funis
+                        </button>
+                        <button
                           onClick={handleAddFunnel}
                           className="w-full text-left px-3 py-2 rounded-lg text-[10px] font-bold text-primary-300 hover:bg-primary-500/20 transition-all flex items-center gap-2"
                         >
@@ -5221,7 +5288,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                >
                  {leadSelectionMode ? 'Cancelar Seleção' : 'Selecionar Vários'}
                </Button>
-               <Button variant="secondary" icon={Settings2} onClick={() => setIsConfiguringFunnel(true)}>Configurar</Button>
+               <Button variant="secondary" icon={Settings2} onClick={() => setIsConfiguringFunnel(true)}>Configurações</Button>
                <Button icon={Plus}>Novo Lead</Button>
             </div>
           } 
@@ -5325,6 +5392,8 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
               currentCompany={currentCompany}
               user={user}
               fallbackFunnelId={selectedFunnelId}
+              initialDraft={pendingWhatsAppShare?.leadId === selectedLead.id ? pendingWhatsAppShare.prefillMessage : undefined}
+              onDraftConsumed={() => setPendingWhatsAppShare && setPendingWhatsAppShare(null)}
               onLeadPatched={(leadId, patch) => {
                 setLeads(prev => prev.map(l => l.id === leadId ? { ...l, ...patch } : l));
                 setSelectedLead(prev => (prev && prev.id === leadId) ? { ...prev, ...patch } : prev);
@@ -5337,23 +5406,128 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
       <Modal 
         isOpen={isConfiguringFunnel} 
         onClose={() => setIsConfiguringFunnel(false)} 
-        title="Gestão de Funis & Etapas"
+        title="Configurações de Funis & Etapas"
       >
         <div className="p-4 space-y-8 max-h-[80vh] overflow-y-auto no-scrollbar">
+           {/* Seção de todos os funis com nome e cor ao lado, e botão '+' para adicionar mais um */}
            <div className="space-y-4">
-              <p className="text-[10px] font-black uppercase text-primary-300 tracking-[3px]">Configuração do Funil</p>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] font-black uppercase text-primary-300 tracking-[3px]">Funis de Atendimento</p>
+                  <p className="text-[11px] text-white/50">Clique no funil para gerenciar suas etapas ou na cor ao lado para alterá-la.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAddFunnel}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 bg-primary-500 hover:bg-primary-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-primary-500/20 transition-all cursor-pointer"
+                  title="Criar novo funil"
+                >
+                  <Plus size={15} className="stroke-[3]" /> Adicionar Funil
+                </button>
+              </div>
+
+              {/* Lista de todos os funis cadastrados com nome e cor ao lado */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {funnels.map(f => {
+                  const isSelected = selectedFunnelId === f.id;
+                  const color = f.color || '#4cc9f0';
+                  return (
+                    <div
+                      key={f.id}
+                      onClick={() => setSelectedFunnelId(f.id)}
+                      className={cn(
+                        "p-3.5 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-3 group relative",
+                        isSelected 
+                          ? "bg-primary-500/10 border-primary-500/60 shadow-md ring-1 ring-primary-500/30" 
+                          : "bg-white/5 border-white/10 hover:bg-white/[0.08] hover:border-white/20"
+                      )}
+                    >
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        {/* Cor do funil ao lado do nome com paleta de troca rápida */}
+                        <div className="relative group/color shrink-0">
+                          <div
+                            className="w-5 h-5 rounded-full border-2 border-white/60 shadow-md cursor-pointer hover:scale-125 transition-transform"
+                            style={{ backgroundColor: color }}
+                            title="Clique para trocar a cor deste funil"
+                          />
+                          <div className="hidden group-hover/color:flex absolute top-full left-0 mt-2 bg-slate-900 border border-white/20 rounded-xl shadow-2xl p-1.5 gap-1.5 z-40">
+                            {['#4cc9f0', '#4361ee', '#f72585', '#7209b7', '#3a0ca3', '#10b981', '#f59e0b', '#ec4899'].map(c => (
+                              <button
+                                key={c}
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleSetFunnelColorFor(f.id, c);
+                                }}
+                                className="w-4 h-4 rounded-full border border-white/20 hover:scale-125 transition-transform cursor-pointer"
+                                style={{ backgroundColor: c }}
+                                title={c}
+                              />
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className={cn("font-bold text-sm truncate", isSelected ? "text-white" : "text-white/80")}>
+                              {f.name}
+                            </span>
+                            {isSelected && (
+                              <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-primary-500/20 text-primary-300 border border-primary-500/40 shrink-0">
+                                Ativo
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[9.5px] text-white/40 uppercase font-medium">
+                            {isSelected ? `${stages.length} etapas cadastradas` : 'Clique para ver etapas'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Ações: renomear e excluir */}
+                      <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          onClick={() => handleRenameFunnelPrompt(f)}
+                          className="p-1.5 rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-all"
+                          title="Renomear funil"
+                        >
+                          <Pencil size={13} />
+                        </button>
+                        {user?.isAdmin && funnels.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteFunnel(f.id)}
+                            className="p-1.5 rounded-lg text-rose-400/60 hover:text-rose-400 hover:bg-rose-500/20 transition-all"
+                            title="Excluir funil"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+           </div>
+
+           {/* Editar nome e cor do funil atualmente ativo */}
+           <div className="space-y-4 pt-4 border-t border-white/10">
+              <p className="text-[10px] font-black uppercase text-primary-300 tracking-[3px]">
+                Editar Nome do Funil Ativo: <span className="text-white normal-case font-bold">{currentFunnel?.name}</span>
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Input
-                  label="Nome do Funil"
+                  label="Nome do Funil Selecionado"
                   value={funnelNameDraft}
                   onChange={(e: any) => setFunnelNameDraft(e.target.value)}
                   onBlur={handleSaveFunnelName}
                   onKeyDown={(e: any) => { if (e.key === 'Enter') { e.currentTarget.blur(); } }}
                 />
                 <div className="space-y-2">
-                   <p className="text-[10px] font-bold text-white/40 uppercase">Cor do Funil</p>
+                   <p className="text-[10px] font-bold text-white/40 uppercase">Paleta de Cores</p>
                    <div className="flex gap-2">
-                      {['#4cc9f0', '#4361ee', '#f72585', '#7209b7', '#3a0ca3'].map(c => (
+                      {['#4cc9f0', '#4361ee', '#f72585', '#7209b7', '#3a0ca3', '#10b981', '#f59e0b', '#ec4899'].map(c => (
                         <button
                           key={c}
                           type="button"
@@ -5371,9 +5545,14 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
               </div>
            </div>
 
-           <div className="space-y-4">
+           <div className="space-y-4 pt-4 border-t border-white/10">
               <div className="flex items-center justify-between">
-                <p className="text-[10px] font-black uppercase text-primary-300 tracking-[3px]">Etapas do Processo</p>
+                <div>
+                  <p className="text-[10px] font-black uppercase text-primary-300 tracking-[3px]">
+                    Etapas do Funil: <span className="text-white underline">{currentFunnel?.name || 'Funil'}</span>
+                  </p>
+                  <p className="text-[11px] text-white/40">Arraste para reordenar, clique no nome para renomear ou defina cores para cada etapa.</p>
+                </div>
                 <Button size="sm" variant="ghost" icon={Plus} onClick={handleAddStage}>Adicionar Etapa</Button>
               </div>
               <div className="space-y-3">
