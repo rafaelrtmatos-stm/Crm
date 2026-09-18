@@ -3620,8 +3620,8 @@ export const ChatPanel = ({
   // --- Transcrição de áudio ---
   // Toggle por conversa (salvo no proprio lead, ver Lead em types.ts) -- fica identico nas duas
   // telas (Funil CRM e Mensagens) porque as duas leem/escrevem o mesmo documento. O gatilho em si
-  // e' manual (botao "Transcrever" em cada mensagem de audio) porque este projeto ainda nao tem
-  // nenhum provedor de voz-para-texto conectado -- ver lib/audioTranscription.ts.
+  // e' manual (botao "Transcrever" em cada mensagem de audio); a transcricao roda em
+  // api/transcrever-audio.js (Gemini) -- ver lib/audioTranscription.ts.
   const [transcribingId, setTranscribingId] = useState<string | null>(null);
   const handleTranscribeAudio = async (message: any) => {
     if (!message?.id || !message?.mediaUrl) {
@@ -3630,7 +3630,7 @@ export const ChatPanel = ({
     }
     setTranscribingId(message.id);
     try {
-      const texto = await transcribeAudioMessage(message.mediaUrl);
+      const texto = await transcribeAudioMessage(message.mediaUrl, user?.id);
       await supabase.from('crm_messages').update({
         transcription: { text: texto, isAutomatic: false, isVisible: true },
       }).eq('id', message.id);
