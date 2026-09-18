@@ -769,6 +769,11 @@ export default function App() {
 
     // RULE: All incoming messages must create a lead in "ENTRADA" (initial stage)
     const processIncomingMessage = async (msgData: any) => {
+      // Ao vivo: `quando` = agora e `aguardando` = true (comportamento de sempre). Na recuperacao
+      // de mensagens perdidas (abaixo) `quando` vem com a hora real da mensagem e `aguardando`
+      // vira false se alguem da empresa ja respondeu depois dela.
+      const quando: string = msgData.createdAt || new Date().toISOString();
+      const aguardando: boolean = msgData.aguardando !== false;
       // Check if lead already exists for this phone/contact
       const { data: leadRows } = await supabase.from('leads').select('*').eq('company_id', 'rafa-arts').eq('phone', msgData.phone || '');
 
@@ -839,10 +844,10 @@ export default function App() {
           // aqui, num evento 'incoming' -- NUNCA no envio do atendente (ver Modules.tsx
           // handleSendMessage) -- entao sempre reflete a ultima mensagem real do CLIENTE.
           last_client_message_text: msgData.text || '',
-          last_client_message_at: new Date().toISOString(),
+          last_client_message_at: quando,
           estimated_value: 0,
           status: 'ENTRADA',
-          waiting_since: new Date().toISOString(),
+          waiting_since: aguardando ? quando : null,
         }, { onConflict: 'company_id,phone', ignoreDuplicates: true });
         console.log(`CRM Automation: New Lead created from channel [${msgData.channel}] into ENTRADA stage.`);
       } else {
@@ -851,12 +856,21 @@ export default function App() {
         // correcao manual que o atendente ja tenha feito (ex: nome do documento != nome do
         // WhatsApp). Ver Lead.whatsappName/contactName/fullName em types.ts.
         const leadRow = leadRows[0];
+        if (!aguardando) {
+          // Mensagem antiga que ja foi respondida por alguem da empresa: so registra que ela
+          // existiu (pra nao ser "recuperada" de novo) -- nao mexe em etapa, status nem espera.
+          await supabase.from('leads').update({
+            last_client_message_text: msgData.text || '',
+            last_client_message_at: quando,
+          }).eq('id', leadRow.id);
+          return;
+        }
         await supabase.from('leads').update({
           last_message_text: msgData.text || '',
           last_client_message_text: msgData.text || '',
-          last_client_message_at: new Date().toISOString(),
+          last_client_message_at: quando,
           source_type: msgData.channel || leadRow.source_type || 'WhatsApp',
-          waiting_since: new Date().toISOString(),
+          waiting_since: quando,
           status: 'ENTRADA',
           ...(msgData.senderName ? { whatsapp_name: msgData.senderName } : {}),
           ...(stageId ? { funnel_stage_id: stageId } : {}),
@@ -865,6 +879,95 @@ export default function App() {
         console.log(`CRM Automation: Existing Lead updated from channel [${msgData.channel}] in ENTRADA stage.`);
       }
     };
+
+    // RECUPERACAO: o webhook grava toda mensagem em crm_messages, mas quem cria/atualiza o lead
+    // (e portanto quem faz a conversa aparecer na lista e no contador de "aguardando") e este
+    // navegador. Se ninguem estava com o CRM aberto, ou o Realtime tinha caido, a mensagem ficava
+    // salva e invisivel. Aqui, ao abrir o CRM, ao reconectar o Realtime e ao voltar pra aba depois
+    // de um tempo, comparamos as mensagens recebidas nos ultimos 3 dias com o que o lead ja
+    // registrou (last_client_message_at) e processamos so o que ficou pra tras.
+    let recuperando = false;
+    const recuperarMensagensPerdidas = async () => {
+      if (recuperando) return;
+      recuperando = true;
+      try {
+        const desde = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+        const [entradasRes, saidasRes, leadsRes] = await Promise.all([
+          supabase.from('crm_messages').select('phone,text,sender_name,channel,created_at')
+            .eq('company_id', 'rafa-arts').eq('direction', 'incoming').gte('created_at', desde)
+            .order('created_at', { ascending: false }).limit(1000),
+          supabase.from('crm_messages').select('phone,created_at')
+            .eq('company_id', 'rafa-arts').eq('direction', 'outgoing').gte('created_at', desde)
+            .order('created_at', { ascending: false }).limit(1000),
+          supabase.from('leads').select('phone,last_client_message_at').eq('company_id', 'rafa-arts'),
+        ]);
+        if (entradasRes.error || saidasRes.error || leadsRes.error) {
+          console.warn('CRM Recuperacao: falha ao consultar mensagens/leads', entradasRes.error || saidasRes.error || leadsRes.error);
+          return;
+        }
+
+        // Mais recente por telefone (as consultas ja vem da mais nova pra mais antiga)
+        const ultimaEntrada = new Map<string, any>();
+        for (const m of (entradasRes.data || [])) { if (m.phone && m.text && !ultimaEntrada.has(m.phone)) ultimaEntrada.set(m.phone, m); }
+        const ultimaSaida = new Map<string, number>();
+        for (const m of (saidasRes.data || [])) { if (m.phone && !ultimaSaida.has(m.phone)) ultimaSaida.set(m.phone, Date.parse(m.created_at)); }
+        const leadPorTelefone = new Map<string, number>();
+        for (const l of (leadsRes.data || [])) { if (l.phone) leadPorTelefone.set(l.phone, l.last_client_message_at ? Date.parse(l.last_client_message_at) : 0); }
+
+        // Tolerancia de 2 min: last_client_message_at vem do relogio do navegador e created_at
+        // da hora da mensagem, entao uma pequena diferenca nao pode contar como "perdida".
+        const TOLERANCIA_MS = 2 * 60 * 1000;
+        const MAX_POR_RODADA = 50;
+        let processadas = 0;
+        let aguardandoResposta = 0;
+        for (const [phone, msg] of ultimaEntrada) {
+          if (processadas >= MAX_POR_RODADA) break;
+          const quandoMsg = Date.parse(msg.created_at);
+          if (!Number.isFinite(quandoMsg)) continue;
+          const registrada = leadPorTelefone.get(phone); // undefined = lead nem existe
+          if (registrada !== undefined && quandoMsg <= registrada + TOLERANCIA_MS) continue;
+
+          const aguardando = !(ultimaSaida.get(phone) && (ultimaSaida.get(phone) as number) >= quandoMsg);
+          await processIncomingMessage({
+            phone,
+            text: msg.text,
+            senderName: msg.sender_name,
+            channel: msg.channel,
+            createdAt: msg.created_at,
+            aguardando,
+          });
+          processadas++;
+          if (aguardando) aguardandoResposta++;
+        }
+
+        if (processadas > 0) {
+          console.log(`CRM Recuperacao: ${processadas} conversa(s) atualizada(s) com mensagens recebidas fora do ar (${aguardandoResposta} aguardando resposta).`);
+        }
+        if (aguardandoResposta > 0) {
+          showMessageToast({
+            key: 'mensagens-recuperadas',
+            title: 'Mensagens recebidas enquanto você estava fora',
+            body: `${aguardandoResposta} conversa${aguardandoResposta > 1 ? 's' : ''} aguardando resposta.`,
+            onClick: () => setActiveTab('messages'),
+          });
+        }
+      } catch (e) {
+        console.warn('CRM Recuperacao: erro ao recuperar mensagens perdidas', e);
+      } finally {
+        recuperando = false;
+      }
+    };
+
+    // Voltou pra aba depois de mais de 1 min em segundo plano: navegadores pausam abas ocultas e o
+    // Realtime pode ter perdido eventos nesse periodo.
+    let ocultoDesde: number | null = null;
+    const onVisibilidade = () => {
+      if (document.hidden) { ocultoDesde = Date.now(); return; }
+      const ficouFora = ocultoDesde ? Date.now() - ocultoDesde : 0;
+      ocultoDesde = null;
+      if (ficouFora > 60 * 1000) recuperarMensagensPerdidas();
+    };
+    document.addEventListener('visibilitychange', onVisibilidade);
 
     const channel = supabase.channel('app-incoming-lead-automation').on(
       'postgres_changes',
@@ -891,13 +994,20 @@ export default function App() {
     ).subscribe((status: string, err?: any) => {
       // Sem isso, se o Realtime falhar (tabela fora da publicacao, filtro invalido, queda de
       // rede) nada aparece em lugar nenhum e a notificacao simplesmente "nao chega".
-      if (status === 'SUBSCRIBED') console.log('CRM Realtime: escutando novas mensagens (crm_messages).');
+      if (status === 'SUBSCRIBED') {
+        console.log('CRM Realtime: escutando novas mensagens (crm_messages).');
+        // Roda ao abrir o CRM e toda vez que o Realtime reconecta depois de uma queda.
+        recuperarMensagensPerdidas();
+      }
       else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
         console.warn(`CRM Realtime: canal de mensagens em estado ${status}`, err || '');
       }
     });
 
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilidade);
+      supabase.removeChannel(channel);
+    };
   }, [currentCompany, user]);
 
   // Login & Authentication State (Carrega credenciais lembradas instantaneamente)
