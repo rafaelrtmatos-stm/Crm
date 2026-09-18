@@ -245,6 +245,7 @@ import { validateCpfCnpj } from '../lib/validators';
 import { buscarClienteDuplicado, montarPayloadMesclagem } from '../lib/clienteDedupe';
 import { custoTotalDaNota, calcularLucroLiquido, detalharCustoDaNota, detalharCustosItem, custoMaterialRealItem, custoMaquinaItem, somaCustosExtras, isMaterialLonaAdesivo } from '../lib/lucro';
 import { format } from 'date-fns';
+import { leadLastMessageDate, formatListTime } from '../lib/leadTime';
 
 // Formata uma data com fallback seguro — evita "RangeError: Invalid time value"
 // quando vendas importadas de planilha tem um createdAt malformado ou vazio.
@@ -6094,8 +6095,7 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
           )}
 
           {filteredLeads.map(l => {
-            const lastUpdate = l.updatedAt instanceof Timestamp ? l.updatedAt.toDate() : new Date((l as any).updatedAt || Date.now());
-            const timeStr = format(lastUpdate, 'HH:mm');
+            const timeStr = formatListTime(leadLastMessageDate(l));
             const isSelected = selectedChat?.id === l.id;
 
             const waitingSinceDate = l.waitingSince 

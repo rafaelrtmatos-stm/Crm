@@ -12,6 +12,7 @@
 
 import { EVOLUTION_API_URL, EVOLUTION_API_KEY, EVOLUTION_WEBHOOK_SECRET, INSTANCE_NAME, SUPABASE_URL, SUPABASE_ANON_KEY, COMPANY_ID } from './_lib/whatsapp-config.js';
 import { normalizarTelefoneBR } from './_lib/phone.js';
+import { timestampParaIso } from './_lib/timestamp.js';
 
 // Segredo compartilhado com a Evolution API — configura o MESMO valor nos dois lados
 // (aqui via variavel de ambiente da Vercel, e na Evolution API como header customizado
@@ -479,7 +480,7 @@ export default async function handler(req, res) {
         const phone = normalizarTelefoneBR(phoneRaw.replace('@s.whatsapp.net', '').replace('@g.us', '').replace('@lid', '').replace(/\D/g, ''));
         const text = extrairTextoMensagem(msg?.message);
         const whatsappMessageId = msg?.key?.id || null;
-        const createdAt = msg?.messageTimestamp ? new Date(Number(msg.messageTimestamp) * 1000).toISOString() : undefined;
+        const createdAt = timestampParaIso(msg?.messageTimestamp);
 
         // Nome real do contato e OBRIGATORIO pra mensagem RECEBIDA: pushName do proprio
         // evento primeiro (mais rapido e cobre 99% dos casos); se vier vazio, busca na
@@ -535,7 +536,7 @@ export default async function handler(req, res) {
         // (unavailable, paused, ou vazio) vira offline com o "visto por ultimo".
         const statusBruto = (ultima?.lastKnownPresence || '').toLowerCase();
         const status = ['available', 'composing', 'recording'].includes(statusBruto) ? statusBruto : 'unavailable';
-        const lastSeenAt = ultima?.lastSeen ? new Date(Number(ultima.lastSeen) * 1000).toISOString() : (status === 'unavailable' ? new Date().toISOString() : undefined);
+        const lastSeenAt = timestampParaIso(ultima?.lastSeen) || (status === 'unavailable' ? new Date().toISOString() : undefined);
         if (phone) await atualizarPresenca(phone, status, lastSeenAt);
       }
     }

@@ -10,6 +10,7 @@
 
 import { EVOLUTION_API_URL, EVOLUTION_API_KEY, INSTANCE_NAME, SUPABASE_URL, SUPABASE_ANON_KEY, COMPANY_ID, supabaseHeaders } from './_lib/whatsapp-config.js';
 import { exigirUsuarioAutorizado } from './_lib/auth.js';
+import { timestampParaIso } from './_lib/timestamp.js';
 
 const supaHeaders = supabaseHeaders();
 
@@ -213,7 +214,7 @@ export default async function handler(req, res) {
 
           const whatsappMessageId = msg?.key?.id || null;
           const direction = msg?.key?.fromMe ? 'outgoing' : 'incoming';
-          const timestampMsg = msg?.messageTimestamp ? new Date(Number(msg.messageTimestamp) * 1000).toISOString() : new Date().toISOString();
+          const timestampMsg = timestampParaIso(msg?.messageTimestamp) || new Date().toISOString();
           const remetenteGrupo = (msg?.pushName || '').trim();
 
           const insertRes = await fetch(`${SUPABASE_URL}/rest/v1/crm_messages`, {
@@ -249,7 +250,7 @@ export default async function handler(req, res) {
 
           const whatsappMessageId = msg?.key?.id || null;
           const direction = msg?.key?.fromMe ? 'outgoing' : 'incoming';
-          const timestampMsg = msg?.messageTimestamp ? new Date(Number(msg.messageTimestamp) * 1000).toISOString() : new Date().toISOString();
+          const timestampMsg = timestampParaIso(msg?.messageTimestamp) || new Date().toISOString();
 
           const insertRes = await fetch(`${SUPABASE_URL}/rest/v1/crm_messages`, {
             method: 'POST',

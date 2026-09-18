@@ -10,6 +10,7 @@ import {
   MoreVertical, CirclePlus, VolumeX, CheckSquare, Check, Archive, Trash2, Flag, MailOpen,
 } from 'lucide-react';
 import { format } from 'date-fns';
+import { leadLastMessageDate, formatListTime } from '../lib/leadTime';
 
 type SortMode = 'recent' | 'unread' | 'highlight';
 type SelectionMode = null | 'bulk' | 'mute' | 'group';
@@ -588,8 +589,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
           {/* Lista de conversas */}
           <div className="flex-1 overflow-y-auto custom-scrollbar">
             {filteredLeads.map(l => {
-              const lastUpdate = l.updatedAt instanceof Timestamp ? l.updatedAt.toDate() : new Date((l as any).updatedAt || Date.now());
-              const timeStr = format(lastUpdate, 'HH:mm');
+              const timeStr = formatListTime(leadLastMessageDate(l));
 
               const waitingSinceDate = l.waitingSince
                 ? (l.waitingSince instanceof Timestamp ? l.waitingSince.toDate() : new Date(l.waitingSince))

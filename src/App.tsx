@@ -874,7 +874,9 @@ export default function App() {
           status: 'ENTRADA',
           ...(msgData.senderName ? { whatsapp_name: msgData.senderName } : {}),
           ...(stageId ? { funnel_stage_id: stageId } : {}),
-          updated_at: new Date().toISOString(),
+          // `quando` = agora ao vivo; na recuperacao e a hora real da mensagem (senao a lista
+          // mostrava a hora da recuperacao como se fosse a da mensagem)
+          updated_at: quando,
         }).eq('id', leadRow.id);
         console.log(`CRM Automation: Existing Lead updated from channel [${msgData.channel}] in ENTRADA stage.`);
       }
