@@ -17,11 +17,13 @@ function paraData(v: any): Date | null {
 //    whatsapp-webhook.js, whatsapp-send.js e App.tsx. As regras acima so valem enquanto o lead
 //    ainda nao tem esse campo (conversa antiga ainda nao reconciliada).
 export function leadLastMessageDate(lead: any): Date | null {
-  const ultimaMensagem = paraData(lead?.lastMessageAt);
-  if (ultimaMensagem) return ultimaMensagem;
-  const atualizado = paraData(lead?.updatedAt);
-  if (lead?.lastMessageDirection === 'outgoing') return atualizado;
-  return paraData(lead?.lastClientMessageAt) || atualizado;
+  // Prioridade: lastMessageAt > lastClientMessageAt > updatedAt (updatedAt so como fallback de
+  // dados antigos, nunca como criterio principal de "mais recentes").
+  return (
+    paraData(lead?.lastMessageAt) ||
+    paraData(lead?.lastClientMessageAt) ||
+    paraData(lead?.updatedAt)
+  );
 }
 
 // Chave de ORDENACAO da lista de conversas (ms; 0 = sem mensagem conhecida, vai pro fim). Depende

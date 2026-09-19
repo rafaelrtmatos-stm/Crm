@@ -91,6 +91,35 @@ const ordenarEDeduplicarConversas = (lista: Lead[]): Lead[] => {
 
 const prepararListaDeConversas = (rows: any[]): Lead[] => ordenarEDeduplicarConversas(rows.map(mapearLeadDaLista));
 
+// GRUPOS DO WHATSAPP: o grupo e uma conversa propria, identificada pelo group_jid (o `phone` do lead/da
+// mensagem e so os digitos do group_jid -- nunca o telefone de um participante).
+//  - permitidos: grupos liberados (visivel) que ESTE usuario pode ver -- administrador ve todos os
+//    liberados; usuario comum so os vinculados a ele em user_whatsapp_groups.
+//  - todos: todo grupo cadastrado; conversa de grupo que nao esta em `permitidos` NAO aparece na lista,
+//    mesmo que as mensagens existam em crm_messages.
+//  - nomes: nome real do grupo (whatsapp_groups.nome) pra mostrar no lugar do nome de um participante.
+const digitosDoGrupo = (jid?: string | null) => (jid || '').replace('@g.us', '').replace(/\D/g, '');
+type InfoGrupos = { permitidos: Set<string>; todos: Set<string>; nomes: Map<string, string> };
+const carregarInfoGrupos = async (user: AppUser | null): Promise<InfoGrupos | null> => {
+  const { data: grupos, error } = await supabase.from('whatsapp_groups').select('id,group_jid,nome,visivel').eq('company_id', 'rafa-arts');
+  if (error) return null;
+  let vinculados: Set<string> | null = null;
+  if (!user?.isAdmin) {
+    const { data: v, error: erroV } = await supabase.from('user_whatsapp_groups').select('group_id').eq('user_id', user?.id || '');
+    if (erroV) return null;
+    vinculados = new Set((v || []).map((x: any) => x.group_id));
+  }
+  const info: InfoGrupos = { permitidos: new Set(), todos: new Set(), nomes: new Map() };
+  for (const g of (grupos || []) as any[]) {
+    const d = digitosDoGrupo(g.group_jid);
+    if (!d) continue;
+    info.todos.add(d);
+    if (g.nome) info.nomes.set(d, g.nome);
+    if (g.visivel && (!vinculados || vinculados.has(g.id))) info.permitidos.add(d);
+  }
+  return info;
+};
+
 interface MessagesSidebarPopupProps {
   isOpen: boolean;
   onClose: () => void;
@@ -154,7 +183,15 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
   // de ordenação "Destaque" e na ação em lote de bandeira (Flag); "group" cruza
   // o telefone do lead com os grupos do WhatsApp liberados (whatsapp_groups).
   const [viewFilter, setViewFilter] = useState<'all' | 'unread' | 'favorite' | 'group'>('all');
-  const [groupPhones, setGroupPhones] = useState<Set<string>>(new Set());
+  const [groupPhones, setGroupPhones] = useState<Set<string>>(new Set()); // grupos que ESTE usuario pode ver
+  const [gruposTodos, setGruposTodos] = useState<Set<string>>(new Set());
+  const [nomesGrupos, setNomesGrupos] = useState<Map<string, string>>(new Map());
+  const gruposTodosRef = useRef<Set<string>>(new Set()); // mesma info, lida pela reconciliacao (closure sem state novo)
+  const aplicarInfoGrupos = (info: InfoGrupos | null) => {
+    if (!info) return; // falha na consulta: mantem o que ja estava
+    gruposTodosRef.current = info.todos;
+    setGroupPhones(info.permitidos); setGruposTodos(info.todos); setNomesGrupos(info.nomes);
+  };
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Menu de opções (⋮) e suas funções
@@ -193,13 +230,19 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
     reconciliandoRef.current = true;
     try {
       type UltimaReal = { em: string; text: string; direction: 'incoming' | 'outgoing' };
+      // Previa da lista: em GRUPO a mensagem recebida mostra quem falou ("Maria: texto"), como no WhatsApp.
+      const previaDaMensagem = (m: any): string => {
+        const texto = m.text || '';
+        const ehGrupo = gruposTodosRef.current.has((m.phone || '').replace(/\D/g, ''));
+        return ehGrupo && m.direction === 'incoming' && m.sender_name ? `${m.sender_name}: ${texto}` : texto;
+      };
       const PAGINA_MENSAGENS = 500;
       const desde = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
       const ultimaPorTelefone = new Map<string, UltimaReal>();
       for (let de = 0; ; de += PAGINA_MENSAGENS) {
         const { data, error } = await supabase
           .from('crm_messages')
-          .select('phone,text,direction,created_at')
+          .select('phone,text,direction,created_at,sender_name')
           .eq('company_id', 'rafa-arts')
           .or('is_note.is.null,is_note.eq.false')
           .gte('created_at', desde)
@@ -212,7 +255,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
         const lote = data || [];
         for (const m of lote as any[]) {
           if (!m.phone || m.direction === 'note' || ultimaPorTelefone.has(m.phone)) continue;
-          ultimaPorTelefone.set(m.phone, { em: m.created_at, text: m.text || '', direction: m.direction === 'incoming' ? 'incoming' : 'outgoing' });
+          ultimaPorTelefone.set(m.phone, { em: m.created_at, text: previaDaMensagem(m), direction: m.direction === 'incoming' ? 'incoming' : 'outgoing' });
         }
         if (lote.length < PAGINA_MENSAGENS) break;
       }
@@ -223,7 +266,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
       await Promise.all(pendentes.map(async l => {
         const { data } = await supabase
           .from('crm_messages')
-          .select('text,direction,created_at')
+          .select('text,direction,created_at,sender_name')
           .eq('company_id', 'rafa-arts')
           .eq('phone', l.phone)
           .or('is_note.is.null,is_note.eq.false')
@@ -231,7 +274,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
           .order('created_at', { ascending: false })
           .limit(1);
         const m: any = data?.[0];
-        if (m?.created_at) ultimaPorTelefone.set(l.phone as string, { em: m.created_at, text: m.text || '', direction: m.direction === 'incoming' ? 'incoming' : 'outgoing' });
+        if (m?.created_at) ultimaPorTelefone.set(l.phone as string, { em: m.created_at, text: previaDaMensagem({ ...m, phone: l.phone }), direction: m.direction === 'incoming' ? 'incoming' : 'outgoing' });
       }));
 
       const correcoes: (UltimaReal & { id: string })[] = [];
@@ -296,11 +339,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
   // no lead, ver api/whatsapp-webhook.js) pra dar pra filtrar a aba "Grupos".
   useEffect(() => {
     if (!currentCompany || !isOpen) return;
-    const loadGroupPhones = async () => {
-      const { data } = await supabase.from('whatsapp_groups').select('group_jid').eq('company_id', 'rafa-arts').eq('visivel', true);
-      const phones = new Set((data || []).map((g: any) => (g.group_jid || '').replace('@g.us', '').replace(/\D/g, '')).filter(Boolean));
-      setGroupPhones(phones);
-    };
+    const loadGroupPhones = async () => { aplicarInfoGrupos(await carregarInfoGrupos(user)); };
     loadGroupPhones();
     const channel = supabase.channel('sidebar-popup-groups').on('postgres_changes', { event: '*', schema: 'public', table: 'whatsapp_groups', filter: `company_id=eq.rafa-arts` }, loadGroupPhones).subscribe();
     // Fallback por polling: whatsapp_groups só recebe eventos em tempo real depois
@@ -309,7 +348,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
     // cada 15s garante que um grupo liberado/novo apareça na aba Grupos mesmo assim.
     const pollId = setInterval(loadGroupPhones, 15000);
     return () => { supabase.removeChannel(channel); clearInterval(pollId); };
-  }, [currentCompany, isOpen]);
+  }, [currentCompany, isOpen, user?.id, user?.isAdmin]);
 
   // Botão "Atualizar": força uma nova busca manual além do listener em tempo
   // real (útil se a conexão realtime cair ou demorar a refletir uma mudança).
@@ -321,21 +360,28 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
     if (!currentCompany || isRefreshing) return;
     setIsRefreshing(true);
     try {
-      const [rows, { data: groupsData }] = await Promise.all([
+      const [rows, infoGrupos] = await Promise.all([
         buscarLeadsDaLista(),
-        supabase.from('whatsapp_groups').select('group_jid').eq('company_id', 'rafa-arts').eq('visivel', true),
+        carregarInfoGrupos(user),
       ]);
       ++ultimaRequisicaoRef.current; // esta recarga manual vence qualquer uma em andamento
       const lista = prepararListaDeConversas(rows);
       setLeads(lista);
       reconciliarUltimaMensagem(lista, true);
-      setGroupPhones(new Set((groupsData || []).map((g: any) => (g.group_jid || '').replace('@g.us', '').replace(/\D/g, '')).filter(Boolean)));
+      aplicarInfoGrupos(infoGrupos);
     } finally {
       setTimeout(() => setIsRefreshing(false), 500);
     }
   };
 
-  const unrepliedCount = leads.filter(l => l.waitingSince).length;
+  // Conversa de grupo so aparece se o usuario pode ver aquele grupo; nome do grupo no lugar do participante.
+  const nomeDaConversa = (l: Lead) => nomesGrupos.get((l.phone || '').replace(/\D/g, '')) || l.fullName;
+  const conversaPermitida = (l: Lead) => {
+    const d = (l.phone || '').replace(/\D/g, '');
+    return !gruposTodos.has(d) || groupPhones.has(d);
+  };
+
+  const unrepliedCount = leads.filter(l => l.waitingSince && conversaPermitida(l)).length;
 
   // Ordenação client-side sobre a lista já ordenada pela ÚLTIMA MENSAGEM (last_message_at desc,
   // ver prepararListaDeConversas). "Mais recentes" não precisa reordenar; os outros dois modos
@@ -357,8 +403,9 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
   const filteredLeads = sortLeads(
     leads
       .filter(l => !l.archived)
+      .filter(conversaPermitida)
       .filter(l =>
-        l.fullName.toLowerCase().includes(filter.toLowerCase()) ||
+        nomeDaConversa(l).toLowerCase().includes(filter.toLowerCase()) ||
         l.phone.includes(filter)
       )
       .filter(l => {
@@ -822,7 +869,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                         const { icon: ChannelIcon, color, bg } = getChannelStyle(l.sourceType);
                         return (
                           <div className="relative w-8 h-8 shrink-0">
-                            <AvatarPhoto photoUrl={l.photoUrl} name={l.fullName} className="w-8 h-8 text-[11px]" />
+                            <AvatarPhoto photoUrl={l.photoUrl} name={nomeDaConversa(l)} className="w-8 h-8 text-[11px]" />
                             <div
                               className={cn("absolute -bottom-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center border-2 border-white shrink-0", bg)}
                               title={l.sourceType || 'WhatsApp'}
@@ -832,7 +879,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                           </div>
                         );
                       })()}
-                      <p className="font-bold transition-colors truncate text-sm text-slate-800 group-hover:text-primary-600">{l.fullName}</p>
+                      <p className="font-bold transition-colors truncate text-sm text-slate-800 group-hover:text-primary-600">{nomeDaConversa(l)}</p>
                       {waitingSinceDate && (
                         <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping shrink-0" title="Cliente aguardando resposta!" />
                       )}

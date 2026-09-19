@@ -189,9 +189,9 @@ function extrairTextoMensagem(message, profundidade = 0) {
   return '';
 }
 
-async function inserirMensagem({ phone, text, senderName, direction = 'incoming', channel = 'WhatsApp', whatsappMessageId, createdAt, mediaUrl, fileName, contentType }) {
+async function inserirMensagem({ phone, text, senderName, direction = 'incoming', channel = 'WhatsApp', whatsappMessageId, createdAt, mediaUrl, fileName, contentType, groupJid }) {
   if (!phone || !text) return;
-  const resp = await fetch(`${SUPABASE_URL}/rest/v1/crm_messages`, {
+  const enviar = (comGrupo) => fetch(`${SUPABASE_URL}/rest/v1/crm_messages`, {
     method: 'POST',
     headers: {
       apikey: SUPABASE_ANON_KEY,
@@ -213,9 +213,16 @@ async function inserirMensagem({ phone, text, senderName, direction = 'incoming'
       media_url: mediaUrl || null,
       file_name: fileName || null,
       content_type: contentType || null,
+      // Identificador REAL do grupo (remoteJid ...@g.us). `phone` continua sendo so os digitos dele.
+      ...(comGrupo && groupJid ? { group_jid: groupJid } : {}),
       ...(createdAt ? { created_at: createdAt } : {}),
     }),
   });
+
+  let resp = await enviar(true);
+  // Coluna group_jid ainda nao existe (supabase/add_last_message_at_to_leads.sql nao rodou): grava sem ela
+  // -- a mensagem nunca pode ser perdida por causa desse campo extra.
+  if (!resp.ok && groupJid) resp = await enviar(false);
 
   if (!resp.ok) {
     const corpo = await resp.text().catch(() => '');
@@ -529,7 +536,10 @@ export default async function handler(req, res) {
         // @lid e o formato "linked id" que o WhatsApp/Baileys mais recente usa em alguns
         // casos no lugar do numero puro — remove os dois sufixos possiveis pra sempre
         // sobrar so os digitos do telefone.
-        const phone = normalizarTelefoneBR(phoneRaw.replace('@s.whatsapp.net', '').replace('@g.us', '').replace('@lid', '').replace(/\D/g, ''));
+        // Grupo: `phone` = digitos do group_jid, SEM normalizacao de telefone (nao e um numero de celular).
+        const ehGrupoMsg = phoneRaw.endsWith('@g.us');
+        const digitosRemoto = phoneRaw.replace('@s.whatsapp.net', '').replace('@g.us', '').replace('@lid', '').replace(/\D/g, '');
+        const phone = ehGrupoMsg ? digitosRemoto : normalizarTelefoneBR(digitosRemoto);
         const text = extrairTextoMensagem(msg?.message);
         const whatsappMessageId = msg?.key?.id || null;
         const createdAt = timestampParaIso(msg?.messageTimestamp);
@@ -553,6 +563,7 @@ export default async function handler(req, res) {
           const midiaSalva = await baixarEGuardarMidia(msg, evoHeaders);
           await inserirMensagem({
             phone, text, senderName, direction: ehMinhaMensagem ? 'outgoing' : 'incoming', whatsappMessageId, createdAt,
+            groupJid: ehGrupoMsg ? phoneRaw : undefined,
             mediaUrl: midiaSalva?.mediaUrl, fileName: midiaSalva?.fileName, contentType: midiaSalva?.contentType,
           });
           // Busca de foto de perfil e so faz sentido pro CONTATO (nao pro meu proprio numero)
@@ -561,7 +572,8 @@ export default async function handler(req, res) {
           }
           // Mensagem RECEBIDA: atualiza last_message_at/previa do lead (com o horario original)
           if (!ehMinhaMensagem) {
-            await atualizarLeadMensagemRecebida(phone, text, createdAt);
+            // Em grupo a previa mostra quem falou ("Maria: texto")
+            await atualizarLeadMensagemRecebida(phone, ehGrupoMsg && senderName ? `${senderName}: ${text}` : text, createdAt);
           }
           // Mensagem minha mandada fora do CRM (direto no celular) -- atualiza a previa da
           // conversa na lista, que senao so e atualizada quando o envio parte do proprio CRM.

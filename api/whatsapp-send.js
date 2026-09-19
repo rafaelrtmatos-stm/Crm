@@ -8,17 +8,21 @@
 import { EVOLUTION_API_URL, EVOLUTION_API_KEY, INSTANCE_NAME, SUPABASE_URL, SUPABASE_ANON_KEY, COMPANY_ID } from './_lib/whatsapp-config.js';
 import { exigirUsuarioAutorizado } from './_lib/auth.js';
 import { normalizarTelefoneBR } from './_lib/phone.js';
+import { timestampParaIso } from './_lib/timestamp.js';
 
 // Depois que o WhatsApp CONFIRMA o envio: a conversa passa a ter essa mensagem como ultima
 // (leads.last_message_at/direction/text), sobe pro topo da aba Mensagens e sai do estado de
 // "aguardando resposta". NAO cria notificacao (notificacao e so de mensagem do cliente).
 // Se o envio falhar, esta funcao nem e chamada -- last_message_at nao muda. Falha aqui nunca
 // derruba a resposta: a mensagem ja foi enviada de verdade.
-async function atualizarLeadMensagemEnviada(telefones, text) {
-  const quando = new Date().toISOString();
+//  - `quando` = horario REAL da mensagem (messageTimestamp devolvido pela Evolution API; se nao vier,
+//    o instante da confirmacao do envio) -- nunca o de processamento posterior.
+//  - So avanca: se o lead ja tem uma ultima mensagem mais nova, nao volta no tempo.
+async function atualizarLeadMensagemEnviada(telefones, text, quando) {
+  const filtroMaisNova = encodeURIComponent(`(last_message_at.is.null,last_message_at.lt.${quando})`);
   for (const tel of telefones) {
     try {
-      const r = await fetch(`${SUPABASE_URL}/rest/v1/leads?company_id=eq.${COMPANY_ID}&phone=eq.${encodeURIComponent(tel)}`, {
+      const r = await fetch(`${SUPABASE_URL}/rest/v1/leads?company_id=eq.${COMPANY_ID}&phone=eq.${encodeURIComponent(tel)}&or=${filtroMaisNova}`, {
         method: 'PATCH',
         headers: {
           apikey: SUPABASE_ANON_KEY,
@@ -95,9 +99,11 @@ export default async function handler(req, res) {
     // mensagem especifica ja foi gravada por aqui e nao duplicar quando o evento
     // messages.upsert com fromMe:true chegar (ver whatsapp-webhook.js).
     let idMensagem = null;
+    let horarioMensagem;
     try {
       const corpo = await r.json();
       idMensagem = corpo?.key?.id || corpo?.message?.key?.id || null;
+      horarioMensagem = timestampParaIso(corpo?.messageTimestamp ?? corpo?.message?.messageTimestamp);
     } catch (err) {
       // Corpo nao veio em JSON valido -- segue sem o id (webhook so nao vai conseguir
       // deduplicar essa mensagem em particular, sem prejuizo pro envio em si)
@@ -106,7 +112,7 @@ export default async function handler(req, res) {
     // Envio confirmado pela Evolution API. O lead pode estar salvo com o telefone como o front
     // mandou (`phone`) ou normalizado (`numero`) -- atualiza os dois, sem repetir se forem iguais.
     // Com await: no serverless, o que ficar pendente depois da resposta pode ser cortado.
-    await atualizarLeadMensagemEnviada(Array.from(new Set([phone, numero])), text);
+    await atualizarLeadMensagemEnviada(Array.from(new Set([phone, numero])), text, horarioMensagem || new Date().toISOString());
 
     res.status(200).json({ ok: true, whatsappMessageId: idMensagem });
   } catch (err) {

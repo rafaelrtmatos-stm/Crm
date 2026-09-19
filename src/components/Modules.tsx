@@ -4958,6 +4958,21 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     setSortMenuOpen(false);
   };
 
+  // Conversas de GRUPO do WhatsApp existem em `leads` so como indice da aba Mensagens (last_message_at
+  // etc.) -- nao sao leads individuais e NAO aparecem nas colunas do Funil. O `phone` delas sao os
+  // digitos do group_jid (whatsapp_groups).
+  const [gruposDigitos, setGruposDigitos] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    let ativo = true;
+    const carregarGrupos = async () => {
+      const { data } = await supabase.from('whatsapp_groups').select('group_jid').eq('company_id', 'rafa-arts');
+      if (ativo && data) setGruposDigitos(new Set(data.map((g: any) => (g.group_jid || '').replace('@g.us', '').replace(/\D/g, '')).filter(Boolean)));
+    };
+    carregarGrupos();
+    const t = setInterval(carregarGrupos, 30000);
+    return () => { ativo = false; clearInterval(t); };
+  }, []);
+
   const sortedLeads = useMemo(() => {
     const ms = (v: any) => parseMsgDate(v)?.getTime() ?? 0;
     // "Pela última mensagem": se a última foi do cliente, usa o horário dela; se foi o
@@ -5449,7 +5464,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                 <KanbanColumn 
                   key={stage.id} 
                   stage={stage} 
-                  leads={sortedLeads.filter(l => l.funnelStageId === stage.id || (!l.funnelStageId && (stage.isInitial || stage.order === 0)))}
+                  leads={sortedLeads.filter(l => !gruposDigitos.has((l.phone || '').replace(/\D/g, ''))).filter(l => l.funnelStageId === stage.id || (!l.funnelStageId && (stage.isInitial || stage.order === 0)))}
                   onLeadClick={(l) => { setOpenedViaJump(false); setSelectedLead(l); }}
                   selectedLeadId={selectedLead?.id}
                   selectionMode={leadSelectionMode}

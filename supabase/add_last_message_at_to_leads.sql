@@ -26,6 +26,19 @@ ADD COLUMN IF NOT EXISTS last_message_text text;
 CREATE INDEX IF NOT EXISTS idx_leads_company_last_message_at
   ON leads (company_id, last_message_at DESC NULLS LAST);
 
+-- crm_messages: identificador REAL do grupo do WhatsApp (remoteJid ...@g.us), gravado pelo webhook.
+-- (`phone` de mensagem/lead de grupo continua sendo so os digitos do group_jid.) O webhook grava a
+-- mensagem mesmo se esta coluna ainda nao existir.
+ALTER TABLE crm_messages
+ADD COLUMN IF NOT EXISTS group_jid text;
+
+-- Ultima mensagem por conversa (reconciliacao / sincronizacao em segundo plano) fica rapida com esse indice.
+CREATE INDEX IF NOT EXISTS idx_crm_messages_company_phone_created
+  ON crm_messages (company_id, phone, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_crm_messages_company_created
+  ON crm_messages (company_id, created_at DESC);
+
 -- RECONCILIACAO: crm_messages e a fonte oficial das mensagens; leads.last_message_at e so o
 -- indice/cache usado pra montar e ordenar a lista. Sempre que houver diferenca, corrige o lead:
 -- se a ultima mensagem real em crm_messages (nota interna nao conta) for MAIS RECENTE que

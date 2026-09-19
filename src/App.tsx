@@ -662,6 +662,10 @@ export default function App() {
   // entao TODA mensagem recebida derrubava e recriava o canal -- e nessa janela as mensagens
   // seguintes podiam se perder (sem som, sem notificacao, sem lead atualizado).
   const lastMessageIdRef = React.useRef<string | null>(null);
+  // Sincronizacao de conversas em segundo plano (crm_messages -> leads): nunca duas ao mesmo tempo,
+  // e a primeira (historico completo) so acontece uma vez por dispositivo -- depois e incremental.
+  const sincronizacaoEmAndamentoRef = React.useRef(false);
+  const sincronizacaoExecutadaRef = React.useRef(false);
   const notifAudioRef = React.useRef<HTMLAudioElement | null>(null);
   const [prefilledCustomer, setPrefilledCustomer] = useState<{ id?: string, name: string, phone: string } | null>(null);
   const [pendingWhatsAppShare, setPendingWhatsAppShare] = useState<{ leadId: string; prefillMessage: string } | null>(null);
@@ -801,6 +805,28 @@ export default function App() {
   useEffect(() => {
     if (!currentCompany || !user) return;
 
+    // GRUPOS DO WHATSAPP: o `phone` da mensagem/lead de grupo sao os digitos do group_jid (whatsapp_groups),
+    // nunca o telefone de um participante. Conversa de grupo mostra o NOME DO GRUPO (nao o do participante),
+    // previa com o remetente e nunca entra no Funil como lead individual. Cache curto: a tabela e pequena.
+    let cacheGrupos: { em: number; nomes: Map<string, string> } | null = null;
+    const infoGrupo = async (phone?: string): Promise<{ nome: string } | null> => {
+      const digitos = (phone || '').replace(/\D/g, '');
+      if (!digitos) return null;
+      if (!cacheGrupos || Date.now() - cacheGrupos.em > 60 * 1000) {
+        const { data, error } = await supabase.from('whatsapp_groups').select('group_jid,nome').eq('company_id', 'rafa-arts');
+        if (!error) {
+          const nomes = new Map<string, string>();
+          for (const g of (data || []) as any[]) {
+            const d = (g.group_jid || '').replace('@g.us', '').replace(/\D/g, '');
+            if (d) nomes.set(d, g.nome || '');
+          }
+          cacheGrupos = { em: Date.now(), nomes };
+        }
+      }
+      const nome = cacheGrupos?.nomes.get(digitos);
+      return nome === undefined ? null : { nome };
+    };
+
     // RULE: All incoming messages must create a lead in "ENTRADA" (initial stage)
     const processIncomingMessage = async (msgData: any) => {
       // Ao vivo: `quando` = agora e `aguardando` = true (comportamento de sempre). Na recuperacao
@@ -811,6 +837,11 @@ export default function App() {
       // Ultima mensagem da conversa (leads.last_message_at = ordem da lista de Mensagens): usa o horario
       // ORIGINAL da mensagem; na recuperacao `quando` ja e esse horario. Nunca o de importacao/processamento.
       const mensagemEm: string = msgData.mensagemEm || quando;
+      const grupo = await infoGrupo(msgData.phone);
+      const ehGrupo = !!grupo;
+      // Previa da lista: em grupo mostra quem falou ("Maria: texto"), como no WhatsApp.
+      const textoPrevia: string = ehGrupo && msgData.senderName ? `${msgData.senderName}: ${msgData.text || ''}` : (msgData.text || '');
+      const nomeConversa: string = ehGrupo ? (grupo!.nome || `Grupo ${msgData.phone}`) : '';
       // Check if lead already exists for this phone/contact
       const { data: leadRows } = await supabase.from('leads').select('*').eq('company_id', 'rafa-arts').eq('phone', msgData.phone || '');
 
@@ -860,8 +891,8 @@ export default function App() {
       if (!leadRows || leadRows.length === 0) {
         const novoLead = {
           company_id: 'rafa-arts',
-          funnel_id: funnelId || null,
-          funnel_stage_id: stageId || null,
+          funnel_id: ehGrupo ? null : (funnelId || null),
+          funnel_stage_id: ehGrupo ? null : (stageId || null),
           // Os 3 nomes comecam iguais (nome que veio do WhatsApp) -- cada um pode ser
           // corrigido depois sem conflitar com os outros (ver Lead.whatsappName/contactName
           // em types.ts). fullName e' o "Nome Real/Documental": so muda por edicao manual
@@ -869,14 +900,14 @@ export default function App() {
           // So cai no fallback de telefone se REALMENTE nao veio nome nenhum do WhatsApp
           // (webhook ja tenta pushName + agenda antes disso) -- nunca usa texto generico
           // igual pra todo mundo, assim da pra identificar o contato na lista de leads.
-          full_name: msgData.senderName || (msgData.phone ? `+${msgData.phone}` : 'Contato sem nome'),
-          whatsapp_name: msgData.senderName || '',
-          contact_name: msgData.senderName || '',
-          first_name: (msgData.senderName || (msgData.phone ? `+${msgData.phone}` : 'Contato')).split(' ')[0],
-          last_name: (msgData.senderName || '').split(' ').slice(1).join(' ') || '',
+          full_name: ehGrupo ? nomeConversa : (msgData.senderName || (msgData.phone ? `+${msgData.phone}` : 'Contato sem nome')),
+          whatsapp_name: ehGrupo ? nomeConversa : (msgData.senderName || ''),
+          contact_name: ehGrupo ? nomeConversa : (msgData.senderName || ''),
+          first_name: ehGrupo ? nomeConversa : (msgData.senderName || (msgData.phone ? `+${msgData.phone}` : 'Contato')).split(' ')[0],
+          last_name: ehGrupo ? '' : ((msgData.senderName || '').split(' ').slice(1).join(' ') || ''),
           phone: msgData.phone || '',
           source_type: msgData.channel || 'WhatsApp',
-          last_message_text: msgData.text || '',
+          last_message_text: textoPrevia,
           // Previa da lista de chats (MessagesSidebarPopup.tsx/Modules.tsx): so e' tocada
           // aqui, num evento 'incoming' -- NUNCA no envio do atendente (ver Modules.tsx
           // handleSendMessage) -- entao sempre reflete a ultima mensagem real do CLIENTE.
@@ -913,9 +944,9 @@ export default function App() {
         const mensagemMs = Date.parse(mensagemEm);
         const avancaUltima = temColunaUltima && Number.isFinite(mensagemMs) && (!Number.isFinite(ultimaAtualMs) || mensagemMs > ultimaAtualMs);
         const patchUltimaMensagem = temColunaUltima
-          ? (avancaUltima ? { last_message_at: mensagemEm, last_message_text: msgData.text || '', last_message_direction: 'incoming' } : {})
+          ? (avancaUltima ? { last_message_at: mensagemEm, last_message_text: textoPrevia, last_message_direction: 'incoming' } : {})
           // Banco sem last_message_at (add_last_message_at_to_leads.sql nao rodou): comportamento antigo.
-          : (aguardando ? { last_message_text: msgData.text || '' } : {});
+          : (aguardando ? { last_message_text: textoPrevia } : {});
         const patchUltimaMensagemDoCliente = {
           last_client_message_text: msgData.text || '',
           last_client_message_at: quando,
@@ -938,9 +969,9 @@ export default function App() {
           ...patchUltimaMensagemDoCliente,
           source_type: msgData.channel || leadRow.source_type || 'WhatsApp',
           waiting_since: quando,
-          status: 'ENTRADA',
-          ...(msgData.senderName ? { whatsapp_name: msgData.senderName } : {}),
-          ...(stageId ? { funnel_stage_id: stageId } : {}),
+          ...(ehGrupo ? {} : { status: 'ENTRADA' }),
+          ...(msgData.senderName && !ehGrupo ? { whatsapp_name: msgData.senderName } : {}),
+          ...(stageId && !ehGrupo ? { funnel_stage_id: stageId } : {}),
           // `quando` = agora ao vivo; na recuperacao e a hora real da mensagem (senao a lista
           // mostrava a hora da recuperacao como se fosse a da mensagem)
           updated_at: quando,
@@ -949,85 +980,104 @@ export default function App() {
       }
     };
 
-    // RECUPERACAO: o webhook grava toda mensagem em crm_messages, mas quem cria/atualiza o lead
-    // (e portanto quem faz a conversa aparecer na lista e no contador de "aguardando") e este
-    // navegador. Se ninguem estava com o CRM aberto, ou o Realtime tinha caido, a mensagem ficava
-    // salva e invisivel. Aqui, ao abrir o CRM, ao reconectar o Realtime e ao voltar pra aba depois
-    // de um tempo, comparamos as mensagens recebidas nos ultimos 3 dias com o que o lead ja
-    // registrou (last_client_message_at) e processamos so o que ficou pra tras.
-    let recuperando = false;
-    const recuperarMensagensPerdidas = async () => {
-      if (recuperando) return;
-      recuperando = true;
+    // SINCRONIZACAO EM SEGUNDO PLANO: crm_messages e a fonte oficial; leads.last_message_at e so o
+    // indice usado pela aba Mensagens. O webhook grava toda mensagem em crm_messages, mas se ninguem
+    // estava com o CRM aberto (ou o Realtime caiu) o lead ficava defasado. Aqui, ao abrir o CRM, ao
+    // reconectar o Realtime e ao voltar pra aba, le crm_messages da mais nova pra mais antiga em
+    // LOTES de 100 (tamanho do lote, nao limite total) e continua ate acabar. Por conversa vale so a
+    // mensagem mais recente; o lead so e atualizado quando crm_messages.created_at > last_message_at.
+    // 1a execucao neste dispositivo = historico completo; depois so o que veio apos o ultimo
+    // checkpoint (com folga de 2 dias). Nunca roda duas vezes ao mesmo tempo.
+    const sincronizarConversasEmSegundoPlano = async () => {
+      if (sincronizacaoEmAndamentoRef.current) return;
+      sincronizacaoEmAndamentoRef.current = true;
+      const LOTE = 100;
+      const chaveCheckpoint = 'crm_sync_conversas_ate_rafa-arts';
+      const inicioExecucao = new Date().toISOString();
       try {
-        const desde = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+        let corteMs = 0;
+        try {
+          const salvo = Date.parse(localStorage.getItem(chaveCheckpoint) || '');
+          if (Number.isFinite(salvo)) corteMs = salvo - 2 * 24 * 60 * 60 * 1000;
+        } catch { /* sem localStorage: roda o historico completo */ }
+        const corteIso = corteMs > 0 ? new Date(corteMs).toISOString() : null;
 
-        // PAGINACAO: o PostgREST devolve no maximo ~1000 linhas por consulta, entao uma unica consulta
-        // deixava mensagens (justamente as mais atuais) de fora. Aqui cada consulta e lida em paginas
-        // (0-499, 500-999, 1000-1499...) e continua ate uma pagina voltar com menos registros que o
-        // tamanho da pagina -- nao para em nenhum limite arbitrario. Ordem com desempate por id pra a
-        // paginacao ser estavel (mensagem nova chegando no meio so pode repetir linha, nunca pular).
-        const PAGINA = 500;
-        const lerTodasAsPaginas = async (montar: (de: number, ate: number) => any): Promise<{ data: any[]; error: any }> => {
-          const todos: any[] = [];
-          for (let de = 0; ; de += PAGINA) {
-            const { data, error } = await montar(de, de + PAGINA - 1);
-            if (error) return { data: todos, error };
-            const lote = data || [];
-            todos.push(...lote);
-            if (lote.length < PAGINA) break;
-          }
-          return { data: todos, error: null };
-        };
-        const [entradasRes, saidasRes, leadsRes] = await Promise.all([
-          lerTodasAsPaginas((de, ate) => supabase.from('crm_messages').select('id,phone,text,sender_name,channel,created_at')
-            .eq('company_id', 'rafa-arts').eq('direction', 'incoming').gte('created_at', desde)
-            .order('created_at', { ascending: false }).order('id', { ascending: false }).range(de, ate)),
-          lerTodasAsPaginas((de, ate) => supabase.from('crm_messages').select('id,phone,created_at')
-            .eq('company_id', 'rafa-arts').eq('direction', 'outgoing').gte('created_at', desde)
-            .order('created_at', { ascending: false }).order('id', { ascending: false }).range(de, ate)),
-          lerTodasAsPaginas((de, ate) => supabase.from('leads').select('id,phone,last_client_message_at')
-            .eq('company_id', 'rafa-arts').order('id', { ascending: true }).range(de, ate)),
-        ]);
-        if (entradasRes.error || saidasRes.error || leadsRes.error) {
-          console.warn('CRM Recuperacao: falha ao consultar mensagens/leads', entradasRes.error || saidasRes.error || leadsRes.error);
-          return;
-        }
-
-        // Mais recente por telefone (as consultas ja vem da mais nova pra mais antiga)
-        const ultimaEntrada = new Map<string, any>();
-        for (const m of (entradasRes.data || [])) { if (m.phone && m.text && !ultimaEntrada.has(m.phone)) ultimaEntrada.set(m.phone, m); }
-        const ultimaSaida = new Map<string, number>();
-        for (const m of (saidasRes.data || [])) { if (m.phone && !ultimaSaida.has(m.phone)) ultimaSaida.set(m.phone, Date.parse(m.created_at)); }
-        const leadPorTelefone = new Map<string, number>();
-        for (const l of (leadsRes.data || [])) { if (l.phone) leadPorTelefone.set(l.phone, l.last_client_message_at ? Date.parse(l.last_client_message_at) : 0); }
-
-        // Tolerancia de 2 min: last_client_message_at vem do relogio do navegador e created_at
-        // da hora da mensagem, entao uma pequena diferenca nao pode contar como "perdida".
-        const TOLERANCIA_MS = 2 * 60 * 1000;
-        let processadas = 0;
+        const conversasVistas = new Set<string>(); // 1a ocorrencia de cada telefone = mensagem mais recente
+        let atualizadas = 0;
         let aguardandoResposta = 0;
-        for (const [phone, msg] of ultimaEntrada) {
-          const quandoMsg = Date.parse(msg.created_at);
-          if (!Number.isFinite(quandoMsg)) continue;
-          const registrada = leadPorTelefone.get(phone); // undefined = lead nem existe
-          if (registrada !== undefined && quandoMsg <= registrada + TOLERANCIA_MS) continue;
 
-          const aguardando = !(ultimaSaida.get(phone) && (ultimaSaida.get(phone) as number) >= quandoMsg);
-          await processIncomingMessage({
-            phone,
-            text: msg.text,
-            senderName: msg.sender_name,
-            channel: msg.channel,
-            createdAt: msg.created_at,
-            aguardando,
-          });
-          processadas++;
-          if (aguardando) aguardandoResposta++;
+        for (let de = 0; ; de += LOTE) {
+          let q = supabase.from('crm_messages').select('id,phone,text,direction,sender_name,channel,created_at')
+            .eq('company_id', 'rafa-arts')
+            .or('is_note.is.null,is_note.eq.false')
+            .neq('direction', 'note');
+          if (corteIso) q = q.gte('created_at', corteIso);
+          const { data, error } = await q.order('created_at', { ascending: false }).order('id', { ascending: false }).range(de, de + LOTE - 1);
+          if (error) {
+            console.warn('CRM Sincronizacao: falha ao consultar crm_messages', error);
+            return; // checkpoint NAO avanca: a proxima execucao tenta de novo
+          }
+          const lote: any[] = data || [];
+
+          // Mais recente de cada telefone ainda nao visto
+          const novas: any[] = [];
+          for (const m of lote) {
+            if (!m.phone || conversasVistas.has(m.phone)) continue;
+            conversasVistas.add(m.phone);
+            novas.push(m);
+          }
+
+          if (novas.length) {
+            const { data: leadsLote, error: erroLeads } = await supabase.from('leads').select('id,phone,last_message_at')
+              .eq('company_id', 'rafa-arts').in('phone', novas.map(m => m.phone));
+            if (erroLeads) {
+              console.warn('CRM Sincronizacao: falha ao consultar leads', erroLeads);
+              return;
+            }
+            const leadPorTelefone = new Map<string, any>((leadsLote || []).map((l: any) => [l.phone, l]));
+
+            for (const msg of novas) {
+              const msgMs = Date.parse(msg.created_at);
+              if (!Number.isFinite(msgMs)) continue;
+              const lead = leadPorTelefone.get(msg.phone);
+              const atualMs = lead?.last_message_at ? Date.parse(lead.last_message_at) : NaN;
+              // So atualiza quando a mensagem real e MAIS RECENTE que a registrada no lead
+              if (lead && Number.isFinite(atualMs) && msgMs <= atualMs) continue;
+
+              if (msg.direction === 'incoming') {
+                if (!msg.text) continue;
+                // Mais recente da conversa e do cliente => nao ha resposta depois dela (aguardando)
+                await processIncomingMessage({
+                  phone: msg.phone,
+                  text: msg.text,
+                  senderName: msg.sender_name,
+                  channel: msg.channel,
+                  createdAt: msg.created_at,
+                  mensagemEm: msg.created_at,
+                });
+                atualizadas++;
+                aguardandoResposta++;
+              } else if (lead) {
+                // Enviada (pelo CRM ou pelo celular): nunca cria lead, so atualiza o indice
+                await supabase.from('leads').update({
+                  last_message_at: msg.created_at,
+                  last_message_text: msg.text || '',
+                  last_message_direction: 'outgoing',
+                  waiting_since: null,
+                }).eq('id', lead.id).or(`last_message_at.is.null,last_message_at.lt.${new Date(msgMs).toISOString()}`);
+                atualizadas++;
+              }
+            }
+          }
+
+          if (lote.length < LOTE) break; // ultimo lote
         }
 
-        if (processadas > 0) {
-          console.log(`CRM Recuperacao: ${processadas} conversa(s) atualizada(s) com mensagens recebidas fora do ar (${aguardandoResposta} aguardando resposta).`);
+        try { localStorage.setItem(chaveCheckpoint, inicioExecucao); } catch { /* ignora */ }
+        sincronizacaoExecutadaRef.current = true;
+
+        if (atualizadas > 0) {
+          console.log(`CRM Sincronizacao: ${atualizadas} conversa(s) atualizada(s) (${aguardandoResposta} aguardando resposta).`);
         }
         if (aguardandoResposta > 0) {
           showMessageToast({
@@ -1038,9 +1088,9 @@ export default function App() {
           });
         }
       } catch (e) {
-        console.warn('CRM Recuperacao: erro ao recuperar mensagens perdidas', e);
+        console.warn('CRM Sincronizacao: erro ao sincronizar conversas', e);
       } finally {
-        recuperando = false;
+        sincronizacaoEmAndamentoRef.current = false;
       }
     };
 
@@ -1051,7 +1101,7 @@ export default function App() {
       if (document.hidden) { ocultoDesde = Date.now(); return; }
       const ficouFora = ocultoDesde ? Date.now() - ocultoDesde : 0;
       ocultoDesde = null;
-      if (ficouFora > 60 * 1000) recuperarMensagensPerdidas();
+      if (ficouFora > 60 * 1000) sincronizarConversasEmSegundoPlano();
     };
     document.addEventListener('visibilitychange', onVisibilidade);
 
@@ -1086,12 +1136,15 @@ export default function App() {
       if (status === 'SUBSCRIBED') {
         console.log('CRM Realtime: escutando novas mensagens (crm_messages).');
         // Roda ao abrir o CRM e toda vez que o Realtime reconecta depois de uma queda.
-        recuperarMensagensPerdidas();
+        sincronizarConversasEmSegundoPlano();
       }
       else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
         console.warn(`CRM Realtime: canal de mensagens em estado ${status}`, err || '');
       }
     });
+
+    // Inicia sozinha ao carregar o CRM (nao depende do Realtime conectar, de botao nem da aba Mensagens).
+    sincronizarConversasEmSegundoPlano();
 
     return () => {
       document.removeEventListener('visibilitychange', onVisibilidade);
