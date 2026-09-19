@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { collection, query, where, orderBy, onSnapshot, getDocs, doc, writeBatch, addDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../firebase';
 import { supabase } from '../supabase';
@@ -10,7 +11,7 @@ import {
   MoreVertical, CirclePlus, VolumeX, CheckSquare, Check, Archive, Trash2, Flag, MailOpen,
 } from 'lucide-react';
 import { format } from 'date-fns';
-import { leadLastMessageDate, formatListTime } from '../lib/leadTime';
+import { leadLastMessageDate, leadSortTime, formatListTime } from '../lib/leadTime';
 
 type SortMode = 'recent' | 'unread' | 'highlight';
 type SelectionMode = null | 'bulk' | 'mute' | 'group';
@@ -34,6 +35,61 @@ const CHANNEL_STYLE: Record<string, { icon: React.ElementType; color: string; bg
   Telegram: { icon: Send, color: 'text-indigo-600', bg: 'bg-indigo-50' },
 };
 const getChannelStyle = (channel?: string) => CHANNEL_STYLE[channel || 'WhatsApp'] || CHANNEL_STYLE.WhatsApp;
+
+// ---------------------------------------------------------------------------------------------
+// ORIGEM DA LISTA DE CONVERSAS
+// A posicao da conversa depende EXCLUSIVAMENTE da ultima mensagem real (leads.last_message_at =
+// horario original da ultima mensagem, recebida ou enviada) -- nunca do updated_at do cadastro,
+// que muda com qualquer edicao (etapa, nome, silenciar, arquivar...). Quem mantem esse campo:
+// api/whatsapp-webhook.js, api/whatsapp-send.js e src/App.tsx (ver add_last_message_at_to_leads.sql).
+// ---------------------------------------------------------------------------------------------
+const PAGINA_LEADS = 1000; // limite padrao do PostgREST por consulta: pagina pra NENHUMA conversa ficar de fora
+
+const buscarLeadsPaginado = async (ordenar: (q: any) => any): Promise<{ rows: any[] | null }> => {
+  const todos: any[] = [];
+  for (let de = 0; ; de += PAGINA_LEADS) {
+    const { data, error } = await ordenar(supabase.from('leads').select('*').eq('company_id', 'rafa-arts')).range(de, de + PAGINA_LEADS - 1);
+    if (error) return { rows: null };
+    todos.push(...(data || []));
+    if (!data || data.length < PAGINA_LEADS) break;
+  }
+  return { rows: todos };
+};
+
+const buscarLeadsDaLista = async (): Promise<any[]> => {
+  const porUltimaMensagem = await buscarLeadsPaginado(q => q.order('last_message_at', { ascending: false, nullsFirst: false }).order('id', { ascending: true }));
+  if (porUltimaMensagem.rows) return porUltimaMensagem.rows;
+  // Coluna last_message_at ainda nao existe neste banco (supabase/add_last_message_at_to_leads.sql nao
+  // rodou): a lista continua aparecendo com a ordem antiga; a ordenacao por ultima mensagem (abaixo,
+  // no navegador) assume assim que o SQL rodar. Nao e o caminho normal.
+  const legado = await buscarLeadsPaginado(q => q.order('updated_at', { ascending: false }).order('id', { ascending: true }));
+  return legado.rows || [];
+};
+
+const mapearLeadDaLista = (r: any): Lead => ({
+  id: r.id, companyId: r.company_id, fullName: r.full_name, contactName: r.contact_name, whatsappName: r.whatsapp_name,
+  phone: r.phone, sourceType: r.source_type, lastMessageText: r.last_message_text, lastMessageDirection: r.last_message_direction,
+  lastMessageAt: r.last_message_at || undefined,
+  lastClientMessageText: r.last_client_message_text, lastClientMessageAt: r.last_client_message_at,
+  waitingSince: r.waiting_since, funnelId: r.funnel_id, funnelStageId: r.funnel_stage_id, priority: r.priority,
+  createdAt: r.created_at, updatedAt: r.updated_at, photoUrl: r.photo_url || undefined,
+} as any as Lead);
+
+// Monta a lista: mais recente primeiro (pela ultima mensagem) e UMA conversa por telefone.
+// Sort estavel + desempate por id => mesma ordem em qualquer recarga.
+const ordenarEDeduplicarConversas = (lista: Lead[]): Lead[] => {
+  const ordenados = [...lista].sort((a, b) => leadSortTime(b) - leadSortTime(a));
+  const vistos = new Set<string>();
+  return ordenados.filter(l => {
+    const chave = (l.phone || '').replace(/\D/g, '');
+    if (!chave) return true; // sem telefone (ex.: canal sem numero): nao da pra deduplicar, mantem
+    if (vistos.has(chave)) return false;
+    vistos.add(chave);
+    return true;
+  });
+};
+
+const prepararListaDeConversas = (rows: any[]): Lead[] => ordenarEDeduplicarConversas(rows.map(mapearLeadDaLista));
 
 interface MessagesSidebarPopupProps {
   isOpen: boolean;
@@ -78,8 +134,9 @@ interface MessagesSidebarPopupProps {
 //    separador e o submenu "Ordenar" (Mais recentes / Não lidos primeiro /
 //    Destaque) ficam embaixo, com o item ativo marcado (✓ + cor primária).
 //    Ordenação é client-side e independente do status: "Mais recentes" usa
-//    a própria ordem da query (updatedAt desc, já realtime — uma conversa
-//    antiga que recebe mensagem nova sobe sozinha); "Não lidos primeiro"
+//    a ordem pela ÚLTIMA MENSAGEM real (last_message_at desc, já realtime — uma
+//    conversa antiga que recebe mensagem nova sobe sozinha; updated_at do cadastro
+//    NUNCA entra na ordem); "Não lidos primeiro"
 //    prioriza unread/waitingSince; "Destaque" prioriza priority === 'alta'.
 export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
   isOpen,
@@ -108,22 +165,55 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
   const [groupName, setGroupName] = useState('');
   const [isSavingAction, setIsSavingAction] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  // Menu (⋮) fora do card: o card tem overflow-hidden e cortava o menu. Ele e desenhado num portal
+  // no <body>, posicionado (fixed) a partir do botao.
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const ultimaRequisicaoRef = useRef(0);
+  const reconciliadosRef = useRef<Set<string>>(new Set());
 
+  // RECONCILIACAO das conversas antigas: lead que tem mensagem em crm_messages mas ainda esta sem
+  // last_message_at recebe MAX(crm_messages.created_at) (nota interna nao conta). Assim conversa antiga
+  // nao some nem fica fora de ordem. So preenche onde esta vazio, em lotes, e cada lead e tentado uma
+  // vez por sessao (lead sem nenhuma mensagem nao fica sendo consultado a cada recarga).
+  const reconciliarUltimaMensagem = async (lista: Lead[]) => {
+    const pendentes = lista.filter(l => !l.lastMessageAt && l.phone && !reconciliadosRef.current.has(l.id)).slice(0, 40);
+    if (!pendentes.length) return;
+    pendentes.forEach(l => reconciliadosRef.current.add(l.id));
+    const achados = (await Promise.all(pendentes.map(async l => {
+      const { data } = await supabase
+        .from('crm_messages')
+        .select('created_at')
+        .eq('company_id', 'rafa-arts')
+        .eq('phone', l.phone)
+        .or('is_note.is.null,is_note.eq.false')
+        .order('created_at', { ascending: false })
+        .limit(1);
+      const em = data?.[0]?.created_at;
+      return em ? { id: l.id, em: em as string } : null;
+    }))).filter((x): x is { id: string; em: string } => !!x);
+    if (!achados.length) return;
+    // Conserta na tela na hora e grava no banco (so onde ainda esta vazio -- nunca sobrescreve)
+    const porId = new Map(achados.map(a => [a.id, a.em]));
+    setLeads(prev => ordenarEDeduplicarConversas(prev.map(l => (porId.has(l.id) && !l.lastMessageAt ? { ...l, lastMessageAt: porId.get(l.id) } : l))));
+    await Promise.all(achados.map(a => supabase.from('leads').update({ last_message_at: a.em }).eq('id', a.id).is('last_message_at', null)));
+  };
   useEffect(() => {
     if (!currentCompany || !isOpen) return;
     const loadLeads = async () => {
-      const { data } = await supabase.from('leads').select('*').eq('company_id', 'rafa-arts').order('updated_at', { ascending: false });
-      setLeads((data || []).map((r: any) => ({
-        id: r.id, companyId: r.company_id, fullName: r.full_name, contactName: r.contact_name, whatsappName: r.whatsapp_name,
-        phone: r.phone, sourceType: r.source_type, lastMessageText: r.last_message_text, lastMessageDirection: r.last_message_direction,
-        lastClientMessageText: r.last_client_message_text, lastClientMessageAt: r.last_client_message_at,
-        waitingSince: r.waiting_since, funnelId: r.funnel_id, funnelStageId: r.funnel_stage_id, priority: r.priority,
-        createdAt: r.created_at, updatedAt: r.updated_at, photoUrl: r.photo_url || undefined,
-      } as any as Lead)));
+      const minhaRequisicao = ++ultimaRequisicaoRef.current;
+      const rows = await buscarLeadsDaLista();
+      if (minhaRequisicao !== ultimaRequisicaoRef.current) return; // chegou uma recarga mais nova: descarta esta
+      const lista = prepararListaDeConversas(rows);
+      setLeads(lista);
+      reconciliarUltimaMensagem(lista);
     };
     loadLeads();
-    const channel = supabase.channel('sidebar-popup-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.rafa-arts` }, loadLeads).subscribe();
-    return () => { supabase.removeChannel(channel); };
+    // Realtime: qualquer mudanca em leads (mensagem nova => last_message_at/previa) recarrega a lista e a
+    // conversa sobe pro topo sozinha. Agrupa rajadas de eventos numa unica recarga.
+    let agendado: ReturnType<typeof setTimeout> | null = null;
+    const recarregarLogo = () => { if (agendado) clearTimeout(agendado); agendado = setTimeout(loadLeads, 250); };
+    const channel = supabase.channel('sidebar-popup-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.rafa-arts` }, recarregarLogo).subscribe();
+    return () => { if (agendado) clearTimeout(agendado); supabase.removeChannel(channel); };
   }, [currentCompany, isOpen]);
 
   // Grupos do WhatsApp liberados (visivel=true) -- monta um Set com o telefone
@@ -156,17 +246,14 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
     if (!currentCompany || isRefreshing) return;
     setIsRefreshing(true);
     try {
-      const [{ data }, { data: groupsData }] = await Promise.all([
-        supabase.from('leads').select('*').eq('company_id', 'rafa-arts').order('updated_at', { ascending: false }),
+      const [rows, { data: groupsData }] = await Promise.all([
+        buscarLeadsDaLista(),
         supabase.from('whatsapp_groups').select('group_jid').eq('company_id', 'rafa-arts').eq('visivel', true),
       ]);
-      setLeads((data || []).map((r: any) => ({
-        id: r.id, companyId: r.company_id, fullName: r.full_name, contactName: r.contact_name, whatsappName: r.whatsapp_name,
-        phone: r.phone, sourceType: r.source_type, lastMessageText: r.last_message_text, lastMessageDirection: r.last_message_direction,
-        lastClientMessageText: r.last_client_message_text, lastClientMessageAt: r.last_client_message_at,
-        waitingSince: r.waiting_since, funnelId: r.funnel_id, funnelStageId: r.funnel_stage_id, priority: r.priority,
-        createdAt: r.created_at, updatedAt: r.updated_at, photoUrl: r.photo_url || undefined,
-      } as any as Lead)));
+      ++ultimaRequisicaoRef.current; // esta recarga manual vence qualquer uma em andamento
+      const lista = prepararListaDeConversas(rows);
+      setLeads(lista);
+      reconciliarUltimaMensagem(lista);
       setGroupPhones(new Set((groupsData || []).map((g: any) => (g.group_jid || '').replace('@g.us', '').replace(/\D/g, '')).filter(Boolean)));
     } finally {
       setTimeout(() => setIsRefreshing(false), 500);
@@ -175,8 +262,8 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
 
   const unrepliedCount = leads.filter(l => l.waitingSince).length;
 
-  // Ordenação client-side sobre a lista já vinda ordenada por updatedAt desc
-  // (Firestore). "Mais recentes" não precisa reordenar; os outros dois modos
+  // Ordenação client-side sobre a lista já ordenada pela ÚLTIMA MENSAGEM (last_message_at desc,
+  // ver prepararListaDeConversas). "Mais recentes" não precisa reordenar; os outros dois modos
   // fazem um sort estável (mantém a ordem relativa por recência dentro de
   // cada grupo) só pra trazer o grupo relevante pro topo.
   const sortLeads = (list: Lead[]) => {
@@ -341,7 +428,11 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                 <div className="relative" ref={menuRef}>
                   <button
                     type="button"
-                    onClick={() => setIsMenuOpen(o => !o)}
+                    onClick={() => {
+                      const r = menuRef.current?.getBoundingClientRect();
+                      if (r) setMenuPos({ top: r.bottom + 6, left: Math.max(8, Math.min(r.right - 240, window.innerWidth - 240 - 8)) });
+                      setIsMenuOpen(o => !o);
+                    }}
                     className={cn(
                       "text-slate-400 hover:text-primary-600 transition-colors p-1.5 rounded-lg hover:bg-slate-100",
                       isMenuOpen && "bg-slate-100 text-primary-600"
@@ -351,54 +442,63 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                     <MoreVertical size={18} />
                   </button>
 
-                  {isMenuOpen && (
+                  {isMenuOpen && createPortal(
                     <>
-                      <div className="fixed inset-0 z-40" onClick={() => setIsMenuOpen(false)} />
-                      <div className="absolute top-full right-0 mt-1.5 w-[230px] bg-white border border-slate-200 rounded-xl shadow-2xl z-50 py-1.5 text-sm">
+                      <div className="fixed inset-0 z-[90]" onClick={() => setIsMenuOpen(false)} />
+                      {/* Largura fixa (240px) e cada opção numa linha só (nowrap). Desenhado no <body>
+                          pra o overflow-hidden do card do balão não cortar o menu. */}
+                      <div
+                        className="fixed bg-white border border-slate-200 rounded-xl shadow-2xl z-[100] py-1.5 text-sm whitespace-nowrap"
+                        style={{ top: menuPos.top, left: menuPos.left, width: 240, minWidth: 240, maxWidth: 260 }}
+                      >
                         <button
                           type="button"
                           onClick={() => startSelection('group')}
-                          className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 hover:bg-slate-50 transition-colors text-left"
+                          className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 hover:bg-slate-50 transition-colors text-left whitespace-nowrap"
                         >
                           <CirclePlus size={16} className="text-slate-400 shrink-0" />
-                          Criar um grupo
+                          <span className="whitespace-nowrap">Criar um grupo</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => startSelection('mute')}
-                          className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 hover:bg-slate-50 transition-colors text-left"
+                          className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 hover:bg-slate-50 transition-colors text-left whitespace-nowrap"
                         >
                           <VolumeX size={16} className="text-slate-400 shrink-0" />
-                          Silenciar
+                          <span className="whitespace-nowrap">Silenciar</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => startSelection('bulk')}
-                          className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 hover:bg-slate-50 transition-colors text-left"
+                          className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 hover:bg-slate-50 transition-colors text-left whitespace-nowrap"
                         >
                           <CheckSquare size={16} className="text-slate-400 shrink-0" />
-                          Ações múltiplas
+                          <span className="whitespace-nowrap">Ações múltiplas</span>
                         </button>
 
                         <div className="border-t border-slate-100 my-1.5" />
 
-                        <p className="px-3.5 pt-1 pb-1.5 text-[11px] font-black uppercase tracking-wider text-slate-400">Ordenar</p>
+                        <p className="px-3.5 pt-1 pb-1.5 text-[11px] font-black uppercase tracking-wider text-slate-400 whitespace-nowrap">Ordenar</p>
                         {SORT_OPTIONS.map(opt => (
                           <button
                             key={opt.id}
                             type="button"
                             onClick={() => { setSortMode(opt.id); setIsMenuOpen(false); }}
                             className={cn(
-                              "w-full flex items-center justify-between gap-2.5 pl-6 pr-3.5 py-2 transition-colors text-left",
+                              "w-full flex items-center gap-2 px-3.5 py-2 transition-colors text-left whitespace-nowrap",
                               sortMode === opt.id ? "text-primary-600 font-bold" : "text-slate-600 hover:bg-slate-50"
                             )}
                           >
-                            {opt.label}
-                            {sortMode === opt.id && <Check size={14} className="text-primary-600 shrink-0" />}
+                            {/* ✓ na frente da opção ativa; as outras ficam alinhadas com o mesmo recuo */}
+                            <span className="w-4 shrink-0 flex items-center justify-center">
+                              {sortMode === opt.id && <Check size={14} className="text-primary-600" />}
+                            </span>
+                            <span className="whitespace-nowrap">{opt.label}</span>
                           </button>
                         ))}
                       </div>
-                    </>
+                    </>,
+                    document.body
                   )}
                 </div>
 
@@ -666,11 +766,11 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                   </div>
 
                   <div className="flex items-center justify-between gap-2 mb-1 pl-10">
-                    {/* Previa SEMPRE da ultima mensagem do CLIENTE, nunca a que voce
-                        acabou de mandar (ver Lead.lastClientMessageText em types.ts).
-                        Fallback pro campo antigo so serve pra leads antigos, criados
-                        antes dessa coluna existir. */}
-                    <p className="text-xs text-slate-500 truncate flex-1">{l.lastClientMessageText || l.lastMessageText || 'Sem mensagens'}</p>
+                    {/* Previa SEMPRE da ULTIMA MENSAGEM REAL da conversa -- recebida ou enviada
+                        (cliente: "Quero orcamento" / atendente: "Claro, vou preparar." => mostra
+                        "Claro, vou preparar."; o cliente respondeu "Obrigado" => muda pra "Obrigado").
+                        lastClientMessageText so serve de fallback pra lead sem last_message_text. */}
+                    <p className="text-xs text-slate-500 truncate flex-1">{l.lastMessageText || l.lastClientMessageText || 'Sem mensagens'}</p>
                     {waitingSinceDate && (
                       <div className={cn(
                         "px-2 py-0.5 rounded-full text-[8.5px] font-black border uppercase tracking-wider leading-none shrink-0",

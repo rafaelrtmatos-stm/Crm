@@ -194,6 +194,9 @@ export interface Lead extends BaseEntity {
   sourceType?: string;
   lastMessageText?: string;
   lastMessageDirection?: 'incoming' | 'outgoing';
+  // Horario ORIGINAL da ultima mensagem da conversa (recebida ou enviada) -- base da ordem da lista
+  // de conversas (ver add_last_message_at_to_leads.sql). Nunca usar updatedAt pra ordenar conversas.
+  lastMessageAt?: Timestamp | string;
   // Previa da lista de chats: SEMPRE a ultima mensagem do CLIENTE, nunca a ultima
   // que o atendente mandou (ver add_last_client_message.sql / App.tsx processIncomingMessage)
   lastClientMessageText?: string;

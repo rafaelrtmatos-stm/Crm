@@ -808,6 +808,9 @@ export default function App() {
       // vira false se alguem da empresa ja respondeu depois dela.
       const quando: string = msgData.createdAt || new Date().toISOString();
       const aguardando: boolean = msgData.aguardando !== false;
+      // Ultima mensagem da conversa (leads.last_message_at = ordem da lista de Mensagens): usa o horario
+      // ORIGINAL da mensagem; na recuperacao `quando` ja e esse horario. Nunca o de importacao/processamento.
+      const mensagemEm: string = msgData.mensagemEm || quando;
       // Check if lead already exists for this phone/contact
       const { data: leadRows } = await supabase.from('leads').select('*').eq('company_id', 'rafa-arts').eq('phone', msgData.phone || '');
 
@@ -855,7 +858,7 @@ export default function App() {
       // supabase/add_unique_leads_company_phone.sql), esse upsert simplesmente
       // nao faz nada, em vez de criar um segundo lead pro mesmo telefone.
       if (!leadRows || leadRows.length === 0) {
-        await supabase.from('leads').upsert({
+        const novoLead = {
           company_id: 'rafa-arts',
           funnel_id: funnelId || null,
           funnel_stage_id: stageId || null,
@@ -882,7 +885,15 @@ export default function App() {
           estimated_value: 0,
           status: 'ENTRADA',
           waiting_since: aguardando ? quando : null,
-        }, { onConflict: 'company_id,phone', ignoreDuplicates: true });
+        };
+        const opcoesNovoLead = { onConflict: 'company_id,phone', ignoreDuplicates: true };
+        const { error: erroNovoLead } = await supabase.from('leads').upsert(
+          { ...novoLead, last_message_at: mensagemEm, last_message_direction: 'incoming' },
+          opcoesNovoLead
+        );
+        // Coluna last_message_at ainda nao existe (add_last_message_at_to_leads.sql nao rodou): cria o
+        // lead sem ela, como sempre foi -- nunca deixa de criar o lead por causa disso.
+        if (erroNovoLead) await supabase.from('leads').upsert(novoLead, opcoesNovoLead);
         console.log(`CRM Automation: New Lead created from channel [${msgData.channel}] into ENTRADA stage.`);
       } else {
         // Atualiza o lead existente, mas so mexe no whatsappName (reflete o nome de perfil
@@ -911,6 +922,11 @@ export default function App() {
           // `quando` = agora ao vivo; na recuperacao e a hora real da mensagem (senao a lista
           // mostrava a hora da recuperacao como se fosse a da mensagem)
           updated_at: quando,
+          // Ordem da lista de conversas: so avanca (mensagem antiga/reprocessada nunca faz a conversa
+          // voltar no tempo) e so se a coluna ja existir neste banco.
+          ...('last_message_at' in leadRow && (!leadRow.last_message_at || Date.parse(mensagemEm) > Date.parse(leadRow.last_message_at))
+            ? { last_message_at: mensagemEm, last_message_direction: 'incoming' }
+            : {}),
         }).eq('id', leadRow.id);
         console.log(`CRM Automation: Existing Lead updated from channel [${msgData.channel}] in ENTRADA stage.`);
       }
@@ -1018,6 +1034,9 @@ export default function App() {
           direction: row.direction,
           senderName: row.sender_name,
           channel: row.channel,
+          // Horario ORIGINAL da mensagem (crm_messages.created_at) -- so alimenta leads.last_message_at
+          // (ordem da lista de conversas). Nao muda `quando` (waiting_since/updated_at seguem como antes).
+          mensagemEm: row.created_at,
         });
         // Som + notificação nativa (estilo WhatsApp Web) pra QUALQUER mensagem nova de
         // cliente, em qualquer lugar do app — antes isso só existia dentro do useEffect

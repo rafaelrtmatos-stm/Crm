@@ -3,9 +3,11 @@
 //  - o status da conexao muda (evento CONNECTION_UPDATE) — usado pelo IntegracoesModule.tsx
 //    pra saber quando o QR Code foi escaneado com sucesso
 //
-// So grava a mensagem em crm_messages. NAO precisa criar/atualizar o lead aqui — isso
-// ja acontece sozinho no front-end (src/App.tsx, useEffect que escuta INSERT em
-// crm_messages com direction='incoming'), pra nao duplicar essa logica em dois lugares.
+// Grava a mensagem em crm_messages. NAO cria o lead aqui — isso ja acontece sozinho no
+// front-end (src/App.tsx, useEffect que escuta INSERT em crm_messages com direction='incoming'),
+// pra nao duplicar essa logica em dois lugares. O que este arquivo faz com o lead que JA EXISTE
+// e manter a ULTIMA MENSAGEM em dia (last_message_at/direction/text, com o horario original da
+// mensagem) -- e' isso que ordena a lista de conversas da aba Mensagens.
 //
 // Configura essa URL (https://seu-dominio.vercel.app/api/whatsapp-webhook) como "Webhook URL"
 // dentro da propria Evolution API (na criacao/config da instancia).
@@ -230,7 +232,7 @@ async function inserirMensagem({ phone, text, senderName, direction = 'incoming'
 // Modules.tsx), essa mesma atualizacao ja acontece na hora, direto do front-end -- essa
 // funcao aqui so cobre o caminho que faltava. So atualiza lead que JA EXISTE (nunca cria
 // lead a partir de mensagem enviada por mim, só de mensagem recebida do cliente).
-async function atualizarPreviaLeadOutgoing(phone, text) {
+async function atualizarPreviaLeadOutgoing(phone, text, createdAt) {
   try {
     await fetch(`${SUPABASE_URL}/rest/v1/leads?company_id=eq.${COMPANY_ID}&phone=eq.${phone}`, {
       method: 'PATCH',
@@ -250,6 +252,56 @@ async function atualizarPreviaLeadOutgoing(phone, text) {
   } catch (err) {
     console.error('Falha ao atualizar previa do lead pra mensagem enviada fora do CRM (nao impede o resto):', err);
   }
+  // Horario da ultima mensagem (ordem da lista) -- sempre o ORIGINAL, e so se for mais nova.
+  await atualizarLeadUltimaMensagem(phone, createdAt || new Date().toISOString(), {
+    last_message_direction: 'outgoing',
+    last_message_text: text,
+    waiting_since: null,
+  });
+}
+
+// ORDEM DA LISTA DE CONVERSAS (aba Mensagens): a posicao da conversa depende so da ULTIMA MENSAGEM
+// REAL, gravada em leads.last_message_at (ver supabase/add_last_message_at_to_leads.sql) -- nunca do
+// updated_at do cadastro. Sempre com o horario ORIGINAL da mensagem (messageTimestamp), nao o de
+// quando o webhook processou (senao um historico reimportado/reenviado subia a conversa pro topo).
+// O PATCH so acontece se a mensagem e MAIS NOVA que a ultima ja registrada (ou se o lead ainda nao
+// tem last_message_at): reenvio do mesmo webhook ou mensagem antiga nunca faz a conversa voltar
+// no tempo. So atualiza lead que JA EXISTE -- quem cria o lead continua sendo o front (App.tsx).
+// Falha aqui nunca derruba o webhook: a mensagem ja esta salva em crm_messages.
+async function atualizarLeadUltimaMensagem(phone, quando, campos) {
+  try {
+    const filtroMaisNova = encodeURIComponent(`(last_message_at.is.null,last_message_at.lt.${quando})`);
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/leads?company_id=eq.${COMPANY_ID}&phone=eq.${phone}&or=${filtroMaisNova}`, {
+      method: 'PATCH',
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+      body: JSON.stringify({ last_message_at: quando, ...campos }),
+    });
+    if (!r.ok) {
+      const corpo = await r.text().catch(() => '');
+      console.error('Falha ao atualizar a ultima mensagem do lead (rodou add_last_message_at_to_leads.sql?):', r.status, corpo);
+    }
+  } catch (err) {
+    console.error('Falha ao atualizar a ultima mensagem do lead (nao impede o resto):', err);
+  }
+}
+
+// Mensagem RECEBIDA do cliente: a conversa sobe pro topo com a previa dela. Nao cria notificacao
+// aqui -- isso ja e' feito pelo gatilho do banco (crm_notify_incoming_message) no INSERT em
+// crm_messages. `waiting_since` volta a marcar o cliente como aguardando resposta.
+async function atualizarLeadMensagemRecebida(phone, text, createdAt) {
+  const quando = createdAt || new Date().toISOString();
+  await atualizarLeadUltimaMensagem(phone, quando, {
+    last_message_direction: 'incoming',
+    last_message_text: text,
+    last_client_message_at: quando,
+    last_client_message_text: text,
+    waiting_since: quando,
+  });
 }
 
 async function buscarNomeGrupo(groupJid, evoHeaders) {
@@ -507,10 +559,14 @@ export default async function handler(req, res) {
           if (!ehMinhaMensagem && evoHeaders) {
             garantirFotoLead(phone, evoHeaders); // nao usa await de proposito — nao atrasa a resposta do webhook
           }
+          // Mensagem RECEBIDA: atualiza last_message_at/previa do lead (com o horario original)
+          if (!ehMinhaMensagem) {
+            await atualizarLeadMensagemRecebida(phone, text, createdAt);
+          }
           // Mensagem minha mandada fora do CRM (direto no celular) -- atualiza a previa da
           // conversa na lista, que senao so e atualizada quando o envio parte do proprio CRM.
           if (ehMinhaMensagem) {
-            atualizarPreviaLeadOutgoing(phone, text); // sem await de proposito, mesmo motivo acima
+            await atualizarPreviaLeadOutgoing(phone, text, createdAt); // com await: no serverless, o que fica pendente apos a resposta pode ser cortado
           }
         }
       }

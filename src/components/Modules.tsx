@@ -553,6 +553,7 @@ const mapLeadRow = (row: any): Lead => ({
   lastMessageText: row.last_message_text || undefined,
   photoUrl: row.photo_url || undefined,
   lastMessageDirection: row.last_message_direction || undefined,
+  lastMessageAt: row.last_message_at || undefined,
   // Previa da lista de chats: SEMPRE a ultima mensagem do cliente (nunca a que o
   // atendente mandou) -- ver add_last_client_message.sql / App.tsx processIncomingMessage
   lastClientMessageText: row.last_client_message_text || undefined,

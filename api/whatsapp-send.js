@@ -5,9 +5,43 @@
 // POST /api/whatsapp-send
 // body: { phone: "5593999999999", text: "Mensagem..." }
 
-import { EVOLUTION_API_URL, EVOLUTION_API_KEY, INSTANCE_NAME } from './_lib/whatsapp-config.js';
+import { EVOLUTION_API_URL, EVOLUTION_API_KEY, INSTANCE_NAME, SUPABASE_URL, SUPABASE_ANON_KEY, COMPANY_ID } from './_lib/whatsapp-config.js';
 import { exigirUsuarioAutorizado } from './_lib/auth.js';
 import { normalizarTelefoneBR } from './_lib/phone.js';
+
+// Depois que o WhatsApp CONFIRMA o envio: a conversa passa a ter essa mensagem como ultima
+// (leads.last_message_at/direction/text), sobe pro topo da aba Mensagens e sai do estado de
+// "aguardando resposta". NAO cria notificacao (notificacao e so de mensagem do cliente).
+// Se o envio falhar, esta funcao nem e chamada -- last_message_at nao muda. Falha aqui nunca
+// derruba a resposta: a mensagem ja foi enviada de verdade.
+async function atualizarLeadMensagemEnviada(telefones, text) {
+  const quando = new Date().toISOString();
+  for (const tel of telefones) {
+    try {
+      const r = await fetch(`${SUPABASE_URL}/rest/v1/leads?company_id=eq.${COMPANY_ID}&phone=eq.${encodeURIComponent(tel)}`, {
+        method: 'PATCH',
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal',
+        },
+        body: JSON.stringify({
+          last_message_at: quando,
+          last_message_direction: 'outgoing',
+          last_message_text: text,
+          waiting_since: null,
+        }),
+      });
+      if (!r.ok) {
+        const corpo = await r.text().catch(() => '');
+        console.error('Falha ao atualizar a ultima mensagem do lead apos o envio (rodou add_last_message_at_to_leads.sql?):', r.status, corpo);
+      }
+    } catch (err) {
+      console.error('Falha ao atualizar a ultima mensagem do lead apos o envio (nao impede o resto):', err);
+    }
+  }
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -68,6 +102,11 @@ export default async function handler(req, res) {
       // Corpo nao veio em JSON valido -- segue sem o id (webhook so nao vai conseguir
       // deduplicar essa mensagem em particular, sem prejuizo pro envio em si)
     }
+
+    // Envio confirmado pela Evolution API. O lead pode estar salvo com o telefone como o front
+    // mandou (`phone`) ou normalizado (`numero`) -- atualiza os dois, sem repetir se forem iguais.
+    // Com await: no serverless, o que ficar pendente depois da resposta pode ser cortado.
+    await atualizarLeadMensagemEnviada(Array.from(new Set([phone, numero])), text);
 
     res.status(200).json({ ok: true, whatsappMessageId: idMensagem });
   } catch (err) {
