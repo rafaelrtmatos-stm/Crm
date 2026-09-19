@@ -3295,6 +3295,15 @@ export const ChatPanel = ({
   const [funnelStages, setFunnelStages] = useState<FunnelStage[]>([]);
   const [isChangingStage, setIsChangingStage] = useState(false);
   const [isStageMenuOpen, setIsStageMenuOpen] = useState(false);
+  // Foto de perfil do contato no cabeçalho (mesmo lead.photoUrl da lista de Mensagens) + ampliação ao clicar.
+  const [isPhotoOpen, setIsPhotoOpen] = useState(false);
+  useEffect(() => { setIsPhotoOpen(false); }, [conversation?.id]);
+  useEffect(() => {
+    if (!isPhotoOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setIsPhotoOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isPhotoOpen]);
   // Se o lead nao tem funnelId salvo (cadastro antigo/incompleto), usa o funil que ja esta
   // selecionado na tela (passado pelo Funil CRM) como respaldo, e aproveita pra corrigir o
   // cadastro do lead na hora, gravando o funnelId que estava faltando
@@ -4061,9 +4070,44 @@ export const ChatPanel = ({
             </button>
           )}
           <div className="relative">
-            <div className="w-10 h-10 rounded-xl bg-primary-500/20 flex items-center justify-center font-bold text-white text-base border border-primary-500/30">
-              {conversation.name?.[0] || 'C'}
-            </div>
+            <button
+              type="button"
+              onClick={() => { if (conversation.photoUrl) setIsPhotoOpen(true); }}
+              disabled={!conversation.photoUrl}
+              title={conversation.photoUrl ? 'Ver foto de perfil' : undefined}
+              className={cn("block rounded-xl", conversation.photoUrl ? "cursor-zoom-in" : "cursor-default")}
+            >
+              <AvatarPhoto
+                photoUrl={conversation.photoUrl}
+                name={conversation.name || 'C'}
+                className="w-10 h-10 rounded-xl bg-primary-500/20 border-primary-500/30"
+                textClassName="font-bold text-white text-base"
+              />
+            </button>
+            {isPhotoOpen && conversation.photoUrl && createPortal(
+              <div
+                className="fixed inset-0 z-[300] bg-black/80 flex items-center justify-center p-6"
+                onClick={() => setIsPhotoOpen(false)}
+              >
+                <button
+                  type="button"
+                  onClick={() => setIsPhotoOpen(false)}
+                  title="Fechar"
+                  className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors"
+                >
+                  <X size={22} />
+                </button>
+                <img
+                  src={conversation.photoUrl}
+                  alt={conversation.name}
+                  referrerPolicy="no-referrer"
+                  onClick={(e) => e.stopPropagation()}
+                  onError={() => setIsPhotoOpen(false)}
+                  className="max-w-[90vw] max-h-[85vh] object-contain rounded-2xl shadow-2xl"
+                />
+              </div>,
+              document.body
+            )}
             {/* Bolinha verde SO quando o contato esta realmente online agora
                 (presence.status === 'available') -- antes era fixa/decorativa. */}
             {presence?.status === 'available' && (
