@@ -526,11 +526,18 @@ const mapFunnelStageRow = (row: any): FunnelStage => ({
   isInitial: !!row.is_initial,
   isFinal: !!row.is_final,
   isLost: !!row.is_lost,
+  isActive: row.is_active !== false,
   slaMinutes: row.sla_minutes ?? undefined,
   automations: row.automations || undefined,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });
+
+// Paleta única das etapas do funil + normalização de HEX (#2563EB == #2563eb)
+const FUNNEL_STAGE_COLORS = ['#2563EB', '#7C3AED', '#DB2777', '#DC2626', '#EA580C', '#D97706', '#CA8A04', '#16A34A', '#059669', '#0891B2', '#0284C7', '#4F46E5', '#9333EA', '#C026D3', '#64748B', '#475569'];
+const normalizeHex = (c?: string | null) => (c || '').trim().toLowerCase();
+const STAGE_COLOR_IN_USE_MSG = 'Esta cor já está sendo usada por outra etapa.';
+const STAGE_HAS_LEADS_MSG = 'Esta etapa possui leads. Escolha outra etapa para mover esses leads.';
 
 const mapLeadRow = (row: any): Lead => ({
   id: row.id,
@@ -3297,7 +3304,7 @@ export const ChatPanel = ({
     }
     const loadStages = async () => {
       const { data } = await supabase.from('funnel_stages').select('*').eq('funnel_id', effectiveFunnelId).order('order', { ascending: true });
-      setFunnelStages((data || []).map(mapFunnelStageRow));
+      setFunnelStages((data || []).map(mapFunnelStageRow).filter(s => s.isActive !== false));
     };
     loadStages();
     const channel = supabase.channel(`chatpanel-stages-${effectiveFunnelId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'funnel_stages', filter: `funnel_id=eq.${effectiveFunnelId}` }, loadStages).subscribe();
@@ -5102,15 +5109,29 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     }
   };
 
+  // Helpers de etapas: leads da etapa (mesmo critério do Kanban) e cor já usada por etapa ativa
+  const leadsDaEtapa = (stage: FunnelStage) => leads
+    .filter(l => !gruposDigitos.has((l.phone || '').replace(/\D/g, '')))
+    .filter(l => l.funnelStageId === stage.id || (!l.funnelStageId && (stage.isInitial || stage.order === 0)));
+  const corEmUso = (color: string, exceptId?: string) =>
+    stages.some(s => s.id !== exceptId && s.isActive !== false && !!s.color && normalizeHex(s.color) === normalizeHex(color));
+  const apenasAdmin = () => {
+    if (user?.isAdmin) return true;
+    showAlert('Somente administrador pode configurar o funil.');
+    return false;
+  };
+
   const handleAddStage = async () => {
-    if (!selectedFunnelId) return;
+    if (!selectedFunnelId || !apenasAdmin()) return;
     const name = await showPrompt('Nome da nova etapa:');
     if (!name) return;
     try {
+      const freeColor = FUNNEL_STAGE_COLORS.find(c => !corEmUso(c));
       await supabase.from('funnel_stages').insert({
         funnel_id: selectedFunnelId,
         name,
         order: stages.length,
+        ...(freeColor ? { color: freeColor } : {}),
       });
       setFunnelMenuOpen(false);
       showAlert(`Etapa "${name}" criada!`);
@@ -5122,16 +5143,22 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
 
   const handleDeleteStage = async (stageId: string) => {
     const stage = stages.find(s => s.id === stageId);
-    if (!stage || !user?.isAdmin) return;
-    if (!(await showConfirm(`Excluir a etapa "${stage.name}" e reclassificar todos os leads?\n\nEssa ação não pode ser desfeita.`))) return;
+    if (!stage || !apenasAdmin()) return;
+    const outras = stages.filter(s => s.id !== stageId);
     try {
-      // Reclassificar leads: mover pra primeira etapa
-      const firstStage = stages.find(s => s.order === 0);
-      await supabase.from('leads').update({ funnel_stage_id: firstStage?.id || null }).eq('funnel_stage_id', stageId);
-      // Excluir a etapa
+      let destinoId: string | null = null;
+      if (leadsDaEtapa(stage).length > 0) {
+        // Etapa com leads: não exclui direto, exige escolher outra etapa de destino
+        const lista = outras.map((s, i) => `${i + 1} = ${s.name}`).join(' | ');
+        const resp = await showPrompt(`${STAGE_HAS_LEADS_MSG}\n${lista}\nDigite o número da etapa de destino:`);
+        const destino = outras[parseInt(resp || '', 10) - 1];
+        if (!destino) return;
+        destinoId = destino.id;
+      } else if (!(await showConfirm(`Excluir a etapa "${stage.name}"?\n\nEssa ação não pode ser desfeita.`))) return;
+      if (destinoId) await supabase.from('leads').update({ funnel_stage_id: destinoId }).eq('funnel_stage_id', stageId);
       await supabase.from('funnel_stages').delete().eq('id', stageId);
       setFunnelMenuOpen(false);
-      showAlert(`Etapa "${stage.name}" excluída e leads reclassificados.`);
+      showAlert(`Etapa "${stage.name}" excluída.`);
     } catch (err) {
       console.error('Erro ao excluir etapa:', err);
       showAlert('Não foi possível excluir a etapa.');
@@ -5258,7 +5285,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     const name = stageNameDraft.trim();
     setRenamingStageId(null);
     const stage = stages.find(s => s.id === stageId);
-    if (!name || !stage || name === stage.name) return;
+    if (!name || !stage || name === stage.name || !apenasAdmin()) return;
     try {
       await supabase.from('funnel_stages').update({ name, updated_at: new Date().toISOString() }).eq('id', stageId);
     } catch (err) {
@@ -5268,11 +5295,41 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
   };
 
   const handleSetStageColor = async (stageId: string, color: string) => {
+    if (!apenasAdmin()) return;
+    const stage = stages.find(s => s.id === stageId);
+    if (stage && normalizeHex(stage.color) === normalizeHex(color)) return;
+    if (corEmUso(color, stageId)) { showAlert(STAGE_COLOR_IN_USE_MSG); return; }
     try {
       await supabase.from('funnel_stages').update({ color, updated_at: new Date().toISOString() }).eq('id', stageId);
     } catch (err) {
       console.error('Erro ao definir cor da etapa:', err);
       showAlert('Não foi possível salvar a cor da etapa.');
+    }
+  };
+
+  const handleToggleStageActive = async (stage: FunnelStage) => {
+    if (!apenasAdmin()) return;
+    const ativar = stage.isActive === false;
+    if (ativar && stage.color && corEmUso(stage.color, stage.id)) { showAlert(STAGE_COLOR_IN_USE_MSG); return; }
+    if (!ativar && stage.isInitial) { showAlert('A etapa inicial não pode ser desativada.'); return; }
+    if (!ativar && leadsDaEtapa(stage).length > 0) { showAlert(STAGE_HAS_LEADS_MSG); return; }
+    try {
+      await supabase.from('funnel_stages').update({ is_active: ativar, updated_at: new Date().toISOString() }).eq('id', stage.id);
+    } catch (err) {
+      console.error('Erro ao ativar/desativar etapa:', err);
+      showAlert('Não foi possível alterar a etapa.');
+    }
+  };
+
+  const handleMoveStage = async (idx: number, dir: -1 | 1) => {
+    if (!apenasAdmin() || !stages[idx] || !stages[idx + dir]) return;
+    const arr = [...stages];
+    [arr[idx], arr[idx + dir]] = [arr[idx + dir], arr[idx]];
+    try {
+      await Promise.all(arr.map((st, i) => st.order === i ? null : supabase.from('funnel_stages').update({ order: i, updated_at: new Date().toISOString() }).eq('id', st.id)));
+    } catch (err) {
+      console.error('Erro ao reordenar etapas:', err);
+      showAlert('Não foi possível reordenar as etapas.');
     }
   };
 
@@ -5484,6 +5541,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                 unica ocupa toda a largura disponivel, sem precisar de rolagem horizontal, e a coluna
                 se estende ate o rodape da pagina, no mesmo nivel do campo de mensagens do ChatPanel). */}
             {stages
+                .filter(stage => stage.isActive !== false)
               .filter(stage => !selectedLead || stage.id === (selectedLead.funnelStageId || (stages.find(s => s.isInitial || s.order === 0)?.id)))
               .map(stage => (
               <div key={`wrapper-${stage.id}`} className="w-full md:w-[300px] shrink-0">
@@ -5706,23 +5764,27 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                   <p className="text-[10px] font-black uppercase text-primary-300 tracking-[3px]">
                     Etapas do Funil: <span className="text-white underline">{currentFunnel?.name || 'Funil'}</span>
                   </p>
-                  <p className="text-[11px] text-white/40">Arraste para reordenar, clique no nome para renomear ou defina cores para cada etapa.</p>
+                  <p className="text-[11px] text-white/40">Use as setas para reordenar, clique no nome para renomear e defina uma cor exclusiva para cada etapa ativa.</p>
                 </div>
                 <Button size="sm" variant="ghost" icon={Plus} onClick={handleAddStage}>Adicionar Etapa</Button>
               </div>
               <div className="space-y-3">
                  {stages.map((stage, idx) => (
-                   <div key={stage.id} className="p-5 bg-white/5 border border-white/5 rounded-3xl flex items-center gap-4 group">
-                      <div className="cursor-grab text-white/20"><GripVertical size={16} /></div>
+                   <div key={stage.id} className={cn("p-5 bg-white/5 border border-white/5 rounded-3xl flex items-center gap-4 group", stage.isActive === false && "opacity-50")}>
+                      <div className="flex flex-col text-white/30">
+                        <button type="button" disabled={idx === 0} onClick={() => handleMoveStage(idx, -1)} title="Subir etapa" className="hover:text-white disabled:opacity-20"><ChevronUp size={14} /></button>
+                        <button type="button" disabled={idx === stages.length - 1} onClick={() => handleMoveStage(idx, 1)} title="Descer etapa" className="hover:text-white disabled:opacity-20"><ChevronDown size={14} /></button>
+                      </div>
                       <div className="relative group/color shrink-0">
                         <div className="w-4 h-4 rounded-full cursor-pointer" style={{ backgroundColor: stage.color || '#4cc9f0' }} />
-                        <div className="hidden group-hover/color:flex absolute top-full left-1/2 -translate-x-1/2 mt-2 bg-slate-900 border border-white/10 rounded-xl shadow-2xl p-2 gap-1.5 z-10">
-                           {['#4cc9f0', '#4361ee', '#f72585', '#7209b7', '#3a0ca3', '#10b981'].map(c => (
+                        <div className="hidden group-hover/color:grid grid-cols-8 absolute top-full left-1/2 -translate-x-1/2 mt-2 bg-slate-900 border border-white/10 rounded-xl shadow-2xl p-2 gap-1.5 z-10">
+                           {FUNNEL_STAGE_COLORS.map(c => (
                              <button
                                key={c}
                                type="button"
                                onClick={() => handleSetStageColor(stage.id, c)}
-                               className="w-4 h-4 rounded-full border border-white/10 hover:scale-125 transition-transform"
+                               title={corEmUso(c, stage.id) ? STAGE_COLOR_IN_USE_MSG : c}
+                               className={cn("w-4 h-4 rounded-full border border-white/10 hover:scale-125 transition-transform", corEmUso(c, stage.id) && "opacity-25 cursor-not-allowed")}
                                style={{ backgroundColor: c }}
                              />
                            ))}
@@ -5749,10 +5811,19 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                          )}
                          <p className="text-[9px] text-white/20 font-black uppercase tracking-widest mt-1">
                            Ordem: {idx + 1} • {stage.isInitial ? 'Inicial' : stage.isFinal ? 'Venda' : 'Negociação'}
+                           {stage.isActive === false && <span className="text-rose-400"> • Inativa</span>}
                            {stage.automations?.createTask && <span className="text-amber-400"> • Automação ativa</span>}
                          </p>
                       </div>
                       <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                         <Button
+                           variant="ghost"
+                           size="sm"
+                           icon={stage.isActive === false ? EyeOff : Eye}
+                           className="p-1 h-8 w-8 text-white/40"
+                           title={stage.isActive === false ? "Etapa inativa — clique para ativar" : "Desativar etapa"}
+                           onClick={() => handleToggleStageActive(stage)}
+                         />
                          <Button
                            variant="ghost"
                            size="sm"

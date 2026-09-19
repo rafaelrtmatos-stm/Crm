@@ -248,6 +248,7 @@ export interface FunnelStage extends BaseEntity {
   isInitial?: boolean;
   isFinal?: boolean;
   isLost?: boolean;
+  isActive?: boolean;
   slaMinutes?: number;
   automations?: {
     createTask?: boolean;
