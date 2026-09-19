@@ -3882,7 +3882,58 @@ export const ChatPanel = ({
     const senderRole = user?.isAdmin ? 'Adm' : 'Atendente';
     const senderDisplay = user?.name ? `${user.name} (${senderRole})` : senderRole;
     try {
-      const { data: msgRow } = await supabase.from('crm_messages').insert({
+      // WhatsApp: ENVIA PRIMEIRO. A mensagem so e registrada (crm_messages) e a conversa so muda
+      // (ultima mensagem/horario) depois que a Evolution confirma o envio -- clicar em enviar nao basta.
+      // /api/whatsapp-send ja registra tudo no servidor; se falhar, nada e gravado e o texto fica na
+      // caixa pro atendente tentar de novo.
+      const canal = (conversation.sourceType || conversation.channel || 'WhatsApp');
+      if (canal === 'WhatsApp' && conversation.phone) {
+        let respData: any = {};
+        try {
+          const resp = await fetch('/api/whatsapp-send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
+            body: JSON.stringify({ phone: conversation.phone, text: textoEnviado, senderName: senderDisplay, leadId: conversation.id || null }),
+          });
+          respData = await resp.json().catch(() => ({}));
+          if (!resp.ok) {
+            showAlert(`Não foi possível enviar a mensagem pro WhatsApp: ${respData.error || 'erro desconhecido'}. A mensagem NÃO foi enviada.`);
+            return;
+          }
+        } catch (sendErr) {
+          console.error('Falha ao disparar mensagem pro WhatsApp:', sendErr);
+          showAlert('Não foi possível enviar a mensagem pro WhatsApp (falha de conexão). A mensagem NÃO foi enviada.');
+          return;
+        }
+        setNewMessage('');
+        if (respData.saved !== true) {
+          // Envio confirmado, mas o servidor nao conseguiu registrar: registra daqui (duplicata do eco do
+          // webhook e ignorada pelo banco).
+          const quando = respData.createdAt || new Date().toISOString();
+          await supabase.from('crm_messages').insert({
+            company_id: 'rafa-arts',
+            lead_id: conversation.id || null,
+            phone: conversation.phone,
+            text: textoEnviado,
+            direction: 'outgoing',
+            sender_name: senderDisplay,
+            channel: 'WhatsApp',
+            whatsapp_message_id: respData.whatsappMessageId || null,
+            created_at: quando,
+          });
+          await supabase.from('leads').update({
+            last_message_at: quando,
+            last_message_text: textoEnviado,
+            last_message_direction: 'outgoing',
+            waiting_since: null,
+            updated_at: new Date().toISOString(),
+          }).eq('id', conversation.id);
+        }
+        return;
+      }
+
+      // Outros canais (Instagram/Facebook etc. ainda sem envio real conectado): comportamento de sempre.
+      await supabase.from('crm_messages').insert({
         company_id: 'rafa-arts',
         lead_id: conversation.id || null,
         phone: conversation.phone,
@@ -3890,40 +3941,15 @@ export const ChatPanel = ({
         direction: 'outgoing',
         sender_name: senderDisplay,
         channel: conversation.sourceType || 'WhatsApp',
-      }).select('id').single();
-      // Also update lead's last message
+      });
       await supabase.from('leads').update({
+        last_message_at: new Date().toISOString(),
         last_message_text: textoEnviado,
         last_message_direction: 'outgoing',
         waiting_since: null,
         updated_at: new Date().toISOString(),
       }).eq('id', conversation.id);
       setNewMessage('');
-
-      // Dispara a mensagem de verdade pro WhatsApp (so pra conversas desse canal —
-      // outros canais como Instagram/Facebook ainda nao tem envio real conectado)
-      const canal = (conversation.sourceType || conversation.channel || 'WhatsApp');
-      if (canal === 'WhatsApp' && conversation.phone) {
-        try {
-          const resp = await fetch('/api/whatsapp-send', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
-            body: JSON.stringify({ phone: conversation.phone, text: textoEnviado }),
-          });
-          const respData = await resp.json().catch(() => ({}));
-          if (!resp.ok) {
-            showAlert(`A mensagem ficou salva aqui no sistema, mas não foi possível enviar pro WhatsApp de verdade: ${respData.error || 'erro desconhecido'}`);
-          } else if (respData.whatsappMessageId && msgRow?.id) {
-            // Guarda o id que a Evolution API deu pra essa mensagem -- e o que permite ao
-            // webhook (que recebe o "eco" dessa mesma mensagem, com fromMe:true) reconhecer
-            // que ela ja foi gravada por aqui e nao duplicar na conversa (ver whatsapp-webhook.js).
-            await supabase.from('crm_messages').update({ whatsapp_message_id: respData.whatsappMessageId }).eq('id', msgRow.id);
-          }
-        } catch (sendErr) {
-          console.error('Falha ao disparar mensagem pro WhatsApp:', sendErr);
-          showAlert('A mensagem ficou salva aqui no sistema, mas não foi possível enviar pro WhatsApp de verdade (falha de conexão).');
-        }
-      }
     } catch (err) {
       console.error('Falha ao enviar mensagem:', err);
     }

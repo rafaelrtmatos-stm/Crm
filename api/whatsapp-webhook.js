@@ -227,6 +227,26 @@ async function inserirMensagem({ phone, text, senderName, direction = 'incoming'
   if (!resp.ok) {
     const corpo = await resp.text().catch(() => '');
     console.error('Falha ao inserir mensagem no Supabase:', resp.status, corpo);
+    return false;
+  }
+  return true;
+}
+
+// Ja existe em crm_messages? (mesmo whatsapp_message_id -- a Evolution reenvia o mesmo evento em retry,
+// e o "eco" de mensagem enviada pelo CRM chega aqui tambem). Falha na consulta => false: o indice unico
+// (company_id, whatsapp_message_id) + ignore-duplicates continua protegendo contra duplicar.
+async function mensagemJaExiste(whatsappMessageId) {
+  if (!whatsappMessageId) return false;
+  try {
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/crm_messages?company_id=eq.${COMPANY_ID}&whatsapp_message_id=eq.${encodeURIComponent(whatsappMessageId)}&select=id&limit=1`,
+      { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
+    );
+    if (!r.ok) return false;
+    const linhas = await r.json();
+    return Array.isArray(linhas) && linhas.length > 0;
+  } catch {
+    return false;
   }
 }
 
@@ -300,15 +320,29 @@ async function atualizarLeadUltimaMensagem(phone, quando, campos) {
 // Mensagem RECEBIDA do cliente: a conversa sobe pro topo com a previa dela. Nao cria notificacao
 // aqui -- isso ja e' feito pelo gatilho do banco (crm_notify_incoming_message) no INSERT em
 // crm_messages. `waiting_since` volta a marcar o cliente como aguardando resposta.
-async function atualizarLeadMensagemRecebida(phone, text, createdAt) {
+async function atualizarLeadMensagemRecebida(phone, previa, createdAt, textoPuro) {
   const quando = createdAt || new Date().toISOString();
   await atualizarLeadUltimaMensagem(phone, quando, {
     last_message_direction: 'incoming',
-    last_message_text: text,
+    last_message_text: previa,
     last_client_message_at: quando,
-    last_client_message_text: text,
+    last_client_message_text: textoPuro ?? previa,
     waiting_since: quando,
   });
+  // Ultima mensagem DO CLIENTE: independente da ultima da conversa. Se o atendente ja respondeu depois
+  // (last_message_at mais novo) o PATCH acima nao entra, mas last_client_message_* ainda precisa avancar.
+  // So avanca (mensagem antiga/reenviada nunca faz voltar no tempo).
+  try {
+    const filtro = encodeURIComponent(`(last_client_message_at.is.null,last_client_message_at.lt.${quando})`);
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/leads?company_id=eq.${COMPANY_ID}&phone=eq.${phone}&or=${filtro}`, {
+      method: 'PATCH',
+      headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+      body: JSON.stringify({ last_client_message_at: quando, last_client_message_text: textoPuro ?? previa }),
+    });
+    if (!r.ok) console.error('Falha ao atualizar a ultima mensagem do cliente no lead:', r.status, await r.text().catch(() => ''));
+  } catch (err) {
+    console.error('Falha ao atualizar a ultima mensagem do cliente no lead (nao impede o resto):', err);
+  }
 }
 
 async function buscarNomeGrupo(groupJid, evoHeaders) {
@@ -481,7 +515,9 @@ export default async function handler(req, res) {
   // Validacao do segredo — a Evolution API precisa mandar esse mesmo valor no header
   // (configuravel na propria Evolution API na hora de criar o webhook)
   if (WEBHOOK_SECRET) {
-    const recebido = req.headers['x-webhook-secret'];
+    // Aceita o segredo no header x-webhook-secret (padrao) OU na query (?secret=...) -- a tela de webhook
+    // da Evolution nem sempre permite header customizado, e sem isso TODO evento voltava 401.
+    const recebido = req.headers['x-webhook-secret'] || req.query?.secret;
     if (recebido !== WEBHOOK_SECRET) {
       res.status(401).json({ error: 'Assinatura invalida' });
       return;
@@ -489,8 +525,14 @@ export default async function handler(req, res) {
   }
 
   try {
-    const body = req.body || {};
-    const event = body.event;
+    let body = req.body || {};
+    if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = {}; } }
+    // A Evolution manda o evento como "MESSAGES_UPSERT" ou "messages.upsert" (e, com "Webhook por evento"
+    // ligado, tambem no fim da URL). Normaliza tudo pra minusculo com ponto: messages.upsert, send.message...
+    const eventoBruto = body.event || req.query?.evento || '';
+    const evento = String(eventoBruto).trim().toLowerCase().replace(/[_\-\s]+/g, '.');
+    const event = evento; // compatibilidade com os blocos abaixo
+    let falhasGravacao = 0;
 
     // Se a Evolution mandar o nome da instancia no payload, confere que e a nossa —
     // protege contra o dia em que essa mesma URL for reaproveitada por outra instancia.
@@ -499,7 +541,7 @@ export default async function handler(req, res) {
       return;
     }
 
-    if (event === 'messages.upsert' || event === 'MESSAGES_UPSERT') {
+    if (evento === 'messages.upsert' || evento === 'send.message') {
       // Formato padrao da Evolution API: body.data pode ser um objeto unico ou uma lista,
       // dependendo da versao — trata os dois casos
       const mensagens = Array.isArray(body.data) ? body.data : [body.data].filter(Boolean);
@@ -517,9 +559,16 @@ export default async function handler(req, res) {
         // envio (com o mesmo whatsapp_message_id, ver whatsapp-send.js), o indice unico em
         // (company_id, whatsapp_message_id) + ignore-duplicates faz esse insert virar um
         // no-op, sem duplicar. So se for realmente nova (mandada fora do CRM) que ela entra.
-        const ehMinhaMensagem = !!msg?.key?.fromMe;
+        // SEND_MESSAGE = mensagem enviada pela API (sempre nossa), mesmo se o payload nao trouxer fromMe.
+        const ehMinhaMensagem = !!msg?.key?.fromMe || evento === 'send.message';
 
-        const phoneRaw = msg?.key?.remoteJid || '';
+        // Contato em formato @lid: versoes novas da Evolution mandam o numero real em remoteJidAlt/senderPn.
+        // Sem isso o telefone gravado era o "lid" e a mensagem nunca casava com o lead do contato.
+        let phoneRaw = msg?.key?.remoteJid || '';
+        if (phoneRaw.endsWith('@lid')) {
+          const alt = msg?.key?.remoteJidAlt || msg?.key?.senderPn || '';
+          if (alt && alt.endsWith('@s.whatsapp.net')) phoneRaw = alt;
+        }
         const evoHeaders = (EVOLUTION_API_URL && EVOLUTION_API_KEY)
           ? { apikey: EVOLUTION_API_KEY, 'Content-Type': 'application/json' }
           : null;
@@ -560,20 +609,29 @@ export default async function handler(req, res) {
         }
 
         if (phone && text) {
-          const midiaSalva = await baixarEGuardarMidia(msg, evoHeaders);
-          await inserirMensagem({
-            phone, text, senderName, direction: ehMinhaMensagem ? 'outgoing' : 'incoming', whatsappMessageId, createdAt,
-            groupJid: ehGrupoMsg ? phoneRaw : undefined,
-            mediaUrl: midiaSalva?.mediaUrl, fileName: midiaSalva?.fileName, contentType: midiaSalva?.contentType,
-          });
+          // Duplicado (retry da Evolution / eco de mensagem enviada pelo CRM): nao grava de novo nem baixa
+          // a midia de novo, mas ainda garante o indice da conversa (PATCH so avanca, entao e inofensivo).
+          const jaExiste = await mensagemJaExiste(whatsappMessageId);
+          let gravada = jaExiste;
+          if (!jaExiste) {
+            const midiaSalva = await baixarEGuardarMidia(msg, evoHeaders);
+            gravada = await inserirMensagem({
+              phone, text, senderName, direction: ehMinhaMensagem ? 'outgoing' : 'incoming', whatsappMessageId, createdAt,
+              groupJid: ehGrupoMsg ? phoneRaw : undefined,
+              mediaUrl: midiaSalva?.mediaUrl, fileName: midiaSalva?.fileName, contentType: midiaSalva?.contentType,
+            });
+          }
+          // So considera sincronizada quando ESTA registrada em crm_messages. Falhou: nao mexe na conversa
+          // e devolve erro no fim pra Evolution tentar de novo (o indice unico evita duplicar).
+          if (!gravada) { falhasGravacao++; continue; }
           // Busca de foto de perfil e so faz sentido pro CONTATO (nao pro meu proprio numero)
-          if (!ehMinhaMensagem && evoHeaders) {
+          if (!jaExiste && !ehMinhaMensagem && evoHeaders) {
             garantirFotoLead(phone, evoHeaders); // nao usa await de proposito — nao atrasa a resposta do webhook
           }
           // Mensagem RECEBIDA: atualiza last_message_at/previa do lead (com o horario original)
           if (!ehMinhaMensagem) {
             // Em grupo a previa mostra quem falou ("Maria: texto")
-            await atualizarLeadMensagemRecebida(phone, ehGrupoMsg && senderName ? `${senderName}: ${text}` : text, createdAt);
+            await atualizarLeadMensagemRecebida(phone, ehGrupoMsg && senderName ? `${senderName}: ${text}` : text, createdAt, text);
           }
           // Mensagem minha mandada fora do CRM (direto no celular) -- atualiza a previa da
           // conversa na lista, que senao so e atualizada quando o envio parte do proprio CRM.
@@ -584,7 +642,33 @@ export default async function handler(req, res) {
       }
     }
 
-    if (event === 'connection.update' || event === 'CONNECTION_UPDATE') {
+    // Grupos: a Evolution avisa quando um grupo e criado/renomeado. Mantem whatsapp_groups.nome em dia
+    // (grupo novo continua entrando represado, visivel=false, ate o admin liberar).
+    if (evento === 'groups.upsert' || evento === 'group.update' || evento === 'groups.update') {
+      const grupos = Array.isArray(body.data) ? body.data : [body.data].filter(Boolean);
+      const evoHeaders = (EVOLUTION_API_URL && EVOLUTION_API_KEY) ? { apikey: EVOLUTION_API_KEY, 'Content-Type': 'application/json' } : null;
+      for (const g of grupos) {
+        const jid = g?.id || g?.groupJid || g?.jid || '';
+        const nome = String(g?.subject || g?.name || '').trim();
+        if (!jid.endsWith('@g.us')) continue;
+        const existente = await garantirGrupoExiste(jid, nome || null, evoHeaders);
+        if (nome && existente?.id && existente.nome !== nome) {
+          await fetch(`${SUPABASE_URL}/rest/v1/whatsapp_groups?id=eq.${existente.id}`, {
+            method: 'PATCH',
+            headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nome, updated_at: new Date().toISOString() }),
+          }).catch((err) => console.error('Falha ao atualizar nome do grupo (nao impede o resto):', err));
+        }
+      }
+    }
+
+    // MESSAGES_UPDATE (status de entrega/leitura, edicao), MESSAGES_DELETE, MESSAGES_SET (carga de
+    // historico), CHATS_*, CONTACTS_*, GROUP_PARTICIPANTS_UPDATE: reconhecidos com 200 e sem efeito no
+    // CRM de proposito. O historico fica preservado em crm_messages (nada e apagado por evento de
+    // exclusao) e MESSAGES_SET nao entra aqui pra nao inundar a lista de notificacoes com mensagens
+    // antigas -- historico antigo entra por api/whatsapp-import-history.js.
+
+    if (event === 'connection.update') {
       const status = body?.data?.state || body?.data?.status;
       if (status) await atualizarStatusConexao(status);
     }
@@ -593,7 +677,7 @@ export default async function handler(req, res) {
     // Formato Baileys/Evolution: body.data = { id: remoteJid, presences: { [jid]: { lastKnownPresence, lastSeen } } }
     // — mas algumas versoes mandam { id, presence: { lastKnownPresence } } direto, sem o
     // objeto "presences" por participante. Trata os dois formatos.
-    if (event === 'presence.update' || event === 'PRESENCE_UPDATE') {
+    if (event === 'presence.update') {
       const dados = body?.data;
       const remoteJid = dados?.id || dados?.remoteJid || '';
       if (remoteJid && !remoteJid.endsWith('@g.us')) {
@@ -611,7 +695,12 @@ export default async function handler(req, res) {
       }
     }
 
-    res.status(200).json({ ok: true });
+    if (falhasGravacao > 0) {
+      // Nao gravou em crm_messages: 500 faz a Evolution reenviar o evento (duplicata e ignorada pelo indice).
+      res.status(500).json({ error: 'Falha ao gravar mensagem em crm_messages', falhas: falhasGravacao });
+      return;
+    }
+    res.status(200).json({ ok: true, evento });
   } catch (err) {
     console.error('Erro no webhook do WhatsApp:', err);
     res.status(500).json({ error: 'Erro interno' });

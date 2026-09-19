@@ -988,107 +988,147 @@ export default function App() {
     // mensagem mais recente; o lead so e atualizado quando crm_messages.created_at > last_message_at.
     // 1a execucao neste dispositivo = historico completo; depois so o que veio apos o ultimo
     // checkpoint (com folga de 2 dias). Nunca roda duas vezes ao mesmo tempo.
+    // Estado da execucao em curso: se um lote falhar de vez, a proxima tentativa CONTINUA dele (mesmo
+    // offset, mesmas conversas ja vistas) -- nao reinicia do zero. Zera quando a sincronizacao conclui.
+    type RetomadaSync = { de: number; vistas: Set<string>; atualizadas: number; aguardando: number; corteIso: string | null; inicio: string };
+    let retomada: RetomadaSync | null = null;
+    let tentativasSessao = 0;
+    let timerRetentativa: ReturnType<typeof setTimeout> | null = null;
+    const espera = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+
+    // Erro temporario (rede, timeout, 5xx): tenta de novo a MESMA operacao com esperas progressivas
+    // (1s, 2s, 4s, 8s, 15s) -- nunca em loop rapido. Esgotou: lanca, e a sincronizacao agenda nova rodada.
+    const comRetentativa = async <T,>(rotulo: string, op: () => Promise<{ data: T; error: any }>): Promise<T> => {
+      const ESPERAS_MS = [1000, 2000, 4000, 8000, 15000];
+      let ultimoErro: any = null;
+      for (let tentativa = 0; tentativa <= ESPERAS_MS.length; tentativa++) {
+        try {
+          const { data, error } = await op();
+          if (!error) return data;
+          ultimoErro = error;
+        } catch (e) {
+          ultimoErro = e;
+        }
+        if (tentativa < ESPERAS_MS.length) {
+          console.warn(`CRM Sincronizacao: falha em ${rotulo}, nova tentativa em ${ESPERAS_MS[tentativa] / 1000}s`, ultimoErro);
+          await espera(ESPERAS_MS[tentativa]);
+        }
+      }
+      throw ultimoErro || new Error(`falha em ${rotulo}`);
+    };
+
     const sincronizarConversasEmSegundoPlano = async () => {
       if (sincronizacaoEmAndamentoRef.current) return;
       sincronizacaoEmAndamentoRef.current = true;
+      if (timerRetentativa) { clearTimeout(timerRetentativa); timerRetentativa = null; }
       const LOTE = 100;
       const chaveCheckpoint = 'crm_sync_conversas_ate_rafa-arts';
-      const inicioExecucao = new Date().toISOString();
       try {
-        let corteMs = 0;
-        try {
-          const salvo = Date.parse(localStorage.getItem(chaveCheckpoint) || '');
-          if (Number.isFinite(salvo)) corteMs = salvo - 2 * 24 * 60 * 60 * 1000;
-        } catch { /* sem localStorage: roda o historico completo */ }
-        const corteIso = corteMs > 0 ? new Date(corteMs).toISOString() : null;
+        if (!retomada) {
+          let corteMs = 0;
+          try {
+            const salvo = Date.parse(localStorage.getItem(chaveCheckpoint) || '');
+            if (Number.isFinite(salvo)) corteMs = salvo - 2 * 24 * 60 * 60 * 1000;
+          } catch { /* sem localStorage: roda o historico completo */ }
+          retomada = { de: 0, vistas: new Set<string>(), atualizadas: 0, aguardando: 0, corteIso: corteMs > 0 ? new Date(corteMs).toISOString() : null, inicio: new Date().toISOString() };
+        }
+        const estado = retomada; // 1a ocorrencia de cada telefone (vistas) = mensagem mais recente dele
 
-        const conversasVistas = new Set<string>(); // 1a ocorrencia de cada telefone = mensagem mais recente
-        let atualizadas = 0;
-        let aguardandoResposta = 0;
-
-        for (let de = 0; ; de += LOTE) {
-          let q = supabase.from('crm_messages').select('id,phone,text,direction,sender_name,channel,created_at')
-            .eq('company_id', 'rafa-arts')
-            .or('is_note.is.null,is_note.eq.false')
-            .neq('direction', 'note');
-          if (corteIso) q = q.gte('created_at', corteIso);
-          const { data, error } = await q.order('created_at', { ascending: false }).order('id', { ascending: false }).range(de, de + LOTE - 1);
-          if (error) {
-            console.warn('CRM Sincronizacao: falha ao consultar crm_messages', error);
-            return; // checkpoint NAO avanca: a proxima execucao tenta de novo
-          }
-          const lote: any[] = data || [];
+        for (;;) {
+          const de = estado.de;
+          const lote: any[] = await comRetentativa('ler lote de crm_messages', async () => {
+            let q = supabase.from('crm_messages').select('id,phone,text,direction,sender_name,channel,created_at')
+              .eq('company_id', 'rafa-arts')
+              .or('is_note.is.null,is_note.eq.false')
+              .neq('direction', 'note');
+            if (estado.corteIso) q = q.gte('created_at', estado.corteIso);
+            const r = await q.order('created_at', { ascending: false }).order('id', { ascending: false }).range(de, de + LOTE - 1);
+            return { data: (r.data || []) as any[], error: r.error };
+          });
 
           // Mais recente de cada telefone ainda nao visto
           const novas: any[] = [];
-          for (const m of lote) {
-            if (!m.phone || conversasVistas.has(m.phone)) continue;
-            conversasVistas.add(m.phone);
+          const noLote = new Set<string>();
+          for (const m of lote) { // lote vem da mais nova pra mais antiga: 1a ocorrencia = mais recente
+            if (!m.phone || estado.vistas.has(m.phone) || noLote.has(m.phone)) continue;
+            noLote.add(m.phone);
             novas.push(m);
           }
 
           if (novas.length) {
-            const { data: leadsLote, error: erroLeads } = await supabase.from('leads').select('id,phone,last_message_at')
-              .eq('company_id', 'rafa-arts').in('phone', novas.map(m => m.phone));
-            if (erroLeads) {
-              console.warn('CRM Sincronizacao: falha ao consultar leads', erroLeads);
-              return;
-            }
-            const leadPorTelefone = new Map<string, any>((leadsLote || []).map((l: any) => [l.phone, l]));
+            const leadsLote = await comRetentativa('ler leads do lote', async () => {
+              const r = await supabase.from('leads').select('id,phone,last_message_at')
+                .eq('company_id', 'rafa-arts').in('phone', novas.map(m => m.phone));
+              return { data: (r.data || []) as any[], error: r.error };
+            });
+            const leadPorTelefone = new Map<string, any>(leadsLote.map((l: any) => [l.phone, l]));
 
             for (const msg of novas) {
               const msgMs = Date.parse(msg.created_at);
-              if (!Number.isFinite(msgMs)) continue;
-              const lead = leadPorTelefone.get(msg.phone);
-              const atualMs = lead?.last_message_at ? Date.parse(lead.last_message_at) : NaN;
-              // So atualiza quando a mensagem real e MAIS RECENTE que a registrada no lead
-              if (lead && Number.isFinite(atualMs) && msgMs <= atualMs) continue;
-
-              if (msg.direction === 'incoming') {
-                if (!msg.text) continue;
-                // Mais recente da conversa e do cliente => nao ha resposta depois dela (aguardando)
-                await processIncomingMessage({
-                  phone: msg.phone,
-                  text: msg.text,
-                  senderName: msg.sender_name,
-                  channel: msg.channel,
-                  createdAt: msg.created_at,
-                  mensagemEm: msg.created_at,
-                });
-                atualizadas++;
-                aguardandoResposta++;
-              } else if (lead) {
-                // Enviada (pelo CRM ou pelo celular): nunca cria lead, so atualiza o indice
-                await supabase.from('leads').update({
-                  last_message_at: msg.created_at,
-                  last_message_text: msg.text || '',
-                  last_message_direction: 'outgoing',
-                  waiting_since: null,
-                }).eq('id', lead.id).or(`last_message_at.is.null,last_message_at.lt.${new Date(msgMs).toISOString()}`);
-                atualizadas++;
+              if (Number.isFinite(msgMs)) {
+                const lead = leadPorTelefone.get(msg.phone);
+                const atualMs = lead?.last_message_at ? Date.parse(lead.last_message_at) : NaN;
+                // So atualiza quando a mensagem real e MAIS RECENTE que a registrada no lead
+                if (!(lead && Number.isFinite(atualMs) && msgMs <= atualMs)) {
+                  if (msg.direction === 'incoming') {
+                    if (msg.text) {
+                      // Mais recente da conversa e do cliente => nao ha resposta depois dela (aguardando)
+                      await comRetentativa('atualizar conversa', async () => {
+                        try {
+                          await processIncomingMessage({ phone: msg.phone, text: msg.text, senderName: msg.sender_name, channel: msg.channel, createdAt: msg.created_at, mensagemEm: msg.created_at });
+                          return { data: null, error: null };
+                        } catch (e) { return { data: null, error: e }; }
+                      });
+                      estado.atualizadas++;
+                      estado.aguardando++;
+                    }
+                  } else if (lead) {
+                    // Enviada (pelo CRM ou pelo celular): nunca cria lead, so atualiza o indice
+                    await comRetentativa('atualizar conversa (enviada)', async () => {
+                      const r = await supabase.from('leads').update({
+                        last_message_at: msg.created_at,
+                        last_message_text: msg.text || '',
+                        last_message_direction: 'outgoing',
+                        waiting_since: null,
+                      }).eq('id', lead.id).or(`last_message_at.is.null,last_message_at.lt.${new Date(msgMs).toISOString()}`);
+                      return { data: null, error: r.error };
+                    });
+                    estado.atualizadas++;
+                  }
+                }
               }
+              estado.vistas.add(msg.phone); // so marca DEPOIS de processada: falha no meio => reprocessa so o que faltou
             }
           }
 
+          // Lote inteiro concluido: so agora avanca o offset (falha antes disso repete ESTE lote)
+          estado.de = de + LOTE;
           if (lote.length < LOTE) break; // ultimo lote
         }
 
-        try { localStorage.setItem(chaveCheckpoint, inicioExecucao); } catch { /* ignora */ }
+        try { localStorage.setItem(chaveCheckpoint, estado.inicio); } catch { /* ignora */ }
         sincronizacaoExecutadaRef.current = true;
+        retomada = null;
+        tentativasSessao = 0;
 
-        if (atualizadas > 0) {
-          console.log(`CRM Sincronizacao: ${atualizadas} conversa(s) atualizada(s) (${aguardandoResposta} aguardando resposta).`);
+        if (estado.atualizadas > 0) {
+          console.log(`CRM Sincronizacao: ${estado.atualizadas} conversa(s) atualizada(s) (${estado.aguardando} aguardando resposta).`);
         }
-        if (aguardandoResposta > 0) {
+        if (estado.aguardando > 0) {
           showMessageToast({
             key: 'mensagens-recuperadas',
             title: 'Mensagens recebidas enquanto você estava fora',
-            body: `${aguardandoResposta} conversa${aguardandoResposta > 1 ? 's' : ''} aguardando resposta.`,
+            body: `${estado.aguardando} conversa${estado.aguardando > 1 ? 's' : ''} aguardando resposta.`,
             onClick: () => setActiveTab('crm'),
           });
         }
       } catch (e) {
-        console.warn('CRM Sincronizacao: erro ao sincronizar conversas', e);
+        // Lote esgotou as tentativas imediatas: NAO encerra de vez. Agenda nova rodada (pausa crescente,
+        // ate 5 min) que continua do lote pendente (`retomada` guarda o ponto).
+        tentativasSessao++;
+        const pausa = Math.min(15000 * 2 ** (tentativasSessao - 1), 5 * 60 * 1000);
+        console.warn(`CRM Sincronizacao: erro, retomando do lote pendente em ${Math.round(pausa / 1000)}s`, e);
+        timerRetentativa = setTimeout(() => { timerRetentativa = null; sincronizarConversasEmSegundoPlano(); }, pausa);
       } finally {
         sincronizacaoEmAndamentoRef.current = false;
       }
@@ -1145,9 +1185,14 @@ export default function App() {
 
     // Inicia sozinha ao carregar o CRM (nao depende do Realtime conectar, de botao nem da aba Mensagens).
     sincronizarConversasEmSegundoPlano();
+    // Rede de seguranca: Realtime = atualizacao imediata; a sincronizacao = recuperacao. Se o Realtime
+    // perder um evento sem avisar, a proxima rodada (5 min) encontra a mensagem em crm_messages.
+    const intervaloSincronizacao = setInterval(() => { if (!document.hidden) sincronizarConversasEmSegundoPlano(); }, 5 * 60 * 1000);
 
     return () => {
+      clearInterval(intervaloSincronizacao);
       document.removeEventListener('visibilitychange', onVisibilidade);
+      if (timerRetentativa) clearTimeout(timerRetentativa);
       supabase.removeChannel(channel);
     };
   }, [currentCompany, user]);

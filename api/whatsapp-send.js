@@ -3,7 +3,9 @@
 // API (evita expor a API Key no navegador) — sempre passa por aqui.
 //
 // POST /api/whatsapp-send
-// body: { phone: "5593999999999", text: "Mensagem..." }
+// body: { phone: "5593999999999", text: "Mensagem...", senderName?, leadId? }
+// Resposta: { ok, whatsappMessageId, createdAt, saved } -- `saved` = a mensagem ja foi registrada em
+// crm_messages AQUI, depois da confirmacao da Evolution (o front nao precisa gravar de novo).
 
 import { EVOLUTION_API_URL, EVOLUTION_API_KEY, INSTANCE_NAME, SUPABASE_URL, SUPABASE_ANON_KEY, COMPANY_ID } from './_lib/whatsapp-config.js';
 import { exigirUsuarioAutorizado } from './_lib/auth.js';
@@ -35,6 +37,7 @@ async function atualizarLeadMensagemEnviada(telefones, text, quando) {
           last_message_direction: 'outgoing',
           last_message_text: text,
           waiting_since: null,
+          updated_at: new Date().toISOString(),
         }),
       });
       if (!r.ok) {
@@ -44,6 +47,47 @@ async function atualizarLeadMensagemEnviada(telefones, text, quando) {
     } catch (err) {
       console.error('Falha ao atualizar a ultima mensagem do lead apos o envio (nao impede o resto):', err);
     }
+  }
+}
+
+// Registra a mensagem enviada em crm_messages SO depois que a Evolution confirmou (envio falhou = nada e
+// gravado e a conversa nao muda). Usa o horario real da mensagem e o id do WhatsApp; o "eco" que a
+// Evolution manda no webhook (fromMe) e ignorado como duplicata pelo indice unico. Se o eco chegou ANTES
+// deste insert (webhook grava como "Celular"), corrige remetente/lead na linha que ja existe.
+// Devolve true quando a mensagem esta registrada em crm_messages.
+async function registrarMensagemEnviada({ phone, text, senderName, leadId, whatsappMessageId, createdAt }) {
+  const headers = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json' };
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/crm_messages`, {
+      method: 'POST',
+      headers: { ...headers, Prefer: 'resolution=ignore-duplicates,return=minimal' },
+      body: JSON.stringify({
+        company_id: COMPANY_ID,
+        lead_id: leadId || null,
+        phone,
+        text,
+        direction: 'outgoing',
+        sender_name: senderName || null,
+        channel: 'WhatsApp',
+        whatsapp_message_id: whatsappMessageId || null,
+        created_at: createdAt,
+      }),
+    });
+    if (!r.ok) {
+      console.error('Falha ao registrar mensagem enviada em crm_messages:', r.status, await r.text().catch(() => ''));
+      return false;
+    }
+    if (whatsappMessageId && (senderName || leadId)) {
+      await fetch(`${SUPABASE_URL}/rest/v1/crm_messages?company_id=eq.${COMPANY_ID}&whatsapp_message_id=eq.${encodeURIComponent(whatsappMessageId)}`, {
+        method: 'PATCH',
+        headers: { ...headers, Prefer: 'return=minimal' },
+        body: JSON.stringify({ ...(senderName ? { sender_name: senderName } : {}), ...(leadId ? { lead_id: leadId } : {}) }),
+      }).catch(() => {});
+    }
+    return true;
+  } catch (err) {
+    console.error('Falha ao registrar mensagem enviada em crm_messages:', err);
+    return false;
   }
 }
 
@@ -63,7 +107,7 @@ export default async function handler(req, res) {
   // mensagem em nome do numero conectado.
   if (!(await exigirUsuarioAutorizado(req, res))) return;
 
-  const { phone, text } = req.body || {};
+  const { phone, text, senderName, leadId } = req.body || {};
   if (!phone || !text) {
     res.status(400).json({ error: 'Faltou telefone ou texto da mensagem.' });
     return;
@@ -112,9 +156,11 @@ export default async function handler(req, res) {
     // Envio confirmado pela Evolution API. O lead pode estar salvo com o telefone como o front
     // mandou (`phone`) ou normalizado (`numero`) -- atualiza os dois, sem repetir se forem iguais.
     // Com await: no serverless, o que ficar pendente depois da resposta pode ser cortado.
-    await atualizarLeadMensagemEnviada(Array.from(new Set([phone, numero])), text, horarioMensagem || new Date().toISOString());
+    const quandoEnviada = horarioMensagem || new Date().toISOString();
+    const salva = await registrarMensagemEnviada({ phone, text, senderName, leadId, whatsappMessageId: idMensagem, createdAt: quandoEnviada });
+    await atualizarLeadMensagemEnviada(Array.from(new Set([phone, numero])), text, quandoEnviada);
 
-    res.status(200).json({ ok: true, whatsappMessageId: idMensagem });
+    res.status(200).json({ ok: true, whatsappMessageId: idMensagem, createdAt: quandoEnviada, saved: salva });
   } catch (err) {
     console.error('Erro ao enviar mensagem via Evolution API:', err);
     res.status(500).json({ error: 'Não foi possível enviar a mensagem. Confira se a Evolution API está no ar e o número está conectado.' });

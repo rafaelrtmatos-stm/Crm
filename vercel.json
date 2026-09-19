@@ -14,6 +14,7 @@
       ],
       "destination": "/api/assinar/:id"
     },
+    { "source": "/api/whatsapp-webhook/:evento", "destination": "/api/whatsapp-webhook" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
