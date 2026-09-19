@@ -734,6 +734,7 @@ export default function App() {
   const [pendingOpenContratoId, setPendingOpenContratoId] = useState<string | null>(null);
   const [pendingOpenOrcamentoId, setPendingOpenOrcamentoId] = useState<string | null>(null);
   const [pendingOpenLeadId, setPendingOpenLeadId] = useState<string | null>(null);
+  const [pendingOpenMessageId, setPendingOpenMessageId] = useState<string | null>(null);
   const [simulatedUserId, setSimulatedUserIdState] = useState<string | null>(localStorage.getItem('rpro_simulated_user_id'));
   const [unrepliedLeadsCount, setUnrepliedLeadsCount] = useState(0);
 
@@ -1154,8 +1155,17 @@ export default function App() {
     };
   }, []);
 
-  // Abre a conversa do lead no Funil CRM imediatamente ao clicar na notificação
-  const openNotificationLead = async (phone?: string | null) => {
+  // Abre a conversa do lead no Funil CRM imediatamente ao clicar na notificação.
+  // Vale igual pra grupo: o grupo tem lead proprio (phone = digitos do JID do grupo), entao
+  // abrir por telefone ja abre o grupo. `messageId` e a mensagem que gerou a notificacao: o
+  // ChatPanel (Modules.tsx) rola ate ela e a destaca, em vez de cair no fim da conversa.
+  const openNotificationLead = async (phone?: string | null, messageId?: string | null) => {
+    setPendingOpenMessageId(messageId || null);
+    if (messageId) {
+      // Se a conversa nao chegar a abrir (lead nao encontrado), nao deixa o alvo preso pra
+      // pular pra uma mensagem antiga quando essa conversa for aberta manualmente depois.
+      setTimeout(() => setPendingOpenMessageId(cur => (cur === messageId ? null : cur)), 15000);
+    }
     setActiveTab('crm');
     if (!phone) return;
 
@@ -1200,7 +1210,7 @@ export default function App() {
     if (!('serviceWorker' in navigator)) return;
     const onSwMessage = (event: MessageEvent) => {
       if (event.data?.type !== 'open-message-notification') return;
-      openNotificationLead(event.data.phone);
+      openNotificationLead(event.data.phone, event.data.messageId);
     };
     navigator.serviceWorker.addEventListener('message', onSwMessage);
     return () => navigator.serviceWorker.removeEventListener('message', onSwMessage);
@@ -1226,7 +1236,7 @@ export default function App() {
           title: remetente,
           body: corpo.length > 120 ? `${corpo.slice(0, 117)}...` : corpo,
           onClick: () => {
-            openNotificationLead(row.phone);
+            openNotificationLead(row.phone, row.id);
           },
         });
         return;
@@ -1237,7 +1247,7 @@ export default function App() {
         body: corpo.length > 120 ? `${corpo.slice(0, 117)}...` : corpo,
         icon: '/icon-192.png',
         tag: `msg-${row.phone || row.id}`,
-        data: { phone: row.phone || null },
+        data: { phone: row.phone || null, messageId: row.id || null },
       };
 
       // Caminho principal: pelo service worker. E o UNICO que funciona no Chrome do Android
@@ -1254,7 +1264,7 @@ export default function App() {
       const notif = new Notification(remetente, opcoes);
       notif.onclick = () => {
         window.focus();
-        openNotificationLead(row.phone);
+        openNotificationLead(row.phone, row.id);
         notif.close();
       };
     } catch (e) { console.warn('Falha ao mostrar notificacao de mensagem:', e); }
@@ -2222,6 +2232,8 @@ export default function App() {
     setPendingOpenOrcamentoId,
     pendingOpenLeadId,
     setPendingOpenLeadId,
+    pendingOpenMessageId,
+    setPendingOpenMessageId,
     simulatedUserId,
     setSimulatedUserId,
     theme,

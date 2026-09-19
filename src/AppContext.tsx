@@ -51,6 +51,9 @@ export interface AppContextType {
   setPendingOpenOrcamentoId: (id: string | null) => void;
   pendingOpenLeadId: string | null;
   setPendingOpenLeadId: (id: string | null) => void;
+  // Mensagem exata que gerou a notificacao clicada: o ChatPanel rola ate ela e a destaca.
+  pendingOpenMessageId: string | null;
+  setPendingOpenMessageId: (id: string | null) => void;
   simulatedUserId: string | null;
   setSimulatedUserId: (id: string | null) => void;
   theme: 'dark' | 'light';

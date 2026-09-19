@@ -3767,12 +3767,101 @@ export const ChatPanel = ({
     return null;
   })();
 
+  // --- Vindo de uma notificacao: abrir JA POSICIONADO na mensagem que gerou o aviso ---
+  // (vale tambem pra grupo: o grupo e uma conversa como as outras, com phone = JID do grupo).
+  // App.tsx guarda o id da mensagem em pendingOpenMessageId; aqui rolamos ate ela, destacamos
+  // por alguns segundos e so entao consumimos o pedido. Sem isso o chat sempre descia pro fim.
+  const { pendingOpenMessageId, setPendingOpenMessageId } = React.useContext(AppContext)!;
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
+  const pendingOpenMessageIdRef = useRef<string | null>(pendingOpenMessageId);
+  pendingOpenMessageIdRef.current = pendingOpenMessageId;
+  const highlightedMessageIdRef = useRef<string | null>(highlightedMessageId);
+  highlightedMessageIdRef.current = highlightedMessageId;
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const highlightFixTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearMessageHighlight = () => {
+    if (highlightTimerRef.current) { clearTimeout(highlightTimerRef.current); highlightTimerRef.current = null; }
+    if (highlightFixTimerRef.current) { clearTimeout(highlightFixTimerRef.current); highlightFixTimerRef.current = null; }
+    highlightedMessageIdRef.current = null;
+    setHighlightedMessageId(null);
+  };
+
+  // Trocou de conversa (ou fechou o painel): some o destaque e os timers da conversa anterior.
   useEffect(() => {
+    clearMessageHighlight();
+    return () => {
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+      if (highlightFixTimerRef.current) clearTimeout(highlightFixTimerRef.current);
+    };
+  }, [conversation?.id]);
+
+  useEffect(() => {
+    const alvo = pendingOpenMessageId;
+    if (!alvo) return;
+    // So age se a mensagem-alvo pertence a ESTA conversa (id unico). Enquanto ela nao aparece
+    // na lista (mensagem acabou de chegar / historico ainda carregando), espera o proximo
+    // `messages` -- o realtime recarrega a lista e este efeito roda de novo.
+    if (!chatMessages.some(m => String(m.id) === String(alvo))) return;
+    // Aba interna da conversa (Dados / Notas / Tarefas...) errada: volta pro Chat e tenta de novo.
+    if (activeTab !== 'chat') { setActiveTab('chat'); return; }
+
+    const localizar = () => {
+      const container = messagesScrollRef.current;
+      const el = container
+        ? (Array.from(container.querySelectorAll('[data-message-id]')) as HTMLElement[]).find(n => n.dataset.messageId === String(alvo)) || null
+        : null;
+      return container && el ? { container, el } : null;
+    };
+    // Centraliza a mensagem DENTRO do container do chat (sem mexer na rolagem da pagina).
+    const posicionar = () => {
+      const achou = localizar();
+      if (!achou) return false;
+      const { container, el } = achou;
+      const er = el.getBoundingClientRect();
+      const cr = container.getBoundingClientRect();
+      const folga = Math.max(8, (container.clientHeight - er.height) / 2);
+      container.scrollTop += (er.top - cr.top) - folga;
+      return true;
+    };
+
+    let tentativas = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const tentar = () => {
+      if (!posicionar()) {
+        // O painel do chat pode ainda estar montando (animacao de troca de aba): tenta por ~1,5s.
+        if (tentativas++ < 15) timer = setTimeout(tentar, 100);
+        return;
+      }
+      highlightedMessageIdRef.current = String(alvo);
+      setHighlightedMessageId(String(alvo));
+      setPendingOpenMessageId(null); // pedido atendido: NAO reposiciona nas proximas atualizacoes
+      // Imagens/figuras carregam depois e empurram o layout: corrige a posicao uma vez.
+      if (highlightFixTimerRef.current) clearTimeout(highlightFixTimerRef.current);
+      highlightFixTimerRef.current = setTimeout(() => {
+        if (highlightedMessageIdRef.current === String(alvo)) posicionar();
+      }, 500);
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+      highlightTimerRef.current = setTimeout(() => {
+        setHighlightedMessageId(cur => (cur === String(alvo) ? null : cur));
+      }, 8000);
+    };
+    tentar();
+    return () => { if (timer) clearTimeout(timer); };
+  }, [pendingOpenMessageId, messages, activeTab]);
+
+  useEffect(() => {
+    // Enquanto a mensagem-alvo da notificacao esta aberta/destacada, NAO desce pro fim da
+    // conversa (era isso que fazia o chat sempre abrir na ultima mensagem).
+    const alvo = pendingOpenMessageIdRef.current;
+    if (highlightedMessageIdRef.current || (alvo && messages.some(m => String(m.id) === String(alvo)))) return;
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !conversation || !currentCompany) return;
+    clearMessageHighlight(); // ao responder, volta ao comportamento normal (rola pro fim)
     const textoEnviado = newMessage;
     const senderRole = user?.isAdmin ? 'Adm' : 'Atendente';
     const senderDisplay = user?.name ? `${user.name} (${senderRole})` : senderRole;
@@ -4106,7 +4195,7 @@ export const ChatPanel = ({
               exit={{ opacity: 0, x: -20 }}
               className="h-full flex flex-col"
             >
-              <div className="flex-1 p-4 overflow-y-auto space-y-4 custom-scrollbar">
+              <div ref={messagesScrollRef} className="flex-1 p-4 overflow-y-auto space-y-4 custom-scrollbar">
                  {chatMessages.length === 0 && (
                    <div className="flex flex-col items-center justify-center h-full space-y-3 py-10">
                       <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-white/30">
@@ -4168,10 +4257,11 @@ export const ChatPanel = ({
                     })();
                     
                     return (
-                      <div key={m.id || idx} className={cn("flex", isOutgoing ? "justify-end" : "justify-start")}>
+                      <div key={m.id || idx} data-message-id={m.id} className={cn("flex", isOutgoing ? "justify-end" : "justify-start")}>
                         <div className={cn("group space-y-1", isOutgoing ? "text-right" : "")}>
                            <div className={cn(
-                             "max-w-[85%] rounded-2xl border text-xs text-slate-800 leading-relaxed shadow-sm bg-white",
+                             "max-w-[85%] rounded-2xl border text-xs text-slate-800 leading-relaxed shadow-sm bg-white transition-shadow",
+                             highlightedMessageId && String(highlightedMessageId) === String(m.id) && "ring-2 ring-amber-400 shadow-lg shadow-amber-400/40 animate-pulse",
                              (isImage || isVideo) ? "p-1.5" : "p-2.5",
                              isOutgoing 
                                ? "rounded-br-none border-primary-200 text-left ml-auto" 
