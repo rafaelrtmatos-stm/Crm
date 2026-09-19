@@ -26,11 +26,12 @@ export function leadLastMessageDate(lead: any): Date | null {
   );
 }
 
-// Chave de ORDENACAO da lista de conversas (ms; 0 = sem mensagem conhecida, vai pro fim). Depende
-// SO da ultima mensagem real: lastMessageAt e, enquanto o lead ainda nao tem esse campo, a ultima
-// mensagem do cliente. NUNCA usa updatedAt -- ele muda com qualquer edicao do cadastro.
+// Chave de ORDENACAO da lista de conversas (ms; 0 = sem last_message_at, vai pro fim ate a reconciliacao
+// com crm_messages preencher). Depende SO de lastMessageAt (leads.last_message_at = indice da ultima
+// mensagem real): NUNCA updatedAt (muda com qualquer edicao do cadastro) e NUNCA lastClientMessageAt
+// (ignora resposta do atendente e deixaria conversa respondida fora de ordem).
 export function leadSortTime(lead: any): number {
-  const d = paraData(lead?.lastMessageAt) || paraData(lead?.lastClientMessageAt);
+  const d = paraData(lead?.lastMessageAt);
   return d ? d.getTime() : 0;
 }
 

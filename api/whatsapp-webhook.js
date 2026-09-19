@@ -304,13 +304,16 @@ async function atualizarLeadUltimaMensagem(phone, quando, campos) {
         apikey: SUPABASE_ANON_KEY,
         Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
         'Content-Type': 'application/json',
-        Prefer: 'return=minimal',
+        Prefer: 'return=representation',
       },
       body: JSON.stringify({ last_message_at: quando, ...campos }),
     });
     if (!r.ok) {
       const corpo = await r.text().catch(() => '');
       console.error('Falha ao atualizar a ultima mensagem do lead (rodou add_last_message_at_to_leads.sql?):', r.status, corpo);
+    } else {
+      const linhas = await r.json().catch(() => []);
+      console.log(`[CRM WEBHOOK] lead atualizado: ${Array.isArray(linhas) ? linhas.length : 0} (0 = lead ainda nao existe ou ja tem mensagem mais nova; o CRM/sincronizador cria/corrige)`);
     }
   } catch (err) {
     console.error('Falha ao atualizar a ultima mensagem do lead (nao impede o resto):', err);
@@ -519,6 +522,9 @@ export default async function handler(req, res) {
     // da Evolution nem sempre permite header customizado, e sem isso TODO evento voltava 401.
     const recebido = req.headers['x-webhook-secret'] || req.query?.secret;
     if (recebido !== WEBHOOK_SECRET) {
+      // Log claro: 401 aqui = a Evolution nao esta mandando o MESMO valor de EVOLUTION_WEBHOOK_SECRET
+      // (header x-webhook-secret ou ?secret=). Enquanto isso, NENHUMA mensagem chega em crm_messages.
+      console.error(`[CRM WEBHOOK] 401 segredo invalido: ${recebido ? 'valor enviado diferente do configurado (EVOLUTION_WEBHOOK_SECRET)' : 'x-webhook-secret/?secret ausente na chamada da Evolution'} -- mensagens NAO estao sendo gravadas`);
       res.status(401).json({ error: 'Assinatura invalida' });
       return;
     }
@@ -573,13 +579,16 @@ export default async function handler(req, res) {
           ? { apikey: EVOLUTION_API_KEY, 'Content-Type': 'application/json' }
           : null;
 
-        // Mensagem de grupo (remoteJid termina em @g.us): verifica se o grupo esta
-        // liberado pelo admin antes de gravar. Grupo novo entra represado (visivel=false)
-        // e a mensagem eh descartada ate alguem liberar. Busca o nome real do grupo
-        // (subject) na Evolution API pra nunca ficar exibindo o JID cru na tela de Grupos.
+        // Mensagem de grupo (remoteJid termina em @g.us): garante o grupo cadastrado (grupo novo entra
+        // represado, visivel=false) mas NUNCA descarta a mensagem. A permissao/liberacao controla so a
+        // VISUALIZACAO (aba Mensagens, notificacoes e tela de Grupos filtram por whatsapp_groups.visivel);
+        // crm_messages continua sendo a fonte de verdade e guarda tudo, inclusive de grupo ainda nao liberado.
         if (phoneRaw.endsWith('@g.us')) {
-          const grupo = await garantirGrupoExiste(phoneRaw, null, evoHeaders);
-          if (!grupo?.visivel) continue; // grupo ainda nao liberado pelo admin, ignora a mensagem
+          try {
+            await garantirGrupoExiste(phoneRaw, null, evoHeaders);
+          } catch (err) {
+            console.error('[CRM WEBHOOK] falha ao cadastrar/consultar grupo (a mensagem e gravada mesmo assim):', err);
+          }
         }
 
         // @lid e o formato "linked id" que o WhatsApp/Baileys mais recente usa em alguns
@@ -609,6 +618,10 @@ export default async function handler(req, res) {
         }
 
         if (phone && text) {
+          console.log(`[CRM WEBHOOK] ${evento === 'send.message' ? 'SEND_MESSAGE' : 'MESSAGES_UPSERT'} recebido`);
+          console.log(`[CRM WEBHOOK] phone=***${String(phone).slice(-4)}${ehGrupoMsg ? ' (grupo)' : ''} direction=${ehMinhaMensagem ? 'outgoing' : 'incoming'}`);
+          console.log(`[CRM WEBHOOK] message_id=${whatsappMessageId || '(sem id)'}`);
+          console.log(`[CRM WEBHOOK] created_at=${createdAt || '(sem timestamp: usa horario do banco)'}`);
           // Duplicado (retry da Evolution / eco de mensagem enviada pelo CRM): nao grava de novo nem baixa
           // a midia de novo, mas ainda garante o indice da conversa (PATCH so avanca, entao e inofensivo).
           const jaExiste = await mensagemJaExiste(whatsappMessageId);
@@ -623,7 +636,8 @@ export default async function handler(req, res) {
           }
           // So considera sincronizada quando ESTA registrada em crm_messages. Falhou: nao mexe na conversa
           // e devolve erro no fim pra Evolution tentar de novo (o indice unico evita duplicar).
-          if (!gravada) { falhasGravacao++; continue; }
+          if (!gravada) { falhasGravacao++; console.error(`[CRM WEBHOOK] crm_messages INSERT FALHOU message_id=${whatsappMessageId || '(sem id)'} -- devolvendo 500 para a Evolution reenviar`); continue; }
+          console.log(`[CRM WEBHOOK] crm_messages INSERT OK${jaExiste ? ' (ja existia, sem duplicar)' : ''}`);
           // Busca de foto de perfil e so faz sentido pro CONTATO (nao pro meu proprio numero)
           if (!jaExiste && !ehMinhaMensagem && evoHeaders) {
             garantirFotoLead(phone, evoHeaders); // nao usa await de proposito — nao atrasa a resposta do webhook

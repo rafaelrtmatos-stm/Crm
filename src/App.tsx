@@ -1070,6 +1070,7 @@ export default function App() {
                 const atualMs = lead?.last_message_at ? Date.parse(lead.last_message_at) : NaN;
                 // So atualiza quando a mensagem real e MAIS RECENTE que a registrada no lead
                 if (!(lead && Number.isFinite(atualMs) && msgMs <= atualMs)) {
+                  console.log('[CRM SYNC] mensagem mais nova encontrada');
                   if (msg.direction === 'incoming') {
                     if (msg.text) {
                       // Mais recente da conversa e do cliente => nao ha resposta depois dela (aguardando)
@@ -1081,6 +1082,7 @@ export default function App() {
                       });
                       estado.atualizadas++;
                       estado.aguardando++;
+                      console.log('[CRM SYNC] last_message_at corrigido');
                     }
                   } else if (lead) {
                     // Enviada (pelo CRM ou pelo celular): nunca cria lead, so atualiza o indice
@@ -1094,6 +1096,7 @@ export default function App() {
                       return { data: null, error: r.error };
                     });
                     estado.atualizadas++;
+                    console.log('[CRM SYNC] last_message_at corrigido');
                   }
                 }
               }
@@ -1150,8 +1153,23 @@ export default function App() {
       { event: 'INSERT', schema: 'public', table: 'crm_messages', filter: `company_id=eq.rafa-arts` },
       (payload: any) => {
         const row = payload.new;
+        // Mensagem ENVIADA (pelo CRM ou direto no celular): so mantem o indice da conversa em dia
+        // (leads.last_message_*), com o horario original e so se for mais nova -- sem notificacao nem lead novo.
+        if (row.direction === 'outgoing' && !row.is_note && row.phone && Number.isFinite(Date.parse(row.created_at))) {
+          console.log('[CRM REALTIME] nova mensagem enviada recebida');
+          supabase.from('leads').update({
+            last_message_at: row.created_at,
+            last_message_text: row.text || '',
+            last_message_direction: 'outgoing',
+            waiting_since: null,
+          }).eq('company_id', 'rafa-arts').eq('phone', row.phone)
+            .or(`last_message_at.is.null,last_message_at.lt.${new Date(row.created_at).toISOString()}`)
+            .then(({ error }: any) => { if (error) console.warn('CRM Realtime: falha ao atualizar indice da conversa (enviada)', error); });
+          return;
+        }
         if (row.direction !== 'incoming' || row.id === lastMessageIdRef.current) return;
         lastMessageIdRef.current = row.id;
+        console.log('[CRM REALTIME] nova mensagem recebida');
         processIncomingMessage({
           phone: row.phone,
           text: row.text,

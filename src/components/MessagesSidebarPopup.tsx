@@ -207,6 +207,9 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
   const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const ultimaRequisicaoRef = useRef(0);
   const reconciliadosRef = useRef<Set<string>>(new Set());
+  const leadsRef = useRef<Lead[]>([]);
+  leadsRef.current = leads;
+  const recarregarListaRef = useRef<(() => void) | null>(null);
 
   // RECONCILIACAO (fonte oficial = crm_messages; leads.last_message_at = indice/cache da lista).
   // Para cada conversa comparamos a ULTIMA MENSAGEM REAL em crm_messages (nota interna nao conta) com
@@ -237,15 +240,17 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
         return ehGrupo && m.direction === 'incoming' && m.sender_name ? `${m.sender_name}: ${texto}` : texto;
       };
       const PAGINA_MENSAGENS = 500;
-      const desde = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+      const MAX_PAGINAS = 20; // teto de seguranca por rodada (10 mil mensagens); o corte normal e o de baixo
       const ultimaPorTelefone = new Map<string, UltimaReal>();
-      for (let de = 0; ; de += PAGINA_MENSAGENS) {
+      for (let pagina = 0; pagina < MAX_PAGINAS; pagina++) {
+        const de = pagina * PAGINA_MENSAGENS;
+        // Sem janela fixa de dias: le da mais nova pra mais antiga e para assim que NENHUM lead restante
+        // pode mais ser corrigido (ver corte abaixo) -- conversa parada ha semanas tambem e reconstruida.
         const { data, error } = await supabase
           .from('crm_messages')
           .select('phone,text,direction,created_at,sender_name')
           .eq('company_id', 'rafa-arts')
           .or('is_note.is.null,is_note.eq.false')
-          .gte('created_at', desde)
           .order('created_at', { ascending: false })
           .order('id', { ascending: false })
           .range(de, de + PAGINA_MENSAGENS - 1);
@@ -258,6 +263,17 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
           ultimaPorTelefone.set(m.phone, { em: m.created_at, text: previaDaMensagem(m), direction: m.direction === 'incoming' ? 'incoming' : 'outgoing' });
         }
         if (lote.length < PAGINA_MENSAGENS) break;
+        // Corte: um lead ainda sem mensagem encontrada so pode ser corrigido por mensagem MAIS NOVA que o
+        // seu last_message_at. Se a pagina ja chegou em mensagens mais antigas que o menor indice restante,
+        // nao ha mais o que achar.
+        let menorIndiceRestante = Infinity;
+        for (const l of lista) {
+          if (!l.phone || ultimaPorTelefone.has(l.phone) || !l.lastMessageAt) continue;
+          const ms = new Date(l.lastMessageAt as any).getTime();
+          if (Number.isFinite(ms) && ms < menorIndiceRestante) menorIndiceRestante = ms;
+        }
+        const maisAntigaMs = new Date((lote[lote.length - 1] as any).created_at).getTime();
+        if (Number.isFinite(maisAntigaMs) && maisAntigaMs < menorIndiceRestante) break;
       }
 
       // Leads ainda sem last_message_at e fora da janela acima: consulta individual (ate 40 por vez)
@@ -325,6 +341,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
       setLeads(lista);
       reconciliarUltimaMensagem(lista);
     };
+    recarregarListaRef.current = loadLeads;
     loadLeads();
     // Realtime: qualquer mudanca em leads (mensagem nova => last_message_at/previa) recarrega a lista e a
     // conversa sobe pro topo sozinha. Agrupa rajadas de eventos numa unica recarga.
@@ -332,6 +349,52 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
     const recarregarLogo = () => { if (agendado) clearTimeout(agendado); agendado = setTimeout(loadLeads, 250); };
     const channel = supabase.channel('sidebar-popup-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.rafa-arts` }, recarregarLogo).subscribe();
     return () => { if (agendado) clearTimeout(agendado); supabase.removeChannel(channel); };
+  }, [currentCompany, isOpen]);
+
+  // REALTIME DE crm_messages: INSERT => a conversa atualiza a previa/horario, sobe pro topo e conta como
+  // nao lida (mensagem recebida) na hora, sem esperar o lead ser gravado no banco nem recarregar a
+  // pagina. Canal unico por abertura do popup (deps fixas): nao e recriado a cada mensagem. Ignora
+  // mensagem igual/mais antiga que a ultima ja mostrada (nunca volta no tempo nem duplica a conversa).
+  // Telefone sem conversa na lista (contato novo): o App cria o lead; a lista recarrega logo depois.
+  useEffect(() => {
+    if (!currentCompany || !isOpen) return;
+    const channel = supabase.channel('sidebar-popup-messages').on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'crm_messages', filter: `company_id=eq.rafa-arts` },
+      (payload: any) => {
+        const row = payload.new;
+        if (!row?.phone || row.direction === 'note' || row.is_note) return;
+        const emMs = Date.parse(row.created_at);
+        if (!Number.isFinite(emMs)) return;
+        console.log('[CRM REALTIME] nova mensagem recebida');
+        const chave = String(row.phone).replace(/\D/g, '');
+        if (!leadsRef.current.some(l => (l.phone || '').replace(/\D/g, '') === chave)) {
+          setTimeout(() => recarregarListaRef.current?.(), 1500);
+          return;
+        }
+        const entrada = row.direction === 'incoming';
+        const ehGrupo = gruposTodosRef.current.has(chave);
+        const previa = ehGrupo && entrada && row.sender_name ? `${row.sender_name}: ${row.text || ''}` : (row.text || '');
+        setLeads(prev => {
+          const idx = prev.findIndex(l => (l.phone || '').replace(/\D/g, '') === chave);
+          if (idx < 0) return prev;
+          const atualMs = prev[idx].lastMessageAt ? new Date(prev[idx].lastMessageAt as any).getTime() : NaN;
+          if (Number.isFinite(atualMs) && emMs <= atualMs) return prev;
+          const atualizado = {
+            ...prev[idx],
+            lastMessageAt: row.created_at,
+            lastMessageText: previa,
+            lastMessageDirection: entrada ? 'incoming' : 'outgoing',
+            ...(entrada
+              ? { lastClientMessageAt: row.created_at, lastClientMessageText: row.text || '', waitingSince: row.created_at }
+              : { waitingSince: null }),
+          } as any as Lead;
+          console.log('[CRM SIDEBAR] conversa movida para o topo');
+          return ordenarEDeduplicarConversas(prev.map((l, i) => (i === idx ? atualizado : l)));
+        });
+      }
+    ).subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, [currentCompany, isOpen]);
 
   // Grupos do WhatsApp liberados (visivel=true) -- monta um Set com o telefone
