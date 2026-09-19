@@ -882,12 +882,7 @@ export default function App() {
         if (stageRows && stageRows.length > 0) stageId = stageRows[0].id;
       }
 
-      // If no lead exists, create it in the ENTRADA stage. Usa upsert com
-      // ignoreDuplicates (em vez de insert simples) pra ser seguro mesmo se duas
-      // mensagens do mesmo contato chegarem quase ao mesmo tempo: se a linha ja
-      // existir (por causa da constraint idx_leads_company_phone_unique — ver
-      // supabase/add_unique_leads_company_phone.sql), esse upsert simplesmente
-      // nao faz nada, em vez de criar um segundo lead pro mesmo telefone.
+      // If no lead exists, create it in the ENTRADA stage (INSERT simples; duplicado 23505 e ignorado abaixo).
       if (!leadRows || leadRows.length === 0) {
         const novoLead = {
           company_id: 'rafa-arts',
@@ -917,14 +912,19 @@ export default function App() {
           status: 'ENTRADA',
           waiting_since: aguardando ? quando : null,
         };
-        const opcoesNovoLead = { onConflict: 'company_id,phone', ignoreDuplicates: true };
-        const { error: erroNovoLead } = await supabase.from('leads').upsert(
-          { ...novoLead, last_message_at: mensagemEm, last_message_direction: 'incoming' },
-          opcoesNovoLead
+        // INSERT simples (nao upsert): upsert com onConflict='company_id,phone' exige um indice unico TOTAL
+        // nessas colunas e o Postgres recusa ("no unique or exclusion constraint matching the ON CONFLICT
+        // specification") quando ele nao existe -- o que impedia a criacao de QUALQUER lead novo e deixava
+        // a conversa fora da lista. Se existir indice unico (add_unique_leads_company_phone.sql) e outra
+        // mensagem do mesmo contato criar o lead antes, o erro 23505 (duplicado) e ignorado.
+        const ehLeadDuplicado = (e: any) => e?.code === '23505';
+        let { error: erroNovoLead } = await supabase.from('leads').insert(
+          { ...novoLead, last_message_at: mensagemEm, last_message_direction: 'incoming' }
         );
         // Coluna last_message_at ainda nao existe (add_last_message_at_to_leads.sql nao rodou): cria o
         // lead sem ela, como sempre foi -- nunca deixa de criar o lead por causa disso.
-        if (erroNovoLead) await supabase.from('leads').upsert(novoLead, opcoesNovoLead);
+        if (erroNovoLead && !ehLeadDuplicado(erroNovoLead)) ({ error: erroNovoLead } = await supabase.from('leads').insert(novoLead));
+        if (erroNovoLead && !ehLeadDuplicado(erroNovoLead)) throw erroNovoLead; // sincronizador tenta de novo
         console.log(`CRM Automation: New Lead created from channel [${msgData.channel}] into ENTRADA stage.`);
       } else {
         // Atualiza o lead existente, mas so mexe no whatsappName (reflete o nome de perfil
@@ -1179,7 +1179,7 @@ export default function App() {
           // Horario ORIGINAL da mensagem (crm_messages.created_at) -- so alimenta leads.last_message_at
           // (ordem da lista de conversas). Nao muda `quando` (waiting_since/updated_at seguem como antes).
           mensagemEm: row.created_at,
-        });
+        }).catch((e: any) => console.error('CRM Realtime: falha ao processar mensagem recebida (o sincronizador recupera):', e));
         // Som + notificação nativa (estilo WhatsApp Web) pra QUALQUER mensagem nova de
         // cliente, em qualquer lugar do app — antes isso só existia dentro do useEffect
         // de MessagesModule (Modules.tsx), então só tocava/avisava com a aba "Mensagens"
