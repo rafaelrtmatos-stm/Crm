@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { ContractApprovalModule } from './ContractApprovalModule';
 import { ContractSignatureOtpPanel } from './ContractSignatureOtpPanel';
 import { ContractAcceptanceDetailsModal } from './ContractAcceptanceDetailsModal';
+import { NotificacaoPendenteBanner, useNotificacaoPendente, marcarNotificacoesResolvidas } from './NotificacaoPendenteBanner';
 import { 
   TrendingUp, 
   LayoutGrid,
@@ -3859,6 +3860,20 @@ export const ChatPanel = ({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // --- Notificacao pendente desta conversa (regras 6 e 7) ---
+  // Abrir a conversa / rolar ate a mensagem NAO resolve a notificacao: ela segue PENDENTE e o
+  // aviso continua aqui. So o botao "Marcar como resolvido" chama marcarNotificacoesResolvidas.
+  const { notificacao: notificacaoPendente, limpar: limparNotificacaoPendente } = useNotificacaoPendente(conversation?.phone, messages.length);
+  const [resolvendoNotificacao, setResolvendoNotificacao] = useState(false);
+  const handleResolverNotificacao = async () => {
+    if (!notificacaoPendente || resolvendoNotificacao) return;
+    setResolvendoNotificacao(true);
+    const ok = await marcarNotificacoesResolvidas(notificacaoPendente.ids, user?.name);
+    setResolvendoNotificacao(false);
+    if (!ok) { showAlert('Não foi possível marcar a notificação como resolvida.'); return; }
+    limparNotificacaoPendente();
+  };
+
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !conversation || !currentCompany) return;
     clearMessageHighlight(); // ao responder, volta ao comportamento normal (rola pro fim)
@@ -4195,6 +4210,14 @@ export const ChatPanel = ({
               exit={{ opacity: 0, x: -20 }}
               className="h-full flex flex-col"
             >
+              {notificacaoPendente && (
+                <NotificacaoPendenteBanner
+                  notificacao={notificacaoPendente}
+                  resolvendo={resolvendoNotificacao}
+                  onVerMensagem={() => { if (notificacaoPendente.messageId) setPendingOpenMessageId(notificacaoPendente.messageId); }}
+                  onResolver={handleResolverNotificacao}
+                />
+              )}
               <div ref={messagesScrollRef} className="flex-1 p-4 overflow-y-auto space-y-4 custom-scrollbar">
                  {chatMessages.length === 0 && (
                    <div className="flex flex-col items-center justify-center h-full space-y-3 py-10">
