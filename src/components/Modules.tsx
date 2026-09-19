@@ -3298,6 +3298,24 @@ export const ChatPanel = ({
   // Foto de perfil do contato no cabeçalho (mesmo lead.photoUrl da lista de Mensagens) + ampliação ao clicar.
   const [isPhotoOpen, setIsPhotoOpen] = useState(false);
   useEffect(() => { setIsPhotoOpen(false); }, [conversation?.id]);
+  // A URL da foto do WhatsApp expira: ao abrir a conversa, pede ao servidor a foto atual DESTE contato
+  // (api/whatsapp-foto-perfil.js; grupo é ignorado lá). Nada é atualizado em massa. Se vier uma foto
+  // diferente, o servidor grava em leads.photo_url e a tela troca na hora (onLeadPatched + Realtime).
+  const photoRefreshedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const phoneDigits = (conversation?.phone || '').replace(/\D/g, '');
+    if (!phoneDigits || (conversation?.channel !== 'WhatsApp' && conversation?.sourceType !== 'WhatsApp')) return;
+    if (photoRefreshedRef.current.has(phoneDigits)) return;
+    photoRefreshedRef.current.add(phoneDigits);
+    fetch('/api/whatsapp-foto-perfil', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
+      body: JSON.stringify({ phone: phoneDigits }),
+    })
+      .then(r => r.json())
+      .then(d => { if (d?.photoUrl && d.photoUrl !== conversation.photoUrl) onLeadPatched?.(conversation.id, { photoUrl: d.photoUrl }); })
+      .catch(() => { /* melhor esforço: a foto que já estava salva continua */ });
+  }, [conversation?.phone]);
   useEffect(() => {
     if (!isPhotoOpen) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setIsPhotoOpen(false); };
