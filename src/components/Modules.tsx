@@ -3249,6 +3249,9 @@ export const ChatPanel = ({
   onDraftConsumed,
   fallbackFunnelId,
   onLeadPatched,
+  focusMessageId,
+  focusNonce,
+  onFocusHandled,
 }: { 
   conversation: any; 
   onClose?: () => void;
@@ -3257,6 +3260,12 @@ export const ChatPanel = ({
   initialDraft?: string;
   onDraftConsumed?: () => void;
   fallbackFunnelId?: string;
+  // Vindo de uma notificacao: rola ate essa mensagem e a destaca (em vez de ir pro fim da
+  // conversa). focusNonce muda a cada clique, entao clicar de novo na mesma notificacao refaz o
+  // foco. Nao marca nada como resolvido — so posiciona/destaca.
+  focusMessageId?: string | null;
+  focusNonce?: number;
+  onFocusHandled?: () => void;
   // Callback opcional: chamado com (leadId, patch) sempre que o ChatPanel salva um
   // campo do lead direto (ex: handleSaveNames). Deixa o componente pai (dono do
   // estado `leads`/`selectedLead`/`selectedChat`) atualizar a lista NA HORA, sem
@@ -3273,6 +3282,11 @@ export const ChatPanel = ({
   const [showQuickActions, setShowQuickActions] = useState(false);
   const [showQuickTemplates, setShowQuickTemplates] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Foco numa mensagem especifica (clique numa notificacao): guarda o alvo ate a mensagem
+  // aparecer na lista (as mensagens carregam de forma assincrona ao abrir a conversa).
+  const [highlightedMsgId, setHighlightedMsgId] = useState<string | null>(null);
+  const focusPendingRef = useRef<{ id: string; at: number } | null>(null);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // --- Identidade unificada (Nome do WhatsApp / Nome do Contato / Nome Real-Documental) ---
   // Os 3 campos vivem no proprio lead (ver Lead.whatsappName/contactName/fullName em types.ts) e
@@ -3768,8 +3782,34 @@ export const ChatPanel = ({
   })();
 
   useEffect(() => {
+    if (focusMessageId) {
+      focusPendingRef.current = { id: focusMessageId, at: Date.now() };
+      setActiveTab('chat'); // a mensagem so existe na aba de conversa
+    }
+  }, [focusMessageId, focusNonce]);
+
+  useEffect(() => {
+    const pending = focusPendingRef.current;
+    // Alvo pendente (e recente): posiciona na mensagem exata em vez de descer pro fim.
+    if (pending && Date.now() - pending.at < 8000) {
+      const el = activeTab === 'chat'
+        ? document.querySelector<HTMLElement>(`[data-msg-id="${pending.id}"]`)
+        : null;
+      if (el) {
+        focusPendingRef.current = null;
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setHighlightedMsgId(pending.id);
+        if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+        highlightTimerRef.current = setTimeout(() => setHighlightedMsgId(null), 8000);
+        onFocusHandled?.();
+      }
+      return; // ainda carregando (ou achou): nao pula pro fim da conversa
+    }
+    focusPendingRef.current = null;
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, focusNonce, activeTab]);
+
+  useEffect(() => () => { if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current); }, []);
 
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !conversation || !currentCompany) return;
@@ -4168,10 +4208,11 @@ export const ChatPanel = ({
                     })();
                     
                     return (
-                      <div key={m.id || idx} className={cn("flex", isOutgoing ? "justify-end" : "justify-start")}>
+                      <div key={m.id || idx} data-msg-id={m.id} className={cn("flex", isOutgoing ? "justify-end" : "justify-start")}>
                         <div className={cn("group space-y-1", isOutgoing ? "text-right" : "")}>
                            <div className={cn(
-                             "max-w-[85%] rounded-2xl border text-xs text-slate-800 leading-relaxed shadow-sm bg-white",
+                             "max-w-[85%] rounded-2xl border text-xs text-slate-800 leading-relaxed shadow-sm bg-white transition-shadow duration-500",
+                             highlightedMsgId === m.id && "ring-4 ring-amber-400 shadow-amber-300/60 shadow-lg",
                              (isImage || isVideo) ? "p-1.5" : "p-2.5",
                              isOutgoing 
                                ? "rounded-br-none border-primary-200 text-left ml-auto" 
@@ -5803,9 +5844,18 @@ const GenericListView = ({ title, subtitle, columns, data, icon, onAdd, noHeader
 );
 
 // --- MESSAGES ---
-export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { currentCompany: Company | null, user: AppUser | null, preselectedLeadId?: string }) => {
+export const MessagesModule = ({ currentCompany, user, preselectedLeadId, messageFocus, onMessageFocusConsumed }: {
+  currentCompany: Company | null,
+  user: AppUser | null,
+  preselectedLeadId?: string,
+  // Pedido vindo de uma notificacao: abrir a conversa (do cliente ou do grupo) e posicionar na mensagem.
+  messageFocus?: { phone: string; leadId?: string; messageId: string; nonce: number } | null,
+  onMessageFocusConsumed?: () => void,
+}) => {
   const { pendingWhatsAppShare, setPendingWhatsAppShare } = React.useContext(AppContext)!;
   const [selectedChat, setSelectedChat] = useState<any>(null);
+  const [chatFocus, setChatFocus] = useState<{ messageId: string; nonce: number } | null>(null);
+  const focusHandledRef = useRef<number | null>(null);
   const [chatInitialDraft, setChatInitialDraft] = useState('');
   const [leads, setLeads] = useState<Lead[]>([]);
   const [filter, setFilter] = useState('');
@@ -5820,6 +5870,21 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
   const [simName, setSimName] = useState('Juliana Costa');
   const [simPhone, setSimPhone] = useState('(62) 99777-3322');
   const [simMessage, setSimMessage] = useState('Olá! Vi o anúncio da gráfica e quero fazer um orçamento de 1.000 cartões de visita e 2 banners para minha loja.');
+
+  // Clique numa notificacao: abre a conversa do cliente/grupo e posiciona na mensagem que a
+  // gerou. Se ja estiver nessa conversa, so refaz o foco (nao abre outra nem duplica). Isso NAO
+  // resolve a notificacao — ela continua pendente ate "Marcar como resolvido".
+  useEffect(() => {
+    if (!messageFocus || focusHandledRef.current === messageFocus.nonce) return;
+    // Pedido velho (ex: lead que nunca carregou): descarta pra nao abrir uma conversa "do nada" depois.
+    if (Date.now() - messageFocus.nonce > 60000) { onMessageFocusConsumed?.(); return; }
+    const target = leads.find(l => (messageFocus.leadId && l.id === messageFocus.leadId) || l.phone === messageFocus.phone);
+    if (!target) return; // lista de leads ainda carregando: tenta de novo quando chegar
+    focusHandledRef.current = messageFocus.nonce;
+    setSelectedChat((prev: any) => (prev?.id === target.id ? prev : { ...target, name: target.fullName }));
+    setChatFocus({ messageId: messageFocus.messageId, nonce: messageFocus.nonce });
+    onMessageFocusConsumed?.();
+  }, [messageFocus, leads]);
 
   // Mesma sincronização do Funil CRM: mantém o chat selecionado alinhado com a
   // lista ao vivo, senão mudar a etapa (ou qualquer campo) dentro da própria
@@ -6384,6 +6449,8 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
         onClose={() => setSelectedChat(null)}
         initialDraft={chatInitialDraft}
         onDraftConsumed={() => setChatInitialDraft('')}
+        focusMessageId={chatFocus?.messageId}
+        focusNonce={chatFocus?.nonce}
         onLeadPatched={(leadId, patch) => {
           setLeads(prev => prev.map(l => l.id === leadId ? { ...l, ...patch } : l));
           setSelectedChat((prev: any) => (prev && prev.id === leadId) ? { ...prev, ...patch } : prev);

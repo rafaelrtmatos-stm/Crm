@@ -96,11 +96,12 @@ self.addEventListener('fetch', (event) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const phone = event.notification.data && event.notification.data.phone;
+  const messageId = event.notification.data && event.notification.data.messageId;
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
         if ('focus' in client) {
-          client.postMessage({ type: 'open-message-notification', phone });
+          client.postMessage({ type: 'open-message-notification', phone, messageId });
           return client.focus();
         }
       }

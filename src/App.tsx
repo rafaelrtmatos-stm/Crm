@@ -48,6 +48,8 @@ import {
 import { ChevronRight } from 'lucide-react';
 
 import { NotifyHost, showAlert, showMessageToast } from './lib/notify';
+import { NotificationCenter } from './components/NotificationCenter';
+import { CrmNotification, CrmNotificationThread, fetchVisibleNotifications, resolveCrmNotifications } from './lib/crmNotifications';
 import ComissoesAdminPanel from './comissoes/ComissoesAdminPanel';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -287,7 +289,7 @@ const FinanceiroModule = ({ currentCompany, user }: { currentCompany: Company | 
 };
 
 const Navbar = () => {
-  const { user, companies, currentCompany, setCurrentCompany, setIsSidebarOpen, theme, toggleTheme, logout, logoLightUrl, logoDarkUrl, activeTab } = useApp();
+  const { user, companies, currentCompany, setCurrentCompany, setIsSidebarOpen, theme, toggleTheme, logout, logoLightUrl, logoDarkUrl, activeTab, crmNotifications, openCrmNotification, resolveCrmNotificationThread } = useApp();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isCompanySelectOpen, setIsCompanySelectOpen] = useState(false);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -397,6 +399,13 @@ const Navbar = () => {
       </div>
 
       <div className="flex items-center gap-4">
+        {/* Notificações pendentes de mensagens (abrir não resolve; só "Marcar como resolvido") */}
+        <NotificationCenter
+          notifications={crmNotifications}
+          onOpen={openCrmNotification}
+          onResolve={resolveCrmNotificationThread}
+        />
+
         {/* Theme Toggle Button */}
         <button
           onClick={toggleTheme}
@@ -734,6 +743,11 @@ export default function App() {
   const [pendingOpenContratoId, setPendingOpenContratoId] = useState<string | null>(null);
   const [pendingOpenOrcamentoId, setPendingOpenOrcamentoId] = useState<string | null>(null);
   const [pendingOpenLeadId, setPendingOpenLeadId] = useState<string | null>(null);
+  // Notificações persistentes de mensagens (tabela crm_notifications). Abrir a conversa NÃO
+  // resolve a notificação — só o botão "Marcar como resolvido" (resolveCrmNotificationThread).
+  const [crmNotifications, setCrmNotifications] = useState<CrmNotification[]>([]);
+  const [messageFocus, setMessageFocus] = useState<{ phone: string; leadId?: string; messageId: string; nonce: number } | null>(null);
+  const knownNotificationIdsRef = React.useRef<Set<string> | null>(null); // null = primeira carga ainda não feita
   const [simulatedUserId, setSimulatedUserIdState] = useState<string | null>(localStorage.getItem('rpro_simulated_user_id'));
   const [unrepliedLeadsCount, setUnrepliedLeadsCount] = useState(0);
 
@@ -1008,13 +1022,10 @@ export default function App() {
           senderName: row.sender_name,
           channel: row.channel,
         });
-        // Som + notificação nativa (estilo WhatsApp Web) pra QUALQUER mensagem nova de
-        // cliente, em qualquer lugar do app — antes isso só existia dentro do useEffect
-        // de MessagesModule (Modules.tsx), então só tocava/avisava com a aba "Mensagens"
-        // aberta. Ficando aqui no shell raiz (sempre montado, ver AppContext.Provider),
-        // o listener do Supabase Realtime continua vivo mesmo com o usuário em outra
-        // aba do CRM ou com a aba do navegador em segundo plano/minimizada.
-        notifyIncomingMessage(row);
+        // Som + aviso (toast/notificação nativa) NÃO saem mais direto daqui: nascem da
+        // notificação persistida (crm_notifications, criada por trigger no banco), no
+        // useEffect 'crm-notifications' mais abaixo — assim respeitam a permissão de grupos
+        // do usuário e o contador/lista de pendentes ficam sempre em sincronia.
       }
     ).subscribe((status: string, err?: any) => {
       // Sem isso, se o Realtime falhar (tabela fora da publicacao, filtro invalido, queda de
@@ -1034,6 +1045,72 @@ export default function App() {
       supabase.removeChannel(channel);
     };
   }, [currentCompany, user]);
+
+  // Abre a conversa no aba Mensagens, posicionada na mensagem que gerou a notificação.
+  // Só muda de tela/posição: NÃO marca a notificação como resolvida.
+  const openMessageTarget = (phone: string, messageId: string, leadId?: string) => {
+    setMessageFocus({ phone, leadId, messageId, nonce: Date.now() });
+    setIsMessagePopupOpen(false);
+    if (window.innerWidth < 1024) setIsSidebarOpen(false);
+    setActiveTab('messages'); // idempotente: se já está em Mensagens, só atualiza o foco
+  };
+  const openCrmNotification = (n: CrmNotification) => openMessageTarget(n.phone, n.messageId, n.leadId);
+  const clearMessageFocus = () => setMessageFocus(null);
+
+  // ÚNICO lugar que resolve: botão "Marcar como resolvido" do painel de notificações.
+  const resolveCrmNotificationThread = async (thread: CrmNotificationThread) => {
+    const ids = thread.items.map(i => i.id);
+    const ok = await resolveCrmNotifications(ids, user?.name);
+    if (ok) setCrmNotifications(prev => prev.filter(n => !ids.includes(n.id)));
+    else showAlert('Não foi possível marcar como resolvido. Tente novamente.');
+  };
+
+  // Carrega as notificações pendentes que ESTE usuário pode ver (grupos só se atribuídos a ele)
+  // e mantém em tempo real. Notificação nova => som + aviso; clicar nela abre a conversa.
+  useEffect(() => {
+    const uid = user?.id ? String(user.id) : null;
+    if (!uid || !currentCompany) {
+      setCrmNotifications([]);
+      knownNotificationIdsRef.current = null;
+      return;
+    }
+    let cancelled = false;
+    let seq = 0;
+    knownNotificationIdsRef.current = null;
+
+    const refresh = async () => {
+      const mySeq = ++seq;
+      const list = await fetchVisibleNotifications(uid);
+      if (cancelled || mySeq !== seq || !list) return; // ignora resposta antiga / falha
+      setCrmNotifications(list);
+      const known = knownNotificationIdsRef.current;
+      knownNotificationIdsRef.current = new Set(list.map(n => n.id));
+      if (!known) return; // primeira carga: só popula, não apita por notificação antiga
+      const novas = list.filter(n => !known.has(n.id));
+      // Um aviso por conversa (a mensagem mais recente), no máximo 3 de uma vez.
+      const ultimaPorConversa = new Map<string, CrmNotification>();
+      novas.forEach(n => ultimaPorConversa.set(n.phone, n)); // lista vem em ordem cronológica
+      Array.from(ultimaPorConversa.values()).slice(-3).forEach(n => notifyIncomingMessage(n));
+    };
+
+    refresh();
+    const channel = supabase.channel(`crm-notifications-${uid}`).on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'crm_notifications', filter: `company_id=eq.rafa-arts` },
+      () => { refresh(); }
+    ).subscribe();
+    // Reserva caso o Realtime caia: reconsulta a cada 30s e ao voltar pra aba.
+    const poll = setInterval(refresh, 30000);
+    const onVisible = () => { if (!document.hidden) refresh(); };
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      cancelled = true;
+      clearInterval(poll);
+      document.removeEventListener('visibilitychange', onVisible);
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, currentCompany]);
 
   // Login & Authentication State (Carrega credenciais lembradas instantaneamente)
   const [loginEmail, setLoginEmail] = useState(() => {
@@ -1200,13 +1277,14 @@ export default function App() {
     if (!('serviceWorker' in navigator)) return;
     const onSwMessage = (event: MessageEvent) => {
       if (event.data?.type !== 'open-message-notification') return;
-      openNotificationLead(event.data.phone);
+      if (event.data.phone && event.data.messageId) openMessageTarget(event.data.phone, event.data.messageId);
+      else openNotificationLead(event.data.phone);
     };
     navigator.serviceWorker.addEventListener('message', onSwMessage);
     return () => navigator.serviceWorker.removeEventListener('message', onSwMessage);
   }, []);
 
-  const notifyIncomingMessage = async (row: any) => {
+  const notifyIncomingMessage = async (n: CrmNotification) => {
     try {
       const audio = notifAudioRef.current || (notifAudioRef.current = new Audio('/sounds/mensagem-cliente.mp3'));
       audio.currentTime = 0;
@@ -1215,29 +1293,37 @@ export default function App() {
 
     try {
       const emSegundoPlano = document.hidden || !document.hasFocus();
-      const remetente = (row.sender_name || '').trim() || 'Novo contato';
-      const corpo = (row.text || '').trim() || 'Nova mensagem recebida';
+      const remetente = (n.title || '').trim() || 'Novo contato';
+      const previa = (n.preview || '').trim() || 'Nova mensagem recebida';
+      // Em grupo, mostra quem falou dentro do grupo.
+      const corpoCompleto = n.isGroup && n.senderName ? `${n.senderName}: ${previa}` : previa;
+      const corpo = corpoCompleto.length > 120 ? `${corpoCompleto.slice(0, 117)}...` : corpoCompleto;
+      const hora = (() => {
+        const d = new Date(n.messageAt);
+        return isNaN(d.getTime()) ? '' : d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      })();
 
       // Aba em foco: a notificacao nativa do navegador nao aparece (so quando esta em segundo
-      // plano), entao mostra um aviso visual no canto inferior do proprio CRM. Clicar abre a conversa.
+      // plano), entao mostra um aviso visual no canto inferior do proprio CRM. Clicar abre a
+      // conversa na mensagem exata (sem resolver a notificacao).
       if (!emSegundoPlano) {
         showMessageToast({
-          key: `msg-${row.phone || row.id}`,
+          key: `msg-${n.phone}`,
           title: remetente,
-          body: corpo.length > 120 ? `${corpo.slice(0, 117)}...` : corpo,
-          onClick: () => {
-            openNotificationLead(row.phone);
-          },
+          body: corpo,
+          photoUrl: n.photoUrl,
+          timeLabel: hora,
+          onClick: () => openCrmNotification(n),
         });
         return;
       }
 
       if (!('Notification' in window) || Notification.permission !== 'granted') return;
       const opcoes = {
-        body: corpo.length > 120 ? `${corpo.slice(0, 117)}...` : corpo,
-        icon: '/icon-192.png',
-        tag: `msg-${row.phone || row.id}`,
-        data: { phone: row.phone || null },
+        body: hora ? `${corpo}\n${hora}` : corpo,
+        icon: n.photoUrl || '/icon-192.png',
+        tag: `msg-${n.phone}`,
+        data: { phone: n.phone, messageId: n.messageId },
       };
 
       // Caminho principal: pelo service worker. E o UNICO que funciona no Chrome do Android
@@ -1254,7 +1340,7 @@ export default function App() {
       const notif = new Notification(remetente, opcoes);
       notif.onclick = () => {
         window.focus();
-        openNotificationLead(row.phone);
+        openCrmNotification(n);
         notif.close();
       };
     } catch (e) { console.warn('Falha ao mostrar notificacao de mensagem:', e); }
@@ -2222,6 +2308,11 @@ export default function App() {
     setPendingOpenOrcamentoId,
     pendingOpenLeadId,
     setPendingOpenLeadId,
+    crmNotifications,
+    openCrmNotification,
+    resolveCrmNotificationThread,
+    messageFocus,
+    clearMessageFocus,
     simulatedUserId,
     setSimulatedUserId,
     theme,
@@ -2334,7 +2425,7 @@ export default function App() {
                 >
                   {activeTab === 'dashboard' && <DashboardModule user={user} currentCompany={currentCompany} pendingOrders={pendingOrders} setActiveTab={setActiveTab} setIsMessagePopupOpen={setIsMessagePopupOpen} />}
                   {activeTab === 'crm' && <CRMModule currentCompany={currentCompany} user={user} />}
-                  {activeTab === 'messages' && <MessagesModule currentCompany={currentCompany} user={user} preselectedLeadId={preselectedLeadIdForMessages} />}
+                  {activeTab === 'messages' && <MessagesModule currentCompany={currentCompany} user={user} preselectedLeadId={preselectedLeadIdForMessages} messageFocus={messageFocus} onMessageFocusConsumed={clearMessageFocus} />}
                   {activeTab === 'pos' && <ModuleErrorBoundary label="o PDV"><POSModule currentCompany={currentCompany} addPendingOrder={addPendingOrder} /></ModuleErrorBoundary>}
                   {activeTab === 'contacts' && (
                     <ContactsModule

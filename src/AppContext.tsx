@@ -1,5 +1,6 @@
 import { createContext, useContext } from 'react';
 import { Company, AppUser, SaleOrder } from './types';
+import type { CrmNotification, CrmNotificationThread } from './lib/crmNotifications';
 
 export type MainTab = 
   | 'dashboard' 
@@ -51,6 +52,14 @@ export interface AppContextType {
   setPendingOpenOrcamentoId: (id: string | null) => void;
   pendingOpenLeadId: string | null;
   setPendingOpenLeadId: (id: string | null) => void;
+  // Notificações pendentes de mensagens de clientes (ver lib/crmNotifications.ts).
+  // Abrir uma notificação NÃO a resolve; só resolveCrmNotificationThread resolve.
+  crmNotifications: CrmNotification[];
+  openCrmNotification: (n: CrmNotification) => void;
+  resolveCrmNotificationThread: (thread: CrmNotificationThread) => Promise<void>;
+  // Alvo pedido por uma notificação: a aba Mensagens abre a conversa e posiciona na mensagem.
+  messageFocus: { phone: string; leadId?: string; messageId: string; nonce: number } | null;
+  clearMessageFocus: () => void;
   simulatedUserId: string | null;
   setSimulatedUserId: (id: string | null) => void;
   theme: 'dark' | 'light';
