@@ -117,6 +117,7 @@ import {
   ClientesEsperaModule
 } from './components/Modules';
 import { MessagesSidebarPopup } from './components/MessagesSidebarPopup';
+import { NotificacoesPendentesBell, useNotificacoesPendentes, buscarNotificacaoDaMensagem, formatarHoraNotificacao, usuarioPodeVerMensagens, type NotificacaoPendente } from './components/NotificacaoPendenteBanner';
 import { RobozinhoRafaModule } from './components/RobozinhoRafaModule';
 import { IntegracoesModule } from './components/IntegracoesModule';
 import { AssistantChatWidget } from './components/AssistantChatWidget';
@@ -287,7 +288,7 @@ const FinanceiroModule = ({ currentCompany, user }: { currentCompany: Company | 
 };
 
 const Navbar = () => {
-  const { user, companies, currentCompany, setCurrentCompany, setIsSidebarOpen, theme, toggleTheme, logout, logoLightUrl, logoDarkUrl, activeTab } = useApp();
+  const { user, companies, currentCompany, setCurrentCompany, setIsSidebarOpen, theme, toggleTheme, logout, logoLightUrl, logoDarkUrl, activeTab, notificacoesPendentes, abrirNotificacao } = useApp();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isCompanySelectOpen, setIsCompanySelectOpen] = useState(false);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -397,6 +398,10 @@ const Navbar = () => {
       </div>
 
       <div className="flex items-center gap-4">
+        {/* Sino: notificacoes pendentes (contador + lista). Clicar num item abre a conversa na
+            mensagem que gerou a notificacao -- NAO resolve; so o botao "Marcar como resolvido". */}
+        <NotificacoesPendentesBell itens={notificacoesPendentes} onAbrir={abrirNotificacao} />
+
         {/* Theme Toggle Button */}
         <button
           onClick={toggleTheme}
@@ -735,6 +740,11 @@ export default function App() {
   const [pendingOpenOrcamentoId, setPendingOpenOrcamentoId] = useState<string | null>(null);
   const [pendingOpenLeadId, setPendingOpenLeadId] = useState<string | null>(null);
   const [pendingOpenMessageId, setPendingOpenMessageId] = useState<string | null>(null);
+  // Notificacoes pendentes do usuario (agrupadas por cliente/grupo, filtradas por permissao)
+  const { itens: notificacoesPendentes } = useNotificacoesPendentes(user);
+  // Os listeners do Realtime sao criados uma vez: leem o usuario atual por ref, nao por closure velha
+  const userRef = React.useRef<AppUser | null>(null);
+  userRef.current = user;
   const [simulatedUserId, setSimulatedUserIdState] = useState<string | null>(localStorage.getItem('rpro_simulated_user_id'));
   const [unrepliedLeadsCount, setUnrepliedLeadsCount] = useState(0);
 
@@ -1166,7 +1176,9 @@ export default function App() {
       // pular pra uma mensagem antiga quando essa conversa for aberta manualmente depois.
       setTimeout(() => setPendingOpenMessageId(cur => (cur === messageId ? null : cur)), 15000);
     }
-    setActiveTab('crm');
+    // Regra 9: de qualquer tela do CRM, o clique leva pra aba Mensagens (MessagesModule abre a
+    // conversa via pendingOpenLeadId; se ja for a conversa aberta, nao abre outra).
+    setActiveTab('messages');
     if (!phone) return;
 
     const findAndSelectLead = async (): Promise<boolean> => {
@@ -1204,6 +1216,8 @@ export default function App() {
     }
   };
 
+  const abrirNotificacao = (n: NotificacaoPendente) => { openNotificationLead(n.phone, n.messageId); };
+
   // Clique numa notificacao mostrada pelo service worker (public/sw.js): o SW avisa a aba
   // aberta e aqui abrimos a conversa, igual o onclick da Notification antiga fazia.
   useEffect(() => {
@@ -1217,6 +1231,14 @@ export default function App() {
   }, []);
 
   const notifyIncomingMessage = async (row: any) => {
+    // Regra 11: so avisa (som, aviso na tela, notificacao nativa) de conversas/grupos que o
+    // usuario tem permissao de ver. Sem linha em crm_notifications (gatilho falhou) cai no
+    // comportamento antigo, desde que o usuario tenha acesso a Mensagens.
+    const usuarioAtual = userRef.current;
+    if (!usuarioPodeVerMensagens(usuarioAtual)) return;
+    const info = await buscarNotificacaoDaMensagem(row.id, usuarioAtual).catch(() => null);
+    if (info && !info.visivel) return;
+
     try {
       const audio = notifAudioRef.current || (notifAudioRef.current = new Audio('/sounds/mensagem-cliente.mp3'));
       audio.currentTime = 0;
@@ -1225,8 +1247,12 @@ export default function App() {
 
     try {
       const emSegundoPlano = document.hidden || !document.hasFocus();
-      const remetente = (row.sender_name || '').trim() || 'Novo contato';
-      const corpo = (row.text || '').trim() || 'Nova mensagem recebida';
+      // Regra 2: nome (ou grupo), foto, previa e horario da notificacao. Em grupo, a previa
+      // mostra quem escreveu ("Fulano: texto").
+      const remetente = info?.title || (row.sender_name || '').trim() || 'Novo contato';
+      const previaBase = info?.preview || (row.text || '').trim() || 'Nova mensagem recebida';
+      const corpo = info?.isGroup && (row.sender_name || '').trim() ? `${String(row.sender_name).trim()}: ${previaBase}` : previaBase;
+      const horario = formatarHoraNotificacao(info?.messageAt || row.created_at || new Date().toISOString());
 
       // Aba em foco: a notificacao nativa do navegador nao aparece (so quando esta em segundo
       // plano), entao mostra um aviso visual no canto inferior do proprio CRM. Clicar abre a conversa.
@@ -1235,6 +1261,8 @@ export default function App() {
           key: `msg-${row.phone || row.id}`,
           title: remetente,
           body: corpo.length > 120 ? `${corpo.slice(0, 117)}...` : corpo,
+          photoUrl: info?.photoUrl,
+          time: horario,
           onClick: () => {
             openNotificationLead(row.phone, row.id);
           },
@@ -1245,7 +1273,7 @@ export default function App() {
       if (!('Notification' in window) || Notification.permission !== 'granted') return;
       const opcoes = {
         body: corpo.length > 120 ? `${corpo.slice(0, 117)}...` : corpo,
-        icon: '/icon-192.png',
+        icon: info?.photoUrl || '/icon-192.png',
         tag: `msg-${row.phone || row.id}`,
         data: { phone: row.phone || null, messageId: row.id || null },
       };
@@ -2234,6 +2262,8 @@ export default function App() {
     setPendingOpenLeadId,
     pendingOpenMessageId,
     setPendingOpenMessageId,
+    notificacoesPendentes,
+    abrirNotificacao,
     simulatedUserId,
     setSimulatedUserId,
     theme,

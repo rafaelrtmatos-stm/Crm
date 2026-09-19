@@ -5917,7 +5917,7 @@ const GenericListView = ({ title, subtitle, columns, data, icon, onAdd, noHeader
 
 // --- MESSAGES ---
 export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { currentCompany: Company | null, user: AppUser | null, preselectedLeadId?: string }) => {
-  const { pendingWhatsAppShare, setPendingWhatsAppShare } = React.useContext(AppContext)!;
+  const { pendingWhatsAppShare, setPendingWhatsAppShare, pendingOpenLeadId, setPendingOpenLeadId } = React.useContext(AppContext)!;
   const [selectedChat, setSelectedChat] = useState<any>(null);
   const [chatInitialDraft, setChatInitialDraft] = useState('');
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -6213,6 +6213,18 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
     const channel = supabase.channel('messages-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.rafa-arts` }, loadLeads).subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [currentCompany]);
+
+  // Vindo de uma NOTIFICACAO (App.tsx openNotificationLead troca pra esta aba e guarda o lead em
+  // pendingOpenLeadId): abre a conversa correta. Se ja e a conversa aberta, NAO abre outra nem
+  // duplica: so consome o pedido -- o ChatPanel reposiciona na mensagem-alvo (pendingOpenMessageId)
+  // e o realtime atualiza mensagens e contador. Abrir a conversa NAO resolve a notificacao.
+  useEffect(() => {
+    if (!pendingOpenLeadId || leads.length === 0) return;
+    const target = leads.find(l => l.id === pendingOpenLeadId);
+    if (!target) return;
+    if (selectedChat?.id !== target.id) setSelectedChat({ ...target, name: target.fullName });
+    setPendingOpenLeadId(null);
+  }, [pendingOpenLeadId, leads]);
 
   // O som de notificação de mensagem nova (incoming) e a notificação nativa do
   // navegador foram movidos pro shell raiz do app (ver notifyIncomingMessage em

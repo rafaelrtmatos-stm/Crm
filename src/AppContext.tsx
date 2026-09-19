@@ -1,5 +1,6 @@
 import { createContext, useContext } from 'react';
 import { Company, AppUser, SaleOrder } from './types';
+import type { NotificacaoPendente } from './components/NotificacaoPendenteBanner';
 
 export type MainTab = 
   | 'dashboard' 
@@ -54,6 +55,10 @@ export interface AppContextType {
   // Mensagem exata que gerou a notificacao clicada: o ChatPanel rola ate ela e a destaca.
   pendingOpenMessageId: string | null;
   setPendingOpenMessageId: (id: string | null) => void;
+  // Notificacoes PENDENTES (agrupadas por cliente/grupo, ja filtradas pela permissao do usuario) e
+  // a acao de abrir a conversa na mensagem que gerou a notificacao. Abrir NAO resolve.
+  notificacoesPendentes: NotificacaoPendente[];
+  abrirNotificacao: (n: NotificacaoPendente) => void;
   simulatedUserId: string | null;
   setSimulatedUserId: (id: string | null) => void;
   theme: 'dark' | 'light';
