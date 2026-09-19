@@ -10218,7 +10218,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [newPaymentInstallments, setNewPaymentInstallments] = useState(1);
   const canManageHistory = !!(user?.isAdmin || user?.allowedActions?.includes('canManageSaleHistory'));
   const [editingSale, setEditingSale] = useState<SaleOrder | null>(null);
-  const [editSaleForm, setEditSaleForm] = useState({ customerName: '', total: 0, downPayment: 0, paymentMethod: 'pix', observacoes: '', scheduledFor: '' });
+  const [editSaleForm, setEditSaleForm] = useState({ customerName: '', total: 0, downPayment: 0, paymentMethod: 'pix', observacoes: '', scheduledFor: '', orderDate: '' });
 
   const handleReopenSale = async (sale: SaleOrder) => {
     if (!(await showConfirm(`Reabrir a venda #${sale.id.slice(-8).toUpperCase()}? Ela voltará a aparecer como pendente.`))) return;
@@ -10265,11 +10265,20 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       paymentMethod: sale.paymentMethod || 'pix',
       observacoes: sale.observacoes || '',
       scheduledFor: sale.scheduledFor ? isoToLocalDatetimeInput(sale.scheduledFor) : '',
+      orderDate: sale.createdAt ? isoToLocalDatetimeInput(sale.createdAt) : '',
     });
   };
 
   const handleSaveEditSale = async () => {
     if (!editingSale) return;
+    // Data do pedido retroativa: so grava se a pessoa mudou o campo (ex: pedido feito na segunda,
+    // nota anotada na sexta). Marca data_pedido, que vale mais que a entrega em Serviços/Comissões.
+    const dataPedidoMudou = !!editSaleForm.orderDate && editSaleForm.orderDate !== isoToLocalDatetimeInput(editingSale.createdAt);
+    const novaDataPedidoIso = dataPedidoMudou ? localDatetimeToIso(editSaleForm.orderDate) : null;
+    if (dataPedidoMudou && (!novaDataPedidoIso || new Date(novaDataPedidoIso).getTime() > Date.now() + 60000)) {
+      showAlert('A data do pedido não pode estar no futuro.');
+      return;
+    }
     // Zerar/remover a entrada (cliente reaver o dinheiro e quitar so na retirada) precisa:
     // 1) limpar o registro financeiro vinculado (lista de pagamentos e valor recebido), senao
     //    o caixa continua contando um pagamento que na pratica foi estornado;
@@ -10310,6 +10319,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       payment_method: editSaleForm.paymentMethod,
       observacoes: editSaleForm.observacoes || null,
       scheduled_for: localDatetimeToIso(editSaleForm.scheduledFor),
+      ...(novaDataPedidoIso ? { created_at: novaDataPedidoIso, data_pedido: novaDataPedidoIso } : {}),
       status: novoStatus,
     }).eq('id', editingSale.id).select();
     if (error) { console.error(error); showAlert('Não foi possível salvar as alterações.'); return; }
@@ -10326,6 +10336,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       paymentMethod: editSaleForm.paymentMethod as any,
       observacoes: editSaleForm.observacoes || undefined,
       scheduledFor: localDatetimeToIso(editSaleForm.scheduledFor) || undefined,
+      ...(novaDataPedidoIso ? { createdAt: novaDataPedidoIso } : {}),
       status: novoStatus,
     };
     setAllSalesHistory(prev => prev.map(s => s.id === editingSale.id ? atualizado : s));
@@ -11449,6 +11460,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         const totalPagoAnteriorEditado = editingPaymentsList.reduce((sum, p) => sum + (p.value || 0), 0);
         const totalPago = totalPagoAnteriorEditado + effectivePaymentEntriesTotal;
         const novoSaldo = Math.max(0, total - totalPago);
+        // Data do pedido alterada aqui (ex: pedido feito na segunda, anotado na sexta) tambem grava
+        // data_pedido, que tem prioridade sobre a entrega em Serviços/Comissões. Nunca no futuro.
+        const dataPedidoMudou = !!editingCreatedAt && editingCreatedAt !== isoToLocalDatetimeInput(editingFullOrder.createdAt);
+        const novaDataPedidoIso = dataPedidoMudou ? localDatetimeToIso(editingCreatedAt) : null;
+        if (dataPedidoMudou && (!novaDataPedidoIso || new Date(novaDataPedidoIso).getTime() > Date.now() + 60000)) {
+          showAlert('A data do pedido não pode estar no futuro.');
+          return;
+        }
         try {
           const pagamentosFinaisEdicao = [...editingPaymentsList, ...effectivePaymentEntries];
           const { data, error } = await supabase.from('vendas').update({
@@ -11465,6 +11484,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             observacoes: orderObservacoes || null,
             scheduled_for: localDatetimeToIso(scheduledFor) || editingFullOrder.scheduledFor || null,
             created_at: editingCreatedAt ? new Date(editingCreatedAt).toISOString() : editingFullOrder.createdAt,
+            ...(novaDataPedidoIso ? { data_pedido: novaDataPedidoIso } : {}),
             updated_at: new Date().toISOString(),
           }).eq('id', editingFullOrder.id).select();
           if (error) throw error;
@@ -16415,6 +16435,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       <input
                         type="datetime-local"
                         value={editingCreatedAt}
+                        max={isoToLocalDatetimeInput(new Date().toISOString())}
                         onChange={(e) => setEditingCreatedAt(e.target.value)}
                         className="w-full h-8 sm:h-9 rounded-lg border border-white/10 bg-white/5 px-2.5 text-[9px] sm:text-[10px] text-white focus:outline-none focus:border-primary-500"
                       />
@@ -16843,6 +16864,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  </button>
                ))}
              </div>
+           </div>
+           <div className="space-y-2">
+             <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Data/Hora do Pedido (pode ser retroativa)</label>
+             <input
+               type="datetime-local"
+               value={editSaleForm.orderDate}
+               max={isoToLocalDatetimeInput(new Date().toISOString())}
+               onChange={(e: any) => setEditSaleForm({ ...editSaleForm, orderDate: e.target.value })}
+               className="w-full h-11 bg-white/5 border border-white/10 rounded-xl px-3 text-xs text-white focus:outline-none focus:border-primary-500"
+             />
+             <p className="text-[9px] text-white/40 font-medium">Ex: pedido feito na segunda e anotado na sexta. A comissão dos itens ainda não lançados entra no dia/semana do pedido; o pagamento mantém a própria data.</p>
            </div>
            <div className="space-y-2">
              <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Data/Hora de Entrega Agendada</label>
