@@ -8,20 +8,24 @@ import { Lead, Company, AppUser } from '../types';
 import { cn, Button, AvatarPhoto, Modal } from './SharedUI';
 import {
   Search, RefreshCw, Clock, CheckCircle2, X, Instagram, Facebook, Send, Mail, MessageCircle, Globe,
-  MoreVertical, CirclePlus, VolumeX, CheckSquare, Check, Archive, Trash2, Flag, MailOpen, GitMerge, Users,
+  MoreVertical, CirclePlus, VolumeX, CheckSquare, Check, Archive, Trash2, Flag, MailOpen, GitMerge, Users, ArrowUp, ArrowDown,
 } from 'lucide-react';
 import { MergeLeadsModal } from './MergeLeadsModal';
 import { WhatsAppGroupsModule } from './WhatsAppGroupsModule';
 import { format } from 'date-fns';
 import { leadLastMessageDate, leadSortTime, formatListTime } from '../lib/leadTime';
 
-type SortMode = 'recent' | 'unread' | 'highlight';
+// Regras de ordenação do menu ORGANIZAR (mesmas do menu "Ordenar" do Funil CRM, ver LEAD_SORT_OPTIONS em
+// Modules.tsx). Cada uma tem direção (↑ crescente / ↓ decrescente); clicar na ativa inverte a direção.
+type SortKey = 'ultima_mensagem' | 'ultimo_evento' | 'criacao' | 'nome' | 'venda';
 type SelectionMode = null | 'bulk' | 'mute' | 'group';
 
-const SORT_OPTIONS: { id: SortMode; label: string }[] = [
-  { id: 'recent', label: 'Mais recentes' },
-  { id: 'unread', label: 'Não lidos primeiro' },
-  { id: 'highlight', label: 'Destaque' },
+const SORT_OPTIONS: { key: SortKey; label: string; defaultDir: 'asc' | 'desc' }[] = [
+  { key: 'ultima_mensagem', label: 'Pela última mensagem', defaultDir: 'desc' },
+  { key: 'ultimo_evento', label: 'Por último evento', defaultDir: 'desc' },
+  { key: 'criacao', label: 'Por data de criação', defaultDir: 'desc' },
+  { key: 'nome', label: 'Por nome', defaultDir: 'asc' },
+  { key: 'venda', label: 'Por venda', defaultDir: 'desc' },
 ];
 
 // Ícone + cor por canal de origem — MESMA paleta usada no simulador de canais
@@ -75,6 +79,7 @@ const mapearLeadDaLista = (r: any): Lead => ({
   lastClientMessageText: r.last_client_message_text, lastClientMessageAt: r.last_client_message_at,
   waitingSince: r.waiting_since, funnelId: r.funnel_id, funnelStageId: r.funnel_stage_id, priority: r.priority,
   createdAt: r.created_at, updatedAt: r.updated_at, photoUrl: r.photo_url || undefined,
+  estimatedValue: r.estimated_value !== null && r.estimated_value !== undefined ? Number(r.estimated_value) : undefined,
 } as any as Lead);
 
 // Monta a lista: mais recente primeiro (pela ultima mensagem) e UMA conversa por telefone.
@@ -201,7 +206,16 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isMergeOpen, setIsMergeOpen] = useState(false); // Mesclar contatos duplicados (MergeLeadsModal)
   const [isGroupsAdminOpen, setIsGroupsAdminOpen] = useState(false); // tela Grupos do WhatsApp (so administrador)
-  const [sortMode, setSortMode] = useState<SortMode>('recent');
+  // Ordenação principal (padrão = pela última mensagem, mais recente primeiro, como sempre foi) + prioridades
+  // opcionais que passam na frente da ordenação escolhida ("Não lidos primeiro" e "Destaque").
+  const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'ultima_mensagem', dir: 'desc' });
+  const [unreadFirst, setUnreadFirst] = useState(false);
+  const [highlightFirst, setHighlightFirst] = useState(false);
+  const pickSort = (key: SortKey) => {
+    const opt = SORT_OPTIONS.find(o => o.key === key)!;
+    setSort(prev => prev.key === key ? { key, dir: prev.dir === 'desc' ? 'asc' : 'desc' } : { key, dir: opt.defaultDir });
+    setIsMenuOpen(false);
+  };
   const [selectionMode, setSelectionMode] = useState<SelectionMode>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [groupName, setGroupName] = useState('');
@@ -451,18 +465,31 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
 
   const unrepliedCount = leads.filter(l => l.waitingSince && conversaPermitida(l)).length;
 
-  // Ordenação client-side sobre a lista já ordenada pela ÚLTIMA MENSAGEM (last_message_at desc,
-  // ver prepararListaDeConversas). "Mais recentes" não precisa reordenar; os outros dois modos
-  // fazem um sort estável (mantém a ordem relativa por recência dentro de
-  // cada grupo) só pra trazer o grupo relevante pro topo.
+  // Ordenação client-side sobre a lista já ordenada pela ÚLTIMA MENSAGEM (last_message_at desc, ver
+  // prepararListaDeConversas). Padrão (última mensagem ↓, sem prioridades) não reordena nada. Prioridades
+  // ("Não lidos primeiro" e "Destaque") passam na frente; dentro de cada grupo vale a ordenação escolhida.
+  // Sort estável: empate mantém a ordem por recência.
   const sortLeads = (list: Lead[]) => {
-    if (sortMode === 'unread') {
-      return [...list].sort((a, b) => Number(!!(b.unread ?? b.waitingSince)) - Number(!!(a.unread ?? a.waitingSince)));
-    }
-    if (sortMode === 'highlight') {
-      return [...list].sort((a, b) => Number(b.priority === 'alta') - Number(a.priority === 'alta'));
-    }
-    return list;
+    if (!unreadFirst && !highlightFirst && sort.key === 'ultima_mensagem' && sort.dir === 'desc') return list;
+    const ms = (v: any) => { const d = typeof v?.toDate === 'function' ? v.toDate() : new Date(v); const t = d.getTime(); return isNaN(t) ? 0 : t; };
+    const chave = (l: Lead): number | string => {
+      switch (sort.key) {
+        case 'ultima_mensagem': return leadSortTime(l);
+        case 'ultimo_evento': return ms(l.updatedAt);
+        case 'criacao': return ms(l.createdAt);
+        case 'nome': return (nomeDaConversa(l) || '').toLocaleLowerCase('pt-BR');
+        case 'venda': return l.estimatedValue ?? 0;
+      }
+    };
+    const prioridade = (l: Lead) => (unreadFirst && (l.unread ?? l.waitingSince) ? 2 : 0) + (highlightFirst && l.priority === 'alta' ? 1 : 0);
+    const sinal = sort.dir === 'asc' ? 1 : -1;
+    return [...list].sort((a, b) => {
+      const pd = prioridade(b) - prioridade(a);
+      if (pd !== 0) return pd;
+      const ka = chave(a), kb = chave(b);
+      const cmp = typeof ka === 'string' && typeof kb === 'string' ? ka.localeCompare(kb, 'pt-BR') : (ka as number) - (kb as number);
+      return cmp * sinal;
+    });
   };
 
   const favoriteCount = leads.filter(l => l.priority === 'alta').length;
@@ -655,71 +682,82 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                           pra o overflow-hidden do card do balão não cortar o menu. */}
                       <div
                         className="fixed bg-white border border-slate-200 rounded-xl shadow-2xl z-[100] py-1.5 text-sm whitespace-nowrap"
-                        style={{ top: menuPos.top, left: menuPos.left, width: 240, minWidth: 240, maxWidth: 260 }}
+                        style={{ top: menuPos.top, left: menuPos.left, width: 240, minWidth: 240, maxWidth: 260, maxHeight: `calc(100vh - ${menuPos.top + 12}px)`, overflowY: 'auto' }}
                       >
-                        <button
-                          type="button"
-                          onClick={() => startSelection('group')}
-                          className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 hover:bg-slate-50 transition-colors text-left whitespace-nowrap"
-                        >
+                        
+                        <p className="px-3.5 pt-1 pb-1 text-[11px] font-black uppercase tracking-wider text-slate-400 whitespace-nowrap">Ações</p>
+                        <button type="button" onClick={() => startSelection('group')} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 hover:bg-slate-50 transition-colors text-left whitespace-nowrap">
                           <CirclePlus size={16} className="text-slate-400 shrink-0" />
                           <span className="whitespace-nowrap">Criar um grupo</span>
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => startSelection('mute')}
-                          className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 hover:bg-slate-50 transition-colors text-left whitespace-nowrap"
-                        >
-                          <VolumeX size={16} className="text-slate-400 shrink-0" />
-                          <span className="whitespace-nowrap">Silenciar</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => startSelection('bulk')}
-                          className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 hover:bg-slate-50 transition-colors text-left whitespace-nowrap"
-                        >
+                        <button type="button" onClick={() => startSelection('bulk')} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 hover:bg-slate-50 transition-colors text-left whitespace-nowrap">
                           <CheckSquare size={16} className="text-slate-400 shrink-0" />
                           <span className="whitespace-nowrap">Ações múltiplas</span>
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => { setIsMenuOpen(false); setIsMergeOpen(true); }}
-                          className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 hover:bg-slate-50 transition-colors text-left whitespace-nowrap"
-                        >
+                        <div className="border-t border-slate-100 my-1.5" />
+                        <p className="px-3.5 pt-1 pb-1 text-[11px] font-black uppercase tracking-wider text-slate-400 whitespace-nowrap">Organizar</p>
+                        {SORT_OPTIONS.map(opt => {
+                          const ativo = sort.key === opt.key;
+                          const DirIcon = (ativo ? sort.dir : opt.defaultDir) === 'asc' ? ArrowUp : ArrowDown;
+                          return (
+                            <button
+                              key={opt.key}
+                              type="button"
+                              onClick={() => pickSort(opt.key)}
+                              className={cn(
+                                "w-full flex items-center gap-2 px-3.5 py-2 transition-colors text-left whitespace-nowrap",
+                                ativo ? "text-primary-600 font-bold" : "text-slate-600 hover:bg-slate-50"
+                              )}
+                            >
+                              <span className="w-4 shrink-0 flex items-center justify-center">
+                                {ativo && <Check size={14} className="text-primary-600" />}
+                              </span>
+                              <span className="whitespace-nowrap flex-1">{opt.label}</span>
+                              <DirIcon size={14} className={cn("shrink-0", !ativo && "opacity-40")} />
+                            </button>
+                          );
+                        })}
+                        {([
+                          { label: 'Não lidos primeiro', on: unreadFirst, toggle: () => setUnreadFirst(v => !v) },
+                          { label: 'Destaque', on: highlightFirst, toggle: () => setHighlightFirst(v => !v) },
+                        ]).map(p => (
+                          <button
+                            key={p.label}
+                            type="button"
+                            onClick={() => { p.toggle(); setIsMenuOpen(false); }}
+                            className={cn(
+                              "w-full flex items-center gap-2 px-3.5 py-2 transition-colors text-left whitespace-nowrap",
+                              p.on ? "text-primary-600 font-bold" : "text-slate-600 hover:bg-slate-50"
+                            )}
+                          >
+                            <span className="w-4 shrink-0 flex items-center justify-center">
+                              {p.on && <Check size={14} className="text-primary-600" />}
+                            </span>
+                            <span className="whitespace-nowrap flex-1">{p.label}</span>
+                          </button>
+                        ))}
+                        <div className="border-t border-slate-100 my-1.5" />
+                        <p className="px-3.5 pt-1 pb-1 text-[11px] font-black uppercase tracking-wider text-slate-400 whitespace-nowrap">Contatos</p>
+                        <button type="button" onClick={() => { setIsMenuOpen(false); setIsMergeOpen(true); }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 hover:bg-slate-50 transition-colors text-left whitespace-nowrap">
                           <GitMerge size={16} className="text-slate-400 shrink-0" />
                           <span className="whitespace-nowrap">Mesclar contatos duplicados</span>
                         </button>
-                        {user?.isAdmin && (
-                          <button
-                            type="button"
-                            onClick={() => { setIsMenuOpen(false); setIsGroupsAdminOpen(true); }}
-                            className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 hover:bg-slate-50 transition-colors text-left whitespace-nowrap"
-                          >
-                            <Users size={16} className="text-slate-400 shrink-0" />
-                            <span className="whitespace-nowrap">Grupos do WhatsApp</span>
-                          </button>
-                        )}
-
                         <div className="border-t border-slate-100 my-1.5" />
-
-                        <p className="px-3.5 pt-1 pb-1.5 text-[11px] font-black uppercase tracking-wider text-slate-400 whitespace-nowrap">Ordenar</p>
-                        {SORT_OPTIONS.map(opt => (
-                          <button
-                            key={opt.id}
-                            type="button"
-                            onClick={() => { setSortMode(opt.id); setIsMenuOpen(false); }}
-                            className={cn(
-                              "w-full flex items-center gap-2 px-3.5 py-2 transition-colors text-left whitespace-nowrap",
-                              sortMode === opt.id ? "text-primary-600 font-bold" : "text-slate-600 hover:bg-slate-50"
-                            )}
-                          >
-                            {/* ✓ na frente da opção ativa; as outras ficam alinhadas com o mesmo recuo */}
-                            <span className="w-4 shrink-0 flex items-center justify-center">
-                              {sortMode === opt.id && <Check size={14} className="text-primary-600" />}
-                            </span>
-                            <span className="whitespace-nowrap">{opt.label}</span>
-                          </button>
-                        ))}
+                        <p className="px-3.5 pt-1 pb-1 text-[11px] font-black uppercase tracking-wider text-slate-400 whitespace-nowrap">Notificações</p>
+                        <button type="button" onClick={() => startSelection('mute')} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 hover:bg-slate-50 transition-colors text-left whitespace-nowrap">
+                          <VolumeX size={16} className="text-slate-400 shrink-0" />
+                          <span className="whitespace-nowrap">Silenciar</span>
+                        </button>
+                        {user?.isAdmin && (
+                          <>
+                            <div className="border-t border-slate-100 my-1.5" />
+                            <p className="px-3.5 pt-1 pb-1 text-[11px] font-black uppercase tracking-wider text-slate-400 whitespace-nowrap">Administração</p>
+                            <button type="button" onClick={() => { setIsMenuOpen(false); setIsGroupsAdminOpen(true); }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 hover:bg-slate-50 transition-colors text-left whitespace-nowrap">
+                              <Users size={16} className="text-slate-400 shrink-0" />
+                              <span className="whitespace-nowrap">Grupos do WhatsApp</span>
+                            </button>
+                          </>
+                        )}
                       </div>
                     </>,
                     document.body
