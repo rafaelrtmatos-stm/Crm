@@ -25,6 +25,9 @@ interface NotaAgendada {
   total: number;
   discount_value?: number | null;
   scheduled_for: string | null;
+  // Data de entrada RETROATIVA do pedido (PDV: "pedido feito em outro dia"). Quando existe, vale
+  // mais que a entrega: a nota aparece e a comissão é lançada no dia/semana do pedido.
+  data_pedido?: string | null;
   items: (NotaDetalheItem & { productId?: string | null })[];
   observacoes: string | null;
   created_at?: string;
@@ -35,6 +38,9 @@ interface ServicosAgendadosProps {
   onAddItemsToTable?: (items: NotaSelecionadoItem[], nota: NotaDetalhe, data: string) => Promise<boolean>;
   colaboradorId?: string;
 }
+
+const dataBaseNota = (n: { data_pedido?: string | null; scheduled_for: string | null; created_at?: string }) =>
+  n.data_pedido || n.scheduled_for || n.created_at;
 
 const dateKey = (raw: string | null | undefined) => {
   if (!raw) return getTodayISO();
@@ -182,7 +188,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
 
     const { data: vendasData } = await supabase
       .from('vendas')
-      .select('id, customer_name, total, discount_value, scheduled_for, items, observacoes, service_status, created_at')
+      .select('id, customer_name, total, discount_value, scheduled_for, data_pedido, items, observacoes, service_status, created_at')
       .neq('status', 'canceled')
       .is('deleted_at', null)
       .neq('service_status', 'produto_entregue')
@@ -333,7 +339,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
   // Notas dentro da semana selecionada (pasta).
   const notasDaSemana = useMemo(
     () => notasVisiveis.filter(n => {
-      const key = dateKey(n.scheduled_for || n.created_at);
+      const key = dateKey(dataBaseNota(n));
       return key >= weekBounds.start && key <= weekBounds.end;
     }),
     [notasVisiveis, weekBounds]
@@ -345,7 +351,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
     const dias: { iso: string; count: number }[] = [];
     for (let i = 0; i < 7; i++) {
       const iso = addDaysISO(weekBounds.start, i);
-      const count = notasDaSemana.filter(n => dateKey(n.scheduled_for || n.created_at) === iso).length;
+      const count = notasDaSemana.filter(n => dateKey(dataBaseNota(n)) === iso).length;
       dias.push({ iso, count });
     }
     return dias;
@@ -362,13 +368,13 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
       });
     }
     if (selectedDay === 'all') return notasDaSemana;
-    return notasDaSemana.filter(n => dateKey(n.scheduled_for || n.created_at) === selectedDay);
+    return notasDaSemana.filter(n => dateKey(dataBaseNota(n)) === selectedDay);
   }, [notasDaSemana, notasVisiveis, selectedDay, termoBuscaServico]);
 
   const gruposPorDia = useMemo(() => {
     const map = new Map<string, NotaAgendada[]>();
     notasFiltradas.forEach(n => {
-      const key = dateKey(n.scheduled_for || n.created_at);
+      const key = dateKey(dataBaseNota(n));
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(n);
     });
@@ -462,7 +468,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
   const abrirConfirmarData = (nota: NotaAgendada, idxs: number[]) => {
     if (!idxs.length) return;
     const dataHoje = getTodayISO();
-    const dataNota = dateKey(nota.scheduled_for || nota.created_at);
+    const dataNota = dateKey(dataBaseNota(nota));
     setConfirmarDataModal({
       nota,
       idxs,
@@ -616,7 +622,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
     const completa = totalItens > 0 && adicionados >= totalItens;
     const parcial = adicionados > 0 && !completa;
     const expanded = expandedNotes.has(nota.id);
-    const data = dateKey(nota.scheduled_for || nota.created_at);
+    const data = dateKey(dataBaseNota(nota));
     const atrasado =
       !!nota.scheduled_for && new Date(nota.scheduled_for).getTime() <= Date.now();
 
@@ -1063,7 +1069,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
                       <div className="min-w-0 flex-1">
                         <p className="font-black text-sm truncate">{(nota.customer_name || 'Cliente de Balcão').toUpperCase()}</p>
                         <p className="text-[11px] text-[var(--text-muted)]">
-                          {dateLabel(dateKey(nota.scheduled_for || nota.created_at))}
+                          {dateLabel(dateKey(dataBaseNota(nota)))}
                         </p>
                       </div>
                       <button

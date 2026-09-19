@@ -7756,6 +7756,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [newPaymentMode, setNewPaymentMode] = useState<'valor' | 'percentual'>('valor');
   const [useCustomPaymentDate, setUseCustomPaymentDate] = useState(false);
   const [customPaymentDate, setCustomPaymentDate] = useState('');
+  // Data do PEDIDO retroativa (ex: pedido feito na segunda, anotado/pago na sexta). Separada da
+  // data do pagamento: a nota entra com essa data e a comissão cai no dia/semana do pedido.
+  const [useCustomOrderDate, setUseCustomOrderDate] = useState(false);
+  const [customOrderDate, setCustomOrderDate] = useState('');
   const [newPaymentInput, setNewPaymentInput] = useState<number | ''>('');
   const [pendingPaymentMethod, setPendingPaymentMethod] = useState<string>('');
   const [pixQrAmount, setPixQrAmount] = useState<number>(0);
@@ -7763,6 +7767,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const resetPaymentEntries = () => {
     setPaymentEntries([]);
+    setUseCustomOrderDate(false);
+    setCustomOrderDate('');
     setIsAddPaymentOpen(false);
     setNewPaymentInput('');
     setNewPaymentMode('valor');
@@ -11647,6 +11653,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       const paymentsToSave = forceZeroPayment ? [] : effectivePaymentEntries;
       const deliveryDate = localDatetimeToIso(scheduledFor) || undefined;
       const isPartialSale = currentRemaining > 0 || isPending;
+      // Data do pedido retroativa (opcional). Nunca no futuro; vazia/invalida = agora.
+      const orderDateIso = useCustomOrderDate && customOrderDate ? localDatetimeToIso(customOrderDate) : null;
+      if (useCustomOrderDate && customOrderDate && (!orderDateIso || new Date(orderDateIso).getTime() > Date.now() + 60000)) {
+        showAlert('A data do pedido não pode estar no futuro.');
+        return;
+      }
 
       const order: SaleOrder = {
         id: `ord_${Date.now()}`,
@@ -11662,7 +11674,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         payments: paymentsToSave,
         pendingPaymentMethod: currentRemaining > 0 ? (pendingPaymentMethod || undefined) : undefined,
         status: isPartialSale ? 'pending' : 'completed',
-        createdAt: new Date().toISOString(),
+        createdAt: orderDateIso || new Date().toISOString(),
         scheduledFor: deliveryDate || undefined,
         observacoes: orderObservacoes || undefined
       };
@@ -11685,9 +11697,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           observacoes: orderObservacoes || null,
           orcamento_id: linkedOrcamentoId || null,
           discount_value: saleDiscountValue || null,
+          // Pedido retroativo: a nota entra na data do pedido (created_at) e data_pedido marca
+          // isso de forma explicita pra Serviços/Comissões usarem antes da data de entrega.
+          ...(orderDateIso ? { created_at: orderDateIso, data_pedido: orderDateIso } : {}),
         }).select().single();
         if (error) throw error;
         insertedVenda = insertedVendaResult;
+        setUseCustomOrderDate(false);
+        setCustomOrderDate('');
 
         // Atualiza a tela IMEDIATAMENTE após a inserção confirmada no banco
         let novaVendaMapeada: SaleOrder = order;
@@ -16088,6 +16105,43 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               <Plus size={12} className="mr-1" /> Adicionar
                             </button>
                          </div>
+
+                         {!settlingOrder && !editingFullOrder && (
+                           !useCustomOrderDate ? (
+                             <button
+                               type="button"
+                               onClick={() => setUseCustomOrderDate(true)}
+                               className="w-full flex items-center justify-center gap-1.5 text-[9px] font-black uppercase text-sky-300 hover:text-sky-200 shrink-0 border border-sky-500/30 hover:border-sky-400/50 bg-sky-500/10 hover:bg-sky-500/15 rounded-lg h-8 cursor-pointer transition-all active:scale-95"
+                             >
+                               <CalendarClock size={13} /> Pedido feito em outro dia (data retroativa do pedido)
+                             </button>
+                           ) : (
+                             <div className="flex items-center gap-1.5 shrink-0 p-1.5 bg-sky-500/10 border border-sky-500/30 rounded-lg">
+                                <div className="flex-1 space-y-0.5">
+                                   <label className="flex items-center gap-1 text-[7.5px] font-black text-sky-300 uppercase tracking-widest">
+                                      <CalendarClock size={10} /> Data do Pedido (entrada da nota)
+                                   </label>
+                                   <input
+                                     autoFocus
+                                     type="datetime-local"
+                                     value={customOrderDate}
+                                     max={isoToLocalDatetimeInput(new Date().toISOString())}
+                                     onChange={(e) => setCustomOrderDate(e.target.value)}
+                                     className="w-full h-9 bg-slate-900/70 border border-sky-500/30 rounded-lg px-2 text-xs sm:text-sm text-white font-bold focus:outline-none focus:border-sky-400"
+                                   />
+                                   <p className="text-[8px] text-sky-200/70 font-medium">O pagamento continua com a data dele. A comissão entra no dia/semana do pedido.</p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => { setUseCustomOrderDate(false); setCustomOrderDate(''); }}
+                                  title="Usar a data de agora"
+                                  className="h-9 px-2 rounded-lg border border-white/10 text-white/40 hover:text-rose-400 hover:border-rose-500/30 bg-transparent cursor-pointer text-[9px] font-bold shrink-0"
+                                >
+                                  <X size={14} />
+                                </button>
+                             </div>
+                           )
+                         )}
 
                          {!useCustomPaymentDate ? (
                            <button
