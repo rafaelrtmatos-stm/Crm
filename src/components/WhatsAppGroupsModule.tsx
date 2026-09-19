@@ -6,14 +6,16 @@ import { supabase } from '../supabase';
 // Tela de admin: grupos novos do WhatsApp chegam represados (visivel=false) via
 // api/whatsapp-webhook.js (garantirGrupoExiste). Aqui o admin libera o grupo e escolhe
 // quais usuarios podem ver aquele grupo no Funil de Atendimento.
-// Enquanto um grupo estiver com visivel=false, as mensagens dele sao descartadas pelo
-// webhook (nao aparecem pra ninguem, nem pro admin, ate ele liberar aqui).
+// Enquanto um grupo estiver com visivel=false, as mensagens dele ficam GUARDADAS em crm_messages (nada e
+// descartado), mas nao aparecem pra ninguem, nem pro admin, ate ele liberar aqui. Depois de liberado,
+// cada pessoa -- INCLUSIVE o admin -- so ve o grupo se estiver marcada em "Escolher usuarios".
 
 interface WhatsAppGroup {
   id: string;
   group_jid: string;
   nome: string | null;
   visivel: boolean;
+  admin_ve?: boolean;
   created_at: string;
 }
 
@@ -93,6 +95,13 @@ export const WhatsAppGroupsModule = () => {
     setSalvando(null);
   };
 
+  // O administrador nao esta em `usuarios` (login proprio), entao a escolha "eu quero ver este grupo" fica no
+  // proprio grupo (whatsapp_groups.admin_ve).
+  const alternarAdminVe = async (grupoId: string, valorAtual: boolean) => {
+    await supabase.from('whatsapp_groups').update({ admin_ve: !valorAtual, updated_at: new Date().toISOString() }).eq('id', grupoId);
+    await carregarTudo();
+  };
+
   const alternarAcessoUsuario = async (grupoId: string, userId: string) => {
     const temAcesso = (acessosPorGrupo[grupoId] || []).includes(userId);
     if (temAcesso) {
@@ -123,7 +132,7 @@ export const WhatsAppGroupsModule = () => {
             <Users size={16} className="text-primary-500" /> Grupos do WhatsApp
           </h2>
           <p className="text-xs text-white/40 mt-1">
-            Grupo novo chega aqui represado — ninguém vê as mensagens dele até você liberar e escolher quem tem acesso.
+            Grupo novo chega aqui represado. Libere e, em "Escolher usuários", marque se você quer ver o grupo e quais usuários veem.
           </p>
         </div>
         <button
@@ -174,7 +183,7 @@ export const WhatsAppGroupsModule = () => {
                   <div className="min-w-0">
                     <p className="text-sm font-bold text-white truncate">{g.nome || g.group_jid}</p>
                     <Badge variant="outline" className="border-emerald-500/30 text-emerald-400 mt-1">
-                      {acessosDoGrupo.length === 0 ? 'Ninguém tem acesso ainda' : `${acessosDoGrupo.length} usuário(s) com acesso`}
+                      {[g.admin_ve ? 'Você vê' : 'Você não vê', acessosDoGrupo.length === 0 ? 'nenhum usuário' : `${acessosDoGrupo.length} usuário(s)`].join(' · ')}
                     </Badge>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
@@ -196,7 +205,17 @@ export const WhatsAppGroupsModule = () => {
 
                 {expandido && (
                   <div className="pt-3 border-t border-white/5 space-y-1.5">
-                    {usuarios.length === 0 && <p className="text-xs text-white/40">Nenhum usuário cadastrado.</p>}
+                    <button
+                      onClick={() => alternarAdminVe(g.id, !!g.admin_ve)}
+                      className={cn(
+                        "w-full flex items-center gap-2.5 py-2 px-3 rounded-lg text-left text-xs transition-all",
+                        g.admin_ve ? "bg-primary-500/10 text-white" : "bg-white/[0.02] text-white/50 hover:bg-white/5"
+                      )}
+                    >
+                      {g.admin_ve ? <CheckCircle2 size={15} className="text-primary-400 shrink-0" /> : <Circle size={15} className="text-white/20 shrink-0" />}
+                      Eu (administrador) quero ver este grupo
+                    </button>
+                    {usuarios.length === 0 && <p className="text-xs text-white/40">Nenhum outro usuário cadastrado.</p>}
                     {usuarios.map(u => {
                       const temAcesso = acessosDoGrupo.includes(u.id);
                       return (

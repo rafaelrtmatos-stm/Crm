@@ -5,12 +5,13 @@ import { db } from '../firebase';
 import { supabase } from '../supabase';
 import { AppContext } from '../AppContext';
 import { Lead, Company, AppUser } from '../types';
-import { cn, Button, AvatarPhoto } from './SharedUI';
+import { cn, Button, AvatarPhoto, Modal } from './SharedUI';
 import {
   Search, RefreshCw, Clock, CheckCircle2, X, Instagram, Facebook, Send, Mail, MessageCircle, Globe,
-  MoreVertical, CirclePlus, VolumeX, CheckSquare, Check, Archive, Trash2, Flag, MailOpen, GitMerge,
+  MoreVertical, CirclePlus, VolumeX, CheckSquare, Check, Archive, Trash2, Flag, MailOpen, GitMerge, Users,
 } from 'lucide-react';
 import { MergeLeadsModal } from './MergeLeadsModal';
+import { WhatsAppGroupsModule } from './WhatsAppGroupsModule';
 import { format } from 'date-fns';
 import { leadLastMessageDate, leadSortTime, formatListTime } from '../lib/leadTime';
 
@@ -94,21 +95,22 @@ const prepararListaDeConversas = (rows: any[]): Lead[] => ordenarEDeduplicarConv
 
 // GRUPOS DO WHATSAPP: o grupo e uma conversa propria, identificada pelo group_jid (o `phone` do lead/da
 // mensagem e so os digitos do group_jid -- nunca o telefone de um participante).
-//  - permitidos: grupos liberados (visivel) que ESTE usuario pode ver -- administrador ve todos os
-//    liberados; usuario comum so os vinculados a ele em user_whatsapp_groups.
+//  - permitidos: grupos liberados (visivel) que ESTE usuario escolheu/recebeu acesso. Usuario comum: vinculado
+//    a ele em user_whatsapp_groups. Administrador: grupos marcados com admin_ve. As duas escolhas sao feitas
+//    na tela "Grupos do WhatsApp" (menu ⋮) -- o admin nao ve grupo so porque foi liberado (mesma regra das notificacoes).
 //  - todos: todo grupo cadastrado; conversa de grupo que nao esta em `permitidos` NAO aparece na lista,
 //    mesmo que as mensagens existam em crm_messages.
 //  - nomes: nome real do grupo (whatsapp_groups.nome) pra mostrar no lugar do nome de um participante.
 const digitosDoGrupo = (jid?: string | null) => (jid || '').replace('@g.us', '').replace(/\D/g, '');
 type InfoGrupos = { permitidos: Set<string>; todos: Set<string>; nomes: Map<string, string> };
 const carregarInfoGrupos = async (user: AppUser | null): Promise<InfoGrupos | null> => {
-  const { data: grupos, error } = await supabase.from('whatsapp_groups').select('id,group_jid,nome,visivel').eq('company_id', 'rafa-arts');
+  const { data: grupos, error } = await supabase.from('whatsapp_groups').select('id,group_jid,nome,visivel,admin_ve').eq('company_id', 'rafa-arts');
   if (error) return null;
-  let vinculados: Set<string> | null = null;
+  let vinculados = new Set<string>();
   if (!user?.isAdmin) {
     const { data: v, error: erroV } = await supabase.from('user_whatsapp_groups').select('group_id').eq('user_id', user?.id || '');
     if (erroV) return null;
-    vinculados = new Set((v || []).map((x: any) => x.group_id));
+    vinculados = new Set<string>((v || []).map((x: any) => x.group_id));
   }
   const info: InfoGrupos = { permitidos: new Set(), todos: new Set(), nomes: new Map() };
   for (const g of (grupos || []) as any[]) {
@@ -116,7 +118,7 @@ const carregarInfoGrupos = async (user: AppUser | null): Promise<InfoGrupos | nu
     if (!d) continue;
     info.todos.add(d);
     if (g.nome) info.nomes.set(d, g.nome);
-    if (g.visivel && (!vinculados || vinculados.has(g.id))) info.permitidos.add(d);
+    if (g.visivel && (user?.isAdmin ? !!g.admin_ve : vinculados.has(g.id))) info.permitidos.add(d);
   }
   return info;
 };
@@ -198,6 +200,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
   // Menu de opções (⋮) e suas funções
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isMergeOpen, setIsMergeOpen] = useState(false); // Mesclar contatos duplicados (MergeLeadsModal)
+  const [isGroupsAdminOpen, setIsGroupsAdminOpen] = useState(false); // tela Grupos do WhatsApp (so administrador)
   const [sortMode, setSortMode] = useState<SortMode>('recent');
   const [selectionMode, setSelectionMode] = useState<SelectionMode>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -578,6 +581,16 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
 
   return (
     <>
+      {user?.isAdmin && (
+        <Modal
+          isOpen={isGroupsAdminOpen}
+          onClose={() => { setIsGroupsAdminOpen(false); carregarInfoGrupos(user).then(aplicarInfoGrupos); }}
+          title="Grupos do WhatsApp"
+          size="md"
+        >
+          <WhatsAppGroupsModule />
+        </Modal>
+      )}
       <MergeLeadsModal
         isOpen={isMergeOpen}
         onClose={() => setIsMergeOpen(false)}
@@ -676,6 +689,16 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                           <GitMerge size={16} className="text-slate-400 shrink-0" />
                           <span className="whitespace-nowrap">Mesclar contatos duplicados</span>
                         </button>
+                        {user?.isAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => { setIsMenuOpen(false); setIsGroupsAdminOpen(true); }}
+                            className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 hover:bg-slate-50 transition-colors text-left whitespace-nowrap"
+                          >
+                            <Users size={16} className="text-slate-400 shrink-0" />
+                            <span className="whitespace-nowrap">Grupos do WhatsApp</span>
+                          </button>
+                        )}
 
                         <div className="border-t border-slate-100 my-1.5" />
 

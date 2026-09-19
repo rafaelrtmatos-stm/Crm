@@ -168,13 +168,19 @@ export const usuarioPodeVerMensagens = (user?: AppUser | null): boolean =>
   !!(user?.isAdmin || user?.modulePermissions?.messages?.view);
 
 /**
- * Grupos que ESTE usuario pode ver: vinculados a ele em user_whatsapp_groups (tela de grupos do
- * WhatsApp) E liberados (visivel = true). Vale tambem pro administrador: so aparece notificacao
- * de grupo que ele tem permissao de ver. Em caso de erro devolve vazio (esconde, nunca vaza).
+ * Grupos que ESTE usuario pode ver, ja liberados (visivel = true): usuario comum = vinculado a ele em
+ * user_whatsapp_groups; administrador = marcado com admin_ve em whatsapp_groups (o login do admin nao e
+ * uuid de `usuarios`). As duas escolhas sao feitas na tela Grupos do WhatsApp. Em caso de erro devolve
+ * vazio (esconde, nunca vaza).
  */
-export const carregarGruposPermitidos = async (userId?: string | null): Promise<Set<string>> => {
+export const carregarGruposPermitidos = async (userId?: string | null, isAdmin = false): Promise<Set<string>> => {
   if (!userId) return new Set();
   try {
+    if (isAdmin) {
+      const { data, error } = await supabase.from('whatsapp_groups').select('id').eq('company_id', 'rafa-arts').eq('visivel', true).eq('admin_ve', true);
+      if (error) return new Set();
+      return new Set((data || []).map((g: any) => g.id));
+    }
     const [vinculos, grupos] = await Promise.all([
       supabase.from('user_whatsapp_groups').select('group_id').eq('user_id', userId),
       supabase.from('whatsapp_groups').select('id').eq('company_id', 'rafa-arts').eq('visivel', true),
@@ -217,7 +223,7 @@ export const buscarNotificacaoDaMensagem = async (messageId?: string | null, use
     const { data } = await supabase.from('crm_notifications').select('*').eq('message_id', messageId).limit(1);
     const row = data?.[0];
     if (row) {
-      const permitidos = row.is_group ? await carregarGruposPermitidos(user?.id) : new Set<string>();
+      const permitidos = row.is_group ? await carregarGruposPermitidos(user?.id, !!user?.isAdmin) : new Set<string>();
       return {
         visivel: notificacaoVisivelParaUsuario(row, usuarioPodeVerMensagens(user), permitidos),
         title: (row.title as string | null) || undefined,
@@ -253,7 +259,7 @@ export function useNotificacoesPendentes(user?: AppUser | null) {
           .eq('status', 'pending')
           .order('message_at', { ascending: true })
           .limit(1000),
-        carregarGruposPermitidos(userId),
+        carregarGruposPermitidos(userId, !!user?.isAdmin),
       ]);
       if (resp.error) return; // mantem o que ja esta na tela em vez de zerar o contador por erro de rede
       const porConversa = new Map<string, any[]>();
@@ -271,7 +277,7 @@ export function useNotificacoesPendentes(user?: AppUser | null) {
     } catch (e) {
       console.warn('Falha ao carregar notificacoes pendentes:', e);
     }
-  }, [userId, podeVer]);
+  }, [userId, podeVer, user?.isAdmin]);
 
   useEffect(() => {
     recarregar();
