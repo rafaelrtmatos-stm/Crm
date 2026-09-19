@@ -26,20 +26,26 @@ ADD COLUMN IF NOT EXISTS last_message_text text;
 CREATE INDEX IF NOT EXISTS idx_leads_company_last_message_at
   ON leads (company_id, last_message_at DESC NULLS LAST);
 
--- RECONCILIACAO das conversas antigas: lead sem last_message_at recebe o horario da ultima
--- mensagem que existe em crm_messages (MAX(created_at)). Notas internas nao contam como
--- mensagem da conversa. So preenche onde esta vazio -- nunca sobrescreve um valor existente.
--- (A tela de Mensagens repete essa mesma correcao pra qualquer lead que ainda ficar sem valor.)
+-- RECONCILIACAO: crm_messages e a fonte oficial das mensagens; leads.last_message_at e so o
+-- indice/cache usado pra montar e ordenar a lista. Sempre que houver diferenca, corrige o lead:
+-- se a ultima mensagem real em crm_messages (nota interna nao conta) for MAIS RECENTE que
+-- leads.last_message_at (ou o lead estiver sem valor), atualiza last_message_at, last_message_text
+-- e last_message_direction. Igual ou anterior: nao altera. Pode rodar mais de uma vez.
+-- (A tela de Mensagens repete essa mesma correcao pra qualquer conversa que ficar defasada.)
 UPDATE leads l
-   SET last_message_at = m.ultima
+   SET last_message_at        = m.created_at,
+       last_message_text      = COALESCE(m.text, ''),
+       last_message_direction = CASE WHEN m.direction = 'incoming' THEN 'incoming' ELSE 'outgoing' END
   FROM (
-    SELECT company_id, phone, MAX(created_at) AS ultima
+    SELECT DISTINCT ON (company_id, phone)
+           company_id, phone, created_at, text, direction
       FROM crm_messages
      WHERE COALESCE(is_note, false) = false
-     GROUP BY company_id, phone
+       AND direction <> 'note'
+     ORDER BY company_id, phone, created_at DESC
   ) m
- WHERE l.last_message_at IS NULL
-   AND m.company_id = l.company_id
-   AND m.phone = l.phone;
+ WHERE m.company_id = l.company_id
+   AND m.phone = l.phone
+   AND (l.last_message_at IS NULL OR m.created_at > l.last_message_at);
 
 NOTIFY pgrst, 'reload schema';

@@ -901,19 +901,41 @@ export default function App() {
         // correcao manual que o atendente ja tenha feito (ex: nome do documento != nome do
         // WhatsApp). Ver Lead.whatsappName/contactName/fullName em types.ts.
         const leadRow = leadRows[0];
+
+        // 1) TODA mensagem recebida atualiza a "ultima mensagem" da conversa (last_message_at /
+        //    last_message_text / last_message_direction = 'incoming'), estando ou nao aguardando
+        //    resposta. `aguardando` NAO decide se a mensagem entra na ultima mensagem: ele so decide,
+        //    no passo 2, se a conversa volta a ficar "aguardando" (waiting_since/status/etapa).
+        //    Regra de tempo: so avanca (mensagem antiga/reprocessada nunca faz a conversa voltar no
+        //    tempo -- ex.: cliente 15:27, atendente respondeu 15:30 => a ultima continua sendo a das 15:30).
+        const temColunaUltima = 'last_message_at' in leadRow;
+        const ultimaAtualMs = temColunaUltima && leadRow.last_message_at ? Date.parse(leadRow.last_message_at) : NaN;
+        const mensagemMs = Date.parse(mensagemEm);
+        const avancaUltima = temColunaUltima && Number.isFinite(mensagemMs) && (!Number.isFinite(ultimaAtualMs) || mensagemMs > ultimaAtualMs);
+        const patchUltimaMensagem = temColunaUltima
+          ? (avancaUltima ? { last_message_at: mensagemEm, last_message_text: msgData.text || '', last_message_direction: 'incoming' } : {})
+          // Banco sem last_message_at (add_last_message_at_to_leads.sql nao rodou): comportamento antigo.
+          : (aguardando ? { last_message_text: msgData.text || '' } : {});
+        const patchUltimaMensagemDoCliente = {
+          last_client_message_text: msgData.text || '',
+          last_client_message_at: quando,
+        };
+
         if (!aguardando) {
-          // Mensagem antiga que ja foi respondida por alguem da empresa: so registra que ela
-          // existiu (pra nao ser "recuperada" de novo) -- nao mexe em etapa, status nem espera.
+          // Mensagem que ja foi respondida por alguem da empresa: entra normalmente como ultima
+          // mensagem (passo 1) e registra que existiu (pra nao ser "recuperada" de novo), mas nao
+          // mexe em etapa, status nem espera.
           await supabase.from('leads').update({
-            last_client_message_text: msgData.text || '',
-            last_client_message_at: quando,
+            ...patchUltimaMensagem,
+            ...patchUltimaMensagemDoCliente,
           }).eq('id', leadRow.id);
           return;
         }
+
+        // 2) Aguardando resposta: alem da ultima mensagem, atualiza espera, status e etapa.
         await supabase.from('leads').update({
-          last_message_text: msgData.text || '',
-          last_client_message_text: msgData.text || '',
-          last_client_message_at: quando,
+          ...patchUltimaMensagem,
+          ...patchUltimaMensagemDoCliente,
           source_type: msgData.channel || leadRow.source_type || 'WhatsApp',
           waiting_since: quando,
           status: 'ENTRADA',
@@ -922,11 +944,6 @@ export default function App() {
           // `quando` = agora ao vivo; na recuperacao e a hora real da mensagem (senao a lista
           // mostrava a hora da recuperacao como se fosse a da mensagem)
           updated_at: quando,
-          // Ordem da lista de conversas: so avanca (mensagem antiga/reprocessada nunca faz a conversa
-          // voltar no tempo) e so se a coluna ja existir neste banco.
-          ...('last_message_at' in leadRow && (!leadRow.last_message_at || Date.parse(mensagemEm) > Date.parse(leadRow.last_message_at))
-            ? { last_message_at: mensagemEm, last_message_direction: 'incoming' }
-            : {}),
         }).eq('id', leadRow.id);
         console.log(`CRM Automation: Existing Lead updated from channel [${msgData.channel}] in ENTRADA stage.`);
       }
@@ -944,14 +961,33 @@ export default function App() {
       recuperando = true;
       try {
         const desde = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+
+        // PAGINACAO: o PostgREST devolve no maximo ~1000 linhas por consulta, entao uma unica consulta
+        // deixava mensagens (justamente as mais atuais) de fora. Aqui cada consulta e lida em paginas
+        // (0-499, 500-999, 1000-1499...) e continua ate uma pagina voltar com menos registros que o
+        // tamanho da pagina -- nao para em nenhum limite arbitrario. Ordem com desempate por id pra a
+        // paginacao ser estavel (mensagem nova chegando no meio so pode repetir linha, nunca pular).
+        const PAGINA = 500;
+        const lerTodasAsPaginas = async (montar: (de: number, ate: number) => any): Promise<{ data: any[]; error: any }> => {
+          const todos: any[] = [];
+          for (let de = 0; ; de += PAGINA) {
+            const { data, error } = await montar(de, de + PAGINA - 1);
+            if (error) return { data: todos, error };
+            const lote = data || [];
+            todos.push(...lote);
+            if (lote.length < PAGINA) break;
+          }
+          return { data: todos, error: null };
+        };
         const [entradasRes, saidasRes, leadsRes] = await Promise.all([
-          supabase.from('crm_messages').select('phone,text,sender_name,channel,created_at')
+          lerTodasAsPaginas((de, ate) => supabase.from('crm_messages').select('id,phone,text,sender_name,channel,created_at')
             .eq('company_id', 'rafa-arts').eq('direction', 'incoming').gte('created_at', desde)
-            .order('created_at', { ascending: false }).limit(1000),
-          supabase.from('crm_messages').select('phone,created_at')
+            .order('created_at', { ascending: false }).order('id', { ascending: false }).range(de, ate)),
+          lerTodasAsPaginas((de, ate) => supabase.from('crm_messages').select('id,phone,created_at')
             .eq('company_id', 'rafa-arts').eq('direction', 'outgoing').gte('created_at', desde)
-            .order('created_at', { ascending: false }).limit(1000),
-          supabase.from('leads').select('phone,last_client_message_at').eq('company_id', 'rafa-arts'),
+            .order('created_at', { ascending: false }).order('id', { ascending: false }).range(de, ate)),
+          lerTodasAsPaginas((de, ate) => supabase.from('leads').select('id,phone,last_client_message_at')
+            .eq('company_id', 'rafa-arts').order('id', { ascending: true }).range(de, ate)),
         ]);
         if (entradasRes.error || saidasRes.error || leadsRes.error) {
           console.warn('CRM Recuperacao: falha ao consultar mensagens/leads', entradasRes.error || saidasRes.error || leadsRes.error);
@@ -969,11 +1005,9 @@ export default function App() {
         // Tolerancia de 2 min: last_client_message_at vem do relogio do navegador e created_at
         // da hora da mensagem, entao uma pequena diferenca nao pode contar como "perdida".
         const TOLERANCIA_MS = 2 * 60 * 1000;
-        const MAX_POR_RODADA = 50;
         let processadas = 0;
         let aguardandoResposta = 0;
         for (const [phone, msg] of ultimaEntrada) {
-          if (processadas >= MAX_POR_RODADA) break;
           const quandoMsg = Date.parse(msg.created_at);
           if (!Number.isFinite(quandoMsg)) continue;
           const registrada = leadPorTelefone.get(phone); // undefined = lead nem existe

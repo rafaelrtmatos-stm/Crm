@@ -60,9 +60,9 @@ const buscarLeadsDaLista = async (): Promise<any[]> => {
   const porUltimaMensagem = await buscarLeadsPaginado(q => q.order('last_message_at', { ascending: false, nullsFirst: false }).order('id', { ascending: true }));
   if (porUltimaMensagem.rows) return porUltimaMensagem.rows;
   // Coluna last_message_at ainda nao existe neste banco (supabase/add_last_message_at_to_leads.sql nao
-  // rodou): a lista continua aparecendo com a ordem antiga; a ordenacao por ultima mensagem (abaixo,
-  // no navegador) assume assim que o SQL rodar. Nao e o caminho normal.
-  const legado = await buscarLeadsPaginado(q => q.order('updated_at', { ascending: false }).order('id', { ascending: true }));
+  // rodou) ou a consulta falhou: carrega so com ordem estavel por id -- NUNCA por updated_at. A posicao
+  // na lista e sempre definida no navegador pela ultima mensagem (leadSortTime). Nao e o caminho normal.
+  const legado = await buscarLeadsPaginado(q => q.order('id', { ascending: true }));
   return legado.rows || [];
 };
 
@@ -171,31 +171,106 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
   const ultimaRequisicaoRef = useRef(0);
   const reconciliadosRef = useRef<Set<string>>(new Set());
 
-  // RECONCILIACAO das conversas antigas: lead que tem mensagem em crm_messages mas ainda esta sem
-  // last_message_at recebe MAX(crm_messages.created_at) (nota interna nao conta). Assim conversa antiga
-  // nao some nem fica fora de ordem. So preenche onde esta vazio, em lotes, e cada lead e tentado uma
-  // vez por sessao (lead sem nenhuma mensagem nao fica sendo consultado a cada recarga).
-  const reconciliarUltimaMensagem = async (lista: Lead[]) => {
-    const pendentes = lista.filter(l => !l.lastMessageAt && l.phone && !reconciliadosRef.current.has(l.id)).slice(0, 40);
-    if (!pendentes.length) return;
-    pendentes.forEach(l => reconciliadosRef.current.add(l.id));
-    const achados = (await Promise.all(pendentes.map(async l => {
-      const { data } = await supabase
-        .from('crm_messages')
-        .select('created_at')
-        .eq('company_id', 'rafa-arts')
-        .eq('phone', l.phone)
-        .or('is_note.is.null,is_note.eq.false')
-        .order('created_at', { ascending: false })
-        .limit(1);
-      const em = data?.[0]?.created_at;
-      return em ? { id: l.id, em: em as string } : null;
-    }))).filter((x): x is { id: string; em: string } => !!x);
-    if (!achados.length) return;
-    // Conserta na tela na hora e grava no banco (so onde ainda esta vazio -- nunca sobrescreve)
-    const porId = new Map(achados.map(a => [a.id, a.em]));
-    setLeads(prev => ordenarEDeduplicarConversas(prev.map(l => (porId.has(l.id) && !l.lastMessageAt ? { ...l, lastMessageAt: porId.get(l.id) } : l))));
-    await Promise.all(achados.map(a => supabase.from('leads').update({ last_message_at: a.em }).eq('id', a.id).is('last_message_at', null)));
+  // RECONCILIACAO (fonte oficial = crm_messages; leads.last_message_at = indice/cache da lista).
+  // Para cada conversa comparamos a ULTIMA MENSAGEM REAL em crm_messages (nota interna nao conta) com
+  // leads.last_message_at:
+  //   - crm_messages.created_at MAIS RECENTE  => corrige o lead (last_message_at/text/direction e, se a
+  //     mensagem for 'incoming', tambem last_client_message_at/text);
+  //   - igual ou anterior                     => nao altera nada.
+  // Antes so corrigia lead com last_message_at VAZIO; conversa com last_message_at = ontem e mensagem
+  // de hoje 15:27 em crm_messages ficava presa no lugar errado.
+  // Como fazer sem 1 consulta por conversa: le crm_messages recentes em PAGINAS (500 por consulta, ate
+  // uma pagina voltar incompleta) e guarda a ultima por telefone. Leads ainda VAZIOS que nao aparecem
+  // nessa janela seguem sendo consultados um a um (em lotes, uma vez por sessao).
+  // A gravacao so vale se o lead ainda estiver mais antigo (nunca sobrescreve valor mais novo escrito
+  // agora pelo webhook), entao rodar de novo e inofensivo. Roda no maximo a cada 2 min (o Realtime de
+  // leads chama isso a cada mudanca); o botao "Atualizar" forca.
+  const reconciliandoRef = useRef(false);
+  const ultimaReconciliacaoRef = useRef(0);
+  const reconciliarUltimaMensagem = async (lista: Lead[], forcar = false) => {
+    if (reconciliandoRef.current) return;
+    if (!forcar && Date.now() - ultimaReconciliacaoRef.current < 2 * 60 * 1000) return;
+    reconciliandoRef.current = true;
+    try {
+      type UltimaReal = { em: string; text: string; direction: 'incoming' | 'outgoing' };
+      const PAGINA_MENSAGENS = 500;
+      const desde = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+      const ultimaPorTelefone = new Map<string, UltimaReal>();
+      for (let de = 0; ; de += PAGINA_MENSAGENS) {
+        const { data, error } = await supabase
+          .from('crm_messages')
+          .select('phone,text,direction,created_at')
+          .eq('company_id', 'rafa-arts')
+          .or('is_note.is.null,is_note.eq.false')
+          .gte('created_at', desde)
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: false })
+          .range(de, de + PAGINA_MENSAGENS - 1);
+        // Ordem da mais nova pra mais antiga: mesmo com erro numa pagina, o que ja foi lido continua
+        // valido (a primeira ocorrencia de cada telefone e a ultima mensagem dele).
+        if (error) break;
+        const lote = data || [];
+        for (const m of lote as any[]) {
+          if (!m.phone || m.direction === 'note' || ultimaPorTelefone.has(m.phone)) continue;
+          ultimaPorTelefone.set(m.phone, { em: m.created_at, text: m.text || '', direction: m.direction === 'incoming' ? 'incoming' : 'outgoing' });
+        }
+        if (lote.length < PAGINA_MENSAGENS) break;
+      }
+
+      // Leads ainda sem last_message_at e fora da janela acima: consulta individual (ate 40 por vez)
+      const pendentes = lista.filter(l => !l.lastMessageAt && l.phone && !ultimaPorTelefone.has(l.phone) && !reconciliadosRef.current.has(l.id)).slice(0, 40);
+      pendentes.forEach(l => reconciliadosRef.current.add(l.id));
+      await Promise.all(pendentes.map(async l => {
+        const { data } = await supabase
+          .from('crm_messages')
+          .select('text,direction,created_at')
+          .eq('company_id', 'rafa-arts')
+          .eq('phone', l.phone)
+          .or('is_note.is.null,is_note.eq.false')
+          .neq('direction', 'note')
+          .order('created_at', { ascending: false })
+          .limit(1);
+        const m: any = data?.[0];
+        if (m?.created_at) ultimaPorTelefone.set(l.phone as string, { em: m.created_at, text: m.text || '', direction: m.direction === 'incoming' ? 'incoming' : 'outgoing' });
+      }));
+
+      const correcoes: (UltimaReal & { id: string })[] = [];
+      for (const l of lista) {
+        const real = l.phone ? ultimaPorTelefone.get(l.phone) : undefined;
+        if (!real) continue;
+        const realMs = new Date(real.em).getTime();
+        if (!Number.isFinite(realMs)) continue;
+        const atualMs = l.lastMessageAt ? new Date(l.lastMessageAt as any).getTime() : NaN;
+        if (Number.isFinite(atualMs) && realMs <= atualMs) continue; // igual ou anterior: nao altera
+        correcoes.push({ id: l.id, ...real });
+      }
+      if (!correcoes.length) return;
+
+      // Conserta na tela na hora e depois grava no banco
+      const porId = new Map(correcoes.map(c => [c.id, c]));
+      setLeads(prev => ordenarEDeduplicarConversas(prev.map(l => {
+        const c = porId.get(l.id);
+        if (!c) return l;
+        return {
+          ...l,
+          lastMessageAt: c.em,
+          lastMessageText: c.text,
+          lastMessageDirection: c.direction,
+          ...(c.direction === 'incoming' ? { lastClientMessageAt: c.em, lastClientMessageText: c.text } : {}),
+        } as Lead;
+      })));
+      await Promise.all(correcoes.map(c => supabase.from('leads').update({
+        last_message_at: c.em,
+        last_message_text: c.text,
+        last_message_direction: c.direction,
+        ...(c.direction === 'incoming' ? { last_client_message_at: c.em, last_client_message_text: c.text } : {}),
+      }).eq('id', c.id).or(`last_message_at.is.null,last_message_at.lt.${new Date(c.em).toISOString()}`)));
+    } catch (e) {
+      console.warn('Reconciliacao da ultima mensagem: erro', e);
+    } finally {
+      ultimaReconciliacaoRef.current = Date.now();
+      reconciliandoRef.current = false;
+    }
   };
   useEffect(() => {
     if (!currentCompany || !isOpen) return;
@@ -253,7 +328,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
       ++ultimaRequisicaoRef.current; // esta recarga manual vence qualquer uma em andamento
       const lista = prepararListaDeConversas(rows);
       setLeads(lista);
-      reconciliarUltimaMensagem(lista);
+      reconciliarUltimaMensagem(lista, true);
       setGroupPhones(new Set((groupsData || []).map((g: any) => (g.group_jid || '').replace('@g.us', '').replace(/\D/g, '')).filter(Boolean)));
     } finally {
       setTimeout(() => setIsRefreshing(false), 500);
