@@ -8,8 +8,9 @@ import { Lead, Company, AppUser } from '../types';
 import { cn, Button, AvatarPhoto } from './SharedUI';
 import {
   Search, RefreshCw, Clock, CheckCircle2, X, Instagram, Facebook, Send, Mail, MessageCircle, Globe,
-  MoreVertical, CirclePlus, VolumeX, CheckSquare, Check, Archive, Trash2, Flag, MailOpen,
+  MoreVertical, CirclePlus, VolumeX, CheckSquare, Check, Archive, Trash2, Flag, MailOpen, GitMerge,
 } from 'lucide-react';
+import { MergeLeadsModal } from './MergeLeadsModal';
 import { format } from 'date-fns';
 import { leadLastMessageDate, leadSortTime, formatListTime } from '../lib/leadTime';
 
@@ -196,6 +197,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
 
   // Menu de opções (⋮) e suas funções
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isMergeOpen, setIsMergeOpen] = useState(false); // Mesclar contatos duplicados (MergeLeadsModal)
   const [sortMode, setSortMode] = useState<SortMode>('recent');
   const [selectionMode, setSelectionMode] = useState<SelectionMode>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -576,6 +578,12 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
 
   return (
     <>
+      <MergeLeadsModal
+        isOpen={isMergeOpen}
+        onClose={() => setIsMergeOpen(false)}
+        onMerged={() => recarregarListaRef.current?.()}
+        gruposTodos={gruposTodos}
+      />
       {/* Camada invisível só pra fechar ao clicar fora — sem escurecer nem
           bloquear a leitura do conteúdo atrás do balão */}
       <div className="fixed inset-0 z-40" onClick={onClose} />
@@ -659,6 +667,14 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                         >
                           <CheckSquare size={16} className="text-slate-400 shrink-0" />
                           <span className="whitespace-nowrap">Ações múltiplas</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setIsMenuOpen(false); setIsMergeOpen(true); }}
+                          className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 hover:bg-slate-50 transition-colors text-left whitespace-nowrap"
+                        >
+                          <GitMerge size={16} className="text-slate-400 shrink-0" />
+                          <span className="whitespace-nowrap">Mesclar contatos duplicados</span>
                         </button>
 
                         <div className="border-t border-slate-100 my-1.5" />
