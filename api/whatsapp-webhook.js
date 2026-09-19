@@ -15,6 +15,12 @@
 import { EVOLUTION_API_URL, EVOLUTION_API_KEY, EVOLUTION_WEBHOOK_SECRET, INSTANCE_NAME, SUPABASE_URL, SUPABASE_ANON_KEY, COMPANY_ID } from './_lib/whatsapp-config.js';
 import { normalizarTelefoneBR } from './_lib/phone.js';
 import { timestampParaIso } from './_lib/timestamp.js';
+import { waitUntil } from '@vercel/functions';
+import { processarTranscricao } from './_lib/transcricao-fila.js';
+
+// A transcrição de áudio roda em segundo plano (waitUntil) depois da resposta ao webhook;
+// dá tempo pra ela terminar (download + Gemini + 1 retry) sem cortar a função.
+export const config = { maxDuration: 60 };
 
 // Segredo compartilhado com a Evolution API — configura o MESMO valor nos dois lados
 // (aqui via variavel de ambiente da Vercel, e na Evolution API como header customizado
@@ -63,6 +69,41 @@ function extensaoPorMimetype(mimetype) {
 }
 
 // Baixa a midia (base64) direto da Evolution API a partir da propria mensagem recebida,
+// Função centralizada: identifica áudio (voz/PTT ou arquivo de áudio) no payload REAL da Evolution/Baileys.
+// Aceita o envelope da mensagem (msg = item de body.data). Devolve null se não for áudio, ou
+// { ptt, mimetype, seconds, temMediaKey, temUrl } com o que a Evolution mandou.
+//   - message.audioMessage { ptt, mimetype: 'audio/ogg; codecs=opus', seconds, mediaKey, url }
+//   - também dentro de ephemeralMessage/viewOnce* (encontrarNodeMidia desembrulha)
+//   - msg.messageType === 'audioMessage' (campo do envelope da Evolution) como segunda pista
+function isAudioMessage(msg) {
+  const midia = encontrarNodeMidia(msg?.message);
+  const node = midia?.tipo === 'audio' ? midia.node : null;
+  const tipoEnvelope = String(msg?.messageType || '').toLowerCase();
+  if (!node && tipoEnvelope !== 'audiomessage') return null;
+  return {
+    ptt: !!node?.ptt,
+    mimetype: node?.mimetype ? String(node.mimetype).split(';')[0].trim() : null,
+    seconds: Number.isFinite(Number(node?.seconds)) && Number(node?.seconds) > 0 ? Math.round(Number(node.seconds)) : null,
+    temMediaKey: !!node?.mediaKey,
+    temUrl: !!node?.url || !!msg?.message?.base64,
+  };
+}
+
+// Transcrição automática é por conversa (leads.auto_transcribe, padrão ligado). Falha na consulta => liga.
+async function transcricaoAutomaticaLigada(phone) {
+  try {
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/leads?company_id=eq.${COMPANY_ID}&phone=eq.${encodeURIComponent(phone)}&select=auto_transcribe&limit=1`,
+      { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
+    );
+    if (!r.ok) return true;
+    const linhas = await r.json();
+    return !(Array.isArray(linhas) && linhas[0] && linhas[0].auto_transcribe === false);
+  } catch {
+    return true;
+  }
+}
+
 // sobe pro bucket publico "whatsapp-media" no Supabase Storage e devolve a URL publica +
 // nome do arquivo + content_type -- os 3 dados que a tela de chat (Modules.tsx) precisa
 // pra mostrar miniatura/botao de download em vez do rotulo de texto antigo ("📷 Imagem").
@@ -189,9 +230,10 @@ function extrairTextoMensagem(message, profundidade = 0) {
   return '';
 }
 
-async function inserirMensagem({ phone, text, senderName, direction = 'incoming', channel = 'WhatsApp', whatsappMessageId, createdAt, mediaUrl, fileName, contentType, groupJid }) {
+async function inserirMensagem({ phone, text, senderName, direction = 'incoming', channel = 'WhatsApp', whatsappMessageId, createdAt, mediaUrl, fileName, contentType, groupJid, audio }) {
   if (!phone || !text) return;
-  const enviar = (comGrupo) => fetch(`${SUPABASE_URL}/rest/v1/crm_messages`, {
+  // `audio` = campos extras do áudio (media_mime_type, media_duration, transcription_status).
+  const enviar = (comGrupo, comAudio = true) => fetch(`${SUPABASE_URL}/rest/v1/crm_messages`, {
     method: 'POST',
     headers: {
       apikey: SUPABASE_ANON_KEY,
@@ -213,6 +255,7 @@ async function inserirMensagem({ phone, text, senderName, direction = 'incoming'
       media_url: mediaUrl || null,
       file_name: fileName || null,
       content_type: contentType || null,
+      ...(comAudio && audio ? audio : {}),
       // Identificador REAL do grupo (remoteJid ...@g.us). `phone` continua sendo so os digitos dele.
       ...(comGrupo && groupJid ? { group_jid: groupJid } : {}),
       ...(createdAt ? { created_at: createdAt } : {}),
@@ -222,7 +265,9 @@ async function inserirMensagem({ phone, text, senderName, direction = 'incoming'
   let resp = await enviar(true);
   // Coluna group_jid ainda nao existe (supabase/add_last_message_at_to_leads.sql nao rodou): grava sem ela
   // -- a mensagem nunca pode ser perdida por causa desse campo extra.
-  if (!resp.ok && groupJid) resp = await enviar(false);
+  // Idem para as colunas de transcricao (supabase/add_transcricao_audio_crm_messages.sql).
+  if (!resp.ok && audio) resp = await enviar(true, false);
+  if (!resp.ok && groupJid) resp = await enviar(false, false);
 
   if (!resp.ok) {
     const corpo = await resp.text().catch(() => '');
@@ -626,18 +671,36 @@ export default async function handler(req, res) {
           // a midia de novo, mas ainda garante o indice da conversa (PATCH so avanca, entao e inofensivo).
           const jaExiste = await mensagemJaExiste(whatsappMessageId);
           let gravada = jaExiste;
+          let transcreverAudioAgora = false;
           if (!jaExiste) {
             const midiaSalva = await baixarEGuardarMidia(msg, evoHeaders);
+            // Audio: guarda mime/duracao; se for RECEBIDO, o arquivo foi salvo e a conversa nao desligou a
+            // transcricao automatica, ja entra como "pending" (transcrito em segundo plano abaixo).
+            const infoAudio = isAudioMessage(msg);
+            let camposAudio;
+            if (infoAudio) {
+              camposAudio = { media_mime_type: infoAudio.mimetype, media_duration: infoAudio.seconds };
+              if (!ehMinhaMensagem && midiaSalva?.contentType === 'audio' && midiaSalva?.mediaUrl && await transcricaoAutomaticaLigada(phone)) {
+                camposAudio.transcription_status = 'pending';
+                transcreverAudioAgora = true;
+              }
+            }
             gravada = await inserirMensagem({
               phone, text, senderName, direction: ehMinhaMensagem ? 'outgoing' : 'incoming', whatsappMessageId, createdAt,
               groupJid: ehGrupoMsg ? phoneRaw : undefined,
               mediaUrl: midiaSalva?.mediaUrl, fileName: midiaSalva?.fileName, contentType: midiaSalva?.contentType,
+              audio: camposAudio,
             });
           }
           // So considera sincronizada quando ESTA registrada em crm_messages. Falhou: nao mexe na conversa
           // e devolve erro no fim pra Evolution tentar de novo (o indice unico evita duplicar).
           if (!gravada) { falhasGravacao++; console.error(`[CRM WEBHOOK] crm_messages INSERT FALHOU message_id=${whatsappMessageId || '(sem id)'} -- devolvendo 500 para a Evolution reenviar`); continue; }
           console.log(`[CRM WEBHOOK] crm_messages INSERT OK${jaExiste ? ' (ja existia, sem duplicar)' : ''}`);
+          // Transcricao em segundo plano: o webhook responde sem esperar (waitUntil mantem a funcao viva
+          // ate terminar). Nunca lanca erro; falha so muda transcription_status da propria mensagem.
+          if (transcreverAudioAgora && whatsappMessageId) {
+            waitUntil(processarTranscricao({ whatsappMessageId }));
+          }
           // Busca de foto de perfil e so faz sentido pro CONTATO (nao pro meu proprio numero)
           if (!jaExiste && !ehMinhaMensagem && evoHeaders) {
             garantirFotoLead(phone, evoHeaders); // nao usa await de proposito — nao atrasa a resposta do webhook

@@ -240,7 +240,7 @@ import { uploadContratoPdfAssinado } from '../lib/contratoPdfStorage';
 import { buildContratoClausulasTexto } from '../lib/contratoTemplate';
 import { OFFICIAL_COMPANY, PUBLIC_SIGN_ORIGIN, getContractSignatureLink } from '../lib/companyIdentity';
 import { signContractByCompany, generateSignatureId } from '../lib/otpUtils';
-import { transcribeAudioMessage } from '../lib/audioTranscription';
+import { transcribeAudioMessage, reprocessPendingTranscriptions } from '../lib/audioTranscription';
 import { generateSuggestion, type KnowledgeProduct } from '../lib/robozinhoRafa';
 import { validateCpfCnpj } from '../lib/validators';
 import { buscarClienteDuplicado, montarPayloadMesclagem } from '../lib/clienteDedupe';
@@ -606,6 +606,8 @@ const mapCrmMessageRow = (row: any): any => ({
   fileName: row.file_name || undefined,
   mediaContentType: row.content_type || undefined,
   transcription: row.transcription || undefined,
+  transcriptionStatus: row.transcription_status || undefined,
+  transcriptionError: row.transcription_error || undefined,
   versions: row.versions || undefined,
   currentVersionIndex: row.current_version_index ?? undefined,
   lastEditedAt: row.last_edited_at || undefined,
@@ -3650,6 +3652,7 @@ export const ChatPanel = ({
   // e' manual (botao "Transcrever" em cada mensagem de audio); a transcricao roda em
   // api/transcrever-audio.js (Gemini) -- ver lib/audioTranscription.ts.
   const [transcribingId, setTranscribingId] = useState<string | null>(null);
+  const sweptTranscriptionPhonesRef = useRef<Set<string>>(new Set());
   const handleTranscribeAudio = async (message: any) => {
     if (!message?.id || !message?.mediaUrl) {
       showAlert('Esse áudio não tem um arquivo associado pra transcrever.');
@@ -3660,6 +3663,9 @@ export const ChatPanel = ({
       const texto = await transcribeAudioMessage(message.mediaUrl, user?.id);
       await supabase.from('crm_messages').update({
         transcription: { text: texto, isAutomatic: false, isVisible: true },
+        transcription_status: 'completed',
+        transcription_error: null,
+        transcription_created_at: new Date().toISOString(),
       }).eq('id', message.id);
     } catch (err: any) {
       showAlert(err?.message || 'Não foi possível transcrever esse áudio.');
@@ -3722,7 +3728,15 @@ export const ChatPanel = ({
         .eq('company_id', 'rafa-arts')
         .eq('phone', conversation.phone)
         .order('created_at', { ascending: true });
-      setMessages((data || []).map(mapCrmMessageRow));
+      const mapped = (data || []).map(mapCrmMessageRow);
+      setMessages(mapped);
+      // Transcrição automática pendente (áudio chegou com o CRM fechado / falha temporária):
+      // pede ao servidor pra continuar -- uma vez por conversa aberta; o texto chega pelo Realtime.
+      if (conversation.phone && !sweptTranscriptionPhonesRef.current.has(conversation.phone)
+        && mapped.some((m: any) => m.direction === 'incoming' && (m.transcriptionStatus === 'pending' || m.transcriptionStatus === 'processing'))) {
+        sweptTranscriptionPhonesRef.current.add(conversation.phone);
+        reprocessPendingTranscriptions(conversation.phone, user?.id);
+      }
     };
     loadMessages();
     const channel = supabase.channel(`chat-messages-${conversation.phone}`).on('postgres_changes', { event: '*', schema: 'public', table: 'crm_messages', filter: `phone=eq.${conversation.phone}` }, loadMessages).subscribe();
@@ -4361,14 +4375,25 @@ export const ChatPanel = ({
                               ) : isAudio ? (
                                 <div className="space-y-1.5 min-w-[180px]">
                                    <div className="flex items-center gap-1.5 text-slate-500">
-                                     <FileAudio size={13} /> <span className="font-bold">Mensagem de áudio</span>
+                                     <FileAudio size={13} /> <span className="font-bold">🎤 Áudio</span>
                                    </div>
                                    {m.mediaUrl && (
                                      <audio src={m.mediaUrl} controls preload="none" className="w-full h-8" />
                                    )}
                                    {m.transcription?.text ? (
-                                     <p className="italic text-slate-600 border-t border-slate-100 pt-1.5">"{m.transcription.text}"</p>
+                                     <div className="border-t border-slate-100 pt-1.5">
+                                       <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-0.5">📝 Transcrição</p>
+                                       <p className="italic text-slate-600">"{m.transcription.text}"</p>
+                                     </div>
+                                   ) : (m.transcriptionStatus === 'pending' || m.transcriptionStatus === 'processing') ? (
+                                     <p className="text-[10px] font-bold text-slate-400 border-t border-slate-100 pt-1.5 flex items-center gap-1">
+                                       <Loader2 size={10} className="animate-spin" /> 📝 Transcrevendo áudio...
+                                     </p>
                                    ) : (
+                                     <>
+                                     {m.transcriptionStatus === 'failed' && (
+                                       <p className="text-[10px] font-bold text-rose-400 border-t border-slate-100 pt-1.5">📝 Não foi possível transcrever este áudio.</p>
+                                     )}
                                      <button
                                        onClick={() => handleTranscribeAudio(m)}
                                        disabled={transcribingId === m.id}
@@ -4376,6 +4401,7 @@ export const ChatPanel = ({
                                      >
                                        {transcribingId === m.id ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />} Transcrever
                                      </button>
+                                     </>
                                    )}
                                 </div>
                               ) : m.text}
