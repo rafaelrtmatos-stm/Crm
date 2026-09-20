@@ -137,6 +137,7 @@ import {
   Receipt,
   Factory,
   ArrowUpDown,
+  Archive,
   ArrowDown,
   ArrowUp
 } from 'lucide-react';
@@ -4893,17 +4894,49 @@ export const ChatPanel = ({
 
 
 // --- CRM / FUNNEL ---
-// Opcoes do menu "Ordenar" do Funil CRM (mesmas do Kommo). defaultDir = direcao usada ao
-// escolher a opcao pela primeira vez; clicar na opcao ja ativa inverte a direcao.
+// Opcoes do menu "Ordenar" do Funil CRM. Cada opcao = chave + direcao (mesmo formato que ja
+// fica salvo no navegador em LEAD_SORT_STORAGE_KEY, entao a escolha antiga continua valendo).
+// "Proxima atividade" nao entra: o sistema ainda nao guarda atividade/tarefa por lead.
 type LeadSortKey = 'ultima_mensagem' | 'ultimo_evento' | 'criacao' | 'nome' | 'venda';
-const LEAD_SORT_OPTIONS: { key: LeadSortKey; label: string; defaultDir: 'asc' | 'desc' }[] = [
-  { key: 'ultima_mensagem', label: 'Pela última mensagem', defaultDir: 'desc' },
-  { key: 'ultimo_evento', label: 'Por último evento', defaultDir: 'desc' },
-  { key: 'criacao', label: 'Por data de criação', defaultDir: 'desc' },
-  { key: 'nome', label: 'Por nome', defaultDir: 'asc' },
-  { key: 'venda', label: 'Por venda', defaultDir: 'desc' },
+const LEAD_SORT_OPTIONS: { key: LeadSortKey; dir: 'asc' | 'desc'; label: string }[] = [
+  { key: 'criacao', dir: 'desc', label: 'Mais recentes' },
+  { key: 'criacao', dir: 'asc', label: 'Mais antigos' },
+  { key: 'ultima_mensagem', dir: 'desc', label: 'Última mensagem' },
+  { key: 'ultimo_evento', dir: 'desc', label: 'Último evento' },
+  { key: 'nome', dir: 'asc', label: 'Nome A-Z' },
+  { key: 'nome', dir: 'desc', label: 'Nome Z-A' },
+  { key: 'venda', dir: 'desc', label: 'Maior valor' },
+  { key: 'venda', dir: 'asc', label: 'Menor valor' },
 ];
 const LEAD_SORT_STORAGE_KEY = 'crm_lead_sort';
+
+// Horario da "ultima interacao" do lead (mesma regra que a ordenacao "Última mensagem" ja usava):
+// se a ultima foi do cliente usa o horario dela; se foi o atendente, o lead grava updated_at no envio.
+const leadUltimaInteracaoMs = (l: Lead): number => {
+  const ms = (v: any) => parseMsgDate(v)?.getTime() ?? 0;
+  return l.lastMessageDirection === 'outgoing' ? ms(l.updatedAt) : (ms(l.lastClientMessageAt) || ms(l.updatedAt));
+};
+const leadUltimaInteracaoLabel = (l: Lead): string => {
+  const t = leadUltimaInteracaoMs(l);
+  if (!t) return '';
+  const d = new Date(t);
+  const hoje = new Date();
+  if (d.toDateString() === hoje.toDateString()) return format(d, 'HH:mm');
+  const ontem = new Date();
+  ontem.setDate(hoje.getDate() - 1);
+  if (d.toDateString() === ontem.toDateString()) return 'Ontem';
+  return format(d, 'dd/MM');
+};
+
+// Cor de etapa digitada/escolhida: aceita "#2563eb", "2563eb" e "#26e" -> sempre "#RRGGBB" maiusculo
+const HEX_COLOR_RE = /^#[0-9a-f]{6}$/i;
+const parseHexInput = (raw: string): string | null => {
+  let c = (raw || '').trim();
+  if (!c) return null;
+  if (!c.startsWith('#')) c = `#${c}`;
+  if (/^#[0-9a-f]{3}$/i.test(c)) c = '#' + c.slice(1).split('').map(ch => ch + ch).join('');
+  return HEX_COLOR_RE.test(c) ? c.toUpperCase() : null;
+};
 
 export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | null, user: AppUser | null }) => {
   const { pendingOpenLeadId, setPendingOpenLeadId, pendingWhatsAppShare, setPendingWhatsAppShare } = React.useContext(AppContext)!;
@@ -5069,11 +5102,32 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
   });
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
 
-  const handlePickSort = (key: LeadSortKey) => {
-    const opt = LEAD_SORT_OPTIONS.find(o => o.key === key)!;
-    const next: { key: LeadSortKey; dir: 'asc' | 'desc' } = leadSort.key === key
-      ? { key, dir: leadSort.dir === 'desc' ? 'asc' : 'desc' }
-      : { key, dir: opt.defaultDir };
+  // Barra de controles do Funil: Responsavel / Filtros (o filtro de Responsavel e um so, compartilhado
+  // entre o menu "Responsavel" e o painel "Filtros"). 'all' | 'mine' | 'none' | id do usuario.
+  const [responsibleMenuOpen, setResponsibleMenuOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [responsibleFilter, setResponsibleFilter] = useState<string>('all');
+  const EMPTY_LEAD_FILTERS = { etapa: '', origem: '', status: '', arquivados: '', periodo: '', valorMin: '', valorMax: '', interacao: '', tag: '' };
+  const [leadFilters, setLeadFilters] = useState(EMPTY_LEAD_FILTERS);
+
+  // Usuarios (responsaveis) -- mesma tabela "usuarios" que a tela de Usuarios ja usa
+  const [responsaveis, setResponsaveis] = useState<AppUser[]>([]);
+  useEffect(() => {
+    let ativo = true;
+    (async () => {
+      const { data } = await supabase.from('usuarios').select('*').order('name', { ascending: true });
+      if (ativo) setResponsaveis((data || []).map(mapUsuarioRow).filter(u => u.isActive !== false));
+    })();
+    return () => { ativo = false; };
+  }, []);
+  const responsaveisById = useMemo(() => {
+    const m: Record<string, string> = {};
+    responsaveis.forEach(u => { m[u.id] = u.name; });
+    return m;
+  }, [responsaveis]);
+
+  const handlePickSort = (opt: { key: LeadSortKey; dir: 'asc' | 'desc' }) => {
+    const next: { key: LeadSortKey; dir: 'asc' | 'desc' } = { key: opt.key, dir: opt.dir };
     setLeadSort(next);
     try { localStorage.setItem(LEAD_SORT_STORAGE_KEY, JSON.stringify(next)); } catch { /* ignora */ }
     setSortMenuOpen(false);
@@ -5100,8 +5154,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     // atendente que mandou, o lead grava updated_at no envio, então usa ele.
     const chave = (l: Lead): number | string => {
       switch (leadSort.key) {
-        case 'ultima_mensagem':
-          return l.lastMessageDirection === 'outgoing' ? ms(l.updatedAt) : (ms(l.lastClientMessageAt) || ms(l.updatedAt));
+        case 'ultima_mensagem': return leadUltimaInteracaoMs(l);
         case 'criacao': return ms(l.createdAt);
         case 'nome': return (l.fullName || '').toLocaleLowerCase('pt-BR');
         case 'venda': return l.estimatedValue ?? 0;
@@ -5118,6 +5171,49 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
       return cmp !== 0 ? cmp * sinal : ms(b.updatedAt) - ms(a.updatedAt);
     });
   }, [leads, leadSort]);
+
+  // Opcoes dos filtros (vem dos proprios leads carregados) + aplicacao dos filtros sobre a lista
+  // ja ordenada. Grupos do WhatsApp continuam sendo removidos na hora de montar cada coluna.
+  const opcoesFiltro = useMemo(() => {
+    const uniq = (arr: (string | undefined)[]) =>
+      Array.from(new Set(arr.filter((v): v is string => !!v && v.trim() !== ''))).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    return {
+      origens: uniq(leads.map(l => l.sourceType)),
+      status: uniq(leads.map(l => (l as any).status)),
+      tags: uniq(leads.flatMap(l => l.tags || [])),
+    };
+  }, [leads]);
+
+  const filteredLeads = useMemo(() => {
+    const DIA = 86400000;
+    const inicioHoje = new Date();
+    inicioHoje.setHours(0, 0, 0, 0);
+    const limite = (p: string) => p === 'hoje' ? inicioHoje.getTime() : p === '7d' ? Date.now() - 7 * DIA : p === '30d' ? Date.now() - 30 * DIA : 0;
+    const etapaInicialId = stages.find(s => s.isInitial || s.order === 0)?.id;
+    const vMin = leadFilters.valorMin !== '' ? Number(leadFilters.valorMin) : NaN;
+    const vMax = leadFilters.valorMax !== '' ? Number(leadFilters.valorMax) : NaN;
+    return sortedLeads.filter(l => {
+      if (responsibleFilter === 'mine') { if (!user?.id || l.responsibleUserId !== user.id) return false; }
+      else if (responsibleFilter === 'none') { if (l.responsibleUserId) return false; }
+      else if (responsibleFilter !== 'all' && l.responsibleUserId !== responsibleFilter) return false;
+      if (leadFilters.etapa && (l.funnelStageId || etapaInicialId) !== leadFilters.etapa) return false;
+      if (leadFilters.origem && l.sourceType !== leadFilters.origem) return false;
+      if (leadFilters.status && (l as any).status !== leadFilters.status) return false;
+      if (leadFilters.arquivados === 'ocultar' && l.archived) return false;
+      if (leadFilters.arquivados === 'somente' && !l.archived) return false;
+      if (leadFilters.periodo && (parseMsgDate(l.createdAt)?.getTime() ?? 0) < limite(leadFilters.periodo)) return false;
+      if (!Number.isNaN(vMin) && (l.estimatedValue ?? 0) < vMin) return false;
+      if (!Number.isNaN(vMax) && (l.estimatedValue ?? 0) > vMax) return false;
+      if (leadFilters.interacao) {
+        const t = leadUltimaInteracaoMs(l);
+        if (leadFilters.interacao === 'antigas') { if (t >= Date.now() - 30 * DIA) return false; }
+        else if (t < limite(leadFilters.interacao)) return false;
+      }
+      if (leadFilters.tag && !(l.tags || []).includes(leadFilters.tag)) return false;
+      return true;
+    });
+  }, [sortedLeads, stages, responsibleFilter, leadFilters, user?.id]);
+  const filtrosAtivos = Object.values(leadFilters).filter(v => v !== '').length + (responsibleFilter !== 'all' ? 1 : 0);
 
   // Mantem o lead selecionado sincronizado com a lista ao vivo (onSnapshot) --
   // sem isso, depois de mudar a etapa (ou qualquer outro campo) pelo proprio
@@ -5243,8 +5339,13 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
         if (!destino) return;
         destinoId = destino.id;
       } else if (!(await showConfirm(`Excluir a etapa "${stage.name}"?\n\nEssa ação não pode ser desfeita.`))) return;
-      if (destinoId) await supabase.from('leads').update({ funnel_stage_id: destinoId }).eq('funnel_stage_id', stageId);
-      await supabase.from('funnel_stages').delete().eq('id', stageId);
+      if (destinoId) {
+        const { error: erroMover } = await supabase.from('leads').update({ funnel_stage_id: destinoId }).eq('funnel_stage_id', stageId);
+        if (erroMover) throw erroMover;
+      }
+      const { error: erroExcluir } = await supabase.from('funnel_stages').delete().eq('id', stageId);
+      if (erroExcluir) throw erroExcluir;
+      setStages(prev => prev.filter(s => s.id !== stageId));
       setFunnelMenuOpen(false);
       showAlert(`Etapa "${stage.name}" excluída.`);
     } catch (err) {
@@ -5307,12 +5408,83 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     }
   };
 
+  // --- Acoes em lote do modo "Selecionar" (alem do "Excluir selecionados" que ja existia) ---
+  // Aplica a mesma alteracao a todos os leads marcados: atualiza a tela na hora e desfaz se o
+  // servidor recusar. `tocar` = se tambem grava updated_at (mover de etapa grava, igual ao arrastar;
+  // responsavel/arquivar nao, pra nao bagunçar a ordem por "ultima mensagem").
+  const aplicarEmSelecionados = async (patchDb: Record<string, any>, patchLocal: Partial<Lead>, okMsg: string, tocar: boolean) => {
+    const ids = Array.from(selectedLeadIds);
+    if (ids.length === 0) return;
+    const anteriores = leads.filter(l => ids.includes(l.id));
+    setLeads(prev => prev.map(l => ids.includes(l.id) ? { ...l, ...patchLocal } : l));
+    try {
+      const { error } = await supabase.from('leads')
+        .update(tocar ? { ...patchDb, updated_at: new Date().toISOString() } : patchDb)
+        .in('id', ids).eq('company_id', 'rafa-arts');
+      if (error) throw error;
+      setSelectedLeadIds(new Set());
+      showAlert(okMsg);
+    } catch (err) {
+      console.error('Erro na ação em lote do Funil:', err);
+      setLeads(prev => prev.map(l => anteriores.find(a => a.id === l.id) || l));
+      showAlert('Não foi possível aplicar a ação nos leads selecionados.');
+    }
+  };
+
+  const handleBulkMoveStage = (stageId: string) => {
+    const alvo = stages.find(s => s.id === stageId);
+    if (!alvo) return;
+    aplicarEmSelecionados({ funnel_stage_id: stageId }, { funnelStageId: stageId }, `${selectedLeadIds.size} lead(s) movido(s) para "${alvo.name}".`, true);
+  };
+
+  const handleBulkSetResponsible = (userId: string) => {
+    if (!userId) return;
+    const semResp = userId === '__none';
+    const nome = semResp ? '' : (responsaveisById[userId] || 'responsável');
+    aplicarEmSelecionados(
+      { responsible_user_id: semResp ? null : userId },
+      { responsibleUserId: semResp ? undefined : userId },
+      semResp ? `Responsável removido de ${selectedLeadIds.size} lead(s).` : `${selectedLeadIds.size} lead(s) agora com ${nome}.`,
+      false,
+    );
+  };
+
+  const handleBulkArchive = async () => {
+    if (selectedLeadIds.size === 0) return;
+    if (!(await showConfirm(`Arquivar ${selectedLeadIds.size} lead(s) selecionado(s)?\n\nEles continuam salvos e podem ser filtrados em Filtros → Arquivados.`))) return;
+    aplicarEmSelecionados({ archived: true }, { archived: true }, `${selectedLeadIds.size} lead(s) arquivado(s).`, false);
+  };
+
+  const handleBulkAddTag = async () => {
+    const ids = Array.from(selectedLeadIds);
+    if (ids.length === 0) return;
+    const tag = ((await showPrompt('Nome da tag para adicionar aos leads selecionados:')) || '').trim();
+    if (!tag) return;
+    try {
+      for (const lead of leads.filter(l => ids.includes(l.id))) {
+        if ((lead.tags || []).includes(tag)) continue;
+        const tags = [...(lead.tags || []), tag];
+        const { error } = await supabase.from('leads').update({ tags }).eq('id', lead.id).eq('company_id', 'rafa-arts');
+        if (error) throw error;
+        setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, tags } : l));
+      }
+      setSelectedLeadIds(new Set());
+      showAlert(`Tag "${tag}" adicionada a ${ids.length} lead(s).`);
+    } catch (err) {
+      console.error('Erro ao adicionar tag em lote:', err);
+      showAlert('Não foi possível adicionar a tag em todos os leads selecionados.');
+    }
+  };
+
   // --- Handlers do modal "Gestão de Funis & Etapas" (Configurar) ---
   // Antes esse modal era só decoração: input sem onChange, cores sem onClick,
   // botões "Adicionar Etapa"/Automações/Editar/Excluir sem handler nenhum.
   const [funnelNameDraft, setFunnelNameDraft] = useState('');
   const [renamingStageId, setRenamingStageId] = useState<string | null>(null);
   const [stageNameDraft, setStageNameDraft] = useState('');
+  // Aba aberta em Configuracoes do funil e etapa cujo painel "Editar etapa" esta aberto
+  const [configTab, setConfigTab] = useState<'geral' | 'etapas' | 'campos' | 'automacao' | 'permissoes'>('geral');
+  const [editingStageId, setEditingStageId] = useState<string | null>(null);
 
   useEffect(() => {
     setFunnelNameDraft(currentFunnel?.name || '');
@@ -5369,29 +5541,46 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     setStageNameDraft(stage.name);
   };
 
-  const handleSaveStageName = async (stageId: string) => {
-    const name = stageNameDraft.trim();
-    setRenamingStageId(null);
+  // Renomeia uma etapa (usada tanto pelo nome clicavel na lista quanto pelo painel "Editar etapa")
+  const renameStage = async (stageId: string, rawName: string) => {
+    const name = rawName.trim();
     const stage = stages.find(s => s.id === stageId);
     if (!name || !stage || name === stage.name || !apenasAdmin()) return;
     try {
-      await supabase.from('funnel_stages').update({ name, updated_at: new Date().toISOString() }).eq('id', stageId);
+      const { error } = await supabase.from('funnel_stages').update({ name, updated_at: new Date().toISOString() }).eq('id', stageId);
+      if (error) throw error;
+      setStages(prev => prev.map(s => s.id === stageId ? { ...s, name } : s));
     } catch (err) {
       console.error('Erro ao renomear etapa:', err);
       showAlert('Não foi possível renomear a etapa.');
     }
   };
 
-  const handleSetStageColor = async (stageId: string, color: string) => {
-    if (!apenasAdmin()) return;
+  const handleSaveStageName = async (stageId: string) => {
+    setRenamingStageId(null);
+    await renameStage(stageId, stageNameDraft);
+  };
+
+  // Muda a cor de UMA etapa (so a linha dessa etapa em funnel_stages). Aceita paleta, seletor de cor
+  // e codigo HEX. Mantem a regra atual de nao repetir cor entre etapas ativas, mas agora diz qual
+  // etapa ja usa a cor -- e, com HEX/seletor, sempre existe uma cor livre pra escolher.
+  const handleSetStageColor = async (stageId: string, rawColor: string): Promise<boolean> => {
+    if (!apenasAdmin()) return false;
+    const color = parseHexInput(rawColor);
+    if (!color) { showAlert('Cor inválida. Use o formato HEX, por exemplo #2563EB.'); return false; }
     const stage = stages.find(s => s.id === stageId);
-    if (stage && normalizeHex(stage.color) === normalizeHex(color)) return;
-    if (corEmUso(color, stageId)) { showAlert(STAGE_COLOR_IN_USE_MSG); return; }
+    if (stage && normalizeHex(stage.color) === normalizeHex(color)) return true;
+    const usadaPor = stages.find(s => s.id !== stageId && s.isActive !== false && !!s.color && normalizeHex(s.color) === normalizeHex(color));
+    if (usadaPor) { showAlert(`${STAGE_COLOR_IN_USE_MSG} (${usadaPor.name})`); return false; }
     try {
-      await supabase.from('funnel_stages').update({ color, updated_at: new Date().toISOString() }).eq('id', stageId);
+      const { error } = await supabase.from('funnel_stages').update({ color, updated_at: new Date().toISOString() }).eq('id', stageId);
+      if (error) throw error;
+      setStages(prev => prev.map(s => s.id === stageId ? { ...s, color } : s));
+      return true;
     } catch (err) {
       console.error('Erro ao definir cor da etapa:', err);
       showAlert('Não foi possível salvar a cor da etapa.');
+      return false;
     }
   };
 
@@ -5402,7 +5591,9 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     if (!ativar && stage.isInitial) { showAlert('A etapa inicial não pode ser desativada.'); return; }
     if (!ativar && leadsDaEtapa(stage).length > 0) { showAlert(STAGE_HAS_LEADS_MSG); return; }
     try {
-      await supabase.from('funnel_stages').update({ is_active: ativar, updated_at: new Date().toISOString() }).eq('id', stage.id);
+      const { error } = await supabase.from('funnel_stages').update({ is_active: ativar, updated_at: new Date().toISOString() }).eq('id', stage.id);
+      if (error) throw error;
+      setStages(prev => prev.map(s => s.id === stage.id ? { ...s, isActive: ativar } : s));
     } catch (err) {
       console.error('Erro ao ativar/desativar etapa:', err);
       showAlert('Não foi possível alterar a etapa.');
@@ -5414,7 +5605,10 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     const arr = [...stages];
     [arr[idx], arr[idx + dir]] = [arr[idx + dir], arr[idx]];
     try {
-      await Promise.all(arr.map((st, i) => st.order === i ? null : supabase.from('funnel_stages').update({ order: i, updated_at: new Date().toISOString() }).eq('id', st.id)));
+      const resultados = await Promise.all(arr.map((st, i) => st.order === i ? null : supabase.from('funnel_stages').update({ order: i, updated_at: new Date().toISOString() }).eq('id', st.id)));
+      const falha = resultados.find(r => r && r.error);
+      if (falha && falha.error) throw falha.error;
+      setStages(arr.map((st, i) => ({ ...st, order: i })));
     } catch (err) {
       console.error('Erro ao reordenar etapas:', err);
       showAlert('Não foi possível reordenar as etapas.');
@@ -5457,12 +5651,12 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
         selectedLead ? "hidden md:flex md:w-[300px] md:shrink-0" : "w-full flex"
       )}>
         {!selectedLead && (
-        <SectionHeader 
-          title="Funil Rafa Arts" 
-          subtitle={currentFunnel?.name || "Gestão Estratégica"} 
+        <div>
+        <SectionHeader
+          title="Funil Rafa Arts"
+          subtitle={currentFunnel?.name || "Gestão Estratégica"}
           actions={
-            <div className="flex gap-3">
-               {/* ✅ Dropdown Gerenciador de Funis */}
+               /* Seletor de funil: so troca de funil. Criar/excluir funil e etapas ficam em Configurações. */
                <div className="relative">
                   <button
                     onClick={() => setFunnelMenuOpen(!funnelMenuOpen)}
@@ -5471,11 +5665,10 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                     {currentFunnel?.name || 'Selecionar Funil'}
                     <ChevronDown size={14} className={cn('transition-transform', funnelMenuOpen && 'rotate-180')} />
                   </button>
-
                   {funnelMenuOpen && (
-                    <div className="absolute top-full mt-2 left-0 w-64 bg-slate-900 border border-white/10 rounded-xl shadow-2xl z-50 p-2">
-                      {/* Trocar Funil */}
-                      <div className="mb-2">
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setFunnelMenuOpen(false)} />
+                      <div className="absolute top-full mt-2 right-0 sm:left-0 sm:right-auto w-64 max-w-[calc(100vw-2rem)] bg-slate-900 border border-white/10 rounded-xl shadow-2xl z-50 p-2">
                         <p className="text-[9px] font-black uppercase text-white/40 tracking-widest px-3 py-1">Funis</p>
                         {funnels.map(f => (
                           <button
@@ -5483,132 +5676,224 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                             onClick={() => { setSelectedFunnelId(f.id); setFunnelMenuOpen(false); }}
                             className={cn(
                               'w-full text-left px-3 py-2 rounded-lg text-[10px] font-bold transition-all',
-                              selectedFunnelId === f.id 
-                                ? 'bg-primary-500 text-slate-900' 
-                                : 'text-white hover:bg-white/10'
+                              selectedFunnelId === f.id ? 'bg-primary-500 text-slate-900' : 'text-white hover:bg-white/10'
                             )}
                           >
                             {f.name}
                           </button>
                         ))}
                       </div>
-
-                      <div className="h-px bg-white/10 my-1" />
-
-                      {/* Gerenciar Funis */}
-                      <div className="space-y-1 mb-2">
-                        <button
-                          onClick={() => { setFunnelMenuOpen(false); setIsConfiguringFunnel(true); }}
-                          className="w-full text-left px-3 py-2 rounded-lg text-[10px] font-bold text-white/80 hover:bg-white/10 transition-all flex items-center gap-2"
-                        >
-                          <Settings2 size={12} /> Configurações de Funis
-                        </button>
-                        <button
-                          onClick={handleAddFunnel}
-                          className="w-full text-left px-3 py-2 rounded-lg text-[10px] font-bold text-primary-300 hover:bg-primary-500/20 transition-all flex items-center gap-2"
-                        >
-                          <Plus size={12} /> Novo Funil
-                        </button>
-                        {currentFunnel && user?.isAdmin && (
-                          <button
-                            onClick={() => handleDeleteFunnel(selectedFunnelId)}
-                            className="w-full text-left px-3 py-2 rounded-lg text-[10px] font-bold text-rose-400 hover:bg-rose-500/20 transition-all flex items-center gap-2"
-                          >
-                            <Trash2 size={12} /> Excluir Funil
-                          </button>
-                        )}
-                      </div>
-
-                      <div className="h-px bg-white/10 my-1" />
-
-                      {/* Gerenciar Etapas */}
-                      {currentFunnel && (
-                        <div className="space-y-1">
-                          <p className="text-[9px] font-black uppercase text-white/40 tracking-widest px-3 py-1">Etapas</p>
-                          <button
-                            onClick={handleAddStage}
-                            className="w-full text-left px-3 py-2 rounded-lg text-[10px] font-bold text-primary-300 hover:bg-primary-500/20 transition-all flex items-center gap-2"
-                          >
-                            <Plus size={12} /> Nova Etapa
-                          </button>
-                          {user?.isAdmin && stages.length > 1 && (
-                            <div className="space-y-1 mt-1 pt-1 border-t border-white/10">
-                              {stages.map(s => (
-                                <button
-                                  key={s.id}
-                                  onClick={() => handleDeleteStage(s.id)}
-                                  className="w-full text-left px-3 py-1.5 rounded-lg text-[9px] text-white/60 hover:bg-rose-500/20 hover:text-rose-400 transition-all"
-                                  title={`Excluir etapa "${s.name}"`}
-                                >
-                                  ✕ {s.name}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-               </div>
-
-               {/* Menu "Ordenar" dos cards (Pela última mensagem / último evento / criação / nome / venda) */}
-               <div className="relative">
-                  <Button variant="secondary" icon={ArrowUpDown} onClick={() => setSortMenuOpen(o => !o)}>Ordenar</Button>
-                  {sortMenuOpen && (
-                    <>
-                      <div className="fixed inset-0 z-40" onClick={() => setSortMenuOpen(false)} />
-                      <div className="absolute top-full mt-2 left-0 w-60 bg-slate-900 border border-white/10 rounded-xl shadow-2xl z-50 p-2">
-                        <p className="text-[9px] font-black uppercase text-white/40 tracking-widest px-3 py-1">Ordenar</p>
-                        {LEAD_SORT_OPTIONS.map(o => {
-                          const ativo = leadSort.key === o.key;
-                          const dir = ativo ? leadSort.dir : o.defaultDir;
-                          const DirIcon = dir === 'asc' ? ArrowUp : ArrowDown;
-                          return (
-                            <button
-                              key={o.key}
-                              onClick={() => handlePickSort(o.key)}
-                              className={cn(
-                                'w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-[11px] font-bold transition-all',
-                                ativo ? 'text-primary-300 bg-primary-500/10' : 'text-white/70 hover:bg-white/10'
-                              )}
-                            >
-                              <span className="truncate">{o.label}</span>
-                              <DirIcon size={13} className={cn('shrink-0', !ativo && 'opacity-40')} />
-                            </button>
-                          );
-                        })}
-                      </div>
                     </>
                   )}
                </div>
-               <Button
-                 variant={leadSelectionMode ? 'primary' : 'secondary'}
-                 icon={CheckSquare}
-                 onClick={() => { setLeadSelectionMode(v => !v); setSelectedLeadIds(new Set()); }}
-               >
-                 {leadSelectionMode ? 'Cancelar Seleção' : 'Selecionar Vários'}
-               </Button>
-               <Button variant="secondary" icon={Settings2} onClick={() => setIsConfiguringFunnel(true)}>Configurações</Button>
-               <Button icon={Plus}>Novo Lead</Button>
-            </div>
-          } 
+          }
         />
+
+        {/* Barra de controles: à esquerda o que age sobre os LEADS (Responsável | Ordenar | Filtros | Selecionar);
+            à direita Novo Lead e as Configurações do FUNIL. No celular os botões viram só ícone. */}
+        <div className="-mt-6 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* RESPONSÁVEL */}
+            <div className="relative">
+              <Button
+                variant={responsibleFilter !== 'all' ? 'primary' : 'secondary'}
+                icon={Users}
+                className="px-3 md:px-4 py-2.5 md:py-3"
+                title="Responsável"
+                onClick={() => setResponsibleMenuOpen(o => !o)}
+              >
+                <span className="hidden md:inline truncate max-w-[120px]">
+                  {responsibleFilter === 'all' ? 'Responsável' : responsibleFilter === 'mine' ? 'Meus leads' : responsibleFilter === 'none' ? 'Sem responsável' : (responsaveisById[responsibleFilter] || 'Responsável')}
+                </span>
+                <ChevronDown size={12} className="hidden md:block" />
+              </Button>
+              {responsibleMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setResponsibleMenuOpen(false)} />
+                  <div className="absolute top-full mt-2 left-0 w-60 max-w-[calc(100vw-2rem)] max-h-80 overflow-y-auto custom-scrollbar bg-slate-900 border border-white/10 rounded-xl shadow-2xl z-50 p-2">
+                    <p className="text-[9px] font-black uppercase text-white/40 tracking-widest px-3 py-1">Responsável</p>
+                    {([['all', 'Todos'], ['mine', 'Meus leads'], ['none', 'Sem responsável']] as const).map(([k, label]) => (
+                      <button
+                        key={k}
+                        onClick={() => { setResponsibleFilter(k); setResponsibleMenuOpen(false); }}
+                        className={cn('w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-[11px] font-bold transition-all', responsibleFilter === k ? 'text-primary-300 bg-primary-500/10' : 'text-white/70 hover:bg-white/10')}
+                      >
+                        <span className="truncate">{label}</span>
+                        {responsibleFilter === k && <Check size={13} className="shrink-0" />}
+                      </button>
+                    ))}
+                    {responsaveis.length > 0 && <div className="h-px bg-white/10 my-1" />}
+                    {responsaveis.map(u => (
+                      <button
+                        key={u.id}
+                        onClick={() => { setResponsibleFilter(u.id); setResponsibleMenuOpen(false); }}
+                        className={cn('w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-[11px] font-bold transition-all', responsibleFilter === u.id ? 'text-primary-300 bg-primary-500/10' : 'text-white/70 hover:bg-white/10')}
+                      >
+                        <span className="truncate">{u.name}</span>
+                        {responsibleFilter === u.id && <Check size={13} className="shrink-0" />}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* ORDENAR */}
+            <div className="relative">
+              <Button variant="secondary" icon={ArrowUpDown} className="px-3 md:px-4 py-2.5 md:py-3" title="Ordenar" onClick={() => setSortMenuOpen(o => !o)}>
+                <span className="hidden md:inline">Ordenar</span>
+              </Button>
+              {sortMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setSortMenuOpen(false)} />
+                  <div className="absolute top-full mt-2 left-0 w-60 max-w-[calc(100vw-2rem)] bg-slate-900 border border-white/10 rounded-xl shadow-2xl z-50 p-2">
+                    <p className="text-[9px] font-black uppercase text-white/40 tracking-widest px-3 py-1">Ordenar</p>
+                    {LEAD_SORT_OPTIONS.map(o => {
+                      const ativo = leadSort.key === o.key && leadSort.dir === o.dir;
+                      return (
+                        <button
+                          key={`${o.key}-${o.dir}`}
+                          onClick={() => handlePickSort(o)}
+                          className={cn(
+                            'w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-[11px] font-bold transition-all',
+                            ativo ? 'text-primary-300 bg-primary-500/10' : 'text-white/70 hover:bg-white/10'
+                          )}
+                        >
+                          <span className="truncate">{o.label}</span>
+                          {ativo && <Check size={13} className="shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* FILTROS */}
+            <div className="relative">
+              <Button variant={filtrosAtivos > 0 ? 'primary' : 'secondary'} icon={Filter} className="px-3 md:px-4 py-2.5 md:py-3" title="Filtros" onClick={() => setFiltersOpen(o => !o)}>
+                <span className="hidden md:inline">Filtros</span>
+                {filtrosAtivos > 0 && <span className="text-[10px] font-black bg-white/20 rounded-full px-1.5">{filtrosAtivos}</span>}
+              </Button>
+              {filtersOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setFiltersOpen(false)} />
+                  <div className="fixed inset-x-4 top-44 sm:absolute sm:inset-x-auto sm:top-full sm:mt-2 sm:left-0 sm:w-80 max-h-[70vh] overflow-y-auto custom-scrollbar bg-slate-900 border border-white/10 rounded-xl shadow-2xl z-50 p-3 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[9px] font-black uppercase text-white/40 tracking-widest">Filtros</p>
+                      <button
+                        type="button"
+                        disabled={filtrosAtivos === 0}
+                        onClick={() => { setLeadFilters(EMPTY_LEAD_FILTERS); setResponsibleFilter('all'); }}
+                        className="text-[9px] font-black uppercase tracking-widest text-primary-300 disabled:text-white/20"
+                      >
+                        Limpar filtros
+                      </button>
+                    </div>
+                    {([
+                      { label: 'Responsável', value: responsibleFilter, set: (v: string) => setResponsibleFilter(v || 'all'), opts: [['all', 'Todos'], ['mine', 'Meus leads'], ['none', 'Sem responsável'], ...responsaveis.map(u => [u.id, u.name])] },
+                      { label: 'Etapa', value: leadFilters.etapa, set: (v: string) => setLeadFilters(f => ({ ...f, etapa: v })), opts: [['', 'Todas'], ...stages.filter(s => s.isActive !== false).map(s => [s.id, s.name])] },
+                      { label: 'Origem', value: leadFilters.origem, set: (v: string) => setLeadFilters(f => ({ ...f, origem: v })), opts: [['', 'Todas'], ...opcoesFiltro.origens.map(o => [o, o])] },
+                      { label: 'Status', value: leadFilters.status, set: (v: string) => setLeadFilters(f => ({ ...f, status: v })), opts: [['', 'Todos'], ...opcoesFiltro.status.map(o => [o, o])] },
+                      { label: 'Arquivados', value: leadFilters.arquivados, set: (v: string) => setLeadFilters(f => ({ ...f, arquivados: v })), opts: [['', 'Mostrar todos'], ['ocultar', 'Ocultar arquivados'], ['somente', 'Somente arquivados']] },
+                      { label: 'Período (criação)', value: leadFilters.periodo, set: (v: string) => setLeadFilters(f => ({ ...f, periodo: v })), opts: [['', 'Qualquer'], ['hoje', 'Hoje'], ['7d', 'Últimos 7 dias'], ['30d', 'Últimos 30 dias']] },
+                      { label: 'Última interação', value: leadFilters.interacao, set: (v: string) => setLeadFilters(f => ({ ...f, interacao: v })), opts: [['', 'Qualquer'], ['hoje', 'Hoje'], ['7d', 'Últimos 7 dias'], ['30d', 'Últimos 30 dias'], ['antigas', 'Mais de 30 dias']] },
+                      { label: 'Tags', value: leadFilters.tag, set: (v: string) => setLeadFilters(f => ({ ...f, tag: v })), opts: [['', 'Todas'], ...opcoesFiltro.tags.map(o => [o, o])] },
+                    ] as { label: string; value: string; set: (v: string) => void; opts: string[][] }[]).map(campo => (
+                      <label key={campo.label} className="block">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-white/40">{campo.label}</span>
+                        <select
+                          value={campo.value}
+                          onChange={(e) => campo.set(e.target.value)}
+                          className="mt-1 w-full bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-[11px] font-bold text-white focus:outline-none focus:border-primary-500/50"
+                        >
+                          {campo.opts.map(([v, l]) => <option key={v} value={v} className="bg-slate-900">{l}</option>)}
+                        </select>
+                      </label>
+                    ))}
+                    <div>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-white/40">Valor (R$)</span>
+                      <div className="mt-1 flex items-center gap-2">
+                        <input
+                          type="number" min="0" inputMode="decimal" placeholder="Mínimo"
+                          value={leadFilters.valorMin}
+                          onChange={(e) => setLeadFilters(f => ({ ...f, valorMin: e.target.value }))}
+                          className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-[11px] font-bold text-white focus:outline-none focus:border-primary-500/50"
+                        />
+                        <input
+                          type="number" min="0" inputMode="decimal" placeholder="Máximo"
+                          value={leadFilters.valorMax}
+                          onChange={(e) => setLeadFilters(f => ({ ...f, valorMax: e.target.value }))}
+                          className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-[11px] font-bold text-white focus:outline-none focus:border-primary-500/50"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* SELECIONAR: entra no modo de seleção múltipla (checkbox nos cards) */}
+            <Button
+              variant={leadSelectionMode ? 'primary' : 'secondary'}
+              icon={CheckSquare}
+              className="px-3 md:px-4 py-2.5 md:py-3"
+              title={leadSelectionMode ? 'Cancelar seleção' : 'Selecionar'}
+              onClick={() => { setLeadSelectionMode(v => !v); setSelectedLeadIds(new Set()); }}
+            >
+              <span className="hidden md:inline">{leadSelectionMode ? 'Cancelar' : 'Selecionar'}</span>
+            </Button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button icon={Plus} className="px-4 py-2.5 md:py-3">Novo Lead</Button>
+            <Button
+              variant="secondary"
+              icon={Settings2}
+              className="px-3 md:px-4 py-2.5 md:py-3"
+              title="Configurações do funil"
+              onClick={() => { setConfigTab('geral'); setIsConfiguringFunnel(true); }}
+            >
+              <span className="hidden md:inline">Configurações</span>
+            </Button>
+          </div>
+        </div>
+        </div>
         )}
 
         {leadSelectionMode && selectedLeadIds.size > 0 && (
-          <div className="flex items-center justify-between gap-3 bg-rose-500/10 border border-rose-500/30 rounded-2xl px-4 py-2.5 mb-1">
-            <p className="text-[10px] font-black uppercase tracking-widest text-rose-300">
+          <div className="flex flex-wrap items-center gap-2 bg-primary-500/10 border border-primary-500/30 rounded-2xl px-4 py-2.5 mb-1">
+            <p className="text-[10px] font-black uppercase tracking-widest text-primary-300 mr-auto">
               {selectedLeadIds.size} lead(s) selecionado(s)
             </p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setSelectedLeadIds(new Set())}
-                className="text-[9px] font-black uppercase tracking-widest text-white/40 hover:text-white/70 px-3 py-1.5"
-              >
-                Limpar
-              </button>
-              <Button variant="danger" icon={Trash2} onClick={handleDeleteSelectedLeads}>Excluir Selecionados</Button>
-            </div>
+            <select
+              value=""
+              onChange={(e) => { if (e.target.value) handleBulkMoveStage(e.target.value); }}
+              className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-[10px] font-black uppercase tracking-widest text-white/70 focus:outline-none"
+              title="Mover etapa"
+            >
+              <option value="" className="bg-slate-900">Mover etapa…</option>
+              {stages.filter(s => s.isActive !== false).map(s => <option key={s.id} value={s.id} className="bg-slate-900">{s.name}</option>)}
+            </select>
+            <select
+              value=""
+              onChange={(e) => { if (e.target.value) handleBulkSetResponsible(e.target.value); }}
+              className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-[10px] font-black uppercase tracking-widest text-white/70 focus:outline-none"
+              title="Alterar responsável"
+            >
+              <option value="" className="bg-slate-900">Alterar responsável…</option>
+              <option value="__none" className="bg-slate-900">Sem responsável</option>
+              {responsaveis.map(u => <option key={u.id} value={u.id} className="bg-slate-900">{u.name}</option>)}
+            </select>
+            <Button variant="secondary" icon={Tag} className="px-3 py-2" onClick={handleBulkAddTag}>Tag</Button>
+            <Button variant="secondary" icon={Archive} className="px-3 py-2" onClick={handleBulkArchive}>Arquivar</Button>
+            <Button variant="danger" icon={Trash2} className="px-3 py-2" onClick={handleDeleteSelectedLeads}>Excluir</Button>
+            <button
+              onClick={() => setSelectedLeadIds(new Set())}
+              className="text-[9px] font-black uppercase tracking-widest text-white/40 hover:text-white/70 px-3 py-1.5"
+            >
+              Limpar
+            </button>
           </div>
         )}
 
@@ -5630,19 +5915,21 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                 se estende ate o rodape da pagina, no mesmo nivel do campo de mensagens do ChatPanel). */}
             {stages
                 .filter(stage => stage.isActive !== false)
+                .filter(stage => !leadFilters.etapa || stage.id === leadFilters.etapa)
               .filter(stage => !selectedLead || stage.id === (selectedLead.funnelStageId || (stages.find(s => s.isInitial || s.order === 0)?.id)))
               .map(stage => (
               <div key={`wrapper-${stage.id}`} className="w-full md:w-[300px] shrink-0">
                 <KanbanColumn 
                   key={stage.id} 
                   stage={stage} 
-                  leads={sortedLeads.filter(l => !gruposDigitos.has((l.phone || '').replace(/\D/g, ''))).filter(l => l.funnelStageId === stage.id || (!l.funnelStageId && (stage.isInitial || stage.order === 0)))}
+                  leads={filteredLeads.filter(l => !gruposDigitos.has((l.phone || '').replace(/\D/g, ''))).filter(l => l.funnelStageId === stage.id || (!l.funnelStageId && (stage.isInitial || stage.order === 0)))}
                   onLeadClick={(l) => { setOpenedViaJump(false); setSelectedLead(l); }}
                   selectedLeadId={selectedLead?.id}
                   selectionMode={leadSelectionMode}
                   selectedLeadIds={selectedLeadIds}
                   onToggleLeadSelected={toggleLeadSelected}
                   onDeleteLead={handleDeleteLead}
+                  responsaveisById={responsaveisById}
                 />
               </div>
             ))}
@@ -5707,9 +5994,25 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
       <Modal 
         isOpen={isConfiguringFunnel} 
         onClose={() => setIsConfiguringFunnel(false)} 
-        title="Configurações de Funis & Etapas"
+        title="Configurações do Funil"
       >
         <div className="p-4 space-y-8 max-h-[80vh] overflow-y-auto no-scrollbar">
+           {/* Abas: tudo aqui configura o FUNIL (ações sobre leads ficam na barra do Funil) */}
+           <div className="flex gap-1 overflow-x-auto no-scrollbar border-b border-white/10 pb-2">
+             {([['geral', 'Geral'], ['etapas', 'Etapas'], ['campos', 'Campos'], ['automacao', 'Automação'], ['permissoes', 'Permissões']] as const).map(([k, label]) => (
+               <button
+                 key={k}
+                 type="button"
+                 onClick={() => setConfigTab(k)}
+                 className={cn('px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest whitespace-nowrap transition-all', configTab === k ? 'bg-primary-500 text-slate-900' : 'text-white/50 hover:bg-white/10 hover:text-white')}
+               >
+                 {label}
+               </button>
+             ))}
+           </div>
+
+           {configTab === 'geral' && (
+           <>
            {/* Seção de todos os funis com nome e cor ao lado, e botão '+' para adicionar mais um */}
            <div className="space-y-4">
               <div className="flex items-center justify-between">
@@ -5845,39 +6148,35 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                 </div>
               </div>
            </div>
+           </>
+           )}
 
+           {configTab === 'etapas' && (
            <div className="space-y-4 pt-4 border-t border-white/10">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-[10px] font-black uppercase text-primary-300 tracking-[3px]">
                     Etapas do Funil: <span className="text-white underline">{currentFunnel?.name || 'Funil'}</span>
                   </p>
-                  <p className="text-[11px] text-white/40">Use as setas para reordenar, clique no nome para renomear e defina uma cor exclusiva para cada etapa ativa.</p>
+                  <p className="text-[11px] text-white/40">Use as setas para reordenar e "Editar" para mudar nome, cor, ativar/desativar ou excluir a etapa. Cada etapa ativa tem uma cor exclusiva.</p>
                 </div>
                 <Button size="sm" variant="ghost" icon={Plus} onClick={handleAddStage}>Adicionar Etapa</Button>
               </div>
               <div className="space-y-3">
                  {stages.map((stage, idx) => (
-                   <div key={stage.id} className={cn("p-5 bg-white/5 border border-white/5 rounded-3xl flex items-center gap-4 group", stage.isActive === false && "opacity-50")}>
+                   <div key={stage.id} className={cn("p-5 bg-white/5 border border-white/5 rounded-3xl group", stage.isActive === false && "opacity-50")}>
+                     <div className="flex items-center gap-4">
                       <div className="flex flex-col text-white/30">
                         <button type="button" disabled={idx === 0} onClick={() => handleMoveStage(idx, -1)} title="Subir etapa" className="hover:text-white disabled:opacity-20"><ChevronUp size={14} /></button>
                         <button type="button" disabled={idx === stages.length - 1} onClick={() => handleMoveStage(idx, 1)} title="Descer etapa" className="hover:text-white disabled:opacity-20"><ChevronDown size={14} /></button>
                       </div>
-                      <div className="relative group/color shrink-0">
-                        <div className="w-4 h-4 rounded-full cursor-pointer" style={{ backgroundColor: stage.color || '#4cc9f0' }} />
-                        <div className="hidden group-hover/color:grid grid-cols-8 absolute top-full left-1/2 -translate-x-1/2 mt-2 bg-slate-900 border border-white/10 rounded-xl shadow-2xl p-2 gap-1.5 z-10">
-                           {FUNNEL_STAGE_COLORS.map(c => (
-                             <button
-                               key={c}
-                               type="button"
-                               onClick={() => handleSetStageColor(stage.id, c)}
-                               title={corEmUso(c, stage.id) ? STAGE_COLOR_IN_USE_MSG : c}
-                               className={cn("w-4 h-4 rounded-full border border-white/10 hover:scale-125 transition-transform", corEmUso(c, stage.id) && "opacity-25 cursor-not-allowed")}
-                               style={{ backgroundColor: c }}
-                             />
-                           ))}
-                        </div>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setEditingStageId(editingStageId === stage.id ? null : stage.id)}
+                        title="Editar etapa e cor"
+                        className="w-5 h-5 rounded-full shrink-0 border-2 border-white/40 hover:scale-110 transition-transform cursor-pointer"
+                        style={{ backgroundColor: stage.color || '#4cc9f0' }}
+                      />
                       <div className="flex-1 min-w-0">
                          {renamingStageId === stage.id ? (
                            <input
@@ -5903,70 +6202,199 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                            {stage.automations?.createTask && <span className="text-amber-400"> • Automação ativa</span>}
                          </p>
                       </div>
-                      <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                         <Button
-                           variant="ghost"
-                           size="sm"
-                           icon={stage.isActive === false ? EyeOff : Eye}
-                           className="p-1 h-8 w-8 text-white/40"
-                           title={stage.isActive === false ? "Etapa inativa — clique para ativar" : "Desativar etapa"}
-                           onClick={() => handleToggleStageActive(stage)}
-                         />
-                         <Button
-                           variant="ghost"
-                           size="sm"
-                           icon={Zap}
-                           className={cn("p-1 h-8 w-8", stage.automations?.createTask ? "text-amber-400" : "text-white/30")}
-                           title={stage.automations?.createTask ? "Automação ativa — clique para desativar" : "Ativar automação (criar tarefa ao entrar na etapa)"}
-                           onClick={() => handleToggleStageAutomation(stage)}
-                         />
-                         <Button
-                           variant="ghost"
-                           size="sm"
-                           icon={Settings2}
-                           className="p-1 h-8 w-8"
-                           title="Renomear etapa"
-                           onClick={() => startRenameStage(stage)}
-                         />
-                         {user?.isAdmin && stages.length > 1 && (
-                           <Button
-                             variant="ghost"
-                             size="sm"
-                             icon={Trash}
-                             className="p-1 h-8 w-8 text-rose-400"
-                             title="Excluir etapa"
-                             onClick={() => handleDeleteStage(stage.id)}
-                           />
-                         )}
-                      </div>
+                      <Button
+                        variant="ghost"
+                        icon={Pencil}
+                        className="px-3 py-2 h-9 text-white/60"
+                        title="Editar etapa"
+                        onClick={() => setEditingStageId(editingStageId === stage.id ? null : stage.id)}
+                      >
+                        Editar
+                      </Button>
+                     </div>
+                     {editingStageId === stage.id && (
+                       <StageEditPanel
+                         stage={stage}
+                         index={idx}
+                         total={stages.length}
+                         palette={FUNNEL_STAGE_COLORS}
+                         isColorInUse={corEmUso}
+                         canDelete={!!user?.isAdmin && stages.length > 1}
+                         onRename={(name) => renameStage(stage.id, name)}
+                         onSetColor={(color) => handleSetStageColor(stage.id, color)}
+                         onMove={(dir) => handleMoveStage(idx, dir)}
+                         onToggleActive={() => handleToggleStageActive(stage)}
+                         onDelete={() => handleDeleteStage(stage.id)}
+                       />
+                     )}
                    </div>
                  ))}
               </div>
            </div>
+           )}
+
+           {configTab === 'campos' && (
+             <div className="space-y-2 pt-2">
+               <p className="text-[10px] font-black uppercase text-primary-300 tracking-[3px]">Campos</p>
+               <p className="text-[12px] text-white/50">Ainda não há campos personalizados neste funil. Os leads usam os campos padrão do sistema.</p>
+             </div>
+           )}
+
+           {configTab === 'automacao' && (
+             <div className="space-y-4 pt-2">
+               <div>
+                 <p className="text-[10px] font-black uppercase text-primary-300 tracking-[3px]">Automação por etapa</p>
+                 <p className="text-[11px] text-white/40">Ative para criar uma tarefa automaticamente quando um lead entrar na etapa.</p>
+               </div>
+               <div className="space-y-2">
+                 {stages.map(stage => (
+                   <div key={stage.id} className={cn("p-4 bg-white/5 border border-white/5 rounded-2xl flex items-center gap-3", stage.isActive === false && "opacity-50")}>
+                     <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: stage.color || '#4cc9f0' }} />
+                     <div className="flex-1 min-w-0">
+                       <p className="text-sm font-bold text-white truncate">{stage.name}</p>
+                       <p className="text-[10px] text-white/40 truncate">
+                         {stage.automations?.createTask ? `Cria tarefa: ${stage.automations.taskTitle || ''}` : 'Sem automação'}
+                       </p>
+                     </div>
+                     <Button
+                       variant="ghost"
+                       icon={Zap}
+                       className={cn("px-3 py-2 h-9", stage.automations?.createTask ? "text-amber-400" : "text-white/50")}
+                       onClick={() => handleToggleStageAutomation(stage)}
+                     >
+                       {stage.automations?.createTask ? 'Desativar' : 'Ativar'}
+                     </Button>
+                   </div>
+                 ))}
+               </div>
+             </div>
+           )}
+
+           {configTab === 'permissoes' && (
+             <div className="space-y-2 pt-2">
+               <p className="text-[10px] font-black uppercase text-primary-300 tracking-[3px]">Permissões</p>
+               <p className="text-[12px] text-white/50">Somente administradores podem alterar as etapas do funil (criar, renomear, cor, ordem, ativar/desativar e excluir). As demais permissões continuam como estão.</p>
+             </div>
+           )}
         </div>
       </Modal>
     </div>
   );
 };
 
-const KanbanColumn = ({ stage, leads, onLeadClick, selectedLeadId, selectionMode, selectedLeadIds, onToggleLeadSelected, onDeleteLead }: {
+// Painel "Editar etapa" (Configurações → Etapas → Editar): nome, cor (paleta, seletor e HEX), ordem,
+// ativar/desativar e excluir. So chama os handlers que o CRMModule ja tem -- nao grava nada sozinho.
+const StageEditPanel = ({ stage, index, total, palette, isColorInUse, canDelete, onRename, onSetColor, onMove, onToggleActive, onDelete }: {
+  stage: FunnelStage, index: number, total: number, palette: string[],
+  isColorInUse: (color: string, exceptId?: string) => boolean, canDelete: boolean,
+  onRename: (name: string) => void | Promise<void>, onSetColor: (color: string) => void | Promise<boolean>,
+  onMove: (dir: -1 | 1) => void, onToggleActive: () => void, onDelete: () => void,
+}) => {
+  const [nameDraft, setNameDraft] = useState(stage.name);
+  const [colorDraft, setColorDraft] = useState((stage.color || '#4CC9F0').toUpperCase());
+  useEffect(() => { setNameDraft(stage.name); }, [stage.name]);
+  useEffect(() => { setColorDraft((stage.color || '#4CC9F0').toUpperCase()); }, [stage.color]);
+  const parsed = parseHexInput(colorDraft);
+  const inactive = stage.isActive === false;
+
+  return (
+    <div className="mt-4 pt-4 border-t border-white/10 space-y-5">
+      <div className="space-y-1.5">
+        <p className="text-[9px] font-black uppercase tracking-widest text-white/40">Nome</p>
+        <div className="flex gap-2">
+          <input
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') onRename(nameDraft); }}
+            className="flex-1 min-w-0 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm font-bold text-white focus:outline-none focus:border-primary-500/50"
+          />
+          <Button variant="secondary" className="px-4 py-2" disabled={!nameDraft.trim() || nameDraft.trim() === stage.name} onClick={() => onRename(nameDraft)}>Salvar</Button>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-[9px] font-black uppercase tracking-widest text-white/40">Cor da etapa</p>
+        <div className="flex flex-wrap gap-2">
+          {palette.map(c => {
+            const atual = normalizeHex(stage.color) === normalizeHex(c);
+            const emUso = isColorInUse(c, stage.id);
+            return (
+              <button
+                key={c}
+                type="button"
+                onClick={() => onSetColor(c)}
+                title={emUso ? `${c} — já usada por outra etapa` : c}
+                className={cn('w-7 h-7 rounded-full border-2 transition-transform hover:scale-110', atual ? 'border-white ring-2 ring-white/40' : 'border-white/10', emUso && !atual && 'opacity-25')}
+                style={{ backgroundColor: c }}
+              />
+            );
+          })}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="color"
+            value={parsed || '#000000'}
+            onChange={(e) => setColorDraft(e.target.value.toUpperCase())}
+            title="Cor personalizada"
+            className="w-9 h-9 rounded-lg bg-transparent border border-white/10 cursor-pointer p-0.5"
+          />
+          <input
+            value={colorDraft}
+            onChange={(e) => setColorDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && parsed) onSetColor(parsed); }}
+            maxLength={7}
+            placeholder="#2563EB"
+            spellCheck={false}
+            className={cn('w-28 bg-white/5 border rounded-lg px-3 py-2 text-sm font-mono uppercase text-white focus:outline-none', parsed ? 'border-white/10 focus:border-primary-500/50' : 'border-rose-500/50')}
+          />
+          <span className="w-9 h-9 rounded-lg border border-white/20" style={{ backgroundColor: parsed || 'transparent' }} title="Prévia" />
+          <Button variant="secondary" className="px-4 py-2" disabled={!parsed || normalizeHex(parsed) === normalizeHex(stage.color)} onClick={() => parsed && onSetColor(parsed)}>Aplicar cor</Button>
+        </div>
+        {!parsed && <p className="text-[10px] text-rose-400">Código HEX inválido. Exemplo: #2563EB</p>}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="secondary" icon={ChevronUp} className="px-3 py-2" disabled={index === 0} onClick={() => onMove(-1)}>Subir</Button>
+        <Button variant="secondary" icon={ChevronDown} className="px-3 py-2" disabled={index === total - 1} onClick={() => onMove(1)}>Descer</Button>
+        <Button variant="secondary" icon={inactive ? EyeOff : Eye} className="px-3 py-2" onClick={onToggleActive}>{inactive ? 'Ativar' : 'Desativar'}</Button>
+        {canDelete && <Button variant="danger" icon={Trash2} className="px-3 py-2" onClick={onDelete}>Excluir</Button>}
+      </div>
+    </div>
+  );
+};
+
+const KanbanColumn = ({ stage, leads, onLeadClick, selectedLeadId, selectionMode, selectedLeadIds, onToggleLeadSelected, onDeleteLead, responsaveisById }: {
   key?: any, stage: FunnelStage, leads: Lead[], onLeadClick: (l: Lead) => void, selectedLeadId?: string,
   selectionMode?: boolean, selectedLeadIds?: Set<string>, onToggleLeadSelected?: (leadId: string) => void, onDeleteLead?: (lead: Lead) => void,
+  responsaveisById?: Record<string, string>,
 }) => {
   const { setNodeRef } = useSortable({ id: stage.id, data: { type: 'column', stageId: stage.id } });
+  const totalValor = leads.reduce((soma, l) => soma + (l.estimatedValue ?? 0), 0);
 
   return (
     <div className="flex-1 min-w-0 flex flex-col gap-4 min-h-0">
-      <div className="flex items-center justify-between px-2">
-        <div className="flex items-center gap-2">
-          <div
-            className={cn("w-2 h-2 rounded-full", !stage.color && "bg-primary-500")}
-            style={stage.color ? { backgroundColor: stage.color } : undefined}
-          />
-          <h3 className="text-[10px] font-black uppercase tracking-[3px] text-white/50">{stage.name}</h3>
-          <Badge className="ml-2 bg-white/5 border-none opacity-50 px-2 py-0 h-5 flex items-center">
-            {leads.length}
-          </Badge>
+      <div className="px-2">
+        {/* Barra com a cor da etapa (cada etapa tem a sua) */}
+        <div
+          className={cn("h-1 rounded-full mb-2", !stage.color && "bg-primary-500")}
+          style={stage.color ? { backgroundColor: stage.color } : undefined}
+        />
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <div
+              className={cn("w-2 h-2 rounded-full shrink-0", !stage.color && "bg-primary-500")}
+              style={stage.color ? { backgroundColor: stage.color } : undefined}
+            />
+            <h3 className="text-[10px] font-black uppercase tracking-[3px] text-white/50 truncate">{stage.name}</h3>
+            <Badge className="ml-2 bg-white/5 border-none opacity-50 px-2 py-0 h-5 flex items-center shrink-0">
+              {leads.length}
+            </Badge>
+          </div>
+          {totalValor > 0 && (
+            <span className="text-[10px] font-black text-white/40 shrink-0" title="Valor total da etapa">
+              R$ {totalValor.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
+            </span>
+          )}
         </div>
       </div>
       <div 
@@ -5984,6 +6412,7 @@ const KanbanColumn = ({ stage, leads, onLeadClick, selectedLeadId, selectionMode
               isChecked={!!selectedLeadIds?.has(lead.id)}
               onToggleSelected={() => onToggleLeadSelected?.(lead.id)}
               onDelete={() => onDeleteLead?.(lead)}
+              responsavelNome={lead.responsibleUserId ? responsaveisById?.[lead.responsibleUserId] : undefined}
             />
           ))}
         </SortableContext>
@@ -5999,9 +6428,10 @@ const KanbanColumn = ({ stage, leads, onLeadClick, selectedLeadId, selectionMode
   );
 };
 
-const KanbanCard = ({ lead, onClick, isSelected, isDragging, selectionMode, isChecked, onToggleSelected, onDelete }: {
+const KanbanCard = ({ lead, onClick, isSelected, isDragging, selectionMode, isChecked, onToggleSelected, onDelete, responsavelNome }: {
   key?: any, lead: Lead, onClick?: () => void, isSelected?: boolean, isDragging?: boolean,
   selectionMode?: boolean, isChecked?: boolean, onToggleSelected?: () => void, onDelete?: () => void,
+  responsavelNome?: string,
 }) => {
   const { setPrefilledCustomer, setActiveTab } = React.useContext(AppContext)!;
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
@@ -6051,14 +6481,19 @@ const KanbanCard = ({ lead, onClick, isSelected, isDragging, selectionMode, isCh
          )}
          <div className={cn("flex justify-between mb-2", selectionMode && "pl-6")}>
             <p className="font-black text-white text-[11px] tracking-tight truncate flex-1 pr-2 uppercase italic">{lead.fullName}</p>
-            <span className="text-[7px] font-black text-white/20 uppercase tracking-widest leading-none">
-               {(lead.createdAt as any)?.toDate?.() ? format((lead.createdAt as any).toDate(), 'HH:mm') : 'Agora'}
+            <span className="text-[8px] font-black text-white/40 uppercase tracking-widest leading-none" title="Última interação">
+               {leadUltimaInteracaoLabel(lead) || ((lead.createdAt as any)?.toDate?.() ? format((lead.createdAt as any).toDate(), 'HH:mm') : 'Agora')}
             </span>
          </div>
          
          <div className="flex flex-wrap gap-1.5 mb-4">
             <Badge className="text-[8px] px-1.5 py-0.5 bg-primary-500/10 border-none opacity-60 uppercase font-black">{lead.sourceType || 'Ads'}</Badge>
             <Badge className="text-[8px] px-1.5 py-0.5 border-white/10 opacity-30 italic">R$ {(lead.estimatedValue ?? 0).toLocaleString('pt-BR')}</Badge>
+            {(lead.tags || []).slice(0, 3).map(t => (
+              <Badge key={t} className="text-[8px] px-1.5 py-0.5 border-white/10 text-white/60 uppercase font-black">{t}</Badge>
+            ))}
+            {(lead.tags || []).length > 3 && <Badge className="text-[8px] px-1.5 py-0.5 border-white/10 opacity-40">+{(lead.tags || []).length - 3}</Badge>}
+            {lead.archived && <Badge className="text-[8px] px-1.5 py-0.5 border-amber-500/30 text-amber-400 uppercase font-black">Arquivado</Badge>}
          </div>
 
          {(lead.lastClientMessageText || lead.lastMessageText) && (
@@ -6066,6 +6501,11 @@ const KanbanCard = ({ lead, onClick, isSelected, isDragging, selectionMode, isCh
               "{lead.lastClientMessageText || lead.lastMessageText}"
            </p>
          )}
+
+         <div className="mt-3 flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest text-white/40" title="Responsável">
+            <User size={10} className="shrink-0" />
+            <span className="truncate">{responsavelNome || 'Sem responsável'}</span>
+         </div>
 
          <div className="mt-4 pt-4 border-t border-white/5 flex items-center justify-between">
             <div className="flex items-center gap-2">
