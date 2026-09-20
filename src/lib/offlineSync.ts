@@ -104,7 +104,10 @@ const QUEUE_KEY = 'pos_offline_queue';
 export function isNetworkError(err: any): boolean {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
   const msg = String(err?.message ?? err ?? '');
-  return /failed to fetch|networkerror|network request failed|load failed|fetch failed|err_internet_disconnected|err_network/i.test(msg);
+  // `timeouterror`/`aborterror`/"tempo esgotado": a requisicao ficou pendurada (Wi-Fi sem internet) e foi
+  // cortada por `criarFetchComTempoLimite` em supabase.ts. Nao usa so "timeout" de proposito: o
+  // "statement timeout" do Postgres e erro do SERVIDOR (dado/consulta), nao de rede.
+  return /failed to fetch|networkerror|network request failed|load failed|fetch failed|err_internet_disconnected|err_network|timeouterror|aborterror|tempo esgotado ao falar com o servidor/i.test(msg);
 }
 
 export function getQueue(): QueuedOp[] {

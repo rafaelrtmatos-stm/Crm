@@ -1,7 +1,8 @@
 /* Tema visual do app de Comissoes — escopado dentro de .comissoes-app pra nao vazar
    variaveis/estilos pro resto do CRM (o CRM ja importa Tailwind globalmente, nao precisa de novo) */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+/* A fonte Inter (mesmos pesos) ja e carregada, sem bloquear a abertura do app, pelo <link> em index.html.
+   Um @import aqui entrava no CSS principal e voltava a segurar a primeira tela quando ha Wi-Fi sem internet. */
 
 .comissoes-app {
   /* Design Tokens - Colors */
