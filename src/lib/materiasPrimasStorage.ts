@@ -569,6 +569,176 @@ export async function deductMateriasPrimasStock(
 }
 
 // Local cache utilities
+// ==========================================
+// NOTA EXCLUIDA / RESTAURADA: o estoque de materia-prima acompanha a nota
+// ==========================================
+
+export type ConsumoDeNota = { materiaPrimaId?: string; name?: string; quantity: number; unit?: string };
+
+const CAMPOS_NOTA = 'id, company_id, items, consumo_materias_primas';
+
+/**
+ * O que UMA nota consumiu de materia-prima. Prefere o consolidado gravado na venda (`consumo_materias_primas`:
+ * exatamente o que foi baixado do estoque) e, na falta dele, soma o detalhe por item (`materiasPrimasConsumidas`).
+ */
+export function consumosDaNota(venda: any): ConsumoDeNota[] {
+  const consolidado = Array.isArray(venda?.consumo_materias_primas) ? venda.consumo_materias_primas : [];
+  const itens = Array.isArray(venda?.items) ? venda.items : [];
+  const bruto: any[] = consolidado.length > 0
+    ? consolidado
+    : itens.flatMap((it: any) => (Array.isArray(it?.materiasPrimasConsumidas) ? it.materiasPrimasConsumidas : []));
+  const somado = new Map<string, ConsumoDeNota>();
+  for (const c of bruto) {
+    const quantity = Number(c?.quantity) || 0;
+    if (quantity <= 0) continue;
+    const materiaPrimaId = c?.materiaPrimaId || c?.id || undefined;
+    const chave = materiaPrimaId || String(c?.name || '').trim().toLowerCase();
+    if (!chave) continue;
+    const atual = somado.get(chave);
+    if (atual) atual.quantity = Number((atual.quantity + quantity).toFixed(4));
+    else somado.set(chave, { materiaPrimaId, name: c?.name, quantity: Number(quantity.toFixed(4)), unit: c?.unit });
+  }
+  return Array.from(somado.values());
+}
+
+function somarConsumosDeNotas(notas: any[]): ConsumoDeNota[] {
+  const total = new Map<string, ConsumoDeNota>();
+  for (const nota of notas) {
+    for (const c of consumosDaNota(nota)) {
+      const chave = c.materiaPrimaId || String(c.name || '').trim().toLowerCase();
+      const atual = total.get(chave);
+      if (atual) atual.quantity = Number((atual.quantity + c.quantity).toFixed(4));
+      else total.set(chave, { ...c });
+    }
+  }
+  return Array.from(total.values());
+}
+
+/**
+ * Devolve ao estoque a materia-prima de uma nota excluida (conta inversa de `deductMateriasPrimasStock`,
+ * inclusive a regra da bobina: saldo guardado como fracao de bobina, consumo em metros). Le o saldo ATUAL no
+ * servidor antes de somar. Devolve true quando tudo foi gravado.
+ */
+export async function devolverMateriasPrimasStock(consumptions: ConsumoDeNota[], companyId?: string): Promise<boolean> {
+  if (!consumptions || consumptions.length === 0) return true;
+  let tudoGravado = true;
+  try {
+    let lista = await fetchMateriasPrimas(companyId);
+    if (lista.length === 0) lista = await fetchMateriasPrimas();
+
+    for (const item of consumptions) {
+      if (!item.quantity || item.quantity <= 0) continue;
+      let found = lista.find(mp =>
+        (item.materiaPrimaId && mp.id === item.materiaPrimaId) ||
+        (item.name && mp.name.trim().toLowerCase() === item.name.trim().toLowerCase())
+      );
+      const idParaLer = found?.id || item.materiaPrimaId;
+      if (idParaLer && isValidUUID(idParaLer)) {
+        try {
+          const { data: atual } = await supabase.from('materias_primas').select('*').eq('id', idParaLer).maybeSingle();
+          if (atual) found = mapMateriaPrimaRow(atual);
+        } catch (e) {}
+      }
+      if (!found) continue;
+
+      const currentQty = (found.quantidadeEstoque !== undefined && found.quantidadeEstoque !== null) ? Number(found.quantidadeEstoque) : 0;
+      const compBobina = found.comprimentoBobina && found.comprimentoBobina > 0 ? found.comprimentoBobina : 50;
+      const isBobina = found.tipoCalculoCusto === 'bobina' || (found.unit === 'm' && found.comprimentoBobina);
+
+      let newQty: number;
+      if (isBobina) {
+        const currentMetros = currentQty > 15 ? currentQty : currentQty * compBobina;
+        newQty = Number(((currentMetros + item.quantity) / compBobina).toFixed(4));
+      } else {
+        newQty = Number((currentQty + item.quantity).toFixed(4));
+      }
+
+      found.quantidadeEstoque = newQty;
+      updateLocalItem(found);
+
+      try {
+        if (found.id) {
+          let { error } = await supabase.from('materias_primas').update({ quantidade_estoque: newQty, updated_at: new Date().toISOString() }).eq('id', found.id);
+          if (error && (error.message?.includes('quantidade_estoque') || error.message?.includes('column'))) {
+            const res = await supabase.from('materias_primas').update({ estoque: newQty, updated_at: new Date().toISOString() }).eq('id', found.id);
+            error = res.error;
+          }
+          if (error) {
+            console.warn(`Erro ao devolver estoque da matéria-prima ${found.name}:`, error.message);
+            tudoGravado = false;
+          }
+        }
+      } catch (e: any) {
+        console.warn(`Erro ao persistir devolução de ${found.name}:`, e?.message);
+        tudoGravado = false;
+      }
+    }
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('materias_primas_updated'));
+      window.dispatchEvent(new CustomEvent('materias_primas_history_updated'));
+    }
+  } catch (err) {
+    console.warn('Erro ao devolver estoque de matérias-primas:', err);
+    return false;
+  }
+  return tudoGravado;
+}
+
+export async function estornarConsumoDeNotas(notas: any[]): Promise<boolean> {
+  return devolverMateriasPrimasStock(somarConsumosDeNotas(notas), notas[0]?.company_id);
+}
+
+export async function reaplicarConsumoDeNotas(notas: any[]): Promise<boolean> {
+  const ok = await deductMateriasPrimasStock(somarConsumosDeNotas(notas), notas[0]?.company_id);
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('materias_primas_history_updated'));
+  return ok;
+}
+
+/**
+ * EXCLUI notas (vai pra aba Excluidos) e devolve ao estoque a materia-prima que elas tinham baixado. Só mexe em
+ * nota que ainda nao estava excluida (nunca devolve duas vezes) e marca `mp_estoque_devolvido` pra restauracao
+ * saber que precisa baixar de novo.
+ */
+export async function excluirNotasDevolvendoMateriaPrima(ids: string[]): Promise<{ erro: any | null; excluidas: number; estoqueOk: boolean }> {
+  if (!ids || ids.length === 0) return { erro: null, excluidas: 0, estoqueOk: true };
+  const { data, error } = await supabase
+    .from('vendas')
+    .update({ deleted_at: new Date().toISOString() })
+    .in('id', ids)
+    .is('deleted_at', null)
+    .select(CAMPOS_NOTA);
+  if (error) return { erro: error, excluidas: 0, estoqueOk: true };
+  const notas = data || [];
+  const estoqueOk = await estornarConsumoDeNotas(notas);
+  if (estoqueOk && notas.length > 0) {
+    const marca = await supabase.from('vendas').update({ mp_estoque_devolvido: true }).in('id', notas.map((n: any) => n.id));
+    if (marca.error) console.warn('Não foi possível marcar a devolução da matéria-prima na nota (rodar supabase/add_mp_estoque_devolvido_vendas.sql):', marca.error.message);
+  }
+  return { erro: null, excluidas: notas.length, estoqueOk };
+}
+
+/** RESTAURA notas da lixeira e baixa de novo a materia-prima delas -- so das que tinham sido devolvidas ao estoque. */
+export async function restaurarNotasReaplicandoMateriaPrima(ids: string[]): Promise<{ erro: any | null; restauradas: number; estoqueOk: boolean }> {
+  if (!ids || ids.length === 0) return { erro: null, restauradas: 0, estoqueOk: true };
+  const restaurar = (campos: string) => supabase
+    .from('vendas')
+    .update({ deleted_at: null })
+    .in('id', ids)
+    .not('deleted_at', 'is', null)
+    .select(campos);
+  let resp: any = await restaurar(`${CAMPOS_NOTA}, mp_estoque_devolvido`);
+  if (resp.error && /mp_estoque_devolvido/.test(resp.error.message || '')) resp = await restaurar(CAMPOS_NOTA); // coluna ainda nao criada
+  if (resp.error) return { erro: resp.error, restauradas: 0, estoqueOk: true };
+  const notas: any[] = resp.data || [];
+  const paraBaixar = notas.filter(n => n.mp_estoque_devolvido === true);
+  const estoqueOk = await reaplicarConsumoDeNotas(paraBaixar);
+  if (estoqueOk && paraBaixar.length > 0) {
+    await supabase.from('vendas').update({ mp_estoque_devolvido: false }).in('id', paraBaixar.map(n => n.id));
+  }
+  return { erro: null, restauradas: notas.length, estoqueOk };
+}
+
 function getCachedMateriasPrimas(companyId?: string): MateriaPrima[] {
   if (typeof window === 'undefined') return [];
   try {
@@ -665,15 +835,18 @@ export async function fetchConsumptionHistory(
 
     // Busca vendas reais do Supabase para refletir o consumo verídico das notas emitidas
     let salesRecords: MateriaPrimaConsumptionRecord[] = [];
+    let vendasCarregadas = false;
     try {
       let query = supabase
         .from('vendas')
         .select('id, created_at, customer_name, company_id, items, consumo_materias_primas, status')
         .neq('status', 'canceled')
+        .is('deleted_at', null) // nota excluida nao entra no historico nem na conta do estoque
         .order('created_at', { ascending: false })
         .limit(1000);
 
-      const { data: vendas } = await query;
+      const { data: vendas, error: vendasError } = await query;
+      if (!vendasError) vendasCarregadas = true;
 
       if (vendas && vendas.length > 0) {
         for (const v of vendas) {
@@ -738,6 +911,9 @@ export async function fetchConsumptionHistory(
     for (const r of localList) {
       // Ignora dados fictícios de seed inicial se houver vendas reais
       if (salesRecords.length > 0 && r.id?.startsWith('hist-')) continue;
+      // Saida de venda vem SEMPRE da nota (fonte unica, com link pra ela). A copia local (sem nota, so neste aparelho)
+      // duplicava a saida e sobrevivia a exclusao da nota, deixando o estoque contando errado.
+      if (vendasCarregadas && r.tipoOperacao === 'venda') continue;
       if (!mergedMap.has(r.id)) {
         mergedMap.set(r.id, r);
       }

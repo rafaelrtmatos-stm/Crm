@@ -191,7 +191,7 @@ import {
   Maquina,
   calcularCustosMaquina
 } from '../types';
-import { fetchMateriasPrimas, deductMateriasPrimasStock } from '../lib/materiasPrimasStorage';
+import { fetchMateriasPrimas, deductMateriasPrimasStock, excluirNotasDevolvendoMateriaPrima, restaurarNotasReaplicandoMateriaPrima } from '../lib/materiasPrimasStorage';
 import { fetchMaquinas } from '../lib/maquinasStorage';
 import { 
   AreaChart, 
@@ -7519,7 +7519,7 @@ const EntregaCountdown = ({ scheduledFor, delivered, onEdit, onDeliver, onDelete
 };
 
 export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany: Company | null, addPendingOrder: (order: SaleOrder) => void }) => {
-  const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare, openWhatsAppChat, pendingReceiptOpenId, setPendingReceiptOpenId, pendingHistoryClientFilter, setPendingHistoryClientFilter, pendingHistoryProductSearch, setPendingHistoryProductSearch, prefilledCustomer, setPrefilledCustomer, pendingReceivablesFilter, setPendingReceivablesFilter, pendingGoToHistorico, setPendingGoToHistorico, pendingGoToServicos, setPendingGoToServicos, pendingOpenContratoId, setPendingOpenContratoId, pendingOpenOrcamentoId, setPendingOpenOrcamentoId } = React.useContext(AppContext)!;
+  const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare, openWhatsAppChat, pendingReceiptOpenId, setPendingReceiptOpenId, pendingHistoryClientFilter, setPendingHistoryClientFilter, pendingHistoryProductSearch, setPendingHistoryProductSearch, prefilledCustomer, setPrefilledCustomer, pendingReceivablesFilter, setPendingReceivablesFilter, pendingGoToHistorico, setPendingGoToHistorico, pendingGoToServicos, setPendingGoToServicos, pendingOpenContratoId, setPendingOpenContratoId, pendingOpenOrcamentoId, setPendingOpenOrcamentoId, pendingOpenNotaNoPdv, setPendingOpenNotaNoPdv } = React.useContext(AppContext)!;
   const [soundAlertsEnabled, setSoundAlertsEnabledState] = useState(() => localStorage.getItem('rpro_sound_alerts_enabled') !== 'false');
   const setSoundAlertsEnabled = (v: boolean) => {
     setSoundAlertsEnabledState(v);
@@ -10016,6 +10016,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setPendingGoToServicos(false);
   }, [pendingGoToServicos]);
 
+  // Se o Historico da materia-prima pediu pra abrir uma nota: vai pra aba pedida (Historico/Servicos) e abre a nota
+  // por cima. Nao marca "veio da Producao": ao fechar a nota o usuario continua onde estava no PDV.
+  useEffect(() => {
+    if (!pendingOpenNotaNoPdv) return;
+    setActiveTab(pendingOpenNotaNoPdv.aba);
+    openReceiptById(pendingOpenNotaNoPdv.saleId);
+    setPendingOpenNotaNoPdv(null);
+  }, [pendingOpenNotaNoPdv]);
+
   // Se a Ficha do Cliente (fora do Terminal) pediu pra abrir um contrato especifico
   useEffect(() => {
     if (!pendingOpenContratoId) return;
@@ -10378,10 +10387,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setIsBulkDeleteConfirmOpen(true);
   };
   const confirmBulkDeleteSales = async () => {
-    const ids = Array.from(selectedSaleIds);
-    const { error } = await supabase.from('vendas').update({ deleted_at: new Date().toISOString() }).in('id', ids);
+    const ids = Array.from(selectedSaleIds) as string[];
+    // Nota excluida devolve ao estoque a materia-prima que baixou (senao o estoque fica menor que o real)
+    const r = await excluirNotasDevolvendoMateriaPrima(ids);
     setIsBulkDeleteConfirmOpen(false);
-    if (error) { console.error(error); showAlert('Não foi possível excluir as vendas selecionadas.'); return; }
+    if (r.erro) { console.error(r.erro); showAlert('Não foi possível excluir as vendas selecionadas.'); return; }
+    if (!r.estoqueOk) showAlert('As vendas foram excluídas, mas não foi possível devolver toda a matéria-prima delas ao estoque. Confira o estoque de matéria-prima.');
     setSelectedSaleIds(new Set());
   };
 
@@ -10726,14 +10737,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const handleDeleteSale = async (sale: SaleOrder) => {
     if (!(await showConfirm(`Excluir a venda #${sale.id.slice(-8).toUpperCase()} (R$ ${sale.total.toFixed(2)})? Ela fica 30 dias na aba Excluídos antes de sumir de vez — você pode restaurar dentro desse prazo.`))) return;
-    const { error } = await supabase.from('vendas').update({ deleted_at: new Date().toISOString() }).eq('id', sale.id);
-    if (error) { console.error(error); showAlert('Não foi possível excluir a venda.'); }
+    // Nota excluida devolve ao estoque a materia-prima que baixou (senao o estoque fica menor que o real)
+    const r = await excluirNotasDevolvendoMateriaPrima([sale.id]);
+    if (r.erro) { console.error(r.erro); showAlert('Não foi possível excluir a venda.'); return; }
+    if (!r.estoqueOk) showAlert('A venda foi excluída, mas não foi possível devolver a matéria-prima dela ao estoque. Confira o estoque de matéria-prima.');
   };
 
   const handleRestoreSale = async (sale: SaleOrder) => {
     if (!(await showConfirm(`Restaurar a venda de ${sale.customerName || 'cliente'} (R$ ${sale.total.toFixed(2)})?`))) return;
-    const { error } = await supabase.from('vendas').update({ deleted_at: null }).eq('id', sale.id);
-    if (error) { console.error(error); showAlert('Não foi possível restaurar a venda.'); return; }
+    // Restaurar baixa de novo a materia-prima (so das notas que tinham sido devolvidas ao estoque ao excluir)
+    const r = await restaurarNotasReaplicandoMateriaPrima([sale.id]);
+    if (r.erro) { console.error(r.erro); showAlert('Não foi possível restaurar a venda.'); return; }
+    if (!r.estoqueOk) showAlert('A venda foi restaurada, mas não foi possível baixar a matéria-prima dela do estoque. Confira o estoque de matéria-prima.');
     loadDeletedSales();
   };
 
@@ -10870,8 +10885,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       }
       
       const now = new Date().toISOString();
-      const { error } = await supabase.from('vendas').update({ deleted_at: now }).in('id', orphanedIds);
-      if (error) { showAlert(`Erro ao limpar: ${error.message}`); return; }
+      const rOrfas = await excluirNotasDevolvendoMateriaPrima(orphanedIds);
+      if (rOrfas.erro) { showAlert(`Erro ao limpar: ${rOrfas.erro.message}`); return; }
+      if (!rOrfas.estoqueOk) showAlert('As vendas foram marcadas como deletadas, mas não foi possível devolver toda a matéria-prima delas ao estoque. Confira o estoque de matéria-prima.');
       
       showAlert(`✓ ${orphanedIds.length} venda(s) órfã(s) marcada(s) como deletada(s)`);
       loadSalesHistory();
@@ -12057,7 +12073,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         (async () => {
           try {
             // Baixa automatica de estoque para cada item vendido
-            const materiasPrimasToDeduct: { materiaPrimaId?: string; name?: string; quantity: number }[] = [];
+            const materiasPrimasToDeduct: { materiaPrimaId?: string; name?: string; quantity: number; unit?: string }[] = [];
 
             await Promise.all(currentCart.filter(item => item.productId && item.productId !== 'manual').map(async (item) => {
               const qtdBaixa = item.consumoEstoque !== undefined
@@ -12094,6 +12110,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       materiasPrimasToDeduct.push({
                         materiaPrimaId: mp.materiaPrimaId || mp.id,
                         name: mp.name,
+                        unit: mp.unit,
                         quantity: consumed
                       });
                     }
@@ -12105,6 +12122,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             // Baixa automática no estoque das matérias-primas
             if (materiasPrimasToDeduct.length > 0) {
               await deductMateriasPrimasStock(materiasPrimasToDeduct, currentCompId);
+              // Grava na nota o que foi baixado: se a nota for excluida, e exatamente isso que volta pro estoque
+              const { error: erroConsumo } = await supabase.from('vendas').update({ consumo_materias_primas: materiasPrimasToDeduct }).eq('id', orderIdReal);
+              if (erroConsumo) console.warn('Não foi possível gravar o consumo de matéria-prima na nota:', erroConsumo.message);
             }
 
             // Se essa venda veio de um orçamento, marca como Concluído
