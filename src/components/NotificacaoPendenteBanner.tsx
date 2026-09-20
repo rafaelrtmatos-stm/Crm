@@ -1,8 +1,10 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Bell, BellRing, CheckCircle2, Crosshair, Users } from 'lucide-react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Bell, BellRing, CheckCircle2, Crosshair, User, Users } from 'lucide-react';
 import { supabase } from '../supabase';
 import type { AppUser } from '../types';
 import { cn } from './SharedUI';
+import { FotoNotificacao } from '../lib/notify';
 
 // NOTIFICACAO PENDENTE de uma conversa (tabela crm_notifications -- ja existe em producao,
 // espelho em supabase/create_crm_notifications.sql). UMA LINHA POR MENSAGEM recebida, criada
@@ -293,10 +295,40 @@ export function useNotificacoesPendentes(user?: AppUser | null) {
   return { itens, recarregar };
 }
 
+/** Nome exibido no item: titulo/remetente; sem nome, o telefone (contato) ou "Grupo" (JID de grupo nao e legivel). */
+const nomeDaNotificacao = (n: NotificacaoPendente): string =>
+  (n.title || n.senderName || '').trim() || (n.isGroup ? 'Grupo' : n.phone || 'Contato');
+
+/** Inicial do avatar sem foto. Nome que e so numero/telefone nao vira "inicial": cai no icone de pessoa. */
+const inicialDoNome = (nome: string): string | null => {
+  const c = nome.trim().charAt(0);
+  if (!c || /^[\d+\s()-]+$/.test(nome.trim())) return null;
+  return /[\p{L}\p{N}]/u.test(c) ? c.toUpperCase() : null;
+};
+
+const AvatarSemFoto = ({ n }: { n: NotificacaoPendente }) => {
+  const inicial = n.isGroup ? null : inicialDoNome(nomeDaNotificacao(n));
+  return (
+    <div className="w-10 h-10 rounded-full bg-primary-500/15 text-primary-400 flex items-center justify-center shrink-0 text-sm font-black">
+      {n.isGroup ? <Users size={18} /> : inicial ? inicial : <User size={18} />}
+    </div>
+  );
+};
+
+const LARGURA_PAINEL = 384;   // sm:w-96
+const MARGEM_TELA = 12;
+
 /**
- * Sino com o contador de notificacoes pendentes. Cada item mostra foto, nome (ou grupo), previa
- * e horario; clicar leva direto a conversa, posicionada na mensagem que gerou a notificacao.
+ * Sino com o contador de notificacoes pendentes (central de notificacoes). Cada item e UMA conversa
+ * (as mensagens pendentes do mesmo cliente/grupo ja vem agrupadas) com foto, nome, previa e horario;
+ * clicar leva direto a conversa, posicionada na mensagem que gerou a notificacao.
  * Clicar NAO resolve: o item continua na lista ate alguem usar "Marcar como resolvido".
+ *
+ * O painel e desenhado por PORTAL em document.body, posicionado com `fixed` a partir do botao e
+ * limitado a tela. Dentro do <nav> ele ficava preso: o nav tem backdrop-filter (que faz o `fixed`
+ * dos filhos virar relativo ao nav, quebrando o "clicar fora") e cria contexto de empilhamento
+ * z-40 (o painel z-50 nao passava do conteudo da pagina). No celular, `absolute right-0` com
+ * largura de 100vw saia pela esquerda da tela.
  */
 export const NotificacoesPendentesBell = ({
   itens,
@@ -306,12 +338,42 @@ export const NotificacoesPendentesBell = ({
   onAbrir: (n: NotificacaoPendente) => void;
 }) => {
   const [aberto, setAberto] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number; width: number; maxHeight: number } | null>(null);
+  const botaoRef = useRef<HTMLButtonElement>(null);
   const total = itens.length;
+
+  const calcularPosicao = useCallback(() => {
+    const btn = botaoRef.current;
+    if (!btn) return;
+    const r = btn.getBoundingClientRect();
+    const largura = Math.min(LARGURA_PAINEL, window.innerWidth - MARGEM_TELA * 2);
+    // Borda direita do painel alinhada com a do sino, sem passar das bordas da tela.
+    const left = Math.max(MARGEM_TELA, Math.min(r.right - largura, window.innerWidth - largura - MARGEM_TELA));
+    const top = r.bottom + 8;
+    setPos({ top, left, width: largura, maxHeight: Math.max(160, window.innerHeight - top - MARGEM_TELA) });
+  }, []);
+
+  useLayoutEffect(() => { if (aberto) calcularPosicao(); }, [aberto, calcularPosicao]);
+
+  useEffect(() => {
+    if (!aberto) return;
+    const aoTeclar = (e: KeyboardEvent) => { if (e.key === 'Escape') setAberto(false); };
+    window.addEventListener('resize', calcularPosicao);
+    window.addEventListener('keydown', aoTeclar);
+    return () => {
+      window.removeEventListener('resize', calcularPosicao);
+      window.removeEventListener('keydown', aoTeclar);
+    };
+  }, [aberto, calcularPosicao]);
+
   return (
     <div className="relative">
       <button
+        ref={botaoRef}
         type="button"
         onClick={() => setAberto(v => !v)}
+        aria-haspopup="dialog"
+        aria-expanded={aberto}
         title={total > 0 ? `${total} notificaç${total > 1 ? 'ões pendentes' : 'ão pendente'}` : 'Nenhuma notificação pendente'}
         className="relative p-3 text-white/70 hover:bg-white/10 rounded-xl transition-colors cursor-pointer border-0 bg-transparent"
       >
@@ -322,47 +384,64 @@ export const NotificacoesPendentesBell = ({
           </span>
         )}
       </button>
-      {aberto && (
+
+      {aberto && pos && createPortal(
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setAberto(false)} />
-          <div className="absolute right-0 top-full mt-2 z-50 w-[calc(100vw-2rem)] sm:w-96 max-h-[70vh] overflow-y-auto custom-scrollbar bg-[#1a2333] border border-white/10 rounded-2xl shadow-2xl">
-            <div className="px-4 py-3 border-b border-white/10">
-              <p className="text-[11px] font-black uppercase tracking-wider text-white">Notificações pendentes</p>
-              <p className="text-[10px] text-white/40">Abrir a conversa não resolve — só o botão “Marcar como resolvido”.</p>
+          <div className="fixed inset-0 z-[310]" onClick={() => setAberto(false)} />
+          <div
+            role="dialog"
+            aria-label="Notificações"
+            style={{ top: pos.top, left: pos.left, width: pos.width, maxHeight: pos.maxHeight }}
+            className="fixed z-[311] flex flex-col overflow-hidden bg-[#1a2333]/95 border border-white/10 rounded-2xl shadow-2xl"
+          >
+            <div className="shrink-0 flex items-center justify-between gap-3 px-4 py-3 border-b border-white/10">
+              <div className="min-w-0">
+                <p className="text-[11px] font-black uppercase tracking-wider text-white">Notificações</p>
+                <p className="text-[10px] text-white/40">Abrir a conversa não resolve — só “Marcar como resolvido”.</p>
+              </div>
+              <span className="shrink-0 px-2.5 h-6 rounded-full bg-rose-500 text-white text-[10px] font-black flex items-center justify-center whitespace-nowrap">
+                {total > 0 ? `${total} pendente${total > 1 ? 's' : ''}` : 'Nenhuma'}
+              </span>
             </div>
-            {total === 0 ? (
-              <p className="px-4 py-6 text-center text-xs text-white/40">Nenhuma notificação pendente.</p>
-            ) : (
-              itens.map(n => (
-                <button
-                  key={n.phone}
-                  type="button"
-                  onClick={() => { setAberto(false); onAbrir(n); }}
-                  className="w-full flex items-start gap-3 px-4 py-3 text-left border-0 border-b border-white/5 bg-transparent hover:bg-white/5 transition-colors cursor-pointer"
-                >
-                  {n.photoUrl ? (
-                    <img src={n.photoUrl} alt="" className="w-9 h-9 rounded-full object-cover shrink-0" />
-                  ) : (
-                    <div className="w-9 h-9 rounded-full bg-primary-500/15 text-primary-400 flex items-center justify-center shrink-0 text-xs font-black">
-                      {n.isGroup ? <Users size={16} /> : (n.title || n.phone || '?').trim().charAt(0).toUpperCase()}
-                    </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-xs font-black text-white truncate">{n.title || n.senderName || n.phone}</p>
-                      <span className="text-[10px] text-white/40 shrink-0">{formatarHoraNotificacao(n.lastMessageAt)}</span>
-                    </div>
-                    {n.isGroup && n.senderName && <p className="text-[10px] text-primary-300 truncate">{n.senderName}</p>}
-                    <p className="text-[11px] text-white/60 line-clamp-2 break-words">{n.lastMessageText}</p>
-                    {n.messageCount > 1 && (
-                      <p className="text-[10px] font-bold text-amber-300 mt-0.5">{n.messageCount} mensagens pendentes</p>
-                    )}
-                  </div>
-                </button>
-              ))
-            )}
+
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain custom-scrollbar">
+              {total === 0 ? (
+                <p className="px-4 py-8 text-center text-xs text-white/40">Nenhuma notificação pendente.</p>
+              ) : (
+                itens.map(n => {
+                  const nome = nomeDaNotificacao(n);
+                  const hora = formatarHoraNotificacao(n.lastMessageAt);
+                  return (
+                    <button
+                      key={n.phone}
+                      type="button"
+                      onClick={() => { setAberto(false); onAbrir(n); }}
+                      className="w-full flex items-start gap-3 px-4 py-3 text-left bg-transparent border-b border-white/5 last:border-b-0 hover:bg-white/5 transition-colors cursor-pointer"
+                    >
+                      <FotoNotificacao
+                        url={n.photoUrl}
+                        className="w-10 h-10 rounded-full object-cover shrink-0"
+                        fallback={<AvatarSemFoto n={n} />}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="min-w-0 text-xs font-black text-white truncate">{nome}</p>
+                          {hora && <span className="text-[10px] text-white/40 shrink-0 tabular-nums">{hora}</span>}
+                        </div>
+                        {n.isGroup && n.senderName && <p className="text-[10px] text-primary-300 truncate">{n.senderName}</p>}
+                        {n.messageCount > 1 && (
+                          <p className="text-[10px] font-bold text-amber-300 mt-0.5">{n.messageCount} mensagens pendentes</p>
+                        )}
+                        <p className="text-[11px] text-white/60 line-clamp-2 break-words mt-0.5">{n.lastMessageText || 'Nova mensagem'}</p>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
           </div>
-        </>
+        </>,
+        document.body
       )}
     </div>
   );

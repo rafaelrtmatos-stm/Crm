@@ -22,6 +22,30 @@ function notifyMessageToastListeners() { messageToastListeners.forEach(l => l(me
 function notifyConfirmListeners() { confirmListeners.forEach(l => l(confirmQueue[0] || null)); }
 function notifyPromptListeners() { promptListeners.forEach(l => l(promptQueue[0] || null)); }
 
+/**
+ * Aceita SO uma URL de imagem de verdade (http/https, data:image ou blob:). Descarta vazio, "null",
+ * "undefined", JID (5591...@s.whatsapp.net) e telefone -- valores que, jogados num <img>, dariam
+ * imagem quebrada. Devolve null quando nao serve (quem chamou usa o placeholder).
+ */
+export function urlDeFotoValida(url?: string | null): string | null {
+  if (typeof url !== 'string') return null;
+  const u = url.trim();
+  if (!u || u === 'null' || u === 'undefined') return null;
+  return /^(https?:\/\/|data:image\/|blob:)/i.test(u) ? u : null;
+}
+
+/**
+ * Foto do contato/grupo numa notificacao (sino, aviso na tela). Sem foto, com URL invalida ou se a
+ * imagem falhar ao carregar (URL do WhatsApp expira), mostra `fallback` -- nunca imagem quebrada.
+ */
+export function FotoNotificacao({ url, className, fallback }: { url?: string | null; className: string; fallback: React.ReactNode }) {
+  const src = urlDeFotoValida(url);
+  const [falhou, setFalhou] = useState(false);
+  useEffect(() => { setFalhou(false); }, [src]);
+  if (!src || falhou) return <>{fallback}</>;
+  return <img src={src} alt="" className={className} onError={() => setFalhou(true)} />;
+}
+
 /** Substitui window.alert() — mostra uma notificação do proprio sistema (toast), nao um popup do navegador */
 export function showAlert(message: string) {
   const id = ++idCounter;
@@ -158,15 +182,17 @@ export function NotifyHost() {
               tabIndex={0}
               onClick={() => { dismissMessageToast(t.id); t.onClick?.(); }}
               onKeyDown={(e) => { if (e.key === 'Enter') { dismissMessageToast(t.id); t.onClick?.(); } }}
-              className="flex items-start gap-3 bg-[#1a2333] border border-white/10 shadow-2xl rounded-2xl px-4 py-3 cursor-pointer hover:border-primary-500/40 animate-in slide-in-from-bottom-4 fade-in duration-300"
+              className="flex items-start gap-3 bg-[#1a2333]/95 border border-white/10 shadow-2xl rounded-2xl px-4 py-3 cursor-pointer hover:border-primary-500/40 animate-in slide-in-from-bottom-4 fade-in duration-300"
             >
-              {t.photoUrl ? (
-                <img src={t.photoUrl} alt="" className="w-8 h-8 rounded-full object-cover shrink-0" />
-              ) : (
-                <div className="w-8 h-8 rounded-full bg-primary-500/15 text-primary-400 flex items-center justify-center shrink-0">
-                  <MessageSquare size={16} />
-                </div>
-              )}
+              <FotoNotificacao
+                url={t.photoUrl}
+                className="w-8 h-8 rounded-full object-cover shrink-0"
+                fallback={
+                  <div className="w-8 h-8 rounded-full bg-primary-500/15 text-primary-400 flex items-center justify-center shrink-0">
+                    <MessageSquare size={16} />
+                  </div>
+                }
+              />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-xs font-black text-white truncate">{t.title}</p>

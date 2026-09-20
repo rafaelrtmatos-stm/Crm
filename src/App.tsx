@@ -47,7 +47,7 @@ import {
 } from 'lucide-react';
 import { ChevronRight } from 'lucide-react';
 
-import { NotifyHost, showAlert, showMessageToast } from './lib/notify';
+import { NotifyHost, showAlert, showMessageToast, urlDeFotoValida } from './lib/notify';
 import ComissoesAdminPanel from './comissoes/ComissoesAdminPanel';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -662,6 +662,12 @@ export default function App() {
   // entao TODA mensagem recebida derrubava e recriava o canal -- e nessa janela as mensagens
   // seguintes podiam se perder (sem som, sem notificacao, sem lead atualizado).
   const lastMessageIdRef = React.useRef<string | null>(null);
+  // IDs das mensagens que JA geraram aviso (som + aviso na tela / notificacao nativa). A chave do
+  // evento e o ID DA MENSAGEM (nao telefone, lead nem texto): trocar de aba/menu, re-render, canal do
+  // Realtime reassinado ou evento reenviado NAO disparam de novo a mesma mensagem. `lastMessageIdRef`
+  // sozinho so lembra a ultima -- um reenvio de uma mensagem anterior passava. Ref (nao state) de
+  // proposito: nao re-renderiza nem mexe nas dependencias do effect do Realtime.
+  const mensagensNotificadasRef = React.useRef<Set<string>>(new Set());
   // Sincronizacao de conversas em segundo plano (crm_messages -> leads): nunca duas ao mesmo tempo,
   // e a primeira (historico completo) so acontece uma vez por dispositivo -- depois e incremental.
   const sincronizacaoEmAndamentoRef = React.useRef(false);
@@ -1400,6 +1406,19 @@ export default function App() {
   }, []);
 
   const notifyIncomingMessage = async (row: any) => {
+    // UMA mensagem = UM aviso: se este ID ja foi apresentado, nao repete (marcado ANTES de qualquer
+    // await, senao dois eventos seguidos passariam juntos). Mensagem nova, mesmo do mesmo cliente e
+    // mesmo depois de resolvida, tem ID novo e avisa normalmente.
+    if (row?.id != null) {
+      const idMensagem = String(row.id);
+      const jaNotificadas = mensagensNotificadasRef.current;
+      if (jaNotificadas.has(idMensagem)) return;
+      jaNotificadas.add(idMensagem);
+      if (jaNotificadas.size > 500) {
+        const maisAntigo = jaNotificadas.values().next().value;
+        if (maisAntigo !== undefined) jaNotificadas.delete(maisAntigo);
+      }
+    }
     // Regra 11: so avisa (som, aviso na tela, notificacao nativa) de conversas/grupos que o
     // usuario tem permissao de ver. Sem linha em crm_notifications (gatilho falhou) cai no
     // comportamento antigo, desde que o usuario tenha acesso a Mensagens.
@@ -1442,7 +1461,7 @@ export default function App() {
       if (!('Notification' in window) || Notification.permission !== 'granted') return;
       const opcoes = {
         body: corpo.length > 120 ? `${corpo.slice(0, 117)}...` : corpo,
-        icon: info?.photoUrl || '/icon-192.png',
+        icon: urlDeFotoValida(info?.photoUrl) || '/icon-192.png',
         tag: `msg-${row.phone || row.id}`,
         data: { phone: row.phone || null, messageId: row.id || null },
       };
