@@ -31,20 +31,19 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Conversa de grupo: o "telefone" são os dígitos do group_jid — não é contato, não busca foto.
+    // Conversa de grupo: o "telefone" são os dígitos do group_jid. A foto é a do PRÓPRIO grupo (busca pelo JID
+    // completo, @g.us) — nunca a de um participante.
+    let numeroEvolution = numero;
     const g = await fetch(`${SUPABASE_URL}/rest/v1/whatsapp_groups?company_id=eq.${COMPANY_ID}&group_jid=eq.${numero}@g.us&select=id&limit=1`, { headers: supaHeaders });
     if (g.ok) {
       const grupos = await g.json();
-      if (Array.isArray(grupos) && grupos.length > 0) {
-        res.status(200).json({ ok: true, ignorado: 'grupo', atualizada: false });
-        return;
-      }
+      if (Array.isArray(grupos) && grupos.length > 0) numeroEvolution = `${numero}@g.us`;
     }
 
     const picRes = await fetch(`${EVOLUTION_API_URL}/chat/fetchProfilePictureUrl/${INSTANCE_NAME}`, {
       method: 'POST',
       headers: { apikey: EVOLUTION_API_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ number: numero }),
+      body: JSON.stringify({ number: numeroEvolution }),
     });
     if (!picRes.ok) {
       res.status(200).json({ ok: false, atualizada: false });

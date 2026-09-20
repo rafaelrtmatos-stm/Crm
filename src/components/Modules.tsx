@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { ContractApprovalModule } from './ContractApprovalModule';
 import { ContractSignatureOtpPanel } from './ContractSignatureOtpPanel';
 import { ContractAcceptanceDetailsModal } from './ContractAcceptanceDetailsModal';
+import { carregarInfoGrupos, digitosDoGrupo, type InfoGrupos } from './MessagesSidebarPopup';
 import { NotificacaoPendenteBanner, useNotificacaoPendente, marcarNotificacoesResolvidas } from './NotificacaoPendenteBanner';
 import { 
   TrendingUp, 
@@ -3299,7 +3300,7 @@ export const ChatPanel = ({
   const [isPhotoOpen, setIsPhotoOpen] = useState(false);
   useEffect(() => { setIsPhotoOpen(false); }, [conversation?.id]);
   // A URL da foto do WhatsApp expira: ao abrir a conversa, pede ao servidor a foto atual DESTE contato
-  // (api/whatsapp-foto-perfil.js; grupo é ignorado lá). Nada é atualizado em massa. Se vier uma foto
+  // (api/whatsapp-foto-perfil.js; em grupo busca a foto do próprio grupo pelo JID). Nada é atualizado em massa. Se vier uma foto
   // diferente, o servidor grava em leads.photo_url e a tela troca na hora (onLeadPatched + Realtime).
   const photoRefreshedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
@@ -6125,6 +6126,7 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
   const [filter, setFilter] = useState('');
   const [autoTranscribe, setAutoTranscribe] = useState(true);
   const [viewFilter, setViewFilter] = useState<'all' | 'unreplied'>('all');
+  const [infoGrupos, setInfoGrupos] = useState<InfoGrupos | null>(null); // grupos do WhatsApp: quais existem e quais ESTE usuario pode ver
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'completed'>('idle');
   const [syncMessage, setSyncMessage] = useState('');
   
@@ -6262,7 +6264,7 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
   };
 
   const handleResolveAll = async () => {
-    const ids = leads.filter(l => l.waitingSince).map(l => l.id);
+    const ids = leads.filter(l => l.waitingSince && conversaVisivel(l)).map(l => l.id);
     if (ids.length === 0) return;
     if (!(await showConfirm(`Marcar ${ids.length} conversa(s) como resolvida(s)?\n\nO alerta de vácuo some. Se o cliente mandar outra mensagem, ele volta.`))) return;
     const { error } = await supabase.from('leads').update({ waiting_since: null }).in('id', ids);
@@ -6435,11 +6437,30 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
   // funcionando com o usuário em qualquer outra aba do CRM ou com o navegador
   // em segundo plano/minimizado, do jeito que o WhatsApp Web faz.
 
-  const unrepliedCount = leads.filter(l => l.waitingSince).length;
+  // GRUPOS DO WHATSAPP -- MESMA regra do painel de Mensagens do menu lateral (MessagesSidebarPopup): o grupo e
+  // uma conversa propria (phone = digitos do group_jid), aparece com o NOME do grupo e so para quem tem acesso
+  // a ele (Grupos do WhatsApp). Enquanto a lista de grupos nao carregou, some qualquer conversa com cara de
+  // grupo (mais de 15 digitos, maior que um telefone): melhor esconder do que vazar.
+  useEffect(() => {
+    let vivo = true;
+    const carregar = () => carregarInfoGrupos(user).then(info => { if (vivo && info) setInfoGrupos(info); }).catch(() => {});
+    carregar();
+    const timer = setInterval(carregar, 60000);
+    return () => { vivo = false; clearInterval(timer); };
+  }, [user?.id, user?.isAdmin]);
+  const conversaVisivel = (l: Lead): boolean => {
+    const d = digitosDoGrupo(l.phone);
+    if (infoGrupos) return !infoGrupos.todos.has(d) || infoGrupos.permitidos.has(d);
+    return d.length <= 15;
+  };
+  const nomeDaConversa = (l: Lead): string => infoGrupos?.nomes.get(digitosDoGrupo(l.phone)) || l.fullName;
+
+  const unrepliedCount = leads.filter(l => l.waitingSince && conversaVisivel(l)).length;
 
   const filteredLeads = leads
+    .filter(conversaVisivel)
     .filter(l => 
-      l.fullName.toLowerCase().includes(filter.toLowerCase()) || 
+      nomeDaConversa(l).toLowerCase().includes(filter.toLowerCase()) || 
       l.phone.includes(filter)
     )
     .filter(l => {
@@ -6638,7 +6659,7 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
             return (
               <div 
                 key={l.id} 
-                onClick={() => setSelectedChat({ ...l, name: l.fullName })}
+                onClick={() => setSelectedChat({ ...l, name: nomeDaConversa(l) })}
                 className={cn(
                   "p-3 border-b border-white/5 cursor-pointer transition-all group relative",
                   isSelected ? "bg-primary-500/10" : "hover:bg-white/5"
@@ -6646,11 +6667,11 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
               >
                  {isSelected && <div className="absolute left-0 top-0 w-1 h-full bg-primary-500" />}
                  <div className="flex items-start gap-2.5">
-                    <AvatarPhoto photoUrl={l.photoUrl} name={l.fullName} className="w-9 h-9 bg-slate-800 border-white/10 shrink-0 mt-0.5" textClassName="text-[11px] text-white/40" />
+                    <AvatarPhoto photoUrl={l.photoUrl} name={nomeDaConversa(l)} className="w-9 h-9 bg-slate-800 border-white/10 shrink-0 mt-0.5" textClassName="text-[11px] text-white/40" />
                     <div className="flex-1 min-w-0">
                  <div className="flex justify-between items-start mb-1 gap-2">
                     <div className="flex items-center gap-2 truncate">
-                       <p className={cn("font-bold transition-colors truncate text-sm", isSelected ? "text-primary-300" : "text-white group-hover:text-primary-300")}>{l.fullName}</p>
+                       <p className={cn("font-bold transition-colors truncate text-sm", isSelected ? "text-primary-300" : "text-white group-hover:text-primary-300")}>{nomeDaConversa(l)}</p>
                        {waitingSinceDate && (
                           <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping shrink-0" title="Cliente aguardando resposta!" />
                        )}

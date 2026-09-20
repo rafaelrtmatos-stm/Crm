@@ -117,7 +117,7 @@ import {
   SettingsModule,
   ClientesEsperaModule
 } from './components/Modules';
-import { MessagesSidebarPopup } from './components/MessagesSidebarPopup';
+import { MessagesSidebarPopup, carregarInfoGrupos } from './components/MessagesSidebarPopup';
 import { NotificacoesPendentesBell, useNotificacoesPendentes, buscarNotificacaoDaMensagem, formatarHoraNotificacao, usuarioPodeVerMensagens, type NotificacaoPendente } from './components/NotificacaoPendenteBanner';
 import { RobozinhoRafaModule } from './components/RobozinhoRafaModule';
 import { IntegracoesModule } from './components/IntegracoesModule';
@@ -1444,6 +1444,21 @@ export default function App() {
     if (!usuarioPodeVerMensagens(usuarioAtual)) return;
     const info = await buscarNotificacaoDaMensagem(row.id, usuarioAtual).catch(() => null);
     if (info && !info.visivel) return;
+    // Sem linha em crm_notifications (gatilho falhou): confere pelo telefone se a mensagem e de um GRUPO.
+    // Grupo que este usuario nao pode ver nunca avisa, e o titulo e o nome do grupo (nao o do participante).
+    let grupoSemNotificacao: { nome: string | null } | null = null;
+    if (!info) {
+      const digitosTel = String(row.phone || '').replace(/\D/g, '');
+      const infoGrupos = await carregarInfoGrupos(usuarioAtual).catch(() => null);
+      if (infoGrupos) {
+        if (infoGrupos.todos.has(digitosTel)) {
+          if (!infoGrupos.permitidos.has(digitosTel)) return;
+          grupoSemNotificacao = { nome: infoGrupos.nomes.get(digitosTel) || null };
+        }
+      } else if (digitosTel.length > 15) {
+        return; // nao deu pra conferir e o "telefone" tem cara de grupo: nao arrisca avisar
+      }
+    }
 
     try {
       const audio = notifAudioRef.current || (notifAudioRef.current = new Audio('/sounds/mensagem-cliente.mp3'));
@@ -1455,9 +1470,9 @@ export default function App() {
       const emSegundoPlano = document.hidden || !document.hasFocus();
       // Regra 2: nome (ou grupo), foto, previa e horario da notificacao. Em grupo, a previa
       // mostra quem escreveu ("Fulano: texto").
-      const remetente = info?.title || (row.sender_name || '').trim() || 'Novo contato';
+      const remetente = info?.title || grupoSemNotificacao?.nome || (row.sender_name || '').trim() || 'Novo contato';
       const previaBase = info?.preview || (row.text || '').trim() || 'Nova mensagem recebida';
-      const corpo = info?.isGroup && (row.sender_name || '').trim() ? `${String(row.sender_name).trim()}: ${previaBase}` : previaBase;
+      const corpo = (info?.isGroup || !!grupoSemNotificacao) && (row.sender_name || '').trim() ? `${String(row.sender_name).trim()}: ${previaBase}` : previaBase;
       const horario = formatarHoraNotificacao(info?.messageAt || row.created_at || new Date().toISOString());
 
       // Aba em foco: a notificacao nativa do navegador nao aparece (so quando esta em segundo
@@ -2541,11 +2556,13 @@ export default function App() {
                     active={activeTab === item.id}
                     badgeCount={item.id === 'messages' ? unrepliedLeadsCount : undefined}
                     onClick={() => {
-                      if (item.id === 'messages' && window.innerWidth >= 1024) {
-                        // Desktop: abrir popup de mensagens
+                      if (item.id === 'messages') {
+                        // Mensagens abre o MESMO painel (MessagesSidebarPopup) no PC e no celular;
+                        // no celular o painel ocupa a tela toda (so adaptacao de layout).
                         setIsMessagePopupOpen(true);
+                        if (window.innerWidth < 1024) setIsSidebarOpen(false);
                       } else {
-                        // Mobile ou outros itens: navegação normal
+                        // Outros itens: navegação normal
                         setIsMessagePopupOpen(false);
                         setActiveTab(item.id as MainTab);
                         if (window.innerWidth < 1024) setIsSidebarOpen(false);
