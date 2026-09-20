@@ -231,6 +231,7 @@ import { db } from '../firebase';
 import { supabase } from '../supabase';
 import { showAlert, showConfirm, showPrompt } from '../lib/notify';
 import { confirmarRetiradaProducao } from '../comissoes/utils/supabaseStorage';
+import { FINANCEIRO_TABS, ALL_FINANCEIRO_TAB_IDS } from '../lib/financeiroTabs';
 import { buildPixPayload } from '../lib/pix';
 import { renderReceiptCanvas, downloadCanvasAsPng, downloadCanvasAsPdf, COMPANY_CONTACT, CompanyContactInfo } from '../lib/receipt';
 import { renderOrcamentoCanvas, renderOrcamentoSimplesCanvas } from '../lib/orcamentoDoc';
@@ -289,6 +290,7 @@ function mapUsuarioRow(row: any): AppUser {
     isActive: row.is_active !== false,
     allowedTabs: Array.isArray(row.allowed_tabs) ? row.allowed_tabs : undefined,
     allowedPdvTabs: Array.isArray(row.allowed_pdv_tabs) ? row.allowed_pdv_tabs : undefined,
+    allowedFinanceiroTabs: Array.isArray(row.allowed_financeiro_tabs) ? row.allowed_financeiro_tabs : undefined,
     allowedActions: Array.isArray(row.allowed_actions) ? row.allowed_actions : undefined,
     modulePermissions: row.module_permissions && typeof row.module_permissions === 'object' ? row.module_permissions : undefined,
     colaboradorId: row.colaborador_id || undefined,
@@ -22616,6 +22618,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
   const [editedRole, setEditedRole] = useState<'admin' | 'gerente' | 'atendente' | 'caixa' | 'vendedor' | 'designer' | 'operador' | 'comissao'>('atendente');
   const [editedTabs, setEditedTabs] = useState<string[]>([]);
   const [editedPdvTabs, setEditedPdvTabs] = useState<string[]>([]);
+  const [editedFinanceiroTabs, setEditedFinanceiroTabs] = useState<string[]>([]);
   const [editedActions, setEditedActions] = useState<string[]>([]);
   const [editedModulePermissions, setEditedModulePermissions] = useState<ModulePermissions>({});
 
@@ -22696,6 +22699,8 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     setEditedTabs(hasInventory && !activeTabs.includes('inventory') ? [...activeTabs, 'inventory'] : activeTabs);
     setEditedPdvTabs(hasInventory && !initialPdvTabs.includes('estoque') ? [...initialPdvTabs, 'estoque'] : initialPdvTabs);
     setEditedActions(initialActions);
+    // Sem lista salva = ve todas as abas do Financeiro (comportamento de antes)
+    setEditedFinanceiroTabs(u.allowedFinanceiroTabs || [...ALL_FINANCEIRO_TAB_IDS]);
   };
 
   const handleSaveUserPermissions = async () => {
@@ -22737,6 +22742,9 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
         } : {})
       };
 
+      // Se o SQL da coluna allowed_financeiro_tabs ainda nao foi rodado no Supabase, o resto e salvo e o admin e avisado
+      let colunaFinanceiroFaltando = false;
+
       if (editingUser.id === 'admin-rafael') {
         // Admin master continua no Firebase
         await updateDoc(doc(db, 'users', editingUser.id), {
@@ -22746,6 +22754,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
           role: editedRole,
           allowedTabs: syncedTabs,
           allowedPdvTabs: syncedPdvTabs,
+          allowedFinanceiroTabs: editedFinanceiroTabs,
           allowedActions: syncedActions,
           modulePermissions: syncedModulePermissions,
           updatedAt: Timestamp.now()
@@ -22781,20 +22790,26 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
           is_admin: editedRole === 'admin',
           allowed_tabs: syncedTabs,
           allowed_pdv_tabs: syncedPdvTabs,
+          allowed_financeiro_tabs: editedFinanceiroTabs,
           allowed_actions: syncedActions,
           module_permissions: syncedModulePermissions,
           colaborador_id: editedRole === 'comissao' ? colaboradorId : null,
           updated_at: new Date().toISOString(),
         };
-        if (isUuid) {
-          const { error } = await supabase.from('usuarios').update(payload).eq('id', editingUser.id);
-          if (error) throw error;
-        } else {
-          const { error } = await supabase.from('usuarios').upsert(payload, { onConflict: 'email' });
-          if (error) throw error;
+        const gravarUsuario = (dados: Record<string, any>) => isUuid
+          ? supabase.from('usuarios').update(dados).eq('id', editingUser.id)
+          : supabase.from('usuarios').upsert(dados, { onConflict: 'email' });
+        let { error } = await gravarUsuario(payload);
+        if (error && /allowed_financeiro_tabs/i.test(error.message || '')) {
+          const { allowed_financeiro_tabs: _semColuna, ...payloadSemFinanceiro } = payload;
+          ({ error } = await gravarUsuario(payloadSemFinanceiro));
+          colunaFinanceiroFaltando = true;
         }
+        if (error) throw error;
       }
-      showAlert('Dados, permissões e acessos do usuário atualizados com sucesso!');
+      showAlert(colunaFinanceiroFaltando
+        ? 'Dados e permissões salvos, MAS as abas do Financeiro NÃO foram salvas: falta rodar o arquivo supabase/add_allowed_financeiro_tabs.sql no SQL Editor do Supabase.'
+        : 'Dados, permissões e acessos do usuário atualizados com sucesso!');
       setEditingUser(null);
     } catch (err: any) {
       console.error('Erro ao salvar permissões:', err);
@@ -22958,6 +22973,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     const tabs = Object.entries(perms).filter(([_, p]) => p?.view).map(([id]) => id);
     setEditedTabs(tabs);
     setEditedPdvTabs(getDefaultPdvTabs(role));
+    setEditedFinanceiroTabs([...ALL_FINANCEIRO_TAB_IDS]);
     setEditedActions(getDefaultActions(role));
   };
 
@@ -23810,11 +23826,80 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                       </div>
                     )}
 
+                    {/* SEÇÃO 2b: ABAS INTERNAS DO FINANCEIRO (CONDICIONAL) */}
+                    {editedTabs.includes('comissoes') && (
+                      <div className="space-y-6 pt-6 border-t border-white/5">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="flex items-start sm:items-center gap-3">
+                            <span className="w-8 h-8 rounded-full bg-emerald-500/15 text-emerald-400 text-xs font-black flex items-center justify-center shrink-0 mt-0.5 sm:mt-0">{editedTabs.includes('pos') ? '3' : '2'}</span>
+                            <div>
+                              <h4 className="text-base sm:text-lg font-bold text-white uppercase italic tracking-tight font-black flex items-center gap-2">
+                                <Calculator size={18} className="text-emerald-400 shrink-0" />
+                                Abas Internas do Financeiro
+                              </h4>
+                              <p className="text-xs text-white/40 font-medium">Selecione quais abas do Financeiro este usuário poderá ver</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 self-start sm:self-auto">
+                            <button
+                              type="button"
+                              onClick={() => setEditedFinanceiroTabs([...ALL_FINANCEIRO_TAB_IDS])}
+                              className="text-[10px] font-black uppercase text-emerald-300 hover:text-emerald-200 bg-emerald-500/10 hover:bg-emerald-500/20 px-3 py-1.5 rounded-xl border border-emerald-500/20 transition-all cursor-pointer"
+                            >
+                              Marcar Todas
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditedFinanceiroTabs([])}
+                              className="text-[10px] font-black uppercase text-white/40 hover:text-white bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-xl border border-white/10 transition-all cursor-pointer"
+                            >
+                              Desmarcar Todas
+                            </button>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+                          {FINANCEIRO_TABS.map((opt) => {
+                            const isAllowed = editedFinanceiroTabs.includes(opt.id);
+                            return (
+                              <button
+                                key={opt.id}
+                                type="button"
+                                onClick={() => {
+                                  if (isAllowed) {
+                                    setEditedFinanceiroTabs(prev => prev.filter(t => t !== opt.id));
+                                  } else {
+                                    setEditedFinanceiroTabs(prev => [...prev, opt.id]);
+                                  }
+                                }}
+                                className={cn(
+                                  "flex flex-col text-left p-3 sm:p-3.5 rounded-2xl border transition-all duration-300 relative cursor-pointer",
+                                  isAllowed
+                                    ? "bg-emerald-500/10 border-emerald-500/50 text-white shadow-sm"
+                                    : "bg-slate-950/40 border-white/5 text-white/40 hover:border-white/10 hover:text-white"
+                                )}
+                              >
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className="font-bold uppercase tracking-wide text-xs">{opt.label}</span>
+                                  <div className={cn(
+                                    "w-4 h-4 rounded-md border flex items-center justify-center transition-all shrink-0 ml-2",
+                                    isAllowed ? "bg-emerald-500 border-emerald-500 text-slate-950" : "border-white/20"
+                                  )}>
+                                    {isAllowed && <Check size={10} strokeWidth={4} />}
+                                  </div>
+                                </div>
+                                <span className="text-[10px] text-white/30 leading-tight">{opt.desc}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
                     {/* SEÇÃO 3: AÇÕES ESPECÍFICAS CATEGORIZADAS */}
                     <div className="space-y-6 pt-6 border-t border-white/5">
                       <div className="flex items-start sm:items-center gap-3">
                         <span className="w-8 h-8 rounded-full bg-primary-500/15 text-primary-400 text-xs font-black flex items-center justify-center shrink-0 mt-0.5 sm:mt-0">
-                          {editedTabs.includes('pos') ? '3' : '2'}
+                          {2 + (editedTabs.includes('pos') ? 1 : 0) + (editedTabs.includes('comissoes') ? 1 : 0)}
                         </span>
                         <div>
                           <h4 className="text-base sm:text-lg font-bold text-white uppercase italic tracking-tight font-black flex items-center gap-2">
