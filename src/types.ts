@@ -110,6 +110,7 @@ export interface SaleOrder {
   scheduledFor?: string;
   deletedAt?: string;
   observacoes?: string;
+  _pendingSync?: boolean; // venda feita offline, ainda so neste aparelho (fila de envio) -- nunca vai para o servidor
   extraCosts?: ExtraCost[]; // custos extras/diretos dessa nota especifica (mao de obra, frete, andaime, etc)
                              // -- somados ao custo de material pra formar o lucro liquido, visivel so pro Admin/autorizado; NUNCA aparece pro cliente
 }

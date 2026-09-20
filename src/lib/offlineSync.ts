@@ -51,7 +51,8 @@ export function useOnlineStatus(): boolean {
 
 export interface QueuedOp {
   id: string;
-  type: 'insert' | 'update';
+  // 'sale' = venda feita offline (a linha de `vendas` + todas as baixas que ela causa, numa operacao so).
+  type: 'insert' | 'update' | 'sale';
   table: string;
   payload: Record<string, any>;
   match?: { column: string; value: any };
@@ -59,7 +60,38 @@ export interface QueuedOp {
   createdAt: string;
 }
 
+/**
+ * Conteudo (`payload`) de uma operacao do tipo 'sale'. As baixas sao RELATIVAS (quanto sai), nunca o
+ * valor final calculado do cache local: quem aplicar no servidor subtrai do que existir la na hora,
+ * sem sobrescrever vendas feitas em outro aparelho. `venda.id` ja nasce no aparelho (`venda_<ts>`),
+ * entao serve de chave para nao duplicar a venda se a mesma operacao for enviada mais de uma vez.
+ */
+export interface VendaOfflinePayload {
+  venda: Record<string, any>; // linha completa de `vendas`, como seria inserida online
+  creditoCliente?: { clienteId: string; valorAplicado: number };
+  baixasEstoque: { productId: string; quantidade: number }[];
+  baixasMateriasPrimas: {
+    materiaPrimaId?: string;
+    name?: string;
+    quantity: number;
+    orderId?: string;
+    customerName?: string;
+    productName?: string;
+    observacao?: string;
+  }[];
+}
+
 const QUEUE_KEY = 'pos_offline_queue';
+
+/**
+ * true quando a falha e de REDE (sem conexao / requisicao nao chegou ao servidor). Erro de dado,
+ * permissao ou regra do banco NAO conta: esses continuam sendo mostrados ao usuario, nao guardados.
+ */
+export function isNetworkError(err: any): boolean {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
+  const msg = String(err?.message ?? err ?? '');
+  return /failed to fetch|networkerror|network request failed|load failed|fetch failed|err_internet_disconnected|err_network/i.test(msg);
+}
 
 export function getQueue(): QueuedOp[] {
   return getCache<QueuedOp[]>(QUEUE_KEY, []);
@@ -110,6 +142,12 @@ export async function flushOfflineQueue(
   let failed = 0;
 
   for (const op of queue) {
+    // Venda offline: aplicar no servidor (venda + baixas) e um passo proprio, ainda nao implementado.
+    // Fica na fila intacta -- nunca cai no ramo de update abaixo (que exige `match` e a descartaria).
+    if (op.type === 'sale') {
+      stillPending.push(op);
+      continue;
+    }
     try {
       if (op.type === 'insert') {
         const { error } = await supabase.from(op.table).insert(op.payload);

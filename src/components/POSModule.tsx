@@ -46,7 +46,8 @@ import { InventoryModule } from './InventoryModule';
 import { useApp } from '../AppContext';
 import { renderOrcamentoCanvas, renderOrcamentoSimplesCanvas } from '../lib/orcamentoDoc';
 import { downloadCanvasAsPdf, downloadCanvasAsPng } from '../lib/receipt';
-import { getCache, setCache, useOnlineStatus, enqueueOp, getQueue, flushOfflineQueue } from '../lib/offlineSync';
+import { getCache, setCache, useOnlineStatus, enqueueOp, getQueue, flushOfflineQueue, isNetworkError } from '../lib/offlineSync';
+import type { VendaOfflinePayload } from '../lib/offlineSync';
 
 // Chaves de cache local usadas para carregar o PDV instantaneamente offline
 const CACHE_KEYS = {
@@ -838,44 +839,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
         }] : []
       };
 
-      let insertRes = await supabase.from('vendas').insert(payload).select().single();
-      if (insertRes.error && insertRes.error.message?.includes('consumo_materias_primas')) {
-        const { consumo_materias_primas, ...restPayload } = payload;
-        insertRes = await supabase.from('vendas').insert(restPayload).select().single();
-      }
-      if (insertRes.error) throw insertRes.error;
-      const data = insertRes.data;
-
-      // Update customer credit if applied
-      if (selectedCustomer?.id && saleCreditApplied > 0) {
-        const cust = customers.find(c => c.id === selectedCustomer.id);
-        if (cust) {
-          const newCredit = Math.max(0, (cust.saldo_credito || 0) - saleCreditApplied);
-          await supabase.from('clientes').update({ saldo_credito: newCredit }).eq('id', selectedCustomer.id);
-        }
-      }
-
-      // Deduct stock for inventory products
-      for (const item of cart) {
-        if (item.productId && item.productId !== 'manual') {
-          const prod = products.find(p => p.id === item.productId);
-          if (prod && prod.stock !== undefined) {
-            const consumed = item.consumoEstoque !== undefined
-              ? item.consumoEstoque * (item.quantity || 1)
-              : (item.area ? item.area * item.quantity : item.quantity);
-            const newStock = Math.max(0, prod.stock - consumed);
-            try {
-              const { error: stockErr } = await supabase.from('produtos').update({ estoque: newStock }).eq('id', item.productId);
-              if (stockErr) {
-                await supabase.from('produtos').update({ current_stock: newStock }).eq('id', item.productId);
-              }
-            } catch {
-              // Ignore stock update error if column differs
-            }
-          }
-        }
-      }
-
       // Deduct raw materials (matérias-primas) stock if present in items or product recipes
       const allMateriasPrimasToDeduct: {
         materiaPrimaId?: string;
@@ -927,10 +890,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
         }
       }
 
-      if (allMateriasPrimasToDeduct.length > 0) {
-        await deductMateriasPrimasStock(allMateriasPrimasToDeduct, currentCompany?.id);
-      }
-
       const finalizedOrder: SaleOrder = {
         id: saleId,
         companyId: currentCompany?.id || 'rafa-arts',
@@ -949,6 +908,139 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
         observacoes: orderObservacoes || undefined,
         createdAt: new Date().toISOString(),
       };
+
+      // Sem internet (ou a gravacao falhou por REDE): a venda nao pode ser barrada nem perdida. Vai para
+      // a fila do aparelho e o fluxo segue normal (comprovante, tela de sucesso). Erro de dado/permissao
+      // NAO entra aqui: continua sendo mostrado, como antes.
+      let salvarOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+      if (!salvarOffline) {
+        let insertRes: any;
+        try {
+          insertRes = await supabase.from('vendas').insert(payload).select().single();
+          if (insertRes.error && insertRes.error.message?.includes('consumo_materias_primas')) {
+            const { consumo_materias_primas, ...restPayload } = payload;
+            insertRes = await supabase.from('vendas').insert(restPayload).select().single();
+          }
+        } catch (netErr) {
+          insertRes = { error: netErr };
+        }
+        if (insertRes.error) {
+          if (isNetworkError(insertRes.error)) salvarOffline = true;
+          else throw insertRes.error;
+        }
+      }
+
+      if (salvarOffline) {
+        // Baixas RELATIVAS (quanto sai), somadas por produto -- nunca o "novo estoque" calculado do
+        // cache local, que pode estar velho e sobrescreveria vendas de outro aparelho.
+        const baixasEstoque: { productId: string; quantidade: number }[] = [];
+        for (const item of cart) {
+          if (!item.productId || item.productId === 'manual') continue;
+          const prod = products.find(p => p.id === item.productId);
+          if (!prod || prod.stock === undefined) continue;
+          const consumido = item.consumoEstoque !== undefined
+            ? item.consumoEstoque * (item.quantity || 1)
+            : (item.area ? item.area * item.quantity : item.quantity);
+          const existente = baixasEstoque.find(b => b.productId === item.productId);
+          if (existente) existente.quantidade += consumido;
+          else baixasEstoque.push({ productId: item.productId, quantidade: consumido });
+        }
+        const creditoCliente = selectedCustomer?.id && saleCreditApplied > 0
+          ? { clienteId: selectedCustomer.id, valorAplicado: saleCreditApplied }
+          : undefined;
+
+        // UMA operacao com a venda inteira: linha de `vendas` + baixa de estoque + credito + matérias-primas.
+        // (A baixa de matéria-prima so e aplicada na sincronizacao: chama-la agora decrementaria o cache
+        // local e, ao sincronizar, decrementaria de novo.)
+        const dadosVenda: VendaOfflinePayload = {
+          venda: payload,
+          creditoCliente,
+          baixasEstoque,
+          baixasMateriasPrimas: allMateriasPrimasToDeduct,
+        };
+        const operacao = enqueueOp({
+          type: 'sale',
+          table: 'vendas',
+          payload: dadosVenda as unknown as Record<string, any>,
+          description: `Venda offline #${saleId.slice(-8).toUpperCase()} - ${payload.customer_name} (R$ ${Number(total).toFixed(2)})`,
+        });
+        // O cache local engole erro de espaco (localStorage cheio): confere que a venda realmente ficou
+        // gravada ANTES de limpar o carrinho. Se nao ficou, o erro aparece e o carrinho continua la.
+        if (!getQueue().some(op => op.id === operacao.id)) {
+          throw new Error('sem espaço para guardar a venda neste aparelho. Conecte-se à internet para finalizar.');
+        }
+        setPendingSyncCount(getQueue().length);
+
+        // Reflete a venda no PDV enquanto estiver offline: estoque dos produtos, credito do cliente e historico.
+        if (baixasEstoque.length > 0) {
+          const produtosAtualizados = products.map(p => {
+            const baixa = baixasEstoque.find(b => b.productId === p.id);
+            return baixa && p.stock !== undefined ? { ...p, stock: Math.max(0, p.stock - baixa.quantidade) } : p;
+          });
+          setProducts(produtosAtualizados);
+          setCache(CACHE_KEYS.products, produtosAtualizados);
+        }
+        if (creditoCliente) {
+          const clientesAtualizados = customers.map(c =>
+            c.id === creditoCliente.clienteId
+              ? { ...c, saldo_credito: Math.max(0, (c.saldo_credito || 0) - creditoCliente.valorAplicado) }
+              : c
+          );
+          setCustomers(clientesAtualizados);
+          setCache(CACHE_KEYS.customers, clientesAtualizados);
+        }
+        const pedidoOffline: SaleOrder = { ...finalizedOrder, _pendingSync: true };
+        const historicoAtualizado = [pedidoOffline, ...allSalesHistory];
+        setAllSalesHistory(historicoAtualizado);
+        setCache(CACHE_KEYS.sales, historicoAtualizado); // sobrevive a recarregar a pagina offline
+
+        if (finalDownPayment > 0) {
+          try {
+            const audio = new Audio('/sounds/sale-complete.mp3');
+            audio.play().catch(() => {});
+          } catch (e) {}
+        }
+        setLastFinalizedOrder(pedidoOffline);
+        if (addPendingOrder && isPending) addPendingOrder(finalizedOrder);
+        clearCart();
+        setIsPaymentModalOpen(false);
+        setIsSuccessModalOpen(true);
+        return; // o `finally` abaixo ainda libera o botao de salvar
+      }
+
+      // Update customer credit if applied
+      if (selectedCustomer?.id && saleCreditApplied > 0) {
+        const cust = customers.find(c => c.id === selectedCustomer.id);
+        if (cust) {
+          const newCredit = Math.max(0, (cust.saldo_credito || 0) - saleCreditApplied);
+          await supabase.from('clientes').update({ saldo_credito: newCredit }).eq('id', selectedCustomer.id);
+        }
+      }
+
+      // Deduct stock for inventory products
+      for (const item of cart) {
+        if (item.productId && item.productId !== 'manual') {
+          const prod = products.find(p => p.id === item.productId);
+          if (prod && prod.stock !== undefined) {
+            const consumed = item.consumoEstoque !== undefined
+              ? item.consumoEstoque * (item.quantity || 1)
+              : (item.area ? item.area * item.quantity : item.quantity);
+            const newStock = Math.max(0, prod.stock - consumed);
+            try {
+              const { error: stockErr } = await supabase.from('produtos').update({ estoque: newStock }).eq('id', item.productId);
+              if (stockErr) {
+                await supabase.from('produtos').update({ current_stock: newStock }).eq('id', item.productId);
+              }
+            } catch {
+              // Ignore stock update error if column differs
+            }
+          }
+        }
+      }
+
+      if (allMateriasPrimasToDeduct.length > 0) {
+        await deductMateriasPrimasStock(allMateriasPrimasToDeduct, currentCompany?.id);
+      }
 
       if (finalDownPayment > 0) {
         try {
@@ -2120,7 +2212,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
           </div>
           <div>
             <h3 className="text-base font-black text-white">Pedido #{lastFinalizedOrder?.id.slice(-6).toUpperCase()}</h3>
-            <p className="text-xs text-white/60 mt-1">Lançamento registrado e integrado ao sistema.</p>
+            {lastFinalizedOrder?._pendingSync ? (
+              <p className="text-xs text-amber-300 mt-1">Sem internet: venda salva neste aparelho. Ainda NÃO foi enviada ao sistema — não limpe os dados do navegador.</p>
+            ) : (
+              <p className="text-xs text-white/60 mt-1">Lançamento registrado e integrado ao sistema.</p>
+            )}
           </div>
           <div className="flex justify-center gap-2 pt-2">
             <Button
