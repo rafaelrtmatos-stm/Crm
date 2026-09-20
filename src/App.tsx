@@ -48,6 +48,7 @@ import {
 import { ChevronRight } from 'lucide-react';
 
 import { NotifyHost, showAlert, showMessageToast, urlDeFotoValida } from './lib/notify';
+import { sincronizarFilaOffline } from './lib/sincronizacaoOffline';
 import ComissoesAdminPanel from './comissoes/ComissoesAdminPanel';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -640,6 +641,23 @@ export default function App() {
       setPreselectedLeadIdForMessages(undefined);
     }
   }, [activeTab]);
+
+  // Envio das vendas feitas offline (fila do aparelho): ao abrir o CRM/entrar, quando a internet volta
+  // e de tempos em tempos. Fica AQUI (raiz, sempre montada) e nao no PDV: o caixa pode estar em outra
+  // tela quando a conexao voltar. A funcao ja ignora quem chama sem internet/sem venda na fila e nao
+  // roda em paralelo (nem entre abas). Dependencia e o id (string), nao o objeto `user`, para nao
+  // reiniciar a cada atualizacao do usuario.
+  useEffect(() => {
+    if (!user?.id) return;
+    const enviar = () => { sincronizarFilaOffline().catch(err => console.warn('[offlineSync] Falha ao enviar vendas offline:', err)); };
+    enviar();
+    window.addEventListener('online', enviar);
+    const timer = window.setInterval(enviar, 60_000);
+    return () => {
+      window.removeEventListener('online', enviar);
+      window.clearInterval(timer);
+    };
+  }, [user?.id]);
 
   const setIsRegisterOpen = async (open: boolean) => {
     setIsRegisterOpenLocal(open); // resposta imediata na UI

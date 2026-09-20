@@ -355,9 +355,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
     }
   }, [pendingReceivablesFilter, setPendingReceivablesFilter]);
 
+  // Ha venda feita offline ainda por enviar (e que o servidor nao recusou)? Enquanto houver, NAO
+  // recarrega produtos/clientes do servidor: ele ainda nao sabe dessa venda e reverteria o estoque e o
+  // credito que o PDV ja abateu localmente. O envio dispara 'pos-offline-sync-done' e ai recarrega.
+  const vendasOfflineAguardando = () => getQueue().some(op => op.type === 'sale' && !op.erro);
+
   // Load Products
   const loadProducts = async () => {
-    if (!isOnline) return; // já está exibindo o cache local; não tenta rede
+    if (!isOnline || vendasOfflineAguardando()) return; // já está exibindo o cache local; não tenta rede
     try {
       let query = supabase.from('produtos').select('*').order('name', { ascending: true });
       let { data, error } = await query;
@@ -393,7 +398,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
 
   // Load Customers
   const loadCustomers = async () => {
-    if (!isOnline) return;
+    if (!isOnline || vendasOfflineAguardando()) return;
     try {
       let query = supabase.from('clientes').select('*').order('full_name', { ascending: true });
       let { data, error } = await query;
@@ -557,6 +562,21 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
     return () => {
       supabase.removeChannel(channel);
     };
+  }, []);
+
+  // Depois que as vendas offline sao ENVIADAS, recarrega do servidor (venda ja la, estoque ja baixado).
+  // Ref atualizada a cada render: o listener abaixo e registrado uma vez e nao pode usar `isOnline` velho.
+  const recarregarAposEnvioRef = useRef<() => void>(() => {});
+  recarregarAposEnvioRef.current = () => {
+    setPendingSyncCount(getQueue().length);
+    loadProducts();
+    loadCustomers();
+    loadSalesHistory();
+  };
+  useEffect(() => {
+    const aoEnviar = () => recarregarAposEnvioRef.current();
+    window.addEventListener('pos-offline-sync-done', aoEnviar);
+    return () => window.removeEventListener('pos-offline-sync-done', aoEnviar);
   }, []);
 
   const handleManualSync = async () => {
@@ -2213,7 +2233,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
           <div>
             <h3 className="text-base font-black text-white">Pedido #{lastFinalizedOrder?.id.slice(-6).toUpperCase()}</h3>
             {lastFinalizedOrder?._pendingSync ? (
-              <p className="text-xs text-amber-300 mt-1">Sem internet: venda salva neste aparelho. Ainda NÃO foi enviada ao sistema — não limpe os dados do navegador.</p>
+              <p className="text-xs text-amber-300 mt-1">Sem internet: venda salva neste aparelho. Será enviada ao sistema automaticamente quando a conexão voltar — não limpe os dados do navegador até lá.</p>
             ) : (
               <p className="text-xs text-white/60 mt-1">Lançamento registrado e integrado ao sistema.</p>
             )}

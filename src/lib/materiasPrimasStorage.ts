@@ -456,8 +456,12 @@ export function subscribeToMateriasPrimas(onChange: () => void): () => void {
 export async function deductMateriasPrimasStock(
   consumptions: { materiaPrimaId?: string; name?: string; quantity: number }[],
   companyId?: string
-): Promise<void> {
-  if (!consumptions || consumptions.length === 0) return;
+): Promise<boolean> {
+  // Devolve true quando TODAS as baixas foram gravadas no servidor (item nao encontrado nao conta como
+  // falha: nao ha o que gravar). Quem nao liga para o resultado (PDV online, notas) continua igual;
+  // a sincronizacao de vendas offline usa isso para nao dar como feita uma baixa que falhou.
+  if (!consumptions || consumptions.length === 0) return true;
+  let tudoGravado = true;
 
   try {
     let currentList = await fetchMateriasPrimas(companyId);
@@ -544,10 +548,12 @@ export async function deductMateriasPrimasStock(
 
             if (error) {
               console.warn(`Erro ao atualizar estoque da matéria-prima ${found.name} no Supabase:`, error.message);
+              tudoGravado = false;
             }
           }
         } catch (e: any) {
           console.warn(`Erro ao persistir estoque de ${found.name}:`, e?.message);
+          tudoGravado = false;
         }
       }
     }
@@ -557,7 +563,9 @@ export async function deductMateriasPrimasStock(
     }
   } catch (err) {
     console.warn('Erro ao abater estoque de matérias-primas:', err);
+    return false;
   }
+  return tudoGravado;
 }
 
 // Local cache utilities
