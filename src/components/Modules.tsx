@@ -5127,6 +5127,24 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     });
   }, [leads, leadSort]);
 
+  // EDIÇÃO 1 — Pesquisa no Funil: por nome, telefone ou palavra/termo da conversa (usa os
+  // mesmos dados que os leads já carregam -- fullName, phone e o texto da última mensagem/
+  // última mensagem do cliente, já usados na lista/preview -- sem consulta nova). Vale pra
+  // TODAS as etapas do funil ao mesmo tempo (filtra antes de dividir por coluna).
+  const [funnelSearchTerm, setFunnelSearchTerm] = useState('');
+  const filteredLeads = useMemo(() => {
+    const termo = funnelSearchTerm.trim().toLocaleLowerCase('pt-BR');
+    if (!termo) return sortedLeads;
+    const termoDigitos = termo.replace(/\D/g, '');
+    return sortedLeads.filter(l => {
+      const nome = (l.fullName || '').toLocaleLowerCase('pt-BR');
+      if (nome.includes(termo)) return true;
+      if (termoDigitos && (l.phone || '').replace(/\D/g, '').includes(termoDigitos)) return true;
+      const conversa = `${l.lastMessageText || ''} ${l.lastClientMessageText || ''}`.toLocaleLowerCase('pt-BR');
+      return conversa.includes(termo);
+    });
+  }, [sortedLeads, funnelSearchTerm]);
+
   // Mantem o lead selecionado sincronizado com a lista ao vivo (onSnapshot) --
   // sem isso, depois de mudar a etapa (ou qualquer outro campo) pelo proprio
   // ChatPanel, o objeto `selectedLead` ficava "congelado" no estado de quando
@@ -5603,6 +5621,20 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
         />
         )}
 
+        {/* EDIÇÃO 1 — Pesquisa no Funil: nome, telefone ou palavra da conversa. Sempre visível
+            (mesma barra, qualquer etapa), some junto com o cabeçalho quando uma conversa está aberta. */}
+        {!selectedLead && (
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
+            <input
+              value={funnelSearchTerm}
+              onChange={(e) => setFunnelSearchTerm(e.target.value)}
+              placeholder="Pesquisar por nome, telefone ou termo da conversa..."
+              className="w-full h-9 bg-white/5 border border-white/10 rounded-xl pl-9 pr-3 text-[11px] text-white placeholder:text-white/30 focus:outline-none focus:border-primary-500"
+            />
+          </div>
+        )}
+
         {leadSelectionMode && selectedLeadIds.size > 0 && (
           <div className="flex items-center justify-between gap-3 bg-rose-500/10 border border-rose-500/30 rounded-2xl px-4 py-2.5 mb-1">
             <p className="text-[10px] font-black uppercase tracking-widest text-rose-300">
@@ -5644,7 +5676,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                 <KanbanColumn 
                   key={stage.id} 
                   stage={stage} 
-                  leads={sortedLeads.filter(l => !gruposDigitos.has((l.phone || '').replace(/\D/g, ''))).filter(l => l.funnelStageId === stage.id || (!l.funnelStageId && (stage.isInitial || stage.order === 0)))}
+                  leads={filteredLeads.filter(l => !gruposDigitos.has((l.phone || '').replace(/\D/g, ''))).filter(l => l.funnelStageId === stage.id || (!l.funnelStageId && (stage.isInitial || stage.order === 0)))}
                   onLeadClick={(l) => { setOpenedViaJump(false); setSelectedLead(l); }}
                   selectedLeadId={selectedLead?.id}
                   selectionMode={leadSelectionMode}
