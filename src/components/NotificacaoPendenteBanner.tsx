@@ -53,6 +53,28 @@ const agruparNotificacoes = (rows: any[]): NotificacaoPendente | null => {
   };
 };
 
+// O Supabase devolve no MAXIMO 1000 linhas por consulta. Como e UMA linha por mensagem, com muitos avisos
+// pendentes (grupos movimentados chegam a centenas) a leitura antiga com .limit(1000) pegava so as MAIS ANTIGAS:
+// conversas novas de cliente nem apareciam no sino e as demais ficavam com contagem/previa/horario velhos.
+// Aqui le em paginas, da mais antiga pra mais nova (desempate pelo id, pra paginacao nao pular linha), ate acabar.
+const TAMANHO_PAGINA = 1000;
+const MAX_PAGINAS = 50; // trava de seguranca (50 mil linhas)
+export const lerTodasPendentes = async (filtrar?: (q: any) => any): Promise<{ data: any[]; error: any }> => {
+  const todas: any[] = [];
+  for (let pagina = 0; pagina < MAX_PAGINAS; pagina++) {
+    let consulta: any = supabase.from('crm_notifications').select('*').eq('company_id', 'rafa-arts').eq('status', 'pending');
+    if (filtrar) consulta = filtrar(consulta);
+    const { data, error } = await consulta
+      .order('message_at', { ascending: true })
+      .order('id', { ascending: true })
+      .range(pagina * TAMANHO_PAGINA, (pagina + 1) * TAMANHO_PAGINA - 1);
+    if (error) return { data: [], error };
+    todas.push(...(data || []));
+    if (!data || data.length < TAMANHO_PAGINA) break;
+  }
+  return { data: todas, error: null };
+};
+
 /**
  * Notificacao PENDENTE da conversa (agrupando as mensagens pendentes do contato/grupo).
  * Somente leitura + tempo real. `refreshKey` (ex: quantidade de mensagens do chat) forca uma
@@ -64,14 +86,7 @@ export function useNotificacaoPendente(phone?: string | null, refreshKey?: numbe
 
   const recarregar = useCallback(async () => {
     if (!phone) { setNotificacao(null); return; }
-    const { data, error } = await supabase
-      .from('crm_notifications')
-      .select('*')
-      .eq('company_id', 'rafa-arts')
-      .eq('phone', phone)
-      .eq('status', 'pending')
-      .order('message_at', { ascending: true })
-      .limit(500);
+    const { data, error } = await lerTodasPendentes(q => q.eq('phone', phone));
     if (error) { setNotificacao(null); return; }
     setNotificacao(agruparNotificacoes(data || []));
   }, [phone]);
@@ -97,14 +112,18 @@ export function useNotificacaoPendente(phone?: string | null, refreshKey?: numbe
  */
 export async function marcarNotificacoesResolvidas(ids: string[], resolvidoPor?: string | null): Promise<boolean> {
   if (!ids.length) return true;
-  const { error } = await supabase
-    .from('crm_notifications')
-    .update({ status: 'resolved', resolved_at: new Date().toISOString(), resolved_by: resolvidoPor || null })
-    .in('id', ids)
-    .eq('status', 'pending');
-  if (error) {
-    console.error('Erro ao marcar notificacao como resolvida:', error);
-    return false;
+  // Em lotes: `.in('id', ...)` vai na URL, e centenas de ids de uma vez (grupo movimentado) passam do limite dela.
+  const quando = new Date().toISOString();
+  for (let i = 0; i < ids.length; i += 100) {
+    const { error } = await supabase
+      .from('crm_notifications')
+      .update({ status: 'resolved', resolved_at: quando, resolved_by: resolvidoPor || null })
+      .in('id', ids.slice(i, i + 100))
+      .eq('status', 'pending');
+    if (error) {
+      console.error('Erro ao marcar notificacao como resolvida:', error);
+      return false;
+    }
   }
   return true;
 }
@@ -254,13 +273,7 @@ export function useNotificacoesPendentes(user?: AppUser | null) {
     if (!userId || !podeVer) { setItens([]); return; }
     try {
       const [resp, permitidos] = await Promise.all([
-        supabase
-          .from('crm_notifications')
-          .select('*')
-          .eq('company_id', 'rafa-arts')
-          .eq('status', 'pending')
-          .order('message_at', { ascending: true })
-          .limit(1000),
+        lerTodasPendentes(),
         carregarGruposPermitidos(userId, !!user?.isAdmin),
       ]);
       if (resp.error) return; // mantem o que ja esta na tela em vez de zerar o contador por erro de rede
@@ -281,18 +294,44 @@ export function useNotificacoesPendentes(user?: AppUser | null) {
     }
   }, [userId, podeVer, user?.isAdmin]);
 
+  // Varias mensagens seguidas geram varios eventos: em vez de disparar uma leitura por evento, faz uma por vez e,
+  // se chegou evento no meio, repete UMA vez no fim (o sino atualiza na hora e sem sobrecarregar).
+  const emAndamento = useRef(false);
+  const repetir = useRef(false);
+  const recarregarSemAtropelar = useCallback(async () => {
+    if (emAndamento.current) { repetir.current = true; return; }
+    emAndamento.current = true;
+    try {
+      do { repetir.current = false; await recarregar(); } while (repetir.current);
+    } finally {
+      emAndamento.current = false;
+    }
+  }, [recarregar]);
+
   useEffect(() => {
-    recarregar();
+    recarregarSemAtropelar();
     if (!userId || !podeVer) return;
     const channel = supabase
       .channel('notificacoes-pendentes-globais')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'crm_notifications', filter: 'company_id=eq.rafa-arts' }, recarregar)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'crm_notifications', filter: 'company_id=eq.rafa-arts' }, recarregarSemAtropelar)
       .subscribe();
-    const timer = setInterval(recarregar, 60000);
-    return () => { supabase.removeChannel(channel); clearInterval(timer); };
-  }, [recarregar, userId, podeVer]);
+    const timer = setInterval(recarregarSemAtropelar, 60000);
+    // Aba/celular em segundo plano: o navegador segura timers e pausa a conexao em tempo real, entao os avisos
+    // "chegavam atrasados". Ao voltar pra tela (ou a internet voltar), le na hora.
+    const aoVoltar = () => { if (document.visibilityState === 'visible') recarregarSemAtropelar(); };
+    document.addEventListener('visibilitychange', aoVoltar);
+    window.addEventListener('focus', aoVoltar);
+    window.addEventListener('online', aoVoltar);
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', aoVoltar);
+      window.removeEventListener('focus', aoVoltar);
+      window.removeEventListener('online', aoVoltar);
+    };
+  }, [recarregarSemAtropelar, userId, podeVer]);
 
-  return { itens, recarregar };
+  return { itens, recarregar: recarregarSemAtropelar };
 }
 
 /** Nome exibido no item: titulo/remetente; sem nome, o telefone (contato) ou "Grupo" (JID de grupo nao e legivel). */
