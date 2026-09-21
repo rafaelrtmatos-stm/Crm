@@ -106,9 +106,9 @@ const prepararListaDeConversas = (rows: any[]): Lead[] => ordenarEDeduplicarConv
 //  - todos: todo grupo cadastrado; conversa de grupo que nao esta em `permitidos` NAO aparece na lista,
 //    mesmo que as mensagens existam em crm_messages.
 //  - nomes: nome real do grupo (whatsapp_groups.nome) pra mostrar no lugar do nome de um participante.
-const digitosDoGrupo = (jid?: string | null) => (jid || '').replace('@g.us', '').replace(/\D/g, '');
-type InfoGrupos = { permitidos: Set<string>; todos: Set<string>; nomes: Map<string, string> };
-const carregarInfoGrupos = async (user: AppUser | null): Promise<InfoGrupos | null> => {
+export const digitosDoGrupo = (jid?: string | null) => (jid || '').replace('@g.us', '').replace(/\D/g, '');
+export type InfoGrupos = { permitidos: Set<string>; todos: Set<string>; nomes: Map<string, string> };
+export const carregarInfoGrupos = async (user: AppUser | null): Promise<InfoGrupos | null> => {
   const { data: grupos, error } = await supabase.from('whatsapp_groups').select('id,group_jid,nome,visivel,admin_ve').eq('company_id', 'rafa-arts');
   if (error) return null;
   let vinculados = new Set<string>();
@@ -630,24 +630,32 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
 
       {/* Wrapper posicionado (relative) só pra caldinha poder "vazar" pra
           fora do card sem ser cortada pelo overflow-hidden do card */}
-      <div className="fixed top-6 left-[336px] z-40 w-[380px] max-h-[calc(100vh-3rem)] animate-in fade-in zoom-in-95 duration-150">
+      <div className="fixed inset-0 z-[60] lg:inset-auto lg:top-6 lg:left-[336px] lg:z-40 lg:w-[380px] lg:max-h-[calc(100vh-3rem)] animate-in fade-in zoom-in-95 duration-150">
         {/* Caldinha do balão — triangulo apontando pra esquerda, pro item
             "Conversas" do menu lateral de onde o balão foi aberto */}
-        <div className="absolute top-8 -left-2 w-4 h-4 bg-slate-50 border-l border-b border-slate-200 rotate-45 shadow-sm" />
+        <div className="hidden lg:block absolute top-8 -left-2 w-4 h-4 bg-slate-50 border-l border-b border-slate-200 rotate-45 shadow-sm" />
 
         {/* Corpo do balão — mesma base das bolhas de mensagem reais do
             sistema, só que um tom levemente mais escuro (slate-50 em vez de
             branco puro) pra dar mais "corpo" profissional, fixo em qualquer
             tema */}
-        <div className="relative bg-slate-50 border border-slate-200 rounded-[28px] flex flex-col shadow-2xl overflow-hidden max-h-[calc(100vh-3rem)]">
+        <div className="relative bg-slate-50 border border-slate-200 rounded-none lg:rounded-[28px] flex flex-col shadow-2xl overflow-hidden h-full lg:h-auto max-h-full lg:max-h-[calc(100vh-3rem)]">
           {/* Header */}
-          <div className="p-6 border-b border-slate-200 bg-white space-y-4 flex-shrink-0">
+          <div className="p-4 pt-[calc(env(safe-area-inset-top,0px)+1rem)] lg:p-6 border-b border-slate-200 bg-white space-y-4 flex-shrink-0">
             <div className="flex justify-between items-center">
               <h3 className="text-xl font-black text-slate-800 italic uppercase tracking-tight flex items-center gap-1.5">
                 Conversas
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
               </h3>
               <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="lg:hidden text-slate-400 hover:text-slate-700 transition-colors p-1.5 rounded-lg hover:bg-slate-100"
+                  title="Fechar"
+                >
+                  <X size={20} />
+                </button>
                 <button
                   type="button"
                   onClick={handleRefresh}

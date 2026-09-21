@@ -476,7 +476,9 @@ async function buscarNomeContato(phone, evoHeaders) {
   }
 }
 
-async function garantirFotoLead(phone, evoHeaders) {
+// `jidGrupo`: em conversa de GRUPO o `phone` sao so os digitos do group_jid (nao e um numero de celular), entao a
+// foto do grupo e buscada pelo JID completo (...@g.us). Sem ele, busca a foto do contato pelo telefone, como sempre.
+async function garantirFotoLead(phone, evoHeaders, jidGrupo) {
   try {
     // So busca a foto se o lead ainda NAO tem uma salva — evita ficar chamando a
     // Evolution API toda mensagem, so na primeira vez (ou se a foto ainda estiver vazia)
@@ -489,7 +491,7 @@ async function garantirFotoLead(phone, evoHeaders) {
     const picRes = await fetch(`${EVOLUTION_API_URL}/chat/fetchProfilePictureUrl/${INSTANCE_NAME}`, {
       method: 'POST',
       headers: evoHeaders,
-      body: JSON.stringify({ number: phone }),
+      body: JSON.stringify({ number: jidGrupo || phone }),
     });
     if (!picRes.ok) return;
     const picData = await picRes.json();
@@ -703,7 +705,7 @@ export default async function handler(req, res) {
           }
           // Busca de foto de perfil e so faz sentido pro CONTATO (nao pro meu proprio numero)
           if (!jaExiste && !ehMinhaMensagem && evoHeaders) {
-            garantirFotoLead(phone, evoHeaders); // nao usa await de proposito — nao atrasa a resposta do webhook
+            garantirFotoLead(phone, evoHeaders, ehGrupoMsg ? phoneRaw : undefined); // nao usa await de proposito — nao atrasa a resposta do webhook
           }
           // Mensagem RECEBIDA: atualiza last_message_at/previa do lead (com o horario original)
           if (!ehMinhaMensagem) {
