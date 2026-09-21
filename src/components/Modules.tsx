@@ -22663,6 +22663,57 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
   const [editedActions, setEditedActions] = useState<string[]>([]);
   const [editedModulePermissions, setEditedModulePermissions] = useState<ModulePermissions>({});
 
+  // Grupos do WhatsApp (movido de Mensagens pra cá, dentro de "editar usuário" -- decisão de quais
+  // grupos aparecem pra quem agora é feita aqui, não mais na aba Mensagens). Grupo novo chega represado
+  // (visivel=false); "Liberar/Bloquear" é global (afeta todo mundo). Quem VÊ um grupo já liberado é por
+  // usuário comum (user_whatsapp_groups) e por "admin_ve" pra qualquer usuário com role admin (compartilhado
+  // entre admins, mesma regra que já existia).
+  const [gruposWhatsapp, setGruposWhatsapp] = useState<any[]>([]);
+  const [acessosGruposUsuario, setAcessosGruposUsuario] = useState<Set<string>>(new Set());
+  const [carregandoGruposWhatsapp, setCarregandoGruposWhatsapp] = useState(false);
+  const [salvandoGrupoWhatsappId, setSalvandoGrupoWhatsappId] = useState<string | null>(null);
+
+  const carregarGruposWhatsappParaEdicao = async (u: AppUser) => {
+    setCarregandoGruposWhatsapp(true);
+    const { data: grupos } = await supabase.from('whatsapp_groups').select('*').eq('company_id', 'rafa-arts').order('created_at', { ascending: false });
+    setGruposWhatsapp(grupos || []);
+    const ehAdmin = (u.role as any) === 'admin' || u.isAdmin;
+    if (!ehAdmin) {
+      const { data: acessos } = await supabase.from('user_whatsapp_groups').select('group_id').eq('user_id', u.id);
+      setAcessosGruposUsuario(new Set((acessos || []).map((a: any) => a.group_id)));
+    } else {
+      setAcessosGruposUsuario(new Set());
+    }
+    setCarregandoGruposWhatsapp(false);
+  };
+
+  const alternarLiberacaoGrupoWhatsapp = async (grupoId: string, visivelAtual: boolean) => {
+    setSalvandoGrupoWhatsappId(grupoId);
+    await supabase.from('whatsapp_groups').update({ visivel: !visivelAtual, updated_at: new Date().toISOString() }).eq('id', grupoId);
+    if (editingUser) await carregarGruposWhatsappParaEdicao(editingUser);
+    setSalvandoGrupoWhatsappId(null);
+  };
+
+  const alternarAdminVeGrupoWhatsapp = async (grupoId: string, valorAtual: boolean) => {
+    setSalvandoGrupoWhatsappId(grupoId);
+    await supabase.from('whatsapp_groups').update({ admin_ve: !valorAtual, updated_at: new Date().toISOString() }).eq('id', grupoId);
+    if (editingUser) await carregarGruposWhatsappParaEdicao(editingUser);
+    setSalvandoGrupoWhatsappId(null);
+  };
+
+  const alternarAcessoUsuarioGrupoWhatsapp = async (grupoId: string) => {
+    if (!editingUser) return;
+    setSalvandoGrupoWhatsappId(grupoId);
+    const temAcesso = acessosGruposUsuario.has(grupoId);
+    if (temAcesso) {
+      await supabase.from('user_whatsapp_groups').delete().eq('group_id', grupoId).eq('user_id', editingUser.id);
+    } else {
+      await supabase.from('user_whatsapp_groups').insert({ group_id: grupoId, user_id: editingUser.id });
+    }
+    await carregarGruposWhatsappParaEdicao(editingUser);
+    setSalvandoGrupoWhatsappId(null);
+  };
+
   // Create User Modal State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [newUserName, setNewUserName] = useState('');
@@ -22742,6 +22793,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     setEditedActions(initialActions);
     // Sem lista salva = ve todas as abas do Financeiro (comportamento de antes)
     setEditedFinanceiroTabs(u.allowedFinanceiroTabs || [...ALL_FINANCEIRO_TAB_IDS]);
+    carregarGruposWhatsappParaEdicao(u);
   };
 
   const handleSaveUserPermissions = async () => {
@@ -23935,6 +23987,88 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                         </div>
                       </div>
                     )}
+
+                    {/* SEÇÃO 2c: GRUPOS DO WHATSAPP -- movido da aba Mensagens pra cá: quais grupos existem,
+                        se estão liberados, e se ESTE usuário em edição os vê, tudo decidido aqui. */}
+                    <div className="space-y-6 pt-6 border-t border-white/5">
+                      <div className="flex items-start sm:items-center gap-3">
+                        <span className="w-8 h-8 rounded-full bg-sky-500/15 text-sky-400 flex items-center justify-center shrink-0 mt-0.5 sm:mt-0">
+                          <Users size={16} />
+                        </span>
+                        <div>
+                          <h4 className="text-base sm:text-lg font-bold text-white uppercase italic tracking-tight font-black flex items-center gap-2">
+                            Grupos do WhatsApp
+                          </h4>
+                          <p className="text-xs text-white/40 font-medium">
+                            {((editedRole as any) === 'admin')
+                              ? 'Grupo novo chega represado: libere-o. "Eu vejo este grupo" vale pra todo usuário administrador.'
+                              : 'Grupo novo chega represado: libere-o e marque quais grupos este usuário pode ver.'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {carregandoGruposWhatsapp ? (
+                        <div className="py-6 text-center">
+                          <RefreshCw size={18} className="animate-spin text-sky-400 mx-auto" />
+                        </div>
+                      ) : gruposWhatsapp.length === 0 ? (
+                        <p className="text-xs text-white/40">Nenhum grupo detectado ainda. Assim que chegar mensagem de um grupo no WhatsApp conectado, ele aparece aqui.</p>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
+                          {gruposWhatsapp.map((g: any) => {
+                            const salvandoEste = salvandoGrupoWhatsappId === g.id;
+                            const ehAdminEditado = (editedRole as any) === 'admin';
+                            const usuarioVe = ehAdminEditado ? !!g.admin_ve : acessosGruposUsuario.has(g.id);
+                            return (
+                              <div
+                                key={g.id}
+                                className={cn(
+                                  "flex flex-col gap-2.5 p-3 sm:p-3.5 rounded-2xl border transition-all duration-300",
+                                  g.visivel ? "bg-slate-950/40 border-white/5" : "bg-amber-500/5 border-amber-500/20"
+                                )}
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="font-bold text-xs text-white truncate">{g.nome || g.group_jid}</span>
+                                  <button
+                                    type="button"
+                                    disabled={salvandoEste}
+                                    onClick={() => alternarLiberacaoGrupoWhatsapp(g.id, g.visivel)}
+                                    className={cn(
+                                      "shrink-0 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest px-2.5 py-1.5 rounded-xl border transition-all disabled:opacity-40",
+                                      g.visivel
+                                        ? "bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border-rose-500/20"
+                                        : "bg-primary-500/15 hover:bg-primary-500/25 text-primary-300 border-primary-500/30"
+                                    )}
+                                  >
+                                    {g.visivel ? <Lock size={11} /> : <Unlock size={11} />}
+                                    {g.visivel ? 'Bloquear' : 'Liberar'}
+                                  </button>
+                                </div>
+                                {g.visivel && (
+                                  <button
+                                    type="button"
+                                    disabled={salvandoEste}
+                                    onClick={() => ehAdminEditado ? alternarAdminVeGrupoWhatsapp(g.id, !!g.admin_ve) : alternarAcessoUsuarioGrupoWhatsapp(g.id)}
+                                    className={cn(
+                                      "w-full flex items-center gap-2 py-2 px-3 rounded-lg text-left text-xs transition-all disabled:opacity-40",
+                                      usuarioVe ? "bg-sky-500/10 text-white" : "bg-white/[0.02] text-white/40 hover:bg-white/5"
+                                    )}
+                                  >
+                                    <div className={cn(
+                                      "w-4 h-4 rounded-md border flex items-center justify-center transition-all shrink-0",
+                                      usuarioVe ? "bg-sky-500 border-sky-500 text-slate-950" : "border-white/20"
+                                    )}>
+                                      {usuarioVe && <Check size={10} strokeWidth={4} />}
+                                    </div>
+                                    Este usuário vê este grupo
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
 
                     {/* SEÇÃO 3: AÇÕES ESPECÍFICAS CATEGORIZADAS */}
                     <div className="space-y-6 pt-6 border-t border-white/5">

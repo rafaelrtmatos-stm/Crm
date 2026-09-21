@@ -5,13 +5,12 @@ import { db } from '../firebase';
 import { supabase } from '../supabase';
 import { AppContext } from '../AppContext';
 import { Lead, Company, AppUser } from '../types';
-import { cn, Button, AvatarPhoto, Modal } from './SharedUI';
+import { cn, Button, AvatarPhoto } from './SharedUI';
 import {
   Search, RefreshCw, Clock, CheckCircle2, X, Instagram, Facebook, Send, Mail, MessageCircle, Globe,
-  MoreVertical, CirclePlus, VolumeX, CheckSquare, Check, Archive, Trash2, Flag, MailOpen, GitMerge, Users, ArrowUp, ArrowDown,
+  MoreVertical, CirclePlus, VolumeX, CheckSquare, Check, Archive, Trash2, Flag, MailOpen, GitMerge, ArrowUp, ArrowDown,
 } from 'lucide-react';
 import { MergeLeadsModal } from './MergeLeadsModal';
-import { WhatsAppGroupsModule } from './WhatsAppGroupsModule';
 import { format } from 'date-fns';
 import { leadLastMessageDate, leadSortTime, formatListTime } from '../lib/leadTime';
 
@@ -102,7 +101,8 @@ const prepararListaDeConversas = (rows: any[]): Lead[] => ordenarEDeduplicarConv
 // mensagem e so os digitos do group_jid -- nunca o telefone de um participante).
 //  - permitidos: grupos liberados (visivel) que ESTE usuario escolheu/recebeu acesso. Usuario comum: vinculado
 //    a ele em user_whatsapp_groups. Administrador: grupos marcados com admin_ve. As duas escolhas sao feitas
-//    na tela "Grupos do WhatsApp" (menu ⋮) -- o admin nao ve grupo so porque foi liberado (mesma regra das notificacoes).
+//    em Configurações > editar usuário (NAO aqui na aba Mensagens) -- o admin nao ve grupo so porque foi liberado
+//    (mesma regra das notificacoes).
 //  - todos: todo grupo cadastrado; conversa de grupo que nao esta em `permitidos` NAO aparece na lista,
 //    mesmo que as mensagens existam em crm_messages.
 //  - nomes: nome real do grupo (whatsapp_groups.nome) pra mostrar no lugar do nome de um participante.
@@ -205,7 +205,6 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
   // Menu de opções (⋮) e suas funções
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isMergeOpen, setIsMergeOpen] = useState(false); // Mesclar contatos duplicados (MergeLeadsModal)
-  const [isGroupsAdminOpen, setIsGroupsAdminOpen] = useState(false); // tela Grupos do WhatsApp (so administrador)
   // Ordenação principal (padrão = pela última mensagem, mais recente primeiro, como sempre foi) + prioridades
   // opcionais que passam na frente da ordenação escolhida ("Não lidos primeiro" e "Destaque").
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'ultima_mensagem', dir: 'desc' });
@@ -608,16 +607,6 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
 
   return (
     <>
-      {user?.isAdmin && (
-        <Modal
-          isOpen={isGroupsAdminOpen}
-          onClose={() => { setIsGroupsAdminOpen(false); carregarInfoGrupos(user).then(aplicarInfoGrupos); }}
-          title="Grupos do WhatsApp"
-          size="md"
-        >
-          <WhatsAppGroupsModule />
-        </Modal>
-      )}
       <MergeLeadsModal
         isOpen={isMergeOpen}
         onClose={() => setIsMergeOpen(false)}
@@ -756,16 +745,6 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                           <VolumeX size={16} className="text-slate-400 shrink-0" />
                           <span className="whitespace-nowrap">Silenciar</span>
                         </button>
-                        {user?.isAdmin && (
-                          <>
-                            <div className="border-t border-slate-100 my-1.5" />
-                            <p className="px-3.5 pt-1 pb-1 text-[11px] font-black uppercase tracking-wider text-slate-400 whitespace-nowrap">Administração</p>
-                            <button type="button" onClick={() => { setIsMenuOpen(false); setIsGroupsAdminOpen(true); }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 hover:bg-slate-50 transition-colors text-left whitespace-nowrap">
-                              <Users size={16} className="text-slate-400 shrink-0" />
-                              <span className="whitespace-nowrap">Grupos do WhatsApp</span>
-                            </button>
-                          </>
-                        )}
                       </div>
                     </>,
                     document.body
