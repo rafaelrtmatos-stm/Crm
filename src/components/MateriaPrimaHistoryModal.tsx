@@ -18,6 +18,7 @@ import {
 import { Button, Modal } from './SharedUI';
 import { showAlert } from '../lib/notify';
 import { ReabastecerMateriaPrimaModal } from './ReabastecerMateriaPrimaModal';
+import { useApp } from '../AppContext';
 
 interface MateriaPrimaHistoryModalProps {
   isOpen: boolean;
@@ -38,6 +39,7 @@ export const MateriaPrimaHistoryModal: React.FC<MateriaPrimaHistoryModalProps> =
   onStockUpdated,
   companyId
 }) => {
+  const { setActiveTab: setRootActiveTab, setPendingOpenNotaNoPdv } = useApp();
   const [history, setHistory] = useState<MateriaPrimaConsumptionRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [filterMpId, setFilterMpId] = useState<string>(selectedMateriaPrima?.id || 'all');
@@ -219,6 +221,13 @@ export const MateriaPrimaHistoryModal: React.FC<MateriaPrimaHistoryModalProps> =
     } finally {
       setLoading(false);
     }
+  };
+
+  // Toda saida de venda tem uma nota: clicar leva pra MESMA nota no PDV (aba Historico), aberta por cima.
+  const irParaNotaNoPdv = (orderId: string) => {
+    setPendingOpenNotaNoPdv({ saleId: orderId, aba: 'historico' });
+    onClose();
+    setRootActiveTab('pos');
   };
 
   const handleOpenSaleDetails = async (orderId: string, customerFallback?: string) => {
@@ -764,9 +773,9 @@ export const MateriaPrimaHistoryModal: React.FC<MateriaPrimaHistoryModalProps> =
                           {item.orderId ? (
                             <button
                               type="button"
-                              onClick={() => handleOpenSaleDetails(item.orderId!, item.customerName)}
+                              onClick={() => irParaNotaNoPdv(item.orderId!)}
                               className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-black bg-primary-500/15 hover:bg-primary-500/25 text-primary-300 hover:text-primary-200 border border-primary-500/30 hover:border-primary-400 transition-all cursor-pointer group shadow-sm text-left"
-                              title="Clique para ver os detalhes completos desta nota"
+                              title="Clique para abrir esta nota no PDV (aba Histórico)"
                             >
                               <FileText size={12} className="text-primary-400 shrink-0 group-hover:scale-110 transition-transform" />
                               <span className="text-white/60 font-semibold text-[10px]">Cliente:</span>

@@ -789,6 +789,7 @@ export default function App() {
   const [pendingGoToServicos, setPendingGoToServicos] = useState(false);
   const [pendingOpenContratoId, setPendingOpenContratoId] = useState<string | null>(null);
   const [pendingOpenOrcamentoId, setPendingOpenOrcamentoId] = useState<string | null>(null);
+  const [pendingOpenNotaNoPdv, setPendingOpenNotaNoPdv] = useState<{ saleId: string; aba: 'historico' | 'servicos' } | null>(null);
   const [pendingOpenLeadId, setPendingOpenLeadId] = useState<string | null>(null);
   const [pendingOpenMessageId, setPendingOpenMessageId] = useState<string | null>(null);
   // Notificacoes pendentes do usuario (agrupadas por cliente/grupo, filtradas por permissao)
@@ -2502,6 +2503,8 @@ export default function App() {
     setPendingOpenContratoId,
     pendingOpenOrcamentoId,
     setPendingOpenOrcamentoId,
+    pendingOpenNotaNoPdv,
+    setPendingOpenNotaNoPdv,
     pendingOpenLeadId,
     setPendingOpenLeadId,
     pendingOpenMessageId,

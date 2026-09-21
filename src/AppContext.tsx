@@ -50,6 +50,10 @@ export interface AppContextType {
   setPendingOpenContratoId: (id: string | null) => void;
   pendingOpenOrcamentoId: string | null;
   setPendingOpenOrcamentoId: (id: string | null) => void;
+  // Historico da materia-prima -> abre uma nota especifica no PDV, na aba Historico ou Servicos (a nota fica aberta
+  // por cima e, ao fechar, o usuario continua no PDV).
+  pendingOpenNotaNoPdv: { saleId: string; aba: 'historico' | 'servicos' } | null;
+  setPendingOpenNotaNoPdv: (v: { saleId: string; aba: 'historico' | 'servicos' } | null) => void;
   pendingOpenLeadId: string | null;
   setPendingOpenLeadId: (id: string | null) => void;
   // Mensagem exata que gerou a notificacao clicada: o ChatPanel rola ate ela e a destaca.
