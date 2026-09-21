@@ -5,6 +5,8 @@ import { ContractApprovalModule } from './ContractApprovalModule';
 import { ContractSignatureOtpPanel } from './ContractSignatureOtpPanel';
 import { ContractAcceptanceDetailsModal } from './ContractAcceptanceDetailsModal';
 import { carregarInfoGrupos, digitosDoGrupo, type InfoGrupos } from './MessagesSidebarPopup';
+import { tipoDaMidia, formatarTamanho, subirMidiaParaStorage, enviarMidiaPeloWhatsApp, LIMITE_MIDIA_MB, type TipoMidia } from '../lib/enviarMidiaWhatsApp';
+import { iniciarGravacao, extensaoDoAudio, type Gravacao } from '../lib/gravadorAudio';
 import { NotificacaoPendenteBanner, useNotificacaoPendente, marcarNotificacoesResolvidas } from './NotificacaoPendenteBanner';
 import { 
   TrendingUp, 
@@ -3283,6 +3285,20 @@ export const ChatPanel = ({
   const [newMessage, setNewMessage] = useState('');
   const [messages, setMessages] = useState<any[]>([]);
   const [isRecording, setIsRecording] = useState(false);
+  // ENVIO DE ARQUIVO pelo WhatsApp: foto/video (botao de imagem), documento (clipe) e audio (microfone).
+  const [anexoPendente, setAnexoPendente] = useState<{ file: File; tipo: TipoMidia; previewUrl?: string } | null>(null);
+  const [enviandoMidia, setEnviandoMidia] = useState(false);
+  const [segundosGravando, setSegundosGravando] = useState(0);
+  const gravacaoRef = useRef<Gravacao | null>(null);
+  const inputDocumentoRef = useRef<HTMLInputElement>(null);
+  const inputImagemRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!isRecording) { setSegundosGravando(0); return; }
+    const timer = setInterval(() => setSegundosGravando(s => s + 1), 1000);
+    return () => clearInterval(timer);
+  }, [isRecording]);
+  // Trocou de conversa ou fechou o chat: solta o microfone e descarta o que estava gravando/anexado.
+  useEffect(() => () => { gravacaoRef.current?.cancelar(); gravacaoRef.current = null; }, []);
   const [showQuickReplies, setShowQuickReplies] = useState(false);
   const [showQuickActions, setShowQuickActions] = useState(false);
   const [showQuickTemplates, setShowQuickTemplates] = useState(false);
@@ -3926,7 +3942,97 @@ export const ChatPanel = ({
     limparNotificacaoPendente();
   };
 
+  // ---------- ENVIO DE ARQUIVO (foto, video, documento, audio) ----------
+  const senderDisplayMidia = () => {
+    const senderRole = user?.isAdmin ? 'Adm' : 'Atendente';
+    return user?.name ? `${user.name} (${senderRole})` : senderRole;
+  };
+  const conversaWhatsApp = () => {
+    const canal = (conversation?.sourceType || conversation?.channel || 'WhatsApp');
+    return canal === 'WhatsApp' && !!conversation?.phone;
+  };
+  const limparAnexo = () => {
+    if (anexoPendente?.previewUrl) URL.revokeObjectURL(anexoPendente.previewUrl);
+    setAnexoPendente(null);
+  };
+  const prepararAnexo = (file: File, tipo: TipoMidia) => {
+    if (!conversaWhatsApp()) { showAlert('O envio de arquivos só está disponível para conversas do WhatsApp.'); return; }
+    const limiteMb = LIMITE_MIDIA_MB[tipo];
+    if (file.size > limiteMb * 1024 * 1024) {
+      showAlert(`Arquivo muito grande (${formatarTamanho(file.size)}). O limite para ${tipo === 'document' ? 'documentos' : tipo === 'video' ? 'vídeos' : 'fotos'} é ${limiteMb} MB.`);
+      return;
+    }
+    if (anexoPendente?.previewUrl) URL.revokeObjectURL(anexoPendente.previewUrl);
+    setAnexoPendente({ file, tipo, previewUrl: tipo === 'image' ? URL.createObjectURL(file) : undefined });
+  };
+  const escolherArquivo = (e: React.ChangeEvent<HTMLInputElement>, comoDocumento: boolean) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // permite escolher o mesmo arquivo de novo
+    if (file) prepararAnexo(file, comoDocumento ? 'document' : tipoDaMidia(file));
+  };
+  const enviarAnexo = async () => {
+    if (!anexoPendente || !conversation || enviandoMidia) return;
+    if (!conversaWhatsApp()) { showAlert('O envio de arquivos só está disponível para conversas do WhatsApp.'); return; }
+    const { file, tipo } = anexoPendente;
+    const legenda = newMessage.trim();
+    setEnviandoMidia(true);
+    try {
+      const url = await subirMidiaParaStorage(file, file.name, file.type || 'application/octet-stream');
+      await enviarMidiaPeloWhatsApp({
+        phone: conversation.phone, senderName: senderDisplayMidia(), leadId: conversation.id || null, userId: user?.id,
+        media: { url, type: tipo, mimeType: file.type || undefined, fileName: file.name, caption: legenda || undefined },
+      });
+      setNewMessage('');
+      limparAnexo();
+    } catch (err: any) {
+      console.error('Falha ao enviar arquivo pro WhatsApp:', err);
+      showAlert(`Não foi possível enviar o arquivo: ${err?.message || 'erro desconhecido'}. O arquivo NÃO foi enviado.`);
+    } finally {
+      setEnviandoMidia(false);
+    }
+  };
+  const iniciarAudio = async () => {
+    if (isRecording || enviandoMidia) return;
+    if (!conversaWhatsApp()) { showAlert('O envio de áudio só está disponível para conversas do WhatsApp.'); return; }
+    try {
+      gravacaoRef.current = await iniciarGravacao();
+      setIsRecording(true);
+    } catch (err: any) {
+      gravacaoRef.current = null;
+      showAlert(err?.name === 'NotAllowedError' ? 'Permita o uso do microfone no navegador para gravar áudio.' : (err?.message || 'Não foi possível acessar o microfone.'));
+    }
+  };
+  const cancelarAudio = () => {
+    gravacaoRef.current?.cancelar();
+    gravacaoRef.current = null;
+    setIsRecording(false);
+  };
+  const enviarAudio = async () => {
+    const gravacao = gravacaoRef.current;
+    if (!gravacao || !conversation || enviandoMidia) return;
+    setEnviandoMidia(true);
+    try {
+      const { blob, mimeType, segundos } = await gravacao.parar();
+      gravacaoRef.current = null;
+      setIsRecording(false);
+      if (blob.size === 0) { showAlert('Não foi possível gravar o áudio (arquivo vazio).'); return; }
+      if (blob.size > LIMITE_MIDIA_MB.audio * 1024 * 1024) { showAlert(`Áudio muito grande. O limite é ${LIMITE_MIDIA_MB.audio} MB.`); return; }
+      const nome = `audio-${Date.now()}.${extensaoDoAudio(mimeType)}`;
+      const url = await subirMidiaParaStorage(blob, nome, mimeType);
+      await enviarMidiaPeloWhatsApp({
+        phone: conversation.phone, senderName: senderDisplayMidia(), leadId: conversation.id || null, userId: user?.id,
+        media: { url, type: 'audio', mimeType, fileName: nome, seconds: segundos },
+      });
+    } catch (err: any) {
+      console.error('Falha ao enviar áudio pro WhatsApp:', err);
+      showAlert(`Não foi possível enviar o áudio: ${err?.message || 'erro desconhecido'}. O áudio NÃO foi enviado.`);
+    } finally {
+      setEnviandoMidia(false);
+    }
+  };
+
   const handleSendMessage = async () => {
+    if (anexoPendente) { await enviarAnexo(); return; } // com arquivo escolhido, o texto digitado vira a legenda
     if (!newMessage.trim() || !conversation || !currentCompany) return;
     clearMessageHighlight(); // ao responder, volta ao comportamento normal (rola pro fim)
     const textoEnviado = newMessage;
@@ -4531,40 +4637,69 @@ export const ChatPanel = ({
                   ))}
                 </div>
 
+                {anexoPendente && (
+                  <div className="flex items-center gap-3 bg-white border border-slate-200 rounded-2xl p-2 shadow-sm">
+                    {anexoPendente.previewUrl ? (
+                      <img src={anexoPendente.previewUrl} alt="" className="w-12 h-12 rounded-xl object-cover shrink-0" />
+                    ) : (
+                      <div className="w-12 h-12 rounded-xl bg-slate-100 text-slate-400 flex items-center justify-center shrink-0">
+                        <Paperclip size={18} />
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold text-slate-800 truncate">{anexoPendente.file.name}</p>
+                      <p className="text-[10px] font-medium text-slate-400">
+                        {anexoPendente.tipo === 'image' ? 'Foto' : anexoPendente.tipo === 'video' ? 'Vídeo' : 'Documento'} · {formatarTamanho(anexoPendente.file.size)} · escreva uma legenda (opcional) e envie
+                      </p>
+                    </div>
+                    <button type="button" onClick={limparAnexo} disabled={enviandoMidia} title="Remover arquivo" className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-colors shrink-0">
+                      <X size={16} />
+                    </button>
+                  </div>
+                )}
+
+                <input ref={inputDocumentoRef} type="file" className="hidden" onChange={(e) => escolherArquivo(e, true)} />
+                <input ref={inputImagemRef} type="file" accept="image/*,video/*" className="hidden" onChange={(e) => escolherArquivo(e, false)} />
                 <div className="flex items-end gap-2 bg-white p-1 rounded-2xl border border-slate-200 focus-within:border-primary-500/50 transition-all shadow-lg">
                   <div className="flex gap-0.5 pb-0.5">
-                    <Button variant="ghost" size="sm" className="p-1.5 min-w-0 h-8 w-8 text-slate-400 hover:text-primary-600 transition-colors" icon={Paperclip} />
-                    <Button variant="ghost" size="sm" className="p-1.5 min-w-0 h-8 w-8 text-slate-400 hover:text-primary-600 transition-colors" icon={ImageIcon} />
+                    <Button variant="ghost" size="sm" onClick={() => inputDocumentoRef.current?.click()} disabled={isRecording || enviandoMidia} title="Enviar documento" className="p-1.5 min-w-0 h-8 w-8 text-slate-400 hover:text-primary-600 transition-colors" icon={Paperclip} />
+                    <Button variant="ghost" size="sm" onClick={() => inputImagemRef.current?.click()} disabled={isRecording || enviandoMidia} title="Enviar foto ou vídeo" className="p-1.5 min-w-0 h-8 w-8 text-slate-400 hover:text-primary-600 transition-colors" icon={ImageIcon} />
                   </div>
+                  {isRecording && (
+                    <div className="flex-1 flex items-center gap-2 px-2 py-2 text-xs font-bold text-rose-600">
+                      <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse shrink-0" />
+                      Gravando {String(Math.floor(segundosGravando / 60)).padStart(2, '0')}:{String(segundosGravando % 60).padStart(2, '0')}
+                      <span className="text-[10px] font-medium text-slate-400 hidden sm:inline">toque em enviar para mandar ou na lixeira para descartar</span>
+                    </div>
+                  )}
                   <textarea 
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
+                    onPaste={(e) => {
+                      // Ctrl+V com um print/imagem copiada: vira o arquivo a enviar
+                      const colado: File | undefined = e.clipboardData?.files?.[0];
+                      if (colado) { e.preventDefault(); prepararAnexo(colado, tipoDaMidia(colado)); }
+                    }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault();
                         handleSendMessage();
                       }
                     }}
-                    placeholder="Sua resposta..."
-                    className="flex-1 bg-transparent border-none outline-none text-xs text-slate-900 font-medium p-2 resize-none max-h-24 min-h-[36px] custom-scrollbar focus:ring-0 placeholder:text-slate-400"
+                    placeholder={anexoPendente ? 'Legenda (opcional)...' : 'Sua resposta...'}
+                    className={cn("flex-1 bg-transparent border-none outline-none text-xs text-slate-900 font-medium p-2 resize-none max-h-24 min-h-[36px] custom-scrollbar focus:ring-0 placeholder:text-slate-400", isRecording && "hidden")}
                     rows={1}
                   />
                   <div className="flex gap-1.5 pb-0.5 pr-0.5">
-                    {newMessage.trim() === '' ? (
-                      <Button 
-                        onClick={() => setIsRecording(!isRecording)}
-                        className={cn(
-                          "p-2 min-w-0 h-9 w-9 rounded-full border-none transition-all shadow-md",
-                          isRecording ? "bg-rose-500 shadow-lg shadow-rose-500/40 animate-pulse" : "bg-slate-100 hover:bg-slate-200 text-slate-500"
-                        )} 
-                        icon={Mic} 
-                      />
+                    {isRecording ? (
+                      <>
+                        <Button onClick={cancelarAudio} disabled={enviandoMidia} title="Descartar gravação" className="p-2 min-w-0 h-9 w-9 rounded-full border-none bg-slate-100 hover:bg-slate-200 text-slate-500" icon={Trash2} />
+                        <Button onClick={enviarAudio} disabled={enviandoMidia} title="Enviar áudio" className={cn("p-2 min-w-0 h-9 w-9 rounded-full bg-primary-500 hover:bg-primary-400 shadow-lg shadow-primary-500/40 text-slate-900 border-none", enviandoMidia && "[&>svg]:animate-spin")} icon={enviandoMidia ? Loader2 : Send} />
+                      </>
+                    ) : (newMessage.trim() === '' && !anexoPendente) ? (
+                      <Button onClick={iniciarAudio} disabled={enviandoMidia} title="Gravar áudio" className="p-2 min-w-0 h-9 w-9 rounded-full border-none transition-all shadow-md bg-slate-100 hover:bg-slate-200 text-slate-500" icon={Mic} />
                     ) : (
-                      <Button 
-                        onClick={handleSendMessage}
-                        className="p-2 min-w-0 h-9 w-9 rounded-full bg-primary-500 hover:bg-primary-400 shadow-lg shadow-primary-500/40 text-slate-900 border-none" 
-                        icon={Send} 
-                      />
+                      <Button onClick={handleSendMessage} disabled={enviandoMidia} title={anexoPendente ? 'Enviar arquivo' : 'Enviar'} className={cn("p-2 min-w-0 h-9 w-9 rounded-full bg-primary-500 hover:bg-primary-400 shadow-lg shadow-primary-500/40 text-slate-900 border-none", enviandoMidia && "[&>svg]:animate-spin")} icon={enviandoMidia ? Loader2 : Send} />
                     )}
                   </div>
                 </div>
