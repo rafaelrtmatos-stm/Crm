@@ -111,7 +111,7 @@ async function transcricaoAutomaticaLigada(phone) {
 // (so sem media_url), pra nao perder a mensagem inteira por causa de um anexo.
 async function baixarEGuardarMidia(msg, evoHeaders) {
   const midia = encontrarNodeMidia(msg?.message);
-  if (!midia || midia.tipo === 'sticker') return null; // figurinha continua so como rotulo por enquanto
+  if (!midia) return null;
 
   const messageId = msg?.key?.id;
   if (!EVOLUTION_API_URL || !EVOLUTION_API_KEY || !evoHeaders || !messageId) {

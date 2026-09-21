@@ -4377,6 +4377,7 @@ export const ChatPanel = ({
                     const isImage = m.mediaContentType === 'image' && !!m.mediaUrl;
                     const isVideo = m.mediaContentType === 'video' && !!m.mediaUrl;
                     const isDocument = m.mediaContentType === 'document' && !!m.mediaUrl;
+                    const isSticker = m.mediaContentType === 'sticker' && !!m.mediaUrl;
                     const senderLabel = (() => {
                       if (!isOutgoing) return m.senderName || 'Cliente';
                       const raw = (m.senderName || '').trim();
@@ -4396,14 +4397,18 @@ export const ChatPanel = ({
                       <div key={m.id || idx} data-message-id={m.id} className={cn("flex", isOutgoing ? "justify-end" : "justify-start")}>
                         <div className={cn("group space-y-1", isOutgoing ? "text-right" : "")}>
                            <div className={cn(
-                             "max-w-[85%] rounded-2xl border text-xs text-slate-800 leading-relaxed shadow-sm bg-white transition-shadow",
+                             "max-w-[85%] rounded-2xl text-xs text-slate-800 leading-relaxed transition-shadow",
                              highlightedMessageId && String(highlightedMessageId) === String(m.id) && "ring-2 ring-amber-400 shadow-lg shadow-amber-400/40 animate-pulse",
-                             (isImage || isVideo) ? "p-1.5" : "p-2.5",
-                             isOutgoing 
-                               ? "rounded-br-none border-primary-200 text-left ml-auto" 
-                               : "rounded-bl-none border-slate-200"
+                             isSticker
+                               ? "p-0"
+                               : cn("border bg-white shadow-sm", (isImage || isVideo) ? "p-1.5" : "p-2.5", isOutgoing ? "border-primary-200" : "border-slate-200"),
+                             isOutgoing
+                               ? "rounded-br-none text-left ml-auto"
+                               : "rounded-bl-none"
                            )}>
-                              {isImage ? (
+                              {isSticker ? (
+                                <img src={m.mediaUrl} alt="Figurinha" className="w-32 h-32 object-contain" loading="lazy" />
+                              ) : isImage ? (
                                 <div className="space-y-1.5 min-w-[160px]">
                                    <a href={m.mediaUrl} target="_blank" rel="noopener noreferrer" className="block overflow-hidden rounded-xl">
                                      <img src={m.mediaUrl} alt={m.fileName || 'Imagem recebida'} className="max-w-full max-h-64 object-cover rounded-xl hover:opacity-90 transition-opacity" loading="lazy" />
