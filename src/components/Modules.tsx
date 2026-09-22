@@ -5338,6 +5338,10 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
   // botões "Adicionar Etapa"/Automações/Editar/Excluir sem handler nenhum.
   const [funnelNameDraft, setFunnelNameDraft] = useState('');
   const [renamingStageId, setRenamingStageId] = useState<string | null>(null);
+  // EDIÇÃO 2 — a paleta de cor da etapa só abria com :hover (group-hover), que não funciona em
+  // toque/mobile -- por isso só dava pra editar a cor do FUNIL (clique normal) e não a da ETAPA.
+  // Agora abre com clique/toque, igual o resto do app.
+  const [openStageColorId, setOpenStageColorId] = useState<string | null>(null);
   const [stageNameDraft, setStageNameDraft] = useState('');
 
   useEffect(() => {
@@ -5904,19 +5908,31 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                         <button type="button" disabled={idx === stages.length - 1} onClick={() => handleMoveStage(idx, 1)} title="Descer etapa" className="hover:text-white disabled:opacity-20"><ChevronDown size={14} /></button>
                       </div>
                       <div className="relative group/color shrink-0">
-                        <div className="w-4 h-4 rounded-full cursor-pointer" style={{ backgroundColor: stage.color || '#4cc9f0' }} />
-                        <div className="hidden group-hover/color:grid grid-cols-8 absolute top-full left-1/2 -translate-x-1/2 mt-2 bg-slate-900 border border-white/10 rounded-xl shadow-2xl p-2 gap-1.5 z-10">
-                           {FUNNEL_STAGE_COLORS.map(c => (
-                             <button
-                               key={c}
-                               type="button"
-                               onClick={() => handleSetStageColor(stage.id, c)}
-                               title={corEmUso(c, stage.id) ? STAGE_COLOR_IN_USE_MSG : c}
-                               className={cn("w-4 h-4 rounded-full border border-white/10 hover:scale-125 transition-transform", corEmUso(c, stage.id) && "opacity-25 cursor-not-allowed")}
-                               style={{ backgroundColor: c }}
-                             />
-                           ))}
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setOpenStageColorId(id => id === stage.id ? null : stage.id)}
+                          title="Definir cor desta etapa"
+                          className="w-6 h-6 -m-1 flex items-center justify-center rounded-full"
+                        >
+                          <span className="w-4 h-4 rounded-full block" style={{ backgroundColor: stage.color || '#4cc9f0' }} />
+                        </button>
+                        {openStageColorId === stage.id && (
+                          <>
+                            <div className="fixed inset-0 z-40" onClick={() => setOpenStageColorId(null)} />
+                            <div className="grid grid-cols-8 absolute top-full left-1/2 -translate-x-1/2 mt-2 bg-slate-900 border border-white/10 rounded-xl shadow-2xl p-2 gap-1.5 z-50">
+                               {FUNNEL_STAGE_COLORS.map(c => (
+                                 <button
+                                   key={c}
+                                   type="button"
+                                   onClick={() => { handleSetStageColor(stage.id, c); setOpenStageColorId(null); }}
+                                   title={corEmUso(c, stage.id) ? STAGE_COLOR_IN_USE_MSG : c}
+                                   className={cn("w-4 h-4 rounded-full border border-white/10 hover:scale-125 transition-transform", corEmUso(c, stage.id) && "opacity-25 cursor-not-allowed")}
+                                   style={{ backgroundColor: c }}
+                                 />
+                               ))}
+                            </div>
+                          </>
+                        )}
                       </div>
                       <div className="flex-1 min-w-0">
                          {renamingStageId === stage.id ? (
