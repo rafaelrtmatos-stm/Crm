@@ -24311,6 +24311,33 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 pt-2">
+                      {/* Correção: o admin master (login direto, não fica na tabela "usuarios") não tinha
+                          card nessa lista e por isso não tinha mais nenhum jeito de abrir a edição de
+                          usuário -- que agora é onde ficam os Grupos do WhatsApp (liberar/bloquear e quem
+                          vê). Sem isso, "Editar Permissões" e Grupos do WhatsApp ficavam inacessíveis pra
+                          ele. */}
+                      {user?.isAdmin && user.id && !usersList.some(u => u.id === user.id) && (
+                        <div className="p-4 sm:p-6 rounded-2xl sm:rounded-[28px] border-2 border-sky-500/30 bg-sky-500/5 space-y-4 flex flex-col justify-between">
+                          <div className="flex items-start gap-3 sm:gap-4">
+                            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-br from-sky-400 to-sky-600 flex items-center justify-center text-slate-950 font-black tracking-wider text-xs sm:text-sm shadow-lg shrink-0 uppercase">
+                              {(user.name || 'AD').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
+                            </div>
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <h4 className="font-bold text-white text-sm sm:text-base leading-tight truncate">{user.name} (você)</h4>
+                              <p className="text-[10px] sm:text-xs text-white/40 truncate">{user.email}</p>
+                              <Badge className="bg-rose-500/10 text-rose-400 border-rose-500/20 text-[8px] sm:text-[9px] px-2 py-0.5 uppercase font-black">Admin</Badge>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => startEditUser(user)}
+                            className="w-full flex items-center justify-center gap-1.5 py-2.5 sm:py-3 rounded-xl bg-primary-500/20 hover:bg-primary-500/30 border border-primary-500/40 text-primary-300 hover:text-white transition-all font-black text-xs uppercase tracking-wider cursor-pointer active:scale-95 shadow-sm min-h-[40px]"
+                          >
+                            <Settings2 size={14} className="text-primary-400 shrink-0" />
+                            <span className="truncate">Editar Permissões & Grupos do WhatsApp</span>
+                          </button>
+                        </div>
+                      )}
                       {usersList.map((u) => {
                         const allowedCount = u.allowedTabs?.length ?? 7;
                         const actionsCount = u.allowedActions?.length ?? 10;
