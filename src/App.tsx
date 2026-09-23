@@ -49,7 +49,7 @@ import { ChevronRight } from 'lucide-react';
 
 import { NotifyHost, showAlert, showMessageToast } from './lib/notify';
 import { NotificationCenter } from './components/NotificationCenter';
-import { CrmNotification, CrmNotificationThread, fetchVisibleNotifications, resolveCrmNotifications } from './lib/crmNotifications';
+import { CrmNotification, CrmNotificationThread, fetchVisibleNotifications, resolveCrmNotifications, groupNotifications } from './lib/crmNotifications';
 import ComissoesAdminPanel from './comissoes/ComissoesAdminPanel';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -748,6 +748,8 @@ export default function App() {
   const [crmNotifications, setCrmNotifications] = useState<CrmNotification[]>([]);
   const [messageFocus, setMessageFocus] = useState<{ phone: string; leadId?: string; messageId: string; nonce: number } | null>(null);
   const knownNotificationIdsRef = React.useRef<Set<string> | null>(null); // null = primeira carga ainda não feita
+  const lastAlertedAtRef = React.useRef<Map<string, number>>(new Map()); // phone -> timestamp do último som/notificação disparado
+  const crmNotificationsRef = React.useRef<CrmNotification[]>([]); // espelha crmNotifications p/ o setInterval do lembrete de 5 em 5 min
   const [simulatedUserId, setSimulatedUserIdState] = useState<string | null>(localStorage.getItem('rpro_simulated_user_id'));
   const [unrepliedLeadsCount, setUnrepliedLeadsCount] = useState(0);
 
@@ -1061,8 +1063,14 @@ export default function App() {
   const resolveCrmNotificationThread = async (thread: CrmNotificationThread) => {
     const ids = thread.items.map(i => i.id);
     const ok = await resolveCrmNotifications(ids, user?.name);
-    if (ok) setCrmNotifications(prev => prev.filter(n => !ids.includes(n.id)));
-    else showAlert('Não foi possível marcar como resolvido. Tente novamente.');
+    if (ok) {
+      setCrmNotifications(prev => {
+        const next = prev.filter(n => !ids.includes(n.id));
+        crmNotificationsRef.current = next;
+        return next;
+      });
+      lastAlertedAtRef.current.delete(thread.phone); // resolvido: para o lembrete de 5 em 5 min dessa conversa
+    } else showAlert('Não foi possível marcar como resolvido. Tente novamente.');
   };
 
   // Carrega as notificações pendentes que ESTE usuário pode ver (grupos só se atribuídos a ele)
@@ -1083,6 +1091,7 @@ export default function App() {
       const list = await fetchVisibleNotifications(uid);
       if (cancelled || mySeq !== seq || !list) return; // ignora resposta antiga / falha
       setCrmNotifications(list);
+      crmNotificationsRef.current = list;
       const known = knownNotificationIdsRef.current;
       knownNotificationIdsRef.current = new Set(list.map(n => n.id));
       if (!known) return; // primeira carga: só popula, não apita por notificação antiga
@@ -1094,6 +1103,20 @@ export default function App() {
     };
 
     refresh();
+
+    // Cliente nunca pode ficar no vácuo: enquanto a conversa continuar pendente (status
+    // 'pending', ninguém clicou em "Marcar como resolvido"), repete som + notificação a
+    // cada 5 minutos — não é só o aviso visual, o alerta de verdade continua tocando.
+    const CINCO_MIN_MS = 5 * 60 * 1000;
+    const lembrete = setInterval(() => {
+      const agora = Date.now();
+      const threads = groupNotifications(crmNotificationsRef.current);
+      threads.forEach(thread => {
+        const ultimoAlerta = lastAlertedAtRef.current.get(thread.phone) ?? 0;
+        if (agora - ultimoAlerta >= CINCO_MIN_MS) notifyIncomingMessage(thread.last);
+      });
+    }, 30000); // checa a cada 30s quem já passou dos 5 min, sem repetir cedo demais
+
     const channel = supabase.channel(`crm-notifications-${uid}`).on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'crm_notifications', filter: `company_id=eq.rafa-arts` },
@@ -1107,6 +1130,7 @@ export default function App() {
     return () => {
       cancelled = true;
       clearInterval(poll);
+      clearInterval(lembrete);
       document.removeEventListener('visibilitychange', onVisible);
       supabase.removeChannel(channel);
     };
@@ -1285,6 +1309,7 @@ export default function App() {
   }, []);
 
   const notifyIncomingMessage = async (n: CrmNotification) => {
+    lastAlertedAtRef.current.set(n.phone, Date.now());
     try {
       const audio = notifAudioRef.current || (notifAudioRef.current = new Audio('/sounds/mensagem-cliente.mp3'));
       audio.currentTime = 0;
