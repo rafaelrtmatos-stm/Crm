@@ -3517,6 +3517,9 @@ export const ChatPanel = ({
   const [newNoteText, setNewNoteText] = useState('');
   const [isSavingNote, setIsSavingNote] = useState(false);
   const noteInputRef = useRef<HTMLTextAreaElement>(null);
+  // Aponta pro loadMessages do useEffect do chat (mais abaixo), pra recarregar a lista logo depois
+  // de criar/editar/apagar uma nota -- no WhatsApp a lista vem da Evolution + notas de crm_messages.
+  const recarregarMensagensRef = useRef<(() => void) | null>(null);
   const handleAddNote = async () => {
     if (!newNoteText.trim() || !conversation || !currentCompany) return;
     setIsSavingNote(true);
@@ -3540,6 +3543,7 @@ export const ChatPanel = ({
         current_version_index: 0,
       });
       setNewNoteText('');
+      recarregarMensagensRef.current?.();
     } catch (err) {
       console.error('Erro ao salvar nota:', err);
       showAlert('Não foi possível salvar a nota.');
@@ -3557,6 +3561,7 @@ export const ChatPanel = ({
     if (!(await showConfirm('Excluir esta nota permanentemente?'))) return;
     try { 
       await supabase.from('crm_messages').delete().eq('id', note.id); 
+      recarregarMensagensRef.current?.();
     } catch (err) { 
       console.error('Erro ao excluir nota:', err);
       showAlert('Não foi possível excluir a nota.');
@@ -3595,6 +3600,7 @@ export const ChatPanel = ({
       
       setEditingNoteId(null);
       setEditingNoteText('');
+      recarregarMensagensRef.current?.();
       showAlert('Nota atualizada com sucesso.');
     } catch (err) {
       console.error('Erro ao editar nota:', err);
@@ -3821,6 +3827,20 @@ export const ChatPanel = ({
           });
         }
 
+        // Notas internas só existem em crm_messages (a Evolution não tem nota) -- sem isso elas
+        // somem do chat do WhatsApp. Só is_note=true: o resto do histórico vem da Evolution, então
+        // não duplica nem com a flag WA_SEM_CRM_MESSAGES desligada. Falha aqui não derruba o chat.
+        const { data: notasRows, error: notasErr } = await supabase.from('crm_messages').select('*')
+          .eq('company_id', 'rafa-arts')
+          .eq('phone', conversation.phone)
+          .eq('is_note', true)
+          .order('created_at', { ascending: true });
+        if (notasErr) console.error('[CRM] Falha ao carregar notas internas:', notasErr);
+        if (notasRows?.length) {
+          mapped = [...mapped, ...notasRows.map(mapCrmMessageRow)]
+            .sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+        }
+
         if (cancelado || minhaBusca !== ultimaBusca) return;
         setMessages(mapped);
         // Transcrição automática pendente (áudio chegou com o CRM fechado / falha temporária):
@@ -3845,17 +3865,28 @@ export const ChatPanel = ({
     };
 
     const loadMessages = ehWhatsapp ? loadMessagesWhatsapp : loadMessagesOutroCanal;
+    recarregarMensagensRef.current = loadMessages;
     loadMessages();
 
     const channel = ehWhatsapp
       ? supabase.channel(`chat-signal-${conversation.phone}`)
         .on('broadcast', { event: 'new-message' }, loadMessages)
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'wa_transcricao_fila', filter: `phone=eq.${conversation.phone}` }, loadMessages)
+        // Notas criadas/editadas por outro usuário: só as de direction='note' (poucas), e só recarrega
+        // se for dessa conversa. Exclusão por outro usuário aparece na próxima recarga do chat.
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'crm_messages', filter: 'direction=eq.note' }, (payload: any) => {
+          const p = payload?.new?.phone;
+          if (!p || p === conversation.phone) loadMessages();
+        })
         .subscribe()
       : supabase.channel(`chat-messages-${conversation.phone}`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'crm_messages', filter: `phone=eq.${conversation.phone}` }, loadMessages)
         .subscribe();
-    return () => { cancelado = true; supabase.removeChannel(channel); };
+    return () => {
+      cancelado = true;
+      if (recarregarMensagensRef.current === loadMessages) recarregarMensagensRef.current = null;
+      supabase.removeChannel(channel);
+    };
   }, [conversation, currentCompany]);
 
   // Presenca do contato (online / digitando / gravando audio / visto por ultimo) —
