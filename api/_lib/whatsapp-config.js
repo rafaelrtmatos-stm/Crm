@@ -18,6 +18,13 @@ export const INSTANCE_NAME = process.env.EVOLUTION_INSTANCE_NAME || 'rafa-arts';
 // autenticado), e nao de uma env var fixa.
 export const COMPANY_ID = process.env.EVOLUTION_INSTANCE_NAME || 'rafa-arts';
 
+// URL pública do próprio app na Vercel — usada pra montar a URL de mídia "ao vivo"
+// (api/whatsapp-media.js), que fica gravada em crm_messages.media_url no lugar do
+// link do Storage. VERCEL_URL é preenchida automaticamente pela Vercel em cada
+// deploy (preview ou produção); APP_BASE_URL permite sobrescrever manualmente
+// (ex: domínio próprio) se um dia precisar.
+export const APP_BASE_URL = process.env.APP_BASE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
+
 export const SUPABASE_URL = process.env.SUPABASE_URL || 'https://areqouezrbdubfutjzki.supabase.co';
 // Chave publicavel (anon/publishable) do Supabase — segura pra ficar em texto no
 // codigo (e a mesma usada no navegador, em src/supabase.ts), mas ainda assim

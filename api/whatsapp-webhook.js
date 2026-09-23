@@ -12,7 +12,7 @@
 // Configura essa URL (https://seu-dominio.vercel.app/api/whatsapp-webhook) como "Webhook URL"
 // dentro da propria Evolution API (na criacao/config da instancia).
 
-import { EVOLUTION_API_URL, EVOLUTION_API_KEY, EVOLUTION_WEBHOOK_SECRET, INSTANCE_NAME, SUPABASE_URL, SUPABASE_ANON_KEY, COMPANY_ID } from './_lib/whatsapp-config.js';
+import { EVOLUTION_API_URL, EVOLUTION_API_KEY, EVOLUTION_WEBHOOK_SECRET, INSTANCE_NAME, SUPABASE_URL, SUPABASE_ANON_KEY, COMPANY_ID, APP_BASE_URL } from './_lib/whatsapp-config.js';
 import { normalizarTelefoneBR } from './_lib/phone.js';
 import { timestampParaIso } from './_lib/timestamp.js';
 import { waitUntil } from '@vercel/functions';
@@ -104,92 +104,30 @@ async function transcricaoAutomaticaLigada(phone) {
   }
 }
 
-// sobe pro bucket publico "whatsapp-media" no Supabase Storage e devolve a URL publica +
-// nome do arquivo + content_type -- os 3 dados que a tela de chat (Modules.tsx) precisa
-// pra mostrar miniatura/botao de download em vez do rotulo de texto antigo ("📷 Imagem").
-// Nunca lanca erro pra fora: se a midia falhar em baixar/subir, a mensagem ainda e gravada
-// (so sem media_url), pra nao perder a mensagem inteira por causa de um anexo.
-async function baixarEGuardarMidia(msg, evoHeaders) {
+// FASE 2 (redução de egress do Supabase): não baixa mais a mídia aqui nem sobe pro Storage.
+// Só lê os dados que já vêm de graça no próprio payload do webhook (mimetype/fileName, sem
+// nenhum download) e monta a URL de api/whatsapp-media.js, que busca a mídia AO VIVO na
+// Evolution API só quando alguém realmente abrir a conversa (navegador) ou transcrever
+// (api/_lib/transcricao-fila.js). Isso é síncrono agora (nada de rede aqui dentro) — nunca
+// lança erro pra fora: se faltar dado, a mensagem ainda é gravada (só sem mediaUrl).
+function extrairInfoMidia(msg) {
   const midia = encontrarNodeMidia(msg?.message);
   if (!midia) return null;
 
   const messageId = msg?.key?.id;
-  if (!EVOLUTION_API_URL || !EVOLUTION_API_KEY || !evoHeaders || !messageId) {
-    // Log explicito pra dar pra diagnosticar pelos logs da Vercel -- sem isso, midia
-    // "nao baixa" silenciosamente e nao da pra saber se e' falta de env var ou outra coisa.
-    if (!EVOLUTION_API_URL || !EVOLUTION_API_KEY) {
-      console.error('Midia recebida mas EVOLUTION_API_URL/EVOLUTION_API_KEY nao configuradas -- configure essas env vars na Vercel pra baixar midia de verdade.');
-    }
+  if (!messageId) return null;
+
+  const mimetype = midia.node?.mimetype || 'application/octet-stream';
+  const extensao = extensaoPorMimetype(mimetype) || 'bin';
+  const fileName = midia.node?.fileName || `${midia.tipo}-${Date.now()}.${extensao}`;
+  // APP_BASE_URL vazia (env var VERCEL_URL ausente, ex: rodando local sem deploy) => sem
+  // mediaUrl em vez de gravar um link quebrado.
+  if (!APP_BASE_URL) {
+    console.error('Midia recebida mas APP_BASE_URL/VERCEL_URL indisponivel -- mediaUrl nao vai ser gravada.');
     return null;
   }
-
-  // A Evolution API busca a mensagem pelo ID no PROPRIO banco dela (nao pelo conteudo que
-  // a gente manda) -- o payload documentado e' so { message: { key: { id } }, convertToMp4 }.
-  // Mandar o objeto `message` (conteudo) ou `key` completo (com remoteJid/fromMe) faz a busca
-  // falhar com 400 "Message not found" em algumas versoes da Evolution.
-  const buscarBase64 = async () => {
-    const r = await fetch(`${EVOLUTION_API_URL}/chat/getBase64FromMediaMessage/${INSTANCE_NAME}`, {
-      method: 'POST',
-      headers: evoHeaders,
-      body: JSON.stringify({ message: { key: { id: messageId } }, convertToMp4: false }),
-    });
-    return r;
-  };
-
-  try {
-    let r = await buscarBase64();
-    if (!r.ok) {
-      const corpoErro = await r.text().catch(() => '');
-      // A mensagem pode ainda nao estar salva no banco interno da Evolution no exato
-      // instante em que o webhook dispara (race condition) -- espera 1.5s e tenta mais
-      // uma vez antes de desistir.
-      console.error('Falha ao baixar midia da Evolution API (tentando de novo em 1.5s):', r.status, corpoErro);
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      r = await buscarBase64();
-    }
-    if (!r.ok) {
-      console.error('Falha ao baixar midia da Evolution API (2ª tentativa):', r.status, await r.text().catch(() => ''));
-      return null;
-    }
-    const data = await r.json();
-    const base64 = data?.base64 || data?.data;
-    if (!base64) {
-      console.error('Evolution API respondeu sem base64 pra midia:', messageId, JSON.stringify(data).slice(0, 300));
-      return null;
-    }
-
-    const mimetype = data?.mimetype || midia.node?.mimetype || 'application/octet-stream';
-    const extensao = extensaoPorMimetype(mimetype) || 'bin';
-    const nomeOriginal = midia.node?.fileName || null;
-    const fileName = nomeOriginal || `${midia.tipo}-${Date.now()}.${extensao}`;
-    // So o nome do arquivo e' escapado -- se codificasse o path inteiro, a barra "/" vira
-    // "%2F" e o Storage deixa de tratar isso como pasta (COMPANY_ID vira parte do nome
-    // do arquivo em vez de uma pasta de verdade dentro do bucket).
-    const path = `${COMPANY_ID}/${messageId}-${encodeURIComponent(fileName)}`;
-
-    const bytes = Buffer.from(base64, 'base64');
-
-    const upload = await fetch(`${SUPABASE_URL}/storage/v1/object/whatsapp-media/${path}`, {
-      method: 'POST',
-      headers: {
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        'Content-Type': mimetype,
-        'x-upsert': 'true',
-      },
-      body: bytes,
-    });
-    if (!upload.ok) {
-      console.error('Falha ao subir midia pro Storage:', upload.status, await upload.text().catch(() => ''));
-      return null;
-    }
-
-    const mediaUrl = `${SUPABASE_URL}/storage/v1/object/public/whatsapp-media/${path}`;
-    return { mediaUrl, fileName, contentType: midia.tipo };
-  } catch (err) {
-    console.error('Falha ao baixar/guardar midia (nao impede o resto):', err);
-    return null;
-  }
+  const mediaUrl = `${APP_BASE_URL}/api/whatsapp-media?messageId=${encodeURIComponent(messageId)}`;
+  return { mediaUrl, fileName, contentType: midia.tipo };
 }
 
 // Percorre o objeto `message` da Evolution/Baileys e devolve um texto exibivel pro chat.
@@ -675,7 +613,7 @@ export default async function handler(req, res) {
           let gravada = jaExiste;
           let transcreverAudioAgora = false;
           if (!jaExiste) {
-            const midiaSalva = await baixarEGuardarMidia(msg, evoHeaders);
+            const midiaSalva = extrairInfoMidia(msg);
             // Audio: guarda mime/duracao; se for RECEBIDO, o arquivo foi salvo e a conversa nao desligou a
             // transcricao automatica, ja entra como "pending" (transcrito em segundo plano abaixo).
             const infoAudio = isAudioMessage(msg);
