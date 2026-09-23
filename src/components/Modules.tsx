@@ -3691,12 +3691,31 @@ export const ChatPanel = ({
     setTranscribingId(message.id);
     try {
       const texto = await transcribeAudioMessage(message.mediaUrl, user?.id);
-      await supabase.from('crm_messages').update({
+      const campos = {
         transcription: { text: texto, isAutomatic: false, isVisible: true },
         transcription_status: 'completed',
         transcription_error: null,
         transcription_created_at: new Date().toISOString(),
-      }).eq('id', message.id);
+      };
+      if (message.channel === 'WhatsApp') {
+        // FASE 4: a transcrição de áudio de WhatsApp mora na fila própria (wa_transcricao_fila),
+        // não mais em crm_messages -- aqui message.id é o whatsapp_message_id (da Evolution API),
+        // não um id de crm_messages. Upsert: cria a linha se ainda não existia (transcrição manual
+        // numa conversa com transcrição automática desligada nunca passou pelo webhook).
+        await supabase.from('wa_transcricao_fila').upsert({
+          company_id: 'rafa-arts',
+          phone: conversation.phone,
+          whatsapp_message_id: message.id,
+          media_url: message.mediaUrl,
+          content_type: message.mediaContentType || 'audio',
+          ...campos,
+        }, { onConflict: 'company_id,whatsapp_message_id' });
+        // Não depende só do Realtime (upsert pode ser um INSERT, que o canal não escuta -- só UPDATE):
+        // atualiza a mensagem já aberta na tela na hora.
+        setMessages((prev: any[]) => prev.map((m: any) => (m.id === message.id ? { ...m, ...campos } : m)));
+      } else {
+        await supabase.from('crm_messages').update(campos).eq('id', message.id);
+      }
     } catch (err: any) {
       showAlert(err?.message || 'Não foi possível transcrever esse áudio.');
     } finally {
@@ -3761,14 +3780,13 @@ export const ChatPanel = ({
     const ehWhatsapp = (conversation.sourceType || conversation.channel || 'WhatsApp') === 'WhatsApp';
 
     // FASE 3 passo 2 (chat ao vivo, só WhatsApp): texto/mídia vêm direto da Evolution API
-    // (api/whatsapp-messages.js) em vez de crm_messages. A transcrição de áudio ainda só
-    // existe em crm_messages (Fase 4 não feita), então mescla por whatsapp_message_id pra
-    // não perder texto já transcrito nem o status pendente/erro.
+    // (api/whatsapp-messages.js) em vez de crm_messages. FASE 4: a transcrição de áudio agora
+    // vive na tabela própria wa_transcricao_fila -- mescla por whatsapp_message_id pra não
+    // perder texto já transcrito nem o status pendente/erro.
     // FASE 3 passo 3: o gatilho pra rebuscar é um sinal leve (Realtime broadcast, sem
     // conteúdo) que o webhook/envio emitem -- ver canal 'chat-signal-<telefone>' logo abaixo.
-    // O postgres_changes em crm_messages continua junto (aditivo, sem remover nada que já
-    // funcionava), restrito a UPDATE -- cobre a transcrição de áudio terminando em segundo
-    // plano, que ainda não tem sinal próprio (isso é Fase 4).
+    // O postgres_changes agora escuta wa_transcricao_fila (UPDATE) -- é lá que a transcrição
+    // termina em segundo plano, não mais em crm_messages.
     const loadMessagesWhatsapp = async () => {
       try {
         const resp = await fetch('/api/whatsapp-messages', {
@@ -3780,11 +3798,10 @@ export const ChatPanel = ({
         if (!resp.ok || !json?.ok) throw new Error(json?.error || `Falha ao buscar mensagens (${resp.status}).`);
         let mapped: any[] = json.messages || [];
 
-        const { data: transcricoes } = await supabase.from('crm_messages')
+        const { data: transcricoes } = await supabase.from('wa_transcricao_fila')
           .select('whatsapp_message_id, transcription, transcription_status, transcription_error')
           .eq('company_id', 'rafa-arts')
-          .eq('phone', conversation.phone)
-          .not('whatsapp_message_id', 'is', null);
+          .eq('phone', conversation.phone);
         if (transcricoes?.length) {
           const porId = new Map(transcricoes.map((t: any) => [t.whatsapp_message_id, t]));
           mapped = mapped.map((m: any) => {
@@ -3827,7 +3844,7 @@ export const ChatPanel = ({
     const channel = ehWhatsapp
       ? supabase.channel(`chat-signal-${conversation.phone}`)
         .on('broadcast', { event: 'new-message' }, loadMessages)
-        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'crm_messages', filter: `phone=eq.${conversation.phone}` }, loadMessages)
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'wa_transcricao_fila', filter: `phone=eq.${conversation.phone}` }, loadMessages)
         .subscribe()
       : supabase.channel(`chat-messages-${conversation.phone}`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'crm_messages', filter: `phone=eq.${conversation.phone}` }, loadMessages)

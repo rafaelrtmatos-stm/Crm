@@ -16,7 +16,7 @@ import { EVOLUTION_API_URL, EVOLUTION_API_KEY, EVOLUTION_WEBHOOK_SECRET, INSTANC
 import { normalizarTelefoneBR } from './_lib/phone.js';
 import { timestampParaIso } from './_lib/timestamp.js';
 import { waitUntil } from '@vercel/functions';
-import { processarTranscricao } from './_lib/transcricao-fila.js';
+import { processarTranscricao, enfileirarTranscricao } from './_lib/transcricao-fila.js';
 import { encontrarNodeMidia, extrairTextoMensagem, extrairInfoMidia as extrairInfoMidiaCompartilhado } from './_lib/wa-parse.js';
 import { sinalizarMensagemNova } from './_lib/realtime-signal.js';
 
@@ -523,16 +523,15 @@ export default async function handler(req, res) {
           let transcreverAudioAgora = false;
           if (!jaExiste) {
             const midiaSalva = extrairInfoMidia(msg);
-            // Audio: guarda mime/duracao; se for RECEBIDO, o arquivo foi salvo e a conversa nao desligou a
-            // transcricao automatica, ja entra como "pending" (transcrito em segundo plano abaixo).
+            // Audio: guarda mime/duracao (so metadado, fica em crm_messages mesmo). O status/texto da
+            // transcricao em si mora na fila propria (wa_transcricao_fila, FASE 4) -- nao mais aqui.
             const infoAudio = isAudioMessage(msg);
             let camposAudio;
+            let precisaTranscrever = false;
             if (infoAudio) {
               camposAudio = { media_mime_type: infoAudio.mimetype, media_duration: infoAudio.seconds };
-              if (!ehMinhaMensagem && midiaSalva?.contentType === 'audio' && midiaSalva?.mediaUrl && await transcricaoAutomaticaLigada(phone)) {
-                camposAudio.transcription_status = 'pending';
-                transcreverAudioAgora = true;
-              }
+              precisaTranscrever = !ehMinhaMensagem && midiaSalva?.contentType === 'audio' && !!midiaSalva?.mediaUrl
+                && await transcricaoAutomaticaLigada(phone);
             }
             gravada = await inserirMensagem({
               phone, text, senderName, direction: ehMinhaMensagem ? 'outgoing' : 'incoming', whatsappMessageId, createdAt,
@@ -540,6 +539,11 @@ export default async function handler(req, res) {
               mediaUrl: midiaSalva?.mediaUrl, fileName: midiaSalva?.fileName, contentType: midiaSalva?.contentType,
               audio: camposAudio,
             });
+            if (gravada && precisaTranscrever) {
+              transcreverAudioAgora = await enfileirarTranscricao({
+                phone, whatsappMessageId, mediaUrl: midiaSalva.mediaUrl, contentType: midiaSalva.contentType,
+              });
+            }
           }
           // So considera sincronizada quando ESTA registrada em crm_messages. Falhou: nao mexe na conversa
           // e devolve erro no fim pra Evolution tentar de novo (o indice unico evita duplicar).
