@@ -44,3 +44,8 @@ export function supabaseHeaders(extra = {}) {
     ...extra,
   };
 }
+
+// FASE 3 passo 4: quando '1', webhook e envio PARAM de gravar mensagens de WhatsApp em crm_messages
+// (a Evolution API vira a fonte do historico; o chat aberto e avisado so pelo sinal de broadcast).
+// Desligado por padrao: sem a variavel, tudo continua gravando como antes.
+export const SEM_CRM_MESSAGES = process.env.WA_SEM_CRM_MESSAGES === '1';

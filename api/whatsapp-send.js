@@ -7,7 +7,7 @@
 // Resposta: { ok, whatsappMessageId, createdAt, saved } -- `saved` = a mensagem ja foi registrada em
 // crm_messages AQUI, depois da confirmacao da Evolution (o front nao precisa gravar de novo).
 
-import { EVOLUTION_API_URL, EVOLUTION_API_KEY, INSTANCE_NAME, SUPABASE_URL, SUPABASE_ANON_KEY, COMPANY_ID } from './_lib/whatsapp-config.js';
+import { EVOLUTION_API_URL, EVOLUTION_API_KEY, INSTANCE_NAME, SUPABASE_URL, SUPABASE_ANON_KEY, COMPANY_ID, SEM_CRM_MESSAGES } from './_lib/whatsapp-config.js';
 import { exigirUsuarioAutorizado } from './_lib/auth.js';
 import { normalizarTelefoneBR } from './_lib/phone.js';
 import { timestampParaIso } from './_lib/timestamp.js';
@@ -159,7 +159,7 @@ export default async function handler(req, res) {
     // mandou (`phone`) ou normalizado (`numero`) -- atualiza os dois, sem repetir se forem iguais.
     // Com await: no serverless, o que ficar pendente depois da resposta pode ser cortado.
     const quandoEnviada = horarioMensagem || new Date().toISOString();
-    const salva = await registrarMensagemEnviada({ phone, text, senderName, leadId, whatsappMessageId: idMensagem, createdAt: quandoEnviada });
+    const salva = SEM_CRM_MESSAGES ? true : await registrarMensagemEnviada({ phone, text, senderName, leadId, whatsappMessageId: idMensagem, createdAt: quandoEnviada });
     await atualizarLeadMensagemEnviada(Array.from(new Set([phone, numero])), text, quandoEnviada);
 
     res.status(200).json({ ok: true, whatsappMessageId: idMensagem, createdAt: quandoEnviada, saved: salva });

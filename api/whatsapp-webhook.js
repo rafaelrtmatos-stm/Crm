@@ -12,7 +12,7 @@
 // Configura essa URL (https://seu-dominio.vercel.app/api/whatsapp-webhook) como "Webhook URL"
 // dentro da propria Evolution API (na criacao/config da instancia).
 
-import { EVOLUTION_API_URL, EVOLUTION_API_KEY, EVOLUTION_WEBHOOK_SECRET, INSTANCE_NAME, SUPABASE_URL, SUPABASE_ANON_KEY, COMPANY_ID, APP_BASE_URL } from './_lib/whatsapp-config.js';
+import { EVOLUTION_API_URL, EVOLUTION_API_KEY, EVOLUTION_WEBHOOK_SECRET, INSTANCE_NAME, SUPABASE_URL, SUPABASE_ANON_KEY, COMPANY_ID, APP_BASE_URL, SEM_CRM_MESSAGES } from './_lib/whatsapp-config.js';
 import { normalizarTelefoneBR } from './_lib/phone.js';
 import { timestampParaIso } from './_lib/timestamp.js';
 import { waitUntil } from '@vercel/functions';
@@ -518,7 +518,7 @@ export default async function handler(req, res) {
           console.log(`[CRM WEBHOOK] created_at=${createdAt || '(sem timestamp: usa horario do banco)'}`);
           // Duplicado (retry da Evolution / eco de mensagem enviada pelo CRM): nao grava de novo nem baixa
           // a midia de novo, mas ainda garante o indice da conversa (PATCH so avanca, entao e inofensivo).
-          const jaExiste = await mensagemJaExiste(whatsappMessageId);
+          const jaExiste = SEM_CRM_MESSAGES ? false : await mensagemJaExiste(whatsappMessageId);
           let gravada = jaExiste;
           let transcreverAudioAgora = false;
           if (!jaExiste) {
@@ -533,7 +533,7 @@ export default async function handler(req, res) {
               precisaTranscrever = !ehMinhaMensagem && midiaSalva?.contentType === 'audio' && !!midiaSalva?.mediaUrl
                 && await transcricaoAutomaticaLigada(phone);
             }
-            gravada = await inserirMensagem({
+            gravada = SEM_CRM_MESSAGES ? true : await inserirMensagem({
               phone, text, senderName, direction: ehMinhaMensagem ? 'outgoing' : 'incoming', whatsappMessageId, createdAt,
               groupJid: ehGrupoMsg ? phoneRaw : undefined,
               mediaUrl: midiaSalva?.mediaUrl, fileName: midiaSalva?.fileName, contentType: midiaSalva?.contentType,
