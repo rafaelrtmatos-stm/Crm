@@ -3915,7 +3915,12 @@ export const ChatPanel = ({
       if (recarregarMensagensRef.current === loadMessages) recarregarMensagensRef.current = null;
       supabase.removeChannel(channel);
     };
-  }, [conversation, currentCompany]);
+    // Dependencias PRIMITIVAS de proposito: o Funil (CRMModule) passa `conversation={{ ...selectedLead, ... }}`,
+    // um objeto NOVO a cada render do pai. Com `conversation` inteiro aqui, qualquer re-render do
+    // CRMModule (evento de Realtime, timer, contexto) cancelava a busca em andamento (`cancelado`)
+    // e disparava tudo de novo: chat vazio no Funil + 3 consultas ao Supabase e 1 a Evolution por render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversation?.phone, conversation?.sourceType, conversation?.channel, currentCompany?.id]);
 
   // Presenca do contato (online / digitando / gravando audio / visto por ultimo) —
   // mostrado no header do chat (ver bloco do header mais abaixo). Assina a presenca
