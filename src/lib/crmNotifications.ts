@@ -1,13 +1,13 @@
 import { supabase } from '../supabase';
 
-// Notificações persistentes de mensagens de clientes (tabela crm_notifications, ver
-// supabase/create_crm_notifications.sql). REGRA PRINCIPAL: visualizar/abrir a conversa
-// NÃO resolve a notificação — ela só vira 'resolved' via resolveCrmNotifications(),
+// Notificações persistentes de CONVERSA pendente (tabela crm_notifications, ver
+// supabase/create_crm_notifications.sql). Formato enxuto: 1 linha por conversa (phone),
+// não 1 linha por mensagem — não depende de crm_messages. REGRA PRINCIPAL: visualizar/abrir
+// a conversa NÃO resolve a notificação — ela só vira 'resolved' via resolveCrmNotifications(),
 // chamado exclusivamente pelo botão "Marcar como resolvido".
 
 export interface CrmNotification {
   id: string;
-  messageId: string;
   phone: string;
   leadId?: string;
   groupId?: string;
@@ -17,10 +17,16 @@ export interface CrmNotification {
   photoUrl?: string;
   preview: string;
   messageAt: string;
+  /** Desde quando a conversa está esperando resposta (não reseta a cada mensagem nova). */
+  waitingSince: string;
   status: 'pending' | 'resolved';
 }
 
-/** Notificações pendentes de uma mesma conversa (mesmo cliente ou mesmo grupo), agrupadas. */
+/**
+ * Mantido por compatibilidade com o restante do app (NotificationCenter, App.tsx), que
+ * trabalha com "threads". Como agora cada CrmNotification já é 1 conversa inteira, o
+ * "thread" é sempre 1:1 com a notificação — não agrupa mais várias mensagens.
+ */
 export interface CrmNotificationThread {
   key: string;
   phone: string;
@@ -28,7 +34,7 @@ export interface CrmNotificationThread {
   isGroup: boolean;
   title: string;
   photoUrl?: string;
-  /** Ordem cronológica: items[0] é a mensagem que abriu a notificação. */
+  waitingSince: string;
   items: CrmNotification[];
   first: CrmNotification;
   last: CrmNotification;
@@ -36,7 +42,6 @@ export interface CrmNotificationThread {
 
 const mapRow = (r: any): CrmNotification => ({
   id: r.id,
-  messageId: r.message_id,
   phone: r.phone,
   leadId: r.lead_id || undefined,
   groupId: r.group_id || undefined,
@@ -46,6 +51,7 @@ const mapRow = (r: any): CrmNotification => ({
   photoUrl: r.photo_url || undefined,
   preview: r.preview || '',
   messageAt: r.message_at,
+  waitingSince: r.waiting_since || r.message_at,
   status: r.status,
 });
 
@@ -59,30 +65,23 @@ export async function fetchVisibleNotifications(userId: string): Promise<CrmNoti
   return (data || []).map(mapRow);
 }
 
+/** Cada conversa pendente vira 1 "thread" (não agrupa mais várias mensagens numa mesma linha). */
 export function groupNotifications(list: CrmNotification[]): CrmNotificationThread[] {
-  const byPhone = new Map<string, CrmNotification[]>();
-  for (const n of list) {
-    const arr = byPhone.get(n.phone);
-    if (arr) arr.push(n); else byPhone.set(n.phone, [n]);
-  }
-  const threads: CrmNotificationThread[] = [];
-  byPhone.forEach((items, phone) => {
-    items.sort((a, b) => new Date(a.messageAt).getTime() - new Date(b.messageAt).getTime());
-    const last = items[items.length - 1];
-    threads.push({
-      key: phone,
-      phone,
-      leadId: items.find(i => i.leadId)?.leadId,
-      isGroup: items[0].isGroup,
-      title: last.title,
-      photoUrl: last.photoUrl || items.find(i => i.photoUrl)?.photoUrl,
-      items,
-      first: items[0],
-      last,
-    });
-  });
-  // Conversa com mensagem mais recente primeiro.
-  return threads.sort((a, b) => new Date(b.last.messageAt).getTime() - new Date(a.last.messageAt).getTime());
+  return list
+    .map((n): CrmNotificationThread => ({
+      key: n.phone,
+      phone: n.phone,
+      leadId: n.leadId,
+      isGroup: n.isGroup,
+      title: n.title,
+      photoUrl: n.photoUrl,
+      waitingSince: n.waitingSince,
+      items: [n],
+      first: n,
+      last: n,
+    }))
+    // Quem está esperando há mais tempo aparece primeiro.
+    .sort((a, b) => new Date(a.waitingSince).getTime() - new Date(b.waitingSince).getTime());
 }
 
 /** ÚNICO caminho que marca como resolvida: o botão "Marcar como resolvido". */

@@ -1,17 +1,26 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Bell, Check, ChevronDown, Users } from 'lucide-react';
-import { format } from 'date-fns';
+import { Bell, Check, Clock, Users } from 'lucide-react';
+import { format, formatDistanceToNowStrict } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 import { cn, AvatarPhoto } from './SharedUI';
 import { CrmNotification, CrmNotificationThread, groupNotifications } from '../lib/crmNotifications';
 
-// Sino + painel de notificações pendentes de mensagens (Navbar).
+// Sino + painel de notificações pendentes (1 por conversa, tabela crm_notifications).
 // Abrir/clicar NÃO resolve: só o botão "Marcar como resolvido" chama onResolve.
+// O alerta (som + notificação nativa) roda fora daqui, repetindo a cada 5 min — este
+// painel só mostra o estado atual.
 
 const formatTime = (iso: string) => {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return '';
   return d.toDateString() === new Date().toDateString() ? format(d, 'HH:mm') : format(d, 'dd/MM HH:mm');
+};
+
+const formatWaiting = (iso: string) => {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return formatDistanceToNowStrict(d, { locale: ptBR });
 };
 
 const previewOf = (n: CrmNotification) => (n.isGroup && n.senderName ? `${n.senderName}: ${n.preview}` : n.preview);
@@ -26,17 +35,17 @@ export const NotificationCenter = ({
   onResolve: (thread: CrmNotificationThread) => Promise<void> | void;
 }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [resolving, setResolving] = useState<Set<string>>(new Set());
+  const [, setTick] = useState(0);
 
   const threads = useMemo(() => groupNotifications(notifications), [notifications]);
   const count = threads.length;
 
-  const toggleExpanded = (key: string) => setExpanded(prev => {
-    const next = new Set(prev);
-    if (next.has(key)) next.delete(key); else next.add(key);
-    return next;
-  });
+  // Re-renderiza a cada 30s só pra atualizar o texto "esperando há X min" sem precisar de dado novo.
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 30000);
+    return () => clearInterval(id);
+  }, []);
 
   const handleResolve = async (thread: CrmNotificationThread) => {
     setResolving(prev => new Set(prev).add(thread.key));
@@ -87,7 +96,6 @@ export const NotificationCenter = ({
                 )}
 
                 {threads.map(thread => {
-                  const isExpanded = expanded.has(thread.key);
                   const isResolving = resolving.has(thread.key);
                   return (
                     <div key={thread.key} className="rounded-2xl bg-white/5 border border-white/10 overflow-hidden">
@@ -109,41 +117,21 @@ export const NotificationCenter = ({
                           </div>
                           <p className="text-xs text-white/60 truncate">{previewOf(thread.last)}</p>
                           <div className="flex items-center justify-between gap-2 mt-2">
+                            <span className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-300 text-[10px] font-black uppercase tracking-wider">
+                              <Clock size={12} />
+                              Esperando há {formatWaiting(thread.waitingSince)}
+                            </span>
                             <button
                               onClick={e => { e.stopPropagation(); handleResolve(thread); }}
                               disabled={isResolving}
-                              className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-[10px] font-black uppercase tracking-wider transition-colors disabled:opacity-50 cursor-pointer"
+                              className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-[10px] font-black uppercase tracking-wider transition-colors disabled:opacity-50 cursor-pointer shrink-0"
                             >
                               <Check size={12} />
                               {isResolving ? 'Resolvendo…' : 'Marcar como resolvido'}
                             </button>
-                            {thread.items.length > 1 && (
-                              <button
-                                onClick={e => { e.stopPropagation(); toggleExpanded(thread.key); }}
-                                className="flex items-center gap-1 text-[10px] font-bold text-white/50 hover:text-white cursor-pointer"
-                              >
-                                {thread.items.length} mensagens
-                                <ChevronDown size={12} className={cn('transition-transform', isExpanded && 'rotate-180')} />
-                              </button>
-                            )}
                           </div>
                         </div>
                       </div>
-
-                      {isExpanded && thread.items.length > 1 && (
-                        <div className="border-t border-white/10 bg-black/10">
-                          {thread.items.map(item => (
-                            <button
-                              key={item.id}
-                              onClick={() => handleOpen(item)}
-                              className="w-full flex items-center justify-between gap-3 px-4 py-2 text-left hover:bg-white/5 transition-colors cursor-pointer"
-                            >
-                              <span className="text-xs text-white/70 truncate">{previewOf(item)}</span>
-                              <span className="text-[10px] font-bold text-white/40 shrink-0">{formatTime(item.messageAt)}</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
                     </div>
                   );
                 })}

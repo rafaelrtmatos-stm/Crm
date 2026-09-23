@@ -746,7 +746,7 @@ export default function App() {
   // Notificações persistentes de mensagens (tabela crm_notifications). Abrir a conversa NÃO
   // resolve a notificação — só o botão "Marcar como resolvido" (resolveCrmNotificationThread).
   const [crmNotifications, setCrmNotifications] = useState<CrmNotification[]>([]);
-  const [messageFocus, setMessageFocus] = useState<{ phone: string; leadId?: string; messageId: string; nonce: number } | null>(null);
+  const [messageFocus, setMessageFocus] = useState<{ phone: string; leadId?: string; messageId?: string; nonce: number } | null>(null);
   const knownNotificationIdsRef = React.useRef<Set<string> | null>(null); // null = primeira carga ainda não feita
   const lastAlertedAtRef = React.useRef<Map<string, number>>(new Map()); // phone -> timestamp do último som/notificação disparado
   const crmNotificationsRef = React.useRef<CrmNotification[]>([]); // espelha crmNotifications p/ o setInterval do lembrete de 5 em 5 min
@@ -1050,13 +1050,15 @@ export default function App() {
 
   // Abre a conversa no aba Mensagens, posicionada na mensagem que gerou a notificação.
   // Só muda de tela/posição: NÃO marca a notificação como resolvida.
-  const openMessageTarget = (phone: string, messageId: string, leadId?: string) => {
+  const openMessageTarget = (phone: string, messageId?: string, leadId?: string) => {
     setMessageFocus({ phone, leadId, messageId, nonce: Date.now() });
     setIsMessagePopupOpen(false);
     if (window.innerWidth < 1024) setIsSidebarOpen(false);
     setActiveTab('messages'); // idempotente: se já está em Mensagens, só atualiza o foco
   };
-  const openCrmNotification = (n: CrmNotification) => openMessageTarget(n.phone, n.messageId, n.leadId);
+  // Notificação enxuta não guarda mais o id da mensagem exata (não depende de crm_messages) —
+  // abre a conversa no fim da lista, sem scroll pra uma mensagem específica.
+  const openCrmNotification = (n: CrmNotification) => openMessageTarget(n.phone, undefined, n.leadId);
   const clearMessageFocus = () => setMessageFocus(null);
 
   // ÚNICO lugar que resolve: botão "Marcar como resolvido" do painel de notificações.
@@ -1348,7 +1350,7 @@ export default function App() {
         body: hora ? `${corpo}\n${hora}` : corpo,
         icon: n.photoUrl || '/icon-192.png',
         tag: `msg-${n.phone}`,
-        data: { phone: n.phone, messageId: n.messageId },
+        data: { phone: n.phone },
       };
 
       // Caminho principal: pelo service worker. E o UNICO que funciona no Chrome do Android

@@ -5849,12 +5849,12 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId, messag
   user: AppUser | null,
   preselectedLeadId?: string,
   // Pedido vindo de uma notificacao: abrir a conversa (do cliente ou do grupo) e posicionar na mensagem.
-  messageFocus?: { phone: string; leadId?: string; messageId: string; nonce: number } | null,
+  messageFocus?: { phone: string; leadId?: string; messageId?: string; nonce: number } | null,
   onMessageFocusConsumed?: () => void,
 }) => {
   const { pendingWhatsAppShare, setPendingWhatsAppShare } = React.useContext(AppContext)!;
   const [selectedChat, setSelectedChat] = useState<any>(null);
-  const [chatFocus, setChatFocus] = useState<{ messageId: string; nonce: number } | null>(null);
+  const [chatFocus, setChatFocus] = useState<{ messageId?: string; nonce: number } | null>(null);
   const focusHandledRef = useRef<number | null>(null);
   const [chatInitialDraft, setChatInitialDraft] = useState('');
   const [leads, setLeads] = useState<Lead[]>([]);
