@@ -231,6 +231,7 @@ import { collection, query, where, onSnapshot, orderBy, Timestamp, addDoc, doc, 
 import { db } from '../firebase';
 import { supabase } from '../supabase';
 import { showAlert, showConfirm, showPrompt } from '../lib/notify';
+import { SEM_CRM_MESSAGES } from '../lib/flags';
 import { confirmarRetiradaProducao } from '../comissoes/utils/supabaseStorage';
 import { FINANCEIRO_TABS, ALL_FINANCEIRO_TAB_IDS } from '../lib/financeiroTabs';
 import { buildPixPayload } from '../lib/pix';
@@ -3797,6 +3798,16 @@ export const ChatPanel = ({
     // pode atualizar a tela, e nada atualiza depois que a conversa foi trocada/fechada.
     let cancelado = false;
     let ultimaBusca = 0;
+    // Rede de seguranca: com a flag WA_SEM_CRM_MESSAGES desligada o webhook AINDA grava o WhatsApp
+    // em crm_messages, entao se a Evolution falhar ou voltar sem mensagens (ex.: conversa guardada
+    // sob outro JID) o chat le de la em vez de abrir vazio -- a notificacao ja chegou pelo webhook.
+    const carregarWhatsappDoCrmMessages = async (): Promise<any[]> => {
+      const { data } = await supabase.from('crm_messages').select('*')
+        .eq('company_id', 'rafa-arts')
+        .eq('phone', conversation.phone)
+        .order('created_at', { ascending: true });
+      return (data || []).map(mapCrmMessageRow);
+    };
     const loadMessagesWhatsapp = async () => {
       const minhaBusca = ++ultimaBusca;
       try {
@@ -3841,6 +3852,15 @@ export const ChatPanel = ({
             .sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
         }
 
+        if (!SEM_CRM_MESSAGES && !mapped.some((m: any) => !m.isNote)) {
+          try {
+            const doCrm = await carregarWhatsappDoCrmMessages();
+            if (doCrm.length) mapped = doCrm;
+          } catch (errCrm) {
+            console.error('[CRM] Falha no fallback de crm_messages:', errCrm);
+          }
+        }
+
         if (cancelado || minhaBusca !== ultimaBusca) return;
         setMessages(mapped);
         // Transcrição automática pendente (áudio chegou com o CRM fechado / falha temporária):
@@ -3852,6 +3872,14 @@ export const ChatPanel = ({
         }
       } catch (err) {
         console.error('[CRM] Falha ao carregar histórico ao vivo da Evolution API:', err);
+        if (!SEM_CRM_MESSAGES) {
+          try {
+            const doCrm = await carregarWhatsappDoCrmMessages();
+            if (!cancelado && minhaBusca === ultimaBusca) setMessages(doCrm);
+          } catch (errCrm) {
+            console.error('[CRM] Falha no fallback de crm_messages:', errCrm);
+          }
+        }
       }
     };
 
