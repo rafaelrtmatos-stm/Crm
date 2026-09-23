@@ -17,6 +17,7 @@ import { normalizarTelefoneBR } from './_lib/phone.js';
 import { timestampParaIso } from './_lib/timestamp.js';
 import { waitUntil } from '@vercel/functions';
 import { processarTranscricao } from './_lib/transcricao-fila.js';
+import { encontrarNodeMidia, extrairTextoMensagem, extrairInfoMidia as extrairInfoMidiaCompartilhado } from './_lib/wa-parse.js';
 
 // A transcrição de áudio roda em segundo plano (waitUntil) depois da resposta ao webhook;
 // dá tempo pra ela terminar (download + Gemini + 1 retry) sem cortar a função.
@@ -29,46 +30,6 @@ export const config = { maxDuration: 60 };
 const WEBHOOK_SECRET = EVOLUTION_WEBHOOK_SECRET;
 
 
-// Percorre o objeto `message` da Evolution/Baileys e devolve o "node" de midia bruto
-// (imageMessage/videoMessage/documentMessage/audioMessage/stickerMessage), sem desembrulhar
-// texto -- usado pra extrairInfoMidia conseguir o mimetype/fileName/caption reais.
-// Mesma logica de desembrulho de efemera/"ver uma vez" que extrairTextoMensagem usa.
-function encontrarNodeMidia(message, profundidade = 0) {
-  if (!message || profundidade > 4) return null;
-  if (message.imageMessage) return { tipo: 'image', node: message.imageMessage };
-  if (message.videoMessage) return { tipo: 'video', node: message.videoMessage };
-  if (message.documentMessage) return { tipo: 'document', node: message.documentMessage };
-  if (message.documentWithCaptionMessage?.message?.documentMessage) {
-    return { tipo: 'document', node: message.documentWithCaptionMessage.message.documentMessage };
-  }
-  if (message.audioMessage) return { tipo: 'audio', node: message.audioMessage };
-  if (message.stickerMessage) return { tipo: 'sticker', node: message.stickerMessage };
-
-  const embrulho =
-    message.ephemeralMessage?.message ||
-    message.viewOnceMessage?.message ||
-    message.viewOnceMessageV2?.message ||
-    message.viewOnceMessageV2Extension?.message;
-  if (embrulho) return encontrarNodeMidia(embrulho, profundidade + 1);
-
-  return null;
-}
-
-// Extensao a partir do mimetype -- usada quando a midia nao tem fileName proprio
-// (imagem/video/audio/figurinha, que so o documentMessage costuma trazer).
-function extensaoPorMimetype(mimetype) {
-  if (!mimetype) return '';
-  const base = mimetype.split(';')[0].trim();
-  const mapa = {
-    'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
-    'video/mp4': 'mp4', 'video/3gpp': '3gp', 'video/quicktime': 'mov',
-    'audio/ogg': 'ogg', 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/aac': 'aac', 'audio/wav': 'wav',
-    'application/pdf': 'pdf',
-  };
-  return mapa[base] || (base.includes('/') ? base.split('/')[1] : '');
-}
-
-// Baixa a midia (base64) direto da Evolution API a partir da propria mensagem recebida,
 // Função centralizada: identifica áudio (voz/PTT ou arquivo de áudio) no payload REAL da Evolution/Baileys.
 // Aceita o envelope da mensagem (msg = item de body.data). Devolve null se não for áudio, ou
 // { ptt, mimetype, seconds, temMediaKey, temUrl } com o que a Evolution mandou.
@@ -105,67 +66,14 @@ async function transcricaoAutomaticaLigada(phone) {
 }
 
 // FASE 2 (redução de egress do Supabase): não baixa mais a mídia aqui nem sobe pro Storage.
-// Só lê os dados que já vêm de graça no próprio payload do webhook (mimetype/fileName, sem
-// nenhum download) e monta a URL de api/whatsapp-media.js, que busca a mídia AO VIVO na
-// Evolution API só quando alguém realmente abrir a conversa (navegador) ou transcrever
-// (api/_lib/transcricao-fila.js). Isso é síncrono agora (nada de rede aqui dentro) — nunca
-// lança erro pra fora: se faltar dado, a mensagem ainda é gravada (só sem mediaUrl).
+// Ver api/_lib/wa-parse.js (extrairInfoMidia) — mesma função usada pelo endpoint de histórico
+// ao vivo da Fase 3 (api/whatsapp-messages.js), pra não duplicar essa lógica em dois lugares.
 function extrairInfoMidia(msg) {
-  const midia = encontrarNodeMidia(msg?.message);
-  if (!midia) return null;
-
-  const messageId = msg?.key?.id;
-  if (!messageId) return null;
-
-  const mimetype = midia.node?.mimetype || 'application/octet-stream';
-  const extensao = extensaoPorMimetype(mimetype) || 'bin';
-  const fileName = midia.node?.fileName || `${midia.tipo}-${Date.now()}.${extensao}`;
-  // APP_BASE_URL vazia (env var VERCEL_URL ausente, ex: rodando local sem deploy) => sem
-  // mediaUrl em vez de gravar um link quebrado.
-  if (!APP_BASE_URL) {
+  const info = extrairInfoMidiaCompartilhado(msg, APP_BASE_URL);
+  if (!info && encontrarNodeMidia(msg?.message) && !APP_BASE_URL) {
     console.error('Midia recebida mas APP_BASE_URL/VERCEL_URL indisponivel -- mediaUrl nao vai ser gravada.');
-    return null;
   }
-  const mediaUrl = `${APP_BASE_URL}/api/whatsapp-media?messageId=${encodeURIComponent(messageId)}`;
-  return { mediaUrl, fileName, contentType: midia.tipo };
-}
-
-// Percorre o objeto `message` da Evolution/Baileys e devolve um texto exibivel pro chat.
-// Mensagens efemeras ("apagar apos ler") e "ver uma vez" vem embrulhadas em mais um nivel
-// (ephemeralMessage.message / viewOnceMessage(V2).message) — sem desembrulhar isso, o
-// texto real nunca e encontrado e a mensagem eh descartada em silencio.
-function extrairTextoMensagem(message, profundidade = 0) {
-  if (!message || profundidade > 4) return '';
-
-  if (typeof message.conversation === 'string') return message.conversation;
-  if (message.extendedTextMessage?.text) return message.extendedTextMessage.text;
-
-  // Midia com legenda — se nao tiver legenda, mostra um rotulo pra mensagem nao sumir do chat
-  if (message.imageMessage) return message.imageMessage.caption || '📷 Imagem';
-  if (message.videoMessage) return message.videoMessage.caption || '🎥 Vídeo';
-  if (message.documentMessage || message.documentWithCaptionMessage) {
-    const doc = message.documentMessage || message.documentWithCaptionMessage?.message?.documentMessage;
-    return doc?.caption || (doc?.fileName ? `📄 ${doc.fileName}` : '📄 Documento');
-  }
-  if (message.audioMessage) return message.audioMessage.ptt ? '🎤 Áudio' : '🎵 Áudio';
-  if (message.stickerMessage) return '🌟 Figurinha';
-  if (message.locationMessage || message.liveLocationMessage) return '📍 Localização';
-  if (message.contactMessage) return `📇 Contato: ${message.contactMessage.displayName || ''}`.trim();
-  if (message.contactsArrayMessage) return '📇 Contatos';
-  if (message.buttonsResponseMessage) return message.buttonsResponseMessage.selectedDisplayText || '';
-  if (message.listResponseMessage) return message.listResponseMessage.title || message.listResponseMessage.singleSelectReply?.selectedRowId || '';
-  if (message.templateButtonReplyMessage) return message.templateButtonReplyMessage.selectedDisplayText || '';
-
-  // Mensagem efemera / "ver uma vez" — o conteudo real esta um nivel mais fundo
-  const embrulho =
-    message.ephemeralMessage?.message ||
-    message.viewOnceMessage?.message ||
-    message.viewOnceMessageV2?.message ||
-    message.viewOnceMessageV2Extension?.message ||
-    message.documentWithCaptionMessage?.message;
-  if (embrulho) return extrairTextoMensagem(embrulho, profundidade + 1);
-
-  return '';
+  return info;
 }
 
 async function inserirMensagem({ phone, text, senderName, direction = 'incoming', channel = 'WhatsApp', whatsappMessageId, createdAt, mediaUrl, fileName, contentType, groupJid, audio }) {
