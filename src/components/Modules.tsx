@@ -3787,7 +3787,12 @@ export const ChatPanel = ({
     // conteúdo) que o webhook/envio emitem -- ver canal 'chat-signal-<telefone>' logo abaixo.
     // O postgres_changes agora escuta wa_transcricao_fila (UPDATE) -- é lá que a transcrição
     // termina em segundo plano, não mais em crm_messages.
+    // Proteção contra resposta fora de ordem: cada busca pega um número; só a mais recente
+    // pode atualizar a tela, e nada atualiza depois que a conversa foi trocada/fechada.
+    let cancelado = false;
+    let ultimaBusca = 0;
     const loadMessagesWhatsapp = async () => {
+      const minhaBusca = ++ultimaBusca;
       try {
         const resp = await fetch('/api/whatsapp-messages', {
           method: 'POST',
@@ -3816,6 +3821,7 @@ export const ChatPanel = ({
           });
         }
 
+        if (cancelado || minhaBusca !== ultimaBusca) return;
         setMessages(mapped);
         // Transcrição automática pendente (áudio chegou com o CRM fechado / falha temporária):
         // pede ao servidor pra continuar -- uma vez por conversa aberta; o texto chega pelo Realtime.
@@ -3849,7 +3855,7 @@ export const ChatPanel = ({
       : supabase.channel(`chat-messages-${conversation.phone}`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'crm_messages', filter: `phone=eq.${conversation.phone}` }, loadMessages)
         .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    return () => { cancelado = true; supabase.removeChannel(channel); };
   }, [conversation, currentCompany]);
 
   // Presenca do contato (online / digitando / gravando audio / visto por ultimo) —
