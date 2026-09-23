@@ -11,6 +11,8 @@ import { EVOLUTION_API_URL, EVOLUTION_API_KEY, INSTANCE_NAME, SUPABASE_URL, SUPA
 import { exigirUsuarioAutorizado } from './_lib/auth.js';
 import { normalizarTelefoneBR } from './_lib/phone.js';
 import { timestampParaIso } from './_lib/timestamp.js';
+import { sinalizarMensagemNova } from './_lib/realtime-signal.js';
+import { waitUntil } from '@vercel/functions';
 
 // Depois que o WhatsApp CONFIRMA o envio: a conversa passa a ter essa mensagem como ultima
 // (leads.last_message_at/direction/text), sobe pro topo da aba Mensagens e sai do estado de
@@ -161,6 +163,9 @@ export default async function handler(req, res) {
     await atualizarLeadMensagemEnviada(Array.from(new Set([phone, numero])), text, quandoEnviada);
 
     res.status(200).json({ ok: true, whatsappMessageId: idMensagem, createdAt: quandoEnviada, saved: salva });
+    // FASE 3 passo 3: avisa quem estiver com essa conversa aberta pra rebuscar na Evolution API
+    // (sinal leve, sem conteudo) -- so depois da resposta, nunca atrasa o envio em si.
+    if (salva) waitUntil(sinalizarMensagemNova(phone));
   } catch (err) {
     console.error('Erro ao enviar mensagem via Evolution API:', err);
     res.status(500).json({ error: 'Não foi possível enviar a mensagem. Confira se a Evolution API está no ar e o número está conectado.' });

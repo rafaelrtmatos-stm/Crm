@@ -3753,13 +3753,23 @@ export const ChatPanel = ({
 
   useEffect(() => {
     if (!conversation || !currentCompany) return;
-    // FASE 3 passo 2 (chat ao vivo): texto/mídia agora vêm direto da Evolution API
+    // Só WhatsApp tem integração real com a Evolution API -- os outros canais (Instagram,
+    // Facebook, WebChat, E-mail, Telegram) ainda são só cadastro manual, sem API nenhuma por
+    // trás, então continuam 100% em crm_messages (ver "Outros canais" em handleSendMessage e
+    // handleSimulateClientMessage). Sem essa checagem, abrir uma conversa desses canais
+    // chamaria a Evolution API pra um número que não existe lá e voltaria vazio.
+    const ehWhatsapp = (conversation.sourceType || conversation.channel || 'WhatsApp') === 'WhatsApp';
+
+    // FASE 3 passo 2 (chat ao vivo, só WhatsApp): texto/mídia vêm direto da Evolution API
     // (api/whatsapp-messages.js) em vez de crm_messages. A transcrição de áudio ainda só
     // existe em crm_messages (Fase 4 não feita), então mescla por whatsapp_message_id pra
-    // não perder texto já transcrito nem o status pendente/erro. O Realtime continua
-    // escutando INSERT/UPDATE em crm_messages (o webhook ainda grava lá) só como SINAL pra
-    // rebuscar -- quando a Fase 3 passo 3 trocar isso por broadcast, aqui muda de novo.
-    const loadMessages = async () => {
+    // não perder texto já transcrito nem o status pendente/erro.
+    // FASE 3 passo 3: o gatilho pra rebuscar é um sinal leve (Realtime broadcast, sem
+    // conteúdo) que o webhook/envio emitem -- ver canal 'chat-signal-<telefone>' logo abaixo.
+    // O postgres_changes em crm_messages continua junto (aditivo, sem remover nada que já
+    // funcionava), restrito a UPDATE -- cobre a transcrição de áudio terminando em segundo
+    // plano, que ainda não tem sinal próprio (isso é Fase 4).
+    const loadMessagesWhatsapp = async () => {
       try {
         const resp = await fetch('/api/whatsapp-messages', {
           method: 'POST',
@@ -3801,8 +3811,27 @@ export const ChatPanel = ({
         console.error('[CRM] Falha ao carregar histórico ao vivo da Evolution API:', err);
       }
     };
+
+    // Canais sem integração: continua exatamente como era antes da Fase 3 (lê crm_messages direto).
+    const loadMessagesOutroCanal = async () => {
+      const { data } = await supabase.from('crm_messages').select('*')
+        .eq('company_id', 'rafa-arts')
+        .eq('phone', conversation.phone)
+        .order('created_at', { ascending: true });
+      setMessages((data || []).map(mapCrmMessageRow));
+    };
+
+    const loadMessages = ehWhatsapp ? loadMessagesWhatsapp : loadMessagesOutroCanal;
     loadMessages();
-    const channel = supabase.channel(`chat-messages-${conversation.phone}`).on('postgres_changes', { event: '*', schema: 'public', table: 'crm_messages', filter: `phone=eq.${conversation.phone}` }, loadMessages).subscribe();
+
+    const channel = ehWhatsapp
+      ? supabase.channel(`chat-signal-${conversation.phone}`)
+        .on('broadcast', { event: 'new-message' }, loadMessages)
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'crm_messages', filter: `phone=eq.${conversation.phone}` }, loadMessages)
+        .subscribe()
+      : supabase.channel(`chat-messages-${conversation.phone}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'crm_messages', filter: `phone=eq.${conversation.phone}` }, loadMessages)
+        .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [conversation, currentCompany]);
 
