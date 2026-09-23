@@ -3753,19 +3753,52 @@ export const ChatPanel = ({
 
   useEffect(() => {
     if (!conversation || !currentCompany) return;
+    // FASE 3 passo 2 (chat ao vivo): texto/mídia agora vêm direto da Evolution API
+    // (api/whatsapp-messages.js) em vez de crm_messages. A transcrição de áudio ainda só
+    // existe em crm_messages (Fase 4 não feita), então mescla por whatsapp_message_id pra
+    // não perder texto já transcrito nem o status pendente/erro. O Realtime continua
+    // escutando INSERT/UPDATE em crm_messages (o webhook ainda grava lá) só como SINAL pra
+    // rebuscar -- quando a Fase 3 passo 3 trocar isso por broadcast, aqui muda de novo.
     const loadMessages = async () => {
-      const { data } = await supabase.from('crm_messages').select('*')
-        .eq('company_id', 'rafa-arts')
-        .eq('phone', conversation.phone)
-        .order('created_at', { ascending: true });
-      const mapped = (data || []).map(mapCrmMessageRow);
-      setMessages(mapped);
-      // Transcrição automática pendente (áudio chegou com o CRM fechado / falha temporária):
-      // pede ao servidor pra continuar -- uma vez por conversa aberta; o texto chega pelo Realtime.
-      if (conversation.phone && !sweptTranscriptionPhonesRef.current.has(conversation.phone)
-        && mapped.some((m: any) => m.direction === 'incoming' && (m.transcriptionStatus === 'pending' || m.transcriptionStatus === 'processing'))) {
-        sweptTranscriptionPhonesRef.current.add(conversation.phone);
-        reprocessPendingTranscriptions(conversation.phone, user?.id);
+      try {
+        const resp = await fetch('/api/whatsapp-messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
+          body: JSON.stringify({ phone: conversation.phone }),
+        });
+        const json = await resp.json().catch(() => null);
+        if (!resp.ok || !json?.ok) throw new Error(json?.error || `Falha ao buscar mensagens (${resp.status}).`);
+        let mapped: any[] = json.messages || [];
+
+        const { data: transcricoes } = await supabase.from('crm_messages')
+          .select('whatsapp_message_id, transcription, transcription_status, transcription_error')
+          .eq('company_id', 'rafa-arts')
+          .eq('phone', conversation.phone)
+          .not('whatsapp_message_id', 'is', null);
+        if (transcricoes?.length) {
+          const porId = new Map(transcricoes.map((t: any) => [t.whatsapp_message_id, t]));
+          mapped = mapped.map((m: any) => {
+            const t = porId.get(m.id);
+            if (!t) return m;
+            return {
+              ...m,
+              transcription: t.transcription || undefined,
+              transcriptionStatus: t.transcription_status || undefined,
+              transcriptionError: t.transcription_error || undefined,
+            };
+          });
+        }
+
+        setMessages(mapped);
+        // Transcrição automática pendente (áudio chegou com o CRM fechado / falha temporária):
+        // pede ao servidor pra continuar -- uma vez por conversa aberta; o texto chega pelo Realtime.
+        if (conversation.phone && !sweptTranscriptionPhonesRef.current.has(conversation.phone)
+          && mapped.some((m: any) => m.direction === 'incoming' && (m.transcriptionStatus === 'pending' || m.transcriptionStatus === 'processing'))) {
+          sweptTranscriptionPhonesRef.current.add(conversation.phone);
+          reprocessPendingTranscriptions(conversation.phone, user?.id);
+        }
+      } catch (err) {
+        console.error('[CRM] Falha ao carregar histórico ao vivo da Evolution API:', err);
       }
     };
     loadMessages();
