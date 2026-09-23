@@ -548,7 +548,9 @@ export default async function handler(req, res) {
           // So considera sincronizada quando ESTA registrada em crm_messages. Falhou: nao mexe na conversa
           // e devolve erro no fim pra Evolution tentar de novo (o indice unico evita duplicar).
           if (!gravada) { falhasGravacao++; console.error(`[CRM WEBHOOK] crm_messages INSERT FALHOU message_id=${whatsappMessageId || '(sem id)'} -- devolvendo 500 para a Evolution reenviar`); continue; }
-          console.log(`[CRM WEBHOOK] crm_messages INSERT OK${jaExiste ? ' (ja existia, sem duplicar)' : ''}`);
+          console.log(SEM_CRM_MESSAGES
+            ? '[CRM WEBHOOK] mensagem processada (WA_SEM_CRM_MESSAGES ligada: nao grava em crm_messages, sem checagem de duplicada)'
+            : `[CRM WEBHOOK] crm_messages INSERT OK${jaExiste ? ' (ja existia, sem duplicar)' : ''}`);
           // FASE 3 passo 3: avisa quem estiver com essa conversa aberta pra rebuscar na Evolution API
           // (sinal leve, sem conteudo) -- roda em segundo plano, nunca atrasa nem derruba o webhook.
           if (!jaExiste) waitUntil(sinalizarMensagemNova(phone));
