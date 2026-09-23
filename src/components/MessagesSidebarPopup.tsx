@@ -13,6 +13,7 @@ import {
 import { MergeLeadsModal } from './MergeLeadsModal';
 import { format } from 'date-fns';
 import { leadLastMessageDate, leadSortTime, formatListTime } from '../lib/leadTime';
+import { SEM_CRM_MESSAGES } from '../lib/flags';
 
 // Regras de ordenação do menu ORGANIZAR (mesmas do menu "Ordenar" do Funil CRM, ver LEAD_SORT_OPTIONS em
 // Modules.tsx). Cada uma tem direção (↑ crescente / ↓ decrescente); clicar na ativa inverte a direção.
@@ -264,11 +265,15 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
         const de = pagina * PAGINA_MENSAGENS;
         // Sem janela fixa de dias: le da mais nova pra mais antiga e para assim que NENHUM lead restante
         // pode mais ser corrigido (ver corte abaixo) -- conversa parada ha semanas tambem e reconstruida.
-        const { data, error } = await supabase
+        // Com a flag (WhatsApp fora de crm_messages) so os canais que ainda gravam la entram: o indice do
+        // WhatsApp vem do webhook, e ler paginas de 500 so pra achar 'nada mais novo' e egress a toa.
+        let consulta = supabase
           .from('crm_messages')
           .select('phone,text,direction,created_at,sender_name')
           .eq('company_id', 'rafa-arts')
-          .or('is_note.is.null,is_note.eq.false')
+          .or('is_note.is.null,is_note.eq.false');
+        if (SEM_CRM_MESSAGES) consulta = consulta.neq('channel', 'WhatsApp');
+        const { data, error } = await consulta
           .order('created_at', { ascending: false })
           .order('id', { ascending: false })
           .range(de, de + PAGINA_MENSAGENS - 1);
@@ -298,13 +303,15 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
       const pendentes = lista.filter(l => !l.lastMessageAt && l.phone && !ultimaPorTelefone.has(l.phone) && !reconciliadosRef.current.has(l.id)).slice(0, 40);
       pendentes.forEach(l => reconciliadosRef.current.add(l.id));
       await Promise.all(pendentes.map(async l => {
-        const { data } = await supabase
+        let consultaLead = supabase
           .from('crm_messages')
           .select('text,direction,created_at,sender_name')
           .eq('company_id', 'rafa-arts')
           .eq('phone', l.phone)
           .or('is_note.is.null,is_note.eq.false')
-          .neq('direction', 'note')
+          .neq('direction', 'note');
+        if (SEM_CRM_MESSAGES) consultaLead = consultaLead.neq('channel', 'WhatsApp');
+        const { data } = await consultaLead
           .order('created_at', { ascending: false })
           .limit(1);
         const m: any = data?.[0];
