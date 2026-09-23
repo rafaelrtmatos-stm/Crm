@@ -127,6 +127,7 @@ import { PrecificacaoModule } from './components/PrecificacaoModule';
 import { MateriasPrimasModule } from './components/MateriasPrimasModule';
 import { MaquinasModule } from './components/MaquinasModule';
 import { FINANCEIRO_TABS, canSeeFinanceiroTab } from './lib/financeiroTabs';
+import { SEM_CRM_MESSAGES } from './lib/flags';
 
 export { AppContext, useApp, type MainTab, type AppContextType };
 
@@ -1090,6 +1091,9 @@ export default function App() {
               .or('is_note.is.null,is_note.eq.false')
               .neq('direction', 'note');
             if (estado.corteIso) q = q.gte('created_at', estado.corteIso);
+            // FASE 3 passo 6: com a flag, o WhatsApp nao esta mais em crm_messages (o indice vem do webhook);
+            // so os canais que ainda gravam la entram na releitura de 5 min.
+            if (SEM_CRM_MESSAGES) q = q.neq('channel', 'WhatsApp');
             const r = await q.order('created_at', { ascending: false }).order('id', { ascending: false }).range(de, de + LOTE - 1);
             return { data: (r.data || []) as any[], error: r.error };
           });
