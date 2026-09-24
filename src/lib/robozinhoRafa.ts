@@ -32,6 +32,11 @@ export interface RobozinhoInteraction {
   suggestedText: string;
   suggestedAt: Timestamp | string;
   status: RobozinhoStatus;
+  // As até 3 sugestões geradas pelo Gemini (POST /api/ai/suggest-reply) numa
+  // única chamada no clique de "Gerar sugestões" — o atendente escolhe uma
+  // (ou edita) antes de enviar. No fallback local (Gemini indisponível) vem
+  // só com 1 opção, igual a suggestedText.
+  presentedOptions?: string[];
   finalText?: string;
   finalSentAt?: Timestamp | string;
   actionByName?: string;

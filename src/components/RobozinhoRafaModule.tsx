@@ -18,6 +18,14 @@ import {
   Package,
   Wallet,
   CalendarClock,
+  Building2,
+  UserRound,
+  Lightbulb,
+  Plus,
+  Trash2,
+  ThumbsUp,
+  ThumbsDown,
+  Wand2,
 } from 'lucide-react';
 import { collection, query, where, orderBy, onSnapshot, addDoc, doc, updateDoc, setDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -32,6 +40,7 @@ import {
   DEFAULT_ROBOZINHO_CONFIG,
   generateSuggestion,
 } from '../lib/robozinhoRafa';
+import { suggestReplies, type SuggestReplyHistoryItem } from '../lib/suggestReply';
 
 // Robozinho Rafa — assistente de IA de atendimento da gráfica.
 //
@@ -45,7 +54,41 @@ import {
 // projeto (ex.: tabela `configuracoes`, company_id fixo 'rafa-arts').
 const COMPANY_ID = 'rafa-arts';
 
-type SubTab = 'sugestoes' | 'aprendizado' | 'conhecimento' | 'historico' | 'configuracoes';
+type SubTab = 'sugestoes' | 'memoria' | 'historico' | 'configuracoes';
+
+// Campos estruturados da memória do cliente (regra: só dado estável sobre a
+// pessoa/negociação — nunca preço/estoque, que continuam vindo ao vivo do PDV).
+interface ClientMemoryFields {
+  veiculo?: string;
+  interesse?: string;
+  cor?: string;
+  orcamento?: string;
+  objecao?: string;
+  etapa?: string;
+  preferenciaContato?: string;
+}
+
+// Linha da tabela `robozinho_knowledge` — conhecimento da empresa (tipo
+// 'empresa'), memória do cliente (tipo 'cliente', com `leadId` + `campos`) ou
+// conhecimento sugerido pela IA aguardando aprovação (tipo 'sugerido').
+interface KnowledgeEntry {
+  id: string;
+  companyId: string;
+  tipo: 'empresa' | 'cliente' | 'sugerido';
+  leadId?: string | null;
+  titulo?: string;
+  conteudo?: string;
+  campos?: ClientMemoryFields | null;
+  status: 'approved' | 'suggested';
+  createdByName?: string;
+  createdAt: string;
+}
+
+const mapKnowledgeRow = (r: any): KnowledgeEntry => ({
+  id: r.id, companyId: r.company_id, tipo: r.tipo, leadId: r.lead_id,
+  titulo: r.titulo, conteudo: r.conteudo, campos: r.campos || null,
+  status: r.status, createdByName: r.created_by_name, createdAt: r.created_at,
+});
 
 const toMillis = (v: any): number => {
   if (!v) return 0;
@@ -65,11 +108,14 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
-
-  // Evita gerar/gravar a mesma sugestão duas vezes por causa de re-render do
-  // listener em tempo real (o efeito abaixo roda toda vez que `leads` ou
-  // `interactions` mudam).
-  const generatingRef = useRef<Set<string>>(new Set());
+  // Lead cujas 3 sugestões estão sendo geradas agora (spinner do botão
+  // "Gerar sugestões") — geração acontece SOMENTE nesse clique, nunca sozinha.
+  const [generatingLeadId, setGeneratingLeadId] = useState<string | null>(null);
+  // Índice da sugestão escolhida por interação (pra destacar o card ativo
+  // entre as 3 opções antes de editar/enviar).
+  const [selectedOption, setSelectedOption] = useState<Record<string, number>>({});
+  // Memória (conhecimento da empresa / do cliente / sugerido) — aba Memória.
+  const [knowledge, setKnowledge] = useState<KnowledgeEntry[]>([]);
 
   // --- Leads aguardando resposta (mesma regra já usada no resto do sistema:
   // waitingSince preenchido = última mensagem é do cliente, ver ChatPanel e
@@ -162,39 +208,73 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
     return () => { supabase.removeChannel(channel); };
   }, []);
 
-  // --- Regra 1 e 2: se a última mensagem for do cliente (waitingSince
-  // preenchido), prepara uma sugestão. Se o cliente voltar numa conversa
-  // antiga, o waitingSince muda de novo -> trata como nova interação. ---
+  // --- Memória (conhecimento da empresa / do cliente / sugerido) ---
+  const loadKnowledge = async () => {
+    const { data } = await supabase.from('robozinho_knowledge').select('*').eq('company_id', COMPANY_ID).order('created_at', { ascending: false });
+    setKnowledge((data || []).map(mapKnowledgeRow));
+  };
   useEffect(() => {
-    if (!currentCompany || !config.isActive || !config.autoGenerateSuggestions) return;
-    leads.forEach(lead => {
-      const waitingKey = String(toMillis(lead.waitingSince));
-      const dedupeKey = `${lead.id}:${waitingKey}`;
-      if (generatingRef.current.has(dedupeKey)) return;
-      const jaExiste = interactions.some(i => i.leadId === lead.id && String(toMillis(i.clientMessageAt)) === waitingKey);
-      if (jaExiste) return;
+    if (!currentCompany) return;
+    loadKnowledge();
+    const channel = supabase.channel('robozinho-knowledge').on('postgres_changes', { event: '*', schema: 'public', table: 'robozinho_knowledge', filter: `company_id=eq.${COMPANY_ID}` }, loadKnowledge).subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [currentCompany]);
 
-      generatingRef.current.add(dedupeKey);
-      const suggestedText = generateSuggestion({
-        clientMessage: lead.lastMessageText || '',
-        clientName: lead.fullName || lead.contactName || lead.whatsappName,
-        produtos,
-        enabledPaymentMethods: paymentMethods,
-      });
-      supabase.from('robozinho_interactions').insert({
+  const conhecimentoEmpresa = useMemo(() => knowledge.filter(k => k.tipo === 'empresa' && k.status === 'approved'), [knowledge]);
+  const conhecimentoSugerido = useMemo(() => knowledge.filter(k => k.tipo === 'sugerido' && k.status === 'suggested'), [knowledge]);
+  const memoriaClientes = useMemo(() => knowledge.filter(k => k.tipo === 'cliente'), [knowledge]);
+
+  // --- Geração de sugestões: SOMENTE no clique de "Gerar sugestões" (nunca
+  // automático, nunca por polling/Realtime). Chama o Gemini já integrado em
+  // POST /api/ai/suggest-reply (uma única chamada, retorna as 3 sugestões).
+  // Se o Gemini falhar, cai no fallback local generateSuggestion() (regras/
+  // heurística), mantendo pelo menos 1 sugestão disponível. ---
+  const handleGerarSugestoes = async (lead: Lead) => {
+    setGeneratingLeadId(lead.id);
+    const clientName = lead.fullName || lead.contactName || lead.whatsappName || 'Cliente';
+    const clientMessage = lead.lastMessageText || '';
+    try {
+      // Até os últimos 10 textos relevantes da conversa — nunca a conversa inteira.
+      const { data: historicoRows } = await supabase
+        .from('crm_messages')
+        .select('direction, text')
+        .eq('company_id', 'rafa-arts')
+        .eq('phone', lead.phone)
+        .order('created_at', { ascending: false })
+        .limit(10);
+      const history: SuggestReplyHistoryItem[] = (historicoRows || [])
+        .reverse()
+        .filter((m: any) => m.text)
+        .map((m: any) => ({ direction: m.direction === 'incoming' ? 'incoming' : 'outgoing', text: m.text }));
+
+      let suggestions: string[];
+      try {
+        suggestions = await suggestReplies(clientMessage, history, clientName, user?.id);
+      } catch (err) {
+        console.error('Robozinho Rafa: Gemini indisponível, usando fallback:', err);
+        suggestions = [generateSuggestion({ clientMessage, clientName, produtos, enabledPaymentMethods: paymentMethods })];
+      }
+
+      const { error } = await supabase.from('robozinho_interactions').insert({
         company_id: 'rafa-arts',
         lead_id: lead.id,
         phone: lead.phone,
-        client_name: lead.fullName || lead.contactName || lead.whatsappName || 'Cliente',
+        client_name: clientName,
         channel: lead.sourceType || 'WhatsApp',
-        client_message_text: lead.lastMessageText || '',
+        client_message_text: clientMessage,
         client_message_at: lead.waitingSince,
-        suggested_text: suggestedText,
+        suggested_text: suggestions[0],
+        presented_options: suggestions,
         status: 'pending',
-      }).then(({ error }) => { if (error) console.error('Robozinho Rafa: erro ao gerar sugestão:', error); });
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [leads, interactions, produtos, paymentMethods, currentCompany, config.isActive, config.autoGenerateSuggestions]);
+      });
+      if (error) throw error;
+    } catch (err) {
+      console.error('Robozinho Rafa: erro ao gerar sugestões:', err);
+      showAlert('Não foi possível gerar as sugestões agora.');
+    } finally {
+      setGeneratingLeadId(null);
+    }
+  };
 
   // --- Envio real: único caminho de envio, igual ao ChatPanel (regra 9: só
   // a resposta efetivamente enviada conta como atendimento concluído). ---
@@ -271,26 +351,77 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
     }
   };
 
-  const pendentes = useMemo(() => interactions.filter(i => i.status === 'pending'), [interactions]);
-
-  // --- Aprendizado: agregações client-side sobre as próprias interações —
-  // não duplica dado em outra collection. ---
-  const aprendizado = useMemo(() => {
-    const usadas = interactions.filter(i => i.status === 'used').length;
-    const editadas = interactions.filter(i => i.status === 'edited').length;
-    const ignoradas = interactions.filter(i => i.status === 'ignored').length;
-    const freq: Record<string, number> = {};
-    interactions.forEach(i => {
-      const key = (i.clientMessageText || '').trim().toLowerCase();
-      if (key.length < 3) return;
-      freq[key] = (freq[key] || 0) + 1;
+  // --- Memória: conhecimento da empresa (horários, políticas, procedimentos
+  // — nunca preço/estoque/produto, que continuam vindo ao vivo do PDV) ---
+  const [novoTitulo, setNovoTitulo] = useState('');
+  const [novoConteudo, setNovoConteudo] = useState('');
+  const handleAddConhecimentoEmpresa = async () => {
+    if (!novoConteudo.trim()) return;
+    const { error } = await supabase.from('robozinho_knowledge').insert({
+      company_id: COMPANY_ID, tipo: 'empresa', titulo: novoTitulo.trim() || null,
+      conteudo: novoConteudo.trim(), status: 'approved', created_by_name: user?.name || 'Sistema',
     });
-    const perguntasFrequentes = Object.entries(freq)
-      .filter(([, count]) => count > 1)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 8);
-    return { usadas, editadas, ignoradas, perguntasFrequentes };
-  }, [interactions]);
+    if (error) { console.error('Robozinho Rafa: erro ao salvar conhecimento:', error); showAlert('Não foi possível salvar.'); return; }
+    setNovoTitulo(''); setNovoConteudo('');
+  };
+
+  const handleDeleteKnowledge = async (entry: KnowledgeEntry) => {
+    if (!(await showConfirm('Remover este item da memória?'))) return;
+    await supabase.from('robozinho_knowledge').delete().eq('id', entry.id);
+  };
+
+  // --- Memória: conhecimento sugerido pela IA/atendente, só entra em
+  // "conhecimento da empresa" depois de aprovado explicitamente. ---
+  const [novoSugerido, setNovoSugerido] = useState('');
+  const handleAddSugestaoConhecimento = async () => {
+    if (!novoSugerido.trim()) return;
+    const { error } = await supabase.from('robozinho_knowledge').insert({
+      company_id: COMPANY_ID, tipo: 'sugerido', conteudo: novoSugerido.trim(),
+      status: 'suggested', created_by_name: user?.name || 'Sistema',
+    });
+    if (error) { console.error('Robozinho Rafa: erro ao sugerir conhecimento:', error); showAlert('Não foi possível salvar.'); return; }
+    setNovoSugerido('');
+  };
+  const handleApproveSugestao = async (entry: KnowledgeEntry) => {
+    await supabase.from('robozinho_knowledge').update({ tipo: 'empresa', status: 'approved', updated_at: new Date().toISOString() }).eq('id', entry.id);
+  };
+  const handleRejectSugestao = async (entry: KnowledgeEntry) => {
+    await supabase.from('robozinho_knowledge').delete().eq('id', entry.id);
+  };
+
+  // --- Memória do cliente: nome, veículo, interesse, cor, orçamento,
+  // objeção, etapa e preferência de contato — sempre vinculada a um lead. ---
+  const [memoriaLeadId, setMemoriaLeadId] = useState('');
+  const [memoriaCampos, setMemoriaCampos] = useState<ClientMemoryFields>({});
+  useEffect(() => {
+    const existente = memoriaClientes.find(k => k.leadId === memoriaLeadId);
+    setMemoriaCampos(existente?.campos || {});
+  }, [memoriaLeadId, memoriaClientes]);
+  const handleSaveMemoriaCliente = async () => {
+    if (!memoriaLeadId) return;
+    const lead = leads.find(l => l.id === memoriaLeadId);
+    const existente = memoriaClientes.find(k => k.leadId === memoriaLeadId);
+    const payload = {
+      company_id: COMPANY_ID, tipo: 'cliente' as const, lead_id: memoriaLeadId,
+      titulo: lead?.fullName || lead?.contactName || lead?.whatsappName || 'Cliente',
+      campos: memoriaCampos, status: 'approved' as const, updated_at: new Date().toISOString(),
+      created_by_name: user?.name || 'Sistema',
+    };
+    const { error } = existente
+      ? await supabase.from('robozinho_knowledge').update(payload).eq('id', existente.id)
+      : await supabase.from('robozinho_knowledge').insert(payload);
+    if (error) { console.error('Robozinho Rafa: erro ao salvar memória do cliente:', error); showAlert('Não foi possível salvar.'); return; }
+    showAlert('Memória do cliente salva.');
+  };
+
+  // Sugestões já geradas (aguardando escolha do atendente) e leads aguardando
+  // resposta que ainda não tiveram sugestão gerada (aguardando o clique em
+  // "Gerar sugestões" — nunca preenchido sozinho).
+  const pendentes = useMemo(() => interactions.filter(i => i.status === 'pending'), [interactions]);
+  const leadsSemSugestao = useMemo(() => {
+    const comSugestao = new Set(pendentes.map(i => `${i.leadId}:${String(toMillis(i.clientMessageAt))}`));
+    return leads.filter(l => !comSugestao.has(`${l.id}:${String(toMillis(l.waitingSince))}`));
+  }, [leads, pendentes]);
 
   const produtosPorTipo = useMemo(() => {
     const grupos: Record<string, KnowledgeProduct[]> = { produto: [], material: [], servico: [], acabamento: [], composto: [] };
@@ -302,8 +433,7 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
 
   const TABS: { id: SubTab; label: string; icon: any }[] = [
     { id: 'sugestoes', label: 'Sugestões', icon: Sparkles },
-    { id: 'aprendizado', label: 'Aprendizado', icon: Brain },
-    { id: 'conhecimento', label: 'Conhecimento', icon: Database },
+    { id: 'memoria', label: 'Memória', icon: Brain },
     { id: 'historico', label: 'Histórico', icon: History },
     { id: 'configuracoes', label: 'Configurações', icon: Settings2 },
   ];
@@ -320,8 +450,8 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
             Assistente de IA de atendimento — sugere, nunca envia sozinho
           </p>
         </div>
-        {pendentes.length > 0 && (
-          <Badge variant="warning" className="animate-pulse">{pendentes.length} sugestão(ões) aguardando</Badge>
+        {(pendentes.length + leadsSemSugestao.length) > 0 && (
+          <Badge variant="warning" className="animate-pulse">{pendentes.length + leadsSemSugestao.length} conversa(s) aguardando</Badge>
         )}
       </div>
 
@@ -357,196 +487,348 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
                   O Robozinho Rafa está pausado em Configurações — nenhuma sugestão nova será gerada.
                 </div>
               )}
-              {pendentes.length === 0 && (
+              {pendentes.length === 0 && leadsSemSugestao.length === 0 && (
                 <GlassCard className="p-8 text-center">
                   <CheckCircle2 className="mx-auto text-emerald-400 mb-3" size={32} />
-                  <p className="text-sm font-bold text-white/60">Nenhuma conversa aguardando sugestão no momento.</p>
+                  <p className="text-sm font-bold text-white/60">Nenhuma conversa aguardando resposta no momento.</p>
                 </GlassCard>
               )}
-              {pendentes.map(interaction => (
-                <GlassCard key={interaction.id} className="p-5 space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div className="w-8 h-8 rounded-lg bg-primary-500/20 flex items-center justify-center shrink-0">
-                        <MessageCircle size={14} className="text-primary-300" />
+
+              {/* Conversas aguardando resposta que ainda não tiveram sugestão gerada
+                  — o Gemini só é chamado quando o atendente clica no botão abaixo. */}
+              {leadsSemSugestao.map(lead => {
+                const clientName = lead.fullName || lead.contactName || lead.whatsappName || 'Cliente';
+                return (
+                  <GlassCard key={lead.id} className="p-5 space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="w-8 h-8 rounded-lg bg-primary-500/20 flex items-center justify-center shrink-0">
+                          <MessageCircle size={14} className="text-primary-300" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-white truncate">{clientName}</p>
+                          <p className="text-[10px] text-white/40 uppercase tracking-wider">{lead.sourceType || 'WhatsApp'}</p>
+                        </div>
                       </div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-bold text-white truncate">{interaction.clientName}</p>
-                        <p className="text-[10px] text-white/40 uppercase tracking-wider">{interaction.channel}</p>
-                      </div>
+                      <Badge variant="warning" className="shrink-0 w-fit">Aguardando resposta</Badge>
                     </div>
-                    <Badge variant="warning" className="shrink-0 w-fit">Aguardando resposta</Badge>
-                  </div>
 
-                  <div className="bg-white/5 border border-white/10 rounded-2xl p-3">
-                    <p className="text-[9px] font-black uppercase text-white/30 tracking-widest mb-1">Mensagem do cliente</p>
-                    <p className="text-sm text-white/80">{interaction.clientMessageText || '(sem texto)'}</p>
-                  </div>
+                    <div className="bg-white/5 border border-white/10 rounded-2xl p-3">
+                      <p className="text-[9px] font-black uppercase text-white/30 tracking-widest mb-1">Mensagem do cliente</p>
+                      <p className="text-sm text-white/80">{lead.lastMessageText || '(sem texto)'}</p>
+                    </div>
 
-                  <div className="bg-primary-500/10 border border-primary-500/20 rounded-2xl p-3">
-                    <p className="text-[9px] font-black uppercase text-primary-300 tracking-widest mb-1 flex items-center gap-1.5">
-                      <Sparkles size={11} /> Sugestão do Robozinho Rafa
-                    </p>
-                    {editingId === interaction.id ? (
-                      <textarea
-                        value={editText}
-                        onChange={(e) => setEditText(e.target.value)}
-                        rows={4}
-                        autoFocus
-                        className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm text-white outline-none focus:border-primary-400 transition-all resize-none"
-                      />
-                    ) : (
-                      <p className="text-sm text-white/90 whitespace-pre-wrap">{interaction.suggestedText}</p>
-                    )}
-                  </div>
+                    <Button
+                      icon={generatingLeadId === lead.id ? RefreshCw : Wand2}
+                      disabled={!config.isActive || generatingLeadId === lead.id}
+                      onClick={() => handleGerarSugestoes(lead)}
+                      className={generatingLeadId === lead.id ? '[&>svg]:animate-spin' : ''}
+                    >
+                      {generatingLeadId === lead.id ? 'Gerando sugestões…' : 'Gerar sugestões'}
+                    </Button>
+                  </GlassCard>
+                );
+              })}
 
-                  <div className="flex flex-wrap items-center gap-2">
-                    {editingId === interaction.id ? (
-                      <>
-                        <Button
-                          icon={Save}
-                          disabled={busyId === interaction.id}
-                          onClick={() => handleEnviar(interaction, editText, 'edited')}
-                        >
-                          Salvar e Enviar
-                        </Button>
-                        <Button variant="secondary" onClick={() => { setEditingId(null); setEditText(''); }}>Cancelar</Button>
-                      </>
-                    ) : (
-                      <>
-                        <Button
-                          icon={CheckCircle2}
-                          disabled={busyId === interaction.id}
-                          onClick={() => handleEnviar(interaction, interaction.suggestedText, 'used')}
-                        >
-                          Usar Resposta
-                        </Button>
-                        <Button
-                          variant="secondary"
-                          icon={Pencil}
-                          disabled={busyId === interaction.id}
-                          onClick={() => { setEditingId(interaction.id); setEditText(interaction.suggestedText); }}
-                        >
-                          Editar
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          icon={Ban}
-                          disabled={busyId === interaction.id}
-                          onClick={() => handleIgnorar(interaction)}
-                        >
-                          Ignorar
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </GlassCard>
-              ))}
+              {/* Sugestões já geradas — sempre 3 opções (ou 1, no fallback local),
+                  o atendente escolhe/edita e só ele decide enviar. */}
+              {pendentes.map(interaction => {
+                const options = interaction.presentedOptions && interaction.presentedOptions.length > 0
+                  ? interaction.presentedOptions
+                  : [interaction.suggestedText];
+                const chosenIndex = selectedOption[interaction.id] ?? 0;
+                const chosenText = options[chosenIndex] ?? options[0];
+                return (
+                  <GlassCard key={interaction.id} className="p-5 space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="w-8 h-8 rounded-lg bg-primary-500/20 flex items-center justify-center shrink-0">
+                          <MessageCircle size={14} className="text-primary-300" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-white truncate">{interaction.clientName}</p>
+                          <p className="text-[10px] text-white/40 uppercase tracking-wider">{interaction.channel}</p>
+                        </div>
+                      </div>
+                      <Badge variant="warning" className="shrink-0 w-fit">Aguardando resposta</Badge>
+                    </div>
+
+                    <div className="bg-white/5 border border-white/10 rounded-2xl p-3">
+                      <p className="text-[9px] font-black uppercase text-white/30 tracking-widest mb-1">Mensagem do cliente</p>
+                      <p className="text-sm text-white/80">{interaction.clientMessageText || '(sem texto)'}</p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <p className="text-[9px] font-black uppercase text-primary-300 tracking-widest flex items-center gap-1.5">
+                        <Sparkles size={11} /> Sugestões do Robozinho Rafa{options.length > 1 ? ` (${options.length})` : ''}
+                      </p>
+                      {editingId === interaction.id ? (
+                        <div className="bg-primary-500/10 border border-primary-500/20 rounded-2xl p-3">
+                          <textarea
+                            value={editText}
+                            onChange={(e) => setEditText(e.target.value)}
+                            rows={4}
+                            autoFocus
+                            className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm text-white outline-none focus:border-primary-400 transition-all resize-none"
+                          />
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 gap-2">
+                          {options.map((opt, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => setSelectedOption(prev => ({ ...prev, [interaction.id]: idx }))}
+                              className={cn(
+                                "text-left rounded-2xl p-3 border transition-all",
+                                idx === chosenIndex
+                                  ? "bg-primary-500/15 border-primary-500/40"
+                                  : "bg-white/5 border-white/10 hover:border-white/20"
+                              )}
+                            >
+                              <p className="text-sm text-white/90 whitespace-pre-wrap">{opt}</p>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      {editingId === interaction.id ? (
+                        <>
+                          <Button
+                            icon={Save}
+                            disabled={busyId === interaction.id}
+                            onClick={() => handleEnviar(interaction, editText, 'edited')}
+                          >
+                            Salvar e Enviar
+                          </Button>
+                          <Button variant="secondary" onClick={() => { setEditingId(null); setEditText(''); }}>Cancelar</Button>
+                        </>
+                      ) : (
+                        <>
+                          <Button
+                            icon={CheckCircle2}
+                            disabled={busyId === interaction.id}
+                            onClick={() => handleEnviar(interaction, chosenText, 'used')}
+                          >
+                            Usar Resposta
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            icon={Pencil}
+                            disabled={busyId === interaction.id}
+                            onClick={() => { setEditingId(interaction.id); setEditText(chosenText); }}
+                          >
+                            Editar
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            icon={Ban}
+                            disabled={busyId === interaction.id}
+                            onClick={() => handleIgnorar(interaction)}
+                          >
+                            Ignorar
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </GlassCard>
+                );
+              })}
             </div>
           )}
 
-          {subTab === 'aprendizado' && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <GlassCard className="p-5 border-white/5">
-                  <p className="text-[9px] font-black uppercase text-white/30 tracking-widest">Respostas Usadas Direto</p>
-                  <h4 className="text-2xl font-black text-emerald-400 mt-1">{aprendizado.usadas}</h4>
-                </GlassCard>
-                <GlassCard className="p-5 border-white/5">
-                  <p className="text-[9px] font-black uppercase text-white/30 tracking-widest">Respostas Editadas</p>
-                  <h4 className="text-2xl font-black text-amber-400 mt-1">{aprendizado.editadas}</h4>
-                </GlassCard>
-                <GlassCard className="p-5 border-white/5">
-                  <p className="text-[9px] font-black uppercase text-white/30 tracking-widest">Sugestões Ignoradas</p>
-                  <h4 className="text-2xl font-black text-rose-400 mt-1">{aprendizado.ignoradas}</h4>
-                </GlassCard>
-              </div>
-
+          {subTab === 'memoria' && (
+            <div className="space-y-8">
+              {/* --- Conhecimento da Empresa --- */}
               <div>
-                <h3 className="text-sm font-black uppercase text-white/60 tracking-widest mb-3">Formas de Atendimento Mais Utilizadas</h3>
-                <div className="space-y-2">
-                  {[
-                    { label: 'Resposta da IA usada sem alteração', value: aprendizado.usadas, color: 'bg-emerald-500' },
-                    { label: 'Resposta da IA editada pelo atendente', value: aprendizado.editadas, color: 'bg-amber-500' },
-                    { label: 'Sugestão ignorada (atendente respondeu por fora)', value: aprendizado.ignoradas, color: 'bg-rose-500' },
-                  ].map(row => {
-                    const total = aprendizado.usadas + aprendizado.editadas + aprendizado.ignoradas || 1;
-                    const pct = Math.round((row.value / total) * 100);
-                    return (
-                      <div key={row.label} className="bg-white/5 border border-white/10 rounded-xl p-3">
-                        <div className="flex justify-between text-xs text-white/70 mb-1.5">
-                          <span>{row.label}</span>
-                          <span className="font-black">{row.value}</span>
-                        </div>
-                        <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden">
-                          <div className={cn("h-full rounded-full", row.color)} style={{ width: `${pct}%` }} />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div>
-                <h3 className="text-sm font-black uppercase text-white/60 tracking-widest mb-3">Perguntas Frequentes</h3>
-                {aprendizado.perguntasFrequentes.length === 0 ? (
-                  <p className="text-xs text-white/40">Ainda não há repetições suficientes para identificar um padrão.</p>
+                <h3 className="text-sm font-black uppercase text-white/60 tracking-widest mb-3 flex items-center gap-2">
+                  <Building2 size={14} className="text-primary-400" /> Conhecimento da Empresa
+                  <span className="text-white/30 font-normal normal-case">({conhecimentoEmpresa.length})</span>
+                </h3>
+                <p className="text-[10px] text-white/40 mb-3">
+                  Horários, políticas, procedimentos e outras informações estáveis — nunca preço, estoque ou disponibilidade (isso continua vindo ao vivo do PDV, mais abaixo).
+                </p>
+                <GlassCard className="p-4 space-y-3 mb-3">
+                  <input
+                    value={novoTitulo}
+                    onChange={(e) => setNovoTitulo(e.target.value)}
+                    placeholder="Título (opcional) — ex: Horário de funcionamento"
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder:text-white/30 outline-none focus:border-primary-400"
+                  />
+                  <textarea
+                    value={novoConteudo}
+                    onChange={(e) => setNovoConteudo(e.target.value)}
+                    rows={2}
+                    placeholder="Conteúdo — ex: Funcionamos de segunda a sexta, das 8h às 18h."
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder:text-white/30 outline-none focus:border-primary-400 resize-none"
+                  />
+                  <Button icon={Plus} disabled={!novoConteudo.trim()} onClick={handleAddConhecimentoEmpresa}>Adicionar</Button>
+                </GlassCard>
+                {conhecimentoEmpresa.length === 0 ? (
+                  <p className="text-xs text-white/30 italic">Nenhum conhecimento cadastrado ainda.</p>
                 ) : (
                   <div className="space-y-2">
-                    {aprendizado.perguntasFrequentes.map(([texto, count]) => (
-                      <div key={texto} className="flex items-center justify-between gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5">
-                        <p className="text-xs text-white/70 truncate">{texto}</p>
-                        <Badge variant="primary" className="shrink-0">{count}x</Badge>
+                    {conhecimentoEmpresa.map(k => (
+                      <div key={k.id} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          {k.titulo && <p className="text-xs font-bold text-white">{k.titulo}</p>}
+                          <p className="text-xs text-white/60 whitespace-pre-wrap">{k.conteudo}</p>
+                        </div>
+                        <button onClick={() => handleDeleteKnowledge(k)} className="text-white/30 hover:text-rose-400 transition-colors shrink-0" aria-label="Remover">
+                          <Trash2 size={14} />
+                        </button>
                       </div>
                     ))}
                   </div>
                 )}
               </div>
-            </div>
-          )}
 
-          {subTab === 'conhecimento' && (
-            <div className="space-y-6">
-              <p className="text-xs text-white/40">
-                Dados consultados ao vivo direto do ERP — o Robozinho Rafa nunca usa preço, estoque ou prazo "lembrado" de conversa antiga quando existe informação atualizada aqui.
-              </p>
-              {(['produto', 'servico', 'material', 'acabamento'] as const).map(tipo => (
-                <div key={tipo}>
-                  <h3 className="text-sm font-black uppercase text-white/60 tracking-widest mb-3 flex items-center gap-2">
-                    <Package size={14} className="text-primary-400" />
-                    {tipo === 'produto' ? 'Produtos' : tipo === 'servico' ? 'Serviços' : tipo === 'material' ? 'Materiais' : 'Acabamentos'}
-                    <span className="text-white/30 font-normal normal-case">({produtosPorTipo[tipo]?.length || 0})</span>
-                  </h3>
-                  {(produtosPorTipo[tipo]?.length || 0) === 0 ? (
-                    <p className="text-xs text-white/30 italic">Nenhum item cadastrado nessa categoria.</p>
-                  ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                      {produtosPorTipo[tipo].slice(0, 12).map(p => (
-                        <div key={p.name} className="bg-white/5 border border-white/10 rounded-xl px-3 py-2.5">
-                          <p className="text-xs font-bold text-white truncate">{p.name}</p>
-                          <div className="flex justify-between items-center mt-1">
-                            <span className="text-[10px] text-emerald-400 font-black">{p.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
-                            {p.controlaEstoque && <span className="text-[9px] text-white/40">{p.stock} em estoque</span>}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-
+              {/* --- Memória do Cliente --- */}
               <div>
                 <h3 className="text-sm font-black uppercase text-white/60 tracking-widest mb-3 flex items-center gap-2">
-                  <Wallet size={14} className="text-primary-400" /> Formas de Pagamento
+                  <UserRound size={14} className="text-primary-400" /> Memória do Cliente
                 </h3>
-                <div className="flex flex-wrap gap-2">
-                  {paymentMethods.map(m => <Badge key={m} variant="outline">{m.replace(/_/g, ' ')}</Badge>)}
-                </div>
+                <GlassCard className="p-4 space-y-3">
+                  <select
+                    value={memoriaLeadId}
+                    onChange={(e) => setMemoriaLeadId(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-primary-400"
+                  >
+                    <option value="" className="bg-slate-900">Selecione um cliente…</option>
+                    {leads.map(l => (
+                      <option key={l.id} value={l.id} className="bg-slate-900">
+                        {l.fullName || l.contactName || l.whatsappName || l.phone}
+                      </option>
+                    ))}
+                  </select>
+
+                  {memoriaLeadId && (
+                    <>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {([
+                          ['veiculo', 'Veículo'],
+                          ['interesse', 'Interesse'],
+                          ['cor', 'Cor'],
+                          ['orcamento', 'Orçamento'],
+                          ['objecao', 'Objeção'],
+                          ['etapa', 'Etapa'],
+                          ['preferenciaContato', 'Preferência de contato'],
+                        ] as const).map(([campo, label]) => (
+                          <div key={campo}>
+                            <label className="text-[9px] font-black uppercase text-white/30 tracking-widest mb-1 block">{label}</label>
+                            <input
+                              value={memoriaCampos[campo] || ''}
+                              onChange={(e) => setMemoriaCampos(prev => ({ ...prev, [campo]: e.target.value }))}
+                              className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-primary-400"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                      <Button icon={Save} onClick={handleSaveMemoriaCliente}>Salvar Memória do Cliente</Button>
+                    </>
+                  )}
+                </GlassCard>
+
+                {memoriaClientes.length > 0 && (
+                  <div className="mt-3 space-y-2">
+                    {memoriaClientes.map(k => (
+                      <div key={k.id} className="bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 flex items-center justify-between gap-3">
+                        <p className="text-xs font-bold text-white truncate">{k.titulo}</p>
+                        <button onClick={() => setMemoriaLeadId(k.leadId || '')} className="text-[10px] text-primary-300 font-black uppercase tracking-widest shrink-0">Editar</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
-              <div className="p-4 bg-white/5 border border-white/10 rounded-2xl flex items-center gap-2 text-white/40 text-xs">
-                <CalendarClock size={16} className="shrink-0" />
-                Prazos de produção são definidos por pedido e não têm um valor fixo cadastrado no ERP — o Robozinho Rafa nunca inventa uma data e sempre pede confirmação à produção.
+              {/* --- Conhecimentos Sugeridos --- */}
+              <div>
+                <h3 className="text-sm font-black uppercase text-white/60 tracking-widest mb-3 flex items-center gap-2">
+                  <Lightbulb size={14} className="text-primary-400" /> Conhecimentos Sugeridos
+                  <span className="text-white/30 font-normal normal-case">({conhecimentoSugerido.length})</span>
+                </h3>
+                <p className="text-[10px] text-white/40 mb-3">
+                  Sugestões aguardando revisão — só entram no Conhecimento da Empresa depois de aprovadas pelo atendente.
+                </p>
+                <GlassCard className="p-4 space-y-3 mb-3">
+                  <textarea
+                    value={novoSugerido}
+                    onChange={(e) => setNovoSugerido(e.target.value)}
+                    rows={2}
+                    placeholder="Ex: cliente perguntou sobre retirada no balcão aos sábados"
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder:text-white/30 outline-none focus:border-primary-400 resize-none"
+                  />
+                  <Button variant="secondary" icon={Plus} disabled={!novoSugerido.trim()} onClick={handleAddSugestaoConhecimento}>Sugerir Conhecimento</Button>
+                </GlassCard>
+                {conhecimentoSugerido.length === 0 ? (
+                  <p className="text-xs text-white/30 italic">Nenhuma sugestão pendente.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {conhecimentoSugerido.map(k => (
+                      <div key={k.id} className="bg-amber-500/5 border border-amber-500/20 rounded-xl px-4 py-3 flex items-start justify-between gap-3">
+                        <p className="text-xs text-white/70 whitespace-pre-wrap min-w-0">{k.conteudo}</p>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button onClick={() => handleApproveSugestao(k)} className="text-emerald-400 hover:text-emerald-300 transition-colors" aria-label="Aprovar">
+                            <ThumbsUp size={16} />
+                          </button>
+                          <button onClick={() => handleRejectSugestao(k)} className="text-white/30 hover:text-rose-400 transition-colors" aria-label="Rejeitar">
+                            <ThumbsDown size={16} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* --- Dados ao vivo do ERP (referência, nunca fica salvo na memória) --- */}
+              <div>
+                <h3 className="text-sm font-black uppercase text-white/60 tracking-widest mb-3 flex items-center gap-2">
+                  <Database size={14} className="text-primary-400" /> Dados ao Vivo do PDV
+                </h3>
+                <p className="text-xs text-white/40 mb-4">
+                  Consultados direto do ERP — o Robozinho Rafa nunca usa preço, estoque ou prazo "lembrado" de conversa antiga quando existe informação atualizada aqui, e nada disso fica salvo na memória acima.
+                </p>
+                {(['produto', 'servico', 'material', 'acabamento'] as const).map(tipo => (
+                  <div key={tipo} className="mb-4">
+                    <h4 className="text-xs font-black uppercase text-white/50 tracking-widest mb-2 flex items-center gap-2">
+                      <Package size={12} className="text-primary-400" />
+                      {tipo === 'produto' ? 'Produtos' : tipo === 'servico' ? 'Serviços' : tipo === 'material' ? 'Materiais' : 'Acabamentos'}
+                      <span className="text-white/30 font-normal normal-case">({produtosPorTipo[tipo]?.length || 0})</span>
+                    </h4>
+                    {(produtosPorTipo[tipo]?.length || 0) === 0 ? (
+                      <p className="text-xs text-white/30 italic">Nenhum item cadastrado nessa categoria.</p>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                        {produtosPorTipo[tipo].slice(0, 12).map(p => (
+                          <div key={p.name} className="bg-white/5 border border-white/10 rounded-xl px-3 py-2.5">
+                            <p className="text-xs font-bold text-white truncate">{p.name}</p>
+                            <div className="flex justify-between items-center mt-1">
+                              <span className="text-[10px] text-emerald-400 font-black">{p.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+                              {p.controlaEstoque && <span className="text-[9px] text-white/40">{p.stock} em estoque</span>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                <div className="mb-4">
+                  <h4 className="text-xs font-black uppercase text-white/50 tracking-widest mb-2 flex items-center gap-2">
+                    <Wallet size={12} className="text-primary-400" /> Formas de Pagamento
+                  </h4>
+                  <div className="flex flex-wrap gap-2">
+                    {paymentMethods.map(m => <Badge key={m} variant="outline">{m.replace(/_/g, ' ')}</Badge>)}
+                  </div>
+                </div>
+
+                <div className="p-4 bg-white/5 border border-white/10 rounded-2xl flex items-center gap-2 text-white/40 text-xs">
+                  <CalendarClock size={16} className="shrink-0" />
+                  Prazos de produção são definidos por pedido e não têm um valor fixo cadastrado no ERP — o Robozinho Rafa nunca inventa uma data e sempre pede confirmação à produção.
+                </div>
               </div>
             </div>
           )}
@@ -555,9 +837,16 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
             <DataTable
               loading={loading}
               columns={[
-                { key: 'clientMessageText', label: 'Mensagem do Cliente', render: (v: string) => <span className="text-xs">{v || '—'}</span> },
-                { key: 'suggestedText', label: 'Sugestão da IA', render: (v: string) => <span className="text-xs text-white/60 line-clamp-2">{v || '—'}</span> },
-                { key: 'status', label: 'Ação do Atendente', render: (v: string) => {
+                { key: 'clientName', label: 'Cliente', render: (v: string) => <span className="text-xs font-bold text-white">{v || '—'}</span> },
+                { key: 'clientMessageText', label: 'Mensagem', render: (v: string) => <span className="text-xs text-white/70 line-clamp-2">{v || '—'}</span> },
+                { key: 'suggestedText', label: 'Sugestão', render: (v: string) => <span className="text-xs text-white/60 line-clamp-2">{v || '—'}</span> },
+                { key: 'finalText', label: 'Resposta Final', render: (v: string) => <span className="text-xs">{v || '—'}</span> },
+                { key: 'actionByName', label: 'Atendente', render: (v: string) => <span className="text-xs text-white/60">{v || '—'}</span> },
+                { key: 'createdAt', label: 'Data', render: (v: any) => {
+                  const ms = toMillis(v);
+                  return <span className="text-[10px] font-mono text-white/50">{ms ? new Date(ms).toLocaleString('pt-BR') : '—'}</span>;
+                } },
+                { key: 'status', label: 'Status', render: (v: string) => {
                   const map: Record<string, { label: string; variant: any }> = {
                     pending: { label: 'Aguardando', variant: 'warning' },
                     used: { label: 'Usou direto', variant: 'success' },
@@ -566,11 +855,6 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
                   };
                   const info = map[v] || { label: v, variant: 'default' };
                   return <Badge variant={info.variant}>{info.label}</Badge>;
-                } },
-                { key: 'finalText', label: 'Resposta Final Enviada', render: (v: string) => <span className="text-xs">{v || '—'}</span> },
-                { key: 'createdAt', label: 'Data/Hora', render: (v: any) => {
-                  const ms = toMillis(v);
-                  return <span className="text-[10px] font-mono text-white/50">{ms ? new Date(ms).toLocaleString('pt-BR') : '—'}</span>;
                 } },
               ]}
               data={interactions}
@@ -583,7 +867,7 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <p className="text-sm font-bold text-white">Robozinho Rafa ativo</p>
-                    <p className="text-[10px] text-white/40">Gera novas sugestões automaticamente quando um cliente manda mensagem.</p>
+                    <p className="text-[10px] text-white/40">Libera o botão "Gerar sugestões" nas conversas aguardando resposta. A IA nunca gera nem envia nada sozinha — sempre no clique do atendente.</p>
                   </div>
                   <button
                     onClick={() => handleSaveConfig({ isActive: !config.isActive })}
