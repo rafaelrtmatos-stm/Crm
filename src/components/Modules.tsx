@@ -141,7 +141,8 @@ import {
   Factory,
   ArrowUpDown,
   ArrowDown,
-  ArrowUp
+  ArrowUp,
+  Wand2
 } from 'lucide-react';
 import { 
   DndContext, 
@@ -248,6 +249,7 @@ import { OFFICIAL_COMPANY, PUBLIC_SIGN_ORIGIN, getContractSignatureLink } from '
 import { signContractByCompany, generateSignatureId } from '../lib/otpUtils';
 import { transcribeAudioMessage, reprocessPendingTranscriptions } from '../lib/audioTranscription';
 import { generateSuggestion, type KnowledgeProduct } from '../lib/robozinhoRafa';
+import { assistWriting, WRITING_ASSIST_ACTIONS, type WritingAssistAction } from '../lib/writingAssistant';
 import { validateCpfCnpj } from '../lib/validators';
 import { buscarClienteDuplicado, montarPayloadMesclagem } from '../lib/clienteDedupe';
 import { custoTotalDaNota, calcularLucroLiquido, detalharCustoDaNota, detalharCustosItem, custoMaterialRealItem, custoMaquinaItem, somaCustosExtras, isMaterialLonaAdesivo } from '../lib/lucro';
@@ -3426,6 +3428,27 @@ export const ChatPanel = ({
       setIsGeneratingSuggestion(false);
     }
   };
+
+  // Assistente de escrita (IA) do campo de mensagem — ajusta o texto que o atendente JÁ digitou
+  // (corrigir, deixar profissional/amigável/etc). So troca o texto do campo apos sucesso; nunca
+  // envia a mensagem sozinho e nunca apaga o texto se a chamada falhar.
+  const [showWritingAssistMenu, setShowWritingAssistMenu] = useState(false);
+  const [isAssistingWriting, setIsAssistingWriting] = useState(false);
+  const handleWritingAssist = async (action: WritingAssistAction) => {
+    const texto = newMessage.trim();
+    setShowWritingAssistMenu(false);
+    if (!texto || isAssistingWriting) return;
+    setIsAssistingWriting(true);
+    try {
+      const resultado = await assistWriting(texto, action, user?.id);
+      setNewMessage(resultado);
+    } catch (err) {
+      console.error('Erro no assistente de escrita:', err);
+      showAlert('Não foi possível processar o texto.');
+    } finally {
+      setIsAssistingWriting(false);
+    }
+  };
   const [isSavingNames, setIsSavingNames] = useState(false);
   useEffect(() => {
     setNameFieldsDraft({
@@ -4870,6 +4893,35 @@ export const ChatPanel = ({
                     {isGeneratingSuggestion ? <Loader2 size={10} className="animate-spin" /> : <Bot size={10} />}
                     {isGeneratingSuggestion ? 'Pensando...' : 'Sugestão do Robozinho'}
                   </button>
+                  <div className="relative shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setShowWritingAssistMenu(v => !v)}
+                      disabled={isAssistingWriting || !newMessage.trim()}
+                      className="text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border border-primary-300 bg-primary-500/10 text-primary-700 hover:bg-primary-500/20 shadow-sm whitespace-nowrap transition-all cursor-pointer flex items-center gap-1 disabled:opacity-50"
+                      title="Ajustar o texto que você já escreveu (corrigir, deixar profissional, amigável, etc.)"
+                    >
+                      {isAssistingWriting ? <Loader2 size={10} className="animate-spin" /> : <Wand2 size={10} />}
+                      {isAssistingWriting ? 'Processando...' : 'IA'}
+                    </button>
+                    {showWritingAssistMenu && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setShowWritingAssistMenu(false)} />
+                        <div className="absolute bottom-full mb-2 left-0 min-w-[220px] bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 p-1.5">
+                          {WRITING_ASSIST_ACTIONS.map(({ action, label }) => (
+                            <button
+                              key={action}
+                              type="button"
+                              onClick={() => handleWritingAssist(action)}
+                              className="w-full text-left px-3 py-2 rounded-xl text-[10.5px] font-bold text-slate-700 hover:bg-primary-50 hover:text-primary-700 transition-colors"
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
                   <button
                     type="button"
                     onClick={() => setShowQuickReplies(v => !v)}
