@@ -17169,14 +17169,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       <span className="font-mono">{safeFormat(lastFinalizedOrder?.scheduledFor, 'dd/MM/yyyy HH:mm')}</span>
                    </div>
                 )}
-                {lastFinalizedOrder?.status === 'pending' && lastFinalizedOrder?.id && (
+                {/* Etapa de produção: aparece SEMPRE (nota em aberto OU já paga). Pagar/fechar a nota não muda a etapa
+                    (nunca vira "Entregue" sozinha) — quem escolhe é o usuário, ex.: "Aguardando Arte" logo após receber. */}
+                {lastFinalizedOrder?.id && (
                    <div className="pt-2 border-t border-white/5 space-y-1">
                       <label className="text-[9px] font-black uppercase text-white/40 tracking-widest block">Etapa Atual</label>
                       <select
-                        value={lastFinalizedOrder.serviceStatus || 'pedido_recebido'}
-                        onChange={(e) => handleUpdateServiceStatus(lastFinalizedOrder.id, e.target.value)}
+                        value={lastFinalizedOrder.serviceStatus || ''}
+                        onChange={(e) => { if (e.target.value) handleUpdateServiceStatus(lastFinalizedOrder.id, e.target.value); }}
                         className="w-full h-9 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer"
                       >
+                        {!lastFinalizedOrder.serviceStatus && (
+                          <option value="" disabled className="bg-slate-900">Escolha a etapa (envia p/ Serviços)</option>
+                        )}
                         {STAGE_ORDER.map(id => (
                           <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
                         ))}
