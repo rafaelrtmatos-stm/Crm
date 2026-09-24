@@ -21,7 +21,7 @@ const supaHeaders = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABA
 // Telefone de conversa individual vira remoteJid @s.whatsapp.net; telefone de GRUPO (dígitos
 // do group_jid) precisa do @g.us -- mesma checagem que api/whatsapp-foto-perfil.js já faz,
 // consultando whatsapp_groups em vez de confiar num campo "isGroup" que o front não manda.
-async function resolverRemoteJid(numero) {
+export async function resolverRemoteJid(numero) {
   const g = await fetch(
     `${SUPABASE_URL}/rest/v1/whatsapp_groups?company_id=eq.${COMPANY_ID}&group_jid=eq.${numero}@g.us&select=id&limit=1`,
     { headers: supaHeaders }
@@ -39,7 +39,7 @@ async function resolverRemoteJid(numero) {
 // (sem numero real no evento) ficam sob <lid>@lid. Com o JID calculado so a partir do telefone
 // normalizado, a busca volta vazia e o chat abre sem nenhuma mensagem, mesmo com a notificacao
 // (que vem do webhook) ja tendo chegado.
-function jidsAlternativos(numero, ehGrupo) {
+export function jidsAlternativos(numero, ehGrupo) {
   if (ehGrupo) return [];
   const lista = [];
   if (/^55\d{2}9\d{8}$/.test(numero)) {
@@ -49,7 +49,7 @@ function jidsAlternativos(numero, ehGrupo) {
   return lista;
 }
 
-async function buscarMensagensDoChat(evoHeaders, remoteJid) {
+export async function buscarMensagensDoChat(evoHeaders, remoteJid) {
   const r = await fetch(`${EVOLUTION_API_URL}/chat/findMessages/${INSTANCE_NAME}`, {
     method: 'POST',
     headers: evoHeaders,

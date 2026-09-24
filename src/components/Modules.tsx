@@ -618,6 +618,9 @@ const MessageStatusTicks = ({ status }: { status?: string }) => {
   );
 };
 
+// Conversas cujas mensagens antigas ja tiveram os tiques buscados na Evolution nesta sessao (1 vez por conversa).
+const tiquesBackfillFeitoPhones = new Set<string>();
+
 const mapCrmMessageRow = (row: any): any => ({
   id: row.id,
   companyId: row.company_id,
@@ -3923,6 +3926,17 @@ export const ChatPanel = ({
 
         if (cancelado || minhaBusca !== ultimaBusca) return true; // superada/cancelada: nao dispara a fonte reserva
         setMessages(mapped);
+        // Mensagens enviadas ANTES dos tiques existirem nao tem status: pede ao servidor pra buscar na Evolution
+        // (1 vez por conversa). Ao gravar, o Realtime de crm_messages recarrega a lista sozinho.
+        if (conversation.phone && !tiquesBackfillFeitoPhones.has(conversation.phone)
+          && mapped.some((m: any) => m.direction === 'outgoing' && !m.isNote && m.whatsappMessageId && !m.deliveryStatus)) {
+          tiquesBackfillFeitoPhones.add(conversation.phone);
+          fetch('/api/whatsapp-backfill-status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
+            body: JSON.stringify({ phone: conversation.phone }),
+          }).catch(() => { /* nao critico: so nao mostra tique nas antigas */ });
+        }
         if (conversation.phone && !sweptTranscriptionPhonesRef.current.has(conversation.phone)
           && mapped.some((m: any) => m.direction === 'incoming' && (m.transcriptionStatus === 'pending' || m.transcriptionStatus === 'processing'))) {
           sweptTranscriptionPhonesRef.current.add(conversation.phone);
