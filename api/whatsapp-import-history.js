@@ -11,6 +11,7 @@
 import { EVOLUTION_API_URL, EVOLUTION_API_KEY, INSTANCE_NAME, SUPABASE_URL, SUPABASE_ANON_KEY, COMPANY_ID, supabaseHeaders } from './_lib/whatsapp-config.js';
 import { exigirUsuarioAutorizado } from './_lib/auth.js';
 import { timestampParaIso } from './_lib/timestamp.js';
+import { espelharFotoNoStorage } from './_lib/foto-perfil-storage.js';
 
 const supaHeaders = supabaseHeaders();
 
@@ -111,6 +112,8 @@ async function garantirLead(phone, nome, evoHeaders) {
     if (picRes.ok) {
       const picData = await picRes.json();
       fotoUrl = picData?.profilePictureUrl || picData?.url || null;
+      // Guarda no Storage (a URL do WhatsApp expira); se nao der, segue com a URL original.
+      if (fotoUrl) fotoUrl = (await espelharFotoNoStorage(phone, fotoUrl)) || fotoUrl;
     }
   } catch (err) {
     console.error('Falha ao buscar foto do contato durante importação (nao impede o resto):', err);

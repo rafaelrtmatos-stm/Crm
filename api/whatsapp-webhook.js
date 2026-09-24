@@ -19,6 +19,7 @@ import { waitUntil } from '@vercel/functions';
 import { processarTranscricao, enfileirarTranscricao } from './_lib/transcricao-fila.js';
 import { encontrarNodeMidia, extrairTextoMensagem, extrairInfoMidia as extrairInfoMidiaCompartilhado } from './_lib/wa-parse.js';
 import { sinalizarMensagemNova } from './_lib/realtime-signal.js';
+import { espelharFotoNoStorage } from './_lib/foto-perfil-storage.js';
 
 // A transcrição de áudio roda em segundo plano (waitUntil) depois da resposta ao webhook;
 // dá tempo pra ela terminar (download + Gemini + 1 retry) sem cortar a função.
@@ -345,10 +346,13 @@ async function garantirFotoLead(phone, evoHeaders, jidGrupo) {
     const fotoUrl = picData?.profilePictureUrl || picData?.url || null;
     if (!fotoUrl) return;
 
+    // Guarda a foto no Storage (a URL do WhatsApp expira); se nao der, grava a URL original como antes.
+    const fotoFinal = (await espelharFotoNoStorage(phone, fotoUrl)) || fotoUrl;
+
     await fetch(`${SUPABASE_URL}/rest/v1/leads?id=eq.${leads[0].id}`, {
       method: 'PATCH',
       headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ photo_url: fotoUrl }),
+      body: JSON.stringify({ photo_url: fotoFinal }),
     });
   } catch (err) {
     console.error('Falha ao buscar foto do contato (nao impede o resto):', err);

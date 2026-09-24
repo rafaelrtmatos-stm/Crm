@@ -10,6 +10,7 @@
 // resposta: { ok: true, photoUrl?: string, atualizada: boolean }
 import { EVOLUTION_API_URL, EVOLUTION_API_KEY, INSTANCE_NAME, SUPABASE_URL, SUPABASE_ANON_KEY, COMPANY_ID } from './_lib/whatsapp-config.js';
 import { exigirUsuarioAutorizado } from './_lib/auth.js';
+import { espelharFotoNoStorage } from './_lib/foto-perfil-storage.js';
 
 const supaHeaders = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json' };
 
@@ -58,15 +59,21 @@ export default async function handler(req, res) {
 
     const atual = await fetch(`${SUPABASE_URL}/rest/v1/leads?company_id=eq.${COMPANY_ID}&phone=eq.${numero}&select=id,photo_url`, { headers: supaHeaders });
     const leads = atual.ok ? await atual.json() : [];
-    const alvos = Array.isArray(leads) ? leads.filter((l) => l.photo_url !== fotoUrl) : [];
+    const leadsLista = Array.isArray(leads) ? leads : [];
+
+    // Guarda a foto no nosso Storage (a URL do WhatsApp expira). Se nao der, segue com a URL original.
+    // Se o lead ja tem a mesma versao espelhada, nada e regravado e a URL volta igual.
+    const fotoFinal = (await espelharFotoNoStorage(numero, fotoUrl, leadsLista[0]?.photo_url ?? null)) || fotoUrl;
+
+    const alvos = leadsLista.filter((l) => l.photo_url !== fotoFinal);
     for (const l of alvos) {
       await fetch(`${SUPABASE_URL}/rest/v1/leads?id=eq.${l.id}`, {
         method: 'PATCH',
         headers: { ...supaHeaders, Prefer: 'return=minimal' },
-        body: JSON.stringify({ photo_url: fotoUrl }),
+        body: JSON.stringify({ photo_url: fotoFinal }),
       });
     }
-    res.status(200).json({ ok: true, photoUrl: fotoUrl, atualizada: alvos.length > 0 });
+    res.status(200).json({ ok: true, photoUrl: fotoFinal, atualizada: alvos.length > 0 });
   } catch (err) {
     console.error('Falha ao atualizar foto do contato (não impede a conversa):', err);
     res.status(200).json({ ok: false, atualizada: false });
