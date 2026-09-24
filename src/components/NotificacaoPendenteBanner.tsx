@@ -5,11 +5,13 @@ import { supabase } from '../supabase';
 import type { AppUser } from '../types';
 import { cn } from './SharedUI';
 import { FotoNotificacao } from '../lib/notify';
+import { ehUuid } from '../lib/uuid';
 
 // NOTIFICACAO PENDENTE de uma conversa (tabela crm_notifications -- ja existe em producao,
-// espelho em supabase/create_crm_notifications.sql). UMA LINHA POR MENSAGEM recebida, criada
-// pelo gatilho do banco (crm_notify_incoming_message) com status 'pending'. Aqui as pendentes
-// do mesmo contato/grupo aparecem AGRUPADAS num unico aviso.
+// espelho em supabase/create_crm_notifications.sql). Desde a migration "formato enxuto" (23/09) e
+// UMA LINHA POR CONVERSA (UNIQUE company_id + phone, com waiting_since) -- NAO existe mais a coluna
+// message_id. O gatilho do banco (crm_notify_incoming_message) cria/atualiza a linha a cada mensagem
+// recebida. Consultar por message_id devolve 400 (coluna inexistente): busque por company_id + phone.
 //
 // REGRA PRINCIPAL: visualizar a mensagem != resolver a notificacao.
 //   * Abrir a conversa, clicar na notificacao ou rolar ate a mensagem NAO resolvem nada: este
@@ -111,6 +113,8 @@ export function useNotificacaoPendente(phone?: string | null, refreshKey?: numbe
  * aviso estava na tela, ela nasce pendente e NAO e resolvida junto.
  */
 export async function marcarNotificacoesResolvidas(ids: string[], resolvidoPor?: string | null): Promise<boolean> {
+  // Um id fora do formato uuid derruba o lote inteiro com 400 (22P02): filtra antes de montar a consulta.
+  ids = ids.filter(ehUuid);
   if (!ids.length) return true;
   // Em lotes: `.in('id', ...)` vai na URL, e centenas de ids de uma vez (grupo movimentado) passam do limite dela.
   const quando = new Date().toISOString();
@@ -238,10 +242,27 @@ export const formatarHoraNotificacao = (iso?: string | null): string => {
  * banco roda na mesma transacao da mensagem, entao a linha ja existe; tenta de novo uma vez
  * por garantia. `null` = sem linha (gatilho falhou): quem chamou cai no comportamento antigo.
  */
-export const buscarNotificacaoDaMensagem = async (messageId?: string | null, user?: AppUser | null) => {
-  if (!messageId) return null;
+// Freio contra tempestade de erros: se a consulta falhar (schema, permissao, rede), NAO insiste a cada
+// mensagem que chega. Cada falha seguida dobra a pausa (15s, 30s, 60s... ate 5 min); um sucesso zera.
+// Durante a pausa retorna null e quem chamou cai no comportamento antigo (aviso sem dados da notificacao).
+const PAUSA_BASE_MS = 15_000;
+const PAUSA_MAX_MS = 5 * 60_000;
+const freioBusca = { falhasSeguidas: 0, pausadoAte: 0 };
+
+export const buscarNotificacaoDaMensagem = async (phone?: string | null, user?: AppUser | null) => {
+  const telefone = String(phone ?? '').trim();
+  if (!telefone) return null;
+  if (Date.now() < freioBusca.pausadoAte) return null;
   for (let tentativa = 0; tentativa < 2; tentativa++) {
-    const { data } = await supabase.from('crm_notifications').select('*').eq('message_id', messageId).limit(1);
+    const { data, error } = await supabase.from('crm_notifications').select('*').eq('company_id', 'rafa-arts').eq('phone', telefone).limit(1);
+    if (error) {
+      freioBusca.falhasSeguidas += 1;
+      freioBusca.pausadoAte = Date.now() + Math.min(PAUSA_MAX_MS, PAUSA_BASE_MS * 2 ** (freioBusca.falhasSeguidas - 1));
+      console.warn('Consulta a crm_notifications falhou; pausando novas tentativas:', error.message || error);
+      return null;
+    }
+    freioBusca.falhasSeguidas = 0;
+    freioBusca.pausadoAte = 0;
     const row = data?.[0];
     if (row) {
       const permitidos = row.is_group ? await carregarGruposPermitidos(user?.id, !!user?.isAdmin) : new Set<string>();

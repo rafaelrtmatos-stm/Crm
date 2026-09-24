@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
+import { Virtuoso } from 'react-virtuoso';
 import { createPortal } from 'react-dom';
 import { collection, query, where, orderBy, onSnapshot, getDocs, doc, writeBatch, addDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -943,8 +944,14 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
           )}
 
           {/* Lista de conversas */}
-          <div className="flex-1 overflow-y-auto custom-scrollbar">
-            {filteredLeads.map(l => {
+          {/* Lista virtualizada: so as conversas visiveis ficam no DOM (antes eram todas, com calculo de SLA em cada uma). */}
+          <div className="flex-1 min-h-0 relative">
+            <Virtuoso
+              className="absolute inset-0 custom-scrollbar"
+              data={filteredLeads}
+              computeItemKey={(_, l) => l.id}
+              increaseViewportBy={400}
+              itemContent={(_, l) => {
               const timeStr = formatListTime(leadLastMessageDate(l));
 
               const waitingSinceDate = l.waitingSince
@@ -1050,7 +1057,8 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                   </div>
                 </div>
               );
-            })}
+            }}
+            />
           </div>
         </div>
       </div>

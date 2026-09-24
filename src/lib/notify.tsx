@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AlertTriangle, CheckCircle2, MessageSquare, X } from 'lucide-react';
+import { fotoUsavel, marcarFotoQuebrada } from './foto';
 
 type ToastItem = { id: number; message: string };
 type MessageToastItem = { id: number; key: string; title: string; body: string; photoUrl?: string; time?: string; waitLabel?: string; onClick?: () => void };
@@ -39,11 +40,12 @@ export function urlDeFotoValida(url?: string | null): string | null {
  * imagem falhar ao carregar (URL do WhatsApp expira), mostra `fallback` -- nunca imagem quebrada.
  */
 export function FotoNotificacao({ url, className, fallback }: { url?: string | null; className: string; fallback: React.ReactNode }) {
-  const src = urlDeFotoValida(url);
+  // fotoUsavel: URL vencida (oe= do WhatsApp) ou que ja falhou nesta sessao nem e requisitada.
+  const src = fotoUsavel(url);
   const [falhou, setFalhou] = useState(false);
   useEffect(() => { setFalhou(false); }, [src]);
   if (!src || falhou) return <>{fallback}</>;
-  return <img src={src} alt="" className={className} onError={() => setFalhou(true)} />;
+  return <img src={src} alt="" className={className} decoding="async" onError={() => { marcarFotoQuebrada(src); setFalhou(true); }} />;
 }
 
 /**

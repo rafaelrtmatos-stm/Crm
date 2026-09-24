@@ -1,6 +1,7 @@
 import { AppContext } from '../AppContext';
 import React, { useState, useEffect, useMemo, useRef, Suspense, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import { ContractApprovalModule } from './ContractApprovalModule';
 import { ContractSignatureOtpPanel } from './ContractSignatureOtpPanel';
 import { ContractAcceptanceDetailsModal } from './ContractAcceptanceDetailsModal';
@@ -3263,6 +3264,9 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
 };
 
 // --- CHAT PANEL (Right Content) ---
+// Espacador do topo/fim da lista virtualizada de mensagens (substitui o p-4 do container antigo).
+const ChatListSpacer = () => <div className="h-4" />;
+
 export const ChatPanel = ({ 
   conversation, 
   onClose,
@@ -4028,6 +4032,8 @@ export const ChatPanel = ({
   const { pendingOpenMessageId, setPendingOpenMessageId } = React.useContext(AppContext)!;
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const ultimoTotalMensagensRef = useRef(0);
   const pendingOpenMessageIdRef = useRef<string | null>(pendingOpenMessageId);
   pendingOpenMessageIdRef.current = pendingOpenMessageId;
   const highlightedMessageIdRef = useRef<string | null>(highlightedMessageId);
@@ -4061,22 +4067,15 @@ export const ChatPanel = ({
     // Aba interna da conversa (Dados / Notas / Tarefas...) errada: volta pro Chat e tenta de novo.
     if (activeTab !== 'chat') { setActiveTab('chat'); return; }
 
-    const localizar = () => {
-      const container = messagesScrollRef.current;
-      const el = container
-        ? (Array.from(container.querySelectorAll('[data-message-id]')) as HTMLElement[]).find(n => n.dataset.messageId === String(alvo)) || null
-        : null;
-      return container && el ? { container, el } : null;
-    };
-    // Centraliza a mensagem DENTRO do container do chat (sem mexer na rolagem da pagina).
+    // Lista virtualizada (react-virtuoso): so as mensagens visiveis existem no DOM, entao a mensagem-alvo
+    // e achada pelo INDICE e centralizada pela propria lista. Antes era querySelectorAll + getBoundingClientRect
+    // + scrollTop, que forcavam reflow (layout sincrono) do historico inteiro.
     const posicionar = () => {
-      const achou = localizar();
-      if (!achou) return false;
-      const { container, el } = achou;
-      const er = el.getBoundingClientRect();
-      const cr = container.getBoundingClientRect();
-      const folga = Math.max(8, (container.clientHeight - er.height) / 2);
-      container.scrollTop += (er.top - cr.top) - folga;
+      const lista = virtuosoRef.current;
+      if (!lista) return false; // aba do chat ainda montando: o tentar() repete
+      const indice = chatMessages.findIndex(m => String(m.id) === String(alvo));
+      if (indice < 0) return false;
+      lista.scrollToIndex({ index: indice, align: 'center', behavior: 'auto' });
       return true;
     };
 
@@ -4110,7 +4109,12 @@ export const ChatPanel = ({
     // conversa (era isso que fazia o chat sempre abrir na ultima mensagem).
     const alvo = pendingOpenMessageIdRef.current;
     if (highlightedMessageIdRef.current || (alvo && messages.some(m => String(m.id) === String(alvo)))) return;
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const total = chatMessages.length;
+    if (total === 0) return;
+    // Abriu a conversa / carregou o historico (salto grande): vai direto, sem animar por milhares de mensagens.
+    const saltou = Math.abs(total - ultimoTotalMensagensRef.current) > 5;
+    ultimoTotalMensagensRef.current = total;
+    virtuosoRef.current?.scrollToIndex({ index: total - 1, align: 'end', behavior: saltou ? 'auto' : 'smooth' });
   }, [messages]);
 
   // --- Notificacao pendente desta conversa (regras 6 e 7) ---
@@ -4532,7 +4536,7 @@ export const ChatPanel = ({
                   onResolver={handleResolverNotificacao}
                 />
               )}
-              <div ref={messagesScrollRef} className="flex-1 p-4 overflow-y-auto space-y-4 custom-scrollbar">
+              <div ref={messagesScrollRef} className={cn("flex-1 min-h-0 relative", chatMessages.length === 0 && "p-4 overflow-y-auto space-y-4 custom-scrollbar")}>
                  {chatMessages.length === 0 && (
                    <div className="flex flex-col items-center justify-center h-full space-y-3 py-10">
                       <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-white/30">
@@ -4564,7 +4568,16 @@ export const ChatPanel = ({
                    </div>
                  )}
                  
-                 {chatMessages.map((m, idx) => {
+                 {chatMessages.length > 0 && (
+                 <Virtuoso
+                   ref={virtuosoRef}
+                   className="absolute inset-0 custom-scrollbar"
+                   data={chatMessages}
+                   computeItemKey={(idx, m) => m.id || idx}
+                   initialTopMostItemIndex={{ index: 'LAST', align: 'end' }}
+                   increaseViewportBy={{ top: 600, bottom: 600 }}
+                   components={{ Header: ChatListSpacer, Footer: ChatListSpacer }}
+                   itemContent={(idx, m) => {
                     const isOutgoing = m.direction === 'outgoing';
                     const msgDate = parseMsgDate(m.createdAt);
                     // Mostra so a hora quando a mensagem e' de hoje; senao mostra
@@ -4598,6 +4611,7 @@ export const ChatPanel = ({
                     })();
                     
                     return (
+                      <div className="px-4 pb-4">
                       <div key={m.id || idx} data-message-id={m.id} className={cn("flex", isOutgoing ? "justify-end" : "justify-start")}>
                         <div className={cn("group space-y-1", isOutgoing ? "text-right" : "")}>
                            <div className={cn(
@@ -4706,9 +4720,11 @@ export const ChatPanel = ({
                            </div>
                         </div>
                       </div>
+                      </div>
                     );
-                 })}
-                 <div ref={messagesEndRef} />
+                 }}
+                 />
+                 )}
               </div>
 
               {/* Chat Input - FIXO */}

@@ -1470,7 +1470,8 @@ export default function App() {
     // comportamento antigo, desde que o usuario tenha acesso a Mensagens.
     const usuarioAtual = userRef.current;
     if (!usuarioPodeVerMensagens(usuarioAtual)) return;
-    const info = await buscarNotificacaoDaMensagem(row.id, usuarioAtual).catch(() => null);
+    // Consulta por telefone: crm_notifications tem 1 linha por conversa (nao tem mais message_id).
+    const info = await buscarNotificacaoDaMensagem(row.phone, usuarioAtual).catch(() => null);
     if (info && !info.visivel) return;
     // Sem linha em crm_notifications (gatilho falhou): confere pelo telefone se a mensagem e de um GRUPO.
     // Grupo que este usuario nao pode ver nunca avisa, e o titulo e o nome do grupo (nao o do participante).

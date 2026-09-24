@@ -4,6 +4,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { Search, Filter, ChevronRight, X, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { formatPhoneBR, formatCpfCnpj, validateCpfCnpj, looksLikeValidRG } from '../lib/validators';
+import { fotoUsavel, marcarFotoQuebrada, AVATAR_PADRAO } from '../lib/foto';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -24,19 +25,24 @@ export const AvatarPhoto = ({ photoUrl, name, className, imgClassName, textClass
 }) => {
   const [failed, setFailed] = React.useState(false);
   React.useEffect(() => { setFailed(false); }, [photoUrl]);
-  const inicial = (name || '?').trim().charAt(0).toUpperCase();
+  // fotoUsavel descarta URL vazia, ja vencida (oe= do WhatsApp) ou que ja falhou nesta sessao: nem pede ao navegador.
+  const src = failed ? null : fotoUsavel(photoUrl);
+  const inicial = (name || '').trim().charAt(0).toUpperCase();
   return (
     <div className={cn('rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center overflow-hidden', className)}>
-      {photoUrl && !failed ? (
+      {src ? (
         <img
-          src={photoUrl}
+          src={src}
           alt={name}
           className={cn('w-full h-full object-cover', imgClassName)}
           referrerPolicy="no-referrer"
-          onError={() => setFailed(true)}
+          decoding="async"
+          onError={() => { marcarFotoQuebrada(src); setFailed(true); }}
         />
-      ) : (
+      ) : inicial ? (
         <span className={cn('font-black text-slate-400', textClassName)}>{inicial}</span>
+      ) : (
+        <img src={AVATAR_PADRAO} alt="" className={cn('w-full h-full object-cover', imgClassName)} />
       )}
     </div>
   );
