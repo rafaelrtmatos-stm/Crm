@@ -1390,16 +1390,20 @@ export default function App() {
   // Vale igual pra grupo: o grupo tem lead proprio (phone = digitos do JID do grupo), entao
   // abrir por telefone ja abre o grupo. `messageId` e a mensagem que gerou a notificacao: o
   // ChatPanel (Modules.tsx) rola ate ela e a destaca, em vez de cair no fim da conversa.
-  const openNotificationLead = async (phone?: string | null, messageId?: string | null) => {
+  const openNotificationLead = async (phone?: string | null, messageId?: string | null, isGroup?: boolean) => {
     setPendingOpenMessageId(messageId || null);
     if (messageId) {
       // Se a conversa nao chegar a abrir (lead nao encontrado), nao deixa o alvo preso pra
       // pular pra uma mensagem antiga quando essa conversa for aberta manualmente depois.
       setTimeout(() => setPendingOpenMessageId(cur => (cur === messageId ? null : cur)), 15000);
     }
-    // Regra 9: de qualquer tela do CRM, o clique leva pra aba Mensagens (MessagesModule abre a
-    // conversa via pendingOpenLeadId; se ja for a conversa aberta, nao abre outra).
-    setActiveTab('messages');
+    // De qualquer tela do CRM, o clique leva pra aba FUNIL CRM (CRMModule abre a conversa do lead
+    // via pendingOpenLeadId e o ChatPanel rola ate a mensagem; se ja for a conversa aberta, nao
+    // abre outra). Conversa de GRUPO nao tem card no Funil (so existe como indice da aba
+    // Mensagens), entao so ela continua indo pra Mensagens. Sem a flag, grupo = telefone com
+    // mais de 15 digitos (digitos do group_jid), a mesma regra usada na aba Mensagens.
+    const ehGrupo = isGroup ?? (String(phone || '').replace(/\D/g, '').length > 15);
+    setActiveTab(ehGrupo ? 'messages' : 'crm');
     if (!phone) return;
 
     const findAndSelectLead = async (): Promise<boolean> => {
@@ -1437,7 +1441,7 @@ export default function App() {
     }
   };
 
-  const abrirNotificacao = (n: NotificacaoPendente) => { openNotificationLead(n.phone, n.messageId); };
+  const abrirNotificacao = (n: NotificacaoPendente) => { openNotificationLead(n.phone, n.messageId, n.isGroup); };
 
   // Clique numa notificacao mostrada pelo service worker (public/sw.js): o SW avisa a aba
   // aberta e aqui abrimos a conversa, igual o onclick da Notification antiga fazia.

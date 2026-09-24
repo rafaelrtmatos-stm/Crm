@@ -3356,12 +3356,29 @@ export const ChatPanel = ({
 
   const handleChangeStageFromChat = async (novaStageId: string) => {
     if (!conversation?.id || novaStageId === conversation.funnelStageId) return;
+    const stageAnterior = conversation.funnelStageId;
+    const funnelAnterior = conversation.funnelId;
     setIsChangingStage(true);
+    // Atualiza a tela na hora (dropdown + card no Kanban) -- antes so o banco era gravado e a
+    // tela dependia do Realtime devolver a mudanca; se ele demorasse/falhasse, a etapa parecia
+    // "voltar" e nao salvar, mesmo com o banco ja atualizado.
+    onLeadPatched?.(conversation.id, { funnelStageId: novaStageId, ...(effectiveFunnelId ? { funnelId: effectiveFunnelId } : {}) });
     try {
-      const { error } = await supabase.from('leads').update({ funnel_stage_id: novaStageId, company_id: 'rafa-arts', updated_at: new Date().toISOString() }).eq('id', conversation.id).eq('company_id', 'rafa-arts');
+      // Grava tambem o funil da etapa (evita lead com etapa de um funil e funnel_id de outro).
+      // .select('id') devolve as linhas alteradas: 0 linhas = nada foi salvo (antes isso passava
+      // como sucesso, sem erro e sem aviso).
+      const { data, error } = await supabase.from('leads').update({
+        funnel_stage_id: novaStageId,
+        ...(effectiveFunnelId ? { funnel_id: effectiveFunnelId } : {}),
+        company_id: 'rafa-arts',
+        updated_at: new Date().toISOString(),
+      }).eq('id', conversation.id).eq('company_id', 'rafa-arts').select('id');
       if (error) throw error;
+      if (!data || data.length === 0) throw new Error('Nenhuma linha atualizada (lead nao encontrado ou sem permissao).');
     } catch (err) {
       console.error('Erro ao mudar etapa:', err);
+      // Desfaz a mudanca otimista: nao deixa a tela mostrando uma etapa que nao foi salva.
+      onLeadPatched?.(conversation.id, { funnelStageId: stageAnterior, funnelId: funnelAnterior });
       showAlert('Não foi possível mudar a etapa.');
     } finally {
       setIsChangingStage(false);
@@ -5173,8 +5190,8 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     loadFunnels();
     loadLeads();
 
-    const funnelsChannel = supabase.channel('crm-funnels').on('postgres_changes', { event: '*', schema: 'public', table: 'funnels', filter: `company_id=eq.${currentCompany.id}` }, loadFunnels).subscribe();
-    const leadsChannel = supabase.channel('crm-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.${currentCompany.id}` }, loadLeads).subscribe();
+    const funnelsChannel = supabase.channel('crm-funnels').on('postgres_changes', { event: '*', schema: 'public', table: 'funnels', filter: `company_id=eq.rafa-arts` }, loadFunnels).subscribe();
+    const leadsChannel = supabase.channel('crm-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.rafa-arts` }, loadLeads).subscribe();
 
     return () => {
       supabase.removeChannel(funnelsChannel);
@@ -6683,7 +6700,7 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
     return () => { supabase.removeChannel(channel); };
   }, [currentCompany]);
 
-  // Vindo de uma NOTIFICACAO (App.tsx openNotificationLead troca pra esta aba e guarda o lead em
+  // Vindo de uma NOTIFICACAO de GRUPO (App.tsx openNotificationLead troca pra esta aba e guarda o lead em
   // pendingOpenLeadId): abre a conversa correta. Se ja e a conversa aberta, NAO abre outra nem
   // duplica: so consome o pedido -- o ChatPanel reposiciona na mensagem-alvo (pendingOpenMessageId)
   // e o realtime atualiza mensagens e contador. Abrir a conversa NAO resolve a notificacao.
