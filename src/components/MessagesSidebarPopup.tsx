@@ -690,10 +690,12 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                       >
                         
                         <p className="px-3.5 pt-1 pb-1 text-[11px] font-black uppercase tracking-wider text-slate-400 whitespace-nowrap">Ações</p>
-                        <button type="button" onClick={() => startSelection('group')} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 hover:bg-slate-50 transition-colors text-left whitespace-nowrap">
+                        {user?.isAdmin && (
+                          <button type="button" onClick={() => startSelection('group')} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 hover:bg-slate-50 transition-colors text-left whitespace-nowrap">
                           <CirclePlus size={16} className="text-slate-400 shrink-0" />
                           <span className="whitespace-nowrap">Criar um grupo</span>
                         </button>
+                        )}
                         <button type="button" onClick={() => startSelection('bulk')} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 hover:bg-slate-50 transition-colors text-left whitespace-nowrap">
                           <CheckSquare size={16} className="text-slate-400 shrink-0" />
                           <span className="whitespace-nowrap">Ações múltiplas</span>
@@ -741,12 +743,16 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                           </button>
                         ))}
                         <div className="border-t border-slate-100 my-1.5" />
+                        {user?.isAdmin && (
+                          <>
                         <p className="px-3.5 pt-1 pb-1 text-[11px] font-black uppercase tracking-wider text-slate-400 whitespace-nowrap">Contatos</p>
                         <button type="button" onClick={() => { setIsMenuOpen(false); setIsMergeOpen(true); }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 hover:bg-slate-50 transition-colors text-left whitespace-nowrap">
                           <GitMerge size={16} className="text-slate-400 shrink-0" />
                           <span className="whitespace-nowrap">Mesclar contatos duplicados</span>
                         </button>
                         <div className="border-t border-slate-100 my-1.5" />
+                          </>
+                        )}
                         <p className="px-3.5 pt-1 pb-1 text-[11px] font-black uppercase tracking-wider text-slate-400 whitespace-nowrap">Notificações</p>
                         <button type="button" onClick={() => startSelection('mute')} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 hover:bg-slate-50 transition-colors text-left whitespace-nowrap">
                           <VolumeX size={16} className="text-slate-400 shrink-0" />
@@ -788,65 +794,31 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                 criterio do Alerta de Vácuo); "Favoritas" reaproveita priority==='alta'
                 (mesmo campo usado pela bandeira/Destaque no menu de ações em lote);
                 "Grupos" cruza com whatsapp_groups liberados (ver useEffect acima). */}
-            <div className="flex gap-1.5 overflow-x-auto no-scrollbar -mx-1 px-1">
-              <button
-                type="button"
-                onClick={() => setViewFilter('all')}
-                className={cn(
-                  "shrink-0 px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all flex items-center gap-1.5",
-                  viewFilter === 'all'
-                    ? "bg-primary-50 border-primary-200 text-primary-700"
-                    : "bg-transparent border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-100"
-                )}
-              >
-                Tudo
-                <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-[8px]">{leads.length}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewFilter('unread')}
-                className={cn(
-                  "shrink-0 px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all flex items-center gap-1.5",
-                  viewFilter === 'unread'
-                    ? "bg-rose-50 border-rose-200 text-rose-600"
-                    : "bg-transparent border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-100",
-                  unrepliedCount > 0 && viewFilter !== 'unread' && "animate-pulse"
-                )}
-              >
-                Não lidas
-                <span className={cn(
-                  "px-1.5 py-0.5 rounded text-[8px] font-black",
-                  unrepliedCount > 0 ? "bg-rose-500 text-white" : "bg-slate-100 text-slate-400"
-                )}>
-                  {unrepliedCount}
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewFilter('favorite')}
-                className={cn(
-                  "shrink-0 px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all flex items-center gap-1.5",
-                  viewFilter === 'favorite'
-                    ? "bg-amber-50 border-amber-200 text-amber-600"
-                    : "bg-transparent border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-100"
-                )}
-              >
-                Favoritas
-                <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-[8px]">{favoriteCount}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewFilter('group')}
-                className={cn(
-                  "shrink-0 px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all flex items-center gap-1.5",
-                  viewFilter === 'group'
-                    ? "bg-emerald-50 border-emerald-200 text-emerald-600"
-                    : "bg-transparent border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-100"
-                )}
-              >
-                Grupos
-                <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-[8px]">{groupCount}</span>
-              </button>
+            <div className="flex flex-wrap gap-1">
+              {([
+                { key: 'all', label: 'Tudo', count: leads.length, ativo: 'bg-primary-50 border-primary-200 text-primary-700', alerta: false },
+                { key: 'unread', label: 'Não lidas', count: unrepliedCount, ativo: 'bg-rose-50 border-rose-200 text-rose-600', alerta: unrepliedCount > 0 },
+                { key: 'favorite', label: 'Favoritas', count: favoriteCount, ativo: 'bg-amber-50 border-amber-200 text-amber-600', alerta: false },
+                { key: 'group', label: 'Grupos', count: groupCount, ativo: 'bg-emerald-50 border-emerald-200 text-emerald-600', alerta: false },
+              ] as const).map(chip => (
+                <button
+                  key={chip.key}
+                  type="button"
+                  onClick={() => setViewFilter(chip.key)}
+                  className={cn(
+                    "shrink-0 px-2 py-1 rounded-full border text-[12px] font-semibold transition-all flex items-center gap-1",
+                    viewFilter === chip.key ? chip.ativo : "bg-white border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700",
+                    chip.alerta && viewFilter !== chip.key && "animate-pulse"
+                  )}
+                >
+                  {chip.label}
+                  <span className={cn(
+                    chip.alerta ? "bg-rose-500 text-white rounded-full px-1.5 min-w-[16px] text-center text-[10px] font-black leading-4" : "text-[11px] font-bold opacity-70"
+                  )}>
+                    {chip.count}
+                  </span>
+                </button>
+              ))}
             </div>
           </div>
 
