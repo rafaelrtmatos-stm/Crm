@@ -14,6 +14,7 @@ import { EVOLUTION_API_URL, EVOLUTION_API_KEY, INSTANCE_NAME, SUPABASE_URL, SUPA
 import { exigirUsuarioAutorizado } from './_lib/auth.js';
 import { timestampParaIso } from './_lib/timestamp.js';
 import { extrairTextoMensagem, extrairInfoMidia } from './_lib/wa-parse.js';
+import { statusMaisAvancado } from './_lib/wa-status.js';
 
 const supaHeaders = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
 
@@ -94,6 +95,10 @@ function paraFormatoDoFront(msg, numero, ehGrupo) {
     // Fase 4 (fila de transcrição em tabela própria). Sem isso aqui, áudio antigo re-buscado
     // por essa rota perde o texto já transcrito -- resolvido quando o passo 2 mesclar com
     // crm_messages, não neste endpoint isolado.
+    // Tiques (so mensagem enviada por nos): a Evolution guarda o status na propria mensagem e/ou na lista MessageUpdate.
+    deliveryStatus: direction === 'outgoing'
+      ? (statusMaisAvancado([msg?.status, msg?.update?.status, ...(Array.isArray(msg?.MessageUpdate) ? msg.MessageUpdate.map((u) => u?.status) : [])]) || undefined)
+      : undefined,
     createdAt,
   };
 }

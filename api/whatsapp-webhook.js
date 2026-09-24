@@ -20,6 +20,7 @@ import { processarTranscricao, enfileirarTranscricao } from './_lib/transcricao-
 import { encontrarNodeMidia, extrairTextoMensagem, extrairInfoMidia as extrairInfoMidiaCompartilhado } from './_lib/wa-parse.js';
 import { sinalizarMensagemNova } from './_lib/realtime-signal.js';
 import { espelharFotoNoStorage } from './_lib/foto-perfil-storage.js';
+import { normalizarStatusEntrega, statusesSubstituiveis } from './_lib/wa-status.js';
 
 // A transcrição de áudio roda em segundo plano (waitUntil) depois da resposta ao webhook;
 // dá tempo pra ela terminar (download + Gemini + 1 retry) sem cortar a função.
@@ -384,6 +385,56 @@ async function atualizarPresenca(phone, status, lastSeenAt) {
   }).catch((err) => console.error('Falha ao gravar presença (nao impede o resto):', err));
 }
 
+// MESSAGES_UPDATE: a Evolution avisa quando uma mensagem ENVIADA por nos foi entregue / lida (os "tiques").
+// Formatos aceitos: { keyId|messageId, remoteJid, fromMe, status } (Evolution v2), ou
+// [{ key: { id, remoteJid, fromMe }, update: { status } }] (Baileys cru). Devolve so o que interessa:
+// [{ id (whatsapp_message_id), remoteJid, status: 'sent'|'delivered'|'read' }] -- so mensagens MINHAS.
+function extrairAtualizacoesStatus(data) {
+  const lista = Array.isArray(data) ? data : [data].filter(Boolean);
+  const saida = [];
+  for (const u of lista) {
+    const fromMe = u?.fromMe ?? u?.key?.fromMe;
+    if (fromMe === false) continue; // recibo de mensagem RECEBIDA (eu que li) nao interessa
+    const id = u?.keyId || u?.key?.id || u?.messageId || null;
+    const status = normalizarStatusEntrega(u?.status ?? u?.update?.status);
+    if (!id || !status) continue;
+    saida.push({ id, remoteJid: u?.remoteJid || u?.key?.remoteJid || '', status });
+  }
+  return saida;
+}
+
+// Grava o status na mensagem (crm_messages.delivery_status). So SOBE (sent -> delivered -> read): um evento
+// atrasado/reenviado nunca faz um "lido" voltar pra "entregue". Devolve o phone da conversa (ou null).
+async function atualizarStatusEntrega(atualizacao) {
+  try {
+    const permitidos = statusesSubstituiveis(atualizacao.status);
+    const condicoes = ['delivery_status.is.null', ...permitidos.map((p) => `delivery_status.eq.${p}`)].join(',');
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/crm_messages?company_id=eq.${COMPANY_ID}&whatsapp_message_id=eq.${encodeURIComponent(atualizacao.id)}&or=${encodeURIComponent(`(${condicoes})`)}&select=phone`,
+      {
+        method: 'PATCH',
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=representation',
+        },
+        body: JSON.stringify({ delivery_status: atualizacao.status }),
+      }
+    );
+    if (!r.ok) {
+      const corpo = await r.text().catch(() => '');
+      console.error('[CRM WEBHOOK] falha ao gravar status de entrega (rodou add_delivery_status_crm_messages.sql?):', r.status, corpo);
+      return null;
+    }
+    const linhas = await r.json().catch(() => []);
+    return Array.isArray(linhas) && linhas[0]?.phone ? linhas[0].phone : null;
+  } catch (err) {
+    console.error('[CRM WEBHOOK] falha ao gravar status de entrega (nao impede o resto):', err);
+    return null;
+  }
+}
+
 async function atualizarStatusConexao(status) {
   // Guarda o status da conexao (connecting | open | close) pro IntegracoesModule.tsx
   // conseguir ler e mostrar "Conectado"/"Desconectado" sem precisar perguntar direto
@@ -601,11 +652,33 @@ export default async function handler(req, res) {
       }
     }
 
-    // MESSAGES_UPDATE (status de entrega/leitura, edicao), MESSAGES_DELETE, MESSAGES_SET (carga de
+    // MESSAGES_UPDATE de status de entrega/leitura e' tratado acima (tiques). O resto do evento (edicao),
+    // MESSAGES_DELETE, MESSAGES_SET (carga de
     // historico), CHATS_*, CONTACTS_*, GROUP_PARTICIPANTS_UPDATE: reconhecidos com 200 e sem efeito no
     // CRM de proposito. O historico fica preservado em crm_messages (nada e apagado por evento de
     // exclusao) e MESSAGES_SET nao entra aqui pra nao inundar a lista de notificacoes com mensagens
     // antigas -- historico antigo entra por api/whatsapp-import-history.js.
+
+    // Tiques de entrega/leitura das mensagens que EU enviei (1 tique = enviada, 2 = entregue, 2 azuis = lida).
+    // Grava em crm_messages.delivery_status (o chat ja recarrega sozinho quando a linha muda). Com a leitura
+    // ao vivo na Evolution (WA_SEM_CRM_MESSAGES=1) nao ha linha pra atualizar, entao avisa o chat aberto
+    // pra rebuscar (o status vem junto do historico da Evolution).
+    if (evento === 'messages.update') {
+      const atualizacoes = extrairAtualizacoesStatus(body.data);
+      for (const a of atualizacoes) {
+        const remoto = String(a.remoteJid || '');
+        if (remoto && !remoto.endsWith('@g.us') && !remoto.endsWith('@s.whatsapp.net') && !remoto.endsWith('@lid')) continue;
+        const ehGrupoUpd = remoto.endsWith('@g.us');
+        const digitos = remoto.replace('@s.whatsapp.net', '').replace('@g.us', '').replace('@lid', '').replace(/\D/g, '');
+        const phoneDerivado = digitos ? (ehGrupoUpd ? digitos : normalizarTelefoneBR(digitos)) : null;
+        if (SEM_CRM_MESSAGES) {
+          if (phoneDerivado) waitUntil(sinalizarMensagemNova(phoneDerivado));
+          continue;
+        }
+        const phoneGravado = await atualizarStatusEntrega(a);
+        console.log(`[CRM WEBHOOK] status de entrega ${a.status} message_id=${a.id} ${phoneGravado ? 'atualizado' : '(sem mudanca)'}`);
+      }
+    }
 
     if (event === 'connection.update') {
       const status = body?.data?.state || body?.data?.status;

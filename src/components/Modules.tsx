@@ -50,6 +50,7 @@ import {
   Smartphone,
   Banknote,
   Check,
+  CheckCheck,
   CheckSquare,
   FileSignature,
   Ban,
@@ -605,6 +606,18 @@ const normalizarMediaUrl = (url?: string | null): string | undefined => {
   return m ? m[1] : url;
 };
 
+// Tiques de status da mensagem ENVIADA (igual ao WhatsApp): 1 tique cinza = enviada, 2 cinzas = entregue,
+// 2 azuis = lida. Sem status (mensagem antiga ou webhook MESSAGES_UPDATE ainda nao chegou) = nao mostra nada.
+const MessageStatusTicks = ({ status }: { status?: string }) => {
+  if (status !== 'sent' && status !== 'delivered' && status !== 'read') return null;
+  const label = status === 'read' ? 'Lida' : status === 'delivered' ? 'Entregue' : 'Enviada';
+  return (
+    <span title={label} aria-label={label} className={cn("inline-flex items-center", status === 'read' ? "text-sky-400" : "text-white/50")}>
+      {status === 'sent' ? <Check size={13} strokeWidth={2.5} /> : <CheckCheck size={13} strokeWidth={2.5} />}
+    </span>
+  );
+};
+
 const mapCrmMessageRow = (row: any): any => ({
   id: row.id,
   companyId: row.company_id,
@@ -621,6 +634,7 @@ const mapCrmMessageRow = (row: any): any => ({
   transcription: row.transcription || undefined,
   transcriptionStatus: row.transcription_status || undefined,
   transcriptionError: row.transcription_error || undefined,
+  deliveryStatus: row.delivery_status || undefined,
   versions: row.versions || undefined,
   currentVersionIndex: row.current_version_index ?? undefined,
   lastEditedAt: row.last_edited_at || undefined,
@@ -4703,6 +4717,7 @@ export const ChatPanel = ({
                            </div>
                            <div className={cn("text-[9px] font-bold flex items-center gap-1.5 mt-1", isOutgoing ? "justify-end mr-1" : "justify-start ml-1")}>
                              <span className="text-white/40">{timeStr}</span>
+                             {isOutgoing && !m.isNote && <MessageStatusTicks status={m.deliveryStatus} />}
                              <span className="text-white/20">•</span>
                              {isOutgoing ? (
                                <span className={cn(
