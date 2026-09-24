@@ -34,6 +34,47 @@ export function urlDeFotoValida(url?: string | null): string | null {
   return /^(https?:\/\/|data:image\/|blob:)/i.test(u) ? u : null;
 }
 
+// Copia PERMANENTE da foto (api/_lib/foto-perfil.js guarda em whatsapp-media/perfil/). A URL original do
+// WhatsApp (pps.whatsapp.net/...?oe=...) expira e vira 403; a notificacao NATIVA nao tem como tratar imagem
+// quebrada -- quando a foto nao carrega, o navegador mostra o icone do site (favicon).
+const MARCA_FOTO_PERMANENTE = '/storage/v1/object/public/whatsapp-media/perfil/';
+const fotosNotificacao = new Map<string, { url: string | null; em: number }>();
+
+/**
+ * Foto que vai no icone da notificacao nativa. Se a foto guardada no lead ainda for a URL antiga do WhatsApp,
+ * pede ao servidor a foto atual desse contato (ele baixa e guarda uma copia permanente) ANTES de mostrar,
+ * esperando no maximo ~3s (depois disso mostra com o que tiver, sem atrasar o aviso). Melhor esforco: qualquer
+ * falha devolve a URL que ja existia.
+ */
+export async function fotoParaNotificacao(phone: string | null | undefined, urlAtual: string | null | undefined, userId: string | null | undefined): Promise<string | null> {
+  const atual = urlDeFotoValida(urlAtual);
+  if (atual && atual.includes(MARCA_FOTO_PERMANENTE)) return atual;
+  const digitos = String(phone || '').replace(/\D/g, '');
+  if (!digitos || !userId) return atual;
+
+  const guardada = fotosNotificacao.get(digitos);
+  if (guardada && Date.now() - guardada.em < 10 * 60 * 1000) return guardada.url || atual;
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 3000);
+  try {
+    const r = await fetch('/api/whatsapp-foto-perfil', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-user-id': userId },
+      body: JSON.stringify({ phone: digitos }),
+      signal: ctrl.signal,
+    });
+    const d = await r.json();
+    const nova = urlDeFotoValida(d?.photoUrl);
+    fotosNotificacao.set(digitos, { url: nova, em: Date.now() });
+    return nova || atual;
+  } catch {
+    return atual;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * Foto do contato/grupo numa notificacao (sino, aviso na tela). Sem foto, com URL invalida ou se a
  * imagem falhar ao carregar (URL do WhatsApp expira), mostra `fallback` -- nunca imagem quebrada.

@@ -47,7 +47,7 @@ import {
 } from 'lucide-react';
 import { ChevronRight } from 'lucide-react';
 
-import { NotifyHost, showAlert, showMessageToast, urlDeFotoValida } from './lib/notify';
+import { NotifyHost, showAlert, showMessageToast, urlDeFotoValida, fotoParaNotificacao } from './lib/notify';
 import { sincronizarFilaOffline } from './lib/sincronizacaoOffline';
 import ComissoesAdminPanel from './comissoes/ComissoesAdminPanel';
 import { motion, AnimatePresence } from 'motion/react';
@@ -1520,9 +1520,11 @@ export default function App() {
       }
 
       if (!('Notification' in window) || Notification.permission !== 'granted') return;
+      // Foto valida pro icone: a URL antiga do WhatsApp expira (e a notificacao nativa cai no favicon).
+      const fotoIcone = await fotoParaNotificacao(row.phone, info?.photoUrl, usuarioAtual?.id);
       const opcoes = {
         body: corpo.length > 120 ? `${corpo.slice(0, 117)}...` : corpo,
-        icon: urlDeFotoValida(info?.photoUrl) || '/icon-192.png',
+        icon: urlDeFotoValida(fotoIcone) || '/icon-192.png',
         tag: `msg-${row.phone || row.id}`,
         data: { phone: row.phone || null, messageId: row.id || null },
       };
