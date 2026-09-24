@@ -493,6 +493,11 @@ export default async function handler(req, res) {
         const digitosRemoto = phoneRaw.replace('@s.whatsapp.net', '').replace('@g.us', '').replace('@lid', '').replace(/\D/g, '');
         const phone = ehGrupoMsg ? digitosRemoto : normalizarTelefoneBR(digitosRemoto);
         const text = extrairTextoMensagem(msg?.message);
+        // Diagnostico: mensagem sem texto extraivel e descartada em silencio -- registra so os TIPOS (sem conteudo)
+        // pra descobrir formatos novos de mensagem que ainda nao sao lidos.
+        if (!text && msg?.message && !encontrarNodeMidia(msg.message)) {
+          console.warn('[CRM WEBHOOK] mensagem sem texto extraivel (descartada); tipos =', Object.keys(msg.message).join(','));
+        }
         const whatsappMessageId = msg?.key?.id || null;
         const createdAt = timestampParaIso(msg?.messageTimestamp);
 
