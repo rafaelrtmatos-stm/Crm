@@ -1397,9 +1397,10 @@ export default function App() {
       // pular pra uma mensagem antiga quando essa conversa for aberta manualmente depois.
       setTimeout(() => setPendingOpenMessageId(cur => (cur === messageId ? null : cur)), 15000);
     }
-    // Regra 9: de qualquer tela do CRM, o clique leva pra aba Mensagens (MessagesModule abre a
-    // conversa via pendingOpenLeadId; se ja for a conversa aberta, nao abre outra).
-    setActiveTab('messages');
+    // O clique leva pro Funil CRM (CRMModule abre o card/conversa via pendingOpenLeadId, igual ao
+    // painel Mensagens do menu lateral). Fecha o painel lateral caso esteja aberto.
+    setIsMessagePopupOpen(false);
+    setActiveTab('crm');
     if (!phone) return;
 
     const findAndSelectLead = async (): Promise<boolean> => {

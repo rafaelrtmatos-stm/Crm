@@ -4759,14 +4759,14 @@ export const ChatPanel = ({
                                      <img src={m.mediaUrl} alt={m.fileName || 'Imagem recebida'} className="max-w-full max-h-64 object-cover rounded-xl hover:opacity-90 transition-opacity" loading="lazy" />
                                    </a>
                                    {m.text && m.text !== '📷 Imagem' && (
-                                     <p className="px-1.5 pb-1">{m.text}</p>
+                                     <p className="px-1.5 pb-1 whitespace-pre-wrap break-words">{m.text}</p>
                                    )}
                                 </div>
                               ) : isVideo ? (
                                 <div className="space-y-1.5 min-w-[200px]">
                                    <video src={m.mediaUrl} controls preload="metadata" className="max-w-full max-h-64 rounded-xl bg-black" />
                                    {m.text && m.text !== '🎥 Vídeo' && (
-                                     <p className="px-1.5 pb-1">{m.text}</p>
+                                     <p className="px-1.5 pb-1 whitespace-pre-wrap break-words">{m.text}</p>
                                    )}
                                 </div>
                               ) : isDocument ? (
@@ -4826,7 +4826,7 @@ export const ChatPanel = ({
                                      </>
                                    )}
                                 </div>
-                              ) : m.text}
+                              ) : <span className="whitespace-pre-wrap break-words">{m.text}</span>}
                            </div>
                            <div className={cn("text-[9px] font-bold flex items-center gap-1.5 mt-1", isOutgoing ? "justify-end mr-1" : "justify-start ml-1")}>
                              <span className="text-white/40">{timeStr}</span>
