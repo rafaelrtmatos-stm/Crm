@@ -3712,7 +3712,7 @@ export const ChatPanel = ({
         await supabase.from('wa_transcricao_fila').upsert({
           company_id: 'rafa-arts',
           phone: conversation.phone,
-          whatsapp_message_id: message.id,
+          whatsapp_message_id: message.whatsappMessageId || message.id,
           media_url: message.mediaUrl,
           content_type: message.mediaContentType || 'audio',
           ...campos,
@@ -3798,16 +3798,6 @@ export const ChatPanel = ({
     // pode atualizar a tela, e nada atualiza depois que a conversa foi trocada/fechada.
     let cancelado = false;
     let ultimaBusca = 0;
-    // Rede de seguranca: com a flag WA_SEM_CRM_MESSAGES desligada o webhook AINDA grava o WhatsApp
-    // em crm_messages, entao se a Evolution falhar ou voltar sem mensagens (ex.: conversa guardada
-    // sob outro JID) o chat le de la em vez de abrir vazio -- a notificacao ja chegou pelo webhook.
-    const carregarWhatsappDoCrmMessages = async (): Promise<any[]> => {
-      const { data } = await supabase.from('crm_messages').select('*')
-        .eq('company_id', 'rafa-arts')
-        .eq('phone', conversation.phone)
-        .order('created_at', { ascending: true });
-      return (data || []).map(mapCrmMessageRow);
-    };
     const loadMessagesWhatsapp = async () => {
       const minhaBusca = ++ultimaBusca;
       try {
@@ -3852,15 +3842,6 @@ export const ChatPanel = ({
             .sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
         }
 
-        if (!SEM_CRM_MESSAGES && !mapped.some((m: any) => !m.isNote)) {
-          try {
-            const doCrm = await carregarWhatsappDoCrmMessages();
-            if (doCrm.length) mapped = doCrm;
-          } catch (errCrm) {
-            console.error('[CRM] Falha no fallback de crm_messages:', errCrm);
-          }
-        }
-
         if (cancelado || minhaBusca !== ultimaBusca) return;
         setMessages(mapped);
         // Transcrição automática pendente (áudio chegou com o CRM fechado / falha temporária):
@@ -3872,14 +3853,51 @@ export const ChatPanel = ({
         }
       } catch (err) {
         console.error('[CRM] Falha ao carregar histórico ao vivo da Evolution API:', err);
-        if (!SEM_CRM_MESSAGES) {
-          try {
-            const doCrm = await carregarWhatsappDoCrmMessages();
-            if (!cancelado && minhaBusca === ultimaBusca) setMessages(doCrm);
-          } catch (errCrm) {
-            console.error('[CRM] Falha no fallback de crm_messages:', errCrm);
-          }
+      }
+    };
+
+    // WhatsApp com a flag VITE_WA_SEM_CRM_MESSAGES DESLIGADA (padrao): volta ao comportamento de antes
+    // da Fase 3 -- o historico vem de crm_messages (que o webhook ainda grava), sem depender de a
+    // Evolution API devolver o historico daquela conversa. Mantem a Fase 4: a transcricao de audio
+    // mora em wa_transcricao_fila e e mesclada por whatsapp_message_id. `id` continua sendo o id da
+    // linha (igual ao de antes); o id da Evolution vai em `whatsappMessageId`.
+    const loadMessagesWhatsappCrm = async () => {
+      const minhaBusca = ++ultimaBusca;
+      try {
+        const { data, error } = await supabase.from('crm_messages').select('*')
+          .eq('company_id', 'rafa-arts')
+          .eq('phone', conversation.phone)
+          .order('created_at', { ascending: true });
+        if (error) throw error;
+        let mapped: any[] = (data || []).map((r: any) => ({ ...mapCrmMessageRow(r), whatsappMessageId: r.whatsapp_message_id || undefined }));
+
+        const { data: transcricoes } = await supabase.from('wa_transcricao_fila')
+          .select('whatsapp_message_id, transcription, transcription_status, transcription_error')
+          .eq('company_id', 'rafa-arts')
+          .eq('phone', conversation.phone);
+        if (transcricoes?.length) {
+          const porId = new Map(transcricoes.map((t: any) => [t.whatsapp_message_id, t]));
+          mapped = mapped.map((m: any) => {
+            const t = m.whatsappMessageId ? porId.get(m.whatsappMessageId) : undefined;
+            if (!t) return m;
+            return {
+              ...m,
+              transcription: t.transcription || m.transcription,
+              transcriptionStatus: t.transcription_status || m.transcriptionStatus,
+              transcriptionError: t.transcription_error || m.transcriptionError,
+            };
+          });
         }
+
+        if (cancelado || minhaBusca !== ultimaBusca) return;
+        setMessages(mapped);
+        if (conversation.phone && !sweptTranscriptionPhonesRef.current.has(conversation.phone)
+          && mapped.some((m: any) => m.direction === 'incoming' && (m.transcriptionStatus === 'pending' || m.transcriptionStatus === 'processing'))) {
+          sweptTranscriptionPhonesRef.current.add(conversation.phone);
+          reprocessPendingTranscriptions(conversation.phone, user?.id);
+        }
+      } catch (err) {
+        console.error('[CRM] Falha ao carregar mensagens do WhatsApp em crm_messages:', err);
       }
     };
 
@@ -3892,11 +3910,13 @@ export const ChatPanel = ({
       setMessages((data || []).map(mapCrmMessageRow));
     };
 
-    const loadMessages = ehWhatsapp ? loadMessagesWhatsapp : loadMessagesOutroCanal;
+    // Leitura ao vivo na Evolution SO com a flag ligada; desligada, WhatsApp le crm_messages (como antes).
+    const usarEvolutionAoVivo = ehWhatsapp && SEM_CRM_MESSAGES;
+    const loadMessages = usarEvolutionAoVivo ? loadMessagesWhatsapp : (ehWhatsapp ? loadMessagesWhatsappCrm : loadMessagesOutroCanal);
     recarregarMensagensRef.current = loadMessages;
     loadMessages();
 
-    const channel = ehWhatsapp
+    const channel = usarEvolutionAoVivo
       ? supabase.channel(`chat-signal-${conversation.phone}`)
         .on('broadcast', { event: 'new-message' }, loadMessages)
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'wa_transcricao_fila', filter: `phone=eq.${conversation.phone}` }, loadMessages)
@@ -3907,9 +3927,13 @@ export const ChatPanel = ({
           if (!p || p === conversation.phone) loadMessages();
         })
         .subscribe()
-      : supabase.channel(`chat-messages-${conversation.phone}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'crm_messages', filter: `phone=eq.${conversation.phone}` }, loadMessages)
-        .subscribe();
+      : (() => {
+        const canalCrm = supabase.channel(`chat-messages-${conversation.phone}`)
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'crm_messages', filter: `phone=eq.${conversation.phone}` }, loadMessages);
+        // WhatsApp: a transcricao de audio termina em segundo plano em wa_transcricao_fila (UPDATE).
+        if (ehWhatsapp) canalCrm.on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'wa_transcricao_fila', filter: `phone=eq.${conversation.phone}` }, loadMessages);
+        return canalCrm.subscribe();
+      })();
     return () => {
       cancelado = true;
       if (recarregarMensagensRef.current === loadMessages) recarregarMensagensRef.current = null;
