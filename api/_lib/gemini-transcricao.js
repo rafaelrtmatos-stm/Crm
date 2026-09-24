@@ -104,16 +104,17 @@ function detalheErroGemini(ultimoErro) {
   return detalhe;
 }
 
-// Baixa o áudio (só do bucket whatsapp-media do próprio CRM) e devolve o texto transcrito.
-// Lança ErroTranscricao com o status HTTP e a mensagem que o endpoint manual já devolvia.
-export async function transcreverAudioDaUrl(mediaUrl) {
-  const apiKey = chaveGemini();
-  if (!apiKey) {
-    throw new ErroTranscricao(500, 'Transcrição não configurada — adicione a variável GEMINI_API_KEY no painel da Vercel (Settings > Environment Variables).');
-  }
+// Baixa o áudio a partir da URL gravada na mensagem e devolve os bytes + o content-type informado.
+// Compartilhado entre os provedores de transcrição (Groq e Gemini), pra a regra de "de onde pode vir
+// o áudio" ficar num lugar só. Erros de URL ausente/inválida, mídia indisponível, falha ao baixar e
+// arquivo vazio saem como ErroTranscricao (o limite de tamanho é de cada provedor).
+export async function baixarAudioDaUrl(mediaUrl) {
   // Áudio atual: a URL é /api/whatsapp-media?messageId=... (em qualquer host, ou relativa). Em vez de baixar essa
   // URL do próprio site (que muda a cada deploy e pode estar protegida pela Vercel), busca direto na Evolution.
   // Áudio antigo (bucket whatsapp-media do Supabase): continua baixando da URL do bucket.
+  if (!mediaUrl) {
+    throw new ErroTranscricao(400, 'Este áudio não tem arquivo (URL) associado.');
+  }
   const messageId = messageIdDaMediaUrl(mediaUrl);
   const doBucketAntigo = typeof mediaUrl === 'string' && mediaUrl.startsWith(PREFIXO_PERMITIDO);
   if (!messageId && !doBucketAntigo) {
@@ -146,9 +147,20 @@ export async function transcreverAudioDaUrl(mediaUrl) {
     contentType = arquivo.headers.get('content-type');
   }
   if (buffer.length === 0) throw new ErroTranscricao(422, 'O arquivo de áudio está vazio.');
+  return { buffer, contentType, urlParaMime: messageId ? '' : mediaUrl };
+}
+
+// Baixa o áudio (só do bucket whatsapp-media do próprio CRM) e devolve o texto transcrito.
+// Lança ErroTranscricao com o status HTTP e a mensagem que o endpoint manual já devolvia.
+export async function transcreverAudioDaUrl(mediaUrl) {
+  const apiKey = chaveGemini();
+  if (!apiKey) {
+    throw new ErroTranscricao(500, 'Transcrição não configurada — adicione a variável GEMINI_API_KEY no painel da Vercel (Settings > Environment Variables).');
+  }
+  const { buffer, contentType, urlParaMime } = await baixarAudioDaUrl(mediaUrl);
   if (buffer.length > MAX_BYTES) throw new ErroTranscricao(413, 'Áudio muito grande pra transcrever (limite de 14 MB).');
 
-  const mime = descobrirMime(contentType, messageId ? '' : mediaUrl);
+  const mime = descobrirMime(contentType, urlParaMime);
   const base64 = buffer.toString('base64');
 
   let resposta = null;

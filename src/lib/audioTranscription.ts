@@ -1,4 +1,4 @@
-// Transcrição de áudio (voz -> texto). A chamada real ao provedor (Gemini) acontece no servidor,
+// Transcrição de áudio (voz -> texto). A chamada real ao provedor (Groq/Whisper) acontece no servidor,
 // em api/transcrever-audio.js, pra a chave nunca ficar exposta no navegador.
 export async function transcribeAudioMessage(mediaUrl: string, userId?: string): Promise<string> {
   const resp = await fetch('/api/transcrever-audio', {

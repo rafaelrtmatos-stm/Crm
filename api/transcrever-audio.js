@@ -1,5 +1,5 @@
-// Transcreve um áudio do WhatsApp (voz -> texto) usando a API do Gemini.
-// A chave (GEMINI_API_KEY) fica só no servidor — o front nunca fala direto com o Gemini.
+// Transcreve um áudio do WhatsApp (voz -> texto) usando a API da Groq (Whisper).
+// A chave (GROQ_API_KEY) fica só no servidor — o front nunca fala direto com o provedor.
 //
 // POST /api/transcrever-audio
 // headers: x-user-id: <id do usuário logado>
@@ -7,7 +7,7 @@
 // resposta: { text: "..." }
 
 import { exigirUsuarioAutorizado } from './_lib/auth.js';
-import { transcreverAudioDaUrl, chaveGemini, ErroTranscricao } from './_lib/gemini-transcricao.js';
+import { transcreverAudio, provedorTranscricao, ErroTranscricao } from './_lib/transcricao-audio.js';
 
 export const config = { maxDuration: 60 };
 
@@ -17,8 +17,8 @@ export default async function handler(req, res) {
     return;
   }
 
-  if (!chaveGemini()) {
-    res.status(500).json({ error: 'Transcrição não configurada — adicione a variável GEMINI_API_KEY no painel da Vercel (Settings > Environment Variables).' });
+  if (!provedorTranscricao()) {
+    res.status(500).json({ error: 'Transcrição não configurada — adicione a variável GROQ_API_KEY no painel da Vercel (Settings > Environment Variables).' });
     return;
   }
 
@@ -26,7 +26,7 @@ export default async function handler(req, res) {
 
   const { mediaUrl } = req.body || {};
   try {
-    const text = await transcreverAudioDaUrl(mediaUrl);
+    const text = await transcreverAudio(mediaUrl);
     res.status(200).json({ text });
   } catch (err) {
     if (err instanceof ErroTranscricao) {

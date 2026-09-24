@@ -8,7 +8,7 @@
 //  - api/transcrever-pendentes.js reprocessa o que ficou pendente (CRM fechado, erro temporário).
 // Falha na transcrição NUNCA apaga/altera a mensagem original: só muda a linha da fila.
 import { SUPABASE_URL, SUPABASE_ANON_KEY, COMPANY_ID } from './whatsapp-config.js';
-import { transcreverAudioDaUrl, ErroTranscricao } from './gemini-transcricao.js';
+import { transcreverAudio, ErroTranscricao } from './transcricao-audio.js';
 
 const MAX_TENTATIVAS = 3;
 // "processing" há mais que isso = a função anterior morreu no meio; libera pra outra tentar.
@@ -101,7 +101,7 @@ export async function processarTranscricao(ref) {
       let texto;
       for (let t = 0; ; t++) {
         try {
-          texto = await transcreverAudioDaUrl(linha.media_url);
+          texto = await transcreverAudio(linha.media_url);
           break;
         } catch (err) {
           // Erro temporário (cota/instabilidade): mais uma tentativa curta antes de desistir por agora.

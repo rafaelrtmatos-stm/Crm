@@ -3724,7 +3724,7 @@ export const ChatPanel = ({
   // Toggle por conversa (salvo no proprio lead, ver Lead em types.ts) -- fica identico nas duas
   // telas (Funil CRM e Mensagens) porque as duas leem/escrevem o mesmo documento. O gatilho em si
   // e' manual (botao "Transcrever" em cada mensagem de audio); a transcricao roda em
-  // api/transcrever-audio.js (Gemini) -- ver lib/audioTranscription.ts.
+  // api/transcrever-audio.js (Groq/Whisper) -- ver lib/audioTranscription.ts.
   const [transcribingId, setTranscribingId] = useState<string | null>(null);
   const sweptTranscriptionPhonesRef = useRef<Set<string>>(new Set());
   const handleTranscribeAudio = async (message: any) => {
