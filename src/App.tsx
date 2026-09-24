@@ -1561,48 +1561,63 @@ export default function App() {
     if (!user?.id) return;
     const CICLO_MS = 5 * 60 * 1000;
     const MAX_POR_RODADA = 5;
+    const RESYNC_APOS_OCULTA_MS = 2 * 60 * 1000;
+    // Sem polling: a lista de conversas esperando resposta fica em memoria e e mantida pelo Realtime da tabela leads.
+    // O horario de cada lembrete e waiting_since + N*5min (mesmo horario em qualquer dispositivo); um unico timer aponta
+    // para o proximo lembrete devido. O Supabase so e consultado ao abrir o CRM, ao reconectar (SUBSCRIBED de novo),
+    // ao voltar online e ao voltar para a aba depois de um tempo oculta.
+    const pendentes = new Map<string, any>();
+    let infoGrupos: Awaited<ReturnType<typeof carregarInfoGrupos>> = null;
+    let primeiraCarga = true;
     let rodando = false;
-    let primeiraRodada = true;
+    let cancelado = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let ocultoDesde: number | null = document.hidden ? Date.now() : null;
+
+    // Grupo nunca gera lembrete (JID de grupo tem mais de 15 digitos; telefone tem no maximo 15).
+    const ignorar = (phone: any) => {
+      const digitos = String(phone || '').replace(/\D/g, '');
+      return !digitos || digitos.length > 15 || !!infoGrupos?.todos.has(digitos);
+    };
+    const cicloDe = (l: any, agora: number) => Math.floor((agora - Date.parse(l.waiting_since)) / CICLO_MS);
+
+    const agendar = (minimoMs = 0) => {
+      if (timer) { clearTimeout(timer); timer = null; }
+      if (cancelado || !usuarioPodeVerMensagens(userRef.current)) return;
+      let proximo = Infinity;
+      for (const l of pendentes.values()) {
+        if (ignorar(l.phone)) continue;
+        const inicio = Date.parse(l.waiting_since);
+        if (!Number.isFinite(inicio)) continue;
+        const t = inicio + ((lembretesRef.current.get(String(l.phone)) ?? 0) + 1) * CICLO_MS;
+        if (t < proximo) proximo = t;
+      }
+      if (!Number.isFinite(proximo)) return;
+      timer = setTimeout(verificar, Math.min(Math.max(proximo - Date.now(), minimoMs) + 200, 2_000_000_000));
+    };
 
     const verificar = async () => {
-      if (rodando) return;
+      timer = null;
+      if (rodando || cancelado) return;
       rodando = true;
+      let sobrou = false;
       try {
         const usuarioAtual = userRef.current;
         if (!usuarioPodeVerMensagens(usuarioAtual)) return;
         const agora = Date.now();
-        const { data, error } = await supabase
-          .from('leads')
-          .select('id,phone,full_name,contact_name,whatsapp_name,photo_url,waiting_since,last_client_message_text,last_message_text')
-          .eq('company_id', 'rafa-arts')
-          .not('waiting_since', 'is', null)
-          .lte('waiting_since', new Date(agora - CICLO_MS).toISOString())
-          .order('waiting_since', { ascending: true })
-          .limit(50);
-        if (error || !data) return;
-
-        // Respondeu/resolveu: sai da lista e o ciclo recomeca se voltar a esperar.
-        const aindaEsperando = new Set(data.map((l: any) => String(l.phone)));
-        for (const chave of Array.from<string>(lembretesRef.current.keys())) {
-          if (!aindaEsperando.has(chave)) lembretesRef.current.delete(chave);
-        }
-
-        const infoGrupos = await carregarInfoGrupos(usuarioAtual).catch(() => null);
         const devidos: any[] = [];
-        for (const l of data as any[]) {
-          const digitos = String(l.phone || '').replace(/\D/g, '');
-          if (!digitos) continue;
-          if (infoGrupos ? infoGrupos.todos.has(digitos) : digitos.length > 15) continue; // grupo: sem lembrete
-          const ciclo = Math.floor((agora - Date.parse(l.waiting_since)) / CICLO_MS);
+        for (const l of pendentes.values()) {
+          if (ignorar(l.phone)) continue;
+          const ciclo = cicloDe(l, agora);
           if (!Number.isFinite(ciclo) || ciclo < 1) continue;
           const chave = String(l.phone);
-          if (primeiraRodada) { lembretesRef.current.set(chave, ciclo); continue; }
           if ((lembretesRef.current.get(chave) ?? 0) < ciclo) devidos.push({ lead: l, ciclo, chave });
         }
-        primeiraRodada = false;
         if (devidos.length === 0) return;
+        devidos.sort((x, y) => Date.parse(x.lead.waiting_since) - Date.parse(y.lead.waiting_since));
 
         const lote = devidos.slice(0, MAX_POR_RODADA);
+        sobrou = devidos.length > lote.length;
         try {
           const audio = notifAudioRef.current || (notifAudioRef.current = new Audio('/sounds/mensagem-cliente.mp3'));
           audio.currentTime = 0;
@@ -1648,12 +1663,94 @@ export default function App() {
         console.warn('Falha ao verificar lembretes de conversas sem resposta:', e);
       } finally {
         rodando = false;
+        agendar(sobrou ? 30000 : 0);
       }
     };
 
-    const inicio = setTimeout(verificar, 8000);
-    const timer = setInterval(verificar, 30000);
-    return () => { clearTimeout(inicio); clearInterval(timer); };
+    const sincronizar = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('leads')
+          .select('id,phone,full_name,contact_name,whatsapp_name,photo_url,waiting_since,last_client_message_text,last_message_text')
+          .eq('company_id', 'rafa-arts')
+          .not('waiting_since', 'is', null)
+          .order('waiting_since', { ascending: true })
+          .limit(100);
+        if (cancelado || error || !data) return;
+        const grupos = await carregarInfoGrupos(userRef.current).catch(() => null);
+        if (grupos) infoGrupos = grupos;
+        pendentes.clear();
+        for (const l of data as any[]) pendentes.set(String(l.id), l);
+        // Respondeu/resolveu: sai da lista e o ciclo recomeca se voltar a esperar.
+        const aindaEsperando = new Set((data as any[]).map((l: any) => String(l.phone)));
+        for (const chave of Array.from<string>(lembretesRef.current.keys())) {
+          if (!aindaEsperando.has(chave)) lembretesRef.current.delete(chave);
+        }
+        // 1a carga depois de abrir o CRM: so anota o ciclo atual (sem disparar tudo de uma vez).
+        if (primeiraCarga) {
+          const agora = Date.now();
+          for (const l of data as any[]) {
+            if (ignorar(l.phone)) continue;
+            const ciclo = cicloDe(l, agora);
+            if (Number.isFinite(ciclo) && ciclo >= 1) lembretesRef.current.set(String(l.phone), ciclo);
+          }
+          primeiraCarga = false;
+        }
+      } catch (e) {
+        console.warn('Falha ao carregar conversas sem resposta:', e);
+      }
+      agendar();
+    };
+
+    const aplicar = (payload: any) => {
+      const novo = payload?.new;
+      if (payload?.eventType === 'DELETE' || !novo || novo.id == null) {
+        const id = payload?.old?.id;
+        if (id == null) return;
+        const existente = pendentes.get(String(id));
+        if (existente) lembretesRef.current.delete(String(existente.phone));
+        pendentes.delete(String(id));
+      } else {
+        const id = String(novo.id);
+        const existente = pendentes.get(id);
+        if (novo.waiting_since) {
+          if (existente && Date.parse(existente.waiting_since) !== Date.parse(novo.waiting_since)) {
+            lembretesRef.current.delete(String(novo.phone));
+          }
+          pendentes.set(id, novo);
+        } else {
+          if (existente) lembretesRef.current.delete(String(existente.phone));
+          pendentes.delete(id);
+        }
+      }
+      agendar();
+    };
+
+    const canal = supabase
+      .channel(`lembretes-pendentes-${user.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: 'company_id=eq.rafa-arts' }, aplicar)
+      .subscribe((status: string) => { if (status === 'SUBSCRIBED') sincronizar(); });
+    // Se o Realtime nao conectar, ainda assim carrega a lista uma vez.
+    const inicio = setTimeout(() => { if (primeiraCarga) sincronizar(); }, 8000);
+
+    const aoMudarVisibilidade = () => {
+      if (document.hidden) { ocultoDesde = Date.now(); return; }
+      const fora = ocultoDesde ? Date.now() - ocultoDesde : 0;
+      ocultoDesde = null;
+      if (fora > RESYNC_APOS_OCULTA_MS) sincronizar(); else agendar();
+    };
+    const aoVoltarOnline = () => { sincronizar(); };
+    document.addEventListener('visibilitychange', aoMudarVisibilidade);
+    window.addEventListener('online', aoVoltarOnline);
+
+    return () => {
+      cancelado = true;
+      if (timer) clearTimeout(timer);
+      clearTimeout(inicio);
+      document.removeEventListener('visibilitychange', aoMudarVisibilidade);
+      window.removeEventListener('online', aoVoltarOnline);
+      supabase.removeChannel(canal);
+    };
   }, [user?.id]);
 
   // Auto-login (sessao lembrada porque localizacao + notificacoes foram autorizadas): registra
