@@ -32,6 +32,22 @@ async function resolverRemoteJid(numero) {
   return { remoteJid: `${numero}@s.whatsapp.net`, ehGrupo: false };
 }
 
+// O webhook normaliza o telefone (adiciona 55 e o nono digito) antes de gravar o lead, mas a
+// Evolution guarda a mensagem sob o JID que o WhatsApp entregou: contatos antigos do Brasil
+// continuam com o JID SEM o nono digito (55 + DDD + 8 digitos), e contatos em formato @lid
+// (sem numero real no evento) ficam sob <lid>@lid. Com o JID calculado so a partir do telefone
+// normalizado, a busca volta vazia e o chat abre sem nenhuma mensagem, mesmo com a notificacao
+// (que vem do webhook) ja tendo chegado.
+function jidsAlternativos(numero, ehGrupo) {
+  if (ehGrupo) return [];
+  const lista = [];
+  if (/^55\d{2}9\d{8}$/.test(numero)) {
+    lista.push(`${numero.slice(0, 4)}${numero.slice(5)}@s.whatsapp.net`);
+  }
+  lista.push(`${numero}@lid`);
+  return lista;
+}
+
 async function buscarMensagensDoChat(evoHeaders, remoteJid) {
   const r = await fetch(`${EVOLUTION_API_URL}/chat/findMessages/${INSTANCE_NAME}`, {
     method: 'POST',
@@ -102,7 +118,16 @@ export default async function handler(req, res) {
   try {
     const { remoteJid, ehGrupo } = await resolverRemoteJid(numero);
     const evoHeaders = { apikey: EVOLUTION_API_KEY, 'Content-Type': 'application/json' };
-    const registros = await buscarMensagensDoChat(evoHeaders, remoteJid);
+    // A conversa pode estar guardada na Evolution sob outro JID que nao o calculado a partir do
+    // telefone normalizado do CRM (ver jidsAlternativos). Tenta o principal e so cai nos
+    // alternativos quando ele volta vazio -- caso normal continua sendo UMA chamada so.
+    let registros = await buscarMensagensDoChat(evoHeaders, remoteJid);
+    if (registros.length === 0) {
+      for (const jidAlt of jidsAlternativos(numero, ehGrupo)) {
+        registros = await buscarMensagensDoChat(evoHeaders, jidAlt).catch(() => []);
+        if (registros.length > 0) break;
+      }
+    }
 
     const mensagens = registros
       .map((msg) => paraFormatoDoFront(msg, numero, ehGrupo))

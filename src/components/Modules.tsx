@@ -231,6 +231,7 @@ import { collection, query, where, onSnapshot, orderBy, Timestamp, addDoc, doc, 
 import { db } from '../firebase';
 import { supabase } from '../supabase';
 import { showAlert, showConfirm, showPrompt } from '../lib/notify';
+import { SEM_CRM_MESSAGES } from '../lib/flags';
 import { confirmarRetiradaProducao } from '../comissoes/utils/supabaseStorage';
 import { FINANCEIRO_TABS, ALL_FINANCEIRO_TAB_IDS } from '../lib/financeiroTabs';
 import { buildPixPayload } from '../lib/pix';
@@ -3282,6 +3283,7 @@ export const ChatPanel = ({
   const [activeTab, setActiveTab] = useState<'chat' | 'data' | 'notes' | 'tasks' | 'sales'>('chat');
   const [newMessage, setNewMessage] = useState('');
   const [messages, setMessages] = useState<any[]>([]);
+  const [erroHistorico, setErroHistorico] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [showQuickReplies, setShowQuickReplies] = useState(false);
   const [showQuickActions, setShowQuickActions] = useState(false);
@@ -3711,7 +3713,7 @@ export const ChatPanel = ({
         await supabase.from('wa_transcricao_fila').upsert({
           company_id: 'rafa-arts',
           phone: conversation.phone,
-          whatsapp_message_id: message.id,
+          whatsapp_message_id: message.whatsappMessageId || message.id,
           media_url: message.mediaUrl,
           content_type: message.mediaContentType || 'audio',
           ...campos,
@@ -3797,7 +3799,8 @@ export const ChatPanel = ({
     // pode atualizar a tela, e nada atualiza depois que a conversa foi trocada/fechada.
     let cancelado = false;
     let ultimaBusca = 0;
-    const loadMessagesWhatsapp = async () => {
+    let ultimoErroBusca: string | null = null;
+    const loadMessagesWhatsapp = async (): Promise<boolean> => {
       const minhaBusca = ++ultimaBusca;
       try {
         const resp = await fetch('/api/whatsapp-messages', {
@@ -3841,7 +3844,7 @@ export const ChatPanel = ({
             .sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
         }
 
-        if (cancelado || minhaBusca !== ultimaBusca) return;
+        if (cancelado || minhaBusca !== ultimaBusca) return true; // superada/cancelada: nao dispara a fonte reserva
         setMessages(mapped);
         // Transcrição automática pendente (áudio chegou com o CRM fechado / falha temporária):
         // pede ao servidor pra continuar -- uma vez por conversa aberta; o texto chega pelo Realtime.
@@ -3850,8 +3853,59 @@ export const ChatPanel = ({
           sweptTranscriptionPhonesRef.current.add(conversation.phone);
           reprocessPendingTranscriptions(conversation.phone, user?.id);
         }
+        return mapped.some((m: any) => !m.isNote);
       } catch (err) {
         console.error('[CRM] Falha ao carregar histórico ao vivo da Evolution API:', err);
+        ultimoErroBusca = `Evolution API: ${(err as any)?.message || err}`;
+        return false;
+      }
+    };
+
+    // WhatsApp com a flag VITE_WA_SEM_CRM_MESSAGES DESLIGADA (padrao): volta ao comportamento de antes
+    // da Fase 3 -- o historico vem de crm_messages (que o webhook ainda grava), sem depender de a
+    // Evolution API devolver o historico daquela conversa. Mantem a Fase 4: a transcricao de audio
+    // mora em wa_transcricao_fila e e mesclada por whatsapp_message_id. `id` continua sendo o id da
+    // linha (igual ao de antes); o id da Evolution vai em `whatsappMessageId`.
+    const loadMessagesWhatsappCrm = async (): Promise<boolean> => {
+      const minhaBusca = ++ultimaBusca;
+      try {
+        const { data, error } = await supabase.from('crm_messages').select('*')
+          .eq('company_id', 'rafa-arts')
+          .eq('phone', conversation.phone)
+          .order('created_at', { ascending: true });
+        if (error) throw error;
+        let mapped: any[] = (data || []).map((r: any) => ({ ...mapCrmMessageRow(r), whatsappMessageId: r.whatsapp_message_id || undefined }));
+
+        const { data: transcricoes } = await supabase.from('wa_transcricao_fila')
+          .select('whatsapp_message_id, transcription, transcription_status, transcription_error')
+          .eq('company_id', 'rafa-arts')
+          .eq('phone', conversation.phone);
+        if (transcricoes?.length) {
+          const porId = new Map(transcricoes.map((t: any) => [t.whatsapp_message_id, t]));
+          mapped = mapped.map((m: any) => {
+            const t = m.whatsappMessageId ? porId.get(m.whatsappMessageId) : undefined;
+            if (!t) return m;
+            return {
+              ...m,
+              transcription: t.transcription || m.transcription,
+              transcriptionStatus: t.transcription_status || m.transcriptionStatus,
+              transcriptionError: t.transcription_error || m.transcriptionError,
+            };
+          });
+        }
+
+        if (cancelado || minhaBusca !== ultimaBusca) return true; // superada/cancelada: nao dispara a fonte reserva
+        setMessages(mapped);
+        if (conversation.phone && !sweptTranscriptionPhonesRef.current.has(conversation.phone)
+          && mapped.some((m: any) => m.direction === 'incoming' && (m.transcriptionStatus === 'pending' || m.transcriptionStatus === 'processing'))) {
+          sweptTranscriptionPhonesRef.current.add(conversation.phone);
+          reprocessPendingTranscriptions(conversation.phone, user?.id);
+        }
+        return mapped.some((m: any) => !m.isNote);
+      } catch (err) {
+        console.error('[CRM] Falha ao carregar mensagens do WhatsApp em crm_messages:', err);
+        ultimoErroBusca = `Supabase (crm_messages): ${(err as any)?.message || err}`;
+        return false;
       }
     };
 
@@ -3864,11 +3918,24 @@ export const ChatPanel = ({
       setMessages((data || []).map(mapCrmMessageRow));
     };
 
-    const loadMessages = ehWhatsapp ? loadMessagesWhatsapp : loadMessagesOutroCanal;
+    // Leitura ao vivo na Evolution SO com a flag ligada; desligada, WhatsApp le crm_messages (como antes).
+    const usarEvolutionAoVivo = ehWhatsapp && SEM_CRM_MESSAGES;
+    // Fonte reserva: se a principal falhar ou voltar sem mensagens (flags do servidor/front desencontradas,
+    // conversa guardada sob outro JID na Evolution, Supabase fora do ar...), tenta a outra em vez de abrir
+    // vazio. Se as duas falharem, o motivo aparece na propria tela do chat (erroHistorico).
+    const loadMessagesWhatsappComReserva = async (): Promise<boolean> => {
+      ultimoErroBusca = null;
+      const principal = usarEvolutionAoVivo ? loadMessagesWhatsapp : loadMessagesWhatsappCrm;
+      const reserva = usarEvolutionAoVivo ? loadMessagesWhatsappCrm : loadMessagesWhatsapp;
+      const temMensagens = (await principal()) || (await reserva());
+      if (!cancelado) setErroHistorico(temMensagens ? null : ultimoErroBusca);
+      return temMensagens;
+    };
+    const loadMessages = ehWhatsapp ? loadMessagesWhatsappComReserva : loadMessagesOutroCanal;
     recarregarMensagensRef.current = loadMessages;
     loadMessages();
 
-    const channel = ehWhatsapp
+    const channel = usarEvolutionAoVivo
       ? supabase.channel(`chat-signal-${conversation.phone}`)
         .on('broadcast', { event: 'new-message' }, loadMessages)
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'wa_transcricao_fila', filter: `phone=eq.${conversation.phone}` }, loadMessages)
@@ -3879,15 +3946,24 @@ export const ChatPanel = ({
           if (!p || p === conversation.phone) loadMessages();
         })
         .subscribe()
-      : supabase.channel(`chat-messages-${conversation.phone}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'crm_messages', filter: `phone=eq.${conversation.phone}` }, loadMessages)
-        .subscribe();
+      : (() => {
+        const canalCrm = supabase.channel(`chat-messages-${conversation.phone}`)
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'crm_messages', filter: `phone=eq.${conversation.phone}` }, loadMessages);
+        // WhatsApp: a transcricao de audio termina em segundo plano em wa_transcricao_fila (UPDATE).
+        if (ehWhatsapp) canalCrm.on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'wa_transcricao_fila', filter: `phone=eq.${conversation.phone}` }, loadMessages);
+        return canalCrm.subscribe();
+      })();
     return () => {
       cancelado = true;
       if (recarregarMensagensRef.current === loadMessages) recarregarMensagensRef.current = null;
       supabase.removeChannel(channel);
     };
-  }, [conversation, currentCompany]);
+    // Dependencias PRIMITIVAS de proposito: o Funil (CRMModule) passa `conversation={{ ...selectedLead, ... }}`,
+    // um objeto NOVO a cada render do pai. Com `conversation` inteiro aqui, qualquer re-render do
+    // CRMModule (evento de Realtime, timer, contexto) cancelava a busca em andamento (`cancelado`)
+    // e disparava tudo de novo: chat vazio no Funil + 3 consultas ao Supabase e 1 a Evolution por render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversation?.phone, conversation?.sourceType, conversation?.channel, currentCompany?.id]);
 
   // Presenca do contato (online / digitando / gravando audio / visto por ultimo) —
   // mostrado no header do chat (ver bloco do header mais abaixo). Assina a presenca
@@ -4455,6 +4531,9 @@ export const ChatPanel = ({
                       </div>
                       <div className="text-center space-y-1">
                         <p className="text-xs font-bold text-white/70">Nenhuma mensagem registrada ainda</p>
+                        {erroHistorico && (
+                          <p className="text-[10px] font-bold text-rose-400 break-words">Não foi possível carregar o histórico: {erroHistorico}</p>
+                        )}
                         <p className="text-[10px] text-white/30 font-medium">Inicie o atendimento com uma mensagem do atendente ou simule uma chegada do cliente:</p>
                       </div>
 
