@@ -89,11 +89,13 @@ export function extrairInfoMidia(msg, appBaseUrl) {
 
   const messageId = msg?.key?.id;
   if (!messageId) return null;
-  if (!appBaseUrl) return null;
 
   const mimetype = midia.node?.mimetype || 'application/octet-stream';
   const extensao = extensaoPorMimetype(mimetype) || 'bin';
   const fileName = midia.node?.fileName || `${midia.tipo}-${messageId}.${extensao}`;
-  const mediaUrl = `${appBaseUrl}/api/whatsapp-media?messageId=${encodeURIComponent(messageId)}`;
+  // URL RELATIVA de propósito: o navegador resolve no mesmo domínio em que o CRM está aberto. Antes usava
+  // APP_BASE_URL/VERCEL_URL (endereço de UM deploy específico, que a Vercel pode proteger com login) e, sem
+  // essas variáveis, a mídia nem era registrada. `appBaseUrl` fica só por compatibilidade e é ignorado.
+  const mediaUrl = `/api/whatsapp-media?messageId=${encodeURIComponent(messageId)}`;
   return { mediaUrl, fileName, contentType: midia.tipo };
 }

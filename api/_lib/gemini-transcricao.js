@@ -3,6 +3,7 @@
 //  - api/_lib/transcricao-fila.js (transcrição automática de áudio recebido no webhook)
 // A chave (GEMINI_API_KEY) fica só no servidor — nunca vai para o navegador.
 import { SUPABASE_URL } from './whatsapp-config.js';
+import { buscarMidiaEvolution, messageIdDaMediaUrl, ErroMidia } from './evolution-media.js';
 
 // Tenta o modelo configurado (GEMINI_MODEL) ou cai para os modelos ativos suportados (gemini-3.6-flash é o padrão atual do Google).
 const MODELOS = [
@@ -29,7 +30,7 @@ function descobrirMime(headerContentType, url) {
     if (limpo === 'audio/mp4' || limpo === 'audio/x-m4a') return 'audio/aac';
     return limpo;
   }
-  const ext = url.split('?')[0].split('.').pop()?.toLowerCase();
+  const ext = (url || '').split('?')[0].split('.').pop()?.toLowerCase();
   return MIME_POR_EXTENSAO[ext] || 'audio/ogg';
 }
 
@@ -110,23 +111,44 @@ export async function transcreverAudioDaUrl(mediaUrl) {
   if (!apiKey) {
     throw new ErroTranscricao(500, 'Transcrição não configurada — adicione a variável GEMINI_API_KEY no painel da Vercel (Settings > Environment Variables).');
   }
-  if (typeof mediaUrl !== 'string' || !mediaUrl.startsWith(PREFIXO_PERMITIDO)) {
+  // Áudio atual: a URL é /api/whatsapp-media?messageId=... (em qualquer host, ou relativa). Em vez de baixar essa
+  // URL do próprio site (que muda a cada deploy e pode estar protegida pela Vercel), busca direto na Evolution.
+  // Áudio antigo (bucket whatsapp-media do Supabase): continua baixando da URL do bucket.
+  const messageId = messageIdDaMediaUrl(mediaUrl);
+  const doBucketAntigo = typeof mediaUrl === 'string' && mediaUrl.startsWith(PREFIXO_PERMITIDO);
+  if (!messageId && !doBucketAntigo) {
     throw new ErroTranscricao(400, 'URL do áudio inválida.');
   }
 
-  let arquivo;
-  try {
-    arquivo = await fetch(mediaUrl);
-  } catch {
-    throw new ErroTranscricao(502, 'Não foi possível baixar o áudio.', true);
+  let buffer;
+  let contentType;
+  if (messageId) {
+    try {
+      const midia = await buscarMidiaEvolution(messageId);
+      buffer = midia.bytes;
+      contentType = midia.mimetype;
+    } catch (err) {
+      if (err instanceof ErroMidia) {
+        // 404 (mídia expirou no WhatsApp) não adianta tentar de novo; o resto pode ser passageiro.
+        throw new ErroTranscricao(err.status === 404 ? 404 : 502, err.status === 404 ? err.message : 'Não foi possível baixar o áudio.', err.status !== 404);
+      }
+      throw new ErroTranscricao(502, 'Não foi possível baixar o áudio.', true);
+    }
+  } else {
+    let arquivo;
+    try {
+      arquivo = await fetch(mediaUrl);
+    } catch {
+      throw new ErroTranscricao(502, 'Não foi possível baixar o áudio.', true);
+    }
+    if (!arquivo.ok) throw new ErroTranscricao(502, 'Não foi possível baixar o áudio.', true);
+    buffer = Buffer.from(await arquivo.arrayBuffer());
+    contentType = arquivo.headers.get('content-type');
   }
-  if (!arquivo.ok) throw new ErroTranscricao(502, 'Não foi possível baixar o áudio.', true);
-
-  const buffer = Buffer.from(await arquivo.arrayBuffer());
   if (buffer.length === 0) throw new ErroTranscricao(422, 'O arquivo de áudio está vazio.');
   if (buffer.length > MAX_BYTES) throw new ErroTranscricao(413, 'Áudio muito grande pra transcrever (limite de 14 MB).');
 
-  const mime = descobrirMime(arquivo.headers.get('content-type'), mediaUrl);
+  const mime = descobrirMime(contentType, messageId ? '' : mediaUrl);
   const base64 = buffer.toString('base64');
 
   let resposta = null;

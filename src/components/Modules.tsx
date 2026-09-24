@@ -596,6 +596,14 @@ const parseMsgDate = (value: any): Date | null => {
   return isNaN(d.getTime()) ? null : d;
 };
 
+// Mensagens antigas guardaram a URL da midia com o endereco de um deploy especifico da Vercel (que pode estar
+// protegido por login ou nem existir mais). Como o endpoint e sempre o mesmo, usa so o caminho relativo.
+const normalizarMediaUrl = (url?: string | null): string | undefined => {
+  if (!url) return undefined;
+  const m = /^https?:\/\/[^/?#]+(\/api\/whatsapp-media\?[^#]*)$/i.exec(url.trim());
+  return m ? m[1] : url;
+};
+
 const mapCrmMessageRow = (row: any): any => ({
   id: row.id,
   companyId: row.company_id,
@@ -606,7 +614,7 @@ const mapCrmMessageRow = (row: any): any => ({
   isNote: !!row.is_note,
   senderName: row.sender_name || undefined,
   channel: row.channel || 'WhatsApp',
-  mediaUrl: row.media_url || undefined,
+  mediaUrl: normalizarMediaUrl(row.media_url),
   fileName: row.file_name || undefined,
   mediaContentType: row.content_type || undefined,
   transcription: row.transcription || undefined,
@@ -3285,6 +3293,7 @@ export const ChatPanel = ({
   const [messages, setMessages] = useState<any[]>([]);
   const [erroHistorico, setErroHistorico] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
+  const [audiosComErro, setAudiosComErro] = useState<Record<string, boolean>>({});
   const [showQuickReplies, setShowQuickReplies] = useState(false);
   const [showQuickActions, setShowQuickActions] = useState(false);
   const [showQuickTemplates, setShowQuickTemplates] = useState(false);
@@ -4643,7 +4652,14 @@ export const ChatPanel = ({
                                      <FileAudio size={13} /> <span className="font-bold">🎤 Áudio</span>
                                    </div>
                                    {m.mediaUrl && (
-                                     <audio src={m.mediaUrl} controls preload="none" className="w-full h-8" />
+                                     <audio src={m.mediaUrl} controls preload="none" className="w-full h-8"
+                                       onError={() => setAudiosComErro(prev => ({ ...prev, [m.id]: true }))} />
+                                   )}
+                                   {m.mediaUrl && audiosComErro[m.id] && (
+                                     <p className="text-[10px] font-bold text-rose-400">
+                                       Não foi possível carregar o áudio (pode ter expirado no WhatsApp ou o formato não é aceito neste navegador).{' '}
+                                       <a href={m.mediaUrl} target="_blank" rel="noopener noreferrer" className="underline">Abrir</a>
+                                     </p>
                                    )}
                                    {m.transcription?.text ? (
                                      <div className="border-t border-slate-100 pt-1.5">

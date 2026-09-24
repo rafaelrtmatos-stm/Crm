@@ -11,10 +11,11 @@
 // Usado tanto pelo navegador (ChatPanel em src/components/Modules.tsx, via crm_messages.media_url
 // que agora aponta pra cá) quanto pelo servidor (api/_lib/transcricao-fila.js, que busca o áudio
 // pra transcrever).
-import { EVOLUTION_API_URL, EVOLUTION_API_KEY, INSTANCE_NAME } from './_lib/whatsapp-config.js';
+// Suporta Range (206) e HEAD: <audio>/<video> pedem a midia por partes e o Safari so toca assim.
+import { buscarMidiaEvolution, ErroMidia } from './_lib/evolution-media.js';
 
 export default async function handler(req, res) {
-  if (req.method !== 'GET') {
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
     res.status(405).json({ error: 'Method not allowed' });
     return;
   }
@@ -24,49 +25,46 @@ export default async function handler(req, res) {
     res.status(400).json({ error: 'Faltou messageId.' });
     return;
   }
-  if (!EVOLUTION_API_URL || !EVOLUTION_API_KEY) {
-    console.error('whatsapp-media: EVOLUTION_API_URL/EVOLUTION_API_KEY não configuradas.');
-    res.status(500).json({ error: 'Evolution API não configurada.' });
-    return;
-  }
-
-  // Mesmo payload documentado que o webhook já usava pra baixar mídia — a Evolution busca a
-  // mensagem pelo ID no banco interno dela, não pelo conteúdo que a gente manda.
-  const buscar = () => fetch(`${EVOLUTION_API_URL}/chat/getBase64FromMediaMessage/${INSTANCE_NAME}`, {
-    method: 'POST',
-    headers: { apikey: EVOLUTION_API_KEY, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message: { key: { id: messageId } }, convertToMp4: false }),
-  });
 
   try {
-    let r = await buscar();
-    if (!r.ok) {
-      // Mesma tolerância a race condition que o download antigo tinha: espera um pouco e tenta
-      // de novo antes de desistir (só relevante logo após a mensagem chegar).
-      await new Promise((resolve) => setTimeout(resolve, 1200));
-      r = await buscar();
-    }
-    if (!r.ok) {
-      console.error('whatsapp-media: falha ao buscar na Evolution API:', r.status, await r.text().catch(() => ''));
-      res.status(502).json({ error: 'Falha ao buscar mídia.' });
-      return;
-    }
-
-    const data = await r.json();
-    const base64 = data?.base64 || data?.data;
-    if (!base64) {
-      res.status(404).json({ error: 'Mídia não encontrada (pode ter expirado no WhatsApp).' });
-      return;
-    }
-
-    const mimetype = data?.mimetype || 'application/octet-stream';
-    const bytes = Buffer.from(base64, 'base64');
+    const { bytes, mimetype } = await buscarMidiaEvolution(messageId);
+    const total = bytes.length;
     res.setHeader('Content-Type', mimetype);
     // Cache curto: evita rebuscar na Evolution a cada re-render, sem guardar pra sempre
     // (mídia pode não estar mais disponível depois de um tempo).
     res.setHeader('Cache-Control', 'private, max-age=3600');
-    res.status(200).send(bytes);
+    // <audio>/<video> pedem a mídia por partes (Range). O Safari nem toca sem suporte a isso.
+    res.setHeader('Accept-Ranges', 'bytes');
+
+    const pedido = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers?.range || '').trim());
+    if (pedido && (pedido[1] !== '' || pedido[2] !== '')) {
+      let inicio;
+      let fim;
+      if (pedido[1] === '') { // "bytes=-N": últimos N bytes
+        inicio = Math.max(0, total - Number(pedido[2]));
+        fim = total - 1;
+      } else {
+        inicio = Number(pedido[1]);
+        fim = pedido[2] === '' ? total - 1 : Math.min(Number(pedido[2]), total - 1);
+      }
+      if (inicio >= total || inicio > fim) {
+        res.setHeader('Content-Range', `bytes */${total}`);
+        res.status(416).end();
+        return;
+      }
+      res.setHeader('Content-Range', `bytes ${inicio}-${fim}/${total}`);
+      res.setHeader('Content-Length', String(fim - inicio + 1));
+      res.status(206).send(req.method === 'HEAD' ? undefined : bytes.subarray(inicio, fim + 1));
+      return;
+    }
+
+    res.setHeader('Content-Length', String(total));
+    res.status(200).send(req.method === 'HEAD' ? undefined : bytes);
   } catch (err) {
+    if (err instanceof ErroMidia) {
+      res.status(err.status).json({ error: err.message });
+      return;
+    }
     console.error('whatsapp-media: erro inesperado:', err);
     res.status(500).json({ error: 'Erro ao buscar mídia.' });
   }
