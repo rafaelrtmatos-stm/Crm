@@ -530,7 +530,9 @@ export default async function handler(req, res) {
             let precisaTranscrever = false;
             if (infoAudio) {
               camposAudio = { media_mime_type: infoAudio.mimetype, media_duration: infoAudio.seconds };
-              precisaTranscrever = !ehMinhaMensagem && midiaSalva?.contentType === 'audio' && !!midiaSalva?.mediaUrl
+              // Grupo (@g.us) nunca entra na transcricao automatica: so conversa individual. O botao
+              // "Transcrever" manual continua disponivel no chat do grupo.
+              precisaTranscrever = !ehMinhaMensagem && !ehGrupoMsg && midiaSalva?.contentType === 'audio' && !!midiaSalva?.mediaUrl
                 && await transcricaoAutomaticaLigada(phone);
             }
             gravada = SEM_CRM_MESSAGES ? true : await inserirMensagem({
