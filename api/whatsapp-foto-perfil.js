@@ -10,6 +10,7 @@
 // resposta: { ok: true, photoUrl?: string, atualizada: boolean }
 import { EVOLUTION_API_URL, EVOLUTION_API_KEY, INSTANCE_NAME, SUPABASE_URL, SUPABASE_ANON_KEY, COMPANY_ID } from './_lib/whatsapp-config.js';
 import { exigirUsuarioAutorizado } from './_lib/auth.js';
+import { fotoPermanenteRecente, salvarFotoPermanente } from './_lib/foto-perfil.js';
 
 const supaHeaders = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json' };
 
@@ -40,6 +41,15 @@ export default async function handler(req, res) {
       if (Array.isArray(grupos) && grupos.length > 0) numeroEvolution = `${numero}@g.us`;
     }
 
+    // Ja tem uma copia permanente recente da foto? Entao nao precisa chamar a Evolution nem subir nada de novo.
+    const existente = await fetch(`${SUPABASE_URL}/rest/v1/leads?company_id=eq.${COMPANY_ID}&phone=eq.${numero}&select=id,photo_url`, { headers: supaHeaders });
+    const leadsExistentes = existente.ok ? await existente.json() : [];
+    const recente = Array.isArray(leadsExistentes) ? leadsExistentes.find((l) => fotoPermanenteRecente(l.photo_url)) : null;
+    if (recente) {
+      res.status(200).json({ ok: true, photoUrl: recente.photo_url, atualizada: false });
+      return;
+    }
+
     const picRes = await fetch(`${EVOLUTION_API_URL}/chat/fetchProfilePictureUrl/${INSTANCE_NAME}`, {
       method: 'POST',
       headers: { apikey: EVOLUTION_API_KEY, 'Content-Type': 'application/json' },
@@ -56,17 +66,20 @@ export default async function handler(req, res) {
       return;
     }
 
+    // A URL do WhatsApp expira; guarda uma copia permanente (se falhar, segue com a URL original, como antes).
+    const fotoFinal = (await salvarFotoPermanente(fotoUrl, numero)) || fotoUrl;
+
     const atual = await fetch(`${SUPABASE_URL}/rest/v1/leads?company_id=eq.${COMPANY_ID}&phone=eq.${numero}&select=id,photo_url`, { headers: supaHeaders });
     const leads = atual.ok ? await atual.json() : [];
-    const alvos = Array.isArray(leads) ? leads.filter((l) => l.photo_url !== fotoUrl) : [];
+    const alvos = Array.isArray(leads) ? leads.filter((l) => l.photo_url !== fotoFinal) : [];
     for (const l of alvos) {
       await fetch(`${SUPABASE_URL}/rest/v1/leads?id=eq.${l.id}`, {
         method: 'PATCH',
         headers: { ...supaHeaders, Prefer: 'return=minimal' },
-        body: JSON.stringify({ photo_url: fotoUrl }),
+        body: JSON.stringify({ photo_url: fotoFinal }),
       });
     }
-    res.status(200).json({ ok: true, photoUrl: fotoUrl, atualizada: alvos.length > 0 });
+    res.status(200).json({ ok: true, photoUrl: fotoFinal, atualizada: alvos.length > 0 });
   } catch (err) {
     console.error('Falha ao atualizar foto do contato (não impede a conversa):', err);
     res.status(200).json({ ok: false, atualizada: false });
