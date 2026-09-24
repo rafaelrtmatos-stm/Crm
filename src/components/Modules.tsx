@@ -3311,6 +3311,11 @@ export const ChatPanel = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'chat' | 'data' | 'notes' | 'tasks' | 'sales'>('chat');
   const [newMessage, setNewMessage] = useState('');
+  // Envio de foto/documento (WhatsApp): o arquivo sobe direto do navegador pro Storage e so a URL vai pro
+  // servidor (a Vercel limita o corpo das funcoes a ~4,5 MB, entao o arquivo nao pode passar por la).
+  const fotoInputRef = useRef<HTMLInputElement>(null);
+  const documentoInputRef = useRef<HTMLInputElement>(null);
+  const [enviandoArquivo, setEnviandoArquivo] = useState(false);
   const [messages, setMessages] = useState<any[]>([]);
   const [erroHistorico, setErroHistorico] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
@@ -4159,6 +4164,100 @@ export const ChatPanel = ({
     limparNotificacaoPendente();
   };
 
+  // Mesmos limites do WhatsApp: foto enviada como foto ate 16 MB; documento (qualquer arquivo) ate 100 MB.
+  // Foto que nao e JPG/PNG/WEBP (ex: HEIC do iPhone) ou acima do limite de foto vai como documento, que mantem o original.
+  const LIMITE_FOTO_MB = 16;
+  const LIMITE_DOCUMENTO_MB = 100;
+  const handleSendFile = async (arquivo: File | null | undefined, escolhido: 'image' | 'document') => {
+    if (!arquivo || !conversation || !currentCompany) return;
+    const canal = (conversation.sourceType || conversation.channel || 'WhatsApp');
+    if (canal !== 'WhatsApp' || !conversation.phone) {
+      showAlert('O envio de fotos e documentos só está disponível para conversas de WhatsApp.');
+      return;
+    }
+    if (arquivo.size === 0) { showAlert('Esse arquivo está vazio.'); return; }
+    const fotoValida = /^image\/(jpeg|png|webp)$/i.test(arquivo.type);
+    const tipo: 'image' | 'document' = escolhido === 'image' && fotoValida && arquivo.size <= LIMITE_FOTO_MB * 1024 * 1024 ? 'image' : 'document';
+    const limiteMb = tipo === 'image' ? LIMITE_FOTO_MB : LIMITE_DOCUMENTO_MB;
+    if (arquivo.size > limiteMb * 1024 * 1024) {
+      showAlert(`O arquivo tem ${(arquivo.size / 1024 / 1024).toFixed(1)} MB e o limite é ${limiteMb} MB (mesmo padrão do WhatsApp). Reduza o tamanho e tente de novo.`);
+      return;
+    }
+    clearMessageHighlight();
+    const legenda = newMessage.trim();
+    const senderRole = user?.isAdmin ? 'Adm' : 'Atendente';
+    const senderDisplay = user?.name ? `${user.name} (${senderRole})` : senderRole;
+    setEnviandoArquivo(true);
+    try {
+      // 1) Sobe o arquivo pro Storage (bucket whatsapp-media, pasta enviados/).
+      const digitos = conversation.phone.replace(/\D/g, '');
+      const nomeSeguro = (arquivo.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9._-]+/g, '_').slice(-120)) || 'arquivo';
+      const caminho = `enviados/${digitos}/${Date.now()}-${nomeSeguro}`;
+      const mimeType = arquivo.type || 'application/octet-stream';
+      const { error: erroUpload } = await supabase.storage.from('whatsapp-media').upload(caminho, arquivo, { contentType: mimeType, upsert: false });
+      if (erroUpload) {
+        console.error('Falha ao subir arquivo pro Storage:', erroUpload);
+        showAlert(`Não foi possível subir o arquivo: ${erroUpload.message}. Se o arquivo for grande, confira o limite de tamanho do Storage no Supabase. Nada foi enviado.`);
+        return;
+      }
+      const { data: publico } = supabase.storage.from('whatsapp-media').getPublicUrl(caminho);
+      const mediaUrl = publico?.publicUrl;
+      if (!mediaUrl) { showAlert('Não foi possível gerar o link do arquivo. Nada foi enviado.'); return; }
+
+      // 2) Manda o servidor disparar pro WhatsApp (ele registra em crm_messages depois da confirmacao).
+      let respData: any = {};
+      try {
+        const resp = await fetch('/api/whatsapp-send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
+          body: JSON.stringify({ phone: conversation.phone, mediaUrl, mediaType: tipo, fileName: arquivo.name, mimeType, text: legenda || undefined, senderName: senderDisplay, leadId: conversation.id || null }),
+        });
+        respData = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          showAlert(`Não foi possível enviar o arquivo pro WhatsApp: ${respData.error || 'erro desconhecido'}. O arquivo NÃO foi enviado.`);
+          return;
+        }
+      } catch (sendErr) {
+        console.error('Falha ao disparar arquivo pro WhatsApp:', sendErr);
+        showAlert('Não foi possível enviar o arquivo pro WhatsApp (falha de conexão). O arquivo NÃO foi enviado.');
+        return;
+      }
+      setNewMessage('');
+      if (respData.saved !== true) {
+        // Envio confirmado, mas o servidor nao conseguiu registrar: registra daqui (duplicata do eco do webhook e ignorada pelo banco).
+        const quando = respData.createdAt || new Date().toISOString();
+        const textoMsg = legenda || (tipo === 'image' ? '📷 Foto' : arquivo.name);
+        await supabase.from('crm_messages').insert({
+          company_id: 'rafa-arts',
+          lead_id: conversation.id || null,
+          phone: conversation.phone,
+          text: textoMsg,
+          direction: 'outgoing',
+          sender_name: senderDisplay,
+          channel: 'WhatsApp',
+          whatsapp_message_id: respData.whatsappMessageId || null,
+          content_type: tipo,
+          media_url: mediaUrl,
+          file_name: arquivo.name,
+          media_mime_type: mimeType,
+          created_at: quando,
+        });
+        await supabase.from('leads').update({
+          last_message_at: quando,
+          last_message_text: textoMsg,
+          last_message_direction: 'outgoing',
+          waiting_since: null,
+          updated_at: new Date().toISOString(),
+        }).eq('id', conversation.id);
+      }
+    } catch (err) {
+      console.error('Erro ao enviar arquivo:', err);
+      showAlert('Erro inesperado ao enviar o arquivo. Nada foi enviado.');
+    } finally {
+      setEnviandoArquivo(false);
+    }
+  };
+
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !conversation || !currentCompany) return;
     clearMessageHighlight(); // ao responder, volta ao comportamento normal (rola pro fim)
@@ -4794,8 +4893,10 @@ export const ChatPanel = ({
 
                 <div className="flex items-end gap-2 bg-white p-1 rounded-2xl border border-slate-200 focus-within:border-primary-500/50 transition-all shadow-lg">
                   <div className="flex gap-0.5 pb-0.5">
-                    <Button variant="ghost" size="sm" className="p-1.5 min-w-0 h-8 w-8 text-slate-400 hover:text-primary-600 transition-colors" icon={Paperclip} />
-                    <Button variant="ghost" size="sm" className="p-1.5 min-w-0 h-8 w-8 text-slate-400 hover:text-primary-600 transition-colors" icon={ImageIcon} />
+                    <input ref={documentoInputRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; handleSendFile(f, 'document'); }} />
+                    <input ref={fotoInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; handleSendFile(f, 'image'); }} />
+                    <Button type="button" variant="ghost" size="sm" title="Enviar documento (até 100 MB)" disabled={enviandoArquivo} onClick={() => documentoInputRef.current?.click()} className="p-1.5 min-w-0 h-8 w-8 text-slate-400 hover:text-primary-600 transition-colors" icon={Paperclip} />
+                    <Button type="button" variant="ghost" size="sm" title="Enviar foto (até 16 MB)" disabled={enviandoArquivo} onClick={() => fotoInputRef.current?.click()} className="p-1.5 min-w-0 h-8 w-8 text-slate-400 hover:text-primary-600 transition-colors" icon={ImageIcon} />
                   </div>
                   <textarea 
                     value={newMessage}

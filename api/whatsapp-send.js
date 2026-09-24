@@ -4,6 +4,9 @@
 //
 // POST /api/whatsapp-send
 // body: { phone: "5593999999999", text: "Mensagem...", senderName?, leadId? }
+// Foto/documento (o navegador sobe o arquivo direto pro Storage -- bucket whatsapp-media -- e manda so a URL
+// pra ca; o arquivo NUNCA passa por esta funcao, porque a Vercel limita o corpo da requisicao a ~4,5 MB):
+//   body: { phone, mediaUrl, mediaType: "image" | "document", fileName?, mimeType?, text? (legenda), senderName?, leadId? }
 // Resposta: { ok, whatsappMessageId, createdAt, saved } -- `saved` = a mensagem ja foi registrada em
 // crm_messages AQUI, depois da confirmacao da Evolution (o front nao precisa gravar de novo).
 
@@ -57,7 +60,7 @@ async function atualizarLeadMensagemEnviada(telefones, text, quando) {
 // Evolution manda no webhook (fromMe) e ignorado como duplicata pelo indice unico. Se o eco chegou ANTES
 // deste insert (webhook grava como "Celular"), corrige remetente/lead na linha que ja existe.
 // Devolve true quando a mensagem esta registrada em crm_messages.
-async function registrarMensagemEnviada({ phone, text, senderName, leadId, whatsappMessageId, createdAt }) {
+async function registrarMensagemEnviada({ phone, text, senderName, leadId, whatsappMessageId, createdAt, media }) {
   const headers = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json' };
   try {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/crm_messages`, {
@@ -73,6 +76,7 @@ async function registrarMensagemEnviada({ phone, text, senderName, leadId, whats
         channel: 'WhatsApp',
         whatsapp_message_id: whatsappMessageId || null,
         created_at: createdAt,
+        ...(media ? { content_type: media.tipo, media_url: media.url, file_name: media.fileName || null, media_mime_type: media.mimeType || null } : {}),
       }),
     });
     if (!r.ok) {
@@ -109,10 +113,24 @@ export default async function handler(req, res) {
   // mensagem em nome do numero conectado.
   if (!(await exigirUsuarioAutorizado(req, res))) return;
 
-  const { phone, text, senderName, leadId } = req.body || {};
-  if (!phone || !text) {
+  const { phone, text, senderName, leadId, mediaUrl, mediaType, fileName, mimeType } = req.body || {};
+  const ehMidia = !!mediaUrl;
+  if (!phone || (!ehMidia && !text)) {
     res.status(400).json({ error: 'Faltou telefone ou texto da mensagem.' });
     return;
+  }
+  if (ehMidia) {
+    // So aceita arquivo que o proprio CRM subiu pro Storage (bucket whatsapp-media, pasta enviados/): sem isso
+    // este endpoint viraria um "manda qualquer URL da internet pelo numero conectado".
+    const prefixoPermitido = `${SUPABASE_URL}/storage/v1/object/public/whatsapp-media/enviados/`;
+    if (typeof mediaUrl !== 'string' || !mediaUrl.startsWith(prefixoPermitido)) {
+      res.status(400).json({ error: 'Arquivo inválido: só é possível enviar arquivos enviados pelo próprio CRM.' });
+      return;
+    }
+    if (mediaType !== 'image' && mediaType !== 'document') {
+      res.status(400).json({ error: 'Tipo de arquivo não suportado: só foto (image) ou documento (document).' });
+      return;
+    }
   }
 
   // So numeros, sem formatacao (espaco, parenteses, traco) — a Evolution API exige o
@@ -123,14 +141,30 @@ export default async function handler(req, res) {
   const numero = normalizarTelefoneBR(phone.replace(/\D/g, ''));
 
   try {
-    const r = await fetch(`${EVOLUTION_API_URL}/message/sendText/${INSTANCE_NAME}`, {
-      method: 'POST',
-      headers: { apikey: EVOLUTION_API_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        number: numero,
-        text,
-      }),
-    });
+    // Texto: sendText. Foto/documento: sendMedia (Evolution v2) -- ela mesma baixa o arquivo da URL do Storage.
+    // `text`, no caso de midia, e a legenda (opcional).
+    const nomeArquivo = (typeof fileName === 'string' && fileName.trim()) ? fileName.trim().slice(0, 200) : undefined;
+    const r = ehMidia
+      ? await fetch(`${EVOLUTION_API_URL}/message/sendMedia/${INSTANCE_NAME}`, {
+          method: 'POST',
+          headers: { apikey: EVOLUTION_API_KEY, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            number: numero,
+            mediatype: mediaType,
+            mimetype: (typeof mimeType === 'string' && mimeType) ? mimeType : (mediaType === 'image' ? 'image/jpeg' : 'application/octet-stream'),
+            caption: text || '',
+            media: mediaUrl,
+            fileName: nomeArquivo || (mediaType === 'image' ? 'foto.jpg' : 'documento'),
+          }),
+        })
+      : await fetch(`${EVOLUTION_API_URL}/message/sendText/${INSTANCE_NAME}`, {
+          method: 'POST',
+          headers: { apikey: EVOLUTION_API_KEY, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            number: numero,
+            text,
+          }),
+        });
 
     if (!r.ok) {
       const errBody = await r.text();
@@ -159,8 +193,11 @@ export default async function handler(req, res) {
     // mandou (`phone`) ou normalizado (`numero`) -- atualiza os dois, sem repetir se forem iguais.
     // Com await: no serverless, o que ficar pendente depois da resposta pode ser cortado.
     const quandoEnviada = horarioMensagem || new Date().toISOString();
-    const salva = SEM_CRM_MESSAGES ? true : await registrarMensagemEnviada({ phone, text, senderName, leadId, whatsappMessageId: idMensagem, createdAt: quandoEnviada });
-    await atualizarLeadMensagemEnviada(Array.from(new Set([phone, numero])), text, quandoEnviada);
+    // Sem legenda, a mensagem de midia mostra um rotulo no lugar do texto (mesma ideia do "🎵 Áudio").
+    const textoDaMensagem = text || (ehMidia ? (mediaType === 'image' ? '📷 Foto' : (nomeArquivo || 'Documento')) : text);
+    const midia = ehMidia ? { tipo: mediaType, url: mediaUrl, fileName: nomeArquivo, mimeType } : null;
+    const salva = SEM_CRM_MESSAGES ? true : await registrarMensagemEnviada({ phone, text: textoDaMensagem, senderName, leadId, whatsappMessageId: idMensagem, createdAt: quandoEnviada, media: midia });
+    await atualizarLeadMensagemEnviada(Array.from(new Set([phone, numero])), textoDaMensagem, quandoEnviada);
 
     res.status(200).json({ ok: true, whatsappMessageId: idMensagem, createdAt: quandoEnviada, saved: salva });
     // FASE 3 passo 3: avisa quem estiver com essa conversa aberta pra rebuscar na Evolution API
