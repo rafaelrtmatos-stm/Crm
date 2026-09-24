@@ -68,6 +68,13 @@ export function extrairTextoInterativo(message) {
     return juntar(b.text, b.contentText, b.footerText, rotulos.length ? rotulos.map(r => `▫️ ${r}`).join('\n') : '') || '🔘 Mensagem com botões';
   }
 
+  // HSM (template de empresa antigo)
+  const hsm = message.highlyStructuredMessage?.hydratedHsm?.hydratedTemplate;
+  if (hsm) {
+    const rotulos = (hsm.hydratedButtons || []).map(x => x?.quickReplyButton?.displayText || x?.urlButton?.displayText || x?.callButton?.displayText).filter(Boolean);
+    return juntar(hsm.hydratedTitleText, hsm.hydratedContentText, hsm.hydratedFooterText, rotulos.length ? rotulos.map(r => `▫️ ${r}`).join('\n') : '') || '🔘 Mensagem com botões';
+  }
+
   // Template (hydrated) -- botoes de URL/ligacao/resposta
   const tpl = message.templateMessage?.hydratedTemplate || message.templateMessage?.hydratedFourRowTemplate;
   if (tpl) {
@@ -141,8 +148,30 @@ export function extrairTextoMensagem(message, profundidade = 0) {
     message.documentWithCaptionMessage?.message;
   if (embrulho) return extrairTextoMensagem(embrulho, profundidade + 1);
 
+  // Qualquer outro tipo que carregue uma mensagem por dentro (botInvokeMessage, groupMentionedMessage,
+  // associatedChildMessage...): desembrulha de forma generica.
+  for (const valor of Object.values(message)) {
+    if (valor && typeof valor === 'object' && valor.message && typeof valor.message === 'object') {
+      const interno = extrairTextoMensagem(valor.message, profundidade + 1);
+      if (interno) return interno;
+    }
+  }
+
+  // Tipo que ainda nao sabemos ler: em vez de sumir da conversa em silencio, mostra um aviso (com o nome do tipo,
+  // pra dar pra identificar e suportar depois). Tipos "tecnicos" (reacao, protocolo, chaves...) nao viram mensagem.
+  const desconhecidos = Object.keys(message).filter(k => !TIPOS_TECNICOS.has(k) && /(Message|Template)$/.test(k));
+  if (desconhecidos.length) return `💬 Mensagem em formato não suportado pelo CRM (${desconhecidos[0]}) — veja no celular`;
+
   return '';
 }
+
+// Chaves do objeto `message` que NAO sao conteudo pro cliente (sinalizacao interna do WhatsApp).
+const TIPOS_TECNICOS = new Set([
+  'messageContextInfo', 'senderKeyDistributionMessage', 'protocolMessage', 'reactionMessage', 'encReactionMessage',
+  'pollUpdateMessage', 'keepInChatMessage', 'placeholderMessage', 'peerDataOperationRequestMessage',
+  'peerDataOperationRequestResponseMessage', 'requestPhoneNumberMessage', 'secretEncryptedMessage',
+  'deviceSentMessage', 'editedMessage',
+]);
 
 // Monta { mediaUrl, fileName, contentType } a partir de um registro de mensagem (msg.message +
 // msg.key.id), sem baixar nada -- mediaUrl aponta pra api/whatsapp-media.js, que busca ao vivo
