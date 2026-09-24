@@ -3283,6 +3283,7 @@ export const ChatPanel = ({
   const [activeTab, setActiveTab] = useState<'chat' | 'data' | 'notes' | 'tasks' | 'sales'>('chat');
   const [newMessage, setNewMessage] = useState('');
   const [messages, setMessages] = useState<any[]>([]);
+  const [erroHistorico, setErroHistorico] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [showQuickReplies, setShowQuickReplies] = useState(false);
   const [showQuickActions, setShowQuickActions] = useState(false);
@@ -3798,7 +3799,8 @@ export const ChatPanel = ({
     // pode atualizar a tela, e nada atualiza depois que a conversa foi trocada/fechada.
     let cancelado = false;
     let ultimaBusca = 0;
-    const loadMessagesWhatsapp = async () => {
+    let ultimoErroBusca: string | null = null;
+    const loadMessagesWhatsapp = async (): Promise<boolean> => {
       const minhaBusca = ++ultimaBusca;
       try {
         const resp = await fetch('/api/whatsapp-messages', {
@@ -3842,7 +3844,7 @@ export const ChatPanel = ({
             .sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
         }
 
-        if (cancelado || minhaBusca !== ultimaBusca) return;
+        if (cancelado || minhaBusca !== ultimaBusca) return true; // superada/cancelada: nao dispara a fonte reserva
         setMessages(mapped);
         // Transcrição automática pendente (áudio chegou com o CRM fechado / falha temporária):
         // pede ao servidor pra continuar -- uma vez por conversa aberta; o texto chega pelo Realtime.
@@ -3851,8 +3853,11 @@ export const ChatPanel = ({
           sweptTranscriptionPhonesRef.current.add(conversation.phone);
           reprocessPendingTranscriptions(conversation.phone, user?.id);
         }
+        return mapped.some((m: any) => !m.isNote);
       } catch (err) {
         console.error('[CRM] Falha ao carregar histórico ao vivo da Evolution API:', err);
+        ultimoErroBusca = `Evolution API: ${(err as any)?.message || err}`;
+        return false;
       }
     };
 
@@ -3861,7 +3866,7 @@ export const ChatPanel = ({
     // Evolution API devolver o historico daquela conversa. Mantem a Fase 4: a transcricao de audio
     // mora em wa_transcricao_fila e e mesclada por whatsapp_message_id. `id` continua sendo o id da
     // linha (igual ao de antes); o id da Evolution vai em `whatsappMessageId`.
-    const loadMessagesWhatsappCrm = async () => {
+    const loadMessagesWhatsappCrm = async (): Promise<boolean> => {
       const minhaBusca = ++ultimaBusca;
       try {
         const { data, error } = await supabase.from('crm_messages').select('*')
@@ -3889,15 +3894,18 @@ export const ChatPanel = ({
           });
         }
 
-        if (cancelado || minhaBusca !== ultimaBusca) return;
+        if (cancelado || minhaBusca !== ultimaBusca) return true; // superada/cancelada: nao dispara a fonte reserva
         setMessages(mapped);
         if (conversation.phone && !sweptTranscriptionPhonesRef.current.has(conversation.phone)
           && mapped.some((m: any) => m.direction === 'incoming' && (m.transcriptionStatus === 'pending' || m.transcriptionStatus === 'processing'))) {
           sweptTranscriptionPhonesRef.current.add(conversation.phone);
           reprocessPendingTranscriptions(conversation.phone, user?.id);
         }
+        return mapped.some((m: any) => !m.isNote);
       } catch (err) {
         console.error('[CRM] Falha ao carregar mensagens do WhatsApp em crm_messages:', err);
+        ultimoErroBusca = `Supabase (crm_messages): ${(err as any)?.message || err}`;
+        return false;
       }
     };
 
@@ -3912,7 +3920,18 @@ export const ChatPanel = ({
 
     // Leitura ao vivo na Evolution SO com a flag ligada; desligada, WhatsApp le crm_messages (como antes).
     const usarEvolutionAoVivo = ehWhatsapp && SEM_CRM_MESSAGES;
-    const loadMessages = usarEvolutionAoVivo ? loadMessagesWhatsapp : (ehWhatsapp ? loadMessagesWhatsappCrm : loadMessagesOutroCanal);
+    // Fonte reserva: se a principal falhar ou voltar sem mensagens (flags do servidor/front desencontradas,
+    // conversa guardada sob outro JID na Evolution, Supabase fora do ar...), tenta a outra em vez de abrir
+    // vazio. Se as duas falharem, o motivo aparece na propria tela do chat (erroHistorico).
+    const loadMessagesWhatsappComReserva = async (): Promise<boolean> => {
+      ultimoErroBusca = null;
+      const principal = usarEvolutionAoVivo ? loadMessagesWhatsapp : loadMessagesWhatsappCrm;
+      const reserva = usarEvolutionAoVivo ? loadMessagesWhatsappCrm : loadMessagesWhatsapp;
+      const temMensagens = (await principal()) || (await reserva());
+      if (!cancelado) setErroHistorico(temMensagens ? null : ultimoErroBusca);
+      return temMensagens;
+    };
+    const loadMessages = ehWhatsapp ? loadMessagesWhatsappComReserva : loadMessagesOutroCanal;
     recarregarMensagensRef.current = loadMessages;
     loadMessages();
 
@@ -4512,6 +4531,9 @@ export const ChatPanel = ({
                       </div>
                       <div className="text-center space-y-1">
                         <p className="text-xs font-bold text-white/70">Nenhuma mensagem registrada ainda</p>
+                        {erroHistorico && (
+                          <p className="text-[10px] font-bold text-rose-400 break-words">Não foi possível carregar o histórico: {erroHistorico}</p>
+                        )}
                         <p className="text-[10px] text-white/30 font-medium">Inicie o atendimento com uma mensagem do atendente ou simule uma chegada do cliente:</p>
                       </div>
 
