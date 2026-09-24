@@ -18,6 +18,7 @@ import { timestampParaIso } from './_lib/timestamp.js';
 import { waitUntil } from '@vercel/functions';
 import { processarTranscricao, enfileirarTranscricao } from './_lib/transcricao-fila.js';
 import { encontrarNodeMidia, extrairTextoMensagem, extrairInfoMidia as extrairInfoMidiaCompartilhado } from './_lib/wa-parse.js';
+import { ehFotoPermanente, salvarFotoPermanente } from './_lib/foto-perfil.js';
 import { sinalizarMensagemNova } from './_lib/realtime-signal.js';
 
 // A transcrição de áudio roda em segundo plano (waitUntil) depois da resposta ao webhook;
@@ -333,7 +334,9 @@ async function garantirFotoLead(phone, evoHeaders, jidGrupo) {
       headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
     });
     const leads = await buscaR.json();
-    if (!Array.isArray(leads) || leads.length === 0 || leads[0].photo_url) return;
+    // Ja tem copia permanente? nada a fazer. Sem foto OU com a URL antiga do WhatsApp (que expira e vira 403)? busca de novo
+    // e guarda uma copia permanente.
+    if (!Array.isArray(leads) || leads.length === 0 || ehFotoPermanente(leads[0].photo_url)) return;
 
     const picRes = await fetch(`${EVOLUTION_API_URL}/chat/fetchProfilePictureUrl/${INSTANCE_NAME}`, {
       method: 'POST',
@@ -342,8 +345,9 @@ async function garantirFotoLead(phone, evoHeaders, jidGrupo) {
     });
     if (!picRes.ok) return;
     const picData = await picRes.json();
-    const fotoUrl = picData?.profilePictureUrl || picData?.url || null;
-    if (!fotoUrl) return;
+    const fotoUrlOriginal = picData?.profilePictureUrl || picData?.url || null;
+    if (!fotoUrlOriginal) return;
+    const fotoUrl = (await salvarFotoPermanente(fotoUrlOriginal, phone)) || fotoUrlOriginal;
 
     await fetch(`${SUPABASE_URL}/rest/v1/leads?id=eq.${leads[0].id}`, {
       method: 'PATCH',
@@ -493,6 +497,11 @@ export default async function handler(req, res) {
         const digitosRemoto = phoneRaw.replace('@s.whatsapp.net', '').replace('@g.us', '').replace('@lid', '').replace(/\D/g, '');
         const phone = ehGrupoMsg ? digitosRemoto : normalizarTelefoneBR(digitosRemoto);
         const text = extrairTextoMensagem(msg?.message);
+        // Diagnostico: mensagem sem texto extraivel e descartada em silencio -- registra so os TIPOS (sem conteudo)
+        // pra descobrir formatos novos de mensagem que ainda nao sao lidos.
+        if (!text && msg?.message && !encontrarNodeMidia(msg.message)) {
+          console.warn('[CRM WEBHOOK] mensagem sem texto extraivel (descartada); tipos =', Object.keys(msg.message).join(','));
+        }
         const whatsappMessageId = msg?.key?.id || null;
         const createdAt = timestampParaIso(msg?.messageTimestamp);
 
@@ -530,7 +539,9 @@ export default async function handler(req, res) {
             let precisaTranscrever = false;
             if (infoAudio) {
               camposAudio = { media_mime_type: infoAudio.mimetype, media_duration: infoAudio.seconds };
-              precisaTranscrever = !ehMinhaMensagem && midiaSalva?.contentType === 'audio' && !!midiaSalva?.mediaUrl
+              // Grupo (@g.us) nunca entra na transcricao automatica: so conversa individual. O botao
+              // "Transcrever" manual continua disponivel no chat do grupo.
+              precisaTranscrever = !ehMinhaMensagem && !ehGrupoMsg && midiaSalva?.contentType === 'audio' && !!midiaSalva?.mediaUrl
                 && await transcricaoAutomaticaLigada(phone);
             }
             gravada = SEM_CRM_MESSAGES ? true : await inserirMensagem({

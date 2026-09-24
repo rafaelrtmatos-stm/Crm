@@ -11,6 +11,7 @@
 import { EVOLUTION_API_URL, EVOLUTION_API_KEY, INSTANCE_NAME, SUPABASE_URL, SUPABASE_ANON_KEY, COMPANY_ID, supabaseHeaders } from './_lib/whatsapp-config.js';
 import { exigirUsuarioAutorizado } from './_lib/auth.js';
 import { timestampParaIso } from './_lib/timestamp.js';
+import { extrairTextoInterativo } from './_lib/wa-parse.js';
 
 const supaHeaders = supabaseHeaders();
 
@@ -209,6 +210,7 @@ export default async function handler(req, res) {
             msg?.message?.conversation ||
             msg?.message?.extendedTextMessage?.text ||
             msg?.message?.imageMessage?.caption ||
+            extrairTextoInterativo(msg?.message) ||
             '';
           if (!texto) continue;
 
@@ -245,6 +247,7 @@ export default async function handler(req, res) {
             msg?.message?.conversation ||
             msg?.message?.extendedTextMessage?.text ||
             msg?.message?.imageMessage?.caption ||
+            extrairTextoInterativo(msg?.message) ||
             '';
           if (!texto) continue;
 
