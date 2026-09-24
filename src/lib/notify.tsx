@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AlertTriangle, CheckCircle2, MessageSquare, X } from 'lucide-react';
 
 type ToastItem = { id: number; message: string };
-type MessageToastItem = { id: number; key: string; title: string; body: string; photoUrl?: string; time?: string; onClick?: () => void };
+type MessageToastItem = { id: number; key: string; title: string; body: string; photoUrl?: string; time?: string; waitLabel?: string; onClick?: () => void };
 type ConfirmItem = { id: number; message: string; resolve: (v: boolean) => void };
 type PromptItem = { id: number; message: string; defaultValue: string; resolve: (v: string | null) => void };
 
@@ -46,6 +46,55 @@ export function FotoNotificacao({ url, className, fallback }: { url?: string | n
   return <img src={src} alt="" className={className} onError={() => setFalhou(true)} />;
 }
 
+/**
+ * Texto do tempo de espera de uma conversa sem resposta: "Aguardando há 5 min", "Aguardando há 1 h 10 min".
+ * `desde` = leads.waiting_since (ISO).
+ */
+export function textoTempoDeEspera(desde?: string | null, agora: number = Date.now()): string {
+  const t = desde ? Date.parse(desde) : NaN;
+  if (!Number.isFinite(t)) return 'Aguardando resposta';
+  const min = Math.max(1, Math.floor((agora - t) / 60000));
+  if (min < 60) return `Aguardando há ${min} min`;
+  const h = Math.floor(min / 60);
+  const resto = min % 60;
+  return resto === 0 ? `Aguardando há ${h} h` : `Aguardando há ${h} h ${resto} min`;
+}
+
+const FOTO_CACHE_MS = 10 * 60 * 1000;
+const fotoCache = new Map<string, { url: string | null; em: number }>();
+
+/**
+ * Foto ATUAL do contato/grupo, buscada direto na Evolution API (api/whatsapp-foto-perfil.js). O link de
+ * foto guardado no lead expira em algumas semanas; sem isso o aviso caia no icone padrao. Cache de 10 min por
+ * telefone e limite de 3 s: se a Evolution nao responder (ou o contato nao tiver foto), devolve `fallback`
+ * (a foto que ja estava salva) -- nunca trava nem derruba o aviso.
+ */
+export async function buscarFotoAtual(phone?: string | null, userId?: string | null, fallback?: string | null): Promise<string | undefined> {
+  const padrao = urlDeFotoValida(fallback) || undefined;
+  const numero = String(phone || '').replace(/\D/g, '');
+  if (!numero || !userId) return padrao;
+  const guardada = fotoCache.get(numero);
+  if (guardada && Date.now() - guardada.em < FOTO_CACHE_MS) return guardada.url || padrao;
+  const controle = new AbortController();
+  const timer = setTimeout(() => controle.abort(), 3000);
+  try {
+    const resp = await fetch('/api/whatsapp-foto-perfil', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-user-id': userId },
+      body: JSON.stringify({ phone: numero }),
+      signal: controle.signal,
+    });
+    const dados = await resp.json().catch(() => ({}));
+    const url = urlDeFotoValida(dados?.photoUrl);
+    fotoCache.set(numero, { url, em: Date.now() });
+    return url || padrao;
+  } catch {
+    return padrao;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Substitui window.alert() — mostra uma notificação do proprio sistema (toast), nao um popup do navegador */
 export function showAlert(message: string) {
   const id = ++idCounter;
@@ -78,7 +127,7 @@ function dismissMessageToast(id: number) {
  * Clicar no aviso chama onClick (ex: abrir a conversa). Mensagens seguidas do mesmo contato
  * (mesma `key`) substituem o aviso anterior em vez de empilhar; no maximo 3 avisos na tela.
  */
-export function showMessageToast(opts: { key: string; title: string; body: string; photoUrl?: string; time?: string; onClick?: () => void }) {
+export function showMessageToast(opts: { key: string; title: string; body: string; photoUrl?: string; time?: string; waitLabel?: string; onClick?: () => void }) {
   const repetidos = messageToasts.filter(t => t.key === opts.key);
   repetidos.forEach(t => {
     const timer = messageToastTimers.get(t.id);
@@ -199,6 +248,7 @@ export function NotifyHost() {
                   {t.time && <span className="text-[10px] text-white/40 shrink-0">{t.time}</span>}
                 </div>
                 <p className="text-xs text-white/60 leading-snug line-clamp-2 break-words">{t.body}</p>
+                {t.waitLabel && <p className="text-[10px] font-black uppercase tracking-wider text-rose-400 mt-1">{t.waitLabel}</p>}
               </div>
               <button
                 onClick={(e) => { e.stopPropagation(); dismissMessageToast(t.id); }}

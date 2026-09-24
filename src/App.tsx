@@ -47,7 +47,7 @@ import {
 } from 'lucide-react';
 import { ChevronRight } from 'lucide-react';
 
-import { NotifyHost, showAlert, showMessageToast, urlDeFotoValida } from './lib/notify';
+import { NotifyHost, showAlert, showMessageToast, urlDeFotoValida, buscarFotoAtual, textoTempoDeEspera } from './lib/notify';
 import { sincronizarFilaOffline } from './lib/sincronizacaoOffline';
 import ComissoesAdminPanel from './comissoes/ComissoesAdminPanel';
 import { motion, AnimatePresence } from 'motion/react';
@@ -1503,6 +1503,9 @@ export default function App() {
       const corpo = (info?.isGroup || !!grupoSemNotificacao) && (row.sender_name || '').trim() ? `${String(row.sender_name).trim()}: ${previaBase}` : previaBase;
       const horario = formatarHoraNotificacao(info?.messageAt || row.created_at || new Date().toISOString());
 
+      // Foto ATUAL buscada direto na Evolution (a guardada no banco expira); se nao vier, usa a do banco.
+      const fotoAtual = await buscarFotoAtual(row.phone, usuarioAtual?.id, info?.photoUrl);
+
       // Aba em foco: a notificacao nativa do navegador nao aparece (so quando esta em segundo
       // plano), entao mostra um aviso visual no canto inferior do proprio CRM. Clicar abre a conversa.
       if (!emSegundoPlano) {
@@ -1510,7 +1513,7 @@ export default function App() {
           key: `msg-${row.phone || row.id}`,
           title: remetente,
           body: corpo.length > 120 ? `${corpo.slice(0, 117)}...` : corpo,
-          photoUrl: info?.photoUrl,
+          photoUrl: fotoAtual,
           time: horario,
           onClick: () => {
             openNotificationLead(row.phone, row.id);
@@ -1522,7 +1525,7 @@ export default function App() {
       if (!('Notification' in window) || Notification.permission !== 'granted') return;
       const opcoes = {
         body: corpo.length > 120 ? `${corpo.slice(0, 117)}...` : corpo,
-        icon: urlDeFotoValida(info?.photoUrl) || '/icon-192.png',
+        icon: fotoAtual || '/icon-192.png',
         tag: `msg-${row.phone || row.id}`,
         data: { phone: row.phone || null, messageId: row.id || null },
       };
@@ -1546,6 +1549,112 @@ export default function App() {
       };
     } catch (e) { console.warn('Falha ao mostrar notificacao de mensagem:', e); }
   };
+
+  // LEMBRETE DE 5 MINUTOS: conversa INDIVIDUAL que continua sem resposta (leads.waiting_since preenchido; some quando
+  // alguem responde ou marca "Resolvido") avisa de novo a cada 5 min -- som + card (ou notificacao nativa) com a foto do
+  // contato, a previa da ultima mensagem dele e o tempo de espera. GRUPO nunca gera lembrete (so o aviso normal de
+  // mensagem nova, que ja respeita a liberacao do grupo). So funciona com o CRM aberto no navegador.
+  // `lembretesRef` guarda em qual "ciclo" de 5 min cada conversa ja foi lembrada; na 1a checagem depois de abrir o CRM
+  // so anota o ciclo atual (sem disparar tudo de uma vez) -- quem estava esperando so e lembrado no proximo ciclo.
+  const lembretesRef = React.useRef<Map<string, number>>(new Map());
+  useEffect(() => {
+    if (!user?.id) return;
+    const CICLO_MS = 5 * 60 * 1000;
+    const MAX_POR_RODADA = 5;
+    let rodando = false;
+    let primeiraRodada = true;
+
+    const verificar = async () => {
+      if (rodando) return;
+      rodando = true;
+      try {
+        const usuarioAtual = userRef.current;
+        if (!usuarioPodeVerMensagens(usuarioAtual)) return;
+        const agora = Date.now();
+        const { data, error } = await supabase
+          .from('leads')
+          .select('id,phone,full_name,contact_name,whatsapp_name,photo_url,waiting_since,last_client_message_text,last_message_text')
+          .eq('company_id', 'rafa-arts')
+          .not('waiting_since', 'is', null)
+          .lte('waiting_since', new Date(agora - CICLO_MS).toISOString())
+          .order('waiting_since', { ascending: true })
+          .limit(50);
+        if (error || !data) return;
+
+        // Respondeu/resolveu: sai da lista e o ciclo recomeca se voltar a esperar.
+        const aindaEsperando = new Set(data.map((l: any) => String(l.phone)));
+        for (const chave of Array.from<string>(lembretesRef.current.keys())) {
+          if (!aindaEsperando.has(chave)) lembretesRef.current.delete(chave);
+        }
+
+        const infoGrupos = await carregarInfoGrupos(usuarioAtual).catch(() => null);
+        const devidos: any[] = [];
+        for (const l of data as any[]) {
+          const digitos = String(l.phone || '').replace(/\D/g, '');
+          if (!digitos) continue;
+          if (infoGrupos ? infoGrupos.todos.has(digitos) : digitos.length > 15) continue; // grupo: sem lembrete
+          const ciclo = Math.floor((agora - Date.parse(l.waiting_since)) / CICLO_MS);
+          if (!Number.isFinite(ciclo) || ciclo < 1) continue;
+          const chave = String(l.phone);
+          if (primeiraRodada) { lembretesRef.current.set(chave, ciclo); continue; }
+          if ((lembretesRef.current.get(chave) ?? 0) < ciclo) devidos.push({ lead: l, ciclo, chave });
+        }
+        primeiraRodada = false;
+        if (devidos.length === 0) return;
+
+        const lote = devidos.slice(0, MAX_POR_RODADA);
+        try {
+          const audio = notifAudioRef.current || (notifAudioRef.current = new Audio('/sounds/mensagem-cliente.mp3'));
+          audio.currentTime = 0;
+          audio.play().catch((e) => console.warn('Som do lembrete bloqueado pelo navegador (precisa de 1 clique na pagina antes):', e));
+        } catch (e) { console.warn('Falha ao tocar som do lembrete:', e); }
+
+        const emSegundoPlano = document.hidden || !document.hasFocus();
+        await Promise.all(lote.map(async ({ lead: l, ciclo, chave }) => {
+          lembretesRef.current.set(chave, ciclo);
+          const nome = (l.contact_name || l.full_name || l.whatsapp_name || l.phone || 'Cliente').trim();
+          const previaBruta = (l.last_client_message_text || l.last_message_text || '').trim() || 'Mensagem sem texto';
+          const previa = previaBruta.length > 120 ? `${previaBruta.slice(0, 117)}...` : previaBruta;
+          const espera = textoTempoDeEspera(l.waiting_since, agora);
+          const foto = await buscarFotoAtual(l.phone, usuarioAtual?.id, l.photo_url);
+
+          if (!emSegundoPlano) {
+            showMessageToast({
+              key: `lembrete-${l.phone}`,
+              title: nome,
+              body: previa,
+              photoUrl: foto,
+              waitLabel: espera,
+              onClick: () => { openNotificationLead(l.phone, null); },
+            });
+            return;
+          }
+          if (!('Notification' in window) || Notification.permission !== 'granted') return;
+          const opcoes: any = {
+            body: `${espera}\n${previa}`,
+            icon: foto || '/icon-192.png',
+            tag: `lembrete-${l.phone}`,
+            renotify: true,
+            data: { phone: l.phone || null, messageId: null },
+          };
+          try {
+            const reg = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration() : null;
+            if (reg) { await reg.showNotification(nome, opcoes); return; }
+            const notif = new Notification(nome, opcoes);
+            notif.onclick = () => { window.focus(); openNotificationLead(l.phone, null); notif.close(); };
+          } catch (e) { console.warn('Falha ao mostrar notificacao do lembrete:', e); }
+        }));
+      } catch (e) {
+        console.warn('Falha ao verificar lembretes de conversas sem resposta:', e);
+      } finally {
+        rodando = false;
+      }
+    };
+
+    const inicio = setTimeout(verificar, 8000);
+    const timer = setInterval(verificar, 30000);
+    return () => { clearTimeout(inicio); clearInterval(timer); };
+  }, [user?.id]);
 
   // Auto-login (sessao lembrada porque localizacao + notificacoes foram autorizadas): registra
   // a sessao de novo tambem, senao ela some da lista "Sessões Ativas" do admin e o pedido de
