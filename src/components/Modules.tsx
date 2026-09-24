@@ -19787,6 +19787,26 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                </div>
              </div>
 
+             {/* Etapa de produção: aparece SEMPRE (nota em aberto OU já quitada). Quitar a nota não muda a etapa —
+                 quem escolhe é o usuário, ex.: pedido todo pago, mas ainda "Aguardando Arte". */}
+             {sale.status !== 'canceled' && (
+               <div className="bg-slate-900/50 rounded-2xl p-3 border border-white/5 space-y-1">
+                 <label className="text-[9px] font-black uppercase text-white/40 tracking-widest block">Etapa Atual</label>
+                 <select
+                   value={sale.serviceStatus || ''}
+                   onChange={(e) => { if (e.target.value) handleUpdateServiceStatus(sale.id, e.target.value); }}
+                   className="w-full h-9 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer"
+                 >
+                   {!sale.serviceStatus && (
+                     <option value="" disabled className="bg-slate-900">Escolha a etapa (envia p/ Serviços)</option>
+                   )}
+                   {STAGE_ORDER.map(id => (
+                     <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
+                   ))}
+                 </select>
+               </div>
+             )}
+
              {/* Ações */}
              <div className="flex flex-wrap gap-2 pt-2">
                {isPending && (
