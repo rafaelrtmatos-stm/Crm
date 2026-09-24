@@ -41,6 +41,66 @@ export function extensaoPorMimetype(mimetype) {
   return mapa[base] || (base.includes('/') ? base.split('/')[1] : '');
 }
 
+// Mensagens INTERATIVAS (menu de lista, botoes, template, native flow) -- tipicas de robo/URA de
+// empresa (ex.: "Digite a sua duvida ou selecione uma opcao do menu" + botao "Menu"). O texto que
+// aparece no WhatsApp fica em campos proprios de cada tipo, nao em `conversation`; sem ler esses campos
+// a mensagem vinha com texto vazio e o webhook descartava em silencio (inserirMensagem: `!text`).
+const juntar = (...partes) => partes.map(p => (typeof p === 'string' ? p.trim() : '')).filter(Boolean).join('\n\n');
+
+export function extrairTextoInterativo(message) {
+  if (!message) return '';
+
+  // Lista ("Menu"): titulo + descricao (onde o robo costuma colocar 1. 2. 3. ...) + rodape.
+  if (message.listMessage) {
+    const l = message.listMessage;
+    let texto = juntar(l.title, l.description, l.footerText);
+    if (!l.description) {
+      const linhas = (l.sections || []).flatMap(sec => (sec?.rows || []).map(r => r?.title)).filter(Boolean);
+      if (linhas.length) texto = juntar(texto, linhas.map((t, i) => `${i + 1}. ${t}`).join('\n'));
+    }
+    return texto || '📋 Menu de opções';
+  }
+
+  // Botoes de resposta rapida (legado)
+  if (message.buttonsMessage) {
+    const b = message.buttonsMessage;
+    const rotulos = (b.buttons || []).map(x => x?.buttonText?.displayText).filter(Boolean);
+    return juntar(b.text, b.contentText, b.footerText, rotulos.length ? rotulos.map(r => `▫️ ${r}`).join('\n') : '') || '🔘 Mensagem com botões';
+  }
+
+  // Template (hydrated) -- botoes de URL/ligacao/resposta
+  const tpl = message.templateMessage?.hydratedTemplate || message.templateMessage?.hydratedFourRowTemplate;
+  if (tpl) {
+    const rotulos = (tpl.hydratedButtons || []).map(x => x?.quickReplyButton?.displayText || x?.urlButton?.displayText || x?.callButton?.displayText).filter(Boolean);
+    return juntar(tpl.hydratedTitleText, tpl.hydratedContentText, tpl.hydratedFooterText, rotulos.length ? rotulos.map(r => `▫️ ${r}`).join('\n') : '') || '🔘 Mensagem com botões';
+  }
+  if (message.templateMessage) {
+    const i = message.templateMessage.interactiveMessageTemplate;
+    if (i) return extrairTextoInterativo({ interactiveMessage: i });
+    return '🔘 Mensagem com botões';
+  }
+
+  // Interativa nova (native flow: single_select = "Menu", quick_reply, cta_url...)
+  if (message.interactiveMessage) {
+    const i = message.interactiveMessage;
+    let texto = juntar(i.header?.title, i.body?.text, i.footer?.text);
+    if (!texto) {
+      const btns = i.nativeFlowMessage?.buttons || [];
+      texto = btns.map(b => { try { return JSON.parse(b?.buttonParamsJson || '{}').display_text || JSON.parse(b?.buttonParamsJson || '{}').title; } catch { return ''; } }).filter(Boolean).join('\n');
+    }
+    return texto || '🔘 Mensagem interativa';
+  }
+
+  // Resposta do cliente a uma mensagem interativa
+  if (message.interactiveResponseMessage) {
+    const r = message.interactiveResponseMessage;
+    if (r.body?.text) return r.body.text;
+    try { return JSON.parse(r.nativeFlowResponseMessage?.paramsJson || '{}').title || '🔘 Resposta interativa'; } catch { return '🔘 Resposta interativa'; }
+  }
+
+  return '';
+}
+
 // Percorre o objeto `message` da Evolution/Baileys e devolve um texto exibivel pro chat.
 // Mensagens efemeras ("apagar apos ler") e "ver uma vez" vem embrulhadas em mais um nivel
 // (ephemeralMessage.message / viewOnceMessage(V2).message) — sem desembrulhar isso, o
@@ -67,12 +127,17 @@ export function extrairTextoMensagem(message, profundidade = 0) {
   if (message.listResponseMessage) return message.listResponseMessage.title || message.listResponseMessage.singleSelectReply?.selectedRowId || '';
   if (message.templateButtonReplyMessage) return message.templateButtonReplyMessage.selectedDisplayText || '';
 
+  const interativo = extrairTextoInterativo(message);
+  if (interativo) return interativo;
+
   // Mensagem efemera / "ver uma vez" — o conteudo real esta um nivel mais fundo
   const embrulho =
     message.ephemeralMessage?.message ||
     message.viewOnceMessage?.message ||
     message.viewOnceMessageV2?.message ||
     message.viewOnceMessageV2Extension?.message ||
+    message.deviceSentMessage?.message ||
+    message.editedMessage?.message ||
     message.documentWithCaptionMessage?.message;
   if (embrulho) return extrairTextoMensagem(embrulho, profundidade + 1);
 
