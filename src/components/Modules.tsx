@@ -249,6 +249,7 @@ import { OFFICIAL_COMPANY, PUBLIC_SIGN_ORIGIN, getContractSignatureLink } from '
 import { signContractByCompany, generateSignatureId } from '../lib/otpUtils';
 import { transcribeAudioMessage, reprocessPendingTranscriptions } from '../lib/audioTranscription';
 import { generateSuggestion, type KnowledgeProduct } from '../lib/robozinhoRafa';
+import { suggestReplies, type SuggestReplyHistoryItem } from '../lib/suggestReply';
 import { assistWriting, WRITING_ASSIST_ACTIONS, type WritingAssistAction } from '../lib/writingAssistant';
 import { validateCpfCnpj } from '../lib/validators';
 import { buscarClienteDuplicado, montarPayloadMesclagem } from '../lib/clienteDedupe';
@@ -3397,33 +3398,47 @@ export const ChatPanel = ({
     }
   };
 
-  // Botao "Sugestao do Robozinho" — le a ultima mensagem do cliente, consulta estoque/produtos
-  // reais e monta uma sugestao de resposta. O atendente sempre revisa/edita antes de enviar
-  // (o Robozinho nunca envia mensagem sozinho).
+  // Botao "Sugestao do Robozinho" — le a ultima mensagem do cliente + contexto recente da
+  // conversa e pede 3 sugestoes de resposta ao Gemini (mecanismo principal). Se o Gemini falhar,
+  // cai pro fallback antigo por palavras-chave (generateSuggestion), sem travar o CRM.
+  // O atendente sempre escolhe/revisa antes de enviar (a IA nunca envia sozinha).
   const [isGeneratingSuggestion, setIsGeneratingSuggestion] = useState(false);
+  const [robozinhoSuggestions, setRobozinhoSuggestions] = useState<string[]>([]);
+  const [showRobozinhoSuggestions, setShowRobozinhoSuggestions] = useState(false);
   const handleGenerateRobozinhoSuggestion = async () => {
     const lastIncoming = [...messages].reverse().find(m => m.direction === 'incoming' && m.text);
     if (!lastIncoming) { showAlert('Ainda não tem mensagem do cliente nessa conversa pra sugerir uma resposta.'); return; }
     setIsGeneratingSuggestion(true);
     try {
-      const [{ data: produtosRows }, { data: configRow }] = await Promise.all([
-        supabase.from('produtos').select('name, sale_price, current_stock, tipo_item, controla_estoque, is_active'),
-        supabase.from('configuracoes').select('enabled_payment_methods').eq('company_id', 'rafa-arts').maybeSingle(),
-      ]);
-      const produtos: KnowledgeProduct[] = (produtosRows || []).map((p: any) => ({
-        name: p.name, price: Number(p.sale_price) || 0, stock: Number(p.current_stock) || 0,
-        tipoItem: p.tipo_item, controlaEstoque: !!p.controla_estoque, isActive: p.is_active !== false,
-      }));
-      const suggestion = generateSuggestion({
-        clientMessage: lastIncoming.text,
-        clientName: conversation?.name,
-        produtos,
-        enabledPaymentMethods: configRow?.enabled_payment_methods || [],
-      });
-      setNewMessage(suggestion);
+      const history: SuggestReplyHistoryItem[] = messages
+        .filter(m => m.text)
+        .slice(-10)
+        .map(m => ({ direction: m.direction === 'incoming' ? 'incoming' : 'outgoing', text: m.text }));
+      const suggestions = await suggestReplies(lastIncoming.text, history, conversation?.name, user?.id);
+      setRobozinhoSuggestions(suggestions);
+      setShowRobozinhoSuggestions(true);
     } catch (err) {
-      console.error('Erro ao gerar sugestão do Robozinho:', err);
-      showAlert('Não foi possível gerar a sugestão agora.');
+      console.error('Erro ao gerar sugestões com Gemini, usando fallback:', err);
+      try {
+        const [{ data: produtosRows }, { data: configRow }] = await Promise.all([
+          supabase.from('produtos').select('name, sale_price, current_stock, tipo_item, controla_estoque, is_active'),
+          supabase.from('configuracoes').select('enabled_payment_methods').eq('company_id', 'rafa-arts').maybeSingle(),
+        ]);
+        const produtos: KnowledgeProduct[] = (produtosRows || []).map((p: any) => ({
+          name: p.name, price: Number(p.sale_price) || 0, stock: Number(p.current_stock) || 0,
+          tipoItem: p.tipo_item, controlaEstoque: !!p.controla_estoque, isActive: p.is_active !== false,
+        }));
+        const suggestion = generateSuggestion({
+          clientMessage: lastIncoming.text,
+          clientName: conversation?.name,
+          produtos,
+          enabledPaymentMethods: configRow?.enabled_payment_methods || [],
+        });
+        setNewMessage(suggestion);
+      } catch (fallbackErr) {
+        console.error('Erro no fallback da sugestão:', fallbackErr);
+        showAlert('Não foi possível gerar a sugestão agora.');
+      }
     } finally {
       setIsGeneratingSuggestion(false);
     }
@@ -4883,16 +4898,35 @@ export const ChatPanel = ({
               <div className="p-3 bg-slate-100/50 border-t border-white/10 space-y-2 flex-shrink-0">
                 {/* BARRA DE RESPOSTAS RÁPIDAS / MENSAGENS SALVAS — escondida por padrão, só abre se clicar */}
                 <div className="flex flex-wrap items-center gap-1.5 pb-1">
-                  <button
-                    type="button"
-                    onClick={handleGenerateRobozinhoSuggestion}
-                    disabled={isGeneratingSuggestion}
-                    className="text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border border-primary-300 bg-primary-500/10 text-primary-700 hover:bg-primary-500/20 shadow-sm whitespace-nowrap transition-all shrink-0 cursor-pointer flex items-center gap-1 disabled:opacity-50"
-                    title="O Robozinho lê a última mensagem do cliente, consulta o estoque/produtos e sugere uma resposta pra você revisar"
-                  >
-                    {isGeneratingSuggestion ? <Loader2 size={10} className="animate-spin" /> : <Bot size={10} />}
-                    {isGeneratingSuggestion ? 'Pensando...' : 'Sugestão do Robozinho'}
-                  </button>
+                  <div className="relative shrink-0">
+                    <button
+                      type="button"
+                      onClick={handleGenerateRobozinhoSuggestion}
+                      disabled={isGeneratingSuggestion}
+                      className="text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border border-primary-300 bg-primary-500/10 text-primary-700 hover:bg-primary-500/20 shadow-sm whitespace-nowrap transition-all cursor-pointer flex items-center gap-1 disabled:opacity-50"
+                      title="O Robozinho lê a última mensagem do cliente e o contexto recente da conversa e sugere 3 respostas pra você escolher"
+                    >
+                      {isGeneratingSuggestion ? <Loader2 size={10} className="animate-spin" /> : <Bot size={10} />}
+                      {isGeneratingSuggestion ? 'Pensando...' : 'Sugestão do Robozinho'}
+                    </button>
+                    {showRobozinhoSuggestions && robozinhoSuggestions.length > 0 && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setShowRobozinhoSuggestions(false)} />
+                        <div className="absolute bottom-full mb-2 left-0 min-w-[280px] max-w-[360px] bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 p-1.5">
+                          {robozinhoSuggestions.map((sugestao, i) => (
+                            <button
+                              key={i}
+                              type="button"
+                              onClick={() => { setNewMessage(sugestao); setShowRobozinhoSuggestions(false); }}
+                              className="w-full text-left px-3 py-2.5 rounded-xl text-[10.5px] font-medium text-slate-700 hover:bg-primary-50 hover:text-primary-700 transition-colors leading-relaxed"
+                            >
+                              {sugestao}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
                   <div className="relative shrink-0">
                     <button
                       type="button"
