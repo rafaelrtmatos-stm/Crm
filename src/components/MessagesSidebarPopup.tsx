@@ -788,25 +788,25 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                 criterio do Alerta de Vácuo); "Favoritas" reaproveita priority==='alta'
                 (mesmo campo usado pela bandeira/Destaque no menu de ações em lote);
                 "Grupos" cruza com whatsapp_groups liberados (ver useEffect acima). */}
-            <div className="flex gap-1.5 overflow-x-auto no-scrollbar -mx-1 px-1">
+            <div className="flex gap-1 w-full">
               <button
                 type="button"
                 onClick={() => setViewFilter('all')}
                 className={cn(
-                  "shrink-0 px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all flex items-center gap-1.5",
+                  "flex-1 min-w-0 justify-center whitespace-nowrap px-1 sm:px-2 py-2 rounded-xl text-[9px] sm:text-[10px] font-black uppercase tracking-tight sm:tracking-wider border transition-all flex items-center gap-1",
                   viewFilter === 'all'
                     ? "bg-primary-50 border-primary-200 text-primary-700"
                     : "bg-transparent border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-100"
                 )}
               >
                 Tudo
-                <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-[8px]">{leads.length}</span>
+                <span className="bg-slate-100 text-slate-600 px-1 py-0.5 rounded text-[8px] shrink-0">{leads.length}</span>
               </button>
               <button
                 type="button"
                 onClick={() => setViewFilter('unread')}
                 className={cn(
-                  "shrink-0 px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all flex items-center gap-1.5",
+                  "flex-1 min-w-0 justify-center whitespace-nowrap px-1 sm:px-2 py-2 rounded-xl text-[9px] sm:text-[10px] font-black uppercase tracking-tight sm:tracking-wider border transition-all flex items-center gap-1",
                   viewFilter === 'unread'
                     ? "bg-rose-50 border-rose-200 text-rose-600"
                     : "bg-transparent border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-100",
@@ -815,7 +815,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
               >
                 Não lidas
                 <span className={cn(
-                  "px-1.5 py-0.5 rounded text-[8px] font-black",
+                  "px-1 py-0.5 rounded text-[8px] shrink-0 font-black",
                   unrepliedCount > 0 ? "bg-rose-500 text-white" : "bg-slate-100 text-slate-400"
                 )}>
                   {unrepliedCount}
@@ -825,27 +825,27 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                 type="button"
                 onClick={() => setViewFilter('favorite')}
                 className={cn(
-                  "shrink-0 px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all flex items-center gap-1.5",
+                  "flex-1 min-w-0 justify-center whitespace-nowrap px-1 sm:px-2 py-2 rounded-xl text-[9px] sm:text-[10px] font-black uppercase tracking-tight sm:tracking-wider border transition-all flex items-center gap-1",
                   viewFilter === 'favorite'
                     ? "bg-amber-50 border-amber-200 text-amber-600"
                     : "bg-transparent border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-100"
                 )}
               >
                 Favoritas
-                <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-[8px]">{favoriteCount}</span>
+                <span className="bg-slate-100 text-slate-600 px-1 py-0.5 rounded text-[8px] shrink-0">{favoriteCount}</span>
               </button>
               <button
                 type="button"
                 onClick={() => setViewFilter('group')}
                 className={cn(
-                  "shrink-0 px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all flex items-center gap-1.5",
+                  "flex-1 min-w-0 justify-center whitespace-nowrap px-1 sm:px-2 py-2 rounded-xl text-[9px] sm:text-[10px] font-black uppercase tracking-tight sm:tracking-wider border transition-all flex items-center gap-1",
                   viewFilter === 'group'
                     ? "bg-emerald-50 border-emerald-200 text-emerald-600"
                     : "bg-transparent border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-100"
                 )}
               >
                 Grupos
-                <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-[8px]">{groupCount}</span>
+                <span className="bg-slate-100 text-slate-600 px-1 py-0.5 rounded text-[8px] shrink-0">{groupCount}</span>
               </button>
             </div>
           </div>
