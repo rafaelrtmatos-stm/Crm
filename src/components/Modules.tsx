@@ -4269,7 +4269,7 @@ export const ChatPanel = ({
   return (
     <GlassCard className="flex-1 flex flex-col p-0 overflow-hidden bg-white/3 border-white/10 relative h-full fixed md:static inset-0 z-50 md:z-auto rounded-none md:rounded-[inherit]">
       {/* Header - FIXO */}
-      <div className="p-4 border-b border-white/10 flex items-center justify-between bg-white/[0.02] flex-shrink-0">
+      <div className="p-4 md:px-4 md:py-2 border-b border-white/10 flex items-center justify-between bg-white/[0.02] flex-shrink-0">
         <div className="flex items-center gap-3">
           {/* Botão Voltar — só no mobile: sai do Modo Conversa em Foco e retorna à lista, sem recarregar a página */}
           {onClose && (
@@ -4435,13 +4435,13 @@ export const ChatPanel = ({
         const currentStage = funnelStages.find(s => s.id === conversation.funnelStageId);
         const stageColor = currentStage?.color || '#4cc9f0';
         return (
-          <div className="flex items-center gap-2 w-full py-3 px-3 border-b border-white/10 bg-white/[0.015] flex-shrink-0">
+          <div className="flex items-center gap-2 w-full py-3 md:py-1.5 px-3 border-b border-white/10 bg-white/[0.015] flex-shrink-0">
             <div className="relative flex-1">
               <button
                 type="button"
                 onClick={() => setIsStageMenuOpen(o => !o)}
                 disabled={isChangingStage}
-                className="w-full flex items-center gap-2 rounded-full pl-3 pr-2.5 py-2.5 border transition-colors disabled:opacity-50"
+                className="w-full flex items-center gap-2 rounded-full pl-3 pr-2.5 py-2.5 md:py-1.5 border transition-colors disabled:opacity-50"
                 style={{ backgroundColor: `${stageColor}22`, borderColor: `${stageColor}66` }}
               >
                 <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: stageColor }} />
@@ -4696,7 +4696,7 @@ export const ChatPanel = ({
               </div>
 
               {/* Chat Input - FIXO */}
-              <div className="p-3 bg-slate-100/50 border-t border-white/10 space-y-2 flex-shrink-0">
+              <div className="p-3 md:p-2 bg-slate-100/50 border-t border-white/10 space-y-2 md:space-y-1 flex-shrink-0">
                 {/* BARRA DE RESPOSTAS RÁPIDAS / MENSAGENS SALVAS — escondida por padrão, só abre se clicar */}
                 <div className="flex flex-wrap items-center gap-1.5 pb-1">
                   <button
@@ -6721,9 +6721,9 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
     });
 
   return (
-    <div className="h-[calc(100vh-12rem)] flex gap-8 animate-in fade-in slide-in-from-right-5 duration-500">
+    <div className="h-[calc(100vh-12rem)] md:h-full flex gap-8 md:gap-3 animate-in fade-in slide-in-from-right-5 duration-500">
       <GlassCard className={cn(
-        "w-full md:w-96 p-0 overflow-hidden flex-col bg-white/5 border-white/10 shrink-0",
+        "w-full md:w-80 xl:w-96 p-0 overflow-hidden flex-col bg-white/5 border-white/10 shrink-0",
         selectedChat ? "hidden md:flex" : "flex"
       )}>
         <div className="p-6 border-b border-white/10 space-y-4">

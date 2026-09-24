@@ -2616,8 +2616,8 @@ export default function App() {
         {/* Main Content */}
         <main className="flex-1 flex flex-col min-w-0 bg-transparent overflow-hidden">
           <Navbar />
-          <div className={cn("flex-1 custom-scrollbar", (activeTab === 'pos' || activeTab === 'crm') ? "p-2 md:p-3 overflow-hidden" : "p-4 md:p-8 overflow-y-auto")}>
-            <div className={cn((activeTab === 'pos' || activeTab === 'crm') ? "max-w-full h-full" : "max-w-7xl mx-auto")}>
+          <div className={cn("flex-1 custom-scrollbar", (activeTab === 'pos' || activeTab === 'crm') ? "p-2 md:p-3 overflow-hidden" : activeTab === 'messages' ? "p-4 md:p-3 overflow-y-auto md:overflow-hidden" : "p-4 md:p-8 overflow-y-auto")}>
+            <div className={cn((activeTab === 'pos' || activeTab === 'crm') ? "max-w-full h-full" : activeTab === 'messages' ? "max-w-7xl mx-auto md:max-w-full md:mx-0 md:h-full" : "max-w-7xl mx-auto")}>
               <AnimatePresence mode="wait">
                 <motion.div
                   key={activeTab}
@@ -2625,7 +2625,7 @@ export default function App() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -8 }}
                   transition={{ duration: 0.15, ease: "easeOut" }}
-                  className={(activeTab === 'pos' || activeTab === 'crm') ? "h-full" : undefined}
+                  className={(activeTab === 'pos' || activeTab === 'crm') ? "h-full" : activeTab === 'messages' ? "md:h-full" : undefined}
                 >
                   {activeTab === 'dashboard' && <DashboardModule user={user} currentCompany={currentCompany} pendingOrders={pendingOrders} setActiveTab={setActiveTab} setIsMessagePopupOpen={setIsMessagePopupOpen} />}
                   {activeTab === 'crm' && <CRMModule currentCompany={currentCompany} user={user} />}

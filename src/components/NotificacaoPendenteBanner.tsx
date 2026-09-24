@@ -141,7 +141,7 @@ export const NotificacaoPendenteBanner = ({
 }) => {
   const n = notificacao.messageCount;
   return (
-    <div className="flex items-center gap-2 px-3 py-2 bg-amber-500/15 border-b border-amber-500/30 flex-shrink-0">
+    <div className="flex items-center gap-2 px-3 py-2 md:py-1 bg-amber-500/15 border-b border-amber-500/30 flex-shrink-0">
       <BellRing size={14} className="text-amber-300 shrink-0" />
       <div className="min-w-0 flex-1">
         <p className="text-[10px] font-black uppercase tracking-wider text-amber-300 leading-none">
