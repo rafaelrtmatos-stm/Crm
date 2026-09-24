@@ -237,6 +237,7 @@ import { SEM_CRM_MESSAGES } from '../lib/flags';
 import { confirmarRetiradaProducao } from '../comissoes/utils/supabaseStorage';
 import { FINANCEIRO_TABS, ALL_FINANCEIRO_TAB_IDS } from '../lib/financeiroTabs';
 import { buildPixPayload } from '../lib/pix';
+import { PixQrImage } from './PixQrImage';
 import { renderReceiptCanvas, downloadCanvasAsPng, downloadCanvasAsPdf, COMPANY_CONTACT, CompanyContactInfo } from '../lib/receipt';
 import { renderOrcamentoCanvas, renderOrcamentoSimplesCanvas } from '../lib/orcamentoDoc';
 import { exportClientesXlsx, parseClientesXlsx, exportProdutosXlsx, parseProdutosXlsx, exportVendasXlsx, parseVendasXlsx, exportFichaClienteXlsx } from '../lib/spreadsheet';
@@ -19484,7 +19485,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
          >
            <div className="flex flex-col items-center gap-2.5 p-1">
              <div className="w-[280px] h-[280px] max-w-full bg-white rounded-2xl p-2.5 shadow-lg flex items-center justify-center shrink-0">
-               <img src={`https://api.qrserver.com/v1/create-qr-code/?size=450x450&data=${encodeURIComponent(pixPayload)}`} alt="QR Code PIX" className="h-full w-full object-contain" referrerPolicy="no-referrer" />
+               <PixQrImage payload={pixPayload} className="h-full w-full object-contain" />
              </div>
 
              <div className="w-full bg-slate-900/60 rounded-2xl border border-white/10 p-3 space-y-1.5">

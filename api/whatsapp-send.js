@@ -27,7 +27,7 @@ import { waitUntil } from '@vercel/functions';
 //  - So avanca: se o lead ja tem uma ultima mensagem mais nova, nao volta no tempo.
 async function atualizarLeadMensagemEnviada(telefones, text, quando) {
   const filtroMaisNova = encodeURIComponent(`(last_message_at.is.null,last_message_at.lt.${quando})`);
-  for (const tel of telefones) {
+  await Promise.all(telefones.map(async (tel) => {
     try {
       const r = await fetch(`${SUPABASE_URL}/rest/v1/leads?company_id=eq.${COMPANY_ID}&phone=eq.${encodeURIComponent(tel)}&or=${filtroMaisNova}`, {
         method: 'PATCH',
@@ -52,7 +52,7 @@ async function atualizarLeadMensagemEnviada(telefones, text, quando) {
     } catch (err) {
       console.error('Falha ao atualizar a ultima mensagem do lead apos o envio (nao impede o resto):', err);
     }
-  }
+  }));
 }
 
 // Registra a mensagem enviada em crm_messages SO depois que a Evolution confirmou (envio falhou = nada e
@@ -84,11 +84,13 @@ async function registrarMensagemEnviada({ phone, text, senderName, leadId, whats
       return false;
     }
     if (whatsappMessageId && (senderName || leadId)) {
-      await fetch(`${SUPABASE_URL}/rest/v1/crm_messages?company_id=eq.${COMPANY_ID}&whatsapp_message_id=eq.${encodeURIComponent(whatsappMessageId)}`, {
+      // Correcao de remetente/lead: nao precisa segurar a resposta ao atendente (waitUntil mantem a
+      // funcao viva ate terminar, sem atrasar o "enviado").
+      waitUntil(fetch(`${SUPABASE_URL}/rest/v1/crm_messages?company_id=eq.${COMPANY_ID}&whatsapp_message_id=eq.${encodeURIComponent(whatsappMessageId)}`, {
         method: 'PATCH',
         headers: { ...headers, Prefer: 'return=minimal' },
         body: JSON.stringify({ ...(senderName ? { sender_name: senderName } : {}), ...(leadId ? { lead_id: leadId } : {}) }),
-      }).catch(() => {});
+      }).catch(() => {}));
     }
     return true;
   } catch (err) {
@@ -196,8 +198,11 @@ export default async function handler(req, res) {
     // Sem legenda, a mensagem de midia mostra um rotulo no lugar do texto (mesma ideia do "🎵 Áudio").
     const textoDaMensagem = text || (ehMidia ? (mediaType === 'image' ? '📷 Foto' : (nomeArquivo || 'Documento')) : text);
     const midia = ehMidia ? { tipo: mediaType, url: mediaUrl, fileName: nomeArquivo, mimeType } : null;
-    const salva = SEM_CRM_MESSAGES ? true : await registrarMensagemEnviada({ phone, text: textoDaMensagem, senderName, leadId, whatsappMessageId: idMensagem, createdAt: quandoEnviada, media: midia });
-    await atualizarLeadMensagemEnviada(Array.from(new Set([phone, numero])), textoDaMensagem, quandoEnviada);
+    // Os dois gravam em tabelas diferentes e nao dependem um do outro: rodam juntos (antes, em fila).
+    const [salva] = await Promise.all([
+      SEM_CRM_MESSAGES ? Promise.resolve(true) : registrarMensagemEnviada({ phone, text: textoDaMensagem, senderName, leadId, whatsappMessageId: idMensagem, createdAt: quandoEnviada, media: midia }),
+      atualizarLeadMensagemEnviada(Array.from(new Set([phone, numero])), textoDaMensagem, quandoEnviada),
+    ]);
 
     res.status(200).json({ ok: true, whatsappMessageId: idMensagem, createdAt: quandoEnviada, saved: salva });
     // FASE 3 passo 3: avisa quem estiver com essa conversa aberta pra rebuscar na Evolution API
