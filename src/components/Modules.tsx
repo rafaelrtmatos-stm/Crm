@@ -6386,12 +6386,31 @@ const KanbanCard = ({ lead, onClick, isSelected, isDragging, selectionMode, isCh
             </div>
             <div className="flex items-center gap-2">
                <button 
-                 onClick={(e) => {
+                 onClick={async (e) => {
                     e.stopPropagation();
-                    if (setPrefilledCustomer) {
-                       setPrefilledCustomer({ name: lead.fullName, phone: lead.phone || '' });
-                       setActiveTab?.('pos');
+                    if (!setPrefilledCustomer) return;
+                    // Mesma regra do "Venda PDV" dentro da conversa (handleStartSale): se ja existe
+                    // cadastro em `clientes` com esse telefone (ultimos 8 digitos), abre o PDV com o
+                    // id e o nome do cadastro em vez do nome do lead/WhatsApp.
+                    let clienteCadastro: any = null;
+                    const digitos = (lead.phone || '').replace(/\D/g, '');
+                    if (digitos.length >= 6) {
+                      const ultimos8 = digitos.slice(-8);
+                      try {
+                        const { data } = await supabase.from('clientes').select('*')
+                          .or(`phone.ilike.%${ultimos8}%,telefone_alternativo.ilike.%${ultimos8}%`)
+                          .limit(1).maybeSingle();
+                        clienteCadastro = data || null;
+                      } catch (err) {
+                        console.error('Erro ao buscar cadastro do cliente:', err);
+                      }
                     }
+                    if (clienteCadastro) {
+                      setPrefilledCustomer({ id: clienteCadastro.id, name: clienteCadastro.full_name || lead.fullName, phone: clienteCadastro.phone || lead.phone || '' });
+                    } else {
+                      setPrefilledCustomer({ name: lead.fullName, phone: lead.phone || '' });
+                    }
+                    setActiveTab?.('pos');
                  }}
                  title="Iniciar Venda (PDV)" 
                  className="w-6 h-6 bg-emerald-500/10 text-emerald-400 rounded-md border border-emerald-500/20 flex items-center justify-center hover:bg-emerald-500 hover:text-slate-900 transition-all cursor-pointer mr-1 z-10"
