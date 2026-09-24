@@ -77,7 +77,10 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
   useEffect(() => {
     if (!currentCompany) return;
     const loadLeads = async () => {
-      const { data } = await supabase.from('leads').select('*').eq('company_id', 'rafa-arts');
+      // Egress: so as colunas usadas aqui e so os leads aguardando resposta (filtro no servidor).
+      const { data } = await supabase.from('leads')
+        .select('id, full_name, contact_name, whatsapp_name, phone, source_type, last_message_text, waiting_since')
+        .eq('company_id', 'rafa-arts').not('waiting_since', 'is', null);
       const all = (data || []).map((r: any) => ({
         id: r.id, fullName: r.full_name, contactName: r.contact_name, whatsappName: r.whatsapp_name,
         phone: r.phone, sourceType: r.source_type, lastMessageText: r.last_message_text,

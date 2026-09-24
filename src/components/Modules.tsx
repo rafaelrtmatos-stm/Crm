@@ -231,6 +231,7 @@ import { collection, query, where, onSnapshot, orderBy, Timestamp, addDoc, doc, 
 import { db } from '../firebase';
 import { supabase } from '../supabase';
 import { showAlert, showConfirm, showPrompt } from '../lib/notify';
+import { criarAtualizadorDeLeads } from '../lib/leadsRealtime';
 import { confirmarRetiradaProducao } from '../comissoes/utils/supabaseStorage';
 import { FINANCEIRO_TABS, ALL_FINANCEIRO_TAB_IDS } from '../lib/financeiroTabs';
 import { buildPixPayload } from '../lib/pix';
@@ -1017,8 +1018,10 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     const canSeeMsg = user?.isAdmin || user?.modulePermissions?.messages?.view;
     if (!canSeeMsg || !currentCompany) return;
     const loadCount = async () => {
-      const { data } = await supabase.from('leads').select('last_message_text').eq('company_id', 'rafa-arts');
-      setConversasAtivas((data || []).filter((r: any) => !!r.last_message_text).length);
+      // Egress: contagem no servidor (head) em vez de baixar last_message_text de todos os leads.
+      const { count } = await supabase.from('leads').select('id', { count: 'exact', head: true })
+        .eq('company_id', 'rafa-arts').not('last_message_text', 'is', null).neq('last_message_text', '');
+      setConversasAtivas(count || 0);
     };
     loadCount();
     const channel = supabase.channel('dash-conversas-ativas').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.rafa-arts` }, loadCount).subscribe();
@@ -5079,9 +5082,12 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     loadLeads();
 
     const funnelsChannel = supabase.channel('crm-funnels').on('postgres_changes', { event: '*', schema: 'public', table: 'funnels', filter: `company_id=eq.${currentCompany.id}` }, loadFunnels).subscribe();
-    const leadsChannel = supabase.channel('crm-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.${currentCompany.id}` }, loadLeads).subscribe();
+    // Egress: em vez de rebaixar TODOS os leads a cada evento, busca so o lead que mudou (ver lib/leadsRealtime.ts).
+    const atualizadorLeads = criarAtualizadorDeLeads<Lead>({ mapear: mapLeadRow, aplicar: (fn) => setLeads(fn) });
+    const leadsChannel = supabase.channel('crm-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.${currentCompany.id}` }, atualizadorLeads.onEvento).subscribe();
 
     return () => {
+      atualizadorLeads.cancelar();
       supabase.removeChannel(funnelsChannel);
       supabase.removeChannel(leadsChannel);
     };
@@ -6584,8 +6590,10 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
       // de verdade ate a integracao real do WhatsApp comecar a trazer conversas)
     };
     loadLeads();
-    const channel = supabase.channel('messages-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.rafa-arts` }, loadLeads).subscribe();
-    return () => { supabase.removeChannel(channel); };
+    // Egress: so a carga inicial baixa a tabela; os eventos de Realtime buscam apenas o lead que mudou.
+    const atualizadorLeads = criarAtualizadorDeLeads<Lead>({ mapear: mapLeadRow, aplicar: (fn) => setLeads(fn) });
+    const channel = supabase.channel('messages-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.rafa-arts` }, atualizadorLeads.onEvento).subscribe();
+    return () => { atualizadorLeads.cancelar(); supabase.removeChannel(channel); };
   }, [currentCompany]);
 
   // Vindo de uma NOTIFICACAO (App.tsx openNotificationLead troca pra esta aba e guarda o lead em

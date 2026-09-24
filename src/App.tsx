@@ -843,12 +843,17 @@ export default function App() {
       return;
     }
     const loadCount = async () => {
-      const { data } = await supabase.from('leads').select('waiting_since').eq('company_id', 'rafa-arts');
-      setUnrepliedLeadsCount((data || []).filter((r: any) => r.waiting_since !== null && r.waiting_since !== undefined).length);
+      // Egress: contagem no servidor (head) em vez de baixar waiting_since de todos os leads.
+      const { count } = await supabase.from('leads').select('id', { count: 'exact', head: true })
+        .eq('company_id', 'rafa-arts').not('waiting_since', 'is', null);
+      setUnrepliedLeadsCount(count || 0);
     };
     loadCount();
-    const channel = supabase.channel('app-unreplied-count').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.rafa-arts` }, loadCount).subscribe();
-    return () => { supabase.removeChannel(channel); };
+    // Agrupa rajadas de eventos (cada mensagem mexe no lead) numa unica contagem.
+    let agendado: ReturnType<typeof setTimeout> | null = null;
+    const recontarLogo = () => { if (agendado) clearTimeout(agendado); agendado = setTimeout(loadCount, 1000); };
+    const channel = supabase.channel('app-unreplied-count').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.rafa-arts` }, recontarLogo).subscribe();
+    return () => { if (agendado) clearTimeout(agendado); supabase.removeChannel(channel); };
   }, [currentCompany]);
 
   useEffect(() => {
