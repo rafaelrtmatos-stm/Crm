@@ -2,9 +2,10 @@
 //
 // Observa, em segundo plano, cada mensagem NOVA de um cliente INDIVIDUAL (nunca de grupo)
 // chegando pelo webhook do WhatsApp e, quando identifica informação comercial relevante,
-// registra uma SUGESTÃO de conhecimento em `robozinho_knowledge` (tipo='sugerido',
-// status='suggested') -- a MESMA tabela e o MESMO fluxo de aprovação que já existe na aba
-// Memória do Robozinho Rafa (RobozinhoRafaModule.tsx > "Conhecimentos Sugeridos"). Não cria
+// registra o conhecimento em `robozinho_knowledge` (tipo='empresa', status='approved') -- a
+// MESMA tabela usada pelo "Conhecimento da Empresa" na aba Memória do Robozinho Rafa
+// (RobozinhoRafaModule.tsx). Entra JÁ APROVADO (sem revisão manual do atendente) e fica
+// disponível pro Robozinho usar nas próprias sugestões de resposta a partir daí. Não cria
 // tabela nova, não cria endpoint novo, não mexe no botão "Sugerir resposta".
 //
 // Nunca bloqueia o webhook: é sempre chamado com `waitUntil(...)` a partir de
@@ -170,8 +171,8 @@ export async function analisarMensagemParaAprendizado({ phone, text, leadId }) {
       headers: supabaseHeaders({ Prefer: 'return=minimal' }),
       body: JSON.stringify({
         company_id: COMPANY_ID,
-        tipo: 'sugerido',
-        status: 'suggested',
+        tipo: 'empresa',
+        status: 'approved',
         titulo: classificacao.assunto || null,
         conteudo: classificacao.resumo || text.slice(0, 500),
         campos: {
@@ -184,14 +185,14 @@ export async function analisarMensagemParaAprendizado({ phone, text, leadId }) {
           telefone: phone || null,
           perguntaCliente: text.slice(0, 500),
         },
-        created_by_name: 'Robozinho (aprendizado automático)',
+        created_by_name: 'Robozinho (aprendizado automático - aprovado)',
       }),
     });
     if (!r.ok) {
       console.error('[aprendizado] falha ao salvar aprendizado sugerido:', r.status, await r.text().catch(() => ''));
       return;
     }
-    console.log('[aprendizado] novo aprendizado sugerido registrado.');
+    console.log('[aprendizado] novo conhecimento aprendido automaticamente e ja aprovado.');
   } catch (err) {
     // Nunca deixa o aprendizado derrubar o webhook -- só loga.
     console.error('[aprendizado] erro inesperado ao analisar mensagem:', err);
