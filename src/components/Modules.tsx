@@ -4919,12 +4919,12 @@ export const ChatPanel = ({
                       <div key={m.id || idx} data-message-id={m.id} className={cn("flex", isOutgoing ? "justify-end" : "justify-start")}>
                         <div className={cn("group space-y-1", isOutgoing ? "text-right" : "")}>
                            {podeEditarOuApagar && !isEditando && (
-                             <div className={cn("flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity", isOutgoing ? "justify-end" : "justify-start")}>
+                             <div className={cn("flex items-center gap-1 opacity-60 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity", isOutgoing ? "justify-end" : "justify-start")}>
                                <button
                                  type="button"
                                  onClick={() => handleStartEditWaMessage(m)}
                                  title="Editar mensagem"
-                                 className="w-5 h-5 rounded-md bg-white/10 hover:bg-primary-500/20 text-white/50 hover:text-primary-300 flex items-center justify-center transition-colors"
+                                 className="w-6 h-6 sm:w-5 sm:h-5 rounded-md bg-white/10 hover:bg-primary-500/20 text-white/50 hover:text-primary-300 flex items-center justify-center transition-colors"
                                >
                                  <Pencil size={10} />
                                </button>
@@ -4933,7 +4933,7 @@ export const ChatPanel = ({
                                  onClick={() => handleDeleteWaMessage(m)}
                                  disabled={deletingWaMessageId === m.id}
                                  title="Apagar para todos"
-                                 className="w-5 h-5 rounded-md bg-white/10 hover:bg-rose-500/20 text-white/50 hover:text-rose-400 flex items-center justify-center transition-colors disabled:opacity-50"
+                                 className="w-6 h-6 sm:w-5 sm:h-5 rounded-md bg-white/10 hover:bg-rose-500/20 text-white/50 hover:text-rose-400 flex items-center justify-center transition-colors disabled:opacity-50"
                                >
                                  {deletingWaMessageId === m.id ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
                                </button>
