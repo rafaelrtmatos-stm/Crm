@@ -8,6 +8,13 @@ import { ContractAcceptanceDetailsModal } from './ContractAcceptanceDetailsModal
 import { carregarInfoGrupos, digitosDoGrupo, type InfoGrupos } from './MessagesSidebarPopup';
 import { NotificacaoPendenteBanner, useNotificacaoPendente, marcarNotificacoesResolvidas } from './NotificacaoPendenteBanner';
 import { 
+  AudioMessagePlayer, 
+  MessageHoverActions, 
+  ChatSearchBar, 
+  ChatDropZoneOverlay, 
+  CustomerContextSidebar 
+} from './ChatDesktopEnhancements';
+import { 
   TrendingUp, 
   LayoutGrid,
   Columns3,
@@ -3394,13 +3401,33 @@ export const ChatPanel = ({
     return () => window.removeEventListener('keydown', onKey);
   }, [isPhotoOpen]);
   // Se o lead nao tem funnelId salvo (cadastro antigo/incompleto), usa o funil que ja esta
-  // selecionado na tela (passado pelo Funil CRM) como respaldo, e aproveita pra corrigir o
-  // cadastro do lead na hora, gravando o funnelId que estava faltando
-  const effectiveFunnelId = conversation?.funnelId || fallbackFunnelId;
+  // selecionado na tela (passado pelo Funil CRM) como respaldo, ou detecta o funil padrão
+  const [detectedFunnelId, setDetectedFunnelId] = useState<string | null>(null);
+  useEffect(() => {
+    if (conversation?.funnelId || fallbackFunnelId) return;
+    supabase
+      .from('funnels')
+      .select('id')
+      .eq('company_id', 'rafa-arts')
+      .order('is_default', { ascending: false })
+      .limit(1)
+      .then(({ data }) => {
+        if (data && data[0]?.id) {
+          setDetectedFunnelId(data[0].id);
+        }
+      });
+  }, [conversation?.funnelId, fallbackFunnelId]);
+
+  const effectiveFunnelId = conversation?.funnelId || fallbackFunnelId || detectedFunnelId;
+  const [currentStageId, setCurrentStageId] = useState<string | undefined>(conversation?.funnelStageId);
+  useEffect(() => {
+    setCurrentStageId(conversation?.funnelStageId);
+  }, [conversation?.funnelStageId, conversation?.id]);
+
   useEffect(() => {
     if (!effectiveFunnelId) { setFunnelStages([]); return; }
-    if (conversation?.id && !conversation?.funnelId && fallbackFunnelId) {
-      supabase.from('leads').update({ funnel_id: fallbackFunnelId }).eq('id', conversation.id).then(() => {});
+    if (conversation?.id && !conversation?.funnelId && effectiveFunnelId) {
+      supabase.from('leads').update({ funnel_id: effectiveFunnelId }).eq('id', conversation.id).then(() => {});
     }
     const loadStages = async () => {
       const { data } = await supabase.from('funnel_stages').select('*').eq('funnel_id', effectiveFunnelId).order('order', { ascending: true });
@@ -3412,14 +3439,52 @@ export const ChatPanel = ({
   }, [effectiveFunnelId, conversation?.id]);
 
   const handleChangeStageFromChat = async (novaStageId: string) => {
-    if (!conversation?.id || novaStageId === conversation.funnelStageId) return;
+    if (!conversation?.id) return;
+    const currentActive = currentStageId || conversation.funnelStageId;
+    if (novaStageId === currentActive) return;
+
+    const prevStageId = currentActive;
+
+    // 1. Atualização Otimista Imediata na UI (Mobile e Desktop)
+    setCurrentStageId(novaStageId);
+
+    // 2. Atualização Otimista Imediata no CRM Kanban e na Lista de Mensagens
+    // Isso move o lead NA HORA para a nova coluna (ex: Entrada -> Pedido)
+    onLeadPatched?.(conversation.id, {
+      funnelStageId: novaStageId,
+      funnel_stage_id: novaStageId,
+      ...(effectiveFunnelId ? { funnelId: effectiveFunnelId, funnel_id: effectiveFunnelId } : {})
+    });
+
     setIsChangingStage(true);
     try {
-      const { error } = await supabase.from('leads').update({ funnel_stage_id: novaStageId, company_id: 'rafa-arts', updated_at: new Date().toISOString() }).eq('id', conversation.id).eq('company_id', 'rafa-arts');
+      const updatePayload: Record<string, any> = {
+        funnel_stage_id: novaStageId,
+        company_id: 'rafa-arts',
+        updated_at: new Date().toISOString()
+      };
+      if (effectiveFunnelId) {
+        updatePayload.funnel_id = effectiveFunnelId;
+      }
+
+      const { error } = await supabase
+        .from('leads')
+        .update(updatePayload)
+        .eq('id', conversation.id);
+
       if (error) throw error;
+
+      const targetStage = funnelStages.find(s => s.id === novaStageId);
+      showAlert('Lead movido');
     } catch (err) {
       console.error('Erro ao mudar etapa:', err);
-      showAlert('Não foi possível mudar a etapa.');
+      // Reverte estado local e lista se der erro
+      setCurrentStageId(prevStageId);
+      onLeadPatched?.(conversation.id, {
+        funnelStageId: prevStageId,
+        funnel_stage_id: prevStageId,
+      });
+      showAlert('Não foi possível salvar a nova etapa. Tente novamente.');
     } finally {
       setIsChangingStage(false);
     }
@@ -3620,6 +3685,97 @@ export const ChatPanel = ({
   // useEffect abaixo) filtrando por isNote -- assim nao duplica listener nem dado.
   const notes = messages.filter(m => m.isNote);
   const chatMessages = messages.filter(m => !m.isNote);
+
+  // --- PC / Desktop Experiência Avançada (Melhorias de Atendimento) ---
+  // 1. Painel lateral de contexto na 3ª coluna (Desktop)
+  const [showDesktopSidebar, setShowDesktopSidebar] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('rpro_chat_desktop_sidebar');
+      if (saved !== null) return saved === 'true';
+      return window.innerWidth >= 1280;
+    }
+    return true;
+  });
+  const [sidebarActiveTab, setSidebarActiveTab] = useState<'data' | 'notes' | 'tasks' | 'sales'>('data');
+  const toggleDesktopSidebar = () => {
+    setShowDesktopSidebar(prev => {
+      const next = !prev;
+      if (typeof window !== 'undefined') localStorage.setItem('rpro_chat_desktop_sidebar', String(next));
+      return next;
+    });
+  };
+
+  // 6. Busca interna na conversa
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [chatSearchTerm, setChatSearchTerm] = useState('');
+  const [currentSearchIndex, setCurrentSearchIndex] = useState(0);
+
+  const matchingMessageIds = useMemo(() => {
+    if (!chatSearchTerm.trim()) return [];
+    const term = chatSearchTerm.toLowerCase();
+    return chatMessages
+      .filter(m => {
+        const txt = (m.text || '').toLowerCase();
+        const transcricao = (m.transcription?.text || '').toLowerCase();
+        return txt.includes(term) || transcricao.includes(term);
+      })
+      .map(m => String(m.id));
+  }, [chatMessages, chatSearchTerm]);
+
+  useEffect(() => {
+    setCurrentSearchIndex(0);
+  }, [chatSearchTerm]);
+
+  const handleNextSearchMatch = () => {
+    if (matchingMessageIds.length === 0) return;
+    const nextIdx = (currentSearchIndex + 1) % matchingMessageIds.length;
+    setCurrentSearchIndex(nextIdx);
+    const targetId = matchingMessageIds[nextIdx];
+    const itemIndex = chatMessages.findIndex(m => String(m.id) === targetId);
+    if (itemIndex >= 0) {
+      setHighlightedMessageId(targetId);
+      virtuosoRef.current?.scrollToIndex({ index: itemIndex, align: 'center', behavior: 'smooth' });
+    }
+  };
+
+  const handlePrevSearchMatch = () => {
+    if (matchingMessageIds.length === 0) return;
+    const prevIdx = (currentSearchIndex - 1 + matchingMessageIds.length) % matchingMessageIds.length;
+    setCurrentSearchIndex(prevIdx);
+    const targetId = matchingMessageIds[prevIdx];
+    const itemIndex = chatMessages.findIndex(m => String(m.id) === targetId);
+    if (itemIndex >= 0) {
+      setHighlightedMessageId(targetId);
+      virtuosoRef.current?.scrollToIndex({ index: itemIndex, align: 'center', behavior: 'smooth' });
+    }
+  };
+
+  useEffect(() => {
+    if (matchingMessageIds.length > 0) {
+      const targetId = matchingMessageIds[currentSearchIndex] || matchingMessageIds[0];
+      const itemIndex = chatMessages.findIndex(m => String(m.id) === targetId);
+      if (itemIndex >= 0) {
+        setHighlightedMessageId(targetId);
+        virtuosoRef.current?.scrollToIndex({ index: itemIndex, align: 'center', behavior: 'smooth' });
+      }
+    }
+  }, [matchingMessageIds, currentSearchIndex]);
+
+  // 5. Drag & Drop de arquivos na conversa
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const handleDropFiles = (files: FileList | null | undefined) => {
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    const isImg = /^image\/(jpeg|png|webp|gif)/i.test(file.type);
+    handleSendFile(file, isImg ? 'image' : 'document');
+  };
+
+  // 3. Citar mensagem na resposta
+  const handleQuoteMessage = (quoteText: string) => {
+    const cleanQuote = quoteText.split('\n')[0].slice(0, 100);
+    setNewMessage(prev => `> "${cleanQuote}..."\n\n${prev}`);
+  };
+
   const [newNoteText, setNewNoteText] = useState('');
   const [isSavingNote, setIsSavingNote] = useState(false);
   const noteInputRef = useRef<HTMLTextAreaElement>(null);
@@ -3865,6 +4021,59 @@ export const ChatPanel = ({
     }
     setRootActiveTab?.('pos');
   };
+
+  // 4. Atalhos globais de teclado no PC (Produtividade no Atendimento)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl+F ou Cmd+F: Abre/fecha busca rápida na conversa
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        setIsSearchOpen(prev => !prev);
+        return;
+      }
+      if (e.key === 'Escape') {
+        if (isSearchOpen) {
+          setIsSearchOpen(false);
+          setChatSearchTerm('');
+          return;
+        }
+      }
+      // Alt + V: Iniciar venda PDV com o cliente
+      if (e.altKey && e.key.toLowerCase() === 'v') {
+        e.preventDefault();
+        handleStartSale();
+        return;
+      }
+      // Alt + D: Alternar painel de contexto do cliente no PC
+      if (e.altKey && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        toggleDesktopSidebar();
+        return;
+      }
+      // Alt + N: Ir para notas internas
+      if (e.altKey && e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        if (showDesktopSidebar) {
+          setSidebarActiveTab('notes');
+        } else {
+          setActiveTab('notes');
+        }
+        return;
+      }
+      // Alt + T: Ir para tarefas
+      if (e.altKey && e.key.toLowerCase() === 't') {
+        e.preventDefault();
+        if (showDesktopSidebar) {
+          setSidebarActiveTab('tasks');
+        } else {
+          setActiveTab('tasks');
+        }
+        return;
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isSearchOpen, showDesktopSidebar, conversation?.id]);
 
   useEffect(() => {
     if (initialDraft && conversation?.id) {
@@ -4552,17 +4761,17 @@ export const ChatPanel = ({
   return (
     <GlassCard className="flex-1 flex flex-col p-0 overflow-hidden bg-white/3 border-white/10 relative h-full fixed md:static inset-0 z-50 md:z-auto rounded-none md:rounded-[inherit]">
       {/* Header - FIXO */}
-      <div className="p-4 border-b border-white/10 flex items-center justify-between bg-white/[0.02] flex-shrink-0">
-        <div className="flex items-center gap-3">
+      <div className="px-3 py-2.5 sm:px-4 sm:py-3 border-b border-white/10 flex items-center justify-between bg-white/[0.02] flex-shrink-0 gap-2">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
           {/* Botão Voltar — só no mobile: sai do Modo Conversa em Foco e retorna à lista, sem recarregar a página */}
           {onClose && (
             <button
               type="button"
               onClick={onClose}
-              className="md:hidden flex items-center gap-1 -ml-1 mr-1 px-2 py-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/5 transition-all shrink-0"
+              className="md:hidden flex items-center justify-center w-8 h-8 rounded-lg text-white/70 hover:text-white hover:bg-white/10 active:scale-95 transition-all shrink-0 -ml-1"
+              title="Voltar para a lista"
             >
-              <ArrowLeft size={18} />
-              <span className="text-[10px] font-black uppercase tracking-wider">Voltar</span>
+              <ArrowLeft size={19} />
             </button>
           )}
           <div className="relative">
@@ -4698,19 +4907,15 @@ export const ChatPanel = ({
               <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-[#0f172a]" />
             )}
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h4 className="font-bold text-sm text-white">{conversation.name}</h4>
-              <Badge variant="outline" className="text-[7px] py-0 px-1 leading-none h-3.5">{conversation.channel}</Badge>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <h4 className="font-bold text-xs sm:text-sm text-white truncate max-w-[120px] xs:max-w-[160px] sm:max-w-[240px] md:max-w-none">{conversation.name}</h4>
+              <Badge variant="outline" className="text-[7px] py-0 px-1 leading-none h-3.5 shrink-0">{conversation.channel}</Badge>
             </div>
-            <div className="flex items-center gap-2 mt-0">
-              {/* Status de presenca real (online/digitando/gravando/visto por ultimo) —
-                  ver useEffect de presence acima. Sem dado nenhum ainda (chat que
-                  nunca foi assinado, ou Evolution API sem suporte), cai no rotulo
-                  neutro "Ativo" de antes, pra nao ficar em branco. */}
+            <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
               {presenceLabel ? (
                 <span className={cn(
-                  "text-[9px] font-black uppercase tracking-widest",
+                  "text-[9px] font-black uppercase tracking-wider truncate max-w-[80px] xs:max-w-[110px]",
                   (presence?.status === 'composing' || presence?.status === 'recording') ? "text-primary-400 animate-pulse"
                     : presence?.status === 'available' ? "text-emerald-400"
                     : "text-white/40"
@@ -4718,35 +4923,83 @@ export const ChatPanel = ({
                   {presenceLabel}
                 </span>
               ) : (
-                <span className="text-[9px] text-emerald-400 font-black uppercase tracking-widest">Ativo</span>
+                <span className="text-[9px] text-emerald-400 font-black uppercase tracking-wider shrink-0">Ativo</span>
               )}
-              <span className="text-[9px] text-white/20">•</span>
+              <span className="text-[9px] text-white/20 shrink-0">•</span>
               <button
                 onClick={handleCopyPhone}
                 disabled={!conversation.phone}
                 title="Copiar telefone"
-                className="flex items-center gap-1 text-[9px] text-white/40 font-bold hover:text-primary-300 transition-colors disabled:opacity-40 disabled:hover:text-white/40"
+                className="flex items-center gap-0.5 text-[9px] text-white/40 font-bold hover:text-primary-300 transition-colors disabled:opacity-40 disabled:hover:text-white/40 truncate max-w-[110px] xs:max-w-none"
               >
-                {conversation.phone || '(62) 99999-9999'}
-                <Copy size={9} />
+                <span className="truncate">{conversation.phone || '(62) 99999-9999'}</span>
+                <Copy size={9} className="shrink-0" />
               </button>
             </div>
           </div>
         </div>
         
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+          {/* Botão de Busca Interna na Conversa (Ctrl+F) */}
+          <button
+            type="button"
+            onClick={() => setIsSearchOpen(v => !v)}
+            className={cn(
+              "h-8 w-8 rounded-lg border transition-all flex items-center justify-center shrink-0 active:scale-95",
+              isSearchOpen 
+                ? "bg-primary-500/20 text-primary-300 border-primary-500/40 shadow-sm" 
+                : "bg-white/5 text-white/60 hover:text-white hover:bg-white/10 border-transparent"
+            )}
+            title="Pesquisar mensagens nesta conversa (Ctrl + F)"
+          >
+            <Search size={14} />
+          </button>
+
+          {/* Botão de Painel Lateral de Contexto do Cliente no PC (Alt+D) */}
+          <button
+            type="button"
+            onClick={toggleDesktopSidebar}
+            className={cn(
+              "hidden lg:flex items-center gap-1 px-2.5 h-8 rounded-lg border transition-all text-[10px] font-black uppercase tracking-wider shrink-0",
+              showDesktopSidebar 
+                ? "bg-primary-500/20 text-primary-300 border-primary-500/40 shadow-sm" 
+                : "bg-white/5 text-white/50 hover:text-white hover:bg-white/10 border-transparent"
+            )}
+            title="Painel Lateral de Contexto do Cliente (Alt + D)"
+          >
+            <Columns3 size={13} />
+            <span className="hidden xl:inline">Contexto</span>
+          </button>
+
+          {/* Botão Resolvido (Alerta de Vácuo) */}
           {conversation.waitingSince && (
             <button
               type="button"
               onClick={handleResolveWaiting}
               title="Marcar como resolvido (tira o alerta de vácuo)"
-              className="flex items-center gap-1.5 px-2.5 h-8 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-all text-[9px] font-black uppercase tracking-wider whitespace-nowrap shrink-0"
+              className="flex items-center gap-1 px-2 h-8 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-all text-[9px] font-black uppercase tracking-wider whitespace-nowrap shrink-0"
             >
-              <CheckCircle2 size={12} /> Resolvido
+              <CheckCircle2 size={12} />
+              <span className="hidden xs:inline">Resolvido</span>
             </button>
           )}
-          <div className="flex bg-white/5 p-0.5 rounded-lg mr-1">
-            {quickActions.filter(a => a.permission).slice(0, 6).map(action => (
+
+          {/* Botão Comercial: Venda PDV (Destaque Ergonômico Mobile & Desktop) */}
+          {permissions.canStartPosSale && (
+            <button
+              type="button"
+              onClick={handleStartSale}
+              className="flex items-center gap-1 px-2.5 h-8 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[10px] uppercase tracking-wider shadow-sm active:scale-95 transition-all shrink-0"
+              title="Iniciar venda deste lead no PDV (Alt + V)"
+            >
+              <ShoppingBag size={12} strokeWidth={2.5} />
+              <span>Venda</span>
+            </button>
+          )}
+
+          {/* Ações Rápidas em Telas Médias/Grandes */}
+          <div className="hidden md:flex bg-white/5 p-0.5 rounded-lg">
+            {quickActions.filter(a => a.permission && a.id !== 'pos').map(action => (
               <Button 
                 key={action.id}
                 variant="ghost" 
@@ -4757,69 +5010,158 @@ export const ChatPanel = ({
                 onClick={action.onClick}
               />
             ))}
-            {/* ✅ Botão para ver mais ações (se tiver mais de 6) */}
-            {quickActions.filter(a => a.permission).length > 6 && (
-              <div className="relative">
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  className="p-1.5 min-w-0 h-8 w-8 border-none text-white/40 hover:text-primary-300" 
-                  icon={MoreHorizontal}
-                  onClick={() => setShowQuickActions(!showQuickActions)}
-                  title="Mais ações"
-                />
-                {showQuickActions && (
-                  <div className="absolute top-full mt-1 right-0 bg-slate-900 border border-white/10 rounded-xl shadow-2xl z-50 p-2 min-w-[200px]">
-                    {quickActions.filter(a => a.permission).slice(6).map(action => (
-                      <button
-                        key={action.id}
-                        onClick={() => {
-                          action.onClick();
-                          setShowQuickActions(false);
-                        }}
-                        className={cn(
-                          "w-full text-left px-3 py-2 rounded-lg text-[10px] font-bold flex items-center gap-2 transition-all",
-                          action.color,
-                          "hover:bg-white/10"
-                        )}
-                        title={action.label}
-                      >
-                        <action.icon size={12} />
-                        {action.label}
-                      </button>
-                    ))}
+          </div>
+
+          {/* Menu Mais Ações (⋮) no Canto Superior — Centraliza todas as opções (Notas, Tarefas, Dados, Vendas) */}
+          <div className="relative">
+            <button 
+              type="button"
+              className={cn(
+                "h-8 w-8 rounded-lg border transition-all flex items-center justify-center shrink-0 active:scale-95",
+                showQuickActions
+                  ? "bg-white/15 text-white border-white/20"
+                  : "bg-white/5 text-white/60 hover:text-white hover:bg-white/10 border-transparent"
+              )}
+              onClick={() => setShowQuickActions(!showQuickActions)}
+              title="Mais opções do contato"
+            >
+              <MoreVertical size={15} />
+            </button>
+            {showQuickActions && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowQuickActions(false)} />
+                <div className="absolute top-full mt-1.5 right-0 bg-slate-900/95 backdrop-blur-xl border border-white/15 rounded-2xl shadow-2xl z-50 p-1.5 min-w-[210px] space-y-0.5">
+                  <div className="px-3 py-1.5 border-b border-white/10 mb-1 flex items-center justify-between">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-white/40">Opções do Contato</p>
+                    {activeTab !== 'chat' && (
+                      <span className="text-[8px] font-bold text-primary-400 bg-primary-500/10 px-1.5 py-0.5 rounded">
+                        {activeTab.toUpperCase()}
+                      </span>
+                    )}
                   </div>
-                )}
-              </div>
+                  {activeTab !== 'chat' && (
+                    <button
+                      type="button"
+                      onClick={() => { setActiveTab('chat'); setShowQuickActions(false); }}
+                      className="w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold text-primary-300 hover:bg-white/10 flex items-center gap-2.5 transition-colors border-b border-white/10 pb-2 mb-1"
+                    >
+                      <MessageSquare size={14} className="text-primary-400" />
+                      <span>Voltar para Conversa</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => { setActiveTab('notes'); setShowQuickActions(false); }}
+                    className={cn(
+                      "w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold flex items-center justify-between gap-2.5 transition-colors",
+                      activeTab === 'notes' ? "bg-amber-500/20 text-amber-300" : "text-amber-300 hover:bg-white/10"
+                    )}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <StickyNote size={14} className="text-amber-400" />
+                      <span>Nota Interna</span>
+                    </div>
+                    {notes.length > 0 && (
+                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-amber-500/30 text-amber-200">
+                        {notes.length}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setShowQuickReplies(true); setShowQuickActions(false); }}
+                    className="w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold text-primary-300 hover:bg-white/10 flex items-center gap-2.5 transition-colors"
+                  >
+                    <MessageSquare size={14} className="text-primary-400" />
+                    <span>Mensagens Salvas</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setActiveTab('tasks'); setShowQuickActions(false); }}
+                    className={cn(
+                      "w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold flex items-center justify-between gap-2.5 transition-colors",
+                      activeTab === 'tasks' ? "bg-purple-500/20 text-purple-300" : "text-purple-300 hover:bg-white/10"
+                    )}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <ListTodo size={14} className="text-purple-400" />
+                      <span>Tarefas</span>
+                    </div>
+                    {tasks.filter(t => !t.completedAt).length > 0 && (
+                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-purple-500/30 text-purple-200">
+                        {tasks.filter(t => !t.completedAt).length}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setActiveTab('data'); setShowQuickActions(false); }}
+                    className={cn(
+                      "w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold flex items-center gap-2.5 transition-colors",
+                      activeTab === 'data' ? "bg-white/20 text-white" : "text-slate-300 hover:bg-white/10"
+                    )}
+                  >
+                    <Users size={14} className="text-slate-400" />
+                    <span>Dados do Contato</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setActiveTab('sales'); setShowQuickActions(false); }}
+                    className={cn(
+                      "w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold flex items-center justify-between gap-2.5 transition-colors",
+                      activeTab === 'sales' ? "bg-blue-500/20 text-blue-300" : "text-blue-300 hover:bg-white/10"
+                    )}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <ShoppingBag size={14} className="text-blue-400" />
+                      <span>Histórico de Vendas</span>
+                    </div>
+                    {clienteVendas.length > 0 && (
+                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-blue-500/30 text-blue-200">
+                        {clienteVendas.length}
+                      </span>
+                    )}
+                  </button>
+                  {conversation.phone && (
+                    <button
+                      type="button"
+                      onClick={() => { handleCopyPhone(); setShowQuickActions(false); }}
+                      className="w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold text-emerald-300 hover:bg-white/10 flex items-center gap-2.5 transition-colors border-t border-white/5 pt-2 mt-1"
+                    >
+                      <Copy size={14} className="text-emerald-400" />
+                      <span>Copiar Telefone</span>
+                    </button>
+                  )}
+                </div>
+              </>
             )}
           </div>
+
           {onClose && <Button variant="ghost" icon={X} onClick={onClose} className="hidden md:flex p-1.5 min-w-0 h-8 w-8" />}
         </div>
       </div>
 
-      {/* Dropdown de Etapa do Funil — muda a etapa da conversa direto daqui, sem precisar
-          arrastar no Kanban. So aparece se essa conversa tiver um lead/funil vinculado.
-          Dropdown customizado (em vez de <select> nativo) pra a listinha que abre tambem
-          ficar no mesmo visual do resto do app — o <select> do navegador nao da pra estilizar
-          direito. Cada etapa usa a cor cadastrada em Configurar > Etapas do Processo. */}
+      {/* Apenas 1 Botão Limpo de Etapa do Funil (sem 2º botão duplicado) */}
       {effectiveFunnelId && funnelStages.length > 0 ? (() => {
-        const currentStage = funnelStages.find(s => s.id === conversation.funnelStageId);
+        const activeStageId = currentStageId || conversation.funnelStageId;
+        const currentStageIndex = funnelStages.findIndex(s => s.id === activeStageId);
+        const currentStage = currentStageIndex >= 0 ? funnelStages[currentStageIndex] : (funnelStages.find(s => s.isInitial) || funnelStages[0]);
         const stageColor = currentStage?.color || '#4cc9f0';
         return (
-          <div className="flex items-center gap-2 w-full py-3 px-3 border-b border-white/10 bg-white/[0.015] flex-shrink-0">
-            <div className="relative flex-1">
+          <div className="flex items-center justify-between gap-2 w-full py-1.5 px-3 border-b border-white/10 bg-white/[0.015] flex-shrink-0">
+            <div className="relative flex-1 min-w-0 max-w-sm">
               <button
                 type="button"
                 onClick={() => setIsStageMenuOpen(o => !o)}
                 disabled={isChangingStage}
-                className="w-full flex items-center gap-2 rounded-full pl-3 pr-2.5 py-2.5 border transition-colors disabled:opacity-50"
+                className="w-full flex items-center gap-1.5 rounded-full pl-2.5 pr-2 py-1.5 border transition-colors disabled:opacity-50 active:scale-95"
                 style={{ backgroundColor: `${stageColor}22`, borderColor: `${stageColor}66` }}
               >
                 <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: stageColor }} />
-                <span className="flex-1 text-left text-[10px] font-black uppercase tracking-widest truncate" style={{ color: stageColor }}>
+                <span className="flex-1 text-left text-[10px] font-black uppercase tracking-wider truncate" style={{ color: stageColor }}>
                   {currentStage?.name || 'Selecionar etapa'}
                 </span>
-                <ChevronDown size={12} className={cn("shrink-0 transition-transform duration-200", isStageMenuOpen && "rotate-180")} style={{ color: stageColor }} />
+                <ChevronDown size={11} className={cn("shrink-0 transition-transform duration-200", isStageMenuOpen && "rotate-180")} style={{ color: stageColor }} />
               </button>
 
               {isStageMenuOpen && (
@@ -4827,7 +5169,7 @@ export const ChatPanel = ({
                   <div className="fixed inset-0 z-40" onClick={() => setIsStageMenuOpen(false)} />
                   <div className="absolute top-full mt-2 left-0 right-0 min-w-[200px] bg-slate-900 border border-white/10 rounded-2xl shadow-2xl z-50 p-1.5 max-h-64 overflow-y-auto custom-scrollbar">
                     {funnelStages.map(stage => {
-                      const isActive = stage.id === conversation.funnelStageId;
+                      const isActive = stage.id === activeStageId;
                       const c = stage.color || '#4cc9f0';
                       return (
                         <button
@@ -4853,27 +5195,25 @@ export const ChatPanel = ({
         );
       })() : null}
 
-      {/* Tabs - FIXO */}
-      <div className="flex flex-nowrap overflow-x-auto custom-scrollbar border-b border-white/5 bg-white/[0.01] px-2 flex-shrink-0">
-        {tabs.map(tab => (
+      {/* Barra de Navegação Superior quando estiver em Notas, Tarefas, Dados ou Vendas */}
+      {activeTab !== 'chat' && (
+        <div className="flex items-center justify-between px-3 py-2 border-b border-white/10 bg-white/[0.03] flex-shrink-0">
           <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
-            className={cn(
-              "px-3 py-2 text-[9px] font-black uppercase tracking-[1px] transition-all relative whitespace-nowrap",
-              activeTab === tab.id ? "text-primary-300" : "text-white/30 hover:text-white/60"
-            )}
+            type="button"
+            onClick={() => setActiveTab('chat')}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-primary-300 hover:text-white bg-primary-500/10 hover:bg-primary-500/20 text-[11px] font-bold transition-all active:scale-95"
           >
-            <div className="flex items-center gap-1.5">
-              <tab.icon size={10} />
-              {tab.label}
-            </div>
-            {activeTab === tab.id && (
-              <motion.div layoutId="activeChatTab" className="absolute bottom-0 left-0 w-full h-0.5 bg-primary-500" />
-            )}
+            <ArrowLeft size={14} />
+            <span>Voltar para Conversa</span>
           </button>
-        ))}
-      </div>
+          <span className="text-[10px] font-black uppercase tracking-widest text-white/50">
+            {activeTab === 'notes' ? `Notas Internas (${notes.length})` 
+             : activeTab === 'tasks' ? `Tarefas (${tasks.filter(t => !t.completedAt).length})` 
+             : activeTab === 'sales' ? `Vendas (${clienteVendas.length})` 
+             : 'Dados do Contato'}
+          </span>
+        </div>
+      )}
 
       {/* Content Area - SCROLL apenas aqui */}
       <div className="flex-1 overflow-hidden relative">
@@ -4884,16 +5224,38 @@ export const ChatPanel = ({
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              className="h-full flex flex-col"
+              className="h-full flex overflow-hidden"
             >
-              {notificacaoPendente && (
-                <NotificacaoPendenteBanner
-                  notificacao={notificacaoPendente}
-                  resolvendo={resolvendoNotificacao}
-                  onVerMensagem={() => { if (notificacaoPendente.messageId) setPendingOpenMessageId(notificacaoPendente.messageId); }}
-                  onResolver={handleResolverNotificacao}
+              {/* Coluna Central da Conversa */}
+              <div
+                className="flex-1 flex flex-col h-full min-w-0 relative"
+                onDragOver={(e) => { e.preventDefault(); setIsDraggingFile(true); }}
+                onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDraggingFile(false); }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setIsDraggingFile(false);
+                  handleDropFiles(e.dataTransfer.files);
+                }}
+              >
+                <ChatDropZoneOverlay isDragging={isDraggingFile} />
+                <ChatSearchBar
+                  isOpen={isSearchOpen}
+                  onClose={() => { setIsSearchOpen(false); setChatSearchTerm(''); }}
+                  searchTerm={chatSearchTerm}
+                  setSearchTerm={setChatSearchTerm}
+                  totalMatches={matchingMessageIds.length}
+                  currentMatchIndex={currentSearchIndex}
+                  onNext={handleNextSearchMatch}
+                  onPrev={handlePrevSearchMatch}
                 />
-              )}
+                {notificacaoPendente && (
+                  <NotificacaoPendenteBanner
+                    notificacao={notificacaoPendente}
+                    resolvendo={resolvendoNotificacao}
+                    onVerMensagem={() => { if (notificacaoPendente.messageId) setPendingOpenMessageId(notificacaoPendente.messageId); }}
+                    onResolver={handleResolverNotificacao}
+                  />
+                )}
               <div ref={messagesScrollRef} className={cn("flex-1 min-h-0 relative", chatMessages.length === 0 && "p-4 overflow-y-auto space-y-4 custom-scrollbar")}>
                  {chatMessages.length === 0 && (
                    <div className="flex flex-col items-center justify-center h-full space-y-3 py-10">
@@ -4978,28 +5340,18 @@ export const ChatPanel = ({
                     return (
                       <div className="px-4 pb-4">
                       <div key={m.id || idx} data-message-id={m.id} className={cn("flex", isOutgoing ? "justify-end" : "justify-start")}>
-                        <div className={cn("group space-y-1", isOutgoing ? "text-right" : "")}>
-                           {podeEditarOuApagar && !isEditando && (
-                             <div className={cn("flex items-center gap-1 opacity-60 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity", isOutgoing ? "justify-end" : "justify-start")}>
-                               <button
-                                 type="button"
-                                 onClick={() => handleStartEditWaMessage(m)}
-                                 title="Editar mensagem"
-                                 className="w-6 h-6 sm:w-5 sm:h-5 rounded-md bg-white/10 hover:bg-primary-500/20 text-white/50 hover:text-primary-300 flex items-center justify-center transition-colors"
-                               >
-                                 <Pencil size={10} />
-                               </button>
-                               <button
-                                 type="button"
-                                 onClick={() => handleDeleteWaMessage(m)}
-                                 disabled={deletingWaMessageId === m.id}
-                                 title="Apagar para todos"
-                                 className="w-6 h-6 sm:w-5 sm:h-5 rounded-md bg-white/10 hover:bg-rose-500/20 text-white/50 hover:text-rose-400 flex items-center justify-center transition-colors disabled:opacity-50"
-                               >
-                                 {deletingWaMessageId === m.id ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
-                               </button>
-                             </div>
-                           )}
+                        <div className={cn("group space-y-1 relative", isOutgoing ? "text-right" : "")}>
+                           {/* Ações flutuantes no hover (Copiar, Citar, Editar, Apagar) */}
+                           <MessageHoverActions
+                             text={m.text}
+                             transcriptionText={m.transcription?.text}
+                             isOutgoing={isOutgoing}
+                             canEditOrDelete={podeEditarOuApagar && !isEditando}
+                             onEdit={() => handleStartEditWaMessage(m)}
+                             onDelete={() => handleDeleteWaMessage(m)}
+                             onQuote={handleQuoteMessage}
+                             isDeleting={deletingWaMessageId === m.id}
+                           />
                            <div className={cn(
                              "max-w-[85%] rounded-2xl text-xs text-slate-800 leading-relaxed transition-shadow",
                              highlightedMessageId && String(highlightedMessageId) === String(m.id) && "ring-2 ring-amber-400 shadow-lg shadow-amber-400/40 animate-pulse",
@@ -5077,45 +5429,17 @@ export const ChatPanel = ({
                                    </div>
                                 </a>
                               ) : isAudio ? (
-                                <div className="space-y-1.5 min-w-[180px]">
-                                   <div className="flex items-center gap-1.5 text-slate-500">
-                                     <FileAudio size={13} /> <span className="font-bold">🎤 Áudio</span>
-                                   </div>
-                                   {m.mediaUrl && (
-                                     <audio src={m.mediaUrl} controls preload="none" className="w-full h-8"
-                                       onError={() => setAudiosComErro(prev => ({ ...prev, [m.id]: true }))} />
-                                   )}
-                                   {m.mediaUrl && audiosComErro[m.id] && (
-                                     <p className="text-[10px] font-bold text-rose-400">
-                                       Não foi possível carregar o áudio (pode ter expirado no WhatsApp ou o formato não é aceito neste navegador).{' '}
-                                       <a href={m.mediaUrl} target="_blank" rel="noopener noreferrer" className="underline">Abrir</a>
-                                     </p>
-                                   )}
-                                   {m.transcription?.text ? (
-                                     <div className="border-t border-slate-100 pt-1.5">
-                                       <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-0.5">📝 Transcrição</p>
-                                       <p className="italic text-slate-600">"{m.transcription.text}"</p>
-                                     </div>
-                                   ) : (m.transcriptionStatus === 'pending' || m.transcriptionStatus === 'processing') ? (
-                                     <p className="text-[10px] font-bold text-slate-400 border-t border-slate-100 pt-1.5 flex items-center gap-1">
-                                       <Loader2 size={10} className="animate-spin" /> 📝 Transcrevendo áudio...
-                                     </p>
-                                   ) : (
-                                     <>
-                                     {m.transcriptionStatus === 'failed' && (
-                                       <p className="text-[10px] font-bold text-rose-400 border-t border-slate-100 pt-1.5">📝 Não foi possível transcrever este áudio.</p>
-                                     )}
-                                     <button
-                                       onClick={() => handleTranscribeAudio(m)}
-                                       disabled={transcribingId === m.id}
-                                       className="text-[9px] font-black uppercase text-primary-600 hover:text-primary-700 flex items-center gap-1 disabled:opacity-50"
-                                     >
-                                       {transcribingId === m.id ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />} Transcrever
-                                     </button>
-                                     </>
-                                   )}
-                                </div>
-                              ) : <span className="whitespace-pre-wrap break-words">{m.text}</span>}
+                                <AudioMessagePlayer
+                                  src={m.mediaUrl}
+                                  transcription={m.transcription}
+                                  transcriptionStatus={m.transcriptionStatus}
+                                  onTranscribe={() => handleTranscribeAudio(m)}
+                                  isTranscribing={transcribingId === m.id}
+                                  isOutgoing={isOutgoing}
+                                  onError={() => setAudiosComErro(prev => ({ ...prev, [m.id]: true }))}
+                                  hasError={!!audiosComErro[m.id]}
+                                />
+                              ) : <span className="whitespace-pre-wrap break-words select-text">{m.text}</span>}
                            </div>
                            <div className={cn("text-[9px] font-bold flex items-center gap-1.5 mt-1", isOutgoing ? "justify-end mr-1" : "justify-start ml-1")}>
                              <span className="text-white/40">{timeStr}</span>
@@ -5158,19 +5482,19 @@ export const ChatPanel = ({
               </div>
 
               {/* Chat Input - FIXO */}
-              <div className="p-3 bg-slate-100/50 border-t border-white/10 space-y-2 flex-shrink-0">
-                {/* BARRA DE RESPOSTAS RÁPIDAS / MENSAGENS SALVAS — escondida por padrão, só abre se clicar */}
-                <div className="flex flex-wrap items-center gap-1.5 pb-1">
+              <div className="p-2.5 sm:p-3 bg-slate-100/50 border-t border-white/10 space-y-1.5 flex-shrink-0">
+                {/* BARRA DE RESPOSTAS RÁPIDAS / MENSAGENS SALVAS — carrossel horizontal de toque único no mobile */}
+                <div className="flex items-center gap-1.5 pb-1 overflow-x-auto no-scrollbar flex-nowrap">
                   <div className="relative shrink-0">
                     <button
                       type="button"
                       onClick={handleGenerateRobozinhoSuggestion}
                       disabled={isGeneratingSuggestion}
-                      className="text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border border-primary-300 bg-primary-500/10 text-primary-700 hover:bg-primary-500/20 shadow-sm whitespace-nowrap transition-all cursor-pointer flex items-center gap-1 disabled:opacity-50"
+                      className="text-[9.5px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border border-primary-300 bg-primary-500/10 text-primary-700 hover:bg-primary-500/20 shadow-sm whitespace-nowrap transition-all cursor-pointer flex items-center gap-1 disabled:opacity-50 active:scale-95"
                       title="O Robozinho lê a última mensagem do cliente e o contexto recente da conversa e sugere 3 respostas pra você escolher"
                     >
                       {isGeneratingSuggestion ? <Loader2 size={10} className="animate-spin" /> : <Bot size={10} />}
-                      {isGeneratingSuggestion ? 'Pensando...' : 'Sugerir resposta'}
+                      {isGeneratingSuggestion ? 'Pensando...' : 'Sugerir'}
                     </button>
                     {showRobozinhoSuggestions && robozinhoSuggestions.length > 0 && (
                       <>
@@ -5195,11 +5519,11 @@ export const ChatPanel = ({
                       type="button"
                       onClick={() => setShowWritingAssistMenu(v => !v)}
                       disabled={isAssistingWriting || !newMessage.trim()}
-                      className="text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border border-primary-300 bg-primary-500/10 text-primary-700 hover:bg-primary-500/20 shadow-sm whitespace-nowrap transition-all cursor-pointer flex items-center gap-1 disabled:opacity-50"
+                      className="text-[9.5px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border border-primary-300 bg-primary-500/10 text-primary-700 hover:bg-primary-500/20 shadow-sm whitespace-nowrap transition-all cursor-pointer flex items-center gap-1 disabled:opacity-50 active:scale-95"
                       title="Ajustar o texto que você já escreveu (corrigir, deixar profissional, amigável, etc.)"
                     >
                       {isAssistingWriting ? <Loader2 size={10} className="animate-spin" /> : <Wand2 size={10} />}
-                      {isAssistingWriting ? 'Processando...' : 'Melhorar texto'}
+                      {isAssistingWriting ? 'Processando...' : 'Melhorar'}
                     </button>
                     {showWritingAssistMenu && (
                       <>
@@ -5223,7 +5547,7 @@ export const ChatPanel = ({
                     type="button"
                     onClick={() => setShowQuickReplies(v => !v)}
                     className={cn(
-                      "text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border shadow-sm whitespace-nowrap transition-all shrink-0 cursor-pointer flex items-center gap-1",
+                      "text-[9.5px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border shadow-sm whitespace-nowrap transition-all shrink-0 cursor-pointer flex items-center gap-1 active:scale-95",
                       showQuickReplies ? "bg-primary-500 text-white border-primary-500" : "bg-white text-slate-500 border-slate-200 hover:text-primary-600 hover:border-primary-300"
                     )}
                   >
@@ -5234,7 +5558,7 @@ export const ChatPanel = ({
                       key={i}
                       type="button"
                       onClick={() => { setNewMessage(tpl.text); setShowQuickReplies(false); }}
-                      className="text-[9.5px] font-bold bg-white text-slate-700 hover:bg-primary-50 hover:text-primary-700 hover:border-primary-300 px-2.5 py-1 rounded-full border border-slate-200 shadow-sm whitespace-nowrap transition-all shrink-0 cursor-pointer"
+                      className="text-[9.5px] font-bold bg-white text-slate-700 hover:bg-primary-50 hover:text-primary-700 hover:border-primary-300 px-2.5 py-1 rounded-full border border-slate-200 shadow-sm whitespace-nowrap transition-all shrink-0 cursor-pointer active:scale-95"
                     >
                       {tpl.label}
                     </button>
@@ -5258,12 +5582,28 @@ export const ChatPanel = ({
                     <Loader2 size={10} className="animate-spin" /> Enviando...
                   </div>
                 )}
-                <div className="flex items-end gap-2 bg-white p-1 rounded-2xl border border-slate-200 focus-within:border-primary-500/50 transition-all shadow-lg">
-                  <div className="flex gap-0.5 pb-0.5">
+                <div className="flex items-end gap-1.5 sm:gap-2 bg-white p-1 rounded-2xl border border-slate-200 focus-within:border-primary-500/50 transition-all shadow-lg">
+                  <div className="flex items-center gap-0.5 pb-0.5">
                     <input ref={documentoInputRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; handleSendFile(f, 'document'); }} />
                     <input ref={fotoInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; handleSendFile(f, 'image'); }} />
-                    <Button type="button" variant="ghost" size="sm" title="Enviar documento (até 100 MB)" disabled={enviandoArquivo} onClick={() => documentoInputRef.current?.click()} className="p-1.5 min-w-0 h-8 w-8 text-slate-400 hover:text-primary-600 transition-colors" icon={Paperclip} />
-                    <Button type="button" variant="ghost" size="sm" title="Enviar foto (até 16 MB)" disabled={enviandoArquivo} onClick={() => fotoInputRef.current?.click()} className="p-1.5 min-w-0 h-8 w-8 text-slate-400 hover:text-primary-600 transition-colors" icon={ImageIcon} />
+                    <button
+                      type="button"
+                      title="Enviar documento (até 100 MB)"
+                      disabled={enviandoArquivo}
+                      onClick={() => documentoInputRef.current?.click()}
+                      className="w-8 h-8 rounded-xl flex items-center justify-center text-slate-400 hover:text-primary-600 hover:bg-slate-100 transition-colors disabled:opacity-40 active:scale-95"
+                    >
+                      <Paperclip size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      title="Enviar foto (até 16 MB)"
+                      disabled={enviandoArquivo}
+                      onClick={() => fotoInputRef.current?.click()}
+                      className="w-8 h-8 rounded-xl flex items-center justify-center text-slate-400 hover:text-primary-600 hover:bg-slate-100 transition-colors disabled:opacity-40 active:scale-95"
+                    >
+                      <ImageIcon size={16} />
+                    </button>
                   </div>
                   <textarea 
                     value={newMessage}
@@ -5272,33 +5612,85 @@ export const ChatPanel = ({
                       if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault();
                         handleSendMessage();
+                      } else if (e.key === '/' && newMessage === '') {
+                        setShowQuickReplies(true);
                       }
                     }}
-                    placeholder="Sua resposta..."
-                    className="flex-1 bg-transparent border-none outline-none text-xs text-slate-900 font-medium p-2 resize-none max-h-24 min-h-[36px] custom-scrollbar focus:ring-0 placeholder:text-slate-400"
+                    placeholder="Sua resposta... (/ para rápidas)"
+                    className="flex-1 bg-transparent border-none outline-none text-xs text-slate-900 font-medium p-1.5 sm:p-2 resize-none max-h-24 min-h-[34px] custom-scrollbar focus:ring-0 placeholder:text-slate-400 leading-relaxed"
                     rows={1}
                   />
-                  <div className="flex gap-1.5 pb-0.5 pr-0.5">
+                  <div className="flex items-center pb-0.5 pr-0.5">
                     {newMessage.trim() === '' ? (
-                      <Button 
+                      <button 
+                        type="button"
                         onClick={() => setIsRecording(!isRecording)}
                         className={cn(
-                          "p-2 min-w-0 h-9 w-9 rounded-full border-none transition-all shadow-md",
-                          isRecording ? "bg-rose-500 shadow-lg shadow-rose-500/40 animate-pulse" : "bg-slate-100 hover:bg-slate-200 text-slate-500"
-                        )} 
-                        icon={Mic} 
-                      />
+                          "w-9 h-9 rounded-full flex items-center justify-center transition-all shadow-md active:scale-95",
+                          isRecording ? "bg-rose-500 shadow-lg shadow-rose-500/40 animate-pulse text-white" : "bg-slate-100 hover:bg-slate-200 text-slate-500"
+                        )}
+                        title={isRecording ? "Parar gravação" : "Gravar áudio"}
+                      >
+                        <Mic size={16} />
+                      </button>
                     ) : (
-                      <Button 
+                      <button 
+                        type="button"
                         onClick={handleSendMessage}
-                        className="p-2 min-w-0 h-9 w-9 rounded-full bg-primary-500 hover:bg-primary-400 shadow-lg shadow-primary-500/40 text-slate-900 border-none" 
-                        icon={Send} 
-                      />
+                        className="w-9 h-9 rounded-full bg-primary-500 hover:bg-primary-400 shadow-lg shadow-primary-500/40 text-slate-950 flex items-center justify-center active:scale-95 transition-all"
+                        title="Enviar mensagem"
+                      >
+                        <Send size={15} />
+                      </button>
                     )}
                   </div>
                 </div>
               </div>
-            </motion.div>
+            </div>
+
+            {/* Painel lateral de contexto na 3ª coluna (Desktop) */}
+            <CustomerContextSidebar
+              isOpen={showDesktopSidebar}
+              onClose={() => setShowDesktopSidebar(false)}
+              activeTab={sidebarActiveTab}
+              setActiveTab={setSidebarActiveTab}
+              conversation={conversation}
+              clienteVinculado={clienteVinculado}
+              isLoadingCliente={isLoadingCliente}
+              nameFieldsDraft={nameFieldsDraft}
+              setNameFieldsDraft={setNameFieldsDraft}
+              nomesMudaram={nomesMudaram}
+              handleSaveNames={handleSaveNames}
+              isSavingNames={isSavingNames}
+              phoneDraft={phoneDraft}
+              setPhoneDraft={setPhoneDraft}
+              phoneMudou={phoneMudou}
+              handleSavePhone={handleSavePhone}
+              isSavingPhone={isSavingPhone}
+              handleCopyPhone={handleCopyPhone}
+              handleToggleAutoTranscribe={handleToggleAutoTranscribe}
+              notes={notes}
+              newNoteText={newNoteText}
+              setNewNoteText={setNewNoteText}
+              handleAddNote={handleAddNote}
+              isSavingNote={isSavingNote}
+              handleDeleteNote={handleDeleteNote}
+              noteInputRef={noteInputRef}
+              tasks={tasks}
+              newTaskTitle={newTaskTitle}
+              setNewTaskTitle={setNewTaskTitle}
+              handleAddTask={handleAddTask}
+              isSavingTask={isSavingTask}
+              handleToggleTask={handleToggleTask}
+              handleDeleteTask={handleDeleteTask}
+              taskInputRef={taskInputRef}
+              clienteVendas={clienteVendas}
+              isLoadingVendas={isLoadingVendas}
+              onOpenVenda={(id) => { setPendingReceiptOpenId?.(id); setRootActiveTab?.('pos'); }}
+              onOpenContrato={(id) => { setPendingOpenContratoId?.(id); setRootActiveTab?.('pos'); }}
+              onOpenOrcamento={(id) => { setPendingOpenOrcamentoId?.(id); setRootActiveTab?.('pos'); }}
+            />
+          </motion.div>
           )}
 
           {activeTab === 'data' && (
@@ -5767,19 +6159,21 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
       // useEffect acima) devolver a mudanca, e na pratica parecia que o card
       // "voltava" sozinho depois do drop, so corrigindo com um refresh manual.
       setLeads(prev => prev.map(l => l.id === leadId ? { ...l, funnelStageId: overStageId } : l));
+      setSelectedLead(prev => prev && prev.id === leadId ? { ...prev, funnelStageId: overStageId } : prev);
 
       try {
         const { error } = await supabase.from('leads').update({
           funnel_stage_id: overStageId,
           company_id: 'rafa-arts',
           updated_at: new Date().toISOString(),
-        }).eq('id', leadId).eq('company_id', 'rafa-arts');
+        }).eq('id', leadId);
         if (error) throw error;
       } catch (err) {
         console.error('Kanban: Fallback move failed', err);
         // Deu erro no servidor -- desfaz a atualizacao otimista pra nao deixar o
         // card mostrando uma coluna que na verdade nao foi salva.
         setLeads(prev => prev.map(l => l.id === leadId ? { ...l, funnelStageId: stageAnterior } : l));
+        setSelectedLead(prev => prev && prev.id === leadId ? { ...prev, funnelStageId: stageAnterior } : prev);
       }
     }
   };
