@@ -612,13 +612,20 @@ const normalizarMediaUrl = (url?: string | null): string | undefined => {
 
 // Tiques de status da mensagem ENVIADA (igual ao WhatsApp): 1 tique cinza = enviada, 2 cinzas = entregue,
 // 2 azuis = lida. Sem status (mensagem antiga ou webhook MESSAGES_UPDATE ainda nao chegou) = nao mostra nada.
-const MessageStatusTicks = ({ status }: { status?: string }) => {
+// Clicável: abre o horário de cada tique (ver statusMensagemAberto no componente do chat).
+const MessageStatusTicks = ({ status, onClick }: { status?: string; onClick?: () => void }) => {
   if (status !== 'sent' && status !== 'delivered' && status !== 'read') return null;
   const label = status === 'read' ? 'Lida' : status === 'delivered' ? 'Entregue' : 'Enviada';
   return (
-    <span title={label} aria-label={label} className={cn("inline-flex items-center", status === 'read' ? "text-sky-400" : "text-white/50")}>
+    <button
+      type="button"
+      onClick={onClick}
+      title={`${label} — toque para ver os horários`}
+      aria-label={label}
+      className={cn("inline-flex items-center", status === 'read' ? "text-sky-400" : "text-white/50", onClick && "hover:text-sky-300 transition-colors")}
+    >
       {status === 'sent' ? <Check size={13} strokeWidth={2.5} /> : <CheckCheck size={13} strokeWidth={2.5} />}
-    </span>
+    </button>
   );
 };
 
@@ -642,6 +649,8 @@ const mapCrmMessageRow = (row: any): any => ({
   transcriptionStatus: row.transcription_status || undefined,
   transcriptionError: row.transcription_error || undefined,
   deliveryStatus: row.delivery_status || undefined,
+  deliveredAt: row.delivered_at || undefined,
+  readAt: row.read_at || undefined,
   versions: row.versions || undefined,
   currentVersionIndex: row.current_version_index ?? undefined,
   lastEditedAt: row.last_edited_at || undefined,
@@ -3337,6 +3346,7 @@ export const ChatPanel = ({
   const [savingWaEditId, setSavingWaEditId] = useState<string | null>(null);
   const [deletingWaMessageId, setDeletingWaMessageId] = useState<string | null>(null);
   const [historicoMensagemAberto, setHistoricoMensagemAberto] = useState<any | null>(null);
+  const [statusMensagemAberto, setStatusMensagemAberto] = useState<any | null>(null);
   const [messages, setMessages] = useState<any[]>([]);
   const [erroHistorico, setErroHistorico] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
@@ -4631,6 +4641,54 @@ export const ChatPanel = ({
               </div>,
               document.body
             )}
+            {statusMensagemAberto && createPortal(
+              <div
+                className="fixed inset-0 z-[300] bg-black/70 flex items-center justify-center p-6"
+                onClick={() => setStatusMensagemAberto(null)}
+              >
+                <div
+                  onClick={(e) => e.stopPropagation()}
+                  className="bg-white rounded-2xl shadow-2xl w-full max-w-xs overflow-hidden"
+                >
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+                    <p className="text-xs font-black uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
+                      <CheckCheck size={14} /> Status da mensagem
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setStatusMensagemAberto(null)}
+                      className="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 flex items-center justify-center transition-colors"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                  <div className="p-4 space-y-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-7 h-7 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center shrink-0"><Check size={13} strokeWidth={2.5} /></div>
+                      <div className="text-xs">
+                        <p className="font-bold text-slate-700">Enviada</p>
+                        <p className="text-slate-400">{statusMensagemAberto.createdAt ? safeFormat(statusMensagemAberto.createdAt, 'dd/MM/yyyy HH:mm') : '—'}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-7 h-7 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center shrink-0"><CheckCheck size={13} strokeWidth={2.5} /></div>
+                      <div className="text-xs">
+                        <p className="font-bold text-slate-700">Entregue</p>
+                        <p className="text-slate-400">{statusMensagemAberto.deliveredAt ? safeFormat(statusMensagemAberto.deliveredAt, 'dd/MM/yyyy HH:mm') : 'Ainda não confirmado'}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-7 h-7 rounded-full bg-sky-50 text-sky-400 flex items-center justify-center shrink-0"><CheckCheck size={13} strokeWidth={2.5} /></div>
+                      <div className="text-xs">
+                        <p className="font-bold text-slate-700">Lida</p>
+                        <p className="text-slate-400">{statusMensagemAberto.readAt ? safeFormat(statusMensagemAberto.readAt, 'dd/MM/yyyy HH:mm') : 'Ainda não visualizada'}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>,
+              document.body
+            )}
             {/* Bolinha verde SO quando o contato esta realmente online agora
                 (presence.status === 'available') -- antes era fixa/decorativa. */}
             {presence?.status === 'available' && (
@@ -5071,7 +5129,7 @@ export const ChatPanel = ({
                                  </button>
                                </>
                              )}
-                             {isOutgoing && !m.isNote && <MessageStatusTicks status={m.deliveryStatus} />}
+                             {isOutgoing && !m.isNote && <MessageStatusTicks status={m.deliveryStatus} onClick={() => setStatusMensagemAberto(m)} />}
                              <span className="text-white/20">•</span>
                              {isOutgoing ? (
                                <span className={cn(

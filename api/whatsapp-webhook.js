@@ -429,10 +429,40 @@ async function atualizarStatusEntrega(atualizacao) {
       return null;
     }
     const linhas = await r.json().catch(() => []);
+    // Grava OS HORÁRIOS de cada tique (delivered_at/read_at) -- sempre só na primeira vez que cada um e'
+    // alcançado (filtro "is.null" abaixo), pra depois dar pra mostrar "Entregue às 14:32, lida às 14:35"
+    // quando o atendente toca nos tiques. Roda em paralelo, sem bloquear/derrubar o resto se falhar (coluna
+    // pode nao existir ainda -- ver add_delivery_timestamps_crm_messages.sql).
+    await gravarHorarioDoTique(atualizacao.id, atualizacao.status);
     return Array.isArray(linhas) && linhas[0]?.phone ? linhas[0].phone : null;
   } catch (err) {
     console.error('[CRM WEBHOOK] falha ao gravar status de entrega (nao impede o resto):', err);
     return null;
+  }
+}
+
+async function gravarHorarioDoTique(whatsappMessageId, status) {
+  const agora = new Date().toISOString();
+  // "lida" implica que tambem foi "entregue" -- se por algum motivo o evento de delivered nunca
+  // chegou, preenche os dois horarios juntos agora (cada um só se ainda estiver vazio).
+  const campos = status === 'read' ? ['delivered_at', 'read_at'] : status === 'delivered' ? ['delivered_at'] : [];
+  for (const campo of campos) {
+    try {
+      const r = await fetch(
+        `${SUPABASE_URL}/rest/v1/crm_messages?company_id=eq.${COMPANY_ID}&whatsapp_message_id=eq.${encodeURIComponent(whatsappMessageId)}&${campo}=is.null`,
+        {
+          method: 'PATCH',
+          headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ [campo]: agora }),
+        }
+      );
+      if (!r.ok) {
+        const corpo = await r.text().catch(() => '');
+        console.error(`[CRM WEBHOOK] falha ao gravar ${campo} (rodou add_delivery_timestamps_crm_messages.sql?):`, r.status, corpo);
+      }
+    } catch (err) {
+      console.error(`[CRM WEBHOOK] falha ao gravar ${campo} (nao impede o resto):`, err);
+    }
   }
 }
 
