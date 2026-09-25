@@ -3327,6 +3327,8 @@ export const ChatPanel = ({
   onDraftConsumed,
   fallbackFunnelId,
   onLeadPatched,
+  isColumnCollapsed,
+  onToggleColumnCollapse,
 }: { 
   conversation: any; 
   onClose?: () => void;
@@ -3335,13 +3337,9 @@ export const ChatPanel = ({
   initialDraft?: string;
   onDraftConsumed?: () => void;
   fallbackFunnelId?: string;
-  // Callback opcional: chamado com (leadId, patch) sempre que o ChatPanel salva um
-  // campo do lead direto (ex: handleSaveNames). Deixa o componente pai (dono do
-  // estado `leads`/`selectedLead`/`selectedChat`) atualizar a lista NA HORA, sem
-  // esperar o listener em tempo real do Supabase -- sem isso o nome editado só
-  // aparecia certo depois de um refresh manual (o header ficava com o valor
-  // antigo ate o realtime devolver a mudanca).
   onLeadPatched?: (leadId: string, patch: Record<string, any>) => void;
+  isColumnCollapsed?: boolean;
+  onToggleColumnCollapse?: () => void;
 }) => {
   const [activeTab, setActiveTab] = useState<'chat' | 'data' | 'notes' | 'tasks' | 'sales'>('chat');
   const [newMessage, setNewMessage] = useState('');
@@ -4965,6 +4963,23 @@ export const ChatPanel = ({
               title="Voltar para a lista"
             >
               <ArrowLeft size={19} />
+            </button>
+          )}
+          {/* Botão de Encolher/Expandir Coluna no Desktop — sempre 100% visível, nunca coberto pela aba de mensagens */}
+          {onToggleColumnCollapse && (
+            <button
+              type="button"
+              onClick={onToggleColumnCollapse}
+              className={cn(
+                "hidden md:flex items-center gap-1.5 h-8 px-2.5 rounded-xl border transition-all text-xs font-bold shrink-0 active:scale-95 shadow-sm cursor-pointer",
+                isColumnCollapsed
+                  ? "bg-primary-500/20 text-primary-300 border-primary-500/40 hover:bg-primary-500/30"
+                  : "bg-white/5 text-white/70 hover:text-white hover:bg-white/10 border-white/10"
+              )}
+              title={isColumnCollapsed ? "Expandir coluna de leads da etapa" : "Encolher coluna para expandir conversa"}
+            >
+              {isColumnCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+              <span className="text-[10px] font-bold uppercase tracking-wider">{isColumnCollapsed ? "Expandir Coluna" : "Encolher"}</span>
             </button>
           )}
           <div className="relative">
@@ -7420,17 +7435,6 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
 
                 return (
                   <div key={`wrapper-${stage.id}`} className={cn("w-full shrink-0 relative flex flex-col transition-all duration-300", colWidthClass)}>
-                    {/* Botão de Encolher a coluna para dar 100% de largura ao chat */}
-                    {selectedLead && (
-                      <button
-                        type="button"
-                        onClick={() => setIsColumnCollapsed(true)}
-                        className="hidden md:flex absolute -right-3 top-2.5 z-20 w-6 h-6 rounded-full bg-slate-800 border border-white/20 hover:border-primary-500/60 shadow-lg text-white/60 hover:text-white items-center justify-center transition-all hover:scale-110 active:scale-95"
-                        title="Encolher coluna para expandir conversa"
-                      >
-                        <ChevronLeft size={13} />
-                      </button>
-                    )}
                     <KanbanColumn 
                       key={stage.id} 
                       stage={stage} 
@@ -7444,6 +7448,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                       isAdmin={user?.isAdmin}
                       onSetStageColor={handleSetStageColor}
                       onRenameStage={startRenameStage}
+                      onCollapse={selectedLead ? () => setIsColumnCollapsed(true) : undefined}
                     />
                   </div>
                 );
@@ -7492,6 +7497,8 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
               currentCompany={currentCompany}
               user={user}
               fallbackFunnelId={selectedFunnelId}
+              isColumnCollapsed={isColumnCollapsed}
+              onToggleColumnCollapse={() => setIsColumnCollapsed(v => !v)}
               initialDraft={pendingWhatsAppShare?.leadId === selectedLead.id ? pendingWhatsAppShare.prefillMessage : undefined}
               onDraftConsumed={() => setPendingWhatsAppShare && setPendingWhatsAppShare(null)}
               onLeadPatched={(leadId, patch) => {
@@ -7673,6 +7680,7 @@ const KanbanColumn = ({
   isAdmin,
   onSetStageColor,
   onRenameStage,
+  onCollapse,
 }: {
   key?: any, 
   stage: FunnelStage, 
@@ -7686,6 +7694,7 @@ const KanbanColumn = ({
   isAdmin?: boolean,
   onSetStageColor?: (stageId: string, color: string) => void,
   onRenameStage?: (stage: FunnelStage) => void,
+  onCollapse?: () => void,
 }) => {
   const { setNodeRef } = useSortable({ id: stage.id, data: { type: 'column', stageId: stage.id } });
   const [showColorPicker, setShowColorPicker] = useState(false);
@@ -7693,7 +7702,7 @@ const KanbanColumn = ({
   return (
     <div className="flex-1 min-w-0 flex flex-col gap-1.5 min-h-0">
       <div className="flex items-center justify-between px-1.5">
-        <div className="flex items-center gap-2 relative">
+        <div className="flex items-center gap-2 relative min-w-0">
           {/* Seletor Rápido de Cor da Etapa */}
           <button
             type="button"
@@ -7761,6 +7770,19 @@ const KanbanColumn = ({
             {leads.length}
           </Badge>
         </div>
+
+        {/* Botão de Encolher a coluna para expandir conversa — 100% visível dentro do cabeçalho da coluna */}
+        {onCollapse && (
+          <button
+            type="button"
+            onClick={onCollapse}
+            className="h-6 px-2 rounded-lg bg-slate-800/90 hover:bg-slate-700 text-white/70 hover:text-white border border-white/15 hover:border-primary-500/50 flex items-center gap-1 transition-all text-[9px] font-bold uppercase tracking-wider shrink-0 active:scale-95 shadow-sm ml-1 cursor-pointer"
+            title="Encolher coluna para expandir conversa"
+          >
+            <ChevronLeft size={13} />
+            <span>Encolher</span>
+          </button>
+        )}
       </div>
       <div 
         ref={setNodeRef}
