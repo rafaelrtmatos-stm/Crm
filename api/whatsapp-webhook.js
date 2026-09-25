@@ -21,6 +21,7 @@ import { encontrarNodeMidia, extrairTextoMensagem, extrairInfoMidia as extrairIn
 import { sinalizarMensagemNova } from './_lib/realtime-signal.js';
 import { espelharFotoNoStorage } from './_lib/foto-perfil-storage.js';
 import { normalizarStatusEntrega, statusesSubstituiveis } from './_lib/wa-status.js';
+import { analisarMensagemParaAprendizado } from './_lib/aprendizado.js';
 
 // A transcrição de áudio roda em segundo plano (waitUntil) depois da resposta ao webhook;
 // dá tempo pra ela terminar (download + Gemini + 1 retry) sem cortar a função.
@@ -622,6 +623,12 @@ export default async function handler(req, res) {
           if (!ehMinhaMensagem) {
             // Em grupo a previa mostra quem falou ("Maria: texto")
             await atualizarLeadMensagemRecebida(phone, ehGrupoMsg && senderName ? `${senderName}: ${text}` : text, createdAt, text);
+          }
+          // Aprendizado automático do Robozinho Rafa (FASE 1): so mensagem NOVA, recebida de
+          // cliente INDIVIDUAL (nunca de grupo, nunca eco de mensagem minha). Roda em segundo
+          // plano -- nunca atrasa nem derruba a resposta do webhook, e nunca envia nada sozinho.
+          if (!jaExiste && !ehMinhaMensagem && !ehGrupoMsg) {
+            waitUntil(analisarMensagemParaAprendizado({ phone, text, leadId: null }));
           }
           // Mensagem minha mandada fora do CRM (direto no celular) -- atualiza a previa da
           // conversa na lista, que senao so e atualizada quando o envio parte do proprio CRM.
