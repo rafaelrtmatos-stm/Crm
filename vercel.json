@@ -19,6 +19,10 @@
     { "source": "/api/transcrever-pendentes", "destination": "/api/transcrever?rota=pendentes" },
     { "source": "/api/whatsapp-foto-perfil", "destination": "/api/whatsapp-contato?rota=foto-perfil" },
     { "source": "/api/whatsapp-presence-subscribe", "destination": "/api/whatsapp-contato?rota=presence-subscribe" },
+    { "source": "/api/whatsapp-edit-message", "destination": "/api/whatsapp-message-actions?rota=editar" },
+    { "source": "/api/whatsapp-delete-message", "destination": "/api/whatsapp-message-actions?rota=apagar" },
+    { "source": "/api/ai/assist", "destination": "/api/ai?rota=assist" },
+    { "source": "/api/ai/suggest-reply", "destination": "/api/ai?rota=suggest-reply" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
