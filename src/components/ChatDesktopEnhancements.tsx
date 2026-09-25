@@ -5,6 +5,7 @@ import {
   Copy, 
   Check, 
   Quote, 
+  Reply,
   Pencil, 
   Trash2, 
   Search, 
@@ -262,6 +263,8 @@ export const AudioMessagePlayer = ({
 export const MessageHoverActions = ({
   text,
   transcriptionText,
+  mediaContentType,
+  fileName,
   isOutgoing,
   canEditOrDelete,
   onEdit,
@@ -271,6 +274,8 @@ export const MessageHoverActions = ({
 }: {
   text?: string;
   transcriptionText?: string;
+  mediaContentType?: string;
+  fileName?: string;
   isOutgoing: boolean;
   canEditOrDelete: boolean;
   onEdit?: () => void;
@@ -280,7 +285,7 @@ export const MessageHoverActions = ({
 }) => {
   const [copied, setCopied] = useState(false);
 
-  const effectiveText = text || transcriptionText || '';
+  const effectiveText = text || transcriptionText || fileName || (mediaContentType ? `[${mediaContentType}]` : '') || '';
 
   const handleCopy = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -296,12 +301,12 @@ export const MessageHoverActions = ({
 
   const handleQuoteClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (onQuote && effectiveText) {
-      onQuote(effectiveText);
+    if (onQuote) {
+      onQuote(effectiveText || 'Mensagem');
     }
   };
 
-  if (!effectiveText && !canEditOrDelete) return null;
+  if (!effectiveText && !canEditOrDelete && !onQuote) return null;
 
   return (
     <div className={cn(
@@ -323,10 +328,10 @@ export const MessageHoverActions = ({
         <button
           type="button"
           onClick={handleQuoteClick}
-          title="Responder / Citar"
-          className="w-7 h-7 sm:w-6 sm:h-6 rounded-full flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 active:bg-white/20 transition-colors"
+          title="Responder / Citar esta mensagem (duplo clique também responde)"
+          className="w-7 h-7 sm:w-6 sm:h-6 rounded-full flex items-center justify-center text-white/70 hover:text-emerald-400 hover:bg-white/10 active:bg-white/20 transition-colors"
         >
-          <Quote size={11} />
+          <Reply size={12} className="rotate-180" />
         </button>
       )}
 

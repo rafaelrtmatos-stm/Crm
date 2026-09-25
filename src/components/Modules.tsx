@@ -3880,6 +3880,7 @@ export const ChatPanel = ({
   };
 
   // 3. Citar / Responder mensagem (estilo WhatsApp)
+  const chatInputRef = useRef<HTMLTextAreaElement>(null);
   const [replyingToMessage, setReplyingToMessage] = useState<any | null>(null);
   const handleQuoteMessage = (targetMsgOrText: any) => {
     if (typeof targetMsgOrText === 'object' && targetMsgOrText !== null) {
@@ -3897,6 +3898,10 @@ export const ChatPanel = ({
         });
       }
     }
+    // Foca automaticamente no campo de resposta para digitação imediata
+    setTimeout(() => {
+      chatInputRef.current?.focus();
+    }, 50);
   };
 
   const [newNoteText, setNewNoteText] = useState('');
@@ -4475,6 +4480,25 @@ export const ChatPanel = ({
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const highlightFixTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Controle de rolagem: quando o usuário rolar pra cima, exibe botão singelo para voltar à última mensagem
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const isAtBottomRef = useRef(true);
+  isAtBottomRef.current = isAtBottom;
+  const [newMessagesWhileScrolled, setNewMessagesWhileScrolled] = useState(0);
+
+  const handleScrollToBottom = useCallback(() => {
+    if (chatMessages.length > 0) {
+      virtuosoRef.current?.scrollToIndex({
+        index: chatMessages.length - 1,
+        align: 'end',
+        behavior: 'smooth',
+      });
+      setIsAtBottom(true);
+      isAtBottomRef.current = true;
+      setNewMessagesWhileScrolled(0);
+    }
+  }, [chatMessages.length]);
+
   const clearMessageHighlight = () => {
     if (highlightTimerRef.current) { clearTimeout(highlightTimerRef.current); highlightTimerRef.current = null; }
     if (highlightFixTimerRef.current) { clearTimeout(highlightFixTimerRef.current); highlightFixTimerRef.current = null; }
@@ -4485,6 +4509,9 @@ export const ChatPanel = ({
   // Trocou de conversa (ou fechou o painel): some o destaque e os timers da conversa anterior.
   useEffect(() => {
     clearMessageHighlight();
+    setIsAtBottom(true);
+    isAtBottomRef.current = true;
+    setNewMessagesWhileScrolled(0);
     return () => {
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
       if (highlightFixTimerRef.current) clearTimeout(highlightFixTimerRef.current);
@@ -4547,7 +4574,16 @@ export const ChatPanel = ({
     if (total === 0) return;
     // Abriu a conversa / carregou o historico (salto grande): vai direto, sem animar por milhares de mensagens.
     const saltou = Math.abs(total - ultimoTotalMensagensRef.current) > 5;
+    const eraZero = ultimoTotalMensagensRef.current === 0;
     ultimoTotalMensagensRef.current = total;
+
+    // Se o usuário rolou pra cima pra ler mensagens anteriores, mantém a posição de leitura
+    // e incrementa o contador no botão singelo (exceto se acabou de abrir a conversa ou houve salto grande).
+    if (!eraZero && !saltou && !isAtBottomRef.current) {
+      setNewMessagesWhileScrolled(prev => prev + 1);
+      return;
+    }
+
     virtuosoRef.current?.scrollToIndex({ index: total - 1, align: 'end', behavior: saltou ? 'auto' : 'smooth' });
   }, [messages]);
 
@@ -4585,6 +4621,9 @@ export const ChatPanel = ({
       return;
     }
     clearMessageHighlight();
+    setIsAtBottom(true);
+    isAtBottomRef.current = true;
+    setNewMessagesWhileScrolled(0);
     const legenda = newMessage.trim();
     const senderRole = user?.isAdmin ? 'Adm' : 'Atendente';
     const senderDisplay = user?.name ? `${user.name} (${senderRole})` : senderRole;
@@ -4664,6 +4703,9 @@ export const ChatPanel = ({
     const textoEnviado = rawText.trim();
     if (!textoEnviado || !conversation || !currentCompany) return;
     clearMessageHighlight(); // ao responder, volta ao comportamento normal (rola pro fim)
+    setIsAtBottom(true);
+    isAtBottomRef.current = true;
+    setNewMessagesWhileScrolled(0);
     // Limpa a caixa NA HORA do clique (nao espera a Evolution confirmar) -- e' isso que fazia
     // parecer lento: o texto ficava parado na caixa ate o envio terminar. Se falhar, o texto
     // reaparece via banner "Reenviar" (reenvioPendente), sem o atendente precisar redigitar.
@@ -5471,6 +5513,14 @@ export const ChatPanel = ({
                    initialTopMostItemIndex={{ index: 'LAST', align: 'end' }}
                    increaseViewportBy={{ top: 600, bottom: 600 }}
                    components={{ Header: ChatListSpacer, Footer: ChatListSpacer }}
+                   atBottomThreshold={60}
+                   atBottomStateChange={(atBottom) => {
+                     setIsAtBottom(atBottom);
+                     isAtBottomRef.current = atBottom;
+                     if (atBottom) {
+                       setNewMessagesWhileScrolled(0);
+                     }
+                   }}
                    itemContent={(idx, m) => {
                     const isOutgoing = m.direction === 'outgoing';
                     const msgDate = parseMsgDate(m.createdAt);
@@ -5519,6 +5569,8 @@ export const ChatPanel = ({
                            <MessageHoverActions
                              text={m.text}
                              transcriptionText={m.transcription?.text}
+                             mediaContentType={m.mediaContentType}
+                             fileName={m.fileName}
                              isOutgoing={isOutgoing}
                              canEditOrDelete={podeEditarOuApagar && !isEditando}
                              onEdit={() => handleStartEditWaMessage(m)}
@@ -5526,8 +5578,15 @@ export const ChatPanel = ({
                              onQuote={() => handleQuoteMessage(m)}
                              isDeleting={deletingWaMessageId === m.id}
                            />
-                           <div className={cn(
-                             "max-w-[85%] rounded-2xl text-xs text-slate-800 leading-relaxed transition-shadow",
+                           <div
+                             onDoubleClick={(e) => {
+                               e.stopPropagation();
+                               if (!isApagada && !isEditando) {
+                                 handleQuoteMessage(m);
+                               }
+                             }}
+                             className={cn(
+                             "max-w-[85%] rounded-2xl text-xs text-slate-800 leading-relaxed transition-shadow cursor-default select-text",
                              highlightedMessageId && String(highlightedMessageId) === String(m.id) && "ring-2 ring-amber-400 shadow-lg shadow-amber-400/40 animate-pulse",
                              isSticker && !isApagada
                                ? "p-0"
@@ -5678,6 +5737,32 @@ export const ChatPanel = ({
                  }}
                  />
                  )}
+
+                 {/* Botão singelo para rolar até a última mensagem */}
+                 <AnimatePresence>
+                   {!isAtBottom && chatMessages.length > 0 && (
+                     <motion.button
+                       type="button"
+                       initial={{ opacity: 0, scale: 0.85, y: 10 }}
+                       animate={{ opacity: 1, scale: 1, y: 0 }}
+                       exit={{ opacity: 0, scale: 0.85, y: 10 }}
+                       transition={{ duration: 0.15 }}
+                       onClick={handleScrollToBottom}
+                       className="absolute bottom-3 right-4 z-30 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-900/85 hover:bg-slate-900 text-white/90 hover:text-white border border-white/20 hover:border-white/35 shadow-xl backdrop-blur-md transition-all active:scale-95 group cursor-pointer"
+                       title="Voltar para a última mensagem"
+                     >
+                       <ChevronDown size={15} strokeWidth={2.5} className="text-white/80 group-hover:text-white transition-transform group-hover:translate-y-0.5" />
+                       <span className="text-[11px] font-semibold text-white/90 group-hover:text-white select-none">
+                         Última mensagem
+                       </span>
+                       {newMessagesWhileScrolled > 0 && (
+                         <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-emerald-500 text-slate-950 text-[9px] font-black leading-none animate-pulse">
+                           {newMessagesWhileScrolled}
+                         </span>
+                       )}
+                     </motion.button>
+                   )}
+                 </AnimatePresence>
               </div>
 
               {/* Chat Input - FIXO */}
@@ -5826,12 +5911,16 @@ export const ChatPanel = ({
                     </button>
                   </div>
                   <textarea 
+                    ref={chatInputRef}
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault();
                         handleSendMessage();
+                      } else if (e.key === 'Escape' && replyingToMessage) {
+                        e.preventDefault();
+                        setReplyingToMessage(null);
                       } else if (e.key === '/' && newMessage === '') {
                         setShowQuickReplies(true);
                       }
