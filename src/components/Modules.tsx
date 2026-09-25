@@ -3329,6 +3329,14 @@ export const ChatPanel = ({
   // Texto sendo enviado no momento (mostrado como "enviando..." logo após a caixa esvaziar, pra
   // deixar claro que a mensagem não sumiu, só saiu da caixa de digitar).
   const [enviandoTexto, setEnviandoTexto] = useState<string | null>(null);
+  // Editar/apagar mensagem MINHA de WhatsApp (igual ao "Editar"/"Apagar para todos" do WhatsApp) --
+  // chama api/whatsapp-edit-message.js e api/whatsapp-delete-message.js (ver handleEditWhatsAppMessage
+  // e handleDeleteWhatsAppMessage). editingWaMessageId controla a caixa de edição inline na bolha.
+  const [editingWaMessageId, setEditingWaMessageId] = useState<string | null>(null);
+  const [editingWaText, setEditingWaText] = useState('');
+  const [savingWaEditId, setSavingWaEditId] = useState<string | null>(null);
+  const [deletingWaMessageId, setDeletingWaMessageId] = useState<string | null>(null);
+  const [historicoMensagemAberto, setHistoricoMensagemAberto] = useState<any | null>(null);
   const [messages, setMessages] = useState<any[]>([]);
   const [erroHistorico, setErroHistorico] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
@@ -4395,6 +4403,71 @@ export const ChatPanel = ({
     }
   };
 
+  const handleStartEditWaMessage = (m: any) => {
+    setEditingWaMessageId(m.id);
+    setEditingWaText(m.text || '');
+  };
+
+  const handleCancelEditWaMessage = () => {
+    setEditingWaMessageId(null);
+    setEditingWaText('');
+  };
+
+  const handleConfirmEditWaMessage = async (m: any) => {
+    const textoNovo = editingWaText.trim();
+    if (!textoNovo || textoNovo === (m.text || '')) {
+      handleCancelEditWaMessage();
+      return;
+    }
+    setSavingWaEditId(m.id);
+    try {
+      const senderRole = user?.isAdmin ? 'Adm' : 'Atendente';
+      const senderDisplay = user?.name ? `${user.name} (${senderRole})` : senderRole;
+      const resp = await fetch('/api/whatsapp-edit-message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
+        body: JSON.stringify({ messageId: m.id, novoTexto: textoNovo, senderName: senderDisplay }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        showAlert(`Não foi possível editar a mensagem: ${data.error || 'erro desconhecido'}.`);
+        return;
+      }
+      handleCancelEditWaMessage();
+      recarregarMensagensRef.current?.();
+    } catch (err) {
+      console.error('Erro ao editar mensagem do WhatsApp:', err);
+      showAlert('Não foi possível editar a mensagem (falha de conexão).');
+    } finally {
+      setSavingWaEditId(null);
+    }
+  };
+
+  const handleDeleteWaMessage = async (m: any) => {
+    if (!(await showConfirm('Apagar esta mensagem para todos? O cliente vai deixar de vê-la no WhatsApp.'))) return;
+    setDeletingWaMessageId(m.id);
+    try {
+      const senderRole = user?.isAdmin ? 'Adm' : 'Atendente';
+      const senderDisplay = user?.name ? `${user.name} (${senderRole})` : senderRole;
+      const resp = await fetch('/api/whatsapp-delete-message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
+        body: JSON.stringify({ messageId: m.id, senderName: senderDisplay }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        showAlert(`Não foi possível apagar a mensagem: ${data.error || 'erro desconhecido'}.`);
+        return;
+      }
+      recarregarMensagensRef.current?.();
+    } catch (err) {
+      console.error('Erro ao apagar mensagem do WhatsApp:', err);
+      showAlert('Não foi possível apagar a mensagem (falha de conexão).');
+    } finally {
+      setDeletingWaMessageId(null);
+    }
+  };
+
   const handleSimulateClientMessage = async (customText?: string) => {
     if (!conversation || !currentCompany) return;
     const clientText = customText || (await showPrompt('Digite a mensagem enviada pelo cliente para teste:', 'Olá! Gostaria de saber como está o andamento do meu pedido e prazo de entrega.')) || '';
@@ -4515,6 +4588,46 @@ export const ChatPanel = ({
                   onError={() => setIsPhotoOpen(false)}
                   className="max-w-[90vw] max-h-[85vh] object-contain rounded-2xl shadow-2xl"
                 />
+              </div>,
+              document.body
+            )}
+            {historicoMensagemAberto && createPortal(
+              <div
+                className="fixed inset-0 z-[300] bg-black/70 flex items-center justify-center p-6"
+                onClick={() => setHistoricoMensagemAberto(null)}
+              >
+                <div
+                  onClick={(e) => e.stopPropagation()}
+                  className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col overflow-hidden"
+                >
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+                    <p className="text-xs font-black uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
+                      <History size={14} /> Histórico de edições
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setHistoricoMensagemAberto(null)}
+                      className="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 flex items-center justify-center transition-colors"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-3">
+                    {(historicoMensagemAberto.versions || []).map((v: any, i: number) => {
+                      const isUltima = i === (historicoMensagemAberto.versions.length - 1);
+                      return (
+                        <div key={i} className={cn("rounded-xl border p-2.5 text-xs", isUltima ? "border-primary-200 bg-primary-50" : "border-slate-100 bg-slate-50")}>
+                          <p className="text-slate-700 whitespace-pre-wrap break-words">{v.text}</p>
+                          <p className="mt-1.5 text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                            {isUltima ? 'Versão atual' : `Versão ${i + 1}`}
+                            {v.editedAt ? ` • ${safeFormat(v.editedAt, 'dd/MM/yyyy HH:mm')}` : ''}
+                            {v.editedBy ? ` • ${v.editedBy}` : ''}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>,
               document.body
             )}
@@ -4794,21 +4907,79 @@ export const ChatPanel = ({
                       return { text: `${raw} (Atendente)`, type: 'atendente' };
                     })();
                     
+                    const isApagada = !!m.deletedAt;
+                    const isEditando = editingWaMessageId === m.id;
+                    // Texto/mídia editáveis pelo botão do CRM: só as MINHAS mensagens de texto puro
+                    // (sem mídia), não apagadas e com whatsapp_message_id (ver api/whatsapp-edit-message.js).
+                    const podeEditarOuApagar = isOutgoing && !m.isNote && !isApagada && !!m.whatsappMessageId
+                      && !isImage && !isVideo && !isDocument && !isAudio && !isSticker;
+
                     return (
                       <div className="px-4 pb-4">
                       <div key={m.id || idx} data-message-id={m.id} className={cn("flex", isOutgoing ? "justify-end" : "justify-start")}>
                         <div className={cn("group space-y-1", isOutgoing ? "text-right" : "")}>
+                           {podeEditarOuApagar && !isEditando && (
+                             <div className={cn("flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity", isOutgoing ? "justify-end" : "justify-start")}>
+                               <button
+                                 type="button"
+                                 onClick={() => handleStartEditWaMessage(m)}
+                                 title="Editar mensagem"
+                                 className="w-5 h-5 rounded-md bg-white/10 hover:bg-primary-500/20 text-white/50 hover:text-primary-300 flex items-center justify-center transition-colors"
+                               >
+                                 <Pencil size={10} />
+                               </button>
+                               <button
+                                 type="button"
+                                 onClick={() => handleDeleteWaMessage(m)}
+                                 disabled={deletingWaMessageId === m.id}
+                                 title="Apagar para todos"
+                                 className="w-5 h-5 rounded-md bg-white/10 hover:bg-rose-500/20 text-white/50 hover:text-rose-400 flex items-center justify-center transition-colors disabled:opacity-50"
+                               >
+                                 {deletingWaMessageId === m.id ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
+                               </button>
+                             </div>
+                           )}
                            <div className={cn(
                              "max-w-[85%] rounded-2xl text-xs text-slate-800 leading-relaxed transition-shadow",
                              highlightedMessageId && String(highlightedMessageId) === String(m.id) && "ring-2 ring-amber-400 shadow-lg shadow-amber-400/40 animate-pulse",
-                             isSticker
+                             isSticker && !isApagada
                                ? "p-0"
-                               : cn("border bg-white shadow-sm", (isImage || isVideo) ? "p-1.5" : "p-2.5", isOutgoing ? "border-primary-200" : "border-slate-200"),
+                               : cn("border bg-white shadow-sm", (isImage || isVideo) && !isApagada ? "p-1.5" : "p-2.5", isOutgoing ? "border-primary-200" : "border-slate-200"),
                              isOutgoing
                                ? "rounded-br-none text-left ml-auto"
                                : "rounded-bl-none"
                            )}>
-                              {isSticker ? (
+                              {isApagada ? (
+                                <span className="flex items-center gap-1.5 italic text-slate-400">
+                                  <Ban size={12} className="shrink-0" />
+                                  {isOutgoing ? 'Você apagou essa mensagem para todos' : 'Mensagem apagada'}
+                                </span>
+                              ) : isEditando ? (
+                                <div className="space-y-1.5 min-w-[220px] text-left">
+                                  <textarea
+                                    autoFocus
+                                    value={editingWaText}
+                                    onChange={(e) => setEditingWaText(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleConfirmEditWaMessage(m); }
+                                      if (e.key === 'Escape') handleCancelEditWaMessage();
+                                    }}
+                                    rows={2}
+                                    className="w-full text-xs border border-primary-200 rounded-lg p-1.5 focus:outline-none focus:ring-1 focus:ring-primary-400 resize-none"
+                                  />
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    <button type="button" onClick={handleCancelEditWaMessage} className="text-[9px] font-black uppercase tracking-wider px-2 py-1 rounded-lg bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors">Cancelar</button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleConfirmEditWaMessage(m)}
+                                      disabled={savingWaEditId === m.id}
+                                      className="text-[9px] font-black uppercase tracking-wider px-2 py-1 rounded-lg bg-primary-500 text-white hover:bg-primary-600 transition-colors disabled:opacity-50 flex items-center gap-1"
+                                    >
+                                      {savingWaEditId === m.id && <Loader2 size={9} className="animate-spin" />} Salvar
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : isSticker ? (
                                 <img src={m.mediaUrl} alt="Figurinha" className="w-32 h-32 object-contain" loading="lazy" />
                               ) : isImage ? (
                                 <div className="space-y-1.5 min-w-[160px]">
@@ -4887,6 +5058,19 @@ export const ChatPanel = ({
                            </div>
                            <div className={cn("text-[9px] font-bold flex items-center gap-1.5 mt-1", isOutgoing ? "justify-end mr-1" : "justify-start ml-1")}>
                              <span className="text-white/40">{timeStr}</span>
+                             {!isApagada && !!m.lastEditedAt && Array.isArray(m.versions) && m.versions.length > 1 && (
+                               <>
+                                 <span className="text-white/20">•</span>
+                                 <button
+                                   type="button"
+                                   onClick={() => setHistoricoMensagemAberto(m)}
+                                   title="Ver histórico de edições"
+                                   className="text-white/40 hover:text-primary-300 italic underline decoration-dotted underline-offset-2 transition-colors"
+                                 >
+                                   editado
+                                 </button>
+                               </>
+                             )}
                              {isOutgoing && !m.isNote && <MessageStatusTicks status={m.deliveryStatus} />}
                              <span className="text-white/20">•</span>
                              {isOutgoing ? (
