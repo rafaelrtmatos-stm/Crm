@@ -13,7 +13,7 @@
 import { EVOLUTION_API_URL, EVOLUTION_API_KEY, INSTANCE_NAME, SUPABASE_URL, SUPABASE_ANON_KEY, COMPANY_ID, APP_BASE_URL } from './_lib/whatsapp-config.js';
 import { exigirUsuarioAutorizado } from './_lib/auth.js';
 import { timestampParaIso } from './_lib/timestamp.js';
-import { extrairTextoMensagem, extrairInfoMidia } from './_lib/wa-parse.js';
+import { extrairTextoMensagem, extrairInfoMidia, extrairContextoCitacao } from './_lib/wa-parse.js';
 import { statusMaisAvancado } from './_lib/wa-status.js';
 
 const supaHeaders = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
@@ -77,6 +77,8 @@ function paraFormatoDoFront(msg, numero, ehGrupo) {
     ? 'Celular'
     : (ehGrupo ? (msg?.pushName || '').trim() || undefined : undefined);
 
+  const citacao = extrairContextoCitacao(msg?.message);
+
   return {
     // Sem uuid de banco -- o whatsapp_message_id é o único identificador estável que a
     // Evolution devolve, então vira o "id" que o front usa (key de lista, etc).
@@ -91,6 +93,9 @@ function paraFormatoDoFront(msg, numero, ehGrupo) {
     mediaUrl: midia?.mediaUrl,
     fileName: midia?.fileName,
     mediaContentType: midia?.contentType,
+    quotedMessageId: citacao?.quotedMessageId || undefined,
+    quotedText: citacao?.quotedText || undefined,
+    quotedSender: citacao?.quotedSender || undefined,
     // Transcrição não existe nesse formato ainda -- continua vivendo em crm_messages até a
     // Fase 4 (fila de transcrição em tabela própria). Sem isso aqui, áudio antigo re-buscado
     // por essa rota perde o texto já transcrito -- resolvido quando o passo 2 mesclar com

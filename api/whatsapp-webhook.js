@@ -17,7 +17,7 @@ import { normalizarTelefoneBR } from './_lib/phone.js';
 import { timestampParaIso } from './_lib/timestamp.js';
 import { waitUntil } from '@vercel/functions';
 import { processarTranscricao, enfileirarTranscricao } from './_lib/transcricao-fila.js';
-import { encontrarNodeMidia, extrairTextoMensagem, extrairInfoMidia as extrairInfoMidiaCompartilhado } from './_lib/wa-parse.js';
+import { encontrarNodeMidia, extrairTextoMensagem, extrairInfoMidia as extrairInfoMidiaCompartilhado, extrairContextoCitacao } from './_lib/wa-parse.js';
 import { sinalizarMensagemNova } from './_lib/realtime-signal.js';
 import { espelharFotoNoStorage } from './_lib/foto-perfil-storage.js';
 import { normalizarStatusEntrega, statusesSubstituiveis } from './_lib/wa-status.js';
@@ -80,10 +80,10 @@ function extrairInfoMidia(msg) {
   return info;
 }
 
-async function inserirMensagem({ phone, text, senderName, direction = 'incoming', channel = 'WhatsApp', whatsappMessageId, createdAt, mediaUrl, fileName, contentType, groupJid, audio }) {
+async function inserirMensagem({ phone, text, senderName, direction = 'incoming', channel = 'WhatsApp', whatsappMessageId, createdAt, mediaUrl, fileName, contentType, groupJid, audio, quotedMessageId, quotedText, quotedSender }) {
   if (!phone || !text) return;
   // `audio` = campos extras do áudio (media_mime_type, media_duration, transcription_status).
-  const enviar = (comGrupo, comAudio = true) => fetch(`${SUPABASE_URL}/rest/v1/crm_messages`, {
+  const enviar = (comGrupo, comAudio = true, comCitacao = true) => fetch(`${SUPABASE_URL}/rest/v1/crm_messages`, {
     method: 'POST',
     headers: {
       apikey: SUPABASE_ANON_KEY,
@@ -105,6 +105,11 @@ async function inserirMensagem({ phone, text, senderName, direction = 'incoming'
       media_url: mediaUrl || null,
       file_name: fileName || null,
       content_type: contentType || null,
+      ...(comCitacao && (quotedMessageId || quotedText) ? {
+        quoted_message_id: quotedMessageId || null,
+        quoted_text: quotedText || null,
+        quoted_sender: quotedSender || null,
+      } : {}),
       ...(comAudio && audio ? audio : {}),
       // Identificador REAL do grupo (remoteJid ...@g.us). `phone` continua sendo so os digitos dele.
       ...(comGrupo && groupJid ? { group_jid: groupJid } : {}),
@@ -112,12 +117,11 @@ async function inserirMensagem({ phone, text, senderName, direction = 'incoming'
     }),
   });
 
-  let resp = await enviar(true);
-  // Coluna group_jid ainda nao existe (supabase/add_last_message_at_to_leads.sql nao rodou): grava sem ela
-  // -- a mensagem nunca pode ser perdida por causa desse campo extra.
-  // Idem para as colunas de transcricao (supabase/add_transcricao_audio_crm_messages.sql).
-  if (!resp.ok && audio) resp = await enviar(true, false);
-  if (!resp.ok && groupJid) resp = await enviar(false, false);
+  let resp = await enviar(true, true, true);
+  // Se a tabela ainda não tiver as colunas de citação, áudio ou grupo, tenta com fallback
+  if (!resp.ok && (quotedMessageId || quotedText)) resp = await enviar(true, true, false);
+  if (!resp.ok && audio) resp = await enviar(true, false, false);
+  if (!resp.ok && groupJid) resp = await enviar(false, false, false);
 
   if (!resp.ok) {
     const corpo = await resp.text().catch(() => '');
@@ -710,11 +714,15 @@ export default async function handler(req, res) {
               precisaTranscrever = !ehMinhaMensagem && midiaSalva?.contentType === 'audio' && !!midiaSalva?.mediaUrl
                 && await transcricaoAutomaticaLigada(phone);
             }
+            const citacao = extrairContextoCitacao(msg?.message);
             gravada = SEM_CRM_MESSAGES ? true : await inserirMensagem({
               phone, text, senderName, direction: ehMinhaMensagem ? 'outgoing' : 'incoming', whatsappMessageId, createdAt,
               groupJid: ehGrupoMsg ? phoneRaw : undefined,
               mediaUrl: midiaSalva?.mediaUrl, fileName: midiaSalva?.fileName, contentType: midiaSalva?.contentType,
               audio: camposAudio,
+              quotedMessageId: citacao?.quotedMessageId,
+              quotedText: citacao?.quotedText,
+              quotedSender: citacao?.quotedSender,
             });
             if (gravada && precisaTranscrever) {
               transcreverAudioAgora = await enfileirarTranscricao({

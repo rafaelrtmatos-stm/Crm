@@ -150,6 +150,7 @@ import {
   ArrowUpDown,
   ArrowDown,
   ArrowUp,
+  Reply,
   Wand2
 } from 'lucide-react';
 import { 
@@ -672,6 +673,9 @@ const mapCrmMessageRow = (row: any): any => ({
   deletedAt: row.deleted_at || undefined,
   deletedBy: row.deleted_by || undefined,
   whatsappMessageId: row.whatsapp_message_id || undefined,
+  quotedMessageId: row.quoted_message_id || undefined,
+  quotedText: row.quoted_text || undefined,
+  quotedSender: row.quoted_sender || undefined,
   createdAt: row.created_at,
 });
 
@@ -3875,10 +3879,24 @@ export const ChatPanel = ({
     handleSendFile(file, isImg ? 'image' : 'document');
   };
 
-  // 3. Citar mensagem na resposta
-  const handleQuoteMessage = (quoteText: string) => {
-    const cleanQuote = quoteText.split('\n')[0].slice(0, 100);
-    setNewMessage(prev => `> "${cleanQuote}..."\n\n${prev}`);
+  // 3. Citar / Responder mensagem (estilo WhatsApp)
+  const [replyingToMessage, setReplyingToMessage] = useState<any | null>(null);
+  const handleQuoteMessage = (targetMsgOrText: any) => {
+    if (typeof targetMsgOrText === 'object' && targetMsgOrText !== null) {
+      setReplyingToMessage(targetMsgOrText);
+    } else if (typeof targetMsgOrText === 'string') {
+      const found = chatMessages.find(m => m.text === targetMsgOrText);
+      if (found) {
+        setReplyingToMessage(found);
+      } else {
+        setReplyingToMessage({
+          id: `quoted-${Date.now()}`,
+          text: targetMsgOrText,
+          senderName: conversation?.name || 'Mensagem',
+          direction: 'incoming',
+        });
+      }
+    }
   };
 
   const [newNoteText, setNewNoteText] = useState('');
@@ -4652,6 +4670,8 @@ export const ChatPanel = ({
     setReenvioPendente(null);
     setEnviandoTexto(textoEnviado);
     if (!textoParaReenviar) setNewMessage('');
+    const currentReplying = replyingToMessage;
+    setReplyingToMessage(null);
     const senderRole = user?.isAdmin ? 'Adm' : 'Atendente';
     const senderDisplay = user?.name ? `${user.name} (${senderRole})` : senderRole;
     try {
@@ -4666,7 +4686,15 @@ export const ChatPanel = ({
           const resp = await fetch('/api/whatsapp-send', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
-            body: JSON.stringify({ phone: conversation.phone, text: textoEnviado, senderName: senderDisplay, leadId: conversation.id || null }),
+            body: JSON.stringify({
+              phone: conversation.phone,
+              text: textoEnviado,
+              senderName: senderDisplay,
+              leadId: conversation.id || null,
+              quotedMessageId: currentReplying?.whatsappMessageId || currentReplying?.id || undefined,
+              quotedText: currentReplying ? (currentReplying.text || currentReplying.fileName || (currentReplying.mediaContentType ? `[${currentReplying.mediaContentType}]` : 'Mensagem')) : undefined,
+              quotedSender: currentReplying ? (currentReplying.direction === 'outgoing' ? 'Você' : (currentReplying.senderName || conversation.name || 'Cliente')) : undefined,
+            }),
           });
           respData = await resp.json().catch(() => ({}));
           if (!resp.ok) {
@@ -4693,6 +4721,9 @@ export const ChatPanel = ({
             sender_name: senderDisplay,
             channel: 'WhatsApp',
             whatsapp_message_id: respData.whatsappMessageId || null,
+            quoted_message_id: currentReplying?.whatsappMessageId || currentReplying?.id || null,
+            quoted_text: currentReplying ? (currentReplying.text || currentReplying.fileName || (currentReplying.mediaContentType ? `[${currentReplying.mediaContentType}]` : 'Mensagem')) : null,
+            quoted_sender: currentReplying ? (currentReplying.direction === 'outgoing' ? 'Você' : (currentReplying.senderName || conversation.name || 'Cliente')) : null,
             created_at: quando,
           });
           await supabase.from('leads').update({
@@ -4715,6 +4746,9 @@ export const ChatPanel = ({
         direction: 'outgoing',
         sender_name: senderDisplay,
         channel: conversation.sourceType || 'WhatsApp',
+        quoted_message_id: currentReplying?.whatsappMessageId || currentReplying?.id || null,
+        quoted_text: currentReplying ? (currentReplying.text || currentReplying.fileName || (currentReplying.mediaContentType ? `[${currentReplying.mediaContentType}]` : 'Mensagem')) : null,
+        quoted_sender: currentReplying ? (currentReplying.direction === 'outgoing' ? 'Você' : (currentReplying.senderName || conversation.name || 'Cliente')) : null,
       });
       await supabase.from('leads').update({
         last_message_at: new Date().toISOString(),
@@ -5098,8 +5132,8 @@ export const ChatPanel = ({
             <span>Contexto</span>
           </button>
 
-          {/* Botão Resolvido (Alerta de Vácuo) */}
-          {conversation.waitingSince && (
+          {/* Botão Resolvido (Alerta de Vácuo) -- Oculta quando o banner de notificação pendente já estiver visível na tela para evitar botão duplicado */}
+          {conversation.waitingSince && !notificacaoPendente && (
             <button
               type="button"
               onClick={handleResolveWaiting}
@@ -5489,7 +5523,7 @@ export const ChatPanel = ({
                              canEditOrDelete={podeEditarOuApagar && !isEditando}
                              onEdit={() => handleStartEditWaMessage(m)}
                              onDelete={() => handleDeleteWaMessage(m)}
-                             onQuote={handleQuoteMessage}
+                             onQuote={() => handleQuoteMessage(m)}
                              isDeleting={deletingWaMessageId === m.id}
                            />
                            <div className={cn(
@@ -5502,6 +5536,31 @@ export const ChatPanel = ({
                                ? "rounded-br-none text-left ml-auto"
                                : "rounded-bl-none"
                            )}>
+                              {/* Citação / Mensagem Respondida no estilo WhatsApp */}
+                              {m.quotedText && !isApagada && (
+                                <div
+                                  onClick={() => {
+                                    if (m.quotedMessageId) {
+                                      setPendingOpenMessageId(m.quotedMessageId);
+                                    }
+                                  }}
+                                  className={cn(
+                                    "mb-2 p-2 rounded-xl border-l-4 text-xs cursor-pointer transition-all hover:opacity-90 select-none text-left",
+                                    isOutgoing
+                                      ? "bg-slate-100/90 border-emerald-500 text-slate-700"
+                                      : "bg-slate-100/90 border-primary-500 text-slate-700"
+                                  )}
+                                  title="Clique para localizar a mensagem original"
+                                >
+                                  <div className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-emerald-600 mb-0.5">
+                                    <Reply size={11} className="rotate-180 shrink-0" />
+                                    <span>{m.quotedSender || (isOutgoing ? 'Cliente' : 'Você')}</span>
+                                  </div>
+                                  <p className="text-[11px] text-slate-600 line-clamp-2 italic font-normal leading-snug">
+                                    {m.quotedText}
+                                  </p>
+                                </div>
+                              )}
                               {isApagada ? (
                                 <span className="flex items-center gap-1.5 italic text-slate-400">
                                   <Ban size={12} className="shrink-0" />
@@ -5722,6 +5781,27 @@ export const ChatPanel = ({
                     <Loader2 size={10} className="animate-spin" /> Enviando...
                   </div>
                 )}
+                {replyingToMessage && (
+                  <div className="flex items-center justify-between gap-2 bg-emerald-500/10 border-l-4 border-emerald-500 border border-emerald-500/20 rounded-xl px-3 py-2 text-slate-800 animate-in fade-in slide-in-from-bottom-1">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-emerald-700">
+                        <Reply size={12} className="rotate-180 shrink-0" />
+                        <span>Respondendo a {replyingToMessage.direction === 'outgoing' ? 'Você' : (replyingToMessage.senderName || conversation.name || 'Cliente')}</span>
+                      </div>
+                      <p className="text-xs text-slate-700 truncate mt-0.5 font-medium">
+                        {replyingToMessage.text || replyingToMessage.fileName || (replyingToMessage.mediaContentType ? `[${replyingToMessage.mediaContentType}]` : 'Mensagem')}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setReplyingToMessage(null)}
+                      className="p-1 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-200/50 transition-colors shrink-0"
+                      title="Cancelar resposta"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                )}
                 <div className="flex items-end gap-1.5 sm:gap-2 bg-white p-1 rounded-2xl border border-slate-200 focus-within:border-primary-500/50 transition-all shadow-lg">
                   <div className="flex items-center gap-0.5 pb-0.5">
                     <input ref={documentoInputRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; handleSendFile(f, 'document'); }} />
@@ -5891,8 +5971,8 @@ export const ChatPanel = ({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                    {/* Telefone -- editavel (com Salvar quando muda) + botao de copiar, diferente
                        dos outros campos abaixo que ainda sao só leitura. */}
-                   <div className="p-4 bg-white/5 rounded-2xl border border-white/5 flex items-center gap-3 group">
-                      <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-white/20 group-hover:text-primary-300 transition-colors shrink-0">
+                   <div className="p-4 bg-white/5 rounded-xl border border-white/5 flex items-center gap-3 group">
+                      <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center text-white/20 group-hover:text-primary-300 transition-colors shrink-0">
                          <Phone size={16} />
                       </div>
                       <div className="flex-1 min-w-0">
@@ -5929,7 +6009,7 @@ export const ChatPanel = ({
                      { label: 'Origem', value: conversation.sourceType || conversation.channel || '—', icon: Target },
                      { label: 'E-mail', value: conversation.email || clienteVinculado?.email || '—', icon: AtSign },
                      { label: 'Cadastro Vinculado', value: isLoadingCliente ? 'Buscando...' : (clienteVinculado ? clienteVinculado.full_name : 'Sem cadastro em Clientes'), icon: Users },
-                   ].map((item, i) => (
+                    ].map((item, i) => (
                      <div key={i} className="p-4 bg-white/5 rounded-2xl border border-white/5 hover:bg-white/10 transition-all flex items-center gap-4 group">
                         <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-white/20 group-hover:text-primary-300 transition-colors">
                            <item.icon size={16} />
@@ -6799,11 +6879,30 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     if (!apenasAdmin() || !stages[idx] || !stages[idx + dir]) return;
     const arr = [...stages];
     [arr[idx], arr[idx + dir]] = [arr[idx + dir], arr[idx]];
+    const updated = arr.map((st, i) => ({ ...st, order: i }));
+    // Atualização otimista imediata na interface
+    setStages(updated);
     try {
-      await Promise.all(arr.map((st, i) => st.order === i ? null : supabase.from('funnel_stages').update({ order: i, updated_at: new Date().toISOString() }).eq('id', st.id)));
+      await Promise.all(updated.map((st, i) => supabase.from('funnel_stages').update({ order: i, updated_at: new Date().toISOString() }).eq('id', st.id)));
     } catch (err) {
       console.error('Erro ao reordenar etapas:', err);
       showAlert('Não foi possível reordenar as etapas.');
+    }
+  };
+
+  const handleChangeStagePosition = async (fromIdx: number, toIdx: number) => {
+    if (!apenasAdmin() || fromIdx === toIdx || toIdx < 0 || toIdx >= stages.length) return;
+    const arr = [...stages];
+    const [item] = arr.splice(fromIdx, 1);
+    arr.splice(toIdx, 0, item);
+    const updated = arr.map((st, i) => ({ ...st, order: i }));
+    // Atualização otimista imediata na interface
+    setStages(updated);
+    try {
+      await Promise.all(updated.map((st, i) => supabase.from('funnel_stages').update({ order: i, updated_at: new Date().toISOString() }).eq('id', st.id)));
+    } catch (err) {
+      console.error('Erro ao mover etapa:', err);
+      showAlert('Não foi possível salvar a nova posição da etapa.');
     }
   };
 
@@ -6837,10 +6936,15 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
   };
 
   return (
-    <div className="h-full flex gap-6 animate-in slide-in-from-right-10 duration-500">
+    <div className={cn(
+      "h-full flex transition-all duration-300",
+      selectedLead ? "gap-2.5 sm:gap-3" : "gap-6"
+    )}>
       <div className={cn(
-        "flex flex-col space-y-6 transition-all duration-500 min-h-0",
-        selectedLead ? "hidden md:flex md:w-[300px] md:shrink-0" : "w-full flex"
+        "flex flex-col space-y-4 transition-all duration-300 min-h-0",
+        selectedLead 
+          ? (isColumnCollapsed ? "hidden md:flex md:w-10 md:shrink-0" : "hidden md:flex md:w-[220px] md:shrink-0")
+          : "w-full flex"
       )}>
         {!selectedLead && (
           <div className="space-y-3">
@@ -7223,7 +7327,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                   );
                 }
 
-                const colWidthClass = selectedLead ? "w-[210px] md:w-[220px]" : "w-[195px] md:w-[205px]";
+                const colWidthClass = selectedLead ? "w-full" : "w-[195px] md:w-[205px]";
 
                 return (
                   <div key={`wrapper-${stage.id}`} className={cn("w-full shrink-0 relative flex flex-col transition-all duration-300", colWidthClass)}>
@@ -18518,15 +18622,50 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 )}
              </div>
 
-             {selectedCustomer && (
-               <div className="pt-2 border-t border-white/5 flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center text-[10px] shrink-0"><Users size={12} /></div>
-                  <div>
-                    <p className="text-[9px] font-black uppercase text-white/60">{selectedCustomer.name}</p>
-                    <p className="text-[8px] text-white/30">{selectedCustomer.phone || 'Sem telefone'}</p>
-                  </div>
-               </div>
-             )}
+             {/* Contato do Cliente com Número Clicável */}
+             {(() => {
+               const clienteNome = selectedCustomer?.name || lastFinalizedOrder?.customerName || 'Cliente';
+               const clienteTel = selectedCustomer?.phone || lastFinalizedOrder?.customerPhone || '';
+               return (
+                 <div className="pt-2.5 border-t border-white/10 bg-slate-900/60 p-3 rounded-2xl border border-white/10 flex items-center justify-between gap-3">
+                   <div className="min-w-0 flex-1">
+                     <span className="text-[9.5px] font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1.5 mb-0.5">
+                       <Phone size={11} /> Contato do Cliente
+                     </span>
+                     <p className="text-xs font-black text-white truncate" title={clienteNome}>
+                       {clienteNome}
+                     </p>
+                   </div>
+
+                   {clienteTel ? (
+                     <button
+                       type="button"
+                       onClick={() => {
+                         if (!lastFinalizedOrder) return;
+                         handleShareViaWhatsApp(lastFinalizedOrder, clienteNome, clienteTel);
+                       }}
+                       className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25 hover:text-emerald-200 font-mono font-black text-xs transition-all cursor-pointer group active:scale-95 shadow-sm shrink-0"
+                       title="Clique no número para enviar a nota pelo WhatsApp"
+                     >
+                       <MessageSquare size={14} className="text-emerald-400 group-hover:scale-110 transition-transform shrink-0" />
+                       <span className="underline decoration-dotted underline-offset-2">{clienteTel}</span>
+                     </button>
+                   ) : (
+                     <button
+                       type="button"
+                       onClick={() => {
+                         setWaFormName(clienteNome);
+                         setWaFormPhone('');
+                         setIsWhatsAppFormOpen(true);
+                       }}
+                       className="text-[11px] font-black text-amber-400 hover:text-amber-300 underline cursor-pointer shrink-0"
+                     >
+                       + Digitar WhatsApp
+                     </button>
+                   )}
+                 </div>
+               );
+             })()}
           </div>
 
           <div className="grid grid-cols-5 gap-1.5 sm:gap-3 shrink-0">
@@ -20997,20 +21136,56 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
              {/* Etapa de produção: aparece SEMPRE (nota em aberto OU já quitada). Quitar a nota não muda a etapa —
                  quem escolhe é o usuário, ex.: pedido todo pago, mas ainda "Aguardando Arte". */}
              {sale.status !== 'canceled' && (
-               <div className="bg-slate-900/50 rounded-2xl p-3 border border-white/5 space-y-1">
-                 <label className="text-[9px] font-black uppercase text-white/40 tracking-widest block">Etapa Atual</label>
-                 <select
-                   value={sale.serviceStatus || ''}
-                   onChange={(e) => { if (e.target.value) handleUpdateServiceStatus(sale.id, e.target.value); }}
-                   className="w-full h-9 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer"
-                 >
-                   {!sale.serviceStatus && (
-                     <option value="" disabled className="bg-slate-900">Escolha a etapa (envia p/ Serviços)</option>
+               <div className="bg-slate-900/60 rounded-2xl p-3.5 border border-white/10 space-y-3 shadow-md">
+                 <div className="space-y-1.5">
+                   <label className="text-[9.5px] font-black uppercase text-white/50 tracking-widest block">Etapa Atual</label>
+                   <select
+                     value={sale.serviceStatus || ''}
+                     onChange={(e) => { if (e.target.value) handleUpdateServiceStatus(sale.id, e.target.value); }}
+                     className="w-full h-9 bg-slate-900/90 border border-white/10 rounded-lg px-2 text-xs text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer"
+                   >
+                     {!sale.serviceStatus && (
+                       <option value="" disabled className="bg-slate-900">Escolha a etapa (envia p/ Serviços)</option>
+                     )}
+                     {STAGE_ORDER.map(id => (
+                       <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
+                     ))}
+                   </select>
+                 </div>
+
+                 {/* Contato do Cliente com Envio Imediato */}
+                 <div className="pt-2.5 border-t border-white/10 space-y-2">
+                   <div className="flex items-center justify-between text-xs">
+                     <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                       <Phone size={12} /> Contato do Cliente
+                     </span>
+                     <span className="text-[11px] font-bold text-white/80 truncate max-w-[220px]" title={sale.customerName || 'Cliente'}>
+                       {sale.customerName || 'Cliente Balcão'} {sale.customerPhone ? `• ${sale.customerPhone}` : ''}
+                     </span>
+                   </div>
+
+                   {sale.customerPhone ? (
+                     <Button
+                       className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs py-2.5 h-auto flex items-center justify-center gap-2 rounded-xl shadow-lg shadow-emerald-500/20 active:scale-95 transition-all cursor-pointer"
+                       onClick={() => handleOpenChatFromReceipt(sale)}
+                       title="Enviar nota e conversar diretamente com o cliente no WhatsApp"
+                     >
+                       <MessageSquare size={15} className="shrink-0" />
+                       <span>Enviar Direto para o Cliente (WhatsApp)</span>
+                     </Button>
+                   ) : (
+                     <div className="flex items-center justify-between bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2 text-amber-300 text-xs">
+                       <span className="text-[10.5px]">Nenhum telefone cadastrado nesta nota.</span>
+                       <button
+                         type="button"
+                         onClick={() => { setViewingReceiptSale(null); startEditSale(sale); }}
+                         className="text-[10.5px] font-black underline hover:text-white cursor-pointer ml-2"
+                       >
+                         Adicionar Telefone
+                       </button>
+                     </div>
                    )}
-                   {STAGE_ORDER.map(id => (
-                     <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
-                   ))}
-                 </select>
+                 </div>
                </div>
              )}
 

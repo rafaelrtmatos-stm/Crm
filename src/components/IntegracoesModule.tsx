@@ -1,17 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plug, Bot, MessageCircle, Facebook, Instagram, QrCode, RefreshCw, CheckCircle2 } from 'lucide-react';
+import { Plug, Bot, MessageCircle, Facebook, Instagram, QrCode, RefreshCw, CheckCircle2, Smile } from 'lucide-react';
 import { GlassCard, Badge, Modal, cn } from './SharedUI';
 import { RobozinhoRafaModule } from './RobozinhoRafaModule';
+import { FigurinhasManager } from './FigurinhasManager';
 import { Company, AppUser } from '../types';
 import { supabase } from '../supabase';
 import { showConfirm, showAlert } from '../lib/notify';
 
 // Página "Integrações" — reúne num só lugar as conexões com canais externos
 // (WhatsApp já conectado de verdade via Evolution API — Facebook/Instagram ainda não,
-// ver card "Em breve" abaixo) e o Robozinho Rafa (aba 2, componente já existente,
-// reaproveitado sem nenhuma alteração na lógica dele).
+// ver card "Em breve" abaixo), o Robozinho Rafa e a gestão de Figurinhas do WhatsApp.
 
-type IntegracoesTab = 'conexoes' | 'robozinho_rafa';
+type IntegracoesTab = 'conexoes' | 'robozinho_rafa' | 'figurinhas';
 
 interface CanalConexao {
   id: string;
@@ -175,6 +175,7 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
   const TABS: { id: IntegracoesTab; label: string; icon: any }[] = [
     { id: 'conexoes', label: 'Conexões', icon: Plug },
     { id: 'robozinho_rafa', label: 'Robozinho Rafa', icon: Bot },
+    { id: 'figurinhas', label: 'Figurinhas WhatsApp', icon: Smile },
   ];
 
   return (
@@ -183,7 +184,7 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
         <h1 className="text-xl md:text-2xl font-black text-white flex items-center gap-2">
           <Plug size={22} className="text-primary-500" /> Integrações
         </h1>
-        <p className="text-xs text-white/40 mt-1">Conecte canais de atendimento e configure o Robozinho Rafa.</p>
+        <p className="text-xs text-white/40 mt-1">Conecte canais de atendimento, configure o Robozinho Rafa e gerencie figurinhas do WhatsApp.</p>
       </div>
 
       {/* Abas */}
@@ -233,6 +234,10 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
 
       {tab === 'robozinho_rafa' && (
         <RobozinhoRafaModule currentCompany={currentCompany} user={user} />
+      )}
+
+      {tab === 'figurinhas' && (
+        <FigurinhasManager />
       )}
 
       <Modal isOpen={!!canalSelecionado} onClose={() => setCanalSelecionado(null)} title={canalSelecionado ? `Conectar ${canalSelecionado.nome}` : ''} size="sm" className="max-w-sm">

@@ -319,11 +319,11 @@ export const MessageHoverActions = ({
         </button>
       )}
 
-      {effectiveText && onQuote && (
+      {onQuote && (
         <button
           type="button"
           onClick={handleQuoteClick}
-          title="Citar / Responder"
+          title="Responder / Citar"
           className="w-7 h-7 sm:w-6 sm:h-6 rounded-full flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 active:bg-white/20 transition-colors"
         >
           <Quote size={11} />
@@ -551,7 +551,7 @@ export const CustomerContextSidebar = ({
   if (!isOpen) return null;
 
   return (
-    <aside className="w-80 xl:w-96 border-l border-white/10 bg-slate-900/60 backdrop-blur-xl flex flex-col h-full shrink-0 select-text rounded-r-2xl overflow-hidden">
+    <aside className="w-80 xl:w-96 border-l border-white/10 bg-slate-900/60 backdrop-blur-xl flex flex-col h-full shrink-0 select-text overflow-hidden rounded-r-2xl">
       {/* Header do painel */}
       <div className="p-3 border-b border-white/10 flex items-center justify-between bg-white/[0.02]">
         <div className="flex items-center gap-2">
@@ -602,7 +602,7 @@ export const CustomerContextSidebar = ({
         {activeTab === 'data' && (
           <div className="space-y-4">
             {/* Identidade */}
-            <div className="p-3 bg-white/5 border border-white/5 rounded-2xl space-y-3">
+            <div className="p-3.5 bg-white/5 border border-white/10 rounded-2xl space-y-3 shadow-sm">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-black uppercase tracking-widest text-primary-300">Identidade</span>
                 {nomesMudaram && (
@@ -610,7 +610,7 @@ export const CustomerContextSidebar = ({
                     type="button"
                     onClick={handleSaveNames}
                     disabled={isSavingNames}
-                    className="px-2 py-1 rounded-lg bg-primary-500 hover:bg-primary-600 text-white font-bold text-[9px] uppercase tracking-wider flex items-center gap-1 transition-colors disabled:opacity-50"
+                    className="px-2.5 py-1 rounded-xl bg-primary-500 hover:bg-primary-600 text-white font-bold text-[9px] uppercase tracking-wider flex items-center gap-1 transition-colors disabled:opacity-50"
                   >
                     {isSavingNames ? <Loader2 size={10} className="animate-spin" /> : <Save size={10} />} Salvar
                   </button>
@@ -623,7 +623,7 @@ export const CustomerContextSidebar = ({
                     value={nameFieldsDraft.whatsappName}
                     onChange={(e) => setNameFieldsDraft({ ...nameFieldsDraft, whatsappName: e.target.value })}
                     placeholder="Perfil WhatsApp"
-                    className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white outline-none focus:border-primary-500"
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white outline-none focus:border-primary-500"
                   />
                 </div>
                 <div>
@@ -632,7 +632,7 @@ export const CustomerContextSidebar = ({
                     value={nameFieldsDraft.contactName}
                     onChange={(e) => setNameFieldsDraft({ ...nameFieldsDraft, contactName: e.target.value })}
                     placeholder="Nome na agenda"
-                    className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white outline-none focus:border-primary-500"
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white outline-none focus:border-primary-500"
                   />
                 </div>
                 <div>
@@ -641,14 +641,14 @@ export const CustomerContextSidebar = ({
                     value={nameFieldsDraft.fullName}
                     onChange={(e) => setNameFieldsDraft({ ...nameFieldsDraft, fullName: e.target.value })}
                     placeholder="Nome pra contratos/recibos"
-                    className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white outline-none focus:border-primary-500"
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white outline-none focus:border-primary-500"
                   />
                 </div>
               </div>
             </div>
 
             {/* Contato & Telefone */}
-            <div className="p-3 bg-white/5 border border-white/5 rounded-2xl space-y-2.5">
+            <div className="p-3.5 bg-white/5 border border-white/10 rounded-2xl space-y-2.5 shadow-sm">
               <span className="text-[10px] font-black uppercase tracking-widest text-primary-300">Contato</span>
               <div className="flex items-center gap-2">
                 <Phone size={14} className="text-white/40 shrink-0" />
@@ -662,7 +662,7 @@ export const CustomerContextSidebar = ({
                   type="button"
                   onClick={handleCopyPhone}
                   title="Copiar telefone"
-                  className="p-1 rounded-md hover:bg-white/10 text-white/40 hover:text-white"
+                  className="p-1 rounded-lg hover:bg-white/10 text-white/40 hover:text-white"
                 >
                   <Copy size={12} />
                 </button>
@@ -672,7 +672,7 @@ export const CustomerContextSidebar = ({
                     onClick={handleSavePhone}
                     disabled={isSavingPhone}
                     title="Salvar novo telefone"
-                    className="p-1 rounded-md bg-primary-500 text-white hover:bg-primary-600"
+                    className="p-1.5 rounded-xl bg-primary-500 text-white hover:bg-primary-600"
                   >
                     {isSavingPhone ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
                   </button>
@@ -688,7 +688,7 @@ export const CustomerContextSidebar = ({
             </div>
 
             {/* Endereço */}
-            <div className="p-3 bg-white/5 border border-white/5 rounded-2xl space-y-2">
+            <div className="p-3.5 bg-white/5 border border-white/10 rounded-2xl space-y-2 shadow-sm">
               <div className="flex items-center gap-2 text-primary-300">
                 <MapPin size={14} className="shrink-0" />
                 <span className="text-[10px] font-black uppercase tracking-widest">Endereço de Entrega</span>
@@ -706,7 +706,7 @@ export const CustomerContextSidebar = ({
             </div>
 
             {/* Transcrição de áudio automática */}
-            <div className="p-3 bg-white/5 border border-white/5 rounded-2xl flex items-center justify-between">
+            <div className="p-3.5 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-between shadow-sm">
               <div>
                 <p className="text-[11px] font-bold text-white">Transcrição Automática</p>
                 <p className="text-[9px] text-white/40">Transcrever áudios desta conversa</p>

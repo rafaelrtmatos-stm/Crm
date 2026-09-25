@@ -60,10 +60,10 @@ async function atualizarLeadMensagemEnviada(telefones, text, quando) {
 // Evolution manda no webhook (fromMe) e ignorado como duplicata pelo indice unico. Se o eco chegou ANTES
 // deste insert (webhook grava como "Celular"), corrige remetente/lead na linha que ja existe.
 // Devolve true quando a mensagem esta registrada em crm_messages.
-async function registrarMensagemEnviada({ phone, text, senderName, leadId, whatsappMessageId, createdAt, media }) {
+async function registrarMensagemEnviada({ phone, text, senderName, leadId, whatsappMessageId, createdAt, media, quotedMessageId, quotedText, quotedSender }) {
   const headers = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json' };
   try {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/crm_messages`, {
+    const postMsg = (comCitacao = true) => fetch(`${SUPABASE_URL}/rest/v1/crm_messages`, {
       method: 'POST',
       headers: { ...headers, Prefer: 'resolution=ignore-duplicates,return=minimal' },
       body: JSON.stringify({
@@ -76,9 +76,19 @@ async function registrarMensagemEnviada({ phone, text, senderName, leadId, whats
         channel: 'WhatsApp',
         whatsapp_message_id: whatsappMessageId || null,
         created_at: createdAt,
+        ...(comCitacao && (quotedMessageId || quotedText) ? {
+          quoted_message_id: quotedMessageId || null,
+          quoted_text: quotedText || null,
+          quoted_sender: quotedSender || null,
+        } : {}),
         ...(media ? { content_type: media.tipo, media_url: media.url, file_name: media.fileName || null, media_mime_type: media.mimeType || null } : {}),
       }),
     });
+
+    let r = await postMsg(true);
+    if (!r.ok && (quotedMessageId || quotedText)) {
+      r = await postMsg(false);
+    }
     if (!r.ok) {
       console.error('Falha ao registrar mensagem enviada em crm_messages:', r.status, await r.text().catch(() => ''));
       return false;
@@ -115,22 +125,22 @@ export default async function handler(req, res) {
   // mensagem em nome do numero conectado.
   if (!(await exigirUsuarioAutorizado(req, res))) return;
 
-  const { phone, text, senderName, leadId, mediaUrl, mediaType, fileName, mimeType } = req.body || {};
+  const { phone, text, senderName, leadId, mediaUrl, mediaType, fileName, mimeType, quotedMessageId, quotedText, quotedSender } = req.body || {};
   const ehMidia = !!mediaUrl;
   if (!phone || (!ehMidia && !text)) {
     res.status(400).json({ error: 'Faltou telefone ou texto da mensagem.' });
     return;
   }
   if (ehMidia) {
-    // So aceita arquivo que o proprio CRM subiu pro Storage (bucket whatsapp-media, pasta enviados/): sem isso
-    // este endpoint viraria um "manda qualquer URL da internet pelo numero conectado".
-    const prefixoPermitido = `${SUPABASE_URL}/storage/v1/object/public/whatsapp-media/enviados/`;
-    if (typeof mediaUrl !== 'string' || !mediaUrl.startsWith(prefixoPermitido)) {
+    // Aceita arquivos do bucket whatsapp-media (enviados/ ou stickers/) ou sticker com URL válida
+    const prefixoPermitido = `${SUPABASE_URL}/storage/v1/object/public/whatsapp-media/`;
+    const ehStickerUrlValida = mediaType === 'sticker' && typeof mediaUrl === 'string' && (mediaUrl.startsWith(prefixoPermitido) || mediaUrl.startsWith('http') || mediaUrl.startsWith('data:image'));
+    if (!ehStickerUrlValida && (typeof mediaUrl !== 'string' || !mediaUrl.startsWith(prefixoPermitido))) {
       res.status(400).json({ error: 'Arquivo inválido: só é possível enviar arquivos enviados pelo próprio CRM.' });
       return;
     }
-    if (mediaType !== 'image' && mediaType !== 'document') {
-      res.status(400).json({ error: 'Tipo de arquivo não suportado: só foto (image) ou documento (document).' });
+    if (mediaType !== 'image' && mediaType !== 'document' && mediaType !== 'sticker') {
+      res.status(400).json({ error: 'Tipo de arquivo não suportado: só foto (image), documento (document) ou figurinha (sticker).' });
       return;
     }
   }
@@ -143,30 +153,48 @@ export default async function handler(req, res) {
   const numero = normalizarTelefoneBR(phone.replace(/\D/g, ''));
 
   try {
-    // Texto: sendText. Foto/documento: sendMedia (Evolution v2) -- ela mesma baixa o arquivo da URL do Storage.
-    // `text`, no caso de midia, e a legenda (opcional).
+    // Texto: sendText. Figurinha: sendSticker. Foto/documento: sendMedia (Evolution v2)
     const nomeArquivo = (typeof fileName === 'string' && fileName.trim()) ? fileName.trim().slice(0, 200) : undefined;
-    const r = ehMidia
-      ? await fetch(`${EVOLUTION_API_URL}/message/sendMedia/${INSTANCE_NAME}`, {
-          method: 'POST',
-          headers: { apikey: EVOLUTION_API_KEY, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            number: numero,
-            mediatype: mediaType,
-            mimetype: (typeof mimeType === 'string' && mimeType) ? mimeType : (mediaType === 'image' ? 'image/jpeg' : 'application/octet-stream'),
-            caption: text || '',
-            media: mediaUrl,
-            fileName: nomeArquivo || (mediaType === 'image' ? 'foto.jpg' : 'documento'),
-          }),
-        })
-      : await fetch(`${EVOLUTION_API_URL}/message/sendText/${INSTANCE_NAME}`, {
-          method: 'POST',
-          headers: { apikey: EVOLUTION_API_KEY, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            number: numero,
-            text,
-          }),
-        });
+    const quotedPayload = quotedMessageId ? {
+      key: { id: quotedMessageId },
+      message: { conversation: quotedText || text || '' },
+    } : undefined;
+
+    let r;
+    if (mediaType === 'sticker') {
+      r = await fetch(`${EVOLUTION_API_URL}/message/sendSticker/${INSTANCE_NAME}`, {
+        method: 'POST',
+        headers: { apikey: EVOLUTION_API_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          number: numero,
+          sticker: mediaUrl,
+        }),
+      });
+    } else if (ehMidia) {
+      r = await fetch(`${EVOLUTION_API_URL}/message/sendMedia/${INSTANCE_NAME}`, {
+        method: 'POST',
+        headers: { apikey: EVOLUTION_API_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          number: numero,
+          mediatype: mediaType,
+          mimetype: (typeof mimeType === 'string' && mimeType) ? mimeType : (mediaType === 'image' ? 'image/jpeg' : 'application/octet-stream'),
+          caption: text || '',
+          media: mediaUrl,
+          fileName: nomeArquivo || (mediaType === 'image' ? 'foto.jpg' : 'documento'),
+          ...(quotedPayload ? { quoted: quotedPayload } : {}),
+        }),
+      });
+    } else {
+      r = await fetch(`${EVOLUTION_API_URL}/message/sendText/${INSTANCE_NAME}`, {
+        method: 'POST',
+        headers: { apikey: EVOLUTION_API_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          number: numero,
+          text,
+          ...(quotedPayload ? { quoted: quotedPayload } : {}),
+        }),
+      });
+    }
 
     if (!r.ok) {
       const errBody = await r.text();
@@ -196,11 +224,14 @@ export default async function handler(req, res) {
     // Com await: no serverless, o que ficar pendente depois da resposta pode ser cortado.
     const quandoEnviada = horarioMensagem || new Date().toISOString();
     // Sem legenda, a mensagem de midia mostra um rotulo no lugar do texto (mesma ideia do "🎵 Áudio").
-    const textoDaMensagem = text || (ehMidia ? (mediaType === 'image' ? '📷 Foto' : (nomeArquivo || 'Documento')) : text);
+    const textoDaMensagem = text || (ehMidia ? (mediaType === 'image' ? '📷 Foto' : mediaType === 'sticker' ? '🌟 Figurinha' : (nomeArquivo || 'Documento')) : text);
     const midia = ehMidia ? { tipo: mediaType, url: mediaUrl, fileName: nomeArquivo, mimeType } : null;
     // Os dois gravam em tabelas diferentes e nao dependem um do outro: rodam juntos (antes, em fila).
     const [salva] = await Promise.all([
-      SEM_CRM_MESSAGES ? Promise.resolve(true) : registrarMensagemEnviada({ phone, text: textoDaMensagem, senderName, leadId, whatsappMessageId: idMensagem, createdAt: quandoEnviada, media: midia }),
+      SEM_CRM_MESSAGES ? Promise.resolve(true) : registrarMensagemEnviada({
+        phone, text: textoDaMensagem, senderName, leadId, whatsappMessageId: idMensagem, createdAt: quandoEnviada, media: midia,
+        quotedMessageId, quotedText, quotedSender,
+      }),
       atualizarLeadMensagemEnviada(Array.from(new Set([phone, numero])), textoDaMensagem, quandoEnviada),
     ]);
 

@@ -99,3 +99,47 @@ export function extrairInfoMidia(msg, appBaseUrl) {
   const mediaUrl = `/api/whatsapp-media?messageId=${encodeURIComponent(messageId)}`;
   return { mediaUrl, fileName, contentType: midia.tipo };
 }
+
+// Extrai informações de citação / resposta (quando o cliente ou atendente marca uma mensagem anterior no WhatsApp).
+// Baileys / Evolution API coloca isso em `contextInfo`:
+//  - stanzaId: id da mensagem original citada
+//  - participant: remetente da mensagem citada (número@s.whatsapp.net)
+//  - quotedMessage: conteúdo original da mensagem citada
+export function extrairContextoCitacao(message, profundidade = 0) {
+  if (!message || profundidade > 4) return null;
+
+  const ctx =
+    message.extendedTextMessage?.contextInfo ||
+    message.imageMessage?.contextInfo ||
+    message.videoMessage?.contextInfo ||
+    message.documentMessage?.contextInfo ||
+    message.documentWithCaptionMessage?.message?.documentMessage?.contextInfo ||
+    message.audioMessage?.contextInfo ||
+    message.stickerMessage?.contextInfo ||
+    message.buttonsResponseMessage?.contextInfo ||
+    message.listResponseMessage?.contextInfo ||
+    message.templateButtonReplyMessage?.contextInfo;
+
+  if (ctx && (ctx.quotedMessage || ctx.stanzaId)) {
+    const quotedText = ctx.quotedMessage ? extrairTextoMensagem(ctx.quotedMessage) : '';
+    const quotedMessageId = ctx.stanzaId || null;
+    const participantRaw = String(ctx.participant || '').replace(/@.*$/, '').replace(/\D/g, '');
+    return {
+      quotedMessageId,
+      quotedText: quotedText || null,
+      quotedSender: participantRaw || null,
+    };
+  }
+
+  // Se estiver embrulhado em mensagem efêmera ou viewOnce
+  const embrulho =
+    message.ephemeralMessage?.message ||
+    message.viewOnceMessage?.message ||
+    message.viewOnceMessageV2?.message ||
+    message.viewOnceMessageV2Extension?.message ||
+    message.documentWithCaptionMessage?.message;
+  if (embrulho) return extrairContextoCitacao(embrulho, profundidade + 1);
+
+  return null;
+}
+
