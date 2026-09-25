@@ -636,7 +636,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
             sistema, só que um tom levemente mais escuro (slate-50 em vez de
             branco puro) pra dar mais "corpo" profissional, fixo em qualquer
             tema */}
-        <div className="relative bg-slate-50 border border-slate-200 rounded-none lg:rounded-[28px] flex flex-col shadow-2xl overflow-hidden h-full lg:h-auto max-h-full lg:max-h-[calc(100vh-3rem)]">
+        <div className="relative bg-slate-50 border border-slate-200 rounded-none lg:rounded-[28px] flex flex-col shadow-2xl overflow-hidden h-full lg:h-[calc(100vh-3rem)]">
           {/* Header */}
           <div className="p-4 pt-[calc(env(safe-area-inset-top,0px)+1rem)] lg:p-6 border-b border-slate-200 bg-white space-y-4 flex-shrink-0">
             <div className="flex justify-between items-center">
