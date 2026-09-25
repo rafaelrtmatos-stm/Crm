@@ -10,7 +10,8 @@ import {
   Loader2,
   Sparkles,
   Settings,
-  Layers
+  Layers,
+  Trash2
 } from 'lucide-react';
 import { 
   carregarColecoes, 
@@ -20,11 +21,13 @@ import {
   registrarUso, 
   subscribeToStickersData,
   verificarAdmin,
+  excluirFigurinha,
   type StickerItem, 
   type StickerCollection 
 } from '../lib/stickersStorage';
 import type { AppUser } from '../types';
 import { cn } from './SharedUI';
+import { showAlert, showConfirm } from '../lib/notify';
 
 interface ChatStickerPickerProps {
   isOpen: boolean;
@@ -213,6 +216,26 @@ export const ChatStickerPicker: React.FC<ChatStickerPickerProps> = ({
     if (isSending) return;
     registrarUso(stk, user);
     onSelectSticker(stk);
+  };
+
+  const handleDeleteStickerClick = async (e: React.MouseEvent, stk: StickerItem) => {
+    e.stopPropagation();
+    if (!isAdmin) {
+      showAlert('Apenas administradores podem excluir figurinhas.');
+      return;
+    }
+    if (!(await showConfirm(`Deseja remover a figurinha "${stk.name || 'Figurinha'}" da biblioteca oficial?`))) {
+      return;
+    }
+
+    try {
+      setAllStickers(prev => prev.filter(s => s.id !== stk.id && (!stk.url || s.url !== stk.url)));
+      setHistoryStickers(prev => prev.filter(s => s.id !== stk.id && (!stk.url || s.url !== stk.url)));
+      await excluirFigurinha(stk.id, user, stk.url);
+      showAlert('Figurinha excluída com sucesso.');
+    } catch (err: any) {
+      showAlert(err?.message || 'Erro ao excluir figurinha.');
+    }
   };
 
   const colecaoAtivaObj = collections.find(c => c.id === activeTab);
@@ -487,6 +510,18 @@ export const ChatStickerPicker: React.FC<ChatStickerPickerProps> = ({
                   >
                     <Star size={11} className={isFav ? "fill-amber-400 text-amber-400" : ""} />
                   </button>
+
+                  {/* Botão de Excluir no Hover (Apenas Admin) */}
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={(e) => handleDeleteStickerClick(e, stk)}
+                      title="Excluir figurinha"
+                      className="absolute top-1 right-1 p-1 rounded-lg bg-slate-950/80 text-white/50 hover:text-rose-400 hover:bg-rose-500/20 backdrop-blur-md transition-all z-10 opacity-0 group-hover:opacity-100 cursor-pointer shadow-sm active:scale-95"
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  )}
 
                   {/* Nome da Figurinha sutil ao passar o mouse */}
                   {stk.name && (

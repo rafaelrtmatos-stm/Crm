@@ -311,8 +311,9 @@ export const FigurinhasManager: React.FC<FigurinhasManagerProps> = ({ user, curr
     if (!(await showConfirm(`Deseja remover a figurinha "${stk.name}" da biblioteca oficial?`))) return;
 
     try {
-      await excluirFigurinha(stk.id, user);
-      showAlert('Figurinha excluída.');
+      setStickers(prev => prev.filter(s => s.id !== stk.id && (!stk.url || s.url !== stk.url)));
+      await excluirFigurinha(stk.id, user, stk.url);
+      showAlert('Figurinha excluída com sucesso.');
       await carregarDados();
     } catch (err: any) {
       showAlert(err?.message || 'Erro ao excluir figurinha.');

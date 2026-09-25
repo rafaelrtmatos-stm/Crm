@@ -57,6 +57,57 @@ const LOCAL_STORAGE_COLLECTIONS_KEY = 'rpro_whatsapp_sticker_collections_v2';
 const LOCAL_STORAGE_STICKERS_KEY = 'rpro_whatsapp_stickers_v2';
 const LOCAL_STORAGE_FAVORITES_KEY = 'rpro_whatsapp_stickers_favs_v2';
 const LOCAL_STORAGE_HISTORY_KEY = 'rpro_whatsapp_stickers_hist_v2';
+const LOCAL_STORAGE_DELETED_STICKERS_KEY = 'rpro_whatsapp_stickers_deleted_v2';
+
+export function obterFigurinhasExcluidas(): Set<string> {
+  const set = new Set<string>();
+  try {
+    const salvo = localStorage.getItem(LOCAL_STORAGE_DELETED_STICKERS_KEY);
+    if (salvo) {
+      const arr = JSON.parse(salvo);
+      if (Array.isArray(arr)) {
+        arr.forEach(item => {
+          if (typeof item === 'string' && item) set.add(item);
+        });
+      }
+    }
+  } catch {}
+  return set;
+}
+
+export function marcarFigurinhaComoExcluida(id: string, url?: string): void {
+  const set = obterFigurinhasExcluidas();
+  if (id) set.add(id);
+  if (url) set.add(url);
+  try {
+    localStorage.setItem(LOCAL_STORAGE_DELETED_STICKERS_KEY, JSON.stringify(Array.from(set)));
+  } catch {}
+
+  // Sincroniza lista de excluídos no Firestore para que outros computadores também saibam
+  try {
+    setDoc(doc(db, 'whatsapp_stickers_meta', 'deleted_records'), {
+      deleted_ids: Array.from(set),
+      updated_at: new Date().toISOString(),
+    }, { merge: true }).catch(() => {});
+  } catch {}
+}
+
+export async function sincronizarExcluidosDoBanco(): Promise<Set<string>> {
+  const set = obterFigurinhasExcluidas();
+  try {
+    const snap = await getDoc(doc(db, 'whatsapp_stickers_meta', 'deleted_records'));
+    if (snap.exists()) {
+      const data = snap.data();
+      if (Array.isArray(data?.deleted_ids)) {
+        data.deleted_ids.forEach(item => {
+          if (typeof item === 'string' && item) set.add(item);
+        });
+        localStorage.setItem(LOCAL_STORAGE_DELETED_STICKERS_KEY, JSON.stringify(Array.from(set)));
+      }
+    }
+  } catch {}
+  return set;
+}
 
 // Coleções iniciais padrão compartilhadas caso o banco ainda esteja vazio
 export const DEFAULT_COLLECTIONS: StickerCollection[] = [
@@ -181,14 +232,17 @@ export function carregarColecoesDoCache(): StickerCollection[] {
 }
 
 export function carregarFigurinhasDoCache(): StickerItem[] {
+  const excluidos = obterFigurinhasExcluidas();
   try {
     const saved = localStorage.getItem(LOCAL_STORAGE_STICKERS_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.filter(s => !excluidos.has(s.id) && !excluidos.has(s.url));
+      }
     }
   } catch {}
-  return DEFAULT_STICKERS;
+  return DEFAULT_STICKERS.filter(s => !excluidos.has(s.id) && !excluidos.has(s.url));
 }
 
 /**
@@ -228,18 +282,25 @@ export function subscribeToStickersData(callback: (data: { collections: StickerC
   });
 
   const unsubStk = onSnapshot(qStk, (snap) => {
+    const excluidos = obterFigurinhasExcluidas();
     if (!snap.empty) {
       const items = snap.docs.map(d => ({ id: d.id, ...d.data() } as StickerItem));
       items.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-      // Mescla com figurinhas em cache para nunca perder as recém-salvas
+      // Mescla com figurinhas em cache para nunca perder as recém-salvas, ignorando excluídas
       const mapa = new Map<string, StickerItem>();
-      DEFAULT_STICKERS.forEach(s => mapa.set(s.id, s));
-      carregarFigurinhasDoCache().forEach(s => mapa.set(s.id, s));
-      items.forEach(s => mapa.set(s.id, s));
+      DEFAULT_STICKERS.forEach(s => {
+        if (!excluidos.has(s.id) && !excluidos.has(s.url)) mapa.set(s.id, s);
+      });
+      carregarFigurinhasDoCache().forEach(s => {
+        if (!excluidos.has(s.id) && !excluidos.has(s.url)) mapa.set(s.id, s);
+      });
+      items.forEach(s => {
+        if (!excluidos.has(s.id) && !excluidos.has(s.url)) mapa.set(s.id, s);
+      });
       stickersState = Array.from(mapa.values()).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     } else {
       const emCache = carregarFigurinhasDoCache();
-      stickersState = emCache.length > 0 ? emCache : DEFAULT_STICKERS;
+      stickersState = emCache.length > 0 ? emCache : DEFAULT_STICKERS.filter(s => !excluidos.has(s.id) && !excluidos.has(s.url));
     }
     // Salva em cache local
     try {
@@ -494,26 +555,39 @@ export async function reordenarColecoes(novasColecoes: StickerCollection[], user
  */
 export async function carregarFigurinhas(user?: AppUser | null): Promise<StickerItem[]> {
   const mapa = new Map<string, StickerItem>();
+  const excluidos = await sincronizarExcluidosDoBanco();
 
-  // 1. Inicia com as figurinhas padrão e cache local para resposta instantânea
-  DEFAULT_STICKERS.forEach(s => mapa.set(s.id, s));
+  // 1. Inicia com as figurinhas padrão (exceto as excluídas)
+  DEFAULT_STICKERS.forEach(s => {
+    if (!excluidos.has(s.id) && !excluidos.has(s.url)) {
+      mapa.set(s.id, s);
+    }
+  });
+
+  // 2. Cache local (exceto excluídas)
   const emCache = carregarFigurinhasDoCache();
-  emCache.forEach(s => mapa.set(s.id, s));
+  emCache.forEach(s => {
+    if (!excluidos.has(s.id) && !excluidos.has(s.url)) {
+      mapa.set(s.id, s);
+    }
+  });
 
-  // 2. Busca do Firestore (centralizado)
+  // 3. Busca do Firestore (centralizado)
   try {
     const snap = await getDocs(collection(db, 'whatsapp_stickers'));
     if (!snap.empty) {
       snap.docs.forEach(d => {
         const item = { id: d.id, ...d.data() } as StickerItem;
-        mapa.set(item.id, item);
+        if (!excluidos.has(item.id) && !excluidos.has(item.url)) {
+          mapa.set(item.id, item);
+        }
       });
     }
   } catch (err) {
     console.warn('Figurinhas: falha no Firestore, tentando Supabase/cache:', err);
   }
 
-  // 3. Busca do Supabase
+  // 4. Busca do Supabase
   try {
     const { data } = await supabase
       .from('whatsapp_stickers')
@@ -521,7 +595,7 @@ export async function carregarFigurinhas(user?: AppUser | null): Promise<Sticker
       .order('created_at', { ascending: false });
     if (Array.isArray(data) && data.length > 0) {
       data.forEach((d: any) => {
-        mapa.set(d.id, {
+        const item: StickerItem = {
           id: d.id,
           name: d.name || 'Figurinha',
           url: d.url,
@@ -532,14 +606,17 @@ export async function carregarFigurinhas(user?: AppUser | null): Promise<Sticker
           created_by: d.created_by,
           created_by_name: d.created_by_name,
           order: d.display_order ?? 0,
-        });
+        };
+        if (!excluidos.has(item.id) && !excluidos.has(item.url)) {
+          mapa.set(item.id, item);
+        }
       });
     }
   } catch {}
 
   let list = Array.from(mapa.values()).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
-  // 4. Marca os favoritos do usuário conectado
+  // 5. Marca os favoritos do usuário conectado
   const favoritosIds = await carregarFavoritos(user);
   const setFavs = new Set(favoritosIds);
   list = list.map(item => ({
@@ -690,28 +767,68 @@ export async function atualizarFigurinha(
 /**
  * Remove uma figurinha da biblioteca (Apenas Administrador)
  */
-export async function excluirFigurinha(id: string, user?: AppUser | null): Promise<boolean> {
+export async function excluirFigurinha(id: string, user?: AppUser | null, url?: string): Promise<boolean> {
   if (!verificarAdmin(user)) {
     throw new Error('Apenas administradores podem excluir figurinhas da biblioteca.');
   }
 
-  // 1. Remove do Firestore
+  // 1. Marca imediatamente como excluída de forma persistente (impede que reapareça)
+  marcarFigurinhaComoExcluida(id, url);
+
+  // 2. Remove do Firestore por ID
   try {
     await deleteDoc(doc(db, 'whatsapp_stickers', id));
   } catch (err) {
-    console.error('Erro ao excluir figurinha do Firestore:', err);
+    console.warn('Erro ao excluir figurinha do Firestore por id:', err);
   }
 
-  // 2. Remove do Supabase
+  // Se tiver URL, também remove qualquer documento com a mesma URL no Firestore
+  if (url) {
+    try {
+      const qUrl = query(collection(db, 'whatsapp_stickers'), where('url', '==', url));
+      const snapUrl = await getDocs(qUrl);
+      for (const d of snapUrl.docs) {
+        await deleteDoc(d.ref).catch(() => {});
+      }
+    } catch {}
+  }
+
+  // 3. Remove do Supabase
   try {
     await supabase.from('whatsapp_stickers').delete().eq('id', id);
+    if (url) {
+      await supabase.from('whatsapp_stickers').delete().eq('url', url);
+    }
   } catch {}
 
-  // 3. Atualiza cache local
+  // 4. Atualiza cache local sem ressuscitar
   try {
-    const atuais = await carregarFigurinhas(user);
-    const atualizados = atuais.filter(s => s.id !== id);
-    localStorage.setItem(LOCAL_STORAGE_STICKERS_KEY, JSON.stringify(atualizados));
+    const salvos = carregarFigurinhasDoCache();
+    const filtrados = salvos.filter(s => s.id !== id && (!url || s.url !== url));
+    localStorage.setItem(LOCAL_STORAGE_STICKERS_KEY, JSON.stringify(filtrados));
+  } catch {}
+
+  // 5. Remove dos favoritos e do histórico do usuário local
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (key.startsWith(LOCAL_STORAGE_FAVORITES_KEY) || key.startsWith(LOCAL_STORAGE_HISTORY_KEY))) {
+        const val = localStorage.getItem(key);
+        if (val) {
+          try {
+            const parsed = JSON.parse(val);
+            if (Array.isArray(parsed)) {
+              const semStk = parsed.filter((item: any) => {
+                if (typeof item === 'string') return item !== id && (!url || item !== url);
+                if (item && typeof item === 'object') return item.id !== id && (!url || item.url !== url);
+                return true;
+              });
+              localStorage.setItem(key, JSON.stringify(semStk));
+            }
+          } catch {}
+        }
+      }
+    }
   } catch {}
 
   notificarAtualizacao();
