@@ -14,6 +14,14 @@ import {
   ChatDropZoneOverlay, 
   CustomerContextSidebar 
 } from './ChatDesktopEnhancements';
+import { ChatStickerPicker } from './ChatStickerPicker';
+import { 
+  carregarFigurinhas, 
+  favoritarFigurinhaDaConversa, 
+  registrarUsoFigurinha, 
+  isFigurinhaFavorita, 
+  type StickerItem 
+} from '../lib/stickersStorage';
 import { 
   TrendingUp, 
   LayoutGrid,
@@ -71,6 +79,7 @@ import {
   ChevronRight,
   ChevronLeft,
   Mic,
+  Smile,
   Image as ImageIcon,
   Video,
   File,
@@ -3903,6 +3912,70 @@ export const ChatPanel = ({
     }, 50);
   };
 
+  // 4. Figurinhas do WhatsApp (Favoritas, Histórico de uso, Coleção do sistema)
+  const [showStickerPicker, setShowStickerPicker] = useState(false);
+  const [enviandoSticker, setEnviandoSticker] = useState(false);
+  const [stickersList, setStickersList] = useState<StickerItem[]>([]);
+
+  useEffect(() => {
+    carregarFigurinhas().then(setStickersList);
+    const handleUpdate = () => {
+      carregarFigurinhas().then(setStickersList);
+    };
+    window.addEventListener('whatsapp-stickers-updated', handleUpdate);
+    return () => window.removeEventListener('whatsapp-stickers-updated', handleUpdate);
+  }, []);
+
+  const isStickerSalva = (url: string) => {
+    if (!url) return false;
+    return isFigurinhaFavorita(url, stickersList);
+  };
+
+  const handleSaveStickerFromMessage = async (msg: any) => {
+    if (!msg?.mediaUrl) return;
+    try {
+      await favoritarFigurinhaDaConversa({
+        url: msg.mediaUrl,
+        senderName: msg.senderName || conversation?.name || 'cliente',
+      });
+      showAlert('⭐ Figurinha salva nas Favoritas com sucesso!');
+      carregarFigurinhas().then(setStickersList);
+    } catch {
+      showAlert('Erro ao salvar figurinha.');
+    }
+  };
+
+  const handleSendSticker = async (sticker: StickerItem) => {
+    if (!conversation || !currentCompany || enviandoSticker) return;
+    setEnviandoSticker(true);
+    try {
+      const senderDisplay = user?.name || user?.email || 'Atendente';
+      const resp = await fetch('/api/whatsapp-send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
+        body: JSON.stringify({
+          phone: conversation.phone,
+          mediaUrl: sticker.url,
+          mediaType: 'sticker',
+          senderName: senderDisplay,
+          leadId: conversation.id || null,
+        }),
+      });
+      const respData = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        showAlert(`Não foi possível enviar a figurinha: ${respData.error || 'erro desconhecido'}`);
+        return;
+      }
+      registrarUsoFigurinha(sticker);
+      setShowStickerPicker(false);
+    } catch (err) {
+      console.error('Falha ao enviar figurinha:', err);
+      showAlert('Não foi possível enviar a figurinha. Verifique se o WhatsApp está conectado.');
+    } finally {
+      setEnviandoSticker(false);
+    }
+  };
+
   const [newNoteText, setNewNoteText] = useState('');
   const [isSavingNote, setIsSavingNote] = useState(false);
   const noteInputRef = useRef<HTMLTextAreaElement>(null);
@@ -5564,7 +5637,7 @@ export const ChatPanel = ({
                       <div className="px-4 pb-4">
                       <div key={m.id || idx} data-message-id={m.id} className={cn("flex", isOutgoing ? "justify-end" : "justify-start")}>
                         <div className={cn("group space-y-1 relative", isOutgoing ? "text-right" : "")}>
-                           {/* Ações flutuantes no hover (Copiar, Citar, Editar, Apagar) */}
+                           {/* Ações flutuantes no hover (Copiar, Citar, Editar, Apagar, Salvar Figurinha) */}
                            <MessageHoverActions
                              text={m.text}
                              transcriptionText={m.transcription?.text}
@@ -5575,6 +5648,9 @@ export const ChatPanel = ({
                              onEdit={() => handleStartEditWaMessage(m)}
                              onDelete={() => handleDeleteWaMessage(m)}
                              onQuote={() => handleQuoteMessage(m)}
+                             isSticker={isSticker}
+                             isStickerSaved={isStickerSalva(m.mediaUrl)}
+                             onSaveSticker={() => handleSaveStickerFromMessage(m)}
                              isDeleting={deletingWaMessageId === m.id}
                            />
                            <div
@@ -5650,7 +5726,25 @@ export const ChatPanel = ({
                                   </div>
                                 </div>
                               ) : isSticker ? (
-                                <img src={m.mediaUrl} alt="Figurinha" className="w-32 h-32 object-contain" loading="lazy" />
+                                <div className="relative group/stk p-1">
+                                  <img src={m.mediaUrl} alt="Figurinha" className="w-32 h-32 object-contain" loading="lazy" />
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); handleSaveStickerFromMessage(m); }}
+                                    title={isStickerSalva(m.mediaUrl) ? "Figurinha salva nas Favoritas" : "Salvar figurinha nas Favoritas"}
+                                    className={cn(
+                                      "absolute bottom-1 right-1 p-1 rounded-lg backdrop-blur-md transition-all shadow-md cursor-pointer flex items-center gap-1",
+                                      isStickerSalva(m.mediaUrl)
+                                        ? "bg-slate-900/90 text-amber-400 border border-amber-400/40 text-[10px]"
+                                        : "bg-slate-900/80 hover:bg-slate-900 text-white/70 hover:text-amber-400 border border-white/10 text-[10px] opacity-0 group-hover/stk:opacity-100"
+                                    )}
+                                  >
+                                    <Star size={11} className={isStickerSalva(m.mediaUrl) ? "fill-amber-400" : ""} />
+                                    <span className="text-[9px] font-bold pr-0.5">
+                                      {isStickerSalva(m.mediaUrl) ? "Salva" : "Salvar"}
+                                    </span>
+                                  </button>
+                                </div>
                               ) : isImage ? (
                                 <div className="space-y-1.5 min-w-[160px]">
                                    <a href={m.mediaUrl} target="_blank" rel="noopener noreferrer" className="block overflow-hidden rounded-xl">

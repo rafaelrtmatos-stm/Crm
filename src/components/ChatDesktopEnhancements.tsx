@@ -6,6 +6,7 @@ import {
   Check, 
   Quote, 
   Reply,
+  Star,
   Pencil, 
   Trash2, 
   Search, 
@@ -271,6 +272,9 @@ export const MessageHoverActions = ({
   onEdit,
   onDelete,
   onQuote,
+  onSaveSticker,
+  isSticker = false,
+  isStickerSaved = false,
   isDeleting = false,
 }: {
   text?: string;
@@ -282,6 +286,9 @@ export const MessageHoverActions = ({
   onEdit?: () => void;
   onDelete?: () => void;
   onQuote?: (quoteText: string) => void;
+  onSaveSticker?: () => void;
+  isSticker?: boolean;
+  isStickerSaved?: boolean;
   isDeleting?: boolean;
 }) => {
   const [copied, setCopied] = useState(false);
@@ -307,13 +314,30 @@ export const MessageHoverActions = ({
     }
   };
 
-  if (!effectiveText && !canEditOrDelete && !onQuote) return null;
+  if (!effectiveText && !canEditOrDelete && !onQuote && !onSaveSticker) return null;
 
   return (
     <div className={cn(
       "absolute -top-3.5 z-20 opacity-70 sm:opacity-0 sm:group-hover:opacity-100 group-hover:opacity-100 transition-all duration-150 flex items-center gap-0.5 p-0.5 rounded-full bg-slate-900/90 border border-white/15 backdrop-blur-md shadow-lg",
       isOutgoing ? "right-2" : "left-2"
     )}>
+      {/* Botão de Salvar Figurinha nos Favoritos */}
+      {isSticker && onSaveSticker && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onSaveSticker(); }}
+          title={isStickerSaved ? "Figurinha salva nas Favoritas" : "Salvar figurinha nas Favoritas"}
+          className={cn(
+            "w-7 h-7 sm:w-6 sm:h-6 rounded-full flex items-center justify-center transition-colors cursor-pointer",
+            isStickerSaved
+              ? "text-amber-400 bg-amber-400/20"
+              : "text-white/70 hover:text-amber-400 hover:bg-white/10 active:bg-white/20"
+          )}
+        >
+          <Star size={11} className={isStickerSaved ? "fill-amber-400" : ""} />
+        </button>
+      )}
+
       {effectiveText && (
         <button
           type="button"
