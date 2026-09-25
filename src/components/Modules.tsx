@@ -3514,8 +3514,9 @@ export const ChatPanel = ({
         whatsapp_name: nameFieldsDraft.whatsappName.trim(),
         contact_name: nameFieldsDraft.contactName.trim(),
         full_name: fullNameFinal,
-        updated_at: new Date().toISOString(),
       };
+      // Não altera updated_at: editar o nome não é um novo evento/mensagem
+      // e não deve fazer o card subir indevidamente pro topo do funil nem da lista.
       const { error } = await supabase.from('leads').update(patch).eq('id', conversation.id);
       if (error) throw error;
       // Atualiza a lista do componente pai (leads/selectedLead/selectedChat) na hora --
@@ -3543,7 +3544,9 @@ export const ChatPanel = ({
   useEffect(() => {
     setPhoneDraft(conversation?.phone || '');
   }, [conversation?.id]);
+
   const phoneMudou = conversation && phoneDraft.replace(/\D/g, '') !== (conversation.phone || '').replace(/\D/g, '');
+
   const handleSavePhone = async () => {
     if (!conversation?.id) return;
     const novoPhone = phoneDraft.replace(/\D/g, '');
@@ -3551,7 +3554,7 @@ export const ChatPanel = ({
     const phoneAntigo = conversation.phone || '';
     setIsSavingPhone(true);
     try {
-      const { error } = await supabase.from('leads').update({ phone: novoPhone, updated_at: new Date().toISOString() }).eq('id', conversation.id);
+      const { error } = await supabase.from('leads').update({ phone: novoPhone }).eq('id', conversation.id);
       if (error) throw error;
       // Reata o historico de mensagens ao novo telefone -- sem isso o chat some da tela
       // (loadMessages filtra por phone=eq.<novo>, mas as linhas antigas ainda tem o telefone velho).
@@ -5677,7 +5680,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
       setSelectedFunnelId(prev => prev || (funnelData.length > 0 ? funnelData[0].id : prev));
     };
     const loadLeads = async () => {
-      const { data } = await supabase.from('leads').select('*').eq('company_id', 'rafa-arts').order('updated_at', { ascending: false });
+      const { data } = await supabase.from('leads').select('*').eq('company_id', 'rafa-arts').order('last_message_at', { ascending: false, nullsFirst: false }).order('created_at', { ascending: false });
       setLeads((data || []).map(mapLeadRow));
     };
     loadFunnels();
@@ -5784,9 +5787,10 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
   const currentFunnel = funnels.find(f => f.id === selectedFunnelId);
   const [funnelMenuOpen, setFunnelMenuOpen] = useState(false);
 
-  // Ordenacao dos cards do Kanban (vale pra todas as colunas). Sem escolha salva, mantem o
-  // comportamento de antes: ultimo evento (updated_at) primeiro. A escolha fica salva no
-  // navegador pra nao precisar reescolher toda vez que abre o Funil.
+  // Ordenacao dos cards do Kanban (vale pra todas as colunas). O padrão é pela última mensagem real
+  // recebida/enviada (ou data de criação caso ainda não haja mensagens).
+  // NUNCA usa updatedAt como critério principal, para evitar que editar o nome de um contato ou
+  // alterar notas cadastrais faça o card subir para o topo do funil.
   const [leadSort, setLeadSort] = useState<{ key: LeadSortKey; dir: 'asc' | 'desc' }>(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(LEAD_SORT_STORAGE_KEY) || 'null');
@@ -5794,7 +5798,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
         return { key: saved.key, dir: saved.dir };
       }
     } catch { /* localStorage indisponivel ou valor corrompido: usa o padrao */ }
-    return { key: 'ultimo_evento', dir: 'desc' };
+    return { key: 'ultima_mensagem', dir: 'desc' };
   });
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
 
@@ -5825,16 +5829,20 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
 
   const sortedLeads = useMemo(() => {
     const ms = (v: any) => parseMsgDate(v)?.getTime() ?? 0;
-    // "Pela última mensagem": se a última foi do cliente, usa o horário dela; se foi o
-    // atendente que mandou, o lead grava updated_at no envio, então usa ele.
+    // Horário representativo da mensagem (recebida ou enviada). Se não houver mensagem ainda,
+    // cai na data de criação do lead (NUNCA em updatedAt, para que editar nomes ou dados não
+    // faça a conversa subir pro topo das colunas do funil).
+    const horMensagem = (l: Lead) => ms(l.lastMessageAt) || ms(l.lastClientMessageAt) || ms(l.createdAt);
     const chave = (l: Lead): number | string => {
       switch (leadSort.key) {
         case 'ultima_mensagem':
-          return l.lastMessageDirection === 'outgoing' ? ms(l.updatedAt) : (ms(l.lastClientMessageAt) || ms(l.updatedAt));
+          return horMensagem(l);
+        case 'ultimo_evento':
+          return horMensagem(l);
         case 'criacao': return ms(l.createdAt);
         case 'nome': return (l.fullName || '').toLocaleLowerCase('pt-BR');
         case 'venda': return l.estimatedValue ?? 0;
-        default: return ms(l.updatedAt);
+        default: return horMensagem(l);
       }
     };
     const sinal = leadSort.dir === 'asc' ? 1 : -1;
@@ -5843,8 +5851,8 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
       const cmp = typeof ka === 'string' && typeof kb === 'string'
         ? ka.localeCompare(kb, 'pt-BR')
         : (ka as number) - (kb as number);
-      // Empate: o mais recentemente atualizado primeiro
-      return cmp !== 0 ? cmp * sinal : ms(b.updatedAt) - ms(a.updatedAt);
+      // Desempate estável por data de criação (nunca por updatedAt)
+      return cmp !== 0 ? cmp * sinal : ms(b.createdAt) - ms(a.createdAt);
     });
   }, [leads, leadSort]);
 
@@ -7180,7 +7188,7 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
   useEffect(() => {
     if (!currentCompany) return;
     const loadLeads = async () => {
-      const { data } = await supabase.from('leads').select('*').eq('company_id', 'rafa-arts').order('updated_at', { ascending: false });
+      const { data } = await supabase.from('leads').select('*').eq('company_id', 'rafa-arts').order('last_message_at', { ascending: false, nullsFirst: false }).order('created_at', { ascending: false });
       const fetchedLeads = (data || []).map(mapLeadRow);
       setLeads(fetchedLeads);
 
@@ -7237,11 +7245,11 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
   // a ele (Grupos do WhatsApp). Enquanto a lista de grupos nao carregou, some qualquer conversa com cara de
   // grupo (mais de 15 digitos, maior que um telefone): melhor esconder do que vazar.
   useEffect(() => {
-    let vivo = true;
-    const carregar = () => carregarInfoGrupos(user).then(info => { if (vivo && info) setInfoGrupos(info); }).catch(() => {});
+    let ativo = true;
+    const carregar = () => carregarInfoGrupos(user).then(info => { if (ativo && info) setInfoGrupos(info); }).catch(() => {});
     carregar();
     const timer = setInterval(carregar, 60000);
-    return () => { vivo = false; clearInterval(timer); };
+    return () => { ativo = false; clearInterval(timer); };
   }, [user?.id, user?.isAdmin]);
   const conversaVisivel = (l: Lead): boolean => {
     const d = digitosDoGrupo(l.phone);
@@ -7263,6 +7271,12 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
         return !!l.waitingSince;
       }
       return true;
+    })
+    .sort((a, b) => {
+      const ms = (v: any) => parseMsgDate(v)?.getTime() ?? 0;
+      const ta = ms(a.lastMessageAt) || ms(a.lastClientMessageAt) || ms(a.createdAt);
+      const tb = ms(b.lastMessageAt) || ms(b.lastClientMessageAt) || ms(b.createdAt);
+      return tb - ta;
     });
 
   return (
