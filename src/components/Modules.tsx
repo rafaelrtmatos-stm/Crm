@@ -6199,19 +6199,8 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
   // comportamento normal (60% kanban / 40% painel), sem mexer nisso.
   const [openedViaJump, setOpenedViaJump] = useState(false);
   const [isColumnCollapsed, setIsColumnCollapsed] = useState(false);
-  // Largura configurável das colunas do Kanban no PC (compacta: 240px, normal: 300px, ampla: 360px)
-  const [kanbanColWidth, setKanbanColWidth] = useState<'compact' | 'normal' | 'wide'>(() => {
-    try {
-      const saved = localStorage.getItem('crm_kanban_col_width');
-      if (saved === 'compact' || saved === 'normal' || saved === 'wide') return saved;
-    } catch {}
-    return 'normal';
-  });
+// Largura das colunas padronizada no tamanho estreito compacto (220px a 240px)
 
-  const handleSetKanbanColWidth = (w: 'compact' | 'normal' | 'wide') => {
-    setKanbanColWidth(w);
-    try { localStorage.setItem('crm_kanban_col_width', w); } catch {}
-  };
 
   // Filtros unificados do Funil (Data, Origem, Status)
   const [dateFilter, setDateFilter] = useState<'todos' | 'hoje' | 'ontem' | '7dias' | '30dias'>('todos');
@@ -6762,12 +6751,14 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
   };
 
   const handleSetStageColor = async (stageId: string, color: string) => {
-    if (!apenasAdmin()) return;
-    const stage = stages.find(s => s.id === stageId);
-    if (stage && normalizeHex(stage.color) === normalizeHex(color)) return;
+    // Atualização otimista imediata na interface
+    setStages(prev => prev.map(s => s.id === stageId ? { ...s, color } : s));
     try {
-      await supabase.from('funnel_stages').update({ color, updated_at: new Date().toISOString() }).eq('id', stageId);
-      setStages(prev => prev.map(s => s.id === stageId ? { ...s, color } : s));
+      const { error } = await supabase.from('funnel_stages').update({ color, updated_at: new Date().toISOString() }).eq('id', stageId);
+      if (error) {
+        console.error('Erro ao salvar cor da etapa no Supabase:', error);
+        showAlert('Não foi possível salvar a cor da etapa no banco de dados.');
+      }
     } catch (err) {
       console.error('Erro ao definir cor da etapa:', err);
       showAlert('Não foi possível salvar a cor da etapa.');
@@ -6864,22 +6855,11 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                       <div className="fixed inset-0 z-40" onClick={() => setFunnelMenuOpen(false)} />
                       <div className="absolute top-full mt-2 left-0 w-64 bg-slate-900 border border-white/10 rounded-2xl shadow-2xl z-50 p-2 space-y-2">
                         <div>
-                          <p className="text-[9px] font-black uppercase text-white/40 tracking-widest px-3 py-1">Seus Funis</p>
-                          {funnels.map(f => (
-                            <button
-                              key={f.id}
-                              onClick={() => { setSelectedFunnelId(f.id); setFunnelMenuOpen(false); }}
-                              className={cn(
-                                "w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2",
-                                selectedFunnelId === f.id 
-                                  ? "bg-primary-500 text-slate-950 font-black" 
-                                  : "text-white/80 hover:bg-white/10"
-                              )}
-                            >
-                              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: f.color || "#4cc9f0" }} />
-                              <span className="truncate">{f.name}</span>
-                            </button>
-                          ))}
+                          <p className="text-[9px] font-black uppercase text-white/40 tracking-widest px-3 py-1">Funil de Vendas</p>
+                          <div className="px-3 py-2 rounded-xl bg-white/5 flex items-center gap-2 text-xs font-bold text-white">
+                            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: currentFunnel?.color || "#4cc9f0" }} />
+                            <span className="truncate">{currentFunnel?.name || "Funil de Vendas"}</span>
+                          </div>
                         </div>
 
                         <div className="h-px bg-white/10" />
@@ -6890,24 +6870,8 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                             onClick={() => { setFunnelMenuOpen(false); setIsConfiguringFunnel(true); }}
                             className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-white/80 hover:bg-white/10 transition-all flex items-center gap-2"
                           >
-                            <Settings2 size={13} className="text-white/60" /> Gerenciar Funis & Etapas
+                            <Settings2 size={13} className="text-white/60" /> Gerenciar Etapas do Funil
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => { setFunnelMenuOpen(false); handleAddFunnel(); }}
-                            className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-primary-300 hover:bg-primary-500/20 transition-all flex items-center gap-2"
-                          >
-                            <Plus size={13} /> Novo Funil
-                          </button>
-                          {currentFunnel && user?.isAdmin && funnels.length > 1 && (
-                            <button
-                              type="button"
-                              onClick={() => { setFunnelMenuOpen(false); handleDeleteFunnel(selectedFunnelId); }}
-                              className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-rose-400 hover:bg-rose-500/20 transition-all flex items-center gap-2"
-                            >
-                              <Trash2 size={13} /> Excluir Funil Atual
-                            </button>
-                          )}
                         </div>
                       </div>
                     </>
@@ -7115,45 +7079,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                   )}
                 </div>
 
-                {/* 3. Seletor de Largura das Colunas no PC (Compacta, Normal, Larga) */}
-                <div 
-                  className="hidden md:flex items-center bg-white/5 border border-white/10 rounded-xl p-0.5 shrink-0" 
-                  title="Largura das colunas do Kanban"
-                >
-                  <button
-                    type="button"
-                    onClick={() => handleSetKanbanColWidth("compact")}
-                    className={cn(
-                      "px-2 py-1 rounded-lg text-[10.5px] font-black uppercase tracking-wider transition-all",
-                      kanbanColWidth === "compact" ? "bg-white/20 text-white shadow-sm" : "text-white/40 hover:text-white"
-                    )}
-                    title="Colunas Compactas (240px) - ideal para ver muitas etapas lado a lado"
-                  >
-                    Estreito
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleSetKanbanColWidth("normal")}
-                    className={cn(
-                      "px-2 py-1 rounded-lg text-[10.5px] font-black uppercase tracking-wider transition-all",
-                      kanbanColWidth === "normal" ? "bg-white/20 text-white shadow-sm" : "text-white/40 hover:text-white"
-                    )}
-                    title="Colunas Padrão (300px)"
-                  >
-                    Médio
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleSetKanbanColWidth("wide")}
-                    className={cn(
-                      "px-2 py-1 rounded-lg text-[10.5px] font-black uppercase tracking-wider transition-all",
-                      kanbanColWidth === "wide" ? "bg-white/20 text-white shadow-sm" : "text-white/40 hover:text-white"
-                    )}
-                    title="Colunas Amplas (360px)"
-                  >
-                    Largo
-                  </button>
-                </div>
+
 
                 {/* 4. Modo Seleção de Leads em Massa */}
                 <button
@@ -7239,7 +7165,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
           onDragEnd={onDragEnd}
         >
           <div className={cn(
-            "flex gap-4 pb-2 grow min-h-0 scroll-smooth custom-scrollbar",
+            "flex gap-2 pb-2 grow min-h-0 scroll-smooth custom-scrollbar",
             selectedLead ? "overflow-x-hidden" : "overflow-x-auto"
           )}>
             {/* Cada coluna tem largura fixa e igual — se nao couber todas na tela, rola de lado
@@ -7284,11 +7210,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                   );
                 }
 
-                const colWidthClass = kanbanColWidth === 'compact' 
-                  ? "md:w-[240px]" 
-                  : kanbanColWidth === 'wide' 
-                    ? "md:w-[360px]" 
-                    : "md:w-[300px]";
+                const colWidthClass = "md:w-[220px]";
 
                 return (
                   <div key={`wrapper-${stage.id}`} className={cn("w-full shrink-0 relative flex flex-col transition-all duration-300", colWidthClass)}>
@@ -7323,20 +7245,13 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
             
             {!selectedLead && (
             <button 
-              onClick={async () => {
-                const name = await showPrompt('Nome da nova etapa:');
-                if(name && selectedFunnelId) {
-                  await supabase.from('funnel_stages').insert({
-                    funnel_id: selectedFunnelId,
-                    name,
-                    order: stages.length,
-                  });
-                }
-              }}
-              className="flex-shrink-0 w-full md:flex-shrink md:w-auto basis-24 h-full border-2 border-dashed border-white/5 rounded-[40px] flex flex-col items-center justify-center opacity-20 hover:opacity-100 hover:bg-white/5 transition-all text-white/40"
+              type="button"
+              onClick={handleAddStage}
+              className="flex-shrink-0 w-full md:flex-shrink md:w-[140px] basis-20 h-full border-2 border-dashed border-white/10 hover:border-primary-500/40 rounded-2xl flex flex-col items-center justify-center opacity-40 hover:opacity-100 hover:bg-white/5 transition-all text-white/60 hover:text-primary-300 cursor-pointer"
+              title="Adicionar nova etapa ao funil"
             >
-               <Plus size={32} />
-               <span className="text-[10px] font-black uppercase tracking-[3px] mt-2">Nova Etapa</span>
+               <Plus size={24} />
+               <span className="text-[9px] font-black uppercase tracking-[2px] mt-1.5">Nova Etapa</span>
             </button>
             )}
           </div>
@@ -7381,111 +7296,9 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
       <Modal 
         isOpen={isConfiguringFunnel} 
         onClose={() => setIsConfiguringFunnel(false)} 
-        title="Configurações de Funis & Etapas"
+        title="Configuração das Etapas do Funil"
       >
         <div className="p-4 space-y-8 max-h-[80vh] overflow-y-auto no-scrollbar">
-           {/* Seção de todos os funis com nome e cor ao lado, e botão '+' para adicionar mais um */}
-           <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-[10px] font-black uppercase text-primary-300 tracking-[3px]">Funis de Atendimento</p>
-                  <p className="text-[11px] text-white/50">Clique no funil para gerenciar suas etapas ou na cor ao lado para alterá-la.</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleAddFunnel}
-                  className="flex items-center gap-1.5 px-3.5 py-1.5 bg-primary-500 hover:bg-primary-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-primary-500/20 transition-all cursor-pointer"
-                  title="Criar novo funil"
-                >
-                  <Plus size={15} className="stroke-[3]" /> Adicionar Funil
-                </button>
-              </div>
-
-              {/* Lista de todos os funis cadastrados com nome e cor ao lado */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {funnels.map(f => {
-                  const isSelected = selectedFunnelId === f.id;
-                  const color = f.color || '#4cc9f0';
-                  return (
-                    <div
-                      key={f.id}
-                      onClick={() => setSelectedFunnelId(f.id)}
-                      className={cn(
-                        "p-3.5 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-3 group relative",
-                        isSelected 
-                          ? "bg-primary-500/10 border-primary-500/60 shadow-md ring-1 ring-primary-500/30" 
-                          : "bg-white/5 border-white/10 hover:bg-white/[0.08] hover:border-white/20"
-                      )}
-                    >
-                      <div className="flex items-center gap-3 min-w-0 flex-1">
-                        {/* Cor do funil ao lado do nome com paleta de troca rápida */}
-                        <div className="relative group/color shrink-0">
-                          <div
-                            className="w-5 h-5 rounded-full border-2 border-white/60 shadow-md cursor-pointer hover:scale-125 transition-transform"
-                            style={{ backgroundColor: color }}
-                            title="Clique para trocar a cor deste funil"
-                          />
-                          <div className="hidden group-hover/color:flex absolute top-full left-0 mt-2 bg-slate-900 border border-white/20 rounded-xl shadow-2xl p-1.5 gap-1.5 z-40">
-                            {['#4cc9f0', '#4361ee', '#f72585', '#7209b7', '#3a0ca3', '#10b981', '#f59e0b', '#ec4899'].map(c => (
-                              <button
-                                key={c}
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleSetFunnelColorFor(f.id, c);
-                                }}
-                                className="w-4 h-4 rounded-full border border-white/20 hover:scale-125 transition-transform cursor-pointer"
-                                style={{ backgroundColor: c }}
-                                title={c}
-                              />
-                            ))}
-                          </div>
-                        </div>
-
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className={cn("font-bold text-sm truncate", isSelected ? "text-white" : "text-white/80")}>
-                              {f.name}
-                            </span>
-                            {isSelected && (
-                              <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-primary-500/20 text-primary-300 border border-primary-500/40 shrink-0">
-                                Ativo
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-[9.5px] text-white/40 uppercase font-medium">
-                            {isSelected ? `${stages.length} etapas cadastradas` : 'Clique para ver etapas'}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Ações: renomear e excluir */}
-                      <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          type="button"
-                          onClick={() => handleRenameFunnelPrompt(f)}
-                          className="p-1.5 rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-all"
-                          title="Renomear funil"
-                        >
-                          <Pencil size={13} />
-                        </button>
-                        {user?.isAdmin && funnels.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteFunnel(f.id)}
-                            className="p-1.5 rounded-lg text-rose-400/60 hover:text-rose-400 hover:bg-rose-500/20 transition-all"
-                            title="Excluir funil"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-           </div>
-
            {/* Editar nome e cor do funil atualmente ativo */}
            <div className="space-y-4 pt-4 border-t border-white/10">
               <p className="text-[10px] font-black uppercase text-primary-300 tracking-[3px]">
@@ -7668,28 +7481,24 @@ const KanbanColumn = ({
   const [showColorPicker, setShowColorPicker] = useState(false);
 
   return (
-    <div className="flex-1 min-w-0 flex flex-col gap-4 min-h-0">
-      <div className="flex items-center justify-between px-2">
+    <div className="flex-1 min-w-0 flex flex-col gap-1.5 min-h-0">
+      <div className="flex items-center justify-between px-1.5">
         <div className="flex items-center gap-2 relative">
-          {/* Seletor Rápido de Cor da Etapa (Apenas Admin) */}
+          {/* Seletor Rápido de Cor da Etapa */}
           <button
             type="button"
-            disabled={!isAdmin}
-            onClick={() => isAdmin && setShowColorPicker(v => !v)}
-            title={isAdmin ? `Alterar cor da etapa "${stage.name}"` : `Etapa ${stage.name}`}
-            className={cn(
-              "w-4 h-4 rounded-full flex items-center justify-center transition-transform shrink-0",
-              isAdmin ? "cursor-pointer hover:scale-125 hover:ring-2 hover:ring-white/40" : "cursor-default"
-            )}
+            onClick={() => setShowColorPicker(v => !v)}
+            title={`Alterar cor da etapa "${stage.name}"`}
+            className="w-5 h-5 rounded-full flex items-center justify-center transition-all shrink-0 cursor-pointer hover:scale-125 hover:ring-2 hover:ring-white/60 active:scale-95"
           >
             <span
-              className={cn("w-2.5 h-2.5 rounded-full block shadow-sm", !stage.color && "bg-primary-500")}
+              className={cn("w-3 h-3 rounded-full block shadow-md border border-white/30", !stage.color && "bg-primary-500")}
               style={stage.color ? { backgroundColor: stage.color } : undefined}
             />
           </button>
 
           {/* Paleta Suspensa Rápida de Cores da Etapa */}
-          {showColorPicker && isAdmin && (
+          {showColorPicker && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setShowColorPicker(false)} />
               <div className="absolute top-full left-0 mt-2 bg-slate-900 border border-white/10 rounded-2xl shadow-2xl p-2.5 z-50 w-52 space-y-2">
@@ -7745,7 +7554,8 @@ const KanbanColumn = ({
       </div>
       <div 
         ref={setNodeRef}
-        className="bg-white/[0.03] border border-white/5 rounded-[40px] p-4 flex flex-col gap-4 grow min-h-0 shadow-inner overflow-y-auto custom-scrollbar"
+        className="bg-white/[0.03] border border-white/5 rounded-2xl p-2 flex flex-col gap-2 grow min-h-0 shadow-inner overflow-y-auto custom-scrollbar transition-all"
+        style={stage.color ? { borderTopColor: stage.color, borderTopWidth: "3px" } : undefined}
       >
         <SortableContext items={leads.map(l => l.id)} strategy={verticalListSortingStrategy}>
           {leads.map(lead => (
@@ -7802,7 +7612,7 @@ const KanbanCard = ({ lead, onClick, isSelected, isDragging, selectionMode, isCh
       <GlassCard 
         onClick={selectionMode ? onToggleSelected : onClick}
         className={cn(
-          "p-5 border-white/5 transition-all hover:border-primary-400 group relative overflow-hidden",
+          "p-3 rounded-xl border-white/5 transition-all hover:border-primary-400 group relative overflow-hidden",
           selectionMode ? "cursor-pointer" : "cursor-grab active:cursor-grabbing",
           isSelected ? "bg-primary-500/10 border-primary-500/40 ring-1 ring-primary-500/20" : "",
           isChecked ? "bg-rose-500/10 border-rose-500/40 ring-1 ring-rose-500/30" : "",
@@ -7830,18 +7640,18 @@ const KanbanCard = ({ lead, onClick, isSelected, isDragging, selectionMode, isCh
             </span>
          </div>
          
-         <div className="flex flex-wrap items-center gap-1.5 mb-3">
+         <div className="flex flex-wrap items-center gap-1 mb-2">
             <Badge className="text-[8px] px-1.5 py-0.5 bg-primary-500/10 border-none opacity-60 uppercase font-black shrink-0">{lead.sourceType || 'WhatsApp'}</Badge>
             <Badge className="text-[8px] px-1.5 py-0.5 border-white/10 opacity-40 italic shrink-0">R$ {(lead.estimatedValue ?? 0).toLocaleString('pt-BR')}</Badge>
          </div>
 
          {(lead.lastClientMessageText || lead.lastMessageText) && (
-           <p className="text-[10px] text-white/50 line-clamp-2 leading-relaxed bg-white/5 p-2.5 rounded-xl italic border border-white/5 break-words">
+           <p className="text-[9.5px] text-white/50 line-clamp-2 leading-relaxed bg-white/5 p-2 rounded-lg italic border border-white/5 break-words">
               "{lead.lastClientMessageText || lead.lastMessageText}"
            </p>
          )}
 
-         <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-between gap-2">
+         <div className="mt-2 pt-2 border-t border-white/5 flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5 min-w-0 flex-1">
                <AvatarPhoto photoUrl={lead.photoUrl} name={lead.fullName} className="w-5 h-5 bg-slate-800 border-white/10 shrink-0" textClassName="text-[8px] text-white/30" />
                <p className="text-[8.5px] font-bold text-white/30 uppercase tracking-wider truncate" title={lead.phone || ''}>{lead.phone || 'Sem telefone'}</p>
