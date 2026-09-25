@@ -1498,15 +1498,37 @@ export default function App() {
 
     try {
       const emSegundoPlano = document.hidden || !document.hasFocus();
+      const tel = String(row.phone || '').trim();
+      let fotoFallback = info?.photoUrl;
+      let nomeFallback = info?.title;
+
+      if ((!fotoFallback || !nomeFallback) && tel) {
+        try {
+          const { data: leadRow } = await supabase
+            .from('leads')
+            .select('photo_url, contact_name, full_name, whatsapp_name')
+            .eq('company_id', 'rafa-arts')
+            .eq('phone', tel)
+            .limit(1)
+            .maybeSingle();
+          if (leadRow) {
+            if (!fotoFallback && leadRow.photo_url) fotoFallback = leadRow.photo_url;
+            if (!nomeFallback) {
+              nomeFallback = (leadRow.contact_name || leadRow.full_name || leadRow.whatsapp_name || '').trim();
+            }
+          }
+        } catch { /* ignora */ }
+      }
+
       // Regra 2: nome (ou grupo), foto, previa e horario da notificacao. Em grupo, a previa
       // mostra quem escreveu ("Fulano: texto").
-      const remetente = info?.title || grupoSemNotificacao?.nome || (row.sender_name || '').trim() || 'Novo contato';
+      const remetente = nomeFallback || info?.title || grupoSemNotificacao?.nome || (row.sender_name || '').trim() || 'Novo contato';
       const previaBase = info?.preview || (row.text || '').trim() || 'Nova mensagem recebida';
       const corpo = (info?.isGroup || !!grupoSemNotificacao) && (row.sender_name || '').trim() ? `${String(row.sender_name).trim()}: ${previaBase}` : previaBase;
       const horario = formatarHoraNotificacao(info?.messageAt || row.created_at || new Date().toISOString());
 
       // Foto ATUAL buscada direto na Evolution (a guardada no banco expira); se nao vier, usa a do banco.
-      const fotoAtual = await buscarFotoAtual(row.phone, usuarioAtual?.id, info?.photoUrl);
+      const fotoAtual = await buscarFotoAtual(row.phone, usuarioAtual?.id, fotoFallback);
 
       // Aba em foco: a notificacao nativa do navegador nao aparece (so quando esta em segundo
       // plano), entao mostra um aviso visual no canto inferior do proprio CRM. Clicar abre a conversa.

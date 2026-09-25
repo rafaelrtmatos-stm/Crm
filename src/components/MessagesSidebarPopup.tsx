@@ -464,7 +464,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
   };
 
   // Conversa de grupo so aparece se o usuario pode ver aquele grupo; nome do grupo no lugar do participante.
-  const nomeDaConversa = (l: Lead) => nomesGrupos.get((l.phone || '').replace(/\D/g, '')) || l.fullName;
+  const nomeDaConversa = (l: Lead) => nomesGrupos.get((l.phone || '').replace(/\D/g, '')) || (l.contactName || l.fullName || l.whatsappName || l.phone || 'Cliente').trim();
   const conversaPermitida = (l: Lead) => {
     const d = (l.phone || '').replace(/\D/g, '');
     return !gruposTodos.has(d) || groupPhones.has(d);

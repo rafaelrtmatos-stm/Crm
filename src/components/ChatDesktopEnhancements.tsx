@@ -551,7 +551,7 @@ export const CustomerContextSidebar = ({
   if (!isOpen) return null;
 
   return (
-    <aside className="w-80 xl:w-96 border-l border-white/10 bg-slate-900/60 backdrop-blur-xl flex flex-col h-full shrink-0 select-text">
+    <aside className="w-80 xl:w-96 border-l border-white/10 bg-slate-900/60 backdrop-blur-xl flex flex-col h-full shrink-0 select-text rounded-r-2xl overflow-hidden">
       {/* Header do painel */}
       <div className="p-3 border-b border-white/10 flex items-center justify-between bg-white/[0.02]">
         <div className="flex items-center gap-2">

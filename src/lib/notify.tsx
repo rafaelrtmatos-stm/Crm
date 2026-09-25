@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AlertTriangle, CheckCircle2, MessageSquare, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, MessageSquare, User, X } from 'lucide-react';
 import { fotoUsavel, marcarFotoQuebrada } from './foto';
 
 type ToastItem = { id: number; message: string };
@@ -237,10 +237,10 @@ export function NotifyHost() {
             >
               <FotoNotificacao
                 url={t.photoUrl}
-                className="w-8 h-8 rounded-full object-cover shrink-0"
+                className="w-10 h-10 rounded-full object-cover shrink-0 border border-white/10 shadow-sm"
                 fallback={
-                  <div className="w-8 h-8 rounded-full bg-primary-500/15 text-primary-400 flex items-center justify-center shrink-0">
-                    <MessageSquare size={16} />
+                  <div className="w-10 h-10 rounded-full bg-primary-500/20 text-primary-300 flex items-center justify-center shrink-0 text-sm font-black border border-primary-500/30">
+                    {t.title && !/^[\d+\s()-]+$/.test(t.title.trim()) ? t.title.trim().charAt(0).toUpperCase() : <User size={18} />}
                   </div>
                 }
               />
@@ -249,7 +249,7 @@ export function NotifyHost() {
                   <p className="text-xs font-black text-white truncate">{t.title}</p>
                   {t.time && <span className="text-[10px] text-white/40 shrink-0">{t.time}</span>}
                 </div>
-                <p className="text-xs text-white/60 leading-snug line-clamp-2 break-words">{t.body}</p>
+                <p className="text-xs text-white/70 leading-snug line-clamp-2 break-words">{t.body}</p>
                 {t.waitLabel && <p className="text-[10px] font-black uppercase tracking-wider text-rose-400 mt-1">{t.waitLabel}</p>}
               </div>
               <button

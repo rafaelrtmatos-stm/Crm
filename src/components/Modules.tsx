@@ -557,6 +557,12 @@ const normalizeHex = (c?: string | null) => (c || '').trim().toLowerCase();
 const STAGE_COLOR_IN_USE_MSG = 'Esta cor já está sendo usada por outra etapa.';
 const STAGE_HAS_LEADS_MSG = 'Esta etapa possui leads. Escolha outra etapa para mover esses leads.';
 
+const isPhoneLike = (str?: string | null): boolean => {
+  if (!str) return false;
+  const digits = str.replace(/\D/g, '');
+  return digits.length >= 8 && str.replace(/[\s\+\-\(\)]/g, '') === digits;
+};
+
 const mapLeadRow = (row: any): Lead => ({
   id: row.id,
   companyId: row.company_id,
@@ -3654,15 +3660,35 @@ export const ChatPanel = ({
       setIsAssistingWriting(false);
     }
   };
+
+  // --- Cliente vinculado (cadastro unificado em Contatos/Clientes) -- casado pelo telefone,
+  // igual convencao ja usada no resto do sistema (ultimos 8 digitos). Usado tanto pro bloco de
+  // Endereco quanto pra decidir, no "Iniciar Venda", se atualiza um cadastro existente ou cria
+  // um novo (ver handleStartSale abaixo).
+  const [clienteVinculado, setClienteVinculado] = useState<any>(null);
+  const [isLoadingCliente, setIsLoadingCliente] = useState(false);
+  useEffect(() => {
+    let ativo = true;
+    const digitos = (conversation?.phone || '').replace(/\D/g, '');
+    if (!digitos || digitos.length < 6) { setClienteVinculado(null); return; }
+    setIsLoadingCliente(true);
+    const ultimos8 = digitos.slice(-8);
+    supabase.from('clientes').select('*')
+      .or(`phone.ilike.%${ultimos8}%,telefone_alternativo.ilike.%${ultimos8}%`)
+      .limit(1).maybeSingle()
+      .then(({ data }) => { if (ativo) { setClienteVinculado(data || null); setIsLoadingCliente(false); } });
+    return () => { ativo = false; };
+  }, [conversation?.phone]);
+
   const [isSavingNames, setIsSavingNames] = useState(false);
   useEffect(() => {
     setNameFieldsDraft({
       whatsappName: conversation?.whatsappName || '',
       contactName: conversation?.contactName || '',
-      fullName: conversation?.fullName || conversation?.name || '',
+      fullName: clienteVinculado?.full_name || (!isPhoneLike(conversation?.fullName) ? conversation?.fullName : '') || conversation?.name || '',
     });
     setIsStageMenuOpen(false);
-  }, [conversation?.id]);
+  }, [conversation?.id, clienteVinculado?.id]);
   const nomesMudaram = conversation && (
     nameFieldsDraft.whatsappName !== (conversation.whatsappName || '') ||
     nameFieldsDraft.contactName !== (conversation.contactName || '') ||
@@ -3758,25 +3784,6 @@ export const ChatPanel = ({
       showAlert('Não foi possível copiar o telefone.');
     }
   };
-
-  // --- Cliente vinculado (cadastro unificado em Contatos/Clientes) -- casado pelo telefone,
-  // igual convencao ja usada no resto do sistema (ultimos 8 digitos). Usado tanto pro bloco de
-  // Endereco quanto pra decidir, no "Iniciar Venda", se atualiza um cadastro existente ou cria
-  // um novo (ver handleStartSale abaixo).
-  const [clienteVinculado, setClienteVinculado] = useState<any>(null);
-  const [isLoadingCliente, setIsLoadingCliente] = useState(false);
-  useEffect(() => {
-    let ativo = true;
-    const digitos = (conversation?.phone || '').replace(/\D/g, '');
-    if (!digitos || digitos.length < 6) { setClienteVinculado(null); return; }
-    setIsLoadingCliente(true);
-    const ultimos8 = digitos.slice(-8);
-    supabase.from('clientes').select('*')
-      .or(`phone.ilike.%${ultimos8}%,telefone_alternativo.ilike.%${ultimos8}%`)
-      .limit(1).maybeSingle()
-      .then(({ data }) => { if (ativo) { setClienteVinculado(data || null); setIsLoadingCliente(false); } });
-    return () => { ativo = false; };
-  }, [conversation?.phone]);
 
   // --- Notas internas e Tarefas ---
   // Notas reaproveitam a mesma collection/consulta de mensagens (ja carregada pro chat, ver
@@ -4839,7 +4846,7 @@ export const ChatPanel = ({
 
   const quickActions = [
     { id: 'note', icon: StickyNote, label: 'Nota Interna', color: 'text-amber-400', permission: permissions.canStartNote, onClick: () => setActiveTab('notes') },
-    { id: 'saved', icon: MessageSquare, label: 'Msg Salva', color: 'text-primary-300', permission: permissions.canSendSavedMessage, onClick: () => setActiveTab('saved') },
+    { id: 'saved', icon: MessageSquare, label: 'Msg Salva', color: 'text-primary-300', permission: permissions.canSendSavedMessage, onClick: () => setShowQuickReplies(true) },
     { id: 'task', icon: ListTodo, label: 'Tarefa', color: 'text-purple-400', permission: permissions.canAddTask, onClick: () => setActiveTab('tasks') },
     { id: 'pos', icon: ShoppingBag, label: 'Venda PDV', color: 'text-blue-400', permission: permissions.canStartPosSale, onClick: handleStartSale },
   ];
@@ -4857,8 +4864,19 @@ export const ChatPanel = ({
     </div>
   );
 
+  const resolvedClientName = (
+    clienteVinculado?.full_name ||
+    conversation.contactName ||
+    (!isPhoneLike(conversation.fullName) ? conversation.fullName : '') ||
+    (!isPhoneLike(conversation.name) ? conversation.name : '') ||
+    conversation.whatsappName ||
+    conversation.fullName ||
+    conversation.name ||
+    (conversation.phone ? `+${conversation.phone}` : 'Cliente')
+  ).trim();
+
   const chatContent = (
-    <GlassCard className="flex-1 flex flex-col p-0 overflow-hidden bg-white/3 border-white/10 relative h-full fixed md:static inset-0 z-50 md:z-auto rounded-none md:rounded-[inherit]">
+    <GlassCard className="flex-1 flex flex-col p-0 overflow-hidden bg-white/3 border-white/10 relative h-full fixed md:static inset-0 z-50 md:z-auto rounded-none md:rounded-2xl border md:border-white/10 shadow-2xl">
       {/* Header - FIXO */}
       <div className="px-3 py-2.5 sm:px-4 sm:py-3 border-b border-white/10 flex items-center justify-between bg-white/[0.02] flex-shrink-0 gap-2">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
@@ -4883,7 +4901,7 @@ export const ChatPanel = ({
             >
               <AvatarPhoto
                 photoUrl={conversation.photoUrl}
-                name={conversation.name || 'C'}
+                name={resolvedClientName || 'C'}
                 className="w-10 h-10 rounded-xl bg-primary-500/20 border-primary-500/30"
                 textClassName="font-bold text-white text-base"
               />
@@ -5006,36 +5024,46 @@ export const ChatPanel = ({
               <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-[#0f172a]" />
             )}
           </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <h4 className="font-bold text-xs sm:text-sm text-white truncate max-w-[120px] xs:max-w-[160px] sm:max-w-[240px] md:max-w-none">{conversation.name}</h4>
-              <Badge variant="outline" className="text-[7px] py-0 px-1 leading-none h-3.5 shrink-0">{conversation.channel}</Badge>
-            </div>
-            <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
-              {presenceLabel ? (
-                <span className={cn(
-                  "text-[9px] font-black uppercase tracking-wider truncate max-w-[80px] xs:max-w-[110px]",
-                  (presence?.status === 'composing' || presence?.status === 'recording') ? "text-primary-400 animate-pulse"
-                    : presence?.status === 'available' ? "text-emerald-400"
-                    : "text-white/40"
-                )}>
-                  {presenceLabel}
-                </span>
-              ) : (
-                <span className="text-[9px] text-emerald-400 font-black uppercase tracking-wider shrink-0">Ativo</span>
-              )}
-              <span className="text-[9px] text-white/20 shrink-0">•</span>
-              <button
-                onClick={handleCopyPhone}
-                disabled={!conversation.phone}
-                title="Copiar telefone"
-                className="flex items-center gap-0.5 text-[9px] text-white/40 font-bold hover:text-primary-300 transition-colors disabled:opacity-40 disabled:hover:text-white/40 truncate max-w-[110px] xs:max-w-none"
-              >
-                <span className="truncate">{conversation.phone || '(62) 99999-9999'}</span>
-                <Copy size={9} className="shrink-0" />
-              </button>
-            </div>
-          </div>
+          {(() => {
+            const nameParts = resolvedClientName.split(' ');
+            const firstName = nameParts[0] || resolvedClientName;
+            const remainingName = nameParts.slice(1).join(' ');
+            return (
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <h4 className="font-bold text-xs sm:text-sm text-white flex items-center gap-1 min-w-0 max-w-full" title={resolvedClientName}>
+                    <span className="shrink-0 whitespace-nowrap text-white font-extrabold">{firstName}</span>
+                    {remainingName && <span className="truncate min-w-0 text-white/90">{remainingName}</span>}
+                  </h4>
+                  <Badge variant="outline" className="text-[7px] py-0 px-1 leading-none h-3.5 shrink-0">{conversation.channel}</Badge>
+                </div>
+                <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
+                  {presenceLabel ? (
+                    <span className={cn(
+                      "text-[9px] font-black uppercase tracking-wider truncate max-w-[80px] xs:max-w-[110px]",
+                      (presence?.status === 'composing' || presence?.status === 'recording') ? "text-primary-400 animate-pulse"
+                        : presence?.status === 'available' ? "text-emerald-400"
+                        : "text-white/40"
+                    )}>
+                      {presenceLabel}
+                    </span>
+                  ) : (
+                    <span className="text-[9px] text-emerald-400 font-black uppercase tracking-wider shrink-0">Ativo</span>
+                  )}
+                  <span className="text-[9px] text-white/20 shrink-0">•</span>
+                  <button
+                    onClick={handleCopyPhone}
+                    disabled={!conversation.phone}
+                    title="Copiar telefone"
+                    className="flex items-center gap-0.5 text-[9px] text-white/40 font-bold hover:text-primary-300 transition-colors disabled:opacity-40 disabled:hover:text-white/40 truncate max-w-[110px] xs:max-w-none"
+                  >
+                    <span className="truncate">{conversation.phone || '(62) 99999-9999'}</span>
+                    <Copy size={9} className="shrink-0" />
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
         </div>
         
         <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
@@ -5059,15 +5087,15 @@ export const ChatPanel = ({
             type="button"
             onClick={toggleDesktopSidebar}
             className={cn(
-              "hidden lg:flex items-center gap-1 px-2.5 h-8 rounded-lg border transition-all text-[10px] font-black uppercase tracking-wider shrink-0",
+              "hidden lg:flex items-center gap-1.5 px-3 sm:px-3.5 h-8.5 sm:h-9 rounded-xl border transition-all text-xs font-bold shrink-0 shadow-sm active:scale-95",
               showDesktopSidebar 
                 ? "bg-primary-500/20 text-primary-300 border-primary-500/40 shadow-sm" 
-                : "bg-white/5 text-white/50 hover:text-white hover:bg-white/10 border-transparent"
+                : "bg-white/5 text-white/80 hover:text-white hover:bg-white/10 border-white/15"
             )}
-            title="Painel Lateral de Contexto do Cliente (Alt + D)"
+            title="Painel Lateral de Contexto do Cliente: Dados, Notas, Tarefas e Vendas (Alt + D)"
           >
-            <Columns3 size={13} />
-            <span className="hidden xl:inline">Contexto</span>
+            <Columns3 size={15} />
+            <span>Contexto</span>
           </button>
 
           {/* Botão Resolvido (Alerta de Vácuo) */}
@@ -5076,9 +5104,9 @@ export const ChatPanel = ({
               type="button"
               onClick={handleResolveWaiting}
               title="Marcar como resolvido (tira o alerta de vácuo)"
-              className="flex items-center gap-1 px-2 h-8 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-all text-[9px] font-black uppercase tracking-wider whitespace-nowrap shrink-0"
+              className="flex items-center gap-1 px-2.5 h-8.5 sm:h-9 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-all text-[9.5px] font-black uppercase tracking-wider whitespace-nowrap shrink-0"
             >
-              <CheckCircle2 size={12} />
+              <CheckCircle2 size={13} />
               <span className="hidden xs:inline">Resolvido</span>
             </button>
           )}
@@ -5088,30 +5116,15 @@ export const ChatPanel = ({
             <button
               type="button"
               onClick={handleStartSale}
-              className="flex items-center gap-1 px-2.5 h-8 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[10px] uppercase tracking-wider shadow-sm active:scale-95 transition-all shrink-0"
+              className="flex items-center gap-1.5 px-3 h-8.5 sm:h-9 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-sm active:scale-95 transition-all shrink-0"
               title="Iniciar venda deste lead no PDV (Alt + V)"
             >
-              <ShoppingBag size={12} strokeWidth={2.5} />
+              <ShoppingBag size={14} strokeWidth={2.5} />
               <span>Venda</span>
             </button>
           )}
 
-          {/* Ações Rápidas em Telas Médias/Grandes */}
-          <div className="hidden md:flex bg-white/5 p-0.5 rounded-lg">
-            {quickActions.filter(a => a.permission && a.id !== 'pos').map(action => (
-              <Button 
-                key={action.id}
-                variant="ghost" 
-                size="sm" 
-                className={cn("p-1.5 min-w-0 h-8 w-8 border-none", action.color)} 
-                icon={action.icon}
-                title={action.label}
-                onClick={action.onClick}
-              />
-            ))}
-          </div>
-
-          {/* Menu Mais Ações (⋮) no Canto Superior — Centraliza todas as opções (Notas, Tarefas, Dados, Vendas) */}
+          {/* Menu Mais Ações (⋮) no Canto Superior */}
           <div className="relative">
             <button 
               type="button"
@@ -5148,50 +5161,53 @@ export const ChatPanel = ({
                       <span>Voltar para Conversa</span>
                     </button>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => { setActiveTab('notes'); setShowQuickActions(false); }}
-                    className={cn(
-                      "w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold flex items-center justify-between gap-2.5 transition-colors",
-                      activeTab === 'notes' ? "bg-amber-500/20 text-amber-300" : "text-amber-300 hover:bg-white/10"
-                    )}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <StickyNote size={14} className="text-amber-400" />
-                      <span>Nota Interna</span>
-                    </div>
-                    {notes.length > 0 && (
-                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-amber-500/30 text-amber-200">
-                        {notes.length}
-                      </span>
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setShowQuickReplies(true); setShowQuickActions(false); }}
-                    className="w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold text-primary-300 hover:bg-white/10 flex items-center gap-2.5 transition-colors"
-                  >
-                    <MessageSquare size={14} className="text-primary-400" />
-                    <span>Mensagens Salvas</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setActiveTab('tasks'); setShowQuickActions(false); }}
-                    className={cn(
-                      "w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold flex items-center justify-between gap-2.5 transition-colors",
-                      activeTab === 'tasks' ? "bg-purple-500/20 text-purple-300" : "text-purple-300 hover:bg-white/10"
-                    )}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <ListTodo size={14} className="text-purple-400" />
-                      <span>Tarefas</span>
-                    </div>
-                    {tasks.filter(t => !t.completedAt).length > 0 && (
-                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-purple-500/30 text-purple-200">
-                        {tasks.filter(t => !t.completedAt).length}
-                      </span>
-                    )}
-                  </button>
+                  {/* No mobile (onde o painel lateral de contexto está oculto), exibe Nota, Salvas e Tarefas */}
+                  <div className="md:hidden space-y-0.5 border-b border-white/10 pb-1 mb-1">
+                    <button
+                      type="button"
+                      onClick={() => { setActiveTab('notes'); setShowQuickActions(false); }}
+                      className={cn(
+                        "w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold flex items-center justify-between gap-2.5 transition-colors",
+                        activeTab === 'notes' ? "bg-amber-500/20 text-amber-300" : "text-amber-300 hover:bg-white/10"
+                      )}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <StickyNote size={14} className="text-amber-400" />
+                        <span>Nota Interna</span>
+                      </div>
+                      {notes.length > 0 && (
+                        <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-amber-500/30 text-amber-200">
+                          {notes.length}
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setShowQuickReplies(true); setShowQuickActions(false); }}
+                      className="w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold text-primary-300 hover:bg-white/10 flex items-center gap-2.5 transition-colors"
+                    >
+                      <MessageSquare size={14} className="text-primary-400" />
+                      <span>Mensagens Salvas</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setActiveTab('tasks'); setShowQuickActions(false); }}
+                      className={cn(
+                        "w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold flex items-center justify-between gap-2.5 transition-colors",
+                        activeTab === 'tasks' ? "bg-purple-500/20 text-purple-300" : "text-purple-300 hover:bg-white/10"
+                      )}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <ListTodo size={14} className="text-purple-400" />
+                        <span>Tarefas</span>
+                      </div>
+                      {tasks.filter(t => !t.completedAt).length > 0 && (
+                        <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-purple-500/30 text-purple-200">
+                          {tasks.filter(t => !t.completedAt).length}
+                        </span>
+                      )}
+                    </button>
+                  </div>
                   <button
                     type="button"
                     onClick={() => { setActiveTab('data'); setShowQuickActions(false); }}
@@ -5250,14 +5266,14 @@ export const ChatPanel = ({
             type="button"
             onClick={handleTogglePiP}
             className={cn(
-              "h-8 px-2.5 rounded-lg border transition-all items-center gap-1.5 text-[10.5px] font-black uppercase tracking-wider shrink-0 hidden md:flex active:scale-95",
+              "h-8.5 sm:h-9 px-3 sm:px-3.5 rounded-xl border transition-all items-center gap-1.5 text-xs font-black uppercase tracking-wider shrink-0 hidden md:flex active:scale-95 shadow-sm",
               pipWindow 
                 ? "bg-primary-500 text-slate-950 border-primary-400 shadow-md shadow-primary-500/20" 
-                : "bg-white/5 text-white/70 hover:text-white hover:bg-white/10 border-white/10"
+                : "bg-white/5 text-white/80 hover:text-white hover:bg-white/10 border-white/15"
             )}
             title={pipWindow ? "Restaurar conversa ao CRM" : "Sobrepor conversa sobre outras abas e programas do PC"}
           >
-            <ExternalLink size={13} />
+            <ExternalLink size={15} />
             <span>{pipWindow ? "Restaurar" : "Sobrepor"}</span>
           </button>
 
@@ -7165,15 +7181,12 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
           onDragEnd={onDragEnd}
         >
           <div className={cn(
-            "flex gap-2 pb-2 grow min-h-0 scroll-smooth custom-scrollbar",
+            "flex gap-1.5 pb-2 grow min-h-0 scroll-smooth custom-scrollbar",
             selectedLead ? "overflow-x-hidden" : "overflow-x-auto"
           )}>
-            {/* Cada coluna tem largura fixa e igual — se nao couber todas na tela, rola de lado
-                em vez de encolher (senao com muitas etapas cada coluna fica espremida demais).
-                Com uma conversa aberta, mostra so a coluna da etapa daquele lead (pra poder trocar
-                de conversa dentro da mesma etapa sem sair da tela de mensagem — nesse caso a coluna
-                unica ocupa toda a largura disponivel, sem precisar de rolagem horizontal, e a coluna
-                se estende ate o rodape da pagina, no mesmo nivel do campo de mensagens do ChatPanel). */}
+            {/* Cada coluna tem largura compacta e padronizada no tamanho estreito — se nao couber todas
+                na tela, rola suavemente de lado com colunas mais encostadas e sem espaco desperdicado.
+                Com uma conversa aberta, a coluna da etapa do lead selecionado fica compacta ao lado do chat. */}
             {stages
                 .filter(stage => stage.isActive !== false)
               .filter(stage => !selectedLead || stage.id === (selectedLead.funnelStageId || (stages.find(s => s.isInitial || s.order === 0)?.id)))
@@ -7210,7 +7223,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                   );
                 }
 
-                const colWidthClass = "md:w-[220px]";
+                const colWidthClass = selectedLead ? "w-[210px] md:w-[220px]" : "w-[195px] md:w-[205px]";
 
                 return (
                   <div key={`wrapper-${stage.id}`} className={cn("w-full shrink-0 relative flex flex-col transition-all duration-300", colWidthClass)}>
@@ -7277,7 +7290,11 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
             className="h-full flex-1 min-w-0"
           >
             <ChatPanel 
-              conversation={{ ...selectedLead, name: selectedLead.fullName, channel: 'WhatsApp' }}
+              conversation={{ 
+                ...selectedLead, 
+                name: (selectedLead.contactName || (!isPhoneLike(selectedLead.fullName) ? selectedLead.fullName : '') || selectedLead.whatsappName || selectedLead.fullName || selectedLead.phone || 'Cliente').trim(), 
+                channel: 'WhatsApp' 
+              }}
               onClose={() => { setSelectedLead(null); setOpenedViaJump(false); }}
               currentCompany={currentCompany}
               user={user}
@@ -7554,7 +7571,7 @@ const KanbanColumn = ({
       </div>
       <div 
         ref={setNodeRef}
-        className="bg-white/[0.03] border border-white/5 rounded-2xl p-2 flex flex-col gap-2 grow min-h-0 shadow-inner overflow-y-auto custom-scrollbar transition-all"
+        className="bg-white/[0.03] border border-white/5 rounded-xl p-1.5 flex flex-col gap-1.5 grow min-h-0 shadow-inner overflow-y-auto custom-scrollbar transition-all"
         style={stage.color ? { borderTopColor: stage.color, borderTopWidth: "3px" } : undefined}
       >
         <SortableContext items={leads.map(l => l.id)} strategy={verticalListSortingStrategy}>
@@ -7588,6 +7605,7 @@ const KanbanCard = ({ lead, onClick, isSelected, isDragging, selectionMode, isCh
   selectionMode?: boolean, isChecked?: boolean, onToggleSelected?: () => void, onDelete?: () => void,
 }) => {
   const { setPrefilledCustomer, setActiveTab } = React.useContext(AppContext)!;
+  const cardClientName = (lead.contactName || (!isPhoneLike(lead.fullName) ? lead.fullName : '') || lead.whatsappName || lead.fullName || lead.phone || 'Cliente').trim();
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
     id: lead.id,
     data: { type: 'card', lead },
@@ -7612,7 +7630,7 @@ const KanbanCard = ({ lead, onClick, isSelected, isDragging, selectionMode, isCh
       <GlassCard 
         onClick={selectionMode ? onToggleSelected : onClick}
         className={cn(
-          "p-3 rounded-xl border-white/5 transition-all hover:border-primary-400 group relative overflow-hidden",
+          "p-2.5 rounded-lg border-white/5 transition-all hover:border-primary-400 group relative overflow-hidden",
           selectionMode ? "cursor-pointer" : "cursor-grab active:cursor-grabbing",
           isSelected ? "bg-primary-500/10 border-primary-500/40 ring-1 ring-primary-500/20" : "",
           isChecked ? "bg-rose-500/10 border-rose-500/40 ring-1 ring-rose-500/30" : "",
@@ -7620,7 +7638,7 @@ const KanbanCard = ({ lead, onClick, isSelected, isDragging, selectionMode, isCh
         )}
       >
          {selectionMode && (
-           <div className="absolute top-3 left-3 z-10" onClick={(e) => { e.stopPropagation(); onToggleSelected?.(); }}>
+           <div className="absolute top-2.5 left-2.5 z-10" onClick={(e) => { e.stopPropagation(); onToggleSelected?.(); }}>
              <input type="checkbox" checked={isChecked} onChange={() => onToggleSelected?.()} className="w-4 h-4 accent-rose-500 cursor-pointer" />
            </div>
          )}
@@ -7628,32 +7646,42 @@ const KanbanCard = ({ lead, onClick, isSelected, isDragging, selectionMode, isCh
            <button
              onClick={(e) => { e.stopPropagation(); onDelete?.(); }}
              title="Excluir lead"
-             className="absolute top-3 right-3 z-10 w-6 h-6 rounded-md bg-rose-500/0 text-rose-400/0 group-hover:bg-rose-500/10 group-hover:text-rose-400 flex items-center justify-center transition-all"
+             className="absolute top-2.5 right-2.5 z-10 w-6 h-6 rounded-md bg-rose-500/0 text-rose-400/0 group-hover:bg-rose-500/10 group-hover:text-rose-400 flex items-center justify-center transition-all"
            >
              <Trash2 size={12} />
            </button>
          )}
-         <div className={cn("flex justify-between items-center mb-2 gap-2", selectionMode && "pl-6")}>
-            <p className="font-black text-white text-[11px] tracking-tight truncate flex-1 min-w-0 pr-2 uppercase italic" title={lead.fullName}>{lead.fullName}</p>
+         <div className={cn("flex justify-between items-center mb-1.5 gap-2", selectionMode && "pl-6")}>
+            {(() => {
+              const cardParts = cardClientName.split(' ');
+              const cardFirstName = cardParts[0] || cardClientName;
+              const cardRemaining = cardParts.slice(1).join(' ');
+              return (
+                <p className="font-black text-white text-[11px] tracking-tight flex items-center gap-1 flex-1 min-w-0 pr-2 uppercase italic" title={cardClientName}>
+                  <span className="shrink-0 whitespace-nowrap">{cardFirstName}</span>
+                  {cardRemaining && <span className="truncate min-w-0 text-white/90">{cardRemaining}</span>}
+                </p>
+              );
+            })()}
             <span className="text-[7.5px] font-black text-white/30 uppercase tracking-wider leading-none shrink-0">
                {(lead.createdAt as any)?.toDate?.() ? format((lead.createdAt as any).toDate(), 'HH:mm') : 'Agora'}
             </span>
          </div>
          
-         <div className="flex flex-wrap items-center gap-1 mb-2">
+         <div className="flex flex-wrap items-center gap-1 mb-1.5">
             <Badge className="text-[8px] px-1.5 py-0.5 bg-primary-500/10 border-none opacity-60 uppercase font-black shrink-0">{lead.sourceType || 'WhatsApp'}</Badge>
             <Badge className="text-[8px] px-1.5 py-0.5 border-white/10 opacity-40 italic shrink-0">R$ {(lead.estimatedValue ?? 0).toLocaleString('pt-BR')}</Badge>
          </div>
 
          {(lead.lastClientMessageText || lead.lastMessageText) && (
-           <p className="text-[9.5px] text-white/50 line-clamp-2 leading-relaxed bg-white/5 p-2 rounded-lg italic border border-white/5 break-words">
+           <p className="text-[9.5px] text-white/50 line-clamp-2 leading-relaxed bg-white/5 p-1.5 rounded-md italic border border-white/5 break-words">
               "{lead.lastClientMessageText || lead.lastMessageText}"
            </p>
          )}
 
-         <div className="mt-2 pt-2 border-t border-white/5 flex items-center justify-between gap-2">
+         <div className="mt-1.5 pt-1.5 border-t border-white/5 flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5 min-w-0 flex-1">
-               <AvatarPhoto photoUrl={lead.photoUrl} name={lead.fullName} className="w-5 h-5 bg-slate-800 border-white/10 shrink-0" textClassName="text-[8px] text-white/30" />
+               <AvatarPhoto photoUrl={lead.photoUrl} name={cardClientName} className="w-5 h-5 bg-slate-800 border-white/10 shrink-0" textClassName="text-[8px] text-white/30" />
                <p className="text-[8.5px] font-bold text-white/30 uppercase tracking-wider truncate" title={lead.phone || ''}>{lead.phone || 'Sem telefone'}</p>
             </div>
             <div className="flex items-center gap-2">
@@ -7994,7 +8022,8 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
       if (pendingWhatsAppShare) {
         const target = fetchedLeads.find(l => l.id === pendingWhatsAppShare.leadId);
         if (target) {
-          setSelectedChat({ ...target, name: target.fullName });
+          const clientName = (target.contactName || target.fullName || target.whatsappName || target.phone || 'Cliente').trim();
+          setSelectedChat({ ...target, name: clientName });
           setChatInitialDraft(pendingWhatsAppShare.prefillMessage);
           setPendingWhatsAppShare(null);
           return;
@@ -8005,7 +8034,8 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
       if (preselectedLeadId) {
         const target = fetchedLeads.find(l => l.id === preselectedLeadId);
         if (target) {
-          setSelectedChat({ ...target, name: target.fullName });
+          const clientName = (target.contactName || target.fullName || target.whatsappName || target.phone || 'Cliente').trim();
+          setSelectedChat({ ...target, name: clientName });
           return;
         }
       }
@@ -8027,7 +8057,8 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
     if (!pendingOpenLeadId || leads.length === 0) return;
     const target = leads.find(l => l.id === pendingOpenLeadId);
     if (!target) return;
-    if (selectedChat?.id !== target.id) setSelectedChat({ ...target, name: target.fullName });
+    const clientName = (target.contactName || target.fullName || target.whatsappName || target.phone || 'Cliente').trim();
+    if (selectedChat?.id !== target.id) setSelectedChat({ ...target, name: clientName });
     setPendingOpenLeadId(null);
   }, [pendingOpenLeadId, leads]);
 
@@ -8055,7 +8086,7 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
     if (infoGrupos) return !infoGrupos.todos.has(d) || infoGrupos.permitidos.has(d);
     return d.length <= 15;
   };
-  const nomeDaConversa = (l: Lead): string => infoGrupos?.nomes.get(digitosDoGrupo(l.phone)) || l.fullName;
+  const nomeDaConversa = (l: Lead): string => infoGrupos?.nomes.get(digitosDoGrupo(l.phone)) || (l.contactName || l.fullName || l.whatsappName || l.phone || 'Cliente').trim();
 
   const unrepliedCount = leads.filter(l => l.waitingSince && conversaVisivel(l)).length;
 

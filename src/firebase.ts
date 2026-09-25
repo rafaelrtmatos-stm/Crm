@@ -4,8 +4,8 @@ import { initializeFirestore, getFirestore, Firestore, setLogLevel } from 'fireb
 
 import firebaseConfig from '../firebase-applet-config.json';
 
-// Evita ruído no console de reconexões transitórias do Firestore enquanto o navegador sincroniza
-setLogLevel('error');
+// Silencia avisos de reconexão transitória do SDK interno do Firestore
+setLogLevel('silent');
 
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 const firestoreDbId = (firebaseConfig as any)?.firestoreDatabaseId;
@@ -13,7 +13,7 @@ const firestoreDbId = (firebaseConfig as any)?.firestoreDatabaseId;
 let dbInstance: Firestore;
 try {
   const settings = {
-    experimentalAutoDetectLongPolling: true,
+    experimentalForceLongPolling: true,
     ignoreUndefinedProperties: true,
   };
   dbInstance = firestoreDbId && typeof firestoreDbId === 'string' && firestoreDbId.trim() !== ''
