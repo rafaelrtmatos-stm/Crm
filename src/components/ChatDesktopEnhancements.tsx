@@ -25,6 +25,7 @@ import {
   MapPin,
   AtSign,
   Target,
+  Tag,
   Save,
   Plus,
   RefreshCw,
@@ -512,6 +513,8 @@ export const CustomerContextSidebar = ({
   onOpenVenda,
   onOpenContrato,
   onOpenOrcamento,
+  tags = [],
+  onSaveTags,
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -552,7 +555,33 @@ export const CustomerContextSidebar = ({
   onOpenVenda?: (id: string) => void;
   onOpenContrato?: (id: string) => void;
   onOpenOrcamento?: (id: string) => void;
+  tags?: string[];
+  onSaveTags?: (tags: string[]) => void;
 }) => {
+  const [newTagInput, setNewTagInput] = useState('');
+
+  const handleAddTag = () => {
+    const val = newTagInput.trim();
+    if (!val) return;
+    const current = tags || [];
+    if (!current.includes(val)) {
+      onSaveTags?.([...current, val]);
+    }
+    setNewTagInput('');
+  };
+
+  const handleRemoveTag = (tagToRemove: string) => {
+    const current = tags || [];
+    onSaveTags?.(current.filter(t => t !== tagToRemove));
+  };
+
+  const handleAddQuickTag = (tag: string) => {
+    const current = tags || [];
+    if (!current.includes(tag)) {
+      onSaveTags?.([...current, tag]);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (

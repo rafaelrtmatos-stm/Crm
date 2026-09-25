@@ -156,6 +156,7 @@ import {
 import { 
   DndContext, 
   closestCenter,
+  closestCorners,
   KeyboardSensor,
   PointerSensor,
   useSensor,
@@ -4965,23 +4966,6 @@ export const ChatPanel = ({
               <ArrowLeft size={19} />
             </button>
           )}
-          {/* Botão de Encolher/Expandir Coluna no Desktop — sempre 100% visível, nunca coberto pela aba de mensagens */}
-          {onToggleColumnCollapse && (
-            <button
-              type="button"
-              onClick={onToggleColumnCollapse}
-              className={cn(
-                "hidden md:flex items-center gap-1.5 h-8 px-2.5 rounded-xl border transition-all text-xs font-bold shrink-0 active:scale-95 shadow-sm cursor-pointer",
-                isColumnCollapsed
-                  ? "bg-primary-500/20 text-primary-300 border-primary-500/40 hover:bg-primary-500/30"
-                  : "bg-white/5 text-white/70 hover:text-white hover:bg-white/10 border-white/10"
-              )}
-              title={isColumnCollapsed ? "Expandir coluna de leads da etapa" : "Encolher coluna para expandir conversa"}
-            >
-              {isColumnCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
-              <span className="text-[10px] font-bold uppercase tracking-wider">{isColumnCollapsed ? "Expandir Coluna" : "Encolher"}</span>
-            </button>
-          )}
           <div className="relative">
             <button
               type="button"
@@ -6436,7 +6420,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
@@ -7384,7 +7368,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
 
         <DndContext
           sensors={sensors}
-          collisionDetection={closestCenter}
+          collisionDetection={closestCorners}
           onDragStart={onDragStart}
           onDragEnd={onDragEnd}
         >
