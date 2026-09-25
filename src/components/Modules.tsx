@@ -646,6 +646,9 @@ const mapCrmMessageRow = (row: any): any => ({
   currentVersionIndex: row.current_version_index ?? undefined,
   lastEditedAt: row.last_edited_at || undefined,
   lastEditedBy: row.last_edited_by || undefined,
+  deletedAt: row.deleted_at || undefined,
+  deletedBy: row.deleted_by || undefined,
+  whatsappMessageId: row.whatsapp_message_id || undefined,
   createdAt: row.created_at,
 });
 
@@ -3320,6 +3323,12 @@ export const ChatPanel = ({
   const fotoInputRef = useRef<HTMLInputElement>(null);
   const documentoInputRef = useRef<HTMLInputElement>(null);
   const [enviandoArquivo, setEnviandoArquivo] = useState(false);
+  // Guarda o texto de um envio que falhou, pra mostrar o botão "Reenviar" (ver handleSendMessage) --
+  // sem isso o atendente precisaria redigitar a mensagem inteira de novo.
+  const [reenvioPendente, setReenvioPendente] = useState<string | null>(null);
+  // Texto sendo enviado no momento (mostrado como "enviando..." logo após a caixa esvaziar, pra
+  // deixar claro que a mensagem não sumiu, só saiu da caixa de digitar).
+  const [enviandoTexto, setEnviandoTexto] = useState<string | null>(null);
   const [messages, setMessages] = useState<any[]>([]);
   const [erroHistorico, setErroHistorico] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
@@ -4297,17 +4306,23 @@ export const ChatPanel = ({
     }
   };
 
-  const handleSendMessage = async () => {
-    if (!newMessage.trim() || !conversation || !currentCompany) return;
+  const handleSendMessage = async (textoParaReenviar?: string) => {
+    const textoEnviado = (textoParaReenviar ?? newMessage).trim();
+    if (!textoEnviado || !conversation || !currentCompany) return;
     clearMessageHighlight(); // ao responder, volta ao comportamento normal (rola pro fim)
-    const textoEnviado = newMessage;
+    // Limpa a caixa NA HORA do clique (nao espera a Evolution confirmar) -- e' isso que fazia
+    // parecer lento: o texto ficava parado na caixa ate o envio terminar. Se falhar, o texto
+    // reaparece via banner "Reenviar" (reenvioPendente), sem o atendente precisar redigitar.
+    setReenvioPendente(null);
+    setEnviandoTexto(textoEnviado);
+    if (!textoParaReenviar) setNewMessage('');
     const senderRole = user?.isAdmin ? 'Adm' : 'Atendente';
     const senderDisplay = user?.name ? `${user.name} (${senderRole})` : senderRole;
     try {
       // WhatsApp: ENVIA PRIMEIRO. A mensagem so e registrada (crm_messages) e a conversa so muda
       // (ultima mensagem/horario) depois que a Evolution confirma o envio -- clicar em enviar nao basta.
-      // /api/whatsapp-send ja registra tudo no servidor; se falhar, nada e gravado e o texto fica na
-      // caixa pro atendente tentar de novo.
+      // /api/whatsapp-send ja registra tudo no servidor; se falhar, nada e gravado e o texto vira
+      // um "Reenviar" pro atendente tentar de novo, sem digitar tudo outra vez.
       const canal = (conversation.sourceType || conversation.channel || 'WhatsApp');
       if (canal === 'WhatsApp' && conversation.phone) {
         let respData: any = {};
@@ -4319,15 +4334,16 @@ export const ChatPanel = ({
           });
           respData = await resp.json().catch(() => ({}));
           if (!resp.ok) {
-            showAlert(`Não foi possível enviar a mensagem pro WhatsApp: ${respData.error || 'erro desconhecido'}. A mensagem NÃO foi enviada.`);
+            setReenvioPendente(textoEnviado);
+            showAlert(`Não foi possível enviar a mensagem pro WhatsApp: ${respData.error || 'erro desconhecido'}. Toque em "Reenviar" para tentar de novo.`);
             return;
           }
         } catch (sendErr) {
           console.error('Falha ao disparar mensagem pro WhatsApp:', sendErr);
-          showAlert('Não foi possível enviar a mensagem pro WhatsApp (falha de conexão). A mensagem NÃO foi enviada.');
+          setReenvioPendente(textoEnviado);
+          showAlert('Não foi possível enviar a mensagem pro WhatsApp (falha de conexão). Toque em "Reenviar" para tentar de novo.');
           return;
         }
-        setNewMessage('');
         if (respData.saved !== true) {
           // Envio confirmado, mas o servidor nao conseguiu registrar: registra daqui (duplicata do eco do
           // webhook e ignorada pelo banco).
@@ -4371,9 +4387,11 @@ export const ChatPanel = ({
         waiting_since: null,
         updated_at: new Date().toISOString(),
       }).eq('id', conversation.id);
-      setNewMessage('');
     } catch (err) {
       console.error('Falha ao enviar mensagem:', err);
+      setReenvioPendente(textoEnviado);
+    } finally {
+      setEnviandoTexto(null);
     }
   };
 
@@ -4978,6 +4996,23 @@ export const ChatPanel = ({
                   ))}
                 </div>
 
+                {reenvioPendente && (
+                  <div className="flex items-center gap-2 bg-rose-50 border border-rose-200 rounded-xl px-3 py-1.5">
+                    <AlertCircle size={12} className="text-rose-500 shrink-0" />
+                    <span className="flex-1 text-[10px] font-bold text-rose-600 truncate">Falha ao enviar: "{reenvioPendente}"</span>
+                    <button type="button" onClick={() => handleSendMessage(reenvioPendente)} className="shrink-0 text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-lg bg-rose-500 text-white hover:bg-rose-600 transition-colors cursor-pointer">
+                      Reenviar
+                    </button>
+                    <button type="button" onClick={() => setReenvioPendente(null)} className="shrink-0 text-rose-400 hover:text-rose-600 transition-colors cursor-pointer" title="Descartar">
+                      <X size={12} />
+                    </button>
+                  </div>
+                )}
+                {enviandoTexto && (
+                  <div className="flex items-center gap-1.5 px-3 text-[9px] font-bold text-slate-400">
+                    <Loader2 size={10} className="animate-spin" /> Enviando...
+                  </div>
+                )}
                 <div className="flex items-end gap-2 bg-white p-1 rounded-2xl border border-slate-200 focus-within:border-primary-500/50 transition-all shadow-lg">
                   <div className="flex gap-0.5 pb-0.5">
                     <input ref={documentoInputRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; handleSendFile(f, 'document'); }} />

@@ -436,6 +436,53 @@ async function atualizarStatusEntrega(atualizacao) {
   }
 }
 
+// Mensagem apagada (pelo cliente no WhatsApp dele, ou por mim direto no celular, fora do CRM):
+// NUNCA apaga a linha de crm_messages -- so marca deleted_at/deleted_by. O chat passa a mostrar
+// um placeholder ("Mensagem apagada" / "Você apagou essa mensagem para todos") no lugar do
+// texto/mídia original, que fica preservado no banco (deleted_at.is.null evita marcar de novo
+// uma mensagem que eu mesmo já apaguei pelo botão do CRM, com um deleted_by mais preciso).
+async function marcarMensagemApagada(whatsappMessageId, apagadaPor) {
+  try {
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/crm_messages?company_id=eq.${COMPANY_ID}&whatsapp_message_id=eq.${encodeURIComponent(whatsappMessageId)}&deleted_at=is.null`,
+      {
+        method: 'PATCH',
+        headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+        body: JSON.stringify({ deleted_at: new Date().toISOString(), deleted_by: apagadaPor }),
+      }
+    );
+    if (!r.ok) console.error('[CRM WEBHOOK] falha ao marcar mensagem apagada (rodou add_apagar_editar_mensagem_whatsapp.sql?):', r.status, await r.text().catch(() => ''));
+  } catch (err) {
+    console.error('[CRM WEBHOOK] falha ao marcar mensagem apagada (nao impede o resto):', err);
+  }
+}
+
+// Mensagem editada pelo cliente no WhatsApp dele (ou por mim direto no celular, fora do CRM):
+// guarda o texto ANTIGO em crm_messages.versions (historico, mesmo mecanismo ja usado pras
+// notas internas) antes de trocar o texto atual -- o chat mostra "editada" com o historico
+// disponivel, nunca perde o que foi escrito antes.
+async function registrarEdicaoMensagem(whatsappMessageId, textoNovo, editadoPor) {
+  try {
+    const buscaResp = await fetch(
+      `${SUPABASE_URL}/rest/v1/crm_messages?company_id=eq.${COMPANY_ID}&whatsapp_message_id=eq.${encodeURIComponent(whatsappMessageId)}&select=id,text,versions`,
+      { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
+    );
+    const linhas = await buscaResp.json().catch(() => []);
+    const msg = Array.isArray(linhas) ? linhas[0] : null;
+    if (!msg || textoNovo === (msg.text || '')) return; // não achou a mensagem original, ou o "novo" texto é igual ao que já tínhamos
+    const versoesAtuais = Array.isArray(msg.versions) ? msg.versions : (msg.text ? [{ text: msg.text, editedAt: null, editedBy: null }] : []);
+    const novasVersoes = [...versoesAtuais, { text: textoNovo, editedAt: new Date().toISOString(), editedBy: editadoPor }];
+    const patchResp = await fetch(`${SUPABASE_URL}/rest/v1/crm_messages?id=eq.${encodeURIComponent(msg.id)}`, {
+      method: 'PATCH',
+      headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+      body: JSON.stringify({ text: textoNovo, versions: novasVersoes, current_version_index: novasVersoes.length - 1, last_edited_at: new Date().toISOString(), last_edited_by: editadoPor }),
+    });
+    if (!patchResp.ok) console.error('[CRM WEBHOOK] falha ao gravar edição de mensagem:', patchResp.status, await patchResp.text().catch(() => ''));
+  } catch (err) {
+    console.error('[CRM WEBHOOK] falha ao gravar edição de mensagem (nao impede o resto):', err);
+  }
+}
+
 async function atualizarStatusConexao(status) {
   // Guarda o status da conexao (connecting | open | close) pro IntegracoesModule.tsx
   // conseguir ler e mostrar "Conectado"/"Desconectado" sem precisar perguntar direto
@@ -506,6 +553,18 @@ export default async function handler(req, res) {
         // Reacoes (👍, ❤️ etc.) chegam como um MESSAGES_UPSERT proprio, sem conteudo de
         // texto real — nao sao mensagem nova, entao nao devem virar linha no chat.
         if (msg?.message?.reactionMessage) continue;
+
+        // Mensagem apagada (REVOKE): chega como um MESSAGES_UPSERT proprio, sem texto novo --
+        // so um protocolMessage apontando (via key.id) pra mensagem original que sumiu do
+        // WhatsApp. fromMe aqui e' de QUEM APAGOU (cliente apagando a propria mensagem = false;
+        // eu apagando pelo celular, fora do CRM = true -- apagar pelo BOTAO do CRM usa
+        // api/whatsapp-delete-message.js direto, sem passar por aqui).
+        const tipoProtocolo = msg?.message?.protocolMessage?.type;
+        if (tipoProtocolo === 'REVOKE' || tipoProtocolo === 0) {
+          const idApagada = msg?.message?.protocolMessage?.key?.id;
+          if (idApagada) waitUntil(marcarMensagemApagada(idApagada, msg?.key?.fromMe ? 'Celular' : 'cliente'));
+          continue;
+        }
 
         // fromMe:true = mensagem enviada PELO PROPRIO numero conectado -- pode ter sido
         // mandada pelo botao de enviar do CRM OU direto no WhatsApp do celular/computador,
@@ -659,12 +718,12 @@ export default async function handler(req, res) {
       }
     }
 
-    // MESSAGES_UPDATE de status de entrega/leitura e' tratado acima (tiques). O resto do evento (edicao),
-    // MESSAGES_DELETE, MESSAGES_SET (carga de
-    // historico), CHATS_*, CONTACTS_*, GROUP_PARTICIPANTS_UPDATE: reconhecidos com 200 e sem efeito no
-    // CRM de proposito. O historico fica preservado em crm_messages (nada e apagado por evento de
-    // exclusao) e MESSAGES_SET nao entra aqui pra nao inundar a lista de notificacoes com mensagens
-    // antigas -- historico antigo entra por api/whatsapp-import-history.js.
+    // MESSAGES_UPDATE de status de entrega/leitura e' tratado acima (tiques). Apagar (REVOKE, dentro de
+    // messages.upsert) e editar (messages.edited) sao tratados nos blocos correspondentes -- o resto do
+    // evento (MESSAGES_SET, carga de historico), CHATS_*, CONTACTS_*, GROUP_PARTICIPANTS_UPDATE:
+    // reconhecidos com 200 e sem efeito no CRM de proposito. MESSAGES_SET nao entra aqui pra nao inundar
+    // a lista de notificacoes com mensagens antigas -- historico antigo entra por
+    // api/whatsapp-import-history.js.
 
     // Tiques de entrega/leitura das mensagens que EU enviei (1 tique = enviada, 2 = entregue, 2 azuis = lida).
     // Grava em crm_messages.delivery_status (o chat ja recarrega sozinho quando a linha muda). Com a leitura
@@ -684,6 +743,20 @@ export default async function handler(req, res) {
         }
         const phoneGravado = await atualizarStatusEntrega(a);
         console.log(`[CRM WEBHOOK] status de entrega ${a.status} message_id=${a.id} ${phoneGravado ? 'atualizado' : '(sem mudanca)'}`);
+      }
+    }
+
+    // Mensagem editada pelo cliente no WhatsApp dele (ou por mim direto no celular, fora do CRM
+    // -- editar pelo BOTAO do CRM usa api/whatsapp-edit-message.js direto, sem passar por aqui).
+    // A Evolution manda um evento proprio "messages.edited" (normalizado a partir de
+    // MESSAGES_EDITED), formato { key: {id, remoteJid, fromMe}, editedMessage: {conversation} }.
+    if (evento === 'messages.edited') {
+      const edicoes = Array.isArray(body.data) ? body.data : [body.data].filter(Boolean);
+      for (const e of edicoes) {
+        const idOriginal = e?.key?.id;
+        const textoNovo = extrairTextoMensagem(e?.editedMessage);
+        if (!idOriginal || !textoNovo) continue;
+        await registrarEdicaoMensagem(idOriginal, textoNovo, e?.key?.fromMe ? 'Celular' : 'cliente');
       }
     }
 
