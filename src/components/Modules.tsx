@@ -4908,6 +4908,11 @@ export const ChatPanel = ({
     }
   };
 
+  const isImageUrl = (url?: string | null) => {
+    if (!url || typeof url !== 'string') return false;
+    return /\.(jpe?g|png|gif|webp|bmp|svg)(\?.*)?$/i.test(url);
+  };
+
   const handleSendMessage = async (textoParaReenviar?: any) => {
     const rawText = (typeof textoParaReenviar === "string" ? textoParaReenviar : (typeof newMessage === "string" ? newMessage : String(newMessage || "")));
     const textoEnviado = rawText.trim();
