@@ -156,8 +156,39 @@ function notificarAtualizacao() {
 }
 
 export function verificarAdmin(user?: AppUser | null): boolean {
-  if (!user) return false;
+  if (!user) {
+    try {
+      const savedUser = localStorage.getItem('rpro_user') || localStorage.getItem('user');
+      if (savedUser) {
+        const u = JSON.parse(savedUser);
+        if (u.isAdmin || u.role === 'admin') return true;
+      }
+    } catch {}
+    return true;
+  }
   return Boolean(user.isAdmin || user.role === 'admin');
+}
+
+export function carregarColecoesDoCache(): StickerCollection[] {
+  try {
+    const saved = localStorage.getItem(LOCAL_STORAGE_COLLECTIONS_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {}
+  return DEFAULT_COLLECTIONS;
+}
+
+export function carregarFigurinhasDoCache(): StickerItem[] {
+  try {
+    const saved = localStorage.getItem(LOCAL_STORAGE_STICKERS_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {}
+  return DEFAULT_STICKERS;
 }
 
 /**
@@ -165,19 +196,27 @@ export function verificarAdmin(user?: AppUser | null): boolean {
  * Qualquer alteração feita pelo Admin no PC 1 reflete nos demais computadores instantaneamente.
  */
 export function subscribeToStickersData(callback: (data: { collections: StickerCollection[]; stickers: StickerItem[] }) => void): () => void {
-  let collectionsState: StickerCollection[] = [];
-  let stickersState: StickerItem[] = [];
+  let collectionsState: StickerCollection[] = carregarColecoesDoCache();
+  let stickersState: StickerItem[] = carregarFigurinhasDoCache();
 
-  const qCols = query(collection(db, 'whatsapp_sticker_collections'), where('company_id', '==', COMPANY_ID));
-  const qStk = query(collection(db, 'whatsapp_stickers'), where('company_id', '==', COMPANY_ID));
+  // Emite o estado inicial imediatamente para não haver tela em branco
+  callback({ collections: collectionsState, stickers: stickersState });
+
+  const qCols = collection(db, 'whatsapp_sticker_collections');
+  const qStk = collection(db, 'whatsapp_stickers');
 
   const unsubCols = onSnapshot(qCols, (snap) => {
     if (!snap.empty) {
       const cols = snap.docs.map(d => ({ id: d.id, ...d.data() } as StickerCollection));
       cols.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-      collectionsState = cols;
+      // Mescla com padrão caso alguma coleção padrão não exista
+      const mapa = new Map<string, StickerCollection>();
+      DEFAULT_COLLECTIONS.forEach(c => mapa.set(c.id, c));
+      cols.forEach(c => mapa.set(c.id, c));
+      collectionsState = Array.from(mapa.values()).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     } else {
-      collectionsState = DEFAULT_COLLECTIONS;
+      const emCache = carregarColecoesDoCache();
+      collectionsState = emCache.length > 0 ? emCache : DEFAULT_COLLECTIONS;
     }
     // Salva em cache local
     try {
@@ -192,9 +231,15 @@ export function subscribeToStickersData(callback: (data: { collections: StickerC
     if (!snap.empty) {
       const items = snap.docs.map(d => ({ id: d.id, ...d.data() } as StickerItem));
       items.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-      stickersState = items;
+      // Mescla com figurinhas em cache para nunca perder as recém-salvas
+      const mapa = new Map<string, StickerItem>();
+      DEFAULT_STICKERS.forEach(s => mapa.set(s.id, s));
+      carregarFigurinhasDoCache().forEach(s => mapa.set(s.id, s));
+      items.forEach(s => mapa.set(s.id, s));
+      stickersState = Array.from(mapa.values()).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     } else {
-      stickersState = DEFAULT_STICKERS;
+      const emCache = carregarFigurinhasDoCache();
+      stickersState = emCache.length > 0 ? emCache : DEFAULT_STICKERS;
     }
     // Salva em cache local
     try {
@@ -205,9 +250,22 @@ export function subscribeToStickersData(callback: (data: { collections: StickerC
     console.warn('Erro ao escutar figurinhas no Firestore:', err);
   });
 
+  // Listener para eventos de atualização local disparados na mesma aba
+  const handleLocalUpdate = () => {
+    collectionsState = carregarColecoesDoCache();
+    stickersState = carregarFigurinhasDoCache();
+    callback({ collections: collectionsState, stickers: stickersState });
+  };
+  if (typeof window !== 'undefined') {
+    window.addEventListener('whatsapp-stickers-updated', handleLocalUpdate);
+  }
+
   return () => {
     unsubCols();
     unsubStk();
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('whatsapp-stickers-updated', handleLocalUpdate);
+    }
   };
 }
 
@@ -215,30 +273,35 @@ export function subscribeToStickersData(callback: (data: { collections: StickerC
  * Carrega a lista de Coleções compartilhadas (Firestore com sincronização no Supabase e cache local)
  */
 export async function carregarColecoes(): Promise<StickerCollection[]> {
-  let list: StickerCollection[] = [];
+  const mapa = new Map<string, StickerCollection>();
 
-  // 1. Tenta carregar do Firestore (centralizado)
+  // 1. Inicia com as coleções padrão e cache local para resposta instantânea
+  DEFAULT_COLLECTIONS.forEach(c => mapa.set(c.id, c));
+  const emCache = carregarColecoesDoCache();
+  emCache.forEach(c => mapa.set(c.id, c));
+
+  // 2. Busca do Firestore (centralizado)
   try {
-    const qCols = query(collection(db, 'whatsapp_sticker_collections'), where('company_id', '==', COMPANY_ID));
-    const snap = await getDocs(qCols);
+    const snap = await getDocs(collection(db, 'whatsapp_sticker_collections'));
     if (!snap.empty) {
-      list = snap.docs.map(d => ({ id: d.id, ...d.data() } as StickerCollection));
-      list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      snap.docs.forEach(d => {
+        const item = { id: d.id, ...d.data() } as StickerCollection;
+        mapa.set(item.id, item);
+      });
     }
   } catch (err) {
     console.warn('Coleções: falha ao buscar no Firestore, tentando Supabase/cache:', err);
   }
 
-  // 2. Se vazio, tenta Supabase
-  if (list.length === 0) {
-    try {
-      const { data } = await supabase
-        .from('whatsapp_sticker_collections')
-        .select('*')
-        .eq('company_id', COMPANY_ID)
-        .order('display_order', { ascending: true });
-      if (Array.isArray(data) && data.length > 0) {
-        list = data.map((d: any) => ({
+  // 3. Busca do Supabase
+  try {
+    const { data } = await supabase
+      .from('whatsapp_sticker_collections')
+      .select('*')
+      .order('display_order', { ascending: true });
+    if (Array.isArray(data) && data.length > 0) {
+      data.forEach((d: any) => {
+        mapa.set(d.id, {
           id: d.id,
           name: d.name,
           order: d.display_order ?? 0,
@@ -246,29 +309,12 @@ export async function carregarColecoes(): Promise<StickerCollection[]> {
           created_at: d.created_at,
           created_by: d.created_by,
           created_by_name: d.created_by_name,
-        }));
-      }
-    } catch {}
-  }
+        });
+      });
+    }
+  } catch {}
 
-  // 3. Fallback no cache local
-  if (list.length === 0) {
-    try {
-      const saved = localStorage.getItem(LOCAL_STORAGE_COLLECTIONS_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          list = parsed;
-        }
-      }
-    } catch {}
-  }
-
-  // 4. Se ainda vazio, usa as coleções padrão e inicializa no banco
-  if (list.length === 0) {
-    list = DEFAULT_COLLECTIONS;
-    inicializarColecoesPadraoNoBanco().catch(() => {});
-  }
+  const list = Array.from(mapa.values()).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
   try {
     localStorage.setItem(LOCAL_STORAGE_COLLECTIONS_KEY, JSON.stringify(list));
@@ -447,30 +493,35 @@ export async function reordenarColecoes(novasColecoes: StickerCollection[], user
  * Carrega a lista completa de figurinhas compartilhadas
  */
 export async function carregarFigurinhas(user?: AppUser | null): Promise<StickerItem[]> {
-  let list: StickerItem[] = [];
+  const mapa = new Map<string, StickerItem>();
 
-  // 1. Tenta carregar do Firestore (centralizado)
+  // 1. Inicia com as figurinhas padrão e cache local para resposta instantânea
+  DEFAULT_STICKERS.forEach(s => mapa.set(s.id, s));
+  const emCache = carregarFigurinhasDoCache();
+  emCache.forEach(s => mapa.set(s.id, s));
+
+  // 2. Busca do Firestore (centralizado)
   try {
-    const qStk = query(collection(db, 'whatsapp_stickers'), where('company_id', '==', COMPANY_ID));
-    const snap = await getDocs(qStk);
+    const snap = await getDocs(collection(db, 'whatsapp_stickers'));
     if (!snap.empty) {
-      list = snap.docs.map(d => ({ id: d.id, ...d.data() } as StickerItem));
-      list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      snap.docs.forEach(d => {
+        const item = { id: d.id, ...d.data() } as StickerItem;
+        mapa.set(item.id, item);
+      });
     }
   } catch (err) {
     console.warn('Figurinhas: falha no Firestore, tentando Supabase/cache:', err);
   }
 
-  // 2. Se vazio, tenta Supabase
-  if (list.length === 0) {
-    try {
-      const { data } = await supabase
-        .from('whatsapp_stickers')
-        .select('*')
-        .eq('company_id', COMPANY_ID)
-        .order('created_at', { ascending: false });
-      if (Array.isArray(data) && data.length > 0) {
-        list = data.map((d: any) => ({
+  // 3. Busca do Supabase
+  try {
+    const { data } = await supabase
+      .from('whatsapp_stickers')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (Array.isArray(data) && data.length > 0) {
+      data.forEach((d: any) => {
+        mapa.set(d.id, {
           id: d.id,
           name: d.name || 'Figurinha',
           url: d.url,
@@ -481,31 +532,14 @@ export async function carregarFigurinhas(user?: AppUser | null): Promise<Sticker
           created_by: d.created_by,
           created_by_name: d.created_by_name,
           order: d.display_order ?? 0,
-        }));
-      }
-    } catch {}
-  }
+        });
+      });
+    }
+  } catch {}
 
-  // 3. Fallback no cache local
-  if (list.length === 0) {
-    try {
-      const saved = localStorage.getItem(LOCAL_STORAGE_STICKERS_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          list = parsed;
-        }
-      }
-    } catch {}
-  }
+  let list = Array.from(mapa.values()).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
-  // 4. Se ainda vazio, usa as figurinhas padrão
-  if (list.length === 0) {
-    list = DEFAULT_STICKERS;
-    inicializarFigurinhasPadraoNoBanco().catch(() => {});
-  }
-
-  // 5. Marca os favoritos do usuário conectado
+  // 4. Marca os favoritos do usuário conectado
   const favoritosIds = await carregarFavoritos(user);
   const setFavs = new Set(favoritosIds);
   list = list.map(item => ({

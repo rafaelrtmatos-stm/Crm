@@ -43,11 +43,38 @@ export const ChatStickerPicker: React.FC<ChatStickerPickerProps> = ({
   user,
   onGoToAdmin,
 }) => {
-  // Abas: 'historico' | 'favoritos' | 'todas' | id_da_colecao (ex: 'col_memes')
-  const [activeTab, setActiveTab] = useState<string>('historico');
-  const [collections, setCollections] = useState<StickerCollection[]>([]);
-  const [allStickers, setAllStickers] = useState<StickerItem[]>([]);
-  const [historyStickers, setHistoryStickers] = useState<StickerItem[]>([]);
+  // Começa por padrão em 'todas' para que as figurinhas salvas apareçam imediatamente
+  const [activeTab, setActiveTab] = useState<string>('todas');
+  const [collections, setCollections] = useState<StickerCollection[]>(() => {
+    try {
+      const saved = localStorage.getItem('rpro_whatsapp_sticker_collections_v2');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+  const [allStickers, setAllStickers] = useState<StickerItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('rpro_whatsapp_stickers_v2');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+  const [historyStickers, setHistoryStickers] = useState<StickerItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('rpro_whatsapp_stickers_hist_v2');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [];
+  });
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
@@ -77,6 +104,21 @@ export const ChatStickerPicker: React.FC<ChatStickerPickerProps> = ({
       carregarDados();
     }
   }, [isOpen, user?.id]);
+
+  // Escuta atualizações locais de figurinhas salvas no painel de Integrações
+  useEffect(() => {
+    const handleUpdated = () => {
+      carregarDados();
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('whatsapp-stickers-updated', handleUpdated);
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('whatsapp-stickers-updated', handleUpdated);
+      }
+    };
+  }, [user?.id]);
 
   // Inscrição em tempo real com Firestore onSnapshot para sincronização imediata entre PCs
   useEffect(() => {
@@ -115,24 +157,45 @@ export const ChatStickerPicker: React.FC<ChatStickerPickerProps> = ({
   // Filtragem de figurinhas de acordo com a aba selecionada
   const favoritos = allStickers.filter(s => s.is_favorite);
 
+  let bannerMensagem: string | null = null;
   let listToDisplay: StickerItem[] = [];
+
   if (activeTab === 'historico') {
-    listToDisplay = historyStickers;
+    if (historyStickers.length > 0) {
+      listToDisplay = historyStickers;
+    } else {
+      // Se histórico estiver vazio, avisa mas exibe as figurinhas salvas para permitir envio imediato
+      bannerMensagem = 'Nenhuma figurinha usada recentemente. Escolha abaixo para enviar:';
+      listToDisplay = allStickers;
+    }
   } else if (activeTab === 'favoritos') {
-    listToDisplay = favoritos;
+    if (favoritos.length > 0) {
+      listToDisplay = favoritos;
+    } else {
+      bannerMensagem = 'Nenhuma favorita ainda. Escolha abaixo ou clique na estrela ☆ para favoritar:';
+      listToDisplay = allStickers;
+    }
   } else if (activeTab === 'todas') {
     listToDisplay = allStickers;
   } else {
     // Filtrar por ID de coleção específica
-    listToDisplay = allStickers.filter(
+    const naColecao = allStickers.filter(
       s => s.collection_id === activeTab || (s.collection_name && s.collection_name.toLowerCase() === activeTab.toLowerCase())
     );
+    if (naColecao.length > 0) {
+      listToDisplay = naColecao;
+    } else {
+      const colecaoObj = collections.find(c => c.id === activeTab);
+      bannerMensagem = `A pasta "${colecaoObj?.name || 'Coleção'}" ainda não tem figurinhas. Escolha da biblioteca:`;
+      listToDisplay = allStickers;
+    }
   }
 
   // Filtragem de busca por nome ou descrição
   if (search.trim()) {
     const term = search.toLowerCase().trim();
     listToDisplay = listToDisplay.filter(s => (s.name || '').toLowerCase().includes(term));
+    bannerMensagem = null;
   }
 
   const handleToggleFavorite = async (e: React.MouseEvent, stk: StickerItem) => {
@@ -201,8 +264,30 @@ export const ChatStickerPicker: React.FC<ChatStickerPickerProps> = ({
         </div>
       </div>
 
-      {/* 2. ABAS SUPERIORES: 🕘 HISTÓRICO | ☆ FAVORITOS | 📁 [COLEÇÕES DO ADMIN] */}
+      {/* 2. ABAS SUPERIORES: 📁 TODAS | 🕘 HISTÓRICO | ☆ FAVORITOS | 📁 [COLEÇÕES DO ADMIN] */}
       <div className="flex items-center p-1.5 gap-1 bg-slate-950/80 border-b border-white/10 overflow-x-auto custom-scrollbar text-xs shrink-0">
+        {/* 📁 Todas as Figurinhas */}
+        <button
+          type="button"
+          onClick={() => setActiveTab('todas')}
+          className={cn(
+            "py-1.5 px-2.5 rounded-xl flex items-center gap-1 text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap shrink-0",
+            activeTab === 'todas'
+              ? "bg-amber-500 text-slate-950 shadow-md font-black"
+              : "text-white/60 hover:text-white hover:bg-white/5"
+          )}
+          title="Ver todas as figurinhas disponíveis"
+        >
+          <Layers size={12} />
+          <span>📁 Todas</span>
+          <span className={cn(
+            "text-[9px] px-1 rounded-full font-bold",
+            activeTab === 'todas' ? "bg-slate-950/20 text-slate-950" : "bg-white/10 text-white/60"
+          )}>
+            {allStickers.length}
+          </span>
+        </button>
+
         {/* 🕘 HISTÓRICO */}
         <button
           type="button"
@@ -281,28 +366,6 @@ export const ChatStickerPicker: React.FC<ChatStickerPickerProps> = ({
             </button>
           );
         })}
-
-        {/* 📁 Todas as Figurinhas */}
-        <button
-          type="button"
-          onClick={() => setActiveTab('todas')}
-          className={cn(
-            "py-1.5 px-2.5 rounded-xl flex items-center gap-1 text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap shrink-0",
-            activeTab === 'todas'
-              ? "bg-amber-500 text-slate-950 shadow-md font-black"
-              : "text-white/60 hover:text-white hover:bg-white/5"
-          )}
-          title="Ver todas as figurinhas disponíveis"
-        >
-          <Layers size={12} />
-          <span>Todas</span>
-          <span className={cn(
-            "text-[9px] px-1 rounded-full font-bold",
-            activeTab === 'todas' ? "bg-slate-950/20 text-slate-950" : "bg-white/10 text-white/60"
-          )}>
-            {allStickers.length}
-          </span>
-        </button>
       </div>
 
       {/* 4. CAMPO DE BUSCA abaixo do topo do painel */}
@@ -330,7 +393,7 @@ export const ChatStickerPicker: React.FC<ChatStickerPickerProps> = ({
 
       {/* 5. GRADE DE FIGURINHAS COM ROLAGEM INTERNA */}
       <div className="p-3 flex-1 overflow-y-auto custom-scrollbar min-h-[220px] max-h-[280px] relative">
-        {loading ? (
+        {loading && listToDisplay.length === 0 ? (
           <div className="h-44 flex flex-col items-center justify-center text-white/40 gap-2">
             <Loader2 size={24} className="animate-spin text-amber-400" />
             <span className="text-[11px]">Carregando figurinhas...</span>
@@ -347,7 +410,9 @@ export const ChatStickerPicker: React.FC<ChatStickerPickerProps> = ({
               )}
             </div>
             <p className="text-xs font-bold text-white/80">
-              {activeTab === 'historico'
+              {search.trim()
+                ? `Nenhuma figurinha encontrada para "${search}"`
+                : activeTab === 'historico'
                 ? 'Histórico vazio'
                 : activeTab === 'favoritos'
                 ? 'Nenhuma figurinha favoritada ainda'
@@ -356,10 +421,8 @@ export const ChatStickerPicker: React.FC<ChatStickerPickerProps> = ({
                 : 'Nenhuma figurinha encontrada'}
             </p>
             <p className="text-[10px] text-white/40 max-w-[240px] leading-relaxed">
-              {activeTab === 'historico'
-                ? 'As figurinhas enviadas nas conversas aparecerão aqui automaticamente.'
-                : activeTab === 'favoritos'
-                ? 'Passe o mouse sobre qualquer figurinha e clique na estrela ☆ para salvar nas suas favoritas.'
+              {search.trim()
+                ? 'Tente buscar por outro termo ou nome de figurinha.'
                 : isAdmin
                 ? 'Você pode adicionar figurinhas a esta coleção pelo painel de Integrações.'
                 : 'Esta coleção ainda não possui figurinhas cadastradas pelo administrador.'}
@@ -375,7 +438,22 @@ export const ChatStickerPicker: React.FC<ChatStickerPickerProps> = ({
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-4 gap-2.5">
+          <div>
+            {bannerMensagem && (
+              <div className="mb-2.5 px-2.5 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[10px] leading-tight flex items-center justify-between gap-1">
+                <span>{bannerMensagem}</span>
+                {isAdmin && onGoToAdmin && (
+                  <button
+                    type="button"
+                    onClick={onGoToAdmin}
+                    className="text-[9px] underline font-bold hover:text-amber-200 shrink-0 cursor-pointer"
+                  >
+                    Gerenciar
+                  </button>
+                )}
+              </div>
+            )}
+            <div className="grid grid-cols-4 gap-2.5">
             {listToDisplay.map((stk) => {
               const isFav = stk.is_favorite;
               return (
@@ -421,6 +499,7 @@ export const ChatStickerPicker: React.FC<ChatStickerPickerProps> = ({
                 </div>
               );
             })}
+            </div>
           </div>
         )}
 
