@@ -9,6 +9,7 @@ import { supabase } from '../supabase';
 import { showAlert } from '../lib/notify';
 import { formatPhoneBR } from '../lib/validators';
 import { Badge, Button, Modal } from './SharedUI';
+import { isNetworkError } from '../lib/offlineSync';
 
 interface ServicesModuleProps {
   currentCompany?: Company | null;
@@ -87,7 +88,11 @@ export const ServicesModule: React.FC<ServicesModuleProps> = ({ currentCompany }
 
       setOrders(mapped);
     } catch (err) {
-      console.error('Erro ao carregar serviços:', err);
+      if (isNetworkError(err)) {
+        console.warn('Aviso ao carregar serviços (conexão/offline):', err);
+      } else {
+        console.error('Erro ao carregar serviços:', err);
+      }
       setOrders([]);
     } finally {
       setLoading(false);

@@ -29,7 +29,33 @@ const CANAIS: CanalConexao[] = [
 ];
 
 export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Company | null; user: AppUser | null }) => {
-  const [tab, setTab] = useState<IntegracoesTab>('conexoes');
+  const [tab, setTab] = useState<IntegracoesTab>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('rpro_integracoes_tab');
+      if (saved && (saved === 'conexoes' || saved === 'robozinho_rafa' || saved === 'figurinhas')) {
+        return saved as IntegracoesTab;
+      }
+    }
+    return 'conexoes';
+  });
+
+  useEffect(() => {
+    const handleSwitch = (e: any) => {
+      const target = e?.detail || localStorage.getItem('rpro_integracoes_tab');
+      if (target && (target === 'conexoes' || target === 'robozinho_rafa' || target === 'figurinhas')) {
+        setTab(target as IntegracoesTab);
+      }
+    };
+    window.addEventListener('open-integracoes-tab', handleSwitch);
+    return () => window.removeEventListener('open-integracoes-tab', handleSwitch);
+  }, []);
+
+  const handleTabChange = (newTab: IntegracoesTab) => {
+    setTab(newTab);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('rpro_integracoes_tab', newTab);
+    }
+  };
   const [canalSelecionado, setCanalSelecionado] = useState<CanalConexao | null>(null);
 
   // --- Status da conexao do WhatsApp (lido do Supabase, atualizado pelo webhook) ---
@@ -192,9 +218,9 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
         {TABS.map(t => (
           <button
             key={t.id}
-            onClick={() => setTab(t.id)}
+            onClick={() => handleTabChange(t.id)}
             className={cn(
-              "flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest whitespace-nowrap transition-all shrink-0",
+              "flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest whitespace-nowrap transition-all shrink-0 cursor-pointer",
               tab === t.id ? "bg-primary-500 text-slate-950 shadow-lg" : "bg-white/5 text-white/40 hover:text-white"
             )}
           >
@@ -237,7 +263,7 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
       )}
 
       {tab === 'figurinhas' && (
-        <FigurinhasManager />
+        <FigurinhasManager user={user} currentCompany={currentCompany} />
       )}
 
       <Modal isOpen={!!canalSelecionado} onClose={() => setCanalSelecionado(null)} title={canalSelecionado ? `Conectar ${canalSelecionado.nome}` : ''} size="sm" className="max-w-sm">

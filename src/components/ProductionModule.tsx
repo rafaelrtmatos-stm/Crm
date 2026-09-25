@@ -7,6 +7,7 @@ import { Company, SaleOrder } from '../types';
 import { supabase } from '../supabase';
 import { showAlert } from '../lib/notify';
 import { Badge, Button } from './SharedUI';
+import { isNetworkError } from '../lib/offlineSync';
 
 interface ProductionModuleProps {
   currentCompany?: Company | null;
@@ -65,7 +66,11 @@ export const ProductionModule: React.FC<ProductionModuleProps> = ({ currentCompa
 
       setOrders(mapped);
     } catch (err) {
-      console.error('Erro ao carregar produção:', err);
+      if (isNetworkError(err)) {
+        console.warn('Aviso ao carregar produção (conexão/offline):', err);
+      } else {
+        console.error('Erro ao carregar produção:', err);
+      }
       setOrders([]);
     } finally {
       setLoading(false);

@@ -2,36 +2,37 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Smile, 
   Star, 
-  History, 
-  Package, 
-  Sparkles, 
+  Clock, 
+  Folder, 
   Plus, 
   Search, 
   X, 
-  Trash2, 
-  Upload, 
   Loader2,
-  Check
+  Sparkles,
+  Settings,
+  Layers
 } from 'lucide-react';
 import { 
+  carregarColecoes, 
   carregarFigurinhas, 
-  carregarHistoricoFigurinhas, 
-  salvarFigurinha, 
-  excluirFigurinha, 
-  toggleFavoritoFigurinha, 
-  uploadFigurinha, 
-  type StickerItem 
+  carregarHistorico, 
+  toggleFavorito, 
+  registrarUso, 
+  subscribeToStickersData,
+  verificarAdmin,
+  type StickerItem, 
+  type StickerCollection 
 } from '../lib/stickersStorage';
-import { showAlert } from '../lib/notify';
+import type { AppUser } from '../types';
 import { cn } from './SharedUI';
-
-export type StickerTab = 'favoritos' | 'historico' | 'colecao' | 'todas';
 
 interface ChatStickerPickerProps {
   isOpen: boolean;
   onClose: () => void;
   onSelectSticker: (sticker: StickerItem) => void;
   isSending?: boolean;
+  user?: AppUser | null;
+  onGoToAdmin?: () => void;
 }
 
 export const ChatStickerPicker: React.FC<ChatStickerPickerProps> = ({
@@ -39,23 +40,33 @@ export const ChatStickerPicker: React.FC<ChatStickerPickerProps> = ({
   onClose,
   onSelectSticker,
   isSending = false,
+  user,
+  onGoToAdmin,
 }) => {
-  const [activeTab, setActiveTab] = useState<StickerTab>('favoritos');
+  // Abas: 'historico' | 'favoritos' | 'todas' | id_da_colecao (ex: 'col_memes')
+  const [activeTab, setActiveTab] = useState<string>('historico');
+  const [collections, setCollections] = useState<StickerCollection[]>([]);
   const [allStickers, setAllStickers] = useState<StickerItem[]>([]);
   const [historyStickers, setHistoryStickers] = useState<StickerItem[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
+
+  const isAdmin = verificarAdmin(user);
 
   const carregarDados = async () => {
     setLoading(true);
     try {
-      const todos = await carregarFigurinhas();
-      setAllStickers(todos);
-      const hist = carregarHistoricoFigurinhas();
+      const [cols, stks, hist] = await Promise.all([
+        carregarColecoes(),
+        carregarFigurinhas(user),
+        carregarHistorico(user),
+      ]);
+      setCollections(cols);
+      setAllStickers(stks);
       setHistoryStickers(hist);
+    } catch (err) {
+      console.error('Erro ao carregar figurinhas:', err);
     } finally {
       setLoading(false);
     }
@@ -65,17 +76,20 @@ export const ChatStickerPicker: React.FC<ChatStickerPickerProps> = ({
     if (isOpen) {
       carregarDados();
     }
-  }, [isOpen]);
+  }, [isOpen, user?.id]);
 
+  // Inscrição em tempo real com Firestore onSnapshot para sincronização imediata entre PCs
   useEffect(() => {
-    const handleUpdate = () => {
-      carregarDados();
-    };
-    window.addEventListener('whatsapp-stickers-updated', handleUpdate);
-    return () => window.removeEventListener('whatsapp-stickers-updated', handleUpdate);
-  }, []);
+    if (!isOpen) return;
+    const unsubscribe = subscribeToStickersData(({ collections: cols, stickers: stks }) => {
+      if (cols.length > 0) setCollections(cols);
+      if (stks.length > 0) setAllStickers(stks);
+      carregarHistorico(user).then(setHistoryStickers);
+    });
+    return () => unsubscribe();
+  }, [isOpen, user?.id]);
 
-  // Fechar ao clicar fora ou apertar Esc
+  // Fechar ao clicar fora ou apertar Escape
   useEffect(() => {
     if (!isOpen) return;
     const handleClickOutside = (e: MouseEvent) => {
@@ -98,161 +112,114 @@ export const ChatStickerPicker: React.FC<ChatStickerPickerProps> = ({
 
   if (!isOpen) return null;
 
-  // Filtragem por abas
-  const favoritos = allStickers.filter(s => s.is_favorite || s.category === 'favoritos');
-  const colecao = allStickers.filter(s => s.category === 'colecao' || s.source === 'system');
+  // Filtragem de figurinhas de acordo com a aba selecionada
+  const favoritos = allStickers.filter(s => s.is_favorite);
 
   let listToDisplay: StickerItem[] = [];
-  if (activeTab === 'favoritos') {
-    listToDisplay = favoritos;
-  } else if (activeTab === 'historico') {
+  if (activeTab === 'historico') {
     listToDisplay = historyStickers;
-  } else if (activeTab === 'colecao') {
-    listToDisplay = colecao;
-  } else {
+  } else if (activeTab === 'favoritos') {
+    listToDisplay = favoritos;
+  } else if (activeTab === 'todas') {
     listToDisplay = allStickers;
+  } else {
+    // Filtrar por ID de coleção específica
+    listToDisplay = allStickers.filter(
+      s => s.collection_id === activeTab || (s.collection_name && s.collection_name.toLowerCase() === activeTab.toLowerCase())
+    );
   }
 
-  // Filtragem de busca
+  // Filtragem de busca por nome ou descrição
   if (search.trim()) {
     const term = search.toLowerCase().trim();
     listToDisplay = listToDisplay.filter(s => (s.name || '').toLowerCase().includes(term));
   }
 
-  const handleUploadSticker = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    e.target.value = '';
-
-    setUploading(true);
-    try {
-      const url = await uploadFigurinha(file);
-      const nomeLimpo = file.name.replace(/\.[^/.]+$/, '');
-      const nova = await salvarFigurinha({
-        url,
-        name: nomeLimpo,
-        category: activeTab === 'favoritos' ? 'favoritos' : 'colecao',
-        is_favorite: activeTab === 'favoritos',
-        source: 'upload',
-      });
-      setAllStickers(prev => [nova, ...prev.filter(s => s.id !== nova.id)]);
-      showAlert('Figurinha adicionada com sucesso!');
-    } catch (err: any) {
-      console.error('Erro ao adicionar figurinha:', err);
-      showAlert('Erro ao enviar arquivo da figurinha.');
-    } finally {
-      setUploading(false);
-    }
-  };
-
   const handleToggleFavorite = async (e: React.MouseEvent, stk: StickerItem) => {
     e.stopPropagation();
-    const novoStatus = await toggleFavoritoFigurinha(stk);
+    const novoStatus = await toggleFavorito(stk, user);
     setAllStickers(prev =>
+      prev.map(s => (s.id === stk.id || s.url === stk.url ? { ...s, is_favorite: novoStatus } : s))
+    );
+    setHistoryStickers(prev =>
       prev.map(s => (s.id === stk.id || s.url === stk.url ? { ...s, is_favorite: novoStatus } : s))
     );
   };
 
-  const handleDeleteSticker = async (e: React.MouseEvent, stk: StickerItem) => {
-    e.stopPropagation();
-    if (!window.confirm(`Deseja remover a figurinha "${stk.name || 'selecionada'}"?`)) return;
-    await excluirFigurinha(stk.id);
-    setAllStickers(prev => prev.filter(s => s.id !== stk.id));
-    setHistoryStickers(prev => prev.filter(s => s.id !== stk.id && s.url !== stk.url));
+  const handleSelectStickerClick = (stk: StickerItem) => {
+    if (isSending) return;
+    registrarUso(stk, user);
+    onSelectSticker(stk);
   };
+
+  const colecaoAtivaObj = collections.find(c => c.id === activeTab);
 
   return (
     <div
       ref={pickerRef}
-      className="absolute bottom-16 left-2 sm:left-4 z-50 w-[330px] sm:w-[380px] bg-slate-900/95 backdrop-blur-xl border border-white/15 rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200 text-white"
-      style={{ maxHeight: '430px' }}
+      className="absolute bottom-full mb-2 left-0 sm:left-2 z-50 w-[350px] sm:w-[410px] max-w-[calc(100vw-1.5rem)] bg-slate-900/95 backdrop-blur-2xl border border-white/15 rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200 text-white"
+      style={{ maxHeight: '460px' }}
     >
-      {/* Cabeçalho */}
-      <div className="p-3 border-b border-white/10 flex items-center justify-between gap-2 bg-slate-950/40">
+      {/* 1. TOPO DO PAINEL — Cabeçalho estilo WhatsApp */}
+      <div className="p-3 border-b border-white/10 flex items-center justify-between gap-2 bg-slate-950/60">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center">
+          <div className="w-7 h-7 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center shrink-0">
             <Smile size={16} />
           </div>
           <div>
             <h4 className="text-xs font-black text-white flex items-center gap-1.5 leading-none">
-              Figurinhas do WhatsApp
+              Figurinhas
             </h4>
             <p className="text-[10px] text-white/40 leading-none mt-0.5">
-              Clique para enviar instantaneamente
+              Compartilhado em todos os computadores
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-1">
-          <input
-            type="file"
-            ref={fileInputRef}
-            accept="image/webp,image/png,image/jpeg,image/gif"
-            className="hidden"
-            onChange={handleUploadSticker}
-          />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading || isSending}
-            title="Adicionar nova figurinha"
-            className="h-7 px-2 rounded-xl bg-white/10 hover:bg-amber-500 hover:text-slate-950 text-white/80 text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer disabled:opacity-50"
-          >
-            {uploading ? <Loader2 size={11} className="animate-spin" /> : <Plus size={12} />}
-            <span>Nova</span>
-          </button>
+        <div className="flex items-center gap-1.5">
+          {/* BOTÃO "+ CRIAR" / GERENCIAR: Conforme regra oficial, direciona o Admin para INTEGRAÇÕES -> Figurinhas */}
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={onGoToAdmin}
+              title="Gerenciar coleções e figurinhas em Integrações"
+              className="h-7 px-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 text-[10px] font-black flex items-center gap-1 transition-all cursor-pointer border border-amber-500/30 active:scale-95"
+            >
+              <Plus size={12} className="stroke-[3]" />
+              <span>+ Criar</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={onClose}
-            className="w-7 h-7 rounded-xl flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 transition-colors"
-            title="Fechar"
+            className="w-7 h-7 rounded-xl flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+            title="Fechar (Esc)"
           >
             <X size={15} />
           </button>
         </div>
       </div>
 
-      {/* Abas Superiores (Favoritas, Histórico, Coleção, Todas) */}
-      <div className="flex items-center p-1.5 gap-1 bg-slate-950/60 border-b border-white/10 text-xs">
-        <button
-          type="button"
-          onClick={() => setActiveTab('favoritos')}
-          className={cn(
-            "flex-1 py-1.5 px-2 rounded-xl flex items-center justify-center gap-1 text-[11px] font-bold transition-all cursor-pointer",
-            activeTab === 'favoritos'
-              ? "bg-amber-500 text-slate-950 shadow-md font-black"
-              : "text-white/60 hover:text-white hover:bg-white/5"
-          )}
-          title="Figurinhas salvas nas conversas"
-        >
-          <Star size={12} className={activeTab === 'favoritos' ? "fill-slate-950" : ""} />
-          <span>Favoritas</span>
-          {favoritos.length > 0 && (
-            <span className={cn(
-              "text-[9px] px-1 rounded-full",
-              activeTab === 'favoritos' ? "bg-slate-950/20 text-slate-950" : "bg-white/10 text-white/60"
-            )}>
-              {favoritos.length}
-            </span>
-          )}
-        </button>
-
+      {/* 2. ABAS SUPERIORES: 🕘 HISTÓRICO | ☆ FAVORITOS | 📁 [COLEÇÕES DO ADMIN] */}
+      <div className="flex items-center p-1.5 gap-1 bg-slate-950/80 border-b border-white/10 overflow-x-auto custom-scrollbar text-xs shrink-0">
+        {/* 🕘 HISTÓRICO */}
         <button
           type="button"
           onClick={() => setActiveTab('historico')}
           className={cn(
-            "flex-1 py-1.5 px-2 rounded-xl flex items-center justify-center gap-1 text-[11px] font-bold transition-all cursor-pointer",
+            "py-1.5 px-2.5 rounded-xl flex items-center gap-1 text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap shrink-0",
             activeTab === 'historico'
               ? "bg-amber-500 text-slate-950 shadow-md font-black"
               : "text-white/60 hover:text-white hover:bg-white/5"
           )}
           title="Figurinhas usadas recentemente"
         >
-          <History size={12} />
-          <span>Histórico</span>
+          <Clock size={12} />
+          <span>🕘 Histórico</span>
           {historyStickers.length > 0 && (
             <span className={cn(
-              "text-[9px] px-1 rounded-full",
+              "text-[9px] px-1 rounded-full font-bold",
               activeTab === 'historico' ? "bg-slate-950/20 text-slate-950" : "bg-white/10 text-white/60"
             )}>
               {historyStickers.length}
@@ -260,60 +227,100 @@ export const ChatStickerPicker: React.FC<ChatStickerPickerProps> = ({
           )}
         </button>
 
+        {/* ☆ FAVORITOS */}
         <button
           type="button"
-          onClick={() => setActiveTab('colecao')}
+          onClick={() => setActiveTab('favoritos')}
           className={cn(
-            "flex-1 py-1.5 px-2 rounded-xl flex items-center justify-center gap-1 text-[11px] font-bold transition-all cursor-pointer",
-            activeTab === 'colecao'
+            "py-1.5 px-2.5 rounded-xl flex items-center gap-1 text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap shrink-0",
+            activeTab === 'favoritos'
               ? "bg-amber-500 text-slate-950 shadow-md font-black"
               : "text-white/60 hover:text-white hover:bg-white/5"
           )}
-          title="Coleção oficial gerenciada no sistema"
+          title="Figurinhas favoritadas pelo usuário"
         >
-          <Package size={12} />
-          <span>Coleção</span>
-          {colecao.length > 0 && (
+          <Star size={12} className={activeTab === 'favoritos' ? "fill-slate-950" : ""} />
+          <span>☆ Favoritos</span>
+          {favoritos.length > 0 && (
             <span className={cn(
-              "text-[9px] px-1 rounded-full",
-              activeTab === 'colecao' ? "bg-slate-950/20 text-slate-950" : "bg-white/10 text-white/60"
+              "text-[9px] px-1 rounded-full font-bold",
+              activeTab === 'favoritos' ? "bg-slate-950/20 text-slate-950" : "bg-white/10 text-white/60"
             )}>
-              {colecao.length}
+              {favoritos.length}
             </span>
           )}
         </button>
 
+        {/* 📁 COLEÇÕES CRIADAS PELO ADMINISTRADOR */}
+        {collections.map(col => {
+          const count = allStickers.filter(s => s.collection_id === col.id || s.collection_name === col.name).length;
+          const isActive = activeTab === col.id;
+          return (
+            <button
+              key={col.id}
+              type="button"
+              onClick={() => setActiveTab(col.id)}
+              className={cn(
+                "py-1.5 px-2.5 rounded-xl flex items-center gap-1 text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap shrink-0",
+                isActive
+                  ? "bg-amber-500 text-slate-950 shadow-md font-black"
+                  : "text-white/60 hover:text-white hover:bg-white/5"
+              )}
+              title={`Coleção: ${col.name}`}
+            >
+              <Folder size={12} className={isActive ? "fill-slate-950" : ""} />
+              <span>📁 {col.name}</span>
+              {count > 0 && (
+                <span className={cn(
+                  "text-[9px] px-1 rounded-full font-bold",
+                  isActive ? "bg-slate-950/20 text-slate-950" : "bg-white/10 text-white/60"
+                )}>
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+
+        {/* 📁 Todas as Figurinhas */}
         <button
           type="button"
           onClick={() => setActiveTab('todas')}
           className={cn(
-            "py-1.5 px-2.5 rounded-xl flex items-center justify-center gap-1 text-[11px] font-bold transition-all cursor-pointer",
+            "py-1.5 px-2.5 rounded-xl flex items-center gap-1 text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap shrink-0",
             activeTab === 'todas'
               ? "bg-amber-500 text-slate-950 shadow-md font-black"
               : "text-white/60 hover:text-white hover:bg-white/5"
           )}
-          title="Todas as figurinhas salvas"
+          title="Ver todas as figurinhas disponíveis"
         >
+          <Layers size={12} />
           <span>Todas</span>
+          <span className={cn(
+            "text-[9px] px-1 rounded-full font-bold",
+            activeTab === 'todas' ? "bg-slate-950/20 text-slate-950" : "bg-white/10 text-white/60"
+          )}>
+            {allStickers.length}
+          </span>
         </button>
       </div>
 
-      {/* Barra de Pesquisa Rápida */}
-      <div className="p-2 border-b border-white/5 bg-slate-900/50">
-        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-white/5 border border-white/10 text-xs">
-          <Search size={12} className="text-white/40 shrink-0" />
+      {/* 4. CAMPO DE BUSCA abaixo do topo do painel */}
+      <div className="p-2 border-b border-white/5 bg-slate-900/40 shrink-0">
+        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/5 border border-white/10 text-xs">
+          <Search size={13} className="text-white/40 shrink-0" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder={`Buscar em ${activeTab}...`}
+            placeholder={`Buscar figurinhas...`}
             className="w-full bg-transparent border-none outline-none text-white text-xs placeholder:text-white/30 focus:ring-0 p-0"
           />
           {search && (
             <button
               type="button"
               onClick={() => setSearch('')}
-              className="text-white/40 hover:text-white"
+              className="text-white/40 hover:text-white p-0.5"
             >
               <X size={12} />
             </button>
@@ -321,52 +328,60 @@ export const ChatStickerPicker: React.FC<ChatStickerPickerProps> = ({
         </div>
       </div>
 
-      {/* Grid de Figurinhas com Rolagem */}
-      <div className="p-3 flex-1 overflow-y-auto custom-scrollbar min-h-[200px] max-h-[250px] relative">
+      {/* 5. GRADE DE FIGURINHAS COM ROLAGEM INTERNA */}
+      <div className="p-3 flex-1 overflow-y-auto custom-scrollbar min-h-[220px] max-h-[280px] relative">
         {loading ? (
-          <div className="h-40 flex flex-col items-center justify-center text-white/40 gap-2">
+          <div className="h-44 flex flex-col items-center justify-center text-white/40 gap-2">
             <Loader2 size={24} className="animate-spin text-amber-400" />
             <span className="text-[11px]">Carregando figurinhas...</span>
           </div>
         ) : listToDisplay.length === 0 ? (
-          <div className="h-44 flex flex-col items-center justify-center text-center p-4 text-white/40 space-y-2">
+          <div className="h-48 flex flex-col items-center justify-center text-center p-4 text-white/40 space-y-2">
             <div className="w-10 h-10 rounded-2xl bg-white/5 flex items-center justify-center text-white/30">
-              {activeTab === 'favoritos' ? <Star size={20} /> : activeTab === 'historico' ? <History size={20} /> : <Package size={20} />}
+              {activeTab === 'historico' ? (
+                <Clock size={20} />
+              ) : activeTab === 'favoritos' ? (
+                <Star size={20} />
+              ) : (
+                <Folder size={20} />
+              )}
             </div>
             <p className="text-xs font-bold text-white/80">
-              {activeTab === 'favoritos'
-                ? 'Nenhuma figurinha favoritada ainda'
-                : activeTab === 'historico'
+              {activeTab === 'historico'
                 ? 'Histórico vazio'
-                : activeTab === 'colecao'
-                ? 'Nenhuma figurinha na coleção do sistema'
+                : activeTab === 'favoritos'
+                ? 'Nenhuma figurinha favoritada ainda'
+                : colecaoAtivaObj
+                ? `Nenhuma figurinha na pasta "${colecaoAtivaObj.name}"`
                 : 'Nenhuma figurinha encontrada'}
             </p>
             <p className="text-[10px] text-white/40 max-w-[240px] leading-relaxed">
-              {activeTab === 'favoritos'
-                ? 'Passe o mouse sobre qualquer figurinha recebida no chat e clique na estrela ⭐ para salvar aqui!'
-                : activeTab === 'historico'
-                ? 'As figurinhas que você disparar pelo chat aparecerão aqui automaticamente.'
-                : activeTab === 'colecao'
-                ? 'Cadastre a biblioteca oficial da empresa na aba Integrações > Figurinhas.'
-                : 'Faça upload de uma imagem ou salve figurinhas das conversas.'}
+              {activeTab === 'historico'
+                ? 'As figurinhas enviadas nas conversas aparecerão aqui automaticamente.'
+                : activeTab === 'favoritos'
+                ? 'Passe o mouse sobre qualquer figurinha e clique na estrela ☆ para salvar nas suas favoritas.'
+                : isAdmin
+                ? 'Você pode adicionar figurinhas a esta coleção pelo painel de Integrações.'
+                : 'Esta coleção ainda não possui figurinhas cadastradas pelo administrador.'}
             </p>
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="mt-1 px-3 py-1.5 rounded-xl bg-amber-500/20 text-amber-300 hover:bg-amber-500 hover:text-slate-950 text-[10px] font-bold transition-all cursor-pointer"
-            >
-              + Fazer Upload de Figurinha
-            </button>
+            {isAdmin && onGoToAdmin && (
+              <button
+                type="button"
+                onClick={onGoToAdmin}
+                className="mt-1 px-3 py-1.5 rounded-xl bg-amber-500/20 text-amber-300 hover:bg-amber-500 hover:text-slate-950 text-[10px] font-bold transition-all cursor-pointer border border-amber-500/30"
+              >
+                Gerenciar em Integrações
+              </button>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-4 gap-2.5">
             {listToDisplay.map((stk) => {
-              const isFav = stk.is_favorite || stk.category === 'favoritos';
+              const isFav = stk.is_favorite;
               return (
                 <div
                   key={stk.id || stk.url}
-                  onClick={() => !isSending && onSelectSticker(stk)}
+                  onClick={() => handleSelectStickerClick(stk)}
                   title={`${stk.name || 'Figurinha'} - Clique para enviar`}
                   className={cn(
                     "group relative aspect-square rounded-2xl bg-white/[0.04] hover:bg-white/[0.12] border border-white/10 hover:border-amber-400/60 p-1.5 flex items-center justify-center cursor-pointer transition-all duration-150 active:scale-95 shadow-sm hover:shadow-lg hover:shadow-amber-500/10",
@@ -380,7 +395,7 @@ export const ChatStickerPicker: React.FC<ChatStickerPickerProps> = ({
                     loading="lazy"
                   />
 
-                  {/* Botão de Favoritar no Hover */}
+                  {/* Botão de Favoritar no Hover (☆ / ★) */}
                   <button
                     type="button"
                     onClick={(e) => handleToggleFavorite(e, stk)}
@@ -392,17 +407,7 @@ export const ChatStickerPicker: React.FC<ChatStickerPickerProps> = ({
                         : "text-white/40 hover:text-amber-400 bg-slate-950/80 opacity-0 group-hover:opacity-100"
                     )}
                   >
-                    <Star size={10} className={isFav ? "fill-amber-400" : ""} />
-                  </button>
-
-                  {/* Botão de Excluir no Hover */}
-                  <button
-                    type="button"
-                    onClick={(e) => handleDeleteSticker(e, stk)}
-                    title="Excluir figurinha"
-                    className="absolute top-1 right-1 p-1 rounded-lg bg-slate-950/80 text-white/40 hover:text-rose-400 opacity-0 group-hover:opacity-100 backdrop-blur-md transition-all z-10 cursor-pointer"
-                  >
-                    <Trash2 size={10} />
+                    <Star size={11} className={isFav ? "fill-amber-400 text-amber-400" : ""} />
                   </button>
 
                   {/* Nome da Figurinha sutil ao passar o mouse */}
@@ -423,17 +428,27 @@ export const ChatStickerPicker: React.FC<ChatStickerPickerProps> = ({
         {isSending && (
           <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center text-white gap-2 z-20">
             <Loader2 size={24} className="animate-spin text-amber-400" />
-            <span className="text-xs font-bold">Enviando figurinha pro cliente...</span>
+            <span className="text-xs font-bold">Enviando figurinha...</span>
           </div>
         )}
       </div>
 
-      {/* Rodapé explicativo */}
-      <div className="px-3 py-2 border-t border-white/10 bg-slate-950/80 flex items-center justify-between text-[10px] text-white/50">
+      {/* Rodapé informativo */}
+      <div className="px-3 py-2 border-t border-white/10 bg-slate-950/80 flex items-center justify-between text-[10px] text-white/50 shrink-0">
         <span className="flex items-center gap-1 truncate">
           <Sparkles size={11} className="text-amber-400 shrink-0" />
-          <span>⭐ Salve figurinhas direto do chat ou gerencie na <strong>Coleção</strong>.</span>
+          <span>Clique para enviar na conversa atual</span>
         </span>
+        {isAdmin && onGoToAdmin && (
+          <button
+            type="button"
+            onClick={onGoToAdmin}
+            className="text-[10px] text-amber-400/80 hover:text-amber-300 font-bold hover:underline cursor-pointer flex items-center gap-1"
+          >
+            <Settings size={10} />
+            <span>Gerenciar</span>
+          </button>
+        )}
       </div>
     </div>
   );

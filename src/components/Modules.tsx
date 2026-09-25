@@ -22,6 +22,7 @@ import {
   isFigurinhaFavorita, 
   type StickerItem 
 } from '../lib/stickersStorage';
+import { getCache, setCache, isNetworkError } from '../lib/offlineSync';
 import { 
   TrendingUp, 
   LayoutGrid,
@@ -794,30 +795,30 @@ function deduplicateExtraCosts(costs: any[]): Array<{ id: string; description: s
 
 const mapVendaRow = (row: any): SaleOrder => ({
   id: row.id,
-  companyId: row.company_id,
-  customerId: row.cliente_id,
-  customerName: row.customer_name,
-  customerPhone: row.customer_phone,
-  cpfCnpj: row.cpf_cnpj || undefined,
+  companyId: row.company_id || row.companyId,
+  customerId: row.cliente_id || row.customerId || row.customer_id,
+  customerName: row.customer_name || row.customerName,
+  customerPhone: row.customer_phone || row.customerPhone,
+  cpfCnpj: row.cpf_cnpj || row.cpfCnpj || undefined,
   items: row.items || [],
   total: Number(row.total) || 0,
-  discountValue: row.discount_value ? Number(row.discount_value) : undefined,
-  downPayment: row.down_payment !== null ? Number(row.down_payment) : undefined,
-  receivedValue: row.received_value !== null ? Number(row.received_value) : undefined,
-  paymentMethod: row.payment_method,
+  discountValue: row.discount_value !== undefined && row.discount_value !== null ? Number(row.discount_value) : (row.discountValue !== undefined ? Number(row.discountValue) : undefined),
+  downPayment: row.down_payment !== null && row.down_payment !== undefined ? Number(row.down_payment) : (row.downPayment !== undefined ? Number(row.downPayment) : undefined),
+  receivedValue: row.received_value !== null && row.received_value !== undefined ? Number(row.received_value) : (row.receivedValue !== undefined ? Number(row.receivedValue) : undefined),
+  paymentMethod: row.payment_method || row.paymentMethod,
   payments: Array.isArray(row.payments) ? row.payments : undefined,
   status: row.status,
-  createdAt: row.created_at,
-  updatedAt: row.updated_at || undefined,
-  scheduledFor: row.scheduled_for || undefined,
-  deletedAt: row.deleted_at || undefined,
+  createdAt: row.created_at || row.createdAt,
+  updatedAt: row.updated_at || row.updatedAt || undefined,
+  scheduledFor: row.scheduled_for || row.scheduledFor || undefined,
+  deletedAt: row.deleted_at || row.deletedAt || undefined,
   observacoes: row.observacoes || undefined,
-  serviceStatus: row.service_status || undefined,
-  statusHistory: Array.isArray(row.status_history) ? row.status_history : [],
+  serviceStatus: row.service_status || row.serviceStatus || undefined,
+  statusHistory: Array.isArray(row.status_history) ? row.status_history : (Array.isArray(row.statusHistory) ? row.statusHistory : []),
   responsavel: row.responsavel || undefined,
-  orcamentoId: row.orcamento_id || undefined,
-  contratoId: row.contrato_id || undefined,
-  extraCosts: deduplicateExtraCosts(row.custos_extras),
+  orcamentoId: row.orcamento_id || row.orcamentoId || undefined,
+  contratoId: row.contrato_id || row.contratoId || undefined,
+  extraCosts: deduplicateExtraCosts(row.custos_extras || row.extraCosts),
 } as SaleOrder);
 
 const mapOrcamentoRow = (row: any): Orcamento => ({
@@ -1194,7 +1195,10 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   const [showLinhaLucro, setShowLinhaLucro] = useState(true);
   const [revenueDataPoint, setRevenueDataPoint] = useState<any>(null);
   const [revenueChartType, setRevenueChartType] = useState<'line' | 'bar'>('line');
-   const [realSales, setRealSales] = useState<SaleOrder[]>([]);
+  const [realSales, setRealSales] = useState<SaleOrder[]>(() => {
+    const cached = getCache<any[]>('pos_sales_cache', []);
+    return (cached || []).map(mapVendaRow);
+  });
   const [services, setServices] = useState<any[]>([]);
   const [inventory, setInventory] = useState<any[]>([]);
   // Comissoes lancadas (valor ja calculado com % aplicado) - contam como CUSTO no
@@ -1267,30 +1271,67 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       console.warn('Aviso Firestore services (offline/conexão):', err?.message || err);
     });
 
-    const loadSales = async () => {
-      const { data, error } = await supabase.from('vendas').select('*').is('deleted_at', null).order('created_at', { ascending: false });
-      if (error) {
-        // Antes esse erro era engolido silenciosamente (so o "data" era lido) — se a query
-        // falhar (RLS, coluna inexistente, etc.) o Dashboard ficava com realSales = [] sem
-        // nenhum aviso, e o grafico "Evolucao do Faturamento" sumia (cai no fallback vazio)
-        // sem pista nenhuma no console do porque.
-        console.error('Erro ao carregar vendas para o Dashboard/Analise de Performance:', error.message, error);
+    const loadSales = async (retryCount = 0) => {
+      try {
+        const { data, error } = await supabase.from('vendas').select('*').is('deleted_at', null).order('created_at', { ascending: false });
+        if (error) {
+          if (isNetworkError(error)) {
+            console.warn('Conexão offline/instável ao carregar vendas para o Dashboard (mantendo cache local):', error.message || error);
+            if (retryCount < 2) {
+              setTimeout(() => loadSales(retryCount + 1), 2500);
+            }
+          } else {
+            console.error('Erro ao carregar vendas para o Dashboard/Analise de Performance:', error.message, error);
+          }
+          return;
+        }
+        if (data) {
+          const mapped = data.map(mapVendaRow);
+          setRealSales(mapped);
+          setCache('pos_sales_cache', data);
+        }
+      } catch (err: any) {
+        if (isNetworkError(err)) {
+          console.warn('Conexão offline/instável ao carregar vendas para o Dashboard (mantendo cache local):', err?.message || err);
+          if (retryCount < 2) {
+            setTimeout(() => loadSales(retryCount + 1), 2500);
+          }
+        } else {
+          console.error('Erro ao carregar vendas para o Dashboard/Analise de Performance:', err?.message || err);
+        }
       }
-      setRealSales((data || []).map(mapVendaRow));
     };
     loadSales();
-    const salesChannel = supabase.channel('dashboard-vendas').on('postgres_changes', { event: '*', schema: 'public', table: 'vendas' }, loadSales).subscribe();
+    const salesChannel = supabase.channel('dashboard-vendas').on('postgres_changes', { event: '*', schema: 'public', table: 'vendas' }, () => loadSales()).subscribe();
 
     const loadInventory = async () => {
-      const { data } = await supabase.from('produtos').select('*');
-      setInventory((data || []).map((row: any) => ({
-        id: row.id, name: row.name, code: row.code, category: row.category, unit: row.unit,
-        salePrice: row.sale_price, costPrice: row.cost_price, currentStock: row.current_stock,
-        minStock: row.min_stock, isService: row.is_service, isActive: row.is_active,
-      })));
+      try {
+        const { data, error } = await supabase.from('produtos').select('*');
+        if (error) {
+          if (isNetworkError(error)) {
+            console.warn('Conexão offline/instável ao carregar produtos para o Dashboard:', error.message || error);
+          } else {
+            console.warn('Aviso produtos Dashboard:', error.message);
+          }
+          return;
+        }
+        if (data) {
+          setInventory((data || []).map((row: any) => ({
+            id: row.id, name: row.name, code: row.code, category: row.category, unit: row.unit,
+            salePrice: row.sale_price, costPrice: row.cost_price, currentStock: row.current_stock,
+            minStock: row.min_stock, isService: row.is_service, isActive: row.is_active,
+          })));
+        }
+      } catch (err: any) {
+        if (isNetworkError(err)) {
+          console.warn('Conexão offline/instável ao carregar produtos para o Dashboard:', err?.message || err);
+        } else {
+          console.warn('Aviso produtos Dashboard:', err?.message || err);
+        }
+      }
     };
     loadInventory();
-    const invChannel = supabase.channel('dashboard-produtos').on('postgres_changes', { event: '*', schema: 'public', table: 'produtos' }, loadInventory).subscribe();
+    const invChannel = supabase.channel('dashboard-produtos').on('postgres_changes', { event: '*', schema: 'public', table: 'produtos' }, () => loadInventory()).subscribe();
     
     return () => { unsubSvc(); supabase.removeChannel(salesChannel); supabase.removeChannel(invChannel); };
   }, [currentCompany]);
@@ -4056,17 +4097,17 @@ export const ChatPanel = ({
   const [stickersList, setStickersList] = useState<StickerItem[]>([]);
 
   useEffect(() => {
-    carregarFigurinhas().then(setStickersList);
+    carregarFigurinhas(user).then(setStickersList);
     const handleUpdate = () => {
-      carregarFigurinhas().then(setStickersList);
+      carregarFigurinhas(user).then(setStickersList);
     };
     window.addEventListener('whatsapp-stickers-updated', handleUpdate);
     return () => window.removeEventListener('whatsapp-stickers-updated', handleUpdate);
-  }, []);
+  }, [user?.id]);
 
   const isStickerSalva = (url: string) => {
     if (!url) return false;
-    return isFigurinhaFavorita(url, stickersList);
+    return isFigurinhaFavorita(url, stickersList.filter(s => s.is_favorite).map(s => s.id || s.url));
   };
 
   const handleSaveStickerFromMessage = async (msg: any) => {
@@ -4075,9 +4116,10 @@ export const ChatPanel = ({
       await favoritarFigurinhaDaConversa({
         url: msg.mediaUrl,
         senderName: msg.senderName || conversation?.name || 'cliente',
+        user,
       });
       showAlert('⭐ Figurinha salva nas Favoritas com sucesso!');
-      carregarFigurinhas().then(setStickersList);
+      carregarFigurinhas(user).then(setStickersList);
     } catch {
       showAlert('Erro ao salvar figurinha.');
     }
@@ -6207,29 +6249,56 @@ export const ChatPanel = ({
                     </button>
                   </div>
                 )}
-                <div className="flex items-end gap-1.5 sm:gap-2 bg-white p-1 rounded-2xl border border-slate-200 focus-within:border-primary-500/50 transition-all shadow-lg">
-                  <div className="flex items-center gap-0.5 pb-0.5">
-                    <input ref={documentoInputRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; handleSendFile(f, 'document'); }} />
-                    <input ref={fotoInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; handleSendFile(f, 'image'); }} />
-                    <button
-                      type="button"
-                      title="Enviar documento (até 100 MB)"
-                      disabled={enviandoArquivo}
-                      onClick={() => documentoInputRef.current?.click()}
-                      className="w-8 h-8 rounded-xl flex items-center justify-center text-slate-400 hover:text-primary-600 hover:bg-slate-100 transition-colors disabled:opacity-40 active:scale-95"
-                    >
-                      <Paperclip size={16} />
-                    </button>
-                    <button
-                      type="button"
-                      title="Enviar foto (até 16 MB)"
-                      disabled={enviandoArquivo}
-                      onClick={() => fotoInputRef.current?.click()}
-                      className="w-8 h-8 rounded-xl flex items-center justify-center text-slate-400 hover:text-primary-600 hover:bg-slate-100 transition-colors disabled:opacity-40 active:scale-95"
-                    >
-                      <ImageIcon size={16} />
-                    </button>
-                  </div>
+                <div className="relative">
+                  <ChatStickerPicker
+                    isOpen={showStickerPicker}
+                    onClose={() => setShowStickerPicker(false)}
+                    onSelectSticker={handleSendSticker}
+                    isSending={enviandoSticker}
+                    user={user}
+                    onGoToAdmin={() => {
+                      setShowStickerPicker(false);
+                      if (typeof window !== 'undefined') {
+                        localStorage.setItem('rpro_integracoes_tab', 'figurinhas');
+                        window.dispatchEvent(new CustomEvent('open-integracoes-tab', { detail: 'figurinhas' }));
+                      }
+                      if (setRootActiveTab) setRootActiveTab('robozinho_rafa');
+                    }}
+                  />
+                  <div className="flex items-end gap-1.5 sm:gap-2 bg-white p-1 rounded-2xl border border-slate-200 focus-within:border-primary-500/50 transition-all shadow-lg">
+                    <div className="flex items-center gap-0.5 pb-0.5">
+                      <input ref={documentoInputRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; handleSendFile(f, 'document'); }} />
+                      <input ref={fotoInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; handleSendFile(f, 'image'); }} />
+                      <button
+                        type="button"
+                        title="Enviar documento (até 100 MB)"
+                        disabled={enviandoArquivo}
+                        onClick={() => documentoInputRef.current?.click()}
+                        className="w-8 h-8 rounded-xl flex items-center justify-center text-slate-400 hover:text-primary-600 hover:bg-slate-100 transition-colors disabled:opacity-40 active:scale-95 cursor-pointer"
+                      >
+                        <Paperclip size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        title="Enviar foto (até 16 MB)"
+                        disabled={enviandoArquivo}
+                        onClick={() => fotoInputRef.current?.click()}
+                        className="w-8 h-8 rounded-xl flex items-center justify-center text-slate-400 hover:text-primary-600 hover:bg-slate-100 transition-colors disabled:opacity-40 active:scale-95 cursor-pointer"
+                      >
+                        <ImageIcon size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        title="Figurinhas (WhatsApp)"
+                        onClick={() => setShowStickerPicker(prev => !prev)}
+                        className={cn(
+                          "w-8 h-8 rounded-xl flex items-center justify-center transition-colors active:scale-95 cursor-pointer",
+                          showStickerPicker ? "bg-amber-500/20 text-amber-500" : "text-slate-400 hover:text-amber-500 hover:bg-slate-100"
+                        )}
+                      >
+                        <Smile size={16} />
+                      </button>
+                    </div>
                   <textarea 
                     ref={chatInputRef}
                     value={newMessage}
@@ -6273,6 +6342,7 @@ export const ChatPanel = ({
                       </button>
                     )}
                   </div>
+                </div>
                 </div>
               </div>
             </div>
