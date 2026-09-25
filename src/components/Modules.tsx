@@ -4907,7 +4907,7 @@ export const ChatPanel = ({
                       title="O Robozinho lê a última mensagem do cliente e o contexto recente da conversa e sugere 3 respostas pra você escolher"
                     >
                       {isGeneratingSuggestion ? <Loader2 size={10} className="animate-spin" /> : <Bot size={10} />}
-                      {isGeneratingSuggestion ? 'Pensando...' : 'Sugestão do Robozinho'}
+                      {isGeneratingSuggestion ? 'Pensando...' : 'Sugerir resposta'}
                     </button>
                     {showRobozinhoSuggestions && robozinhoSuggestions.length > 0 && (
                       <>
@@ -4936,7 +4936,7 @@ export const ChatPanel = ({
                       title="Ajustar o texto que você já escreveu (corrigir, deixar profissional, amigável, etc.)"
                     >
                       {isAssistingWriting ? <Loader2 size={10} className="animate-spin" /> : <Wand2 size={10} />}
-                      {isAssistingWriting ? 'Processando...' : 'IA'}
+                      {isAssistingWriting ? 'Processando...' : 'Melhorar texto'}
                     </button>
                     {showWritingAssistMenu && (
                       <>
