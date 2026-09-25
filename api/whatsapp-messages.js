@@ -99,6 +99,12 @@ function paraFormatoDoFront(msg, numero, ehGrupo) {
     deliveryStatus: direction === 'outgoing'
       ? (statusMaisAvancado([msg?.status, msg?.update?.status, ...(Array.isArray(msg?.MessageUpdate) ? msg.MessageUpdate.map((u) => u?.status) : [])]) || undefined)
       : undefined,
+    deliveredAt: direction === 'outgoing' && Array.isArray(msg?.MessageUpdate)
+      ? (timestampParaIso(msg.MessageUpdate.find((u) => normalizarStatusEntrega(u?.status) === 'delivered')?.dateTime || msg.MessageUpdate.find((u) => normalizarStatusEntrega(u?.status) === 'delivered')?.timestamp) || undefined)
+      : undefined,
+    readAt: direction === 'outgoing' && Array.isArray(msg?.MessageUpdate)
+      ? (timestampParaIso(msg.MessageUpdate.find((u) => normalizarStatusEntrega(u?.status) === 'read')?.dateTime || msg.MessageUpdate.find((u) => normalizarStatusEntrega(u?.status) === 'read')?.timestamp) || undefined)
+      : undefined,
     createdAt,
   };
 }

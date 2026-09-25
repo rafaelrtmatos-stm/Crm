@@ -16,16 +16,34 @@ function apiDevMiddleware(): Plugin {
         try {
           const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
           const routeName = parsedUrl.pathname.replace(/^\/api\//, '').replace(/\/$/, '');
+          const queryParams: Record<string, string> = Object.fromEntries(parsedUrl.searchParams.entries());
           let filePath = path.resolve(__dirname, 'api', `${routeName}.js`);
 
-          if (!fs.existsSync(filePath)) {
+          const REWRITES: Record<string, { file: string; query?: Record<string, string> }> = {
+            'ai/assist': { file: 'ai.js', query: { rota: 'assist' } },
+            'ai/suggest-reply': { file: 'ai.js', query: { rota: 'suggest-reply' } },
+            'transcrever-audio': { file: 'transcrever.js', query: { rota: 'audio' } },
+            'transcrever-pendentes': { file: 'transcrever.js', query: { rota: 'pendentes' } },
+            'whatsapp-foto-perfil': { file: 'whatsapp-contato.js', query: { rota: 'foto-perfil' } },
+            'whatsapp-presence-subscribe': { file: 'whatsapp-contato.js', query: { rota: 'presence-subscribe' } },
+            'whatsapp-edit-message': { file: 'whatsapp-message-actions.js', query: { rota: 'editar' } },
+            'whatsapp-delete-message': { file: 'whatsapp-message-actions.js', query: { rota: 'apagar' } },
+          };
+
+          if (REWRITES[routeName]) {
+            const rw = REWRITES[routeName];
+            filePath = path.resolve(__dirname, 'api', rw.file);
+            if (rw.query) {
+              Object.assign(queryParams, rw.query);
+            }
+          } else if (!fs.existsSync(filePath)) {
             // Check dynamic route like assinar/[id].js
             const parts = routeName.split('/');
             if (parts.length === 2) {
               const dynPath = path.resolve(__dirname, 'api', parts[0], '[id].js');
               if (fs.existsSync(dynPath)) {
                 filePath = dynPath;
-                (req as any).query = { ...(req as any).query, id: parts[1] };
+                queryParams.id = parts[1];
               } else {
                 return next();
               }
@@ -35,7 +53,7 @@ function apiDevMiddleware(): Plugin {
           }
 
           // Helpers para compatibilidade com handlers da Vercel
-          (req as any).query = Object.fromEntries(parsedUrl.searchParams.entries());
+          (req as any).query = queryParams;
 
           let bodyBuffer = '';
           req.on('data', (chunk) => {

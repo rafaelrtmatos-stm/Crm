@@ -389,7 +389,7 @@ async function atualizarPresenca(phone, status, lastSeenAt) {
 // MESSAGES_UPDATE: a Evolution avisa quando uma mensagem ENVIADA por nos foi entregue / lida (os "tiques").
 // Formatos aceitos: { keyId|messageId, remoteJid, fromMe, status } (Evolution v2), ou
 // [{ key: { id, remoteJid, fromMe }, update: { status } }] (Baileys cru). Devolve so o que interessa:
-// [{ id (whatsapp_message_id), remoteJid, status: 'sent'|'delivered'|'read' }] -- so mensagens MINHAS.
+// [{ id (whatsapp_message_id), remoteJid, status: 'sent'|'delivered'|'read', timestamp }] -- so mensagens MINHAS.
 function extrairAtualizacoesStatus(data) {
   const lista = Array.isArray(data) ? data : [data].filter(Boolean);
   const saida = [];
@@ -399,17 +399,28 @@ function extrairAtualizacoesStatus(data) {
     const id = u?.keyId || u?.key?.id || u?.messageId || null;
     const status = normalizarStatusEntrega(u?.status ?? u?.update?.status);
     if (!id || !status) continue;
-    saida.push({ id, remoteJid: u?.remoteJid || u?.key?.remoteJid || '', status });
+    const rawTs = u?.messageTimestamp || u?.timestamp || u?.dateTime || u?.update?.statusTimestamp;
+    const timestamp = rawTs ? timestampParaIso(rawTs) : null;
+    saida.push({ id, remoteJid: u?.remoteJid || u?.key?.remoteJid || '', status, timestamp });
   }
   return saida;
 }
 
-// Grava o status na mensagem (crm_messages.delivery_status). So SOBE (sent -> delivered -> read): um evento
-// atrasado/reenviado nunca faz um "lido" voltar pra "entregue". Devolve o phone da conversa (ou null).
+// Grava o status na mensagem (crm_messages.delivery_status) e os horários (delivered_at, read_at).
+// So SOBE (sent -> delivered -> read): um evento atrasado/reenviado nunca faz um "lido" voltar pra "entregue".
+// Os horários são gravados na primeira vez que cada status é alcançado. Devolve o phone da conversa (ou null).
 async function atualizarStatusEntrega(atualizacao) {
   try {
     const permitidos = statusesSubstituiveis(atualizacao.status);
     const condicoes = ['delivery_status.is.null', ...permitidos.map((p) => `delivery_status.eq.${p}`)].join(',');
+    const agoraIso = atualizacao.timestamp || new Date().toISOString();
+    const patchBody = { delivery_status: atualizacao.status };
+    if (atualizacao.status === 'delivered') {
+      patchBody.delivered_at = agoraIso;
+    } else if (atualizacao.status === 'read') {
+      patchBody.read_at = agoraIso;
+    }
+
     const r = await fetch(
       `${SUPABASE_URL}/rest/v1/crm_messages?company_id=eq.${COMPANY_ID}&whatsapp_message_id=eq.${encodeURIComponent(atualizacao.id)}&or=${encodeURIComponent(`(${condicoes})`)}&select=phone`,
       {
@@ -420,12 +431,33 @@ async function atualizarStatusEntrega(atualizacao) {
           'Content-Type': 'application/json',
           Prefer: 'return=representation',
         },
-        body: JSON.stringify({ delivery_status: atualizacao.status }),
+        body: JSON.stringify(patchBody),
       }
     );
     if (!r.ok) {
+      // Se falhou (ex: migracao add_delivery_timestamps_crm_messages.sql ainda nao foi rodada no Supabase),
+      // faz fallback gravando apenas delivery_status para nao quebrar os tiques.
+      if (patchBody.delivered_at || patchBody.read_at) {
+        const retryR = await fetch(
+          `${SUPABASE_URL}/rest/v1/crm_messages?company_id=eq.${COMPANY_ID}&whatsapp_message_id=eq.${encodeURIComponent(atualizacao.id)}&or=${encodeURIComponent(`(${condicoes})`)}&select=phone`,
+          {
+            method: 'PATCH',
+            headers: {
+              apikey: SUPABASE_ANON_KEY,
+              Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+              'Content-Type': 'application/json',
+              Prefer: 'return=representation',
+            },
+            body: JSON.stringify({ delivery_status: atualizacao.status }),
+          }
+        );
+        if (retryR.ok) {
+          const linhasFallback = await retryR.json().catch(() => []);
+          return Array.isArray(linhasFallback) && linhasFallback[0]?.phone ? linhasFallback[0].phone : null;
+        }
+      }
       const corpo = await r.text().catch(() => '');
-      console.error('[CRM WEBHOOK] falha ao gravar status de entrega (rodou add_delivery_status_crm_messages.sql?):', r.status, corpo);
+      console.error('[CRM WEBHOOK] falha ao gravar status de entrega (rodou add_delivery_status_crm_messages.sql / add_delivery_timestamps_crm_messages.sql?):', r.status, corpo);
       return null;
     }
     const linhas = await r.json().catch(() => []);

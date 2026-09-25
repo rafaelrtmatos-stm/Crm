@@ -19,9 +19,15 @@
 
 import { exigirUsuarioAutorizado } from './_lib/auth.js';
 
-// Mesmo modelo (e mesma variável GEMINI_MODEL) já usados pela transcrição de áudio
-// (api/_lib/gemini-transcricao.js), pra não introduzir uma segunda config de modelo.
-const MODELO = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+// Modelos suportados em ordem de preferência. Se um modelo estiver sobrecarregado (503)
+// ou indisponível, cai automaticamente para o próximo.
+const MODELOS = [
+  process.env.GEMINI_MODEL,
+  'gemini-3.5-flash-lite',
+  'gemini-3.1-flash-lite',
+  'gemini-3.8-flash',
+  'gemini-flash-latest',
+].filter(Boolean);
 
 function getApiKey() {
   return process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GOOGLE_GENAI_API_KEY;
@@ -72,42 +78,47 @@ async function handleAssist(req, res) {
     return;
   }
 
-  try {
-    const resposta = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODELO}:generateContent`, {
-      method: 'POST',
-      headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: `${ASSIST_REGRA_BASE} ${instrucao}\n\nTexto:\n${text}` }] }],
-        generationConfig: { temperature: 0.3 },
-      }),
-      signal: AbortSignal.timeout(20 * 1000),
-    });
+  let ultimoErro = null;
+  for (const modelo of MODELOS) {
+    try {
+      const resposta = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`, {
+        method: 'POST',
+        headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: `${ASSIST_REGRA_BASE} ${instrucao}\n\nTexto:\n${text}` }] }],
+          generationConfig: { temperature: 0.3 },
+        }),
+        signal: AbortSignal.timeout(15 * 1000),
+      });
 
-    if (!resposta.ok) {
-      const corpo = await resposta.text().catch(() => '');
-      console.error(`[ai/assist] Gemini HTTP ${resposta.status}: ${corpo.slice(0, 300)}`);
-      res.status(502).json({ error: 'Não foi possível processar o texto.' });
+      if (!resposta.ok) {
+        const corpo = await resposta.text().catch(() => '');
+        console.warn(`[ai/assist] Gemini (${modelo}) HTTP ${resposta.status}: ${corpo.slice(0, 150)}`);
+        ultimoErro = `HTTP ${resposta.status}`;
+        continue;
+      }
+
+      const json = await resposta.json();
+      const textoFinal = (json?.candidates?.[0]?.content?.parts || [])
+        .map((p) => p?.text || '')
+        .join('')
+        .trim();
+
+      if (!textoFinal) {
+        console.warn(`[ai/assist] Gemini (${modelo}) respondeu sem texto.`);
+        continue;
+      }
+
+      res.status(200).json({ text: textoFinal });
       return;
+    } catch (err) {
+      console.warn(`[ai/assist] falha no modelo ${modelo}:`, err?.message || err);
+      ultimoErro = err?.message;
     }
-
-    const json = await resposta.json();
-    const textoFinal = (json?.candidates?.[0]?.content?.parts || [])
-      .map((p) => p?.text || '')
-      .join('')
-      .trim();
-
-    if (!textoFinal) {
-      console.error('[ai/assist] Gemini respondeu sem texto utilizável.');
-      res.status(502).json({ error: 'Não foi possível processar o texto.' });
-      return;
-    }
-
-    res.status(200).json({ text: textoFinal });
-  } catch (err) {
-    const timeout = err?.name === 'TimeoutError' || err?.name === 'AbortError';
-    console.error(`[ai/assist] ${timeout ? 'timeout' : 'falha'} ao chamar Gemini:`, err?.message || err);
-    res.status(timeout ? 504 : 500).json({ error: 'Não foi possível processar o texto.' });
   }
+
+  console.error('[ai/assist] Todos os modelos falharam:', ultimoErro);
+  res.status(502).json({ error: 'Não foi possível processar o texto.' });
 }
 
 // --- rota=suggest-reply (ex api/ai/suggest-reply.js) ---
@@ -135,17 +146,41 @@ function montarPromptSuggest({ clientMessage, history, clientName }) {
 }
 
 function extrairSugestoes(texto) {
-  // O Gemini às vezes envolve o JSON em ```json ... ``` mesmo pedindo só JSON.
-  const limpo = texto.replace(/```json|```/gi, '').trim();
-  let json;
+  if (!texto) return null;
+  const limpo = texto.replace(/```json/gi, '').replace(/```/g, '').trim();
   try {
-    json = JSON.parse(limpo);
+    const json = JSON.parse(limpo);
+    const suggestions = Array.isArray(json?.suggestions)
+      ? json.suggestions.filter((s) => typeof s === 'string' && s.trim())
+      : null;
+    if (suggestions && suggestions.length > 0) return suggestions.slice(0, 3);
   } catch {
-    return null;
+    // continua para regex
   }
-  const suggestions = Array.isArray(json?.suggestions) ? json.suggestions.filter((s) => typeof s === 'string' && s.trim()) : null;
-  if (!suggestions || suggestions.length === 0) return null;
-  return suggestions.slice(0, 3);
+
+  const match = limpo.match(/"suggestions"\s*:\s*\[([\s\S]*?)\]/);
+  if (match) {
+    try {
+      const parsed = JSON.parse(`[${match[1]}]`);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.map(String).filter((s) => s.trim()).slice(0, 3);
+      }
+    } catch {
+      // continua para fallback de linhas
+    }
+  }
+
+  // Fallback caso venha em formato de lista: 1. ... 2. ... 3. ...
+  const linhas = limpo
+    .split('\n')
+    .map((l) => l.replace(/^(\d+[\.\-\)]|\-|\*)\s*/, '').trim())
+    .filter((l) => l.length > 5 && !l.toLowerCase().startsWith('sugest'));
+
+  if (linhas.length >= 2) {
+    return linhas.slice(0, 3);
+  }
+
+  return null;
 }
 
 async function handleSuggestReply(req, res) {
@@ -166,40 +201,46 @@ async function handleSuggestReply(req, res) {
     return;
   }
 
-  try {
-    const resposta = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODELO}:generateContent`, {
-      method: 'POST',
-      headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: montarPromptSuggest({ clientMessage, history, clientName }) }] }],
-        generationConfig: { temperature: 0.6, responseMimeType: 'application/json' },
-      }),
-      signal: AbortSignal.timeout(20 * 1000),
-    });
+  let ultimoErro = null;
+  for (const modelo of MODELOS) {
+    try {
+      const resposta = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`, {
+        method: 'POST',
+        headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: montarPromptSuggest({ clientMessage, history, clientName }) }] }],
+          generationConfig: { temperature: 0.6 },
+        }),
+        signal: AbortSignal.timeout(15 * 1000),
+      });
 
-    if (!resposta.ok) {
-      const corpo = await resposta.text().catch(() => '');
-      console.error(`[ai/suggest-reply] Gemini HTTP ${resposta.status}: ${corpo.slice(0, 300)}`);
-      res.status(502).json({ error: 'Não foi possível gerar as sugestões agora.' });
+      if (!resposta.ok) {
+        const corpo = await resposta.text().catch(() => '');
+        console.warn(`[ai/suggest-reply] Gemini (${modelo}) HTTP ${resposta.status}: ${corpo.slice(0, 200)}`);
+        ultimoErro = `HTTP ${resposta.status}`;
+        continue;
+      }
+
+      const json = await resposta.json();
+      const textoFinal = (json?.candidates?.[0]?.content?.parts || []).map((p) => p?.text || '').join('').trim();
+      const suggestions = textoFinal ? extrairSugestoes(textoFinal) : null;
+
+      if (!suggestions || suggestions.length === 0) {
+        console.warn(`[ai/suggest-reply] Gemini (${modelo}) respondeu sem sugestões utilizáveis.`);
+        ultimoErro = 'Sem sugestões válidas';
+        continue;
+      }
+
+      res.status(200).json({ suggestions });
       return;
+    } catch (err) {
+      console.warn(`[ai/suggest-reply] falha no modelo ${modelo}:`, err?.message || err);
+      ultimoErro = err?.message;
     }
-
-    const json = await resposta.json();
-    const textoFinal = (json?.candidates?.[0]?.content?.parts || []).map((p) => p?.text || '').join('').trim();
-    const suggestions = textoFinal ? extrairSugestoes(textoFinal) : null;
-
-    if (!suggestions) {
-      console.error('[ai/suggest-reply] Gemini respondeu sem JSON de sugestões utilizável.');
-      res.status(502).json({ error: 'Não foi possível gerar as sugestões agora.' });
-      return;
-    }
-
-    res.status(200).json({ suggestions });
-  } catch (err) {
-    const timeout = err?.name === 'TimeoutError' || err?.name === 'AbortError';
-    console.error(`[ai/suggest-reply] ${timeout ? 'timeout' : 'falha'} ao chamar Gemini:`, err?.message || err);
-    res.status(timeout ? 504 : 500).json({ error: 'Não foi possível gerar as sugestões agora.' });
   }
+
+  console.error('[ai/suggest-reply] Todos os modelos falharam:', ultimoErro);
+  res.status(502).json({ error: 'Não foi possível gerar as sugestões agora.' });
 }
 
 export default async function handler(req, res) {

@@ -5,11 +5,12 @@
 import { SUPABASE_URL } from './whatsapp-config.js';
 import { buscarMidiaEvolution, messageIdDaMediaUrl, ErroMidia } from './evolution-media.js';
 
-// Tenta o modelo configurado (GEMINI_MODEL) ou cai para os modelos ativos suportados (gemini-3.6-flash é o padrão atual do Google).
+// Tenta o modelo configurado (GEMINI_MODEL) ou cai para os modelos ativos suportados
 const MODELOS = [
   process.env.GEMINI_MODEL,
-  'gemini-3.6-flash',
   'gemini-3.5-transcribe',
+  'gemini-3.5-flash-lite',
+  'gemini-3.8-flash',
   'gemini-flash-latest',
 ].filter(Boolean);
 // Inline do Gemini aceita até 20 MB no total; base64 infla ~33%, então limita o áudio a 14 MB.
