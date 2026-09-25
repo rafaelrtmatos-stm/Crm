@@ -124,10 +124,12 @@ export function extrairContextoCitacao(message, profundidade = 0) {
     const quotedText = ctx.quotedMessage ? extrairTextoMensagem(ctx.quotedMessage) : '';
     const quotedMessageId = ctx.stanzaId || null;
     const participantRaw = String(ctx.participant || '').replace(/@.*$/, '').replace(/\D/g, '');
+    const midiaCitada = ctx.quotedMessage ? encontrarNodeMidia(ctx.quotedMessage) : null;
     return {
       quotedMessageId,
-      quotedText: quotedText || null,
+      quotedText: quotedText || (midiaCitada?.tipo === 'image' ? '📷 Foto' : null),
       quotedSender: participantRaw || null,
+      quotedMediaType: midiaCitada?.tipo || null,
     };
   }
 

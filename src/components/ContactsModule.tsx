@@ -371,10 +371,15 @@ export const ContactsModule: React.FC<ContactsModuleProps> = ({
 
                 <div className="space-y-1 text-xs text-white/70">
                   {client.telefone && (
-                    <div className="flex items-center gap-2">
-                      <Phone size={13} className="text-primary-400 shrink-0" />
-                      <span className="font-mono">{formatPhoneBR(client.telefone)}</span>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenWhatsApp(client.telefone, client.nome)}
+                      className="flex items-center gap-2 text-left hover:text-emerald-400 group/phone transition-colors cursor-pointer"
+                      title="Clique no número para abrir no WhatsApp"
+                    >
+                      <Phone size={13} className="text-primary-400 group-hover/phone:text-emerald-400 shrink-0 transition-colors" />
+                      <span className="font-mono underline decoration-dotted decoration-white/30 group-hover/phone:decoration-emerald-400">{formatPhoneBR(client.telefone)}</span>
+                    </button>
                   )}
                   {client.email && (
                     <div className="flex items-center gap-2 truncate">

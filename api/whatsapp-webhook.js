@@ -80,18 +80,22 @@ function extrairInfoMidia(msg) {
   return info;
 }
 
-async function inserirMensagem({ phone, text, senderName, direction = 'incoming', channel = 'WhatsApp', whatsappMessageId, createdAt, mediaUrl, fileName, contentType, groupJid, audio, quotedMessageId, quotedText, quotedSender }) {
+async function inserirMensagem({ phone, text, senderName, direction = 'incoming', channel = 'WhatsApp', whatsappMessageId, createdAt, mediaUrl, fileName, contentType, groupJid, audio, quotedMessageId, quotedText, quotedSender, quotedMediaType }) {
   if (!phone || !text) return;
   // `audio` = campos extras do áudio (media_mime_type, media_duration, transcription_status).
+  const quoteVersions = (quotedMessageId || quotedText) ? [{
+    quotedMessageId: quotedMessageId || null,
+    quotedText: quotedText || null,
+    quotedSender: quotedSender || null,
+    quotedMediaType: quotedMediaType || null,
+  }] : null;
+
   const enviar = (comGrupo, comAudio = true, comCitacao = true) => fetch(`${SUPABASE_URL}/rest/v1/crm_messages`, {
     method: 'POST',
     headers: {
       apikey: SUPABASE_ANON_KEY,
       Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
       'Content-Type': 'application/json',
-      // A Evolution API pode reenviar o mesmo webhook (retry por timeout/instabilidade).
-      // Com o indice unico em (company_id, whatsapp_message_id), isso evita duplicar a
-      // mensagem no chat em tempo real quando o mesmo evento chega mais de uma vez.
       Prefer: 'resolution=ignore-duplicates,return=minimal',
     },
     body: JSON.stringify({
@@ -105,6 +109,7 @@ async function inserirMensagem({ phone, text, senderName, direction = 'incoming'
       media_url: mediaUrl || null,
       file_name: fileName || null,
       content_type: contentType || null,
+      ...(quoteVersions ? { versions: quoteVersions } : {}),
       ...(comCitacao && (quotedMessageId || quotedText) ? {
         quoted_message_id: quotedMessageId || null,
         quoted_text: quotedText || null,
@@ -723,6 +728,7 @@ export default async function handler(req, res) {
               quotedMessageId: citacao?.quotedMessageId,
               quotedText: citacao?.quotedText,
               quotedSender: citacao?.quotedSender,
+              quotedMediaType: citacao?.quotedMediaType,
             });
             if (gravada && precisaTranscrever) {
               transcreverAudioAgora = await enfileirarTranscricao({

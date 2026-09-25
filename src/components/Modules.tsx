@@ -637,57 +637,136 @@ const normalizarMediaUrl = (url?: string | null): string | undefined => {
 
 // Tiques de status da mensagem ENVIADA (igual ao WhatsApp): 1 tique cinza = enviada, 2 cinzas = entregue,
 // 2 azuis = lida. Sem status (mensagem antiga ou webhook MESSAGES_UPDATE ainda nao chegou) = nao mostra nada.
-// Clicável: abre o horário de cada tique (ver statusMensagemAberto no componente do chat).
-const MessageStatusTicks = ({ status, onClick }: { status?: string; onClick?: () => void }) => {
+// Clicável: abre um mini balão compacto e discreto junto à mensagem mostrando os estados (Enviada, Entregue, Visualizada).
+const MessageStatusTicks = ({
+  status,
+  m,
+  isOpen,
+  onToggle,
+  onClose,
+}: {
+  status?: string;
+  m?: any;
+  isOpen?: boolean;
+  onToggle?: () => void;
+  onClose?: () => void;
+}) => {
   if (status !== 'sent' && status !== 'delivered' && status !== 'read') return null;
   const label = status === 'read' ? 'Lida' : status === 'delivered' ? 'Entregue' : 'Enviada';
+  const sentTime = m?.createdAt ? safeFormat(m.createdAt, 'HH:mm') : '';
+  const deliveredTime = m?.deliveredAt ? safeFormat(m.deliveredAt, 'HH:mm') : (status === 'delivered' || status === 'read' ? 'Confirmada' : null);
+  const readTime = m?.readAt ? safeFormat(m.readAt, 'HH:mm') : (status === 'read' ? 'Visualizada' : null);
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={`${label} — toque para ver os horários`}
-      aria-label={label}
-      className={cn("inline-flex items-center", status === 'read' ? "text-sky-400" : "text-white/50", onClick && "hover:text-sky-300 transition-colors")}
-    >
-      {status === 'sent' ? <Check size={13} strokeWidth={2.5} /> : <CheckCheck size={13} strokeWidth={2.5} />}
-    </button>
+    <div className="relative inline-flex items-center">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggle?.();
+        }}
+        title={`${label} — toque para ver o status detalhado`}
+        aria-label={label}
+        className={cn(
+          "inline-flex items-center cursor-pointer transition-transform active:scale-90",
+          status === 'read' ? "text-sky-400" : "text-white/50",
+          isOpen && "ring-1 ring-white/30 rounded"
+        )}
+      >
+        {status === 'sent' ? <Check size={13} strokeWidth={2.5} /> : <CheckCheck size={13} strokeWidth={2.5} />}
+      </button>
+
+      {isOpen && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); onClose?.(); }} />
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="absolute bottom-full mb-1.5 right-0 z-50 bg-slate-900/95 border border-white/20 text-white rounded-xl p-2.5 shadow-2xl backdrop-blur-md text-[10px] w-48 text-left space-y-1.5 animate-in fade-in zoom-in-95 duration-150 select-none"
+          >
+            <div className="flex items-center justify-between border-b border-white/10 pb-1">
+              <span className="font-black uppercase tracking-wider text-slate-400 text-[8.5px]">Status da Mensagem</span>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onClose?.(); }}
+                className="text-white/40 hover:text-white p-0.5 rounded cursor-pointer"
+              >
+                <X size={11} />
+              </button>
+            </div>
+            <div className="space-y-1 font-medium">
+              <div className="flex items-center justify-between text-white/80">
+                <span className="flex items-center gap-1.5">
+                  <Check size={11} className="text-white/60" /> Enviada
+                </span>
+                <span className="text-[9px] text-white/40">{sentTime || 'OK'}</span>
+              </div>
+              <div className={cn("flex items-center justify-between", (status === 'delivered' || status === 'read') ? "text-white/90" : "text-white/30")}>
+                <span className="flex items-center gap-1.5">
+                  <CheckCheck size={11} className={(status === 'delivered' || status === 'read') ? "text-white/70" : "text-white/20"} /> Entregue
+                </span>
+                <span className="text-[9px] text-white/40">{deliveredTime || '—'}</span>
+              </div>
+              <div className={cn("flex items-center justify-between", status === 'read' ? "text-sky-300 font-bold" : "text-white/30")}>
+                <span className="flex items-center gap-1.5">
+                  <CheckCheck size={11} className={status === 'read' ? "text-sky-400" : "text-white/20"} /> Visualizada
+                </span>
+                <span className="text-[9px] text-white/40">{readTime || '—'}</span>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
   );
 };
 
 // Conversas cujas mensagens antigas ja tiveram os tiques buscados na Evolution nesta sessao (1 vez por conversa).
 const tiquesBackfillFeitoPhones = new Set<string>();
 
-const mapCrmMessageRow = (row: any): any => ({
-  id: row.id,
-  companyId: row.company_id,
-  leadId: row.lead_id || undefined,
-  phone: row.phone,
-  text: row.text || undefined,
-  direction: row.direction,
-  isNote: !!row.is_note,
-  senderName: row.sender_name || undefined,
-  channel: row.channel || 'WhatsApp',
-  mediaUrl: normalizarMediaUrl(row.media_url),
-  fileName: row.file_name || undefined,
-  mediaContentType: row.content_type || undefined,
-  transcription: row.transcription || undefined,
-  transcriptionStatus: row.transcription_status || undefined,
-  transcriptionError: row.transcription_error || undefined,
-  deliveryStatus: row.delivery_status || undefined,
-  deliveredAt: row.delivered_at || undefined,
-  readAt: row.read_at || undefined,
-  versions: row.versions || undefined,
-  currentVersionIndex: row.current_version_index ?? undefined,
-  lastEditedAt: row.last_edited_at || undefined,
-  lastEditedBy: row.last_edited_by || undefined,
-  deletedAt: row.deleted_at || undefined,
-  deletedBy: row.deleted_by || undefined,
-  whatsappMessageId: row.whatsapp_message_id || undefined,
-  quotedMessageId: row.quoted_message_id || undefined,
-  quotedText: row.quoted_text || undefined,
-  quotedSender: row.quoted_sender || undefined,
-  createdAt: row.created_at,
-});
+const mapCrmMessageRow = (row: any): any => {
+  const quotedMeta = Array.isArray(row.versions)
+    ? row.versions.find((v: any) => v && (v.quotedMessageId || v.quoted_message_id || v.quotedText))
+    : (row.versions && typeof row.versions === 'object' && (row.versions.quotedMessageId || row.versions.quotedText) ? row.versions : null);
+  const qId = row.quoted_message_id || quotedMeta?.quotedMessageId || quotedMeta?.quoted_message_id || undefined;
+  const qText = row.quoted_text || quotedMeta?.quotedText || quotedMeta?.quoted_text || undefined;
+  const qSender = row.quoted_sender || quotedMeta?.quotedSender || quotedMeta?.quoted_sender || undefined;
+  const qMediaUrl = row.quoted_media_url || quotedMeta?.quotedMediaUrl || quotedMeta?.quoted_media_url || undefined;
+  const qMediaType = row.quoted_media_type || quotedMeta?.quotedMediaType || quotedMeta?.quoted_media_type || (qText?.startsWith('📷') ? 'image' : undefined);
+
+  return {
+    id: row.id,
+    companyId: row.company_id,
+    leadId: row.lead_id || undefined,
+    phone: row.phone,
+    text: row.text || undefined,
+    direction: row.direction,
+    isNote: !!row.is_note,
+    senderName: row.sender_name || undefined,
+    channel: row.channel || 'WhatsApp',
+    mediaUrl: normalizarMediaUrl(row.media_url),
+    fileName: row.file_name || undefined,
+    mediaContentType: row.content_type || undefined,
+    transcription: row.transcription || undefined,
+    transcriptionStatus: row.transcription_status || undefined,
+    transcriptionError: row.transcription_error || undefined,
+    deliveryStatus: row.delivery_status || undefined,
+    deliveredAt: row.delivered_at || undefined,
+    readAt: row.read_at || undefined,
+    versions: row.versions || undefined,
+    currentVersionIndex: row.current_version_index ?? undefined,
+    lastEditedAt: row.last_edited_at || undefined,
+    lastEditedBy: row.last_edited_by || undefined,
+    deletedAt: row.deleted_at || undefined,
+    deletedBy: row.deleted_by || undefined,
+    whatsappMessageId: row.whatsapp_message_id || undefined,
+    quotedMessageId: qId,
+    quotedText: qText,
+    quotedSender: qSender,
+    quotedMediaType: qMediaType,
+    quotedMediaUrl: qMediaUrl,
+    createdAt: row.created_at,
+  };
+};
 
 function deduplicateExtraCosts(costs: any[]): Array<{ id: string; description: string; amount: number; colaboradorId?: string; origemItemIndex?: number; date?: string }> {
   if (!Array.isArray(costs) || costs.length === 0) return [];
@@ -3372,7 +3451,66 @@ export const ChatPanel = ({
   const [savingWaEditId, setSavingWaEditId] = useState<string | null>(null);
   const [deletingWaMessageId, setDeletingWaMessageId] = useState<string | null>(null);
   const [historicoMensagemAberto, setHistoricoMensagemAberto] = useState<any | null>(null);
-  const [statusMensagemAberto, setStatusMensagemAberto] = useState<any | null>(null);
+  const [statusMensagemAbertoId, setStatusMensagemAbertoId] = useState<string | null>(null);
+  const [imageViewerModal, setImageViewerModal] = useState<{ url: string; caption?: string; fileName?: string } | null>(null);
+  const [enviandoNotaImagem, setEnviandoNotaImagem] = useState(false);
+
+  const handleSendImageWithCaption = async (imageUrl: string, captionText: string) => {
+    if (!imageUrl || !conversation?.phone) return;
+    setEnviandoNotaImagem(true);
+    try {
+      let urlParaEnvio = imageUrl;
+      const ehStorageUrl = imageUrl.includes('/storage/v1/object/public/');
+      if (!ehStorageUrl) {
+        try {
+          const r = await fetch(imageUrl);
+          if (r.ok) {
+            const blob = await r.blob();
+            const digitos = conversation.phone.replace(/\D/g, '');
+            const ext = blob.type.includes('png') ? 'png' : 'jpg';
+            const caminho = `enviados/${digitos}/${Date.now()}-nota.${ext}`;
+            const { error: upErr } = await supabase.storage.from('whatsapp-media').upload(caminho, blob, { contentType: blob.type || 'image/jpeg', upsert: false });
+            if (!upErr) {
+              const { data: pub } = supabase.storage.from('whatsapp-media').getPublicUrl(caminho);
+              if (pub?.publicUrl) urlParaEnvio = pub.publicUrl;
+            }
+          }
+        } catch (e) {
+          console.warn('Tentando envio com url original:', e);
+        }
+      }
+
+      const senderRole = user?.isAdmin ? 'Adm' : 'Atendente';
+      const senderDisplay = user?.name ? `${user.name} (${senderRole})` : senderRole;
+      const resp = await fetch('/api/whatsapp-send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
+        body: JSON.stringify({
+          phone: conversation.phone,
+          mediaUrl: urlParaEnvio,
+          mediaType: 'image',
+          fileName: 'imagem-nota.jpg',
+          mimeType: 'image/jpeg',
+          text: captionText || undefined,
+          senderName: senderDisplay,
+          leadId: conversation.id || null,
+        }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        showAlert(`Não foi possível enviar a imagem com a nota: ${data.error || 'erro no envio'}.`);
+        return;
+      }
+      showAlert('Imagem e nota enviadas diretamente para o WhatsApp do cliente!');
+      setImageViewerModal(null);
+      recarregarMensagensRef.current?.();
+    } catch (err) {
+      console.error('Erro ao enviar imagem e nota pro WhatsApp:', err);
+      showAlert('Falha ao enviar para o WhatsApp.');
+    } finally {
+      setEnviandoNotaImagem(false);
+    }
+  };
   const [messages, setMessages] = useState<any[]>([]);
   const [erroHistorico, setErroHistorico] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
@@ -4795,6 +4933,12 @@ export const ChatPanel = ({
       // um "Reenviar" pro atendente tentar de novo, sem digitar tudo outra vez.
       const canal = (conversation.sourceType || conversation.channel || 'WhatsApp');
       if (canal === 'WhatsApp' && conversation.phone) {
+        const quoteMediaUrl = currentReplying?.mediaUrl || undefined;
+        const quoteMediaType = (currentReplying?.mediaContentType === 'image' || currentReplying?.contentType === 'image' || isImageUrl(currentReplying?.mediaUrl)) ? 'image' : undefined;
+        const quoteText = currentReplying ? (currentReplying.text || (quoteMediaType === 'image' ? '📷 Foto' : (currentReplying.fileName || 'Mensagem'))) : undefined;
+        const quoteSender = currentReplying ? (currentReplying.direction === 'outgoing' ? 'Você' : (currentReplying.senderName || conversation.name || 'Cliente')) : undefined;
+        const quoteMessageId = currentReplying?.whatsappMessageId || currentReplying?.id || undefined;
+
         let respData: any = {};
         try {
           const resp = await fetch('/api/whatsapp-send', {
@@ -4805,9 +4949,11 @@ export const ChatPanel = ({
               text: textoEnviado,
               senderName: senderDisplay,
               leadId: conversation.id || null,
-              quotedMessageId: currentReplying?.whatsappMessageId || currentReplying?.id || undefined,
-              quotedText: currentReplying ? (currentReplying.text || currentReplying.fileName || (currentReplying.mediaContentType ? `[${currentReplying.mediaContentType}]` : 'Mensagem')) : undefined,
-              quotedSender: currentReplying ? (currentReplying.direction === 'outgoing' ? 'Você' : (currentReplying.senderName || conversation.name || 'Cliente')) : undefined,
+              quotedMessageId: quoteMessageId,
+              quotedText: quoteText,
+              quotedSender: quoteSender,
+              quotedMediaUrl: quoteMediaUrl,
+              quotedMediaType: quoteMediaType,
             }),
           });
           respData = await resp.json().catch(() => ({}));
@@ -4835,9 +4981,9 @@ export const ChatPanel = ({
             sender_name: senderDisplay,
             channel: 'WhatsApp',
             whatsapp_message_id: respData.whatsappMessageId || null,
-            quoted_message_id: currentReplying?.whatsappMessageId || currentReplying?.id || null,
-            quoted_text: currentReplying ? (currentReplying.text || currentReplying.fileName || (currentReplying.mediaContentType ? `[${currentReplying.mediaContentType}]` : 'Mensagem')) : null,
-            quoted_sender: currentReplying ? (currentReplying.direction === 'outgoing' ? 'Você' : (currentReplying.senderName || conversation.name || 'Cliente')) : null,
+            quoted_message_id: quoteMessageId || null,
+            quoted_text: quoteText || null,
+            quoted_sender: quoteSender || null,
             created_at: quando,
           });
           await supabase.from('leads').update({
@@ -5039,6 +5185,17 @@ export const ChatPanel = ({
               <ArrowLeft size={19} />
             </button>
           )}
+          {/* Botão Encolher/Expandir Coluna no Desktop */}
+          {onToggleColumnCollapse && (
+            <button
+              type="button"
+              onClick={onToggleColumnCollapse}
+              className="hidden md:flex items-center justify-center w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 hover:text-white transition-all shrink-0 -ml-1 cursor-pointer active:scale-95"
+              title={isColumnCollapsed ? "Expandir coluna de etapas" : "Encolher coluna de etapas"}
+            >
+              {isColumnCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+            </button>
+          )}
           <div className="relative">
             <button
               type="button"
@@ -5118,49 +5275,66 @@ export const ChatPanel = ({
               </div>,
               document.body
             )}
-            {statusMensagemAberto && createPortal(
+            {imageViewerModal && createPortal(
               <div
-                className="fixed inset-0 z-[300] bg-black/70 flex items-center justify-center p-6"
-                onClick={() => setStatusMensagemAberto(null)}
+                className="fixed inset-0 z-[300] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-200"
+                onClick={() => setImageViewerModal(null)}
               >
                 <div
                   onClick={(e) => e.stopPropagation()}
-                  className="bg-white rounded-2xl shadow-2xl w-full max-w-xs overflow-hidden"
+                  className="bg-slate-900 border border-white/15 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden text-white"
                 >
-                  <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-                    <p className="text-xs font-black uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
-                      <CheckCheck size={14} /> Status da mensagem
-                    </p>
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-white/[0.02]">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <ImageIcon size={16} className="text-primary-400 shrink-0" />
+                      <p className="text-xs font-black uppercase tracking-wider text-white truncate">
+                        {imageViewerModal.fileName || 'Visualização da Imagem'}
+                      </p>
+                    </div>
                     <button
                       type="button"
-                      onClick={() => setStatusMensagemAberto(null)}
-                      className="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 flex items-center justify-center transition-colors"
+                      onClick={() => setImageViewerModal(null)}
+                      className="w-7 h-7 rounded-lg hover:bg-white/10 text-white/50 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
                     >
                       <X size={16} />
                     </button>
                   </div>
-                  <div className="p-4 space-y-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center shrink-0"><Check size={13} strokeWidth={2.5} /></div>
-                      <div className="text-xs">
-                        <p className="font-bold text-slate-700">Enviada</p>
-                        <p className="text-slate-400">{statusMensagemAberto.createdAt ? safeFormat(statusMensagemAberto.createdAt, 'dd/MM/yyyy HH:mm') : '—'}</p>
+                  <div className="flex-1 overflow-y-auto p-4 flex flex-col items-center justify-center gap-4 bg-black/30">
+                    <img
+                      src={imageViewerModal.url}
+                      alt={imageViewerModal.fileName || 'Imagem'}
+                      className="max-h-[58vh] max-w-full object-contain rounded-xl shadow-lg border border-white/10"
+                    />
+                    {imageViewerModal.caption && (
+                      <div className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-left">
+                        <p className="text-[10px] font-black uppercase tracking-wider text-primary-300 mb-1">
+                          Nota / Legenda da Imagem:
+                        </p>
+                        <p className="text-xs text-white/90 whitespace-pre-wrap leading-relaxed">
+                          {imageViewerModal.caption}
+                        </p>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center shrink-0"><CheckCheck size={13} strokeWidth={2.5} /></div>
-                      <div className="text-xs">
-                        <p className="font-bold text-slate-700">Entregue</p>
-                        <p className="text-slate-400">{statusMensagemAberto.deliveredAt ? safeFormat(statusMensagemAberto.deliveredAt, 'dd/MM/yyyy HH:mm') : 'Ainda não confirmado'}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-full bg-sky-50 text-sky-400 flex items-center justify-center shrink-0"><CheckCheck size={13} strokeWidth={2.5} /></div>
-                      <div className="text-xs">
-                        <p className="font-bold text-slate-700">Lida</p>
-                        <p className="text-slate-400">{statusMensagemAberto.readAt ? safeFormat(statusMensagemAberto.readAt, 'dd/MM/yyyy HH:mm') : 'Ainda não visualizada'}</p>
-                      </div>
-                    </div>
+                    )}
+                  </div>
+                  <div className="p-3 border-t border-white/10 bg-slate-950/60 flex items-center justify-between gap-3 flex-wrap">
+                    <a
+                      href={imageViewerModal.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/70 hover:text-white text-xs font-bold transition-colors flex items-center gap-1.5"
+                    >
+                      <Download size={13} /> Abrir original
+                    </a>
+                    <button
+                      type="button"
+                      disabled={enviandoNotaImagem || !conversation?.phone}
+                      onClick={() => handleSendImageWithCaption(imageViewerModal.url, imageViewerModal.caption || '')}
+                      className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center gap-2 shadow-lg shadow-emerald-500/20 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                      title="Enviar esta mesma imagem acompanhada exatamente da sua nota/legenda pelo WhatsApp"
+                    >
+                      {enviandoNotaImagem ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                      <span>Enviar Nota/Imagem via WhatsApp</span>
+                    </button>
                   </div>
                 </div>
               </div>,
@@ -5671,30 +5845,47 @@ export const ChatPanel = ({
                                : "rounded-bl-none"
                            )}>
                               {/* Citação / Mensagem Respondida no estilo WhatsApp */}
-                              {m.quotedText && !isApagada && (
-                                <div
-                                  onClick={() => {
-                                    if (m.quotedMessageId) {
-                                      setPendingOpenMessageId(m.quotedMessageId);
-                                    }
-                                  }}
-                                  className={cn(
-                                    "mb-2 p-2 rounded-xl border-l-4 text-xs cursor-pointer transition-all hover:opacity-90 select-none text-left",
-                                    isOutgoing
-                                      ? "bg-slate-100/90 border-emerald-500 text-slate-700"
-                                      : "bg-slate-100/90 border-primary-500 text-slate-700"
-                                  )}
-                                  title="Clique para localizar a mensagem original"
-                                >
-                                  <div className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-emerald-600 mb-0.5">
-                                    <Reply size={11} className="rotate-180 shrink-0" />
-                                    <span>{m.quotedSender || (isOutgoing ? 'Cliente' : 'Você')}</span>
+                              {(m.quotedText || m.quotedMessageId) && !isApagada && (() => {
+                                const origMsg = m.quotedMessageId ? chatMessages.find(cm => cm.whatsappMessageId === m.quotedMessageId || cm.id === m.quotedMessageId) : null;
+                                const quoteImgUrl = m.quotedMediaUrl || (origMsg?.mediaUrl && (origMsg?.mediaContentType === 'image' || origMsg?.contentType === 'image') ? origMsg.mediaUrl : null);
+                                const quoteSender = m.quotedSender || (origMsg ? (origMsg.direction === 'outgoing' ? 'Você' : (origMsg.senderName || conversation.name || 'Cliente')) : (isOutgoing ? 'Cliente' : 'Você'));
+                                const quoteText = m.quotedText || origMsg?.text || (quoteImgUrl ? '📷 Foto' : 'Mensagem');
+
+                                return (
+                                  <div
+                                    onClick={() => {
+                                      if (m.quotedMessageId) {
+                                        setPendingOpenMessageId(m.quotedMessageId);
+                                      }
+                                    }}
+                                    className={cn(
+                                      "mb-2 p-2 rounded-xl border-l-4 text-xs cursor-pointer transition-all hover:opacity-90 select-none text-left flex items-center justify-between gap-2.5",
+                                      isOutgoing
+                                        ? "bg-slate-100/90 border-emerald-500 text-slate-700"
+                                        : "bg-slate-100/90 border-primary-500 text-slate-700"
+                                    )}
+                                    title="Clique para localizar a mensagem original"
+                                  >
+                                    <div className="min-w-0 flex-1">
+                                      <div className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-emerald-600 mb-0.5">
+                                        <Reply size={11} className="rotate-180 shrink-0" />
+                                        <span>{quoteSender}</span>
+                                      </div>
+                                      <p className="text-[11px] text-slate-600 line-clamp-2 italic font-normal leading-snug">
+                                        {quoteText}
+                                      </p>
+                                    </div>
+                                    {quoteImgUrl && (
+                                      <img
+                                        src={quoteImgUrl}
+                                        alt="Foto citada"
+                                        className="w-10 h-10 object-cover rounded-lg border border-slate-300 shrink-0 shadow-sm"
+                                        onError={(e) => { (e.currentTarget as HTMLElement).style.display = 'none'; }}
+                                      />
+                                    )}
                                   </div>
-                                  <p className="text-[11px] text-slate-600 line-clamp-2 italic font-normal leading-snug">
-                                    {m.quotedText}
-                                  </p>
-                                </div>
-                              )}
+                                );
+                              })()}
                               {isApagada ? (
                                 <span className="flex items-center gap-1.5 italic text-slate-400">
                                   <Ban size={12} className="shrink-0" />
@@ -5747,11 +5938,34 @@ export const ChatPanel = ({
                                 </div>
                               ) : isImage ? (
                                 <div className="space-y-1.5 min-w-[160px]">
-                                   <a href={m.mediaUrl} target="_blank" rel="noopener noreferrer" className="block overflow-hidden rounded-xl">
-                                     <img src={m.mediaUrl} alt={m.fileName || 'Imagem recebida'} className="max-w-full max-h-64 object-cover rounded-xl hover:opacity-90 transition-opacity" loading="lazy" />
-                                   </a>
-                                   {m.text && m.text !== '📷 Imagem' && (
-                                     <p className="px-1.5 pb-1 whitespace-pre-wrap break-words">{m.text}</p>
+                                   <div
+                                     onClick={() => setImageViewerModal({
+                                       url: m.mediaUrl,
+                                       caption: (m.text && m.text !== '📷 Imagem' && m.text !== '📷 Foto') ? m.text : undefined,
+                                       fileName: m.fileName || 'Imagem',
+                                     })}
+                                     className="block overflow-hidden rounded-xl cursor-pointer group/img relative"
+                                     title="Clique para visualizar a imagem e enviar com sua nota para o WhatsApp"
+                                   >
+                                     <img src={m.mediaUrl} alt={m.fileName || 'Imagem recebida'} className="max-w-full max-h-64 object-cover rounded-xl group-hover/img:scale-[1.02] transition-transform" loading="lazy" />
+                                     <div className="absolute inset-0 bg-black/0 group-hover/img:bg-black/25 transition-colors flex items-center justify-center opacity-0 group-hover/img:opacity-100">
+                                       <span className="bg-black/75 text-white text-[10px] font-bold px-2.5 py-1 rounded-lg backdrop-blur-sm shadow-md flex items-center gap-1">
+                                         <Eye size={12} /> Visualizar
+                                       </span>
+                                     </div>
+                                   </div>
+                                   {m.text && m.text !== '📷 Imagem' && m.text !== '📷 Foto' && (
+                                     <p
+                                       onClick={() => setImageViewerModal({
+                                         url: m.mediaUrl,
+                                         caption: m.text,
+                                         fileName: m.fileName || 'Imagem',
+                                       })}
+                                       className="px-1.5 pb-1 whitespace-pre-wrap break-words cursor-pointer hover:text-primary-600 transition-colors"
+                                       title="Clique para abrir e enviar com sua nota para o WhatsApp"
+                                     >
+                                       {m.text}
+                                     </p>
                                    )}
                                 </div>
                               ) : isVideo ? (
@@ -5807,7 +6021,15 @@ export const ChatPanel = ({
                                  </button>
                                </>
                              )}
-                             {isOutgoing && !m.isNote && <MessageStatusTicks status={m.deliveryStatus} onClick={() => setStatusMensagemAberto(m)} />}
+                             {isOutgoing && !m.isNote && (
+                               <MessageStatusTicks
+                                 status={m.deliveryStatus}
+                                 m={m}
+                                 isOpen={statusMensagemAbertoId === m.id}
+                                 onToggle={() => setStatusMensagemAbertoId(prev => prev === m.id ? null : m.id)}
+                                 onClose={() => setStatusMensagemAbertoId(null)}
+                               />
+                             )}
                              <span className="text-white/20">•</span>
                              {isOutgoing ? (
                                <span className={cn(
@@ -7125,7 +7347,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
       <div className={cn(
         "flex flex-col space-y-4 transition-all duration-300 min-h-0",
         selectedLead 
-          ? (isColumnCollapsed ? "hidden md:flex md:w-10 md:shrink-0" : "hidden md:flex md:w-[220px] md:shrink-0")
+          ? (isColumnCollapsed ? "hidden md:flex md:w-10 md:shrink-0" : "hidden md:flex md:w-[240px] md:shrink-0")
           : "w-full flex"
       )}>
         {!selectedLead && (
@@ -7779,8 +8001,8 @@ const KanbanColumn = ({
 
   return (
     <div className="flex-1 min-w-0 flex flex-col gap-1.5 min-h-0">
-      <div className="flex items-center justify-between px-1.5">
-        <div className="flex items-center gap-2 relative min-w-0">
+      <div className="flex items-center justify-between px-1.5 gap-1">
+        <div className="flex items-center gap-1.5 relative min-w-0 flex-1">
           {/* Seletor Rápido de Cor da Etapa */}
           <button
             type="button"
@@ -7835,7 +8057,8 @@ const KanbanColumn = ({
 
           <h3 
             className={cn(
-              "text-[10px] font-black uppercase tracking-[3px] text-white/50 truncate max-w-[170px]",
+              "text-[10px] font-black uppercase tracking-[2px] text-white/50 truncate",
+              onCollapse ? "max-w-[70px] sm:max-w-[85px]" : "max-w-[170px]",
               isAdmin && "cursor-pointer hover:text-white transition-colors"
             )}
             onClick={() => isAdmin && onRenameStage?.(stage)}
@@ -7844,21 +8067,21 @@ const KanbanColumn = ({
             {stage.name}
           </h3>
 
-          <Badge className="ml-1 bg-white/5 border-none opacity-50 px-2 py-0 h-5 flex items-center">
+          <Badge className="ml-0.5 bg-white/5 border-none opacity-50 px-1.5 py-0 h-5 flex items-center text-[9px] shrink-0">
             {leads.length}
           </Badge>
         </div>
 
-        {/* Botão de Encolher a coluna para expandir conversa — 100% visível dentro do cabeçalho da coluna */}
+        {/* Botão de Encolher a coluna para expandir conversa — 100% visível, destacado e nunca cortado pela aba de mensagens */}
         {onCollapse && (
           <button
             type="button"
             onClick={onCollapse}
-            className="h-6 px-2 rounded-lg bg-slate-800/90 hover:bg-slate-700 text-white/70 hover:text-white border border-white/15 hover:border-primary-500/50 flex items-center gap-1 transition-all text-[9px] font-bold uppercase tracking-wider shrink-0 active:scale-95 shadow-sm ml-1 cursor-pointer"
-            title="Encolher coluna para expandir conversa"
+            className="h-6.5 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-primary-300 hover:text-white border border-primary-500/40 hover:border-primary-400 flex items-center gap-1 transition-all text-[9.5px] font-extrabold uppercase tracking-wider shrink-0 active:scale-95 shadow-md z-20 cursor-pointer"
+            title="Encolher coluna para expandir área de mensagens"
           >
-            <ChevronLeft size={13} />
-            <span>Encolher</span>
+            <ChevronLeft size={13} className="shrink-0" />
+            <span className="whitespace-nowrap">Encolher</span>
           </button>
         )}
       </div>

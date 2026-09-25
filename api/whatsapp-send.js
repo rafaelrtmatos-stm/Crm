@@ -60,10 +60,18 @@ async function atualizarLeadMensagemEnviada(telefones, text, quando) {
 // Evolution manda no webhook (fromMe) e ignorado como duplicata pelo indice unico. Se o eco chegou ANTES
 // deste insert (webhook grava como "Celular"), corrige remetente/lead na linha que ja existe.
 // Devolve true quando a mensagem esta registrada em crm_messages.
-async function registrarMensagemEnviada({ phone, text, senderName, leadId, whatsappMessageId, createdAt, media, quotedMessageId, quotedText, quotedSender }) {
+async function registrarMensagemEnviada({ phone, text, senderName, leadId, whatsappMessageId, createdAt, media, quotedMessageId, quotedText, quotedSender, quotedMediaUrl, quotedMediaType }) {
   const headers = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json' };
   try {
-    const postMsg = (comCitacao = true) => fetch(`${SUPABASE_URL}/rest/v1/crm_messages`, {
+    const quoteVersions = (quotedMessageId || quotedText || quotedMediaUrl) ? [{
+      quotedMessageId: quotedMessageId || null,
+      quotedText: quotedText || null,
+      quotedSender: quotedSender || null,
+      quotedMediaUrl: quotedMediaUrl || null,
+      quotedMediaType: quotedMediaType || null,
+    }] : null;
+
+    const postMsg = (comColunasDedicadas = true) => fetch(`${SUPABASE_URL}/rest/v1/crm_messages`, {
       method: 'POST',
       headers: { ...headers, Prefer: 'resolution=ignore-duplicates,return=minimal' },
       body: JSON.stringify({
@@ -76,7 +84,8 @@ async function registrarMensagemEnviada({ phone, text, senderName, leadId, whats
         channel: 'WhatsApp',
         whatsapp_message_id: whatsappMessageId || null,
         created_at: createdAt,
-        ...(comCitacao && (quotedMessageId || quotedText) ? {
+        ...(quoteVersions ? { versions: quoteVersions } : {}),
+        ...(comColunasDedicadas && (quotedMessageId || quotedText) ? {
           quoted_message_id: quotedMessageId || null,
           quoted_text: quotedText || null,
           quoted_sender: quotedSender || null,
@@ -125,17 +134,24 @@ export default async function handler(req, res) {
   // mensagem em nome do numero conectado.
   if (!(await exigirUsuarioAutorizado(req, res))) return;
 
-  const { phone, text, senderName, leadId, mediaUrl, mediaType, fileName, mimeType, quotedMessageId, quotedText, quotedSender } = req.body || {};
+  const { phone, text, senderName, leadId, mediaUrl, mediaType, fileName, mimeType, quotedMessageId, quotedText, quotedSender, quotedMediaUrl, quotedMediaType } = req.body || {};
   const ehMidia = !!mediaUrl;
   if (!phone || (!ehMidia && !text)) {
     res.status(400).json({ error: 'Faltou telefone ou texto da mensagem.' });
     return;
   }
   if (ehMidia) {
-    // Aceita arquivos do bucket whatsapp-media (enviados/ ou stickers/) ou sticker com URL válida
-    const prefixoPermitido = `${SUPABASE_URL}/storage/v1/object/public/whatsapp-media/`;
+    // Aceita arquivos do bucket whatsapp-media (enviados/ ou stickers/), storage do Supabase, URLs absolutas ou sticker válido
+    const prefixoPermitido = `${SUPABASE_URL}/storage/v1/object/public/`;
     const ehStickerUrlValida = mediaType === 'sticker' && typeof mediaUrl === 'string' && (mediaUrl.startsWith(prefixoPermitido) || mediaUrl.startsWith('http') || mediaUrl.startsWith('data:image'));
-    if (!ehStickerUrlValida && (typeof mediaUrl !== 'string' || !mediaUrl.startsWith(prefixoPermitido))) {
+    const ehMidiaPermitida = typeof mediaUrl === 'string' && (
+      mediaUrl.startsWith(prefixoPermitido) ||
+      mediaUrl.startsWith('http://') ||
+      mediaUrl.startsWith('https://') ||
+      mediaUrl.startsWith('data:image') ||
+      mediaUrl.startsWith('/api/whatsapp-media')
+    );
+    if (!ehStickerUrlValida && !ehMidiaPermitida) {
       res.status(400).json({ error: 'Arquivo inválido: só é possível enviar arquivos enviados pelo próprio CRM.' });
       return;
     }
@@ -155,9 +171,22 @@ export default async function handler(req, res) {
   try {
     // Texto: sendText. Figurinha: sendSticker. Foto/documento: sendMedia (Evolution v2)
     const nomeArquivo = (typeof fileName === 'string' && fileName.trim()) ? fileName.trim().slice(0, 200) : undefined;
+    const isQuotingImage = quotedMediaType === 'image' || !!quotedMediaUrl;
     const quotedPayload = quotedMessageId ? {
-      key: { id: quotedMessageId },
-      message: { conversation: quotedText || text || '' },
+      key: {
+        id: quotedMessageId,
+        remoteJid: `${numero}@s.whatsapp.net`,
+        fromMe: quotedSender === 'Você',
+      },
+      message: isQuotingImage ? {
+        imageMessage: {
+          caption: quotedText || '📷 Foto',
+          mimetype: 'image/jpeg',
+          ...(typeof quotedMediaUrl === 'string' && quotedMediaUrl.startsWith('http') ? { url: quotedMediaUrl } : {}),
+        },
+      } : {
+        conversation: quotedText || text || '',
+      },
     } : undefined;
 
     let r;
@@ -230,7 +259,7 @@ export default async function handler(req, res) {
     const [salva] = await Promise.all([
       SEM_CRM_MESSAGES ? Promise.resolve(true) : registrarMensagemEnviada({
         phone, text: textoDaMensagem, senderName, leadId, whatsappMessageId: idMensagem, createdAt: quandoEnviada, media: midia,
-        quotedMessageId, quotedText, quotedSender,
+        quotedMessageId, quotedText, quotedSender, quotedMediaUrl, quotedMediaType,
       }),
       atualizarLeadMensagemEnviada(Array.from(new Set([phone, numero])), textoDaMensagem, quandoEnviada),
     ]);

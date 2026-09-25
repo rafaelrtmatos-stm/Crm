@@ -96,6 +96,7 @@ function paraFormatoDoFront(msg, numero, ehGrupo) {
     quotedMessageId: citacao?.quotedMessageId || undefined,
     quotedText: citacao?.quotedText || undefined,
     quotedSender: citacao?.quotedSender || undefined,
+    quotedMediaType: citacao?.quotedMediaType || undefined,
     // Transcrição não existe nesse formato ainda -- continua vivendo em crm_messages até a
     // Fase 4 (fila de transcrição em tabela própria). Sem isso aqui, áudio antigo re-buscado
     // por essa rota perde o texto já transcrito -- resolvido quando o passo 2 mesclar com
