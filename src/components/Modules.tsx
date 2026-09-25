@@ -69,6 +69,7 @@ import {
   Bell,
   BellOff,
   ChevronRight,
+  ChevronLeft,
   Mic,
   Image as ImageIcon,
   Video,
@@ -3424,6 +3425,103 @@ export const ChatPanel = ({
     setCurrentStageId(conversation?.funnelStageId);
   }, [conversation?.funnelStageId, conversation?.id]);
 
+  // Janela flutuante Picture-in-Picture (Always On Top sobre qualquer outra aba ou programa do PC)
+  const [pipWindow, setPipWindow] = useState<Window | null>(null);
+
+  const handleTogglePiP = async () => {
+    if (pipWindow) {
+      try { pipWindow.close(); } catch {}
+      setPipWindow(null);
+      return;
+    }
+
+    // 1. Tenta API Document Picture-in-Picture nativa (Chrome e Edge 116+)
+    // Fica REALMENTE SEMPRE NO TOPO de qualquer aba ou programa aberto no computador
+    if (typeof window !== 'undefined' && 'documentPictureInPicture' in window) {
+      try {
+        const pip = await (window as any).documentPictureInPicture.requestWindow({
+          width: 440,
+          height: 720,
+        });
+
+        // Clona estilos e folhas css para a janela flutuante
+        Array.from(document.styleSheets).forEach((sheet) => {
+          try {
+            const cssRules = Array.from(sheet.cssRules).map((r) => r.cssText).join('');
+            const style = pip.document.createElement('style');
+            style.textContent = cssRules;
+            pip.document.head.appendChild(style);
+          } catch {
+            if (sheet.href) {
+              const link = pip.document.createElement('link');
+              link.rel = 'stylesheet';
+              link.href = sheet.href;
+              pip.document.head.appendChild(link);
+            }
+          }
+        });
+
+        document.querySelectorAll('style').forEach((s) => {
+          pip.document.head.appendChild(s.cloneNode(true));
+        });
+
+        pip.document.title = `${conversation?.name || 'Conversa'} - RPro CRM`;
+        pip.document.body.className = "bg-slate-950 text-white overflow-hidden m-0 p-0 h-screen w-screen flex flex-col";
+
+        pip.addEventListener('pagehide', () => {
+          setPipWindow(null);
+        });
+
+        setPipWindow(pip);
+        return;
+      } catch (err) {
+        console.warn('Document Picture-in-Picture falhou, tentando janela popup:', err);
+      }
+    }
+
+    // 2. Fallback: janela popup destacada
+    const left = window.screen.availWidth - 460;
+    const w = window.open(
+      '',
+      '_blank',
+      `width=440,height=720,left=${left > 0 ? left : 100},top=80,menubar=no,toolbar=no,location=no,status=no`
+    );
+    if (w) {
+      Array.from(document.styleSheets).forEach((sheet) => {
+        try {
+          const cssRules = Array.from(sheet.cssRules).map((r) => r.cssText).join('');
+          const style = w.document.createElement('style');
+          style.textContent = cssRules;
+          w.document.head.appendChild(style);
+        } catch {
+          if (sheet.href) {
+            const link = w.document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = sheet.href;
+            w.document.head.appendChild(link);
+          }
+        }
+      });
+      document.querySelectorAll('style').forEach((s) => {
+        w.document.head.appendChild(s.cloneNode(true));
+      });
+      w.document.title = `${conversation?.name || 'Conversa'} - RPro CRM`;
+      w.document.body.className = "bg-slate-950 text-white overflow-hidden m-0 p-0 h-screen w-screen flex flex-col";
+      w.addEventListener('pagehide', () => {
+        setPipWindow(null);
+      });
+      setPipWindow(w);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (pipWindow) {
+        try { pipWindow.close(); } catch {}
+      }
+    };
+  }, [pipWindow]);
+
   useEffect(() => {
     if (!effectiveFunnelId) { setFunnelStages([]); return; }
     if (conversation?.id && !conversation?.funnelId && effectiveFunnelId) {
@@ -4758,7 +4856,7 @@ export const ChatPanel = ({
     </div>
   );
 
-  return (
+  const chatContent = (
     <GlassCard className="flex-1 flex flex-col p-0 overflow-hidden bg-white/3 border-white/10 relative h-full fixed md:static inset-0 z-50 md:z-auto rounded-none md:rounded-[inherit]">
       {/* Header - FIXO */}
       <div className="px-3 py-2.5 sm:px-4 sm:py-3 border-b border-white/10 flex items-center justify-between bg-white/[0.02] flex-shrink-0 gap-2">
@@ -5132,10 +5230,35 @@ export const ChatPanel = ({
                       <span>Copiar Telefone</span>
                     </button>
                   )}
+                  {/* Opção no menu de 3 bolinhas para sobrepor na tela do PC */}
+                  <button
+                    type="button"
+                    onClick={() => { handleTogglePiP(); setShowQuickActions(false); }}
+                    className="w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold text-sky-300 hover:bg-white/10 flex items-center gap-2.5 transition-colors border-t border-white/5 pt-2 mt-1"
+                  >
+                    <ExternalLink size={14} className="text-sky-400" />
+                    <span>{pipWindow ? "Restaurar ao Sistema" : "Sobrepor na Tela (PC)"}</span>
+                  </button>
                 </div>
               </>
             )}
           </div>
+
+          {/* Botão Visual de Sobrepor na tela do PC (PiP / Janela Flutuante Always-On-Top) */}
+          <button
+            type="button"
+            onClick={handleTogglePiP}
+            className={cn(
+              "h-8 px-2.5 rounded-lg border transition-all items-center gap-1.5 text-[10.5px] font-black uppercase tracking-wider shrink-0 hidden md:flex active:scale-95",
+              pipWindow 
+                ? "bg-primary-500 text-slate-950 border-primary-400 shadow-md shadow-primary-500/20" 
+                : "bg-white/5 text-white/70 hover:text-white hover:bg-white/10 border-white/10"
+            )}
+            title={pipWindow ? "Restaurar conversa ao CRM" : "Sobrepor conversa sobre outras abas e programas do PC"}
+          >
+            <ExternalLink size={13} />
+            <span>{pipWindow ? "Restaurar" : "Sobrepor"}</span>
+          </button>
 
           {onClose && <Button variant="ghost" icon={X} onClick={onClose} className="hidden md:flex p-1.5 min-w-0 h-8 w-8" />}
         </div>
@@ -6013,6 +6136,39 @@ export const ChatPanel = ({
       </div>
     </GlassCard>
   );
+
+  if (pipWindow) {
+    return (
+      <>
+        <GlassCard className="flex-1 flex flex-col items-center justify-center p-8 bg-slate-900/60 border border-white/10 rounded-2xl text-center space-y-4 h-full">
+          <div className="w-16 h-16 rounded-2xl bg-primary-500/10 border border-primary-500/30 flex items-center justify-center text-primary-400 animate-pulse">
+            <ExternalLink size={28} />
+          </div>
+          <div className="space-y-1">
+            <h4 className="text-base font-bold text-white">Conversa Sobreposta na Tela (PiP)</h4>
+            <p className="text-xs text-white/50 max-w-sm">
+              Esta conversa está flutuando sobre as outras abas e programas do seu computador.
+            </p>
+          </div>
+          <Button 
+            variant="secondary" 
+            onClick={() => { try { pipWindow.close(); } catch {} setPipWindow(null); }}
+            className="border-primary-500/40 text-primary-300 hover:bg-primary-500/10"
+          >
+            Trazer Conversa de Volta ao Sistema
+          </Button>
+        </GlassCard>
+        {createPortal(
+          <div className="w-screen h-screen flex flex-col bg-slate-950 text-white overflow-hidden">
+            {chatContent}
+          </div>,
+          pipWindow.document.body
+        )}
+      </>
+    );
+  }
+
+  return chatContent;
 };
 
 
@@ -6041,6 +6197,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
   // toda (kanban escondido). Clique direto num card do kanban mantém o
   // comportamento normal (60% kanban / 40% painel), sem mexer nisso.
   const [openedViaJump, setOpenedViaJump] = useState(false);
+  const [isColumnCollapsed, setIsColumnCollapsed] = useState(false);
   const [isConfiguringFunnel, setIsConfiguringFunnel] = useState(false);
   const [editingFunnel, setEditingFunnel] = useState<Funnel | null>(null);
   // Modo de seleção múltipla no Kanban -- liga/desliga os checkboxes nos cards pra
@@ -6798,21 +6955,66 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
             {stages
                 .filter(stage => stage.isActive !== false)
               .filter(stage => !selectedLead || stage.id === (selectedLead.funnelStageId || (stages.find(s => s.isInitial || s.order === 0)?.id)))
-              .map(stage => (
-              <div key={`wrapper-${stage.id}`} className="w-full md:w-[300px] shrink-0">
-                <KanbanColumn 
-                  key={stage.id} 
-                  stage={stage} 
-                  leads={filteredLeads.filter(l => !gruposDigitos.has((l.phone || '').replace(/\D/g, ''))).filter(l => l.funnelStageId === stage.id || (!l.funnelStageId && (stage.isInitial || stage.order === 0)))}
-                  onLeadClick={(l) => { setOpenedViaJump(false); setSelectedLead(l); }}
-                  selectedLeadId={selectedLead?.id}
-                  selectionMode={leadSelectionMode}
-                  selectedLeadIds={selectedLeadIds}
-                  onToggleLeadSelected={toggleLeadSelected}
-                  onDeleteLead={handleDeleteLead}
-                />
-              </div>
-            ))}
+              .map(stage => {
+                const stageLeads = filteredLeads.filter(l => !gruposDigitos.has((l.phone || '').replace(/\D/g, ''))).filter(l => l.funnelStageId === stage.id || (!l.funnelStageId && (stage.isInitial || stage.order === 0)));
+                
+                // Modo Coluna Encolhida no PC quando a conversa está aberta
+                if (selectedLead && isColumnCollapsed) {
+                  return (
+                    <div
+                      key={`wrapper-${stage.id}`}
+                      onClick={() => setIsColumnCollapsed(false)}
+                      className="hidden md:flex w-10 shrink-0 bg-white/[0.02] border border-white/10 hover:border-primary-500/40 rounded-[28px] p-2 flex-col items-center justify-between cursor-pointer transition-all group h-full select-none"
+                      title="Clique para expandir a coluna da etapa"
+                    >
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setIsColumnCollapsed(false); }}
+                        className="w-7 h-7 rounded-full bg-white/5 group-hover:bg-primary-500/20 text-white/50 group-hover:text-primary-300 flex items-center justify-center transition-colors"
+                        title="Expandir coluna"
+                      >
+                        <ChevronRight size={14} />
+                      </button>
+                      <div className="flex items-center gap-2 [writing-mode:vertical-rl] rotate-180 py-4">
+                        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: stage.color || '#4cc9f0' }} />
+                        <span className="text-[10px] font-black uppercase tracking-[2px] text-white/40 group-hover:text-white/90 transition-colors">
+                          {stage.name}
+                        </span>
+                      </div>
+                      <Badge className="bg-white/5 border-none opacity-60 text-[8.5px] px-1.5 h-4 flex items-center">
+                        {stageLeads.length}
+                      </Badge>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div key={`wrapper-${stage.id}`} className="w-full md:w-[300px] shrink-0 relative flex flex-col">
+                    {/* Botão de Encolher a coluna para dar 100% de largura ao chat */}
+                    {selectedLead && (
+                      <button
+                        type="button"
+                        onClick={() => setIsColumnCollapsed(true)}
+                        className="hidden md:flex absolute -right-3 top-2.5 z-20 w-6 h-6 rounded-full bg-slate-800 border border-white/20 hover:border-primary-500/60 shadow-lg text-white/60 hover:text-white items-center justify-center transition-all hover:scale-110 active:scale-95"
+                        title="Encolher coluna para expandir conversa"
+                      >
+                        <ChevronLeft size={13} />
+                      </button>
+                    )}
+                    <KanbanColumn 
+                      key={stage.id} 
+                      stage={stage} 
+                      leads={stageLeads}
+                      onLeadClick={(l) => { setOpenedViaJump(false); setSelectedLead(l); }}
+                      selectedLeadId={selectedLead?.id}
+                      selectionMode={leadSelectionMode}
+                      selectedLeadIds={selectedLeadIds}
+                      onToggleLeadSelected={toggleLeadSelected}
+                      onDeleteLead={handleDeleteLead}
+                    />
+                  </div>
+                );
+              })}
             
             {!selectedLead && (
             <button 
