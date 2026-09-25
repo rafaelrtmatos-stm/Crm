@@ -4634,8 +4634,9 @@ export const ChatPanel = ({
     }
   };
 
-  const handleSendMessage = async (textoParaReenviar?: string) => {
-    const textoEnviado = (textoParaReenviar ?? newMessage).trim();
+  const handleSendMessage = async (textoParaReenviar?: any) => {
+    const rawText = (typeof textoParaReenviar === "string" ? textoParaReenviar : (typeof newMessage === "string" ? newMessage : String(newMessage || "")));
+    const textoEnviado = rawText.trim();
     if (!textoEnviado || !conversation || !currentCompany) return;
     clearMessageHighlight(); // ao responder, volta ao comportamento normal (rola pro fim)
     // Limpa a caixa NA HORA do clique (nao espera a Evolution confirmar) -- e' isso que fazia
@@ -5759,7 +5760,7 @@ export const ChatPanel = ({
                     ) : (
                       <button 
                         type="button"
-                        onClick={handleSendMessage}
+                        onClick={() => handleSendMessage()}
                         className="w-9 h-9 rounded-full bg-primary-500 hover:bg-primary-400 shadow-lg shadow-primary-500/40 text-slate-950 flex items-center justify-center active:scale-95 transition-all"
                         title="Enviar mensagem"
                       >
