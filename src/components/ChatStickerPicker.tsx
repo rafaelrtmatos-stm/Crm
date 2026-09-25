@@ -494,6 +494,9 @@ export const ChatStickerPicker: React.FC<ChatStickerPickerProps> = ({
                     alt={stk.name || 'Figurinha'}
                     className="max-w-full max-h-full object-contain filter drop-shadow-md group-hover:scale-110 transition-transform duration-150"
                     loading="lazy"
+                    draggable={false}
+                    onDragStart={(e) => e.preventDefault()}
+                    style={{ WebkitUserDrag: 'none', userSelect: 'none' } as React.CSSProperties}
                   />
 
                   {/* Botão de Favoritar no Hover (☆ / ★) */}

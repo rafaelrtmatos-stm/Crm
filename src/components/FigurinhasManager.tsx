@@ -642,6 +642,9 @@ export const FigurinhasManager: React.FC<FigurinhasManagerProps> = ({ user, curr
                       alt={stk.name || 'Figurinha'}
                       className="max-w-full max-h-full object-contain filter drop-shadow-md"
                       loading="lazy"
+                      draggable={false}
+                      onDragStart={(e) => e.preventDefault()}
+                      style={{ WebkitUserDrag: 'none', userSelect: 'none' } as React.CSSProperties}
                     />
                   </div>
 
@@ -747,6 +750,8 @@ export const FigurinhasManager: React.FC<FigurinhasManagerProps> = ({ user, curr
                       src={stkPreview}
                       alt="Preview"
                       className="max-w-full max-h-full object-contain"
+                      draggable={false}
+                      onDragStart={(e) => e.preventDefault()}
                     />
                   </div>
                   <span className="text-[11px] text-amber-300 font-bold hover:underline">
