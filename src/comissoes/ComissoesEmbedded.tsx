@@ -18,6 +18,7 @@ import {
   saveServiceToSupabase,
   inserirServicosDeNota,
   deleteServiceFromSupabase,
+  deleteServicesBatchFromSupabase,
   excluirServicoPorOrigem,
   saveColaboradorSettings,
   colaboradorToUserSettings,
@@ -28,6 +29,7 @@ import {
   batchSaveServicesToSupabase,
 } from './utils/supabaseStorage';
 import { supabase } from '../supabase';
+import { showConfirm } from '../lib/notify';
 import { ColaboradorLogin } from './ColaboradorLogin';
 import { useSyncWithCrmTheme } from './utils/useSyncCrmTheme';
 import { Header } from './components/Header';
@@ -135,7 +137,14 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'comissoes_servicos', filter: `colaborador_id=eq.${colaboradorId}` },
-        () => {
+        (payload: any) => {
+          // Em tempo real: se algum serviço foi excluído ou marcado como soft-delete, remove imediatamente da tela
+          if (payload?.eventType === 'DELETE' || (payload?.eventType === 'UPDATE' && payload.new?.deleted_at)) {
+            const delId = payload.old?.id || payload.new?.id;
+            if (delId) {
+              setServices((prev) => prev.filter((s) => s.id !== delId));
+            }
+          }
           getServicesFromSupabase(colaboradorId).then(setServices);
         }
       )
@@ -224,25 +233,67 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
     }
   };
 
-  const handleDeleteService = async (id: string) => {
-    const item = services.find((s) => s.id === id);
-    // Serviço puxado de uma nota (tem origemNotaId): não vai pra Lixeira, volta a ficar
-    // disponível no card da própria nota lá na aba Serviços — agrupado automaticamente
-    // porque a nota já é 1 registro só com todos os itens dentro.
-    if (item?.origemNotaId && item.origemItemIndex !== undefined) {
-      if (!confirm('Tirar esse serviço da planilha? Ele volta a ficar disponível na nota, na aba Serviços.')) return;
-      const ok = await excluirServicoPorOrigem(item.origemNotaId, item.origemItemIndex);
-      if (!ok) { showToast('Não foi possível excluir.'); return; }
-      setServices((prev) => prev.filter((s) => s.id !== id));
-      showToast('Serviço removido da planilha. Disponível de novo na aba Serviços.');
-      return;
-    }
+  // Exclusão otimista em lote: some na hora (0ms) da lista e da agenda em tempo real
+  const handleDeleteServices = async (ids: string[]) => {
+    if (!ids || ids.length === 0) return;
+    const itemsToDelete = services.filter((s) => ids.includes(s.id));
+    if (itemsToDelete.length === 0) return;
 
-    if (!confirm('Deseja realmente excluir este serviço da planilha? Ele fica disponível na Lixeira por 30 dias.')) return;
-    const ok = await deleteServiceFromSupabase(id);
-    if (!ok) { showToast('Não foi possível excluir.'); return; }
-    setServices((prev) => prev.filter((s) => s.id !== id));
-    showToast('Serviço movido para a Lixeira.');
+    const hasOrigemNota = itemsToDelete.some((s) => s.origemNotaId);
+    const msg = itemsToDelete.length === 1
+      ? (itemsToDelete[0].origemNotaId
+          ? 'Tirar esse serviço da planilha? Ele voltará a ficar disponível na nota, na aba Serviços.'
+          : 'Deseja realmente excluir este serviço da planilha? Ele fica disponível na Lixeira por 30 dias.')
+      : `Excluir os ${itemsToDelete.length} serviços desta nota da sua lista? ${hasOrigemNota ? 'Eles voltarão a ficar disponíveis na aba Serviços.' : 'Eles ficam disponíveis na Lixeira por 30 dias.'}`;
+
+    let confirmed = false;
+    try {
+      confirmed = await showConfirm(msg);
+    } catch {
+      confirmed = window.confirm(msg);
+    }
+    if (!confirmed) return;
+
+    const idsSet = new Set(ids);
+    // REMOÇÃO OTIMISTA IMEDIATA (0ms)
+    setServices((prev) => prev.filter((s) => !idsSet.has(s.id)));
+
+    try {
+      const ok = await deleteServicesBatchFromSupabase(ids);
+      if (!ok) {
+        let anyFailed = false;
+        for (const item of itemsToDelete) {
+          if (item.origemNotaId && item.origemItemIndex !== undefined) {
+            const okOrigem = await excluirServicoPorOrigem(item.origemNotaId, item.origemItemIndex);
+            if (!okOrigem) anyFailed = true;
+          } else {
+            const okSingle = await deleteServiceFromSupabase(item.id);
+            if (!okSingle) anyFailed = true;
+          }
+        }
+        if (anyFailed) {
+          setServices((prev) => {
+            const currentIds = new Set(prev.map(s => s.id));
+            const restored = itemsToDelete.filter(i => !currentIds.has(i.id));
+            return [...restored, ...prev];
+          });
+          showToast('Não foi possível excluir alguns serviços.');
+          return;
+        }
+      }
+      showToast(hasOrigemNota ? 'Serviço removido da planilha. Disponível de novo na aba Serviços.' : 'Serviço movido para a Lixeira.');
+    } catch (err) {
+      setServices((prev) => {
+        const currentIds = new Set(prev.map(s => s.id));
+        const restored = itemsToDelete.filter(i => !currentIds.has(i.id));
+        return [...restored, ...prev];
+      });
+      showToast('Erro ao excluir serviço.');
+    }
+  };
+
+  const handleDeleteService = async (id: string) => {
+    await handleDeleteServices([id]);
   };
 
   const handleEditService = (service: ServiceItem) => {
@@ -385,6 +436,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
                 services={services}
                 onEditService={handleEditService}
                 onDeleteService={handleDeleteService}
+                onDeleteServices={handleDeleteServices}
                 onOpenAddModalWithDate={(dateISO) => handleOpenAddModal(dateISO)}
                 onBatchUpdateServices={handleBatchUpdateServices}
                 weeklyGoal={userSettings.weeklyGoal}

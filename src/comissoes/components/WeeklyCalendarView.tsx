@@ -13,6 +13,7 @@ interface WeeklyCalendarViewProps {
   services: ServiceItem[];
   onEditService: (service: ServiceItem) => void;
   onDeleteService: (id: string) => void;
+  onDeleteServices?: (ids: string[]) => void | Promise<void>;
   onOpenAddModalWithDate: (dateISO: string) => void;
   onBatchUpdateServices?: (services: ServiceItem[]) => Promise<void> | void;
   weeklyGoal?: number;
@@ -33,7 +34,7 @@ const WEEKDAYS = [
 const noteKey = (s: ServiceItem) => s.origemNotaId || `service:${s.id}`;
 
 export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
-  services, onEditService, onDeleteService, onOpenAddModalWithDate, onBatchUpdateServices, weeklyGoal = 2500, onGoToTrash
+  services, onEditService, onDeleteService, onDeleteServices, onOpenAddModalWithDate, onBatchUpdateServices, weeklyGoal = 2500, onGoToTrash
 }) => {
   const [weekOffset, setWeekOffset] = useState(0);
   const [viewMode, setViewMode] = useState<'grid' | 'columns' | 'table'>('grid');
@@ -213,16 +214,28 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
           </span>
           {group.items.length === 1 ? (
             <button
-              onClick={() => onDeleteService(group.items[0].id)}
-              className="p-1.5 rounded-lg hover:bg-red-950/40 text-red-400 shrink-0"
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDeleteService(group.items[0].id);
+              }}
+              className="p-1.5 rounded-lg hover:bg-red-950/40 text-red-400 shrink-0 transition-colors cursor-pointer"
               title="Excluir serviço"
             >
               <Trash2 className="w-3.5 h-3.5" />
             </button>
           ) : (
             <button
-              onClick={() => { if (confirm(`Excluir os ${group.items.length} serviços desta nota?`)) group.items.forEach(s => onDeleteService(s.id)); }}
-              className="p-1.5 rounded-lg hover:bg-red-950/40 text-red-400 shrink-0"
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onDeleteServices) {
+                  onDeleteServices(group.items.map(s => s.id));
+                } else {
+                  group.items.forEach(s => onDeleteService(s.id));
+                }
+              }}
+              className="p-1.5 rounded-lg hover:bg-red-950/40 text-red-400 shrink-0 transition-colors cursor-pointer"
               title="Excluir todos os serviços desta nota"
             >
               <Trash2 className="w-3.5 h-3.5" />
@@ -241,10 +254,26 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
                   </p>
                 </div>
                 <span className="font-mono font-black text-xs">{formatCurrency(service.productionValue)}</span>
-                <button onClick={() => onEditService(service)} className="p-1.5 rounded-lg hover:bg-[var(--accent-red)] hover:text-white" title="Editar serviço">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onEditService(service);
+                  }}
+                  className="p-1.5 rounded-lg hover:bg-[var(--accent-red)] hover:text-white transition-colors cursor-pointer"
+                  title="Editar serviço"
+                >
                   <Edit2 className="w-3.5 h-3.5" />
                 </button>
-                <button onClick={() => onDeleteService(service.id)} className="p-1.5 rounded-lg hover:bg-red-950/40 text-red-400" title="Excluir serviço">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteService(service.id);
+                  }}
+                  className="p-1.5 rounded-lg hover:bg-red-950/40 text-red-400 transition-colors cursor-pointer"
+                  title="Excluir serviço"
+                >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
               </div>

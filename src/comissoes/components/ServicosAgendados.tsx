@@ -488,21 +488,29 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
       'Tirar esse serviço da nota? Ele some da sua planilha de comissões e o item volta a ficar disponível.'
     ))) return;
 
-    const ok = await excluirServicoPorOrigem(notaId, idx, colaboradorId);
-    if (!ok) {
-      // Tenta fallback sem colaboradorId caso id seja global
-      const okFallback = await excluirServicoPorOrigem(notaId, idx);
-      if (!okFallback) {
-        showAlert('Não foi possível remover o serviço.');
-        return;
-      }
-    }
-
+    // Atualização otimista imediata (0ms)
     setItensAdicionadosPorNota(prev => {
       const atual = new Set(prev[notaId] || []);
       atual.delete(idx);
       return { ...prev, [notaId]: atual };
     });
+
+    const ok = await excluirServicoPorOrigem(notaId, idx, colaboradorId);
+    if (!ok) {
+      // Tenta fallback sem colaboradorId caso id seja global
+      const okFallback = await excluirServicoPorOrigem(notaId, idx);
+      if (!okFallback) {
+        // Reverte se falhar
+        setItensAdicionadosPorNota(prev => {
+          const atual = new Set(prev[notaId] || []);
+          atual.add(idx);
+          return { ...prev, [notaId]: atual };
+        });
+        showAlert('Não foi possível remover o serviço.');
+        return;
+      }
+    }
+
     showAlert('Serviço removido e disponível novamente.');
   };
 
@@ -590,6 +598,9 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
     const confirma = await confirmarRetiradaProducao(nota.id, nota.id.slice(-6).toUpperCase());
     if (!confirma) return;
 
+    // Atualização otimista: remove da lista na hora (0ms)
+    setNotas(prev => prev.filter(n => n.id !== nota.id));
+
     try {
       const nowIso = new Date().toISOString();
       if (nota.id.startsWith('orc_')) {
@@ -603,9 +614,10 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
           .update({ service_status: null, updated_at: nowIso })
           .eq('id', nota.id);
       }
-      setNotas(prev => prev.filter(n => n.id !== nota.id));
       showAlert('Pedido desmarcado da produção com sucesso. (Os itens já adicionados à comissão continuam seguros)');
     } catch (err: any) {
+      // Reverte se der erro
+      setNotas(prev => [nota, ...prev]);
       showAlert(`Erro ao desmarcar produção: ${err?.message || 'Falha de comunicação'}`);
     }
   };

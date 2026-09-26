@@ -365,15 +365,11 @@ export async function removerComissaoDeCustoDaNota(
 // removendo a comissão da nota em vendas.custos_extras para evitar duplicações.
 export async function deleteServiceFromSupabase(id: string): Promise<boolean> {
   try {
-    const { data: servico } = await supabase
-      .from('comissoes_servicos')
-      .select('id, colaborador_id, origem_nota_id, origem_item_index, tipo_servico')
-      .eq('id', id)
-      .maybeSingle();
-
+    const nowIso = new Date().toISOString();
+    // Soft-delete rápido no Supabase
     const { error } = await supabase
       .from('comissoes_servicos')
-      .update({ deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .update({ deleted_at: nowIso, updated_at: nowIso })
       .eq('id', id);
 
     if (error) {
@@ -388,32 +384,105 @@ export async function deleteServiceFromSupabase(id: string): Promise<boolean> {
       }
     }
 
-    if (servico && servico.origem_nota_id) {
+    // Sincronização secundária de custos_extras em background (não trava o retorno)
+    (async () => {
       try {
-        let colabNome = '';
-        if (servico.colaborador_id) {
-          const { data: colab } = await supabase
-            .from('colaboradores')
-            .select('nome')
-            .eq('id', servico.colaborador_id)
-            .maybeSingle();
-          colabNome = colab?.nome || '';
+        const { data: servico } = await supabase
+          .from('comissoes_servicos')
+          .select('id, colaborador_id, origem_nota_id, origem_item_index, tipo_servico')
+          .eq('id', id)
+          .maybeSingle();
+
+        if (servico && servico.origem_nota_id) {
+          let colabNome = '';
+          if (servico.colaborador_id) {
+            const { data: colab } = await supabase
+              .from('colaboradores')
+              .select('nome')
+              .eq('id', servico.colaborador_id)
+              .maybeSingle();
+            colabNome = colab?.nome || '';
+          }
+          await removerComissaoDeCustoDaNota(
+            servico.origem_nota_id,
+            servico.colaborador_id,
+            servico.origem_item_index !== null && servico.origem_item_index !== undefined ? Number(servico.origem_item_index) : undefined,
+            colabNome,
+            servico.tipo_servico
+          );
         }
-        await removerComissaoDeCustoDaNota(
-          servico.origem_nota_id,
-          servico.colaborador_id,
-          servico.origem_item_index !== null && servico.origem_item_index !== undefined ? Number(servico.origem_item_index) : undefined,
-          colabNome,
-          servico.tipo_servico
-        );
       } catch (syncErr) {
         console.warn('Aviso ao sincronizar custo da nota após exclusão:', syncErr);
       }
-    }
+    })();
 
     return true;
   } catch (err) {
     console.error('Erro ao excluir serviço:', err);
+    return false;
+  }
+}
+
+// Exclui múltiplos serviços em lote (batch) de forma atômica e rápida
+export async function deleteServicesBatchFromSupabase(ids: string[]): Promise<boolean> {
+  if (!ids || ids.length === 0) return true;
+  try {
+    const nowIso = new Date().toISOString();
+    const { error } = await supabase
+      .from('comissoes_servicos')
+      .update({ deleted_at: nowIso, updated_at: nowIso })
+      .in('id', ids);
+
+    if (error) {
+      console.warn('Batch soft-delete falhou no Supabase, tentando exclusão direta:', error);
+      const { error: delErr } = await supabase
+        .from('comissoes_servicos')
+        .delete()
+        .in('id', ids);
+      if (delErr) {
+        console.error('Falha ao excluir serviços em lote:', delErr);
+        return false;
+      }
+    }
+
+    // Limpeza de custos em background sem travar a interface
+    (async () => {
+      try {
+        const { data: servicos } = await supabase
+          .from('comissoes_servicos')
+          .select('id, colaborador_id, origem_nota_id, origem_item_index, tipo_servico')
+          .in('id', ids);
+
+        if (servicos && servicos.length > 0) {
+          for (const servico of servicos) {
+            if (servico.origem_nota_id) {
+              let colabNome = '';
+              if (servico.colaborador_id) {
+                const { data: colab } = await supabase
+                  .from('colaboradores')
+                  .select('nome')
+                  .eq('id', servico.colaborador_id)
+                  .maybeSingle();
+                colabNome = colab?.nome || '';
+              }
+              await removerComissaoDeCustoDaNota(
+                servico.origem_nota_id,
+                servico.colaborador_id,
+                servico.origem_item_index !== null && servico.origem_item_index !== undefined ? Number(servico.origem_item_index) : undefined,
+                colabNome,
+                servico.tipo_servico
+              );
+            }
+          }
+        }
+      } catch (bgErr) {
+        console.warn('Aviso no pós-processamento de exclusão em lote:', bgErr);
+      }
+    })();
+
+    return true;
+  } catch (err) {
+    console.error('Erro ao excluir serviços em lote:', err);
     return false;
   }
 }
