@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Bell, BellRing, CheckCircle2, Crosshair, User, Users } from 'lucide-react';
+import { AlertTriangle, Bell, BellRing, CheckCircle2, Crosshair, User, Users } from 'lucide-react';
 import { supabase } from '../supabase';
 import type { AppUser } from '../types';
 import { cn } from './SharedUI';
@@ -145,38 +145,44 @@ export const NotificacaoPendenteBanner = ({
 }) => {
   const n = notificacao.messageCount;
   return (
-    <div className="flex items-center gap-2 px-3 py-2 bg-amber-500/15 border-b border-amber-500/30 flex-shrink-0">
-      <BellRing size={14} className="text-amber-300 shrink-0" />
-      <div className="min-w-0 flex-1">
-        <p className="text-[10px] font-black uppercase tracking-wider text-amber-300 leading-none">
-          Notificação pendente{n > 1 ? ` · ${n} mensagens` : ''}
-        </p>
+    <div className="flex items-center justify-between gap-2 px-3 py-1.5 bg-amber-500/10 border-b border-amber-500/20 text-xs flex-shrink-0">
+      <div className="flex items-center gap-1.5 min-w-0 flex-1">
+        <AlertTriangle size={13} className="text-amber-400 shrink-0" />
+        <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider shrink-0">
+          Notificação pendente{n > 1 ? ` (${n})` : ''}:
+        </span>
         {notificacao.lastMessageText && (
-          <p className="text-[11px] text-white/60 truncate mt-0.5">{notificacao.lastMessageText}</p>
+          <span className="text-[11px] text-white/80 truncate font-normal">
+            {notificacao.lastMessageText}
+          </span>
         )}
       </div>
-      {onVerMensagem && notificacao.messageId && (
+      <div className="flex items-center gap-1.5 shrink-0">
+        {onVerMensagem && notificacao.messageId && (
+          <button
+            type="button"
+            onClick={onVerMensagem}
+            title="Ir até a mensagem que gerou a notificação (não resolve)"
+            className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded border border-white/10 bg-white/5 text-[9.5px] font-medium text-white/70 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+          >
+            <Crosshair size={10} />
+            <span>Ver mensagem</span>
+          </button>
+        )}
         <button
           type="button"
-          onClick={onVerMensagem}
-          title="Ir até a mensagem que gerou a notificação (não resolve)"
-          className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-white/10 bg-white/5 text-[10px] font-bold text-white/70 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+          onClick={onResolver}
+          disabled={resolvendo}
+          title="Abrir a conversa não resolve a notificação — só este botão"
+          className={cn(
+            "shrink-0 inline-flex items-center gap-1 px-2.5 py-0.5 rounded border text-[9.5px] font-bold uppercase tracking-wider transition-colors cursor-pointer",
+            "border-emerald-500/40 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+          )}
         >
-          <Crosshair size={11} /> Ver mensagem
+          <CheckCircle2 size={11} />
+          <span>Marcar como resolvido</span>
         </button>
-      )}
-      <button
-        type="button"
-        onClick={onResolver}
-        disabled={resolvendo}
-        title="Abrir a conversa não resolve a notificação — só este botão"
-        className={cn(
-          "shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[10px] font-black uppercase tracking-wide transition-colors cursor-pointer",
-          "border-emerald-500/40 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 disabled:opacity-50 disabled:cursor-not-allowed"
-        )}
-      >
-        <CheckCircle2 size={12} /> Marcar como resolvido
-      </button>
+      </div>
     </div>
   );
 };

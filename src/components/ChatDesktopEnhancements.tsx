@@ -32,9 +32,11 @@ import {
   RefreshCw,
   Columns3,
   PanelRightClose,
-  Forward
+  Forward,
+  ArrowLeft,
+  User
 } from 'lucide-react';
-import { Badge, Button, cn } from './SharedUI';
+import { Badge, Button, cn, AvatarPhoto } from './SharedUI';
 import { format } from 'date-fns';
 import { Timestamp } from 'firebase/firestore';
 
@@ -154,7 +156,7 @@ export const AudioMessagePlayer = ({
 
   return (
     <div
-      className="space-y-2 min-w-[200px] xs:min-w-[220px] max-w-[320px] select-none touch-manipulation"
+      className="space-y-2 w-full max-w-[280px] sm:max-w-[320px] min-w-0 select-none touch-manipulation"
       onMouseEnter={() => { if (audioRef.current && audioRef.current.preload !== 'metadata') audioRef.current.preload = 'metadata'; }}
       onTouchStart={() => { if (audioRef.current && audioRef.current.preload !== 'metadata') audioRef.current.preload = 'metadata'; }}
     >
@@ -183,7 +185,7 @@ export const AudioMessagePlayer = ({
         </button>
 
         {/* Progress bar + time */}
-        <div className="flex-1 flex flex-col justify-center gap-1 min-w-[100px]">
+        <div className="flex-1 flex flex-col justify-center gap-1 min-w-[70px] sm:min-w-[100px]">
           <input
             type="range"
             min={0}
@@ -558,6 +560,7 @@ export const CustomerContextSidebar = ({
   onOpenOrcamento,
   tags = [],
   onSaveTags,
+  isMobileDrawer = false,
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -600,6 +603,7 @@ export const CustomerContextSidebar = ({
   onOpenOrcamento?: (id: string) => void;
   tags?: string[];
   onSaveTags?: (tags: string[]) => void;
+  isMobileDrawer?: boolean;
 }) => {
   const [newTagInput, setNewTagInput] = useState('');
 
@@ -627,46 +631,105 @@ export const CustomerContextSidebar = ({
 
   if (!isOpen) return null;
 
+  const resolvedClientName = (
+    clienteVinculado?.full_name ||
+    conversation?.contactName ||
+    conversation?.fullName ||
+    conversation?.name ||
+    conversation?.whatsappName ||
+    (conversation?.phone ? `+${conversation.phone}` : 'Cliente')
+  ).trim();
+
   return (
-    <aside className="w-80 xl:w-96 border-l border-white/10 bg-slate-900/60 backdrop-blur-xl flex flex-col h-full shrink-0 select-text overflow-hidden rounded-r-2xl">
+    <aside className={cn(
+      "border border-white/10 bg-slate-950/95 backdrop-blur-2xl flex flex-col h-full shrink-0 select-text overflow-hidden shadow-2xl",
+      isMobileDrawer ? "w-full rounded-none sm:rounded-l-2xl border-r-0" : "w-[310px] xl:w-[330px] rounded-2xl"
+    )}>
       {/* Header do painel */}
-      <div className="p-3 border-b border-white/10 flex items-center justify-between bg-white/[0.02]">
+      <div className="px-3.5 py-2.5 border-b border-white/10 flex items-center justify-between bg-white/[0.02] shrink-0">
         <div className="flex items-center gap-2">
-          <Columns3 size={15} className="text-primary-400" />
-          <h4 className="text-xs font-bold text-white uppercase tracking-wider">Contexto do Cliente</h4>
+          {isMobileDrawer && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1 -ml-1 text-white/70 hover:text-white rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
+              title="Voltar para a conversa"
+            >
+              <ArrowLeft size={16} />
+            </button>
+          )}
+          <User size={14} className="text-red-400" />
+          <h4 className="text-[11px] font-black text-white uppercase tracking-wider">Perfil do Contato</h4>
         </div>
         <button
           type="button"
           onClick={onClose}
-          title="Recolher painel (Alt + D)"
-          className="p-1 rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-colors"
+          title={isMobileDrawer ? "Fechar perfil" : "Recolher painel (Alt + D)"}
+          className="p-1 rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
         >
-          <PanelRightClose size={16} />
+          {isMobileDrawer ? <X size={16} /> : <PanelRightClose size={15} />}
         </button>
       </div>
 
+      {/* Card Fixo de Informações do Perfil da Pessoa (sempre visível no PC e Mobile) */}
+      <div className="px-3.5 py-2.5 border-b border-white/10 bg-white/[0.03] flex items-center gap-2.5 shrink-0">
+        <div className="relative shrink-0">
+          <AvatarPhoto
+            photoUrl={conversation?.photoUrl}
+            name={resolvedClientName || 'C'}
+            className="w-10 h-10 rounded-xl bg-primary-500/20 border border-primary-500/30 shrink-0"
+            textClassName="font-bold text-white text-xs"
+          />
+          <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 border border-slate-950" />
+        </div>
+        <div className="min-w-0 flex-1 overflow-hidden">
+          <h5 className="font-bold text-xs text-white truncate leading-tight" title={resolvedClientName}>
+            {resolvedClientName}
+          </h5>
+          <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-white/60">
+            <span className="text-emerald-400 font-semibold shrink-0">{conversation?.channel || 'WhatsApp'}</span>
+            <span className="text-white/30 shrink-0">·</span>
+            <span className="text-emerald-400 font-semibold shrink-0">Online</span>
+            {conversation?.phone && (
+              <>
+                <span className="text-white/30 shrink-0">·</span>
+                <button
+                  type="button"
+                  onClick={handleCopyPhone}
+                  title="Copiar telefone"
+                  className="inline-flex items-center gap-1 text-white/50 hover:text-primary-300 font-medium transition-colors truncate min-w-0 cursor-pointer"
+                >
+                  <span className="truncate max-w-[100px]">{conversation.phone}</span>
+                  <Copy size={9} className="shrink-0 opacity-70" />
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* Sub-abas do painel lateral */}
-      <div className="flex border-b border-white/5 bg-white/[0.01] px-2">
+      <div className="flex border-b border-white/10 bg-white/[0.02] px-1 shrink-0">
         {[
-          { id: 'data', label: 'Dados', icon: Users },
-          { id: 'notes', label: 'Notas', icon: StickyNote, count: notes.length },
-          { id: 'tasks', label: 'Tarefas', icon: ListTodo, count: tasks.filter(t => !t.completedAt).length },
-          { id: 'sales', label: 'Vendas', icon: ShoppingBag, count: clienteVendas.length },
+          { id: 'data', label: 'DADOS', icon: Users },
+          { id: 'notes', label: 'NOTAS', icon: StickyNote, count: notes.length },
+          { id: 'tasks', label: 'TAREFAS', icon: ListTodo, count: tasks.filter(t => !t.completedAt).length },
+          { id: 'sales', label: 'VENDAS', icon: ShoppingBag, count: clienteVendas.length },
         ].map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as any)}
             className={cn(
-              "flex-1 py-2 text-[9px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1 border-b-2",
+              "flex-1 py-2 text-[9.5px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1 border-b-2",
               activeTab === tab.id 
-                ? "border-primary-500 text-primary-300 bg-primary-500/10" 
-                : "border-transparent text-white/40 hover:text-white/70"
+                ? "border-red-500 text-white bg-red-950/30" 
+                : "border-transparent text-white/40 hover:text-white/80"
             )}
           >
-            <tab.icon size={11} />
+            <tab.icon size={11} className={activeTab === tab.id ? "text-red-400" : "text-white/30"} />
             <span>{tab.label}</span>
             {tab.count !== undefined && tab.count > 0 && (
-              <span className="ml-0.5 text-[8px] px-1 py-0.2 rounded-full bg-white/10 font-bold">
+              <span className={cn("ml-0.5 text-[8px] px-1 py-0.2 rounded-full font-bold", activeTab === tab.id ? "bg-red-500 text-white" : "bg-white/10 text-white/60")}>
                 {tab.count}
               </span>
             )}
@@ -675,73 +738,73 @@ export const CustomerContextSidebar = ({
       </div>
 
       {/* Conteúdo da sub-aba */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-4 text-xs">
+      <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-3 text-xs">
         {activeTab === 'data' && (
-          <div className="space-y-4">
-            {/* Identidade */}
-            <div className="p-3.5 bg-white/5 border border-white/10 rounded-2xl space-y-3 shadow-sm">
+          <div className="space-y-2.5">
+            {/* Bloco Resumo do Cliente: Nome, WhatsApp e Status */}
+            <div className="p-3 bg-white/[0.03] border border-white/10 rounded-xl space-y-2.5">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] font-black uppercase tracking-widest text-primary-300">Identidade</span>
+                <span className="text-[9.5px] font-black uppercase tracking-wider text-red-400">Identificação</span>
                 {nomesMudaram && (
                   <button
                     type="button"
                     onClick={handleSaveNames}
                     disabled={isSavingNames}
-                    className="px-2.5 py-1 rounded-xl bg-primary-500 hover:bg-primary-600 text-white font-bold text-[9px] uppercase tracking-wider flex items-center gap-1 transition-colors disabled:opacity-50"
+                    className="px-2 py-0.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-[9px] uppercase tracking-wider flex items-center gap-1 transition-colors disabled:opacity-50"
                   >
                     {isSavingNames ? <Loader2 size={10} className="animate-spin" /> : <Save size={10} />} Salvar
                   </button>
                 )}
               </div>
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 <div>
-                  <label className="text-[9px] font-bold text-white/40 uppercase">Nome WhatsApp</label>
+                  <label className="text-[8.5px] font-bold text-white/40 uppercase tracking-wide">Nome Principal</label>
+                  <input
+                    value={nameFieldsDraft.fullName}
+                    onChange={(e) => setNameFieldsDraft({ ...nameFieldsDraft, fullName: e.target.value })}
+                    placeholder="Nome completo cadastral"
+                    className="w-full bg-slate-900/80 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-red-500/50"
+                  />
+                </div>
+                <div>
+                  <label className="text-[8.5px] font-bold text-white/40 uppercase tracking-wide">WhatsApp / Apelido</label>
                   <input
                     value={nameFieldsDraft.whatsappName}
                     onChange={(e) => setNameFieldsDraft({ ...nameFieldsDraft, whatsappName: e.target.value })}
                     placeholder="Perfil WhatsApp"
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white outline-none focus:border-primary-500"
+                    className="w-full bg-slate-900/80 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-red-500/50"
                   />
                 </div>
                 <div>
-                  <label className="text-[9px] font-bold text-white/40 uppercase">Nome Agenda / Contato</label>
+                  <label className="text-[8.5px] font-bold text-white/40 uppercase tracking-wide">Agenda / Contato</label>
                   <input
                     value={nameFieldsDraft.contactName}
                     onChange={(e) => setNameFieldsDraft({ ...nameFieldsDraft, contactName: e.target.value })}
-                    placeholder="Nome na agenda"
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white outline-none focus:border-primary-500"
-                  />
-                </div>
-                <div>
-                  <label className="text-[9px] font-bold text-white/40 uppercase">Nome Completo Documental</label>
-                  <input
-                    value={nameFieldsDraft.fullName}
-                    onChange={(e) => setNameFieldsDraft({ ...nameFieldsDraft, fullName: e.target.value })}
-                    placeholder="Nome pra contratos/recibos"
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white outline-none focus:border-primary-500"
+                    placeholder="Nome na agenda comercial"
+                    className="w-full bg-slate-900/80 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-red-500/50"
                   />
                 </div>
               </div>
             </div>
 
-            {/* Contato & Telefone */}
-            <div className="p-3.5 bg-white/5 border border-white/10 rounded-2xl space-y-2.5 shadow-sm">
-              <span className="text-[10px] font-black uppercase tracking-widest text-primary-300">Contato</span>
+            {/* Contato, Telefone e E-mail */}
+            <div className="p-3 bg-white/[0.03] border border-white/10 rounded-xl space-y-2">
+              <span className="text-[9.5px] font-black uppercase tracking-wider text-red-400">Canais de Contato</span>
               <div className="flex items-center gap-2">
-                <Phone size={14} className="text-white/40 shrink-0" />
+                <Phone size={13} className="text-emerald-400 shrink-0" />
                 <input
                   value={phoneDraft}
                   onChange={(e) => setPhoneDraft(e.target.value)}
-                  className="flex-1 bg-transparent text-xs font-bold text-white outline-none border-b border-transparent focus:border-primary-500"
-                  placeholder="Telefone"
+                  className="flex-1 bg-transparent text-xs font-bold text-white outline-none border-b border-white/10 focus:border-red-500"
+                  placeholder="Telefone WhatsApp"
                 />
                 <button
                   type="button"
                   onClick={handleCopyPhone}
                   title="Copiar telefone"
-                  className="p-1 rounded-lg hover:bg-white/10 text-white/40 hover:text-white"
+                  className="p-1 rounded hover:bg-white/10 text-white/40 hover:text-white"
                 >
-                  <Copy size={12} />
+                  <Copy size={11} />
                 </button>
                 {phoneMudou && (
                   <button
@@ -749,51 +812,51 @@ export const CustomerContextSidebar = ({
                     onClick={handleSavePhone}
                     disabled={isSavingPhone}
                     title="Salvar novo telefone"
-                    className="p-1.5 rounded-xl bg-primary-500 text-white hover:bg-primary-600"
+                    className="p-1 rounded-lg bg-red-600 text-white hover:bg-red-500"
                   >
-                    {isSavingPhone ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+                    {isSavingPhone ? <Loader2 size={11} className="animate-spin" /> : <Save size={11} />}
                   </button>
                 )}
               </div>
 
               {conversation.email && (
-                <div className="flex items-center gap-2 text-white/70 pt-1">
-                  <AtSign size={14} className="text-white/40 shrink-0" />
-                  <span className="truncate">{conversation.email}</span>
+                <div className="flex items-center gap-2 text-white/80 pt-1 border-t border-white/5">
+                  <AtSign size={13} className="text-white/40 shrink-0" />
+                  <span className="truncate text-[11px]">{conversation.email}</span>
                 </div>
               )}
             </div>
 
-            {/* Endereço */}
-            <div className="p-3.5 bg-white/5 border border-white/10 rounded-2xl space-y-2 shadow-sm">
-              <div className="flex items-center gap-2 text-primary-300">
-                <MapPin size={14} className="shrink-0" />
-                <span className="text-[10px] font-black uppercase tracking-widest">Endereço de Entrega</span>
+            {/* Endereço de Entrega */}
+            <div className="p-3 bg-white/[0.03] border border-white/10 rounded-xl space-y-1.5">
+              <div className="flex items-center gap-1.5 text-red-400">
+                <MapPin size={13} className="shrink-0" />
+                <span className="text-[9.5px] font-black uppercase tracking-wider">Endereço de Entrega</span>
               </div>
               {isLoadingCliente ? (
-                <p className="text-[11px] text-white/40">Buscando cadastro...</p>
+                <p className="text-[10.5px] text-white/40">Buscando endereço...</p>
               ) : clienteVinculado ? (
-                <p className="text-[11px] text-white/80 leading-relaxed">
+                <p className="text-[11px] text-white/80 leading-relaxed font-normal">
                   {[clienteVinculado.logradouro, clienteVinculado.numero, clienteVinculado.distrito, clienteVinculado.city, clienteVinculado.state, clienteVinculado.cep]
                     .filter(Boolean).join(', ') || 'Sem endereço preenchido no cadastro.'}
                 </p>
               ) : (
-                <p className="text-[11px] text-white/40">Sem cadastro vinculado no módulo de Clientes.</p>
+                <p className="text-[10.5px] text-white/40">Sem cadastro vinculado no módulo de Clientes.</p>
               )}
             </div>
 
             {/* Transcrição de áudio automática */}
-            <div className="p-3.5 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-between shadow-sm">
+            <div className="p-2.5 bg-white/[0.02] border border-white/10 rounded-xl flex items-center justify-between">
               <div>
-                <p className="text-[11px] font-bold text-white">Transcrição Automática</p>
+                <p className="text-[10.5px] font-bold text-white">Transcrição Automática</p>
                 <p className="text-[9px] text-white/40">Transcrever áudios desta conversa</p>
               </div>
               <button
                 type="button"
                 onClick={handleToggleAutoTranscribe}
-                className={cn("w-9 h-5 rounded-full transition-colors relative shrink-0", conversation.autoTranscribe ? "bg-emerald-500" : "bg-white/10")}
+                className={cn("w-8 h-4.5 rounded-full transition-colors relative shrink-0", conversation.autoTranscribe ? "bg-emerald-500" : "bg-white/10")}
               >
-                <span className={cn("absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all", conversation.autoTranscribe ? "left-[18px]" : "left-0.5")} />
+                <span className={cn("absolute top-0.5 w-3.5 h-3.5 rounded-full bg-white transition-all", conversation.autoTranscribe ? "left-[16px]" : "left-0.5")} />
               </button>
             </div>
           </div>

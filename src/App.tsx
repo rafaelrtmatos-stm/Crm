@@ -156,16 +156,16 @@ const SidebarItem = ({
   <button
     onClick={onClick}
     className={cn(
-      "w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-300 group text-sm font-medium border border-transparent relative",
+      "w-full flex items-center gap-2.5 px-3 py-2 rounded-xl transition-all duration-200 group text-xs font-semibold border relative",
       active 
-        ? "bg-primary-500 text-white shadow-lg shadow-primary-500/30 border-white/20" 
-        : "text-white/60 hover:bg-white/10 hover:text-white"
+        ? "bg-gradient-to-r from-red-950/80 via-red-900/60 to-red-600/80 text-white border-red-500/40 shadow-md shadow-red-950/40" 
+        : "text-white/60 hover:bg-white/5 hover:text-white border-transparent"
     )}
   >
-    <Icon size={20} className={cn("transition-transform group-hover:scale-110", active ? "text-white" : "text-white/60 group-hover:text-primary-300")} />
+    <Icon size={17} className={cn("transition-transform shrink-0", active ? "text-red-400" : "text-white/50 group-hover:text-white")} />
     <span className="truncate">{label}</span>
     {badgeCount !== undefined && badgeCount > 0 && (
-      <span className="absolute right-4 top-1/2 -translate-y-1/2 min-w-5 h-5 bg-rose-500 text-white text-[10px] uppercase font-black px-1.5 rounded-full flex items-center justify-center shadow-lg border border-white/10 shrink-0 select-none animate-pulse">
+      <span className="ml-auto min-w-4 h-4 bg-emerald-500 text-slate-950 text-[9px] uppercase font-black px-1 rounded-full flex items-center justify-center shrink-0 select-none animate-pulse">
         {badgeCount}
       </span>
     )}
@@ -333,26 +333,26 @@ const Navbar = () => {
 
   return (
     <nav className={cn(
-      "sticky top-0 z-40 bg-white/5 backdrop-blur-xl border-b border-white/10 h-20 flex items-center justify-between px-8 rounded-b-[32px] mx-4 sm:mx-8",
-      (activeTab === 'crm' || activeTab === 'pos') ? "mb-2 md:mb-3" : "mb-6"
+      "sticky top-0 z-40 bg-white/5 backdrop-blur-xl border-b border-white/10 h-14 min-h-[56px] max-h-[58px] flex items-center justify-between px-3 sm:px-5 rounded-b-xl sm:rounded-b-2xl mx-1.5 sm:mx-3 shrink-0",
+      (activeTab === 'crm' || activeTab === 'pos') ? "mb-0.5 sm:mb-1" : "mb-4"
     )}>
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3">
         <button 
           onClick={() => setIsSidebarOpen(true)}
-          className="lg:hidden p-3 text-white/70 hover:bg-white/10 rounded-xl"
+          className="lg:hidden p-2 text-white/70 hover:bg-white/10 rounded-lg"
         >
-          <Menu size={20} />
+          <Menu size={18} />
         </button>
 
         {/* Indicador de conexão */}
         <div
           className={cn(
-            "hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-wider border",
+            "hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[8.5px] font-black uppercase tracking-wider border",
             isOnline ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-rose-500/10 border-rose-500/20 text-rose-400"
           )}
           title={isOnline ? 'Conectado' : 'Sem conexão com a internet'}
         >
-          <span className={cn("w-2 h-2 rounded-full", isOnline ? "bg-emerald-400 animate-pulse" : "bg-rose-400")} />
+          <span className={cn("w-1.5 h-1.5 rounded-full", isOnline ? "bg-emerald-400 animate-pulse" : "bg-rose-400")} />
           {isOnline ? 'Online' : 'Offline'}
         </div>
         
@@ -360,10 +360,10 @@ const Navbar = () => {
         <div className="relative">
           <button
             onClick={() => setIsCompanySelectOpen(!isCompanySelectOpen)}
-            className="flex items-center gap-3 pl-1 pr-4 py-1.5 rounded-full hover:bg-white/10 transition-all border border-transparent hover:border-white/10"
+            className="flex items-center gap-2 pl-1 pr-3 py-1 rounded-full hover:bg-white/10 transition-all border border-transparent hover:border-white/10"
           >
             <div className={cn(
-              "w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs uppercase shadow-lg overflow-hidden shrink-0",
+              "w-7 h-7 rounded-full flex items-center justify-center text-white font-bold text-xs uppercase shadow-md overflow-hidden shrink-0",
               !navbarLogoUrl && (currentCompany?.name.toLowerCase().includes('imobiliária') ? "bg-primary-600" : "bg-primary-800")
             )}>
               {navbarLogoUrl ? (
@@ -377,7 +377,7 @@ const Navbar = () => {
                 {currentCompany?.name || 'Selecione uma Empresa'}
               </p>
             </div>
-            <ChevronDown size={14} className="text-white/30" />
+            <ChevronDown size={13} className="text-white/30" />
           </button>
 
           <AnimatePresence>
@@ -388,7 +388,7 @@ const Navbar = () => {
                   initial={{ opacity: 0, y: 10, scale: 0.95 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                  className="absolute left-0 mt-3 w-72 bg-[#1a2333]/90 backdrop-blur-3xl rounded-[28px] shadow-2xl border border-white/10 p-2 overflow-hidden z-50"
+                  className="absolute left-0 mt-2 w-72 bg-[#1a2333]/90 backdrop-blur-3xl rounded-2xl shadow-2xl border border-white/10 p-2 overflow-hidden z-50"
                 >
                   <p className="px-4 py-2 text-[10px] font-bold text-white/40 uppercase tracking-[2px]">Gestão Rafa Arts</p>
                   {companies.map(company => (
@@ -421,7 +421,7 @@ const Navbar = () => {
         </div>
       </div>
 
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3">
         {/* Sino: notificacoes pendentes (contador + lista). Clicar num item abre a conversa na
             mensagem que gerou a notificacao -- NAO resolve; so o botao "Marcar como resolvido". */}
         <NotificacoesPendentesBell itens={notificacoesPendentes} onAbrir={abrirNotificacao} />
@@ -430,23 +430,23 @@ const Navbar = () => {
         <button
           onClick={toggleTheme}
           title={theme === 'dark' ? 'Alternar para Modo Claro' : 'Alternar para Modo Escuro'}
-          className="p-2.5 rounded-full bg-white/10 hover:bg-white/20 border border-white/10 text-white transition-all active:scale-95 flex items-center justify-center shadow-md cursor-pointer"
+          className="p-2 rounded-full bg-white/10 hover:bg-white/20 border border-white/10 text-white transition-all active:scale-95 flex items-center justify-center shadow-md cursor-pointer"
         >
           {theme === 'dark' ? (
-            <Sun size={18} className="text-amber-400 animate-in spin-in-180 duration-300" />
+            <Sun size={15} className="text-amber-400 animate-in spin-in-180 duration-300" />
           ) : (
-            <Moon size={18} className="text-indigo-600 animate-in spin-in-180 duration-300" />
+            <Moon size={15} className="text-indigo-600 animate-in spin-in-180 duration-300" />
           )}
         </button>
 
         <div className="hidden sm:flex flex-col items-end">
-          <p className="text-sm font-bold text-white leading-tight">{user?.name}</p>
-          <p className="text-[10px] text-primary-300 font-bold uppercase tracking-[1.5px]">{user?.role}</p>
+          <p className="text-xs font-bold text-white leading-tight">{user?.name}</p>
+          <p className="text-[9px] text-primary-300 font-bold uppercase tracking-wider">{user?.role}</p>
         </div>
         <div className="relative">
           <button 
             onClick={() => setIsProfileOpen(!isProfileOpen)}
-            className="w-11 h-11 rounded-full bg-white/10 border-2 border-white/20 shadow-xl overflow-hidden active:scale-95 transition-transform"
+            className="w-8 h-8 rounded-full bg-white/10 border border-white/20 shadow-md overflow-hidden active:scale-95 transition-transform"
           >
             {user?.photoUrl || user?.avatarUrl ? (
               <img src={user.photoUrl || user.avatarUrl} alt={user.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
@@ -458,7 +458,7 @@ const Navbar = () => {
                 onError={(e) => {
                   // Fallback para inicial do nome se a imagem padrão não carregar
                   const div = document.createElement('div');
-                  div.className = "w-full h-full flex items-center justify-center bg-primary-500/30 text-white font-bold text-lg";
+                  div.className = "w-full h-full flex items-center justify-center bg-primary-500/30 text-white font-bold text-xs";
                   div.textContent = user?.name?.[0] || 'U';
                   e.currentTarget.parentElement?.replaceChild(div, e.currentTarget);
                 }}
@@ -474,13 +474,13 @@ const Navbar = () => {
                   initial={{ opacity: 0, y: 10, scale: 0.95 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                  className="absolute right-0 mt-3 w-56 bg-[#1a2333]/90 backdrop-blur-3xl rounded-[28px] shadow-2xl border border-white/10 p-2 z-50"
+                  className="absolute right-0 mt-2 w-56 bg-[#1a2333]/90 backdrop-blur-3xl rounded-2xl shadow-2xl border border-white/10 p-2 z-50"
                 >
                   <button 
                     onClick={logout}
-                    className="w-full flex items-center gap-3 p-4 rounded-2xl hover:bg-rose-500/20 text-rose-400 transition-colors text-sm font-bold cursor-pointer border-0 bg-transparent"
+                    className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-rose-500/20 text-rose-400 transition-colors text-xs font-bold cursor-pointer border-0 bg-transparent"
                   >
-                    <LogOut size={18} />
+                    <LogOut size={16} />
                     Finalizar Sessão
                   </button>
                 </motion.div>
@@ -2786,27 +2786,27 @@ export default function App() {
                 exit={{ x: -320 }}
                 transition={{ duration: 0.5, type: 'spring', damping: 25, stiffness: 120 }}
                 className={cn(
-                  "fixed lg:static inset-y-0 left-0 z-50 w-80 bg-white/5 backdrop-blur-3xl border-r border-white/10 flex flex-col p-8 shadow-2xl lg:shadow-none lg:bg-transparent",
+                  "fixed lg:static inset-y-0 left-0 z-50 w-56 lg:w-[230px] shrink-0 bg-slate-950/90 backdrop-blur-3xl border-r border-white/10 flex flex-col p-3.5 shadow-2xl lg:shadow-none lg:bg-slate-950/40",
                   !isSidebarOpen && "hidden lg:flex"
                 )}
               >
-              <div className="flex items-center justify-between mb-8 px-1">
-                <div className="flex items-center gap-3">
+              <div className="flex items-center justify-between mb-4 px-1">
+                <div className="flex items-center gap-2">
                   {logosReady ? (
-                    <BrandLogo imageUrl={theme === 'light' ? (logoDarkUrl || logoLightUrl) : logoLightUrl} size="md" layout="stacked" />
+                    <BrandLogo imageUrl={theme === 'light' ? (logoDarkUrl || logoLightUrl) : logoLightUrl} size="sm" layout="stacked" />
                   ) : (
-                    <div style={{ width: 220, height: 135 }} />
+                    <div style={{ width: 180, height: 100 }} />
                   )}
                 </div>
                 <button 
                   onClick={() => setIsSidebarOpen(false)}
-                  className="lg:hidden p-2 text-white/40 hover:text-white transition-colors rounded-xl bg-white/5"
+                  className="lg:hidden p-1.5 text-white/40 hover:text-white transition-colors rounded-lg bg-white/5"
                 >
-                  <X size={20} />
+                  <X size={18} />
                 </button>
               </div>
 
-              <div className="flex-1 space-y-3 overflow-y-auto pr-3 custom-scrollbar">
+              <div className="flex-1 space-y-1 overflow-y-auto pr-1 custom-scrollbar">
                 {menuItems.map(item => (
                   <SidebarItem
                     key={item.id}
@@ -2846,8 +2846,8 @@ export default function App() {
         {/* Main Content */}
         <main className="flex-1 flex flex-col min-w-0 bg-transparent overflow-hidden">
           <Navbar />
-          <div className={cn("flex-1 custom-scrollbar", (activeTab === 'pos' || activeTab === 'crm') ? "p-2 md:p-3 overflow-hidden" : "p-4 md:p-8 overflow-y-auto")}>
-            <div className={cn((activeTab === 'pos' || activeTab === 'crm') ? "max-w-full h-full" : "max-w-7xl mx-auto")}>
+          <div className={cn("flex-1 custom-scrollbar", (activeTab === 'pos' || activeTab === 'crm') ? "px-1.5 pt-0.5 pb-1 sm:px-2.5 sm:pt-1 sm:pb-1.5 overflow-hidden flex flex-col min-h-0" : "p-4 md:p-8 overflow-y-auto")}>
+            <div className={cn((activeTab === 'pos' || activeTab === 'crm') ? "max-w-full h-full flex flex-col min-h-0" : "max-w-7xl mx-auto")}>
               <AnimatePresence mode="wait">
                 <motion.div
                   key={activeTab}
@@ -2855,7 +2855,7 @@ export default function App() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -8 }}
                   transition={{ duration: 0.15, ease: "easeOut" }}
-                  className={(activeTab === 'pos' || activeTab === 'crm') ? "h-full" : undefined}
+                  className={(activeTab === 'pos' || activeTab === 'crm') ? "h-full flex flex-col min-h-0" : undefined}
                 >
                   {activeTab === 'dashboard' && <DashboardModule user={user} currentCompany={currentCompany} pendingOrders={pendingOrders} setActiveTab={setActiveTab} setIsMessagePopupOpen={setIsMessagePopupOpen} />}
                   {activeTab === 'crm' && <CRMModule currentCompany={currentCompany} user={user} />}

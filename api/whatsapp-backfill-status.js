@@ -33,7 +33,7 @@ async function gravarStatus(ids, status) {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return; }
-  if (!EVOLUTION_API_URL || !EVOLUTION_API_KEY) { res.status(500).json({ error: 'Evolution API não configurada.' }); return; }
+  if (!EVOLUTION_API_URL || !EVOLUTION_API_KEY) { res.status(200).json({ ok: false, notConfigured: true }); return; }
   if (!(await exigirUsuarioAutorizado(req, res))) return;
 
   const numero = String(req.body?.phone || '').replace(/\D/g, '');

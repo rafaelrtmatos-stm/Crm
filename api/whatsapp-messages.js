@@ -14,7 +14,7 @@ import { EVOLUTION_API_URL, EVOLUTION_API_KEY, INSTANCE_NAME, SUPABASE_URL, SUPA
 import { exigirUsuarioAutorizado } from './_lib/auth.js';
 import { timestampParaIso } from './_lib/timestamp.js';
 import { extrairTextoMensagem, extrairInfoMidia, extrairContextoCitacao } from './_lib/wa-parse.js';
-import { statusMaisAvancado } from './_lib/wa-status.js';
+import { statusMaisAvancado, normalizarStatusEntrega } from './_lib/wa-status.js';
 
 const supaHeaders = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
 
@@ -121,7 +121,7 @@ export default async function handler(req, res) {
     return;
   }
   if (!EVOLUTION_API_URL || !EVOLUTION_API_KEY) {
-    res.status(500).json({ error: 'Evolution API não configurada.' });
+    res.status(200).json({ ok: false, notConfigured: true, messages: [], error: 'Evolution API não configurada.' });
     return;
   }
   if (!(await exigirUsuarioAutorizado(req, res))) return;

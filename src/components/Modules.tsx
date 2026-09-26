@@ -4571,7 +4571,14 @@ export const ChatPanel = ({
           body: JSON.stringify({ phone: conversation.phone }),
         });
         const json = await resp.json().catch(() => null);
-        if (!resp.ok || !json?.ok) throw new Error(json?.error || `Falha ao buscar mensagens (${resp.status}).`);
+        const jsonError = String(json?.error || '');
+        if (json?.notConfigured || jsonError.includes('não configurada')) {
+          return false;
+        }
+        if (!resp.ok || !json?.ok) {
+          if (jsonError.includes('não configurada')) return false;
+          throw new Error(jsonError || `Falha ao buscar mensagens (${resp.status}).`);
+        }
         let mapped: any[] = json.messages || [];
 
         const { data: transcricoes } = await supabase.from('wa_transcricao_fila')
@@ -4600,7 +4607,7 @@ export const ChatPanel = ({
           .eq('phone', conversation.phone)
           .eq('is_note', true)
           .order('created_at', { ascending: true });
-        if (notasErr) console.error('[CRM] Falha ao carregar notas internas:', notasErr);
+        if (notasErr) console.warn('[CRM] Falha ao carregar notas internas:', notasErr);
         if (notasRows?.length) {
           mapped = [...mapped, ...notasRows.map(mapCrmMessageRow)]
             .sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
@@ -4616,9 +4623,13 @@ export const ChatPanel = ({
           reprocessPendingTranscriptions(conversation.phone, user?.id);
         }
         return mapped.some((m: any) => !m.isNote);
-      } catch (err) {
-        console.error('[CRM] Falha ao carregar histórico ao vivo da Evolution API:', err);
-        ultimoErroBusca = `Evolution API: ${(err as any)?.message || err}`;
+      } catch (err: any) {
+        const errText = String(err?.message || err?.error || err || '');
+        const isNotConfigured = errText.includes('não configurada') || errText.includes('notConfigured') || err?.notConfigured;
+        if (!isNotConfigured) {
+          console.warn('[CRM] Histórico da Evolution API indisponível:', err);
+          ultimoErroBusca = `Evolution API: ${errText}`;
+        }
         return false;
       }
     };
@@ -4674,9 +4685,9 @@ export const ChatPanel = ({
           sweptTranscriptionPhonesRef.current.add(conversation.phone);
           reprocessPendingTranscriptions(conversation.phone, user?.id);
         }
-        return mapped.some((m: any) => !m.isNote);
+        return true;
       } catch (err) {
-        console.error('[CRM] Falha ao carregar mensagens do WhatsApp em crm_messages:', err);
+        console.warn('[CRM] Falha ao carregar mensagens do WhatsApp em crm_messages:', err);
         ultimoErroBusca = `Supabase (crm_messages): ${(err as any)?.message || err}`;
         return false;
       }
@@ -4693,16 +4704,24 @@ export const ChatPanel = ({
 
     // Leitura ao vivo na Evolution SO com a flag ligada; desligada, WhatsApp le crm_messages (como antes).
     const usarEvolutionAoVivo = ehWhatsapp && SEM_CRM_MESSAGES;
-    // Fonte reserva: se a principal falhar ou voltar sem mensagens (flags do servidor/front desencontradas,
-    // conversa guardada sob outro JID na Evolution, Supabase fora do ar...), tenta a outra em vez de abrir
-    // vazio. Se as duas falharem, o motivo aparece na propria tela do chat (erroHistorico).
+    // Fonte reserva: se a principal falhar (erro no banco/rede), tenta a reserva.
     const loadMessagesWhatsappComReserva = async (): Promise<boolean> => {
       ultimoErroBusca = null;
-      const principal = usarEvolutionAoVivo ? loadMessagesWhatsapp : loadMessagesWhatsappCrm;
-      const reserva = usarEvolutionAoVivo ? loadMessagesWhatsappCrm : loadMessagesWhatsapp;
-      const temMensagens = (await principal()) || (await reserva());
-      if (!cancelado) setErroHistorico(temMensagens ? null : ultimoErroBusca);
-      return temMensagens;
+      if (usarEvolutionAoVivo) {
+        const principalOk = await loadMessagesWhatsapp();
+        if (!principalOk) {
+          await loadMessagesWhatsappCrm();
+        }
+      } else {
+        const crmOk = await loadMessagesWhatsappCrm();
+        if (!crmOk && ultimoErroBusca) {
+          await loadMessagesWhatsapp();
+        }
+      }
+      if (!cancelado) {
+        setErroHistorico(ultimoErroBusca?.includes('não configurada') ? null : ultimoErroBusca);
+      }
+      return true;
     };
     const loadMessages = ehWhatsapp ? loadMessagesWhatsappComReserva : loadMessagesOutroCanal;
     recarregarMensagensRef.current = loadMessages;
@@ -4756,7 +4775,7 @@ export const ChatPanel = ({
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
       body: JSON.stringify({ phone: phoneDigits }),
-    }).catch((err) => console.error('Falha ao assinar presença (não impede o resto):', err));
+    }).catch((err) => console.warn('Falha ao assinar presença (não impede o resto):', err));
 
     const loadPresence = async () => {
       const { data } = await supabase.from('whatsapp_presence').select('status,last_seen_at')
@@ -5295,43 +5314,46 @@ export const ChatPanel = ({
   const chatContent = (
     <GlassCard className="flex-1 flex flex-col p-0 overflow-hidden bg-white/3 border-white/10 relative h-full fixed md:static inset-0 z-50 md:z-auto rounded-none md:rounded-2xl border md:border-white/10 shadow-2xl">
       {/* Header - FIXO */}
-      <div className="px-3 py-2.5 sm:px-4 sm:py-3 border-b border-white/10 flex items-center justify-between bg-white/[0.02] flex-shrink-0 gap-2">
-        <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
-          {/* Botão Voltar — só no mobile: sai do Modo Conversa em Foco e retorna à lista, sem recarregar a página */}
+      <div className="px-2 sm:px-3 py-2 border-b border-white/10 flex items-center justify-between bg-white/[0.02] flex-shrink-0 gap-2 sm:gap-3 min-h-[52px] w-full overflow-hidden">
+        {/* ESQUERDA: Botão voltar (mobile) / recolher coluna (desktop) */}
+        <div className="flex items-center shrink-0">
           {onClose && (
             <button
               type="button"
               onClick={onClose}
-              className="md:hidden flex items-center justify-center w-8 h-8 rounded-lg text-white/70 hover:text-white hover:bg-white/10 active:scale-95 transition-all shrink-0 -ml-1"
+              className="md:hidden flex items-center justify-center w-8 h-8 rounded-lg text-white/70 hover:text-white hover:bg-white/10 active:scale-95 transition-all shrink-0 -ml-0.5"
               title="Voltar para a lista"
             >
-              <ArrowLeft size={19} />
+              <ArrowLeft size={18} />
             </button>
           )}
-          {/* Botão Encolher/Expandir Coluna no Desktop */}
           {onToggleColumnCollapse && (
             <button
               type="button"
               onClick={onToggleColumnCollapse}
-              className="hidden md:flex items-center justify-center w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 hover:text-white transition-all shrink-0 -ml-1 cursor-pointer active:scale-95"
+              className="hidden md:flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 hover:text-white transition-all shrink-0 cursor-pointer active:scale-95 -ml-0.5"
               title={isColumnCollapsed ? "Expandir coluna de etapas" : "Encolher coluna de etapas"}
             >
-              {isColumnCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+              {isColumnCollapsed ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
             </button>
           )}
-          <div className="relative">
+        </div>
+
+        {/* CENTRO: Cliente (Avatar + Informações) */}
+        <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1 overflow-hidden">
+          <div className="relative shrink-0">
             <button
               type="button"
               onClick={() => { if (conversation.photoUrl) setIsPhotoOpen(true); }}
               disabled={!conversation.photoUrl}
               title={conversation.photoUrl ? 'Ver foto de perfil' : undefined}
-              className={cn("block rounded-xl", conversation.photoUrl ? "cursor-zoom-in" : "cursor-default")}
+              className={cn("block rounded-xl overflow-hidden", conversation.photoUrl ? "cursor-zoom-in" : "cursor-default")}
             >
               <AvatarPhoto
                 photoUrl={conversation.photoUrl}
                 name={resolvedClientName || 'C'}
-                className="w-10 h-10 rounded-xl bg-primary-500/20 border-primary-500/30"
-                textClassName="font-bold text-white text-base"
+                className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-primary-500/20 border border-primary-500/30 shrink-0"
+                textClassName="font-bold text-white text-xs sm:text-sm"
               />
             </button>
             {isPhotoOpen && conversation.photoUrl && createPortal(
@@ -5456,7 +5478,7 @@ export const ChatPanel = ({
                   </div>
                 </div>
 
-                {/* Área da imagem - abraça o tamanho e proporção real da imagem perfeitamente */}
+                {/* Área da imagem */}
                 <div
                   className="flex-1 flex flex-col items-center justify-center p-3 sm:p-6 overflow-hidden min-h-0"
                   onClick={() => setImageViewerModal(null)}
@@ -5492,127 +5514,194 @@ export const ChatPanel = ({
                 }}
               />
             )}
-            {/* Bolinha verde SO quando o contato esta realmente online agora
-                (presence.status === 'available') -- antes era fixa/decorativa. */}
             {presence?.status === 'available' && (
-              <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-[#0f172a]" />
+              <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-[#0f172a]" />
             )}
           </div>
+
           {(() => {
-            const nameParts = resolvedClientName.split(' ');
-            const firstName = nameParts[0] || resolvedClientName;
-            const remainingName = nameParts.slice(1).join(' ');
+            const activeStageId = currentStageId || conversation.funnelStageId;
+            const currentStageIndex = funnelStages.findIndex(s => s.id === activeStageId);
+            const currentStage = currentStageIndex >= 0 ? funnelStages[currentStageIndex] : (funnelStages.find(s => s.isInitial) || funnelStages[0]);
+            const stageColor = currentStage?.color || '#ef4444';
+            const stageName = currentStage?.name || 'EM ATENDIMENTO';
+
             return (
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1 overflow-hidden">
+                {/* Linha 1: Nome com ellipsis garantido */}
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <h4 className="font-bold text-xs sm:text-sm text-white flex items-center gap-1 min-w-0 max-w-full" title={resolvedClientName}>
-                    <span className="shrink-0 whitespace-nowrap text-white font-extrabold">{firstName}</span>
-                    {remainingName && <span className="truncate min-w-0 text-white/90">{remainingName}</span>}
+                  <h4 
+                    className="font-bold text-xs sm:text-sm text-white truncate min-w-0 leading-tight" 
+                    title={resolvedClientName}
+                  >
+                    {resolvedClientName}
                   </h4>
-                  <Badge variant="outline" className="text-[7px] py-0 px-1 leading-none h-3.5 shrink-0">{conversation.channel}</Badge>
+
+                  {/* Indicador de Status do Funil: exibido no desktop */}
+                  {effectiveFunnelId && funnelStages.length > 0 && (
+                    <div className={cn("relative shrink-0", showDesktopSidebar ? "hidden 2xl:block" : "hidden lg:block")}>
+                      <button
+                        type="button"
+                        onClick={() => setIsStageMenuOpen(o => !o)}
+                        disabled={isChangingStage}
+                        className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 transition-all text-[8px] font-black uppercase tracking-wider cursor-pointer active:scale-95"
+                        style={{ color: stageColor }}
+                        title="Alterar status do atendimento"
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: stageColor }} />
+                        <span className="truncate max-w-[85px]">{stageName}</span>
+                        <ChevronDown size={8} className={cn("shrink-0 opacity-60 transition-transform", isStageMenuOpen && "rotate-180")} />
+                      </button>
+
+                      {isStageMenuOpen && (
+                        <>
+                          <div className="fixed inset-0 z-40" onClick={() => setIsStageMenuOpen(false)} />
+                          <div className="absolute top-full mt-1.5 left-0 min-w-[200px] bg-slate-900 border border-white/10 rounded-2xl shadow-2xl z-50 p-1.5 max-h-60 overflow-y-auto custom-scrollbar">
+                            <div className="px-2.5 py-1 text-[9px] font-black uppercase tracking-wider text-white/40 border-b border-white/10 mb-1">
+                              Status do Atendimento
+                            </div>
+                            {funnelStages.map(stage => {
+                              const isActive = stage.id === activeStageId;
+                              const c = stage.color || '#ef4444';
+                              return (
+                                <button
+                                  key={stage.id}
+                                  type="button"
+                                  onClick={() => { handleChangeStageFromChat(stage.id); setIsStageMenuOpen(false); }}
+                                  className={cn(
+                                    "w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all text-left cursor-pointer",
+                                    isActive ? "bg-white/[0.08]" : "hover:bg-white/5"
+                                  )}
+                                >
+                                  <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c }} />
+                                  <span className="flex-1 truncate normal-case" style={{ color: isActive ? c : 'rgba(255,255,255,0.75)' }}>{stage.name}</span>
+                                  {isActive && <Check size={12} style={{ color: c }} className="shrink-0" />}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
-                <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
+
+                {/* Linha 2: WhatsApp · Online · telefone */}
+                <div className="flex items-center gap-1.5 mt-0.5 min-w-0 text-[10px] sm:text-[11px] leading-tight text-white/60">
+                  <span className="text-emerald-400 font-semibold shrink-0">
+                    {conversation.channel || 'WhatsApp'}
+                  </span>
+                  <span className="text-white/30 shrink-0">·</span>
                   {presenceLabel ? (
                     <span className={cn(
-                      "text-[9px] font-black uppercase tracking-wider truncate max-w-[80px] xs:max-w-[110px]",
+                      "font-semibold uppercase tracking-wider shrink-0",
                       (presence?.status === 'composing' || presence?.status === 'recording') ? "text-primary-400 animate-pulse"
                         : presence?.status === 'available' ? "text-emerald-400"
                         : "text-white/40"
                     )}>
-                      {presenceLabel}
+                      {presence?.status === 'available' ? 'Online' : presenceLabel}
                     </span>
                   ) : (
-                    <span className="text-[9px] text-emerald-400 font-black uppercase tracking-wider shrink-0">Ativo</span>
+                    <span className="text-emerald-400 font-semibold uppercase tracking-wider shrink-0">Online</span>
                   )}
-                  <span className="text-[9px] text-white/20 shrink-0">•</span>
-                  <button
-                    onClick={handleCopyPhone}
-                    disabled={!conversation.phone}
-                    title="Copiar telefone"
-                    className="flex items-center gap-0.5 text-[9px] text-white/40 font-bold hover:text-primary-300 transition-colors disabled:opacity-40 disabled:hover:text-white/40 truncate max-w-[110px] xs:max-w-none"
-                  >
-                    <span className="truncate">{conversation.phone || '(62) 99999-9999'}</span>
-                    <Copy size={9} className="shrink-0" />
-                  </button>
+
+                  {/* Telefone: oculto no mobile (< sm) para evitar sobreposição, truncado no desktop */}
+                  {conversation.phone && (
+                    <>
+                      <span className="text-white/30 shrink-0 hidden sm:inline">·</span>
+                      <button
+                        type="button"
+                        onClick={handleCopyPhone}
+                        disabled={!conversation.phone}
+                        title="Copiar telefone"
+                        className="hidden sm:inline-flex items-center gap-1 text-white/50 font-medium hover:text-primary-300 transition-colors disabled:opacity-40 truncate min-w-0"
+                      >
+                        <span className={cn("truncate", showDesktopSidebar ? "max-w-[95px] xl:max-w-[140px]" : "max-w-[120px] md:max-w-none")}>{conversation.phone}</span>
+                        <Copy size={9} className="shrink-0 opacity-70" />
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             );
           })()}
         </div>
         
-        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
-          {/* Botão de Busca Interna na Conversa (Ctrl+F) */}
+        {/* DIREITA: Ações (flex-shrink: 0, não é esmagada pelo nome do cliente) */}
+        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 ml-auto">
+          {/* Botão Buscar - oculto no mobile, disponível no menu ⋮ */}
           <button
             type="button"
             onClick={() => setIsSearchOpen(v => !v)}
             className={cn(
-              "h-8 w-8 rounded-lg border transition-all flex items-center justify-center shrink-0 active:scale-95",
+              "h-7 sm:h-8 px-2 sm:px-2.5 rounded-lg border transition-all hidden sm:flex items-center gap-1 text-[10.5px] font-bold shrink-0 active:scale-95 cursor-pointer",
               isSearchOpen 
-                ? "bg-primary-500/20 text-primary-300 border-primary-500/40 shadow-sm" 
-                : "bg-white/5 text-white/60 hover:text-white hover:bg-white/10 border-transparent"
+                ? "bg-red-500/20 text-red-300 border-red-500/40 shadow-sm" 
+                : "bg-white/5 text-white/70 hover:text-white hover:bg-white/10 border-white/10"
             )}
             title="Pesquisar mensagens nesta conversa (Ctrl + F)"
           >
-            <Search size={14} />
+            <Search size={13} />
+            <span className={cn("hidden", showDesktopSidebar ? "2xl:inline" : "md:inline")}>Buscar</span>
           </button>
 
-          {/* Botão de Painel Lateral de Contexto do Cliente no PC (Alt+D) */}
+          {/* Botão Perfil (ex-Contexto) - visível sempre */}
           <button
             type="button"
             onClick={toggleDesktopSidebar}
             className={cn(
-              "hidden lg:flex items-center gap-1.5 px-3 sm:px-3.5 h-8.5 sm:h-9 rounded-xl border transition-all text-xs font-bold shrink-0 shadow-sm active:scale-95",
+              "flex items-center gap-1 px-2 sm:px-2.5 h-7 sm:h-8 rounded-lg border transition-all text-[10px] sm:text-[10.5px] font-bold shrink-0 shadow-sm active:scale-95 cursor-pointer",
               showDesktopSidebar 
-                ? "bg-primary-500/20 text-primary-300 border-primary-500/40 shadow-sm" 
-                : "bg-white/5 text-white/80 hover:text-white hover:bg-white/10 border-white/15"
+                ? "bg-red-500/20 text-red-300 border-red-500/40 shadow-sm" 
+                : "bg-white/5 text-white/80 hover:text-white hover:bg-white/10 border-white/10"
             )}
-            title="Painel Lateral de Contexto do Cliente: Dados, Notas, Tarefas e Vendas (Alt + D)"
+            title="Perfil do Contato: Dados, Notas, Tarefas e Vendas (Alt + D)"
           >
-            <Columns3 size={15} />
-            <span>Contexto</span>
+            <User size={13} />
+            <span>Perfil</span>
           </button>
 
-          {/* Botão Resolvido (Alerta de Vácuo) -- Oculta quando o banner de notificação pendente já estiver visível na tela para evitar botão duplicado */}
+          {/* Botão Resolvido (Alerta de Vácuo) */}
           {conversation.waitingSince && !notificacaoPendente && (
             <button
               type="button"
               onClick={handleResolveWaiting}
               title="Marcar como resolvido (tira o alerta de vácuo)"
-              className="flex items-center gap-1 px-2.5 h-8.5 sm:h-9 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-all text-[9.5px] font-black uppercase tracking-wider whitespace-nowrap shrink-0"
+              className="flex items-center gap-1 px-2 h-7 sm:h-8 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-all text-[9px] font-black uppercase tracking-wider whitespace-nowrap shrink-0 cursor-pointer"
             >
-              <CheckCircle2 size={13} />
-              <span className="hidden xs:inline">Resolvido</span>
+              <CheckCircle2 size={11} />
+              <span className={cn("hidden", showDesktopSidebar ? "2xl:inline" : "lg:inline")}>Resolvido</span>
             </button>
           )}
 
-          {/* Botão Comercial: Venda PDV (Destaque Ergonômico Mobile & Desktop) */}
+          {/* Botão Venda PDV - oculto em mobile pequeno, disponível no menu ⋮ */}
           {permissions.canStartPosSale && (
             <button
               type="button"
               onClick={handleStartSale}
               disabled={isStartingSale}
-              className="flex items-center gap-1.5 px-3 h-8.5 sm:h-9 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-sm active:scale-95 transition-all shrink-0 disabled:opacity-60"
+              className="hidden sm:flex items-center gap-1 px-2 sm:px-2.5 h-7 sm:h-8 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[10.5px] uppercase tracking-wider shadow-sm active:scale-95 transition-all shrink-0 disabled:opacity-60 cursor-pointer"
               title="Iniciar venda deste lead no PDV (Alt + V)"
             >
-              {isStartingSale ? <Loader2 size={14} className="animate-spin" /> : <ShoppingBag size={14} strokeWidth={2.5} />}
-              <span>Venda</span>
+              {isStartingSale ? <Loader2 size={11} className="animate-spin" /> : <ShoppingBag size={11} strokeWidth={2.5} />}
+              <span className={cn("hidden", showDesktopSidebar ? "xl:inline" : "inline")}>Venda</span>
             </button>
           )}
 
-          {/* Menu Mais Ações (⋮) no Canto Superior */}
-          <div className="relative">
+          {/* Menu Mais Ações (⋮) */}
+          <div className="relative shrink-0">
             <button 
               type="button"
               className={cn(
-                "h-8 w-8 rounded-lg border transition-all flex items-center justify-center shrink-0 active:scale-95",
+                "h-7 w-7 sm:h-8 sm:w-8 rounded-lg border transition-all flex items-center justify-center shrink-0 active:scale-95 cursor-pointer",
                 showQuickActions
                   ? "bg-white/15 text-white border-white/20"
-                  : "bg-white/5 text-white/60 hover:text-white hover:bg-white/10 border-transparent"
+                  : "bg-white/5 text-white/60 hover:text-white hover:bg-white/10 border-white/10"
               )}
               onClick={() => setShowQuickActions(!showQuickActions)}
               title="Mais opções do contato"
             >
-              <MoreVertical size={15} />
+              <MoreVertical size={14} />
             </button>
             {showQuickActions && (
               <>
@@ -5621,7 +5710,7 @@ export const ChatPanel = ({
                   <div className="px-3 py-1.5 border-b border-white/10 mb-1 flex items-center justify-between">
                     <p className="text-[9px] font-black uppercase tracking-widest text-white/40">Opções do Contato</p>
                     {activeTab !== 'chat' && (
-                      <span className="text-[8px] font-bold text-primary-400 bg-primary-500/10 px-1.5 py-0.5 rounded">
+                      <span className="text-[8px] font-bold text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded">
                         {activeTab.toUpperCase()}
                       </span>
                     )}
@@ -5630,12 +5719,73 @@ export const ChatPanel = ({
                     <button
                       type="button"
                       onClick={() => { setActiveTab('chat'); setShowQuickActions(false); }}
-                      className="w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold text-primary-300 hover:bg-white/10 flex items-center gap-2.5 transition-colors border-b border-white/10 pb-2 mb-1"
+                      className="w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold text-red-300 hover:bg-white/10 flex items-center gap-2.5 transition-colors border-b border-white/10 pb-2 mb-1 cursor-pointer"
                     >
-                      <MessageSquare size={14} className="text-primary-400" />
+                      <MessageSquare size={14} className="text-red-400" />
                       <span>Voltar para Conversa</span>
                     </button>
                   )}
+
+                  {/* Ações secundárias no mobile quando ocultas na barra */}
+                  <div className="sm:hidden space-y-0.5 border-b border-white/10 pb-1 mb-1">
+                    <button
+                      type="button"
+                      onClick={() => { setIsSearchOpen(true); setShowQuickActions(false); }}
+                      className="w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold text-white hover:bg-white/10 flex items-center gap-2.5 transition-colors cursor-pointer"
+                    >
+                      <Search size={14} className="text-white/60" />
+                      <span>Buscar na Conversa</span>
+                    </button>
+                    {permissions.canStartPosSale && (
+                      <button
+                        type="button"
+                        onClick={() => { handleStartSale(); setShowQuickActions(false); }}
+                        className="w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold text-emerald-400 hover:bg-white/10 flex items-center gap-2.5 transition-colors cursor-pointer"
+                      >
+                        <ShoppingBag size={14} className="text-emerald-400" />
+                        <span>Iniciar Venda PDV</span>
+                      </button>
+                    )}
+                    {conversation.waitingSince && !notificacaoPendente && (
+                      <button
+                        type="button"
+                        onClick={() => { handleResolveWaiting(); setShowQuickActions(false); }}
+                        className="w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold text-emerald-400 hover:bg-white/10 flex items-center gap-2.5 transition-colors cursor-pointer"
+                      >
+                        <CheckCircle2 size={14} className="text-emerald-400" />
+                        <span>Marcar como Resolvido</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Status do Atendimento no Mobile */}
+                  {effectiveFunnelId && funnelStages.length > 0 && (
+                    <div className="lg:hidden border-b border-white/10 pb-1 mb-1">
+                      <div className="px-3 py-1 text-[9px] font-black uppercase tracking-widest text-white/40">Status do Atendimento</div>
+                      <div className="grid grid-cols-1 gap-0.5 px-1 max-h-36 overflow-y-auto custom-scrollbar">
+                        {funnelStages.map(stage => {
+                          const isActive = stage.id === (currentStageId || conversation.funnelStageId);
+                          const c = stage.color || '#ef4444';
+                          return (
+                            <button
+                              key={stage.id}
+                              type="button"
+                              onClick={() => { handleChangeStageFromChat(stage.id); setShowQuickActions(false); }}
+                              className={cn(
+                                "w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all text-left",
+                                isActive ? "bg-white/[0.08]" : "hover:bg-white/5"
+                              )}
+                            >
+                              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c }} />
+                              <span className="flex-1 truncate normal-case" style={{ color: isActive ? c : 'rgba(255,255,255,0.75)' }}>{stage.name}</span>
+                              {isActive && <Check size={12} style={{ color: c }} className="shrink-0" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
                   {/* No mobile (onde o painel lateral de contexto está oculto), exibe Nota, Salvas e Tarefas */}
                   <div className="md:hidden space-y-0.5 border-b border-white/10 pb-1 mb-1">
                     <button
@@ -5659,9 +5809,9 @@ export const ChatPanel = ({
                     <button
                       type="button"
                       onClick={() => { setShowQuickReplies(true); setShowQuickActions(false); }}
-                      className="w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold text-primary-300 hover:bg-white/10 flex items-center gap-2.5 transition-colors"
+                      className="w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold text-red-300 hover:bg-white/10 flex items-center gap-2.5 transition-colors cursor-pointer"
                     >
-                      <MessageSquare size={14} className="text-primary-400" />
+                      <MessageSquare size={14} className="text-red-400" />
                       <span>Mensagens Salvas</span>
                     </button>
                     <button
@@ -5687,7 +5837,7 @@ export const ChatPanel = ({
                     type="button"
                     onClick={() => { setActiveTab('data'); setShowQuickActions(false); }}
                     className={cn(
-                      "w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold flex items-center gap-2.5 transition-colors",
+                      "w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold flex items-center gap-2.5 transition-colors cursor-pointer",
                       activeTab === 'data' ? "bg-white/20 text-white" : "text-slate-300 hover:bg-white/10"
                     )}
                   >
@@ -5698,7 +5848,7 @@ export const ChatPanel = ({
                     type="button"
                     onClick={() => { setActiveTab('sales'); setShowQuickActions(false); }}
                     className={cn(
-                      "w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold flex items-center justify-between gap-2.5 transition-colors",
+                      "w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold flex items-center justify-between gap-2.5 transition-colors cursor-pointer",
                       activeTab === 'sales' ? "bg-blue-500/20 text-blue-300" : "text-blue-300 hover:bg-white/10"
                     )}
                   >
@@ -5716,7 +5866,7 @@ export const ChatPanel = ({
                     <button
                       type="button"
                       onClick={() => { handleCopyPhone(); setShowQuickActions(false); }}
-                      className="w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold text-emerald-300 hover:bg-white/10 flex items-center gap-2.5 transition-colors border-t border-white/5 pt-2 mt-1"
+                      className="w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold text-emerald-300 hover:bg-white/10 flex items-center gap-2.5 transition-colors border-t border-white/5 pt-2 mt-1 cursor-pointer"
                     >
                       <Copy size={14} className="text-emerald-400" />
                       <span>Copiar Telefone</span>
@@ -5726,7 +5876,7 @@ export const ChatPanel = ({
                   <button
                     type="button"
                     onClick={() => { handleTogglePiP(); setShowQuickActions(false); }}
-                    className="w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold text-sky-300 hover:bg-white/10 flex items-center gap-2.5 transition-colors border-t border-white/5 pt-2 mt-1"
+                    className="w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold text-sky-300 hover:bg-white/10 flex items-center gap-2.5 transition-colors border-t border-white/5 pt-2 mt-1 cursor-pointer"
                   >
                     <ExternalLink size={14} className="text-sky-400" />
                     <span>{pipWindow ? "Restaurar ao Sistema" : "Sobrepor na Tela (PC)"}</span>
@@ -5736,79 +5886,10 @@ export const ChatPanel = ({
             )}
           </div>
 
-          {/* Botão Visual de Sobrepor na tela do PC (PiP / Janela Flutuante Always-On-Top) */}
-          <button
-            type="button"
-            onClick={handleTogglePiP}
-            className={cn(
-              "h-8.5 sm:h-9 px-3 sm:px-3.5 rounded-xl border transition-all items-center gap-1.5 text-xs font-black uppercase tracking-wider shrink-0 hidden md:flex active:scale-95 shadow-sm",
-              pipWindow 
-                ? "bg-primary-500 text-slate-950 border-primary-400 shadow-md shadow-primary-500/20" 
-                : "bg-white/5 text-white/80 hover:text-white hover:bg-white/10 border-white/15"
-            )}
-            title={pipWindow ? "Restaurar conversa ao CRM" : "Sobrepor conversa sobre outras abas e programas do PC"}
-          >
-            <ExternalLink size={15} />
-            <span>{pipWindow ? "Restaurar" : "Sobrepor"}</span>
-          </button>
-
-          {onClose && <Button variant="ghost" icon={X} onClick={onClose} className="hidden md:flex p-1.5 min-w-0 h-8 w-8" />}
+          {/* Botão Fechar no extremo direito */}
+          {onClose && <Button variant="ghost" icon={X} onClick={onClose} className="hidden md:flex p-1 min-w-0 h-7 w-7 sm:h-8 sm:w-8 text-white/50 hover:text-white shrink-0" title="Fechar" />}
         </div>
       </div>
-
-      {/* Apenas 1 Botão Limpo de Etapa do Funil (sem 2º botão duplicado) */}
-      {effectiveFunnelId && funnelStages.length > 0 ? (() => {
-        const activeStageId = currentStageId || conversation.funnelStageId;
-        const currentStageIndex = funnelStages.findIndex(s => s.id === activeStageId);
-        const currentStage = currentStageIndex >= 0 ? funnelStages[currentStageIndex] : (funnelStages.find(s => s.isInitial) || funnelStages[0]);
-        const stageColor = currentStage?.color || '#4cc9f0';
-        return (
-          <div className="flex items-center justify-between gap-2 w-full py-1.5 px-3 border-b border-white/10 bg-white/[0.015] flex-shrink-0">
-            <div className="relative flex-1 min-w-0 max-w-sm">
-              <button
-                type="button"
-                onClick={() => setIsStageMenuOpen(o => !o)}
-                disabled={isChangingStage}
-                className="w-full flex items-center gap-1.5 rounded-full pl-2.5 pr-2 py-1.5 border transition-colors disabled:opacity-50 active:scale-95"
-                style={{ backgroundColor: `${stageColor}22`, borderColor: `${stageColor}66` }}
-              >
-                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: stageColor }} />
-                <span className="flex-1 text-left text-[10px] font-black uppercase tracking-wider truncate" style={{ color: stageColor }}>
-                  {currentStage?.name || 'Selecionar etapa'}
-                </span>
-                <ChevronDown size={11} className={cn("shrink-0 transition-transform duration-200", isStageMenuOpen && "rotate-180")} style={{ color: stageColor }} />
-              </button>
-
-              {isStageMenuOpen && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setIsStageMenuOpen(false)} />
-                  <div className="absolute top-full mt-2 left-0 right-0 min-w-[200px] bg-slate-900 border border-white/10 rounded-2xl shadow-2xl z-50 p-1.5 max-h-64 overflow-y-auto custom-scrollbar">
-                    {funnelStages.map(stage => {
-                      const isActive = stage.id === activeStageId;
-                      const c = stage.color || '#4cc9f0';
-                      return (
-                        <button
-                          key={stage.id}
-                          type="button"
-                          onClick={() => { handleChangeStageFromChat(stage.id); setIsStageMenuOpen(false); }}
-                          className={cn(
-                            "w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all text-left",
-                            isActive ? "bg-white/[0.08]" : "hover:bg-white/5"
-                          )}
-                        >
-                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: c }} />
-                          <span className="flex-1 truncate normal-case" style={{ color: isActive ? c : 'rgba(255,255,255,0.75)' }}>{stage.name}</span>
-                          {isActive && <Check size={13} style={{ color: c }} className="shrink-0" />}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        );
-      })() : null}
 
       {/* Barra de Navegação Superior quando estiver em Notas, Tarefas, Dados ou Vendas */}
       {activeTab !== 'chat' && (
@@ -5961,9 +6042,9 @@ export const ChatPanel = ({
                       && !isImage && !isVideo && !isDocument && !isAudio && !isSticker;
 
                     return (
-                      <div className="px-4 pb-4">
+                      <div className="px-2 sm:px-4 pb-2.5 sm:pb-3.5">
                       <div key={m.id || idx} data-message-id={m.id} className={cn("flex", isOutgoing ? "justify-end" : "justify-start")}>
-                        <div className={cn("group space-y-1 relative", isOutgoing ? "text-right" : "")}>
+                        <div className={cn("group space-y-1 relative max-w-full", isOutgoing ? "text-right" : "")}>
                            {/* Ações flutuantes no hover (Copiar, Citar, Editar, Apagar, Salvar Figurinha) */}
                            <MessageHoverActions
                              text={m.text}
@@ -5989,7 +6070,7 @@ export const ChatPanel = ({
                                }
                              }}
                              className={cn(
-                             "max-w-[85%] rounded-2xl text-xs text-slate-800 leading-relaxed transition-shadow cursor-default select-text",
+                             "max-w-[92%] sm:max-w-[85%] rounded-2xl text-xs text-slate-800 leading-relaxed transition-shadow cursor-default select-text break-words",
                              highlightedMessageId && String(highlightedMessageId) === String(m.id) && "ring-2 ring-amber-400 shadow-lg shadow-amber-400/40 animate-pulse",
                              isSticker && !isApagada
                                ? "p-0"
@@ -6235,30 +6316,32 @@ export const ChatPanel = ({
               </div>
 
               {/* Chat Input - FIXO */}
-              <div className="p-2.5 sm:p-3 bg-slate-100/50 border-t border-white/10 space-y-1.5 flex-shrink-0">
-                {/* BARRA DE RESPOSTAS RÁPIDAS / MENSAGENS SALVAS — carrossel horizontal de toque único no mobile */}
-                <div className="flex items-center gap-1.5 pb-1 overflow-x-auto no-scrollbar flex-nowrap">
+              <div className="p-2 sm:p-2.5 bg-slate-950/90 border-t border-white/10 space-y-1.5 flex-shrink-0 backdrop-blur-xl">
+                {/* BARRA DE AÇÕES DE IA & RESPOSTAS RÁPIDAS */}
+                <div className="flex items-center gap-1.5 pb-0.5 overflow-x-auto no-scrollbar flex-nowrap">
+                  {/* [Sugerir resposta] — Ação Principal */}
                   <div className="relative shrink-0">
                     <button
                       type="button"
                       onClick={handleGenerateRobozinhoSuggestion}
                       disabled={isGeneratingSuggestion}
-                      className="text-[9.5px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border border-primary-300 bg-primary-500/10 text-primary-700 hover:bg-primary-500/20 shadow-sm whitespace-nowrap transition-all cursor-pointer flex items-center gap-1 disabled:opacity-50 active:scale-95"
+                      className="text-[9.5px] font-black uppercase tracking-wider px-3 py-1 rounded-lg bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-500 hover:to-rose-600 text-white shadow-md shadow-red-950/50 whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50 active:scale-95 border border-red-500/40"
                       title="O Robozinho lê a última mensagem do cliente e o contexto recente da conversa e sugere 3 respostas pra você escolher"
                     >
-                      {isGeneratingSuggestion ? <Loader2 size={10} className="animate-spin" /> : <Bot size={10} />}
-                      {isGeneratingSuggestion ? 'Pensando...' : 'Sugerir'}
+                      {isGeneratingSuggestion ? <Loader2 size={11} className="animate-spin" /> : <Bot size={11} />}
+                      <span>{isGeneratingSuggestion ? 'Pensando...' : 'Sugerir resposta'}</span>
                     </button>
                     {showRobozinhoSuggestions && robozinhoSuggestions.length > 0 && (
                       <>
                         <div className="fixed inset-0 z-40" onClick={() => setShowRobozinhoSuggestions(false)} />
-                        <div className="absolute bottom-full mb-2 left-0 min-w-[280px] max-w-[360px] bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 p-1.5">
+                        <div className="absolute bottom-full mb-2 left-0 min-w-[280px] max-w-[360px] bg-slate-900 border border-white/15 rounded-2xl shadow-2xl z-50 p-2 space-y-1">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-white/40 px-2 py-0.5">Sugestões de Resposta</p>
                           {robozinhoSuggestions.map((sugestao, i) => (
                             <button
                               key={i}
                               type="button"
                               onClick={() => { setNewMessage(sugestao); setShowRobozinhoSuggestions(false); }}
-                              className="w-full text-left px-3 py-2.5 rounded-xl text-[10.5px] font-medium text-slate-700 hover:bg-primary-50 hover:text-primary-700 transition-colors leading-relaxed"
+                              className="w-full text-left px-3 py-2 rounded-xl text-[10.5px] font-medium text-white/90 hover:bg-red-500/20 hover:text-white border border-transparent hover:border-red-500/30 transition-all leading-relaxed cursor-pointer"
                             >
                               {sugestao}
                             </button>
@@ -6267,27 +6350,30 @@ export const ChatPanel = ({
                       </>
                     )}
                   </div>
+
+                  {/* [Melhorar] — Ação Secundária */}
                   <div className="relative shrink-0">
                     <button
                       type="button"
                       onClick={() => setShowWritingAssistMenu(v => !v)}
                       disabled={isAssistingWriting || !newMessage.trim()}
-                      className="text-[9.5px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border border-primary-300 bg-primary-500/10 text-primary-700 hover:bg-primary-500/20 shadow-sm whitespace-nowrap transition-all cursor-pointer flex items-center gap-1 disabled:opacity-50 active:scale-95"
+                      className="text-[9.5px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 hover:text-white border border-white/10 shadow-sm whitespace-nowrap transition-all cursor-pointer flex items-center gap-1 disabled:opacity-40 active:scale-95"
                       title="Ajustar o texto que você já escreveu (corrigir, deixar profissional, amigável, etc.)"
                     >
                       {isAssistingWriting ? <Loader2 size={10} className="animate-spin" /> : <Wand2 size={10} />}
-                      {isAssistingWriting ? 'Processando...' : 'Melhorar'}
+                      <span>{isAssistingWriting ? 'Processando...' : 'Melhorar'}</span>
                     </button>
                     {showWritingAssistMenu && (
                       <>
                         <div className="fixed inset-0 z-40" onClick={() => setShowWritingAssistMenu(false)} />
-                        <div className="absolute bottom-full mb-2 left-0 min-w-[220px] bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 p-1.5">
+                        <div className="absolute bottom-full mb-2 left-0 min-w-[220px] bg-slate-900 border border-white/15 rounded-2xl shadow-2xl z-50 p-1.5 space-y-0.5">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-white/40 px-2 py-0.5">Aprimorar Texto</p>
                           {WRITING_ASSIST_ACTIONS.map(({ action, label }) => (
                             <button
                               key={action}
                               type="button"
                               onClick={() => handleWritingAssist(action)}
-                              className="w-full text-left px-3 py-2 rounded-xl text-[10.5px] font-bold text-slate-700 hover:bg-primary-50 hover:text-primary-700 transition-colors"
+                              className="w-full text-left px-3 py-1.5 rounded-xl text-[10.5px] font-bold text-white/80 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
                             >
                               {label}
                             </button>
@@ -6296,22 +6382,27 @@ export const ChatPanel = ({
                       </>
                     )}
                   </div>
+
+                  {/* [Rápidas] — Ação Secundária */}
                   <button
                     type="button"
                     onClick={() => setShowQuickReplies(v => !v)}
                     className={cn(
-                      "text-[9.5px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border shadow-sm whitespace-nowrap transition-all shrink-0 cursor-pointer flex items-center gap-1 active:scale-95",
-                      showQuickReplies ? "bg-primary-500 text-white border-primary-500" : "bg-white text-slate-500 border-slate-200 hover:text-primary-600 hover:border-primary-300"
+                      "text-[9.5px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg border shadow-sm whitespace-nowrap transition-all shrink-0 cursor-pointer flex items-center gap-1 active:scale-95",
+                      showQuickReplies 
+                        ? "bg-red-500/20 text-red-300 border-red-500/40" 
+                        : "bg-white/5 text-white/70 hover:text-white hover:bg-white/10 border-white/10"
                     )}
                   >
-                    <Sparkles size={10} className={showQuickReplies ? "text-white" : "text-amber-500"} /> Rápidas
+                    <Sparkles size={10} className={showQuickReplies ? "text-red-400" : "text-amber-400"} />
+                    <span>Rápidas</span>
                   </button>
                   {showQuickReplies && quickTemplates.map((tpl, i) => (
                     <button
                       key={i}
                       type="button"
                       onClick={() => { setNewMessage(tpl.text); setShowQuickReplies(false); }}
-                      className="text-[9.5px] font-bold bg-white text-slate-700 hover:bg-primary-50 hover:text-primary-700 hover:border-primary-300 px-2.5 py-1 rounded-full border border-slate-200 shadow-sm whitespace-nowrap transition-all shrink-0 cursor-pointer active:scale-95"
+                      className="text-[9.5px] font-bold bg-white/5 hover:bg-white/10 text-white/80 hover:text-white px-2.5 py-1 rounded-lg border border-white/10 shadow-sm whitespace-nowrap transition-all shrink-0 cursor-pointer active:scale-95"
                     >
                       {tpl.label}
                     </button>
@@ -6319,37 +6410,37 @@ export const ChatPanel = ({
                 </div>
 
                 {reenvioPendente && (
-                  <div className="flex items-center gap-2 bg-rose-50 border border-rose-200 rounded-xl px-3 py-1.5">
-                    <AlertCircle size={12} className="text-rose-500 shrink-0" />
-                    <span className="flex-1 text-[10px] font-bold text-rose-600 truncate">Falha ao enviar: "{reenvioPendente}"</span>
-                    <button type="button" onClick={() => handleSendMessage(reenvioPendente)} className="shrink-0 text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-lg bg-rose-500 text-white hover:bg-rose-600 transition-colors cursor-pointer">
+                  <div className="flex items-center gap-2 bg-rose-950/50 border border-rose-500/30 rounded-xl px-3 py-1.5">
+                    <AlertCircle size={12} className="text-rose-400 shrink-0" />
+                    <span className="flex-1 text-[10px] font-bold text-rose-300 truncate">Falha ao enviar: "{reenvioPendente}"</span>
+                    <button type="button" onClick={() => handleSendMessage(reenvioPendente)} className="shrink-0 text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-lg bg-rose-600 text-white hover:bg-rose-500 transition-colors cursor-pointer">
                       Reenviar
                     </button>
-                    <button type="button" onClick={() => setReenvioPendente(null)} className="shrink-0 text-rose-400 hover:text-rose-600 transition-colors cursor-pointer" title="Descartar">
+                    <button type="button" onClick={() => setReenvioPendente(null)} className="shrink-0 text-rose-400 hover:text-rose-300 transition-colors cursor-pointer" title="Descartar">
                       <X size={12} />
                     </button>
                   </div>
                 )}
                 {enviandoTexto && (
-                  <div className="flex items-center gap-1.5 px-3 text-[9px] font-bold text-slate-400">
-                    <Loader2 size={10} className="animate-spin" /> Enviando...
+                  <div className="flex items-center gap-1.5 px-3 text-[9px] font-bold text-white/40">
+                    <Loader2 size={10} className="animate-spin" /> Enviando mensagem...
                   </div>
                 )}
                 {replyingToMessage && (
-                  <div className="flex items-center justify-between gap-2 bg-emerald-500/10 border-l-4 border-emerald-500 border border-emerald-500/20 rounded-xl px-3 py-2 text-slate-800 animate-in fade-in slide-in-from-bottom-1">
+                  <div className="flex items-center justify-between gap-2 bg-red-950/30 border-l-4 border-red-500 border border-red-500/20 rounded-xl px-3 py-2 text-white animate-in fade-in slide-in-from-bottom-1">
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-emerald-700">
+                      <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-red-400">
                         <Reply size={12} className="rotate-180 shrink-0" />
                         <span>Respondendo a {replyingToMessage.direction === 'outgoing' ? 'Você' : (replyingToMessage.senderName || conversation.name || 'Cliente')}</span>
                       </div>
-                      <p className="text-xs text-slate-700 truncate mt-0.5 font-medium">
+                      <p className="text-xs text-white/80 truncate mt-0.5 font-medium">
                         {replyingToMessage.text || replyingToMessage.fileName || (replyingToMessage.mediaContentType ? `[${replyingToMessage.mediaContentType}]` : 'Mensagem')}
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={() => setReplyingToMessage(null)}
-                      className="p-1 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-200/50 transition-colors shrink-0"
+                      className="p-1 rounded-full text-white/40 hover:text-white hover:bg-white/10 transition-colors shrink-0 cursor-pointer"
                       title="Cancelar resposta"
                     >
                       <X size={14} />
@@ -6372,8 +6463,10 @@ export const ChatPanel = ({
                       if (setRootActiveTab) setRootActiveTab('robozinho_rafa');
                     }}
                   />
-                  <div className="flex items-end gap-1.5 sm:gap-2 bg-white p-1 rounded-2xl border border-slate-200 focus-within:border-primary-500/50 transition-all shadow-lg">
-                    <div className="flex items-center gap-0.5 pb-0.5">
+                  {/* Campo de Mensagem Limpo & Profissional */}
+                  <div className="flex items-end gap-1 sm:gap-1.5 bg-slate-900/90 p-1 sm:p-1.5 rounded-2xl border border-white/15 focus-within:border-red-500/60 transition-all shadow-xl backdrop-blur-md">
+                    {/* Botões [📎] [🖼] [🙂] */}
+                    <div className="flex items-center gap-0.5 pb-0.5 shrink-0">
                       <input ref={documentoInputRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; handleSendFile(f, 'document'); }} />
                       <input ref={fotoInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; handleSendFile(f, 'image'); }} />
                       <button
@@ -6381,7 +6474,7 @@ export const ChatPanel = ({
                         title="Enviar documento (até 100 MB)"
                         disabled={enviandoArquivo}
                         onClick={() => documentoInputRef.current?.click()}
-                        className="w-8 h-8 rounded-xl flex items-center justify-center text-slate-400 hover:text-primary-600 hover:bg-slate-100 transition-colors disabled:opacity-40 active:scale-95 cursor-pointer"
+                        className="w-8 h-8 rounded-xl flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-30 active:scale-95 cursor-pointer"
                       >
                         <Paperclip size={16} />
                       </button>
@@ -6390,7 +6483,7 @@ export const ChatPanel = ({
                         title="Enviar foto (até 16 MB)"
                         disabled={enviandoArquivo}
                         onClick={() => fotoInputRef.current?.click()}
-                        className="w-8 h-8 rounded-xl flex items-center justify-center text-slate-400 hover:text-primary-600 hover:bg-slate-100 transition-colors disabled:opacity-40 active:scale-95 cursor-pointer"
+                        className="w-8 h-8 rounded-xl flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-30 active:scale-95 cursor-pointer"
                       >
                         <ImageIcon size={16} />
                       </button>
@@ -6400,102 +6493,64 @@ export const ChatPanel = ({
                         onClick={() => setShowStickerPicker(prev => !prev)}
                         className={cn(
                           "w-8 h-8 rounded-xl flex items-center justify-center transition-colors active:scale-95 cursor-pointer",
-                          showStickerPicker ? "bg-amber-500/20 text-amber-500" : "text-slate-400 hover:text-amber-500 hover:bg-slate-100"
+                          showStickerPicker ? "bg-amber-500/20 text-amber-400" : "text-white/50 hover:text-amber-400 hover:bg-white/10"
                         )}
                       >
                         <Smile size={16} />
                       </button>
                     </div>
-                  <textarea 
-                    ref={chatInputRef}
-                    value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSendMessage();
-                      } else if (e.key === 'Escape' && replyingToMessage) {
-                        e.preventDefault();
-                        setReplyingToMessage(null);
-                      } else if (e.key === '/' && newMessage === '') {
-                        setShowQuickReplies(true);
-                      }
-                    }}
-                    placeholder="Sua resposta... (/ para rápidas)"
-                    className="flex-1 bg-transparent border-none outline-none text-xs text-slate-900 font-medium p-1.5 sm:p-2 resize-none max-h-24 min-h-[34px] custom-scrollbar focus:ring-0 placeholder:text-slate-400 leading-relaxed"
-                    rows={1}
-                  />
-                  <div className="flex items-center pb-0.5 pr-0.5">
-                    {newMessage.trim() === '' ? (
-                      <button 
-                        type="button"
-                        onClick={() => setIsRecording(!isRecording)}
-                        className={cn(
-                          "w-9 h-9 rounded-full flex items-center justify-center transition-all shadow-md active:scale-95",
-                          isRecording ? "bg-rose-500 shadow-lg shadow-rose-500/40 animate-pulse text-white" : "bg-slate-100 hover:bg-slate-200 text-slate-500"
-                        )}
-                        title={isRecording ? "Parar gravação" : "Gravar áudio"}
-                      >
-                        <Mic size={16} />
-                      </button>
-                    ) : (
-                      <button 
-                        type="button"
-                        onClick={() => handleSendMessage()}
-                        className="w-9 h-9 rounded-full bg-primary-500 hover:bg-primary-400 shadow-lg shadow-primary-500/40 text-slate-950 flex items-center justify-center active:scale-95 transition-all"
-                        title="Enviar mensagem"
-                      >
-                        <Send size={15} />
-                      </button>
-                    )}
+
+                    {/* [Digite sua mensagem...] */}
+                    <textarea 
+                      ref={chatInputRef}
+                      value={newMessage}
+                      onChange={(e) => setNewMessage(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          handleSendMessage();
+                        } else if (e.key === 'Escape' && replyingToMessage) {
+                          e.preventDefault();
+                          setReplyingToMessage(null);
+                        } else if (e.key === '/' && newMessage === '') {
+                          setShowQuickReplies(true);
+                        }
+                      }}
+                      placeholder="Digite sua mensagem... (/ para respostas rápidas)"
+                      className="flex-1 bg-transparent border-none outline-none text-xs text-white font-medium p-1.5 sm:p-2 resize-none max-h-24 min-h-[34px] custom-scrollbar focus:ring-0 placeholder:text-white/35 leading-relaxed"
+                      rows={1}
+                    />
+
+                    {/* Botões [🎤] ou [ENVIAR] */}
+                    <div className="flex items-center pb-0.5 pr-0.5 shrink-0">
+                      {newMessage.trim() === '' ? (
+                        <button 
+                          type="button"
+                          onClick={() => setIsRecording(!isRecording)}
+                          className={cn(
+                            "w-8.5 h-8.5 rounded-xl flex items-center justify-center transition-all shadow-md active:scale-95 cursor-pointer",
+                            isRecording ? "bg-rose-600 shadow-lg shadow-rose-600/40 animate-pulse text-white" : "bg-white/5 hover:bg-white/10 text-white/60 hover:text-white border border-white/10"
+                          )}
+                          title={isRecording ? "Parar gravação" : "Gravar áudio"}
+                        >
+                          <Mic size={15} />
+                        </button>
+                      ) : (
+                        <button 
+                          type="button"
+                          onClick={() => handleSendMessage()}
+                          className="h-8.5 px-3 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 shadow-lg shadow-red-950/60 text-white flex items-center gap-1.5 active:scale-95 transition-all font-black text-xs uppercase tracking-wider cursor-pointer"
+                          title="Enviar mensagem (Enter)"
+                        >
+                          <span>ENVIAR</span>
+                          <Send size={13} />
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
                 </div>
               </div>
             </div>
-
-            {/* Painel lateral de contexto na 3ª coluna (Desktop) */}
-            <CustomerContextSidebar
-              isOpen={showDesktopSidebar}
-              onClose={() => setShowDesktopSidebar(false)}
-              activeTab={sidebarActiveTab}
-              setActiveTab={setSidebarActiveTab}
-              conversation={conversation}
-              clienteVinculado={clienteVinculado}
-              isLoadingCliente={isLoadingCliente}
-              nameFieldsDraft={nameFieldsDraft}
-              setNameFieldsDraft={setNameFieldsDraft}
-              nomesMudaram={nomesMudaram}
-              handleSaveNames={handleSaveNames}
-              isSavingNames={isSavingNames}
-              phoneDraft={phoneDraft}
-              setPhoneDraft={setPhoneDraft}
-              phoneMudou={phoneMudou}
-              handleSavePhone={handleSavePhone}
-              isSavingPhone={isSavingPhone}
-              handleCopyPhone={handleCopyPhone}
-              handleToggleAutoTranscribe={handleToggleAutoTranscribe}
-              notes={notes}
-              newNoteText={newNoteText}
-              setNewNoteText={setNewNoteText}
-              handleAddNote={handleAddNote}
-              isSavingNote={isSavingNote}
-              handleDeleteNote={handleDeleteNote}
-              noteInputRef={noteInputRef}
-              tasks={tasks}
-              newTaskTitle={newTaskTitle}
-              setNewTaskTitle={setNewTaskTitle}
-              handleAddTask={handleAddTask}
-              isSavingTask={isSavingTask}
-              handleToggleTask={handleToggleTask}
-              handleDeleteTask={handleDeleteTask}
-              taskInputRef={taskInputRef}
-              clienteVendas={clienteVendas}
-              isLoadingVendas={isLoadingVendas}
-              onOpenVenda={(id) => { setPendingReceiptOpenId?.(id); setRootActiveTab?.('pos'); }}
-              onOpenContrato={(id) => { setPendingOpenContratoId?.(id); setRootActiveTab?.('pos'); }}
-              onOpenOrcamento={(id) => { setPendingOpenOrcamentoId?.(id); setRootActiveTab?.('pos'); }}
-            />
           </motion.div>
           )}
 
@@ -6851,7 +6906,138 @@ export const ChatPanel = ({
     );
   }
 
-  return chatContent;
+  return (
+    <div className="h-full flex-1 flex min-w-0 gap-2.5 sm:gap-3 overflow-hidden">
+      {/* 2ª Coluna: CONVERSA (com seu GlassCard independente de altura total e cabeçalho compacto) */}
+      <div className="flex-1 flex flex-col min-w-0 h-full">
+        {chatContent}
+      </div>
+
+      {/* Drawer / Painel Deslizante de Contexto no Mobile / Tablet (< lg) */}
+      <AnimatePresence>
+        {showDesktopSidebar && (
+          <div className="lg:hidden fixed inset-0 z-50 flex justify-end">
+            {/* Backdrop escuro */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 bg-slate-950/75 backdrop-blur-sm"
+              onClick={() => setShowDesktopSidebar(false)}
+            />
+            {/* Drawer Deslizante Lateral */}
+            <motion.div
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 220 }}
+              className="relative w-full sm:w-[360px] md:w-[380px] h-full z-10 flex flex-col shadow-2xl bg-slate-950"
+            >
+              <CustomerContextSidebar
+                isMobileDrawer={true}
+                isOpen={showDesktopSidebar}
+                onClose={() => setShowDesktopSidebar(false)}
+                activeTab={sidebarActiveTab}
+                setActiveTab={setSidebarActiveTab}
+                conversation={conversation}
+                clienteVinculado={clienteVinculado}
+                isLoadingCliente={isLoadingCliente}
+                nameFieldsDraft={nameFieldsDraft}
+                setNameFieldsDraft={setNameFieldsDraft}
+                nomesMudaram={nomesMudaram}
+                handleSaveNames={handleSaveNames}
+                isSavingNames={isSavingNames}
+                phoneDraft={phoneDraft}
+                setPhoneDraft={setPhoneDraft}
+                phoneMudou={phoneMudou}
+                handleSavePhone={handleSavePhone}
+                isSavingPhone={isSavingPhone}
+                handleCopyPhone={handleCopyPhone}
+                handleToggleAutoTranscribe={handleToggleAutoTranscribe}
+                notes={notes}
+                newNoteText={newNoteText}
+                setNewNoteText={setNewNoteText}
+                handleAddNote={handleAddNote}
+                isSavingNote={isSavingNote}
+                handleDeleteNote={handleDeleteNote}
+                noteInputRef={noteInputRef}
+                tasks={tasks}
+                newTaskTitle={newTaskTitle}
+                setNewTaskTitle={setNewTaskTitle}
+                handleAddTask={handleAddTask}
+                isSavingTask={isSavingTask}
+                handleToggleTask={handleToggleTask}
+                handleDeleteTask={handleDeleteTask}
+                taskInputRef={taskInputRef}
+                clienteVendas={clienteVendas}
+                isLoadingVendas={isLoadingVendas}
+                onOpenVenda={(id) => { setPendingReceiptOpenId?.(id); setRootActiveTab?.('pos'); }}
+                onOpenContrato={(id) => { setPendingOpenContratoId?.(id); setRootActiveTab?.('pos'); }}
+                onOpenOrcamento={(id) => { setPendingOpenOrcamentoId?.(id); setRootActiveTab?.('pos'); }}
+              />
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 3ª Coluna: CONTEXTO DO CLIENTE (coluna independente que vai até o topo, com altura total no Desktop) */}
+      <AnimatePresence>
+        {showDesktopSidebar && (
+          <motion.div
+            initial={{ opacity: 0, width: 0 }}
+            animate={{ opacity: 1, width: 'auto' }}
+            exit={{ opacity: 0, width: 0 }}
+            transition={{ duration: 0.15, ease: 'easeOut' }}
+            className="hidden lg:flex h-full shrink-0"
+          >
+            <CustomerContextSidebar
+              isMobileDrawer={false}
+              isOpen={showDesktopSidebar}
+              onClose={() => setShowDesktopSidebar(false)}
+              activeTab={sidebarActiveTab}
+              setActiveTab={setSidebarActiveTab}
+              conversation={conversation}
+              clienteVinculado={clienteVinculado}
+              isLoadingCliente={isLoadingCliente}
+              nameFieldsDraft={nameFieldsDraft}
+              setNameFieldsDraft={setNameFieldsDraft}
+              nomesMudaram={nomesMudaram}
+              handleSaveNames={handleSaveNames}
+              isSavingNames={isSavingNames}
+              phoneDraft={phoneDraft}
+              setPhoneDraft={setPhoneDraft}
+              phoneMudou={phoneMudou}
+              handleSavePhone={handleSavePhone}
+              isSavingPhone={isSavingPhone}
+              handleCopyPhone={handleCopyPhone}
+              handleToggleAutoTranscribe={handleToggleAutoTranscribe}
+              notes={notes}
+              newNoteText={newNoteText}
+              setNewNoteText={setNewNoteText}
+              handleAddNote={handleAddNote}
+              isSavingNote={isSavingNote}
+              handleDeleteNote={handleDeleteNote}
+              noteInputRef={noteInputRef}
+              tasks={tasks}
+              newTaskTitle={newTaskTitle}
+              setNewTaskTitle={setNewTaskTitle}
+              handleAddTask={handleAddTask}
+              isSavingTask={isSavingTask}
+              handleToggleTask={handleToggleTask}
+              handleDeleteTask={handleDeleteTask}
+              taskInputRef={taskInputRef}
+              clienteVendas={clienteVendas}
+              isLoadingVendas={isLoadingVendas}
+              onOpenVenda={(id) => { setPendingReceiptOpenId?.(id); setRootActiveTab?.('pos'); }}
+              onOpenContrato={(id) => { setPendingOpenContratoId?.(id); setRootActiveTab?.('pos'); }}
+              onOpenOrcamento={(id) => { setPendingOpenOrcamentoId?.(id); setRootActiveTab?.('pos'); }}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
 };
 
 
@@ -6881,7 +7067,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
   // comportamento normal (60% kanban / 40% painel), sem mexer nisso.
   const [openedViaJump, setOpenedViaJump] = useState(false);
   const [isColumnCollapsed, setIsColumnCollapsed] = useState(false);
-// Largura das colunas padronizada no tamanho estreito compacto (220px a 240px)
+  const [activeColumnStageId, setActiveColumnStageId] = useState<string | null>(null);
 
 
   // Filtros unificados do Funil (Data, Origem, Status)
@@ -7527,34 +7713,33 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
       selectedLead ? "gap-2.5 sm:gap-3" : "gap-6"
     )}>
       <div className={cn(
-        "flex flex-col space-y-4 transition-all duration-300 min-h-0",
+        "flex flex-col gap-1.5 sm:gap-2 transition-all duration-300 min-h-0 h-full",
         selectedLead 
-          ? (isColumnCollapsed ? "hidden md:flex md:w-10 md:shrink-0" : "hidden md:flex md:w-[240px] md:shrink-0")
+          ? (isColumnCollapsed ? "hidden md:flex md:w-10 md:shrink-0" : "hidden md:flex md:w-[310px] lg:w-[315px] md:shrink-0")
           : "w-full flex"
       )}>
         {!selectedLead && (
-          <div className="space-y-3">
-            {/* Barra Unificada e Organizada do Funil (Desktop e Mobile) */}
-            <div className="bg-slate-900/60 border border-white/10 rounded-2xl p-2.5 sm:p-3 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-xl backdrop-blur-md">
-              {/* Lado Esquerdo: Seletor de Funil + Busca Rápida Integrada */}
-              <div className="flex items-center gap-2 flex-1 min-w-0">
-                {/* Seletor do Funil Atual */}
-                <div className="relative shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setFunnelMenuOpen(!funnelMenuOpen)}
-                    className="flex items-center gap-2 px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-all text-xs font-black uppercase tracking-wider text-white active:scale-95"
-                    title="Alternar funil"
-                  >
-                    <span 
-                      className="w-2.5 h-2.5 rounded-full shrink-0" 
-                      style={{ backgroundColor: currentFunnel?.color || "#4cc9f0" }} 
-                    />
-                    <span className="truncate max-w-[130px] sm:max-w-[180px]">
-                      {currentFunnel?.name || "Funil"}
-                    </span>
-                    <ChevronDown size={14} className={cn("transition-transform opacity-60", funnelMenuOpen && "rotate-180")} />
-                  </button>
+          /* Barra de Ferramentas do Funil CRM (2 linhas organizadas no mobile, 1 linha no desktop) */
+          <div className="bg-slate-900/60 border border-white/10 rounded-2xl p-2 md:px-3 md:py-1.5 flex flex-col md:flex-row md:items-center justify-between gap-2 md:gap-2.5 shadow-lg backdrop-blur-md md:h-[48px] shrink-0">
+            {/* LINHA 1 (Mobile) / Lado Esquerdo (Desktop): Seletor de Funil + Busca Rápida */}
+            <div className="flex items-center gap-2 w-full md:w-auto md:flex-1 min-w-0">
+              {/* Seletor do Funil Atual */}
+              <div className="relative shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setFunnelMenuOpen(!funnelMenuOpen)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-all text-xs font-black uppercase tracking-wider text-white active:scale-95 h-8 shrink-0 cursor-pointer"
+                  title="Alternar funil"
+                >
+                  <span 
+                    className="w-2.5 h-2.5 rounded-full shrink-0" 
+                    style={{ backgroundColor: currentFunnel?.color || "#4cc9f0" }} 
+                  />
+                  <span className="truncate max-w-[110px] sm:max-w-[160px]">
+                    {currentFunnel?.name || "Funil"}
+                  </span>
+                  <ChevronDown size={13} className={cn("transition-transform opacity-60", funnelMenuOpen && "rotate-180")} />
+                </button>
 
                   {funnelMenuOpen && (
                     <>
@@ -7574,7 +7759,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                           <button
                             type="button"
                             onClick={() => { setFunnelMenuOpen(false); setIsConfiguringFunnel(true); }}
-                            className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-white/80 hover:bg-white/10 transition-all flex items-center gap-2"
+                            className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-white/80 hover:bg-white/10 transition-all flex items-center gap-2 cursor-pointer"
                           >
                             <Settings2 size={13} className="text-white/60" /> Gerenciar Etapas do Funil
                           </button>
@@ -7585,45 +7770,45 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                 </div>
 
                 {/* Caixa de Pesquisa Integrada */}
-                <div className="relative flex-1 min-w-[140px]">
-                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 pointer-events-none" />
+                <div className="relative flex-1 min-w-0">
+                  <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/40 pointer-events-none" />
                   <input
                     value={funnelSearchTerm}
                     onChange={(e) => setFunnelSearchTerm(e.target.value)}
                     placeholder="Pesquisar por nome, telefone ou mensagem..."
-                    className="w-full h-9 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl pl-9 pr-7 text-xs text-white placeholder:text-white/30 focus:outline-none focus:border-primary-500 transition-all"
+                    className="w-full h-8 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl pl-8 pr-7 text-xs text-white placeholder:text-white/30 focus:outline-none focus:border-primary-500 transition-all"
                   />
                   {funnelSearchTerm && (
                     <button
                       type="button"
                       onClick={() => setFunnelSearchTerm("")}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-white/40 hover:text-white cursor-pointer"
                     >
-                      <X size={12} />
+                      <X size={11} />
                     </button>
                   )}
                 </div>
               </div>
 
-              {/* Lado Direito: Filtros, Ordenar, Largura das Colunas e Novo Lead */}
-              <div className="flex items-center gap-2 overflow-x-auto no-scrollbar shrink-0">
+              {/* LINHA 2 (Mobile) / Lado Direito (Desktop): Aba de Ferramentas e Ações */}
+              <div className="flex items-center gap-1.5 w-full md:w-auto overflow-x-auto no-scrollbar shrink-0 justify-between md:justify-end pt-1 md:pt-0 border-t md:border-t-0 border-white/5">
                 {/* 1. Menu de Filtros (Data, Origem, Status) */}
                 <div className="relative">
                   <button
                     type="button"
                     onClick={() => setIsFilterDropdownOpen(v => !v)}
                     className={cn(
-                      "h-9 px-3 rounded-xl border text-xs font-bold flex items-center gap-2 transition-all shrink-0 active:scale-95",
+                      "h-8 px-2.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all shrink-0 active:scale-95 cursor-pointer",
                       activeFiltersCount > 0 
                         ? "bg-primary-500/20 border-primary-500/50 text-primary-300" 
                         : "bg-white/5 border-white/10 text-white/80 hover:bg-white/10 hover:text-white"
                     )}
                     title="Filtrar por data, canal ou status"
                   >
-                    <Filter size={13} />
+                    <Filter size={12} />
                     <span>Filtros</span>
                     {activeFiltersCount > 0 && (
-                      <span className="w-4 h-4 rounded-full bg-primary-500 text-slate-950 font-black text-[10px] flex items-center justify-center">
+                      <span className="w-3.5 h-3.5 rounded-full bg-primary-500 text-slate-950 font-black text-[9px] flex items-center justify-center">
                         {activeFiltersCount}
                       </span>
                     )}
@@ -7639,7 +7824,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                             <button
                               type="button"
                               onClick={clearAllFilters}
-                              className="text-[10px] font-bold text-rose-400 hover:underline"
+                              className="text-[10px] font-bold text-rose-400 hover:underline cursor-pointer"
                             >
                               Limpar Tudo
                             </button>
@@ -7664,7 +7849,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                                 type="button"
                                 onClick={() => setDateFilter(opt.id as any)}
                                 className={cn(
-                                  "py-1.5 px-2 rounded-lg text-[10.5px] font-bold transition-all text-center",
+                                  "py-1.5 px-2 rounded-lg text-[10.5px] font-bold transition-all text-center cursor-pointer",
                                   dateFilter === opt.id 
                                     ? "bg-primary-500 text-slate-950" 
                                     : "bg-white/5 text-white/70 hover:bg-white/10"
@@ -7692,7 +7877,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                                 type="button"
                                 onClick={() => setSourceFilter(opt.id)}
                                 className={cn(
-                                  "py-1.5 px-2 rounded-lg text-[10.5px] font-bold transition-all text-center",
+                                  "py-1.5 px-2 rounded-lg text-[10.5px] font-bold transition-all text-center cursor-pointer",
                                   sourceFilter === opt.id 
                                     ? "bg-primary-500 text-slate-950" 
                                     : "bg-white/5 text-white/70 hover:bg-white/10"
@@ -7720,7 +7905,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                                 type="button"
                                 onClick={() => setStatusFilter(opt.id as any)}
                                 className={cn(
-                                  "w-full text-left py-1.5 px-2.5 rounded-lg text-[10.5px] font-bold transition-all flex items-center justify-between",
+                                  "w-full text-left py-1.5 px-2.5 rounded-lg text-[10.5px] font-bold transition-all flex items-center justify-between cursor-pointer",
                                   statusFilter === opt.id 
                                     ? "bg-primary-500 text-slate-950" 
                                     : "bg-white/5 text-white/70 hover:bg-white/10"
@@ -7750,11 +7935,11 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                   <button
                     type="button"
                     onClick={() => setSortMenuOpen(o => !o)}
-                    className="h-9 px-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs font-bold text-white/80 hover:text-white flex items-center gap-1.5 transition-all shrink-0 active:scale-95"
+                    className="h-8 px-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs font-bold text-white/80 hover:text-white flex items-center gap-1.5 transition-all shrink-0 active:scale-95 cursor-pointer"
                     title="Ordenar cards"
                   >
-                    <ArrowUpDown size={13} />
-                    <span className="hidden sm:inline">Ordenar</span>
+                    <ArrowUpDown size={12} />
+                    <span>Ordenar</span>
                   </button>
 
                   {sortMenuOpen && (
@@ -7771,7 +7956,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                               key={o.key}
                               onClick={() => handlePickSort(o.key)}
                               className={cn(
-                                "w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all",
+                                "w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer",
                                 ativo ? "text-primary-300 bg-primary-500/10" : "text-white/70 hover:bg-white/10"
                               )}
                             >
@@ -7785,39 +7970,37 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                   )}
                 </div>
 
-
-
                 {/* 4. Modo Seleção de Leads em Massa */}
                 <button
                   type="button"
                   onClick={() => { setLeadSelectionMode(v => !v); setSelectedLeadIds(new Set()); }}
                   className={cn(
-                    "h-9 px-3 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all shrink-0 active:scale-95",
+                    "h-8 px-2.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all shrink-0 active:scale-95 cursor-pointer",
                     leadSelectionMode 
                       ? "bg-rose-500 text-white border-rose-400" 
                       : "bg-white/5 border-white/10 text-white/70 hover:text-white hover:bg-white/10"
                   )}
                   title={leadSelectionMode ? "Cancelar seleção múltipla" : "Selecionar vários leads para excluir"}
                 >
-                  <CheckSquare size={13} />
-                  <span className="hidden sm:inline">{leadSelectionMode ? "Cancelar" : "Selecionar"}</span>
+                  <CheckSquare size={12} />
+                  <span>{leadSelectionMode ? "Cancelar" : "Selecionar"}</span>
                 </button>
 
                 {/* 5. Botão de Configurações das Etapas / Funil */}
                 <button
                   type="button"
                   onClick={() => setIsConfiguringFunnel(true)}
-                  className="h-9 w-9 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-white/70 hover:text-white flex items-center justify-center transition-all shrink-0 active:scale-95"
+                  className="h-8 w-8 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-white/70 hover:text-white flex items-center justify-center transition-all shrink-0 active:scale-95 cursor-pointer"
                   title="Configurar etapas e funis"
                 >
-                  <Settings2 size={14} />
+                  <Settings2 size={13} />
                 </button>
 
                 {/* 6. Botão de Criação de Lead */}
                 <Button 
                   icon={Plus}
                   size="sm"
-                  className="h-9 px-3.5 shadow-lg shadow-primary-500/20 shrink-0"
+                  className="h-8 px-2.5 sm:px-3 text-xs font-bold shadow-md shadow-primary-500/20 shrink-0 cursor-pointer"
                   onClick={async () => {
                     const name = await showPrompt("Nome do novo lead:");
                     if (!name || !name.trim() || !selectedFunnelId) return;
@@ -7840,11 +8023,10 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                   }}
                 >
                   <span className="hidden sm:inline">Novo Lead</span>
-                  <span className="sm:hidden">Novo</span>
+                  <span className="sm:hidden font-bold">+ Novo</span>
                 </Button>
               </div>
             </div>
-          </div>
         )}
 
         {leadSelectionMode && selectedLeadIds.size > 0 && (
@@ -7870,16 +8052,39 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
           onDragStart={onDragStart}
           onDragEnd={onDragEnd}
         >
+          {selectedLead && !isColumnCollapsed && (
+            <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-1 px-1 mb-1 shrink-0">
+              {stages.filter(s => s.isActive !== false).map(st => {
+                const effectiveStageId = activeColumnStageId || selectedLead.funnelStageId || stages[0]?.id;
+                const isCurrent = effectiveStageId === st.id;
+                const count = filteredLeads.filter(l => !gruposDigitos.has((l.phone || '').replace(/\D/g, ''))).filter(l => l.funnelStageId === st.id || (!l.funnelStageId && (st.isInitial || st.order === 0))).length;
+                return (
+                  <button
+                    key={st.id}
+                    type="button"
+                    onClick={() => setActiveColumnStageId(st.id)}
+                    className={cn(
+                      "px-2.5 py-1 rounded-lg text-[9.5px] font-black uppercase tracking-wider transition-all whitespace-nowrap flex items-center gap-1.5 shrink-0 border cursor-pointer",
+                      isCurrent
+                        ? "bg-slate-900 text-white border-red-500/40 shadow-sm"
+                        : "bg-white/[0.03] text-white/50 border-transparent hover:text-white hover:bg-white/5"
+                    )}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: st.color || '#4cc9f0' }} />
+                    <span>{st.name}</span>
+                    <span className="text-[8.5px] opacity-60 font-semibold">{count}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
           <div className={cn(
-            "flex gap-1.5 pb-2 grow min-h-0 scroll-smooth custom-scrollbar",
+            "flex gap-1.5 pb-1 grow min-h-0 scroll-smooth custom-scrollbar h-full",
             selectedLead ? "overflow-x-hidden" : "overflow-x-auto"
           )}>
-            {/* Cada coluna tem largura compacta e padronizada no tamanho estreito — se nao couber todas
-                na tela, rola suavemente de lado com colunas mais encostadas e sem espaco desperdicado.
-                Com uma conversa aberta, a coluna da etapa do lead selecionado fica compacta ao lado do chat. */}
             {stages
                 .filter(stage => stage.isActive !== false)
-              .filter(stage => !selectedLead || stage.id === (selectedLead.funnelStageId || (stages.find(s => s.isInitial || s.order === 0)?.id)))
+              .filter(stage => !selectedLead || stage.id === (activeColumnStageId || selectedLead.funnelStageId || (stages.find(s => s.isInitial || s.order === 0)?.id)))
               .map(stage => {
                 const stageLeads = filteredLeads.filter(l => !gruposDigitos.has((l.phone || '').replace(/\D/g, ''))).filter(l => l.funnelStageId === stage.id || (!l.funnelStageId && (stage.isInitial || stage.order === 0)));
                 
@@ -7913,10 +8118,10 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                   );
                 }
 
-                const colWidthClass = selectedLead ? "w-full" : "w-[195px] md:w-[205px]";
+                const colWidthClass = selectedLead ? "w-full" : "w-[82vw] xs:w-[270px] md:w-[205px]";
 
                 return (
-                  <div key={`wrapper-${stage.id}`} className={cn("w-full shrink-0 relative flex flex-col transition-all duration-300", colWidthClass)}>
+                  <div key={`wrapper-${stage.id}`} className={cn("w-full shrink-0 relative flex flex-col transition-all duration-300 h-full", colWidthClass)}>
                     <KanbanColumn 
                       key={stage.id} 
                       stage={stage} 
@@ -8180,21 +8385,47 @@ const KanbanColumn = ({
 }) => {
   const { setNodeRef } = useSortable({ id: stage.id, data: { type: 'column', stageId: stage.id } });
   const [showColorPicker, setShowColorPicker] = useState(false);
+  const [stageSearch, setStageSearch] = useState('');
+  const [channelFilter, setChannelFilter] = useState<'todos' | 'whatsapp' | 'instagram'>('todos');
+
+  const wppCount = leads.filter(l => (l.sourceType || 'WhatsApp').toLowerCase().includes('whats') || (l.sourceType || 'WhatsApp').toLowerCase().includes('wpp')).length;
+  const instaCount = leads.filter(l => (l.sourceType || '').toLowerCase().includes('insta')).length;
+
+  const filteredStageLeads = useMemo(() => {
+    return leads.filter(l => {
+      if (channelFilter === 'whatsapp') {
+        const src = (l.sourceType || 'WhatsApp').toLowerCase();
+        if (!src.includes('whats') && !src.includes('wpp')) return false;
+      } else if (channelFilter === 'instagram') {
+        const src = (l.sourceType || '').toLowerCase();
+        if (!src.includes('insta')) return false;
+      }
+      if (stageSearch.trim()) {
+        const s = stageSearch.trim().toLowerCase();
+        const sDig = s.replace(/\D/g, '');
+        const name = (l.fullName || l.contactName || l.whatsappName || '').toLowerCase();
+        const phoneMatch = sDig && (l.phone || '').replace(/\D/g, '').includes(sDig);
+        const textMatch = `${l.lastClientMessageText || ''} ${l.lastMessageText || ''}`.toLowerCase().includes(s);
+        if (!name.includes(s) && !phoneMatch && !textMatch) return false;
+      }
+      return true;
+    });
+  }, [leads, channelFilter, stageSearch]);
 
   return (
-    <div className="flex-1 min-w-0 flex flex-col gap-1.5 min-h-0">
-      <div className="flex items-center justify-between px-1.5 gap-1">
+    <div className="flex-1 min-w-0 flex flex-col gap-1.5 min-h-0 h-full">
+      <div className="flex items-center justify-between px-2 py-1">
         <div className="flex items-center gap-1.5 relative min-w-0 flex-1">
           {/* Seletor Rápido de Cor da Etapa */}
           <button
             type="button"
             onClick={() => setShowColorPicker(v => !v)}
             title={`Alterar cor da etapa "${stage.name}"`}
-            className="w-5 h-5 rounded-full flex items-center justify-center transition-all shrink-0 cursor-pointer hover:scale-125 hover:ring-2 hover:ring-white/60 active:scale-95"
+            className="w-4 h-4 rounded-full flex items-center justify-center transition-all shrink-0 cursor-pointer hover:scale-125"
           >
             <span
-              className={cn("w-3 h-3 rounded-full block shadow-md border border-white/30", !stage.color && "bg-primary-500")}
-              style={stage.color ? { backgroundColor: stage.color } : undefined}
+              className="w-2.5 h-2.5 rounded-full block border border-white/20"
+              style={{ backgroundColor: stage.color || '#4cc9f0' }}
             />
           </button>
 
@@ -8209,7 +8440,7 @@ const KanbanColumn = ({
                     <button
                       type="button"
                       onClick={() => { setShowColorPicker(false); onRenameStage(stage); }}
-                      className="text-[9px] text-primary-300 hover:underline font-bold"
+                      className="text-[9px] text-red-400 hover:underline font-bold"
                     >
                       Renomear
                     </button>
@@ -8239,9 +8470,8 @@ const KanbanColumn = ({
 
           <h3 
             className={cn(
-              "text-[10px] font-black uppercase tracking-[2px] text-white/50 truncate",
-              onCollapse ? "max-w-[70px] sm:max-w-[85px]" : "max-w-[170px]",
-              isAdmin && "cursor-pointer hover:text-white transition-colors"
+              "text-[11px] font-black uppercase tracking-wider text-white/90 truncate",
+              isAdmin && "cursor-pointer hover:text-red-400 transition-colors"
             )}
             onClick={() => isAdmin && onRenameStage?.(stage)}
             title={isAdmin ? `Clique para renomear "${stage.name}"` : stage.name}
@@ -8249,31 +8479,76 @@ const KanbanColumn = ({
             {stage.name}
           </h3>
 
-          <Badge className="ml-0.5 bg-white/5 border-none opacity-50 px-1.5 py-0 h-5 flex items-center text-[9px] shrink-0">
+          <span className="text-[10px] font-bold text-white/50 px-1.5 py-0.5 rounded-md bg-white/5 shrink-0">
             {leads.length}
-          </Badge>
+          </span>
         </div>
 
-        {/* Botão de Encolher a coluna para expandir conversa — 100% visível, destacado e nunca cortado pela aba de mensagens */}
+        {/* Botão de Encolher a coluna para expandir conversa */}
         {onCollapse && (
           <button
             type="button"
             onClick={onCollapse}
-            className="h-6.5 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-primary-300 hover:text-white border border-primary-500/40 hover:border-primary-400 flex items-center gap-1 transition-all text-[9.5px] font-extrabold uppercase tracking-wider shrink-0 active:scale-95 shadow-md z-20 cursor-pointer"
-            title="Encolher coluna para expandir área de mensagens"
+            className="h-6 px-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-white/60 hover:text-white border border-white/10 flex items-center gap-1 transition-all text-[9px] font-bold uppercase tracking-wider shrink-0 cursor-pointer"
+            title="Recolher coluna da etapa"
           >
-            <ChevronLeft size={13} className="shrink-0" />
-            <span className="whitespace-nowrap">Encolher</span>
+            <ChevronLeft size={12} />
           </button>
         )}
       </div>
+
+      {/* Busca rápida na etapa + Filtros de Canais */}
+      <div className="px-1.5 space-y-1">
+        <div className="relative">
+          <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/30 pointer-events-none" />
+          <input
+            value={stageSearch}
+            onChange={(e) => setStageSearch(e.target.value)}
+            placeholder="Buscar nesta etapa..."
+            className="w-full bg-slate-900/80 border border-white/10 rounded-lg pl-6 pr-2 py-1 text-[10px] text-white placeholder:text-white/30 focus:outline-none focus:border-red-500/50 transition-all"
+          />
+        </div>
+        <div className="flex items-center gap-1 text-[9px] font-bold overflow-x-auto no-scrollbar py-0.5">
+          <button
+            type="button"
+            onClick={() => setChannelFilter('todos')}
+            className={cn(
+              "px-2 py-0.5 rounded-md transition-all whitespace-nowrap",
+              channelFilter === 'todos' ? "bg-white/15 text-white font-extrabold" : "text-white/40 hover:text-white/70"
+            )}
+          >
+            TODOS {leads.length}
+          </button>
+          <button
+            type="button"
+            onClick={() => setChannelFilter('whatsapp')}
+            className={cn(
+              "px-2 py-0.5 rounded-md transition-all whitespace-nowrap flex items-center gap-1",
+              channelFilter === 'whatsapp' ? "bg-emerald-500/20 text-emerald-300 font-extrabold border border-emerald-500/30" : "text-white/40 hover:text-emerald-400"
+            )}
+          >
+            WhatsApp {wppCount}
+          </button>
+          <button
+            type="button"
+            onClick={() => setChannelFilter('instagram')}
+            className={cn(
+              "px-2 py-0.5 rounded-md transition-all whitespace-nowrap flex items-center gap-1",
+              channelFilter === 'instagram' ? "bg-pink-500/20 text-pink-300 font-extrabold border border-pink-500/30" : "text-white/40 hover:text-pink-400"
+            )}
+          >
+            Instagram {instaCount}
+          </button>
+        </div>
+      </div>
+
       <div 
         ref={setNodeRef}
-        className="bg-white/[0.03] border border-white/5 rounded-xl p-1.5 flex flex-col gap-1.5 grow min-h-0 shadow-inner overflow-y-auto custom-scrollbar transition-all"
+        className="bg-white/[0.02] border border-white/5 rounded-xl p-1.5 flex flex-col gap-1.5 grow min-h-0 shadow-inner overflow-y-auto custom-scrollbar transition-all"
         style={stage.color ? { borderTopColor: stage.color, borderTopWidth: "3px" } : undefined}
       >
-        <SortableContext items={leads.map(l => l.id)} strategy={verticalListSortingStrategy}>
-          {leads.map(lead => (
+        <SortableContext items={filteredStageLeads.map(l => l.id)} strategy={verticalListSortingStrategy}>
+          {filteredStageLeads.map(lead => (
             <KanbanCard 
               key={lead.id} 
               lead={lead} 
@@ -8287,10 +8562,10 @@ const KanbanColumn = ({
           ))}
         </SortableContext>
         
-        {leads.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-20 opacity-10">
-             <Layers size={32} className="text-white/40 mb-3" />
-             <p className="text-[10px] font-black uppercase tracking-widest">Sem Cards</p>
+        {filteredStageLeads.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-16 opacity-20">
+             <Layers size={28} className="text-white/40 mb-2" />
+             <p className="text-[10px] font-black uppercase tracking-widest text-white/50">Sem Contatos</p>
           </div>
         )}
       </div>
@@ -8307,8 +8582,6 @@ const KanbanCard = ({ lead, onClick, isSelected, isDragging, selectionMode, isCh
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
     id: lead.id,
     data: { type: 'card', lead },
-    // Com o modo de seleção ligado, o card não deve mais "arrastar" ao clicar --
-    // clicar precisa marcar/desmarcar o checkbox, não iniciar um drag do Kanban.
     disabled: selectionMode,
   });
 
@@ -8316,6 +8589,13 @@ const KanbanCard = ({ lead, onClick, isSelected, isDragging, selectionMode, isCh
     transform: CSS.Translate.toString(transform),
     transition,
   };
+
+  const channelName = (lead.sourceType || 'WhatsApp');
+  const isWpp = channelName.toLowerCase().includes('whats') || channelName.toLowerCase().includes('wpp');
+  const unread = (lead as any).unreadCount || (lead.waitingSince ? 1 : 0);
+  const timeStr = lead.lastMessageAt || (lead.createdAt as any)?.toDate?.()
+    ? format(parseMsgDate(lead.lastMessageAt || lead.createdAt) || new Date(), 'HH:mm')
+    : '';
 
   return (
     <div 
@@ -8325,97 +8605,100 @@ const KanbanCard = ({ lead, onClick, isSelected, isDragging, selectionMode, isCh
       {...(selectionMode ? {} : listeners)}
       className={cn(isDragging ? "z-50" : "relative")}
     >
-      <GlassCard 
+      <div 
         onClick={selectionMode ? onToggleSelected : onClick}
         className={cn(
-          "p-2.5 rounded-lg border-white/5 transition-all hover:border-primary-400 group relative overflow-hidden",
-          selectionMode ? "cursor-pointer" : "cursor-grab active:cursor-grabbing",
-          isSelected ? "bg-primary-500/10 border-primary-500/40 ring-1 ring-primary-500/20" : "",
-          isChecked ? "bg-rose-500/10 border-rose-500/40 ring-1 ring-rose-500/30" : "",
-          isDragging ? "shadow-2xl ring-2 ring-primary-500 scale-105" : ""
+          "p-2 rounded-xl border transition-all group relative overflow-hidden cursor-pointer select-none",
+          isSelected 
+            ? "bg-red-950/30 border-red-500/60 shadow-md shadow-red-950/40 ring-1 ring-red-500/40" 
+            : "bg-slate-900/60 hover:bg-slate-900/90 border-white/5 hover:border-white/15",
+          isChecked ? "bg-rose-950/40 border-rose-500/50 ring-1 ring-rose-500/30" : "",
+          isDragging ? "shadow-2xl ring-2 ring-red-500 scale-105" : ""
         )}
       >
-         {selectionMode && (
-           <div className="absolute top-2.5 left-2.5 z-10" onClick={(e) => { e.stopPropagation(); onToggleSelected?.(); }}>
-             <input type="checkbox" checked={isChecked} onChange={() => onToggleSelected?.()} className="w-4 h-4 accent-rose-500 cursor-pointer" />
-           </div>
-         )}
-         {!selectionMode && (
-           <button
-             onClick={(e) => { e.stopPropagation(); onDelete?.(); }}
-             title="Excluir lead"
-             className="absolute top-2.5 right-2.5 z-10 w-6 h-6 rounded-md bg-rose-500/0 text-rose-400/0 group-hover:bg-rose-500/10 group-hover:text-rose-400 flex items-center justify-center transition-all"
-           >
-             <Trash2 size={12} />
-           </button>
-         )}
-         <div className={cn("flex justify-between items-center mb-1.5 gap-2", selectionMode && "pl-6")}>
-            {(() => {
-              const cardParts = cardClientName.split(' ');
-              const cardFirstName = cardParts[0] || cardClientName;
-              const cardRemaining = cardParts.slice(1).join(' ');
-              return (
-                <p className="font-black text-white text-[11px] tracking-tight flex items-center gap-1 flex-1 min-w-0 pr-2 uppercase italic" title={cardClientName}>
-                  <span className="shrink-0 whitespace-nowrap">{cardFirstName}</span>
-                  {cardRemaining && <span className="truncate min-w-0 text-white/90">{cardRemaining}</span>}
-                </p>
-              );
-            })()}
-            <span className="text-[7.5px] font-black text-white/30 uppercase tracking-wider leading-none shrink-0">
-               {(lead.createdAt as any)?.toDate?.() ? format((lead.createdAt as any).toDate(), 'HH:mm') : 'Agora'}
+        {selectionMode && (
+          <div className="absolute top-2 left-2 z-10" onClick={(e) => { e.stopPropagation(); onToggleSelected?.(); }}>
+            <input type="checkbox" checked={isChecked} onChange={() => onToggleSelected?.()} className="w-3.5 h-3.5 accent-rose-500 cursor-pointer" />
+          </div>
+        )}
+        {!selectionMode && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete?.(); }}
+            title="Excluir lead"
+            className="absolute top-1.5 right-1.5 z-10 w-5 h-5 rounded bg-transparent text-white/0 group-hover:text-white/40 hover:!text-rose-400 flex items-center justify-center transition-all"
+          >
+            <Trash2 size={11} />
+          </button>
+        )}
+
+        {/* Linha 1: Foto + Nome + Canal + Horário */}
+        <div className={cn("flex items-center justify-between gap-1.5 mb-1", selectionMode && "pl-5")}>
+          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+            <AvatarPhoto
+              photoUrl={lead.photoUrl}
+              name={cardClientName}
+              className="w-5 h-5 rounded-full bg-slate-800 border-white/10 shrink-0"
+              textClassName="text-[8px] font-bold text-white/50"
+            />
+            <p className="font-bold text-white text-[11px] truncate tracking-tight" title={cardClientName}>
+              {cardClientName}
+            </p>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <span className={cn(
+              "text-[8.5px] font-semibold tracking-wide",
+              isWpp ? "text-emerald-400" : "text-pink-400"
+            )}>
+              {channelName}
             </span>
-         </div>
-         
-         <div className="flex flex-wrap items-center gap-1 mb-1.5">
-            <Badge className="text-[8px] px-1.5 py-0.5 bg-primary-500/10 border-none opacity-60 uppercase font-black shrink-0">{lead.sourceType || 'WhatsApp'}</Badge>
-            <Badge className="text-[8px] px-1.5 py-0.5 border-white/10 opacity-40 italic shrink-0">R$ {(lead.estimatedValue ?? 0).toLocaleString('pt-BR')}</Badge>
-         </div>
+            {timeStr && (
+              <span className="text-[8px] font-medium text-white/30">
+                {timeStr}
+              </span>
+            )}
+          </div>
+        </div>
 
-         {(lead.lastClientMessageText || lead.lastMessageText) && (
-           <p className="text-[9.5px] text-white/50 line-clamp-2 leading-relaxed bg-white/5 p-1.5 rounded-md italic border border-white/5 break-words">
-              "{lead.lastClientMessageText || lead.lastMessageText}"
-           </p>
-         )}
-
-         <div className="mt-1.5 pt-1.5 border-t border-white/5 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5 min-w-0 flex-1">
-               <AvatarPhoto photoUrl={lead.photoUrl} name={cardClientName} className="w-5 h-5 bg-slate-800 border-white/10 shrink-0" textClassName="text-[8px] text-white/30" />
-               <p className="text-[8.5px] font-bold text-white/30 uppercase tracking-wider truncate" title={lead.phone || ''}>{lead.phone || 'Sem telefone'}</p>
-            </div>
-            <div className="flex items-center gap-2">
-               <button 
-                 onClick={async (e) => {
-                    e.stopPropagation();
-                    if (!setPrefilledCustomer) return;
-                    // Mesma regra do "Venda PDV" dentro da conversa (handleStartSale): se ja existe
-                    // cadastro em `clientes` com esse telefone (ultimos 8 digitos), abre o PDV com o
-                    // id e o nome completo do cadastro em vez do telefone/apelido do lead.
-                    let clienteCadastro: any = null;
-                    if (lead.phone) {
-                      try {
-                        clienteCadastro = await buscarClientePorTelefone(lead.phone);
-                      } catch (err) {
-                        console.error('Erro ao buscar cadastro do cliente no card:', err);
-                      }
-                    }
-                    if (clienteCadastro) {
-                      const nomeReal = (clienteCadastro.full_name || '').trim() || lead.contactName || (!isPhoneLike(lead.fullName) ? lead.fullName : '') || 'Cliente';
-                      setPrefilledCustomer({ id: clienteCadastro.id, name: nomeReal, phone: clienteCadastro.phone || lead.phone || '' });
-                    } else {
-                      const nomeLead = (lead.contactName || (!isPhoneLike(lead.fullName) ? lead.fullName : '') || lead.whatsappName || lead.fullName || 'Cliente').trim();
-                      setPrefilledCustomer({ name: nomeLead, phone: lead.phone || '' });
-                    }
-                    setActiveTab?.('pos');
-                 }}
-                 title="Iniciar Venda (PDV)" 
-                 className="w-6 h-6 bg-emerald-500/10 text-emerald-400 rounded-md border border-emerald-500/20 flex items-center justify-center hover:bg-emerald-500 hover:text-slate-900 transition-all cursor-pointer mr-1 z-10"
-               >
-                  <ShoppingBag size={10} />
-               </button>
-               <ArrowRight size={12} className={cn("transition-transform duration-300", isSelected ? "translate-x-1 text-primary-300" : "text-white/20")} />
-            </div>
-         </div>
-      </GlassCard>
+        {/* Linha 2: Última mensagem + Não lidas / Botão Venda */}
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[10px] text-white/50 truncate flex-1 leading-snug font-normal">
+            {lead.lastClientMessageText || lead.lastMessageText || 'Sem mensagens recentes'}
+          </p>
+          <div className="flex items-center gap-1 shrink-0">
+            {unread > 0 && (
+              <span className="min-w-4 h-4 px-1 rounded-full bg-emerald-500 text-slate-950 font-black text-[9px] flex items-center justify-center shrink-0">
+                {unread}
+              </span>
+            )}
+            <button
+              onClick={async (e) => {
+                e.stopPropagation();
+                if (!setPrefilledCustomer) return;
+                let clienteCadastro: any = null;
+                if (lead.phone) {
+                  try {
+                    clienteCadastro = await buscarClientePorTelefone(lead.phone);
+                  } catch (err) {
+                    console.error('Erro ao buscar cadastro no card:', err);
+                  }
+                }
+                if (clienteCadastro) {
+                  const nomeReal = (clienteCadastro.full_name || '').trim() || lead.contactName || (!isPhoneLike(lead.fullName) ? lead.fullName : '') || 'Cliente';
+                  setPrefilledCustomer({ id: clienteCadastro.id, name: nomeReal, phone: clienteCadastro.phone || lead.phone || '' });
+                } else {
+                  const nomeLead = (lead.contactName || (!isPhoneLike(lead.fullName) ? lead.fullName : '') || lead.whatsappName || lead.fullName || 'Cliente').trim();
+                  setPrefilledCustomer({ name: nomeLead, phone: lead.phone || '' });
+                }
+                setActiveTab?.('pos');
+              }}
+              title="Iniciar Venda PDV"
+              className="opacity-0 group-hover:opacity-100 w-5 h-5 rounded bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500 hover:text-slate-950 flex items-center justify-center transition-all cursor-pointer"
+            >
+              <ShoppingBag size={10} />
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
