@@ -11,23 +11,100 @@ import { supabase } from '../supabase';
 
 export interface ClienteDuplicadoResult {
   cliente: any;
-  motivo: 'cpf' | 'nome';
+  motivo: 'cpf' | 'nome' | 'phone';
 }
 
-/** Procura, no banco, um cliente ja cadastrado com o mesmo CPF/CNPJ ou o mesmo nome completo. */
+/**
+ * Localiza cliente existente pelo final do telefone (últimos 8 dígitos).
+ * Trata variações de formatação: +55, DDD, traços, espaços, parênteses e 9º dígito.
+ */
+export async function buscarClientePorTelefone(phoneRaw: string): Promise<any | null> {
+  const digitos = (phoneRaw || '').replace(/\D/g, '');
+  if (!digitos || digitos.length < 6) return null;
+  const ultimos8 = digitos.slice(-8);
+  const p1 = ultimos8.slice(0, 4);
+  const p2 = ultimos8.slice(4);
+  const ultimos4 = digitos.slice(-4);
+
+  // Consulta por or no Supabase cobrindo substring com e sem traço/espaço
+  const orFilters = [
+    `phone.ilike.%${ultimos8}%`,
+    `phone.ilike.%${p1}-${p2}%`,
+    `phone.ilike.%${p1} ${p2}%`,
+    `telefone_alternativo.ilike.%${ultimos8}%`,
+    `telefone_alternativo.ilike.%${p1}-${p2}%`,
+    `telefone_alternativo.ilike.%${p1} ${p2}%`,
+    `phone.ilike.%${ultimos4}%`,
+    `telefone_alternativo.ilike.%${ultimos4}%`,
+  ].join(',');
+
+  try {
+    const { data } = await supabase
+      .from('clientes')
+      .select('*')
+      .or(orFilters)
+      .limit(30);
+
+    if (data && data.length > 0) {
+      // 1. Match exato nos últimos 8 dígitos (desconsiderando caracteres não numéricos)
+      const exactMatch = data.find((c: any) => {
+        const dPhone = (c.phone || '').replace(/\D/g, '');
+        const dAlt = (c.telefone_alternativo || '').replace(/\D/g, '');
+        return (dPhone.length >= 8 && dPhone.slice(-8) === ultimos8) ||
+               (dAlt.length >= 8 && dAlt.slice(-8) === ultimos8);
+      });
+      if (exactMatch) return exactMatch;
+
+      // 2. Se a entrada tem 9 dígitos (ex.: 991234567), tenta os 8 dígitos após o 9
+      if (digitos.length >= 9) {
+        const ultimos9 = digitos.slice(-9);
+        const semNono = ultimos9.slice(1);
+        const matchSemNono = data.find((c: any) => {
+          const dPhone = (c.phone || '').replace(/\D/g, '');
+          const dAlt = (c.telefone_alternativo || '').replace(/\D/g, '');
+          return (dPhone.length >= 8 && dPhone.slice(-8) === semNono) ||
+                 (dAlt.length >= 8 && dAlt.slice(-8) === semNono);
+        });
+        if (matchSemNono) return matchSemNono;
+      }
+
+      // 3. Fallback: se os dígitos finais conferem
+      const fallback = data.find((c: any) => {
+        const dPhone = (c.phone || '').replace(/\D/g, '');
+        const dAlt = (c.telefone_alternativo || '').replace(/\D/g, '');
+        return (dPhone.length >= 6 && (dPhone.endsWith(ultimos8) || ultimos8.endsWith(dPhone))) ||
+               (dAlt.length >= 6 && (dAlt.endsWith(ultimos8) || ultimos8.endsWith(dAlt)));
+      });
+      if (fallback) return fallback;
+    }
+  } catch (err) {
+    console.error('Erro ao buscar cliente por telefone (8 dígitos):', err);
+  }
+  return null;
+}
+
+/** Procura, no banco, um cliente ja cadastrado com o mesmo CPF/CNPJ, mesmo telefone (8 dígitos) ou o mesmo nome completo. */
 export async function buscarClienteDuplicado(params: {
   fullName: string;
   cpfCnpj?: string | null;
+  phone?: string | null;
   excludeId?: string;
 }): Promise<ClienteDuplicadoResult | null> {
   const nome = params.fullName.trim();
   const doc = (params.cpfCnpj || '').trim();
+  const phone = (params.phone || '').trim();
 
   if (doc) {
     let query = supabase.from('clientes').select('*').eq('cpf_cnpj', doc).limit(1);
     if (params.excludeId) query = query.neq('id', params.excludeId);
     const { data } = await query;
     if (data && data.length > 0) return { cliente: data[0], motivo: 'cpf' };
+  }
+  if (phone) {
+    const porTel = await buscarClientePorTelefone(phone);
+    if (porTel && (!params.excludeId || porTel.id !== params.excludeId)) {
+      return { cliente: porTel, motivo: 'phone' };
+    }
   }
   if (nome) {
     let query = supabase.from('clientes').select('*').ilike('full_name', nome).limit(1);

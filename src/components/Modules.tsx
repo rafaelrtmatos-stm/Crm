@@ -274,7 +274,7 @@ import { generateSuggestion, type KnowledgeProduct } from '../lib/robozinhoRafa'
 import { suggestReplies, type SuggestReplyHistoryItem } from '../lib/suggestReply';
 import { assistWriting, WRITING_ASSIST_ACTIONS, type WritingAssistAction } from '../lib/writingAssistant';
 import { validateCpfCnpj } from '../lib/validators';
-import { buscarClienteDuplicado, montarPayloadMesclagem } from '../lib/clienteDedupe';
+import { buscarClienteDuplicado, montarPayloadMesclagem, buscarClientePorTelefone } from '../lib/clienteDedupe';
 import { custoTotalDaNota, calcularLucroLiquido, detalharCustoDaNota, detalharCustosItem, custoMaterialRealItem, custoMaquinaItem, somaCustosExtras, isMaterialLonaAdesivo } from '../lib/lucro';
 import { format } from 'date-fns';
 import { leadLastMessageDate, formatListTime } from '../lib/leadTime';
@@ -3866,11 +3866,16 @@ export const ChatPanel = ({
     const digitos = (conversation?.phone || '').replace(/\D/g, '');
     if (!digitos || digitos.length < 6) { setClienteVinculado(null); return; }
     setIsLoadingCliente(true);
-    const ultimos8 = digitos.slice(-8);
-    supabase.from('clientes').select('*')
-      .or(`phone.ilike.%${ultimos8}%,telefone_alternativo.ilike.%${ultimos8}%`)
-      .limit(1).maybeSingle()
-      .then(({ data }) => { if (ativo) { setClienteVinculado(data || null); setIsLoadingCliente(false); } });
+    buscarClientePorTelefone(conversation?.phone || '')
+      .then((data) => {
+        if (ativo) {
+          setClienteVinculado(data || null);
+          setIsLoadingCliente(false);
+        }
+      })
+      .catch(() => {
+        if (ativo) setIsLoadingCliente(false);
+      });
     return () => { ativo = false; };
   }, [conversation?.phone]);
 
@@ -4396,25 +4401,74 @@ export const ChatPanel = ({
 
   const { setPrefilledCustomer, activeTab: rootActiveTab, setActiveTab: setRootActiveTab, setPendingReceiptOpenId, setPendingOpenContratoId, setPendingOpenOrcamentoId, setPendingOpenLeadId, setPendingWhatsAppShare } = React.useContext(AppContext)!;
 
-  // "Iniciar Venda": se ja existe cliente cadastrado com esse telefone (clienteVinculado), manda o
-  // id junto -- o PDV abre com o cadastro ja vinculado em vez de criar um novo. Aproveita e
-  // completa, no cadastro existente, o nome do WhatsApp/contato se ainda estiverem vazios (sem
-  // sobrescrever nada que ja tinha).
-  const handleStartSale = () => {
-    if (!setPrefilledCustomer || !conversation) return;
-    const nomeReal = (conversation.fullName || conversation.name || '').trim();
-    if (clienteVinculado) {
-      setPrefilledCustomer({ id: clienteVinculado.id, name: clienteVinculado.full_name || nomeReal, phone: clienteVinculado.phone || conversation.phone || '' });
-      if (!clienteVinculado.whatsapp_name || !clienteVinculado.contact_name) {
-        supabase.from('clientes').update({
-          whatsapp_name: clienteVinculado.whatsapp_name || conversation.whatsappName || null,
-          contact_name: clienteVinculado.contact_name || conversation.contactName || null,
-        }).eq('id', clienteVinculado.id).then(() => {});
+  // "Iniciar Venda": localiza se o cliente já existe pelo final do telefone (últimos 8 dígitos).
+  // Se existir, preenche o nome completo da nota com o cadastro oficial e vincula pelo id,
+  // evitando duplicidade de cadastros. Se não existir, envia o melhor nome disponível.
+  const [isStartingSale, setIsStartingSale] = useState(false);
+  const handleStartSale = async () => {
+    if (!setPrefilledCustomer || !conversation || isStartingSale) return;
+    setIsStartingSale(true);
+    try {
+      let cliente = clienteVinculado;
+      const telBusca = conversation.phone || conversation.id || '';
+      if (!cliente && telBusca) {
+        cliente = await buscarClientePorTelefone(telBusca);
+        if (cliente) {
+          setClienteVinculado(cliente);
+        }
       }
-    } else {
-      setPrefilledCustomer({ name: nomeReal, phone: conversation.phone || '' });
+
+      if (cliente) {
+        // Encontrou cliente existente pelo final do telefone: preenche o nome completo oficial
+        const nomeNota = (cliente.full_name || '').trim() ||
+          conversation.contactName ||
+          (!isPhoneLike(conversation.fullName) ? conversation.fullName : '') ||
+          conversation.name ||
+          'Cliente';
+
+        setPrefilledCustomer({
+          id: cliente.id,
+          name: nomeNota,
+          phone: cliente.phone || conversation.phone || '',
+        });
+
+        // Completa os nomes do WhatsApp/contato no cadastro se estiverem em branco
+        if (!cliente.whatsapp_name || !cliente.contact_name) {
+          supabase.from('clientes').update({
+            whatsapp_name: cliente.whatsapp_name || conversation.whatsappName || null,
+            contact_name: cliente.contact_name || conversation.contactName || null,
+          }).eq('id', cliente.id).then(() => {});
+        }
+      } else {
+        // Cliente ainda não cadastrado: preenche com o nome mais informativo (evitando telefone puro se houver nome)
+        const nomeNota = (
+          conversation.contactName ||
+          (!isPhoneLike(conversation.fullName) ? conversation.fullName : '') ||
+          (!isPhoneLike(conversation.name) ? conversation.name : '') ||
+          conversation.whatsappName ||
+          conversation.name ||
+          'Cliente'
+        ).trim();
+
+        setPrefilledCustomer({
+          name: nomeNota,
+          phone: conversation.phone || '',
+        });
+      }
+
+      setRootActiveTab?.('pos');
+    } catch (err) {
+      console.error('Erro ao iniciar venda:', err);
+      const fallbackName = clienteVinculado?.full_name || (!isPhoneLike(conversation.fullName) ? conversation.fullName : '') || conversation.contactName || conversation.name || 'Cliente';
+      setPrefilledCustomer({
+        id: clienteVinculado?.id,
+        name: fallbackName,
+        phone: clienteVinculado?.phone || conversation.phone || '',
+      });
+      setRootActiveTab?.('pos');
+    } finally {
+      setIsStartingSale(false);
     }
-    setRootActiveTab?.('pos');
   };
 
   // 4. Atalhos globais de teclado no PC (Produtividade no Atendimento)
@@ -5536,10 +5590,11 @@ export const ChatPanel = ({
             <button
               type="button"
               onClick={handleStartSale}
-              className="flex items-center gap-1.5 px-3 h-8.5 sm:h-9 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-sm active:scale-95 transition-all shrink-0"
+              disabled={isStartingSale}
+              className="flex items-center gap-1.5 px-3 h-8.5 sm:h-9 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-sm active:scale-95 transition-all shrink-0 disabled:opacity-60"
               title="Iniciar venda deste lead no PDV (Alt + V)"
             >
-              <ShoppingBag size={14} strokeWidth={2.5} />
+              {isStartingSale ? <Loader2 size={14} className="animate-spin" /> : <ShoppingBag size={14} strokeWidth={2.5} />}
               <span>Venda</span>
             </button>
           )}
@@ -8334,24 +8389,21 @@ const KanbanCard = ({ lead, onClick, isSelected, isDragging, selectionMode, isCh
                     if (!setPrefilledCustomer) return;
                     // Mesma regra do "Venda PDV" dentro da conversa (handleStartSale): se ja existe
                     // cadastro em `clientes` com esse telefone (ultimos 8 digitos), abre o PDV com o
-                    // id e o nome do cadastro em vez do nome do lead/WhatsApp.
+                    // id e o nome completo do cadastro em vez do telefone/apelido do lead.
                     let clienteCadastro: any = null;
-                    const digitos = (lead.phone || '').replace(/\D/g, '');
-                    if (digitos.length >= 6) {
-                      const ultimos8 = digitos.slice(-8);
+                    if (lead.phone) {
                       try {
-                        const { data } = await supabase.from('clientes').select('*')
-                          .or(`phone.ilike.%${ultimos8}%,telefone_alternativo.ilike.%${ultimos8}%`)
-                          .limit(1).maybeSingle();
-                        clienteCadastro = data || null;
+                        clienteCadastro = await buscarClientePorTelefone(lead.phone);
                       } catch (err) {
-                        console.error('Erro ao buscar cadastro do cliente:', err);
+                        console.error('Erro ao buscar cadastro do cliente no card:', err);
                       }
                     }
                     if (clienteCadastro) {
-                      setPrefilledCustomer({ id: clienteCadastro.id, name: clienteCadastro.full_name || lead.fullName, phone: clienteCadastro.phone || lead.phone || '' });
+                      const nomeReal = (clienteCadastro.full_name || '').trim() || lead.contactName || (!isPhoneLike(lead.fullName) ? lead.fullName : '') || 'Cliente';
+                      setPrefilledCustomer({ id: clienteCadastro.id, name: nomeReal, phone: clienteCadastro.phone || lead.phone || '' });
                     } else {
-                      setPrefilledCustomer({ name: lead.fullName, phone: lead.phone || '' });
+                      const nomeLead = (lead.contactName || (!isPhoneLike(lead.fullName) ? lead.fullName : '') || lead.whatsappName || lead.fullName || 'Cliente').trim();
+                      setPrefilledCustomer({ name: nomeLead, phone: lead.phone || '' });
                     }
                     setActiveTab?.('pos');
                  }}
@@ -10339,13 +10391,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         notes: newCustomerForm.notes || null,
       };
 
-      // Evita cliente duplicado: CPF/CNPJ igual mescla automatico (documento nao se repete);
-      // nome completo igual so pergunta antes (pode ser coincidencia, e a mesma pessoa pode
-      // legitimamente ter 2 numeros de telefone).
+      // Evita cliente duplicado: CPF/CNPJ ou telefone igual mescla automatico;
+      // nome completo igual so pergunta antes (pode ser coincidencia).
       let idParaMesclar: string | null = null;
       if (!editingCustomerId) {
-        const duplicado = await buscarClienteDuplicado({ fullName: newCustomerForm.full_name, cpfCnpj: newCustomerForm.cpf_cnpj, excludeId: editingCustomerId || undefined });
-        if (duplicado?.motivo === 'cpf') {
+        const duplicado = await buscarClienteDuplicado({ fullName: newCustomerForm.full_name, cpfCnpj: newCustomerForm.cpf_cnpj, phone: newCustomerForm.phone, excludeId: editingCustomerId || undefined });
+        if (duplicado?.motivo === 'cpf' || duplicado?.motivo === 'phone') {
           idParaMesclar = duplicado.cliente.id;
         } else if (duplicado?.motivo === 'nome') {
           const mesclar = await showConfirm(`Já existe um cliente cadastrado como "${duplicado.cliente.full_name}"${duplicado.cliente.phone ? ` (tel. ${duplicado.cliente.phone})` : ''}. Deseja mesclar com esse cadastro em vez de criar um novo?`);
@@ -12428,13 +12479,39 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setPendingOpenOrcamentoId(null);
   }, [pendingOpenOrcamentoId]);
 
-  // Se a aba Contatos pediu pra iniciar uma venda ja com o cliente selecionado
+  // Se a aba Contatos, Chat ou CRM pediu pra iniciar uma venda ja com o cliente selecionado
   useEffect(() => {
     if (!prefilledCustomer) return;
-    setSelectedCustomer({ id: prefilledCustomer.id || '', name: prefilledCustomer.name, phone: prefilledCustomer.phone });
+    const customerToSet = { id: prefilledCustomer.id || '', name: prefilledCustomer.name, phone: prefilledCustomer.phone };
+
+    // Se veio sem id mas tem telefone, tenta localizar cliente existente pelos 8 dígitos para preencher o nome completo e não duplicar cadastros
+    if (!customerToSet.id && customerToSet.phone) {
+      const digitos = customerToSet.phone.replace(/\D/g, '');
+      if (digitos.length >= 6) {
+        const ultimos8 = digitos.slice(-8);
+        const matchMem = allCustomers.find((c: any) => {
+          const cPhone = (c.phone || '').replace(/\D/g, '');
+          const cAlt = (c.telefone_alternativo || '').replace(/\D/g, '');
+          return (cPhone.length >= 8 && cPhone.slice(-8) === ultimos8) || (cAlt.length >= 8 && cAlt.slice(-8) === ultimos8);
+        });
+        if (matchMem) {
+          customerToSet.id = matchMem.id;
+          if (matchMem.full_name) customerToSet.name = matchMem.full_name;
+          if (matchMem.phone) customerToSet.phone = matchMem.phone;
+        } else {
+          buscarClientePorTelefone(customerToSet.phone).then((found) => {
+            if (found) {
+              setSelectedCustomer(prev => prev && prev.phone === customerToSet.phone ? { id: found.id, name: found.full_name || prev.name, phone: found.phone || prev.phone } : prev);
+            }
+          });
+        }
+      }
+    }
+
+    setSelectedCustomer(customerToSet);
     setActiveTab('venda');
     setPrefilledCustomer(null);
-  }, [prefilledCustomer]);
+  }, [prefilledCustomer, allCustomers]);
 
   const openReceiptDetail = async (sale: SaleOrder) => {
     setViewingReceiptSale(sale);
@@ -12978,6 +13055,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       const fullPhone = `${waFormCountry.code} ${waFormPhone}`.trim();
       // Salva/atualiza o cliente no Supabase
       let customerId = selectedCustomer?.id;
+      if (!customerId) {
+        const existente = await buscarClientePorTelefone(fullPhone);
+        if (existente) {
+          customerId = existente.id;
+        }
+      }
       if (customerId) {
         await supabase.from('clientes').update({ phone: fullPhone }).eq('id', customerId);
         sincronizarNotasAntigasCliente(customerId, { full_name: waFormName, phone: fullPhone });
@@ -14485,6 +14568,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         const { data: insertedVendaResult, error } = await supabase.from('vendas').insert({
           customer_name: order.customerName,
           customer_phone: selectedCustomer?.phone,
+          cliente_id: selectedCustomer?.id || null,
           items: order.items,
           total: order.total,
           down_payment: order.downPayment,
@@ -22601,12 +22685,12 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
         state: formData.state,
       };
 
-      // Mesma regra do cadastro pelo Terminal de Vendas: CPF/CNPJ igual mescla automatico,
+      // Mesma regra do cadastro pelo Terminal de Vendas: CPF/CNPJ ou telefone igual mescla automatico,
       // nome completo igual so pergunta antes (ver src/lib/clienteDedupe.ts).
       let idParaMesclar: string | null = null;
       if (!editingClienteId) {
-        const duplicado = await buscarClienteDuplicado({ fullName: formData.full_name, cpfCnpj: formData.cpf_cnpj });
-        if (duplicado?.motivo === 'cpf') {
+        const duplicado = await buscarClienteDuplicado({ fullName: formData.full_name, cpfCnpj: formData.cpf_cnpj, phone: formData.phone });
+        if (duplicado?.motivo === 'cpf' || duplicado?.motivo === 'phone') {
           idParaMesclar = duplicado.cliente.id;
         } else if (duplicado?.motivo === 'nome') {
           const mesclar = await showConfirm(`Já existe um cliente cadastrado como "${duplicado.cliente.full_name}"${duplicado.cliente.phone ? ` (tel. ${duplicado.cliente.phone})` : ''}. Deseja mesclar com esse cadastro em vez de criar um novo?`);
