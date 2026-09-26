@@ -35,8 +35,11 @@ self.addEventListener('fetch', (event) => {
     url.pathname.startsWith('/node_modules/') ||
     url.pathname.startsWith('/@') ||
     url.pathname.startsWith('/src/') ||
+    url.pathname.endsWith('.tsx') ||
+    url.pathname.endsWith('.ts') ||
     url.search.includes('import') ||
-    url.search.includes('v=')
+    url.search.includes('v=') ||
+    url.search.includes('t=')
   ) {
     return;
   }
@@ -81,9 +84,10 @@ self.addEventListener('fetch', (event) => {
             caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
           }
           return networkResponse;
-        }).catch(() => cached || new Response('', { status: 503, statusText: 'Offline - not cached' }));
-        // Nunca deixa cair em "undefined": se nao tem cache, a promise de fetch ja
-        // garante uma Response valida (de sucesso ou o fallback 503 acima).
+        }).catch((err) => {
+          if (cached) return cached;
+          throw err;
+        });
         return cached || fetchPromise;
       })
     );

@@ -28,9 +28,22 @@
     <script type="module" src="/src/main.tsx"></script>
     <script>
       if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js').catch((err) => console.error('SW registration failed:', err));
-        });
+        var isDev = window.location.hostname.includes('ais-dev-') ||
+                    window.location.hostname === 'localhost' ||
+                    window.location.port === '3000';
+        if (isDev) {
+          navigator.serviceWorker.getRegistrations().then(function(regs) {
+            for (var i = 0; i < regs.length; i++) {
+              regs[i].unregister();
+            }
+          });
+        } else {
+          window.addEventListener('load', function() {
+            navigator.serviceWorker.register('/sw.js').catch(function(err) {
+              console.error('SW registration failed:', err);
+            });
+          });
+        }
       }
     </script>
   </body>

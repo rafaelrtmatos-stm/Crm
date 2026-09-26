@@ -1,9 +1,29 @@
 import React, { Suspense, useEffect } from 'react';
 import App from './App';
 
-const ComissoesApp = React.lazy(() => import('./comissoes/ComissoesApp'));
-const ContractSignaturePublicPage = React.lazy(() => import('./components/ContractSignaturePublicPage'));
-const ContractValidationPage = React.lazy(() => import('./components/ContractValidationPage'));
+function lazyWithRetry<T extends React.ComponentType<any>>(
+  factory: () => Promise<{ default: T }>
+) {
+  return React.lazy(async () => {
+    try {
+      const component = await factory();
+      sessionStorage.removeItem('chunk_retry_attempt');
+      return component;
+    } catch (error: any) {
+      console.warn('Erro ao importar script de módulo dinâmico, tentando recarregar:', error);
+      const hasRetried = sessionStorage.getItem('chunk_retry_attempt');
+      if (!hasRetried && typeof window !== 'undefined') {
+        sessionStorage.setItem('chunk_retry_attempt', 'true');
+        window.location.reload();
+      }
+      throw error;
+    }
+  });
+}
+
+const ComissoesApp = lazyWithRetry(() => import('./comissoes/ComissoesApp'));
+const ContractSignaturePublicPage = lazyWithRetry(() => import('./components/ContractSignaturePublicPage'));
+const ContractValidationPage = lazyWithRetry(() => import('./components/ContractValidationPage'));
 
 // Decide qual "site" mostrar com base na URL, ANTES de qualquer hook do App/ComissoesApp
 // ser chamado — evita violar as regras de hooks do React (early return dentro do proprio

@@ -3955,13 +3955,25 @@ export const ChatPanel = ({
   // cliente mandar outra mensagem depois, o vacuo volta sozinho (ver processIncomingMessage).
   const handleResolveWaiting = async () => {
     if (!conversation?.id) return;
-    const { error } = await supabase.from('leads').update({ waiting_since: null }).eq('id', conversation.id);
-    if (error) {
-      console.error('Erro ao marcar conversa como resolvida:', error);
+    try {
+      const { error } = await supabase.from('leads').update({ waiting_since: null }).eq('id', conversation.id);
+      if (error) {
+        console.error('Erro ao marcar conversa como resolvida:', error);
+        showAlert('Não foi possível marcar como resolvido.');
+        return;
+      }
+      onLeadPatched?.(conversation.id, { waitingSince: undefined });
+      if (conversation.phone) {
+        const { data: notifs } = await supabase.from('crm_notifications').select('id').eq('company_id', currentCompany?.id || 'rafa-arts').eq('phone', conversation.phone).eq('status', 'pending');
+        if (notifs?.length) {
+          await marcarNotificacoesResolvidas(notifs.map(n => n.id), user?.name);
+        }
+      }
+      showAlert('Conversa marcada como resolvida.');
+    } catch (err) {
+      console.error('Erro ao marcar conversa como resolvida:', err);
       showAlert('Não foi possível marcar como resolvido.');
-      return;
     }
-    onLeadPatched?.(conversation.id, { waitingSince: undefined });
   };
 
   const handleCopyPhone = async () => {
@@ -4847,10 +4859,17 @@ export const ChatPanel = ({
   const handleResolverNotificacao = async () => {
     if (!notificacaoPendente || resolvendoNotificacao) return;
     setResolvendoNotificacao(true);
-    const ok = await marcarNotificacoesResolvidas(notificacaoPendente.ids, user?.name);
-    setResolvendoNotificacao(false);
-    if (!ok) { showAlert('Não foi possível marcar a notificação como resolvida.'); return; }
-    limparNotificacaoPendente();
+    try {
+      const ok = await marcarNotificacoesResolvidas(notificacaoPendente.ids, user?.name);
+      if (conversation?.id) {
+        await supabase.from('leads').update({ waiting_since: null }).eq('id', conversation.id);
+        onLeadPatched?.(conversation.id, { waitingSince: undefined });
+      }
+      if (!ok) { showAlert('Não foi possível marcar a notificação como resolvida.'); return; }
+      limparNotificacaoPendente();
+    } finally {
+      setResolvendoNotificacao(false);
+    }
   };
 
   // Mesmos limites do WhatsApp: foto enviada como foto ate 16 MB; documento (qualquer arquivo) ate 100 MB.
@@ -9871,7 +9890,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   // --- Pesquisa de clientes ---
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
-  const [allCustomers, setAllCustomers] = useState<any[]>([]);
+  const [allCustomers, setAllCustomers] = useState<any[]>(() => {
+    try {
+      const cached = localStorage.getItem('rpro_pdv_customers_cache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (_) {}
+    return [];
+  });
   const [isLoadingCustomers, setIsLoadingCustomers] = useState(false);
   const [customerSalesStats, setCustomerSalesStats] = useState<Record<string, { total: number; count: number; lastDate: string | null; hasPending: boolean; pendingBalance: number }>>({});
   const [customerSortBy, setCustomerSortBy] = useState<'recentes' | 'az' | 'ultima_compra' | 'maior_valor' | 'frequentes'>('recentes');
@@ -9936,27 +9964,48 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     isLoadingCustomersRef.current = true;
     setIsLoadingCustomers(true);
     setCustomerLoadError('');
+
+    const fetchClientesComRetry = async (fromIdx: number, limit: number, maxRetries = 2) => {
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          const res = await supabase
+            .from('clientes')
+            .select('*')
+            .order('created_at', { ascending: false, nullsFirst: false })
+            .range(fromIdx, fromIdx + limit - 1);
+          if (!res.error && res.data) {
+            return res;
+          }
+          if (attempt < maxRetries) {
+            await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
+          } else {
+            return res;
+          }
+        } catch (err) {
+          if (attempt < maxRetries) {
+            await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
+          } else {
+            return { data: null, error: err };
+          }
+        }
+      }
+      return { data: null, error: new Error('Falha de conexão com o Supabase') };
+    };
+
     try {
-      // Carrega TODOS os clientes usando paginação automática para contornar o limite de 1000 linhas do Supabase
       const pageSize = 1000;
       let allLoadedCustomers: any[] = [];
       let from = 0;
       let hasMore = true;
+      let fetchErrorOccurred = false;
 
       while (hasMore) {
-        const { data, error } = await supabase
-          .from('clientes')
-          .select('*')
-          .order('created_at', { ascending: false, nullsFirst: false })
-          .range(from, from + pageSize - 1);
+        const { data, error } = await fetchClientesComRetry(from, pageSize, 2);
 
         if (error) {
-          console.error('Erro Supabase ao carregar clientes no PDV:', error);
-          setCustomerLoadError(`Erro: ${error.message} (código: ${error.code || 's/código'})`);
-          setAllCustomers([]);
-          setIsLoadingCustomers(false);
-          isLoadingCustomersRef.current = false;
-          return;
+          console.warn('Alerta de rede ao carregar clientes no PDV:', error);
+          fetchErrorOccurred = true;
+          break;
         }
 
         if (data && data.length > 0) {
@@ -9970,8 +10019,45 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         }
       }
 
-      setAllCustomers(allLoadedCustomers);
-      // Libera a visualização imediata da lista de clientes para não prender o operador no spinner
+      if (fetchErrorOccurred && allLoadedCustomers.length === 0) {
+        // Se houve erro de rede, tenta recuperar do cache local do navegador
+        try {
+          const cached = localStorage.getItem('rpro_pdv_customers_cache');
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setAllCustomers(parsed);
+              setCustomerLoadError('Instabilidade de conexão detectada. Exibindo clientes salvos localmente.');
+              setIsLoadingCustomers(false);
+              isLoadingCustomersRef.current = false;
+              return;
+            }
+          }
+        } catch (_) {}
+
+        // Se não há dados em cache nem do banco, preserva o que já estiver na memória
+        setAllCustomers(prev => {
+          if (prev && prev.length > 0) {
+            setCustomerLoadError('Instabilidade na conexão. Mantendo lista de clientes carregada.');
+            return prev;
+          }
+          setCustomerLoadError('Instabilidade temporária na conexão com o banco. Clique em recarregar para tentar novamente.');
+          return [];
+        });
+        setIsLoadingCustomers(false);
+        isLoadingCustomersRef.current = false;
+        return;
+      }
+
+      if (allLoadedCustomers.length > 0) {
+        setAllCustomers(allLoadedCustomers);
+        setCustomerLoadError('');
+        // Salva cópia de segurança em cache local para funcionamento offline instantâneo
+        try {
+          localStorage.setItem('rpro_pdv_customers_cache', JSON.stringify(allLoadedCustomers));
+        } catch (_) {}
+      }
+
       setIsLoadingCustomers(false);
       isLoadingCustomersRef.current = false;
 
@@ -10013,8 +10099,22 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         console.warn('Erro secundário ao agregar histórico para stats de clientes no PDV:', statsErr);
       }
     } catch (err: any) {
-      console.error('Erro ao carregar clientes:', err);
-      setCustomerLoadError(`Erro: ${err?.message || 'Falha ao buscar clientes'}`);
+      console.warn('Alerta ao carregar clientes:', err);
+      try {
+        const cached = localStorage.getItem('rpro_pdv_customers_cache');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setAllCustomers(parsed);
+            setCustomerLoadError('Instabilidade de conexão detectada. Exibindo clientes salvos localmente.');
+            setIsLoadingCustomers(false);
+            isLoadingCustomersRef.current = false;
+            return;
+          }
+        }
+      } catch (_) {}
+      setAllCustomers(prev => prev.length > 0 ? prev : []);
+      setCustomerLoadError('Instabilidade temporária na conexão. Clique no botão de recarregar para tentar novamente.');
       setIsLoadingCustomers(false);
       isLoadingCustomersRef.current = false;
     }
@@ -12940,11 +13040,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     if (lancandoProducaoId) return;
     if (sale.serviceStatus) {
       const etapaNome = STAGE_LABELS[sale.serviceStatus] || sale.serviceStatus;
-      const vaiPraServicos = await showConfirm(
-        `Este pedido já está na esteira de produção (Etapa: ${etapaNome}).\n\nDeseja abrir a aba de Serviços agora?`
+      const querDesmarcar = await showConfirm(
+        `Este pedido já está na esteira de produção (Etapa atual: ${etapaNome}).\n\nDeseja DESMARCAR e remover este pedido da produção agora?`
       );
-      if (vaiPraServicos) {
-        setActiveTab('servicos');
+      if (querDesmarcar) {
+        await handleRemoverDaProducao(sale);
+      } else {
+        const vaiPraServicos = await showConfirm('Deseja abrir a aba de Serviços para gerenciar a produção deste pedido?');
+        if (vaiPraServicos) {
+          setActiveTab('servicos');
+        }
       }
       return;
     }
@@ -15125,7 +15230,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         )}
 
         {activeTab === 'historico' && (
-          <div className="flex-1 p-6 md:p-8 space-y-6 overflow-y-auto custom-scrollbar bg-slate-900/40">
+          <div className="flex-1 p-3 sm:p-6 md:p-8 space-y-4 sm:space-y-6 overflow-y-auto custom-scrollbar bg-slate-900/40">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-white/10 pb-4">
               <div>
                 <h2 className="text-xl md:text-2xl font-black text-white italic tracking-tighter uppercase flex items-center gap-2">
@@ -15244,7 +15349,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 )}
               </div>
 
-              <div className="w-px h-6 bg-white/10 shrink-0" />
+              <div className="hidden sm:block w-px h-6 bg-white/10 shrink-0" />
 
               {/* Grupo 1.5: Período personalizado */}
               <div className="flex items-center gap-1 shrink-0">
@@ -15274,7 +15379,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 )}
               </div>
 
-              <div className="w-px h-6 bg-white/10 shrink-0" />
+              <div className="hidden sm:block w-px h-6 bg-white/10 shrink-0" />
 
               {/* Grupo 2: Ordenação & Visualização */}
               <div className="flex items-center gap-1.5 shrink-0">
@@ -15306,7 +15411,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 </div>
               </div>
 
-              <div className="w-px h-6 bg-white/10 shrink-0" />
+              <div className="hidden sm:block w-px h-6 bg-white/10 shrink-0" />
 
               {/* Grupo 3: Status do Pedido + Forma de Pagamento (duas listas independentes) */}
               {(() => {
@@ -15379,9 +15484,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           ref={cfg.menuRef}
                           style={{
                             position: 'fixed',
-                            left: cfg.pos.left,
+                            left: Math.max(8, Math.min(cfg.pos.left, (typeof window !== 'undefined' ? window.innerWidth : 400) - 228)),
                             bottom: window.innerHeight - cfg.pos.top + 8,
-                            minWidth: Math.max(cfg.pos.width, 220),
+                            minWidth: Math.min(Math.max(cfg.pos.width, 220), (typeof window !== 'undefined' ? window.innerWidth - 16 : 300)),
                           }}
                           className="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl z-[100] py-2 max-h-[28rem] overflow-y-auto custom-scrollbar"
                         >
@@ -15583,7 +15688,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                         de cada titulo) -- as colunas sempre preenchem 100% da largura da tela,
                         sem precisar rolar pro lado nem no celular nem no PC. Codigo/Data somem
                         no celular pra sobrar espaco pro que importa (Nome, Itens e Valor). */}
-                    <div ref={saleListHeaderRef} className="flex items-center gap-2 px-3 py-1.5 text-[8px] font-black uppercase tracking-wider text-white/30">
+                    <div ref={saleListHeaderRef} className="hidden sm:flex items-center gap-2 px-3 py-1.5 text-[8px] font-black uppercase tracking-wider text-white/30">
                       {canManageHistory && <span className="w-3.5 shrink-0" />}
                       <div className="relative min-w-0" style={colFlex('nome')}>Nome<ResizeHandle colKey="nome" /></div>
                       <div className="relative min-w-0" style={colFlex('itens')}>Itens / Descrição<ResizeHandle colKey="itens" /></div>
@@ -15603,253 +15708,420 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       const rentabilidade = user?.isAdmin ? obterRentabilidadeVenda(sale) : null;
                       const isRowMenuOpen = openSaleRowActionsId === sale.id;
                       return (
-                        <div key={sale.id} className="flex items-center gap-2 bg-slate-900/60 hover:bg-slate-900 border border-white/5 rounded-xl px-3 py-2 transition-all">
-                          {canManageHistory && (
-                            <input type="checkbox" checked={selectedSaleIds.has(sale.id)} onChange={() => toggleSaleSelection(sale.id)} className="w-3.5 h-3.5 shrink-0 accent-primary-500" />
-                          )}
+                        <div key={sale.id} className="bg-slate-900/60 hover:bg-slate-900 border border-white/5 rounded-xl transition-all">
+                          {/* --- MODO LISTA MOBILE: 2 LINHAS PERFEITAMENTE ORGANIZADAS --- */}
+                          <div className="sm:hidden px-3 py-2.5 flex flex-col gap-1.5">
+                            {/* Linha 1: Checkbox, Nome do Cliente, Badges de Origem, Valor Total, Botão Pago/Pagar e Menu */}
+                            <div className="flex items-center justify-between gap-2 min-w-0">
+                              <div className="flex items-center gap-2 min-w-0 flex-1">
+                                {canManageHistory && (
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedSaleIds.has(sale.id)}
+                                    onChange={() => toggleSaleSelection(sale.id)}
+                                    className="w-4 h-4 shrink-0 accent-primary-500 rounded"
+                                  />
+                                )}
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCopyHistoryField(sale.customerName || 'Cliente de Balcão', sale.id, 'cliente')}
+                                      title="Clique para copiar"
+                                      className="text-[12px] font-black text-white hover:text-primary-300 truncate text-left max-w-[150px] xs:max-w-[190px]"
+                                    >
+                                      {(sale.customerName || 'Cliente de Balcão').toUpperCase()}
+                                    </button>
+                                    {copiedHistoryField?.id === sale.id && copiedHistoryField?.field === 'cliente' && (
+                                      <span className="text-[7.5px] font-bold text-emerald-400 bg-emerald-500/20 px-1 py-0.5 rounded">Copiado!</span>
+                                    )}
+                                    {sale.contratoId && (
+                                      <button
+                                        onClick={() => { setActiveTab('contratos'); setHighlightContratoId(sale.contratoId!); setTimeout(() => setHighlightContratoId(null), 4000); }}
+                                        className="text-[7.5px] font-black uppercase px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300"
+                                      >
+                                        Contrato
+                                      </button>
+                                    )}
+                                    {sale.orcamentoId && (
+                                      <button
+                                        onClick={() => { setActiveTab('orcamentos'); setHighlightOrcamentoId(sale.orcamentoId!); setTimeout(() => setHighlightOrcamentoId(null), 4000); }}
+                                        className="text-[7.5px] font-black uppercase px-1.5 py-0.5 rounded-full bg-primary-500/20 text-primary-300"
+                                      >
+                                        Orçamento
+                                      </button>
+                                    )}
+                                  </div>
+                                  {sale.observacoes && (
+                                    <span className="text-[8.5px] text-amber-300/70 italic truncate block max-w-[180px]" title={sale.observacoes}>
+                                      "{sale.observacoes}"
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
 
-                          {/* Nome */}
-                          <div className="min-w-0 overflow-hidden" style={colFlex('nome')}>
-                            <button
-                              type="button"
-                              onClick={() => handleCopyHistoryField(sale.customerName || 'Cliente de Balcão', sale.id, 'cliente')}
-                              title="Clique para copiar o nome do cliente"
-                              className="text-[11px] font-black text-white hover:text-primary-300 block truncate text-left transition-colors cursor-pointer group w-full"
-                            >
-                              <span className="truncate">{(sale.customerName || 'Cliente de Balcão').toUpperCase()}</span>
-                              {copiedHistoryField?.id === sale.id && copiedHistoryField?.field === 'cliente' && (
-                                <span className="ml-1 text-[8px] font-bold text-emerald-400 bg-emerald-500/20 px-1 py-0.2 rounded">Copiado!</span>
-                              )}
-                            </button>
-                            {sale.observacoes && (
-                              <span className="text-[9px] text-amber-300/70 italic block truncate" title={sale.observacoes}>"{sale.observacoes}"</span>
-                            )}
-                          </div>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <div className="text-right">
+                                  <span className="text-[12px] font-black text-white block leading-tight">
+                                    R$ {sale.total.toFixed(2).replace('.', ',')}
+                                  </span>
+                                  {composicaoPagamento.length > 0 && (
+                                    <span className="text-[7.5px] font-bold text-white/40 block leading-tight truncate max-w-[80px]">
+                                      {composicaoPagamento.map(p => p.label).join(', ')}
+                                    </span>
+                                  )}
+                                </div>
 
-                          {/* Itens / Descrição + etiquetas de origem (Contrato/Orçamento) */}
-                          <div className="min-w-0 flex items-center gap-1.5 overflow-hidden" style={colFlex('itens')}>
-                            {sale.items && sale.items.length > 0 && (() => {
-                              const summary = summarizeSaleItems(sale.items);
-                              return (
-                                <span className="text-[9px] text-white/40 italic truncate" title={summary.title}>
-                                  {summary.text}
-                                </span>
-                              );
-                            })()}
-                            {sale.contratoId && (
-                              <button
-                                onClick={() => { setActiveTab('contratos'); setHighlightContratoId(sale.contratoId!); setTimeout(() => setHighlightContratoId(null), 4000); }}
-                                title="Ver contrato vinculado"
-                                className="shrink-0 text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors"
-                              >
-                                Contrato
-                              </button>
-                            )}
-                            {sale.orcamentoId && (
-                              <button
-                                onClick={() => { setActiveTab('orcamentos'); setHighlightOrcamentoId(sale.orcamentoId!); setTimeout(() => setHighlightOrcamentoId(null), 4000); }}
-                                title="Ver orçamento vinculado"
-                                className="shrink-0 text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full bg-primary-500/20 text-primary-300 hover:bg-primary-500/30 transition-colors"
-                              >
-                                Orçamento
-                              </button>
-                            )}
-                          </div>
-
-                          {/* Código */}
-                          <div className="min-w-0 overflow-hidden hidden sm:block" style={colFlex('codigo')}>
-                            <button
-                              type="button"
-                              onClick={() => handleCopyHistoryField(sale.id, sale.id, 'nota')}
-                              title="Clique para copiar o código da nota"
-                              className="text-[9px] text-white/30 hover:text-primary-300 font-mono truncate block text-left transition-colors cursor-pointer w-full"
-                            >
-                              <span>#{sale.id.slice(-8).toUpperCase()}</span>
-                              {copiedHistoryField?.id === sale.id && copiedHistoryField?.field === 'nota' && (
-                                <span className="ml-1 text-[8px] font-bold text-emerald-400 bg-emerald-500/20 px-1 py-0.2 rounded">Copiado!</span>
-                              )}
-                            </button>
-                          </div>
-
-                          {/* Data */}
-                          <div className="min-w-0 overflow-hidden hidden sm:block" style={colFlex('data')}>
-                            <span className="text-[9px] text-white/30 truncate block">{safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
-                          </div>
-
-                          {/* Etapa / Produção -- se ainda não foi lançado para produção, exibe botão com ícone de fábrica para lançar com 1 clique. Se já está em produção, exibe o select com estilo destacado e indicador visual. */}
-                          <div className="min-w-0 hidden sm:flex justify-center" style={colFlex('etapa')}>
-                            {!sale.serviceStatus ? (
-                              <button
-                                onClick={() => handleLancarProducao(sale)}
-                                disabled={lancandoProducaoId === sale.id}
-                                title="Lançar este pedido para a esteira de Produção / Serviços"
-                                className="h-6 w-full max-w-[130px] flex items-center justify-center gap-1 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 rounded-full px-2 text-[8px] font-black uppercase tracking-wide transition-all cursor-pointer disabled:opacity-50"
-                              >
-                                <Factory size={11} className={cn(lancandoProducaoId === sale.id && "animate-spin")} />
-                                <span>{lancandoProducaoId === sale.id ? 'Lançando...' : 'Lançar Produção'}</span>
-                              </button>
-                            ) : (
-                              <div className="relative flex items-center justify-center gap-1 w-full max-w-[135px]">
-                                <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 shrink-0 animate-pulse" title="Em Produção" />
-                                <select
-                                  value={sale.serviceStatus}
-                                  onChange={(e) => {
-                                    if (e.target.value === '__remover__') {
-                                      handleRemoverDaProducao(sale);
-                                    } else {
-                                      handleUpdateServiceStatus(sale.id, e.target.value);
-                                    }
-                                  }}
-                                  onClick={(e) => e.stopPropagation()}
-                                  title="Em Produção — Clique para mudar de etapa ou desmarcar"
-                                  className="h-6 w-full bg-indigo-500/20 border border-indigo-500/35 rounded-full pl-2 pr-1 text-[8px] font-black uppercase text-indigo-300 focus:outline-none focus:border-primary-500 cursor-pointer truncate"
-                                >
-                                  {STAGE_ORDER.map(id => (
-                                    <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
-                                  ))}
-                                  <option value="__remover__" className="bg-slate-900 text-rose-300 font-bold">❌ Desmarcar Produção</option>
-                                </select>
                                 <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleRemoverDaProducao(sale);
-                                  }}
-                                  title="Desmarcar / Remover da Produção"
-                                  className="h-5 w-5 rounded-full bg-white/5 hover:bg-rose-500/20 border border-white/10 hover:border-rose-500/30 text-white/40 hover:text-rose-300 flex items-center justify-center shrink-0 transition-colors"
+                                  onClick={() => { if (isPartial) openSettlePayment(sale); else openReceiptDetail(sale); }}
+                                  className={cn(
+                                    "h-7 px-2 rounded-lg border text-[8.5px] font-black uppercase tracking-wider flex items-center gap-1 shrink-0 transition-all",
+                                    isPartial
+                                      ? "bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500/25"
+                                      : "bg-emerald-500/15 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/25"
+                                  )}
+                                  title={isPartial ? 'Clique para quitar débito' : 'Pago - ver recibo'}
                                 >
-                                  <X size={10} />
+                                  {isPartial ? (
+                                    <>
+                                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                                      <span>Falta R$ {balance.toFixed(2).replace('.', ',')}</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <CheckCircle2 size={10} className="text-emerald-400" />
+                                      <span>Pago</span>
+                                    </>
+                                  )}
+                                </button>
+
+                                <button
+                                  onClick={(e) => {
+                                    if (isRowMenuOpen) { setOpenSaleRowActionsId(null); return; }
+                                    const rect = e.currentTarget.getBoundingClientRect();
+                                    const MENU_H_ESTIMADA = 300;
+                                    const abreParaCima = rect.bottom + MENU_H_ESTIMADA > window.innerHeight;
+                                    setSaleRowActionsMenuPos({
+                                      top: abreParaCima ? undefined : rect.bottom + 6,
+                                      bottom: abreParaCima ? window.innerHeight - rect.top + 6 : undefined,
+                                      left: Math.max(8, Math.min(rect.right - 200, window.innerWidth - 208)),
+                                    });
+                                    setOpenSaleRowActionsId(sale.id);
+                                  }}
+                                  className={cn("w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors", isRowMenuOpen ? "bg-white/15 text-white" : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white")}
+                                  title="Mais ações"
+                                >
+                                  <MoreVertical size={13} />
                                 </button>
                               </div>
+                            </div>
+
+                            {/* Linha 2: #Código, Data, Itens e Produção / Lucro */}
+                            <div className="flex items-center justify-between gap-2 pt-1 border-t border-white/5 text-[9px]">
+                              <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyHistoryField(sale.id, sale.id, 'nota')}
+                                  className="font-mono text-white/40 hover:text-primary-300 font-bold shrink-0"
+                                  title="Copiar código da nota"
+                                >
+                                  #{sale.id.slice(-8).toUpperCase()}
+                                </button>
+                                <span className="text-white/20 shrink-0">•</span>
+                                <span className="text-white/40 shrink-0 font-medium">{safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
+                                {sale.items && sale.items.length > 0 && (() => {
+                                  const summary = summarizeSaleItems(sale.items);
+                                  return (
+                                    <>
+                                      <span className="text-white/20 shrink-0">•</span>
+                                      <span className="text-white/50 italic truncate max-w-[130px] xs:max-w-[190px]" title={summary.title}>
+                                        {summary.text}
+                                      </span>
+                                    </>
+                                  );
+                                })()}
+                              </div>
+
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {!sale.serviceStatus ? (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); handleLancarProducao(sale); }}
+                                    disabled={lancandoProducaoId === sale.id}
+                                    title="Lançar para Produção"
+                                    className="h-5 px-1.5 rounded-full bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/25 text-amber-300 text-[8px] font-black uppercase tracking-wider flex items-center gap-1 transition-colors"
+                                  >
+                                    <Factory size={8} className={cn(lancandoProducaoId === sale.id && "animate-spin")} />
+                                    <span>{lancandoProducaoId === sale.id ? '...' : '+ Produção'}</span>
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); handleLancarProducao(sale); }}
+                                    title={`Em Produção: ${STAGE_LABELS[sale.serviceStatus] || sale.serviceStatus} (clique para ir a Serviços)`}
+                                    className="h-5 px-1.5 rounded-full bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 text-indigo-300 text-[8px] font-black uppercase tracking-wider flex items-center gap-1 transition-colors"
+                                  >
+                                    <Factory size={8} className="text-indigo-400" />
+                                    <span className="truncate max-w-[85px]">{STAGE_LABELS[sale.serviceStatus] || sale.serviceStatus}</span>
+                                  </button>
+                                )}
+
+                                {rentabilidade !== null && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); openCustosDaNota(sale); }}
+                                    className="text-[8px] font-bold text-emerald-400/80 hover:text-emerald-300 transition-colors"
+                                    title="Ver custos da nota"
+                                  >
+                                    {rentabilidade.isParcial ? `Cx R$ ${rentabilidade.lucroRealizadoCaixa.toFixed(0)}` : `Lucro R$ ${rentabilidade.lucroPrevisto.toFixed(0)}`}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* --- MODO LISTA DESKTOP: TABELA PROPORCIONAL COM COLUNAS REDIMENSIONÁVEIS --- */}
+                          <div className="hidden sm:flex items-center gap-2 px-3 py-2">
+                            {canManageHistory && (
+                              <input type="checkbox" checked={selectedSaleIds.has(sale.id)} onChange={() => toggleSaleSelection(sale.id)} className="w-3.5 h-3.5 shrink-0 accent-primary-500" />
                             )}
-                          </div>
 
-                          {/* Botao de Pagamento -- quadrado de cantos arredondados, verde quando
-                              pago. Na propria legenda do botao mostra a composicao de como foi
-                              pago (ex.: Pix: R$100,00 / Din: R$100,00) e, se ainda faltar algo,
-                              destaca "Falta R$ X" embaixo. Sem pagamento nenhum, vira um botao
-                              "Pagar" que abre direto a tela de quitacao. */}
-                          <div className="min-w-0 flex justify-center" style={colFlex('status')}>
-                            <button
-                              onClick={() => { if (isPartial) openSettlePayment(sale); else openReceiptDetail(sale); }}
-                              title={isPartial ? 'Registrar pagamento' : 'Pago — ver recibo'}
-                              className={cn(
-                                "w-full max-w-[130px] rounded-xl border px-2 py-1.5 flex flex-col items-center justify-center gap-0.5 text-center transition-colors",
-                                isPartial
-                                  ? "bg-amber-500/15 border-amber-500/30 text-amber-300 hover:bg-amber-500/25"
-                                  : "bg-emerald-500/15 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25"
-                              )}
-                            >
-                              <span className="text-[9px] font-black uppercase leading-none">
-                                {isPartial ? (down > 0 ? 'Pagar' : 'Pagar') : 'Pago'}
-                              </span>
-                              {composicaoPagamento.map(p => (
-                                <span key={p.label} className="text-[7.5px] font-bold leading-none opacity-90 truncate max-w-full">
-                                  {p.label}: R$ {p.value.toFixed(2).replace('.', ',')}
-                                </span>
-                              ))}
-                              {isPartial && (
-                                <span className="text-[7.5px] font-black leading-none text-rose-300">
-                                  Falta R$ {balance.toFixed(2).replace('.', ',')}
-                                </span>
-                              )}
-                            </button>
-                          </div>
-
-                          {/* Valor / Pagamento -- total em destaque; a composicao do pagamento
-                              agora mora no botao de Pagamento ao lado, e o lucro liquido do
-                              pedido (Admin) continua aqui embaixo do total. */}
-                          <div className="min-w-0 text-right overflow-hidden" style={colFlex('valor')}>
-                            <span className="text-[11px] font-black text-white block truncate">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
-                            {rentabilidade !== null && (
+                            {/* Nome */}
+                            <div className="min-w-0 overflow-hidden" style={colFlex('nome')}>
                               <button
                                 type="button"
-                                onClick={(e) => { e.stopPropagation(); openCustosDaNota(sale); }}
-                                title={rentabilidade.isParcial
-                                  ? `Caixa Hoje: R$ ${rentabilidade.lucroRealizadoCaixa.toFixed(2).replace('.', ',')} (Entrada R$ ${rentabilidade.valorPago.toFixed(2).replace('.', ',')} - Custo R$ ${rentabilidade.custoTotal.toFixed(2).replace('.', ',')}) • Lucro Total Previsto: R$ ${rentabilidade.lucroPrevisto.toFixed(2).replace('.', ',')} (Clique para ver Custos da Nota)`
-                                  : `Lucro Líquido: R$ ${rentabilidade.lucroPrevisto.toFixed(2).replace('.', ',')} (Clique para ver Custos da Nota)`}
-                                className="text-[8px] font-bold block truncate w-full text-right hover:underline"
+                                onClick={() => handleCopyHistoryField(sale.customerName || 'Cliente de Balcão', sale.id, 'cliente')}
+                                title="Clique para copiar o nome do cliente"
+                                className="text-[11px] font-black text-white hover:text-primary-300 block truncate text-left transition-colors cursor-pointer group w-full"
                               >
-                                {rentabilidade.isParcial ? (
-                                  <span className="inline-flex items-center gap-1 justify-end flex-wrap">
-                                    <span className={cn(rentabilidade.lucroRealizadoCaixa >= 0 ? "text-emerald-400" : "text-rose-400")}>
-                                      Cx: R$ {rentabilidade.lucroRealizadoCaixa.toFixed(2).replace('.', ',')}
-                                    </span>
-                                    <span className="text-white/30">•</span>
-                                    <span className="text-cyan-300">
-                                      Prev: R$ {rentabilidade.lucroPrevisto.toFixed(2).replace('.', ',')}
-                                    </span>
-                                    {rentabilidade.temCustosExtras && <span className="text-amber-300" title="Possui custos extras">•</span>}
+                                <span className="truncate">{(sale.customerName || 'Cliente de Balcão').toUpperCase()}</span>
+                                {copiedHistoryField?.id === sale.id && copiedHistoryField?.field === 'cliente' && (
+                                  <span className="ml-1 text-[8px] font-bold text-emerald-400 bg-emerald-500/20 px-1 py-0.2 rounded">Copiado!</span>
+                                )}
+                              </button>
+                              {sale.observacoes && (
+                                <span className="text-[9px] text-amber-300/70 italic block truncate" title={sale.observacoes}>"{sale.observacoes}"</span>
+                              )}
+                            </div>
+
+                            {/* Itens / Descrição + etiquetas de origem (Contrato/Orçamento) */}
+                            <div className="min-w-0 flex items-center gap-1.5 overflow-hidden" style={colFlex('itens')}>
+                              {sale.items && sale.items.length > 0 && (() => {
+                                const summary = summarizeSaleItems(sale.items);
+                                return (
+                                  <span className="text-[9px] text-white/40 italic truncate" title={summary.title}>
+                                    {summary.text}
                                   </span>
-                                ) : (
-                                  <span className={cn(rentabilidade.lucroPrevisto >= 0 ? "text-emerald-400/80" : "text-rose-400/80")}>
-                                    Lucro: R$ {rentabilidade.lucroPrevisto.toFixed(2).replace('.', ',')}{rentabilidade.temCustosExtras ? ' •' : ''}
+                                );
+                              })()}
+                              {sale.contratoId && (
+                                <button
+                                  onClick={() => { setActiveTab('contratos'); setHighlightContratoId(sale.contratoId!); setTimeout(() => setHighlightContratoId(null), 4000); }}
+                                  title="Ver contrato vinculado"
+                                  className="shrink-0 text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors"
+                                >
+                                  Contrato
+                                </button>
+                              )}
+                              {sale.orcamentoId && (
+                                <button
+                                  onClick={() => { setActiveTab('orcamentos'); setHighlightOrcamentoId(sale.orcamentoId!); setTimeout(() => setHighlightOrcamentoId(null), 4000); }}
+                                  title="Ver orçamento vinculado"
+                                  className="shrink-0 text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full bg-primary-500/20 text-primary-300 hover:bg-primary-500/30 transition-colors"
+                                >
+                                  Orçamento
+                                </button>
+                              )}
+                            </div>
+
+                            {/* Código */}
+                            <div className="min-w-0 overflow-hidden hidden sm:block" style={colFlex('codigo')}>
+                              <button
+                                type="button"
+                                onClick={() => handleCopyHistoryField(sale.id, sale.id, 'nota')}
+                                title="Clique para copiar o código da nota"
+                                className="text-[9px] text-white/30 hover:text-primary-300 font-mono truncate block text-left transition-colors cursor-pointer w-full"
+                              >
+                                <span>#{sale.id.slice(-8).toUpperCase()}</span>
+                                {copiedHistoryField?.id === sale.id && copiedHistoryField?.field === 'nota' && (
+                                  <span className="ml-1 text-[8px] font-bold text-emerald-400 bg-emerald-500/20 px-1 py-0.2 rounded">Copiado!</span>
+                                )}
+                              </button>
+                            </div>
+
+                            {/* Data */}
+                            <div className="min-w-0 overflow-hidden hidden sm:block" style={colFlex('data')}>
+                              <span className="text-[9px] text-white/30 truncate block">{safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
+                            </div>
+
+                            {/* Etapa / Produção */}
+                            <div className="min-w-0 hidden sm:flex justify-center" style={colFlex('etapa')}>
+                              {!sale.serviceStatus ? (
+                                <button
+                                  onClick={() => handleLancarProducao(sale)}
+                                  disabled={lancandoProducaoId === sale.id}
+                                  title="Lançar este pedido para a esteira de Produção / Serviços"
+                                  className="h-6 w-full max-w-[130px] flex items-center justify-center gap-1 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 rounded-full px-2 text-[8px] font-black uppercase tracking-wide transition-all cursor-pointer disabled:opacity-50"
+                                >
+                                  <Factory size={11} className={cn(lancandoProducaoId === sale.id && "animate-spin")} />
+                                  <span>{lancandoProducaoId === sale.id ? 'Lançando...' : 'Lançar Produção'}</span>
+                                </button>
+                              ) : (
+                                <div className="relative flex items-center justify-center gap-1 w-full max-w-[135px]">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 shrink-0 animate-pulse" title="Em Produção" />
+                                  <select
+                                    value={sale.serviceStatus}
+                                    onChange={(e) => {
+                                      if (e.target.value === '__remover__') {
+                                        handleRemoverDaProducao(sale);
+                                      } else {
+                                        handleUpdateServiceStatus(sale.id, e.target.value);
+                                      }
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    title="Em Produção — Clique para mudar de etapa ou desmarcar"
+                                    className="h-6 w-full bg-indigo-500/20 border border-indigo-500/35 rounded-full pl-2 pr-1 text-[8px] font-black uppercase text-indigo-300 focus:outline-none focus:border-primary-500 cursor-pointer truncate"
+                                  >
+                                    {STAGE_ORDER.map(id => (
+                                      <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
+                                    ))}
+                                    <option value="__remover__" className="bg-slate-900 text-rose-300 font-bold">❌ Desmarcar Produção</option>
+                                  </select>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleRemoverDaProducao(sale);
+                                    }}
+                                    title="Desmarcar / Remover da Produção"
+                                    className="h-5 w-5 rounded-full bg-white/5 hover:bg-rose-500/20 border border-white/10 hover:border-rose-500/30 text-white/40 hover:text-rose-300 flex items-center justify-center shrink-0 transition-colors"
+                                  >
+                                    <X size={10} />
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Botao de Pagamento */}
+                            <div className="min-w-0 flex justify-center" style={colFlex('status')}>
+                              <button
+                                onClick={() => { if (isPartial) openSettlePayment(sale); else openReceiptDetail(sale); }}
+                                title={isPartial ? 'Registrar pagamento' : 'Pago — ver recibo'}
+                                className={cn(
+                                  "w-full max-w-[130px] rounded-xl border px-2 py-1.5 flex flex-col items-center justify-center gap-0.5 text-center transition-colors",
+                                  isPartial
+                                    ? "bg-amber-500/15 border-amber-500/30 text-amber-300 hover:bg-amber-500/25"
+                                    : "bg-emerald-500/15 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25"
+                                )}
+                              >
+                                <span className="text-[9px] font-black uppercase leading-none">
+                                  {isPartial ? (down > 0 ? 'Pagar' : 'Pagar') : 'Pago'}
+                                </span>
+                                {composicaoPagamento.map(p => (
+                                  <span key={p.label} className="text-[7.5px] font-bold leading-none opacity-90 truncate max-w-full">
+                                    {p.label}: R$ {p.value.toFixed(2).replace('.', ',')}
+                                  </span>
+                                ))}
+                                {isPartial && (
+                                  <span className="text-[7.5px] font-black leading-none text-rose-300">
+                                    Falta R$ {balance.toFixed(2).replace('.', ',')}
                                   </span>
                                 )}
                               </button>
-                            )}
+                            </div>
+
+                            {/* Valor / Pagamento */}
+                            <div className="min-w-0 text-right overflow-hidden" style={colFlex('valor')}>
+                              <span className="text-[11px] font-black text-white block truncate">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
+                              {rentabilidade !== null && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); openCustosDaNota(sale); }}
+                                  title={rentabilidade.isParcial
+                                    ? `Caixa Hoje: R$ ${rentabilidade.lucroRealizadoCaixa.toFixed(2).replace('.', ',')} (Entrada R$ ${rentabilidade.valorPago.toFixed(2).replace('.', ',')} - Custo R$ ${rentabilidade.custoTotal.toFixed(2).replace('.', ',')}) • Lucro Total Previsto: R$ ${rentabilidade.lucroPrevisto.toFixed(2).replace('.', ',')} (Clique para ver Custos da Nota)`
+                                    : `Lucro Líquido: R$ ${rentabilidade.lucroPrevisto.toFixed(2).replace('.', ',')} (Clique para ver Custos da Nota)`}
+                                  className="text-[8px] font-bold block truncate w-full text-right hover:underline"
+                                >
+                                  {rentabilidade.isParcial ? (
+                                    <span className="inline-flex items-center gap-1 justify-end flex-wrap">
+                                      <span className={cn(rentabilidade.lucroRealizadoCaixa >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                                        Cx: R$ {rentabilidade.lucroRealizadoCaixa.toFixed(2).replace('.', ',')}
+                                      </span>
+                                      <span className="text-white/30">•</span>
+                                      <span className="text-cyan-300">
+                                        Prev: R$ {rentabilidade.lucroPrevisto.toFixed(2).replace('.', ',')}
+                                      </span>
+                                      {rentabilidade.temCustosExtras && <span className="text-amber-300" title="Possui custos extras">•</span>}
+                                    </span>
+                                  ) : (
+                                    <span className={cn(rentabilidade.lucroPrevisto >= 0 ? "text-emerald-400/80" : "text-rose-400/80")}>
+                                      Lucro: R$ {rentabilidade.lucroPrevisto.toFixed(2).replace('.', ',')}{rentabilidade.temCustosExtras ? ' •' : ''}
+                                    </span>
+                                  )}
+                                </button>
+                              )}
+                            </div>
+
+                            {/* Menu oculto de ações */}
+                            <div className="shrink-0 w-8 flex justify-center">
+                              <button
+                                onClick={(e) => {
+                                  if (isRowMenuOpen) { setOpenSaleRowActionsId(null); return; }
+                                  const rect = e.currentTarget.getBoundingClientRect();
+                                  const MENU_H_ESTIMADA = 300;
+                                  const abreParaCima = rect.bottom + MENU_H_ESTIMADA > window.innerHeight;
+                                  setSaleRowActionsMenuPos({
+                                    top: abreParaCima ? undefined : rect.bottom + 6,
+                                    bottom: abreParaCima ? window.innerHeight - rect.top + 6 : undefined,
+                                    left: Math.max(8, Math.min(rect.right - 200, window.innerWidth - 208)),
+                                  });
+                                  setOpenSaleRowActionsId(sale.id);
+                                }}
+                                title="Mais ações"
+                                className={cn("flex items-center justify-center w-8 h-8 rounded-lg transition-colors shrink-0", isRowMenuOpen ? "bg-white/15 text-white" : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white")}
+                              >
+                                <MoreVertical size={14} />
+                              </button>
+                            </div>
                           </div>
 
-                          {/* Menu oculto de ações -- um unico botao "..." abre um dropdown com
-                              todas as opcoes (Contrato, Clonar, Reabrir, Cancelar, Editar, Apagar
-                              etc), no lugar da fileira de botoes direto na linha. Mesmo padrao de
-                              portal + posicionamento usado no menu de acoes de Contratos. */}
-                          <div className="shrink-0 w-8 flex justify-center">
-                            <button
-                              onClick={(e) => {
-                                if (isRowMenuOpen) { setOpenSaleRowActionsId(null); return; }
-                                const rect = e.currentTarget.getBoundingClientRect();
-                                const MENU_H_ESTIMADA = 300;
-                                const abreParaCima = rect.bottom + MENU_H_ESTIMADA > window.innerHeight;
-                                setSaleRowActionsMenuPos({
-                                  top: abreParaCima ? undefined : rect.bottom + 6,
-                                  bottom: abreParaCima ? window.innerHeight - rect.top + 6 : undefined,
-                                  left: Math.max(8, Math.min(rect.right - 200, window.innerWidth - 208)),
-                                });
-                                setOpenSaleRowActionsId(sale.id);
-                              }}
-                              title="Mais ações"
-                              className={cn("flex items-center justify-center w-8 h-8 rounded-lg transition-colors shrink-0", isRowMenuOpen ? "bg-white/15 text-white" : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white")}
-                            >
-                              <MoreVertical size={14} />
-                            </button>
-                            {isRowMenuOpen && saleRowActionsMenuPos && createPortal(
-                              <>
-                                <div className="fixed inset-0 z-[200]" onClick={() => setOpenSaleRowActionsId(null)} />
-                                <div
-                                  style={{ top: saleRowActionsMenuPos.top, bottom: saleRowActionsMenuPos.bottom, left: saleRowActionsMenuPos.left }}
-                                  className="fixed z-[201] w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl py-1.5 flex flex-col"
-                                >
-                                  {isPartial && (
-                                    <button onClick={async () => { setOpenSaleRowActionsId(null); if (!(await showConfirm('Abrir a tela de pagamento deste pedido?'))) return; openSettlePayment(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-emerald-400 hover:bg-white/5 text-left"><CheckCircle2 size={13} /> Quitar Débito</button>
-                                  )}
-                                  <button onClick={async () => { setOpenSaleRowActionsId(null); if (!(await showConfirm('Abrir o recibo deste pedido?'))) return; openReceiptDetail(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left"><FileText size={13} /> Recibo</button>
-                                  {sale.contratoId ? (
-                                    <button onClick={() => { setOpenSaleRowActionsId(null); setActiveTab('contratos'); setHighlightContratoId(sale.contratoId!); setTimeout(() => setHighlightContratoId(null), 4000); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-purple-300 hover:bg-white/5 text-left"><FileSignature size={13} /> Ver Contrato</button>
-                                  ) : (
-                                    <button onClick={async () => { setOpenSaleRowActionsId(null); if (!(await showConfirm('Gerar um contrato a partir desta nota?'))) return; handleCreateContratoFromNota(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-purple-300 hover:bg-white/5 text-left"><FileSignature size={13} /> Gerar Contrato</button>
-                                  )}
-                                  <button onClick={() => { setOpenSaleRowActionsId(null); openCustosDaNota(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-emerald-400 hover:bg-white/5 text-left"><Calculator size={13} /> Custos da Nota</button>
-                                  {sale.serviceStatus ? (
-                                    <button onClick={() => { setOpenSaleRowActionsId(null); handleRemoverDaProducao(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-amber-400 hover:bg-white/5 text-left"><Factory size={13} /> Desmarcar Produção</button>
-                                  ) : (
-                                    <button onClick={() => { setOpenSaleRowActionsId(null); handleLancarProducao(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-indigo-300 hover:bg-white/5 text-left"><Factory size={13} /> Lançar Produção</button>
-                                  )}
-                                  <button onClick={() => { setOpenSaleRowActionsId(null); handleDuplicateSale(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left"><Copy size={13} /> Clonar</button>
-                                  {canManageHistory && (
-                                    <>
-                                      <div className="h-px bg-white/10 my-1.5" />
-                                      {!isPartial && <button onClick={() => { setOpenSaleRowActionsId(null); handleReopenSale(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-amber-400 hover:bg-white/5 text-left"><History size={13} /> Reabrir</button>}
-                                      {sale.status !== 'canceled' && <button onClick={() => { setOpenSaleRowActionsId(null); handleCancelSale(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-rose-400/80 hover:bg-white/5 text-left"><Ban size={13} /> Cancelar</button>}
-                                      <button onClick={async () => { setOpenSaleRowActionsId(null); if (!(await showConfirm('Editar este pedido?'))) return; handleStartFullEdit(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-primary-400 hover:bg-white/5 text-left"><Pencil size={13} /> Editar</button>
-                                      <button onClick={() => { setOpenSaleRowActionsId(null); handleDeleteSale(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-rose-400 hover:bg-white/5 text-left"><Trash2 size={13} /> Apagar</button>
-                                    </>
-                                  )}
-                                </div>
-                              </>,
-                              document.body
-                            )}
-                          </div>
+                          {/* Dropdown Modal Portal compartilhado para Mobile e Desktop */}
+                          {isRowMenuOpen && saleRowActionsMenuPos && createPortal(
+                            <>
+                              <div className="fixed inset-0 z-[200]" onClick={() => setOpenSaleRowActionsId(null)} />
+                              <div
+                                style={{ top: saleRowActionsMenuPos.top, bottom: saleRowActionsMenuPos.bottom, left: saleRowActionsMenuPos.left }}
+                                className="fixed z-[201] w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl py-1.5 flex flex-col"
+                              >
+                                {isPartial && (
+                                  <button onClick={async () => { setOpenSaleRowActionsId(null); if (!(await showConfirm('Abrir a tela de pagamento deste pedido?'))) return; openSettlePayment(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-emerald-400 hover:bg-white/5 text-left"><CheckCircle2 size={13} /> Quitar Débito</button>
+                                )}
+                                <button onClick={async () => { setOpenSaleRowActionsId(null); if (!(await showConfirm('Abrir o recibo deste pedido?'))) return; openReceiptDetail(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left"><FileText size={13} /> Recibo</button>
+                                {sale.contratoId ? (
+                                  <button onClick={() => { setOpenSaleRowActionsId(null); setActiveTab('contratos'); setHighlightContratoId(sale.contratoId!); setTimeout(() => setHighlightContratoId(null), 4000); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-purple-300 hover:bg-white/5 text-left"><FileSignature size={13} /> Ver Contrato</button>
+                                ) : (
+                                  <button onClick={async () => { setOpenSaleRowActionsId(null); if (!(await showConfirm('Gerar um contrato a partir desta nota?'))) return; handleCreateContratoFromNota(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-purple-300 hover:bg-white/5 text-left"><FileSignature size={13} /> Gerar Contrato</button>
+                                )}
+                                <button onClick={() => { setOpenSaleRowActionsId(null); openCustosDaNota(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-emerald-400 hover:bg-white/5 text-left"><Calculator size={13} /> Custos da Nota</button>
+                                {sale.serviceStatus ? (
+                                  <button onClick={() => { setOpenSaleRowActionsId(null); handleRemoverDaProducao(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-amber-400 hover:bg-white/5 text-left"><Factory size={13} /> Desmarcar Produção</button>
+                                ) : (
+                                  <button onClick={() => { setOpenSaleRowActionsId(null); handleLancarProducao(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-indigo-300 hover:bg-white/5 text-left"><Factory size={13} /> Lançar Produção</button>
+                                )}
+                                <button onClick={() => { setOpenSaleRowActionsId(null); handleDuplicateSale(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left"><Copy size={13} /> Clonar</button>
+                                {canManageHistory && (
+                                  <>
+                                    <div className="h-px bg-white/10 my-1.5" />
+                                    {!isPartial && <button onClick={() => { setOpenSaleRowActionsId(null); handleReopenSale(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-amber-400 hover:bg-white/5 text-left"><History size={13} /> Reabrir</button>}
+                                    {sale.status !== 'canceled' && <button onClick={() => { setOpenSaleRowActionsId(null); handleCancelSale(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-rose-400/80 hover:bg-white/5 text-left"><Ban size={13} /> Cancelar</button>}
+                                    <button onClick={async () => { setOpenSaleRowActionsId(null); if (!(await showConfirm('Editar este pedido?'))) return; handleStartFullEdit(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-primary-400 hover:bg-white/5 text-left"><Pencil size={13} /> Editar</button>
+                                    <button onClick={() => { setOpenSaleRowActionsId(null); handleDeleteSale(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-rose-400 hover:bg-white/5 text-left"><Trash2 size={13} /> Apagar</button>
+                                  </>
+                                )}
+                              </div>
+                            </>,
+                            document.body
+                          )}
                         </div>
                       );
                     })}
@@ -15993,32 +16265,99 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               </button>
                             );
                           })()}
-                          <div className="flex flex-wrap gap-1 pt-1">
-                            <button
-                              onClick={() => handleLancarProducao(sale)}
-                              disabled={lancandoProducaoId === sale.id}
-                              className={cn(
-                                "p-1.5 rounded-lg transition-colors cursor-pointer",
-                                sale.serviceStatus
-                                  ? "bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/30 border border-indigo-500/30"
-                                  : "bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 border border-amber-500/30"
-                              )}
-                              title={sale.serviceStatus ? `Em Produção (${STAGE_LABELS[sale.serviceStatus] || sale.serviceStatus})` : "Lançar para Produção"}
-                            >
-                              <Factory size={12} className={cn(lancandoProducaoId === sale.id && "animate-spin")} />
-                            </button>
-                            {isPartial && <button onClick={async () => { if (!(await showConfirm('Abrir a tela de pagamento deste pedido?'))) return; openSettlePayment(sale); }} className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" title="Quitar Débito"><CheckCircle2 size={12} /></button>}
-                            <button onClick={async () => { if (!(await showConfirm('Abrir o recibo deste pedido?'))) return; openReceiptDetail(sale); }} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Recibo"><FileText size={12} /></button>
-                            <button onClick={() => handleDuplicateSale(sale)} className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:bg-white/10" title="Duplicar Pedido"><Copy size={12} /></button>
-                            {!sale.contratoId && <button onClick={async () => { if (!(await showConfirm('Gerar um contrato a partir desta nota?'))) return; handleCreateContratoFromNota(sale); }} className="p-1.5 rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20" title="Gerar Contrato a partir desta nota"><FileSignature size={12} /></button>}
-                            {canManageHistory && (
-                              <>
-                                {!isPartial && <button onClick={() => handleReopenSale(sale)} className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20" title="Reabrir"><History size={12} /></button>}
-                                {sale.status !== 'canceled' && <button onClick={() => handleCancelSale(sale)} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" title="Cancelar Pedido"><Ban size={12} /></button>}
-                                <button onClick={async () => { if (!(await showConfirm('Editar este pedido?'))) return; handleStartFullEdit(sale); }} className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20" title="Editar"><Pencil size={12} /></button>
-                                <button onClick={() => handleDeleteSale(sale)} className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" title="Excluir"><Trash2 size={12} /></button>
-                              </>
+                          <div className="space-y-1.5 pt-1 border-t border-white/5">
+                            {isPartial && (
+                              <button
+                                onClick={async () => { if (!(await showConfirm('Abrir a tela de pagamento deste pedido?'))) return; openSettlePayment(sale); }}
+                                className="w-full h-7 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-[8px] font-black uppercase tracking-wider flex items-center justify-center gap-1 transition-colors cursor-pointer shadow-xs"
+                                title="Quitar Débito"
+                              >
+                                <CheckCircle2 size={11} className="shrink-0" />
+                                <span className="truncate">Quitar (R$ {balance.toFixed(2).replace('.', ',')})</span>
+                              </button>
                             )}
+                            <div className="grid grid-cols-4 gap-1">
+                              <button
+                                onClick={async () => { if (!(await showConfirm('Abrir o recibo deste pedido?'))) return; openReceiptDetail(sale); }}
+                                className="h-7 w-full rounded-lg bg-white/5 hover:bg-white/10 text-white/70 hover:text-white border border-white/5 flex items-center justify-center transition-colors cursor-pointer"
+                                title="Recibo"
+                              >
+                                <FileText size={12} />
+                              </button>
+                              <button
+                                onClick={() => openCustosDaNota(sale)}
+                                className="h-7 w-full rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20 flex items-center justify-center transition-colors cursor-pointer"
+                                title="Custos da Nota"
+                              >
+                                <Calculator size={12} />
+                              </button>
+                              <button
+                                onClick={() => handleDuplicateSale(sale)}
+                                className="h-7 w-full rounded-lg bg-white/5 text-white/70 hover:bg-white/10 hover:text-white border border-white/5 flex items-center justify-center transition-colors cursor-pointer"
+                                title="Duplicar Pedido"
+                              >
+                                <Copy size={12} />
+                              </button>
+                              {sale.contratoId ? (
+                                <button
+                                  onClick={() => { setActiveTab('contratos'); setHighlightContratoId(sale.contratoId!); setTimeout(() => setHighlightContratoId(null), 4000); }}
+                                  className="h-7 w-full rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20 border border-purple-500/20 flex items-center justify-center transition-colors cursor-pointer"
+                                  title="Ver Contrato vinculado"
+                                >
+                                  <FileSignature size={12} />
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={async () => { if (!(await showConfirm('Gerar um contrato a partir desta nota?'))) return; handleCreateContratoFromNota(sale); }}
+                                  className="h-7 w-full rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20 border border-purple-500/20 flex items-center justify-center transition-colors cursor-pointer"
+                                  title="Gerar Contrato a partir desta nota"
+                                >
+                                  <FileSignature size={12} />
+                                </button>
+                              )}
+                              {canManageHistory && (
+                                <>
+                                  <button
+                                    onClick={async () => { if (!(await showConfirm('Editar este pedido?'))) return; handleStartFullEdit(sale); }}
+                                    className="h-7 w-full rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20 border border-primary-500/20 flex items-center justify-center transition-colors cursor-pointer"
+                                    title="Editar"
+                                  >
+                                    <Pencil size={12} />
+                                  </button>
+                                  {!isPartial ? (
+                                    <button
+                                      onClick={() => handleReopenSale(sale)}
+                                      className="h-7 w-full rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 border border-amber-500/20 flex items-center justify-center transition-colors cursor-pointer"
+                                      title="Reabrir"
+                                    >
+                                      <History size={12} />
+                                    </button>
+                                  ) : (
+                                    <div className="h-7 w-full rounded-lg bg-white/[0.02] border border-transparent" />
+                                  )}
+                                  {sale.status !== 'canceled' ? (
+                                    <button
+                                      onClick={() => handleCancelSale(sale)}
+                                      className="h-7 w-full rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/20 flex items-center justify-center transition-colors cursor-pointer"
+                                      title="Cancelar Pedido"
+                                    >
+                                      <Ban size={12} />
+                                    </button>
+                                  ) : (
+                                    <div className="h-7 w-full rounded-lg bg-rose-500/5 border border-rose-500/10 text-rose-400/40 text-[7px] font-black uppercase flex items-center justify-center" title="Cancelado">
+                                      <Ban size={10} />
+                                    </div>
+                                  )}
+                                  <button
+                                    onClick={() => handleDeleteSale(sale)}
+                                    className="h-7 w-full rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/20 flex items-center justify-center transition-colors cursor-pointer"
+                                    title="Excluir"
+                                  >
+                                    <Trash2 size={12} />
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           </div>
                         </GlassCard>
                       );
@@ -16039,21 +16378,21 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     const isPartial = balance > 0 || sale.status === 'pending';
 
                     return (
-                      <GlassCard key={sale.id} className="p-6 border-white/10 space-y-4 bg-slate-900/80 hover:border-white/20 transition-all relative overflow-hidden">
-                        <div className="flex justify-between items-start border-b border-white/5 pb-3">
-                          <div className="flex items-start gap-2">
+                      <GlassCard key={sale.id} className="p-3.5 sm:p-5 md:p-6 border-white/10 space-y-3 sm:space-y-4 bg-slate-900/80 hover:border-white/20 transition-all relative overflow-hidden">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4 border-b border-white/5 pb-3">
+                          <div className="flex items-start gap-2 min-w-0">
                             {canManageHistory && (
                               <input type="checkbox" checked={selectedSaleIds.has(sale.id)} onChange={() => toggleSaleSelection(sale.id)} className="w-4 h-4 mt-1 shrink-0 accent-primary-500" />
                             )}
-                            <div>
-                              <div className="flex items-center gap-2">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <button
                                   type="button"
                                   onClick={() => handleCopyHistoryField(sale.customerName || 'Cliente de Balcão', sale.id, 'cliente')}
                                   title="Clique para copiar o nome do cliente"
                                   className="text-sm font-black text-white hover:text-primary-300 uppercase text-left transition-colors cursor-pointer group inline-flex items-center gap-1.5"
                                 >
-                                  <span>{sale.customerName || 'Cliente de Balcão'}</span>
+                                  <span className="truncate max-w-[200px] sm:max-w-none">{sale.customerName || 'Cliente de Balcão'}</span>
                                   {copiedHistoryField?.id === sale.id && copiedHistoryField?.field === 'cliente' ? (
                                     <span className="text-[8px] font-bold text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded">Copiado!</span>
                                   ) : (
@@ -16069,7 +16408,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                   {isPartial ? `FALTA R$ ${balance.toFixed(2).replace('.', ',')}` : 'PAGO'}
                                 </Badge>
                               </div>
-                              <div className="flex items-center gap-1.5 mt-0.5">
+                              <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                                 <button
                                   type="button"
                                   onClick={() => handleCopyHistoryField(sale.id, sale.id, 'nota')}
@@ -16115,7 +16454,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               )}
                             </div>
                           
-                          <div className="flex flex-col items-end gap-1.5 shrink-0">
+                          <div className="flex items-center justify-between sm:justify-end gap-1.5 w-full sm:w-auto shrink-0 flex-wrap">
                             {!sale.serviceStatus ? (
                               <button
                                 onClick={() => handleLancarProducao(sale)}
@@ -16247,128 +16586,129 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                         })()}
 
                         {/* Actions */}
-                        <div className="flex gap-2 justify-end pt-1 flex-wrap">
-                          {!sale.serviceStatus ? (
-                            <Button
-                              size="sm"
-                              className="bg-indigo-600 hover:bg-indigo-500 text-white text-[9px] font-black uppercase tracking-wider px-3.5 h-9 shadow-md shadow-indigo-600/20"
-                              onClick={() => handleLancarProducao(sale)}
-                              disabled={lancandoProducaoId === sale.id}
-                              title="Lançar este pedido na esteira de Produção / Serviços"
-                            >
-                              <Factory size={13} className={cn("mr-1.5", lancandoProducaoId === sale.id && "animate-spin")} />
-                              {lancandoProducaoId === sale.id ? 'Lançando...' : 'Lançar Produção'}
-                            </Button>
-                          ) : (
-                            <>
+                        <div className="pt-2.5 border-t border-white/5">
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                            {isPartial && (
                               <Button
-                                variant="secondary"
                                 size="sm"
-                                className="text-[9px] font-black uppercase tracking-wider px-3.5 h-9 border-indigo-500/30 text-indigo-300 hover:bg-indigo-500/15"
-                                onClick={() => setActiveTab('servicos')}
-                                title={`Em Produção: ${STAGE_LABELS[sale.serviceStatus] || sale.serviceStatus} — Clique para ver na aba Serviços`}
+                                className="col-span-2 sm:col-span-1 bg-emerald-500 hover:bg-emerald-400 text-slate-900 text-[9px] font-black uppercase tracking-wider px-2.5 sm:px-3 h-8 shadow-xs flex items-center justify-center gap-1.5 cursor-pointer rounded-lg w-full transition-colors"
+                                onClick={async () => { if (!(await showConfirm('Abrir a tela de pagamento deste pedido?'))) return; openSettlePayment(sale); }}
+                                title="Quitar débito restante"
                               >
-                                <Factory size={13} className="mr-1.5 text-indigo-400" />
-                                Em Produção ({STAGE_LABELS[sale.serviceStatus] || sale.serviceStatus})
+                                <CheckCircle2 size={12} className="shrink-0" />
+                                <span className="truncate">Quitar (R$ {balance.toFixed(2).replace('.', ',')})</span>
                               </Button>
-                              <Button
-                                variant="secondary"
-                                size="sm"
-                                className="text-[9px] font-black uppercase tracking-wider px-2.5 h-9 border-rose-500/30 text-rose-300 hover:bg-rose-500/15"
-                                onClick={() => handleRemoverDaProducao(sale)}
-                                title="Desmarcar lançamento e remover da esteira de Produção"
-                              >
-                                <X size={13} className="mr-1 text-rose-400" />
-                                Desmarcar
-                              </Button>
-                            </>
-                          )}
-                          {isPartial && (
-                            <Button
-                              size="sm"
-                              className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 text-[9px] font-black uppercase tracking-wider px-4 h-9"
-                              onClick={async () => { if (!(await showConfirm('Abrir a tela de pagamento deste pedido?'))) return; openSettlePayment(sale); }}
-                            >
-                              <CheckCircle2 size={14} className="mr-1" />
-                              Quitar Débito (R$ {balance.toFixed(2).replace('.', ',')})
-                            </Button>
-                          )}
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-white/10"
-                            onClick={async () => { if (!(await showConfirm('Abrir o recibo deste pedido?'))) return; openReceiptDetail(sale); }}
-                          >
-                            Recibo
-                          </Button>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/10"
-                            onClick={() => openCustosDaNota(sale)}
-                            title="Ver e lançar custos de material, comissões e extras"
-                          >
-                            <Calculator size={13} className="mr-1" />
-                            Custos da Nota
-                          </Button>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-white/10"
-                            onClick={() => handleDuplicateSale(sale)}
-                          >
-                            Duplicar
-                          </Button>
-                          {!sale.contratoId && (
+                            )}
                             <Button
                               variant="secondary"
                               size="sm"
-                              className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-purple-500/20 text-purple-300 hover:bg-purple-500/10"
-                              onClick={async () => { if (!(await showConfirm('Gerar um contrato a partir desta nota?'))) return; handleCreateContratoFromNota(sale); }}
+                              className="text-[9px] font-black uppercase tracking-wider px-2.5 sm:px-3 h-8 border-white/10 hover:border-white/20 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white flex items-center justify-center gap-1.5 cursor-pointer rounded-lg w-full transition-colors"
+                              onClick={async () => { if (!(await showConfirm('Abrir o recibo deste pedido?'))) return; openReceiptDetail(sale); }}
+                              title="Abrir Recibo deste pedido"
                             >
-                              Gerar Contrato
+                              <FileText size={12} className="shrink-0 text-white/60" />
+                              <span className="truncate">Recibo</span>
                             </Button>
-                          )}
-                          {canManageHistory && (
-                            <>
-                              {!isPartial && (
-                                <Button
-                                  variant="secondary"
-                                  size="sm"
-                                  className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-amber-500/20 text-amber-400 hover:bg-amber-500/10"
-                                  onClick={() => handleReopenSale(sale)}
-                                >
-                                  Reabrir
-                                </Button>
-                              )}
-                              {sale.status !== 'canceled' && (
-                                <Button
-                                  variant="secondary"
-                                  size="sm"
-                                  className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-rose-500/20 text-rose-400 hover:bg-rose-500/10"
-                                  onClick={() => handleCancelSale(sale)}
-                                >
-                                  Cancelar
-                                </Button>
-                              )}
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              className="text-[9px] font-black uppercase tracking-wider px-2.5 sm:px-3 h-8 border-emerald-500/20 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 flex items-center justify-center gap-1.5 cursor-pointer rounded-lg w-full transition-colors"
+                              onClick={() => openCustosDaNota(sale)}
+                              title="Ver e lançar custos de material, comissões e extras"
+                            >
+                              <Calculator size={12} className="shrink-0" />
+                              <span className="truncate">Custos</span>
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              className="text-[9px] font-black uppercase tracking-wider px-2.5 sm:px-3 h-8 border-white/10 hover:border-white/20 bg-white/5 hover:bg-white/10 text-white/70 hover:text-white flex items-center justify-center gap-1.5 cursor-pointer rounded-lg w-full transition-colors"
+                              onClick={() => handleDuplicateSale(sale)}
+                              title="Duplicar Pedido"
+                            >
+                              <Copy size={12} className="shrink-0 text-white/50" />
+                              <span className="truncate">Duplicar</span>
+                            </Button>
+                            {sale.contratoId ? (
                               <Button
                                 variant="secondary"
                                 size="sm"
-                                className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-primary-500/20 text-primary-400 hover:bg-primary-500/10"
-                                onClick={async () => { if (!(await showConfirm('Editar este pedido?'))) return; handleStartFullEdit(sale); }}
+                                className="text-[9px] font-black uppercase tracking-wider px-2.5 sm:px-3 h-8 border-purple-500/20 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 flex items-center justify-center gap-1.5 cursor-pointer rounded-lg w-full transition-colors"
+                                onClick={() => { setActiveTab('contratos'); setHighlightContratoId(sale.contratoId!); setTimeout(() => setHighlightContratoId(null), 4000); }}
+                                title="Ver Contrato vinculado"
                               >
-                                Editar
+                                <FileSignature size={12} className="shrink-0 text-purple-400" />
+                                <span className="truncate">Contrato</span>
                               </Button>
+                            ) : (
                               <Button
                                 variant="secondary"
                                 size="sm"
-                                className="text-[9px] font-black uppercase tracking-wider px-3 h-9 border-rose-500/20 text-rose-400 hover:bg-rose-500/10"
-                                onClick={() => handleDeleteSale(sale)}
+                                className="text-[9px] font-black uppercase tracking-wider px-2.5 sm:px-3 h-8 border-purple-500/20 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 flex items-center justify-center gap-1.5 cursor-pointer rounded-lg w-full transition-colors"
+                                onClick={async () => { if (!(await showConfirm('Gerar um contrato a partir desta nota?'))) return; handleCreateContratoFromNota(sale); }}
+                                title="Gerar Contrato a partir desta nota"
                               >
-                                Excluir
+                                <FileSignature size={12} className="shrink-0 text-purple-400" />
+                                <span className="truncate">Contrato</span>
                               </Button>
-                            </>
-                          )}
+                            )}
+                            {canManageHistory && (
+                              <>
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  className="text-[9px] font-black uppercase tracking-wider px-2.5 sm:px-3 h-8 border-primary-500/20 bg-primary-500/10 hover:bg-primary-500/20 text-primary-400 flex items-center justify-center gap-1.5 cursor-pointer rounded-lg w-full transition-colors"
+                                  onClick={async () => { if (!(await showConfirm('Editar este pedido?'))) return; handleStartFullEdit(sale); }}
+                                  title="Editar Pedido"
+                                >
+                                  <Pencil size={12} className="shrink-0" />
+                                  <span className="truncate">Editar</span>
+                                </Button>
+                                {!isPartial && (
+                                  <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    className="text-[9px] font-black uppercase tracking-wider px-2.5 sm:px-3 h-8 border-amber-500/20 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 flex items-center justify-center gap-1.5 cursor-pointer rounded-lg w-full transition-colors"
+                                    onClick={() => handleReopenSale(sale)}
+                                    title="Reabrir Pedido"
+                                  >
+                                    <History size={12} className="shrink-0" />
+                                    <span className="truncate">Reabrir</span>
+                                  </Button>
+                                )}
+                                {sale.status !== 'canceled' ? (
+                                  <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    className="text-[9px] font-black uppercase tracking-wider px-2.5 sm:px-3 h-8 border-rose-500/20 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 flex items-center justify-center gap-1.5 cursor-pointer rounded-lg w-full transition-colors"
+                                    onClick={() => handleCancelSale(sale)}
+                                    title="Cancelar Pedido"
+                                  >
+                                    <Ban size={12} className="shrink-0" />
+                                    <span className="truncate">Cancelar</span>
+                                  </Button>
+                                ) : (
+                                  <div className="h-8 rounded-lg bg-rose-500/5 border border-rose-500/10 text-rose-400/50 text-[8px] font-black uppercase flex items-center justify-center gap-1 cursor-default w-full" title="Pedido Cancelado">
+                                    <Ban size={11} className="shrink-0" />
+                                    <span>Cancelado</span>
+                                  </div>
+                                )}
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  className={cn(
+                                    "text-[9px] font-black uppercase tracking-wider px-2.5 sm:px-3 h-8 border-rose-500/20 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 flex items-center justify-center gap-1.5 cursor-pointer rounded-lg w-full transition-colors",
+                                    isPartial && "col-span-2 sm:col-span-1"
+                                  )}
+                                  onClick={() => handleDeleteSale(sale)}
+                                  title="Excluir Pedido"
+                                >
+                                  <Trash2 size={12} className="shrink-0" />
+                                  <span className="truncate">Excluir</span>
+                                </Button>
+                              </>
+                            )}
+                          </div>
                         </div>
                       </GlassCard>
                     );
@@ -17426,7 +17766,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                      <div className="flex justify-center py-10"><RefreshCw className="animate-spin text-primary-500" size={22} /></div>
                    )}
                    {!isLoadingCustomers && customerLoadError && (
-                     <p className="text-center text-xs text-rose-400 py-6 px-4">{customerLoadError}</p>
+                     <div className="text-center py-4 px-4 bg-amber-500/10 border border-amber-500/20 rounded-xl space-y-2">
+                       <p className="text-xs text-amber-300 font-medium">{customerLoadError}</p>
+                       <button
+                         type="button"
+                         onClick={() => loadAllCustomers(true)}
+                         className="px-3 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 rounded-lg text-[10px] font-bold uppercase transition-colors cursor-pointer inline-flex items-center gap-1.5"
+                       >
+                         <RefreshCw size={11} />
+                         <span>Tentar Novamente</span>
+                       </button>
+                     </div>
                    )}
                    {!isLoadingCustomers && !customerLoadError && filteredSortedCustomers.length === 0 && (
                      <p className="text-center text-xs text-white/30 py-10">Nenhum cliente encontrado ({allCustomers.length} no total). Tente Cadastrar.</p>
