@@ -31,7 +31,8 @@ import {
   Plus,
   RefreshCw,
   Columns3,
-  PanelRightClose
+  PanelRightClose,
+  Forward
 } from 'lucide-react';
 import { Badge, Button, cn } from './SharedUI';
 import { format } from 'date-fns';
@@ -105,6 +106,7 @@ export const AudioMessagePlayer = ({
   const togglePlay = () => {
     const el = audioRef.current;
     if (!el) return;
+    if (el.preload !== 'auto') el.preload = 'auto';
     if (isPlaying) {
       el.pause();
     } else {
@@ -151,11 +153,15 @@ export const AudioMessagePlayer = ({
   };
 
   return (
-    <div className="space-y-2 min-w-[200px] xs:min-w-[220px] max-w-[320px] select-none touch-manipulation">
+    <div
+      className="space-y-2 min-w-[200px] xs:min-w-[220px] max-w-[320px] select-none touch-manipulation"
+      onMouseEnter={() => { if (audioRef.current && audioRef.current.preload !== 'metadata') audioRef.current.preload = 'metadata'; }}
+      onTouchStart={() => { if (audioRef.current && audioRef.current.preload !== 'metadata') audioRef.current.preload = 'metadata'; }}
+    >
       <audio
         ref={audioRef}
         src={src}
-        preload="metadata"
+        preload="none"
         onError={onError}
         className="hidden"
       />
@@ -272,6 +278,7 @@ export const MessageHoverActions = ({
   onEdit,
   onDelete,
   onQuote,
+  onForward,
   onSaveSticker,
   isSticker = false,
   isStickerSaved = false,
@@ -286,6 +293,7 @@ export const MessageHoverActions = ({
   onEdit?: () => void;
   onDelete?: () => void;
   onQuote?: (quoteText: string) => void;
+  onForward?: () => void;
   onSaveSticker?: () => void;
   isSticker?: boolean;
   isStickerSaved?: boolean;
@@ -314,7 +322,7 @@ export const MessageHoverActions = ({
     }
   };
 
-  if (!effectiveText && !canEditOrDelete && !onQuote && !onSaveSticker) return null;
+  if (!effectiveText && !canEditOrDelete && !onQuote && !onForward && !onSaveSticker) return null;
 
   return (
     <div className={cn(
@@ -357,6 +365,17 @@ export const MessageHoverActions = ({
           className="w-7 h-7 sm:w-6 sm:h-6 rounded-full flex items-center justify-center text-white/70 hover:text-emerald-400 hover:bg-white/10 active:bg-white/20 transition-colors"
         >
           <Reply size={12} className="rotate-180" />
+        </button>
+      )}
+
+      {onForward && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onForward(); }}
+          title="Encaminhar mensagem"
+          className="w-7 h-7 sm:w-6 sm:h-6 rounded-full flex items-center justify-center text-white/70 hover:text-sky-400 hover:bg-white/10 active:bg-white/20 transition-colors"
+        >
+          <Forward size={12} />
         </button>
       )}
 

@@ -155,8 +155,8 @@ export default async function handler(req, res) {
       res.status(400).json({ error: 'Arquivo inválido: só é possível enviar arquivos enviados pelo próprio CRM.' });
       return;
     }
-    if (mediaType !== 'image' && mediaType !== 'document' && mediaType !== 'sticker') {
-      res.status(400).json({ error: 'Tipo de arquivo não suportado: só foto (image), documento (document) ou figurinha (sticker).' });
+    if (mediaType !== 'image' && mediaType !== 'document' && mediaType !== 'sticker' && mediaType !== 'audio' && mediaType !== 'video') {
+      res.status(400).json({ error: 'Tipo de arquivo não suportado: só foto (image), documento (document), figurinha (sticker), áudio ou vídeo.' });
       return;
     }
   }

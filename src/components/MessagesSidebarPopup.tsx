@@ -50,15 +50,20 @@ const getChannelStyle = (channel?: string) => CHANNEL_STYLE[channel || 'WhatsApp
 // que muda com qualquer edicao (etapa, nome, silenciar, arquivar...). Quem mantem esse campo:
 // api/whatsapp-webhook.js, api/whatsapp-send.js e src/App.tsx (ver add_last_message_at_to_leads.sql).
 // ---------------------------------------------------------------------------------------------
-const PAGINA_LEADS = 1000; // limite padrao do PostgREST por consulta: pagina pra NENHUMA conversa ficar de fora
+const PAGINA_LEADS = 1000;
+const MAX_LEADS_INICIAL = 1500; // teto seguro para performance: as 1500 conversas mais recentes
+
+// Seleciona apenas os campos estritamente necessários para a lista de conversas,
+// evitando trafegar megabytes de dados pesados (histórico raw, notas internas, etc.)
+const COLUNAS_LEADS_MENSAGENS = 'id,company_id,full_name,contact_name,whatsapp_name,phone,source_type,last_message_text,last_message_direction,last_message_at,last_client_message_text,last_client_message_at,waiting_since,funnel_id,funnel_stage_id,priority,status,archived,unread,muted,created_at,updated_at,photo_url,estimated_value';
 
 const buscarLeadsPaginado = async (ordenar: (q: any) => any): Promise<{ rows: any[] | null }> => {
   const todos: any[] = [];
   for (let de = 0; ; de += PAGINA_LEADS) {
-    const { data, error } = await ordenar(supabase.from('leads').select('*').eq('company_id', 'rafa-arts')).range(de, de + PAGINA_LEADS - 1);
+    const { data, error } = await ordenar(supabase.from('leads').select(COLUNAS_LEADS_MENSAGENS).eq('company_id', 'rafa-arts')).range(de, de + PAGINA_LEADS - 1);
     if (error) return { rows: null };
     todos.push(...(data || []));
-    if (!data || data.length < PAGINA_LEADS) break;
+    if (!data || data.length < PAGINA_LEADS || todos.length >= MAX_LEADS_INICIAL) break;
   }
   return { rows: todos };
 };
@@ -79,6 +84,7 @@ const mapearLeadDaLista = (r: any): Lead => ({
   lastMessageAt: r.last_message_at || undefined,
   lastClientMessageText: r.last_client_message_text, lastClientMessageAt: r.last_client_message_at,
   waitingSince: r.waiting_since, funnelId: r.funnel_id, funnelStageId: r.funnel_stage_id, priority: r.priority,
+  status: r.status, archived: r.archived, unread: r.unread, muted: r.muted,
   createdAt: r.created_at, updatedAt: r.updated_at, photoUrl: r.photo_url || undefined,
   estimatedValue: r.estimated_value !== null && r.estimated_value !== undefined ? Number(r.estimated_value) : undefined,
 } as any as Lead);
@@ -259,15 +265,12 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
         const ehGrupo = gruposTodosRef.current.has((m.phone || '').replace(/\D/g, ''));
         return ehGrupo && m.direction === 'incoming' && m.sender_name ? `${m.sender_name}: ${texto}` : texto;
       };
-      const PAGINA_MENSAGENS = 500;
-      const MAX_PAGINAS = 20; // teto de seguranca por rodada (10 mil mensagens); o corte normal e o de baixo
+      // Otimizado: lê até 2 páginas de 200 mensagens recentes (cobre as conversas ativas rapidamente em 1-2 requisições leves)
+      const PAGINA_MENSAGENS = 200;
+      const MAX_PAGINAS = 2;
       const ultimaPorTelefone = new Map<string, UltimaReal>();
       for (let pagina = 0; pagina < MAX_PAGINAS; pagina++) {
         const de = pagina * PAGINA_MENSAGENS;
-        // Sem janela fixa de dias: le da mais nova pra mais antiga e para assim que NENHUM lead restante
-        // pode mais ser corrigido (ver corte abaixo) -- conversa parada ha semanas tambem e reconstruida.
-        // Com a flag (WhatsApp fora de crm_messages) so os canais que ainda gravam la entram: o indice do
-        // WhatsApp vem do webhook, e ler paginas de 500 so pra achar 'nada mais novo' e egress a toa.
         let consulta = supabase
           .from('crm_messages')
           .select('phone,text,direction,created_at,sender_name')
@@ -278,8 +281,6 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
           .order('created_at', { ascending: false })
           .order('id', { ascending: false })
           .range(de, de + PAGINA_MENSAGENS - 1);
-        // Ordem da mais nova pra mais antiga: mesmo com erro numa pagina, o que ja foi lido continua
-        // valido (a primeira ocorrencia de cada telefone e a ultima mensagem dele).
         if (error) break;
         const lote = data || [];
         for (const m of lote as any[]) {
@@ -287,9 +288,6 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
           ultimaPorTelefone.set(m.phone, { em: m.created_at, text: previaDaMensagem(m), direction: m.direction === 'incoming' ? 'incoming' : 'outgoing' });
         }
         if (lote.length < PAGINA_MENSAGENS) break;
-        // Corte: um lead ainda sem mensagem encontrada so pode ser corrigido por mensagem MAIS NOVA que o
-        // seu last_message_at. Se a pagina ja chegou em mensagens mais antigas que o menor indice restante,
-        // nao ha mais o que achar.
         let menorIndiceRestante = Infinity;
         for (const l of lista) {
           if (!l.phone || ultimaPorTelefone.has(l.phone) || !l.lastMessageAt) continue;
@@ -300,24 +298,26 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
         if (Number.isFinite(maisAntigaMs) && maisAntigaMs < menorIndiceRestante) break;
       }
 
-      // Leads ainda sem last_message_at e fora da janela acima: consulta individual (ate 40 por vez)
-      const pendentes = lista.filter(l => !l.lastMessageAt && l.phone && !ultimaPorTelefone.has(l.phone) && !reconciliadosRef.current.has(l.id)).slice(0, 40);
+      // Leads ainda sem last_message_at e fora da janela acima: consulta pontual em lote reduzido (até 10 por vez)
+      const pendentes = lista.filter(l => !l.lastMessageAt && l.phone && !ultimaPorTelefone.has(l.phone) && !reconciliadosRef.current.has(l.id)).slice(0, 10);
       pendentes.forEach(l => reconciliadosRef.current.add(l.id));
-      await Promise.all(pendentes.map(async l => {
-        let consultaLead = supabase
-          .from('crm_messages')
-          .select('text,direction,created_at,sender_name')
-          .eq('company_id', 'rafa-arts')
-          .eq('phone', l.phone)
-          .or('is_note.is.null,is_note.eq.false')
-          .neq('direction', 'note');
-        if (SEM_CRM_MESSAGES) consultaLead = consultaLead.neq('channel', 'WhatsApp');
-        const { data } = await consultaLead
-          .order('created_at', { ascending: false })
-          .limit(1);
-        const m: any = data?.[0];
-        if (m?.created_at) ultimaPorTelefone.set(l.phone as string, { em: m.created_at, text: previaDaMensagem({ ...m, phone: l.phone }), direction: m.direction === 'incoming' ? 'incoming' : 'outgoing' });
-      }));
+      if (pendentes.length > 0) {
+        await Promise.all(pendentes.map(async l => {
+          let consultaLead = supabase
+            .from('crm_messages')
+            .select('text,direction,created_at,sender_name')
+            .eq('company_id', 'rafa-arts')
+            .eq('phone', l.phone)
+            .or('is_note.is.null,is_note.eq.false')
+            .neq('direction', 'note');
+          if (SEM_CRM_MESSAGES) consultaLead = consultaLead.neq('channel', 'WhatsApp');
+          const { data } = await consultaLead
+            .order('created_at', { ascending: false })
+            .limit(1);
+          const m: any = data?.[0];
+          if (m?.created_at) ultimaPorTelefone.set(l.phone as string, { em: m.created_at, text: previaDaMensagem({ ...m, phone: l.phone }), direction: m.direction === 'incoming' ? 'incoming' : 'outgoing' });
+        }));
+      }
 
       const correcoes: (UltimaReal & { id: string })[] = [];
       for (const l of lista) {
@@ -369,11 +369,35 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
     };
     recarregarListaRef.current = loadLeads;
     loadLeads();
-    // Realtime: qualquer mudanca em leads (mensagem nova => last_message_at/previa) recarrega a lista e a
-    // conversa sobe pro topo sozinha. Agrupa rajadas de eventos numa unica recarga.
+
+    // Realtime inteligente e cirúrgico: atualiza o estado local em memória diretamente sem refazer queries pesadas ao banco
     let agendado: ReturnType<typeof setTimeout> | null = null;
-    const recarregarLogo = () => { if (agendado) clearTimeout(agendado); agendado = setTimeout(loadLeads, 250); };
-    const channel = supabase.channel('sidebar-popup-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.rafa-arts` }, recarregarLogo).subscribe();
+    const recarregarLogo = () => { if (agendado) clearTimeout(agendado); agendado = setTimeout(loadLeads, 1000); };
+    const channel = supabase.channel('sidebar-popup-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.rafa-arts` }, (payload: any) => {
+      const row = payload.new;
+      if (payload.eventType === 'UPDATE' && row?.id) {
+        setLeads(prev => {
+          const idx = prev.findIndex(l => l.id === row.id);
+          if (idx < 0) return prev;
+          const atualizado = {
+            ...prev[idx],
+            ...mapearLeadDaLista(row),
+          };
+          return ordenarEDeduplicarConversas(prev.map((l, i) => (i === idx ? atualizado : l)));
+        });
+        return;
+      }
+      if (payload.eventType === 'DELETE' && payload.old?.id) {
+        setLeads(prev => prev.filter(l => l.id !== payload.old.id));
+        return;
+      }
+      if (payload.eventType === 'INSERT' && row?.id) {
+        const novoLead = mapearLeadDaLista(row);
+        setLeads(prev => ordenarEDeduplicarConversas([novoLead, ...prev]));
+        return;
+      }
+      recarregarLogo();
+    }).subscribe();
     return () => { if (agendado) clearTimeout(agendado); supabase.removeChannel(channel); };
   }, [currentCompany, isOpen]);
 

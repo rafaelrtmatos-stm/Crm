@@ -14,6 +14,7 @@ import {
   ChatDropZoneOverlay, 
   CustomerContextSidebar 
 } from './ChatDesktopEnhancements';
+import { ForwardMessageModal } from './ForwardMessageModal';
 import { ChatStickerPicker } from './ChatStickerPicker';
 import { 
   carregarFigurinhas, 
@@ -43,6 +44,7 @@ import {
   Building2, 
   Settings,
   ArrowRight,
+  Forward,
   Briefcase,
   Layers,
   Zap,
@@ -3494,6 +3496,7 @@ export const ChatPanel = ({
   const [historicoMensagemAberto, setHistoricoMensagemAberto] = useState<any | null>(null);
   const [statusMensagemAbertoId, setStatusMensagemAbertoId] = useState<string | null>(null);
   const [imageViewerModal, setImageViewerModal] = useState<{ url: string; caption?: string; fileName?: string } | null>(null);
+  const [forwardingMessage, setForwardingMessage] = useState<any | null>(null);
   const [enviandoNotaImagem, setEnviandoNotaImagem] = useState(false);
 
   const handleSendImageWithCaption = async (imageUrl: string, captionText: string) => {
@@ -5343,68 +5346,97 @@ export const ChatPanel = ({
             )}
             {imageViewerModal && createPortal(
               <div
-                className="fixed inset-0 z-[300] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-200"
+                className="fixed inset-0 z-[300] bg-black/90 backdrop-blur-md flex flex-col justify-between animate-in fade-in duration-200 select-none"
                 onClick={() => setImageViewerModal(null)}
               >
+                {/* Barra superior de ações */}
                 <div
+                  className="flex items-center justify-between p-3 sm:p-4 bg-slate-950/80 backdrop-blur-sm border-b border-white/10 text-white z-10"
                   onClick={(e) => e.stopPropagation()}
-                  className="bg-slate-900 border border-white/15 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden text-white"
                 >
-                  <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-white/[0.02]">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <ImageIcon size={16} className="text-primary-400 shrink-0" />
-                      <p className="text-xs font-black uppercase tracking-wider text-white truncate">
-                        {imageViewerModal.fileName || 'Visualização da Imagem'}
-                      </p>
-                    </div>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <ImageIcon size={18} className="text-primary-400 shrink-0" />
+                    <p className="text-xs sm:text-sm font-bold text-white truncate max-w-[260px] sm:max-w-md">
+                      {imageViewerModal.fileName || 'Visualização da Imagem'}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => setImageViewerModal(null)}
-                      className="w-7 h-7 rounded-lg hover:bg-white/10 text-white/50 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                      onClick={() => {
+                        const m = {
+                          mediaUrl: imageViewerModal.url,
+                          mediaContentType: 'image',
+                          isImage: true,
+                          fileName: imageViewerModal.fileName,
+                          text: imageViewerModal.caption || '',
+                        };
+                        setImageViewerModal(null);
+                        setForwardingMessage(m);
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer"
+                      title="Encaminhar esta imagem para outro contato"
                     >
-                      <X size={16} />
+                      <Forward size={14} />
+                      <span className="hidden sm:inline">Encaminhar</span>
                     </button>
-                  </div>
-                  <div className="flex-1 overflow-y-auto p-4 flex flex-col items-center justify-center gap-4 bg-black/30">
-                    <img
-                      src={imageViewerModal.url}
-                      alt={imageViewerModal.fileName || 'Imagem'}
-                      className="max-h-[58vh] max-w-full object-contain rounded-xl shadow-lg border border-white/10"
-                    />
-                    {imageViewerModal.caption && (
-                      <div className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-left">
-                        <p className="text-[10px] font-black uppercase tracking-wider text-primary-300 mb-1">
-                          Nota / Legenda da Imagem:
-                        </p>
-                        <p className="text-xs text-white/90 whitespace-pre-wrap leading-relaxed">
-                          {imageViewerModal.caption}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                  <div className="p-3 border-t border-white/10 bg-slate-950/60 flex items-center justify-between gap-3 flex-wrap">
                     <a
                       href={imageViewerModal.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/70 hover:text-white text-xs font-bold transition-colors flex items-center gap-1.5"
+                      download={imageViewerModal.fileName || 'imagem'}
+                      className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95"
+                      title="Baixar imagem original"
                     >
-                      <Download size={13} /> Abrir original
+                      <Download size={14} />
+                      <span className="hidden sm:inline">Baixar</span>
                     </a>
                     <button
                       type="button"
-                      disabled={enviandoNotaImagem || !conversation?.phone}
-                      onClick={() => handleSendImageWithCaption(imageViewerModal.url, imageViewerModal.caption || '')}
-                      className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center gap-2 shadow-lg shadow-emerald-500/20 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
-                      title="Enviar esta mesma imagem acompanhada exatamente da sua nota/legenda pelo WhatsApp"
+                      onClick={() => setImageViewerModal(null)}
+                      className="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-all active:scale-95 cursor-pointer"
+                      title="Fechar"
                     >
-                      {enviandoNotaImagem ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-                      <span>Enviar Nota/Imagem via WhatsApp</span>
+                      <X size={18} />
                     </button>
+                  </div>
+                </div>
+
+                {/* Área da imagem - abraça o tamanho e proporção real da imagem perfeitamente */}
+                <div
+                  className="flex-1 flex flex-col items-center justify-center p-3 sm:p-6 overflow-hidden min-h-0"
+                  onClick={() => setImageViewerModal(null)}
+                >
+                  <div
+                    className="relative max-w-full max-h-full flex flex-col items-center justify-center"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <img
+                      src={imageViewerModal.url}
+                      alt={imageViewerModal.fileName || 'Imagem'}
+                      className="max-h-[75vh] sm:max-h-[80vh] max-w-[95vw] sm:max-w-[85vw] object-contain rounded-xl shadow-2xl border border-white/10 transition-transform"
+                    />
+                    {imageViewerModal.caption && (
+                      <div className="mt-3 max-w-xl w-full bg-slate-900/90 backdrop-blur-md border border-white/15 rounded-xl px-4 py-2.5 text-center text-white/90 text-xs sm:text-sm shadow-xl">
+                        <p className="whitespace-pre-wrap leading-relaxed">{imageViewerModal.caption}</p>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>,
               document.body
+            )}
+            {forwardingMessage && (
+              <ForwardMessageModal
+                isOpen={!!forwardingMessage}
+                onClose={() => setForwardingMessage(null)}
+                messageToForward={forwardingMessage}
+                currentCompany={currentCompany}
+                user={user}
+                onForwardSuccess={(leadAlvo: any) => {
+                  showAlert(`Mensagem encaminhada com sucesso para ${leadAlvo.contact_name || leadAlvo.full_name || leadAlvo.phone}!`);
+                }}
+              />
             )}
             {/* Bolinha verde SO quando o contato esta realmente online agora
                 (presence.status === 'available') -- antes era fixa/decorativa. */}
@@ -5891,6 +5923,7 @@ export const ChatPanel = ({
                              isSticker={isSticker}
                              isStickerSaved={isStickerSalva(m.mediaUrl)}
                              onSaveSticker={() => handleSaveStickerFromMessage(m)}
+                             onForward={!isApagada ? () => setForwardingMessage(m) : undefined}
                              isDeleting={deletingWaMessageId === m.id}
                            />
                            <div
@@ -5984,7 +6017,7 @@ export const ChatPanel = ({
                                 </div>
                               ) : isSticker ? (
                                 <div className="relative group/stk p-1">
-                                  <img src={m.mediaUrl} alt="Figurinha" className="w-32 h-32 object-contain" loading="lazy" />
+                                  <img src={m.mediaUrl} alt="Figurinha" className="w-32 h-32 object-contain" loading="lazy" decoding="async" />
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); handleSaveStickerFromMessage(m); }}
@@ -6011,9 +6044,9 @@ export const ChatPanel = ({
                                        fileName: m.fileName || 'Imagem',
                                      })}
                                      className="block overflow-hidden rounded-xl cursor-pointer group/img relative"
-                                     title="Clique para visualizar a imagem e enviar com sua nota para o WhatsApp"
+                                     title="Clique para visualizar a imagem ampliada"
                                    >
-                                     <img src={m.mediaUrl} alt={m.fileName || 'Imagem recebida'} className="max-w-full max-h-64 object-cover rounded-xl group-hover/img:scale-[1.02] transition-transform" loading="lazy" />
+                                     <img src={m.mediaUrl} alt={m.fileName || 'Imagem recebida'} className="max-w-full max-h-64 object-cover rounded-xl group-hover/img:scale-[1.02] transition-transform" loading="lazy" decoding="async" />
                                      <div className="absolute inset-0 bg-black/0 group-hover/img:bg-black/25 transition-colors flex items-center justify-center opacity-0 group-hover/img:opacity-100">
                                        <span className="bg-black/75 text-white text-[10px] font-bold px-2.5 py-1 rounded-lg backdrop-blur-sm shadow-md flex items-center gap-1">
                                          <Eye size={12} /> Visualizar
@@ -6028,7 +6061,7 @@ export const ChatPanel = ({
                                          fileName: m.fileName || 'Imagem',
                                        })}
                                        className="px-1.5 pb-1 whitespace-pre-wrap break-words cursor-pointer hover:text-primary-600 transition-colors"
-                                       title="Clique para abrir e enviar com sua nota para o WhatsApp"
+                                       title="Clique para visualizar a imagem ampliada"
                                      >
                                        {m.text}
                                      </p>
@@ -12263,6 +12296,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
   const [viewingReceiptSale, setViewingReceiptSale] = useState<SaleOrder | null>(null);
   const [viewingReceiptEmail, setViewingReceiptEmail] = useState<string | undefined>(undefined);
+  const [enviandoReciboWhatsApp, setEnviandoReciboWhatsApp] = useState(false);
   const handleDuplicateSale = async (sale: SaleOrder) => {
     if (!(await showConfirm(`Duplicar pedido de ${sale.customerName || 'cliente'}?`))) return;
     // Carrega os mesmos itens e cliente no carrinho — nao copia pagamento/status, a nova nota comeca do zero.
@@ -12434,20 +12468,100 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     downloadCanvasAsPng(canvas, buildFileName('Recibo', sale.customerName, sale.createdAt, 'png'));
   };
 
-  const handleShareReceiptWhatsApp = async (sale: SaleOrder) => {
+  const handleSendReceiptWithImageAndCaption = async (sale: SaleOrder) => {
     if (!sale.customerPhone) {
       showAlert('Essa venda não tem telefone de WhatsApp cadastrado. Edite a venda para adicionar o telefone do cliente.');
       return;
     }
-    setViewingReceiptSale(null);
-    await handleShareViaWhatsApp(sale, sale.customerName || 'Cliente', sale.customerPhone);
+    const cleanPhone = sale.customerPhone.replace(/\D/g, '');
+    if (cleanPhone.length < 8) {
+      showAlert('Telefone do cliente inválido para envio por WhatsApp.');
+      return;
+    }
+    const customerName = (sale.customerName || 'Cliente').trim();
+    const legenda = buildOrderShareMessage(sale, customerName);
+
+    setEnviandoReciboWhatsApp(true);
+    try {
+      // 1. Renderiza o canvas de alta resolução do recibo
+      const canvas = await renderReceiptCanvas({
+        order: sale,
+        companyName: currentCompany?.name || 'Rafa Arts Graphics',
+        customerPhone: sale.customerPhone,
+        logoDarkUrl,
+        companyContact,
+      });
+
+      // 2. Converte para Blob PNG e sobe no Storage
+      const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'));
+      let mediaUrl = '';
+
+      if (blob) {
+        const caminho = `recibos/${cleanPhone}/${Date.now()}-recibo-${sale.id.slice(-8)}.png`;
+        const { error: upErr } = await supabase.storage.from('whatsapp-media').upload(caminho, blob, {
+          contentType: 'image/png',
+          upsert: false,
+        });
+        if (!upErr) {
+          const { data: pub } = supabase.storage.from('whatsapp-media').getPublicUrl(caminho);
+          mediaUrl = pub?.publicUrl || '';
+        } else {
+          console.warn('Falha no upload do recibo pro Storage:', upErr);
+        }
+      }
+
+      const senderRole = user?.isAdmin ? 'Adm' : 'Atendente';
+      const senderDisplay = user?.name ? `${user.name} (${senderRole})` : senderRole;
+
+      // 3. Dispara a imagem do recibo junto com a legenda completa via WhatsApp
+      let enviadoComSucesso = false;
+      if (mediaUrl) {
+        try {
+          const resp = await fetch('/api/whatsapp-send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
+            body: JSON.stringify({
+              phone: cleanPhone,
+              text: legenda,
+              mediaUrl,
+              mediaType: 'image',
+              fileName: `Recibo-#${sale.id.slice(-8).toUpperCase()}.png`,
+              senderName: senderDisplay,
+            }),
+          });
+          const json = await resp.json().catch(() => ({}));
+          if (resp.ok && json.ok) {
+            enviadoComSucesso = true;
+          }
+        } catch (sendErr) {
+          console.error('Falha ao enviar recibo via API:', sendErr);
+        }
+      }
+
+      setViewingReceiptSale(null);
+
+      if (enviadoComSucesso) {
+        showAlert('🧾 Imagem do recibo e legenda enviadas com sucesso no WhatsApp!');
+        await findOrCreateLeadAndOpenChat(cleanPhone, customerName, '');
+      } else {
+        // Fallback garantido: abre o chat com a legenda no rascunho
+        await findOrCreateLeadAndOpenChat(cleanPhone, customerName, legenda);
+      }
+    } catch (err: any) {
+      console.error('Erro ao gerar/enviar recibo:', err);
+      setViewingReceiptSale(null);
+      await findOrCreateLeadAndOpenChat(cleanPhone, customerName, legenda);
+    } finally {
+      setEnviandoReciboWhatsApp(false);
+    }
+  };
+
+  const handleShareReceiptWhatsApp = async (sale: SaleOrder) => {
+    await handleSendReceiptWithImageAndCaption(sale);
   };
 
   const handleOpenChatFromReceipt = async (sale: SaleOrder) => {
-    if (!sale.customerPhone) return;
-    setViewingReceiptSale(null);
-    const digits = sale.customerPhone.replace(/\D/g, '');
-    await findOrCreateLeadAndOpenChat(digits, sale.customerName || 'Cliente', buildOrderShareMessage(sale, sale.customerName || 'Cliente'));
+    await handleSendReceiptWithImageAndCaption(sale);
   };
 
   const matchesOrderStatusFilter = (sale: SaleOrder, filter: OrderStatusFilterId): boolean => {
@@ -21863,11 +21977,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    {sale.customerPhone ? (
                      <button
                        onClick={() => handleOpenChatFromReceipt(sale)}
-                       className="flex items-center gap-2 text-emerald-400 hover:text-emerald-300 text-xs font-bold underline decoration-dotted"
-                       title="Abrir conversa no Funil de Atendimento"
+                       disabled={enviandoReciboWhatsApp}
+                       className="flex items-center gap-2 text-emerald-400 hover:text-emerald-300 text-xs font-bold underline decoration-dotted disabled:opacity-50 cursor-pointer"
+                       title="Enviar imagem do recibo e legenda para o WhatsApp do cliente"
                      >
-                       <MessageSquare size={13} />
-                       {sale.customerPhone}
+                       {enviandoReciboWhatsApp ? <Loader2 size={13} className="animate-spin" /> : <MessageSquare size={13} />}
+                       <span>{sale.customerPhone}</span>
+                       {enviandoReciboWhatsApp && <span className="text-[10px] text-emerald-300 font-normal">(enviando...)</span>}
                      </button>
                    ) : (
                      <p className="text-xs text-white/30">Sem telefone cadastrado</p>
@@ -22003,12 +22119,22 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
                    {sale.customerPhone ? (
                      <Button
-                       className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs py-2.5 h-auto flex items-center justify-center gap-2 rounded-xl shadow-lg shadow-emerald-500/20 active:scale-95 transition-all cursor-pointer"
+                       className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs py-2.5 h-auto flex items-center justify-center gap-2 rounded-xl shadow-lg shadow-emerald-500/20 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
                        onClick={() => handleOpenChatFromReceipt(sale)}
-                       title="Enviar nota e conversar diretamente com o cliente no WhatsApp"
+                       disabled={enviandoReciboWhatsApp}
+                       title="Enviar imagem do recibo e legenda diretamente para o WhatsApp do cliente"
                      >
-                       <MessageSquare size={15} className="shrink-0" />
-                       <span>Enviar Direto para o Cliente (WhatsApp)</span>
+                       {enviandoReciboWhatsApp ? (
+                         <>
+                           <Loader2 size={15} className="animate-spin shrink-0" />
+                           <span>Enviando Recibo (Imagem + Legenda)...</span>
+                         </>
+                       ) : (
+                         <>
+                           <MessageSquare size={15} className="shrink-0" />
+                           <span>Enviar Imagem do Recibo com Legenda (WhatsApp)</span>
+                         </>
+                       )}
                      </Button>
                    ) : (
                      <div className="flex items-center justify-between bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2 text-amber-300 text-xs">
@@ -22047,8 +22173,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                <Button variant="secondary" size="sm" icon={FileText} className="flex-1 min-w-[110px] text-[9px] uppercase tracking-wider font-black h-11" onClick={() => handleDownloadReceiptPdf(sale)}>
                  Baixar PDF
                </Button>
-               <Button variant="secondary" size="sm" icon={Share2} className="flex-1 min-w-[110px] text-[9px] uppercase tracking-wider font-black h-11 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/10" onClick={() => handleShareReceiptWhatsApp(sale)}>
-                 WhatsApp
+               <Button variant="secondary" size="sm" icon={enviandoReciboWhatsApp ? Loader2 : Share2} disabled={enviandoReciboWhatsApp} className="flex-1 min-w-[110px] text-[9px] uppercase tracking-wider font-black h-11 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50" onClick={() => handleShareReceiptWhatsApp(sale)}>
+                 {enviandoReciboWhatsApp ? 'Enviando...' : 'WhatsApp'}
                </Button>
                <Button variant="ghost" size="sm" className="flex-1 min-w-[110px] text-[9px] uppercase tracking-wider font-black h-11" onClick={handleCloseReceiptViewer}>
                  Fechar
