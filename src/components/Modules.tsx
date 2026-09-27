@@ -7050,6 +7050,16 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
   const [openedViaJump, setOpenedViaJump] = useState(false);
   const [isColumnCollapsed, setIsColumnCollapsed] = useState(false);
   const [activeColumnStageId, setActiveColumnStageId] = useState<string | null>(null);
+  // Layout do Funil CRM no PC (>=768px) restaurado ao formato clássico (todas as
+  // colunas/etapas lado a lado). No mobile continua usando a navegação paginada
+  // por etapa (Card da Etapa Atual com setas/pontinhos). NÃO mistura os dois: só
+  // um dos layouts fica montado no DOM por vez, pra não conflitar com o dnd-kit.
+  const [isDesktopFunilLayout, setIsDesktopFunilLayout] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 768);
+  useEffect(() => {
+    const onResize = () => setIsDesktopFunilLayout(window.innerWidth >= 768);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
   const [selectedStageId, setSelectedStageId] = useState<string | null>(null);
   const activeStages = useMemo(() => stages.filter(s => s.isActive !== false), [stages]);
   const effectiveSelectedStageId = (selectedStageId && activeStages.some(s => s.id === selectedStageId))
@@ -7805,6 +7815,457 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
           ? (isColumnCollapsed ? "hidden md:flex md:w-10 md:shrink-0" : "hidden md:flex md:w-[310px] lg:w-[315px] md:shrink-0")
           : "w-full flex"
       )}>
+        {isDesktopFunilLayout ? (
+          <>
+        {!selectedLead && (
+          /* Barra de Ferramentas do Funil CRM (2 linhas organizadas no mobile, 1 linha no desktop) */
+          <div className="bg-slate-900/60 border border-white/10 rounded-2xl p-2 md:px-3 md:py-1.5 flex flex-col md:flex-row md:items-center justify-between gap-2 md:gap-2.5 shadow-lg backdrop-blur-md md:h-[48px] shrink-0">
+            {/* LINHA 1 (Mobile) / Lado Esquerdo (Desktop): Seletor de Funil + Busca Rápida */}
+            <div className="flex items-center gap-2 w-full md:w-auto md:flex-1 min-w-0">
+              {/* Seletor do Funil Atual */}
+              <div className="relative shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setFunnelMenuOpen(!funnelMenuOpen)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-all text-xs font-black uppercase tracking-wider text-white active:scale-95 h-8 shrink-0 cursor-pointer"
+                  title="Alternar funil"
+                >
+                  <span 
+                    className="w-2.5 h-2.5 rounded-full shrink-0" 
+                    style={{ backgroundColor: currentFunnel?.color || "#4cc9f0" }} 
+                  />
+                  <span className="truncate max-w-[110px] sm:max-w-[160px]">
+                    {currentFunnel?.name || "Funil"}
+                  </span>
+                  <ChevronDown size={13} className={cn("transition-transform opacity-60", funnelMenuOpen && "rotate-180")} />
+                </button>
+
+                  {funnelMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setFunnelMenuOpen(false)} />
+                      <div className="absolute top-full mt-2 left-0 w-64 bg-slate-900 border border-white/10 rounded-2xl shadow-2xl z-50 p-2 space-y-2">
+                        <div>
+                          <p className="text-[9px] font-black uppercase text-white/40 tracking-widest px-3 py-1">Funil de Vendas</p>
+                          <div className="px-3 py-2 rounded-xl bg-white/5 flex items-center gap-2 text-xs font-bold text-white">
+                            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: currentFunnel?.color || "#4cc9f0" }} />
+                            <span className="truncate">{currentFunnel?.name || "Funil de Vendas"}</span>
+                          </div>
+                        </div>
+
+                        <div className="h-px bg-white/10" />
+
+                        <div className="space-y-1">
+                          <button
+                            type="button"
+                            onClick={() => { setFunnelMenuOpen(false); setIsConfiguringFunnel(true); }}
+                            className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-white/80 hover:bg-white/10 transition-all flex items-center gap-2 cursor-pointer"
+                          >
+                            <Settings2 size={13} className="text-white/60" /> Gerenciar Etapas do Funil
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Caixa de Pesquisa Integrada */}
+                <div className="relative flex-1 min-w-0">
+                  <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/40 pointer-events-none" />
+                  <input
+                    value={funnelSearchTerm}
+                    onChange={(e) => setFunnelSearchTerm(e.target.value)}
+                    placeholder="Pesquisar por nome, telefone ou mensagem..."
+                    className="w-full h-8 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl pl-8 pr-7 text-xs text-white placeholder:text-white/30 focus:outline-none focus:border-primary-500 transition-all"
+                  />
+                  {funnelSearchTerm && (
+                    <button
+                      type="button"
+                      onClick={() => setFunnelSearchTerm("")}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-white/40 hover:text-white cursor-pointer"
+                    >
+                      <X size={11} />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* LINHA 2 (Mobile) / Lado Direito (Desktop): Aba de Ferramentas e Ações */}
+              <div className="flex items-center gap-1.5 w-full md:w-auto overflow-x-auto no-scrollbar shrink-0 justify-between md:justify-end pt-1 md:pt-0 border-t md:border-t-0 border-white/5">
+                {/* 1. Menu de Filtros (Data, Origem, Status) */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setIsFilterDropdownOpen(v => !v)}
+                    className={cn(
+                      "h-8 px-2.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all shrink-0 active:scale-95 cursor-pointer",
+                      activeFiltersCount > 0 
+                        ? "bg-primary-500/20 border-primary-500/50 text-primary-300" 
+                        : "bg-white/5 border-white/10 text-white/80 hover:bg-white/10 hover:text-white"
+                    )}
+                    title="Filtrar por data, canal ou status"
+                  >
+                    <Filter size={12} />
+                    <span>Filtros</span>
+                    {activeFiltersCount > 0 && (
+                      <span className="w-3.5 h-3.5 rounded-full bg-primary-500 text-slate-950 font-black text-[9px] flex items-center justify-center">
+                        {activeFiltersCount}
+                      </span>
+                    )}
+                  </button>
+
+                  {isFilterDropdownOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setIsFilterDropdownOpen(false)} />
+                      <div className="absolute top-full mt-2 right-0 md:left-auto w-72 bg-slate-900 border border-white/10 rounded-2xl shadow-2xl z-50 p-4 space-y-4">
+                        <div className="flex items-center justify-between pb-2 border-b border-white/10">
+                          <span className="text-xs font-black uppercase tracking-wider text-white">Filtros do Funil</span>
+                          {activeFiltersCount > 0 && (
+                            <button
+                              type="button"
+                              onClick={clearAllFilters}
+                              className="text-[10px] font-bold text-rose-400 hover:underline cursor-pointer"
+                            >
+                              Limpar Tudo
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Filtro por Período */}
+                        <div className="space-y-1.5">
+                          <p className="text-[10px] font-black uppercase tracking-wider text-white/40 flex items-center gap-1.5">
+                            <Calendar size={11} /> Período
+                          </p>
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {[
+                              { id: "todos", label: "Todos" },
+                              { id: "hoje", label: "Hoje" },
+                              { id: "ontem", label: "Ontem" },
+                              { id: "7dias", label: "7 dias" },
+                              { id: "30dias", label: "30 dias" },
+                            ].map(opt => (
+                              <button
+                                key={opt.id}
+                                type="button"
+                                onClick={() => setDateFilter(opt.id as any)}
+                                className={cn(
+                                  "py-1.5 px-2 rounded-lg text-[10.5px] font-bold transition-all text-center cursor-pointer",
+                                  dateFilter === opt.id 
+                                    ? "bg-primary-500 text-slate-950" 
+                                    : "bg-white/5 text-white/70 hover:bg-white/10"
+                                )}
+                              >
+                                {opt.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Filtro por Origem / Canal */}
+                        <div className="space-y-1.5">
+                          <p className="text-[10px] font-black uppercase tracking-wider text-white/40 flex items-center gap-1.5">
+                            <MessageSquare size={11} /> Canal / Origem
+                          </p>
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {[
+                              { id: "todos", label: "Todos", icon: null },
+                              { id: "whatsapp", label: "WhatsApp", icon: WhatsAppLogo, color: "text-emerald-400" },
+                              { id: "instagram", label: "Instagram", icon: InstagramLogo, color: "text-pink-400" },
+                            ].map(opt => (
+                              <button
+                                key={opt.id}
+                                type="button"
+                                onClick={() => setSourceFilter(opt.id)}
+                                className={cn(
+                                  "py-1.5 px-2 rounded-lg text-[10.5px] font-bold transition-all text-center cursor-pointer flex items-center justify-center gap-1.5",
+                                  sourceFilter === opt.id 
+                                    ? "bg-primary-500 text-slate-950" 
+                                    : "bg-white/5 text-white/70 hover:bg-white/10"
+                                )}
+                              >
+                                {opt.icon && <opt.icon className={cn("w-3.5 h-3.5 shrink-0", sourceFilter === opt.id ? "text-slate-950" : opt.color)} />}
+                                <span>{opt.label}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Filtro por Pendência / Status */}
+                        <div className="space-y-1.5">
+                          <p className="text-[10px] font-black uppercase tracking-wider text-white/40 flex items-center gap-1.5">
+                            <Clock size={11} /> Status
+                          </p>
+                          <div className="space-y-1">
+                            {[
+                              { id: "todos", label: "Todos os leads" },
+                              { id: "unread", label: "Aguardando resposta / Não lidos" },
+                              { id: "with_task", label: "Com tarefa agendada" },
+                            ].map(opt => (
+                              <button
+                                key={opt.id}
+                                type="button"
+                                onClick={() => setStatusFilter(opt.id as any)}
+                                className={cn(
+                                  "w-full text-left py-1.5 px-2.5 rounded-lg text-[10.5px] font-bold transition-all flex items-center justify-between cursor-pointer",
+                                  statusFilter === opt.id 
+                                    ? "bg-primary-500 text-slate-950" 
+                                    : "bg-white/5 text-white/70 hover:bg-white/10"
+                                )}
+                              >
+                                <span>{opt.label}</span>
+                                {statusFilter === opt.id && <Check size={12} />}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <Button 
+                          size="sm" 
+                          className="w-full" 
+                          onClick={() => setIsFilterDropdownOpen(false)}
+                        >
+                          Fechar
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* 2. Menu Ordenar */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setSortMenuOpen(o => !o)}
+                    className="h-8 px-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs font-bold text-white/80 hover:text-white flex items-center gap-1.5 transition-all shrink-0 active:scale-95 cursor-pointer"
+                    title="Ordenar cards"
+                  >
+                    <ArrowUpDown size={12} />
+                    <span>Ordenar</span>
+                  </button>
+
+                  {sortMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setSortMenuOpen(false)} />
+                      <div className="absolute top-full mt-2 right-0 w-60 bg-slate-900 border border-white/10 rounded-2xl shadow-2xl z-50 p-2 space-y-1">
+                        <p className="text-[9px] font-black uppercase text-white/40 tracking-widest px-3 py-1">Critério de Ordem</p>
+                        {LEAD_SORT_OPTIONS.map(o => {
+                          const ativo = leadSort.key === o.key;
+                          const dir = ativo ? leadSort.dir : o.defaultDir;
+                          const DirIcon = dir === "asc" ? ArrowUp : ArrowDown;
+                          return (
+                            <button
+                              key={o.key}
+                              onClick={() => handlePickSort(o.key)}
+                              className={cn(
+                                "w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer",
+                                ativo ? "text-primary-300 bg-primary-500/10" : "text-white/70 hover:bg-white/10"
+                              )}
+                            >
+                              <span className="truncate">{o.label}</span>
+                              <DirIcon size={13} className={cn("shrink-0", !ativo && "opacity-40")} />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* 4. Modo Seleção de Leads em Massa */}
+                <button
+                  type="button"
+                  onClick={() => { setLeadSelectionMode(v => !v); setSelectedLeadIds(new Set()); }}
+                  className={cn(
+                    "h-8 px-2.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all shrink-0 active:scale-95 cursor-pointer",
+                    leadSelectionMode 
+                      ? "bg-rose-500 text-white border-rose-400" 
+                      : "bg-white/5 border-white/10 text-white/70 hover:text-white hover:bg-white/10"
+                  )}
+                  title={leadSelectionMode ? "Cancelar seleção múltipla" : "Selecionar vários leads para excluir"}
+                >
+                  <CheckSquare size={12} />
+                  <span>{leadSelectionMode ? "Cancelar" : "Selecionar"}</span>
+                </button>
+
+                {/* 5. Botão de Configurações das Etapas / Funil */}
+                <button
+                  type="button"
+                  onClick={() => setIsConfiguringFunnel(true)}
+                  className="h-8 w-8 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-white/70 hover:text-white flex items-center justify-center transition-all shrink-0 active:scale-95 cursor-pointer"
+                  title="Configurar etapas e funis"
+                >
+                  <Settings2 size={13} />
+                </button>
+
+                {/* 6. Botão de Criação de Lead */}
+                <Button 
+                  icon={Plus}
+                  size="sm"
+                  className="h-8 px-2.5 sm:px-3 text-xs font-bold shadow-md shadow-primary-500/20 shrink-0 cursor-pointer"
+                  onClick={async () => {
+                    const name = await showPrompt("Nome do novo lead:");
+                    if (!name || !name.trim() || !selectedFunnelId) return;
+                    const phone = await showPrompt("Telefone / WhatsApp (opcional):", "");
+                    try {
+                      const initialStage = stages.find(s => s.isInitial) || stages[0];
+                      await supabase.from("leads").insert({
+                        company_id: "rafa-arts",
+                        funnel_id: selectedFunnelId,
+                        funnel_stage_id: initialStage?.id || null,
+                        full_name: name.trim(),
+                        phone: phone?.trim() || null,
+                        source_type: "Manual",
+                      });
+                      showAlert(`Lead "${name.trim()}" criado com sucesso!`);
+                    } catch (err) {
+                      console.error("Erro ao criar lead:", err);
+                      showAlert("Não foi possível criar o lead.");
+                    }
+                  }}
+                >
+                  <span className="hidden sm:inline">Novo Lead</span>
+                  <span className="sm:hidden font-bold">+ Novo</span>
+                </Button>
+              </div>
+            </div>
+        )}
+
+        {leadSelectionMode && selectedLeadIds.size > 0 && (
+          <div className="flex items-center justify-between gap-3 bg-rose-500/10 border border-rose-500/30 rounded-2xl px-4 py-2.5 mb-1">
+            <p className="text-[10px] font-black uppercase tracking-widest text-rose-300">
+              {selectedLeadIds.size} lead(s) selecionado(s)
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setSelectedLeadIds(new Set())}
+                className="text-[9px] font-black uppercase tracking-widest text-white/40 hover:text-white/70 px-3 py-1.5"
+              >
+                Limpar
+              </button>
+              <Button variant="danger" icon={Trash2} onClick={handleDeleteSelectedLeads}>Excluir Selecionados</Button>
+            </div>
+          </div>
+        )}
+
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCorners}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+        >
+          {selectedLead && !isColumnCollapsed && (
+            <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-1 px-1 mb-1 shrink-0">
+              {stages.filter(s => s.isActive !== false).map(st => {
+                const effectiveStageId = activeColumnStageId || selectedLead.funnelStageId || stages[0]?.id;
+                const isCurrent = effectiveStageId === st.id;
+                const count = filteredLeads.filter(l => !gruposDigitos.has((l.phone || '').replace(/\D/g, ''))).filter(l => l.funnelStageId === st.id || (!l.funnelStageId && (st.isInitial || st.order === 0))).length;
+                return (
+                  <button
+                    key={st.id}
+                    type="button"
+                    onClick={() => setActiveColumnStageId(st.id)}
+                    className={cn(
+                      "px-2.5 py-1 rounded-lg text-[9.5px] font-black uppercase tracking-wider transition-all whitespace-nowrap flex items-center gap-1.5 shrink-0 border cursor-pointer",
+                      isCurrent
+                        ? "bg-slate-900 text-white border-red-500/40 shadow-sm"
+                        : "bg-white/[0.03] text-white/50 border-transparent hover:text-white hover:bg-white/5"
+                    )}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: st.color || '#4cc9f0' }} />
+                    <span>{st.name}</span>
+                    <span className="text-[8.5px] opacity-60 font-semibold">{count}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <div className={cn(
+            "flex gap-1.5 pb-1 grow min-h-0 scroll-smooth custom-scrollbar h-full",
+            selectedLead ? "overflow-x-hidden" : "overflow-x-auto"
+          )}>
+            {stages
+                .filter(stage => stage.isActive !== false)
+              .filter(stage => !selectedLead || stage.id === (activeColumnStageId || selectedLead.funnelStageId || (stages.find(s => s.isInitial || s.order === 0)?.id)))
+              .map(stage => {
+                const stageLeads = filteredLeads.filter(l => !gruposDigitos.has((l.phone || '').replace(/\D/g, ''))).filter(l => l.funnelStageId === stage.id || (!l.funnelStageId && (stage.isInitial || stage.order === 0)));
+                
+                // Modo Coluna Encolhida no PC quando a conversa está aberta
+                if (selectedLead && isColumnCollapsed) {
+                  return (
+                    <div
+                      key={`wrapper-${stage.id}`}
+                      onClick={() => setIsColumnCollapsed(false)}
+                      className="hidden md:flex w-10 shrink-0 bg-white/[0.02] border border-white/10 hover:border-primary-500/40 rounded-[28px] p-2 flex-col items-center justify-between cursor-pointer transition-all group h-full select-none"
+                      title="Clique para expandir a coluna da etapa"
+                    >
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setIsColumnCollapsed(false); }}
+                        className="w-7 h-7 rounded-full bg-white/5 group-hover:bg-primary-500/20 text-white/50 group-hover:text-primary-300 flex items-center justify-center transition-colors"
+                        title="Expandir coluna"
+                      >
+                        <ChevronRight size={14} />
+                      </button>
+                      <div className="flex items-center gap-2 [writing-mode:vertical-rl] rotate-180 py-4">
+                        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: stage.color || '#4cc9f0' }} />
+                        <span className="text-[10px] font-black uppercase tracking-[2px] text-white/40 group-hover:text-white/90 transition-colors">
+                          {stage.name}
+                        </span>
+                      </div>
+                      <Badge className="bg-white/5 border-none opacity-60 text-[8.5px] px-1.5 h-4 flex items-center">
+                        {stageLeads.length}
+                      </Badge>
+                    </div>
+                  );
+                }
+
+                const colWidthClass = selectedLead ? "w-full" : "w-[82vw] xs:w-[270px] md:w-[205px]";
+
+                return (
+                  <div key={`wrapper-${stage.id}`} className={cn("w-full shrink-0 relative flex flex-col transition-all duration-300 h-full", colWidthClass)}>
+                    <KanbanColumnLegacy 
+                      key={stage.id} 
+                      stage={stage} 
+                      leads={stageLeads}
+                      onLeadClick={(l) => { setOpenedViaJump(false); setSelectedLead(l); }}
+                      selectedLeadId={selectedLead?.id}
+                      selectionMode={leadSelectionMode}
+                      selectedLeadIds={selectedLeadIds}
+                      onToggleLeadSelected={toggleLeadSelected}
+                      onDeleteLead={handleDeleteLead}
+                      isAdmin={user?.isAdmin}
+                      onSetStageColor={handleSetStageColor}
+                      onRenameStage={startRenameStage}
+                      onCollapse={selectedLead ? () => setIsColumnCollapsed(true) : undefined}
+                    />
+                  </div>
+                );
+              })}
+            
+            {!selectedLead && (
+            <button 
+              type="button"
+              onClick={handleAddStage}
+              className="flex-shrink-0 w-full md:flex-shrink md:w-[140px] basis-20 h-full border-2 border-dashed border-white/10 hover:border-primary-500/40 rounded-2xl flex flex-col items-center justify-center opacity-40 hover:opacity-100 hover:bg-white/5 transition-all text-white/60 hover:text-primary-300 cursor-pointer"
+              title="Adicionar nova etapa ao funil"
+            >
+               <Plus size={24} />
+               <span className="text-[9px] font-black uppercase tracking-[2px] mt-1.5">Nova Etapa</span>
+            </button>
+            )}
+          </div>
+
+          <DragOverlay>
+            {activeDragId ? (
+              <KanbanCardLegacy 
+                lead={leads.find(l => l.id === activeDragId)!} 
+                isDragging 
+              />
+            ) : null}
+          </DragOverlay>
+        </DndContext>
+          </>
+        ) : (
+          <>
         {/* Topo: Pesquisar + Filtros + Ordenar + "+" para novo lead */}
         <div className="bg-slate-900/60 border border-white/10 rounded-2xl p-2 sm:px-3 sm:py-2 flex items-center gap-1.5 sm:gap-2 shadow-sm backdrop-blur-md shrink-0 w-full">
           {/* Pesquisar */}
@@ -8305,6 +8766,8 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
             ) : null}
           </DragOverlay>
         </DndContext>
+          </>
+        )}
       </div>
 
       <AnimatePresence>
@@ -8493,6 +8956,358 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
            </div>
         </div>
       </Modal>
+    </div>
+  );
+};
+
+// ============================================================================
+// Componentes LEGADOS (design clássico do Funil CRM no PC, restaurado a pedido).
+// Usados apenas pelo layout desktop (isDesktopFunilLayout) do CRMModule acima;
+// o mobile continua usando KanbanColumn/KanbanCard normais, sem alteração.
+// ============================================================================
+const KanbanColumnLegacy = ({ 
+  stage, 
+  leads, 
+  onLeadClick, 
+  selectedLeadId, 
+  selectionMode, 
+  selectedLeadIds, 
+  onToggleLeadSelected, 
+  onDeleteLead,
+  isAdmin,
+  onSetStageColor,
+  onRenameStage,
+  onCollapse,
+}: {
+  key?: any, 
+  stage: FunnelStage, 
+  leads: Lead[], 
+  onLeadClick: (l: Lead) => void, 
+  selectedLeadId?: string,
+  selectionMode?: boolean, 
+  selectedLeadIds?: Set<string>, 
+  onToggleLeadSelected?: (leadId: string) => void, 
+  onDeleteLead?: (lead: Lead) => void,
+  isAdmin?: boolean,
+  onSetStageColor?: (stageId: string, color: string) => void,
+  onRenameStage?: (stage: FunnelStage) => void,
+  onCollapse?: () => void,
+}) => {
+  const { setNodeRef } = useSortable({ id: stage.id, data: { type: 'column', stageId: stage.id } });
+  const [showColorPicker, setShowColorPicker] = useState(false);
+  const [stageSearch, setStageSearch] = useState('');
+  const [channelFilter, setChannelFilter] = useState<'todos' | 'whatsapp' | 'instagram'>('todos');
+
+  const wppCount = leads.filter(l => (l.sourceType || 'WhatsApp').toLowerCase().includes('whats') || (l.sourceType || 'WhatsApp').toLowerCase().includes('wpp')).length;
+  const instaCount = leads.filter(l => (l.sourceType || '').toLowerCase().includes('insta')).length;
+
+  const filteredStageLeads = useMemo(() => {
+    return leads.filter(l => {
+      if (channelFilter === 'whatsapp') {
+        const src = (l.sourceType || 'WhatsApp').toLowerCase();
+        if (!src.includes('whats') && !src.includes('wpp')) return false;
+      } else if (channelFilter === 'instagram') {
+        const src = (l.sourceType || '').toLowerCase();
+        if (!src.includes('insta')) return false;
+      }
+      if (stageSearch.trim()) {
+        const s = stageSearch.trim().toLowerCase();
+        const sDig = s.replace(/\D/g, '');
+        const name = (l.fullName || l.contactName || l.whatsappName || '').toLowerCase();
+        const phoneMatch = sDig && (l.phone || '').replace(/\D/g, '').includes(sDig);
+        const textMatch = `${l.lastClientMessageText || ''} ${l.lastMessageText || ''}`.toLowerCase().includes(s);
+        if (!name.includes(s) && !phoneMatch && !textMatch) return false;
+      }
+      return true;
+    });
+  }, [leads, channelFilter, stageSearch]);
+
+  return (
+    <div className="flex-1 min-w-0 flex flex-col gap-1.5 min-h-0 h-full">
+      <div className="flex items-center justify-between px-2 py-1">
+        <div className="flex items-center gap-1.5 relative min-w-0 flex-1">
+          {/* Seletor Rápido de Cor da Etapa */}
+          <button
+            type="button"
+            onClick={() => setShowColorPicker(v => !v)}
+            title={`Alterar cor da etapa "${stage.name}"`}
+            className="w-4 h-4 rounded-full flex items-center justify-center transition-all shrink-0 cursor-pointer hover:scale-125"
+          >
+            <span
+              className="w-2.5 h-2.5 rounded-full block border border-white/20"
+              style={{ backgroundColor: stage.color || '#4cc9f0' }}
+            />
+          </button>
+
+          {/* Paleta Suspensa Rápida de Cores da Etapa */}
+          {showColorPicker && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowColorPicker(false)} />
+              <div className="absolute top-full left-0 mt-2 bg-slate-900 border border-white/10 rounded-2xl shadow-2xl p-2.5 z-50 w-52 space-y-2">
+                <div className="flex items-center justify-between px-1">
+                  <span className="text-[9px] font-black uppercase tracking-wider text-white/50">Cor da Etapa</span>
+                  {onRenameStage && (
+                    <button
+                      type="button"
+                      onClick={() => { setShowColorPicker(false); onRenameStage(stage); }}
+                      className="text-[9px] text-red-400 hover:underline font-bold"
+                    >
+                      Renomear
+                    </button>
+                  )}
+                </div>
+                <div className="grid grid-cols-6 gap-2">
+                  {FUNNEL_STAGE_COLORS.map(c => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => {
+                        onSetStageColor?.(stage.id, c);
+                        setShowColorPicker(false);
+                      }}
+                      className={cn(
+                        "w-5 h-5 rounded-full border transition-all hover:scale-125",
+                        stage.color === c ? "border-white ring-2 ring-white/50 scale-110" : "border-white/10"
+                      )}
+                      style={{ backgroundColor: c }}
+                      title={c}
+                    />
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
+          <h3 
+            className={cn(
+              "text-[11px] font-black uppercase tracking-wider text-white/90 truncate",
+              isAdmin && "cursor-pointer hover:text-red-400 transition-colors"
+            )}
+            onClick={() => isAdmin && onRenameStage?.(stage)}
+            title={isAdmin ? `Clique para renomear "${stage.name}"` : stage.name}
+          >
+            {stage.name}
+          </h3>
+
+          <span className="text-[10px] font-bold text-white/50 px-1.5 py-0.5 rounded-md bg-white/5 shrink-0">
+            {leads.length}
+          </span>
+        </div>
+
+        {/* Botão de Encolher a coluna para expandir conversa */}
+        {onCollapse && (
+          <button
+            type="button"
+            onClick={onCollapse}
+            className="h-6 px-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-white/60 hover:text-white border border-white/10 flex items-center gap-1 transition-all text-[9px] font-bold uppercase tracking-wider shrink-0 cursor-pointer"
+            title="Recolher coluna da etapa"
+          >
+            <ChevronLeft size={12} />
+          </button>
+        )}
+      </div>
+
+      {/* Busca rápida na etapa + Filtros de Canais */}
+      <div className="px-1.5 space-y-1">
+        <div className="relative">
+          <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/30 pointer-events-none" />
+          <input
+            value={stageSearch}
+            onChange={(e) => setStageSearch(e.target.value)}
+            placeholder="Buscar nesta etapa..."
+            className="w-full bg-slate-900/80 border border-white/10 rounded-lg pl-6 pr-2 py-1 text-[10px] text-white placeholder:text-white/30 focus:outline-none focus:border-red-500/50 transition-all"
+          />
+        </div>
+        <div className="flex items-center gap-1 text-[9px] font-bold overflow-x-auto no-scrollbar py-0.5">
+          <button
+            type="button"
+            onClick={() => setChannelFilter('todos')}
+            className={cn(
+              "px-2 py-0.5 rounded-md transition-all whitespace-nowrap",
+              channelFilter === 'todos' ? "bg-white/15 text-white font-extrabold" : "text-white/40 hover:text-white/70"
+            )}
+          >
+            TODOS {leads.length}
+          </button>
+          <button
+            type="button"
+            onClick={() => setChannelFilter('whatsapp')}
+            title={`WhatsApp (${wppCount})`}
+            className={cn(
+              "px-1.5 py-0.5 rounded-md transition-all whitespace-nowrap flex items-center gap-1",
+              channelFilter === 'whatsapp' ? "bg-emerald-500/20 text-emerald-300 font-extrabold border border-emerald-500/30" : "text-white/40 hover:text-emerald-400"
+            )}
+          >
+            <WhatsAppLogo className="w-3 h-3 shrink-0" />
+            <span>{wppCount}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setChannelFilter('instagram')}
+            title={`Instagram (${instaCount})`}
+            className={cn(
+              "px-1.5 py-0.5 rounded-md transition-all whitespace-nowrap flex items-center gap-1",
+              channelFilter === 'instagram' ? "bg-pink-500/20 text-pink-300 font-extrabold border border-pink-500/30" : "text-white/40 hover:text-pink-400"
+            )}
+          >
+            <InstagramLogo className="w-3 h-3 shrink-0" />
+            <span>{instaCount}</span>
+          </button>
+        </div>
+      </div>
+
+      <div 
+        ref={setNodeRef}
+        className="bg-white/[0.02] border border-white/5 rounded-xl p-1.5 flex flex-col gap-1.5 grow min-h-0 shadow-inner overflow-y-auto custom-scrollbar transition-all"
+        style={stage.color ? { borderTopColor: stage.color, borderTopWidth: "3px" } : undefined}
+      >
+        <SortableContext items={filteredStageLeads.map(l => l.id)} strategy={verticalListSortingStrategy}>
+          {filteredStageLeads.map(lead => (
+            <KanbanCardLegacy 
+              key={lead.id} 
+              lead={lead} 
+              onClick={() => onLeadClick(lead)}
+              isSelected={selectedLeadId === lead.id}
+              selectionMode={selectionMode}
+              isChecked={!!selectedLeadIds?.has(lead.id)}
+              onToggleSelected={() => onToggleLeadSelected?.(lead.id)}
+              onDelete={() => onDeleteLead?.(lead)}
+            />
+          ))}
+        </SortableContext>
+        
+        {filteredStageLeads.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-16 opacity-20">
+             <Layers size={28} className="text-white/40 mb-2" />
+             <p className="text-[10px] font-black uppercase tracking-widest text-white/50">Sem Contatos</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const KanbanCardLegacy = ({ lead, onClick, isSelected, isDragging, selectionMode, isChecked, onToggleSelected, onDelete }: {
+  key?: any, lead: Lead, onClick?: () => void, isSelected?: boolean, isDragging?: boolean,
+  selectionMode?: boolean, isChecked?: boolean, onToggleSelected?: () => void, onDelete?: () => void,
+}) => {
+  const { setPrefilledCustomer, setActiveTab } = React.useContext(AppContext)!;
+  const cardClientName = (lead.contactName || (!isPhoneLike(lead.fullName) ? lead.fullName : '') || lead.whatsappName || lead.fullName || lead.phone || 'Cliente').trim();
+  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
+    id: lead.id,
+    data: { type: 'card', lead },
+    disabled: selectionMode,
+  });
+
+  const style = {
+    transform: CSS.Translate.toString(transform),
+    transition,
+  };
+
+  const channelName = (lead.sourceType || 'WhatsApp');
+  const isWpp = channelName.toLowerCase().includes('whats') || channelName.toLowerCase().includes('wpp');
+  const unread = (lead as any).unreadCount || (lead.waitingSince ? 1 : 0);
+  const timeStr = lead.lastMessageAt || (lead.createdAt as any)?.toDate?.()
+    ? format(parseMsgDate(lead.lastMessageAt || lead.createdAt) || new Date(), 'HH:mm')
+    : '';
+
+  return (
+    <div 
+      ref={setNodeRef} 
+      style={style} 
+      {...(selectionMode ? {} : attributes)} 
+      {...(selectionMode ? {} : listeners)}
+      className={cn(isDragging ? "z-50" : "relative")}
+    >
+      <div 
+        onClick={selectionMode ? onToggleSelected : onClick}
+        className={cn(
+          "p-2 rounded-xl border transition-all group relative overflow-hidden cursor-pointer select-none",
+          isSelected 
+            ? "bg-red-950/30 border-red-500/60 shadow-md shadow-red-950/40 ring-1 ring-red-500/40" 
+            : "bg-slate-900/60 hover:bg-slate-900/90 border-white/5 hover:border-white/15",
+          isChecked ? "bg-rose-950/40 border-rose-500/50 ring-1 ring-rose-500/30" : "",
+          isDragging ? "shadow-2xl ring-2 ring-red-500 scale-105" : ""
+        )}
+      >
+        {selectionMode && (
+          <div className="absolute top-2 left-2 z-10" onClick={(e) => { e.stopPropagation(); onToggleSelected?.(); }}>
+            <input type="checkbox" checked={isChecked} onChange={() => onToggleSelected?.()} className="w-3.5 h-3.5 accent-rose-500 cursor-pointer" />
+          </div>
+        )}
+        {!selectionMode && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete?.(); }}
+            title="Excluir lead"
+            className="absolute top-1.5 right-1.5 z-10 w-5 h-5 rounded bg-transparent text-white/0 group-hover:text-white/40 hover:!text-rose-400 flex items-center justify-center transition-all"
+          >
+            <Trash2 size={11} />
+          </button>
+        )}
+
+        {/* Linha 1: Foto + Nome + Canal + Horário */}
+        <div className={cn("flex items-center justify-between gap-1.5 mb-1", selectionMode && "pl-5")}>
+          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+            <AvatarPhoto
+              photoUrl={lead.photoUrl}
+              name={cardClientName}
+              className="w-5 h-5 rounded-full bg-slate-800 border-white/10 shrink-0"
+              textClassName="text-[8px] font-bold text-white/50"
+            />
+            <p className="font-bold text-white text-[11px] truncate tracking-tight" title={cardClientName}>
+              {cardClientName}
+            </p>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <ChannelLogoBadge channel={channelName} className="w-3.5 h-3.5" />
+            {timeStr && (
+              <span className="text-[8px] font-medium text-white/30">
+                {timeStr}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Linha 2: Última mensagem + Não lidas / Botão Venda */}
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[10px] text-white/50 truncate flex-1 leading-snug font-normal">
+            {lead.lastClientMessageText || lead.lastMessageText || 'Sem mensagens recentes'}
+          </p>
+          <div className="flex items-center gap-1 shrink-0">
+            {unread > 0 && (
+              <span className="min-w-4 h-4 px-1 rounded-full bg-emerald-500 text-slate-950 font-black text-[9px] flex items-center justify-center shrink-0">
+                {unread}
+              </span>
+            )}
+            <button
+              onClick={async (e) => {
+                e.stopPropagation();
+                if (!setPrefilledCustomer) return;
+                let clienteCadastro: any = null;
+                if (lead.phone) {
+                  try {
+                    clienteCadastro = await buscarClientePorTelefone(lead.phone);
+                  } catch (err) {
+                    console.error('Erro ao buscar cadastro no card:', err);
+                  }
+                }
+                if (clienteCadastro) {
+                  const nomeReal = (clienteCadastro.full_name || '').trim() || lead.contactName || (!isPhoneLike(lead.fullName) ? lead.fullName : '') || 'Cliente';
+                  setPrefilledCustomer({ id: clienteCadastro.id, name: nomeReal, phone: clienteCadastro.phone || lead.phone || '' });
+                } else {
+                  const nomeLead = (lead.contactName || (!isPhoneLike(lead.fullName) ? lead.fullName : '') || lead.whatsappName || lead.fullName || 'Cliente').trim();
+                  setPrefilledCustomer({ name: nomeLead, phone: lead.phone || '' });
+                }
+                setActiveTab?.('pos');
+              }}
+              title="Iniciar Venda PDV"
+              className="opacity-0 group-hover:opacity-100 w-5 h-5 rounded bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500 hover:text-slate-950 flex items-center justify-center transition-all cursor-pointer"
+            >
+              <ShoppingBag size={10} />
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
