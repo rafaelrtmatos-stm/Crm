@@ -4014,7 +4014,7 @@ export const ChatPanel = ({
     }
     return true;
   });
-  const [sidebarActiveTab, setSidebarActiveTab] = useState<'data' | 'notes' | 'tasks' | 'sales'>('data');
+  const [sidebarActiveTab, setSidebarActiveTab] = useState<'data' | 'notes' | 'tasks' | 'sales'>('sales');
   const toggleDesktopSidebar = () => {
     setShowDesktopSidebar(prev => {
       const next = !prev;

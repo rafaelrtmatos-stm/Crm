@@ -663,10 +663,10 @@ export const CustomerContextSidebar = ({
       {/* Sub-abas do painel lateral */}
       <div className="flex border-b border-white/10 bg-white/[0.02] px-1 shrink-0">
         {[
+          { id: 'sales', label: 'VENDAS', icon: ShoppingBag, count: clienteVendas.length },
           { id: 'data', label: 'DADOS', icon: Users },
           { id: 'notes', label: 'NOTAS', icon: StickyNote, count: notes.length },
           { id: 'tasks', label: 'TAREFAS', icon: ListTodo, count: tasks.filter(t => !t.completedAt).length },
-          { id: 'sales', label: 'VENDAS', icon: ShoppingBag, count: clienteVendas.length },
         ].map(tab => (
           <button
             key={tab.id}
