@@ -6,6 +6,12 @@ import { ServiceItem, UserSettings, SummaryStats, ThemeMode } from '../types';
 // 'somente_nota' = só pode puxar de nota (lançamento manual fica oculto).
 export type ModoLancamentoComissao = 'livre' | 'somente_nota';
 
+// 3 Modalidades de remuneração para funcionários:
+// 1. 'fixo': valor fixo semanal configurável (ex: R$ 350,00)
+// 2. 'fixo_comissao': valor fixo semanal + % de comissão sobre a produção própria (ex: R$ 400,00 + 10%)
+// 3. 'meta': % sobre a produção própria com piso mínimo e teto máximo (ex: 25% | mín R$ 600 | máx R$ 1.000)
+export type ModalidadeRemuneracao = 'fixo' | 'fixo_comissao' | 'meta';
+
 export interface Colaborador {
   id: string;
   nome: string;
@@ -16,19 +22,50 @@ export interface Colaborador {
   tema: ThemeMode;
   ativo: boolean;
   modoLancamentoComissao: ModoLancamentoComissao;
+  modalidadeRemuneracao: ModalidadeRemuneracao;
+  metaPercentual: number;
+  metaValorMinimo: number;
+  metaValorMaximo: number;
 }
 
-export const mapColaboradorRow = (row: any): Colaborador => ({
-  id: row.id,
-  nome: row.nome,
-  cargo: row.cargo || undefined,
-  salarioBase: Number(row.salario_base) || 0,
-  comissaoPadraoPercentual: Number(row.comissao_padrao_percentual) || 10,
-  metaSemanal: Number(row.meta_semanal) || 0,
-  tema: (row.tema as ThemeMode) || 'dark',
-  ativo: row.ativo !== false,
-  modoLancamentoComissao: row.modo_lancamento_comissao === 'somente_nota' ? 'somente_nota' : 'livre',
-});
+export const mapColaboradorRow = (row: any): Colaborador => {
+  // Lê eventual configuração persistida localmente (resiliência caso a migration SQL ainda não tenha rodado)
+  let localExtra: any = null;
+  if (typeof window !== 'undefined' && row?.id) {
+    try {
+      const raw = localStorage.getItem(`rpro_colab_remun_${row.id}`);
+      if (raw) localExtra = JSON.parse(raw);
+    } catch {
+      // ignore
+    }
+  }
+
+  const rawModalidade = row.modalidade_remuneracao || localExtra?.modalidade;
+  let modalidade: ModalidadeRemuneracao = 'fixo_comissao';
+  if (rawModalidade === 'fixo' || rawModalidade === 'meta' || rawModalidade === 'fixo_comissao') {
+    modalidade = rawModalidade;
+  } else if (Number(row.meta_percentual || localExtra?.metaPercentual) > 0 || Number(row.meta_valor_minimo || localExtra?.metaValorMinimo) > 0) {
+    modalidade = 'meta';
+  } else if (Number(row.salario_base) > 0 && Number(row.comissao_padrao_percentual) === 0) {
+    modalidade = 'fixo';
+  }
+
+  return {
+    id: row.id,
+    nome: row.nome,
+    cargo: row.cargo || undefined,
+    salarioBase: Number(row.salario_base) || 0,
+    comissaoPadraoPercentual: Number(row.comissao_padrao_percentual) || 10,
+    metaSemanal: Number(row.meta_semanal) || 0,
+    tema: (row.tema as ThemeMode) || 'dark',
+    ativo: row.ativo !== false,
+    modoLancamentoComissao: row.modo_lancamento_comissao === 'somente_nota' ? 'somente_nota' : 'livre',
+    modalidadeRemuneracao: modalidade,
+    metaPercentual: Number(row.meta_percentual ?? localExtra?.metaPercentual) || 0,
+    metaValorMinimo: Number(row.meta_valor_minimo ?? localExtra?.metaValorMinimo) || 0,
+    metaValorMaximo: Number(row.meta_valor_maximo ?? localExtra?.metaValorMaximo) || 0,
+  };
+};
 
 const mapServiceRow = (row: any): ServiceItem => ({
   id: row.id,
