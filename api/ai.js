@@ -23,8 +23,8 @@ import { exigirUsuarioAutorizado } from './_lib/auth.js';
 // ou indisponível, cai automaticamente para o próximo.
 const MODELOS = [
   process.env.GEMINI_MODEL,
+  'gemini-3.6-flash',
   'gemini-3.5-flash-lite',
-  'gemini-3.1-flash-lite',
   'gemini-3.8-flash',
   'gemini-flash-latest',
 ].filter(Boolean);
@@ -209,7 +209,7 @@ async function handleSuggestReply(req, res) {
         headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: montarPromptSuggest({ clientMessage, history, clientName }) }] }],
-          generationConfig: { temperature: 0.6 },
+          generationConfig: { temperature: 0.6, responseMimeType: 'application/json' },
         }),
         signal: AbortSignal.timeout(15 * 1000),
       });

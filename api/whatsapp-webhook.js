@@ -54,21 +54,6 @@ function isAudioMessage(msg) {
   };
 }
 
-// Transcrição automática é por conversa (leads.auto_transcribe, padrão ligado). Falha na consulta => liga.
-async function transcricaoAutomaticaLigada(phone) {
-  try {
-    const r = await fetch(
-      `${SUPABASE_URL}/rest/v1/leads?company_id=eq.${COMPANY_ID}&phone=eq.${encodeURIComponent(phone)}&select=auto_transcribe&limit=1`,
-      { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
-    );
-    if (!r.ok) return true;
-    const linhas = await r.json();
-    return !(Array.isArray(linhas) && linhas[0] && linhas[0].auto_transcribe === false);
-  } catch {
-    return true;
-  }
-}
-
 // FASE 2 (redução de egress do Supabase): não baixa mais a mídia aqui nem sobe pro Storage.
 // Ver api/_lib/wa-parse.js (extrairInfoMidia) — mesma função usada pelo endpoint de histórico
 // ao vivo da Fase 3 (api/whatsapp-messages.js), pra não duplicar essa lógica em dois lugares.
@@ -716,8 +701,8 @@ export default async function handler(req, res) {
             let precisaTranscrever = false;
             if (infoAudio) {
               camposAudio = { media_mime_type: infoAudio.mimetype, media_duration: infoAudio.seconds };
-              precisaTranscrever = !ehMinhaMensagem && midiaSalva?.contentType === 'audio' && !!midiaSalva?.mediaUrl
-                && await transcricaoAutomaticaLigada(phone);
+              // Transcrição automática removida: agora é só manual (botão "Transcrever" em cada mensagem de áudio).
+              precisaTranscrever = false;
             }
             const citacao = extrairContextoCitacao(msg?.message);
             gravada = SEM_CRM_MESSAGES ? true : await inserirMensagem({

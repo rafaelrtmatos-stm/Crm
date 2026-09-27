@@ -537,7 +537,6 @@ export const CustomerContextSidebar = ({
   handleSavePhone,
   isSavingPhone,
   handleCopyPhone,
-  handleToggleAutoTranscribe,
   notes,
   newNoteText,
   setNewNoteText,
@@ -580,7 +579,6 @@ export const CustomerContextSidebar = ({
   handleSavePhone: () => void;
   isSavingPhone: boolean;
   handleCopyPhone: () => void;
-  handleToggleAutoTranscribe: () => void;
   notes: any[];
   newNoteText: string;
   setNewNoteText: (v: string) => void;
@@ -845,20 +843,6 @@ export const CustomerContextSidebar = ({
               )}
             </div>
 
-            {/* Transcrição de áudio automática */}
-            <div className="p-2.5 bg-white/[0.02] border border-white/10 rounded-xl flex items-center justify-between">
-              <div>
-                <p className="text-[10.5px] font-bold text-white">Transcrição Automática</p>
-                <p className="text-[9px] text-white/40">Transcrever áudios desta conversa</p>
-              </div>
-              <button
-                type="button"
-                onClick={handleToggleAutoTranscribe}
-                className={cn("w-8 h-4.5 rounded-full transition-colors relative shrink-0", conversation.autoTranscribe ? "bg-emerald-500" : "bg-white/10")}
-              >
-                <span className={cn("absolute top-0.5 w-3.5 h-3.5 rounded-full bg-white transition-all", conversation.autoTranscribe ? "left-[16px]" : "left-0.5")} />
-              </button>
-            </div>
           </div>
         )}
 

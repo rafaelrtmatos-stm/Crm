@@ -611,7 +611,6 @@ const mapLeadRow = (row: any): Lead => ({
   tags: row.tags || undefined,
   tracking: row.tracking || undefined,
   status: row.status || undefined,
-  autoTranscribe: row.auto_transcribe !== false,
   muted: !!row.muted,
   unread: !!row.unread,
   archived: !!row.archived,
@@ -4393,14 +4392,6 @@ export const ChatPanel = ({
       setTranscribingId(null);
     }
   };
-  const handleToggleAutoTranscribe = async () => {
-    if (!conversation?.id) return;
-    try {
-      await supabase.from('leads').update({ auto_transcribe: !conversation.autoTranscribe }).eq('id', conversation.id);
-    } catch (err) {
-      console.error('Erro ao atualizar transcrição automática:', err);
-    }
-  };
 
   const { setPrefilledCustomer, activeTab: rootActiveTab, setActiveTab: setRootActiveTab, setPendingReceiptOpenId, setPendingOpenContratoId, setPendingOpenOrcamentoId, setPendingOpenLeadId, setPendingWhatsAppShare } = React.useContext(AppContext)!;
 
@@ -6685,23 +6676,6 @@ export const ChatPanel = ({
                 )}
               </div>
 
-              {/* Transcrição de áudio automática -- toggle salvo no lead, identico nas duas telas. */}
-              <div className="p-4 bg-white/5 rounded-2xl border border-white/5 flex items-center justify-between">
-                 <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-white/20"><FileAudio size={16} /></div>
-                    <div>
-                       <p className="text-xs font-bold text-white/80">Transcrição de Áudio Automática</p>
-                       <p className="text-[9px] text-white/30">Transcreve mensagens de voz recebidas nessa conversa</p>
-                    </div>
-                 </div>
-                 <button
-                   onClick={handleToggleAutoTranscribe}
-                   className={cn("w-11 h-6 rounded-full transition-colors relative shrink-0", conversation.autoTranscribe ? "bg-emerald-500" : "bg-white/10")}
-                 >
-                   <span className={cn("absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all", conversation.autoTranscribe ? "left-[22px]" : "left-0.5")} />
-                 </button>
-              </div>
-
               <div className="p-6 bg-primary-500/5 border border-primary-500/10 rounded-3xl space-y-4">
                  <div className="flex items-center justify-between">
                     <h5 className="text-[11px] font-black uppercase text-primary-300 tracking-[3px]">Etiquetas (Tags)</h5>
@@ -6957,7 +6931,6 @@ export const ChatPanel = ({
                 handleSavePhone={handleSavePhone}
                 isSavingPhone={isSavingPhone}
                 handleCopyPhone={handleCopyPhone}
-                handleToggleAutoTranscribe={handleToggleAutoTranscribe}
                 notes={notes}
                 newNoteText={newNoteText}
                 setNewNoteText={setNewNoteText}
@@ -7014,7 +6987,6 @@ export const ChatPanel = ({
               handleSavePhone={handleSavePhone}
               isSavingPhone={isSavingPhone}
               handleCopyPhone={handleCopyPhone}
-              handleToggleAutoTranscribe={handleToggleAutoTranscribe}
               notes={notes}
               newNoteText={newNoteText}
               setNewNoteText={setNewNoteText}
@@ -8735,7 +8707,6 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
   const [chatInitialDraft, setChatInitialDraft] = useState('');
   const [leads, setLeads] = useState<Lead[]>([]);
   const [filter, setFilter] = useState('');
-  const [autoTranscribe, setAutoTranscribe] = useState(true);
   const [viewFilter, setViewFilter] = useState<'all' | 'unreplied'>('all');
   const [infoGrupos, setInfoGrupos] = useState<InfoGrupos | null>(null); // grupos do WhatsApp: quais existem e quais ESTE usuario pode ver
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'completed'>('idle');
@@ -9125,17 +9096,6 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
            <div className="flex justify-between items-center gap-2">
               <div className="flex-1">
                  <Input icon={Search} placeholder="Filtrar chats..." value={filter} onChange={(e) => setFilter(e.target.value)} />
-              </div>
-              <div 
-                onClick={() => setAutoTranscribe(!autoTranscribe)}
-                className={cn(
-                  "flex items-center gap-1.5 px-2.5 py-2 rounded-xl border cursor-pointer transition-all shrink-0 h-10 select-none",
-                  autoTranscribe ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-white/5 border-white/10 text-white/30"
-                )}
-                title="Transcrição de Áudio Inteligente"
-              >
-                <div className={cn("w-1.5 h-1.5 rounded-full", autoTranscribe ? "bg-emerald-400 animate-pulse" : "bg-white/20")} />
-                <span className="text-[9px] font-black uppercase tracking-widest">Transcrição: {autoTranscribe ? 'ON' : 'OFF'}</span>
               </div>
            </div>
            
