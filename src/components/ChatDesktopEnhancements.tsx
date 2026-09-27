@@ -629,15 +629,6 @@ export const CustomerContextSidebar = ({
 
   if (!isOpen) return null;
 
-  const resolvedClientName = (
-    clienteVinculado?.full_name ||
-    conversation?.contactName ||
-    conversation?.fullName ||
-    conversation?.name ||
-    conversation?.whatsappName ||
-    (conversation?.phone ? `+${conversation.phone}` : 'Cliente')
-  ).trim();
-
   return (
     <aside className={cn(
       "border border-white/10 bg-slate-950/95 backdrop-blur-2xl flex flex-col h-full shrink-0 select-text overflow-hidden shadow-2xl",
@@ -667,43 +658,6 @@ export const CustomerContextSidebar = ({
         >
           {isMobileDrawer ? <X size={16} /> : <PanelRightClose size={15} />}
         </button>
-      </div>
-
-      {/* Card Fixo de Informações do Perfil da Pessoa (sempre visível no PC e Mobile) */}
-      <div className="px-3.5 py-2.5 border-b border-white/10 bg-white/[0.03] flex items-center gap-2.5 shrink-0">
-        <div className="relative shrink-0">
-          <AvatarPhoto
-            photoUrl={conversation?.photoUrl}
-            name={resolvedClientName || 'C'}
-            className="w-10 h-10 rounded-xl bg-primary-500/20 border border-primary-500/30 shrink-0"
-            textClassName="font-bold text-white text-xs"
-          />
-          <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 border border-slate-950" />
-        </div>
-        <div className="min-w-0 flex-1 overflow-hidden">
-          <h5 className="font-bold text-xs text-white truncate leading-tight" title={resolvedClientName}>
-            {resolvedClientName}
-          </h5>
-          <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-white/60">
-            <span className="text-emerald-400 font-semibold shrink-0">{conversation?.channel || 'WhatsApp'}</span>
-            <span className="text-white/30 shrink-0">·</span>
-            <span className="text-emerald-400 font-semibold shrink-0">Online</span>
-            {conversation?.phone && (
-              <>
-                <span className="text-white/30 shrink-0">·</span>
-                <button
-                  type="button"
-                  onClick={handleCopyPhone}
-                  title="Copiar telefone"
-                  className="inline-flex items-center gap-1 text-white/50 hover:text-primary-300 font-medium transition-colors truncate min-w-0 cursor-pointer"
-                >
-                  <span className="truncate max-w-[100px]">{conversation.phone}</span>
-                  <Copy size={9} className="shrink-0 opacity-70" />
-                </button>
-              </>
-            )}
-          </div>
-        </div>
       </div>
 
       {/* Sub-abas do painel lateral */}

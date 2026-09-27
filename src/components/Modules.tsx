@@ -5606,18 +5606,18 @@ export const ChatPanel = ({
                     <span className="text-emerald-400 font-semibold uppercase tracking-wider shrink-0">Online</span>
                   )}
 
-                  {/* Telefone: oculto no mobile (< sm) para evitar sobreposição, truncado no desktop */}
+                  {/* Telefone: sempre visível (mobile e desktop), truncado para não sobrepor o layout */}
                   {conversation.phone && (
                     <>
-                      <span className="text-white/30 shrink-0 hidden sm:inline">·</span>
+                      <span className="text-white/30 shrink-0">·</span>
                       <button
                         type="button"
                         onClick={handleCopyPhone}
                         disabled={!conversation.phone}
                         title="Copiar telefone"
-                        className="hidden sm:inline-flex items-center gap-1 text-white/50 font-medium hover:text-primary-300 transition-colors disabled:opacity-40 truncate min-w-0"
+                        className="inline-flex items-center gap-1 text-white/50 font-medium hover:text-primary-300 transition-colors disabled:opacity-40 truncate min-w-0"
                       >
-                        <span className={cn("truncate", showDesktopSidebar ? "max-w-[95px] xl:max-w-[140px]" : "max-w-[120px] md:max-w-none")}>{conversation.phone}</span>
+                        <span className={cn("truncate", showDesktopSidebar ? "max-w-[75px] sm:max-w-[95px] xl:max-w-[140px]" : "max-w-[80px] sm:max-w-[120px] md:max-w-none")}>{conversation.phone}</span>
                         <Copy size={9} className="shrink-0 opacity-70" />
                       </button>
                     </>
