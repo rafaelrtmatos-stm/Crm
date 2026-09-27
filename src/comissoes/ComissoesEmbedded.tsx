@@ -66,7 +66,6 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
   // preenchido) pode criar/editar/excluir desconto -- o colaborador (login proprio, seja
   // aqui no menu embutido ou em /comissoes) so enxerga, nunca escreve.
   const isAdmin = !!presetColaborador;
-  const modalidadeRemuneracao = colaborador?.modalidadeRemuneracao ?? 'fixo_comissao';
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [editingService, setEditingService] = useState<ServiceItem | null>(null);
@@ -85,15 +84,6 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
     setActiveTab('servicos');
     showToast('Selecione uma nota para adicionar os itens de serviço.');
   };
-
-  useEffect(() => {
-    if (!colaborador) return;
-    if (colaborador.modalidadeRemuneracao === 'fixo') {
-      setActiveTab('descontos');
-    } else if (colaborador.modalidadeRemuneracao === 'meta' && ['weekly', 'table', 'reports', 'servicos'].includes(activeTab)) {
-      setActiveTab('dashboard');
-    }
-  }, [colaborador?.id, colaborador?.modalidadeRemuneracao]);
 
   useEffect(() => {
     // Modo "visão do admin": o colaborador já vem escolhido de fora (Configurações > Comissões),
@@ -416,7 +406,6 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
         onOpenAddModal={() => handleOpenAddModal()}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onLogout={presetColaborador ? undefined : handleLogout}
-        modalidadeRemuneracao={modalidadeRemuneracao}
       />
 
       <main className="flex-1 w-full mx-auto px-4 sm:px-6 py-6">
