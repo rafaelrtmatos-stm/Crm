@@ -40,7 +40,7 @@ import {
   Award,
   ArrowUpRight
 } from 'lucide-react';
-import { Colaborador, ModoLancamentoComissao, Desconto, calculateDescontosNoPeriodo } from './utils/supabaseStorage';
+import { Colaborador, ModoLancamentoComissao, Desconto, calculateDescontosNoPeriodo, mapColaboradorRow } from './utils/supabaseStorage';
 import { getWorkWeekBounds, getDescontosValesBounds } from './utils/caixaSemanalStorage';
 import { useSyncWithCrmTheme } from './utils/useSyncCrmTheme';
 import { supabase } from '../supabase';
@@ -528,17 +528,7 @@ export default function ComissoesAdminPanel() {
     await loadData();
   };
 
-  const toColaborador = (c: ColaboradorRow): Colaborador => ({
-    id: c.id,
-    nome: c.nome,
-    cargo: c.cargo || undefined,
-    salarioBase: Number(c.salario_base) || 0,
-    comissaoPadraoPercentual: Number(c.comissao_padrao_percentual) || 10,
-    metaSemanal: Number(c.meta_semanal) || 0,
-    tema: (c.tema as any) || 'dark',
-    ativo: c.ativo !== false,
-    modoLancamentoComissao: c.modo_lancamento_comissao === 'somente_nota' ? 'somente_nota' : 'livre',
-  });
+  const toColaborador = (c: ColaboradorRow): Colaborador => mapColaboradorRow(c);
 
   // Se um colaborador estiver selecionado, abre o painel completo dele
   if (selected) {
