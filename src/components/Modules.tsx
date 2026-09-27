@@ -250,7 +250,10 @@ import {
   CpfCnpjInput,
   RgInput,
   cn,
-  AvatarPhoto
+  AvatarPhoto,
+  WhatsAppLogo,
+  InstagramLogo,
+  ChannelLogoBadge
 } from './SharedUI';
 import { collection, query, where, onSnapshot, orderBy, Timestamp, addDoc, doc, updateDoc, getDocs, setDoc, limit, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -7868,22 +7871,23 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                           </p>
                           <div className="grid grid-cols-3 gap-1.5">
                             {[
-                              { id: "todos", label: "Todos" },
-                              { id: "whatsapp", label: "WhatsApp" },
-                              { id: "instagram", label: "Instagram" },
+                              { id: "todos", label: "Todos", icon: null },
+                              { id: "whatsapp", label: "WhatsApp", icon: WhatsAppLogo, color: "text-emerald-400" },
+                              { id: "instagram", label: "Instagram", icon: InstagramLogo, color: "text-pink-400" },
                             ].map(opt => (
                               <button
                                 key={opt.id}
                                 type="button"
                                 onClick={() => setSourceFilter(opt.id)}
                                 className={cn(
-                                  "py-1.5 px-2 rounded-lg text-[10.5px] font-bold transition-all text-center cursor-pointer",
+                                  "py-1.5 px-2 rounded-lg text-[10.5px] font-bold transition-all text-center cursor-pointer flex items-center justify-center gap-1.5",
                                   sourceFilter === opt.id 
                                     ? "bg-primary-500 text-slate-950" 
                                     : "bg-white/5 text-white/70 hover:bg-white/10"
                                 )}
                               >
-                                {opt.label}
+                                {opt.icon && <opt.icon className={cn("w-3.5 h-3.5 shrink-0", sourceFilter === opt.id ? "text-slate-950" : opt.color)} />}
+                                <span>{opt.label}</span>
                               </button>
                             ))}
                           </div>
@@ -8522,22 +8526,26 @@ const KanbanColumn = ({
           <button
             type="button"
             onClick={() => setChannelFilter('whatsapp')}
+            title={`WhatsApp (${wppCount})`}
             className={cn(
-              "px-2 py-0.5 rounded-md transition-all whitespace-nowrap flex items-center gap-1",
+              "px-1.5 py-0.5 rounded-md transition-all whitespace-nowrap flex items-center gap-1",
               channelFilter === 'whatsapp' ? "bg-emerald-500/20 text-emerald-300 font-extrabold border border-emerald-500/30" : "text-white/40 hover:text-emerald-400"
             )}
           >
-            WhatsApp {wppCount}
+            <WhatsAppLogo className="w-3 h-3 shrink-0" />
+            <span>{wppCount}</span>
           </button>
           <button
             type="button"
             onClick={() => setChannelFilter('instagram')}
+            title={`Instagram (${instaCount})`}
             className={cn(
-              "px-2 py-0.5 rounded-md transition-all whitespace-nowrap flex items-center gap-1",
+              "px-1.5 py-0.5 rounded-md transition-all whitespace-nowrap flex items-center gap-1",
               channelFilter === 'instagram' ? "bg-pink-500/20 text-pink-300 font-extrabold border border-pink-500/30" : "text-white/40 hover:text-pink-400"
             )}
           >
-            Instagram {instaCount}
+            <InstagramLogo className="w-3 h-3 shrink-0" />
+            <span>{instaCount}</span>
           </button>
         </div>
       </div>
@@ -8645,12 +8653,7 @@ const KanbanCard = ({ lead, onClick, isSelected, isDragging, selectionMode, isCh
             </p>
           </div>
           <div className="flex items-center gap-1 shrink-0">
-            <span className={cn(
-              "text-[8.5px] font-semibold tracking-wide",
-              isWpp ? "text-emerald-400" : "text-pink-400"
-            )}>
-              {channelName}
-            </span>
+            <ChannelLogoBadge channel={channelName} className="w-3.5 h-3.5" />
             {timeStr && (
               <span className="text-[8px] font-medium text-white/30">
                 {timeStr}
@@ -9326,8 +9329,8 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
                     <Badge variant="primary" className="px-2 py-0 h-5 text-[9px] uppercase font-black">
                       {l.status}
                     </Badge>
-                    <div className="ml-auto flex items-center gap-1.5 opacity-40 group-hover:opacity-100 transition-opacity">
-                       <span className="text-[9px] text-white/40 font-bold">{l.sourceType || 'WhatsApp'}</span>
+                    <div className="ml-auto flex items-center gap-1.5 opacity-60 group-hover:opacity-100 transition-opacity">
+                       <ChannelLogoBadge channel={l.sourceType} className="w-3.5 h-3.5" />
                        <div className="w-3 h-3 rounded-full bg-white/5 flex items-center justify-center">
                           <CheckCircle2 size={10} className="text-emerald-400" />
                        </div>
