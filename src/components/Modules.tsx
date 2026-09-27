@@ -5531,48 +5531,55 @@ export const ChatPanel = ({
                     {resolvedClientName}
                   </h4>
 
-                  {/* Indicador de Status do Funil: exibido no desktop */}
+                  {/* Indicador de Status do Funil: 1 clique e abre a aba suspensa */}
                   {effectiveFunnelId && funnelStages.length > 0 && (
-                    <div className={cn("relative shrink-0", showDesktopSidebar ? "hidden 2xl:block" : "hidden lg:block")}>
+                    <div className="relative shrink-0">
                       <button
                         type="button"
                         onClick={() => setIsStageMenuOpen(o => !o)}
                         disabled={isChangingStage}
-                        className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 transition-all text-[8px] font-black uppercase tracking-wider cursor-pointer active:scale-95"
+                        className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-white/10 hover:bg-white/15 border border-white/15 transition-all text-[9px] font-black uppercase tracking-wider cursor-pointer active:scale-95 shadow-xs"
                         style={{ color: stageColor }}
-                        title="Alterar status do atendimento"
+                        title="Clique para alterar a etapa do atendimento"
                       >
-                        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: stageColor }} />
-                        <span className="truncate max-w-[85px]">{stageName}</span>
-                        <ChevronDown size={8} className={cn("shrink-0 opacity-60 transition-transform", isStageMenuOpen && "rotate-180")} />
+                        <span className="w-1.5 h-1.5 rounded-full shrink-0 animate-pulse" style={{ backgroundColor: stageColor }} />
+                        <span className="truncate max-w-[85px] sm:max-w-[120px]">{stageName}</span>
+                        <ChevronDown size={9} className={cn("shrink-0 opacity-70 transition-transform duration-200", isStageMenuOpen && "rotate-180")} />
                       </button>
 
                       {isStageMenuOpen && (
                         <>
-                          <div className="fixed inset-0 z-40" onClick={() => setIsStageMenuOpen(false)} />
-                          <div className="absolute top-full mt-1.5 left-0 min-w-[200px] bg-slate-900 border border-white/10 rounded-2xl shadow-2xl z-50 p-1.5 max-h-60 overflow-y-auto custom-scrollbar">
-                            <div className="px-2.5 py-1 text-[9px] font-black uppercase tracking-wider text-white/40 border-b border-white/10 mb-1">
-                              Status do Atendimento
+                          <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[99]" onClick={() => setIsStageMenuOpen(false)} />
+                          <div className="fixed z-[100] inset-x-3 bottom-4 sm:bottom-auto sm:top-14 sm:left-24 sm:right-auto sm:w-80 bg-slate-900 border border-white/15 rounded-2xl shadow-2xl p-2.5 max-h-[75vh] overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-150">
+                            <div className="flex items-center justify-between px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-white/50 border-b border-white/10 mb-1.5">
+                              <span>Mudar Etapa do Lead</span>
+                              <button type="button" onClick={() => setIsStageMenuOpen(false)} className="text-white/40 hover:text-white p-0.5">
+                                <X size={13} />
+                              </button>
                             </div>
-                            {funnelStages.map(stage => {
-                              const isActive = stage.id === activeStageId;
-                              const c = stage.color || '#ef4444';
-                              return (
-                                <button
-                                  key={stage.id}
-                                  type="button"
-                                  onClick={() => { handleChangeStageFromChat(stage.id); setIsStageMenuOpen(false); }}
-                                  className={cn(
-                                    "w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all text-left cursor-pointer",
-                                    isActive ? "bg-white/[0.08]" : "hover:bg-white/5"
-                                  )}
-                                >
-                                  <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c }} />
-                                  <span className="flex-1 truncate normal-case" style={{ color: isActive ? c : 'rgba(255,255,255,0.75)' }}>{stage.name}</span>
-                                  {isActive && <Check size={12} style={{ color: c }} className="shrink-0" />}
-                                </button>
-                              );
-                            })}
+                            <div className="space-y-1">
+                              {funnelStages.map(stage => {
+                                const isActive = stage.id === activeStageId;
+                                const c = stage.color || '#ef4444';
+                                return (
+                                  <button
+                                    key={stage.id}
+                                    type="button"
+                                    onClick={() => { handleChangeStageFromChat(stage.id); setIsStageMenuOpen(false); }}
+                                    className={cn(
+                                      "w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all text-left cursor-pointer",
+                                      isActive ? "bg-white/10 border border-white/15 text-white" : "hover:bg-white/5 text-white/70"
+                                    )}
+                                  >
+                                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: c }} />
+                                    <span className="flex-1 truncate normal-case font-semibold" style={{ color: isActive ? c : undefined }}>
+                                      {stage.name}
+                                    </span>
+                                    {isActive && <Check size={14} style={{ color: c }} className="shrink-0" strokeWidth={2.5} />}
+                                  </button>
+                                );
+                              })}
+                            </div>
                           </div>
                         </>
                       )}
@@ -7043,6 +7050,49 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
   const [openedViaJump, setOpenedViaJump] = useState(false);
   const [isColumnCollapsed, setIsColumnCollapsed] = useState(false);
   const [activeColumnStageId, setActiveColumnStageId] = useState<string | null>(null);
+  const [selectedStageId, setSelectedStageId] = useState<string | null>(null);
+  const activeStages = useMemo(() => stages.filter(s => s.isActive !== false), [stages]);
+  const effectiveSelectedStageId = (selectedStageId && activeStages.some(s => s.id === selectedStageId))
+    ? selectedStageId
+    : (activeStages.find(s => s.isInitial || s.order === 0)?.id || activeStages[0]?.id || null);
+  const displayedStageId = (selectedLead ? (activeColumnStageId || selectedLead.funnelStageId || effectiveSelectedStageId) : effectiveSelectedStageId) || activeStages[0]?.id;
+  const currentStageObj = activeStages.find(s => s.id === displayedStageId) || activeStages[0];
+  const [showColorPickerStageId, setShowColorPickerStageId] = useState<string | null>(null);
+
+  const handleNavigateStage = (direction: 'next' | 'prev') => {
+    const currentIndex = activeStages.findIndex(s => s.id === displayedStageId);
+    if (currentIndex === -1) return;
+    if (direction === 'next' && currentIndex < activeStages.length - 1) {
+      const nextId = activeStages[currentIndex + 1].id;
+      setSelectedStageId(nextId);
+      setActiveColumnStageId(nextId);
+    } else if (direction === 'prev' && currentIndex > 0) {
+      const prevId = activeStages[currentIndex - 1].id;
+      setSelectedStageId(prevId);
+      setActiveColumnStageId(prevId);
+    }
+  };
+
+  const handleCreateLead = async () => {
+    const name = await showPrompt("Nome do novo lead:");
+    if (!name || !name.trim() || !selectedFunnelId) return;
+    const phone = await showPrompt("Telefone / WhatsApp (opcional):", "");
+    try {
+      const targetStage = stages.find(s => s.id === (displayedStageId || effectiveSelectedStageId)) || stages.find(s => s.isInitial) || stages[0];
+      await supabase.from("leads").insert({
+        company_id: "rafa-arts",
+        funnel_id: selectedFunnelId,
+        funnel_stage_id: targetStage?.id || null,
+        full_name: name.trim(),
+        phone: phone?.trim() || null,
+        source_type: "Manual",
+      });
+      showAlert(`Lead "${name.trim()}" criado com sucesso!`);
+    } catch (err) {
+      console.error("Erro ao criar lead:", err);
+      showAlert("Não foi possível criar o lead.");
+    }
+  };
 
 
   // Filtros unificados do Funil (Data, Origem, Status)
@@ -7077,6 +7127,68 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     });
   };
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
+
+  // Navegação por arraste lateral (swipe) no mobile entre etapas do funil
+  const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
+  const stageTabRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      touchStartRef.current = {
+        x: e.touches[0].clientX,
+        y: e.touches[0].clientY,
+        time: Date.now(),
+      };
+    }
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (!touchStartRef.current || e.changedTouches.length === 0) return;
+    const deltaX = e.changedTouches[0].clientX - touchStartRef.current.x;
+    const deltaY = e.changedTouches[0].clientY - touchStartRef.current.y;
+    const elapsed = Date.now() - touchStartRef.current.time;
+    touchStartRef.current = null;
+
+    // Detecta arraste lateral horizontal nítido (> 40px, mais horizontal que vertical e duração < 650ms)
+    if (Math.abs(deltaX) > 40 && Math.abs(deltaX) > Math.abs(deltaY) * 1.25 && elapsed < 650) {
+      handleNavigateStage(deltaX < 0 ? 'next' : 'prev');
+    }
+  };
+
+  const handleTouchCancel = () => {
+    touchStartRef.current = null;
+  };
+
+  // Arraste com mouse (desktop) para navegar entre etapas sem botões
+  const mouseStartRef = useRef<{ x: number; time: number } | null>(null);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (e.button === 0 && !(e.target as HTMLElement).closest('button, input, select, textarea, a, [data-no-swipe]')) {
+      mouseStartRef.current = { x: e.clientX, time: Date.now() };
+    }
+  };
+
+  const handleMouseUp = (e: React.MouseEvent) => {
+    if (!mouseStartRef.current) return;
+    const deltaX = e.clientX - mouseStartRef.current.x;
+    const elapsed = Date.now() - mouseStartRef.current.time;
+    mouseStartRef.current = null;
+
+    if (Math.abs(deltaX) > 60 && elapsed < 800) {
+      handleNavigateStage(deltaX < 0 ? 'next' : 'prev');
+    }
+  };
+
+  // Garante que a aba da etapa ativa role suavemente para o centro visível no mobile
+  useEffect(() => {
+    if (effectiveSelectedStageId && stageTabRefs.current[effectiveSelectedStageId]) {
+      stageTabRefs.current[effectiveSelectedStageId]?.scrollIntoView({
+        behavior: 'smooth',
+        inline: 'center',
+        block: 'nearest',
+      });
+    }
+  }, [effectiveSelectedStageId]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -7693,316 +7805,405 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
           ? (isColumnCollapsed ? "hidden md:flex md:w-10 md:shrink-0" : "hidden md:flex md:w-[310px] lg:w-[315px] md:shrink-0")
           : "w-full flex"
       )}>
-        {!selectedLead && (
-          /* Barra de Ferramentas do Funil CRM (2 linhas organizadas no mobile, 1 linha no desktop) */
-          <div className="bg-slate-900/60 border border-white/10 rounded-2xl p-2 md:px-3 md:py-1.5 flex flex-col md:flex-row md:items-center justify-between gap-2 md:gap-2.5 shadow-lg backdrop-blur-md md:h-[48px] shrink-0">
-            {/* LINHA 1 (Mobile) / Lado Esquerdo (Desktop): Seletor de Funil + Busca Rápida */}
-            <div className="flex items-center gap-2 w-full md:w-auto md:flex-1 min-w-0">
-              {/* Seletor do Funil Atual */}
-              <div className="relative shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setFunnelMenuOpen(!funnelMenuOpen)}
-                  className="flex items-center gap-1.5 px-2.5 py-1 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-all text-xs font-black uppercase tracking-wider text-white active:scale-95 h-8 shrink-0 cursor-pointer"
-                  title="Alternar funil"
-                >
-                  <span 
-                    className="w-2.5 h-2.5 rounded-full shrink-0" 
-                    style={{ backgroundColor: currentFunnel?.color || "#4cc9f0" }} 
-                  />
-                  <span className="truncate max-w-[110px] sm:max-w-[160px]">
-                    {currentFunnel?.name || "Funil"}
-                  </span>
-                  <ChevronDown size={13} className={cn("transition-transform opacity-60", funnelMenuOpen && "rotate-180")} />
-                </button>
+        {/* Topo: Pesquisar + Filtros + Ordenar + "+" para novo lead */}
+        <div className="bg-slate-900/60 border border-white/10 rounded-2xl p-2 sm:px-3 sm:py-2 flex items-center gap-1.5 sm:gap-2 shadow-sm backdrop-blur-md shrink-0 w-full">
+          {/* Pesquisar */}
+          <div className="relative flex-1 min-w-0">
+            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/40 pointer-events-none" />
+            <input
+              value={funnelSearchTerm}
+              onChange={(e) => setFunnelSearchTerm(e.target.value)}
+              placeholder="Pesquisar..."
+              className="w-full h-9 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl pl-8 pr-7 text-xs text-white placeholder:text-white/30 focus:outline-none focus:border-red-500/50 transition-all"
+            />
+            {funnelSearchTerm && (
+              <button
+                type="button"
+                onClick={() => setFunnelSearchTerm("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-white/40 hover:text-white cursor-pointer"
+              >
+                <X size={11} />
+              </button>
+            )}
+          </div>
 
-                  {funnelMenuOpen && (
-                    <>
-                      <div className="fixed inset-0 z-40" onClick={() => setFunnelMenuOpen(false)} />
-                      <div className="absolute top-full mt-2 left-0 w-64 bg-slate-900 border border-white/10 rounded-2xl shadow-2xl z-50 p-2 space-y-2">
-                        <div>
-                          <p className="text-[9px] font-black uppercase text-white/40 tracking-widest px-3 py-1">Funil de Vendas</p>
-                          <div className="px-3 py-2 rounded-xl bg-white/5 flex items-center gap-2 text-xs font-bold text-white">
-                            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: currentFunnel?.color || "#4cc9f0" }} />
-                            <span className="truncate">{currentFunnel?.name || "Funil de Vendas"}</span>
-                          </div>
-                        </div>
+          {/* Filtros */}
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              onClick={() => setIsFilterDropdownOpen(v => !v)}
+              className={cn(
+                "h-9 px-2.5 sm:px-3 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all shrink-0 active:scale-95 cursor-pointer whitespace-nowrap",
+                activeFiltersCount > 0 
+                  ? "bg-red-500/20 border-red-500/50 text-red-300" 
+                  : "bg-white/5 border-white/10 text-white/80 hover:bg-white/10 hover:text-white"
+              )}
+              title="Filtros"
+            >
+              <Filter size={13} />
+              <span className="hidden sm:inline">Filtros</span>
+              {activeFiltersCount > 0 && (
+                <span className="w-3.5 h-3.5 rounded-full bg-red-500 text-white font-black text-[9px] flex items-center justify-center">
+                  {activeFiltersCount}
+                </span>
+              )}
+            </button>
 
-                        <div className="h-px bg-white/10" />
-
-                        <div className="space-y-1">
-                          <button
-                            type="button"
-                            onClick={() => { setFunnelMenuOpen(false); setIsConfiguringFunnel(true); }}
-                            className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-white/80 hover:bg-white/10 transition-all flex items-center gap-2 cursor-pointer"
-                          >
-                            <Settings2 size={13} className="text-white/60" /> Gerenciar Etapas do Funil
-                          </button>
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </div>
-
-                {/* Caixa de Pesquisa Integrada */}
-                <div className="relative flex-1 min-w-0">
-                  <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/40 pointer-events-none" />
-                  <input
-                    value={funnelSearchTerm}
-                    onChange={(e) => setFunnelSearchTerm(e.target.value)}
-                    placeholder="Pesquisar por nome, telefone ou mensagem..."
-                    className="w-full h-8 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl pl-8 pr-7 text-xs text-white placeholder:text-white/30 focus:outline-none focus:border-primary-500 transition-all"
-                  />
-                  {funnelSearchTerm && (
-                    <button
-                      type="button"
-                      onClick={() => setFunnelSearchTerm("")}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-white/40 hover:text-white cursor-pointer"
-                    >
-                      <X size={11} />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* LINHA 2 (Mobile) / Lado Direito (Desktop): Aba de Ferramentas e Ações */}
-              <div className="flex items-center gap-1.5 w-full md:w-auto overflow-x-auto no-scrollbar shrink-0 justify-between md:justify-end pt-1 md:pt-0 border-t md:border-t-0 border-white/5">
-                {/* 1. Menu de Filtros (Data, Origem, Status) */}
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setIsFilterDropdownOpen(v => !v)}
-                    className={cn(
-                      "h-8 px-2.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all shrink-0 active:scale-95 cursor-pointer",
-                      activeFiltersCount > 0 
-                        ? "bg-primary-500/20 border-primary-500/50 text-primary-300" 
-                        : "bg-white/5 border-white/10 text-white/80 hover:bg-white/10 hover:text-white"
-                    )}
-                    title="Filtrar por data, canal ou status"
-                  >
-                    <Filter size={12} />
-                    <span>Filtros</span>
+            {isFilterDropdownOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setIsFilterDropdownOpen(false)} />
+                <div className="absolute top-full right-0 mt-2 z-50 w-72 sm:w-80 max-w-[calc(100vw-24px)] bg-slate-900 border border-white/15 rounded-2xl shadow-2xl p-4 space-y-4 max-h-[75vh] overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-150">
+                  <div className="flex items-center justify-between pb-2 border-b border-white/10">
+                    <span className="text-xs font-black uppercase tracking-wider text-white">Filtros do Funil</span>
                     {activeFiltersCount > 0 && (
-                      <span className="w-3.5 h-3.5 rounded-full bg-primary-500 text-slate-950 font-black text-[9px] flex items-center justify-center">
-                        {activeFiltersCount}
-                      </span>
+                      <button
+                        type="button"
+                        onClick={clearAllFilters}
+                        className="text-[10px] font-bold text-rose-400 hover:underline cursor-pointer"
+                      >
+                        Limpar Tudo
+                      </button>
                     )}
-                  </button>
+                  </div>
 
-                  {isFilterDropdownOpen && (
-                    <>
-                      <div className="fixed inset-0 z-40" onClick={() => setIsFilterDropdownOpen(false)} />
-                      <div className="absolute top-full mt-2 right-0 md:left-auto w-72 bg-slate-900 border border-white/10 rounded-2xl shadow-2xl z-50 p-4 space-y-4">
-                        <div className="flex items-center justify-between pb-2 border-b border-white/10">
-                          <span className="text-xs font-black uppercase tracking-wider text-white">Filtros do Funil</span>
-                          {activeFiltersCount > 0 && (
-                            <button
-                              type="button"
-                              onClick={clearAllFilters}
-                              className="text-[10px] font-bold text-rose-400 hover:underline cursor-pointer"
-                            >
-                              Limpar Tudo
-                            </button>
-                          )}
-                        </div>
-
-                        {/* Filtro por Período */}
-                        <div className="space-y-1.5">
-                          <p className="text-[10px] font-black uppercase tracking-wider text-white/40 flex items-center gap-1.5">
-                            <Calendar size={11} /> Período
-                          </p>
-                          <div className="grid grid-cols-3 gap-1.5">
-                            {[
-                              { id: "todos", label: "Todos" },
-                              { id: "hoje", label: "Hoje" },
-                              { id: "ontem", label: "Ontem" },
-                              { id: "7dias", label: "7 dias" },
-                              { id: "30dias", label: "30 dias" },
-                            ].map(opt => (
-                              <button
-                                key={opt.id}
-                                type="button"
-                                onClick={() => setDateFilter(opt.id as any)}
-                                className={cn(
-                                  "py-1.5 px-2 rounded-lg text-[10.5px] font-bold transition-all text-center cursor-pointer",
-                                  dateFilter === opt.id 
-                                    ? "bg-primary-500 text-slate-950" 
-                                    : "bg-white/5 text-white/70 hover:bg-white/10"
-                                )}
-                              >
-                                {opt.label}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Filtro por Origem / Canal */}
-                        <div className="space-y-1.5">
-                          <p className="text-[10px] font-black uppercase tracking-wider text-white/40 flex items-center gap-1.5">
-                            <MessageSquare size={11} /> Canal / Origem
-                          </p>
-                          <div className="grid grid-cols-3 gap-1.5">
-                            {[
-                              { id: "todos", label: "Todos", icon: null },
-                              { id: "whatsapp", label: "WhatsApp", icon: WhatsAppLogo, color: "text-emerald-400" },
-                              { id: "instagram", label: "Instagram", icon: InstagramLogo, color: "text-pink-400" },
-                            ].map(opt => (
-                              <button
-                                key={opt.id}
-                                type="button"
-                                onClick={() => setSourceFilter(opt.id)}
-                                className={cn(
-                                  "py-1.5 px-2 rounded-lg text-[10.5px] font-bold transition-all text-center cursor-pointer flex items-center justify-center gap-1.5",
-                                  sourceFilter === opt.id 
-                                    ? "bg-primary-500 text-slate-950" 
-                                    : "bg-white/5 text-white/70 hover:bg-white/10"
-                                )}
-                              >
-                                {opt.icon && <opt.icon className={cn("w-3.5 h-3.5 shrink-0", sourceFilter === opt.id ? "text-slate-950" : opt.color)} />}
-                                <span>{opt.label}</span>
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Filtro por Pendência / Status */}
-                        <div className="space-y-1.5">
-                          <p className="text-[10px] font-black uppercase tracking-wider text-white/40 flex items-center gap-1.5">
-                            <Clock size={11} /> Status
-                          </p>
-                          <div className="space-y-1">
-                            {[
-                              { id: "todos", label: "Todos os leads" },
-                              { id: "unread", label: "Aguardando resposta / Não lidos" },
-                              { id: "with_task", label: "Com tarefa agendada" },
-                            ].map(opt => (
-                              <button
-                                key={opt.id}
-                                type="button"
-                                onClick={() => setStatusFilter(opt.id as any)}
-                                className={cn(
-                                  "w-full text-left py-1.5 px-2.5 rounded-lg text-[10.5px] font-bold transition-all flex items-center justify-between cursor-pointer",
-                                  statusFilter === opt.id 
-                                    ? "bg-primary-500 text-slate-950" 
-                                    : "bg-white/5 text-white/70 hover:bg-white/10"
-                                )}
-                              >
-                                <span>{opt.label}</span>
-                                {statusFilter === opt.id && <Check size={12} />}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-
-                        <Button 
-                          size="sm" 
-                          className="w-full" 
-                          onClick={() => setIsFilterDropdownOpen(false)}
-                        >
-                          Fechar
-                        </Button>
-                      </div>
-                    </>
-                  )}
-                </div>
-
-                {/* 2. Menu Ordenar */}
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setSortMenuOpen(o => !o)}
-                    className="h-8 px-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs font-bold text-white/80 hover:text-white flex items-center gap-1.5 transition-all shrink-0 active:scale-95 cursor-pointer"
-                    title="Ordenar cards"
-                  >
-                    <ArrowUpDown size={12} />
-                    <span>Ordenar</span>
-                  </button>
-
-                  {sortMenuOpen && (
-                    <>
-                      <div className="fixed inset-0 z-40" onClick={() => setSortMenuOpen(false)} />
-                      <div className="absolute top-full mt-2 right-0 w-60 bg-slate-900 border border-white/10 rounded-2xl shadow-2xl z-50 p-2 space-y-1">
-                        <p className="text-[9px] font-black uppercase text-white/40 tracking-widest px-3 py-1">Critério de Ordem</p>
-                        {LEAD_SORT_OPTIONS.map(o => {
-                          const ativo = leadSort.key === o.key;
-                          const dir = ativo ? leadSort.dir : o.defaultDir;
-                          const DirIcon = dir === "asc" ? ArrowUp : ArrowDown;
+                  {/* Funil de Vendas (se houver mais de 1) */}
+                  {funnels.length > 1 && (
+                    <div className="space-y-1.5 pb-2 border-b border-white/10">
+                      <p className="text-[10px] font-black uppercase tracking-wider text-white/40 flex items-center gap-1.5">
+                        <Layers size={11} /> Funil Ativo
+                      </p>
+                      <div className="space-y-1 max-h-36 overflow-y-auto custom-scrollbar">
+                        {funnels.map(f => {
+                          const isCur = f.id === selectedFunnelId;
                           return (
                             <button
-                              key={o.key}
-                              onClick={() => handlePickSort(o.key)}
+                              key={f.id}
+                              type="button"
+                              onClick={() => { setSelectedFunnelId(f.id); setIsFilterDropdownOpen(false); }}
                               className={cn(
-                                "w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer",
-                                ativo ? "text-primary-300 bg-primary-500/10" : "text-white/70 hover:bg-white/10"
+                                "w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-between cursor-pointer",
+                                isCur ? "bg-red-500/15 text-red-300 border border-red-500/30" : "text-white/70 hover:bg-white/5 hover:text-white"
                               )}
                             >
-                              <span className="truncate">{o.label}</span>
-                              <DirIcon size={13} className={cn("shrink-0", !ativo && "opacity-40")} />
+                              <div className="flex items-center gap-2 truncate">
+                                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: f.color || "#4cc9f0" }} />
+                                <span className="truncate">{f.name}</span>
+                              </div>
+                              {isCur && <Check size={12} className="text-red-400 shrink-0" />}
                             </button>
                           );
                         })}
                       </div>
-                    </>
+                    </div>
                   )}
+
+                  {/* Filtro por Período */}
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] font-black uppercase tracking-wider text-white/40 flex items-center gap-1.5">
+                      <Calendar size={11} /> Período
+                    </p>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {[
+                        { id: "todos", label: "Todos" },
+                        { id: "hoje", label: "Hoje" },
+                        { id: "ontem", label: "Ontem" },
+                        { id: "7dias", label: "7 dias" },
+                        { id: "30dias", label: "30 dias" },
+                      ].map(opt => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => setDateFilter(opt.id as any)}
+                          className={cn(
+                            "py-1.5 px-2 rounded-lg text-[10.5px] font-bold transition-all text-center cursor-pointer",
+                            dateFilter === opt.id 
+                              ? "bg-red-500 text-white font-black" 
+                              : "bg-white/5 text-white/70 hover:bg-white/10"
+                          )}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Filtro por Origem / Canal */}
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] font-black uppercase tracking-wider text-white/40 flex items-center gap-1.5">
+                      <MessageSquare size={11} /> Canal / Origem
+                    </p>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {[
+                        { id: "todos", label: "Todos", icon: null },
+                        { id: "whatsapp", label: "WhatsApp", icon: WhatsAppLogo, color: "text-emerald-400" },
+                        { id: "instagram", label: "Instagram", icon: InstagramLogo, color: "text-pink-400" },
+                      ].map(opt => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => setSourceFilter(opt.id)}
+                          className={cn(
+                            "py-1.5 px-2 rounded-lg text-[10.5px] font-bold transition-all text-center cursor-pointer flex items-center justify-center gap-1.5",
+                            sourceFilter === opt.id 
+                              ? "bg-red-500 text-white font-black" 
+                              : "bg-white/5 text-white/70 hover:bg-white/10"
+                          )}
+                        >
+                          {opt.icon && <opt.icon className={cn("w-3.5 h-3.5 shrink-0", sourceFilter === opt.id ? "text-white" : opt.color)} />}
+                          <span>{opt.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Filtro por Pendência / Status */}
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] font-black uppercase tracking-wider text-white/40 flex items-center gap-1.5">
+                      <Clock size={11} /> Status
+                    </p>
+                    <div className="space-y-1">
+                      {[
+                        { id: "todos", label: "Todos os leads" },
+                        { id: "unread", label: "Aguardando resposta / Não lidos" },
+                        { id: "with_task", label: "Com tarefa agendada" },
+                      ].map(opt => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => setStatusFilter(opt.id as any)}
+                          className={cn(
+                            "w-full text-left py-1.5 px-2.5 rounded-lg text-[10.5px] font-bold transition-all flex items-center justify-between cursor-pointer",
+                            statusFilter === opt.id 
+                              ? "bg-red-500 text-white font-black" 
+                              : "bg-white/5 text-white/70 hover:bg-white/10"
+                          )}
+                        >
+                          <span>{opt.label}</span>
+                          {statusFilter === opt.id && <Check size={12} />}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Ações extras no dropdown: Seleção em massa e Gerenciar Funil */}
+                  <div className="pt-2 border-t border-white/10 space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLeadSelectionMode(v => !v);
+                        setSelectedLeadIds(new Set());
+                        setIsFilterDropdownOpen(false);
+                      }}
+                      className={cn(
+                        "w-full text-center py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer",
+                        leadSelectionMode
+                          ? "bg-rose-500 text-white"
+                          : "bg-white/5 hover:bg-white/10 text-white/80"
+                      )}
+                    >
+                      <CheckSquare size={13} /> {leadSelectionMode ? "Desativar Seleção Múltipla" : "Selecionar Vários Leads"}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => { setIsFilterDropdownOpen(false); setIsConfiguringFunnel(true); }}
+                      className="w-full text-center py-2 px-3 rounded-xl text-xs font-bold text-white/80 bg-white/5 hover:bg-white/10 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Settings2 size={13} className="text-white/60" /> Gerenciar Funil e Etapas
+                    </button>
+                  </div>
+
+                  <Button 
+                    size="sm" 
+                    className="w-full" 
+                    onClick={() => setIsFilterDropdownOpen(false)}
+                  >
+                    Fechar
+                  </Button>
                 </div>
+              </>
+            )}
+          </div>
 
-                {/* 4. Modo Seleção de Leads em Massa */}
+          {/* Ordenar */}
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              onClick={() => setSortMenuOpen(o => !o)}
+              className="h-9 px-2.5 sm:px-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs font-bold text-white/80 hover:text-white flex items-center gap-1.5 transition-all shrink-0 active:scale-95 cursor-pointer whitespace-nowrap"
+              title="Ordenar cards"
+            >
+              <ArrowUpDown size={13} />
+              <span className="hidden sm:inline">Ordenar</span>
+            </button>
+
+            {sortMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setSortMenuOpen(false)} />
+                <div className="absolute top-full right-0 mt-2 z-50 w-64 max-w-[calc(100vw-24px)] bg-slate-900 border border-white/15 rounded-2xl shadow-2xl p-3 space-y-1.5 animate-in fade-in zoom-in-95 duration-150">
+                  <div className="flex items-center justify-between pb-1 border-b border-white/10">
+                    <span className="text-[10px] font-black uppercase text-white/50 tracking-wider">Critério de Ordem</span>
+                    <button type="button" onClick={() => setSortMenuOpen(false)} className="text-white/40 hover:text-white p-0.5">
+                      <X size={13} />
+                    </button>
+                  </div>
+                  <div className="space-y-1">
+                    {LEAD_SORT_OPTIONS.map(o => {
+                      const ativo = leadSort.key === o.key;
+                      const dir = ativo ? leadSort.dir : o.defaultDir;
+                      const DirIcon = dir === "asc" ? ArrowUp : ArrowDown;
+                      return (
+                        <button
+                          key={o.key}
+                          onClick={() => { handlePickSort(o.key); setSortMenuOpen(false); }}
+                          className={cn(
+                            "w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer",
+                            ativo ? "text-red-300 bg-red-500/10 border border-red-500/20" : "text-white/70 hover:bg-white/5 hover:text-white"
+                          )}
+                        >
+                          <span className="truncate">{o.label}</span>
+                          <DirIcon size={13} className={cn("shrink-0", !ativo && "opacity-40")} />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* “+” para Novo Lead no canto superior direito */}
+          <button
+            type="button"
+            onClick={handleCreateLead}
+            className="h-9 px-3 sm:px-3.5 bg-red-600 hover:bg-red-500 text-white font-bold text-xs rounded-xl shadow-md shadow-red-600/20 flex items-center justify-center gap-1.5 shrink-0 active:scale-95 cursor-pointer whitespace-nowrap ml-auto"
+            title="Novo Lead (+)"
+          >
+            <Plus size={16} strokeWidth={2.5} />
+            <span className="hidden sm:inline font-bold">Novo Lead</span>
+          </button>
+        </div>
+
+        {/* Card da Etapa Atual (Fiel à referência: navegação lateral + apenas etapa atual + indicadores de paginação) */}
+        {!isColumnCollapsed && currentStageObj && (
+          <div className="bg-slate-900/60 border border-white/10 rounded-2xl p-2.5 sm:p-3 flex flex-col gap-2 shrink-0 select-none shadow-sm backdrop-blur-sm">
+            {/* Linha 1: Navegação da Etapa Atual */}
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => handleNavigateStage('prev')}
+                disabled={activeStages.findIndex(s => s.id === displayedStageId) <= 0}
+                className="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 disabled:opacity-20 disabled:hover:bg-white/5 text-white flex items-center justify-center transition-all cursor-pointer disabled:cursor-not-allowed active:scale-95 shrink-0"
+                title="Etapa anterior"
+              >
+                <ChevronLeft size={16} />
+              </button>
+
+              <div className="flex items-center gap-2 truncate px-2 min-w-0">
                 <button
                   type="button"
-                  onClick={() => { setLeadSelectionMode(v => !v); setSelectedLeadIds(new Set()); }}
+                  onClick={() => setShowColorPickerStageId(v => v ? null : currentStageObj.id)}
+                  title={user?.isAdmin ? `Alterar cor da etapa "${currentStageObj.name}"` : currentStageObj.name}
+                  className="w-4 h-4 rounded-full flex items-center justify-center transition-all shrink-0 cursor-pointer hover:scale-125 relative"
+                >
+                  <span 
+                    className="w-2.5 h-2.5 rounded-full block ring-2 ring-white/20"
+                    style={{ backgroundColor: currentStageObj.color || '#4cc9f0' }}
+                  />
+                </button>
+
+                <span 
+                  onClick={() => user?.isAdmin && startRenameStage(currentStageObj)}
                   className={cn(
-                    "h-8 px-2.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all shrink-0 active:scale-95 cursor-pointer",
-                    leadSelectionMode 
-                      ? "bg-rose-500 text-white border-rose-400" 
-                      : "bg-white/5 border-white/10 text-white/70 hover:text-white hover:bg-white/10"
+                    "font-black text-xs sm:text-sm uppercase tracking-wider text-white truncate",
+                    user?.isAdmin && "cursor-pointer hover:text-red-400 transition-colors"
                   )}
-                  title={leadSelectionMode ? "Cancelar seleção múltipla" : "Selecionar vários leads para excluir"}
+                  title={user?.isAdmin ? `Clique para renomear "${currentStageObj.name}"` : currentStageObj.name}
                 >
-                  <CheckSquare size={12} />
-                  <span>{leadSelectionMode ? "Cancelar" : "Selecionar"}</span>
-                </button>
+                  {currentStageObj.name}
+                </span>
 
-                {/* 5. Botão de Configurações das Etapas / Funil */}
-                <button
-                  type="button"
-                  onClick={() => setIsConfiguringFunnel(true)}
-                  className="h-8 w-8 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-white/70 hover:text-white flex items-center justify-center transition-all shrink-0 active:scale-95 cursor-pointer"
-                  title="Configurar etapas e funis"
-                >
-                  <Settings2 size={13} />
-                </button>
-
-                {/* 6. Botão de Criação de Lead */}
-                <Button 
-                  icon={Plus}
-                  size="sm"
-                  className="h-8 px-2.5 sm:px-3 text-xs font-bold shadow-md shadow-primary-500/20 shrink-0 cursor-pointer"
-                  onClick={async () => {
-                    const name = await showPrompt("Nome do novo lead:");
-                    if (!name || !name.trim() || !selectedFunnelId) return;
-                    const phone = await showPrompt("Telefone / WhatsApp (opcional):", "");
-                    try {
-                      const initialStage = stages.find(s => s.isInitial) || stages[0];
-                      await supabase.from("leads").insert({
-                        company_id: "rafa-arts",
-                        funnel_id: selectedFunnelId,
-                        funnel_stage_id: initialStage?.id || null,
-                        full_name: name.trim(),
-                        phone: phone?.trim() || null,
-                        source_type: "Manual",
-                      });
-                      showAlert(`Lead "${name.trim()}" criado com sucesso!`);
-                    } catch (err) {
-                      console.error("Erro ao criar lead:", err);
-                      showAlert("Não foi possível criar o lead.");
-                    }
-                  }}
-                >
-                  <span className="hidden sm:inline">Novo Lead</span>
-                  <span className="sm:hidden font-bold">+ Novo</span>
-                </Button>
+                <span className="text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded-full bg-white/10 text-white/90 shrink-0">
+                  {filteredLeads.filter(l => !gruposDigitos.has((l.phone || '').replace(/\D/g, ''))).filter(l => l.funnelStageId === displayedStageId || (!l.funnelStageId && (currentStageObj?.isInitial || currentStageObj?.order === 0))).length}
+                </span>
               </div>
+
+              <button
+                type="button"
+                onClick={() => handleNavigateStage('next')}
+                disabled={activeStages.findIndex(s => s.id === displayedStageId) >= activeStages.length - 1}
+                className="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 disabled:opacity-20 disabled:hover:bg-white/5 text-white flex items-center justify-center transition-all cursor-pointer disabled:cursor-not-allowed active:scale-95 shrink-0"
+                title="Próxima etapa"
+              >
+                <ChevronRight size={16} />
+              </button>
             </div>
+
+            {/* Color picker popup if clicked */}
+            {showColorPickerStageId === currentStageObj.id && (
+              <div className="relative z-50">
+                <div className="fixed inset-0" onClick={() => setShowColorPickerStageId(null)} />
+                <div className="absolute top-1 left-1/2 -translate-x-1/2 bg-slate-900 border border-white/15 rounded-2xl shadow-2xl p-2.5 w-56 space-y-2 animate-in fade-in zoom-in-95 duration-150">
+                  <div className="flex items-center justify-between px-1">
+                    <span className="text-[9px] font-black uppercase tracking-wider text-white/50">Cor da Etapa</span>
+                    {user?.isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => { setShowColorPickerStageId(null); startRenameStage(currentStageObj); }}
+                        className="text-[9px] text-red-400 hover:underline font-bold"
+                      >
+                        Renomear
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-6 gap-2">
+                    {FUNNEL_STAGE_COLORS.map(c => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => {
+                          handleSetStageColor(currentStageObj.id, c);
+                          setShowColorPickerStageId(null);
+                        }}
+                        className={cn(
+                          "w-5 h-5 rounded-full border transition-all hover:scale-125 cursor-pointer",
+                          currentStageObj.color === c ? "border-white ring-2 ring-white/50 scale-110" : "border-white/10"
+                        )}
+                        style={{ backgroundColor: c }}
+                        title={c}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Linha 2: Indicadores de Paginação das Etapas (traço vermelho na ativa, bolinhas nas outras) */}
+            {activeStages.length > 1 && (
+              <div className="flex items-center justify-center gap-1.5 pt-0.5">
+                {activeStages.map((st) => {
+                  const isCurrent = st.id === displayedStageId;
+                  return (
+                    <button
+                      key={st.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedStageId(st.id);
+                        setActiveColumnStageId(st.id);
+                      }}
+                      title={`Ir para etapa ${st.name}`}
+                      className={cn(
+                        "h-1.5 rounded-full transition-all duration-300 cursor-pointer",
+                        isCurrent 
+                          ? "w-7 sm:w-8 bg-red-500 shadow-xs shadow-red-500/50" 
+                          : "w-2 bg-white/20 hover:bg-white/40"
+                      )}
+                    />
+                  );
+                })}
+              </div>
+            )}
+          </div>
         )}
 
         {leadSelectionMode && selectedLeadIds.size > 0 && (
@@ -8013,7 +8214,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
             <div className="flex gap-2">
               <button
                 onClick={() => setSelectedLeadIds(new Set())}
-                className="text-[9px] font-black uppercase tracking-widest text-white/40 hover:text-white/70 px-3 py-1.5"
+                className="text-[9px] font-black uppercase tracking-widest text-white/40 hover:text-white/70 px-3 py-1.5 cursor-pointer"
               >
                 Limpar
               </button>
@@ -8022,45 +8223,24 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
           </div>
         )}
 
+        {/* DEPOIS: Lista de contatos da etapa selecionada */}
         <DndContext
           sensors={sensors}
           collisionDetection={closestCorners}
           onDragStart={onDragStart}
           onDragEnd={onDragEnd}
         >
-          {selectedLead && !isColumnCollapsed && (
-            <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-1 px-1 mb-1 shrink-0">
-              {stages.filter(s => s.isActive !== false).map(st => {
-                const effectiveStageId = activeColumnStageId || selectedLead.funnelStageId || stages[0]?.id;
-                const isCurrent = effectiveStageId === st.id;
-                const count = filteredLeads.filter(l => !gruposDigitos.has((l.phone || '').replace(/\D/g, ''))).filter(l => l.funnelStageId === st.id || (!l.funnelStageId && (st.isInitial || st.order === 0))).length;
-                return (
-                  <button
-                    key={st.id}
-                    type="button"
-                    onClick={() => setActiveColumnStageId(st.id)}
-                    className={cn(
-                      "px-2.5 py-1 rounded-lg text-[9.5px] font-black uppercase tracking-wider transition-all whitespace-nowrap flex items-center gap-1.5 shrink-0 border cursor-pointer",
-                      isCurrent
-                        ? "bg-slate-900 text-white border-red-500/40 shadow-sm"
-                        : "bg-white/[0.03] text-white/50 border-transparent hover:text-white hover:bg-white/5"
-                    )}
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: st.color || '#4cc9f0' }} />
-                    <span>{st.name}</span>
-                    <span className="text-[8.5px] opacity-60 font-semibold">{count}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-          <div className={cn(
-            "flex gap-1.5 pb-1 grow min-h-0 scroll-smooth custom-scrollbar h-full",
-            selectedLead ? "overflow-x-hidden" : "overflow-x-auto"
-          )}>
+          <div 
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+            onTouchCancel={handleTouchCancel}
+            onMouseDown={handleMouseDown}
+            onMouseUp={handleMouseUp}
+            className="flex gap-1.5 pb-1 grow min-h-0 scroll-smooth custom-scrollbar h-full touch-pan-y w-full overflow-x-hidden"
+          >
             {stages
-                .filter(stage => stage.isActive !== false)
-              .filter(stage => !selectedLead || stage.id === (activeColumnStageId || selectedLead.funnelStageId || (stages.find(s => s.isInitial || s.order === 0)?.id)))
+              .filter(stage => stage.isActive !== false)
+              .filter(stage => stage.id === displayedStageId)
               .map(stage => {
                 const stageLeads = filteredLeads.filter(l => !gruposDigitos.has((l.phone || '').replace(/\D/g, ''))).filter(l => l.funnelStageId === stage.id || (!l.funnelStageId && (stage.isInitial || stage.order === 0)));
                 
@@ -8094,10 +8274,8 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                   );
                 }
 
-                const colWidthClass = selectedLead ? "w-full" : "w-[82vw] xs:w-[270px] md:w-[205px]";
-
                 return (
-                  <div key={`wrapper-${stage.id}`} className={cn("w-full shrink-0 relative flex flex-col transition-all duration-300 h-full", colWidthClass)}>
+                  <div key={`wrapper-${stage.id}`} className="w-full shrink-0 relative flex flex-col transition-all duration-300 h-full">
                     <KanbanColumn 
                       key={stage.id} 
                       stage={stage} 
@@ -8116,18 +8294,6 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                   </div>
                 );
               })}
-            
-            {!selectedLead && (
-            <button 
-              type="button"
-              onClick={handleAddStage}
-              className="flex-shrink-0 w-full md:flex-shrink md:w-[140px] basis-20 h-full border-2 border-dashed border-white/10 hover:border-primary-500/40 rounded-2xl flex flex-col items-center justify-center opacity-40 hover:opacity-100 hover:bg-white/5 transition-all text-white/60 hover:text-primary-300 cursor-pointer"
-              title="Adicionar nova etapa ao funil"
-            >
-               <Plus size={24} />
-               <span className="text-[9px] font-black uppercase tracking-[2px] mt-1.5">Nova Etapa</span>
-            </button>
-            )}
           </div>
 
           <DragOverlay>
@@ -8361,32 +8527,6 @@ const KanbanColumn = ({
 }) => {
   const { setNodeRef } = useSortable({ id: stage.id, data: { type: 'column', stageId: stage.id } });
   const [showColorPicker, setShowColorPicker] = useState(false);
-  const [stageSearch, setStageSearch] = useState('');
-  const [channelFilter, setChannelFilter] = useState<'todos' | 'whatsapp' | 'instagram'>('todos');
-
-  const wppCount = leads.filter(l => (l.sourceType || 'WhatsApp').toLowerCase().includes('whats') || (l.sourceType || 'WhatsApp').toLowerCase().includes('wpp')).length;
-  const instaCount = leads.filter(l => (l.sourceType || '').toLowerCase().includes('insta')).length;
-
-  const filteredStageLeads = useMemo(() => {
-    return leads.filter(l => {
-      if (channelFilter === 'whatsapp') {
-        const src = (l.sourceType || 'WhatsApp').toLowerCase();
-        if (!src.includes('whats') && !src.includes('wpp')) return false;
-      } else if (channelFilter === 'instagram') {
-        const src = (l.sourceType || '').toLowerCase();
-        if (!src.includes('insta')) return false;
-      }
-      if (stageSearch.trim()) {
-        const s = stageSearch.trim().toLowerCase();
-        const sDig = s.replace(/\D/g, '');
-        const name = (l.fullName || l.contactName || l.whatsappName || '').toLowerCase();
-        const phoneMatch = sDig && (l.phone || '').replace(/\D/g, '').includes(sDig);
-        const textMatch = `${l.lastClientMessageText || ''} ${l.lastMessageText || ''}`.toLowerCase().includes(s);
-        if (!name.includes(s) && !phoneMatch && !textMatch) return false;
-      }
-      return true;
-    });
-  }, [leads, channelFilter, stageSearch]);
 
   return (
     <div className="flex-1 min-w-0 flex flex-col gap-1.5 min-h-0 h-full">
@@ -8473,62 +8613,13 @@ const KanbanColumn = ({
         )}
       </div>
 
-      {/* Busca rápida na etapa + Filtros de Canais */}
-      <div className="px-1.5 space-y-1">
-        <div className="relative">
-          <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/30 pointer-events-none" />
-          <input
-            value={stageSearch}
-            onChange={(e) => setStageSearch(e.target.value)}
-            placeholder="Buscar nesta etapa..."
-            className="w-full bg-slate-900/80 border border-white/10 rounded-lg pl-6 pr-2 py-1 text-[10px] text-white placeholder:text-white/30 focus:outline-none focus:border-red-500/50 transition-all"
-          />
-        </div>
-        <div className="flex items-center gap-1 text-[9px] font-bold overflow-x-auto no-scrollbar py-0.5">
-          <button
-            type="button"
-            onClick={() => setChannelFilter('todos')}
-            className={cn(
-              "px-2 py-0.5 rounded-md transition-all whitespace-nowrap",
-              channelFilter === 'todos' ? "bg-white/15 text-white font-extrabold" : "text-white/40 hover:text-white/70"
-            )}
-          >
-            TODOS {leads.length}
-          </button>
-          <button
-            type="button"
-            onClick={() => setChannelFilter('whatsapp')}
-            title={`WhatsApp (${wppCount})`}
-            className={cn(
-              "px-1.5 py-0.5 rounded-md transition-all whitespace-nowrap flex items-center gap-1",
-              channelFilter === 'whatsapp' ? "bg-emerald-500/20 text-emerald-300 font-extrabold border border-emerald-500/30" : "text-white/40 hover:text-emerald-400"
-            )}
-          >
-            <WhatsAppLogo className="w-3 h-3 shrink-0" />
-            <span>{wppCount}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setChannelFilter('instagram')}
-            title={`Instagram (${instaCount})`}
-            className={cn(
-              "px-1.5 py-0.5 rounded-md transition-all whitespace-nowrap flex items-center gap-1",
-              channelFilter === 'instagram' ? "bg-pink-500/20 text-pink-300 font-extrabold border border-pink-500/30" : "text-white/40 hover:text-pink-400"
-            )}
-          >
-            <InstagramLogo className="w-3 h-3 shrink-0" />
-            <span>{instaCount}</span>
-          </button>
-        </div>
-      </div>
-
       <div 
         ref={setNodeRef}
         className="bg-white/[0.02] border border-white/5 rounded-xl p-1.5 flex flex-col gap-1.5 grow min-h-0 shadow-inner overflow-y-auto custom-scrollbar transition-all"
         style={stage.color ? { borderTopColor: stage.color, borderTopWidth: "3px" } : undefined}
       >
-        <SortableContext items={filteredStageLeads.map(l => l.id)} strategy={verticalListSortingStrategy}>
-          {filteredStageLeads.map(lead => (
+        <SortableContext items={leads.map(l => l.id)} strategy={verticalListSortingStrategy}>
+          {leads.map(lead => (
             <KanbanCard 
               key={lead.id} 
               lead={lead} 
@@ -8542,7 +8633,7 @@ const KanbanColumn = ({
           ))}
         </SortableContext>
         
-        {filteredStageLeads.length === 0 && (
+        {leads.length === 0 && (
           <div className="flex flex-col items-center justify-center py-16 opacity-20">
              <Layers size={28} className="text-white/40 mb-2" />
              <p className="text-[10px] font-black uppercase tracking-widest text-white/50">Sem Contatos</p>
@@ -8601,76 +8692,80 @@ const KanbanCard = ({ lead, onClick, isSelected, isDragging, selectionMode, isCh
             <input type="checkbox" checked={isChecked} onChange={() => onToggleSelected?.()} className="w-3.5 h-3.5 accent-rose-500 cursor-pointer" />
           </div>
         )}
-        {!selectionMode && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onDelete?.(); }}
-            title="Excluir lead"
-            className="absolute top-1.5 right-1.5 z-10 w-5 h-5 rounded bg-transparent text-white/0 group-hover:text-white/40 hover:!text-rose-400 flex items-center justify-center transition-all"
-          >
-            <Trash2 size={11} />
-          </button>
-        )}
 
-        {/* Linha 1: Foto + Nome + Canal + Horário */}
-        <div className={cn("flex items-center justify-between gap-1.5 mb-1", selectionMode && "pl-5")}>
-          <div className="flex items-center gap-1.5 min-w-0 flex-1">
-            <AvatarPhoto
-              photoUrl={lead.photoUrl}
-              name={cardClientName}
-              className="w-5 h-5 rounded-full bg-slate-800 border-white/10 shrink-0"
-              textClassName="text-[8px] font-bold text-white/50"
-            />
-            <p className="font-bold text-white text-[11px] truncate tracking-tight" title={cardClientName}>
-              {cardClientName}
-            </p>
-          </div>
-          <div className="flex items-center gap-1 shrink-0">
-            <ChannelLogoBadge channel={channelName} className="w-3.5 h-3.5" />
-            {timeStr && (
-              <span className="text-[8px] font-medium text-white/30">
-                {timeStr}
-              </span>
-            )}
-          </div>
-        </div>
+        {/* Card Layout: Foto de Perfil Maior + Conteúdo */}
+        <div className={cn("flex items-start gap-2.5", selectionMode && "pl-5")}>
+          <AvatarPhoto
+            photoUrl={lead.photoUrl}
+            name={cardClientName}
+            className="w-11 h-11 sm:w-10 sm:h-10 rounded-full bg-slate-800 border border-white/15 shrink-0 mt-0.5 shadow-md"
+            textClassName="text-xs sm:text-[11px] font-black text-white/80"
+          />
 
-        {/* Linha 2: Última mensagem + Não lidas / Botão Venda */}
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-[10px] text-white/50 truncate flex-1 leading-snug font-normal">
-            {lead.lastClientMessageText || lead.lastMessageText || 'Sem mensagens recentes'}
-          </p>
-          <div className="flex items-center gap-1 shrink-0">
-            {unread > 0 && (
-              <span className="min-w-4 h-4 px-1 rounded-full bg-emerald-500 text-slate-950 font-black text-[9px] flex items-center justify-center shrink-0">
-                {unread}
-              </span>
-            )}
-            <button
-              onClick={async (e) => {
-                e.stopPropagation();
-                if (!setPrefilledCustomer) return;
-                let clienteCadastro: any = null;
-                if (lead.phone) {
-                  try {
-                    clienteCadastro = await buscarClientePorTelefone(lead.phone);
-                  } catch (err) {
-                    console.error('Erro ao buscar cadastro no card:', err);
-                  }
-                }
-                if (clienteCadastro) {
-                  const nomeReal = (clienteCadastro.full_name || '').trim() || lead.contactName || (!isPhoneLike(lead.fullName) ? lead.fullName : '') || 'Cliente';
-                  setPrefilledCustomer({ id: clienteCadastro.id, name: nomeReal, phone: clienteCadastro.phone || lead.phone || '' });
-                } else {
-                  const nomeLead = (lead.contactName || (!isPhoneLike(lead.fullName) ? lead.fullName : '') || lead.whatsappName || lead.fullName || 'Cliente').trim();
-                  setPrefilledCustomer({ name: nomeLead, phone: lead.phone || '' });
-                }
-                setActiveTab?.('pos');
-              }}
-              title="Iniciar Venda PDV"
-              className="opacity-0 group-hover:opacity-100 w-5 h-5 rounded bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500 hover:text-slate-950 flex items-center justify-center transition-all cursor-pointer"
-            >
-              <ShoppingBag size={10} />
-            </button>
+          <div className="flex-1 min-w-0">
+            {/* Linha 1: Nome + Canal + Horário */}
+            <div className="flex items-center justify-between gap-1.5 mb-1">
+              <p className="font-bold text-white text-xs sm:text-[11px] truncate tracking-tight" title={cardClientName}>
+                {cardClientName}
+              </p>
+              <div className="flex items-center gap-1 shrink-0">
+                <ChannelLogoBadge channel={channelName} className="w-3.5 h-3.5" />
+                {timeStr && (
+                  <span className="text-[8.5px] font-medium text-white/30">
+                    {timeStr}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Linha 2: Última mensagem + Não lidas / Botão Venda / Excluir */}
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[10.5px] text-white/50 truncate flex-1 leading-snug font-normal">
+                {lead.lastClientMessageText || lead.lastMessageText || 'Sem mensagens recentes'}
+              </p>
+              <div className="flex items-center gap-1 shrink-0">
+                {unread > 0 && (
+                  <span className="min-w-4 h-4 px-1 rounded-full bg-emerald-500 text-slate-950 font-black text-[9px] flex items-center justify-center shrink-0">
+                    {unread}
+                  </span>
+                )}
+                <button
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    if (!setPrefilledCustomer) return;
+                    let clienteCadastro: any = null;
+                    if (lead.phone) {
+                      try {
+                        clienteCadastro = await buscarClientePorTelefone(lead.phone);
+                      } catch (err) {
+                        console.error('Erro ao buscar cadastro no card:', err);
+                      }
+                    }
+                    if (clienteCadastro) {
+                      const nomeReal = (clienteCadastro.full_name || '').trim() || lead.contactName || (!isPhoneLike(lead.fullName) ? lead.fullName : '') || 'Cliente';
+                      setPrefilledCustomer({ id: clienteCadastro.id, name: nomeReal, phone: clienteCadastro.phone || lead.phone || '' });
+                    } else {
+                      const nomeLead = (lead.contactName || (!isPhoneLike(lead.fullName) ? lead.fullName : '') || lead.whatsappName || lead.fullName || 'Cliente').trim();
+                      setPrefilledCustomer({ name: nomeLead, phone: lead.phone || '' });
+                    }
+                    setActiveTab?.('pos');
+                  }}
+                  title="Iniciar Venda PDV"
+                  className="opacity-70 sm:opacity-0 sm:group-hover:opacity-100 w-5 h-5 rounded bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500 hover:text-slate-950 flex items-center justify-center transition-all cursor-pointer"
+                >
+                  <ShoppingBag size={10} />
+                </button>
+                {!selectionMode && onDelete && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onDelete?.(); }}
+                    title="Excluir lead"
+                    className="opacity-70 sm:opacity-0 sm:group-hover:opacity-100 w-5 h-5 rounded bg-rose-500/15 text-rose-300/80 hover:bg-rose-500 hover:text-white flex items-center justify-center transition-all cursor-pointer"
+                  >
+                    <Trash2 size={10} />
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </div>
