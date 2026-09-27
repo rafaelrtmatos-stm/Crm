@@ -10,7 +10,7 @@
 // Resposta: { ok, whatsappMessageId, createdAt, saved } -- `saved` = a mensagem ja foi registrada em
 // crm_messages AQUI, depois da confirmacao da Evolution (o front nao precisa gravar de novo).
 
-import { EVOLUTION_API_URL, EVOLUTION_API_KEY, INSTANCE_NAME, SUPABASE_URL, SUPABASE_ANON_KEY, COMPANY_ID, SEM_CRM_MESSAGES } from './_lib/whatsapp-config.js';
+import { EVOLUTION_API_URL, EVOLUTION_API_KEY, INSTANCE_NAME, SUPABASE_URL, SUPABASE_ANON_KEY, COMPANY_ID, SEM_CRM_MESSAGES, APP_BASE_URL } from './_lib/whatsapp-config.js';
 import { exigirUsuarioAutorizado } from './_lib/auth.js';
 import { normalizarTelefoneBR } from './_lib/phone.js';
 import { timestampParaIso } from './_lib/timestamp.js';
@@ -168,6 +168,16 @@ export default async function handler(req, res) {
   // que o numero "nao existe" quando na verdade so falta o codigo do pais.
   const numero = normalizarTelefoneBR(phone.replace(/\D/g, ''));
 
+  // A Evolution API roda em outro servidor e busca a mídia sozinha a partir da URL —
+  // não entende caminho relativo (ex: "/api/whatsapp-media?messageId=..."), que só faz
+  // sentido pro navegador (que resolve contra o próprio domínio). Isso acontecia com
+  // figurinhas salvas de uma conversa (favoritadas): a URL fica gravada como caminho
+  // relativo e, ao reenviar, a Evolution recusava com "Owned media must be a url or
+  // base64". Aqui garante que sempre vai uma URL absoluta pra Evolution API.
+  const mediaUrlAbsoluta = (ehMidia && typeof mediaUrl === 'string' && mediaUrl.startsWith('/api/whatsapp-media') && APP_BASE_URL)
+    ? `${APP_BASE_URL}${mediaUrl}`
+    : mediaUrl;
+
   try {
     // Texto: sendText. Figurinha: sendSticker. Foto/documento: sendMedia (Evolution v2)
     const nomeArquivo = (typeof fileName === 'string' && fileName.trim()) ? fileName.trim().slice(0, 200) : undefined;
@@ -196,7 +206,7 @@ export default async function handler(req, res) {
         headers: { apikey: EVOLUTION_API_KEY, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           number: numero,
-          sticker: mediaUrl,
+          sticker: mediaUrlAbsoluta,
         }),
       });
     } else if (ehMidia) {
@@ -208,7 +218,7 @@ export default async function handler(req, res) {
           mediatype: mediaType,
           mimetype: (typeof mimeType === 'string' && mimeType) ? mimeType : (mediaType === 'image' ? 'image/jpeg' : 'application/octet-stream'),
           caption: text || '',
-          media: mediaUrl,
+          media: mediaUrlAbsoluta,
           fileName: nomeArquivo || (mediaType === 'image' ? 'foto.jpg' : 'documento'),
           ...(quotedPayload ? { quoted: quotedPayload } : {}),
         }),
