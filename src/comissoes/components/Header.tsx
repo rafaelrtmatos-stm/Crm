@@ -19,7 +19,6 @@ interface HeaderProps {
   onOpenAddModal: () => void;
   onOpenSettings: () => void;
   onLogout?: () => void;
-  modalidadeRemuneracao?: 'fixo' | 'fixo_comissao' | 'meta';
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -29,10 +28,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAddModal,
   onOpenSettings,
   onLogout,
-  modalidadeRemuneracao = 'fixo_comissao',
 }) => {
-  const isFixo = modalidadeRemuneracao === 'fixo';
-  const isComissao = modalidadeRemuneracao === 'fixo_comissao';
   // Format current date in Portuguese
   const todayDateFormatted = new Date().toLocaleDateString('pt-BR', {
     weekday: 'long',
@@ -73,11 +69,9 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Actions: Add Service Button & Settings */}
           <div className="flex items-center gap-1.5 lg:gap-3 shrink-0">
-            {isComissao && (
-              <div className="hidden lg:block">
-                <AddServiceButton onClick={onOpenAddModal} />
-              </div>
-            )}
+            <div className="hidden lg:block">
+              <AddServiceButton onClick={onOpenAddModal} />
+            </div>
 
             <button
               id="btn-abrir-configuracoes"
@@ -105,7 +99,6 @@ export const Header: React.FC<HeaderProps> = ({
             abas ficarem sempre visíveis: se não couber numa linha só, quebra pra
             uma segunda linha, mas nunca esconde nem corta nenhuma aba. */}
         <nav className="hidden md:flex flex-wrap items-center justify-center gap-1 lg:gap-1.5 bg-[var(--bg-card)] p-1.5 border border-[var(--border-color)] rounded-2xl mb-3 w-full">
-          {!isFixo && (
           <button
             id="nav-tab-dashboard"
             onClick={() => setActiveTab('dashboard')}
@@ -119,8 +112,6 @@ export const Header: React.FC<HeaderProps> = ({
             <span>DASHBOARD</span>
           </button>
 
-          )}
-          {isComissao && (
           <button
             id="nav-tab-weekly"
             onClick={() => setActiveTab('weekly')}
@@ -135,8 +126,6 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="hidden lg:inline">AGENDA SEMANAL</span>
           </button>
 
-          )}
-          {isComissao && (
           <button
             id="nav-tab-table"
             onClick={() => setActiveTab('table')}
@@ -151,8 +140,6 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="hidden lg:inline">PLANILHA GERAL</span>
           </button>
 
-          )}
-          {isComissao && (
           <button
             id="nav-tab-reports"
             onClick={() => setActiveTab('reports')}
@@ -166,8 +153,6 @@ export const Header: React.FC<HeaderProps> = ({
             <span>RELATÓRIOS</span>
           </button>
 
-          )}
-          {isComissao && (
           <button
             id="nav-tab-servicos"
             onClick={() => setActiveTab('servicos')}
@@ -181,7 +166,6 @@ export const Header: React.FC<HeaderProps> = ({
             <span>SERVIÇOS</span>
           </button>
 
-          )}
           <button
             id="nav-tab-descontos"
             onClick={() => setActiveTab('descontos')}
@@ -200,7 +184,6 @@ export const Header: React.FC<HeaderProps> = ({
             grid-cols-3 em telas bem estreitas evita que os rótulos sejam
             espremidos/cortados; a partir de xs (config abaixo) volta a 6 colunas. */}
         <div className="grid grid-cols-3 xs:grid-cols-6 md:hidden border-t border-[var(--border-color)] py-1.5 gap-1 w-full">
-          {!isFixo && (
           <button
             onClick={() => setActiveTab('dashboard')}
             className={`flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 py-1.5 px-1 rounded-xl text-[10px] sm:text-xs font-black transition-all text-center leading-none min-w-0 ${
@@ -213,8 +196,6 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="truncate">Painel</span>
           </button>
 
-          )}
-          {isComissao && (
           <button
             onClick={() => setActiveTab('weekly')}
             className={`flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 py-1.5 px-1 rounded-xl text-[10px] sm:text-xs font-black transition-all text-center leading-none min-w-0 ${
@@ -227,8 +208,6 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="truncate">Semana</span>
           </button>
 
-          )}
-          {isComissao && (
           <button
             onClick={() => setActiveTab('table')}
             className={`flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 py-1.5 px-1 rounded-xl text-[10px] sm:text-xs font-black transition-all text-center leading-none min-w-0 ${
@@ -241,8 +220,6 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="truncate">Planilha</span>
           </button>
 
-          )}
-          {isComissao && (
           <button
             onClick={() => setActiveTab('reports')}
             className={`flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 py-1.5 px-1 rounded-xl text-[10px] sm:text-xs font-black transition-all text-center leading-none min-w-0 ${
@@ -255,8 +232,6 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="truncate">Relatórios</span>
           </button>
 
-          )}
-          {isComissao && (
           <button
             onClick={() => setActiveTab('servicos')}
             className={`flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 py-1.5 px-1 rounded-xl text-[10px] sm:text-xs font-black transition-all text-center leading-none min-w-0 ${
@@ -269,7 +244,6 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="truncate">Serviços</span>
           </button>
 
-          )}
           <button
             onClick={() => setActiveTab('descontos')}
             className={`flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 py-1.5 px-1 rounded-xl text-[10px] sm:text-xs font-black transition-all text-center leading-none min-w-0 ${
