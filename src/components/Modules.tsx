@@ -642,7 +642,8 @@ const normalizarMediaUrl = (url?: string | null): string | undefined => {
 };
 
 // Tiques de status da mensagem ENVIADA (igual ao WhatsApp): 1 tique cinza = enviada, 2 cinzas = entregue/recebida,
-// 2 azuis = lida. Sem status = não mostra nada.
+// 2 azuis = lida. Sem delivery_status, assume "enviada" (nunca some) e o card mostra "Não disponível"
+// nos horários que ainda não temos.
 // Clicável: abre um pequeno balão compacto e legível mostrando apenas o necessário (Recebida / Lida com ícone e horário).
 const MessageStatusTicks = ({
   status,
@@ -657,9 +658,13 @@ const MessageStatusTicks = ({
   onToggle?: () => void;
   onClose?: () => void;
 }) => {
-  if (status !== 'sent' && status !== 'delivered' && status !== 'read') return null;
-  const isRead = status === 'read';
-  const isDelivered = status === 'delivered';
+  // O botão "Ver histórico" NUNCA deve sumir por falta de dado: uma mensagem outgoing
+  // renderizada aqui necessariamente foi enviada, entao a ausencia de delivery_status
+  // (mensagem antiga, atraso do webhook, etc.) so significa que ainda nao sabemos se foi
+  // recebida/lida -- trata como 'sent' em vez de esconder o botao inteiro.
+  const statusResolvido = (status === 'delivered' || status === 'read') ? status : 'sent';
+  const isRead = statusResolvido === 'read';
+  const isDelivered = statusResolvido === 'delivered';
   const label = isRead ? 'Lida' : isDelivered ? 'Recebida' : 'Enviada';
   const sentTime = m?.createdAt ? safeFormat(m.createdAt, 'HH:mm') : null;
   const deliveredTime = m?.deliveredAt ? safeFormat(m.deliveredAt, 'HH:mm') : null;
@@ -684,7 +689,7 @@ const MessageStatusTicks = ({
           isOpen && "ring-1 ring-white/30 bg-white/5"
         )}
       >
-        {status === 'sent' ? <Check size={14} strokeWidth={2.5} /> : <CheckCheck size={14} strokeWidth={2.5} />}
+        {statusResolvido === 'sent' ? <Check size={14} strokeWidth={2.5} /> : <CheckCheck size={14} strokeWidth={2.5} />}
       </button>
 
       {isOpen && (
@@ -700,17 +705,17 @@ const MessageStatusTicks = ({
             <div className="flex items-center gap-2">
               <Check size={13} strokeWidth={2.5} className="text-slate-300 shrink-0" />
               <span className="font-bold text-slate-200 flex-1">Enviada</span>
-              <span className="text-white/50 font-medium">{sentTime || '—'}</span>
+              <span className="text-white/50 font-medium">{sentTime || 'Não disponível'}</span>
             </div>
             <div className="flex items-center gap-2">
               <CheckCheck size={13} strokeWidth={2.5} className={cn("shrink-0", isDelivered || isRead ? "text-emerald-400" : "text-white/20")} />
               <span className={cn("font-bold flex-1", isDelivered || isRead ? "text-emerald-300" : "text-white/30")}>Recebida</span>
-              <span className={cn("font-medium", isDelivered || isRead ? "text-white/50" : "text-white/20")}>{deliveredTime || '—'}</span>
+              <span className={cn("font-medium", isDelivered || isRead ? "text-white/50" : "text-white/20")}>{deliveredTime || 'Não disponível'}</span>
             </div>
             <div className="flex items-center gap-2">
               <CheckCheck size={13} strokeWidth={2.5} className={cn("shrink-0", isRead ? "text-sky-400" : "text-white/20")} />
               <span className={cn("font-bold flex-1", isRead ? "text-sky-300" : "text-white/30")}>Lida</span>
-              <span className={cn("font-medium", isRead ? "text-white/50" : "text-white/20")}>{readTime || '—'}</span>
+              <span className={cn("font-medium", isRead ? "text-white/50" : "text-white/20")}>{readTime || 'Não disponível'}</span>
             </div>
             <div className="absolute top-full right-1.5 -mt-px border-solid border-t-slate-900/95 border-t-[4px] border-x-transparent border-x-[4px] border-b-0" />
           </div>
