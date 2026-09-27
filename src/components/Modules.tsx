@@ -5520,19 +5520,21 @@ export const ChatPanel = ({
             const stageColor = currentStage?.color || '#ef4444';
             const stageName = currentStage?.name || 'EM ATENDIMENTO';
 
-            return (
-              <div className="min-w-0 flex-1 overflow-hidden">
-                {/* Linha 1: Nome com ellipsis garantido */}
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <h4 
-                    className="font-bold text-xs sm:text-sm text-white truncate min-w-0 leading-tight" 
-                    title={resolvedClientName}
-                  >
-                    {resolvedClientName}
-                  </h4>
+            // Nome do cliente e o card de etapa/status ficam como elementos reaproveitáveis
+            // (o mesmo JSX, sem duplicar nada) porque o layout muda de posição conforme o
+            // painel de contexto (Perfil/showDesktopSidebar) está aberto ou fechado:
+            // - Fechado: design original, nome e etapa na mesma linha (inalterado).
+            // - Aberto: nome fica numa linha acima do card de etapa/status.
+            const nomeClienteEl = (
+              <h4 
+                className="font-bold text-xs sm:text-sm text-white truncate min-w-0 leading-tight" 
+                title={resolvedClientName}
+              >
+                {resolvedClientName}
+              </h4>
+            );
 
-                  {/* Indicador de Status do Funil: 1 clique e abre a aba suspensa */}
-                  {effectiveFunnelId && funnelStages.length > 0 && (
+            const indicadorEtapaEl = effectiveFunnelId && funnelStages.length > 0 && (
                     <div className="relative shrink-0">
                       <button
                         type="button"
@@ -5584,8 +5586,30 @@ export const ChatPanel = ({
                         </>
                       )}
                     </div>
-                  )}
-                </div>
+            );
+
+            return (
+              <div className="min-w-0 flex-1 overflow-hidden">
+                {showDesktopSidebar ? (
+                  <>
+                    {/* Painel de contexto ABERTO: nome numa linha acima do card de etapa/status.
+                        Nome, foto e telefone continuam aparecendo só aqui (o painel lateral não
+                        repete nome/foto/telefone) — layout e dados das outras telas inalterados. */}
+                    <div className="min-w-0">
+                      {nomeClienteEl}
+                    </div>
+                    <div className="flex items-center gap-1.5 min-w-0 mt-0.5">
+                      {indicadorEtapaEl}
+                    </div>
+                  </>
+                ) : (
+                  /* Painel de contexto FECHADO: design original, restaurado exatamente —
+                     nome e card de etapa/status na mesma linha. */
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    {nomeClienteEl}
+                    {indicadorEtapaEl}
+                  </div>
+                )}
               </div>
             );
           })()}
