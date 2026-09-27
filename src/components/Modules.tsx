@@ -13600,34 +13600,61 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   useEffect(() => {
     if (!prefilledCustomer) return;
     const customerToSet = { id: prefilledCustomer.id || '', name: prefilledCustomer.name, phone: prefilledCustomer.phone };
+    setPrefilledCustomer(null);
+    setActiveTab('venda');
 
-    // Se veio sem id mas tem telefone, tenta localizar cliente existente pelos 8 dígitos para preencher o nome completo e não duplicar cadastros
-    if (!customerToSet.id && customerToSet.phone) {
-      const digitos = customerToSet.phone.replace(/\D/g, '');
-      if (digitos.length >= 6) {
-        const ultimos8 = digitos.slice(-8);
-        const matchMem = allCustomers.find((c: any) => {
-          const cPhone = (c.phone || '').replace(/\D/g, '');
-          const cAlt = (c.telefone_alternativo || '').replace(/\D/g, '');
-          return (cPhone.length >= 8 && cPhone.slice(-8) === ultimos8) || (cAlt.length >= 8 && cAlt.slice(-8) === ultimos8);
-        });
-        if (matchMem) {
-          customerToSet.id = matchMem.id;
-          if (matchMem.full_name) customerToSet.name = matchMem.full_name;
-          if (matchMem.phone) customerToSet.phone = matchMem.phone;
-        } else {
-          buscarClientePorTelefone(customerToSet.phone).then((found) => {
-            if (found) {
-              setSelectedCustomer(prev => prev && prev.phone === customerToSet.phone ? { id: found.id, name: found.full_name || prev.name, phone: found.phone || prev.phone } : prev);
-            }
-          });
-        }
-      }
+    if (customerToSet.id) {
+      // Cliente ja veio identificado (fluxo original, sem alteracao): so vincula e segue.
+      setSelectedCustomer(customerToSet);
+      return;
     }
 
-    setSelectedCustomer(customerToSet);
-    setActiveTab('venda');
-    setPrefilledCustomer(null);
+    const digitos = (customerToSet.phone || '').replace(/\D/g, '');
+    const ultimos8 = digitos.length >= 6 ? digitos.slice(-8) : '';
+
+    // Tenta localizar cliente ja cadastrado pelos ultimos 8 digitos do telefone antes de decidir
+    // se abre um cadastro novo, pra nao duplicar quem ja tem cadastro (fluxo original preservado).
+    const matchMem = ultimos8 ? allCustomers.find((c: any) => {
+      const cPhone = (c.phone || '').replace(/\D/g, '');
+      const cAlt = (c.telefone_alternativo || '').replace(/\D/g, '');
+      return (cPhone.length >= 8 && cPhone.slice(-8) === ultimos8) || (cAlt.length >= 8 && cAlt.slice(-8) === ultimos8);
+    }) : null;
+
+    if (matchMem) {
+      setSelectedCustomer({ id: matchMem.id, name: matchMem.full_name || customerToSet.name, phone: matchMem.phone || customerToSet.phone });
+      return;
+    }
+
+    // Cliente ainda nao cadastrado: abre automaticamente o painel de cadastro, ja com o WhatsApp
+    // preenchido (sem precisar digitar de novo) e o nome sugerido, mas editavel. Ao salvar,
+    // handleCreateCustomerInline -> proceedAfterCustomerStep segue a venda normalmente.
+    const abrirCadastroNovoCliente = () => {
+      const nomeSugerido = (customerToSet.name || '').trim();
+      setSelectedCustomer(null);
+      setNewCustomerForm({
+        ...emptyCustomerForm,
+        full_name: (nomeSugerido && nomeSugerido.toLowerCase() !== 'cliente') ? nomeSugerido.toUpperCase() : '',
+        phone: customerToSet.phone || '',
+      });
+      setEditingCustomerId(null);
+      setCustomerModalIntent('preselect');
+      setCustomerModalMode('create');
+      setIsCustomerModalOpen(true);
+    };
+
+    if (!ultimos8) {
+      abrirCadastroNovoCliente();
+      return;
+    }
+
+    // Confere no banco (pode existir cadastro que ainda nao chegou na memoria local) antes de abrir o cadastro.
+    buscarClientePorTelefone(customerToSet.phone).then((found) => {
+      if (found) {
+        setSelectedCustomer({ id: found.id, name: found.full_name || customerToSet.name, phone: found.phone || customerToSet.phone });
+      } else {
+        abrirCadastroNovoCliente();
+      }
+    });
   }, [prefilledCustomer, allCustomers]);
 
   const openReceiptDetail = async (sale: SaleOrder) => {
