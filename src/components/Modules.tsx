@@ -163,7 +163,8 @@ import {
   ArrowDown,
   ArrowUp,
   Reply,
-  Wand2
+  Wand2,
+  Truck
 } from 'lucide-react';
 import { 
   DndContext, 
@@ -640,9 +641,9 @@ const normalizarMediaUrl = (url?: string | null): string | undefined => {
   return m ? m[1] : url;
 };
 
-// Tiques de status da mensagem ENVIADA (igual ao WhatsApp): 1 tique cinza = enviada, 2 cinzas = entregue,
-// 2 azuis = lida. Sem status (mensagem antiga ou webhook MESSAGES_UPDATE ainda nao chegou) = nao mostra nada.
-// Clicável: abre um mini balão compacto e discreto junto à mensagem mostrando os estados (Enviada, Entregue, Visualizada).
+// Tiques de status da mensagem ENVIADA (igual ao WhatsApp): 1 tique cinza = enviada, 2 cinzas = entregue/recebida,
+// 2 azuis = lida. Sem status = não mostra nada.
+// Clicável: abre um pequeno balão compacto e legível mostrando apenas o necessário (Recebida / Lida com ícone e horário).
 const MessageStatusTicks = ({
   status,
   m,
@@ -657,24 +658,27 @@ const MessageStatusTicks = ({
   onClose?: () => void;
 }) => {
   if (status !== 'sent' && status !== 'delivered' && status !== 'read') return null;
-  const label = status === 'read' ? 'Lida' : status === 'delivered' ? 'Entregue' : 'Enviada';
-  const sentTime = m?.createdAt ? safeFormat(m.createdAt, 'HH:mm') : '';
-  const deliveredTime = m?.deliveredAt ? safeFormat(m.deliveredAt, 'HH:mm') : (status === 'delivered' || status === 'read' ? 'Confirmada' : null);
-  const readTime = m?.readAt ? safeFormat(m.readAt, 'HH:mm') : (status === 'read' ? 'Visualizada' : null);
+  const isRead = status === 'read';
+  const isDelivered = status === 'delivered';
+  const label = isRead ? 'Lida' : isDelivered ? 'Recebida' : 'Enviada';
+  const sentTime = m?.createdAt ? safeFormat(m.createdAt, 'HH:mm') : null;
+  const deliveredTime = m?.deliveredAt ? safeFormat(m.deliveredAt, 'HH:mm') : null;
+  const readTime = m?.readAt ? safeFormat(m.readAt, 'HH:mm') : null;
+  const activeTime = isRead ? readTime : isDelivered ? deliveredTime : sentTime;
 
   return (
-    <div className="relative inline-flex items-center">
+    <div className="relative inline-flex items-center shrink-0">
       <button
         type="button"
         onClick={(e) => {
           e.stopPropagation();
           onToggle?.();
         }}
-        title={`${label} — toque para ver o status detalhado`}
+        title={`${label}${activeTime ? ` às ${activeTime}` : ''} — toque para ver o status`}
         aria-label={label}
         className={cn(
-          "inline-flex items-center cursor-pointer transition-transform active:scale-90",
-          status === 'read' ? "text-sky-400" : "text-white/50",
+          "inline-flex items-center cursor-pointer transition-transform active:scale-90 shrink-0",
+          isRead ? "text-sky-400" : "text-white/50",
           isOpen && "ring-1 ring-white/30 rounded"
         )}
       >
@@ -686,38 +690,28 @@ const MessageStatusTicks = ({
           <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); onClose?.(); }} />
           <div
             onClick={(e) => e.stopPropagation()}
-            className="absolute bottom-full mb-1.5 right-0 z-50 bg-slate-900/95 border border-white/20 text-white rounded-xl p-2.5 shadow-2xl backdrop-blur-md text-[10px] w-48 text-left space-y-1.5 animate-in fade-in zoom-in-95 duration-150 select-none"
+            className="absolute bottom-full mb-1.5 right-0 z-50 whitespace-nowrap bg-slate-900/95 border border-white/20 text-white rounded-lg px-2.5 py-1 shadow-xl backdrop-blur-md text-[10px] font-medium flex items-center gap-1.5 animate-in fade-in zoom-in-95 duration-150 select-none max-w-[calc(100vw-32px)]"
           >
-            <div className="flex items-center justify-between border-b border-white/10 pb-1">
-              <span className="font-black uppercase tracking-wider text-slate-400 text-[8.5px]">Status da Mensagem</span>
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); onClose?.(); }}
-                className="text-white/40 hover:text-white p-0.5 rounded cursor-pointer"
-              >
-                <X size={11} />
-              </button>
-            </div>
-            <div className="space-y-1 font-medium">
-              <div className="flex items-center justify-between text-white/80">
-                <span className="flex items-center gap-1.5">
-                  <Check size={11} className="text-white/60" /> Enviada
-                </span>
-                <span className="text-[9px] text-white/40">{sentTime || 'OK'}</span>
-              </div>
-              <div className={cn("flex items-center justify-between", (status === 'delivered' || status === 'read') ? "text-white/90" : "text-white/30")}>
-                <span className="flex items-center gap-1.5">
-                  <CheckCheck size={11} className={(status === 'delivered' || status === 'read') ? "text-white/70" : "text-white/20"} /> Entregue
-                </span>
-                <span className="text-[9px] text-white/40">{deliveredTime || '—'}</span>
-              </div>
-              <div className={cn("flex items-center justify-between", status === 'read' ? "text-sky-300 font-bold" : "text-white/30")}>
-                <span className="flex items-center gap-1.5">
-                  <CheckCheck size={11} className={status === 'read' ? "text-sky-400" : "text-white/20"} /> Visualizada
-                </span>
-                <span className="text-[9px] text-white/40">{readTime || '—'}</span>
-              </div>
-            </div>
+            {isRead ? (
+              <>
+                <CheckCheck size={12} strokeWidth={2.5} className="text-sky-400 shrink-0" />
+                <span className="font-bold text-sky-300">Lida</span>
+                {readTime ? <span className="text-white/60 font-normal">às {readTime}</span> : null}
+              </>
+            ) : isDelivered ? (
+              <>
+                <CheckCheck size={12} strokeWidth={2.5} className="text-emerald-400 shrink-0" />
+                <span className="font-bold text-emerald-300">Recebida</span>
+                {deliveredTime ? <span className="text-white/60 font-normal">às {deliveredTime}</span> : null}
+              </>
+            ) : (
+              <>
+                <Check size={12} strokeWidth={2.5} className="text-slate-300 shrink-0" />
+                <span className="font-bold text-slate-200">Enviada</span>
+                {sentTime ? <span className="text-white/60 font-normal">às {sentTime}</span> : null}
+              </>
+            )}
+            <div className="absolute top-full right-1.5 -mt-px border-solid border-t-slate-900/95 border-t-[4px] border-x-transparent border-x-[4px] border-b-0" />
           </div>
         </>
       )}
@@ -5603,12 +5597,41 @@ export const ChatPanel = ({
                     </div>
                   </>
                 ) : (
-                  /* Painel de contexto FECHADO: design original, restaurado exatamente —
-                     nome e card de etapa/status na mesma linha. */
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    {nomeClienteEl}
-                    {indicadorEtapaEl}
-                  </div>
+                  /* Painel de contexto FECHADO: nome e card de etapa/status na primeira linha,
+                     e o número para copiar logo abaixo do nome do cliente. */
+                  <>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      {nomeClienteEl}
+                      {indicadorEtapaEl}
+                    </div>
+                    {conversation.phone && (
+                      <div className="flex items-center gap-1.5 mt-0.5 min-w-0 text-[10px] sm:text-[11px] leading-tight text-white/60">
+                        <button
+                          type="button"
+                          onClick={handleCopyPhone}
+                          disabled={!conversation.phone}
+                          title="Clique para copiar o telefone"
+                          className="inline-flex items-center gap-1 text-white/60 font-medium hover:text-primary-300 transition-colors disabled:opacity-40 truncate min-w-0 cursor-pointer"
+                        >
+                          <span className="truncate max-w-[120px] sm:max-w-none">{conversation.phone}</span>
+                          <Copy size={9} className="shrink-0 opacity-70" />
+                        </button>
+                        <span className="text-white/30 shrink-0">·</span>
+                        {presenceLabel ? (
+                          <span className={cn(
+                            "font-semibold uppercase tracking-wider shrink-0",
+                            (presence?.status === 'composing' || presence?.status === 'recording') ? "text-primary-400 animate-pulse"
+                              : presence?.status === 'available' ? "text-emerald-400"
+                              : "text-white/40"
+                          )}>
+                            {presence?.status === 'available' ? 'Online' : presenceLabel}
+                          </span>
+                        ) : (
+                          <span className="text-emerald-400 font-semibold uppercase tracking-wider shrink-0">Online</span>
+                        )}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             );
@@ -5661,16 +5684,20 @@ export const ChatPanel = ({
             </button>
           )}
 
-          {/* Botão Venda PDV - oculto em mobile pequeno, disponível no menu ⋮ */}
+          {/* Botão Venda PDV - quando perfil fechado, aparece completo no card principal */}
           {permissions.canStartPosSale && (
             <button
               type="button"
               onClick={handleStartSale}
               disabled={isStartingSale}
-              className="hidden sm:flex items-center gap-1 px-2 sm:px-2.5 h-7 sm:h-8 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[10.5px] uppercase tracking-wider shadow-sm active:scale-95 transition-all shrink-0 disabled:opacity-60 cursor-pointer"
+              className={cn(
+                showDesktopSidebar ? "hidden sm:flex" : "flex",
+                "items-center gap-1.5 px-2.5 sm:px-3 h-7 sm:h-8 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[10.5px] uppercase tracking-wider shadow-sm active:scale-95 transition-all shrink-0 disabled:opacity-60 cursor-pointer"
+              )}
               title="Iniciar venda deste lead no PDV (Alt + V)"
             >
               {isStartingSale ? <Loader2 size={11} className="animate-spin" /> : <ShoppingBag size={11} strokeWidth={2.5} />}
+              <span className={cn(showDesktopSidebar ? "hidden xl:inline" : "inline")}>Vender</span>
             </button>
           )}
 
@@ -6227,8 +6254,8 @@ export const ChatPanel = ({
                                 />
                               ) : <span className="whitespace-pre-wrap break-words select-text">{m.text}</span>}
                            </div>
-                           <div className={cn("text-[9px] font-bold flex items-center gap-1.5 mt-1", isOutgoing ? "justify-end mr-1" : "justify-start ml-1")}>
-                             <span className="text-white/40">{timeStr}</span>
+                           <div className={cn("text-[9px] font-bold flex items-center gap-1.5 mt-1 flex-nowrap whitespace-nowrap", isOutgoing ? "justify-end mr-1" : "justify-start ml-1")}>
+                             <span className="text-white/40 shrink-0">{timeStr}</span>
                              {!isApagada && !!m.lastEditedAt && Array.isArray(m.versions) && m.versions.length > 1 && (
                                <>
                                  <span className="text-white/20">•</span>
@@ -6251,10 +6278,10 @@ export const ChatPanel = ({
                                  onClose={() => setStatusMensagemAbertoId(null)}
                                />
                              )}
-                             <span className="text-white/20">•</span>
+                             <span className="text-white/20 shrink-0">•</span>
                              {isOutgoing ? (
                                <span className={cn(
-                                 "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider border",
+                                 "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider border shrink-0",
                                  (senderLabel as any).type === 'adm' && "bg-amber-500/15 text-amber-300 border-amber-500/30",
                                  (senderLabel as any).type === 'atendente' && "bg-blue-500/15 text-blue-300 border-blue-500/30",
                                  (senderLabel as any).type === 'celular' && "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
@@ -6263,7 +6290,7 @@ export const ChatPanel = ({
                                  {(senderLabel as any).text}
                                </span>
                              ) : (
-                               <span className="text-white/50 text-[9px] font-medium">{senderLabel as string}</span>
+                               <span className="text-white/50 text-[9px] font-medium shrink-0">{senderLabel as string}</span>
                              )}
                            </div>
                         </div>
@@ -7144,8 +7171,8 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     const elapsed = Date.now() - touchStartRef.current.time;
     touchStartRef.current = null;
 
-    // Detecta arraste lateral horizontal nítido (> 40px, mais horizontal que vertical e duração < 650ms)
-    if (Math.abs(deltaX) > 40 && Math.abs(deltaX) > Math.abs(deltaY) * 1.25 && elapsed < 650) {
+    // Detecta arraste lateral horizontal nítido (> 35px, mais horizontal que vertical e duração < 700ms)
+    if (Math.abs(deltaX) > 35 && Math.abs(deltaX) > Math.abs(deltaY) * 1.2 && elapsed < 700) {
       handleNavigateStage(deltaX < 0 ? 'next' : 'prev');
     }
   };
@@ -7394,7 +7421,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     return sortedLeads.filter(l => {
       // 1. Filtro de Texto
       if (termo) {
-        const nome = (l.fullName || '').toLocaleLowerCase('pt-BR');
+        const nome = `${l.fullName || ''} ${l.contactName || ''} ${l.whatsappName || ''}`.toLocaleLowerCase('pt-BR');
         const phoneMatch = termoDigitos && (l.phone || '').replace(/\D/g, '').includes(termoDigitos);
         const conversa = `${l.lastMessageText || ''} ${l.lastClientMessageText || ''}`.toLocaleLowerCase('pt-BR');
         const textMatches = nome.includes(termo) || phoneMatch || conversa.includes(termo);
@@ -8532,7 +8559,12 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
 
         {/* Card da Etapa Atual (Fiel à referência: navegação lateral + apenas etapa atual + indicadores de paginação) */}
         {!isColumnCollapsed && currentStageObj && (
-          <div className="bg-slate-900/60 border border-white/10 rounded-2xl p-2.5 sm:p-3 flex flex-col gap-2 shrink-0 select-none shadow-sm backdrop-blur-sm">
+          <div 
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+            onTouchCancel={handleTouchCancel}
+            className="bg-slate-900/60 border border-white/10 rounded-2xl p-2.5 sm:p-3 flex flex-col gap-2 shrink-0 select-none shadow-sm backdrop-blur-sm touch-pan-y"
+          >
             {/* Linha 1: Navegação da Etapa Atual */}
             <div className="flex items-center justify-between">
               <button
@@ -8726,6 +8758,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                       key={stage.id} 
                       stage={stage} 
                       leads={stageLeads}
+                      hideHeader
                       onLeadClick={(l) => { setOpenedViaJump(false); setSelectedLead(l); }}
                       selectedLeadId={selectedLead?.id}
                       selectionMode={leadSelectionMode}
@@ -8980,32 +9013,7 @@ const KanbanColumnLegacy = ({
 }) => {
   const { setNodeRef } = useSortable({ id: stage.id, data: { type: 'column', stageId: stage.id } });
   const [showColorPicker, setShowColorPicker] = useState(false);
-  const [stageSearch, setStageSearch] = useState('');
-  const [channelFilter, setChannelFilter] = useState<'todos' | 'whatsapp' | 'instagram'>('todos');
-
-  const wppCount = leads.filter(l => (l.sourceType || 'WhatsApp').toLowerCase().includes('whats') || (l.sourceType || 'WhatsApp').toLowerCase().includes('wpp')).length;
-  const instaCount = leads.filter(l => (l.sourceType || '').toLowerCase().includes('insta')).length;
-
-  const filteredStageLeads = useMemo(() => {
-    return leads.filter(l => {
-      if (channelFilter === 'whatsapp') {
-        const src = (l.sourceType || 'WhatsApp').toLowerCase();
-        if (!src.includes('whats') && !src.includes('wpp')) return false;
-      } else if (channelFilter === 'instagram') {
-        const src = (l.sourceType || '').toLowerCase();
-        if (!src.includes('insta')) return false;
-      }
-      if (stageSearch.trim()) {
-        const s = stageSearch.trim().toLowerCase();
-        const sDig = s.replace(/\D/g, '');
-        const name = (l.fullName || l.contactName || l.whatsappName || '').toLowerCase();
-        const phoneMatch = sDig && (l.phone || '').replace(/\D/g, '').includes(sDig);
-        const textMatch = `${l.lastClientMessageText || ''} ${l.lastMessageText || ''}`.toLowerCase().includes(s);
-        if (!name.includes(s) && !phoneMatch && !textMatch) return false;
-      }
-      return true;
-    });
-  }, [leads, channelFilter, stageSearch]);
+  const filteredStageLeads = leads;
 
   return (
     <div className="flex-1 min-w-0 flex flex-col gap-1.5 min-h-0 h-full">
@@ -9090,55 +9098,6 @@ const KanbanColumnLegacy = ({
             <ChevronLeft size={12} />
           </button>
         )}
-      </div>
-
-      {/* Busca rápida na etapa + Filtros de Canais */}
-      <div className="px-1.5 space-y-1">
-        <div className="relative">
-          <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/30 pointer-events-none" />
-          <input
-            value={stageSearch}
-            onChange={(e) => setStageSearch(e.target.value)}
-            placeholder="Buscar nesta etapa..."
-            className="w-full bg-slate-900/80 border border-white/10 rounded-lg pl-6 pr-2 py-1 text-[10px] text-white placeholder:text-white/30 focus:outline-none focus:border-red-500/50 transition-all"
-          />
-        </div>
-        <div className="flex items-center gap-1 text-[9px] font-bold overflow-x-auto no-scrollbar py-0.5">
-          <button
-            type="button"
-            onClick={() => setChannelFilter('todos')}
-            className={cn(
-              "px-2 py-0.5 rounded-md transition-all whitespace-nowrap",
-              channelFilter === 'todos' ? "bg-white/15 text-white font-extrabold" : "text-white/40 hover:text-white/70"
-            )}
-          >
-            TODOS {leads.length}
-          </button>
-          <button
-            type="button"
-            onClick={() => setChannelFilter('whatsapp')}
-            title={`WhatsApp (${wppCount})`}
-            className={cn(
-              "px-1.5 py-0.5 rounded-md transition-all whitespace-nowrap flex items-center gap-1",
-              channelFilter === 'whatsapp' ? "bg-emerald-500/20 text-emerald-300 font-extrabold border border-emerald-500/30" : "text-white/40 hover:text-emerald-400"
-            )}
-          >
-            <WhatsAppLogo className="w-3 h-3 shrink-0" />
-            <span>{wppCount}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setChannelFilter('instagram')}
-            title={`Instagram (${instaCount})`}
-            className={cn(
-              "px-1.5 py-0.5 rounded-md transition-all whitespace-nowrap flex items-center gap-1",
-              channelFilter === 'instagram' ? "bg-pink-500/20 text-pink-300 font-extrabold border border-pink-500/30" : "text-white/40 hover:text-pink-400"
-            )}
-          >
-            <InstagramLogo className="w-3 h-3 shrink-0" />
-            <span>{instaCount}</span>
-          </button>
-        </div>
       </div>
 
       <div 
@@ -9310,6 +9269,7 @@ const KanbanColumn = ({
   onSetStageColor,
   onRenameStage,
   onCollapse,
+  hideHeader,
 }: {
   key?: any, 
   stage: FunnelStage, 
@@ -9324,12 +9284,14 @@ const KanbanColumn = ({
   onSetStageColor?: (stageId: string, color: string) => void,
   onRenameStage?: (stage: FunnelStage) => void,
   onCollapse?: () => void,
+  hideHeader?: boolean,
 }) => {
   const { setNodeRef } = useSortable({ id: stage.id, data: { type: 'column', stageId: stage.id } });
   const [showColorPicker, setShowColorPicker] = useState(false);
 
   return (
     <div className="flex-1 min-w-0 flex flex-col gap-1.5 min-h-0 h-full">
+      {!hideHeader && (
       <div className="flex items-center justify-between px-2 py-1">
         <div className="flex items-center gap-1.5 relative min-w-0 flex-1">
           {/* Seletor Rápido de Cor da Etapa */}
@@ -9412,6 +9374,7 @@ const KanbanColumn = ({
           </button>
         )}
       </div>
+      )}
 
       <div 
         ref={setNodeRef}
@@ -13089,14 +13052,69 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setHistoryViewTabState(tab);
     localStorage.setItem('rpro_history_view_tab', tab);
   };
-  const [historyViewMode, setHistoryViewModeState] = useState<'miniatura' | 'normal' | 'lista'>(() => {
+  const [historyViewMode, setHistoryViewModeState] = useState<'lista' | 'cards' | 'resumido'>(() => {
     const saved = localStorage.getItem('rpro_history_view_mode');
-    return (saved === 'miniatura' || saved === 'normal' || saved === 'lista') ? saved : 'normal';
+    if (saved === 'cards' || saved === 'normal') return 'cards';
+    if (saved === 'resumido' || saved === 'miniatura') return 'resumido';
+    if (saved === 'lista') return 'lista';
+    return 'cards';
   });
-  const setHistoryViewMode = (mode: 'miniatura' | 'normal' | 'lista') => {
-    setHistoryViewModeState(mode);
-    localStorage.setItem('rpro_history_view_mode', mode);
+  const setHistoryViewMode = (mode: 'lista' | 'cards' | 'resumido' | 'normal' | 'miniatura') => {
+    const normalized = (mode === 'normal' ? 'cards' : mode === 'miniatura' ? 'resumido' : mode) as 'lista' | 'cards' | 'resumido';
+    setHistoryViewModeState(normalized);
+    localStorage.setItem('rpro_history_view_mode', normalized);
   };
+
+  const [leadsPhotoMap, setLeadsPhotoMap] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    Promise.resolve(
+      supabase
+        .from('leads')
+        .select('phone, photo_url')
+        .not('photo_url', 'is', null)
+    )
+      .then(({ data }) => {
+        if (data && Array.isArray(data)) {
+          const m = new Map<string, string>();
+          for (const l of data) {
+            if (l.photo_url && l.phone) {
+              const dig = String(l.phone).replace(/\D/g, '');
+              if (dig.length >= 8) {
+                m.set(dig.slice(-8), l.photo_url);
+              }
+            }
+          }
+          setLeadsPhotoMap(m);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const getCustomerPhoto = useCallback((sale: SaleOrder): string | undefined => {
+    if ((sale as any).customerPhotoUrl) return (sale as any).customerPhotoUrl;
+    if (sale.customerId && Array.isArray(allCustomers)) {
+      const cust = allCustomers.find(c => c.id === sale.customerId);
+      const photo = cust?.photo_url || cust?.photoUrl || cust?.avatar_url || cust?.avatarUrl || cust?.foto;
+      if (photo) return photo;
+    }
+    if (sale.customerPhone) {
+      const digits = String(sale.customerPhone).replace(/\D/g, '');
+      if (digits.length >= 8) {
+        const ultimos8 = digits.slice(-8);
+        if (Array.isArray(allCustomers)) {
+          const cust = allCustomers.find(c => {
+            const p = String(c.phone || c.telefone || '').replace(/\D/g, '');
+            const pAlt = String(c.telefone_alternativo || '').replace(/\D/g, '');
+            return (p.length >= 8 && p.slice(-8) === ultimos8) || (pAlt.length >= 8 && pAlt.slice(-8) === ultimos8);
+          });
+          const photo = cust?.photo_url || cust?.photoUrl || cust?.avatar_url || cust?.avatarUrl || cust?.foto;
+          if (photo) return photo;
+        }
+        if (leadsPhotoMap.has(ultimos8)) return leadsPhotoMap.get(ultimos8);
+      }
+    }
+    return undefined;
+  }, [allCustomers, leadsPhotoMap]);
   const [historySortOrder, setHistorySortOrderState] = useState<'desc' | 'asc'>(() => {
     const saved = localStorage.getItem('rpro_history_sort_order');
     return saved === 'asc' ? 'asc' : 'desc';
@@ -13420,6 +13438,96 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     } finally {
       setCustosNotaSaving(false);
     }
+  };
+
+  // Rentabilidade (Custo, Lucro e Margem) exclusivo para ADMIN em todos os 3 modos de visualização
+  const isUserAdmin = Boolean(user?.isAdmin || user?.role === 'admin');
+  const renderRentabilidadeAdmin = (sale: SaleOrder, mode: 'lista' | 'cards' | 'resumido') => {
+    if (!isUserAdmin) return null;
+    const r = obterRentabilidadeVenda(sale);
+    if (!r) return null;
+
+    if (mode === 'lista') {
+      return (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); openCustosDaNota(sale); }}
+          title={r.isParcial
+            ? `Caixa Hoje: R$ ${r.lucroRealizadoCaixa.toFixed(2).replace('.', ',')} • Custo: R$ ${r.custoTotal.toFixed(2).replace('.', ',')} • Lucro Previsto: R$ ${r.lucroPrevisto.toFixed(2).replace('.', ',')} • Margem: ${r.margemPrevista.toFixed(1)}% (Clique para ver Custos da Nota)`
+            : `Custo: R$ ${r.custoTotal.toFixed(2).replace('.', ',')} • Lucro: R$ ${r.lucroPrevisto.toFixed(2).replace('.', ',')} • Margem: ${r.margemPrevista.toFixed(1)}% (Clique para ver Custos da Nota)`}
+          className="text-[8.5px] font-mono block truncate w-full text-right hover:underline mt-0.5 cursor-pointer"
+        >
+          <div className="flex items-center justify-end gap-1.5 flex-wrap">
+            <span className="text-white/40">Custo: <strong className="text-white/70">R$ {r.custoTotal.toFixed(0)}</strong></span>
+            <span className="text-white/20">•</span>
+            <span className={cn(r.lucroPrevisto >= 0 ? "text-emerald-400" : "text-rose-400")}>
+              Lucro: <strong>R$ {r.lucroPrevisto.toFixed(0)}</strong>
+            </span>
+            <span className="text-white/20">•</span>
+            <span className="text-cyan-300 font-bold">
+              {r.margemPrevista.toFixed(0)}%
+            </span>
+          </div>
+        </button>
+      );
+    }
+
+    if (mode === 'cards') {
+      return (
+        <div
+          onClick={() => openCustosDaNota(sale)}
+          className="bg-slate-950/40 hover:bg-slate-950/70 border border-emerald-500/20 hover:border-emerald-500/40 rounded-xl px-3 py-2 cursor-pointer transition-colors group flex flex-col sm:flex-row sm:items-center justify-between gap-1.5"
+          title="Clique para abrir os Custos da Nota (mão de obra, frete, materiais e extras)"
+        >
+          <div className="flex items-center gap-1.5 text-white/50 text-[9px] font-bold uppercase tracking-wider">
+            <Calculator size={12} className="text-emerald-400" />
+            <span className="group-hover:text-emerald-300 transition-colors">Rentabilidade (Admin):</span>
+            {r.temCustosExtras && (
+              <span className="text-amber-400 text-[8px] bg-amber-400/10 px-1 py-0.2 rounded font-mono">Extras</span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 sm:gap-3 text-right justify-between sm:justify-end flex-wrap text-[10px] font-mono">
+            <div className="flex items-baseline gap-1">
+              <span className="text-[8.5px] text-white/40 uppercase">Custo:</span>
+              <strong className="text-white/80">R$ {r.custoTotal.toFixed(2).replace('.', ',')}</strong>
+            </div>
+            <span className="text-white/20 hidden sm:inline">•</span>
+            <div className="flex items-baseline gap-1">
+              <span className="text-[8.5px] text-white/40 uppercase">Lucro:</span>
+              <strong className={cn(r.lucroPrevisto >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                R$ {r.lucroPrevisto.toFixed(2).replace('.', ',')}
+              </strong>
+            </div>
+            <span className="text-white/20 hidden sm:inline">•</span>
+            <div className="flex items-baseline gap-1">
+              <span className="text-[8.5px] text-cyan-400/80 uppercase">Margem:</span>
+              <strong className="text-cyan-300">
+                {r.margemPrevista.toFixed(1)}%
+              </strong>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // mode === 'resumido'
+    return (
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); openCustosDaNota(sale); }}
+        title={`Custo: R$ ${r.custoTotal.toFixed(2)} | Lucro: R$ ${r.lucroPrevisto.toFixed(2)} | Margem: ${r.margemPrevista.toFixed(1)}% (Clique para ver Custos da Nota)`}
+        className="inline-flex items-center gap-1 text-[8px] font-mono text-white/50 hover:text-emerald-400 transition-colors cursor-pointer mt-0.5"
+      >
+        <Calculator size={10} className="text-emerald-400/70 shrink-0" />
+        <span className="text-white/40">Custo: <strong className="text-white/70">R$ {r.custoTotal.toFixed(0)}</strong></span>
+        <span className="text-white/20">|</span>
+        <span className={cn(r.lucroPrevisto >= 0 ? "text-emerald-400" : "text-rose-400")}>
+          Lucro: <strong>R$ {r.lucroPrevisto.toFixed(0)}</strong>
+        </span>
+        <span className="text-white/20">|</span>
+        <span className="text-cyan-300 font-bold">{r.margemPrevista.toFixed(0)}%</span>
+      </button>
+    );
   };
 
   // Composicao dos pagamentos de uma venda, ja formatada pro botao de Pagamento do modo lista
@@ -16758,20 +16866,23 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 </button>
                 <div className="flex bg-white/5 p-1 rounded-lg border border-white/10 gap-0.5">
                   {[
-                    { id: 'miniatura', label: 'Miniaturas', icon: LayoutGrid },
-                    { id: 'normal', label: 'Normal', icon: Square },
                     { id: 'lista', label: 'Lista', icon: List },
+                    { id: 'cards', label: 'Cards', icon: LayoutGrid },
+                    { id: 'resumido', label: 'Resumido', icon: TableIcon },
                   ].map(v => (
                     <button
                       key={v.id}
                       onClick={() => setHistoryViewMode(v.id as any)}
                       title={v.label}
                       className={cn(
-                        "w-7 h-7 rounded-md transition-all flex items-center justify-center",
-                        historyViewMode === v.id ? "bg-primary-500 text-slate-900 shadow-lg font-black" : "text-white/40 hover:text-white"
+                        "px-2 h-7 rounded-md transition-all flex items-center gap-1.5 text-[9.5px] font-black uppercase tracking-wider cursor-pointer",
+                        (historyViewMode === v.id || (v.id === 'cards' && historyViewMode === 'normal') || (v.id === 'resumido' && historyViewMode === 'miniatura'))
+                          ? "bg-primary-500 text-slate-900 shadow-md"
+                          : "text-white/40 hover:text-white hover:bg-white/5"
                       )}
                     >
                       <v.icon size={12} />
+                      <span className="hidden sm:inline">{v.label}</span>
                     </button>
                   ))}
                 </div>
@@ -17030,6 +17141,48 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 );
               }
 
+              // Helper compartilhado para o menu de ações "..." nos 3 modos (Lista, Cards e Resumido)
+              const renderSaleActionsPortal = (sale: SaleOrder) => {
+                if (openSaleRowActionsId !== sale.id || !saleRowActionsMenuPos) return null;
+                const isPartial = (sale.total - (sale.downPayment || 0)) > 0 || sale.status === 'pending';
+                return createPortal(
+                  <>
+                    <div className="fixed inset-0 z-[200]" onClick={() => setOpenSaleRowActionsId(null)} />
+                    <div
+                      style={{ top: saleRowActionsMenuPos.top, bottom: saleRowActionsMenuPos.bottom, left: saleRowActionsMenuPos.left }}
+                      className="fixed z-[201] w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl py-1.5 flex flex-col"
+                    >
+                      {isPartial && (
+                        <button onClick={async () => { setOpenSaleRowActionsId(null); if (!(await showConfirm('Abrir a tela de pagamento deste pedido?'))) return; openSettlePayment(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-emerald-400 hover:bg-white/5 text-left cursor-pointer"><CheckCircle2 size={13} /> Quitar Débito</button>
+                      )}
+                      <button onClick={async () => { setOpenSaleRowActionsId(null); if (!(await showConfirm('Abrir o recibo deste pedido?'))) return; openReceiptDetail(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left cursor-pointer"><Eye size={13} /> Recibo</button>
+                      {sale.contratoId ? (
+                        <button onClick={() => { setOpenSaleRowActionsId(null); setActiveTab('contratos'); setHighlightContratoId(sale.contratoId!); setTimeout(() => setHighlightContratoId(null), 4000); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-purple-300 hover:bg-white/5 text-left cursor-pointer"><FileSignature size={13} /> Ver Contrato</button>
+                      ) : (
+                        <button onClick={async () => { setOpenSaleRowActionsId(null); if (!(await showConfirm('Gerar um contrato a partir desta nota?'))) return; handleCreateContratoFromNota(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-purple-300 hover:bg-white/5 text-left cursor-pointer"><FileSignature size={13} /> Gerar Contrato</button>
+                      )}
+                      <button onClick={() => { setOpenSaleRowActionsId(null); openCustosDaNota(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-emerald-400 hover:bg-white/5 text-left cursor-pointer"><Calculator size={13} /> Custos da Nota</button>
+                      {sale.serviceStatus ? (
+                        <button onClick={() => { setOpenSaleRowActionsId(null); handleRemoverDaProducao(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-amber-400 hover:bg-white/5 text-left cursor-pointer"><Factory size={13} /> Desmarcar Produção</button>
+                      ) : (
+                        <button onClick={() => { setOpenSaleRowActionsId(null); handleLancarProducao(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-amber-300 hover:bg-white/5 text-left cursor-pointer"><Factory size={13} /> Lançar Produção</button>
+                      )}
+                      <button onClick={() => { setOpenSaleRowActionsId(null); handleDuplicateSale(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left cursor-pointer"><Copy size={13} /> Clonar</button>
+                      {canManageHistory && (
+                        <>
+                          <div className="h-px bg-white/10 my-1.5" />
+                          {!isPartial && <button onClick={() => { setOpenSaleRowActionsId(null); handleReopenSale(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-amber-400 hover:bg-white/5 text-left cursor-pointer"><History size={13} /> Reabrir</button>}
+                          {sale.status !== 'canceled' && <button onClick={() => { setOpenSaleRowActionsId(null); handleCancelSale(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-rose-400/80 hover:bg-white/5 text-left cursor-pointer"><Ban size={13} /> Cancelar</button>}
+                          <button onClick={async () => { setOpenSaleRowActionsId(null); if (!(await showConfirm('Editar este pedido?'))) return; handleStartFullEdit(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-primary-400 hover:bg-white/5 text-left cursor-pointer"><Pencil size={13} /> Editar</button>
+                          <button onClick={() => { setOpenSaleRowActionsId(null); handleDeleteSale(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-rose-400 hover:bg-white/5 text-left cursor-pointer"><Trash2 size={13} /> Apagar</button>
+                        </>
+                      )}
+                    </div>
+                  </>,
+                  document.body
+                );
+              };
+
               // --- MODO LISTA ---
               if (historyViewMode === 'lista') {
                 const colFlex = (key: string) => {
@@ -17071,7 +17224,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       const balance = sale.total - down;
                       const isPartial = balance > 0 || sale.status === 'pending';
                       const composicaoPagamento = composicaoPagamentoDaVenda(sale);
-                      const rentabilidade = user?.isAdmin ? obterRentabilidadeVenda(sale) : null;
+                      const rentabilidade = isUserAdmin ? obterRentabilidadeVenda(sale) : null;
                       const isRowMenuOpen = openSaleRowActionsId === sale.id;
                       return (
                         <div key={sale.id} className="bg-slate-900/60 hover:bg-slate-900 border border-white/5 rounded-xl transition-all">
@@ -17088,43 +17241,49 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                     className="w-4 h-4 shrink-0 accent-primary-500 rounded"
                                   />
                                 )}
+                                <AvatarPhoto
+                                  photoUrl={getCustomerPhoto(sale)}
+                                  name={sale.customerName || 'Cliente'}
+                                  className="w-7 h-7 rounded-full bg-slate-800 border-white/10 shrink-0"
+                                  textClassName="text-[9px] font-bold text-white/70"
+                                />
                                 <div className="min-w-0 flex-1">
-                                  <div className="flex items-center gap-1.5 flex-wrap">
-                                    <button
-                                      type="button"
-                                      onClick={() => handleCopyHistoryField(sale.customerName || 'Cliente de Balcão', sale.id, 'cliente')}
-                                      title="Clique para copiar"
-                                      className="text-[12px] font-black text-white hover:text-primary-300 truncate text-left max-w-[150px] xs:max-w-[190px]"
-                                    >
-                                      {(sale.customerName || 'Cliente de Balcão').toUpperCase()}
-                                    </button>
-                                    {copiedHistoryField?.id === sale.id && copiedHistoryField?.field === 'cliente' && (
-                                      <span className="text-[7.5px] font-bold text-emerald-400 bg-emerald-500/20 px-1 py-0.5 rounded">Copiado!</span>
-                                    )}
-                                    {sale.contratoId && (
+                                    <div className="flex items-center gap-1.5 flex-wrap">
                                       <button
-                                        onClick={() => { setActiveTab('contratos'); setHighlightContratoId(sale.contratoId!); setTimeout(() => setHighlightContratoId(null), 4000); }}
-                                        className="text-[7.5px] font-black uppercase px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300"
+                                        type="button"
+                                        onClick={() => handleCopyHistoryField(sale.customerName || 'Cliente de Balcão', sale.id, 'cliente')}
+                                        title="Clique para copiar"
+                                        className="text-[12px] font-black text-white hover:text-primary-300 truncate text-left max-w-[150px] xs:max-w-[190px]"
                                       >
-                                        Contrato
+                                        {(sale.customerName || 'Cliente de Balcão').toUpperCase()}
                                       </button>
-                                    )}
-                                    {sale.orcamentoId && (
-                                      <button
-                                        onClick={() => { setActiveTab('orcamentos'); setHighlightOrcamentoId(sale.orcamentoId!); setTimeout(() => setHighlightOrcamentoId(null), 4000); }}
-                                        className="text-[7.5px] font-black uppercase px-1.5 py-0.5 rounded-full bg-primary-500/20 text-primary-300"
-                                      >
-                                        Orçamento
-                                      </button>
+                                      {copiedHistoryField?.id === sale.id && copiedHistoryField?.field === 'cliente' && (
+                                        <span className="text-[7.5px] font-bold text-emerald-400 bg-emerald-500/20 px-1 py-0.5 rounded">Copiado!</span>
+                                      )}
+                                      {sale.contratoId && (
+                                        <button
+                                          onClick={() => { setActiveTab('contratos'); setHighlightContratoId(sale.contratoId!); setTimeout(() => setHighlightContratoId(null), 4000); }}
+                                          className="text-[7.5px] font-black uppercase px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300"
+                                        >
+                                          Contrato
+                                        </button>
+                                      )}
+                                      {sale.orcamentoId && (
+                                        <button
+                                          onClick={() => { setActiveTab('orcamentos'); setHighlightOrcamentoId(sale.orcamentoId!); setTimeout(() => setHighlightOrcamentoId(null), 4000); }}
+                                          className="text-[7.5px] font-black uppercase px-1.5 py-0.5 rounded-full bg-primary-500/20 text-primary-300"
+                                        >
+                                          Orçamento
+                                        </button>
+                                      )}
+                                    </div>
+                                    {sale.observacoes && (
+                                      <span className="text-[8.5px] text-amber-300/70 italic truncate block max-w-[180px]" title={sale.observacoes}>
+                                        "{sale.observacoes}"
+                                      </span>
                                     )}
                                   </div>
-                                  {sale.observacoes && (
-                                    <span className="text-[8.5px] text-amber-300/70 italic truncate block max-w-[180px]" title={sale.observacoes}>
-                                      "{sale.observacoes}"
-                                    </span>
-                                  )}
                                 </div>
-                              </div>
 
                               <div className="flex items-center gap-1.5 shrink-0">
                                 <div className="text-right">
@@ -17141,21 +17300,21 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                 <button
                                   onClick={() => { if (isPartial) openSettlePayment(sale); else openReceiptDetail(sale); }}
                                   className={cn(
-                                    "h-7 px-2 rounded-lg border text-[8.5px] font-black uppercase tracking-wider flex items-center gap-1 shrink-0 transition-all",
+                                    "h-7 px-2 rounded-lg border text-[8.5px] font-black uppercase tracking-wider flex items-center gap-1 shrink-0 transition-all cursor-pointer",
                                     isPartial
-                                      ? "bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500/25"
+                                      ? "bg-rose-500/15 border-rose-500/40 text-rose-300 hover:bg-rose-500/25"
                                       : "bg-emerald-500/15 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/25"
                                   )}
-                                  title={isPartial ? 'Clique para quitar débito' : 'Pago - ver recibo'}
+                                  title={isPartial ? 'Pendente: clique para quitar débito' : 'Pago: clique para ver recibo'}
                                 >
                                   {isPartial ? (
                                     <>
-                                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                                      <AlertCircle size={10} className="text-rose-400 shrink-0" />
                                       <span>Falta R$ {balance.toFixed(2).replace('.', ',')}</span>
                                     </>
                                   ) : (
                                     <>
-                                      <CheckCircle2 size={10} className="text-emerald-400" />
+                                      <CheckCircle2 size={10} className="text-emerald-400 shrink-0" />
                                       <span>Pago</span>
                                     </>
                                   )}
@@ -17225,23 +17384,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); handleLancarProducao(sale); }}
                                     title={`Em Produção: ${STAGE_LABELS[sale.serviceStatus] || sale.serviceStatus} (clique para ir a Serviços)`}
-                                    className="h-5 px-1.5 rounded-full bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 text-indigo-300 text-[8px] font-black uppercase tracking-wider flex items-center gap-1 transition-colors"
+                                    className="h-5 px-1.5 rounded-full bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[8px] font-black uppercase tracking-wider flex items-center gap-1 transition-colors"
                                   >
-                                    <Factory size={8} className="text-indigo-400" />
+                                    <Factory size={8} className="text-amber-400" />
                                     <span className="truncate max-w-[85px]">{STAGE_LABELS[sale.serviceStatus] || sale.serviceStatus}</span>
                                   </button>
                                 )}
 
-                                {rentabilidade !== null && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); openCustosDaNota(sale); }}
-                                    className="text-[8px] font-bold text-emerald-400/80 hover:text-emerald-300 transition-colors"
-                                    title="Ver custos da nota"
-                                  >
-                                    {rentabilidade.isParcial ? `Cx R$ ${rentabilidade.lucroRealizadoCaixa.toFixed(0)}` : `Lucro R$ ${rentabilidade.lucroPrevisto.toFixed(0)}`}
-                                  </button>
-                                )}
+                                {renderRentabilidadeAdmin(sale, 'lista')}
                               </div>
                             </div>
                           </div>
@@ -17252,22 +17402,30 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               <input type="checkbox" checked={selectedSaleIds.has(sale.id)} onChange={() => toggleSaleSelection(sale.id)} className="w-3.5 h-3.5 shrink-0 accent-primary-500" />
                             )}
 
-                            {/* Nome */}
-                            <div className="min-w-0 overflow-hidden" style={colFlex('nome')}>
-                              <button
-                                type="button"
-                                onClick={() => handleCopyHistoryField(sale.customerName || 'Cliente de Balcão', sale.id, 'cliente')}
-                                title="Clique para copiar o nome do cliente"
-                                className="text-[11px] font-black text-white hover:text-primary-300 block truncate text-left transition-colors cursor-pointer group w-full"
-                              >
-                                <span className="truncate">{(sale.customerName || 'Cliente de Balcão').toUpperCase()}</span>
-                                {copiedHistoryField?.id === sale.id && copiedHistoryField?.field === 'cliente' && (
-                                  <span className="ml-1 text-[8px] font-bold text-emerald-400 bg-emerald-500/20 px-1 py-0.2 rounded">Copiado!</span>
+                            {/* Nome com Foto/Avatar */}
+                            <div className="min-w-0 overflow-hidden flex items-center gap-2" style={colFlex('nome')}>
+                              <AvatarPhoto
+                                photoUrl={getCustomerPhoto(sale)}
+                                name={sale.customerName || 'Cliente'}
+                                className="w-6 h-6 rounded-full bg-slate-800 border-white/10 shrink-0"
+                                textClassName="text-[9px] font-bold text-white/70"
+                              />
+                              <div className="min-w-0 flex-1 overflow-hidden">
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyHistoryField(sale.customerName || 'Cliente de Balcão', sale.id, 'cliente')}
+                                  title="Clique para copiar o nome do cliente"
+                                  className="text-[11px] font-black text-white hover:text-primary-300 block truncate text-left transition-colors cursor-pointer group w-full"
+                                >
+                                  <span className="truncate">{(sale.customerName || 'Cliente de Balcão').toUpperCase()}</span>
+                                  {copiedHistoryField?.id === sale.id && copiedHistoryField?.field === 'cliente' && (
+                                    <span className="ml-1 text-[8px] font-bold text-emerald-400 bg-emerald-500/20 px-1 py-0.2 rounded">Copiado!</span>
+                                  )}
+                                </button>
+                                {sale.observacoes && (
+                                  <span className="text-[9px] text-amber-300/70 italic block truncate" title={sale.observacoes}>"{sale.observacoes}"</span>
                                 )}
-                              </button>
-                              {sale.observacoes && (
-                                <span className="text-[9px] text-amber-300/70 italic block truncate" title={sale.observacoes}>"{sale.observacoes}"</span>
-                              )}
+                              </div>
                             </div>
 
                             {/* Itens / Descrição + etiquetas de origem (Contrato/Orçamento) */}
@@ -17351,7 +17509,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                     {STAGE_ORDER.map(id => (
                                       <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
                                     ))}
-                                    <option value="__remover__" className="bg-slate-900 text-rose-300 font-bold">❌ Desmarcar Produção</option>
+                                    <option value="__remover__" className="bg-slate-900 text-rose-300 font-bold">Desmarcar Produção</option>
                                   </select>
                                   <button
                                     type="button"
@@ -17372,16 +17530,26 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             <div className="min-w-0 flex justify-center" style={colFlex('status')}>
                               <button
                                 onClick={() => { if (isPartial) openSettlePayment(sale); else openReceiptDetail(sale); }}
-                                title={isPartial ? 'Registrar pagamento' : 'Pago — ver recibo'}
+                                title={isPartial ? 'Pendente: clique para registrar pagamento' : 'Pago: clique para ver recibo'}
                                 className={cn(
-                                  "w-full max-w-[130px] rounded-xl border px-2 py-1.5 flex flex-col items-center justify-center gap-0.5 text-center transition-colors",
+                                  "w-full max-w-[130px] rounded-xl border px-2 py-1.5 flex flex-col items-center justify-center gap-0.5 text-center transition-colors cursor-pointer",
                                   isPartial
-                                    ? "bg-amber-500/15 border-amber-500/30 text-amber-300 hover:bg-amber-500/25"
+                                    ? "bg-rose-500/15 border-rose-500/30 text-rose-300 hover:bg-rose-500/25"
                                     : "bg-emerald-500/15 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25"
                                 )}
                               >
-                                <span className="text-[9px] font-black uppercase leading-none">
-                                  {isPartial ? (down > 0 ? 'Pagar' : 'Pagar') : 'Pago'}
+                                <span className="text-[9px] font-black uppercase leading-none inline-flex items-center gap-1">
+                                  {isPartial ? (
+                                    <>
+                                      <AlertCircle size={10} className="text-rose-400" />
+                                      <span>Pagar</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <CheckCircle2 size={10} className="text-emerald-400" />
+                                      <span>Pago</span>
+                                    </>
+                                  )}
                                 </span>
                                 {composicaoPagamento.map(p => (
                                   <span key={p.label} className="text-[7.5px] font-bold leading-none opacity-90 truncate max-w-full">
@@ -17399,37 +17567,27 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             {/* Valor / Pagamento */}
                             <div className="min-w-0 text-right overflow-hidden" style={colFlex('valor')}>
                               <span className="text-[11px] font-black text-white block truncate">R$ {sale.total.toFixed(2).replace('.', ',')}</span>
-                              {rentabilidade !== null && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => { e.stopPropagation(); openCustosDaNota(sale); }}
-                                  title={rentabilidade.isParcial
-                                    ? `Caixa Hoje: R$ ${rentabilidade.lucroRealizadoCaixa.toFixed(2).replace('.', ',')} (Entrada R$ ${rentabilidade.valorPago.toFixed(2).replace('.', ',')} - Custo R$ ${rentabilidade.custoTotal.toFixed(2).replace('.', ',')}) • Lucro Total Previsto: R$ ${rentabilidade.lucroPrevisto.toFixed(2).replace('.', ',')} (Clique para ver Custos da Nota)`
-                                    : `Lucro Líquido: R$ ${rentabilidade.lucroPrevisto.toFixed(2).replace('.', ',')} (Clique para ver Custos da Nota)`}
-                                  className="text-[8px] font-bold block truncate w-full text-right hover:underline"
-                                >
-                                  {rentabilidade.isParcial ? (
-                                    <span className="inline-flex items-center gap-1 justify-end flex-wrap">
-                                      <span className={cn(rentabilidade.lucroRealizadoCaixa >= 0 ? "text-emerald-400" : "text-rose-400")}>
-                                        Cx: R$ {rentabilidade.lucroRealizadoCaixa.toFixed(2).replace('.', ',')}
-                                      </span>
-                                      <span className="text-white/30">•</span>
-                                      <span className="text-cyan-300">
-                                        Prev: R$ {rentabilidade.lucroPrevisto.toFixed(2).replace('.', ',')}
-                                      </span>
-                                      {rentabilidade.temCustosExtras && <span className="text-amber-300" title="Possui custos extras">•</span>}
-                                    </span>
-                                  ) : (
-                                    <span className={cn(rentabilidade.lucroPrevisto >= 0 ? "text-emerald-400/80" : "text-rose-400/80")}>
-                                      Lucro: R$ {rentabilidade.lucroPrevisto.toFixed(2).replace('.', ',')}{rentabilidade.temCustosExtras ? ' •' : ''}
-                                    </span>
-                                  )}
-                                </button>
-                              )}
+                              {renderRentabilidadeAdmin(sale, 'lista')}
                             </div>
 
-                            {/* Menu oculto de ações */}
-                            <div className="shrink-0 w-8 flex justify-center">
+                            {/* Menu de ações */}
+                            <div className="shrink-0 flex items-center gap-1">
+                              <button
+                                onClick={async () => { if (!(await showConfirm('Abrir o recibo deste pedido?'))) return; openReceiptDetail(sale); }}
+                                title="Visualizar Recibo"
+                                className="w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                              >
+                                <Eye size={12} />
+                              </button>
+                              {canManageHistory && (
+                                <button
+                                  onClick={async () => { if (!(await showConfirm('Editar este pedido?'))) return; handleStartFullEdit(sale); }}
+                                  title="Editar"
+                                  className="w-7 h-7 rounded-lg bg-white/5 hover:bg-primary-500/20 text-white/60 hover:text-primary-300 flex items-center justify-center transition-colors cursor-pointer"
+                                >
+                                  <Pencil size={12} />
+                                </button>
+                              )}
                               <button
                                 onClick={(e) => {
                                   if (isRowMenuOpen) { setOpenSaleRowActionsId(null); return; }
@@ -17444,50 +17602,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                   setOpenSaleRowActionsId(sale.id);
                                 }}
                                 title="Mais ações"
-                                className={cn("flex items-center justify-center w-8 h-8 rounded-lg transition-colors shrink-0", isRowMenuOpen ? "bg-white/15 text-white" : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white")}
+                                className={cn("flex items-center justify-center w-7 h-7 rounded-lg transition-colors shrink-0", isRowMenuOpen ? "bg-white/15 text-white" : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white")}
                               >
-                                <MoreVertical size={14} />
+                                <MoreVertical size={13} />
                               </button>
                             </div>
                           </div>
 
-                          {/* Dropdown Modal Portal compartilhado para Mobile e Desktop */}
-                          {isRowMenuOpen && saleRowActionsMenuPos && createPortal(
-                            <>
-                              <div className="fixed inset-0 z-[200]" onClick={() => setOpenSaleRowActionsId(null)} />
-                              <div
-                                style={{ top: saleRowActionsMenuPos.top, bottom: saleRowActionsMenuPos.bottom, left: saleRowActionsMenuPos.left }}
-                                className="fixed z-[201] w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl py-1.5 flex flex-col"
-                              >
-                                {isPartial && (
-                                  <button onClick={async () => { setOpenSaleRowActionsId(null); if (!(await showConfirm('Abrir a tela de pagamento deste pedido?'))) return; openSettlePayment(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-emerald-400 hover:bg-white/5 text-left"><CheckCircle2 size={13} /> Quitar Débito</button>
-                                )}
-                                <button onClick={async () => { setOpenSaleRowActionsId(null); if (!(await showConfirm('Abrir o recibo deste pedido?'))) return; openReceiptDetail(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left"><FileText size={13} /> Recibo</button>
-                                {sale.contratoId ? (
-                                  <button onClick={() => { setOpenSaleRowActionsId(null); setActiveTab('contratos'); setHighlightContratoId(sale.contratoId!); setTimeout(() => setHighlightContratoId(null), 4000); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-purple-300 hover:bg-white/5 text-left"><FileSignature size={13} /> Ver Contrato</button>
-                                ) : (
-                                  <button onClick={async () => { setOpenSaleRowActionsId(null); if (!(await showConfirm('Gerar um contrato a partir desta nota?'))) return; handleCreateContratoFromNota(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-purple-300 hover:bg-white/5 text-left"><FileSignature size={13} /> Gerar Contrato</button>
-                                )}
-                                <button onClick={() => { setOpenSaleRowActionsId(null); openCustosDaNota(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-emerald-400 hover:bg-white/5 text-left"><Calculator size={13} /> Custos da Nota</button>
-                                {sale.serviceStatus ? (
-                                  <button onClick={() => { setOpenSaleRowActionsId(null); handleRemoverDaProducao(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-amber-400 hover:bg-white/5 text-left"><Factory size={13} /> Desmarcar Produção</button>
-                                ) : (
-                                  <button onClick={() => { setOpenSaleRowActionsId(null); handleLancarProducao(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-indigo-300 hover:bg-white/5 text-left"><Factory size={13} /> Lançar Produção</button>
-                                )}
-                                <button onClick={() => { setOpenSaleRowActionsId(null); handleDuplicateSale(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left"><Copy size={13} /> Clonar</button>
-                                {canManageHistory && (
-                                  <>
-                                    <div className="h-px bg-white/10 my-1.5" />
-                                    {!isPartial && <button onClick={() => { setOpenSaleRowActionsId(null); handleReopenSale(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-amber-400 hover:bg-white/5 text-left"><History size={13} /> Reabrir</button>}
-                                    {sale.status !== 'canceled' && <button onClick={() => { setOpenSaleRowActionsId(null); handleCancelSale(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-rose-400/80 hover:bg-white/5 text-left"><Ban size={13} /> Cancelar</button>}
-                                    <button onClick={async () => { setOpenSaleRowActionsId(null); if (!(await showConfirm('Editar este pedido?'))) return; handleStartFullEdit(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-primary-400 hover:bg-white/5 text-left"><Pencil size={13} /> Editar</button>
-                                    <button onClick={() => { setOpenSaleRowActionsId(null); handleDeleteSale(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-rose-400 hover:bg-white/5 text-left"><Trash2 size={13} /> Apagar</button>
-                                  </>
-                                )}
-                              </div>
-                            </>,
-                            document.body
-                          )}
+                          {/* Dropdown Modal Portal compartilhado */}
+                          {renderSaleActionsPortal(sale)}
                         </div>
                       );
                     })}
@@ -17496,245 +17619,193 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 );
               }
 
-              // --- MODO MINIATURA ---
-              if (historyViewMode === 'miniatura') {
+              // --- MODO RESUMIDO ---
+              if (historyViewMode === 'resumido' || historyViewMode === 'miniatura') {
                 return (
-                  <div>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-                      {visibleSales.map(sale => {
+                  <div className="flex flex-col gap-1.5">
+                    {visibleSales.map(sale => {
                       const down = sale.downPayment || 0;
                       const balance = sale.total - down;
                       const isPartial = balance > 0 || sale.status === 'pending';
+                      const summary = summarizeSaleItems(sale.items || []);
+                      const photo = getCustomerPhoto(sale);
+                      const isRowMenuOpen = openSaleRowActionsId === sale.id;
+
                       return (
-                        <GlassCard key={sale.id} className="p-3 border-white/10 space-y-2 bg-slate-900/80 hover:border-white/20 transition-all relative">
-                          <div className="flex items-start justify-between gap-1">
+                        <div
+                          key={sale.id}
+                          className="flex items-center justify-between gap-2 sm:gap-3 bg-slate-900/60 hover:bg-slate-900 border border-white/5 hover:border-white/15 rounded-xl px-2.5 sm:px-3.5 py-2 transition-all"
+                        >
+                          {/* Foto/avatar + Cliente (Nome, Código) + Item */}
+                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
                             {canManageHistory && (
-                              <input type="checkbox" checked={selectedSaleIds.has(sale.id)} onChange={() => toggleSaleSelection(sale.id)} className="w-3.5 h-3.5 mt-0.5 shrink-0 accent-primary-500" />
+                              <input
+                                type="checkbox"
+                                checked={selectedSaleIds.has(sale.id)}
+                                onChange={() => toggleSaleSelection(sale.id)}
+                                className="w-3.5 h-3.5 shrink-0 accent-primary-500 rounded"
+                              />
                             )}
-                            <div className="flex items-center gap-1 ml-auto flex-wrap justify-end">
-                              {!sale.serviceStatus ? (
+
+                            <AvatarPhoto
+                              photoUrl={photo}
+                              name={sale.customerName || 'Cliente'}
+                              className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-slate-800 border-white/10 shrink-0"
+                              textClassName="text-[10px] font-bold text-white/70"
+                            />
+
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5 flex-wrap">
                                 <button
-                                  onClick={() => handleLancarProducao(sale)}
-                                  disabled={lancandoProducaoId === sale.id}
-                                  title="Lançar para Produção"
-                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[7.5px] font-black uppercase tracking-wider transition-colors disabled:opacity-50 cursor-pointer"
+                                  type="button"
+                                  onClick={() => handleCopyHistoryField(sale.customerName || 'Cliente de Balcão', sale.id, 'cliente')}
+                                  title="Clique para copiar o nome do cliente"
+                                  className="text-xs font-black text-white hover:text-primary-300 truncate text-left max-w-[130px] sm:max-w-[200px]"
                                 >
-                                  <Factory size={9} className={cn(lancandoProducaoId === sale.id && "animate-spin")} />
-                                  <span>{lancandoProducaoId === sale.id ? '...' : 'Lançar'}</span>
+                                  {(sale.customerName || 'Cliente de Balcão').toUpperCase()}
                                 </button>
-                              ) : (
-                                <button
-                                  onClick={() => handleLancarProducao(sale)}
-                                  title={`Em Produção: ${STAGE_LABELS[sale.serviceStatus] || sale.serviceStatus} (clique para ver em Serviços)`}
-                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/40 text-indigo-300 text-[7px] font-black uppercase tracking-wider transition-colors cursor-pointer"
-                                >
-                                  <Factory size={9} className="text-indigo-400" />
-                                  <span className="truncate max-w-[65px]">{STAGE_LABELS[sale.serviceStatus] || sale.serviceStatus}</span>
-                                </button>
-                              )}
-                              <Badge className={cn("text-[6.5px] font-black uppercase px-1.5 py-0.5 border-none", isPartial ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300")}>
-                                {isPartial ? `FALTA R$ ${balance.toFixed(2).replace('.', ',')}` : 'PAGO'}
-                              </Badge>
-                            </div>
-                          </div>
-                          <div>
-                            <button
-                              type="button"
-                              onClick={() => handleCopyHistoryField(sale.customerName || 'Cliente de Balcão', sale.id, 'cliente')}
-                              title="Clique para copiar o nome do cliente"
-                              className="text-[10px] font-black text-white hover:text-primary-300 uppercase truncate block text-left transition-colors cursor-pointer w-full"
-                            >
-                              <span className="truncate">{sale.customerName || 'Cliente de Balcão'}</span>
-                              {copiedHistoryField?.id === sale.id && copiedHistoryField?.field === 'cliente' && (
-                                <span className="ml-1 text-[7px] font-bold text-emerald-400 bg-emerald-500/20 px-1 py-0.2 rounded">Copiado!</span>
-                              )}
-                            </button>
-                            {sale.items && sale.items.length > 0 && (() => {
-                              const summary = summarizeSaleItems(sale.items);
-                              return (
-                                <p className="text-[8px] text-white/40 italic truncate" title={summary.title}>
-                                  {summary.text}
-                                </p>
-                              );
-                            })()}
-                            <button
-                              type="button"
-                              onClick={() => handleCopyHistoryField(sale.id, sale.id, 'nota')}
-                              title="Clique para copiar o código da nota"
-                              className="text-[8px] text-white/30 hover:text-primary-300 font-mono block text-left transition-colors cursor-pointer"
-                            >
-                              <span>#{sale.id.slice(-8).toUpperCase()}</span>
-                              {copiedHistoryField?.id === sale.id && copiedHistoryField?.field === 'nota' && (
-                                <span className="ml-1 text-[7px] font-bold text-emerald-400 bg-emerald-500/20 px-1 py-0.2 rounded">Copiado!</span>
-                              )}
-                            </button>
-                          </div>
-                          {/* Etiquetas de origem (Contrato/Orçamento) -- as duas podem aparecer juntas,
-                              com quebra de linha (flex-wrap) pra nunca cortar nem esconder nada no celular. */}
-                          {(sale.contratoId || sale.orcamentoId) && (
-                            <div className="flex flex-wrap gap-1">
-                              {sale.contratoId && (
-                                <button
-                                  onClick={() => { setActiveTab('contratos'); setHighlightContratoId(sale.contratoId!); setTimeout(() => setHighlightContratoId(null), 4000); }}
-                                  title="Ver contrato vinculado"
-                                  className="text-[7px] font-black uppercase px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors whitespace-nowrap"
-                                >
-                                  Contrato
-                                </button>
-                              )}
-                              {sale.orcamentoId && (
-                                <button
-                                  onClick={() => { setActiveTab('orcamentos'); setHighlightOrcamentoId(sale.orcamentoId!); setTimeout(() => setHighlightOrcamentoId(null), 4000); }}
-                                  title="Ver orçamento vinculado"
-                                  className="text-[7px] font-black uppercase px-1.5 py-0.5 rounded-full bg-primary-500/20 text-primary-300 hover:bg-primary-500/30 transition-colors whitespace-nowrap"
-                                >
-                                  Orçamento
-                                </button>
-                              )}
-                            </div>
-                          )}
-                          <p className="text-sm font-black text-white">R$ {sale.total.toFixed(2).replace('.', ',')}</p>
-                          {user?.isAdmin && (() => {
-                            const r = obterRentabilidadeVenda(sale);
-                            return (
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); openCustosDaNota(sale); }}
-                                title={r.isParcial
-                                  ? `Caixa Hoje: R$ ${r.lucroRealizadoCaixa.toFixed(2).replace('.', ',')} • Lucro Previsto: R$ ${r.lucroPrevisto.toFixed(2).replace('.', ',')} (Clique para ver Custos da Nota)`
-                                  : `Lucro Líquido: R$ ${r.lucroPrevisto.toFixed(2).replace('.', ',')} (Clique para ver Custos da Nota)`}
-                                className="w-full text-left bg-slate-950/60 hover:bg-slate-950 border border-white/5 hover:border-emerald-500/30 rounded-lg px-2 py-1 transition-colors group cursor-pointer"
-                              >
-                                {r.isParcial ? (
-                                  <div className="flex flex-col gap-0.5 text-[8px] font-mono leading-tight">
-                                    <div className="flex items-center justify-between">
-                                      <span className="text-white/40">Caixa Hoje:</span>
-                                      <span className={cn("font-black", r.lucroRealizadoCaixa >= 0 ? "text-emerald-400" : "text-rose-400")}>
-                                        R$ {r.lucroRealizadoCaixa.toFixed(2).replace('.', ',')}
-                                      </span>
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                      <span className="text-cyan-400/80">Previsto:</span>
-                                      <span className="font-black text-cyan-300">
-                                        R$ {r.lucroPrevisto.toFixed(2).replace('.', ',')}
-                                      </span>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <div className="flex items-center justify-between text-[8px] font-mono leading-tight">
-                                    <span className="text-white/40">Lucro:</span>
-                                    <span className={cn("font-black", r.lucroPrevisto >= 0 ? "text-emerald-400" : "text-rose-400")}>
-                                      R$ {r.lucroPrevisto.toFixed(2).replace('.', ',')}{r.temCustosExtras ? ' •' : ''}
-                                    </span>
-                                  </div>
+                                {copiedHistoryField?.id === sale.id && copiedHistoryField?.field === 'cliente' && (
+                                  <span className="text-[7.5px] font-bold text-emerald-400 bg-emerald-500/20 px-1 py-0.2 rounded">Copiado!</span>
                                 )}
-                              </button>
-                            );
-                          })()}
-                          <div className="space-y-1.5 pt-1 border-t border-white/5">
-                            {isPartial && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyHistoryField(sale.id, sale.id, 'nota')}
+                                  title="Clique para copiar o código da nota"
+                                  className="text-[9px] font-mono text-white/30 hover:text-primary-300"
+                                >
+                                  #{sale.id.slice(-8).toUpperCase()}
+                                </button>
+                                {sale.contratoId && (
+                                  <button
+                                    onClick={() => { setActiveTab('contratos'); setHighlightContratoId(sale.contratoId!); setTimeout(() => setHighlightContratoId(null), 4000); }}
+                                    className="text-[7.5px] font-black uppercase px-1.5 py-0.2 rounded-full bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors"
+                                    title="Ver contrato vinculado"
+                                  >
+                                    Contrato
+                                  </button>
+                                )}
+                                {sale.orcamentoId && (
+                                  <button
+                                    onClick={() => { setActiveTab('orcamentos'); setHighlightOrcamentoId(sale.orcamentoId!); setTimeout(() => setHighlightOrcamentoId(null), 4000); }}
+                                    className="text-[7.5px] font-black uppercase px-1.5 py-0.2 rounded-full bg-primary-500/20 text-primary-300 hover:bg-primary-500/30 transition-colors"
+                                    title="Ver orçamento vinculado"
+                                  >
+                                    Orçamento
+                                  </button>
+                                )}
+                              </div>
+                              {/* Item / Descrição */}
+                              <p className="text-[9.5px] text-white/40 italic truncate max-w-[180px] sm:max-w-xs md:max-w-md" title={summary.title}>
+                                {summary.text}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Etapa */}
+                          <div className="shrink-0 hidden md:flex items-center">
+                            {!sale.serviceStatus ? (
                               <button
-                                onClick={async () => { if (!(await showConfirm('Abrir a tela de pagamento deste pedido?'))) return; openSettlePayment(sale); }}
-                                className="w-full h-7 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-[8px] font-black uppercase tracking-wider flex items-center justify-center gap-1 transition-colors cursor-pointer shadow-xs"
-                                title="Quitar Débito"
+                                onClick={() => handleLancarProducao(sale)}
+                                disabled={lancandoProducaoId === sale.id}
+                                title="Lançar para Produção"
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[8px] font-black uppercase tracking-wider transition-colors disabled:opacity-50 cursor-pointer"
                               >
-                                <CheckCircle2 size={11} className="shrink-0" />
-                                <span className="truncate">Quitar (R$ {balance.toFixed(2).replace('.', ',')})</span>
+                                <Factory size={10} className={cn(lancandoProducaoId === sale.id && "animate-spin")} />
+                                <span>{lancandoProducaoId === sale.id ? '...' : '+ Produção'}</span>
                               </button>
+                            ) : (
+                              <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[8px] font-black uppercase tracking-wider">
+                                {sale.serviceStatus === 'produto_entregue' ? (
+                                  <Truck size={10} className="text-sky-400" />
+                                ) : (
+                                  <Factory size={10} className="text-amber-400" />
+                                )}
+                                <span className="truncate max-w-[90px]">{STAGE_LABELS[sale.serviceStatus] || sale.serviceStatus}</span>
+                              </div>
                             )}
-                            <div className="grid grid-cols-4 gap-1">
-                              <button
-                                onClick={async () => { if (!(await showConfirm('Abrir o recibo deste pedido?'))) return; openReceiptDetail(sale); }}
-                                className="h-7 w-full rounded-lg bg-white/5 hover:bg-white/10 text-white/70 hover:text-white border border-white/5 flex items-center justify-center transition-colors cursor-pointer"
-                                title="Recibo"
-                              >
-                                <FileText size={12} />
-                              </button>
-                              <button
-                                onClick={() => openCustosDaNota(sale)}
-                                className="h-7 w-full rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20 flex items-center justify-center transition-colors cursor-pointer"
-                                title="Custos da Nota"
-                              >
-                                <Calculator size={12} />
-                              </button>
-                              <button
-                                onClick={() => handleDuplicateSale(sale)}
-                                className="h-7 w-full rounded-lg bg-white/5 text-white/70 hover:bg-white/10 hover:text-white border border-white/5 flex items-center justify-center transition-colors cursor-pointer"
-                                title="Duplicar Pedido"
-                              >
-                                <Copy size={12} />
-                              </button>
-                              {sale.contratoId ? (
-                                <button
-                                  onClick={() => { setActiveTab('contratos'); setHighlightContratoId(sale.contratoId!); setTimeout(() => setHighlightContratoId(null), 4000); }}
-                                  className="h-7 w-full rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20 border border-purple-500/20 flex items-center justify-center transition-colors cursor-pointer"
-                                  title="Ver Contrato vinculado"
-                                >
-                                  <FileSignature size={12} />
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={async () => { if (!(await showConfirm('Gerar um contrato a partir desta nota?'))) return; handleCreateContratoFromNota(sale); }}
-                                  className="h-7 w-full rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20 border border-purple-500/20 flex items-center justify-center transition-colors cursor-pointer"
-                                  title="Gerar Contrato a partir desta nota"
-                                >
-                                  <FileSignature size={12} />
-                                </button>
+                          </div>
+
+                          {/* Pagamento */}
+                          <div className="shrink-0">
+                            <button
+                              onClick={() => { if (isPartial) openSettlePayment(sale); else openReceiptDetail(sale); }}
+                              title={isPartial ? 'Pendente: clique para quitar' : 'Pago: clique para ver recibo'}
+                              className={cn(
+                                "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[8.5px] font-black uppercase tracking-wider border transition-colors cursor-pointer",
+                                isPartial
+                                  ? "bg-rose-500/15 border-rose-500/30 text-rose-300 hover:bg-rose-500/25"
+                                  : "bg-emerald-500/15 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25"
                               )}
-                              {canManageHistory && (
+                            >
+                              {isPartial ? (
                                 <>
-                                  <button
-                                    onClick={async () => { if (!(await showConfirm('Editar este pedido?'))) return; handleStartFullEdit(sale); }}
-                                    className="h-7 w-full rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20 border border-primary-500/20 flex items-center justify-center transition-colors cursor-pointer"
-                                    title="Editar"
-                                  >
-                                    <Pencil size={12} />
-                                  </button>
-                                  {!isPartial ? (
-                                    <button
-                                      onClick={() => handleReopenSale(sale)}
-                                      className="h-7 w-full rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 border border-amber-500/20 flex items-center justify-center transition-colors cursor-pointer"
-                                      title="Reabrir"
-                                    >
-                                      <History size={12} />
-                                    </button>
-                                  ) : (
-                                    <div className="h-7 w-full rounded-lg bg-white/[0.02] border border-transparent" />
-                                  )}
-                                  {sale.status !== 'canceled' ? (
-                                    <button
-                                      onClick={() => handleCancelSale(sale)}
-                                      className="h-7 w-full rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/20 flex items-center justify-center transition-colors cursor-pointer"
-                                      title="Cancelar Pedido"
-                                    >
-                                      <Ban size={12} />
-                                    </button>
-                                  ) : (
-                                    <div className="h-7 w-full rounded-lg bg-rose-500/5 border border-rose-500/10 text-rose-400/40 text-[7px] font-black uppercase flex items-center justify-center" title="Cancelado">
-                                      <Ban size={10} />
-                                    </div>
-                                  )}
-                                  <button
-                                    onClick={() => handleDeleteSale(sale)}
-                                    className="h-7 w-full rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/20 flex items-center justify-center transition-colors cursor-pointer"
-                                    title="Excluir"
-                                  >
-                                    <Trash2 size={12} />
-                                  </button>
+                                  <AlertCircle size={10} className="text-rose-400 shrink-0" />
+                                  <span className="truncate max-w-[80px] sm:max-w-none">Falta R$ {balance.toFixed(0)}</span>
+                                </>
+                              ) : (
+                                <>
+                                  <CheckCircle2 size={10} className="text-emerald-400 shrink-0" />
+                                  <span>Pago</span>
                                 </>
                               )}
-                            </div>
+                            </button>
                           </div>
-                        </GlassCard>
+
+                          {/* Valor + ADMIN Rentabilidade (Custo, Lucro, Margem) */}
+                          <div className="text-right shrink-0 min-w-[70px] sm:min-w-[95px]">
+                            <span className="text-xs font-black text-white block leading-tight">
+                              R$ {sale.total.toFixed(2).replace('.', ',')}
+                            </span>
+                            {renderRentabilidadeAdmin(sale, 'resumido')}
+                          </div>
+
+                          {/* Ações: visualizar, editar e menu "..." */}
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              onClick={() => openReceiptDetail(sale)}
+                              title="Visualizar Recibo"
+                              className="w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                            >
+                              <Eye size={12} />
+                            </button>
+                            {canManageHistory && (
+                              <button
+                                onClick={() => handleStartFullEdit(sale)}
+                                title="Editar Pedido"
+                                className="w-7 h-7 rounded-lg bg-white/5 hover:bg-primary-500/20 text-white/70 hover:text-primary-300 flex items-center justify-center transition-colors cursor-pointer"
+                              >
+                                <Pencil size={12} />
+                              </button>
+                            )}
+                            <button
+                              onClick={(e) => {
+                                if (isRowMenuOpen) { setOpenSaleRowActionsId(null); return; }
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                const MENU_H_ESTIMADA = 300;
+                                const abreParaCima = rect.bottom + MENU_H_ESTIMADA > window.innerHeight;
+                                setSaleRowActionsMenuPos({
+                                  top: abreParaCima ? undefined : rect.bottom + 6,
+                                  bottom: abreParaCima ? window.innerHeight - rect.top + 6 : undefined,
+                                  left: Math.max(8, Math.min(rect.right - 200, window.innerWidth - 208)),
+                                });
+                                setOpenSaleRowActionsId(sale.id);
+                              }}
+                              title="Mais ações"
+                              className={cn("w-7 h-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer", isRowMenuOpen ? "bg-white/15 text-white" : "bg-white/5 text-white/60 hover:text-white hover:bg-white/10")}
+                            >
+                              <MoreVertical size={13} />
+                            </button>
+                          </div>
+                          {renderSaleActionsPortal(sale)}
+                        </div>
                       );
                     })}
+                    {renderPaginationControls()}
                   </div>
-                  {renderPaginationControls()}
-                </div>
-              );
-            }
+                );
+              }
 
-            // --- MODO NORMAL (padrão) ---
+            // --- MODO CARDS ---
             return (
               <div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -17742,14 +17813,23 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     const down = sale.downPayment || 0;
                     const balance = sale.total - down;
                     const isPartial = balance > 0 || sale.status === 'pending';
+                    const photo = getCustomerPhoto(sale);
+                    const isRowMenuOpen = openSaleRowActionsId === sale.id;
 
                     return (
                       <GlassCard key={sale.id} className="p-3.5 sm:p-5 md:p-6 border-white/10 space-y-3 sm:space-y-4 bg-slate-900/80 hover:border-white/20 transition-all relative overflow-hidden">
+                        {/* Cabeçalho do Card: Foto/Avatar + Cliente (Nome, Código, Badges) e Etapa / Entrega */}
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4 border-b border-white/5 pb-3">
-                          <div className="flex items-start gap-2 min-w-0">
+                          <div className="flex items-start gap-2.5 min-w-0 flex-1">
                             {canManageHistory && (
                               <input type="checkbox" checked={selectedSaleIds.has(sale.id)} onChange={() => toggleSaleSelection(sale.id)} className="w-4 h-4 mt-1 shrink-0 accent-primary-500" />
                             )}
+                            <AvatarPhoto
+                              photoUrl={photo}
+                              name={sale.customerName || 'Cliente'}
+                              className="w-10 h-10 rounded-full bg-slate-800 border-white/10 shrink-0"
+                              textClassName="text-xs font-bold text-white/70"
+                            />
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <button
@@ -17767,11 +17847,23 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                 </button>
                                 <Badge 
                                   className={cn(
-                                    "text-[8px] font-black uppercase px-2 py-0.5 border-none",
-                                    isPartial ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300"
+                                    "text-[8px] font-black uppercase px-2 py-0.5 border",
+                                    isPartial
+                                      ? "bg-rose-500/20 text-rose-300 border-rose-500/30"
+                                      : "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
                                   )}
                                 >
-                                  {isPartial ? `FALTA R$ ${balance.toFixed(2).replace('.', ',')}` : 'PAGO'}
+                                  {isPartial ? (
+                                    <span className="inline-flex items-center gap-1">
+                                      <AlertCircle size={9} className="text-rose-400 shrink-0" />
+                                      <span>FALTA R$ {balance.toFixed(2).replace('.', ',')}</span>
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1">
+                                      <CheckCircle2 size={9} className="text-emerald-400 shrink-0" />
+                                      <span>PAGO</span>
+                                    </span>
+                                  )}
                                 </Badge>
                               </div>
                               <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
@@ -17793,9 +17885,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                   <span className="text-[9px] text-primary-400 font-mono"> • Ajustada {safeFormat(sale.updatedAt, 'dd/MM/yyyy HH:mm')}</span>
                                 )}
                               </div>
-                            </div>
-                              {/* Etiquetas de origem (Contrato/Orçamento) -- as duas podem aparecer juntas,
-                                  com quebra de linha (flex-wrap) pra nunca cortar nem esconder nada no celular. */}
+                              {/* Etiquetas de origem (Contrato/Orçamento) */}
                               {(sale.contratoId || sale.orcamentoId) && (
                                 <div className="flex flex-wrap gap-1 mt-1.5">
                                   {sale.contratoId && (
@@ -17811,15 +17901,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                     <button
                                       onClick={() => { setActiveTab('orcamentos'); setHighlightOrcamentoId(sale.orcamentoId!); setTimeout(() => setHighlightOrcamentoId(null), 4000); }}
                                       title="Ver orçamento vinculado"
-                                      className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-primary-500/20 text-primary-300 hover:bg-primary-500/30 transition-colors whitespace-nowrap"
+                                      className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30 hover:bg-purple-500/30 transition-colors whitespace-nowrap flex items-center gap-1"
                                     >
-                                      Orçamento
+                                      <FileSignature size={9} />
+                                      <span>Orçamento</span>
                                     </button>
                                   )}
                                 </div>
                               )}
                             </div>
+                          </div>
                           
+                          {/* Etapa: Produção / Entrega */}
                           <div className="flex items-center justify-between sm:justify-end gap-1.5 w-full sm:w-auto shrink-0 flex-wrap">
                             {!sale.serviceStatus ? (
                               <button
@@ -17833,7 +17926,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               </button>
                             ) : (
                               <div className="flex items-center gap-1.5">
-                                <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse shrink-0" title="Em Produção" />
+                                {sale.serviceStatus === 'produto_entregue' ? (
+                                  <Truck size={12} className="text-sky-400 shrink-0" />
+                                ) : (
+                                  <Factory size={12} className="text-amber-400 shrink-0" />
+                                )}
                                 <select
                                   value={sale.serviceStatus}
                                   onChange={(e) => {
@@ -17845,12 +17942,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                   }}
                                   onClick={(e) => e.stopPropagation()}
                                   title="Em Produção — Clique para alterar etapa ou desmarcar"
-                                  className="h-7 bg-indigo-500/20 border border-indigo-500/40 rounded-full pl-2.5 pr-2 text-[9px] font-black uppercase text-indigo-200 focus:outline-none focus:border-primary-500 cursor-pointer max-w-[150px]"
+                                  className={cn(
+                                    "h-7 rounded-full pl-2.5 pr-2 text-[9px] font-black uppercase focus:outline-none focus:border-primary-500 cursor-pointer max-w-[150px] border",
+                                    sale.serviceStatus === 'produto_entregue'
+                                      ? "bg-sky-500/20 border-sky-500/40 text-sky-200"
+                                      : "bg-amber-500/20 border-amber-500/40 text-amber-200"
+                                  )}
                                 >
                                   {STAGE_ORDER.map(id => (
                                     <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
                                   ))}
-                                  <option value="__remover__" className="bg-slate-900 text-rose-300 font-bold">❌ Desmarcar Produção</option>
+                                  <option value="__remover__" className="bg-slate-900 text-rose-300 font-bold">Desmarcar Produção</option>
                                 </select>
                                 <button
                                   type="button"
@@ -17877,7 +17979,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           </div>
                         </div>
 
-                        {/* Items Summary */}
+                        {/* Itens / Descrição */}
                         <div className="space-y-1 text-xs text-white/70 bg-white/5 p-3 rounded-xl border border-white/5">
                           {sale.items?.map((item, idx) => (
                             <div key={idx} className="flex justify-between items-center text-[11px]">
@@ -17887,7 +17989,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           ))}
                         </div>
 
-                        {/* Financial Box */}
+                        {/* Valor: Financial Box */}
                         <div className="grid grid-cols-3 gap-2 bg-slate-950/60 p-3 rounded-2xl border border-white/5 text-center">
                           <div>
                             <span className="text-[8px] font-black uppercase text-white/30 tracking-wider block">Total</span>
@@ -17905,177 +18007,73 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           </div>
                         </div>
 
-                        {/* Rentabilidade Exclusiva Admin (Caixa Hoje vs Lucro Previsto) */}
-                        {user?.isAdmin && (() => {
-                          const r = obterRentabilidadeVenda(sale);
-                          return (
-                            <div
-                              onClick={() => openCustosDaNota(sale)}
-                              className="bg-slate-950/40 hover:bg-slate-950/70 border border-emerald-500/20 hover:border-emerald-500/40 rounded-xl px-3 py-2 cursor-pointer transition-colors group flex flex-col sm:flex-row sm:items-center justify-between gap-1.5"
-                              title="Clique para abrir os Custos da Nota (mão de obra, frete, materiais e extras)"
-                            >
-                              <div className="flex items-center gap-1.5 text-white/50 text-[9px] font-bold uppercase tracking-wider">
-                                <Calculator size={12} className="text-emerald-400" />
-                                <span className="group-hover:text-emerald-300 transition-colors">Rentabilidade (Admin):</span>
-                                {r.temCustosExtras && (
-                                  <span className="text-amber-400 text-[8px] bg-amber-400/10 px-1 py-0.2 rounded font-mono">Extras</span>
-                                )}
-                              </div>
-                              {r.isParcial ? (
-                                <div className="flex items-center gap-2 sm:gap-3 text-right justify-between sm:justify-end flex-wrap text-[10px]">
-                                  <div className="flex items-baseline gap-1">
-                                    <span className="text-[8.5px] text-white/40 uppercase">Caixa Hoje:</span>
-                                    <span className={cn("font-mono font-black", r.lucroRealizadoCaixa >= 0 ? "text-emerald-400" : "text-rose-400")}>
-                                      R$ {r.lucroRealizadoCaixa.toFixed(2).replace('.', ',')}
-                                    </span>
-                                  </div>
-                                  <span className="text-white/20 hidden sm:inline">•</span>
-                                  <div className="flex items-baseline gap-1">
-                                    <span className="text-[8.5px] text-cyan-400/80 uppercase">Lucro Previsto:</span>
-                                    <strong className="font-mono font-black text-cyan-300">
-                                      R$ {r.lucroPrevisto.toFixed(2).replace('.', ',')}
-                                    </strong>
-                                    <span className="text-[8px] text-white/30 font-mono">({r.margemPrevista.toFixed(0)}%)</span>
-                                  </div>
-                                </div>
-                              ) : (
-                                <div className="flex items-baseline gap-1.5 justify-end text-[10px]">
-                                  <span className="text-[8.5px] text-white/40 uppercase">Lucro Líquido:</span>
-                                  <span className={cn("font-mono font-black", r.lucroPrevisto >= 0 ? "text-emerald-400" : "text-rose-400")}>
-                                    R$ {r.lucroPrevisto.toFixed(2).replace('.', ',')}
-                                  </span>
-                                  <span className="text-[8.5px] text-emerald-400/70 font-mono">({r.margemPrevista.toFixed(0)}% margem)</span>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })()}
+                        {/* Rentabilidade Exclusiva Admin (Custo, Lucro e Margem) */}
+                        {renderRentabilidadeAdmin(sale, 'cards')}
 
-                        {/* Actions */}
-                        <div className="pt-2.5 border-t border-white/5">
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                        {/* Ações: Visualizar, Editar, Quitar e Menu "..." */}
+                        <div className="pt-2.5 border-t border-white/5 flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-1.5 flex-1 min-w-0">
                             {isPartial && (
                               <Button
                                 size="sm"
-                                className="col-span-2 sm:col-span-1 bg-emerald-500 hover:bg-emerald-400 text-slate-900 text-[9px] font-black uppercase tracking-wider px-2.5 sm:px-3 h-8 shadow-xs flex items-center justify-center gap-1.5 cursor-pointer rounded-lg w-full transition-colors"
+                                className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 text-[9px] font-black uppercase tracking-wider px-3 h-8 shadow-xs flex items-center justify-center gap-1.5 cursor-pointer rounded-lg transition-colors shrink-0"
                                 onClick={async () => { if (!(await showConfirm('Abrir a tela de pagamento deste pedido?'))) return; openSettlePayment(sale); }}
                                 title="Quitar débito restante"
                               >
                                 <CheckCircle2 size={12} className="shrink-0" />
-                                <span className="truncate">Quitar (R$ {balance.toFixed(2).replace('.', ',')})</span>
+                                <span>Quitar</span>
                               </Button>
                             )}
                             <Button
                               variant="secondary"
                               size="sm"
-                              className="text-[9px] font-black uppercase tracking-wider px-2.5 sm:px-3 h-8 border-white/10 hover:border-white/20 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white flex items-center justify-center gap-1.5 cursor-pointer rounded-lg w-full transition-colors"
+                              className="text-[9px] font-black uppercase tracking-wider px-3 h-8 border-white/10 hover:border-white/20 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white flex items-center justify-center gap-1.5 cursor-pointer rounded-lg transition-colors"
                               onClick={async () => { if (!(await showConfirm('Abrir o recibo deste pedido?'))) return; openReceiptDetail(sale); }}
-                              title="Abrir Recibo deste pedido"
+                              title="Visualizar Recibo"
                             >
-                              <FileText size={12} className="shrink-0 text-white/60" />
-                              <span className="truncate">Recibo</span>
+                              <Eye size={12} className="shrink-0 text-white/60" />
+                              <span>Visualizar</span>
                             </Button>
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              className="text-[9px] font-black uppercase tracking-wider px-2.5 sm:px-3 h-8 border-emerald-500/20 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 flex items-center justify-center gap-1.5 cursor-pointer rounded-lg w-full transition-colors"
-                              onClick={() => openCustosDaNota(sale)}
-                              title="Ver e lançar custos de material, comissões e extras"
-                            >
-                              <Calculator size={12} className="shrink-0" />
-                              <span className="truncate">Custos</span>
-                            </Button>
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              className="text-[9px] font-black uppercase tracking-wider px-2.5 sm:px-3 h-8 border-white/10 hover:border-white/20 bg-white/5 hover:bg-white/10 text-white/70 hover:text-white flex items-center justify-center gap-1.5 cursor-pointer rounded-lg w-full transition-colors"
-                              onClick={() => handleDuplicateSale(sale)}
-                              title="Duplicar Pedido"
-                            >
-                              <Copy size={12} className="shrink-0 text-white/50" />
-                              <span className="truncate">Duplicar</span>
-                            </Button>
-                            {sale.contratoId ? (
-                              <Button
-                                variant="secondary"
-                                size="sm"
-                                className="text-[9px] font-black uppercase tracking-wider px-2.5 sm:px-3 h-8 border-purple-500/20 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 flex items-center justify-center gap-1.5 cursor-pointer rounded-lg w-full transition-colors"
-                                onClick={() => { setActiveTab('contratos'); setHighlightContratoId(sale.contratoId!); setTimeout(() => setHighlightContratoId(null), 4000); }}
-                                title="Ver Contrato vinculado"
-                              >
-                                <FileSignature size={12} className="shrink-0 text-purple-400" />
-                                <span className="truncate">Contrato</span>
-                              </Button>
-                            ) : (
-                              <Button
-                                variant="secondary"
-                                size="sm"
-                                className="text-[9px] font-black uppercase tracking-wider px-2.5 sm:px-3 h-8 border-purple-500/20 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 flex items-center justify-center gap-1.5 cursor-pointer rounded-lg w-full transition-colors"
-                                onClick={async () => { if (!(await showConfirm('Gerar um contrato a partir desta nota?'))) return; handleCreateContratoFromNota(sale); }}
-                                title="Gerar Contrato a partir desta nota"
-                              >
-                                <FileSignature size={12} className="shrink-0 text-purple-400" />
-                                <span className="truncate">Contrato</span>
-                              </Button>
-                            )}
                             {canManageHistory && (
-                              <>
-                                <Button
-                                  variant="secondary"
-                                  size="sm"
-                                  className="text-[9px] font-black uppercase tracking-wider px-2.5 sm:px-3 h-8 border-primary-500/20 bg-primary-500/10 hover:bg-primary-500/20 text-primary-400 flex items-center justify-center gap-1.5 cursor-pointer rounded-lg w-full transition-colors"
-                                  onClick={async () => { if (!(await showConfirm('Editar este pedido?'))) return; handleStartFullEdit(sale); }}
-                                  title="Editar Pedido"
-                                >
-                                  <Pencil size={12} className="shrink-0" />
-                                  <span className="truncate">Editar</span>
-                                </Button>
-                                {!isPartial && (
-                                  <Button
-                                    variant="secondary"
-                                    size="sm"
-                                    className="text-[9px] font-black uppercase tracking-wider px-2.5 sm:px-3 h-8 border-amber-500/20 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 flex items-center justify-center gap-1.5 cursor-pointer rounded-lg w-full transition-colors"
-                                    onClick={() => handleReopenSale(sale)}
-                                    title="Reabrir Pedido"
-                                  >
-                                    <History size={12} className="shrink-0" />
-                                    <span className="truncate">Reabrir</span>
-                                  </Button>
-                                )}
-                                {sale.status !== 'canceled' ? (
-                                  <Button
-                                    variant="secondary"
-                                    size="sm"
-                                    className="text-[9px] font-black uppercase tracking-wider px-2.5 sm:px-3 h-8 border-rose-500/20 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 flex items-center justify-center gap-1.5 cursor-pointer rounded-lg w-full transition-colors"
-                                    onClick={() => handleCancelSale(sale)}
-                                    title="Cancelar Pedido"
-                                  >
-                                    <Ban size={12} className="shrink-0" />
-                                    <span className="truncate">Cancelar</span>
-                                  </Button>
-                                ) : (
-                                  <div className="h-8 rounded-lg bg-rose-500/5 border border-rose-500/10 text-rose-400/50 text-[8px] font-black uppercase flex items-center justify-center gap-1 cursor-default w-full" title="Pedido Cancelado">
-                                    <Ban size={11} className="shrink-0" />
-                                    <span>Cancelado</span>
-                                  </div>
-                                )}
-                                <Button
-                                  variant="secondary"
-                                  size="sm"
-                                  className={cn(
-                                    "text-[9px] font-black uppercase tracking-wider px-2.5 sm:px-3 h-8 border-rose-500/20 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 flex items-center justify-center gap-1.5 cursor-pointer rounded-lg w-full transition-colors",
-                                    isPartial && "col-span-2 sm:col-span-1"
-                                  )}
-                                  onClick={() => handleDeleteSale(sale)}
-                                  title="Excluir Pedido"
-                                >
-                                  <Trash2 size={12} className="shrink-0" />
-                                  <span className="truncate">Excluir</span>
-                                </Button>
-                              </>
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                className="text-[9px] font-black uppercase tracking-wider px-3 h-8 border-primary-500/20 bg-primary-500/10 hover:bg-primary-500/20 text-primary-400 flex items-center justify-center gap-1.5 cursor-pointer rounded-lg transition-colors"
+                                onClick={async () => { if (!(await showConfirm('Editar este pedido?'))) return; handleStartFullEdit(sale); }}
+                                title="Editar Pedido"
+                              >
+                                <Pencil size={12} className="shrink-0" />
+                                <span>Editar</span>
+                              </Button>
                             )}
                           </div>
+                          
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              if (openSaleRowActionsId === sale.id) { setOpenSaleRowActionsId(null); return; }
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              const MENU_H_ESTIMADA = 300;
+                              const abreParaCima = rect.bottom + MENU_H_ESTIMADA > window.innerHeight;
+                              setSaleRowActionsMenuPos({
+                                top: abreParaCima ? undefined : rect.bottom + 6,
+                                bottom: abreParaCima ? window.innerHeight - rect.top + 6 : undefined,
+                                left: Math.max(8, Math.min(rect.right - 200, window.innerWidth - 208)),
+                              });
+                              setOpenSaleRowActionsId(sale.id);
+                            }}
+                            title="Mais opções (...)"
+                            className={cn(
+                              "w-8 h-8 rounded-lg border flex items-center justify-center transition-colors cursor-pointer shrink-0",
+                              openSaleRowActionsId === sale.id
+                                ? "bg-white/15 text-white border-white/20"
+                                : "bg-white/5 border-white/10 text-white/60 hover:text-white hover:bg-white/10"
+                            )}
+                          >
+                            <MoreVertical size={13} />
+                          </button>
                         </div>
+                        {renderSaleActionsPortal(sale)}
                       </GlassCard>
                     );
                   })}
@@ -19057,7 +19055,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         isOpen={isCustomerModalOpen} 
         onClose={() => { setIsCustomerModalOpen(false); setIsMoreOptionsOpen(false); setEditingCustomerId(null); setCustomerModalMode('search'); }} 
         title={customerModalMode === 'create' ? (editingCustomerId ? 'Editar Cliente' : 'Cadastrar Cliente') : 'Selecionar Cliente'}
-        size={customerModalMode === 'create' ? 'md' : 'lg'}
+        className={cn(
+          "mx-auto transition-all duration-300",
+          customerModalMode === 'create' 
+            ? "w-full max-w-[calc(100vw-24px)] sm:max-w-[480px] p-3.5 sm:p-5" 
+            : "w-full max-w-[calc(100vw-24px)] sm:max-w-[560px] p-3.5 sm:p-5"
+        )}
       >
         <div className="space-y-5">
            <div className="flex items-center justify-between gap-2">
@@ -23030,10 +23033,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
            isOpen={isPixQrModalOpen}
            onClose={() => setIsPixQrModalOpen(false)}
            title="Pagamento via PIX"
-           size="sm"
+           className="w-full max-w-[340px] sm:max-w-[370px] mx-auto p-3.5 sm:p-4"
          >
            <div className="flex flex-col items-center gap-2.5 p-1">
-             <div className="w-[280px] h-[280px] max-w-full bg-white rounded-2xl p-2.5 shadow-lg flex items-center justify-center shrink-0">
+             <div className="w-[240px] h-[240px] sm:w-[260px] sm:h-[260px] max-w-full bg-white rounded-2xl p-2 shadow-lg flex items-center justify-center shrink-0">
                <PixQrImage payload={pixPayload} className="h-full w-full object-contain" />
              </div>
 

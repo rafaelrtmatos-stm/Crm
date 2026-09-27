@@ -1862,7 +1862,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
       {/* --- MODALS --- */}
 
       {/* Customer Selection Modal */}
-      <Modal isOpen={isCustomerModalOpen} onClose={() => setIsCustomerModalOpen(false)} title="Selecionar Cliente">
+      <Modal isOpen={isCustomerModalOpen} onClose={() => setIsCustomerModalOpen(false)} title="Selecionar Cliente" className="w-full max-w-[calc(100vw-24px)] sm:max-w-[500px] mx-auto p-4">
         <div className="space-y-3">
           <Input
             placeholder="Buscar por nome ou telefone..."
@@ -2117,7 +2117,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
       </Modal>
 
       {/* Quick Product Modal */}
-      <Modal isOpen={isQuickProductModalOpen} onClose={() => setIsQuickProductModalOpen(false)} title="Cadastro Rápido de Item">
+      <Modal isOpen={isQuickProductModalOpen} onClose={() => setIsQuickProductModalOpen(false)} title="Cadastro Rápido de Item" className="w-full max-w-[calc(100vw-24px)] sm:max-w-[500px] mx-auto p-4">
         <div className="space-y-4">
           <div>
             <label className="text-[10px] font-black uppercase text-white/50 block mb-1">Nome do Produto / Insumo</label>

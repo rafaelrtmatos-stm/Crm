@@ -459,7 +459,7 @@ export const ContactsModule: React.FC<ContactsModuleProps> = ({
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         title={editingClient ? 'Editar Cliente' : 'Novo Cliente'}
-        size="lg"
+        className="w-full max-w-[calc(100vw-24px)] sm:max-w-[520px] mx-auto p-4 sm:p-6"
       >
         <form onSubmit={handleSaveClient} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
